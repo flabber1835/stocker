@@ -21,8 +21,8 @@ async def get_regime():
     async with engine.connect() as conn:
         row = await conn.execute(
             text(
-                "SELECT regime, spy_price, spy_sma_50, spy_sma_200, spy_vs_sma200, calculated_at "
-                "FROM regime_snapshots ORDER BY calculated_at DESC LIMIT 1"
+                "SELECT regime, spy_price, spy_sma_slow, spy_vs_sma, realized_vol, calculated_at "
+                "FROM regime_snapshots ORDER BY snapshot_date DESC, calculated_at DESC LIMIT 1"
             )
         )
         result = row.mappings().first()
