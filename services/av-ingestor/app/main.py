@@ -125,19 +125,29 @@ async def _run_fetch_universe():
     print(f"[fetch-universe] saved snapshot_id={snapshot_id} with {len(all_tickers)} tickers")
 
 
+BENCHMARK_TICKERS = ("SPY", "QQQ")
+
+
 async def _run_fetch_data(tickers: list[str]):
-    """Single-pass fetch: prices + fundamentals interleaved, one AVClient, one rate-limit budget."""
-    extra = [t for t in ("SPY", "QQQ") if t not in tickers]
-    all_tickers = tickers + extra
+    """Single-pass fetch: prices + fundamentals interleaved, one AVClient, one rate-limit budget.
+
+    Benchmarks (SPY, QQQ) get prices fetched but NOT fundamentals — ETF financials
+    are not used by the factor engine and would waste API calls.
+    """
+    benchmarks = [t for t in BENCHMARK_TICKERS if t not in tickers]
+    investable = tickers  # already excludes benchmarks from universe snapshot
+    all_tickers = investable + benchmarks
     today = date.today()
-    print(f"[fetch-data] starting for {len(all_tickers)} tickers (prices + fundamentals in one pass)")
+    benchmark_set = set(BENCHMARK_TICKERS)
+    print(f"[fetch-data] starting for {len(all_tickers)} tickers "
+          f"({len(investable)} investable + {len(benchmarks)} benchmarks, prices+fundamentals in one pass)")
 
     client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA)
     try:
         for i, ticker in enumerate(all_tickers):
             label = f"({i+1}/{len(all_tickers)})"
 
-            # ── prices ────────────────────────────────────────────────────────
+            # ── prices (all tickers including benchmarks) ──────────────────────
             try:
                 rows = await client.get_daily_prices(ticker)
                 if rows:
@@ -180,7 +190,9 @@ async def _run_fetch_data(tickers: list[str]):
             except Exception as e:
                 print(f"[fetch-data] {ticker} prices: error - {e}")
 
-            # ── fundamentals ──────────────────────────────────────────────────
+            # ── fundamentals (investable tickers only — skip benchmarks) ────────
+            if ticker in benchmark_set:
+                continue
             try:
                 overview = await client.get_overview(ticker)
                 if overview:

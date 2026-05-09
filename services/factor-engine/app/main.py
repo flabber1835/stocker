@@ -67,6 +67,32 @@ async def regime_current():
 async def _run_calculate(run_id: str, today: date):
     print(f"[calculate] run_id={run_id} starting")
 
+    # Record that this run has started
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO factor_runs (run_id, strategy_id, score_date, status, started_at) "
+                "VALUES (:run_id, :strategy_id, :score_date, 'running', NOW())"
+            ),
+            {"run_id": run_id, "strategy_id": strategy.strategy_id, "score_date": today},
+        )
+
+    try:
+        await _do_calculate(run_id, today)
+    except Exception as e:
+        print(f"[calculate] run_id={run_id} FAILED: {e}")
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "UPDATE factor_runs SET status='failed', error=:error, completed_at=NOW() "
+                    "WHERE run_id=:run_id"
+                ),
+                {"run_id": run_id, "error": str(e)},
+            )
+        raise
+
+
+async def _do_calculate(run_id: str, today: date):
     async with engine.connect() as conn:
         # 1. Universe tickers — exclude ETFs/benchmarks from investable set
         snap_row = await conn.execute(
@@ -99,7 +125,7 @@ async def _run_calculate(run_id: str, today: date):
         )
         spy_df = pd.DataFrame(spy_rows.fetchall(), columns=["date", "adjusted_close"])
 
-        # 3. Regime detection with confirmation
+        # 3. Regime detection — abort if insufficient history
         if len(spy_df) < strategy.regime_detection.slow_sma:
             print(f"[calculate] insufficient SPY history ({len(spy_df)} rows, need "
                   f"{strategy.regime_detection.slow_sma}) — aborting factor run")
@@ -108,7 +134,7 @@ async def _run_calculate(run_id: str, today: date):
         regime_info = detect_regime(spy_df, strategy.regime_detection)
         raw_regime = regime_info["raw_regime"]
 
-        # Read recent raw regime history for confirmation — one row per distinct date
+        # Read prior raw regime history for confirmation (distinct dates only, excluding today)
         history_rows = await conn.execute(
             text(
                 "SELECT DISTINCT ON (snapshot_date) raw_regime, regime "
@@ -137,24 +163,7 @@ async def _run_calculate(run_id: str, today: date):
                   f"SPY vs SMA: {regime_info['spy_vs_sma']:+.2%}, "
                   f"realized_vol: {regime_info['realized_vol']:.2%})")
 
-        await conn.execute(
-            text(
-                "INSERT INTO regime_snapshots "
-                "(snapshot_date, raw_regime, regime, spy_price, spy_sma_slow, spy_vs_sma, realized_vol) "
-                "VALUES (:d, :raw_regime, :regime, :spy_price, :spy_sma_slow, :spy_vs_sma, :realized_vol)"
-            ),
-            {
-                "d": today,
-                "raw_regime": raw_regime,
-                "regime": confirmed_regime,
-                "spy_price": regime_info["spy_price"],
-                "spy_sma_slow": regime_info["spy_sma_slow"],
-                "spy_vs_sma": regime_info["spy_vs_sma"],
-                "realized_vol": regime_info["realized_vol"],
-            },
-        )
-
-        # 4. Prices for universe (last 400 days)
+        # 4. Prices for universe (last 400 days) — investable tickers only
         prices_rows = await conn.execute(
             text(
                 "SELECT ticker, date, close, adjusted_close, volume FROM daily_prices "
@@ -168,7 +177,7 @@ async def _run_calculate(run_id: str, today: date):
             columns=["ticker", "date", "close", "adjusted_close", "volume"],
         )
 
-        # 5. Latest fundamentals per ticker
+        # 5. Latest fundamentals per ticker — investable tickers only
         fund_rows = await conn.execute(
             text(
                 "SELECT DISTINCT ON (ticker) ticker, pe_ratio, pb_ratio, roe, debt_to_equity, "
@@ -193,7 +202,7 @@ async def _run_calculate(run_id: str, today: date):
     # 6. Compute factors
     factors_df = compute_all_factors(prices_long=prices_df, fundamentals=fund_df)
 
-    # 7. Universe filters — read thresholds from strategy config, not hardcoded
+    # 7. Universe filters — read thresholds from strategy config
     min_price = strategy.universe.min_price
     min_dollar_vol = strategy.universe.min_avg_dollar_volume_20d
 
@@ -216,11 +225,29 @@ async def _run_calculate(run_id: str, today: date):
     ]["ticker"].tolist()
 
     factors_df = factors_df[factors_df["ticker"].isin(pass_filter)]
-    print(f"[calculate] {len(factors_df)} tickers passed universe filters "
+    ticker_count = len(factors_df)
+    print(f"[calculate] {ticker_count} tickers passed universe filters "
           f"(price>=${min_price}, avg_dv>=${min_dollar_vol/1e6:.0f}M)")
 
-    # 8. Save factor scores
+    # 8. Save regime snapshot + factor scores in one transaction (only on success)
     async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO regime_snapshots "
+                "(snapshot_date, raw_regime, regime, spy_price, spy_sma_slow, spy_vs_sma, realized_vol) "
+                "VALUES (:d, :raw_regime, :regime, :spy_price, :spy_sma_slow, :spy_vs_sma, :realized_vol)"
+            ),
+            {
+                "d": today,
+                "raw_regime": raw_regime,
+                "regime": confirmed_regime,
+                "spy_price": regime_info["spy_price"],
+                "spy_sma_slow": regime_info["spy_sma_slow"],
+                "spy_vs_sma": regime_info["spy_vs_sma"],
+                "realized_vol": regime_info["realized_vol"],
+            },
+        )
+
         for _, row in factors_df.iterrows():
             def _val(v):
                 return None if pd.isna(v) else float(v)
@@ -246,7 +273,16 @@ async def _run_calculate(run_id: str, today: date):
                 },
             )
 
-    print(f"[calculate] saved {len(factors_df)} factor score rows for run_id={run_id}")
+        await conn.execute(
+            text(
+                "UPDATE factor_runs SET status='success', raw_regime=:raw_regime, regime=:regime, "
+                "ticker_count=:ticker_count, completed_at=NOW() WHERE run_id=:run_id"
+            ),
+            {"run_id": run_id, "raw_regime": raw_regime, "regime": confirmed_regime,
+             "ticker_count": ticker_count},
+        )
+
+    print(f"[calculate] saved {ticker_count} factor score rows for run_id={run_id}")
 
 
 @app.post("/jobs/calculate")
