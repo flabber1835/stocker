@@ -66,7 +66,14 @@ async def download_iwv_holdings(session: httpx.AsyncClient) -> list[dict]:
     if header_idx is None:
         raise ValueError("Could not locate header row in IWV holdings CSV")
 
-    df = pd.read_csv(io.StringIO(response.text), skiprows=header_idx, header=0, dtype=str)
+    # on_bad_lines='skip' drops footer/disclaimer rows that have fewer columns than the header
+    df = pd.read_csv(
+        io.StringIO(response.text),
+        skiprows=header_idx,
+        header=0,
+        dtype=str,
+        on_bad_lines="skip",
+    )
     df.columns = [c.strip() for c in df.columns]
 
     ticker_col = _find_column(df, ["Ticker", "TICKER", "Symbol"])
