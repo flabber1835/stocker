@@ -164,6 +164,41 @@ Requirement: all HTTP calls on this path must have explicit timeouts. If risk-se
 
 If intraday latency requirements tighten after observing real paper trading, the real-time path may be migrated to Redis Streams. Only the intraday-monitor producer and risk-service consumer need to change. This decision should be deferred until Phase 6 data is available.
 
+## Regime Detection
+
+### Design Decision: 4-bucket regime using trend × volatility
+
+Market regime is classified on two independent dimensions:
+
+```text
+Trend:      SPY price vs its configurable slow SMA (default 200-day)
+Volatility: SPY 20-day annualized realized vol vs a threshold (default 20%)
+```
+
+This produces four regimes:
+
+```text
+bull_calm   — SPY above SMA, vol below threshold — ride winners (momentum-heavy)
+bull_stress — SPY above SMA, vol above threshold — choppy bull (rotate to quality)
+bear_stress — SPY below SMA, vol above threshold — crisis mode (max defense)
+bear_calm   — SPY below SMA, vol below threshold — orderly bear (value works)
+```
+
+Why 4 instead of 3: three buckets only capture trend. Volatility is an independent
+dimension that materially changes which factors perform best. A volatile bull market
+calls for very different weights than a calm one.
+
+Why not more: five or six buckets add marginal signal at the cost of sparse data in
+each bucket and harder LLM config generation. Four covers the most important cases.
+
+Vol proxy: SPY 20-day realized vol (std of daily log returns × √252) is calculated
+from prices already in Postgres. No VIX subscription is needed.
+
+The SMA period, vol window, vol threshold, regime names, and conditions are all
+defined in the strategy YAML under `regime_detection`. The factor-engine reads this
+config at startup. The factor weights in `factor_weights` use the same regime names
+as keys. Adding a fifth regime requires only a YAML change — no code change.
+
 ## State Rule
 
 App services should be stateless. Durable state belongs in Postgres, Redis, and versioned files.

@@ -93,7 +93,11 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://stocker:stocker@postgres:5432/stocker
       REDIS_URL: redis://redis:6379
+      STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
+      PYTHONUNBUFFERED: "1"
       LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./strategies:/strategies:ro
     depends_on:
       postgres:
         condition: service_healthy

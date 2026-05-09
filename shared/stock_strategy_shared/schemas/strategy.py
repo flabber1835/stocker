@@ -1,5 +1,4 @@
 from __future__ import annotations
-from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -22,14 +21,39 @@ class FactorWeights(BaseModel):
         return self
 
 
-class RegimeWeights(BaseModel):
-    bull: FactorWeights
-    bear: FactorWeights
-    neutral: FactorWeights
+class RegimeCondition(BaseModel):
+    """Conditions that define when a regime is active."""
+    spy_above_slow_sma: bool
+    vol_above_threshold: bool
+
+
+class RegimeDetectionConfig(BaseModel):
+    """How to detect the current market regime from SPY data.
+
+    Regime is determined by two independent dimensions:
+      - Trend:      is SPY above or below its slow SMA?
+      - Volatility: is SPY 20-day realized vol above the threshold?
+
+    The regimes dict maps a name to a (trend, vol) condition pair.
+    The factor_weights dict in StrategyConfig uses the same names as keys.
+    """
+    slow_sma: int = Field(default=200, ge=20, le=500)
+    vol_window: int = Field(default=20, ge=5, le=63)
+    vol_threshold: float = Field(default=0.20, gt=0, lt=1)  # annualized
+    regimes: dict[str, RegimeCondition]
+
+    @model_validator(mode="after")
+    def regimes_cover_all_combinations(self) -> RegimeDetectionConfig:
+        conditions = {(r.spy_above_slow_sma, r.vol_above_threshold) for r in self.regimes.values()}
+        required = {(True, False), (True, True), (False, True), (False, False)}
+        missing = required - conditions
+        if missing:
+            raise ValueError(f"regime_detection.regimes is missing conditions: {missing}")
+        return self
 
 
 class UniverseConfig(BaseModel):
-    source: Literal["etf_holdings"] = "etf_holdings"
+    source: str = "etf_holdings"
     etf_ticker: str = "IWV"
     min_price: float = 5.0
     min_avg_dollar_volume_20d: float = 20_000_000
@@ -39,6 +63,16 @@ class StrategyConfig(BaseModel):
     strategy_id: str
     description: str = ""
     universe: UniverseConfig = UniverseConfig()
-    factor_weights: RegimeWeights
+    regime_detection: RegimeDetectionConfig
+    factor_weights: dict[str, FactorWeights]  # keyed by regime name
     max_positions: int = Field(default=30, ge=1, le=500)
     min_score_percentile: float = Field(default=0.0, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def weights_match_regimes(self) -> StrategyConfig:
+        regime_names = set(self.regime_detection.regimes.keys())
+        weight_names = set(self.factor_weights.keys())
+        missing = regime_names - weight_names
+        if missing:
+            raise ValueError(f"factor_weights missing entries for regimes: {missing}")
+        return self
