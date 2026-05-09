@@ -45,6 +45,34 @@ def test_zscore_zero_std():
     assert (z == 0.0).all()
 
 
+def test_zscore_preserves_nan():
+    s = pd.Series([1.0, float("nan"), 3.0, float("nan")])
+    z = cross_section_zscore(s)
+    assert pd.isna(z.iloc[1])
+    assert pd.isna(z.iloc[3])
+    assert pd.notna(z.iloc[0])
+    assert pd.notna(z.iloc[2])
+
+
+def test_zscore_all_nan():
+    s = pd.Series([float("nan"), float("nan")])
+    z = cross_section_zscore(s)
+    assert z.isna().all()
+
+
+def test_low_volatility_handles_sparse_tickers():
+    # One ticker has full data, one has many NaNs — sparse ticker should not distort dense one
+    rng = np.random.default_rng(42)
+    dates = pd.date_range("2020-01-01", periods=300, freq="B")
+    full = 100 * np.cumprod(1 + rng.normal(0, 0.01, 300))
+    sparse = full.copy().astype(float)
+    sparse[50:250] = float("nan")  # large gap
+    pivot = pd.DataFrame({"FULL": full, "SPARSE": sparse}, index=dates)
+    result = compute_low_volatility(pivot)
+    # FULL ticker should have a valid score regardless of SPARSE's gaps
+    assert pd.notna(result["FULL"])
+
+
 def test_compute_momentum_needs_253_rows():
     pivot = _pivot(["A"], n=200)
     result = compute_momentum(pivot)

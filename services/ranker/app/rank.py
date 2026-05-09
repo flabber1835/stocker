@@ -31,7 +31,10 @@ def rank_universe(
 
     df["composite_score"] = df.apply(compute_score, axis=1)
 
-    df_ranked = df.sort_values("composite_score", ascending=False, na_position="last").reset_index(drop=True)
+    # Only rank tickers with a valid composite score; drop unrankable rows entirely
+    df_ranked = df[df["composite_score"].notna()].sort_values(
+        "composite_score", ascending=False
+    ).reset_index(drop=True)
     df_ranked["rank"] = range(1, len(df_ranked) + 1)
 
     total = len(df_ranked)

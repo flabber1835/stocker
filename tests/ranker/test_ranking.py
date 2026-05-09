@@ -64,14 +64,14 @@ def test_rank_applies_regime_weights():
 
 
 def test_min_non_null_factors_excludes_sparse_tickers():
-    # Ticker with only 2 non-null factors (below min of 3) should get NaN composite
+    # Ticker with only 2 non-null factors (below min of 3) should be dropped entirely
     df = _scores(
         FULL={"momentum": 1.0, "quality": 1.0, "value": 1.0, "growth": 1.0, "low_volatility": 1.0},
         SPARSE={"momentum": 1.0, "quality": 1.0},  # only 2 factors
     )
     result = rank_universe(df, "bull_calm", VALID_CONFIG)
-    sparse_row = result[result["ticker"] == "SPARSE"]
-    assert pd.isna(sparse_row["composite_score"].iloc[0])
+    assert "SPARSE" not in result["ticker"].values
+    assert "FULL" in result["ticker"].values
 
 
 def test_percentile_range():
@@ -81,5 +81,30 @@ def test_percentile_range():
         C={"momentum": -2.0, "quality": -1.0, "value": -0.5, "growth": -0.5, "low_volatility": -0.5},
     )
     result = rank_universe(df, "bull_calm", VALID_CONFIG)
+    assert result["percentile"].max() == pytest.approx(1.0)
+    assert result["percentile"].min() == pytest.approx(0.0)
+
+
+def test_unrankable_tickers_excluded_from_output():
+    # Ticker with too few factors should be dropped entirely, not appear at the bottom
+    df = _scores(
+        FULL={"momentum": 1.0, "quality": 1.0, "value": 1.0, "growth": 1.0, "low_volatility": 1.0},
+        SPARSE={"momentum": 1.0, "quality": 1.0},  # only 2 factors, below min of 3
+    )
+    result = rank_universe(df, "bull_calm", VALID_CONFIG)
+    assert "SPARSE" not in result["ticker"].values
+    assert "FULL" in result["ticker"].values
+    assert result["composite_score"].notna().all()
+
+
+def test_percentile_excludes_unrankable():
+    # Percentile should be computed only over rankable tickers
+    df = _scores(
+        A={"momentum": 2.0, "quality": 1.0, "value": 1.0, "growth": 1.0, "low_volatility": 1.0},
+        B={"momentum": -2.0, "quality": -1.0, "value": -1.0, "growth": -1.0, "low_volatility": -1.0},
+        SPARSE={"momentum": 0.5},  # unrankable
+    )
+    result = rank_universe(df, "bull_calm", VALID_CONFIG)
+    assert len(result) == 2
     assert result["percentile"].max() == pytest.approx(1.0)
     assert result["percentile"].min() == pytest.approx(0.0)

@@ -108,14 +108,16 @@ async def _run_calculate(run_id: str, today: date):
         regime_info = detect_regime(spy_df, strategy.regime_detection)
         raw_regime = regime_info["raw_regime"]
 
-        # Read recent raw regime history for confirmation check
+        # Read recent raw regime history for confirmation — one row per distinct date
         history_rows = await conn.execute(
             text(
-                "SELECT raw_regime, regime FROM regime_snapshots "
+                "SELECT DISTINCT ON (snapshot_date) raw_regime, regime "
+                "FROM regime_snapshots "
+                "WHERE snapshot_date < :today "
                 "ORDER BY snapshot_date DESC, calculated_at DESC "
                 "LIMIT :n"
             ),
-            {"n": strategy.regime_detection.confirmation_days},
+            {"n": strategy.regime_detection.confirmation_days, "today": today},
         )
         history = history_rows.fetchall()
         prior_raw_regimes = [r[0] for r in history]
