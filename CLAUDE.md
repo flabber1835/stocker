@@ -97,6 +97,14 @@ Do not assume perfect point-in-time fundamentals.
 Do not use Alpha Vantage for intraday trading decisions if Alpaca data is available.
 ```
 
+Universe construction: the equity universe is built from ETF holdings, not from Alpha Vantage.
+
+```text
+Use IWV (iShares Russell 3000 ETF) or VTHR (Vanguard Russell 3000 ETF) daily holdings files.
+Download the holdings CSV, extract tickers, store in Postgres as the active universe snapshot.
+See docs/data-sources.md for full details.
+```
+
 ### Alpaca API
 
 Used for:
