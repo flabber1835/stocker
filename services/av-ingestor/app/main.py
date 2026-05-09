@@ -154,7 +154,7 @@ async def _run_fetch_prices(tickers: list[str]):
                             [
                                 {
                                     "ticker": ticker,
-                                    "date": r["date"],
+                                    "date": date.fromisoformat(r["date"]),
                                     "open": r["open"],
                                     "high": r["high"],
                                     "low": r["low"],
