@@ -8,7 +8,7 @@ class FactorWeights(BaseModel):
     value: float = Field(ge=0, le=1)
     growth: float = Field(ge=0, le=1)
     low_volatility: float = Field(ge=0, le=1)
-    liquidity: float = Field(ge=0, le=1)
+    liquidity: float = Field(default=0.0, ge=0, le=1)  # optional, default 0
 
     @model_validator(mode="after")
     def weights_sum_to_one(self) -> FactorWeights:
@@ -34,12 +34,17 @@ class RegimeDetectionConfig(BaseModel):
       - Trend:      is SPY above or below its slow SMA?
       - Volatility: is SPY 20-day realized vol above the threshold?
 
+    confirmation_days: both signals must have been consistent for this many
+    consecutive trading days before a regime switch is accepted. Prevents
+    flipping regimes on a single bad or noisy day.
+
     The regimes dict maps a name to a (trend, vol) condition pair.
     The factor_weights dict in StrategyConfig uses the same names as keys.
     """
     slow_sma: int = Field(default=200, ge=20, le=500)
     vol_window: int = Field(default=20, ge=5, le=63)
     vol_threshold: float = Field(default=0.20, gt=0, lt=1)  # annualized
+    confirmation_days: int = Field(default=5, ge=1, le=21)
     regimes: dict[str, RegimeCondition]
 
     @model_validator(mode="after")
