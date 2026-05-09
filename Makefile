@@ -1,4 +1,4 @@
-.PHONY: up down logs build test shell-api shell-db \
+.PHONY: up down logs build test integration-test shell-api shell-db \
         universe data prices fundamentals factors rank pipeline
 
 # ── Compose lifecycle ─────────────────────────────────────────────────────────
@@ -35,11 +35,16 @@ shell-ranker:
 	docker compose exec ranker bash
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
-# Runs without Docker. Installs shared package + test dependencies into a local venv if needed.
+# Unit tests: runs without Docker.
 
 test:
 	pip install --quiet -e shared pytest pandas numpy pydantic pyyaml
 	pytest tests/ -v
+
+# Integration test: spins up Docker Compose with MOCK_DATA=true, runs full pipeline,
+# verifies results, then tears down. Requires Docker.
+integration-test:
+	bash scripts/integration_test.sh
 
 # ── Pipeline steps (run in order) ─────────────────────────────────────────────
 

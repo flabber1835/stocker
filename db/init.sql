@@ -80,6 +80,26 @@ CREATE TABLE IF NOT EXISTS regime_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_regime_date ON regime_snapshots(snapshot_date DESC);
 
+-- ── Factor runs ───────────────────────────────────────────────────────────────
+-- One row per factor calculation run. Regime snapshot and factor scores are
+-- written only when status = 'success'. Ranker uses only successful runs.
+
+CREATE TABLE IF NOT EXISTS factor_runs (
+    run_id          UUID         PRIMARY KEY,
+    strategy_id     VARCHAR(100) NOT NULL,
+    score_date      DATE         NOT NULL,
+    raw_regime      VARCHAR(30),
+    regime          VARCHAR(30),
+    status          VARCHAR(20)  NOT NULL DEFAULT 'running',  -- running|success|failed
+    ticker_count    INTEGER,
+    error           TEXT,
+    started_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    completed_at    TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_factor_runs_date   ON factor_runs(score_date DESC);
+CREATE INDEX IF NOT EXISTS idx_factor_runs_status ON factor_runs(status, score_date DESC);
+
 -- ── Factor scores ─────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS factor_scores (

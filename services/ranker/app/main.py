@@ -40,8 +40,10 @@ async def _run_rank_job() -> None:
     async with engine.begin() as conn:
         row = await conn.execute(
             text(
-                "SELECT run_id, regime FROM factor_scores "
-                "ORDER BY calculated_at DESC LIMIT 1"
+                "SELECT fs.run_id, fs.regime FROM factor_scores fs "
+                "JOIN factor_runs fr ON fr.run_id = fs.run_id "
+                "WHERE fr.status = 'success' "
+                "ORDER BY fr.completed_at DESC LIMIT 1"
             )
         )
         latest = row.fetchone()
@@ -130,7 +132,11 @@ async def _run_rank_job() -> None:
 async def start_rank_job(background_tasks: BackgroundTasks):
     async with engine.begin() as conn:
         row = await conn.execute(
-            text("SELECT regime FROM factor_scores ORDER BY calculated_at DESC LIMIT 1")
+            text(
+                "SELECT fr.regime FROM factor_runs fr "
+                "WHERE fr.status = 'success' "
+                "ORDER BY fr.completed_at DESC LIMIT 1"
+            )
         )
         latest = row.fetchone()
 
