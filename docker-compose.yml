@@ -1,0 +1,253 @@
+services:
+
+  # ── Infrastructure ────────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: stocker
+      POSTGRES_PASSWORD: stocker
+      POSTGRES_DB: stocker
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stocker"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── Working services ──────────────────────────────────────────────────────────
+
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://stocker:stocker@postgres:5432/stocker
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  av-ingestor:
+    build:
+      context: .
+      dockerfile: services/av-ingestor/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://stocker:stocker@postgres:5432/stocker
+      REDIS_URL: redis://redis:6379
+      AV_API_KEY: ${AV_API_KEY:-demo}
+      AV_RATE_LIMIT_RPM: ${AV_RATE_LIMIT_RPM:-75}
+      MOCK_DATA: ${MOCK_DATA:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  factor-engine:
+    build:
+      context: .
+      dockerfile: services/factor-engine/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8002:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://stocker:stocker@postgres:5432/stocker
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ranker:
+    build:
+      context: .
+      dockerfile: services/ranker/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8003:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://stocker:stocker@postgres:5432/stocker
+      REDIS_URL: redis://redis:6379
+      STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./strategies:/strategies:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Stubbed services (filled in later) ────────────────────────────────────────
+  # Each stub serves GET /health → {"status":"ok","service":"<name>"}
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: services/stub/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8004:8000"
+    environment:
+      SERVICE_NAME: dashboard
+
+  strategy-validator:
+    build:
+      context: .
+      dockerfile: services/stub/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8005:8000"
+    environment:
+      SERVICE_NAME: strategy-validator
+
+  strategy-config-service:
+    build:
+      context: .
+      dockerfile: services/stub/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8006:8000"
+    environment:
+      SERVICE_NAME: strategy-config-service
+
+  llm-gateway:
+    build:
+      context: .
+      dockerfile: services/stub/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8007:8000"
+    environment:
+      SERVICE_NAME: llm-gateway
+
+  portfolio-builder:
+    build:
+      context: .
+      dockerfile: services/stub/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8008:8000"
+    environment:
+      SERVICE_NAME: portfolio-builder
+
+  alpaca-sync:
+    build:
+      context: .
+      dockerfile: services/stub/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8009:8000"
+    environment:
+      SERVICE_NAME: alpaca-sync
+
+  intraday-monitor:
+    build:
+      context: .
+      dockerfile: services/stub/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8010:8000"
+    environment:
+      SERVICE_NAME: intraday-monitor
+
+  risk-service:
+    build:
+      context: .
+      dockerfile: services/stub/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8011:8000"
+    environment:
+      SERVICE_NAME: risk-service
+
+  trade-executor:
+    build:
+      context: .
+      dockerfile: services/stub/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8012:8000"
+    environment:
+      SERVICE_NAME: trade-executor
+
+  backtester:
+    build:
+      context: .
+      dockerfile: services/stub/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8013:8000"
+    environment:
+      SERVICE_NAME: backtester
+
+  evaluator:
+    build:
+      context: .
+      dockerfile: services/stub/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8014:8000"
+    environment:
+      SERVICE_NAME: evaluator
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: services/stub/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8015:8000"
+    environment:
+      SERVICE_NAME: scheduler
+
+volumes:
+  postgres_data:
+  redis_data:

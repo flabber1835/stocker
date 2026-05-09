@@ -1,0 +1,71 @@
+.PHONY: up down logs build test shell-api shell-db \
+        universe prices fundamentals factors rank pipeline
+
+# ── Compose lifecycle ─────────────────────────────────────────────────────────
+
+up:
+	docker compose up -d
+
+down:
+	docker compose down
+
+build:
+	docker compose build
+
+logs:
+	docker compose logs -f
+
+# ── Database ──────────────────────────────────────────────────────────────────
+
+shell-db:
+	docker compose exec postgres psql -U stocker -d stocker
+
+# ── Service shells ────────────────────────────────────────────────────────────
+
+shell-api:
+	docker compose exec api bash
+
+shell-ingestor:
+	docker compose exec av-ingestor bash
+
+shell-factors:
+	docker compose exec factor-engine bash
+
+shell-ranker:
+	docker compose exec ranker bash
+
+# ── Tests ─────────────────────────────────────────────────────────────────────
+
+test:
+	docker compose run --rm api pytest tests/ -v
+
+# ── Pipeline steps (run in order) ─────────────────────────────────────────────
+# Each step calls the relevant service via HTTP.
+
+universe:
+	@echo "Downloading Russell 3000 universe from IWV ETF holdings..."
+	curl -sf -X POST http://localhost:8001/jobs/fetch-universe | python3 -m json.tool
+
+prices:
+	@echo "Fetching prices for universe from Alpha Vantage..."
+	curl -sf -X POST http://localhost:8001/jobs/fetch-prices | python3 -m json.tool
+
+fundamentals:
+	@echo "Fetching fundamentals for universe from Alpha Vantage..."
+	curl -sf -X POST http://localhost:8001/jobs/fetch-fundamentals | python3 -m json.tool
+
+factors:
+	@echo "Calculating factor scores and detecting market regime..."
+	curl -sf -X POST http://localhost:8002/jobs/calculate | python3 -m json.tool
+
+rank:
+	@echo "Ranking universe by regime-weighted factor scores..."
+	curl -sf -X POST http://localhost:8003/jobs/rank | python3 -m json.tool
+
+# Run the full pipeline end-to-end
+pipeline: universe prices fundamentals factors rank
+	@echo ""
+	@echo "Pipeline complete. View results:"
+	@echo "  Rankings:  http://localhost:8000/rankings"
+	@echo "  Regime:    http://localhost:8000/regime"
+	@echo "  Universe:  http://localhost:8000/universe"

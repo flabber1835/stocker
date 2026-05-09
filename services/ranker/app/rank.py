@@ -1,0 +1,42 @@
+import yaml
+import pandas as pd
+from stock_strategy_shared.schemas.strategy import StrategyConfig
+
+FACTORS = ["momentum", "quality", "value", "growth", "low_volatility", "liquidity"]
+
+
+def load_strategy(path: str) -> StrategyConfig:
+    with open(path) as f:
+        data = yaml.safe_load(f)
+    return StrategyConfig(**data)
+
+
+def rank_universe(
+    factor_scores: pd.DataFrame,
+    regime: str,
+    strategy: StrategyConfig,
+) -> pd.DataFrame:
+    regime_weights: dict[str, float] = getattr(strategy.factor_weights, regime).model_dump()
+
+    df = factor_scores.copy()
+
+    def compute_score(row: pd.Series) -> float:
+        available = {f: regime_weights[f] for f in FACTORS if pd.notna(row.get(f))}
+        if not available:
+            return float("nan")
+        weight_sum = sum(available.values())
+        return sum((w / weight_sum) * row[f] for f, w in available.items())
+
+    df["composite_score"] = df.apply(compute_score, axis=1)
+
+    df_ranked = df.sort_values("composite_score", ascending=False, na_position="last").reset_index(drop=True)
+    df_ranked["rank"] = range(1, len(df_ranked) + 1)
+
+    total = len(df_ranked)
+    if total > 1:
+        df_ranked["percentile"] = 1.0 - (df_ranked["rank"] - 1) / (total - 1)
+    else:
+        df_ranked["percentile"] = 1.0
+
+    cols = ["ticker", "rank", "composite_score", "percentile"] + FACTORS
+    return df_ranked[[c for c in cols if c in df_ranked.columns]]
