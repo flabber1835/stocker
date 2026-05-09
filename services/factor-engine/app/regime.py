@@ -1,4 +1,5 @@
 import math
+import numpy as np
 import pandas as pd
 from stock_strategy_shared.schemas.strategy import RegimeDetectionConfig
 
@@ -34,7 +35,7 @@ def detect_regime(spy_prices: pd.DataFrame, config: RegimeDetectionConfig) -> di
 
     # Current realized vol (annualized)
     window = min(config.vol_window + 1, len(adj))
-    log_returns = adj.iloc[-window:].apply(math.log).diff().dropna()
+    log_returns = np.log(adj.iloc[-window:]).diff().dropna()
     realized_vol = float(log_returns.std() * math.sqrt(252)) if len(log_returns) > 1 else 0.0
 
     # Confirmation: check the last confirmation_days days for signal consistency
@@ -50,7 +51,7 @@ def detect_regime(spy_prices: pd.DataFrame, config: RegimeDetectionConfig) -> di
         trend_signals.append(bool(day_price > day_sma))
 
         vol_window_slice = min(config.vol_window + 1, len(day_adj))
-        day_log_ret = day_adj.iloc[-vol_window_slice:].apply(math.log).diff().dropna()
+        day_log_ret = np.log(day_adj.iloc[-vol_window_slice:]).diff().dropna()
         day_vol = float(day_log_ret.std() * math.sqrt(252)) if len(day_log_ret) > 1 else 0.0
         vol_signals.append(day_vol > config.vol_threshold)
 
