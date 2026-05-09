@@ -28,12 +28,13 @@ audit logs
 Temporary coordination layer:
 
 ```text
-job queue
 locks
 short-lived cache
 rate-limit counters
 intraday temporary state
 ```
+
+Redis does not own the job queue. Batch job scheduling uses the Postgres `jobs` table instead.
 
 Redis should be treated as rebuildable.
 

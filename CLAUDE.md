@@ -22,6 +22,14 @@ Prompt
 
 This is a **prompt-driven strategy factory**, not an autonomous LLM trader.
 
+## Most Important Process Rule
+
+Whenever a design decision is made, it must be documented in the design docs before implementation begins.
+
+This applies to: architecture choices, communication patterns, data ownership, safety rules, service boundaries, sequencing decisions, and any explicit choice between two or more reasonable options.
+
+The docs are the source of truth for intent. If code diverges from the docs, update the docs or the code — not just a comment.
+
 ## Most Important Architecture Rule
 
 ```text
