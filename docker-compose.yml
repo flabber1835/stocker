@@ -71,6 +71,7 @@ services:
       AV_RATE_LIMIT_RPM: ${AV_RATE_LIMIT_RPM:-75}
       MOCK_DATA: ${MOCK_DATA:-false}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      PYTHONUNBUFFERED: "1"
     depends_on:
       postgres:
         condition: service_healthy
