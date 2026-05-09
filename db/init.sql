@@ -69,11 +69,11 @@ CREATE INDEX IF NOT EXISTS idx_fundamentals_ticker ON fundamentals(ticker, as_of
 CREATE TABLE IF NOT EXISTS regime_snapshots (
     id              SERIAL PRIMARY KEY,
     snapshot_date   DATE         NOT NULL,
-    regime          VARCHAR(20)  NOT NULL,  -- bull | bear | neutral
+    regime          VARCHAR(30)  NOT NULL,  -- e.g. bull_calm | bull_stress | bear_stress | bear_calm
     spy_price       NUMERIC(10,4),
-    spy_sma_50      NUMERIC(10,4),
-    spy_sma_200     NUMERIC(10,4),
-    spy_vs_sma200   NUMERIC(10,6),          -- (price/sma200) - 1
+    spy_sma_slow    NUMERIC(10,4),          -- configurable slow SMA (default 200-day)
+    spy_vs_sma       NUMERIC(10,6),         -- (price/sma_slow) - 1
+    realized_vol    NUMERIC(10,6),          -- annualized 20-day realized vol used for regime
     calculated_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
