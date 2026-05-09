@@ -139,6 +139,7 @@ def compute_all_factors(
     prices_long["date"] = pd.to_datetime(prices_long["date"])
     prices_long = prices_long.sort_values(["ticker", "date"])
 
+    prices_long["adjusted_close"] = prices_long["adjusted_close"].astype(float)
     pivot = prices_long.pivot_table(index="date", columns="ticker", values="adjusted_close")
     pivot = pivot.sort_index()
 
