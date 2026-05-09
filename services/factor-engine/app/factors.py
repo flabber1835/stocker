@@ -3,11 +3,16 @@ import pandas as pd
 
 
 def cross_section_zscore(series: pd.Series) -> pd.Series:
-    mean = series.mean()
-    std = series.std()
+    valid = series.dropna()
+    result = pd.Series(float("nan"), index=series.index)
+    if valid.empty:
+        return result
+    std = valid.std()
     if std == 0 or pd.isna(std):
-        return pd.Series(0.0, index=series.index)
-    return ((series - mean) / std).clip(-3, 3)
+        result.loc[valid.index] = 0.0
+        return result
+    result.loc[valid.index] = ((valid - valid.mean()) / std).clip(-3, 3)
+    return result
 
 
 def compute_momentum(prices: pd.DataFrame) -> pd.Series:
@@ -27,8 +32,8 @@ def compute_low_volatility(prices: pd.DataFrame) -> pd.Series:
         return pd.Series(dtype=float)
 
     window = prices.iloc[-252:] if len(prices) >= 252 else prices
-    log_returns = np.log(window / window.shift(1)).dropna()
-    vol = log_returns.std() * np.sqrt(252)
+    log_returns = np.log(window / window.shift(1))
+    vol = log_returns.std(skipna=True) * np.sqrt(252)  # per-ticker std, ignores missing days
     score = -vol
     score.name = "low_volatility"
     return score
