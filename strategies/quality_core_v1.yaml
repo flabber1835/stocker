@@ -71,3 +71,4 @@ factor_weights:
 
 max_positions: 30
 min_score_percentile: 0.0
+min_non_null_factors: 3   # ticker must have at least 3 non-null factor scores to be ranked

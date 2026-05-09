@@ -35,9 +35,11 @@ shell-ranker:
 	docker compose exec ranker bash
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
+# Runs without Docker. Installs shared package + test dependencies into a local venv if needed.
 
 test:
-	docker compose run --rm api pytest tests/ -v
+	pip install --quiet -e shared pytest pandas numpy pydantic pyyaml
+	pytest tests/ -v
 
 # ── Pipeline steps (run in order) ─────────────────────────────────────────────
 

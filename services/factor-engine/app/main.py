@@ -10,7 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.factors import compute_all_factors
-from app.regime import detect_regime
+from app.regime import detect_regime, resolve_confirmed_regime
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 DATABASE_URL = os.environ["DATABASE_URL"]
@@ -29,7 +29,8 @@ async def lifespan(app: FastAPI):
     print(f"[factor-engine] loaded strategy: {strategy.strategy_id}")
     print(f"[factor-engine] regime detection: slow_sma={strategy.regime_detection.slow_sma}, "
           f"vol_window={strategy.regime_detection.vol_window}, "
-          f"vol_threshold={strategy.regime_detection.vol_threshold}")
+          f"vol_threshold={strategy.regime_detection.vol_threshold}, "
+          f"confirmation_days={strategy.regime_detection.confirmation_days}")
     yield
     await engine.dispose()
 
@@ -52,7 +53,7 @@ async def regime_current():
     async with engine.connect() as conn:
         row = await conn.execute(
             text(
-                "SELECT snapshot_date, regime, spy_price, spy_sma_slow, spy_vs_sma, "
+                "SELECT snapshot_date, raw_regime, regime, spy_price, spy_sma_slow, spy_vs_sma, "
                 "realized_vol, calculated_at "
                 "FROM regime_snapshots ORDER BY snapshot_date DESC, calculated_at DESC LIMIT 1"
             )
@@ -67,7 +68,7 @@ async def _run_calculate(run_id: str, today: date):
     print(f"[calculate] run_id={run_id} starting")
 
     async with engine.connect() as conn:
-        # 1. Universe tickers from latest snapshot
+        # 1. Universe tickers — exclude ETFs/benchmarks from investable set
         snap_row = await conn.execute(
             text("SELECT id FROM universe_snapshots ORDER BY snapshot_date DESC, fetched_at DESC LIMIT 1")
         )
@@ -78,15 +79,19 @@ async def _run_calculate(run_id: str, today: date):
 
         snapshot_id = snap[0]
         ticker_rows = await conn.execute(
-            text("SELECT ticker FROM universe_tickers WHERE snapshot_id = :sid"),
+            text(
+                "SELECT ticker FROM universe_tickers "
+                "WHERE snapshot_id = :sid "
+                "AND COALESCE(asset_class, '') NOT ILIKE '%ETF%'"
+            ),
             {"sid": snapshot_id},
         )
         universe_tickers = [r[0] for r in ticker_rows.fetchall()]
         if not universe_tickers:
-            print("[calculate] universe snapshot is empty")
+            print("[calculate] universe snapshot is empty after ETF exclusion")
             return
 
-        print(f"[calculate] universe: {len(universe_tickers)} tickers")
+        print(f"[calculate] universe: {len(universe_tickers)} tickers (ETFs excluded)")
 
         # 2. SPY prices for regime detection
         spy_rows = await conn.execute(
@@ -94,30 +99,58 @@ async def _run_calculate(run_id: str, today: date):
         )
         spy_df = pd.DataFrame(spy_rows.fetchall(), columns=["date", "adjusted_close"])
 
-        # 3. Regime detection
-        if len(spy_df) >= strategy.regime_detection.slow_sma:
-            regime_info = detect_regime(spy_df, strategy.regime_detection)
-            await conn.execute(
-                text(
-                    "INSERT INTO regime_snapshots "
-                    "(snapshot_date, regime, spy_price, spy_sma_slow, spy_vs_sma, realized_vol) "
-                    "VALUES (:d, :regime, :spy_price, :spy_sma_slow, :spy_vs_sma, :realized_vol)"
-                ),
-                {
-                    "d": today,
-                    "regime": regime_info["regime"],
-                    "spy_price": regime_info["spy_price"],
-                    "spy_sma_slow": regime_info["spy_sma_slow"],
-                    "spy_vs_sma": regime_info["spy_vs_sma"],
-                    "realized_vol": regime_info["realized_vol"],
-                },
-            )
-            regime = regime_info["regime"]
-            print(f"[calculate] regime={regime} (SPY vs SMA: {regime_info['spy_vs_sma']:+.2%}, "
-                  f"realized_vol: {regime_info['realized_vol']:.2%})")
+        # 3. Regime detection with confirmation
+        if len(spy_df) < strategy.regime_detection.slow_sma:
+            print(f"[calculate] insufficient SPY history ({len(spy_df)} rows, need "
+                  f"{strategy.regime_detection.slow_sma}) — aborting factor run")
+            return
+
+        regime_info = detect_regime(spy_df, strategy.regime_detection)
+        raw_regime = regime_info["raw_regime"]
+
+        # Read recent raw regime history for confirmation check
+        history_rows = await conn.execute(
+            text(
+                "SELECT raw_regime, regime FROM regime_snapshots "
+                "ORDER BY snapshot_date DESC, calculated_at DESC "
+                "LIMIT :n"
+            ),
+            {"n": strategy.regime_detection.confirmation_days},
+        )
+        history = history_rows.fetchall()
+        prior_raw_regimes = [r[0] for r in history]
+        prior_confirmed = history[0][1] if history else None
+
+        confirmed_regime = resolve_confirmed_regime(
+            raw_regime, prior_raw_regimes, prior_confirmed,
+            strategy.regime_detection.confirmation_days,
+        )
+
+        switched = prior_confirmed != confirmed_regime
+        if switched:
+            print(f"[calculate] regime SWITCHED: {prior_confirmed} → {confirmed_regime} "
+                  f"(raw={raw_regime}, confirmed after {strategy.regime_detection.confirmation_days} days)")
         else:
-            regime = list(strategy.regime_detection.regimes.keys())[0]
-            print(f"[calculate] insufficient SPY history — defaulting to {regime}")
+            print(f"[calculate] regime={confirmed_regime} (raw={raw_regime}, "
+                  f"SPY vs SMA: {regime_info['spy_vs_sma']:+.2%}, "
+                  f"realized_vol: {regime_info['realized_vol']:.2%})")
+
+        await conn.execute(
+            text(
+                "INSERT INTO regime_snapshots "
+                "(snapshot_date, raw_regime, regime, spy_price, spy_sma_slow, spy_vs_sma, realized_vol) "
+                "VALUES (:d, :raw_regime, :regime, :spy_price, :spy_sma_slow, :spy_vs_sma, :realized_vol)"
+            ),
+            {
+                "d": today,
+                "raw_regime": raw_regime,
+                "regime": confirmed_regime,
+                "spy_price": regime_info["spy_price"],
+                "spy_sma_slow": regime_info["spy_sma_slow"],
+                "spy_vs_sma": regime_info["spy_vs_sma"],
+                "realized_vol": regime_info["realized_vol"],
+            },
+        )
 
         # 4. Prices for universe (last 400 days)
         prices_rows = await conn.execute(
@@ -158,7 +191,10 @@ async def _run_calculate(run_id: str, today: date):
     # 6. Compute factors
     factors_df = compute_all_factors(prices_long=prices_df, fundamentals=fund_df)
 
-    # 7. Universe filters: price >= $5 AND avg dollar vol >= $20M
+    # 7. Universe filters — read thresholds from strategy config, not hardcoded
+    min_price = strategy.universe.min_price
+    min_dollar_vol = strategy.universe.min_avg_dollar_volume_20d
+
     prices_df["date"] = pd.to_datetime(prices_df["date"])
     prices_sorted = prices_df.sort_values(["ticker", "date"])
 
@@ -173,11 +209,13 @@ async def _run_calculate(run_id: str, today: date):
 
     filters = latest_close.merge(avg_dv, on="ticker", how="left")
     pass_filter = filters[
-        (filters["latest_close"] >= 5.0) & (filters["avg_dollar_vol_20d"] >= 20_000_000)
+        (filters["latest_close"] >= min_price) &
+        (filters["avg_dollar_vol_20d"] >= min_dollar_vol)
     ]["ticker"].tolist()
 
     factors_df = factors_df[factors_df["ticker"].isin(pass_filter)]
-    print(f"[calculate] {len(factors_df)} tickers passed universe filters")
+    print(f"[calculate] {len(factors_df)} tickers passed universe filters "
+          f"(price>=${min_price}, avg_dv>=${min_dollar_vol/1e6:.0f}M)")
 
     # 8. Save factor scores
     async with engine.begin() as conn:
@@ -196,7 +234,7 @@ async def _run_calculate(run_id: str, today: date):
                     "run_id": run_id,
                     "ticker": row["ticker"],
                     "score_date": today,
-                    "regime": regime,
+                    "regime": confirmed_regime,
                     "momentum": _val(row["momentum"]),
                     "quality": _val(row["quality"]),
                     "value": _val(row["value"]),
@@ -222,5 +260,6 @@ async def calculate_factors(background_tasks: BackgroundTasks):
             "slow_sma": strategy.regime_detection.slow_sma,
             "vol_window": strategy.regime_detection.vol_window,
             "vol_threshold": strategy.regime_detection.vol_threshold,
+            "confirmation_days": strategy.regime_detection.confirmation_days,
         },
     }

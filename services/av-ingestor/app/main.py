@@ -150,7 +150,14 @@ async def _run_fetch_data(tickers: list[str]):
                                         (ticker, date, open, high, low, close, adjusted_close, volume)
                                     VALUES
                                         (:ticker, :date, :open, :high, :low, :close, :adjusted_close, :volume)
-                                    ON CONFLICT (ticker, date) DO NOTHING
+                                    ON CONFLICT (ticker, date) DO UPDATE SET
+                                        open           = EXCLUDED.open,
+                                        high           = EXCLUDED.high,
+                                        low            = EXCLUDED.low,
+                                        close          = EXCLUDED.close,
+                                        adjusted_close = EXCLUDED.adjusted_close,
+                                        volume         = EXCLUDED.volume,
+                                        fetched_at     = NOW()
                                     """
                                 ),
                                 [
