@@ -44,6 +44,22 @@ Redis should be treated as rebuildable.
 
 Pulls Alpha Vantage data. It stores raw and normalized data in Postgres. It should respect rate limits and should not calculate factors.
 
+Endpoints:
+
+```text
+POST /jobs/fetch-universe     — download IWV ETF holdings, store universe tickers
+POST /jobs/fetch-data         — fetch prices + fundamentals in a single pass (preferred)
+POST /jobs/fetch-prices       — fetch prices only (targeted refresh)
+POST /jobs/fetch-fundamentals — fetch fundamentals only (targeted refresh)
+GET  /status                  — row counts for universe, prices, fundamentals
+```
+
+Design decision: prices and fundamentals are fetched in a single interleaved pass
+(`fetch-data`), not two sequential passes. Both use the same AVClient and share the
+same rate-limit budget — one price call then one overview call per ticker. This halves
+wall-clock time compared to running two separate jobs. The individual `fetch-prices`
+and `fetch-fundamentals` endpoints remain available for targeted partial refreshes.
+
 ### factor-engine
 
 Calculates deterministic factor scores from stored data.

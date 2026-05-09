@@ -1,5 +1,5 @@
 .PHONY: up down logs build test shell-api shell-db \
-        universe prices fundamentals factors rank pipeline
+        universe data prices fundamentals factors rank pipeline
 
 # ── Compose lifecycle ─────────────────────────────────────────────────────────
 
@@ -40,19 +40,14 @@ test:
 	docker compose run --rm api pytest tests/ -v
 
 # ── Pipeline steps (run in order) ─────────────────────────────────────────────
-# Each step calls the relevant service via HTTP.
 
 universe:
 	@echo "Downloading Russell 3000 universe from IWV ETF holdings..."
 	curl -sf -X POST http://localhost:8001/jobs/fetch-universe | python3 -m json.tool
 
-prices:
-	@echo "Fetching prices for universe from Alpha Vantage..."
-	curl -sf -X POST http://localhost:8001/jobs/fetch-prices | python3 -m json.tool
-
-fundamentals:
-	@echo "Fetching fundamentals for universe from Alpha Vantage..."
-	curl -sf -X POST http://localhost:8001/jobs/fetch-fundamentals | python3 -m json.tool
+data:
+	@echo "Fetching prices + fundamentals in a single pass..."
+	curl -sf -X POST http://localhost:8001/jobs/fetch-data | python3 -m json.tool
 
 factors:
 	@echo "Calculating factor scores and detecting market regime..."
@@ -62,8 +57,17 @@ rank:
 	@echo "Ranking universe by regime-weighted factor scores..."
 	curl -sf -X POST http://localhost:8003/jobs/rank | python3 -m json.tool
 
+# Targeted refreshes (use when you only need one dataset updated)
+prices:
+	@echo "Fetching prices only..."
+	curl -sf -X POST http://localhost:8001/jobs/fetch-prices | python3 -m json.tool
+
+fundamentals:
+	@echo "Fetching fundamentals only..."
+	curl -sf -X POST http://localhost:8001/jobs/fetch-fundamentals | python3 -m json.tool
+
 # Run the full pipeline end-to-end
-pipeline: universe prices fundamentals factors rank
+pipeline: universe data factors rank
 	@echo ""
 	@echo "Pipeline complete. View results:"
 	@echo "  Rankings:  http://localhost:8000/rankings"
