@@ -102,7 +102,7 @@ async def _run_rank_job() -> None:
                          composite_score, percentile, factor_scores, ranked_at)
                     VALUES
                         (:run_id, :strategy_id, :regime, :rank_date, :ticker, :rank,
-                         :composite_score, :percentile, :factor_scores::jsonb, :ranked_at)
+                         :composite_score, :percentile, CAST(:factor_scores AS jsonb), :ranked_at)
                     ON CONFLICT (run_id, ticker) DO UPDATE SET
                         rank            = EXCLUDED.rank,
                         composite_score = EXCLUDED.composite_score,
