@@ -4,22 +4,33 @@ import pandas as pd
 from stock_strategy_shared.schemas.strategy import RegimeDetectionConfig
 
 
+def resolve_confirmed_regime(raw_regime: str, prior_raw_regimes: list[str],
+                             prior_confirmed: str | None,
+                             confirmation_days: int) -> str:
+    """
+    Retain prior_confirmed until raw_regime has been consistent for confirmation_days.
+
+    prior_raw_regimes: raw_regime values from the last (confirmation_days - 1)
+                       stored snapshots, most recent first.
+    """
+    if len(prior_raw_regimes) < confirmation_days - 1:
+        return prior_confirmed if prior_confirmed else raw_regime
+    recent = prior_raw_regimes[: confirmation_days - 1]
+    if all(r == raw_regime for r in recent):
+        return raw_regime
+    return prior_confirmed if prior_confirmed else raw_regime
+
+
 def detect_regime(spy_prices: pd.DataFrame, config: RegimeDetectionConfig) -> dict:
     """
-    Classify the current market regime using two dimensions with confirmation smoothing.
+    Compute today's raw market regime from SPY price and volatility signals.
 
-    Trend:      SPY price vs its slow SMA (config.slow_sma days)
-    Volatility: SPY annualized realized vol vs config.vol_threshold
+    Returns the raw (unconfirmed) regime based on today's signals only.
+    Confirmation logic — retaining the prior regime until N consecutive days of
+    a new raw signal — is handled by the caller, which has access to stored history.
 
-    Confirmation: both the trend signal and the vol signal must have been
-    consistent for config.confirmation_days consecutive trading days before
-    a regime is accepted. This prevents flipping regimes on a single noisy day.
-
-    If signals are not yet confirmed (e.g. mixed signals over the last N days),
-    the regime stays as whatever the signals agree on for the majority, falling
-    back to the first regime in config.regimes if truly ambiguous.
+    Raises ValueError if there is insufficient SPY history for the slow SMA.
     """
-    min_rows = config.slow_sma + config.confirmation_days + config.vol_window
     if len(spy_prices) < config.slow_sma:
         raise ValueError(
             f"Need at least {config.slow_sma} rows of SPY prices, got {len(spy_prices)}"
@@ -28,64 +39,32 @@ def detect_regime(spy_prices: pd.DataFrame, config: RegimeDetectionConfig) -> di
     prices = spy_prices.sort_values("date").reset_index(drop=True)
     adj = prices["adjusted_close"].astype(float)
 
-    # Slow SMA calculated over full history for stability
     spy_sma_slow = adj.iloc[-config.slow_sma:].mean()
     spy_price = adj.iloc[-1]
     spy_vs_sma = float((spy_price / spy_sma_slow) - 1.0)
 
-    # Current realized vol (annualized)
     window = min(config.vol_window + 1, len(adj))
     log_returns = np.log(adj.iloc[-window:]).diff().dropna()
     realized_vol = float(log_returns.std() * math.sqrt(252)) if len(log_returns) > 1 else 0.0
 
-    # Confirmation: check the last confirmation_days days for signal consistency
-    n = min(config.confirmation_days, len(adj) - 1)
-    confirmed_days = min(n, len(adj) - config.slow_sma)
+    trend_above = bool(spy_price > spy_sma_slow)
+    vol_above = realized_vol > config.vol_threshold
 
-    trend_signals = []
-    vol_signals = []
-    for i in range(confirmed_days, 0, -1):
-        day_adj = adj.iloc[:-i] if i > 0 else adj
-        day_sma = day_adj.iloc[-config.slow_sma:].mean()
-        day_price = day_adj.iloc[-1]
-        trend_signals.append(bool(day_price > day_sma))
-
-        vol_window_slice = min(config.vol_window + 1, len(day_adj))
-        day_log_ret = np.log(day_adj.iloc[-vol_window_slice:]).diff().dropna()
-        day_vol = float(day_log_ret.std() * math.sqrt(252)) if len(day_log_ret) > 1 else 0.0
-        vol_signals.append(day_vol > config.vol_threshold)
-
-    # Add today's signals
-    trend_signals.append(bool(spy_price > spy_sma_slow))
-    vol_signals.append(realized_vol > config.vol_threshold)
-
-    # A signal is "confirmed" if consistent across all confirmation days
-    trend_confirmed = all(trend_signals) or not any(trend_signals)
-    vol_confirmed = all(vol_signals) or not any(vol_signals)
-
-    # Use current signal if confirmed, majority vote otherwise
-    trend_above = trend_signals[-1] if trend_confirmed else (sum(trend_signals) > len(trend_signals) / 2)
-    vol_above = vol_signals[-1] if vol_confirmed else (sum(vol_signals) > len(vol_signals) / 2)
-
-    # Match to regime
-    regime = None
+    raw_regime = None
     for name, condition in config.regimes.items():
         if condition.spy_above_slow_sma == trend_above and condition.vol_above_threshold == vol_above:
-            regime = name
+            raw_regime = name
             break
 
-    if regime is None:
-        regime = list(config.regimes.keys())[0]
+    if raw_regime is None:
+        raw_regime = list(config.regimes.keys())[0]
 
     return {
-        "regime": regime,
+        "raw_regime": raw_regime,
         "spy_price": float(spy_price),
         "spy_sma_slow": float(spy_sma_slow),
         "spy_vs_sma": spy_vs_sma,
         "realized_vol": realized_vol,
         "trend_above_sma": trend_above,
         "vol_above_threshold": vol_above,
-        "trend_confirmed": trend_confirmed,
-        "vol_confirmed": vol_confirmed,
-        "confirmation_days_used": len(trend_signals),
     }

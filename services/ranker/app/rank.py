@@ -20,9 +20,11 @@ def rank_universe(
 
     df = factor_scores.copy()
 
+    min_factors = strategy.min_non_null_factors
+
     def compute_score(row: pd.Series) -> float:
         available = {f: regime_weights[f] for f in FACTORS if pd.notna(row.get(f))}
-        if not available:
+        if len(available) < min_factors:
             return float("nan")
         weight_sum = sum(available.values())
         return sum((w / weight_sum) * row[f] for f, w in available.items())

@@ -98,7 +98,7 @@ class AVClient:
             "revenue_growth": _to_float(data.get("QuarterlyRevenueGrowthYOY")),
             "eps_growth": _to_float(data.get("QuarterlyEarningsGrowthYOY")),
             "market_cap": _to_int(data.get("MarketCapitalization")),
-            "avg_volume": _to_int(data.get("200DayMovingAverage")),
+            "avg_volume": None,  # AV OVERVIEW has no reliable avg_volume field; calculated from daily_prices locally
         }
 
 
