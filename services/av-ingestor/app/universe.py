@@ -54,7 +54,19 @@ async def download_iwv_holdings(session: httpx.AsyncClient) -> list[dict]:
     response = await session.get(IWV_CSV_URL, follow_redirects=True, timeout=30.0)
     response.raise_for_status()
 
-    df = pd.read_csv(io.StringIO(response.text), skiprows=2, header=0, dtype=str)
+    # iShares CSVs have a variable number of metadata rows before the actual header.
+    # Scan to find the first row that contains a recognisable column name.
+    lines = response.text.splitlines()
+    header_idx = None
+    for i, line in enumerate(lines):
+        if any(kw in line for kw in ("Ticker", "TICKER", "Symbol")):
+            header_idx = i
+            break
+
+    if header_idx is None:
+        raise ValueError("Could not locate header row in IWV holdings CSV")
+
+    df = pd.read_csv(io.StringIO(response.text), skiprows=header_idx, header=0, dtype=str)
     df.columns = [c.strip() for c in df.columns]
 
     ticker_col = _find_column(df, ["Ticker", "TICKER", "Symbol"])
