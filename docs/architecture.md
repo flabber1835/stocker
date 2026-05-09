@@ -194,10 +194,17 @@ each bucket and harder LLM config generation. Four covers the most important cas
 Vol proxy: SPY 20-day realized vol (std of daily log returns × √252) is calculated
 from prices already in Postgres. No VIX subscription is needed.
 
-The SMA period, vol window, vol threshold, regime names, and conditions are all
-defined in the strategy YAML under `regime_detection`. The factor-engine reads this
-config at startup. The factor weights in `factor_weights` use the same regime names
-as keys. Adding a fifth regime requires only a YAML change — no code change.
+Confirmation smoothing: both the trend signal and the vol signal must be consistent
+for `confirmation_days` consecutive trading days before a regime switch is accepted.
+This prevents flipping regimes on a single bad day. Default is 5 days. If signals
+are mixed, a majority vote across the confirmation window is used. This is especially
+important for monthly rebalancing where a one-day blip should not change the portfolio.
+
+The SMA period, vol window, vol threshold, confirmation days, regime names, and
+conditions are all defined in the strategy YAML under `regime_detection`. The
+factor-engine reads this config at startup. The factor weights in `factor_weights`
+use the same regime names as keys. Adding a fifth regime requires only a YAML
+change — no code change.
 
 ## State Rule
 
