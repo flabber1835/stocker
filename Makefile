@@ -1,7 +1,7 @@
 .PHONY: up down logs build test integration-test shell-api shell-db \
         universe data prices fundamentals factors rank pipeline
 
-# ── Compose lifecycle ─────────────────────────────────────────────────────────────────────────────
+# ── Compose lifecycle ──────────────────────────────────────────────────────────────────────────────────
 
 up:
 	docker compose up -d
@@ -15,12 +15,12 @@ build:
 logs:
 	docker compose logs -f
 
-# ── Database ───────────────────────────────────────────────────────────────────────────────────
+# ── Database ───────────────────────────────────────────────────────────────────────────────────────
 
 shell-db:
 	docker compose exec postgres psql -U stocker -d stocker
 
-# ── Service shells ────────────────────────────────────────────────────────────────────────────
+# ── Service shells ──────────────────────────────────────────────────────────────────────────────────
 
 shell-api:
 	docker compose exec api bash
@@ -34,7 +34,7 @@ shell-factors:
 shell-ranker:
 	docker compose exec ranker bash
 
-# ── Tests ──────────────────────────────────────────────────────────────────────────────────
+# ── Tests ──────────────────────────────────────────────────────────────────────────────────────────
 # Unit tests: runs without Docker.
 
 test:
@@ -46,26 +46,30 @@ test:
 integration-test:
 	bash scripts/integration_test.sh
 
-# ── Pipeline steps (run in order) ──────────────────────────────────────────────────────
+# ── Pipeline steps (run in order) ──────────────────────────────────────────────────────────────────
 # Each step polls until the job completes before returning.
 
 universe:
 	@echo "Downloading Russell 3000 universe from IWV ETF holdings..."
-	@curl -sf -X POST http://localhost:8001/jobs/fetch-universe | python3 -m json.tool
-	@echo "Waiting for universe snapshot..."
-	@until [ "$$(curl -sf http://localhost:8001/status | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d["universe_tickers"])' 2>/dev/null)" -gt "0" ] 2>/dev/null; do \
+	@RUN_ID=$$(curl -sf -X POST http://localhost:8001/jobs/fetch-universe \
+	           | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])') && \
+	echo "  run_id=$$RUN_ID" && \
+	until STATUS=$$(curl -sf http://localhost:8001/runs/$$RUN_ID 2>/dev/null \
+	                | python3 -c 'import sys,json; print(json.load(sys.stdin).get("status","running"))' 2>/dev/null); \
+	      [ "$$STATUS" = "success" ] || [ "$$STATUS" = "failed" ]; do \
 		printf '.'; sleep 2; \
-	done
-	@echo " done."
+	done && echo " $$STATUS"
 
 data:
 	@echo "Fetching prices + fundamentals in a single pass..."
-	@curl -sf -X POST http://localhost:8001/jobs/fetch-data | python3 -m json.tool
-	@echo "Waiting for price data..."
-	@until [ "$$(curl -sf http://localhost:8001/status | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d["price_rows"])' 2>/dev/null)" -gt "0" ] 2>/dev/null; do \
-		printf '.'; sleep 3; \
-	done
-	@echo " done."
+	@RUN_ID=$$(curl -sf -X POST http://localhost:8001/jobs/fetch-data \
+	           | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])') && \
+	echo "  run_id=$$RUN_ID" && \
+	until STATUS=$$(curl -sf http://localhost:8001/runs/$$RUN_ID 2>/dev/null \
+	                | python3 -c 'import sys,json; print(json.load(sys.stdin).get("status","running"))' 2>/dev/null); \
+	      [ "$$STATUS" = "success" ] || [ "$$STATUS" = "failed" ]; do \
+		printf '.'; sleep 5; \
+	done && echo " $$STATUS"
 
 factors:
 	@echo "Calculating factor scores and detecting market regime..."

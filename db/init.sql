@@ -1,7 +1,7 @@
 -- Stocker database schema
 -- Run automatically on first postgres startup via docker-entrypoint-initdb.d
 
--- ── Universe ───────────────────────────────────────────────────────────────────────────────────────────
+-- ── Universe ────────────────────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS universe_snapshots (
     id          SERIAL PRIMARY KEY,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS universe_tickers (
 CREATE INDEX IF NOT EXISTS idx_universe_tickers_snapshot ON universe_tickers(snapshot_id);
 CREATE INDEX IF NOT EXISTS idx_universe_tickers_ticker   ON universe_tickers(ticker);
 
--- ── Prices ───────────────────────────────────────────────────────────────────────────────────────────
+-- ── Prices ───────────────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS daily_prices (
     id             SERIAL PRIMARY KEY,
@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS daily_prices (
 
 CREATE INDEX IF NOT EXISTS idx_prices_ticker_date ON daily_prices(ticker, date DESC);
 
--- ── Fundamentals ──────────────────────────────────────────────────────────────────────────────────────────
+-- ── Fundamentals ──────────────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS fundamentals (
     id              SERIAL PRIMARY KEY,
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS fundamentals (
 
 CREATE INDEX IF NOT EXISTS idx_fundamentals_ticker ON fundamentals(ticker, as_of_date DESC);
 
--- ── Regime ──────────────────────────────────────────────────────────────────────────────────────────
+-- ── Regime ───────────────────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS regime_snapshots (
     id              SERIAL PRIMARY KEY,
@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS regime_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_regime_date ON regime_snapshots(snapshot_date DESC);
 
--- ── Execution traces ─────────────────────────────────────────────────────────────────────────────────────
+-- ── Execution traces ────────────────────────────────────────────────────────────────────────────────────
 -- One trace per top-level job (factor_run or rank_run). Steps record each sub-operation.
 -- Answers: what data was used, what config was active, what happened at each step.
 
@@ -116,7 +116,27 @@ CREATE TABLE IF NOT EXISTS execution_steps (
 
 CREATE INDEX IF NOT EXISTS idx_steps_trace ON execution_steps(trace_id, started_at ASC);
 
--- ── Factor runs ─────────────────────────────────────────────────────────────────────────────────────────
+-- ── Ingest runs ──────────────────────────────────────────────────────────────────────────────────
+-- One row per av-ingestor job (fetch-universe, fetch-data, fetch-prices, fetch-fundamentals).
+-- Allows make data to poll for completion instead of checking price_rows > 0.
+
+CREATE TABLE IF NOT EXISTS ingest_runs (
+    run_id          UUID         PRIMARY KEY,
+    job_type        VARCHAR(50)  NOT NULL,   -- fetch-universe|fetch-data|fetch-prices|fetch-fundamentals
+    status          VARCHAR(20)  NOT NULL DEFAULT 'running',  -- running|success|failed
+    ticker_count    INTEGER,
+    price_rows      INTEGER,
+    fund_rows       INTEGER,
+    error_count     INTEGER      NOT NULL DEFAULT 0,
+    error_message   TEXT,
+    started_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    completed_at    TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_ingest_runs_started ON ingest_runs(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ingest_runs_job     ON ingest_runs(job_type, started_at DESC);
+
+-- ── Factor runs ───────────────────────────────────────────────────────────────────────────────────────
 -- One row per factor calculation job. Regime snapshot and factor scores are
 -- written only when status = 'success'. Ranker uses only successful runs.
 
@@ -142,7 +162,7 @@ CREATE INDEX IF NOT EXISTS idx_factor_runs_date   ON factor_runs(score_date DESC
 CREATE INDEX IF NOT EXISTS idx_factor_runs_status ON factor_runs(status, score_date DESC);
 CREATE INDEX IF NOT EXISTS idx_factor_runs_trace  ON factor_runs(trace_id);
 
--- ── Factor scores ────────────────────────────────────────────────────────────────────────────────────────────
+-- ── Factor scores ───────────────────────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS factor_scores (
     id              SERIAL PRIMARY KEY,
@@ -162,7 +182,7 @@ CREATE TABLE IF NOT EXISTS factor_scores (
 CREATE INDEX IF NOT EXISTS idx_factor_scores_run  ON factor_scores(run_id);
 CREATE INDEX IF NOT EXISTS idx_factor_scores_date ON factor_scores(score_date DESC);
 
--- ── Ranking runs ──────────────────────────────────────────────────────────────────────────────────────────
+-- ── Ranking runs ──────────────────────────────────────────────────────────────────────────────────
 -- One row per ranking job. Per-ticker rows live in the rankings table.
 
 CREATE TABLE IF NOT EXISTS ranking_runs (
@@ -186,7 +206,7 @@ CREATE INDEX IF NOT EXISTS idx_ranking_runs_started      ON ranking_runs(started
 CREATE INDEX IF NOT EXISTS idx_ranking_runs_factor_run   ON ranking_runs(source_factor_run_id);
 CREATE INDEX IF NOT EXISTS idx_ranking_runs_trace        ON ranking_runs(trace_id);
 
--- ── Rankings ────────────────────────────────────────────────────────────────────────────────────────────
+-- ── Rankings ──────────────────────────────────────────────────────────────────────────────────────────
 -- Per-ticker ranking rows. run_id links to ranking_runs.
 
 CREATE TABLE IF NOT EXISTS rankings (
@@ -209,7 +229,7 @@ CREATE INDEX IF NOT EXISTS idx_rankings_run          ON rankings(run_id);
 CREATE INDEX IF NOT EXISTS idx_rankings_factor_run   ON rankings(source_factor_run_id);
 CREATE INDEX IF NOT EXISTS idx_rankings_date         ON rankings(rank_date DESC, rank ASC);
 
--- ── Job queue (Postgres SKIP LOCKED) ──────────────────────────────────────────────
+-- ── Job queue (Postgres SKIP LOCKED) ──────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS jobs (
     id           SERIAL PRIMARY KEY,
