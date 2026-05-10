@@ -65,36 +65,41 @@ async def _write_trace_file(
 ) -> None:
     if not ARTIFACTS_PATH:
         return
-    async with engine.connect() as conn:
-        rows = await conn.execute(
-            text(
-                "SELECT service, step_name, status, started_at, completed_at, "
-                "       input_summary, output_summary, warnings, error_message "
-                "FROM execution_steps WHERE trace_id = :tid ORDER BY started_at ASC"
-            ),
-            {"tid": trace_id},
-        )
-        steps = [dict(r) for r in rows.mappings()]
+    try:
+        async with engine.connect() as conn:
+            rows = await conn.execute(
+                text(
+                    "SELECT service, step_name, status, started_at, completed_at, "
+                    "       input_summary, output_summary, warnings, error_message "
+                    "FROM execution_steps WHERE trace_id = :tid ORDER BY started_at ASC"
+                ),
+                {"tid": trace_id},
+            )
+            steps = [dict(r) for r in rows.mappings()]
 
-    traces_dir = os.path.join(ARTIFACTS_PATH, "traces")
-    os.makedirs(traces_dir, exist_ok=True)
-    fname = f"{started_at.strftime('%Y-%m-%d')}_{job_type}_{trace_id[:8]}.json"
-    payload = {
-        "trace_id": trace_id,
-        "run_id": run_id,
-        "job_type": job_type,
-        "status": status,
-        "strategy_id": strategy.strategy_id,
-        "config_hash": config_hash,
-        "started_at": started_at.isoformat(),
-        "completed_at": datetime.now(timezone.utc).isoformat(),
-        **extra,
-        "steps": steps,
-    }
-    path = os.path.join(traces_dir, fname)
-    with open(path, "w") as f:
-        json.dump(payload, f, indent=2, default=str)
-    print(f"[ranker] trace written → {path}")
+        traces_dir = os.path.join(ARTIFACTS_PATH, "traces")
+        os.makedirs(traces_dir, exist_ok=True)
+        fname = f"{started_at.strftime('%Y-%m-%d')}_{job_type}_{trace_id[:8]}.json"
+        payload = {
+            "trace_id": trace_id,
+            "run_id": run_id,
+            "job_type": job_type,
+            "status": status,
+            "strategy_id": strategy.strategy_id,
+            "config_hash": config_hash,
+            "started_at": started_at.isoformat(),
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            **extra,
+            "steps": steps,
+        }
+        path = os.path.join(traces_dir, fname)
+        with open(path, "w") as f:
+            json.dump(payload, f, indent=2, default=str)
+        print(f"[ranker] trace written → {path}")
+    except Exception as exc:
+        import traceback
+        print(f"[ranker] WARNING: failed to write trace file for {trace_id}: {exc}")
+        traceback.print_exc()
 
 
 # ── Trace helpers ─────────────────────────────────────────────────────────────────────────────────────────────

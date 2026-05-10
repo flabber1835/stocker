@@ -399,6 +399,7 @@ footer span{color:var(--cyan)}
   <div class="toolbar">
     <input type="search" id="u-search" placeholder="// FILTER TICKER OR NAME" oninput="renderUniverse()">
     <select id="u-sector" onchange="renderUniverse()"><option value="">ALL SECTORS</option></select>
+    <button class="btn" id="u-hide-tiny" onclick="toggleTiny()">HIDE TINY &#10003;</button>
     <button class="btn" onclick="loadUniverse()">&#x21BA; REFRESH</button>
     <span class="badge-count" id="u-count"></span>
   </div>
@@ -426,6 +427,13 @@ footer span{color:var(--cyan)}
 let rankData=[], uniData=[];
 let rankSort={col:'rank',dir:1};
 let uniSort={col:'weight_pct',dir:-1};
+let uniHideTiny=true;
+
+function toggleTiny(){
+  uniHideTiny=!uniHideTiny;
+  $('u-hide-tiny').textContent='HIDE TINY '+(uniHideTiny?'✓':'○');
+  renderUniverse();
+}
 
 const $=id=>document.getElementById(id);
 const fmtScore=v=>v==null?'—':(+v).toFixed(3);
@@ -545,7 +553,7 @@ function renderRankings(){
       +'<div class="score-track"><div class="score-fill" style="width:'+w+'%"></div></div></div></td>'
       +'<td><span class="pct-pill '+pctCls+'">'+pctVal+'</span></td>'
       +'<td><div class="fbars">'+bars+'</div></td>'
-      +FACTORS.map(f=>'<td class="'+zColor(r[f])+'">'+( r[f]!=null?(+r[f]).toFixed(2):'—')+'</td>').join('')
+      +FACTORS.map(f=>'<td class="'+zColor(r[f])+'">'+(r[f]!=null?(+r[f]).toFixed(2):'—')+'</td>').join('')
       +'</tr>';
   }).join('');
 }
@@ -586,8 +594,10 @@ function renderUniverse(){
   const sec=$('u-sector').value;
   let rows=uniData.filter(t=>
     (!q||t.ticker.includes(q)||(t.name||'').toUpperCase().includes(q))&&
-    (!sec||t.sector===sec)
+    (!sec||t.sector===sec)&&
+    (!uniHideTiny||(t.weight_pct!=null&&+t.weight_pct>=0.01))
   );
+  const hiddenCount=uniHideTiny?uniData.filter(t=>t.weight_pct==null||+t.weight_pct<0.01).length:0;
   const col=uniSort.col,dir=uniSort.dir;
   rows.sort((a,b)=>{
     let av=a[col],bv=b[col];
@@ -596,7 +606,7 @@ function renderUniverse(){
     if(av==null)return 1;if(bv==null)return -1;
     return(av<bv?-1:av>bv?1:0)*dir;
   });
-  $('u-count').textContent=rows.length+' / '+uniData.length+' SHOWN';
+  $('u-count').textContent=rows.length+' shown'+(hiddenCount?' ('+hiddenCount+' tiny hidden)':'');
   if(!rows.length){$('u-body').innerHTML='<tr><td colspan="4" class="loading">NO RESULTS</td></tr>';return;}
   $('u-body').innerHTML=rows.map(t=>'<tr>'
     +'<td><span class="t-ticker">'+t.ticker+'</span></td>'
