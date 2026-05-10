@@ -34,6 +34,21 @@ async def proxy_universe():
     return await _proxy("/universe")
 
 
+@app.get("/api/factor-runs")
+async def proxy_factor_runs(limit: int = 20):
+    return await _proxy("/factor-runs", {"limit": limit})
+
+
+@app.get("/api/ranking-runs")
+async def proxy_ranking_runs(limit: int = 20):
+    return await _proxy("/ranking-runs", {"limit": limit})
+
+
+@app.get("/api/ingest-runs")
+async def proxy_ingest_runs(limit: int = 20):
+    return await _proxy("/ingest-runs", {"limit": limit})
+
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     return HTMLResponse(content=_HTML)
@@ -55,10 +70,11 @@ _HTML = r"""<!DOCTYPE html>
   --cyan-faint: rgba(0,229,255,0.06);
   --orange: #ff6a00;
   --orange-dim: rgba(255,106,0,0.7);
-  --white: #d8eeff;
+  --white: #e6f3ff;
   --green: #00ff9d;
-  --red: #ff2d55;
-  --muted: #2a5c72;
+  --red: #ff4d6a;
+  --yellow: #ffd060;
+  --muted: #5aabca;
   --border: rgba(0,229,255,0.18);
   --border-strong: rgba(0,229,255,0.45);
   --glow-sm: 0 0 8px rgba(0,229,255,0.5);
@@ -136,11 +152,11 @@ header::after{right:0;background:linear-gradient(270deg,transparent,var(--cyan))
   margin-bottom:20px;
   font-size:.78rem;
 }
-.rb-label{color:var(--muted);letter-spacing:.15em;text-transform:uppercase}
+.rb-label{color:var(--muted);letter-spacing:.15em;text-transform:uppercase;font-weight:600}
 .rb-val{color:var(--cyan);font-weight:700;text-shadow:var(--glow-sm);letter-spacing:.08em}
 .rb-sep{color:var(--border-strong)}
 .rb-metric{color:var(--muted)}
-.rb-metric span{color:var(--white)}
+.rb-metric span{color:var(--white);font-weight:600}
 .rb-badge{
   padding:2px 12px;
   border:1px solid currentColor;
@@ -149,9 +165,9 @@ header::after{right:0;background:linear-gradient(270deg,transparent,var(--cyan))
   font-weight:700;
 }
 .regime-bull_calm   {color:#00ff9d;text-shadow:0 0 10px #00ff9d80}
-.regime-bull_volatile{color:#ffcc00;text-shadow:0 0 10px #ffcc0080}
+.regime-bull_volatile{color:#ffd060;text-shadow:0 0 10px #ffd06080}
 .regime-bear_calm   {color:#00aaff;text-shadow:0 0 10px #00aaff80}
-.regime-bear_volatile{color:#ff2d55;text-shadow:0 0 10px #ff2d5580}
+.regime-bear_volatile{color:#ff4d6a;text-shadow:0 0 10px #ff4d6a80}
 .tabs{
   display:flex;gap:3px;
   margin-bottom:20px;
@@ -183,12 +199,15 @@ header::after{right:0;background:linear-gradient(270deg,transparent,var(--cyan))
 .stat .lbl{
   font-size:.65rem;color:var(--muted);
   letter-spacing:.2em;text-transform:uppercase;margin-bottom:5px;
+  font-weight:600;
 }
 .stat .val{
   font-size:1.7rem;font-weight:700;
   color:var(--cyan);text-shadow:var(--glow-sm);
 }
 .stat .val.orange{color:var(--orange);text-shadow:var(--glow-orange)}
+.stat .val.green{color:var(--green)}
+.stat .val.red{color:var(--red)}
 .toolbar{display:flex;gap:10px;margin-bottom:14px;align-items:center;flex-wrap:wrap}
 input[type=search]{
   background:var(--panel);
@@ -231,10 +250,10 @@ select option{background:var(--panel2)}
 }
 table{width:100%;border-collapse:collapse}
 thead{position:sticky;top:0;z-index:10}
-thead tr{background:#061020;border-bottom:1px solid var(--cyan-dim)}
+thead tr{background:#071828;border-bottom:2px solid var(--cyan-dim)}
 th{
   padding:11px 14px;text-align:left;
-  color:var(--cyan);font-weight:400;
+  color:var(--cyan);font-weight:600;
   letter-spacing:.16em;text-transform:uppercase;
   font-size:.67rem;cursor:pointer;
   user-select:none;white-space:nowrap;
@@ -243,7 +262,7 @@ th{
 th:hover{background:rgba(0,229,255,0.1)}
 th.asc::after{content:' \25b2';color:var(--orange)}
 th.desc::after{content:' \25bc';color:var(--orange)}
-tbody tr{border-bottom:1px solid rgba(0,229,255,0.07);transition:background .12s}
+tbody tr{border-bottom:1px solid rgba(0,229,255,0.13);transition:background .12s}
 tbody tr:hover{background:rgba(0,229,255,0.08)}
 td{padding:9px 14px;white-space:nowrap}
 .t-ticker{
@@ -256,13 +275,13 @@ td{padding:9px 14px;white-space:nowrap}
   text-shadow:0 0 8px rgba(255,106,0,0.4);
   min-width:36px;display:inline-block;text-align:right;
 }
-.t-name{color:#7aaabb;font-size:.78rem;max-width:180px;overflow:hidden;text-overflow:ellipsis}
+.t-name{color:#9fd4e8;font-size:.78rem;max-width:180px;overflow:hidden;text-overflow:ellipsis}
 .t-sector{
   display:inline-block;padding:2px 8px;
-  font-size:.66rem;border:1px solid rgba(0,229,255,0.2);
+  font-size:.66rem;border:1px solid rgba(0,229,255,0.25);
   color:var(--muted);letter-spacing:.05em;
 }
-.t-wt{color:#5a8fa0;font-size:.78rem}
+.t-wt{color:#7dc4db;font-size:.78rem}
 .pos{color:var(--green)}
 .neg{color:var(--red)}
 .neu{color:var(--muted)}
@@ -311,9 +330,41 @@ td{padding:9px 14px;white-space:nowrap}
 .error{color:var(--red)}
 .error::before{content:'!! ';color:var(--red)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes spin{to{transform:rotate(360deg)}}
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:var(--bg)}
 ::-webkit-scrollbar-thumb{background:var(--cyan-dim)}
+
+/* ── Runs tab ── */
+.run-badge{
+  display:inline-block;padding:2px 10px;
+  font-size:.65rem;font-weight:700;
+  letter-spacing:.12em;text-transform:uppercase;
+  border:1px solid currentColor;
+}
+.badge-ingest {color:#b060ff;border-color:#b060ff40}
+.badge-factors{color:var(--cyan);border-color:rgba(0,229,255,0.4)}
+.badge-rank   {color:var(--orange);border-color:rgba(255,106,0,0.4)}
+.status-success{color:var(--green)}
+.status-failed {color:var(--red)}
+.status-running{color:var(--yellow);animation:pulse 1.4s infinite}
+.status-skipped{color:var(--muted)}
+.run-detail{color:var(--white);font-size:.78rem}
+.run-time{color:var(--muted);font-size:.75rem}
+.run-dur {color:var(--muted);font-size:.75rem}
+.autorefresh-indicator{
+  font-size:.65rem;color:var(--muted);letter-spacing:.1em;
+  display:flex;align-items:center;gap:6px;
+}
+.spinner{
+  width:8px;height:8px;
+  border:1px solid var(--cyan-dim);
+  border-top-color:var(--cyan);
+  border-radius:50%;
+  animation:spin 1s linear infinite;
+  display:inline-block;
+}
+
 footer{
   text-align:center;
   padding:20px 0;
@@ -351,8 +402,10 @@ footer span{color:var(--cyan)}
 <div class="tabs">
   <button class="tab active" onclick="switchTab('rankings',this)">Rankings</button>
   <button class="tab" onclick="switchTab('universe',this)">Universe</button>
+  <button class="tab" onclick="switchTab('runs',this)">Pipeline Runs</button>
 </div>
 
+<!-- Rankings pane -->
 <div id="pane-rankings" class="pane active">
   <div class="stats">
     <div class="stat"><div class="lbl">Total Ranked</div><div class="val" id="r-total">&#8212;</div></div>
@@ -389,6 +442,7 @@ footer span{color:var(--cyan)}
   </div>
 </div>
 
+<!-- Universe pane -->
 <div id="pane-universe" class="pane">
   <div class="stats">
     <div class="stat"><div class="lbl">Total Tickers</div><div class="val" id="u-total">&#8212;</div></div>
@@ -419,13 +473,59 @@ footer span{color:var(--cyan)}
   </div>
 </div>
 
+<!-- Pipeline Runs pane -->
+<div id="pane-runs" class="pane">
+  <div class="stats">
+    <div class="stat">
+      <div class="lbl">Last Ingest</div>
+      <div class="val green" style="font-size:.85rem;padding-top:4px" id="run-last-ingest">&#8212;</div>
+    </div>
+    <div class="stat">
+      <div class="lbl">Last Factors</div>
+      <div class="val green" style="font-size:.85rem;padding-top:4px" id="run-last-factors">&#8212;</div>
+    </div>
+    <div class="stat">
+      <div class="lbl">Last Rank</div>
+      <div class="val green" style="font-size:.85rem;padding-top:4px" id="run-last-rank">&#8212;</div>
+    </div>
+    <div class="stat">
+      <div class="lbl">System</div>
+      <div class="val" id="run-system">STANDBY</div>
+    </div>
+  </div>
+  <div class="toolbar">
+    <button class="btn" onclick="loadRuns()">&#x21BA; REFRESH</button>
+    <div class="autorefresh-indicator"><span class="spinner"></span>&nbsp;AUTO-REFRESH 30s</div>
+    <span class="badge-count" id="run-count"></span>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>TIME</th>
+          <th>SERVICE</th>
+          <th>JOB</th>
+          <th>STATUS</th>
+          <th>DETAIL</th>
+          <th>DURATION</th>
+        </tr>
+      </thead>
+      <tbody id="run-body">
+        <tr><td colspan="6" class="loading">LOADING PIPELINE RUNS</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
 <footer>STOCKER // GRID &nbsp;<span>v0.1</span> &nbsp;//&nbsp; PAPER TRADING ONLY &nbsp;//&nbsp; NOT FINANCIAL ADVICE</footer>
 </div>
 
 <script>
-let rankData=[], uniData=[];
+let rankData=[], uniData=[], runsData=[];
 let rankSort={col:'rank',dir:1};
 let uniSort={col:'weight_pct',dir:-1};
+let activeTab='rankings';
+let runsTimer=null;
 
 const $=id=>document.getElementById(id);
 const fmtScore=v=>v==null?'—':(+v).toFixed(3);
@@ -449,13 +549,40 @@ function barW(comp,max){
 function clearSort(pfx){
   document.querySelectorAll('[id^="'+pfx+'"]').forEach(el=>el.classList.remove('asc','desc'));
 }
+function fmtDuration(s,e){
+  if(!s)return '—';
+  const ms=(e?new Date(e):new Date())-new Date(s);
+  if(ms<0)return '—';
+  if(ms<60000)return (ms/1000).toFixed(1)+'s';
+  return Math.floor(ms/60000)+'m '+(Math.floor(ms/1000)%60)+'s';
+}
+function fmtTime(ts){
+  if(!ts)return '—';
+  const d=new Date(ts);
+  return d.toLocaleDateString()+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+}
+function fmtAgo(ts){
+  if(!ts)return '—';
+  const ms=new Date()-new Date(ts);
+  if(ms<60000)return 'just now';
+  if(ms<3600000)return Math.floor(ms/60000)+'m ago';
+  if(ms<86400000)return Math.floor(ms/3600000)+'h ago';
+  return new Date(ts).toLocaleDateString();
+}
 
 function switchTab(name,btn){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   btn.classList.add('active');
   $('pane-'+name).classList.add('active');
+  activeTab=name;
+  if(name==='runs'){
+    loadRuns();
+    if(!runsTimer) runsTimer=setInterval(()=>{if(activeTab==='runs')loadRuns();},30000);
+  }
 }
+
+// ── Regime ───────────────────────────────────────────────────────────────────────
 
 async function loadRegime(){
   try{
@@ -476,6 +603,8 @@ async function loadRegime(){
     $('rb-regime').textContent='UNAVAILABLE';
   }
 }
+
+// ── Rankings ──────────────────────────────────────────────────────────────────────
 
 async function loadRankings(){
   $('r-body').innerHTML='<tr><td colspan="11" class="loading">LOADING RANKINGS</td></tr>';
@@ -545,10 +674,12 @@ function renderRankings(){
       +'<div class="score-track"><div class="score-fill" style="width:'+w+'%"></div></div></div></td>'
       +'<td><span class="pct-pill '+pctCls+'">'+pctVal+'</span></td>'
       +'<td><div class="fbars">'+bars+'</div></td>'
-      +FACTORS.map(f=>'<td class="'+zColor(r[f])+'">'+( r[f]!=null?(+r[f]).toFixed(2):'—')+'</td>').join('')
+      +FACTORS.map(f=>'<td class="'+zColor(r[f])+'">'+(r[f]!=null?(+r[f]).toFixed(2):'—')+'</td>').join('')
       +'</tr>';
   }).join('');
 }
+
+// ── Universe ────────────────────────────────────────────────────────────────────────
 
 async function loadUniverse(){
   $('u-body').innerHTML='<tr><td colspan="4" class="loading">LOADING UNIVERSE</td></tr>';
@@ -606,12 +737,94 @@ function renderUniverse(){
     +'</tr>').join('');
 }
 
+// ── Pipeline Runs ───────────────────────────────────────────────────────────────────────
+
+async function loadRuns(){
+  try{
+    const [iRes,fRes,rRes]=await Promise.allSettled([
+      fetch('/api/ingest-runs?limit=15').then(r=>r.ok?r.json():[]),
+      fetch('/api/factor-runs?limit=15').then(r=>r.ok?r.json():[]),
+      fetch('/api/ranking-runs?limit=15').then(r=>r.ok?r.json():[]),
+    ]);
+    const ingest =(iRes.status==='fulfilled'?iRes.value:[]).map(r=>({...r,_svc:'ingest'}));
+    const factors=(fRes.status==='fulfilled'?fRes.value:[]).map(r=>({...r,_svc:'factors'}));
+    const ranks  =(rRes.status==='fulfilled'?rRes.value:[]).map(r=>({...r,_svc:'rank'}));
+
+    runsData=[...ingest,...factors,...ranks]
+      .sort((a,b)=>new Date(b.started_at||0)-new Date(a.started_at||0))
+      .slice(0,45);
+
+    const li=ingest[0], lf=factors[0], lr=ranks[0];
+
+    const setStatBox=(id,run,detail)=>{
+      const el=$(id);
+      if(!run){el.textContent='—';el.className='val';return;}
+      el.textContent=fmtAgo(run.started_at)+(detail?' // '+detail:'');
+      el.className='val '+(run.status==='failed'?'red':run.status==='running'?'orange':'green');
+    };
+    setStatBox('run-last-ingest', li, li?.ticker_count?li.ticker_count+' tickers':null);
+    setStatBox('run-last-factors', lf, lf?.regime?lf.regime.toUpperCase().replace('_',' '):null);
+    setStatBox('run-last-rank', lr, lr?.ranked_count?lr.ranked_count+' ranked':null);
+
+    const anyRunning=runsData.some(r=>r.status==='running');
+    const anyFailed =runsData.slice(0,6).some(r=>r.status==='failed');
+    $('run-system').textContent=anyRunning?'RUNNING':anyFailed?'CHECK LOGS':'IDLE';
+    $('run-system').className='val '+(anyRunning?'orange':anyFailed?'red':'green');
+
+    $('run-count').textContent=runsData.length+' RUNS SHOWN';
+    renderRuns();
+  }catch(e){
+    $('run-body').innerHTML='<tr><td colspan="6" class="error">COULD NOT LOAD RUN DATA</td></tr>';
+  }
+}
+
+function renderRuns(){
+  if(!runsData.length){
+    $('run-body').innerHTML='<tr><td colspan="6" class="loading">NO PIPELINE RUNS YET — RUN: make pipeline</td></tr>';
+    return;
+  }
+  $('run-body').innerHTML=runsData.map(r=>{
+    const svc=r._svc;
+    const badgeLbl=svc==='ingest'?'INGEST':svc==='factors'?'FACTORS':'RANK';
+
+    let detail='';
+    if(svc==='ingest'){
+      if(r.ticker_count!=null)detail+=r.ticker_count+' tickers';
+      if(r.price_rows!=null)  detail+=(detail?' // ':'')+r.price_rows.toLocaleString()+' px rows';
+      if(r.fund_rows!=null)   detail+=(detail?' // ':'')+r.fund_rows+' fund rows';
+      if(r.error_count)       detail+=(detail?' // ':'')+'<span class="neg">'+r.error_count+' errors</span>';
+    }else if(svc==='factors'){
+      if(r.regime)            detail+=r.regime.toUpperCase().replace('_',' ');
+      if(r.ticker_count!=null)detail+=(detail?' // ':'')+r.ticker_count+' scored';
+      if(r.score_date)        detail+=(detail?' // ':'')+r.score_date;
+    }else{
+      if(r.ranked_count!=null)detail+=r.ranked_count+' ranked';
+      if(r.dropped_count)     detail+=(detail?' // ':'')+r.dropped_count+' dropped';
+      if(r.regime)            detail+=(detail?' // ':'')+r.regime.toUpperCase().replace('_',' ');
+    }
+
+    const jobLbl=(r.job_type||r.strategy_id||'—').replace(/-/g,' ');
+
+    return '<tr>'
+      +'<td class="run-time">'+fmtTime(r.started_at)+'</td>'
+      +'<td><span class="run-badge badge-'+svc+'">'+badgeLbl+'</span></td>'
+      +'<td style="color:var(--muted);font-size:.75rem">'+jobLbl+'</td>'
+      +'<td><span class="status-'+r.status+'">'+r.status.toUpperCase()+'</span></td>'
+      +'<td class="run-detail">'+detail+'</td>'
+      +'<td class="run-dur">'+fmtDuration(r.started_at,r.completed_at)+'</td>'
+      +'</tr>';
+  }).join('');
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────────
+
 (async()=>{
   await loadRegime();
   await loadRankings();
   await loadUniverse();
   $('rh-rank').classList.add('asc');
   $('uh-weight_pct').classList.add('desc');
+  setInterval(loadRegime,120000);
 })();
 </script>
 </body>

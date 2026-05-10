@@ -15,7 +15,7 @@ async def health():
     return {"status": "ok", "service": "api"}
 
 
-# ── Regime ────────────────────────────────────────────────────────────────────────────────────
+# ── Regime ────────────────────────────────────────────────────────────────────────────────────────
 
 @app.get("/regime")
 async def get_regime():
@@ -32,7 +32,7 @@ async def get_regime():
     return dict(result)
 
 
-# ── Rankings ─────────────────────────────────────────────────────────────────────────────────
+# ── Rankings ───────────────────────────────────────────────────────────────────────────────────
 
 @app.get("/rankings")
 async def get_rankings(limit: int = 50, run_id: str | None = None):
@@ -61,7 +61,7 @@ async def get_rankings(limit: int = 50, run_id: str | None = None):
     return {"count": len(results), "rankings": results}
 
 
-# ── Universe ───────────────────────────────────────────────────────────────────────────────────
+# ── Universe ─────────────────────────────────────────────────────────────────────────────────────
 
 @app.get("/universe")
 async def get_universe():
@@ -86,7 +86,7 @@ async def get_universe():
     return {"snapshot": dict(snapshot), "tickers": ticker_list}
 
 
-# ── Factor scores ────────────────────────────────────────────────────────────────────────────
+# ── Factor scores ─────────────────────────────────────────────────────────────────────────────
 
 @app.get("/factors/{ticker}")
 async def get_factors(ticker: str):
@@ -105,7 +105,7 @@ async def get_factors(ticker: str):
     return results
 
 
-# ── Factor runs ─────────────────────────────────────────────────────────────────────────────
+# ── Factor runs ──────────────────────────────────────────────────────────────────────────────
 
 @app.get("/factor-runs")
 async def list_factor_runs(limit: int = 20):
@@ -177,7 +177,39 @@ async def list_ranking_runs(limit: int = 20):
     ]
 
 
-# ── Execution traces ───────────────────────────────────────────────────────────────────────────
+# ── Ingest runs ────────────────────────────────────────────────────────────────────────────────────
+
+@app.get("/ingest-runs")
+async def list_ingest_runs(limit: int = 20):
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            text(
+                "SELECT run_id, trace_id, job_type, status, ticker_count, price_rows, fund_rows, "
+                "       error_count, error_message, started_at, completed_at "
+                "FROM ingest_runs ORDER BY started_at DESC LIMIT :limit"
+            ),
+            {"limit": limit},
+        )
+        results = rows.mappings().fetchall()
+    return [
+        {
+            "run_id": str(r["run_id"]),
+            "trace_id": str(r["trace_id"]) if r["trace_id"] else None,
+            "job_type": r["job_type"],
+            "status": r["status"],
+            "ticker_count": r["ticker_count"],
+            "price_rows": r["price_rows"],
+            "fund_rows": r["fund_rows"],
+            "error_count": r["error_count"],
+            "error_message": r["error_message"],
+            "started_at": r["started_at"].isoformat() if r["started_at"] else None,
+            "completed_at": r["completed_at"].isoformat() if r["completed_at"] else None,
+        }
+        for r in results
+    ]
+
+
+# ── Execution traces ───────────────────────────────────────────────────────────────────────────────────
 
 @app.get("/traces")
 async def list_traces(limit: int = 20):
@@ -262,7 +294,6 @@ async def get_trace(trace_id: str):
             if row:
                 linked_ranking_run = {k: str(v) if hasattr(v, "hex") else (str(v) if hasattr(v, "isoformat") else v) for k, v in dict(row).items()}
 
-        # For a factor_run trace, also find the ranking run that inherited it
         if trace["job_type"] == "factor_run":
             rr2 = await conn.execute(
                 text(
