@@ -69,21 +69,25 @@ data:
 
 factors:
 	@echo "Calculating factor scores and detecting market regime..."
-	@curl -sf -X POST http://localhost:8002/jobs/calculate | python3 -m json.tool
-	@echo "Waiting for factor run to complete..."
-	@until curl -sf http://localhost:8002/regime/current | python3 -c 'import sys,json; d=json.load(sys.stdin); exit(0 if d.get("regime") else 1)' 2>/dev/null; do \
+	@RUN_ID=$$(curl -sf -X POST http://localhost:8002/jobs/calculate \
+	           | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])') && \
+	echo "  run_id=$$RUN_ID" && \
+	until STATUS=$$(curl -sf http://localhost:8002/runs/$$RUN_ID 2>/dev/null \
+	                | python3 -c 'import sys,json; print(json.load(sys.stdin).get("status","running"))' 2>/dev/null); \
+	      [ "$$STATUS" = "success" ] || [ "$$STATUS" = "failed" ] || [ "$$STATUS" = "skipped" ]; do \
 		printf '.'; sleep 3; \
-	done
-	@echo " done."
+	done && echo " $$STATUS"
 
 rank:
 	@echo "Ranking universe by regime-weighted factor scores..."
-	@curl -sf -X POST http://localhost:8003/jobs/rank | python3 -m json.tool
-	@echo "Waiting for rankings..."
-	@until curl -sf http://localhost:8000/rankings?limit=1 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); exit(0 if d.get("count",0)>0 else 1)' 2>/dev/null; do \
+	@RUN_ID=$$(curl -sf -X POST http://localhost:8003/jobs/rank \
+	           | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])') && \
+	echo "  run_id=$$RUN_ID" && \
+	until STATUS=$$(curl -sf http://localhost:8003/runs/$$RUN_ID 2>/dev/null \
+	                | python3 -c 'import sys,json; print(json.load(sys.stdin).get("status","running"))' 2>/dev/null); \
+	      [ "$$STATUS" = "success" ] || [ "$$STATUS" = "failed" ] || [ "$$STATUS" = "skipped" ]; do \
 		printf '.'; sleep 2; \
-	done
-	@echo " done."
+	done && echo " $$STATUS"
 
 # Targeted refreshes (use when you only need one dataset updated)
 prices:
