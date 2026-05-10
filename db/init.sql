@@ -1,7 +1,7 @@
 -- Stocker database schema
 -- Run automatically on first postgres startup via docker-entrypoint-initdb.d
 
--- ── Universe ─────────────────────────────────────────────────────────────────────────────────
+-- ── Universe ───────────────────────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS universe_snapshots (
     id          SERIAL PRIMARY KEY,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS universe_tickers (
 CREATE INDEX IF NOT EXISTS idx_universe_tickers_snapshot ON universe_tickers(snapshot_id);
 CREATE INDEX IF NOT EXISTS idx_universe_tickers_ticker   ON universe_tickers(ticker);
 
--- ── Prices ───────────────────────────────────────────────────────────────────────────────────
+-- ── Prices ───────────────────────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS daily_prices (
     id             SERIAL PRIMARY KEY,
@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS daily_prices (
 
 CREATE INDEX IF NOT EXISTS idx_prices_ticker_date ON daily_prices(ticker, date DESC);
 
--- ── Fundamentals ──────────────────────────────────────────────────────────────────────────────
+-- ── Fundamentals ──────────────────────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS fundamentals (
     id              SERIAL PRIMARY KEY,
@@ -64,10 +64,11 @@ CREATE TABLE IF NOT EXISTS fundamentals (
 
 CREATE INDEX IF NOT EXISTS idx_fundamentals_ticker ON fundamentals(ticker, as_of_date DESC);
 
--- ── Regime ─────────────────────────────────────────────────────────────────────────────────
+-- ── Regime ──────────────────────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS regime_snapshots (
     id              SERIAL PRIMARY KEY,
+    run_id          UUID,
     snapshot_date   DATE         NOT NULL,
     raw_regime      VARCHAR(30)  NOT NULL,  -- today's signal-derived regime, unconfirmed
     regime          VARCHAR(30)  NOT NULL,  -- confirmed regime (retained until N days of new raw signal)
@@ -80,35 +81,75 @@ CREATE TABLE IF NOT EXISTS regime_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_regime_date ON regime_snapshots(snapshot_date DESC);
 
--- ── Factor runs ─────────────────────────────────────────────────────────────────────────────
--- One row per factor calculation run. Regime snapshot and factor scores are
+-- ── Execution traces ─────────────────────────────────────────────────────────────────────────────────────
+-- One trace per top-level job (factor_run or rank_run). Steps record each sub-operation.
+-- Answers: what data was used, what config was active, what happened at each step.
+
+CREATE TABLE IF NOT EXISTS execution_traces (
+    trace_id        UUID         PRIMARY KEY,
+    job_type        VARCHAR(50)  NOT NULL,        -- 'factor_run' | 'rank_run'
+    status          VARCHAR(20)  NOT NULL DEFAULT 'running',  -- running|success|failed|skipped
+    root_run_id     UUID,                         -- factor_runs.run_id or ranking_runs.run_id
+    strategy_id     VARCHAR(100),
+    config_hash     VARCHAR(16),                  -- first 16 hex chars of SHA256 of strategy YAML
+    started_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    completed_at    TIMESTAMPTZ,
+    notes           TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_traces_started    ON execution_traces(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_traces_root_run   ON execution_traces(root_run_id);
+
+CREATE TABLE IF NOT EXISTS execution_steps (
+    step_id         UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    trace_id        UUID         NOT NULL REFERENCES execution_traces(trace_id),
+    service         VARCHAR(50)  NOT NULL,
+    step_name       VARCHAR(100) NOT NULL,
+    status          VARCHAR(20)  NOT NULL,  -- success|failed|skipped
+    started_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    completed_at    TIMESTAMPTZ,
+    input_summary   JSONB,
+    output_summary  JSONB,
+    warnings        JSONB,
+    error_message   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_steps_trace ON execution_steps(trace_id, started_at ASC);
+
+-- ── Factor runs ─────────────────────────────────────────────────────────────────────────────────────────
+-- One row per factor calculation job. Regime snapshot and factor scores are
 -- written only when status = 'success'. Ranker uses only successful runs.
 
 CREATE TABLE IF NOT EXISTS factor_runs (
-    run_id          UUID         PRIMARY KEY,
-    strategy_id     VARCHAR(100) NOT NULL,
-    score_date      DATE         NOT NULL,
-    raw_regime      VARCHAR(30),
-    regime          VARCHAR(30),
-    status          VARCHAR(20)  NOT NULL DEFAULT 'running',  -- running|success|failed|skipped
-    ticker_count    INTEGER,
-    error           TEXT,
-    started_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    completed_at    TIMESTAMPTZ
+    run_id                  UUID         PRIMARY KEY,
+    trace_id                UUID,                         -- execution_traces.trace_id
+    strategy_id             VARCHAR(100) NOT NULL,
+    config_hash             VARCHAR(16),                  -- identifies exact strategy version
+    score_date              DATE,                         -- set after success; latest SPY trading date
+    universe_snapshot_id    INTEGER,                      -- universe_snapshots.id used for this run
+    price_data_max_date     DATE,                         -- latest date in loaded price data
+    raw_regime              VARCHAR(30),
+    regime                  VARCHAR(30),
+    status                  VARCHAR(20)  NOT NULL DEFAULT 'running',  -- running|success|failed|skipped
+    ticker_count            INTEGER,
+    warning_count           INTEGER      NOT NULL DEFAULT 0,
+    error_message           TEXT,
+    started_at              TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    completed_at            TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS idx_factor_runs_date   ON factor_runs(score_date DESC);
 CREATE INDEX IF NOT EXISTS idx_factor_runs_status ON factor_runs(status, score_date DESC);
+CREATE INDEX IF NOT EXISTS idx_factor_runs_trace  ON factor_runs(trace_id);
 
--- ── Factor scores ───────────────────────────────────────────────────────────────────────────────
+-- ── Factor scores ────────────────────────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS factor_scores (
     id              SERIAL PRIMARY KEY,
     run_id          UUID         NOT NULL,
     ticker          VARCHAR(20)  NOT NULL,
     score_date      DATE         NOT NULL,
-    regime          VARCHAR(20)  NOT NULL,
-    momentum        NUMERIC(10,6),  -- z-score, clipped [-3,3]
+    momentum        NUMERIC(10,6),  -- z-score, clipped [-2.5, 2.5]
     quality         NUMERIC(10,6),
     value           NUMERIC(10,6),
     growth          NUMERIC(10,6),
@@ -121,12 +162,37 @@ CREATE TABLE IF NOT EXISTS factor_scores (
 CREATE INDEX IF NOT EXISTS idx_factor_scores_run  ON factor_scores(run_id);
 CREATE INDEX IF NOT EXISTS idx_factor_scores_date ON factor_scores(score_date DESC);
 
--- ── Rankings ──────────────────────────────────────────────────────────────────────────────────
+-- ── Ranking runs ──────────────────────────────────────────────────────────────────────────────────────────
+-- One row per ranking job. Per-ticker rows live in the rankings table.
+
+CREATE TABLE IF NOT EXISTS ranking_runs (
+    run_id               UUID         PRIMARY KEY,
+    trace_id             UUID,                         -- execution_traces.trace_id
+    source_factor_run_id UUID         NOT NULL,        -- factor_runs.run_id used as input
+    strategy_id          VARCHAR(100) NOT NULL,
+    config_hash          VARCHAR(16),
+    regime               VARCHAR(30)  NOT NULL,
+    rank_date            DATE         NOT NULL,
+    status               VARCHAR(20)  NOT NULL DEFAULT 'running',  -- running|success|failed
+    universe_count       INTEGER,                      -- tickers from factor run
+    ranked_count         INTEGER,                      -- tickers that passed all gates
+    dropped_count        INTEGER,                      -- tickers dropped (no quality, too sparse, etc.)
+    error_message        TEXT,
+    started_at           TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    completed_at         TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_ranking_runs_started      ON ranking_runs(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ranking_runs_factor_run   ON ranking_runs(source_factor_run_id);
+CREATE INDEX IF NOT EXISTS idx_ranking_runs_trace        ON ranking_runs(trace_id);
+
+-- ── Rankings ────────────────────────────────────────────────────────────────────────────────────────────
+-- Per-ticker ranking rows. run_id links to ranking_runs.
 
 CREATE TABLE IF NOT EXISTS rankings (
     id                    SERIAL PRIMARY KEY,
-    run_id                UUID         NOT NULL,
-    source_factor_run_id  UUID         NOT NULL,  -- factor_runs.run_id this ranking was built from
+    run_id                UUID         NOT NULL,   -- ranking_runs.run_id
+    source_factor_run_id  UUID         NOT NULL,   -- factor_runs.run_id this ranking was built from
     strategy_id           VARCHAR(100) NOT NULL,
     regime                VARCHAR(20)  NOT NULL,
     rank_date             DATE         NOT NULL,   -- score_date of the source factor run
@@ -143,7 +209,7 @@ CREATE INDEX IF NOT EXISTS idx_rankings_run          ON rankings(run_id);
 CREATE INDEX IF NOT EXISTS idx_rankings_factor_run   ON rankings(source_factor_run_id);
 CREATE INDEX IF NOT EXISTS idx_rankings_date         ON rankings(rank_date DESC, rank ASC);
 
--- ── Job queue (Postgres SKIP LOCKED) ────────────────────────────────────────────────
+-- ── Job queue (Postgres SKIP LOCKED) ──────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS jobs (
     id           SERIAL PRIMARY KEY,

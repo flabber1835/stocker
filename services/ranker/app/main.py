@@ -1,5 +1,6 @@
-import os
+import hashlib
 import json
+import os
 import uuid
 from contextlib import asynccontextmanager
 from datetime import timezone, datetime
@@ -17,12 +18,22 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 strategy: StrategyConfig
 engine: AsyncEngine
+config_hash: str = ""
+
+
+def _load_strategy(path: str) -> StrategyConfig:
+    with open(path, "rb") as f:
+        raw = f.read()
+    global config_hash
+    config_hash = hashlib.sha256(raw).hexdigest()[:16]
+    import yaml
+    return StrategyConfig(**yaml.safe_load(raw))
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global strategy, engine
-    strategy = load_strategy(STRATEGY_CONFIG_PATH)
+    strategy = _load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
     yield
     await engine.dispose()
@@ -33,26 +44,129 @@ app = FastAPI(title="ranker", lifespan=lifespan)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "ranker", "strategy": strategy.strategy_id}
+    return {
+        "status": "ok",
+        "service": "ranker",
+        "strategy": strategy.strategy_id,
+        "config_hash": config_hash,
+    }
 
+
+# ── Trace helpers ─────────────────────────────────────────────────────────────────────────────
+
+async def _log_step(
+    conn,
+    trace_id: str,
+    step_name: str,
+    status: str,
+    *,
+    started_at=None,
+    input_summary=None,
+    output_summary=None,
+    warnings=None,
+    error_message=None,
+) -> None:
+    now = datetime.now(timezone.utc)
+    await conn.execute(
+        text(
+            "INSERT INTO execution_steps "
+            "(step_id, trace_id, service, step_name, status, started_at, completed_at, "
+            " input_summary, output_summary, warnings, error_message) "
+            "VALUES (:sid, :tid, 'ranker', :step, :status, :started, :now, "
+            "        CAST(:inp AS jsonb), CAST(:out AS jsonb), CAST(:warn AS jsonb), :err)"
+        ),
+        {
+            "sid": str(uuid.uuid4()),
+            "tid": trace_id,
+            "step": step_name,
+            "status": status,
+            "started": started_at or now,
+            "now": now,
+            "inp": json.dumps(input_summary) if input_summary else None,
+            "out": json.dumps(output_summary) if output_summary else None,
+            "warn": json.dumps(warnings) if warnings else None,
+            "err": error_message,
+        },
+    )
+
+
+# ── Rank job ──────────────────────────────────────────────────────────────────────────────
 
 async def _run_rank_job() -> None:
+    ranking_run_id = str(uuid.uuid4())
+    started_at = datetime.now(timezone.utc)
+
     async with engine.begin() as conn:
+        # ── Step 1: load latest successful factor run ─────────────────────────────────
+        t0 = datetime.now(timezone.utc)
         row = await conn.execute(
             text(
-                "SELECT run_id, regime, score_date FROM factor_runs "
+                "SELECT run_id, trace_id, regime, score_date, ticker_count "
+                "FROM factor_runs "
                 "WHERE status = 'success' AND ticker_count > 0 "
                 "ORDER BY completed_at DESC LIMIT 1"
             )
         )
         latest = row.fetchone()
-        if latest is None:
-            return
 
-        source_factor_run_id = str(latest.run_id)
-        regime = latest.regime
-        rank_date = latest.score_date  # use the factor run's trading date, not wall-clock today
+    if latest is None:
+        print("[ranker] no successful factor run found — aborting")
+        return
 
+    source_factor_run_id = str(latest.run_id)
+    regime = latest.regime
+    rank_date = latest.score_date
+    factor_ticker_count = latest.ticker_count
+
+    inherited_trace_id = str(latest.trace_id) if latest.trace_id else None
+    trace_id = inherited_trace_id or str(uuid.uuid4())
+    new_trace = inherited_trace_id is None
+
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO ranking_runs "
+                "(run_id, trace_id, source_factor_run_id, strategy_id, config_hash, "
+                " regime, rank_date, status, started_at) "
+                "VALUES (:rid, :tid, :src, :sid, :ch, :regime, :rd, 'running', :now)"
+            ),
+            {
+                "rid": ranking_run_id, "tid": trace_id,
+                "src": source_factor_run_id, "sid": strategy.strategy_id,
+                "ch": config_hash, "regime": regime, "rd": rank_date,
+                "now": started_at,
+            },
+        )
+
+        if new_trace:
+            await conn.execute(
+                text(
+                    "INSERT INTO execution_traces "
+                    "(trace_id, job_type, status, root_run_id, strategy_id, config_hash, started_at) "
+                    "VALUES (:tid, 'rank_run', 'running', :rid, :sid, :ch, :now)"
+                ),
+                {
+                    "tid": trace_id, "rid": ranking_run_id,
+                    "sid": strategy.strategy_id, "ch": config_hash,
+                    "now": started_at,
+                },
+            )
+
+        await _log_step(
+            conn, trace_id, "load_factor_run", "success",
+            started_at=t0,
+            output_summary={
+                "source_factor_run_id": source_factor_run_id,
+                "regime": regime,
+                "score_date": str(rank_date),
+                "ticker_count": factor_ticker_count,
+                "trace_inherited": not new_trace,
+            },
+        )
+
+    # ── Step 2: load factor scores ──────────────────────────────────────────────────
+    t0 = datetime.now(timezone.utc)
+    async with engine.begin() as conn:
         rows = await conn.execute(
             text(
                 "SELECT ticker, momentum, quality, value, growth, low_volatility, liquidity "
@@ -61,8 +175,19 @@ async def _run_rank_job() -> None:
             {"run_id": source_factor_run_id},
         )
         records = rows.fetchall()
+        await _log_step(
+            conn, trace_id, "load_factor_scores", "success",
+            started_at=t0,
+            input_summary={"source_factor_run_id": source_factor_run_id},
+            output_summary={"record_count": len(records)},
+        )
 
     if not records:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("UPDATE ranking_runs SET status='skipped', completed_at=:now WHERE run_id=:rid"),
+                {"rid": ranking_run_id, "now": datetime.now(timezone.utc)},
+            )
         return
 
     factor_scores_df = pd.DataFrame(
@@ -79,12 +204,42 @@ async def _run_rank_job() -> None:
             for r in records
         ]
     )
+    universe_count = len(factor_scores_df)
 
+    # ── Step 3: rank ────────────────────────────────────────────────────────────────────
+    t0 = datetime.now(timezone.utc)
     ranked_df = rank_universe(factor_scores_df, regime, strategy)
+    ranked_count = len(ranked_df)
+    dropped_count = universe_count - ranked_count
+    top_ticker = ranked_df.iloc[0]["ticker"] if ranked_count > 0 else None
+    null_quality_before = int(factor_scores_df["quality"].isna().sum())
 
-    ranking_run_id = str(uuid.uuid4())
+    async with engine.begin() as conn:
+        await _log_step(
+            conn, trace_id, "rank_tickers", "success",
+            started_at=t0,
+            input_summary={
+                "universe_count": universe_count,
+                "regime": regime,
+                "required_factors": strategy.required_factors,
+                "min_non_null_factors": strategy.min_non_null_factors,
+            },
+            output_summary={
+                "ranked_count": ranked_count,
+                "dropped_count": dropped_count,
+                "top_ticker": top_ticker,
+                "null_quality_input": null_quality_before,
+            },
+            warnings=(
+                [f"{dropped_count} tickers dropped (required factors or coverage gate)"]
+                if dropped_count > 0 else None
+            ),
+        )
+
     ranked_at = datetime.now(timezone.utc)
 
+    # ── Step 4: write rankings ─────────────────────────────────────────────────────────────
+    t0 = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         for _, row in ranked_df.iterrows():
             factor_snapshot = {
@@ -126,6 +281,45 @@ async def _run_rank_job() -> None:
                     "ranked_at": ranked_at,
                 },
             )
+
+        await _log_step(
+            conn, trace_id, "write_rankings", "success",
+            started_at=t0,
+            output_summary={
+                "written_count": ranked_count,
+                "run_id": ranking_run_id,
+                "top_ticker": top_ticker,
+            },
+        )
+
+        await conn.execute(
+            text(
+                "UPDATE ranking_runs SET "
+                "  status='success', completed_at=:now, "
+                "  universe_count=:uc, ranked_count=:rc, dropped_count=:dc "
+                "WHERE run_id=:rid"
+            ),
+            {
+                "rid": ranking_run_id,
+                "now": datetime.now(timezone.utc),
+                "uc": universe_count,
+                "rc": ranked_count,
+                "dc": dropped_count,
+            },
+        )
+
+        if new_trace:
+            await conn.execute(
+                text(
+                    "UPDATE execution_traces SET status='success', completed_at=:now "
+                    "WHERE trace_id=:tid"
+                ),
+                {"tid": trace_id, "now": datetime.now(timezone.utc)},
+            )
+
+    print(f"[ranker] run {ranking_run_id} SUCCESS: {ranked_count} ranked "
+          f"({dropped_count} dropped), top={top_ticker}, regime={regime}, date={rank_date}, "
+          f"trace={trace_id}")
 
 
 @app.post("/jobs/rank")
