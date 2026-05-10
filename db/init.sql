@@ -1,7 +1,7 @@
 -- Stocker database schema
 -- Run automatically on first postgres startup via docker-entrypoint-initdb.d
 
--- ── Universe ──────────────────────────────────────────────────────────────────
+-- ── Universe ─────────────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS universe_snapshots (
     id          SERIAL PRIMARY KEY,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS universe_tickers (
 CREATE INDEX IF NOT EXISTS idx_universe_tickers_snapshot ON universe_tickers(snapshot_id);
 CREATE INDEX IF NOT EXISTS idx_universe_tickers_ticker   ON universe_tickers(ticker);
 
--- ── Prices ────────────────────────────────────────────────────────────────────
+-- ── Prices ───────────────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS daily_prices (
     id             SERIAL PRIMARY KEY,
@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS daily_prices (
 
 CREATE INDEX IF NOT EXISTS idx_prices_ticker_date ON daily_prices(ticker, date DESC);
 
--- ── Fundamentals ──────────────────────────────────────────────────────────────
+-- ── Fundamentals ──────────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS fundamentals (
     id              SERIAL PRIMARY KEY,
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS fundamentals (
 
 CREATE INDEX IF NOT EXISTS idx_fundamentals_ticker ON fundamentals(ticker, as_of_date DESC);
 
--- ── Regime ────────────────────────────────────────────────────────────────────
+-- ── Regime ─────────────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS regime_snapshots (
     id              SERIAL PRIMARY KEY,
@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS regime_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_regime_date ON regime_snapshots(snapshot_date DESC);
 
--- ── Factor runs ───────────────────────────────────────────────────────────────
+-- ── Factor runs ─────────────────────────────────────────────────────────────────────────────
 -- One row per factor calculation run. Regime snapshot and factor scores are
 -- written only when status = 'success'. Ranker uses only successful runs.
 
@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS factor_runs (
 CREATE INDEX IF NOT EXISTS idx_factor_runs_date   ON factor_runs(score_date DESC);
 CREATE INDEX IF NOT EXISTS idx_factor_runs_status ON factor_runs(status, score_date DESC);
 
--- ── Factor scores ─────────────────────────────────────────────────────────────
+-- ── Factor scores ───────────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS factor_scores (
     id              SERIAL PRIMARY KEY,
@@ -121,27 +121,29 @@ CREATE TABLE IF NOT EXISTS factor_scores (
 CREATE INDEX IF NOT EXISTS idx_factor_scores_run  ON factor_scores(run_id);
 CREATE INDEX IF NOT EXISTS idx_factor_scores_date ON factor_scores(score_date DESC);
 
--- ── Rankings ──────────────────────────────────────────────────────────────────
+-- ── Rankings ──────────────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS rankings (
-    id               SERIAL PRIMARY KEY,
-    run_id           UUID         NOT NULL,
-    strategy_id      VARCHAR(100) NOT NULL,
-    regime           VARCHAR(20)  NOT NULL,
-    rank_date        DATE         NOT NULL,
-    ticker           VARCHAR(20)  NOT NULL,
-    rank             INTEGER      NOT NULL,
-    composite_score  NUMERIC(10,6),
-    percentile       NUMERIC(10,6),
-    factor_scores    JSONB,         -- snapshot of individual z-scores
-    ranked_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    id                    SERIAL PRIMARY KEY,
+    run_id                UUID         NOT NULL,
+    source_factor_run_id  UUID         NOT NULL,  -- factor_runs.run_id this ranking was built from
+    strategy_id           VARCHAR(100) NOT NULL,
+    regime                VARCHAR(20)  NOT NULL,
+    rank_date             DATE         NOT NULL,   -- score_date of the source factor run
+    ticker                VARCHAR(20)  NOT NULL,
+    rank                  INTEGER      NOT NULL,
+    composite_score       NUMERIC(10,6),
+    percentile            NUMERIC(10,6),
+    factor_scores         JSONB,                   -- snapshot of individual z-scores
+    ranked_at             TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     UNIQUE (run_id, ticker)
 );
 
-CREATE INDEX IF NOT EXISTS idx_rankings_run  ON rankings(run_id);
-CREATE INDEX IF NOT EXISTS idx_rankings_date ON rankings(rank_date DESC, rank ASC);
+CREATE INDEX IF NOT EXISTS idx_rankings_run          ON rankings(run_id);
+CREATE INDEX IF NOT EXISTS idx_rankings_factor_run   ON rankings(source_factor_run_id);
+CREATE INDEX IF NOT EXISTS idx_rankings_date         ON rankings(rank_date DESC, rank ASC);
 
--- ── Job queue (Postgres SKIP LOCKED) ─────────────────────────────────────────
+-- ── Job queue (Postgres SKIP LOCKED) ────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS jobs (
     id           SERIAL PRIMARY KEY,

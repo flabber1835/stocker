@@ -2,7 +2,7 @@ import os
 import json
 import uuid
 from contextlib import asynccontextmanager
-from datetime import date, timezone, datetime
+from datetime import timezone, datetime
 
 import pandas as pd
 from fastapi import FastAPI, BackgroundTasks, HTTPException
@@ -40,7 +40,7 @@ async def _run_rank_job() -> None:
     async with engine.begin() as conn:
         row = await conn.execute(
             text(
-                "SELECT run_id, regime FROM factor_runs "
+                "SELECT run_id, regime, score_date FROM factor_runs "
                 "WHERE status = 'success' AND ticker_count > 0 "
                 "ORDER BY completed_at DESC LIMIT 1"
             )
@@ -49,15 +49,16 @@ async def _run_rank_job() -> None:
         if latest is None:
             return
 
-        latest_run_id = str(latest.run_id)
+        source_factor_run_id = str(latest.run_id)
         regime = latest.regime
+        rank_date = latest.score_date  # use the factor run's trading date, not wall-clock today
 
         rows = await conn.execute(
             text(
                 "SELECT ticker, momentum, quality, value, growth, low_volatility, liquidity "
                 "FROM factor_scores WHERE run_id = :run_id"
             ),
-            {"run_id": latest_run_id},
+            {"run_id": source_factor_run_id},
         )
         records = rows.fetchall()
 
@@ -82,7 +83,6 @@ async def _run_rank_job() -> None:
     ranked_df = rank_universe(factor_scores_df, regime, strategy)
 
     ranking_run_id = str(uuid.uuid4())
-    rank_date = date.today()
     ranked_at = datetime.now(timezone.utc)
 
     async with engine.begin() as conn:
@@ -99,21 +99,22 @@ async def _run_rank_job() -> None:
                 text(
                     """
                     INSERT INTO rankings
-                        (run_id, strategy_id, regime, rank_date, ticker, rank,
+                        (run_id, source_factor_run_id, strategy_id, regime, rank_date, ticker, rank,
                          composite_score, percentile, factor_scores, ranked_at)
                     VALUES
-                        (:run_id, :strategy_id, :regime, :rank_date, :ticker, :rank,
+                        (:run_id, :source_factor_run_id, :strategy_id, :regime, :rank_date, :ticker, :rank,
                          :composite_score, :percentile, CAST(:factor_scores AS jsonb), :ranked_at)
                     ON CONFLICT (run_id, ticker) DO UPDATE SET
-                        rank            = EXCLUDED.rank,
-                        composite_score = EXCLUDED.composite_score,
-                        percentile      = EXCLUDED.percentile,
-                        factor_scores   = EXCLUDED.factor_scores,
-                        ranked_at       = EXCLUDED.ranked_at
+                        rank                 = EXCLUDED.rank,
+                        composite_score      = EXCLUDED.composite_score,
+                        percentile           = EXCLUDED.percentile,
+                        factor_scores        = EXCLUDED.factor_scores,
+                        ranked_at            = EXCLUDED.ranked_at
                     """
                 ),
                 {
                     "run_id": ranking_run_id,
+                    "source_factor_run_id": source_factor_run_id,
                     "strategy_id": strategy.strategy_id,
                     "regime": regime,
                     "rank_date": rank_date,

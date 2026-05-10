@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import os
 import random
 import time
@@ -117,8 +118,12 @@ def _to_int(val) -> int | None:
         return None
 
 
+def _stable_seed(ticker: str) -> int:
+    return int(hashlib.sha256(ticker.encode()).hexdigest()[:8], 16)
+
+
 def _mock_prices(ticker: str, days: int = 400) -> list[dict]:
-    rng = random.Random(hash(ticker) & 0xFFFFFFFF)
+    rng = random.Random(_stable_seed(ticker))
     price = rng.uniform(50.0, 500.0)
     today = date.today()
     rows = []
@@ -146,7 +151,7 @@ def _mock_prices(ticker: str, days: int = 400) -> list[dict]:
 
 
 def _mock_overview(ticker: str) -> dict:
-    rng = random.Random(hash(ticker) & 0xFFFFFFFF)
+    rng = random.Random(_stable_seed(ticker))
     return {
         "pe_ratio": round(rng.uniform(10.0, 50.0), 4),
         "pb_ratio": round(rng.uniform(1.0, 10.0), 4),
