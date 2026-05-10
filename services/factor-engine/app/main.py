@@ -141,21 +141,26 @@ async def _do_calculate(run_id: str, today: date) -> str | None:
                   f"{strategy.regime_detection.slow_sma}) — aborting factor run")
             return f"insufficient SPY history: {len(spy_df)} rows, need {strategy.regime_detection.slow_sma}"
 
+        # score_date = latest trading date in SPY data, not wall-clock today.
+        # Avoids labeling weekend/holiday runs with a non-trading date.
+        score_date: date = pd.to_datetime(spy_df["date"]).max().date()
+        print(f"[calculate] score_date={score_date} (latest SPY trading date)")
+
         regime_info = detect_regime(spy_df, strategy.regime_detection)
         raw_regime = regime_info["raw_regime"]
 
-        # Read prior raw regime history for confirmation (distinct dates only, excluding today).
+        # Read prior raw regime history for confirmation (distinct dates only, excluding score_date).
         # Subquery ensures DISTINCT ON deduplication happens before ORDER BY + LIMIT.
         history_rows = await conn.execute(
             text(
                 "SELECT raw_regime, regime FROM ("
                 "  SELECT DISTINCT ON (snapshot_date) snapshot_date, raw_regime, regime, calculated_at"
                 "  FROM regime_snapshots"
-                "  WHERE snapshot_date < :today"
+                "  WHERE snapshot_date < :score_date"
                 "  ORDER BY snapshot_date DESC, calculated_at DESC"
                 ") x ORDER BY snapshot_date DESC LIMIT :n"
             ),
-            {"n": strategy.regime_detection.confirmation_days, "today": today},
+            {"n": strategy.regime_detection.confirmation_days, "score_date": score_date},
         )
         history = history_rows.fetchall()
         prior_raw_regimes = [r[0] for r in history]
@@ -250,7 +255,7 @@ async def _do_calculate(run_id: str, today: date) -> str | None:
                 "VALUES (:d, :raw_regime, :regime, :spy_price, :spy_sma_slow, :spy_vs_sma, :realized_vol)"
             ),
             {
-                "d": today,
+                "d": score_date,
                 "raw_regime": raw_regime,
                 "regime": confirmed_regime,
                 "spy_price": regime_info["spy_price"],
@@ -274,7 +279,7 @@ async def _do_calculate(run_id: str, today: date) -> str | None:
                 {
                     "run_id": run_id,
                     "ticker": row["ticker"],
-                    "score_date": today,
+                    "score_date": score_date,
                     "regime": confirmed_regime,
                     "momentum": _val(row["momentum"]),
                     "quality": _val(row["quality"]),
@@ -287,11 +292,12 @@ async def _do_calculate(run_id: str, today: date) -> str | None:
 
         await conn.execute(
             text(
-                "UPDATE factor_runs SET status='success', raw_regime=:raw_regime, regime=:regime, "
+                "UPDATE factor_runs SET status='success', score_date=:score_date, "
+                "raw_regime=:raw_regime, regime=:regime, "
                 "ticker_count=:ticker_count, completed_at=NOW() WHERE run_id=:run_id"
             ),
-            {"run_id": run_id, "raw_regime": raw_regime, "regime": confirmed_regime,
-             "ticker_count": ticker_count},
+            {"run_id": run_id, "score_date": score_date, "raw_regime": raw_regime,
+             "regime": confirmed_regime, "ticker_count": ticker_count},
         )
 
     print(f"[calculate] saved {ticker_count} factor score rows for run_id={run_id}")
