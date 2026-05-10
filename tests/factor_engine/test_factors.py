@@ -32,11 +32,11 @@ def _prices_long(tickers: list[str], n: int = 300) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def test_zscore_clips_to_3():
+def test_zscore_clips_to_2_5():
     s = pd.Series([1.0, 2.0, 100.0, -100.0])
     z = cross_section_zscore(s)
-    assert z.max() <= 3.0
-    assert z.min() >= -3.0
+    assert z.max() <= 2.5
+    assert z.min() >= -2.5
 
 
 def test_zscore_zero_std():

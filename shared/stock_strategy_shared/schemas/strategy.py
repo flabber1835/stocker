@@ -73,6 +73,7 @@ class StrategyConfig(BaseModel):
     max_positions: int = Field(default=30, ge=1, le=500)
     min_score_percentile: float = Field(default=0.0, ge=0, le=1)
     min_non_null_factors: int = Field(default=3, ge=1, le=6)
+    required_factors: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def weights_match_regimes(self) -> StrategyConfig:

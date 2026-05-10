@@ -108,3 +108,36 @@ def test_percentile_excludes_unrankable():
     assert len(result) == 2
     assert result["percentile"].max() == pytest.approx(1.0)
     assert result["percentile"].min() == pytest.approx(0.0)
+
+
+def test_required_factors_excludes_missing():
+    # Ticker missing a required factor should be dropped even if it has enough non-null count
+    config_with_required = StrategyConfig(**{
+        "strategy_id": "test_required",
+        "min_non_null_factors": 3,
+        "required_factors": ["quality"],
+        "regime_detection": {
+            "slow_sma": 200, "vol_window": 20, "vol_threshold": 0.20, "confirmation_days": 5,
+            "regimes": {
+                "bull_calm":   {"spy_above_slow_sma": True,  "vol_above_threshold": False},
+                "bull_stress": {"spy_above_slow_sma": True,  "vol_above_threshold": True},
+                "bear_stress": {"spy_above_slow_sma": False, "vol_above_threshold": True},
+                "bear_calm":   {"spy_above_slow_sma": False, "vol_above_threshold": False},
+            },
+        },
+        "factor_weights": {
+            "bull_calm":   {"momentum": 0.35, "quality": 0.25, "growth": 0.20, "value": 0.10, "low_volatility": 0.10},
+            "bull_stress": {"quality": 0.35, "low_volatility": 0.25, "momentum": 0.20, "value": 0.10, "growth": 0.10},
+            "bear_stress": {"low_volatility": 0.35, "quality": 0.30, "value": 0.20, "growth": 0.10, "momentum": 0.05},
+            "bear_calm":   {"value": 0.30, "quality": 0.30, "low_volatility": 0.20, "momentum": 0.10, "growth": 0.10},
+        },
+    })
+    df = _scores(
+        # Has quality — should rank
+        WITH_QUALITY={"momentum": 1.0, "quality": 0.5, "value": 0.5, "growth": 0.5, "low_volatility": 0.5},
+        # Missing quality but has 4 other factors — must be excluded
+        NO_QUALITY={"momentum": 2.0, "value": 1.0, "growth": 1.0, "low_volatility": 1.0},
+    )
+    result = rank_universe(df, "bull_calm", config_with_required)
+    assert "NO_QUALITY" not in result["ticker"].values
+    assert "WITH_QUALITY" in result["ticker"].values
