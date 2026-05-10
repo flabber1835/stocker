@@ -1,8 +1,7 @@
 from __future__ import annotations
 import os
-from typing import Any
 from fastapi import FastAPI, HTTPException
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncConnection
+from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
 
 DATABASE_URL = os.environ["DATABASE_URL"]
@@ -15,6 +14,8 @@ app = FastAPI(title="stocker-api")
 async def health():
     return {"status": "ok", "service": "api"}
 
+
+# ── Regime ────────────────────────────────────────────────────────────────────────────────────
 
 @app.get("/regime")
 async def get_regime():
@@ -31,6 +32,8 @@ async def get_regime():
     return dict(result)
 
 
+# ── Rankings ─────────────────────────────────────────────────────────────────────────────────
+
 @app.get("/rankings")
 async def get_rankings(limit: int = 50, run_id: str | None = None):
     async with engine.connect() as conn:
@@ -43,7 +46,6 @@ async def get_rankings(limit: int = 50, run_id: str | None = None):
                 {"run_id": run_id, "limit": limit},
             )
         else:
-            # Latest run
             rows = await conn.execute(
                 text(
                     "SELECT ticker, rank, composite_score, percentile, regime, rank_date, factor_scores "
@@ -58,6 +60,8 @@ async def get_rankings(limit: int = 50, run_id: str | None = None):
         raise HTTPException(404, "No rankings yet. Run: make pipeline")
     return {"count": len(results), "rankings": results}
 
+
+# ── Universe ───────────────────────────────────────────────────────────────────────────────────
 
 @app.get("/universe")
 async def get_universe():
@@ -79,18 +83,17 @@ async def get_universe():
             {"sid": snapshot["id"]},
         )
         ticker_list = [dict(r) for r in tickers.mappings()]
-    return {
-        "snapshot": dict(snapshot),
-        "tickers": ticker_list,
-    }
+    return {"snapshot": dict(snapshot), "tickers": ticker_list}
 
+
+# ── Factor scores ────────────────────────────────────────────────────────────────────────────
 
 @app.get("/factors/{ticker}")
 async def get_factors(ticker: str):
     async with engine.connect() as conn:
         rows = await conn.execute(
             text(
-                "SELECT run_id, ticker, score_date, regime, momentum, quality, value, growth, "
+                "SELECT run_id, ticker, score_date, momentum, quality, value, growth, "
                 "low_volatility, liquidity, calculated_at "
                 "FROM factor_scores WHERE ticker = :ticker ORDER BY calculated_at DESC LIMIT 5"
             ),
@@ -100,3 +103,203 @@ async def get_factors(ticker: str):
     if not results:
         raise HTTPException(404, f"No factor scores for {ticker}")
     return results
+
+
+# ── Factor runs ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/factor-runs")
+async def list_factor_runs(limit: int = 20):
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            text(
+                "SELECT run_id, trace_id, strategy_id, config_hash, status, regime, "
+                "       score_date, ticker_count, warning_count, universe_snapshot_id, "
+                "       price_data_max_date, started_at, completed_at, error_message "
+                "FROM factor_runs ORDER BY started_at DESC LIMIT :limit"
+            ),
+            {"limit": limit},
+        )
+        results = rows.mappings().fetchall()
+    return [
+        {
+            "run_id": str(r["run_id"]),
+            "trace_id": str(r["trace_id"]) if r["trace_id"] else None,
+            "strategy_id": r["strategy_id"],
+            "config_hash": r["config_hash"],
+            "status": r["status"],
+            "regime": r["regime"],
+            "score_date": str(r["score_date"]) if r["score_date"] else None,
+            "ticker_count": r["ticker_count"],
+            "warning_count": r["warning_count"],
+            "universe_snapshot_id": r["universe_snapshot_id"],
+            "price_data_max_date": str(r["price_data_max_date"]) if r["price_data_max_date"] else None,
+            "started_at": r["started_at"].isoformat() if r["started_at"] else None,
+            "completed_at": r["completed_at"].isoformat() if r["completed_at"] else None,
+            "error_message": r["error_message"],
+        }
+        for r in results
+    ]
+
+
+# ── Ranking runs ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/ranking-runs")
+async def list_ranking_runs(limit: int = 20):
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            text(
+                "SELECT run_id, trace_id, source_factor_run_id, strategy_id, config_hash, "
+                "       regime, rank_date, status, universe_count, ranked_count, dropped_count, "
+                "       started_at, completed_at, error_message "
+                "FROM ranking_runs ORDER BY started_at DESC LIMIT :limit"
+            ),
+            {"limit": limit},
+        )
+        results = rows.mappings().fetchall()
+    return [
+        {
+            "run_id": str(r["run_id"]),
+            "trace_id": str(r["trace_id"]) if r["trace_id"] else None,
+            "source_factor_run_id": str(r["source_factor_run_id"]),
+            "strategy_id": r["strategy_id"],
+            "config_hash": r["config_hash"],
+            "regime": r["regime"],
+            "rank_date": str(r["rank_date"]) if r["rank_date"] else None,
+            "status": r["status"],
+            "universe_count": r["universe_count"],
+            "ranked_count": r["ranked_count"],
+            "dropped_count": r["dropped_count"],
+            "started_at": r["started_at"].isoformat() if r["started_at"] else None,
+            "completed_at": r["completed_at"].isoformat() if r["completed_at"] else None,
+            "error_message": r["error_message"],
+        }
+        for r in results
+    ]
+
+
+# ── Execution traces ───────────────────────────────────────────────────────────────────────────
+
+@app.get("/traces")
+async def list_traces(limit: int = 20):
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            text(
+                "SELECT trace_id, job_type, status, root_run_id, strategy_id, config_hash, "
+                "       started_at, completed_at, notes "
+                "FROM execution_traces ORDER BY started_at DESC LIMIT :limit"
+            ),
+            {"limit": limit},
+        )
+        results = rows.mappings().fetchall()
+    return [
+        {
+            "trace_id": str(r["trace_id"]),
+            "job_type": r["job_type"],
+            "status": r["status"],
+            "root_run_id": str(r["root_run_id"]) if r["root_run_id"] else None,
+            "strategy_id": r["strategy_id"],
+            "config_hash": r["config_hash"],
+            "started_at": r["started_at"].isoformat() if r["started_at"] else None,
+            "completed_at": r["completed_at"].isoformat() if r["completed_at"] else None,
+            "notes": r["notes"],
+        }
+        for r in results
+    ]
+
+
+@app.get("/traces/{trace_id}")
+async def get_trace(trace_id: str):
+    async with engine.connect() as conn:
+        trace_row = await conn.execute(
+            text(
+                "SELECT trace_id, job_type, status, root_run_id, strategy_id, config_hash, "
+                "       started_at, completed_at, notes "
+                "FROM execution_traces WHERE trace_id = :tid"
+            ),
+            {"tid": trace_id},
+        )
+        trace = trace_row.mappings().first()
+        if trace is None:
+            raise HTTPException(404, f"Trace {trace_id} not found")
+
+        steps_rows = await conn.execute(
+            text(
+                "SELECT step_id, service, step_name, status, started_at, completed_at, "
+                "       input_summary, output_summary, warnings, error_message "
+                "FROM execution_steps WHERE trace_id = :tid ORDER BY started_at ASC"
+            ),
+            {"tid": trace_id},
+        )
+        steps = steps_rows.mappings().fetchall()
+
+        linked_factor_run = None
+        linked_ranking_run = None
+        root_run_id = trace["root_run_id"]
+
+        if root_run_id and trace["job_type"] == "factor_run":
+            fr = await conn.execute(
+                text(
+                    "SELECT run_id, status, regime, score_date, ticker_count, warning_count, "
+                    "       config_hash, universe_snapshot_id, price_data_max_date "
+                    "FROM factor_runs WHERE run_id = :rid"
+                ),
+                {"rid": str(root_run_id)},
+            )
+            row = fr.mappings().first()
+            if row:
+                linked_factor_run = {k: str(v) if hasattr(v, "hex") else (str(v) if hasattr(v, "isoformat") else v) for k, v in dict(row).items()}
+
+        if root_run_id and trace["job_type"] == "rank_run":
+            rr = await conn.execute(
+                text(
+                    "SELECT run_id, status, regime, rank_date, universe_count, ranked_count, "
+                    "       dropped_count, source_factor_run_id "
+                    "FROM ranking_runs WHERE run_id = :rid"
+                ),
+                {"rid": str(root_run_id)},
+            )
+            row = rr.mappings().first()
+            if row:
+                linked_ranking_run = {k: str(v) if hasattr(v, "hex") else (str(v) if hasattr(v, "isoformat") else v) for k, v in dict(row).items()}
+
+        # For a factor_run trace, also find the ranking run that inherited it
+        if trace["job_type"] == "factor_run":
+            rr2 = await conn.execute(
+                text(
+                    "SELECT run_id, status, regime, rank_date, universe_count, ranked_count, dropped_count "
+                    "FROM ranking_runs WHERE trace_id = :tid ORDER BY started_at DESC LIMIT 1"
+                ),
+                {"tid": trace_id},
+            )
+            row2 = rr2.mappings().first()
+            if row2:
+                linked_ranking_run = {k: str(v) if hasattr(v, "hex") else (str(v) if hasattr(v, "isoformat") else v) for k, v in dict(row2).items()}
+
+    def _fmt_step(s):
+        return {
+            "step_id": str(s["step_id"]),
+            "service": s["service"],
+            "step_name": s["step_name"],
+            "status": s["status"],
+            "started_at": s["started_at"].isoformat() if s["started_at"] else None,
+            "completed_at": s["completed_at"].isoformat() if s["completed_at"] else None,
+            "input_summary": s["input_summary"],
+            "output_summary": s["output_summary"],
+            "warnings": s["warnings"],
+            "error_message": s["error_message"],
+        }
+
+    return {
+        "trace_id": str(trace["trace_id"]),
+        "job_type": trace["job_type"],
+        "status": trace["status"],
+        "root_run_id": str(trace["root_run_id"]) if trace["root_run_id"] else None,
+        "strategy_id": trace["strategy_id"],
+        "config_hash": trace["config_hash"],
+        "started_at": trace["started_at"].isoformat() if trace["started_at"] else None,
+        "completed_at": trace["completed_at"].isoformat() if trace["completed_at"] else None,
+        "notes": trace["notes"],
+        "factor_run": linked_factor_run,
+        "ranking_run": linked_ranking_run,
+        "steps": [_fmt_step(s) for s in steps],
+    }
