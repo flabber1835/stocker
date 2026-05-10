@@ -448,9 +448,9 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         await conn.execute(
             text(
                 "INSERT INTO regime_snapshots "
-                "(run_id, snapshot_date, raw_regime, regime, spy_price, spy_vs_sma, "
+                "(run_id, snapshot_date, raw_regime, regime, spy_price, spy_sma_slow, spy_vs_sma, "
                 " realized_vol, calculated_at) "
-                "VALUES (:run_id, :snapshot_date, :raw_regime, :regime, :spy_price, "
+                "VALUES (:run_id, :snapshot_date, :raw_regime, :regime, :spy_price, :spy_sma_slow, "
                 "        :spy_vs_sma, :realized_vol, :calculated_at)"
             ),
             {
@@ -459,6 +459,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
                 "raw_regime": raw_regime,
                 "regime": confirmed_regime,
                 "spy_price": float(regime_info["spy_price"]),
+                "spy_sma_slow": float(regime_info["spy_sma_slow"]),
                 "spy_vs_sma": float(regime_info["spy_vs_sma"]),
                 "realized_vol": float(regime_info["realized_vol"]),
                 "calculated_at": calculated_at,
@@ -587,6 +588,36 @@ async def get_current_regime():
         "spy_vs_sma": float(result.spy_vs_sma) if result.spy_vs_sma is not None else None,
         "realized_vol": float(result.realized_vol) if result.realized_vol is not None else None,
         "calculated_at": result.calculated_at.isoformat() if result.calculated_at else None,
+    }
+
+
+@app.get("/runs/{run_id}")
+async def get_run(run_id: str):
+    async with engine.connect() as conn:
+        row = await conn.execute(
+            text(
+                "SELECT run_id, trace_id, strategy_id, config_hash, status, regime, "
+                "       score_date, ticker_count, warning_count, started_at, completed_at, error_message "
+                "FROM factor_runs WHERE run_id = :rid"
+            ),
+            {"rid": run_id},
+        )
+        result = row.fetchone()
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    return {
+        "run_id": str(result.run_id),
+        "trace_id": str(result.trace_id) if result.trace_id else None,
+        "strategy_id": result.strategy_id,
+        "config_hash": result.config_hash,
+        "status": result.status,
+        "regime": result.regime,
+        "score_date": str(result.score_date) if result.score_date else None,
+        "ticker_count": result.ticker_count,
+        "warning_count": result.warning_count,
+        "started_at": result.started_at.isoformat() if result.started_at else None,
+        "completed_at": result.completed_at.isoformat() if result.completed_at else None,
+        "error_message": result.error_message,
     }
 
 
