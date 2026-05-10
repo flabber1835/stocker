@@ -120,29 +120,42 @@ async def get_benchmark_tickers(session: httpx.AsyncClient) -> list[dict]:
     ]
 
 
+_NON_EQUITY_CLASSES = {"cash", "cash and/or derivatives", "money market", "fixed income", "futures"}
+
+
+def _is_investable_equity(t: dict) -> bool:
+    """Return True if this holding should be included as an investable equity."""
+    ac = (t.get("asset_class") or "").lower().strip()
+    # Benchmarks have no asset_class — keep them
+    if not ac:
+        return True
+    return ac not in _NON_EQUITY_CLASSES
+
+
 async def save_universe_snapshot(conn, etf_ticker: str, tickers: list[dict]) -> int:
     from sqlalchemy import text
 
     today = date.today()
+    investable = [t for t in tickers if _is_investable_equity(t)]
+    dropped = len(tickers) - len(investable)
+    if dropped:
+        print(f"[universe] filtered {dropped} non-equity positions (cash/derivatives) from snapshot")
+
     result = await conn.execute(
         text(
-            """
-            INSERT INTO universe_snapshots (etf_ticker, snapshot_date, ticker_count)
-            VALUES (:etf_ticker, :snapshot_date, :ticker_count)
-            RETURNING id
-            """
+            "INSERT INTO universe_snapshots (etf_ticker, snapshot_date, ticker_count) "
+            "VALUES (:etf_ticker, :snapshot_date, :ticker_count) "
+            "RETURNING id"
         ),
-        {"etf_ticker": etf_ticker, "snapshot_date": today, "ticker_count": len(tickers)},
+        {"etf_ticker": etf_ticker, "snapshot_date": today, "ticker_count": len(investable)},
     )
     snapshot_id = result.scalar_one()
 
-    if tickers:
+    if investable:
         await conn.execute(
             text(
-                """
-                INSERT INTO universe_tickers (snapshot_id, ticker, name, weight_pct, sector, asset_class)
-                VALUES (:snapshot_id, :ticker, :name, :weight_pct, :sector, :asset_class)
-                """
+                "INSERT INTO universe_tickers (snapshot_id, ticker, name, weight_pct, sector, asset_class) "
+                "VALUES (:snapshot_id, :ticker, :name, :weight_pct, :sector, :asset_class)"
             ),
             [
                 {
@@ -153,7 +166,7 @@ async def save_universe_snapshot(conn, etf_ticker: str, tickers: list[dict]) -> 
                     "sector": t.get("sector"),
                     "asset_class": t.get("asset_class"),
                 }
-                for t in tickers
+                for t in investable
             ],
         )
 

@@ -1,24 +1,42 @@
+import hashlib
+import json
 import os
 import uuid
 from contextlib import asynccontextmanager
-from datetime import date, timezone, datetime
+from datetime import date, datetime, timezone
+from typing import Optional
 
 import pandas as pd
-from fastapi import BackgroundTasks, FastAPI
+from fastapi import FastAPI, BackgroundTasks, HTTPException
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.factors import compute_all_factors
-from app.regime import detect_regime
+from app.regime import detect_regime, resolve_confirmed_regime
+from stock_strategy_shared.schemas.strategy import StrategyConfig
 
-DATABASE_URL = os.environ["DATABASE_URL"]
+STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
 
-engine: AsyncEngine = None
+strategy: StrategyConfig
+engine: AsyncEngine
+config_hash: str = ""
+
+
+def _load_strategy(path: str) -> StrategyConfig:
+    import yaml
+    with open(path) as f:
+        raw = f.read()
+    global config_hash
+    config_hash = hashlib.sha256(raw.encode()).hexdigest()[:16]
+    return StrategyConfig(**yaml.safe_load(raw))
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global engine
+    global strategy, engine
+    strategy = _load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
     yield
     await engine.dispose()
@@ -29,91 +47,352 @@ app = FastAPI(title="factor-engine", lifespan=lifespan)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "factor-engine"}
+    return {
+        "status": "ok",
+        "service": "factor-engine",
+        "strategy": strategy.strategy_id,
+        "config_hash": config_hash,
+    }
 
 
-@app.get("/regime/current")
-async def regime_current():
-    async with engine.connect() as conn:
-        row = await conn.execute(
-            text(
-                "SELECT snapshot_date, regime, spy_price, spy_sma_50, spy_sma_200, spy_vs_sma200, calculated_at "
-                "FROM regime_snapshots ORDER BY snapshot_date DESC, calculated_at DESC LIMIT 1"
+# ── Artifact file helpers ─────────────────────────────────────────────────────────────────────────────────────────
+
+async def _write_trace_file(
+    trace_id: str,
+    run_id: str,
+    job_type: str,
+    status: str,
+    started_at: datetime,
+    **extra,
+) -> None:
+    if not ARTIFACTS_PATH:
+        return
+    try:
+        async with engine.connect() as conn:
+            rows = await conn.execute(
+                text(
+                    "SELECT service, step_name, status, started_at, completed_at, "
+                    "       input_summary, output_summary, warnings, error_message "
+                    "FROM execution_steps WHERE trace_id = :tid ORDER BY started_at ASC"
+                ),
+                {"tid": trace_id},
             )
+            steps = [dict(r) for r in rows.mappings()]
+
+        traces_dir = os.path.join(ARTIFACTS_PATH, "traces")
+        os.makedirs(traces_dir, exist_ok=True)
+        fname = f"{started_at.strftime('%Y-%m-%d')}_{job_type}_{trace_id[:8]}.json"
+        payload = {
+            "trace_id": trace_id,
+            "run_id": run_id,
+            "job_type": job_type,
+            "status": status,
+            "strategy_id": strategy.strategy_id,
+            "config_hash": config_hash,
+            "started_at": started_at.isoformat(),
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            **extra,
+            "steps": steps,
+        }
+        path = os.path.join(traces_dir, fname)
+        with open(path, "w") as f:
+            json.dump(payload, f, indent=2, default=str)
+        print(f"[factor-engine] trace written → {path}")
+    except Exception as exc:
+        import traceback
+        print(f"[factor-engine] WARNING: failed to write trace file for {trace_id}: {exc}")
+        traceback.print_exc()
+
+
+# ── Trace helpers ─────────────────────────────────────────────────────────────────────────────────────────────
+
+async def _create_trace(conn, trace_id: str, job_type: str, root_run_id: str) -> None:
+    await conn.execute(
+        text(
+            "INSERT INTO execution_traces "
+            "(trace_id, job_type, status, root_run_id, strategy_id, config_hash, started_at) "
+            "VALUES (:tid, :jt, 'running', :rid, :sid, :ch, :now)"
+        ),
+        {
+            "tid": trace_id, "jt": job_type, "rid": root_run_id,
+            "sid": strategy.strategy_id, "ch": config_hash,
+            "now": datetime.now(timezone.utc),
+        },
+    )
+
+
+async def _finish_trace(conn, trace_id: str, status: str, notes: Optional[str] = None) -> None:
+    await conn.execute(
+        text(
+            "UPDATE execution_traces "
+            "SET status=:status, completed_at=:now, notes=:notes "
+            "WHERE trace_id=:tid"
+        ),
+        {"tid": trace_id, "status": status, "now": datetime.now(timezone.utc), "notes": notes},
+    )
+
+
+async def _log_step(
+    conn,
+    trace_id: str,
+    step_name: str,
+    status: str,
+    *,
+    started_at: Optional[datetime] = None,
+    input_summary: Optional[dict] = None,
+    output_summary: Optional[dict] = None,
+    warnings: Optional[list] = None,
+    error_message: Optional[str] = None,
+) -> None:
+    now = datetime.now(timezone.utc)
+    await conn.execute(
+        text(
+            "INSERT INTO execution_steps "
+            "(step_id, trace_id, service, step_name, status, started_at, completed_at, "
+            " input_summary, output_summary, warnings, error_message) "
+            "VALUES (:sid, :tid, 'factor-engine', :step, :status, :started, :now, "
+            "        CAST(:inp AS jsonb), CAST(:out AS jsonb), CAST(:warn AS jsonb), :err)"
+        ),
+        {
+            "sid": str(uuid.uuid4()),
+            "tid": trace_id,
+            "step": step_name,
+            "status": status,
+            "started": started_at or now,
+            "now": now,
+            "inp": json.dumps(input_summary) if input_summary else None,
+            "out": json.dumps(output_summary) if output_summary else None,
+            "warn": json.dumps(warnings) if warnings else None,
+            "err": error_message,
+        },
+    )
+
+
+# ── Run lifecycle ───────────────────────────────────────────────────────────────────────────────────────────
+
+async def _run_calculate(run_id: str, trace_id: str, today: date) -> None:
+    started_at = datetime.now(timezone.utc)
+
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO factor_runs "
+                "(run_id, trace_id, strategy_id, config_hash, status, started_at) "
+                "VALUES (:run_id, :trace_id, :strategy_id, :config_hash, 'running', :started_at)"
+            ),
+            {
+                "run_id": run_id, "trace_id": trace_id,
+                "strategy_id": strategy.strategy_id, "config_hash": config_hash,
+                "started_at": started_at,
+            },
         )
-        rec = row.mappings().fetchone()
-    if rec is None:
-        return {"regime": None}
-    return dict(rec)
+        await _create_trace(conn, trace_id, "factor_run", run_id)
 
-
-async def _run_calculate(run_id: str, today: date):
-    async with engine.connect() as conn:
-        # 1. Universe tickers from latest snapshot
-        snap_row = await conn.execute(
-            text(
-                "SELECT id FROM universe_snapshots ORDER BY snapshot_date DESC, fetched_at DESC LIMIT 1"
+    try:
+        skip_reason = await _do_calculate(run_id, trace_id, today, started_at)
+    except Exception as exc:
+        err = str(exc)[:1000]
+        print(f"[calculate] run {run_id} FAILED: {exc}")
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "UPDATE factor_runs SET status='failed', completed_at=:now, error_message=:err "
+                    "WHERE run_id=:rid"
+                ),
+                {"rid": run_id, "now": datetime.now(timezone.utc), "err": err},
             )
+            await _finish_trace(conn, trace_id, "failed", notes=err)
+        await _write_trace_file(trace_id, run_id, "factor_run", "failed", started_at, error=err)
+        raise
+
+    if skip_reason is not None:
+        print(f"[calculate] run {run_id} SKIPPED: {skip_reason}")
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "UPDATE factor_runs SET status='skipped', completed_at=:now, error_message=:msg "
+                    "WHERE run_id=:rid"
+                ),
+                {"rid": run_id, "now": datetime.now(timezone.utc), "msg": skip_reason},
+            )
+            await _finish_trace(conn, trace_id, "skipped", notes=skip_reason)
+        await _write_trace_file(trace_id, run_id, "factor_run", "skipped", started_at, skip_reason=skip_reason)
+
+
+async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: datetime) -> Optional[str]:
+    """Run factor calculation. Returns a skip-reason string on early exit, None on success."""
+    async with engine.connect() as conn:
+
+        # ── Step 1: load universe ─────────────────────────────────────────────────────────────
+        t0 = datetime.now(timezone.utc)
+        snap_row = await conn.execute(
+            text("SELECT id FROM universe_snapshots ORDER BY snapshot_date DESC, fetched_at DESC LIMIT 1")
         )
         snap = snap_row.fetchone()
         if snap is None:
-            return
+            print("[calculate] no universe snapshot found — run fetch-universe first")
+            return "no universe snapshot"
 
         snapshot_id = snap[0]
         ticker_rows = await conn.execute(
-            text("SELECT ticker FROM universe_tickers WHERE snapshot_id = :sid"),
+            text(
+                "SELECT ticker FROM universe_tickers "
+                "WHERE snapshot_id = :sid "
+                "AND NOT ("
+                "  COALESCE(asset_class, '') ILIKE '%ETF%'"
+                "  OR COALESCE(name, '') ~* "
+                "  '(ProShares|iShares|SPDR|Invesco|Direxion|VanEck|WisdomTree"
+                "|\\bETF\\b|\\bFund\\b|\\bTrust\\b|\\bIndex\\b|\\bLeveraged\\b|\\bInverse\\b)'"
+                ")"
+            ),
             {"sid": snapshot_id},
         )
         universe_tickers = [r[0] for r in ticker_rows.fetchall()]
 
-        if not universe_tickers:
-            return
+        total_snap_rows = await conn.execute(
+            text("SELECT COUNT(*) FROM universe_tickers WHERE snapshot_id = :sid"),
+            {"sid": snapshot_id},
+        )
+        total_in_snap = total_snap_rows.scalar()
+        excluded_count = total_in_snap - len(universe_tickers)
 
-        # 2. SPY prices (all history)
+    async with engine.begin() as conn:
+        await _log_step(
+            conn, trace_id, "load_universe",
+            "success" if universe_tickers else "skipped",
+            started_at=t0,
+            input_summary={"snapshot_id": snapshot_id},
+            output_summary={
+                "total_in_snapshot": total_in_snap,
+                "excluded_etfs_funds": excluded_count,
+                "investable_count": len(universe_tickers),
+            },
+            error_message="empty universe after ETF/fund exclusion" if not universe_tickers else None,
+        )
+
+    if not universe_tickers:
+        print("[calculate] universe snapshot is empty after ETF/fund exclusion")
+        return "empty universe after ETF exclusion"
+
+    print(f"[calculate] universe: {len(universe_tickers)} tickers (ETFs/funds excluded)")
+
+    async with engine.connect() as conn:
+        # ── Step 2: load SPY prices ─────────────────────────────────────────────────────────────
+        t0 = datetime.now(timezone.utc)
         spy_rows = await conn.execute(
-            text(
-                "SELECT date, adjusted_close FROM daily_prices "
-                "WHERE ticker = 'SPY' ORDER BY date ASC"
-            )
+            text("SELECT date, adjusted_close FROM daily_prices WHERE ticker = 'SPY' ORDER BY date ASC")
         )
         spy_df = pd.DataFrame(spy_rows.fetchall(), columns=["date", "adjusted_close"])
 
-        # 3. Regime detection
-        if len(spy_df) >= 200:
-            regime_info = detect_regime(spy_df)
-            await conn.execute(
-                text(
-                    "INSERT INTO regime_snapshots (snapshot_date, regime, spy_price, spy_sma_50, spy_sma_200, spy_vs_sma200) "
-                    "VALUES (:d, :regime, :spy_price, :spy_sma_50, :spy_sma_200, :spy_vs_sma200)"
-                ),
-                {
-                    "d": today,
-                    "regime": regime_info["regime"],
-                    "spy_price": regime_info["spy_price"],
-                    "spy_sma_50": regime_info["spy_sma_50"],
-                    "spy_sma_200": regime_info["spy_sma_200"],
-                    "spy_vs_sma200": regime_info["spy_vs_sma200"],
-                },
-            )
-            regime = regime_info["regime"]
-        else:
-            regime = "neutral"
+    async with engine.begin() as conn:
+        await _log_step(
+            conn, trace_id, "load_spy_prices",
+            "success" if not spy_df.empty else "skipped",
+            started_at=t0,
+            output_summary={
+                "row_count": len(spy_df),
+                "date_min": str(spy_df["date"].min()) if not spy_df.empty else None,
+                "date_max": str(spy_df["date"].max()) if not spy_df.empty else None,
+            },
+        )
 
-        # 4. Prices for universe tickers (last 400 days)
-        prices_rows = await conn.execute(
+    if len(spy_df) < strategy.regime_detection.slow_sma:
+        msg = f"insufficient SPY history: {len(spy_df)} rows, need {strategy.regime_detection.slow_sma}"
+        print(f"[calculate] {msg} — aborting factor run")
+        return msg
+
+    score_date: date = pd.to_datetime(spy_df["date"]).max().date()
+    print(f"[calculate] score_date={score_date} (latest SPY trading date)")
+
+    # ── Step 3: detect regime ───────────────────────────────────────────────────────────────
+    t0 = datetime.now(timezone.utc)
+    regime_info = detect_regime(spy_df, strategy.regime_detection)
+    raw_regime = regime_info["raw_regime"]
+
+    async with engine.connect() as conn:
+        history_rows = await conn.execute(
             text(
-                "SELECT ticker, date, close, adjusted_close, volume FROM daily_prices "
-                "WHERE ticker = ANY(:tickers) AND date >= CURRENT_DATE - INTERVAL '400 days' "
-                "ORDER BY ticker, date ASC"
+                "SELECT raw_regime, regime FROM ("
+                "  SELECT DISTINCT ON (snapshot_date) snapshot_date, raw_regime, regime, calculated_at"
+                "  FROM regime_snapshots"
+                "  WHERE snapshot_date < :score_date"
+                "  ORDER BY snapshot_date DESC, calculated_at DESC"
+                ") x ORDER BY snapshot_date DESC LIMIT :n"
+            ),
+            {"n": strategy.regime_detection.confirmation_days, "score_date": score_date},
+        )
+        history = history_rows.fetchall()
+
+    prior_raw_regimes = [r[0] for r in history]
+    prior_confirmed = history[0][1] if history else None
+    confirmed_regime = resolve_confirmed_regime(
+        raw_regime, prior_raw_regimes, prior_confirmed,
+        strategy.regime_detection.confirmation_days,
+    )
+
+    switched = prior_confirmed != confirmed_regime
+    if switched:
+        print(f"[calculate] regime SWITCHED: {prior_confirmed} → {confirmed_regime} "
+              f"(raw={raw_regime}, confirmed after {strategy.regime_detection.confirmation_days} days)")
+    else:
+        print(f"[calculate] regime={confirmed_regime} (raw={raw_regime}, prior={prior_confirmed}, no switch)")
+
+    async with engine.begin() as conn:
+        await _log_step(
+            conn, trace_id, "detect_regime", "success",
+            started_at=t0,
+            input_summary={"spy_history_rows": len(spy_df), "confirmation_days": strategy.regime_detection.confirmation_days},
+            output_summary={
+                "raw_regime": raw_regime,
+                "confirmed_regime": confirmed_regime,
+                "prior_confirmed": prior_confirmed,
+                "switched": switched,
+                "spy_vs_sma": round(float(regime_info["spy_vs_sma"]), 4),
+                "realized_vol": round(float(regime_info["realized_vol"]), 4),
+            },
+        )
+
+    async with engine.connect() as conn:
+        # ── Step 4: load price history ──────────────────────────────────────────────────────────────
+        t0 = datetime.now(timezone.utc)
+        price_rows = await conn.execute(
+            text(
+                "SELECT ticker, date, adjusted_close, close, volume FROM daily_prices "
+                "WHERE ticker = ANY(:tickers) ORDER BY ticker, date ASC"
             ),
             {"tickers": universe_tickers},
         )
         prices_df = pd.DataFrame(
-            prices_rows.fetchall(),
-            columns=["ticker", "date", "close", "adjusted_close", "volume"],
+            price_rows.fetchall(),
+            columns=["ticker", "date", "adjusted_close", "close", "volume"],
         )
 
-        # 5. Latest fundamentals per ticker
+    async with engine.begin() as conn:
+        price_max_date = str(pd.to_datetime(prices_df["date"]).max().date()) if not prices_df.empty else None
+        price_min_date = str(pd.to_datetime(prices_df["date"]).min().date()) if not prices_df.empty else None
+        await _log_step(
+            conn, trace_id, "load_price_history",
+            "success" if not prices_df.empty else "skipped",
+            started_at=t0,
+            input_summary={"ticker_count": len(universe_tickers)},
+            output_summary={
+                "row_count": len(prices_df),
+                "ticker_count": prices_df["ticker"].nunique() if not prices_df.empty else 0,
+                "date_min": price_min_date,
+                "date_max": price_max_date,
+            },
+            error_message="no price data found" if prices_df.empty else None,
+        )
+
+    if prices_df.empty:
+        print("[calculate] no price data found for universe tickers")
+        return "no price data found"
+
+    print(f"[calculate] loaded {len(prices_df)} price rows for {prices_df['ticker'].nunique()} tickers")
+
+    async with engine.connect() as conn:
+        # ── Step 5: load fundamentals ──────────────────────────────────────────────────────────────
+        t0 = datetime.now(timezone.utc)
         fund_rows = await conn.execute(
             text(
                 "SELECT DISTINCT ON (ticker) ticker, pe_ratio, pb_ratio, roe, debt_to_equity, "
@@ -124,39 +403,81 @@ async def _run_calculate(run_id: str, today: date):
         )
         fund_df = pd.DataFrame(
             fund_rows.fetchall(),
-            columns=["ticker", "pe_ratio", "pb_ratio", "roe", "debt_to_equity", "revenue_growth", "eps_growth"],
+            columns=["ticker", "pe_ratio", "pb_ratio", "roe", "debt_to_equity",
+                     "revenue_growth", "eps_growth"],
         )
 
-        await conn.commit()
+    tickers_with_fundamentals = len(fund_df)
+    tickers_without_fundamentals = len(universe_tickers) - tickers_with_fundamentals
+    fund_warnings = []
+    if tickers_without_fundamentals > 0:
+        fund_warnings.append(f"{tickers_without_fundamentals} tickers have no fundamentals — quality/value/growth will be null")
 
-    if prices_df.empty:
-        return
-
-    # 6. Compute factors
-    factors_df = compute_all_factors(prices_long=prices_df, fundamentals=fund_df)
-
-    # 7. Universe filters: latest close >= 5.0 AND avg_dollar_vol_20d >= 20_000_000
-    prices_df["date"] = pd.to_datetime(prices_df["date"])
-    prices_sorted = prices_df.sort_values(["ticker", "date"])
-
-    latest_close = prices_sorted.groupby("ticker").last()[["close"]].reset_index()
-    latest_close.columns = ["ticker", "latest_close"]
-    latest_close["latest_close"] = latest_close["latest_close"].astype(float)
-
-    last_20 = prices_sorted.groupby("ticker").tail(20).copy()
-    last_20["dollar_vol"] = last_20["close"].astype(float) * last_20["volume"].astype(float)
-    avg_dv = last_20.groupby("ticker")["dollar_vol"].mean().reset_index()
-    avg_dv.columns = ["ticker", "avg_dollar_vol_20d"]
-
-    filters = latest_close.merge(avg_dv, on="ticker", how="left")
-    pass_filter = filters[
-        (filters["latest_close"] >= 5.0) & (filters["avg_dollar_vol_20d"] >= 20_000_000)
-    ]["ticker"].tolist()
-
-    factors_df = factors_df[factors_df["ticker"].isin(pass_filter)]
-
-    # 8. Save factor scores
     async with engine.begin() as conn:
+        await _log_step(
+            conn, trace_id, "load_fundamentals", "success",
+            started_at=t0,
+            input_summary={"ticker_count": len(universe_tickers)},
+            output_summary={
+                "tickers_with_fundamentals": tickers_with_fundamentals,
+                "tickers_without_fundamentals": tickers_without_fundamentals,
+            },
+            warnings=fund_warnings or None,
+        )
+
+    print(f"[calculate] loaded fundamentals for {tickers_with_fundamentals} tickers")
+
+    # ── Step 6: calculate factors ──────────────────────────────────────────────────────────────
+    t0 = datetime.now(timezone.utc)
+    factors_df = compute_all_factors(prices_long=prices_df, fundamentals=fund_df)
+    null_quality_count = int(factors_df["quality"].isna().sum()) if "quality" in factors_df.columns else 0
+
+    async with engine.begin() as conn:
+        await _log_step(
+            conn, trace_id, "calculate_factors", "success",
+            started_at=t0,
+            output_summary={
+                "ticker_count": len(factors_df),
+                "null_quality": null_quality_count,
+                "null_momentum": int(factors_df["momentum"].isna().sum()) if "momentum" in factors_df.columns else 0,
+            },
+            warnings=[f"{null_quality_count} tickers have null quality (no fundamentals)"] if null_quality_count > 0 else None,
+        )
+
+    calculated_at = datetime.now(timezone.utc)
+    ticker_count = len(factors_df)
+
+    async with engine.begin() as conn:
+        # ── Step 7: write regime snapshot ─────────────────────────────────────────────────────────────────
+        t0 = datetime.now(timezone.utc)
+        await conn.execute(
+            text(
+                "INSERT INTO regime_snapshots "
+                "(run_id, snapshot_date, raw_regime, regime, spy_price, spy_sma_slow, spy_vs_sma, "
+                " realized_vol, calculated_at) "
+                "VALUES (:run_id, :snapshot_date, :raw_regime, :regime, :spy_price, :spy_sma_slow, "
+                "        :spy_vs_sma, :realized_vol, :calculated_at)"
+            ),
+            {
+                "run_id": run_id,
+                "snapshot_date": score_date,
+                "raw_regime": raw_regime,
+                "regime": confirmed_regime,
+                "spy_price": float(regime_info["spy_price"]),
+                "spy_sma_slow": float(regime_info["spy_sma_slow"]),
+                "spy_vs_sma": float(regime_info["spy_vs_sma"]),
+                "realized_vol": float(regime_info["realized_vol"]),
+                "calculated_at": calculated_at,
+            },
+        )
+        await _log_step(
+            conn, trace_id, "write_regime_snapshot", "success",
+            started_at=t0,
+            output_summary={"snapshot_date": str(score_date), "regime": confirmed_regime},
+        )
+
+        # ── Step 8: write factor scores ──────────────────────────────────────────────────────────────
+        t0 = datetime.now(timezone.utc)
         for _, row in factors_df.iterrows():
             def _val(v):
                 return None if pd.isna(v) else float(v)
@@ -164,28 +485,176 @@ async def _run_calculate(run_id: str, today: date):
             await conn.execute(
                 text(
                     "INSERT INTO factor_scores "
-                    "(run_id, ticker, score_date, regime, momentum, quality, value, growth, low_volatility, liquidity) "
-                    "VALUES (:run_id, :ticker, :score_date, :regime, :momentum, :quality, :value, :growth, :low_volatility, :liquidity) "
-                    "ON CONFLICT (run_id, ticker) DO NOTHING"
+                    "(run_id, ticker, score_date, momentum, quality, value, growth, "
+                    " low_volatility, liquidity, calculated_at) "
+                    "VALUES (:run_id, :ticker, :score_date, :momentum, :quality, :value, "
+                    "        :growth, :low_volatility, :liquidity, :calculated_at) "
+                    "ON CONFLICT (run_id, ticker) DO UPDATE SET "
+                    "  momentum      = EXCLUDED.momentum, "
+                    "  quality       = EXCLUDED.quality, "
+                    "  value         = EXCLUDED.value, "
+                    "  growth        = EXCLUDED.growth, "
+                    "  low_volatility = EXCLUDED.low_volatility, "
+                    "  liquidity     = EXCLUDED.liquidity, "
+                    "  calculated_at = EXCLUDED.calculated_at"
                 ),
                 {
                     "run_id": run_id,
-                    "ticker": row["ticker"],
-                    "score_date": today,
-                    "regime": regime,
-                    "momentum": _val(row["momentum"]),
-                    "quality": _val(row["quality"]),
-                    "value": _val(row["value"]),
-                    "growth": _val(row["growth"]),
-                    "low_volatility": _val(row["low_volatility"]),
-                    "liquidity": _val(row["liquidity"]),
+                    "ticker": str(row["ticker"]),
+                    "score_date": score_date,
+                    "momentum": _val(row.get("momentum")),
+                    "quality": _val(row.get("quality")),
+                    "value": _val(row.get("value")),
+                    "growth": _val(row.get("growth")),
+                    "low_volatility": _val(row.get("low_volatility")),
+                    "liquidity": _val(row.get("liquidity")),
+                    "calculated_at": calculated_at,
                 },
             )
+        await _log_step(
+            conn, trace_id, "write_factor_scores", "success",
+            started_at=t0,
+            output_summary={"written_count": ticker_count, "score_date": str(score_date)},
+        )
+
+        # ── Mark run successful ──────────────────────────────────────────────────────────────────────
+        await conn.execute(
+            text(
+                "UPDATE factor_runs SET "
+                "  status                = 'success', "
+                "  completed_at          = :completed_at, "
+                "  ticker_count          = :ticker_count, "
+                "  regime                = :regime, "
+                "  score_date            = :score_date, "
+                "  universe_snapshot_id  = :snap_id, "
+                "  price_data_max_date   = :price_max, "
+                "  warning_count         = :warn_count "
+                "WHERE run_id = :run_id"
+            ),
+            {
+                "run_id": run_id,
+                "completed_at": calculated_at,
+                "ticker_count": ticker_count,
+                "regime": confirmed_regime,
+                "score_date": score_date,
+                "snap_id": snapshot_id,
+                "price_max": price_max_date,
+                "warn_count": null_quality_count,
+            },
+        )
+        await _finish_trace(conn, trace_id, "success")
+
+    print(f"[calculate] run {run_id} SUCCESS: {ticker_count} tickers, "
+          f"regime={confirmed_regime}, score_date={score_date}")
+    await _write_trace_file(
+        trace_id, run_id, "factor_run", "success", started_at,
+        regime=confirmed_regime,
+        score_date=str(score_date),
+        ticker_count=ticker_count,
+    )
+    return None
 
 
 @app.post("/jobs/calculate")
-async def calculate_factors(background_tasks: BackgroundTasks):
+async def start_calculate(background_tasks: BackgroundTasks):
     run_id = str(uuid.uuid4())
-    today = datetime.now(tz=timezone.utc).date()
-    background_tasks.add_task(_run_calculate, run_id, today)
-    return {"status": "started", "job": "calculate-factors", "run_id": run_id}
+    trace_id = str(uuid.uuid4())
+    today = date.today()
+    background_tasks.add_task(_run_calculate, run_id, trace_id, today)
+    return {
+        "status": "started",
+        "job": "calculate",
+        "run_id": run_id,
+        "trace_id": trace_id,
+    }
+
+
+@app.get("/regime/current")
+async def get_current_regime():
+    async with engine.connect() as conn:
+        row = await conn.execute(
+            text(
+                "SELECT DISTINCT ON (snapshot_date) "
+                "  snapshot_date, raw_regime, regime, spy_price, spy_vs_sma, "
+                "  realized_vol, calculated_at "
+                "FROM regime_snapshots "
+                "ORDER BY snapshot_date DESC, calculated_at DESC "
+                "LIMIT 1"
+            )
+        )
+        result = row.fetchone()
+    if result is None:
+        raise HTTPException(status_code=404, detail="No regime snapshot found")
+    return {
+        "snapshot_date": str(result.snapshot_date),
+        "raw_regime": result.raw_regime,
+        "regime": result.regime,
+        "spy_price": float(result.spy_price) if result.spy_price is not None else None,
+        "spy_vs_sma": float(result.spy_vs_sma) if result.spy_vs_sma is not None else None,
+        "realized_vol": float(result.realized_vol) if result.realized_vol is not None else None,
+        "calculated_at": result.calculated_at.isoformat() if result.calculated_at else None,
+    }
+
+
+@app.get("/runs/{run_id}")
+async def get_run(run_id: str):
+    async with engine.connect() as conn:
+        row = await conn.execute(
+            text(
+                "SELECT run_id, trace_id, strategy_id, config_hash, status, regime, "
+                "       score_date, ticker_count, warning_count, started_at, completed_at, error_message "
+                "FROM factor_runs WHERE run_id = :rid"
+            ),
+            {"rid": run_id},
+        )
+        result = row.fetchone()
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    return {
+        "run_id": str(result.run_id),
+        "trace_id": str(result.trace_id) if result.trace_id else None,
+        "strategy_id": result.strategy_id,
+        "config_hash": result.config_hash,
+        "status": result.status,
+        "regime": result.regime,
+        "score_date": str(result.score_date) if result.score_date else None,
+        "ticker_count": result.ticker_count,
+        "warning_count": result.warning_count,
+        "started_at": result.started_at.isoformat() if result.started_at else None,
+        "completed_at": result.completed_at.isoformat() if result.completed_at else None,
+        "error_message": result.error_message,
+    }
+
+
+@app.get("/runs")
+async def list_runs(limit: int = 10):
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            text(
+                "SELECT run_id, trace_id, strategy_id, config_hash, status, regime, "
+                "       score_date, ticker_count, warning_count, universe_snapshot_id, "
+                "       price_data_max_date, started_at, completed_at, error_message "
+                "FROM factor_runs ORDER BY started_at DESC LIMIT :limit"
+            ),
+            {"limit": limit},
+        )
+        results = rows.fetchall()
+    return [
+        {
+            "run_id": str(r.run_id),
+            "trace_id": str(r.trace_id) if r.trace_id else None,
+            "strategy_id": r.strategy_id,
+            "config_hash": r.config_hash,
+            "status": r.status,
+            "regime": r.regime,
+            "score_date": str(r.score_date) if r.score_date else None,
+            "ticker_count": r.ticker_count,
+            "warning_count": r.warning_count,
+            "universe_snapshot_id": r.universe_snapshot_id,
+            "price_data_max_date": str(r.price_data_max_date) if r.price_data_max_date else None,
+            "started_at": r.started_at.isoformat() if r.started_at else None,
+            "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+            "error_message": r.error_message,
+        }
+        for r in results
+    ]
