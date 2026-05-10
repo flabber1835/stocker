@@ -11,7 +11,7 @@ def cross_section_zscore(series: pd.Series) -> pd.Series:
     if std == 0 or pd.isna(std):
         result.loc[valid.index] = 0.0
         return result
-    result.loc[valid.index] = ((valid - valid.mean()) / std).clip(-3, 3)
+    result.loc[valid.index] = ((valid - valid.mean()) / std).clip(-2.5, 2.5)
     return result
 
 
