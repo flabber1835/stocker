@@ -134,18 +134,19 @@ async def _run_fetch_data(tickers: list[str]):
     Benchmarks (SPY, QQQ) get prices fetched but NOT fundamentals — ETF financials
     are not used by the factor engine and would waste API calls.
     """
-    benchmarks = [t for t in BENCHMARK_TICKERS if t not in tickers]
-    investable = tickers  # already excludes benchmarks from universe snapshot
-    all_tickers = investable + benchmarks
-    today = date.today()
     benchmark_set = set(BENCHMARK_TICKERS)
-    print(f"[fetch-data] starting for {len(all_tickers)} tickers "
-          f"({len(investable)} investable + {len(benchmarks)} benchmarks, prices+fundamentals in one pass)")
+    snapshot_tickers = tickers  # all tickers from universe snapshot (may include benchmarks)
+    extra_benchmarks = [t for t in BENCHMARK_TICKERS if t not in benchmark_set.intersection(snapshot_tickers)]
+    price_tickers = snapshot_tickers + extra_benchmarks  # prices for everything
+    fundamental_tickers = [t for t in snapshot_tickers if t not in benchmark_set]  # no ETF financials
+    today = date.today()
+    print(f"[fetch-data] starting: {len(price_tickers)} price tickers, "
+          f"{len(fundamental_tickers)} fundamental tickers (benchmarks price-only)")
 
     client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA)
     try:
-        for i, ticker in enumerate(all_tickers):
-            label = f"({i+1}/{len(all_tickers)})"
+        for i, ticker in enumerate(price_tickers):
+            label = f"({i+1}/{len(price_tickers)})"
 
             # ── prices (all tickers including benchmarks) ──────────────────────
             try:
@@ -191,7 +192,7 @@ async def _run_fetch_data(tickers: list[str]):
                 print(f"[fetch-data] {ticker} prices: error - {e}")
 
             # ── fundamentals (investable tickers only — skip benchmarks) ────────
-            if ticker in benchmark_set:
+            if ticker not in set(fundamental_tickers):
                 continue
             try:
                 overview = await client.get_overview(ticker)
@@ -289,12 +290,14 @@ async def _run_fetch_prices(tickers: list[str]):
 
 
 async def _run_fetch_fundamentals(tickers: list[str]):
-    print(f"[fetch-fundamentals] starting for {len(tickers)} tickers")
+    investable = [t for t in tickers if t not in set(BENCHMARK_TICKERS)]
+    print(f"[fetch-fundamentals] starting for {len(investable)} investable tickers "
+          f"(skipping {len(tickers) - len(investable)} benchmarks)")
     today = date.today()
 
     client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA)
     try:
-        for i, ticker in enumerate(tickers):
+        for i, ticker in enumerate(investable):
             try:
                 overview = await client.get_overview(ticker)
                 if not overview:
@@ -325,7 +328,7 @@ async def _run_fetch_fundamentals(tickers: list[str]):
                             ),
                             {"ticker": ticker, "as_of_date": today, **overview},
                         )
-                print(f"[fetch-fundamentals] {ticker}: upserted ({i+1}/{len(tickers)})")
+                print(f"[fetch-fundamentals] {ticker}: upserted ({i+1}/{len(investable)})")
             except Exception as e:
                 print(f"[fetch-fundamentals] {ticker}: error - {e}")
     finally:

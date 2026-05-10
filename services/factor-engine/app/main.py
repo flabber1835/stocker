@@ -78,7 +78,16 @@ async def _run_calculate(run_id: str, today: date):
         )
 
     try:
-        await _do_calculate(run_id, today)
+        skipped = await _do_calculate(run_id, today)
+        if skipped:
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "UPDATE factor_runs SET status='skipped', error=:reason, completed_at=NOW() "
+                        "WHERE run_id=:run_id"
+                    ),
+                    {"run_id": run_id, "reason": skipped},
+                )
     except Exception as e:
         print(f"[calculate] run_id={run_id} FAILED: {e}")
         async with engine.begin() as conn:
@@ -92,7 +101,8 @@ async def _run_calculate(run_id: str, today: date):
         raise
 
 
-async def _do_calculate(run_id: str, today: date):
+async def _do_calculate(run_id: str, today: date) -> str | None:
+    """Run factor calculation. Returns a skip-reason string on early exit, None on success."""
     async with engine.connect() as conn:
         # 1. Universe tickers — exclude ETFs/benchmarks from investable set
         snap_row = await conn.execute(
@@ -101,7 +111,7 @@ async def _do_calculate(run_id: str, today: date):
         snap = snap_row.fetchone()
         if snap is None:
             print("[calculate] no universe snapshot found — run fetch-universe first")
-            return
+            return "no universe snapshot"
 
         snapshot_id = snap[0]
         ticker_rows = await conn.execute(
@@ -115,7 +125,7 @@ async def _do_calculate(run_id: str, today: date):
         universe_tickers = [r[0] for r in ticker_rows.fetchall()]
         if not universe_tickers:
             print("[calculate] universe snapshot is empty after ETF exclusion")
-            return
+            return "empty universe after ETF exclusion"
 
         print(f"[calculate] universe: {len(universe_tickers)} tickers (ETFs excluded)")
 
@@ -129,19 +139,21 @@ async def _do_calculate(run_id: str, today: date):
         if len(spy_df) < strategy.regime_detection.slow_sma:
             print(f"[calculate] insufficient SPY history ({len(spy_df)} rows, need "
                   f"{strategy.regime_detection.slow_sma}) — aborting factor run")
-            return
+            return f"insufficient SPY history: {len(spy_df)} rows, need {strategy.regime_detection.slow_sma}"
 
         regime_info = detect_regime(spy_df, strategy.regime_detection)
         raw_regime = regime_info["raw_regime"]
 
-        # Read prior raw regime history for confirmation (distinct dates only, excluding today)
+        # Read prior raw regime history for confirmation (distinct dates only, excluding today).
+        # Subquery ensures DISTINCT ON deduplication happens before ORDER BY + LIMIT.
         history_rows = await conn.execute(
             text(
-                "SELECT DISTINCT ON (snapshot_date) raw_regime, regime "
-                "FROM regime_snapshots "
-                "WHERE snapshot_date < :today "
-                "ORDER BY snapshot_date DESC, calculated_at DESC "
-                "LIMIT :n"
+                "SELECT raw_regime, regime FROM ("
+                "  SELECT DISTINCT ON (snapshot_date) snapshot_date, raw_regime, regime, calculated_at"
+                "  FROM regime_snapshots"
+                "  WHERE snapshot_date < :today"
+                "  ORDER BY snapshot_date DESC, calculated_at DESC"
+                ") x ORDER BY snapshot_date DESC LIMIT :n"
             ),
             {"n": strategy.regime_detection.confirmation_days, "today": today},
         )
@@ -195,7 +207,7 @@ async def _do_calculate(run_id: str, today: date):
 
     if prices_df.empty:
         print("[calculate] no price data found")
-        return
+        return "no price data found"
 
     print(f"[calculate] computing factors for {prices_df['ticker'].nunique()} tickers")
 
@@ -283,6 +295,7 @@ async def _do_calculate(run_id: str, today: date):
         )
 
     print(f"[calculate] saved {ticker_count} factor score rows for run_id={run_id}")
+    return None
 
 
 @app.post("/jobs/calculate")
