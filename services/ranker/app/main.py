@@ -137,25 +137,35 @@ async def _log_step(
 
 # ── Rank job ────────────────────────────────────────────────────────────────────────────────────────
 
-async def _run_rank_job() -> None:
-    ranking_run_id = str(uuid.uuid4())
+async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -> None:
     started_at = datetime.now(timezone.utc)
 
     async with engine.begin() as conn:
-        # ── Step 1: load latest successful factor run ─────────────────
+        # ── Step 1: load factor run (specific or latest successful) ───
         t0 = datetime.now(timezone.utc)
-        row = await conn.execute(
-            text(
-                "SELECT run_id, trace_id, regime, score_date, ticker_count "
-                "FROM factor_runs "
-                "WHERE status = 'success' AND ticker_count > 0 "
-                "ORDER BY completed_at DESC LIMIT 1"
+        if factor_run_id:
+            row = await conn.execute(
+                text(
+                    "SELECT run_id, trace_id, regime, score_date, ticker_count "
+                    "FROM factor_runs "
+                    "WHERE run_id = :rid AND status = 'success' AND ticker_count > 0"
+                ),
+                {"rid": factor_run_id},
             )
-        )
+        else:
+            row = await conn.execute(
+                text(
+                    "SELECT run_id, trace_id, regime, score_date, ticker_count "
+                    "FROM factor_runs "
+                    "WHERE status = 'success' AND ticker_count > 0 "
+                    "ORDER BY completed_at DESC LIMIT 1"
+                )
+            )
         latest = row.fetchone()
 
     if latest is None:
-        print("[ranker] no successful factor run found — aborting")
+        msg = f"factor run {factor_run_id} not found or not successful" if factor_run_id else "no successful factor run found"
+        print(f"[ranker] {msg} — aborting")
         return
 
     source_factor_run_id = str(latest.run_id)
@@ -383,20 +393,75 @@ async def _run_rank_job() -> None:
 
 
 @app.post("/jobs/rank")
-async def start_rank_job(background_tasks: BackgroundTasks):
-    async with engine.begin() as conn:
+async def start_rank_job(background_tasks: BackgroundTasks, factor_run_id: str | None = None):
+    ranking_run_id = str(uuid.uuid4())
+
+    if factor_run_id:
+        async with engine.begin() as conn:
+            row = await conn.execute(
+                text(
+                    "SELECT regime FROM factor_runs "
+                    "WHERE run_id = :rid AND status = 'success' AND ticker_count > 0"
+                ),
+                {"rid": factor_run_id},
+            )
+            result = row.fetchone()
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Factor run {factor_run_id} not found or not successful")
+        regime = result.regime
+    else:
+        async with engine.begin() as conn:
+            row = await conn.execute(
+                text(
+                    "SELECT regime FROM factor_runs "
+                    "WHERE status = 'success' AND ticker_count > 0 "
+                    "ORDER BY completed_at DESC LIMIT 1"
+                )
+            )
+            latest = row.fetchone()
+        regime = latest.regime if latest else "unknown"
+
+    background_tasks.add_task(_run_rank_job, ranking_run_id, factor_run_id)
+    return {
+        "status": "started",
+        "job": "rank",
+        "run_id": ranking_run_id,
+        "strategy": strategy.strategy_id,
+        "regime": regime,
+    }
+
+
+@app.get("/runs/{run_id}")
+async def get_run(run_id: str):
+    async with engine.connect() as conn:
         row = await conn.execute(
             text(
-                "SELECT regime FROM factor_runs "
-                "WHERE status = 'success' AND ticker_count > 0 "
-                "ORDER BY completed_at DESC LIMIT 1"
-            )
+                "SELECT run_id, trace_id, source_factor_run_id, strategy_id, config_hash, "
+                "       status, regime, rank_date, universe_count, ranked_count, dropped_count, "
+                "       started_at, completed_at, error_message "
+                "FROM ranking_runs WHERE run_id = :rid"
+            ),
+            {"rid": run_id},
         )
-        latest = row.fetchone()
-
-    regime = latest.regime if latest else "unknown"
-    background_tasks.add_task(_run_rank_job)
-    return {"status": "started", "job": "rank", "strategy": strategy.strategy_id, "regime": regime}
+        result = row.fetchone()
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    return {
+        "run_id": str(result.run_id),
+        "trace_id": str(result.trace_id) if result.trace_id else None,
+        "source_factor_run_id": str(result.source_factor_run_id),
+        "strategy_id": result.strategy_id,
+        "config_hash": result.config_hash,
+        "status": result.status,
+        "regime": result.regime,
+        "rank_date": str(result.rank_date) if result.rank_date else None,
+        "universe_count": result.universe_count,
+        "ranked_count": result.ranked_count,
+        "dropped_count": result.dropped_count,
+        "started_at": result.started_at.isoformat() if result.started_at else None,
+        "completed_at": result.completed_at.isoformat() if result.completed_at else None,
+        "error_message": result.error_message,
+    }
 
 
 async def _fetch_top_rankings(n: int) -> list[dict]:
