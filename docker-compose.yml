@@ -1,6 +1,6 @@
 services:
 
-  # ── Infrastructure ────────────────────────────────────────────────────────────────────────────
+  # ── Infrastructure ─────────────────────────────────────────────────────────────────────────────────────────
 
   postgres:
     image: postgres:16
@@ -33,7 +33,7 @@ services:
       timeout: 3s
       retries: 10
 
-  # ── Working services ──────────────────────────────────────────────────────────────────
+  # ── Working services ────────────────────────────────────────────────────────────────────────────────
 
   api:
     build:
@@ -94,10 +94,12 @@ services:
       DATABASE_URL: postgresql+asyncpg://stocker:stocker@postgres:5432/stocker
       REDIS_URL: redis://redis:6379
       STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
+      ARTIFACTS_PATH: /artifacts
       PYTHONUNBUFFERED: "1"
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ./strategies:/strategies:ro
+      - artifacts:/artifacts
     depends_on:
       postgres:
         condition: service_healthy
@@ -118,9 +120,11 @@ services:
       DATABASE_URL: postgresql+asyncpg://stocker:stocker@postgres:5432/stocker
       REDIS_URL: redis://redis:6379
       STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
+      ARTIFACTS_PATH: /artifacts
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ./strategies:/strategies:ro
+      - artifacts:/artifacts
     depends_on:
       postgres:
         condition: service_healthy
@@ -148,7 +152,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Stubbed services (filled in later) ────────────────────────────────────────────
+  # ── Stubbed services (filled in later) ──────────────────────────────────────────────────
   # Each stub serves GET /health → {"status":"ok","service":"<name>"}
 
   strategy-validator:
@@ -264,3 +268,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  artifacts:

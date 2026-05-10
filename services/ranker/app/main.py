@@ -15,6 +15,7 @@ from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
+ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
 
 strategy: StrategyConfig
 engine: AsyncEngine
@@ -52,7 +53,51 @@ async def health():
     }
 
 
-# ── Trace helpers ─────────────────────────────────────────────────────────────────────────────
+# ── Artifact file helpers ───────────────────────────────────────────────────
+
+async def _write_trace_file(
+    trace_id: str,
+    run_id: str,
+    job_type: str,
+    status: str,
+    started_at: datetime,
+    **extra,
+) -> None:
+    if not ARTIFACTS_PATH:
+        return
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            text(
+                "SELECT service, step_name, status, started_at, completed_at, "
+                "       input_summary, output_summary, warnings, error_message "
+                "FROM execution_steps WHERE trace_id = :tid ORDER BY started_at ASC"
+            ),
+            {"tid": trace_id},
+        )
+        steps = [dict(r) for r in rows.mappings()]
+
+    traces_dir = os.path.join(ARTIFACTS_PATH, "traces")
+    os.makedirs(traces_dir, exist_ok=True)
+    fname = f"{started_at.strftime('%Y-%m-%d')}_{job_type}_{trace_id[:8]}.json"
+    payload = {
+        "trace_id": trace_id,
+        "run_id": run_id,
+        "job_type": job_type,
+        "status": status,
+        "strategy_id": strategy.strategy_id,
+        "config_hash": config_hash,
+        "started_at": started_at.isoformat(),
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+        **extra,
+        "steps": steps,
+    }
+    path = os.path.join(traces_dir, fname)
+    with open(path, "w") as f:
+        json.dump(payload, f, indent=2, default=str)
+    print(f"[ranker] trace written → {path}")
+
+
+# ── Trace helpers ─────────────────────────────────────────────────────────────────────────────────────────────
 
 async def _log_step(
     conn,
@@ -90,14 +135,14 @@ async def _log_step(
     )
 
 
-# ── Rank job ──────────────────────────────────────────────────────────────────────────────
+# ── Rank job ────────────────────────────────────────────────────────────────────────────────────────
 
 async def _run_rank_job() -> None:
     ranking_run_id = str(uuid.uuid4())
     started_at = datetime.now(timezone.utc)
 
     async with engine.begin() as conn:
-        # ── Step 1: load latest successful factor run ─────────────────────────────────
+        # ── Step 1: load latest successful factor run ─────────────────
         t0 = datetime.now(timezone.utc)
         row = await conn.execute(
             text(
@@ -118,11 +163,13 @@ async def _run_rank_job() -> None:
     rank_date = latest.score_date
     factor_ticker_count = latest.ticker_count
 
+    # Inherit the trace from the source factor run if available, else start a new one
     inherited_trace_id = str(latest.trace_id) if latest.trace_id else None
     trace_id = inherited_trace_id or str(uuid.uuid4())
     new_trace = inherited_trace_id is None
 
     async with engine.begin() as conn:
+        # Create ranking_runs row
         await conn.execute(
             text(
                 "INSERT INTO ranking_runs "
@@ -138,6 +185,7 @@ async def _run_rank_job() -> None:
             },
         )
 
+        # If no inherited trace, create a new execution_trace for this rank-only run
         if new_trace:
             await conn.execute(
                 text(
@@ -164,7 +212,7 @@ async def _run_rank_job() -> None:
             },
         )
 
-    # ── Step 2: load factor scores ──────────────────────────────────────────────────
+    # ── Step 2: load factor scores ───────────────────────────────────
     t0 = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         rows = await conn.execute(
@@ -206,11 +254,12 @@ async def _run_rank_job() -> None:
     )
     universe_count = len(factor_scores_df)
 
-    # ── Step 3: rank ────────────────────────────────────────────────────────────────────
+    # ── Step 3: rank (apply weights + required factor gates) ─────────────
     t0 = datetime.now(timezone.utc)
     ranked_df = rank_universe(factor_scores_df, regime, strategy)
     ranked_count = len(ranked_df)
     dropped_count = universe_count - ranked_count
+
     top_ticker = ranked_df.iloc[0]["ticker"] if ranked_count > 0 else None
     null_quality_before = int(factor_scores_df["quality"].isna().sum())
 
@@ -238,7 +287,7 @@ async def _run_rank_job() -> None:
 
     ranked_at = datetime.now(timezone.utc)
 
-    # ── Step 4: write rankings ─────────────────────────────────────────────────────────────
+    # ── Step 4: write rankings ──────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         for _, row in ranked_df.iterrows():
@@ -292,6 +341,7 @@ async def _run_rank_job() -> None:
             },
         )
 
+        # Finalise ranking_runs
         await conn.execute(
             text(
                 "UPDATE ranking_runs SET "
@@ -308,6 +358,7 @@ async def _run_rank_job() -> None:
             },
         )
 
+        # Finalise execution_trace if we own it (new standalone rank trace)
         if new_trace:
             await conn.execute(
                 text(
@@ -320,6 +371,15 @@ async def _run_rank_job() -> None:
     print(f"[ranker] run {ranking_run_id} SUCCESS: {ranked_count} ranked "
           f"({dropped_count} dropped), top={top_ticker}, regime={regime}, date={rank_date}, "
           f"trace={trace_id}")
+    await _write_trace_file(
+        trace_id, ranking_run_id, "rank_run", "success", started_at,
+        regime=regime,
+        rank_date=str(rank_date),
+        ranked_count=ranked_count,
+        dropped_count=dropped_count,
+        top_ticker=top_ticker,
+        source_factor_run_id=source_factor_run_id,
+    )
 
 
 @app.post("/jobs/rank")

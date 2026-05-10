@@ -17,6 +17,7 @@ from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
+ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
 
 strategy: StrategyConfig
 engine: AsyncEngine
@@ -54,7 +55,51 @@ async def health():
     }
 
 
-# ── Trace helpers ─────────────────────────────────────────────────────────────────────────────
+# ── Artifact file helpers ─────────────────────────────────────────────────────────────────────────────────────────
+
+async def _write_trace_file(
+    trace_id: str,
+    run_id: str,
+    job_type: str,
+    status: str,
+    started_at: datetime,
+    **extra,
+) -> None:
+    if not ARTIFACTS_PATH:
+        return
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            text(
+                "SELECT service, step_name, status, started_at, completed_at, "
+                "       input_summary, output_summary, warnings, error_message "
+                "FROM execution_steps WHERE trace_id = :tid ORDER BY started_at ASC"
+            ),
+            {"tid": trace_id},
+        )
+        steps = [dict(r) for r in rows.mappings()]
+
+    traces_dir = os.path.join(ARTIFACTS_PATH, "traces")
+    os.makedirs(traces_dir, exist_ok=True)
+    fname = f"{started_at.strftime('%Y-%m-%d')}_{job_type}_{trace_id[:8]}.json"
+    payload = {
+        "trace_id": trace_id,
+        "run_id": run_id,
+        "job_type": job_type,
+        "status": status,
+        "strategy_id": strategy.strategy_id,
+        "config_hash": config_hash,
+        "started_at": started_at.isoformat(),
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+        **extra,
+        "steps": steps,
+    }
+    path = os.path.join(traces_dir, fname)
+    with open(path, "w") as f:
+        json.dump(payload, f, indent=2, default=str)
+    print(f"[factor-engine] trace written → {path}")
+
+
+# ── Trace helpers ─────────────────────────────────────────────────────────────────────────────────────────────
 
 async def _create_trace(conn, trace_id: str, job_type: str, root_run_id: str) -> None:
     await conn.execute(
@@ -118,7 +163,7 @@ async def _log_step(
     )
 
 
-# ── Run lifecycle ─────────────────────────────────────────────────────────────────────────────
+# ── Run lifecycle ───────────────────────────────────────────────────────────────────────────────────────────
 
 async def _run_calculate(run_id: str, trace_id: str, today: date) -> None:
     started_at = datetime.now(timezone.utc)
@@ -139,7 +184,7 @@ async def _run_calculate(run_id: str, trace_id: str, today: date) -> None:
         await _create_trace(conn, trace_id, "factor_run", run_id)
 
     try:
-        skip_reason = await _do_calculate(run_id, trace_id, today)
+        skip_reason = await _do_calculate(run_id, trace_id, today, started_at)
     except Exception as exc:
         err = str(exc)[:1000]
         print(f"[calculate] run {run_id} FAILED: {exc}")
@@ -152,6 +197,7 @@ async def _run_calculate(run_id: str, trace_id: str, today: date) -> None:
                 {"rid": run_id, "now": datetime.now(timezone.utc), "err": err},
             )
             await _finish_trace(conn, trace_id, "failed", notes=err)
+        await _write_trace_file(trace_id, run_id, "factor_run", "failed", started_at, error=err)
         raise
 
     if skip_reason is not None:
@@ -165,13 +211,14 @@ async def _run_calculate(run_id: str, trace_id: str, today: date) -> None:
                 {"rid": run_id, "now": datetime.now(timezone.utc), "msg": skip_reason},
             )
             await _finish_trace(conn, trace_id, "skipped", notes=skip_reason)
+        await _write_trace_file(trace_id, run_id, "factor_run", "skipped", started_at, skip_reason=skip_reason)
 
 
-async def _do_calculate(run_id: str, trace_id: str, today: date) -> Optional[str]:
+async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: datetime) -> Optional[str]:
     """Run factor calculation. Returns a skip-reason string on early exit, None on success."""
     async with engine.connect() as conn:
 
-        # ── Step 1: load universe ───────────────────────────────────────────────────
+        # ── Step 1: load universe ─────────────────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
         snap_row = await conn.execute(
             text("SELECT id FROM universe_snapshots ORDER BY snapshot_date DESC, fetched_at DESC LIMIT 1")
@@ -225,7 +272,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date) -> Optional[str
     print(f"[calculate] universe: {len(universe_tickers)} tickers (ETFs/funds excluded)")
 
     async with engine.connect() as conn:
-        # ── Step 2: load SPY prices ───────────────────────────────────────────────
+        # ── Step 2: load SPY prices ─────────────────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
         spy_rows = await conn.execute(
             text("SELECT date, adjusted_close FROM daily_prices WHERE ticker = 'SPY' ORDER BY date ASC")
@@ -252,7 +299,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date) -> Optional[str
     score_date: date = pd.to_datetime(spy_df["date"]).max().date()
     print(f"[calculate] score_date={score_date} (latest SPY trading date)")
 
-    # ── Step 3: detect regime ───────────────────────────────────────────────────
+    # ── Step 3: detect regime ───────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
     regime_info = detect_regime(spy_df, strategy.regime_detection)
     raw_regime = regime_info["raw_regime"]
@@ -301,7 +348,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date) -> Optional[str
         )
 
     async with engine.connect() as conn:
-        # ── Step 4: load price history ───────────────────────────────────────────────
+        # ── Step 4: load price history ──────────────────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
         price_rows = await conn.execute(
             text(
@@ -339,7 +386,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date) -> Optional[str
     print(f"[calculate] loaded {len(prices_df)} price rows for {prices_df['ticker'].nunique()} tickers")
 
     async with engine.connect() as conn:
-        # ── Step 5: load fundamentals ───────────────────────────────────────────────
+        # ── Step 5: load fundamentals ──────────────────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
         fund_rows = await conn.execute(
             text(
@@ -375,7 +422,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date) -> Optional[str
 
     print(f"[calculate] loaded fundamentals for {tickers_with_fundamentals} tickers")
 
-    # ── Step 6: calculate factors ───────────────────────────────────────────────
+    # ── Step 6: calculate factors ──────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
     factors_df = compute_all_factors(prices_long=prices_df, fundamentals=fund_df)
     null_quality_count = int(factors_df["quality"].isna().sum()) if "quality" in factors_df.columns else 0
@@ -396,7 +443,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date) -> Optional[str
     ticker_count = len(factors_df)
 
     async with engine.begin() as conn:
-        # ── Step 7: write regime snapshot ─────────────────────────────────────────────
+        # ── Step 7: write regime snapshot ─────────────────────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
         await conn.execute(
             text(
@@ -423,7 +470,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date) -> Optional[str
             output_summary={"snapshot_date": str(score_date), "regime": confirmed_regime},
         )
 
-        # ── Step 8: write factor scores ─────────────────────────────────────────────
+        # ── Step 8: write factor scores ──────────────────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
         for _, row in factors_df.iterrows():
             def _val(v):
@@ -464,7 +511,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date) -> Optional[str
             output_summary={"written_count": ticker_count, "score_date": str(score_date)},
         )
 
-        # ── Mark run successful ─────────────────────────────────────────────────────
+        # ── Mark run successful ──────────────────────────────────────────────────────────────────────
         await conn.execute(
             text(
                 "UPDATE factor_runs SET "
@@ -493,6 +540,12 @@ async def _do_calculate(run_id: str, trace_id: str, today: date) -> Optional[str
 
     print(f"[calculate] run {run_id} SUCCESS: {ticker_count} tickers, "
           f"regime={confirmed_regime}, score_date={score_date}")
+    await _write_trace_file(
+        trace_id, run_id, "factor_run", "success", started_at,
+        regime=confirmed_regime,
+        score_date=str(score_date),
+        ticker_count=ticker_count,
+    )
     return None
 
 
