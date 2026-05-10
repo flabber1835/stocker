@@ -79,7 +79,7 @@ async def _write_trace_file(
 
         traces_dir = os.path.join(ARTIFACTS_PATH, "traces")
         os.makedirs(traces_dir, exist_ok=True)
-        fname = f"{started_at.strftime('%Y-%m-%d')}_{job_type}_{trace_id[:8]}.json"
+        fname = f"{started_at.strftime('%Y-%m-%d')}_rank_run_{trace_id[:8]}.json"
         payload = {
             "trace_id": trace_id,
             "run_id": run_id,
@@ -88,18 +88,23 @@ async def _write_trace_file(
             "strategy_id": strategy.strategy_id,
             "config_hash": config_hash,
             "started_at": started_at.isoformat(),
-            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             **extra,
             "steps": steps,
         }
         path = os.path.join(traces_dir, fname)
         with open(path, "w") as f:
             json.dump(payload, f, indent=2, default=str)
-        print(f"[ranker] trace written → {path}")
+        print(f"[ranker] trace → {path} ({len(steps)} steps, status={status})")
     except Exception as exc:
         import traceback
         print(f"[ranker] WARNING: failed to write trace file for {trace_id}: {exc}")
         traceback.print_exc()
+
+
+async def _checkpoint(trace_id: str, run_id: str, started_at: datetime) -> None:
+    """Write current trace state to disk after each step."""
+    await _write_trace_file(trace_id, run_id, "rank_run", "running", started_at)
 
 
 # ── Trace helpers ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -182,6 +187,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
     inherited_trace_id = str(latest.trace_id) if latest.trace_id else None
     trace_id = inherited_trace_id or str(uuid.uuid4())
     new_trace = inherited_trace_id is None
+    await _checkpoint(trace_id, ranking_run_id, started_at)  # initial write: running, 0 steps
 
     async with engine.begin() as conn:
         # Create ranking_runs row
@@ -226,6 +232,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
                 "trace_inherited": not new_trace,
             },
         )
+    await _checkpoint(trace_id, ranking_run_id, started_at)
 
     # ── Step 2: load factor scores ───────────────────────────────────
     t0 = datetime.now(timezone.utc)
@@ -244,6 +251,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
             input_summary={"source_factor_run_id": source_factor_run_id},
             output_summary={"record_count": len(records)},
         )
+    await _checkpoint(trace_id, ranking_run_id, started_at)
 
     if not records:
         async with engine.begin() as conn:
@@ -299,6 +307,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
                 if dropped_count > 0 else None
             ),
         )
+    await _checkpoint(trace_id, ranking_run_id, started_at)
 
     ranked_at = datetime.now(timezone.utc)
 

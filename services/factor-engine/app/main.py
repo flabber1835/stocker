@@ -81,7 +81,7 @@ async def _write_trace_file(
 
         traces_dir = os.path.join(ARTIFACTS_PATH, "traces")
         os.makedirs(traces_dir, exist_ok=True)
-        fname = f"{started_at.strftime('%Y-%m-%d')}_{job_type}_{trace_id[:8]}.json"
+        fname = f"{started_at.strftime('%Y-%m-%d')}_factor_run_{trace_id[:8]}.json"
         payload = {
             "trace_id": trace_id,
             "run_id": run_id,
@@ -90,18 +90,23 @@ async def _write_trace_file(
             "strategy_id": strategy.strategy_id,
             "config_hash": config_hash,
             "started_at": started_at.isoformat(),
-            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             **extra,
             "steps": steps,
         }
         path = os.path.join(traces_dir, fname)
         with open(path, "w") as f:
             json.dump(payload, f, indent=2, default=str)
-        print(f"[factor-engine] trace written → {path}")
+        print(f"[factor-engine] trace → {path} ({len(steps)} steps, status={status})")
     except Exception as exc:
         import traceback
         print(f"[factor-engine] WARNING: failed to write trace file for {trace_id}: {exc}")
         traceback.print_exc()
+
+
+async def _checkpoint(trace_id: str, run_id: str, started_at: datetime) -> None:
+    """Write current trace state to disk after each step."""
+    await _write_trace_file(trace_id, run_id, "factor_run", "running", started_at)
 
 
 # ── Trace helpers ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -188,6 +193,8 @@ async def _run_calculate(run_id: str, trace_id: str, today: date) -> None:
         )
         await _create_trace(conn, trace_id, "factor_run", run_id)
 
+    await _checkpoint(trace_id, run_id, started_at)  # initial write: running, 0 steps
+
     try:
         skip_reason = await _do_calculate(run_id, trace_id, today, started_at)
     except Exception as exc:
@@ -269,6 +276,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             },
             error_message="empty universe after ETF/fund exclusion" if not universe_tickers else None,
         )
+    await _checkpoint(trace_id, run_id, started_at)
 
     if not universe_tickers:
         print("[calculate] universe snapshot is empty after ETF/fund exclusion")
@@ -295,6 +303,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
                 "date_max": str(spy_df["date"].max()) if not spy_df.empty else None,
             },
         )
+    await _checkpoint(trace_id, run_id, started_at)
 
     if len(spy_df) < strategy.regime_detection.slow_sma:
         msg = f"insufficient SPY history: {len(spy_df)} rows, need {strategy.regime_detection.slow_sma}"
@@ -351,6 +360,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
                 "realized_vol": round(float(regime_info["realized_vol"]), 4),
             },
         )
+    await _checkpoint(trace_id, run_id, started_at)
 
     async with engine.connect() as conn:
         # ── Step 4: load price history ──────────────────────────────────────────────────────────────
@@ -383,6 +393,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             },
             error_message="no price data found" if prices_df.empty else None,
         )
+    await _checkpoint(trace_id, run_id, started_at)
 
     if prices_df.empty:
         print("[calculate] no price data found for universe tickers")
@@ -424,6 +435,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             },
             warnings=fund_warnings or None,
         )
+    await _checkpoint(trace_id, run_id, started_at)
 
     print(f"[calculate] loaded fundamentals for {tickers_with_fundamentals} tickers")
 
@@ -443,6 +455,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             },
             warnings=[f"{null_quality_count} tickers have null quality (no fundamentals)"] if null_quality_count > 0 else None,
         )
+    await _checkpoint(trace_id, run_id, started_at)
 
     calculated_at = datetime.now(timezone.utc)
     ticker_count = len(factors_df)
