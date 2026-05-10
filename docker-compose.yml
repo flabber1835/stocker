@@ -99,7 +99,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ./strategies:/strategies:ro
-      - artifacts:/artifacts
+      - ./artifacts:/artifacts
     depends_on:
       postgres:
         condition: service_healthy
@@ -124,7 +124,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ./strategies:/strategies:ro
-      - artifacts:/artifacts
+      - ./artifacts:/artifacts
     depends_on:
       postgres:
         condition: service_healthy
@@ -268,4 +268,3 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  artifacts:

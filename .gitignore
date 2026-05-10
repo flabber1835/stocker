@@ -22,8 +22,9 @@ env/
 postgres_data/
 redis_data/
 
-# Artifacts / reports
-artifacts/
+# Artifacts / reports (keep directory, ignore generated files)
+artifacts/**
+!artifacts/.gitkeep
 backtests/*.json
 
 # IDE
