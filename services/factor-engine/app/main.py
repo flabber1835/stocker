@@ -109,7 +109,7 @@ async def _checkpoint(trace_id: str, run_id: str, started_at: datetime) -> None:
     await _write_trace_file(trace_id, run_id, "factor_run", "running", started_at)
 
 
-# ── Trace helpers ─────────────────────────────────────────────────────────────────────────────────────────────────
+# ── Trace helpers ───────────────────────────────────────────────────────────────────────────────────────────────
 
 async def _create_trace(conn, trace_id: str, job_type: str, root_run_id: str) -> None:
     await conn.execute(
@@ -379,8 +379,8 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         )
 
     async with engine.begin() as conn:
-        price_max_date = str(pd.to_datetime(prices_df["date"]).max().date()) if not prices_df.empty else None
-        price_min_date = str(pd.to_datetime(prices_df["date"]).min().date()) if not prices_df.empty else None
+        price_max_date = pd.to_datetime(prices_df["date"]).max().date() if not prices_df.empty else None
+        price_min_date = pd.to_datetime(prices_df["date"]).min().date() if not prices_df.empty else None
         await _log_step(
             conn, trace_id, "load_price_history",
             "success" if not prices_df.empty else "skipped",
@@ -389,8 +389,8 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             output_summary={
                 "row_count": len(prices_df),
                 "ticker_count": prices_df["ticker"].nunique() if not prices_df.empty else 0,
-                "date_min": price_min_date,
-                "date_max": price_max_date,
+                "date_min": str(price_min_date) if price_min_date else None,
+                "date_max": str(price_max_date) if price_max_date else None,
             },
             error_message="no price data found" if prices_df.empty else None,
         )
