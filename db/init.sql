@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS factor_runs (
     score_date      DATE         NOT NULL,
     raw_regime      VARCHAR(30),
     regime          VARCHAR(30),
-    status          VARCHAR(20)  NOT NULL DEFAULT 'running',  -- running|success|failed
+    status          VARCHAR(20)  NOT NULL DEFAULT 'running',  -- running|success|failed|skipped
     ticker_count    INTEGER,
     error           TEXT,
     started_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
