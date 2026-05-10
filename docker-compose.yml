@@ -1,6 +1,6 @@
 services:
 
-  # ── Infrastructure ────────────────────────────────────────────────────────────
+  # ── Infrastructure ────────────────────────────────────────────────────────────────────────────
 
   postgres:
     image: postgres:16
@@ -33,7 +33,7 @@ services:
       timeout: 3s
       retries: 10
 
-  # ── Working services ──────────────────────────────────────────────────────────
+  # ── Working services ──────────────────────────────────────────────────────────────────
 
   api:
     build:
@@ -130,18 +130,26 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Stubbed services (filled in later) ────────────────────────────────────────
-  # Each stub serves GET /health → {"status":"ok","service":"<name>"}
-
   dashboard:
     build:
       context: .
-      dockerfile: services/stub/Dockerfile
+      dockerfile: services/dashboard/Dockerfile
     restart: unless-stopped
     ports:
       - "8004:8000"
     environment:
-      SERVICE_NAME: dashboard
+      API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Stubbed services (filled in later) ────────────────────────────────────────────
+  # Each stub serves GET /health → {"status":"ok","service":"<name>"}
 
   strategy-validator:
     build:
