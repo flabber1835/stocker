@@ -42,6 +42,49 @@ wait_healthy() {
     echo "  $name is up"
 }
 
+# Poll until a condition function returns 0, with a timeout.
+# Usage: poll_until <description> <max_seconds> <function_name>
+poll_until() {
+    local desc="$1"
+    local max="$2"
+    local fn="$3"
+    local elapsed=0
+    printf "  Polling: %s (max %ss)..." "$desc" "$max"
+    until $fn 2>/dev/null; do
+        sleep 2
+        elapsed=$((elapsed + 2))
+        if [ $elapsed -ge $max ]; then
+            echo ""
+            echo "  TIMEOUT: $desc after ${max}s"
+            return 1
+        fi
+        printf '.'
+    done
+    echo " ok (${elapsed}s)"
+}
+
+check_universe_populated() {
+    local count
+    count=$(curl -sf "$BASE_URL_AV/status" | python3 -c 'import sys,json; print(json.load(sys.stdin)["universe_tickers"])')
+    [ "${count:-0}" -gt 0 ]
+}
+
+check_prices_populated() {
+    local count
+    count=$(curl -sf "$BASE_URL_AV/status" | python3 -c 'import sys,json; print(json.load(sys.stdin)["price_rows"])')
+    [ "${count:-0}" -gt 0 ]
+}
+
+check_regime_exists() {
+    curl -sf "$BASE_URL_FE/regime/current" | \
+        python3 -c 'import sys,json; d=json.load(sys.stdin); exit(0 if d.get("regime") else 1)'
+}
+
+check_rankings_exist() {
+    curl -sf "$BASE_URL_API/rankings?limit=1" | \
+        python3 -c 'import sys,json; d=json.load(sys.stdin); exit(0 if d.get("count",0)>0 else 1)'
+}
+
 echo "=== Stocker integration test (MOCK_DATA=true) ==="
 echo ""
 
@@ -50,40 +93,40 @@ echo "Step 1: Starting services with MOCK_DATA=true..."
 MOCK_DATA=true docker compose up -d --build
 sleep 5
 
-wait_healthy "$BASE_URL_API" "api"
-wait_healthy "$BASE_URL_AV" "av-ingestor"
-wait_healthy "$BASE_URL_FE" "factor-engine"
+wait_healthy "$BASE_URL_API"    "api"
+wait_healthy "$BASE_URL_AV"     "av-ingestor"
+wait_healthy "$BASE_URL_FE"     "factor-engine"
 wait_healthy "$BASE_URL_RANKER" "ranker"
 
 # 2. Health checks
 echo ""
 echo "Step 2: Health checks..."
-check "api health" "$(curl -sf $BASE_URL_API/health)" '"status":"ok"'
-check "av-ingestor health" "$(curl -sf $BASE_URL_AV/health)" '"status":"ok"'
-check "factor-engine health" "$(curl -sf $BASE_URL_FE/health)" '"status":"ok"'
-check "ranker health" "$(curl -sf $BASE_URL_RANKER/health)" '"status":"ok"'
+check "api health"           "$(curl -sf $BASE_URL_API/health)"    '"status":"ok"'
+check "av-ingestor health"   "$(curl -sf $BASE_URL_AV/health)"     '"status":"ok"'
+check "factor-engine health" "$(curl -sf $BASE_URL_FE/health)"     '"status":"ok"'
+check "ranker health"        "$(curl -sf $BASE_URL_RANKER/health)"  '"status":"ok"'
 
-# 3. Run pipeline
+# 3. Run pipeline — each step polls until the previous job is done before continuing
 echo ""
 echo "Step 3: Fetch universe..."
 result=$(curl -sf -X POST $BASE_URL_AV/jobs/fetch-universe)
 check "fetch-universe accepted" "$result" '"status":"started"'
-sleep 5
+poll_until "universe snapshot populated" 60 check_universe_populated
 
 echo "Step 4: Fetch data (mock, fast)..."
 result=$(curl -sf -X POST $BASE_URL_AV/jobs/fetch-data)
 check "fetch-data accepted" "$result" '"status":"started"'
-sleep 15  # mock data is fast
+poll_until "price rows populated" 120 check_prices_populated
 
 echo "Step 5: Calculate factors..."
 result=$(curl -sf -X POST $BASE_URL_FE/jobs/calculate)
 check "calculate accepted" "$result" '"status":"started"'
-sleep 15
+poll_until "regime snapshot written" 60 check_regime_exists
 
 echo "Step 6: Rank..."
 result=$(curl -sf -X POST $BASE_URL_RANKER/jobs/rank)
 check "rank accepted" "$result" '"status":"started"'
-sleep 10
+poll_until "rankings written" 30 check_rankings_exist
 
 # 4. Verify results
 echo ""
