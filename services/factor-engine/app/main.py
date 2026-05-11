@@ -378,9 +378,36 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             columns=["ticker", "date", "adjusted_close", "close", "volume"],
         )
 
+    # Compute per-ticker price coverage and find tickers with no price data
+    tickers_with_prices: set[str] = set()
+    no_price_tickers: list[str] = []
+    coverage_by_ticker: dict[str, dict] = {}
+    price_max_date = None
+    price_min_date = None
+
+    if not prices_df.empty:
+        prices_df["date"] = pd.to_datetime(prices_df["date"])
+        tickers_with_prices = set(prices_df["ticker"].unique())
+        no_price_tickers = sorted(t for t in universe_tickers if t not in tickers_with_prices)
+        price_max_date = prices_df["date"].max().date()
+        price_min_date = prices_df["date"].min().date()
+        cov = (
+            prices_df.groupby("ticker")["date"]
+            .agg(date_min="min", date_max="max", row_count="count")
+            .reset_index()
+        )
+        coverage_by_ticker = {
+            str(r["ticker"]): {
+                "date_min": str(r["date_min"].date()),
+                "date_max": str(r["date_max"].date()),
+                "row_count": int(r["row_count"]),
+            }
+            for _, r in cov.iterrows()
+        }
+    else:
+        no_price_tickers = list(universe_tickers)
+
     async with engine.begin() as conn:
-        price_max_date = pd.to_datetime(prices_df["date"]).max().date() if not prices_df.empty else None
-        price_min_date = pd.to_datetime(prices_df["date"]).min().date() if not prices_df.empty else None
         await _log_step(
             conn, trace_id, "load_price_history",
             "success" if not prices_df.empty else "skipped",
@@ -388,9 +415,11 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             input_summary={"ticker_count": len(universe_tickers)},
             output_summary={
                 "row_count": len(prices_df),
-                "ticker_count": prices_df["ticker"].nunique() if not prices_df.empty else 0,
+                "ticker_count": len(tickers_with_prices),
                 "date_min": str(price_min_date) if price_min_date else None,
                 "date_max": str(price_max_date) if price_max_date else None,
+                "no_price_data_count": len(no_price_tickers),
+                "no_price_data_tickers": no_price_tickers,
             },
             error_message="no price data found" if prices_df.empty else None,
         )
@@ -419,8 +448,10 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
                      "revenue_growth", "eps_growth"],
         )
 
-    tickers_with_fundamentals = len(fund_df)
-    tickers_without_fundamentals = len(universe_tickers) - tickers_with_fundamentals
+    tickers_with_fund = set(fund_df["ticker"].unique()) if not fund_df.empty else set()
+    tickers_with_fundamentals = len(tickers_with_fund)
+    no_fundamentals_tickers = sorted(t for t in universe_tickers if t not in tickers_with_fund)
+    tickers_without_fundamentals = len(no_fundamentals_tickers)
     fund_warnings = []
     if tickers_without_fundamentals > 0:
         fund_warnings.append(f"{tickers_without_fundamentals} tickers have no fundamentals — quality/value/growth will be null")
@@ -433,6 +464,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             output_summary={
                 "tickers_with_fundamentals": tickers_with_fundamentals,
                 "tickers_without_fundamentals": tickers_without_fundamentals,
+                "no_fundamentals_tickers": no_fundamentals_tickers,
             },
             warnings=fund_warnings or None,
         )
@@ -447,26 +479,76 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
     _factor_cols = ["momentum", "quality", "value", "growth", "low_volatility", "liquidity"]
     factor_stats = {}
+    outliers_by_factor: dict[str, list] = {}
     for col in _factor_cols:
         if col in factors_df.columns:
             s = factors_df[col].dropna()
+            null_count = int(factors_df[col].isna().sum())
             factor_stats[col] = {
-                "null_count": int(factors_df[col].isna().sum()),
+                "null_count": null_count,
                 "mean": round(float(s.mean()), 4) if len(s) > 0 else None,
                 "std": round(float(s.std()), 4) if len(s) > 0 else None,
                 "min": round(float(s.min()), 4) if len(s) > 0 else None,
                 "max": round(float(s.max()), 4) if len(s) > 0 else None,
+                "p25": round(float(s.quantile(0.25)), 4) if len(s) > 0 else None,
+                "p50": round(float(s.quantile(0.50)), 4) if len(s) > 0 else None,
+                "p75": round(float(s.quantile(0.75)), 4) if len(s) > 0 else None,
             }
+            # Flag tickers with scores beyond 3 std (data quality sentinel)
+            if len(s) > 1 and factor_stats[col]["std"] and factor_stats[col]["std"] > 0:
+                mean_v = factor_stats[col]["mean"]
+                std_v = factor_stats[col]["std"]
+                extreme_mask = factors_df[col].notna() & (abs(factors_df[col] - mean_v) > 3 * std_v)
+                extreme_rows = factors_df[extreme_mask][["ticker", col]]
+                if not extreme_rows.empty:
+                    outliers_by_factor[col] = [
+                        {
+                            "ticker": str(r["ticker"]),
+                            "score": round(float(r[col]), 4),
+                            "z": round((float(r[col]) - mean_v) / std_v, 2),
+                        }
+                        for _, r in extreme_rows.iterrows()
+                    ]
+
+    # Factor methodology notes for audit trail
+    factor_methodology = {
+        "momentum": "12-month return skipping last month: (price[-21] / price[-252]) - 1, then cross-sectional z-score clipped at ±2.5",
+        "low_volatility": "annualized log-return std over 252 days, negated (lower vol = higher score), then z-score",
+        "liquidity": "log(1 + mean(close × volume)) over last 20 days, then z-score",
+        "quality": "mean of min-max-normalized ROE and normalized(-D/E), then z-score; null if no fundamentals",
+        "value": "mean of earnings yield (1/PE) and book yield (1/PB) with PE/PB capped at 200; then z-score",
+        "growth": "mean of revenue_growth and eps_growth; then z-score; null if no fundamentals",
+        "z_score_note": "All factors use cross_section_zscore(): (x - mean) / std clipped to [-2.5, 2.5]",
+    }
+
+    # Tickers that had price data but fewer than 253 rows (insufficient for momentum)
+    low_coverage_tickers = [
+        {"ticker": t, "row_count": info["row_count"]}
+        for t, info in coverage_by_ticker.items()
+        if info["row_count"] < 253
+    ]
+
+    step_warnings = []
+    if null_quality_count > 0:
+        step_warnings.append(f"{null_quality_count} tickers have null quality (no fundamentals)")
+    if low_coverage_tickers:
+        step_warnings.append(f"{len(low_coverage_tickers)} tickers have < 253 price rows (insufficient for momentum)")
 
     async with engine.begin() as conn:
         await _log_step(
             conn, trace_id, "calculate_factors", "success",
             started_at=t0,
+            input_summary={
+                "price_tickers": len(tickers_with_prices),
+                "fundamental_tickers": tickers_with_fundamentals,
+            },
             output_summary={
                 "ticker_count": len(factors_df),
                 "factor_stats": factor_stats,
+                "outliers_by_factor": {k: len(v) for k, v in outliers_by_factor.items()},
+                "low_price_coverage_count": len(low_coverage_tickers),
             },
-            warnings=[f"{null_quality_count} tickers have null quality (no fundamentals)"] if null_quality_count > 0 else None,
+            warnings=step_warnings or None,
         )
     await _checkpoint(trace_id, run_id, started_at)
 
@@ -572,6 +654,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
     print(f"[calculate] run {run_id} SUCCESS: {ticker_count} tickers, "
           f"regime={confirmed_regime}, score_date={score_date}")
+
     def _fmt(v):
         return None if pd.isna(v) else round(float(v), 4)
 
@@ -585,16 +668,25 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
                 "growth": _fmt(row.get("growth")),
                 "low_volatility": _fmt(row.get("low_volatility")),
                 "liquidity": _fmt(row.get("liquidity")),
+                "price_coverage": coverage_by_ticker.get(str(row["ticker"])),
             }
             for _, row in factors_df.iterrows()
         ],
         key=lambda x: x["ticker"],
     )
+
     await _write_trace_file(
         trace_id, run_id, "factor_run", "success", started_at,
         regime=confirmed_regime,
         score_date=str(score_date),
         ticker_count=ticker_count,
+        audit={
+            "no_price_data_tickers": no_price_tickers,
+            "no_fundamentals_tickers": no_fundamentals_tickers,
+            "low_price_coverage_tickers": low_coverage_tickers,
+            "outliers_by_factor": outliers_by_factor,
+        },
+        factor_methodology=factor_methodology,
         factor_stats=factor_stats,
         ticker_scores=ticker_scores,
     )

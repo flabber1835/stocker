@@ -289,11 +289,82 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
     def _rfmt(v):
         return None if pd.isna(v) else round(float(v), 4)
 
+    # ── Diagnose every dropped ticker ────────────────────────────────────
+    required_factors_set = set(strategy.required_factors)
+    min_factors = strategy.min_non_null_factors
+    ranked_tickers = set(ranked_df["ticker"].tolist()) if ranked_count > 0 else set()
+    dropped_rows = factor_scores_df[~factor_scores_df["ticker"].isin(ranked_tickers)]
+    dropped_detail = []
+    for _, row in dropped_rows.iterrows():
+        non_null = sum(1 for f in FACTORS if pd.notna(row.get(f)))
+        missing_required = [f for f in required_factors_set if pd.isna(row.get(f))]
+        if missing_required:
+            reason = f"missing required factor(s): {', '.join(sorted(missing_required))}"
+        elif non_null < min_factors:
+            reason = f"only {non_null} non-null factors, need >= {min_factors}"
+        else:
+            reason = "unknown"
+        dropped_detail.append({
+            "ticker": str(row["ticker"]),
+            "reason": reason,
+            "non_null_factors": non_null,
+            "missing_required": sorted(missing_required),
+            "factor_values": {f: _rfmt(row.get(f)) for f in FACTORS},
+        })
+    dropped_detail.sort(key=lambda x: x["ticker"])
+
+    # ── Weights used and composite formula ────────────────────────────────
+    regime_weights_raw = strategy.factor_weights[regime].model_dump()
+    weights_used = {f: regime_weights_raw[f] for f in FACTORS if f in regime_weights_raw}
+    weight_total = sum(weights_used.values())
+    formula_parts = [
+        f"{round(w / weight_total, 4):.4f}×{f}"
+        for f, w in weights_used.items()
+        if w > 0
+    ]
+    composite_formula = (
+        " + ".join(formula_parts)
+        + " (weights re-normalized to sum=1 among non-null factors per ticker)"
+    )
+    percentile_methodology = (
+        f"percentile = 1 - (rank - 1) / (N - 1) where N={ranked_count}; "
+        "rank 1 (best) → percentile 1.0, rank N (worst) → percentile 0.0"
+    )
+
+    # ── Spot-check validation: recompute composite for top 5 ─────────────
+    spot_checks = []
+    for _, row in ranked_df.head(5).iterrows():
+        available = {f: weights_used[f] for f in FACTORS if pd.notna(row.get(f)) and f in weights_used}
+        w_sum = sum(available.values())
+        contributions = {
+            f: {
+                "raw_z_score": _rfmt(row.get(f)),
+                "config_weight": round(w, 4),
+                "normalized_weight": round(w / w_sum, 6),
+                "contribution": round((w / w_sum) * float(row[f]), 6),
+            }
+            for f, w in available.items()
+        }
+        recomputed = sum((w / w_sum) * float(row[f]) for f, w in available.items())
+        stored = float(row["composite_score"]) if pd.notna(row.get("composite_score")) else None
+        spot_checks.append({
+            "rank": int(row["rank"]),
+            "ticker": str(row["ticker"]),
+            "stored_composite_score": _rfmt(row.get("composite_score")),
+            "recomputed_composite_score": round(recomputed, 6),
+            "delta": round(abs(recomputed - stored), 8) if stored is not None else None,
+            "match": abs(recomputed - stored) < 1e-6 if stored is not None else False,
+            "non_null_factors_used": len(available),
+            "weight_sum_before_norm": round(w_sum, 4),
+            "factor_contributions": contributions,
+        })
+
     top10 = [
         {
             "rank": int(row["rank"]),
             "ticker": str(row["ticker"]),
             "composite_score": _rfmt(row.get("composite_score")),
+            "percentile": _rfmt(row.get("percentile")),
             **{f: _rfmt(row.get(f)) for f in FACTORS if f in ranked_df.columns},
         }
         for _, row in ranked_df.head(10).iterrows()
@@ -307,14 +378,19 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
                 "universe_count": universe_count,
                 "regime": regime,
                 "required_factors": strategy.required_factors,
-                "min_non_null_factors": strategy.min_non_null_factors,
+                "min_non_null_factors": min_factors,
+                "weights_used": weights_used,
             },
             output_summary={
                 "ranked_count": ranked_count,
                 "dropped_count": dropped_count,
                 "top_ticker": top_ticker,
                 "null_quality_input": null_quality_before,
+                "composite_formula": composite_formula,
+                "percentile_methodology": percentile_methodology,
                 "top10": top10,
+                "spot_checks": spot_checks,
+                "dropped_tickers": dropped_detail,
             },
             warnings=(
                 [f"{dropped_count} tickers dropped (required factors or coverage gate)"]
@@ -427,6 +503,15 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
         dropped_count=dropped_count,
         top_ticker=top_ticker,
         source_factor_run_id=source_factor_run_id,
+        ranking_config={
+            "weights_used": weights_used,
+            "composite_formula": composite_formula,
+            "percentile_methodology": percentile_methodology,
+            "required_factors": strategy.required_factors,
+            "min_non_null_factors": min_factors,
+        },
+        spot_checks=spot_checks,
+        dropped_tickers=dropped_detail,
         rankings=full_rankings,
     )
 
