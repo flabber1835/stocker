@@ -250,6 +250,8 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
                 "  OR COALESCE(name, '') ~* "
                 "  '(ProShares|iShares|SPDR|Invesco|Direxion|VanEck|WisdomTree"
                 "|\\bETF\\b|\\bFund\\b|\\bTrust\\b|\\bIndex\\b|\\bLeveraged\\b|\\bInverse\\b)'"
+                "  OR ticker ~ 'FUT$'"
+                "  OR ticker ~ '^[A-Z]{1,4}[0-9]{1,2}[A-Z]?[0-9]?$'"
                 ")"
             ),
             {"sid": snapshot_id},
@@ -486,7 +488,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
     _factor_cols = ["momentum", "quality", "value", "growth", "low_volatility", "liquidity"]
     factor_stats = {}
-    outliers_by_factor: dict[str, list] = {}
+    clipped_by_factor: dict[str, list] = {}
     for col in _factor_cols:
         if col in factors_df.columns:
             s = factors_df[col].dropna()
@@ -501,21 +503,17 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
                 "p50": round(float(s.quantile(0.50)), 4) if len(s) > 0 else None,
                 "p75": round(float(s.quantile(0.75)), 4) if len(s) > 0 else None,
             }
-            # Flag tickers with scores beyond 3 std (data quality sentinel)
-            if len(s) > 1 and factor_stats[col]["std"] and factor_stats[col]["std"] > 0:
-                mean_v = factor_stats[col]["mean"]
-                std_v = factor_stats[col]["std"]
-                extreme_mask = factors_df[col].notna() & (abs(factors_df[col] - mean_v) > 3 * std_v)
-                extreme_rows = factors_df[extreme_mask][["ticker", col]]
-                if not extreme_rows.empty:
-                    outliers_by_factor[col] = [
-                        {
-                            "ticker": str(r["ticker"]),
-                            "score": round(float(r[col]), 4),
-                            "z": round((float(r[col]) - mean_v) / std_v, 2),
-                        }
-                        for _, r in extreme_rows.iterrows()
-                    ]
+            # Count tickers at the ±2.5 z-score cap — these are genuinely extreme
+            # outliers whose raw score was so far from the mean that cross_section_zscore
+            # hit the hard clip. Large clipped counts indicate a skewed raw distribution
+            # (e.g., a few hypergrowth names compressing the rest).
+            clipped_mask = factors_df[col].notna() & (factors_df[col].abs() >= 2.49)
+            clipped_rows = factors_df[clipped_mask][["ticker", col]]
+            if not clipped_rows.empty:
+                clipped_by_factor[col] = [
+                    {"ticker": str(r["ticker"]), "score": round(float(r[col]), 4)}
+                    for _, r in clipped_rows.iterrows()
+                ]
 
     # Factor methodology notes for audit trail
     factor_methodology = {
@@ -552,7 +550,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             output_summary={
                 "ticker_count": len(factors_df),
                 "factor_stats": factor_stats,
-                "outliers_by_factor": {k: len(v) for k, v in outliers_by_factor.items()},
+                "clipped_by_factor": {k: len(v) for k, v in clipped_by_factor.items()},
                 "low_price_coverage_count": len(low_coverage_tickers),
             },
             warnings=step_warnings or None,
@@ -691,7 +689,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             "no_price_data_tickers": no_price_tickers,
             "no_fundamentals_tickers": no_fundamentals_tickers,
             "low_price_coverage_tickers": low_coverage_tickers,
-            "outliers_by_factor": outliers_by_factor,
+            "clipped_by_factor": clipped_by_factor,
         },
         factor_methodology=factor_methodology,
         factor_stats=factor_stats,

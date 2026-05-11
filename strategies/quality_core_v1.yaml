@@ -75,6 +75,7 @@ factor_weights:
 
 max_positions: 30
 min_score_percentile: 0.0
-min_non_null_factors: 4   # ticker must have at least 4 non-null factor scores to be ranked
-required_factors:         # these factors must be present (non-null) for a ticker to rank
+min_non_null_factors: 5   # ticker must have at least 5 of 6 factor scores to rank
+required_factors:         # these factors must be non-null regardless of the count above
   - quality               # no fundamental data = no ranking in a quality strategy
+  - growth                # growth has 0.10–0.21 weight; missing it causes >2pp weight drift
