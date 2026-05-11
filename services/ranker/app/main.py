@@ -53,7 +53,7 @@ async def health():
     }
 
 
-# ── Artifact file helpers ────────────────────────────────────
+# ── Artifact file helpers ──────────────────────────────
 
 async def _write_trace_file(
     trace_id: str,
@@ -107,7 +107,7 @@ async def _checkpoint(trace_id: str, run_id: str, started_at: datetime) -> None:
     await _write_trace_file(trace_id, run_id, "rank_run", "running", started_at)
 
 
-# ── Trace helpers ───────────────────────────────────────────────────────────────────────────────────────────────
+# ── Trace helpers ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 async def _log_step(
     conn,
@@ -145,7 +145,7 @@ async def _log_step(
     )
 
 
-# ── Rank job ──────────────────────────────────────────────────────────────────────────────────────────────────
+# ── Rank job ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -> None:
     started_at = datetime.now(timezone.utc)
@@ -234,7 +234,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
         )
     await _checkpoint(trace_id, ranking_run_id, started_at)
 
-    # ── Step 2: load factor scores ─────────────────────────────────
+    # ── Step 2: load factor scores ──────────────────────────────
     t0 = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         rows = await conn.execute(
@@ -277,7 +277,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
     )
     universe_count = len(factor_scores_df)
 
-    # ── Step 3: rank (apply weights + required factor gates) ────────────────────
+    # ── Step 3: rank (apply weights + required factor gates) ──────────────
     t0 = datetime.now(timezone.utc)
     ranked_df = rank_universe(factor_scores_df, regime, strategy)
     ranked_count = len(ranked_df)
@@ -289,7 +289,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
     def _rfmt(v):
         return None if pd.isna(v) else round(float(v), 4)
 
-    # ── Diagnose every dropped ticker ────────────────────────────────────
+    # ── Diagnose every dropped ticker ────────────────────
     required_factors_set = set(strategy.required_factors)
     min_factors = strategy.min_non_null_factors
     ranked_tickers = set(ranked_df["ticker"].tolist()) if ranked_count > 0 else set()
@@ -297,6 +297,9 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
     dropped_detail = []
     for _, row in dropped_rows.iterrows():
         non_null = sum(1 for f in FACTORS if pd.notna(row.get(f)))
+        # All factors that are null — not just required ones. This surfaces cases like XPER
+        # where the logged reason ("missing quality") masked that value and growth were also null.
+        null_factors = sorted([f for f in FACTORS if pd.isna(row.get(f))])
         missing_required = [f for f in required_factors_set if pd.isna(row.get(f))]
         if missing_required:
             reason = f"missing required factor(s): {', '.join(sorted(missing_required))}"
@@ -308,12 +311,13 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
             "ticker": str(row["ticker"]),
             "reason": reason,
             "non_null_factors": non_null,
+            "null_factors": null_factors,
             "missing_required": sorted(missing_required),
             "factor_values": {f: _rfmt(row.get(f)) for f in FACTORS},
         })
     dropped_detail.sort(key=lambda x: x["ticker"])
 
-    # ── Weights used and composite formula ────────────────────────────────
+    # ── Weights used and composite formula ────────────────────
     regime_weights_raw = strategy.factor_weights[regime].model_dump()
     weights_used = {f: regime_weights_raw[f] for f in FACTORS if f in regime_weights_raw}
     weight_total = sum(weights_used.values())
@@ -331,7 +335,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
         "rank 1 (best) → percentile 1.0, rank N (worst) → percentile 0.0"
     )
 
-    # ── Spot-check validation: recompute composite for top 5 ─────────────
+    # ── Spot-check validation: recompute composite for top 5 ─────────────────
     spot_checks = []
     for _, row in ranked_df.head(5).iterrows():
         available = {f: weights_used[f] for f in FACTORS if pd.notna(row.get(f)) and f in weights_used}
@@ -358,6 +362,29 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
             "weight_sum_before_norm": round(w_sum, 4),
             "factor_contributions": contributions,
         })
+
+    # ── Weight drift: tickers where a missing factor causes effective weights to shift ──
+    # A stock missing one factor with non-zero weight is ranked by a subtly different
+    # strategy than a fully-covered stock. Track this so the caller can decide whether
+    # to apply a stricter min_non_null_factors gate.
+    weight_drift_tickers = []
+    for _, row in ranked_df.iterrows():
+        available = {f: weights_used[f] for f in FACTORS if pd.notna(row.get(f)) and f in weights_used}
+        w_sum = sum(available.values())
+        if w_sum < 0.99:  # at least one weighted (non-zero) factor is missing
+            null_weighted = sorted([
+                f for f in FACTORS
+                if pd.isna(row.get(f)) and weights_used.get(f, 0) > 0
+            ])
+            if null_weighted:
+                max_drift = max(abs(w / w_sum - w) for f, w in available.items())
+                if max_drift > 0.02:  # only surface if any single factor shifts by >2 pp
+                    weight_drift_tickers.append({
+                        "ticker": str(row["ticker"]),
+                        "null_weighted_factors": null_weighted,
+                        "weight_sum_before_norm": round(w_sum, 4),
+                        "max_factor_weight_drift": round(max_drift, 4),
+                    })
 
     top10 = [
         {
@@ -388,20 +415,26 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
                 "null_quality_input": null_quality_before,
                 "composite_formula": composite_formula,
                 "percentile_methodology": percentile_methodology,
+                "weight_drift_count": len(weight_drift_tickers),
                 "top10": top10,
                 "spot_checks": spot_checks,
                 "dropped_tickers": dropped_detail,
             },
             warnings=(
-                [f"{dropped_count} tickers dropped (required factors or coverage gate)"]
-                if dropped_count > 0 else None
+                (
+                    [f"{dropped_count} tickers dropped (required factors or coverage gate)"]
+                    if dropped_count > 0 else []
+                ) + (
+                    [f"{len(weight_drift_tickers)} ranked tickers have effective weight drift >2pp due to missing factors"]
+                    if weight_drift_tickers else []
+                ) or None
             ),
         )
     await _checkpoint(trace_id, ranking_run_id, started_at)
 
     ranked_at = datetime.now(timezone.utc)
 
-    # ── Step 4: write rankings ──────────────────────────────────────────────────────────────────────────
+    # ── Step 4: write rankings ──────────────────────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         for _, row in ranked_df.iterrows():
@@ -512,6 +545,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
         },
         spot_checks=spot_checks,
         dropped_tickers=dropped_detail,
+        weight_drift_tickers=weight_drift_tickers,
         rankings=full_rankings,
     )
 
