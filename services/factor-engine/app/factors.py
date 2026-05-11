@@ -153,10 +153,10 @@ def compute_growth(fundamentals: pd.DataFrame) -> pd.Series:
     """
     Mean of revenue_growth and eps_growth.
 
-    Both inputs are winsorized at 2nd/98th percentile before averaging. Growth
-    rates are uniquely right-skewed (biotechs, SPACs, one-time items) — 1%/99%
-    only clips ~25 of 2500 tickers, leaving 89+ at the ±2.5 z-score cap.
-    Tightening to 2%/98% clips ~50 at each tail and meaningfully reduces cap-hits.
+    Both inputs are winsorized at 0.5th/99.5th percentile before averaging.
+    Tighter bounds compress the post-winsorization std, which shrinks the
+    z-score denominator and pushes more near-tail tickers past the ±2.5 cap.
+    Wider bounds preserve more variance and produce fewer cap-hits.
     """
     fund = fundamentals.set_index("ticker")
 
@@ -165,8 +165,8 @@ def compute_growth(fundamentals: pd.DataFrame) -> pd.Series:
 
     rev_g_valid = rev_g[rev_g.notna()]
     eps_g_valid = eps_g[eps_g.notna()]
-    rev_g_w = _winsorize(rev_g_valid, lo_pct=0.02, hi_pct=0.98) if not rev_g_valid.empty else rev_g_valid
-    eps_g_w = _winsorize(eps_g_valid, lo_pct=0.02, hi_pct=0.98) if not eps_g_valid.empty else eps_g_valid
+    rev_g_w = _winsorize(rev_g_valid, lo_pct=0.005, hi_pct=0.995) if not rev_g_valid.empty else rev_g_valid
+    eps_g_w = _winsorize(eps_g_valid, lo_pct=0.005, hi_pct=0.995) if not eps_g_valid.empty else eps_g_valid
 
     all_tickers = fund.index
     result = pd.Series(index=all_tickers, dtype=float)

@@ -75,8 +75,11 @@ factor_weights:
 
 max_positions: 30
 min_score_percentile: 0.0
-min_non_null_factors: 5   # ticker must have at least 5 of 6 factor scores to rank
-required_factors:         # these factors must be non-null regardless of the count above
-  - quality               # no fundamental data = no ranking in a quality strategy
-  - growth                # growth has 0.10–0.21 weight; missing it causes >2pp weight drift
-  - value                 # value has 0.08–0.28 weight; missing it is the primary driver of remaining weight drift
+min_non_null_factors: 6   # all 6 factors required — any ticker with a null factor is dropped to prevent weight drift
+required_factors:         # belt-and-suspenders: explicitly name each factor with non-zero weight
+  - quality               # 0.15–0.25 weight; no fundamental data = no ranking
+  - growth                # 0.05–0.21 weight; right-skewed; winsorized at 0.5%/99.5%
+  - value                 # 0.08–0.28 weight; was the primary driver of remaining weight drift
+  - momentum              # 0.10–0.27 weight; requires 252 days of price history
+  - low_volatility        # 0.14–0.34 weight; requires price history
+  - liquidity             # 0.08–0.18 weight; requires price + volume history
