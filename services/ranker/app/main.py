@@ -53,7 +53,7 @@ async def health():
     }
 
 
-# ── Artifact file helpers ───────────────────────────────────────────────────
+# ── Artifact file helpers ─────────────────────────────────────────────────────────────────────────
 
 async def _write_trace_file(
     trace_id: str,
@@ -65,39 +65,49 @@ async def _write_trace_file(
 ) -> None:
     if not ARTIFACTS_PATH:
         return
-    async with engine.connect() as conn:
-        rows = await conn.execute(
-            text(
-                "SELECT service, step_name, status, started_at, completed_at, "
-                "       input_summary, output_summary, warnings, error_message "
-                "FROM execution_steps WHERE trace_id = :tid ORDER BY started_at ASC"
-            ),
-            {"tid": trace_id},
-        )
-        steps = [dict(r) for r in rows.mappings()]
+    try:
+        async with engine.connect() as conn:
+            rows = await conn.execute(
+                text(
+                    "SELECT service, step_name, status, started_at, completed_at, "
+                    "       input_summary, output_summary, warnings, error_message "
+                    "FROM execution_steps WHERE trace_id = :tid ORDER BY started_at ASC"
+                ),
+                {"tid": trace_id},
+            )
+            steps = [dict(r) for r in rows.mappings()]
 
-    traces_dir = os.path.join(ARTIFACTS_PATH, "traces")
-    os.makedirs(traces_dir, exist_ok=True)
-    fname = f"{started_at.strftime('%Y-%m-%d')}_{job_type}_{trace_id[:8]}.json"
-    payload = {
-        "trace_id": trace_id,
-        "run_id": run_id,
-        "job_type": job_type,
-        "status": status,
-        "strategy_id": strategy.strategy_id,
-        "config_hash": config_hash,
-        "started_at": started_at.isoformat(),
-        "completed_at": datetime.now(timezone.utc).isoformat(),
-        **extra,
-        "steps": steps,
-    }
-    path = os.path.join(traces_dir, fname)
-    with open(path, "w") as f:
-        json.dump(payload, f, indent=2, default=str)
-    print(f"[ranker] trace written → {path}")
+        traces_dir = os.path.join(ARTIFACTS_PATH, "traces")
+        os.makedirs(traces_dir, exist_ok=True)
+        fname = f"{started_at.strftime('%Y-%m-%d')}_rank_run_{trace_id[:8]}.json"
+        payload = {
+            "trace_id": trace_id,
+            "run_id": run_id,
+            "job_type": job_type,
+            "status": status,
+            "strategy_id": strategy.strategy_id,
+            "config_hash": config_hash,
+            "started_at": started_at.isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            **extra,
+            "steps": steps,
+        }
+        path = os.path.join(traces_dir, fname)
+        with open(path, "w") as f:
+            json.dump(payload, f, indent=2, default=str)
+        print(f"[ranker] trace → {path} ({len(steps)} steps, status={status})")
+    except Exception as exc:
+        import traceback
+        print(f"[ranker] WARNING: failed to write trace file for {trace_id}: {exc}")
+        traceback.print_exc()
 
 
-# ── Trace helpers ─────────────────────────────────────────────────────────────────────────────────────────────
+async def _checkpoint(trace_id: str, run_id: str, started_at: datetime) -> None:
+    """Write current trace state to disk after each step."""
+    await _write_trace_file(trace_id, run_id, "rank_run", "running", started_at)
+
+
+# ── Trace helpers ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 async def _log_step(
     conn,
@@ -135,7 +145,7 @@ async def _log_step(
     )
 
 
-# ── Rank job ────────────────────────────────────────────────────────────────────────────────────────
+# ── Rank job ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -> None:
     started_at = datetime.now(timezone.utc)
@@ -177,6 +187,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
     inherited_trace_id = str(latest.trace_id) if latest.trace_id else None
     trace_id = inherited_trace_id or str(uuid.uuid4())
     new_trace = inherited_trace_id is None
+    await _checkpoint(trace_id, ranking_run_id, started_at)  # initial write: running, 0 steps
 
     async with engine.begin() as conn:
         # Create ranking_runs row
@@ -221,8 +232,9 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
                 "trace_inherited": not new_trace,
             },
         )
+    await _checkpoint(trace_id, ranking_run_id, started_at)
 
-    # ── Step 2: load factor scores ───────────────────────────────────
+    # ── Step 2: load factor scores ─────────────────────────────────
     t0 = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         rows = await conn.execute(
@@ -239,6 +251,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
             input_summary={"source_factor_run_id": source_factor_run_id},
             output_summary={"record_count": len(records)},
         )
+    await _checkpoint(trace_id, ranking_run_id, started_at)
 
     if not records:
         async with engine.begin() as conn:
@@ -264,7 +277,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
     )
     universe_count = len(factor_scores_df)
 
-    # ── Step 3: rank (apply weights + required factor gates) ─────────────
+    # ── Step 3: rank (apply weights + required factor gates) ────────────────────
     t0 = datetime.now(timezone.utc)
     ranked_df = rank_universe(factor_scores_df, regime, strategy)
     ranked_count = len(ranked_df)
@@ -272,6 +285,90 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
 
     top_ticker = ranked_df.iloc[0]["ticker"] if ranked_count > 0 else None
     null_quality_before = int(factor_scores_df["quality"].isna().sum())
+
+    def _rfmt(v):
+        return None if pd.isna(v) else round(float(v), 4)
+
+    # ── Diagnose every dropped ticker ────────────────────────────────────
+    required_factors_set = set(strategy.required_factors)
+    min_factors = strategy.min_non_null_factors
+    ranked_tickers = set(ranked_df["ticker"].tolist()) if ranked_count > 0 else set()
+    dropped_rows = factor_scores_df[~factor_scores_df["ticker"].isin(ranked_tickers)]
+    dropped_detail = []
+    for _, row in dropped_rows.iterrows():
+        non_null = sum(1 for f in FACTORS if pd.notna(row.get(f)))
+        missing_required = [f for f in required_factors_set if pd.isna(row.get(f))]
+        if missing_required:
+            reason = f"missing required factor(s): {', '.join(sorted(missing_required))}"
+        elif non_null < min_factors:
+            reason = f"only {non_null} non-null factors, need >= {min_factors}"
+        else:
+            reason = "unknown"
+        dropped_detail.append({
+            "ticker": str(row["ticker"]),
+            "reason": reason,
+            "non_null_factors": non_null,
+            "missing_required": sorted(missing_required),
+            "factor_values": {f: _rfmt(row.get(f)) for f in FACTORS},
+        })
+    dropped_detail.sort(key=lambda x: x["ticker"])
+
+    # ── Weights used and composite formula ────────────────────────────────────
+    regime_weights_raw = strategy.factor_weights[regime].model_dump()
+    weights_used = {f: regime_weights_raw[f] for f in FACTORS if f in regime_weights_raw}
+    weight_total = sum(weights_used.values())
+    formula_parts = [
+        f"{round(w / weight_total, 4):.4f}×{f}"
+        for f, w in weights_used.items()
+        if w > 0
+    ]
+    composite_formula = (
+        " + ".join(formula_parts)
+        + " (weights re-normalized to sum=1 among non-null factors per ticker)"
+    )
+    percentile_methodology = (
+        f"percentile = 1 - (rank - 1) / (N - 1) where N={ranked_count}; "
+        "rank 1 (best) → percentile 1.0, rank N (worst) → percentile 0.0"
+    )
+
+    # ── Spot-check validation: recompute composite for top 5 ─────────────────────
+    spot_checks = []
+    for _, row in ranked_df.head(5).iterrows():
+        available = {f: weights_used[f] for f in FACTORS if pd.notna(row.get(f)) and f in weights_used}
+        w_sum = sum(available.values())
+        contributions = {
+            f: {
+                "raw_z_score": _rfmt(row.get(f)),
+                "config_weight": round(w, 4),
+                "normalized_weight": round(w / w_sum, 6),
+                "contribution": round((w / w_sum) * float(row[f]), 6),
+            }
+            for f, w in available.items()
+        }
+        recomputed = sum((w / w_sum) * float(row[f]) for f, w in available.items())
+        stored = float(row["composite_score"]) if pd.notna(row.get("composite_score")) else None
+        spot_checks.append({
+            "rank": int(row["rank"]),
+            "ticker": str(row["ticker"]),
+            "stored_composite_score": _rfmt(row.get("composite_score")),
+            "recomputed_composite_score": round(recomputed, 6),
+            "delta": round(abs(recomputed - stored), 8) if stored is not None else None,
+            "match": abs(recomputed - stored) < 1e-6 if stored is not None else False,
+            "non_null_factors_used": len(available),
+            "weight_sum_before_norm": round(w_sum, 4),
+            "factor_contributions": contributions,
+        })
+
+    top10 = [
+        {
+            "rank": int(row["rank"]),
+            "ticker": str(row["ticker"]),
+            "composite_score": _rfmt(row.get("composite_score")),
+            "percentile": _rfmt(row.get("percentile")),
+            **{f: _rfmt(row.get(f)) for f in FACTORS if f in ranked_df.columns},
+        }
+        for _, row in ranked_df.head(10).iterrows()
+    ] if ranked_count > 0 else []
 
     async with engine.begin() as conn:
         await _log_step(
@@ -281,23 +378,30 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
                 "universe_count": universe_count,
                 "regime": regime,
                 "required_factors": strategy.required_factors,
-                "min_non_null_factors": strategy.min_non_null_factors,
+                "min_non_null_factors": min_factors,
+                "weights_used": weights_used,
             },
             output_summary={
                 "ranked_count": ranked_count,
                 "dropped_count": dropped_count,
                 "top_ticker": top_ticker,
                 "null_quality_input": null_quality_before,
+                "composite_formula": composite_formula,
+                "percentile_methodology": percentile_methodology,
+                "top10": top10,
+                "spot_checks": spot_checks,
+                "dropped_tickers": dropped_detail,
             },
             warnings=(
                 [f"{dropped_count} tickers dropped (required factors or coverage gate)"]
                 if dropped_count > 0 else None
             ),
         )
+    await _checkpoint(trace_id, ranking_run_id, started_at)
 
     ranked_at = datetime.now(timezone.utc)
 
-    # ── Step 4: write rankings ──────────────────────────────────────────────────
+    # ── Step 4: write rankings ──────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         for _, row in ranked_df.iterrows():
@@ -381,6 +485,16 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
     print(f"[ranker] run {ranking_run_id} SUCCESS: {ranked_count} ranked "
           f"({dropped_count} dropped), top={top_ticker}, regime={regime}, date={rank_date}, "
           f"trace={trace_id}")
+    full_rankings = [
+        {
+            "rank": int(row["rank"]),
+            "ticker": str(row["ticker"]),
+            "composite_score": _rfmt(row.get("composite_score")),
+            "percentile": _rfmt(row.get("percentile")),
+            **{f: _rfmt(row.get(f)) for f in FACTORS if f in ranked_df.columns},
+        }
+        for _, row in ranked_df.iterrows()
+    ]
     await _write_trace_file(
         trace_id, ranking_run_id, "rank_run", "success", started_at,
         regime=regime,
@@ -389,6 +503,16 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
         dropped_count=dropped_count,
         top_ticker=top_ticker,
         source_factor_run_id=source_factor_run_id,
+        ranking_config={
+            "weights_used": weights_used,
+            "composite_formula": composite_formula,
+            "percentile_methodology": percentile_methodology,
+            "required_factors": strategy.required_factors,
+            "min_non_null_factors": min_factors,
+        },
+        spot_checks=spot_checks,
+        dropped_tickers=dropped_detail,
+        rankings=full_rankings,
     )
 
 
