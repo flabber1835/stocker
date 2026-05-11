@@ -41,33 +41,37 @@ regime_detection:
       vol_above_threshold: false
 
 factor_weights:
-  bull_calm:
-    momentum:       0.35
+  bull_calm:               # Bull / Low-Volatility — research midpoints
+    momentum:       0.27
+    growth:         0.21
+    quality:        0.15
+    low_volatility: 0.14
+    value:          0.13
+    liquidity:      0.10
+
+  bull_stress:             # Bull / High-Volatility — research midpoints
+    momentum:       0.21
+    low_volatility: 0.19
+    quality:        0.18
+    value:          0.17
+    growth:         0.12
+    liquidity:      0.13
+
+  bear_stress:             # Bear / High-Volatility — research midpoints
+    low_volatility: 0.34
     quality:        0.25
-    growth:         0.20
-    value:          0.10
-    low_volatility: 0.10
-
-  bull_stress:
-    quality:        0.35
-    low_volatility: 0.25
-    momentum:       0.20
-    value:          0.10
-    growth:         0.10
-
-  bear_stress:
-    low_volatility: 0.35
-    quality:        0.30
-    value:          0.20
-    growth:         0.10
-    momentum:       0.05
-
-  bear_calm:
-    value:          0.30
-    quality:        0.30
-    low_volatility: 0.20
+    liquidity:      0.18
     momentum:       0.10
+    value:          0.08
+    growth:         0.05
+
+  bear_calm:               # Recovery / Low-Volatility — research midpoints
+    value:          0.28
+    momentum:       0.22
+    quality:        0.17
+    low_volatility: 0.15
     growth:         0.10
+    liquidity:      0.08
 
 max_positions: 30
 min_score_percentile: 0.0
