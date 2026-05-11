@@ -79,3 +79,4 @@ min_non_null_factors: 5   # ticker must have at least 5 of 6 factor scores to ra
 required_factors:         # these factors must be non-null regardless of the count above
   - quality               # no fundamental data = no ranking in a quality strategy
   - growth                # growth has 0.10–0.21 weight; missing it causes >2pp weight drift
+  - value                 # value has 0.08–0.28 weight; missing it is the primary driver of remaining weight drift
