@@ -445,14 +445,26 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     factors_df = compute_all_factors(prices_long=prices_df, fundamentals=fund_df)
     null_quality_count = int(factors_df["quality"].isna().sum()) if "quality" in factors_df.columns else 0
 
+    _factor_cols = ["momentum", "quality", "value", "growth", "low_volatility", "liquidity"]
+    factor_stats = {}
+    for col in _factor_cols:
+        if col in factors_df.columns:
+            s = factors_df[col].dropna()
+            factor_stats[col] = {
+                "null_count": int(factors_df[col].isna().sum()),
+                "mean": round(float(s.mean()), 4) if len(s) > 0 else None,
+                "std": round(float(s.std()), 4) if len(s) > 0 else None,
+                "min": round(float(s.min()), 4) if len(s) > 0 else None,
+                "max": round(float(s.max()), 4) if len(s) > 0 else None,
+            }
+
     async with engine.begin() as conn:
         await _log_step(
             conn, trace_id, "calculate_factors", "success",
             started_at=t0,
             output_summary={
                 "ticker_count": len(factors_df),
-                "null_quality": null_quality_count,
-                "null_momentum": int(factors_df["momentum"].isna().sum()) if "momentum" in factors_df.columns else 0,
+                "factor_stats": factor_stats,
             },
             warnings=[f"{null_quality_count} tickers have null quality (no fundamentals)"] if null_quality_count > 0 else None,
         )
@@ -560,11 +572,31 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
     print(f"[calculate] run {run_id} SUCCESS: {ticker_count} tickers, "
           f"regime={confirmed_regime}, score_date={score_date}")
+    def _fmt(v):
+        return None if pd.isna(v) else round(float(v), 4)
+
+    ticker_scores = sorted(
+        [
+            {
+                "ticker": str(row["ticker"]),
+                "momentum": _fmt(row.get("momentum")),
+                "quality": _fmt(row.get("quality")),
+                "value": _fmt(row.get("value")),
+                "growth": _fmt(row.get("growth")),
+                "low_volatility": _fmt(row.get("low_volatility")),
+                "liquidity": _fmt(row.get("liquidity")),
+            }
+            for _, row in factors_df.iterrows()
+        ],
+        key=lambda x: x["ticker"],
+    )
     await _write_trace_file(
         trace_id, run_id, "factor_run", "success", started_at,
         regime=confirmed_regime,
         score_date=str(score_date),
         ticker_count=ticker_count,
+        factor_stats=factor_stats,
+        ticker_scores=ticker_scores,
     )
     return None
 

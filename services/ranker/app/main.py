@@ -53,7 +53,7 @@ async def health():
     }
 
 
-# ── Artifact file helpers ───────────────────────────────────────────────────
+# ── Artifact file helpers ────────────────────────────────────
 
 async def _write_trace_file(
     trace_id: str,
@@ -107,7 +107,7 @@ async def _checkpoint(trace_id: str, run_id: str, started_at: datetime) -> None:
     await _write_trace_file(trace_id, run_id, "rank_run", "running", started_at)
 
 
-# ── Trace helpers ─────────────────────────────────────────────────────────────────────────────────────────────
+# ── Trace helpers ───────────────────────────────────────────────────────────────────────────────────────────────
 
 async def _log_step(
     conn,
@@ -145,7 +145,7 @@ async def _log_step(
     )
 
 
-# ── Rank job ────────────────────────────────────────────────────────────────────────────────────────
+# ── Rank job ──────────────────────────────────────────────────────────────────────────────────────────────────
 
 async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -> None:
     started_at = datetime.now(timezone.utc)
@@ -234,7 +234,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
         )
     await _checkpoint(trace_id, ranking_run_id, started_at)
 
-    # ── Step 2: load factor scores ───────────────────────────────────
+    # ── Step 2: load factor scores ─────────────────────────────────
     t0 = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         rows = await conn.execute(
@@ -277,7 +277,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
     )
     universe_count = len(factor_scores_df)
 
-    # ── Step 3: rank (apply weights + required factor gates) ─────────────
+    # ── Step 3: rank (apply weights + required factor gates) ────────────────────
     t0 = datetime.now(timezone.utc)
     ranked_df = rank_universe(factor_scores_df, regime, strategy)
     ranked_count = len(ranked_df)
@@ -285,6 +285,19 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
 
     top_ticker = ranked_df.iloc[0]["ticker"] if ranked_count > 0 else None
     null_quality_before = int(factor_scores_df["quality"].isna().sum())
+
+    def _rfmt(v):
+        return None if pd.isna(v) else round(float(v), 4)
+
+    top10 = [
+        {
+            "rank": int(row["rank"]),
+            "ticker": str(row["ticker"]),
+            "composite_score": _rfmt(row.get("composite_score")),
+            **{f: _rfmt(row.get(f)) for f in FACTORS if f in ranked_df.columns},
+        }
+        for _, row in ranked_df.head(10).iterrows()
+    ] if ranked_count > 0 else []
 
     async with engine.begin() as conn:
         await _log_step(
@@ -301,6 +314,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
                 "dropped_count": dropped_count,
                 "top_ticker": top_ticker,
                 "null_quality_input": null_quality_before,
+                "top10": top10,
             },
             warnings=(
                 [f"{dropped_count} tickers dropped (required factors or coverage gate)"]
@@ -311,7 +325,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
 
     ranked_at = datetime.now(timezone.utc)
 
-    # ── Step 4: write rankings ──────────────────────────────────────────────────
+    # ── Step 4: write rankings ──────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         for _, row in ranked_df.iterrows():
@@ -395,6 +409,16 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
     print(f"[ranker] run {ranking_run_id} SUCCESS: {ranked_count} ranked "
           f"({dropped_count} dropped), top={top_ticker}, regime={regime}, date={rank_date}, "
           f"trace={trace_id}")
+    full_rankings = [
+        {
+            "rank": int(row["rank"]),
+            "ticker": str(row["ticker"]),
+            "composite_score": _rfmt(row.get("composite_score")),
+            "percentile": _rfmt(row.get("percentile")),
+            **{f: _rfmt(row.get(f)) for f in FACTORS if f in ranked_df.columns},
+        }
+        for _, row in ranked_df.iterrows()
+    ]
     await _write_trace_file(
         trace_id, ranking_run_id, "rank_run", "success", started_at,
         regime=regime,
@@ -403,6 +427,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
         dropped_count=dropped_count,
         top_ticker=top_ticker,
         source_factor_run_id=source_factor_run_id,
+        rankings=full_rankings,
     )
 
 
