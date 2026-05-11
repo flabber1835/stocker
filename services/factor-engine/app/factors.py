@@ -153,10 +153,10 @@ def compute_growth(fundamentals: pd.DataFrame) -> pd.Series:
     """
     Mean of revenue_growth and eps_growth.
 
-    Both inputs are winsorized at 1st/99th percentile before averaging. Without
-    winsorization the raw growth distribution is severely right-skewed: a handful of
-    outliers dominate the cross-sectional variance and compress 90%+ of tickers to
-    near-identical z-scores near zero (observed: std=0.15 vs expected ~1.0 in run 17500196).
+    Both inputs are winsorized at 2nd/98th percentile before averaging. Growth
+    rates are uniquely right-skewed (biotechs, SPACs, one-time items) — 1%/99%
+    only clips ~25 of 2500 tickers, leaving 89+ at the ±2.5 z-score cap.
+    Tightening to 2%/98% clips ~50 at each tail and meaningfully reduces cap-hits.
     """
     fund = fundamentals.set_index("ticker")
 
@@ -165,8 +165,8 @@ def compute_growth(fundamentals: pd.DataFrame) -> pd.Series:
 
     rev_g_valid = rev_g[rev_g.notna()]
     eps_g_valid = eps_g[eps_g.notna()]
-    rev_g_w = _winsorize(rev_g_valid) if not rev_g_valid.empty else rev_g_valid
-    eps_g_w = _winsorize(eps_g_valid) if not eps_g_valid.empty else eps_g_valid
+    rev_g_w = _winsorize(rev_g_valid, lo_pct=0.02, hi_pct=0.98) if not rev_g_valid.empty else rev_g_valid
+    eps_g_w = _winsorize(eps_g_valid, lo_pct=0.02, hi_pct=0.98) if not eps_g_valid.empty else eps_g_valid
 
     all_tickers = fund.index
     result = pd.Series(index=all_tickers, dtype=float)
