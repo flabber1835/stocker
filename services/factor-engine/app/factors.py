@@ -15,6 +15,22 @@ def cross_section_zscore(series: pd.Series) -> pd.Series:
     return result
 
 
+def _winsorize(s: pd.Series, lo_pct: float = 0.01, hi_pct: float = 0.99) -> pd.Series:
+    """Clip to quantile bounds. Skipped for small populations (<10) to avoid over-fitting."""
+    if len(s) < 10:
+        return s
+    lo, hi = s.quantile(lo_pct), s.quantile(hi_pct)
+    return s.clip(lo, hi)
+
+
+def _component_zscore(s: pd.Series) -> pd.Series:
+    """Z-score without clipping — used to put factor components on equal scale before combining."""
+    std = s.std()
+    if std == 0 or pd.isna(std):
+        return pd.Series(0.0, index=s.index)
+    return (s - s.mean()) / std
+
+
 def compute_momentum(prices: pd.DataFrame) -> pd.Series:
     if len(prices) < 253:
         return pd.Series(dtype=float)
@@ -52,32 +68,34 @@ def compute_liquidity(prices_long: pd.DataFrame) -> pd.Series:
 
 
 def compute_quality(fundamentals: pd.DataFrame) -> pd.Series:
+    """
+    Composite of ROE and inverse D/E.
+
+    Each component is winsorized at 1st/99th percentile then individually z-scored
+    before averaging. This replaces the prior min-max approach, which compressed the
+    upside to ~0.5σ because profitable companies clustered in the top of [0, 1].
+    Winsorize + component z-score preserves full cross-sectional spread.
+    """
     fund = fundamentals.set_index("ticker")
 
     roe = fund["roe"].astype(float) if "roe" in fund.columns else pd.Series(dtype=float)
     dte = fund["debt_to_equity"].astype(float) if "debt_to_equity" in fund.columns else pd.Series(dtype=float)
 
-    def _norm(s: pd.Series) -> pd.Series:
-        mn, mx = s.min(), s.max()
-        if mx == mn:
-            return pd.Series(0.0, index=s.index)
-        return (s - mn) / (mx - mn)
-
     has_roe = roe.notna()
     has_dte = dte.notna()
 
-    norm_roe = _norm(roe[has_roe]) if has_roe.any() else pd.Series(dtype=float)
-    norm_neg_dte = _norm(-dte[has_dte]) if has_dte.any() else pd.Series(dtype=float)
+    roe_z = _component_zscore(_winsorize(roe[has_roe])) if has_roe.any() else pd.Series(dtype=float)
+    neg_dte_z = _component_zscore(_winsorize(-dte[has_dte])) if has_dte.any() else pd.Series(dtype=float)
 
     all_tickers = fund.index
     result = pd.Series(index=all_tickers, dtype=float)
 
     for ticker in all_tickers:
         parts = []
-        if ticker in norm_roe.index and pd.notna(norm_roe.get(ticker)):
-            parts.append(norm_roe[ticker])
-        if ticker in norm_neg_dte.index and pd.notna(norm_neg_dte.get(ticker)):
-            parts.append(norm_neg_dte[ticker])
+        if ticker in roe_z.index and pd.notna(roe_z.get(ticker)):
+            parts.append(roe_z[ticker])
+        if ticker in neg_dte_z.index and pd.notna(neg_dte_z.get(ticker)):
+            parts.append(neg_dte_z[ticker])
         result[ticker] = np.mean(parts) if parts else np.nan
 
     result.name = "quality"
@@ -85,24 +103,42 @@ def compute_quality(fundamentals: pd.DataFrame) -> pd.Series:
 
 
 def compute_value(fundamentals: pd.DataFrame) -> pd.Series:
+    """
+    Mean of earnings yield (1/PE) and book yield (1/PB).
+
+    PE/PB are capped at 50x — beyond that the yield signal is economically flat.
+    The prior 200x cap left headroom for outliers to distort the cross-section
+    (88 tickers hit extreme z-scores in the 17500196 run). Yields are additionally
+    winsorized at 1st/99th percentile before averaging.
+    """
     fund = fundamentals.set_index("ticker")
 
     pe = fund["pe_ratio"].astype(float) if "pe_ratio" in fund.columns else pd.Series(dtype=float)
     pb = fund["pb_ratio"].astype(float) if "pb_ratio" in fund.columns else pd.Series(dtype=float)
 
-    pe_capped = pe.clip(upper=200)
-    pb_capped = pb.clip(upper=200)
+    pe_capped = pe.clip(upper=50)
+    pb_capped = pb.clip(upper=50)
 
     earnings_yield = 1.0 / pe_capped.where(pe_capped > 0)
     book_yield = 1.0 / pb_capped.where(pb_capped > 0)
+
+    ey_valid = earnings_yield[earnings_yield.notna()]
+    by_valid = book_yield[book_yield.notna()]
+    ey_w = _winsorize(ey_valid) if not ey_valid.empty else ey_valid
+    by_w = _winsorize(by_valid) if not by_valid.empty else by_valid
+
+    earnings_yield_final = earnings_yield.copy()
+    earnings_yield_final.loc[ey_w.index] = ey_w
+    book_yield_final = book_yield.copy()
+    book_yield_final.loc[by_w.index] = by_w
 
     all_tickers = fund.index
     result = pd.Series(index=all_tickers, dtype=float)
 
     for ticker in all_tickers:
         parts = []
-        ey = earnings_yield.get(ticker) if ticker in earnings_yield.index else np.nan
-        by = book_yield.get(ticker) if ticker in book_yield.index else np.nan
+        ey = earnings_yield_final.get(ticker) if ticker in earnings_yield_final.index else np.nan
+        by = book_yield_final.get(ticker) if ticker in book_yield_final.index else np.nan
         if pd.notna(ey):
             parts.append(ey)
         if pd.notna(by):
@@ -114,18 +150,31 @@ def compute_value(fundamentals: pd.DataFrame) -> pd.Series:
 
 
 def compute_growth(fundamentals: pd.DataFrame) -> pd.Series:
+    """
+    Mean of revenue_growth and eps_growth.
+
+    Both inputs are winsorized at 1st/99th percentile before averaging. Without
+    winsorization the raw growth distribution is severely right-skewed: a handful of
+    outliers dominate the cross-sectional variance and compress 90%+ of tickers to
+    near-identical z-scores near zero (observed: std=0.15 vs expected ~1.0 in run 17500196).
+    """
     fund = fundamentals.set_index("ticker")
 
     rev_g = fund["revenue_growth"].astype(float) if "revenue_growth" in fund.columns else pd.Series(dtype=float)
     eps_g = fund["eps_growth"].astype(float) if "eps_growth" in fund.columns else pd.Series(dtype=float)
+
+    rev_g_valid = rev_g[rev_g.notna()]
+    eps_g_valid = eps_g[eps_g.notna()]
+    rev_g_w = _winsorize(rev_g_valid) if not rev_g_valid.empty else rev_g_valid
+    eps_g_w = _winsorize(eps_g_valid) if not eps_g_valid.empty else eps_g_valid
 
     all_tickers = fund.index
     result = pd.Series(index=all_tickers, dtype=float)
 
     for ticker in all_tickers:
         parts = []
-        rg = rev_g.get(ticker) if ticker in rev_g.index else np.nan
-        eg = eps_g.get(ticker) if ticker in eps_g.index else np.nan
+        rg = rev_g_w.get(ticker) if ticker in rev_g_w.index else np.nan
+        eg = eps_g_w.get(ticker) if ticker in eps_g_w.index else np.nan
         if pd.notna(rg):
             parts.append(rg)
         if pd.notna(eg):

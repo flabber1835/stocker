@@ -297,6 +297,9 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
     dropped_detail = []
     for _, row in dropped_rows.iterrows():
         non_null = sum(1 for f in FACTORS if pd.notna(row.get(f)))
+        # All factors that are null — not just required ones. This surfaces cases like XPER
+        # where the logged reason ("missing quality") masked that value and growth were also null.
+        null_factors = sorted([f for f in FACTORS if pd.isna(row.get(f))])
         missing_required = [f for f in required_factors_set if pd.isna(row.get(f))]
         if missing_required:
             reason = f"missing required factor(s): {', '.join(sorted(missing_required))}"
@@ -308,6 +311,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
             "ticker": str(row["ticker"]),
             "reason": reason,
             "non_null_factors": non_null,
+            "null_factors": null_factors,
             "missing_required": sorted(missing_required),
             "factor_values": {f: _rfmt(row.get(f)) for f in FACTORS},
         })
@@ -359,6 +363,29 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
             "factor_contributions": contributions,
         })
 
+    # ── Weight drift: tickers where a missing factor causes effective weights to shift ──
+    # A stock missing one factor with non-zero weight is ranked by a subtly different
+    # strategy than a fully-covered stock. Track this so the caller can decide whether
+    # to apply a stricter min_non_null_factors gate.
+    weight_drift_tickers = []
+    for _, row in ranked_df.iterrows():
+        available = {f: weights_used[f] for f in FACTORS if pd.notna(row.get(f)) and f in weights_used}
+        w_sum = sum(available.values())
+        if w_sum < 0.99:  # at least one weighted (non-zero) factor is missing
+            null_weighted = sorted([
+                f for f in FACTORS
+                if pd.isna(row.get(f)) and weights_used.get(f, 0) > 0
+            ])
+            if null_weighted:
+                max_drift = max(abs(w / w_sum - w) for f, w in available.items())
+                if max_drift > 0.02:  # only surface if any single factor shifts by >2 pp
+                    weight_drift_tickers.append({
+                        "ticker": str(row["ticker"]),
+                        "null_weighted_factors": null_weighted,
+                        "weight_sum_before_norm": round(w_sum, 4),
+                        "max_factor_weight_drift": round(max_drift, 4),
+                    })
+
     top10 = [
         {
             "rank": int(row["rank"]),
@@ -388,13 +415,19 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
                 "null_quality_input": null_quality_before,
                 "composite_formula": composite_formula,
                 "percentile_methodology": percentile_methodology,
+                "weight_drift_count": len(weight_drift_tickers),
                 "top10": top10,
                 "spot_checks": spot_checks,
                 "dropped_tickers": dropped_detail,
             },
             warnings=(
-                [f"{dropped_count} tickers dropped (required factors or coverage gate)"]
-                if dropped_count > 0 else None
+                (
+                    [f"{dropped_count} tickers dropped (required factors or coverage gate)"]
+                    if dropped_count > 0 else []
+                ) + (
+                    [f"{len(weight_drift_tickers)} ranked tickers have effective weight drift >2pp due to missing factors"]
+                    if weight_drift_tickers else []
+                ) or None
             ),
         )
     await _checkpoint(trace_id, ranking_run_id, started_at)
@@ -512,6 +545,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
         },
         spot_checks=spot_checks,
         dropped_tickers=dropped_detail,
+        weight_drift_tickers=weight_drift_tickers,
         rankings=full_rankings,
     )
 

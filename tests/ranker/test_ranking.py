@@ -110,6 +110,43 @@ def test_percentile_excludes_unrankable():
     assert result["percentile"].min() == pytest.approx(0.0)
 
 
+def test_weight_renormalization_with_missing_factor():
+    """
+    A ticker missing one non-required factor should still be ranked but its effective
+    weights must sum to 1.0 (weight re-normalization). The composite score should differ
+    from a fully-covered ticker with identical values on shared factors.
+    """
+    df = _scores(
+        FULL={"momentum": 1.0, "quality": 1.0, "value": 1.0, "growth": 1.0, "low_volatility": 1.0},
+        PARTIAL={"momentum": 1.0, "quality": 1.0, "value": float("nan"), "growth": 1.0, "low_volatility": 1.0},
+    )
+    result = rank_universe(df, "bull_calm", VALID_CONFIG)
+    # Both should be ranked — PARTIAL satisfies min_non_null_factors=3
+    assert "FULL" in result["ticker"].values
+    assert "PARTIAL" in result["ticker"].values
+    # All composite scores must be finite
+    assert result["composite_score"].notna().all()
+
+
+def test_weight_renormalization_composite_is_weighted_sum():
+    """
+    For a ticker with one null factor, the composite score must equal the weighted sum
+    of available factors, re-normalized so available weights sum to 1.
+    """
+    config_w = VALID_CONFIG  # bull_calm: momentum=0.35, quality=0.25, growth=0.20, value=0.10, low_vol=0.10
+    df = _scores(
+        TICKER={"momentum": 2.0, "quality": 1.0, "value": float("nan"), "growth": 0.5, "low_volatility": -0.5},
+    )
+    result = rank_universe(df, "bull_calm", config_w)
+    row = result[result["ticker"] == "TICKER"].iloc[0]
+
+    weights = {"momentum": 0.35, "quality": 0.25, "growth": 0.20, "low_volatility": 0.10}
+    w_sum = sum(weights.values())  # 0.90
+    expected = sum((w / w_sum) * {"momentum": 2.0, "quality": 1.0, "growth": 0.5, "low_volatility": -0.5}[f]
+                   for f, w in weights.items())
+    assert abs(row["composite_score"] - expected) < 1e-6
+
+
 def test_required_factors_excludes_missing():
     # Ticker missing a required factor should be dropped even if it has enough non-null count
     config_with_required = StrategyConfig(**{

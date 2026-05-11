@@ -254,14 +254,20 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             ),
             {"sid": snapshot_id},
         )
-        universe_tickers = [r[0] for r in ticker_rows.fetchall()]
+        raw_tickers = [r[0] for r in ticker_rows.fetchall()]
+
+        # Deduplicate while preserving order — universe snapshots can contain duplicate
+        # rows for the same ticker (e.g., multi-class share companies appearing twice in
+        # the ETF holdings CSV), which inflates dropped_count and produces duplicate audit entries.
+        universe_tickers = list(dict.fromkeys(raw_tickers))
+        duplicates_removed = len(raw_tickers) - len(universe_tickers)
 
         total_snap_rows = await conn.execute(
             text("SELECT COUNT(*) FROM universe_tickers WHERE snapshot_id = :sid"),
             {"sid": snapshot_id},
         )
         total_in_snap = total_snap_rows.scalar()
-        excluded_count = total_in_snap - len(universe_tickers)
+        excluded_count = total_in_snap - len(raw_tickers)
 
     async with engine.begin() as conn:
         await _log_step(
@@ -272,6 +278,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             output_summary={
                 "total_in_snapshot": total_in_snap,
                 "excluded_etfs_funds": excluded_count,
+                "duplicates_removed": duplicates_removed,
                 "investable_count": len(universe_tickers),
             },
             error_message="empty universe after ETF/fund exclusion" if not universe_tickers else None,
@@ -515,9 +522,9 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         "momentum": "12-month return skipping last month: (price[-21] / price[-252]) - 1, then cross-sectional z-score clipped at ±2.5",
         "low_volatility": "annualized log-return std over 252 days, negated (lower vol = higher score), then z-score",
         "liquidity": "log(1 + mean(close × volume)) over last 20 days, then z-score",
-        "quality": "mean of min-max-normalized ROE and normalized(-D/E), then z-score; null if no fundamentals",
-        "value": "mean of earnings yield (1/PE) and book yield (1/PB) with PE/PB capped at 200; then z-score",
-        "growth": "mean of revenue_growth and eps_growth; then z-score; null if no fundamentals",
+        "quality": "ROE and -D/E each winsorized (1st/99th pct) then component z-scored; averaged per ticker; then cross-sectional z-score ±2.5. Replaces prior min-max approach which capped upside at ~0.5σ.",
+        "value": "earnings yield (1/PE, PE≤50) and book yield (1/PB, PB≤50), each winsorized (1st/99th pct); averaged per ticker; then z-score. Prior 200x cap produced 88 extreme-score outliers.",
+        "growth": "revenue_growth and eps_growth each winsorized (1st/99th pct) before averaging; then z-score. Prior unwinsorized approach compressed 93% of tickers to near-zero z-score (std=0.15).",
         "z_score_note": "All factors use cross_section_zscore(): (x - mean) / std clipped to [-2.5, 2.5]",
     }
 
