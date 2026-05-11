@@ -22,6 +22,18 @@ Prompt
 
 This is a **prompt-driven strategy factory**, not an autonomous LLM trader.
 
+## Git Push Rules
+
+These rules apply every time Claude makes commits:
+
+1. **Always push to `origin/main`** using the GitHub MCP `push_files` tool after every commit or batch of commits. Do not accumulate unpushed commits.
+2. **Never push to a feature branch** unless the user explicitly asks for one. The user works from `main` on GitHub.
+3. **Never silently fail.** If a push fails for any reason, immediately tell the user and create a pull request targeting `main` instead.
+4. **Never leave local `main` diverged from `origin/main`.** If `git push` returns 403 (branch protection), use `mcp__github__push_files` to push directly to `main`. Do not use intermediate feature branches as a workaround.
+5. **Create a PR only when:** the user explicitly asks for one, or a push to `main` fails after one retry.
+
+---
+
 ## Most Important Process Rule
 
 Whenever a design decision is made, it must be documented in the design docs before implementation begins.
