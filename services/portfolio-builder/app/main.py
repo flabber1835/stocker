@@ -38,6 +38,14 @@ async def lifespan(app: FastAPI):
     global strategy, engine
     strategy = _load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE portfolio_runs SET status='failed', completed_at=NOW(), "
+                "error_message='Service restarted while run was active' "
+                "WHERE status='running'"
+            )
+        )
     yield
     await engine.dispose()
 
@@ -55,7 +63,7 @@ async def health():
     }
 
 
-# ── Trace helpers ──────────────────────────────────────────────────────────────────────────
+# ── Trace helpers ─────────────────────────────────────────────────────────────────────────────
 
 async def _log_step(
     conn,
@@ -225,7 +233,7 @@ async def _do_build(
 ) -> None:
     # ranking run already resolved and both DB rows already inserted by _run_build
 
-    # ── Step 1: log ranking run context ──────────────────────────────────────────────────────────────────────
+    # ── Step 1: log ranking run context ────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         await _log_step(
@@ -238,7 +246,7 @@ async def _do_build(
             },
         )
 
-    # ── Step 2: load top N candidates ────────────────────────────────────────────────────────────────
+    # ── Step 2: load top N candidates ────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
     async with engine.connect() as conn:
         rows = await conn.execute(
@@ -265,7 +273,7 @@ async def _do_build(
             output_summary={"loaded": len(candidate_tickers), "top_ticker": candidate_tickers[0]},
         )
 
-    # ── Step 3: load price data for covariance ───────────────────────────────────────────────────────
+    # ── Step 3: load price data for covariance ───────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
     lookback_days = int(pb_cfg.covariance_window_days * 1.5)  # extra buffer for weekends/holidays
     async with engine.connect() as conn:
@@ -306,7 +314,7 @@ async def _do_build(
     if not rankable_tickers:
         raise RuntimeError("no price data available for any candidates")
 
-    # ── Step 4: build covariance matrix ────────────────────────────────────────────────────────────────
+    # ── Step 4: build covariance matrix ────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
     cov = build_covariance(
         prices_df[prices_df["ticker"].isin(rankable_tickers)],
@@ -344,7 +352,7 @@ async def _do_build(
             },
         )
 
-    # ── Step 5: greedy selection ─────────────────────────────────────────────────────────────────────────
+    # ── Step 5: greedy selection ────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
     selected = greedy_select(scores, cov, target=pb_cfg.max_positions)
     selected_tickers = [s["ticker"] for s in selected]
@@ -391,7 +399,7 @@ async def _do_build(
             },
         )
 
-    # ── Step 6: write portfolio run + holdings ──────────────────────────────────────────────────────
+    # ── Step 6: write portfolio run + holdings ────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
     completed_at = datetime.now(timezone.utc)
 
