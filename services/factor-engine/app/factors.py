@@ -195,31 +195,34 @@ def compute_all_factors(
     prices_long: pd.DataFrame,
     fundamentals: pd.DataFrame,
 ) -> pd.DataFrame:
-    """
-    Compute all factor scores and return a DataFrame indexed by ticker.
-    """
-    pivot = prices_long.pivot_table(
-        index="date", columns="ticker", values="adjusted_close"
-    ).sort_index()
+    prices_long = prices_long.copy()
+    prices_long["date"] = pd.to_datetime(prices_long["date"])
+    prices_long = prices_long.sort_values(["ticker", "date"])
 
-    momentum = compute_momentum(pivot)
-    low_vol = compute_low_volatility(pivot)
-    liquidity = compute_liquidity(prices_long)
-    quality = compute_quality(fundamentals)
-    value = compute_value(fundamentals)
-    growth = compute_growth(fundamentals)
+    prices_long["adjusted_close"] = prices_long["adjusted_close"].astype(float)
+    pivot = prices_long.pivot_table(index="date", columns="ticker", values="adjusted_close")
+    pivot = pivot.sort_index()
 
-    all_tickers = list(
-        set(momentum.index) | set(low_vol.index) | set(liquidity.index)
-        | set(quality.index) | set(value.index) | set(growth.index)
-    )
+    momentum_raw = compute_momentum(pivot)
+    low_vol_raw = compute_low_volatility(pivot)
+    liquidity_raw = compute_liquidity(prices_long)
+    quality_raw = compute_quality(fundamentals)
+    value_raw = compute_value(fundamentals)
+    growth_raw = compute_growth(fundamentals)
 
+    all_tickers = prices_long["ticker"].unique().tolist()
     result = pd.DataFrame(index=all_tickers)
-    result["momentum"] = momentum.reindex(all_tickers)
-    result["low_volatility"] = low_vol.reindex(all_tickers)
-    result["liquidity"] = liquidity.reindex(all_tickers)
-    result["quality"] = quality.reindex(all_tickers)
-    result["value"] = value.reindex(all_tickers)
-    result["growth"] = growth.reindex(all_tickers)
     result.index.name = "ticker"
+
+    def _align(raw: pd.Series) -> pd.Series:
+        return raw.reindex(result.index)
+
+    result["momentum"] = cross_section_zscore(_align(momentum_raw))
+    result["low_volatility"] = cross_section_zscore(_align(low_vol_raw))
+    result["liquidity"] = cross_section_zscore(_align(liquidity_raw))
+    result["quality"] = cross_section_zscore(_align(quality_raw))
+    result["value"] = cross_section_zscore(_align(value_raw))
+    result["growth"] = cross_section_zscore(_align(growth_raw))
+
+    result = result.reset_index()
     return result
