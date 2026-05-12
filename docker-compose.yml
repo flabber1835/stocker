@@ -199,7 +199,7 @@ services:
       STRATEGY_CONFIG_PATH: /app/strategies/quality_core_v1.yaml
       ARTIFACTS_PATH: /artifacts
     volumes:
-      - artifacts:/artifacts
+      - ./artifacts:/artifacts
       - ./strategies:/app/strategies:ro
     depends_on:
       - postgres
