@@ -74,7 +74,7 @@ factor_weights:
     liquidity:      0.08
 
 portfolio_builder:
-  method: greedy_marginal_vol      # score / hypothetical_portfolio_vol greedy construction
+  method: greedy_score_per_port_vol  # score / hypothetical equal-weight portfolio vol (total, not marginal delta)
   candidate_count: 100             # top N from ranker fed into greedy selection
   max_positions: 30                # final portfolio size
   covariance_window_days: 252      # trading days used to build covariance matrix
