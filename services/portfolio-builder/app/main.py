@@ -145,6 +145,34 @@ async def _run_build(run_id: str, trace_id: str, ranking_run_id: Optional[str]) 
     started_at = datetime.now(timezone.utc)
     pb_cfg = strategy.portfolio_builder
 
+    # Resolve the ranking run first so we can fail fast before inserting any DB rows.
+    # This prevents the error-handler from trying to UPDATE a portfolio_runs row that
+    # was never INSERTed (same bug pattern previously fixed in ranker).
+    async with engine.connect() as conn:
+        if ranking_run_id:
+            row = await conn.execute(
+                text("SELECT run_id, regime, rank_date FROM ranking_runs WHERE run_id=:rid AND status='success'"),
+                {"rid": ranking_run_id},
+            )
+        else:
+            row = await conn.execute(
+                text("SELECT run_id, regime, rank_date FROM ranking_runs WHERE status='success' ORDER BY completed_at DESC LIMIT 1")
+            )
+        rr = row.fetchone()
+
+    if rr is None:
+        msg = (
+            f"ranking run {ranking_run_id} not found or not successful"
+            if ranking_run_id else "no successful ranking run found — run: make rank first"
+        )
+        print(f"[portfolio-builder] run {run_id} skipped: {msg}")
+        return
+
+    source_ranking_run_id = str(rr.run_id)
+    regime = rr.regime
+    portfolio_date = rr.rank_date
+
+    # Both DB rows exist from this point forward; the error handler can safely UPDATE them.
     async with engine.begin() as conn:
         await conn.execute(
             text(
@@ -152,76 +180,8 @@ async def _run_build(run_id: str, trace_id: str, ranking_run_id: Optional[str]) 
                 "(trace_id, job_type, status, root_run_id, strategy_id, config_hash, started_at) "
                 "VALUES (:tid, 'portfolio_run', 'running', :rid, :sid, :ch, :now)"
             ),
-            {
-                "tid": trace_id, "rid": run_id,
-                "sid": strategy.strategy_id, "ch": config_hash,
-                "now": started_at,
-            },
+            {"tid": trace_id, "rid": run_id, "sid": strategy.strategy_id, "ch": config_hash, "now": started_at},
         )
-
-    try:
-        await _do_build(run_id, trace_id, started_at, ranking_run_id, pb_cfg)
-    except Exception as exc:
-        err = str(exc)[:1000]
-        print(f"[portfolio-builder] run {run_id} FAILED: {exc}")
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "UPDATE portfolio_runs SET status='failed', completed_at=:now, error_message=:err "
-                    "WHERE run_id=:rid"
-                ),
-                {"rid": run_id, "now": datetime.now(timezone.utc), "err": err},
-            )
-            await conn.execute(
-                text(
-                    "UPDATE execution_traces SET status='failed', completed_at=:now, notes=:err "
-                    "WHERE trace_id=:tid"
-                ),
-                {"tid": trace_id, "now": datetime.now(timezone.utc), "err": err},
-            )
-        await _write_trace_file(trace_id, run_id, "failed", started_at, error=err)
-        raise
-
-
-async def _do_build(
-    run_id: str,
-    trace_id: str,
-    started_at: datetime,
-    ranking_run_id: Optional[str],
-    pb_cfg,
-) -> None:
-
-    # ── Step 1: load ranking run ────────────────────────────────────────────────────────────────────────
-    t0 = datetime.now(timezone.utc)
-    async with engine.connect() as conn:
-        if ranking_run_id:
-            row = await conn.execute(
-                text(
-                    "SELECT run_id, regime, rank_date FROM ranking_runs "
-                    "WHERE run_id = :rid AND status = 'success'"
-                ),
-                {"rid": ranking_run_id},
-            )
-        else:
-            row = await conn.execute(
-                text(
-                    "SELECT run_id, regime, rank_date FROM ranking_runs "
-                    "WHERE status = 'success' ORDER BY completed_at DESC LIMIT 1"
-                )
-            )
-        rr = row.fetchone()
-
-    if rr is None:
-        raise RuntimeError(
-            f"ranking run {ranking_run_id} not found or not successful"
-            if ranking_run_id else "no successful ranking run found"
-        )
-
-    source_ranking_run_id = str(rr.run_id)
-    regime = rr.regime
-    portfolio_date = rr.rank_date
-
-    async with engine.begin() as conn:
         await conn.execute(
             text(
                 "INSERT INTO portfolio_runs "
@@ -235,6 +195,39 @@ async def _do_build(
                 "regime": regime, "pd": portfolio_date, "now": started_at,
             },
         )
+
+    try:
+        await _do_build(run_id, trace_id, started_at, source_ranking_run_id, regime, portfolio_date, pb_cfg)
+    except Exception as exc:
+        err = str(exc)[:1000]
+        print(f"[portfolio-builder] run {run_id} FAILED: {exc}")
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("UPDATE portfolio_runs SET status='failed', completed_at=:now, error_message=:err WHERE run_id=:rid"),
+                {"rid": run_id, "now": datetime.now(timezone.utc), "err": err},
+            )
+            await conn.execute(
+                text("UPDATE execution_traces SET status='failed', completed_at=:now, notes=:err WHERE trace_id=:tid"),
+                {"tid": trace_id, "now": datetime.now(timezone.utc), "err": err},
+            )
+        await _write_trace_file(trace_id, run_id, "failed", started_at, error=err)
+        raise
+
+
+async def _do_build(
+    run_id: str,
+    trace_id: str,
+    started_at: datetime,
+    source_ranking_run_id: str,
+    regime: str,
+    portfolio_date,
+    pb_cfg,
+) -> None:
+    # ranking run already resolved and both DB rows already inserted by _run_build
+
+    # ── Step 1: log ranking run context ──────────────────────────────────────────────────────────────────────
+    t0 = datetime.now(timezone.utc)
+    async with engine.begin() as conn:
         await _log_step(
             conn, trace_id, "load_ranking_run", "success",
             started_at=t0,
@@ -280,10 +273,11 @@ async def _do_build(
             text(
                 "SELECT ticker, date, adjusted_close FROM daily_prices "
                 "WHERE ticker = ANY(:tickers) "
-                "AND date >= CURRENT_DATE - :days * INTERVAL '1 day' "
+                "AND date <= :pd "
+                "AND date >= :pd - :days * INTERVAL '1 day' "
                 "ORDER BY ticker, date ASC"
             ),
-            {"tickers": candidate_tickers, "days": lookback_days},
+            {"tickers": candidate_tickers, "pd": portfolio_date, "days": lookback_days},
         )
         prices_df = pd.DataFrame(
             price_rows.fetchall(),
@@ -511,6 +505,25 @@ async def start_build(
     background_tasks: BackgroundTasks,
     ranking_run_id: Optional[str] = None,
 ):
+    # Pre-validate that a ranking run exists before issuing a run_id the client will poll.
+    # Without this check, _run_build could silently return without ever inserting a
+    # portfolio_runs row, making GET /runs/{run_id} return 404 forever.
+    async with engine.connect() as conn:
+        if ranking_run_id:
+            chk = await conn.execute(
+                text("SELECT 1 FROM ranking_runs WHERE run_id=:rid AND status='success'"),
+                {"rid": ranking_run_id},
+            )
+        else:
+            chk = await conn.execute(
+                text("SELECT 1 FROM ranking_runs WHERE status='success' ORDER BY completed_at DESC LIMIT 1")
+            )
+        if chk.fetchone() is None:
+            raise HTTPException(
+                status_code=400,
+                detail="no successful ranking run found — run: make rank first",
+            )
+
     run_id = str(uuid.uuid4())
     trace_id = str(uuid.uuid4())
     background_tasks.add_task(_run_build, run_id, trace_id, ranking_run_id)
