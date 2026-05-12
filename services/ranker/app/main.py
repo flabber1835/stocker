@@ -36,6 +36,14 @@ async def lifespan(app: FastAPI):
     global strategy, engine
     strategy = _load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE ranking_runs SET status='failed', completed_at=NOW(), "
+                "error_message='Service restarted while run was active' "
+                "WHERE status='running'"
+            )
+        )
     yield
     await engine.dispose()
 
@@ -53,7 +61,7 @@ async def health():
     }
 
 
-# ── Artifact file helpers ──────────────────────────────
+# ── Artifact file helpers ────────────────────────────
 
 async def _write_trace_file(
     trace_id: str,
@@ -107,7 +115,7 @@ async def _checkpoint(trace_id: str, run_id: str, started_at: datetime) -> None:
     await _write_trace_file(trace_id, run_id, "rank_run", "running", started_at)
 
 
-# ── Trace helpers ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── Trace helpers ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 async def _log_step(
     conn,
@@ -145,7 +153,7 @@ async def _log_step(
     )
 
 
-# ── Rank job ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── Rank job ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -> None:
     started_at = datetime.now(timezone.utc)
@@ -234,7 +242,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
         )
     await _checkpoint(trace_id, ranking_run_id, started_at)
 
-    # ── Step 2: load factor scores ──────────────────────────────
+    # ── Step 2: load factor scores ─────────────────────────────
     t0 = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         rows = await conn.execute(
@@ -277,7 +285,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
     )
     universe_count = len(factor_scores_df)
 
-    # ── Step 3: rank (apply weights + required factor gates) ──────────────
+    # ── Step 3: rank (apply weights + required factor gates) ────────────────
     t0 = datetime.now(timezone.utc)
     ranked_df = rank_universe(factor_scores_df, regime, strategy)
     ranked_count = len(ranked_df)
@@ -289,7 +297,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
     def _rfmt(v):
         return None if pd.isna(v) else round(float(v), 4)
 
-    # ── Diagnose every dropped ticker ────────────────────
+    # ── Diagnose every dropped ticker ──────────────────────────────────
     required_factors_set = set(strategy.required_factors)
     min_factors = strategy.min_non_null_factors
     ranked_tickers = set(ranked_df["ticker"].tolist()) if ranked_count > 0 else set()
@@ -297,8 +305,6 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
     dropped_detail = []
     for _, row in dropped_rows.iterrows():
         non_null = sum(1 for f in FACTORS if pd.notna(row.get(f)))
-        # All factors that are null — not just required ones. This surfaces cases like XPER
-        # where the logged reason ("missing quality") masked that value and growth were also null.
         null_factors = sorted([f for f in FACTORS if pd.isna(row.get(f))])
         missing_required = [f for f in required_factors_set if pd.isna(row.get(f))]
         if missing_required:
@@ -317,7 +323,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
         })
     dropped_detail.sort(key=lambda x: x["ticker"])
 
-    # ── Weights used and composite formula ────────────────────
+    # ── Weights used and composite formula ──────────────────────────────────
     regime_weights_raw = strategy.factor_weights[regime].model_dump()
     weights_used = {f: regime_weights_raw[f] for f in FACTORS if f in regime_weights_raw}
     weight_total = sum(weights_used.values())
@@ -335,7 +341,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
         "rank 1 (best) → percentile 1.0, rank N (worst) → percentile 0.0"
     )
 
-    # ── Spot-check validation: recompute composite for top 5 ─────────────────
+    # ── Spot-check validation: recompute composite for top 5 ─────────────────────
     spot_checks = []
     for _, row in ranked_df.head(5).iterrows():
         available = {f: weights_used[f] for f in FACTORS if pd.notna(row.get(f)) and f in weights_used}
@@ -364,9 +370,6 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
         })
 
     # ── Weight drift: tickers where a missing factor causes effective weights to shift ──
-    # A stock missing one factor with non-zero weight is ranked by a subtly different
-    # strategy than a fully-covered stock. Track this so the caller can decide whether
-    # to apply a stricter min_non_null_factors gate.
     weight_drift_tickers = []
     for _, row in ranked_df.iterrows():
         available = {f: weights_used[f] for f in FACTORS if pd.notna(row.get(f)) and f in weights_used}
@@ -434,7 +437,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
 
     ranked_at = datetime.now(timezone.utc)
 
-    # ── Step 4: write rankings ──────────────────────────────────────────────────────────────────────────────────────────────
+    # ── Step 4: write rankings ────────────────────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
     async with engine.begin() as conn:
         for _, row in ranked_df.iterrows():
@@ -577,7 +580,12 @@ async def start_rank_job(background_tasks: BackgroundTasks, factor_run_id: str |
                 )
             )
             latest = row.fetchone()
-        regime = latest.regime if latest else "unknown"
+        if latest is None:
+            raise HTTPException(
+                status_code=400,
+                detail="no successful factor run found — run: make factors first",
+            )
+        regime = latest.regime
 
     background_tasks.add_task(_run_rank_job, ranking_run_id, factor_run_id)
     return {
