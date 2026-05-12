@@ -29,6 +29,14 @@ BENCHMARK_TICKERS = ("SPY", "QQQ")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE ingest_runs SET status='failed', completed_at=NOW(), "
+                "error_message='Service restarted while run was active' "
+                "WHERE status='running'"
+            )
+        )
     yield
     await engine.dispose()
 
@@ -36,7 +44,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="av-ingestor", lifespan=lifespan)
 
 
-# ── Run lifecycle helpers ───────────────────────────────────────
+# ── Run lifecycle helpers ────────────────────────────────
 
 async def _start_run(run_id: str, job_type: str) -> None:
     async with engine.begin() as conn:
@@ -74,7 +82,7 @@ async def _finish_run(
         )
 
 
-# ── Trace file helpers ─────────────────────────────────
+# ── Trace file helpers ───────────────────────────
 
 async def _write_trace_file(
     run_id: str,
@@ -111,7 +119,7 @@ async def _checkpoint(run_id: str, job_type: str, started_at: datetime, **progre
     await _write_trace_file(run_id, job_type, "running", started_at, **progress)
 
 
-# ── Endpoints ──────────────────────────────────────────────
+# ── Endpoints ──────────────────────────────────
 
 @app.get("/health")
 async def health():
@@ -195,7 +203,7 @@ async def status():
     return {"universe_tickers": universe_count, "price_rows": price_rows, "fundamental_rows": fundamental_rows}
 
 
-# ── Helpers ──────────────────────────────────────────────
+# ── Helpers ──────────────────────────────────
 
 async def _get_universe_tickers() -> list[str]:
     async with SessionLocal() as session:
@@ -209,7 +217,7 @@ async def _get_universe_tickers() -> list[str]:
         return [row[0] for row in result.fetchall()]
 
 
-# ── Job implementations ────────────────────────────────────
+# ── Job implementations ────────────────────────────
 
 async def _run_fetch_universe(run_id: str) -> None:
     started_at = datetime.now(timezone.utc)

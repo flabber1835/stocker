@@ -38,6 +38,14 @@ async def lifespan(app: FastAPI):
     global strategy, engine
     strategy = _load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE factor_runs SET status='failed', completed_at=NOW(), "
+                "error_message='Service restarted while run was active' "
+                "WHERE status='running'"
+            )
+        )
     yield
     await engine.dispose()
 
@@ -55,7 +63,7 @@ async def health():
     }
 
 
-# ── Artifact file helpers ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── Artifact file helpers ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 async def _write_trace_file(
     trace_id: str,
@@ -109,7 +117,7 @@ async def _checkpoint(trace_id: str, run_id: str, started_at: datetime) -> None:
     await _write_trace_file(trace_id, run_id, "factor_run", "running", started_at)
 
 
-# ── Trace helpers ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── Trace helpers ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 async def _create_trace(conn, trace_id: str, job_type: str, root_run_id: str) -> None:
     await conn.execute(
@@ -173,7 +181,7 @@ async def _log_step(
     )
 
 
-# ── Run lifecycle ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── Run lifecycle ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 async def _run_calculate(run_id: str, trace_id: str, today: date) -> None:
     started_at = datetime.now(timezone.utc)
@@ -230,7 +238,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     """Run factor calculation. Returns a skip-reason string on early exit, None on success."""
     async with engine.connect() as conn:
 
-        # ── Step 1: load universe ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+        # ── Step 1: load universe ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
         snap_row = await conn.execute(
             text("SELECT id FROM universe_snapshots ORDER BY snapshot_date DESC, fetched_at DESC LIMIT 1")
@@ -295,7 +303,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     print(f"[calculate] universe: {len(universe_tickers)} tickers (ETFs/funds excluded)")
 
     async with engine.connect() as conn:
-        # ── Step 2: load SPY prices ────────────────────────────────────────────────────────────────────────────────────────
+        # ── Step 2: load SPY prices ───────────────────────────────────────────────────────────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
         spy_rows = await conn.execute(
             text("SELECT date, adjusted_close FROM daily_prices WHERE ticker = 'SPY' ORDER BY date ASC")
@@ -323,7 +331,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     score_date: date = pd.to_datetime(spy_df["date"]).max().date()
     print(f"[calculate] score_date={score_date} (latest SPY trading date)")
 
-    # ── Step 3: detect regime ──────────────────────────────────────────────────────────────────────────────────────────
+    # ── Step 3: detect regime ─────────────────────────────────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
     regime_info = detect_regime(spy_df, strategy.regime_detection)
     raw_regime = regime_info["raw_regime"]
@@ -373,7 +381,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     await _checkpoint(trace_id, run_id, started_at)
 
     async with engine.connect() as conn:
-        # ── Step 4: load price history ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+        # ── Step 4: load price history ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
         price_rows = await conn.execute(
             text(
@@ -442,7 +450,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     print(f"[calculate] loaded {len(prices_df)} price rows for {prices_df['ticker'].nunique()} tickers")
 
     async with engine.connect() as conn:
-        # ── Step 5: load fundamentals ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+        # ── Step 5: load fundamentals ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
         fund_rows = await conn.execute(
             text(
@@ -482,7 +490,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
     print(f"[calculate] loaded fundamentals for {tickers_with_fundamentals} tickers")
 
-    # ── Step 6: calculate factors ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+    # ── Step 6: calculate factors ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
     factors_df = compute_all_factors(prices_long=prices_df, fundamentals=fund_df)
     null_quality_count = int(factors_df["quality"].isna().sum()) if "quality" in factors_df.columns else 0
@@ -504,7 +512,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
                 "p50": round(float(s.quantile(0.50)), 4) if len(s) > 0 else None,
                 "p75": round(float(s.quantile(0.75)), 4) if len(s) > 0 else None,
             }
-            # Count tickers at the +-2.5 z-score cap -- these are genuinely extreme
+            # Count tickers at the ±2.5 z-score cap — these are genuinely extreme
             # outliers whose raw score was so far from the mean that cross_section_zscore
             # hit the hard clip. Large clipped counts indicate a skewed raw distribution
             # (e.g., a few hypergrowth names compressing the rest).
@@ -518,11 +526,11 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
     # Factor methodology notes for audit trail
     factor_methodology = {
-        "momentum": "12-month return skipping last month: (price[-21] / price[-252]) - 1, then cross-sectional z-score clipped at +-2.5",
+        "momentum": "12-month return skipping last month: (price[-21] / price[-252]) - 1, then cross-sectional z-score clipped at ±2.5",
         "low_volatility": "annualized log-return std over 252 days, negated (lower vol = higher score), then z-score",
-        "liquidity": "log(1 + mean(close x volume)) over last 20 days, then z-score",
-        "quality": "ROE and -D/E each winsorized (1st/99th pct) then component z-scored; averaged per ticker; then cross-sectional z-score +-2.5. Replaces prior min-max approach which capped upside at ~0.5 sigma.",
-        "value": "earnings yield (1/PE, PE<=50) and book yield (1/PB, PB<=50), each winsorized (1st/99th pct); averaged per ticker; then z-score. Prior 200x cap produced 88 extreme-score outliers.",
+        "liquidity": "log(1 + mean(close × volume)) over last 20 days, then z-score",
+        "quality": "ROE and -D/E each winsorized (1st/99th pct) then component z-scored; averaged per ticker; then cross-sectional z-score ±2.5. Replaces prior min-max approach which capped upside at ~0.5σ.",
+        "value": "earnings yield (1/PE, PE≤50) and book yield (1/PB, PB≤50), each winsorized (1st/99th pct); averaged per ticker; then z-score. Prior 200x cap produced 88 extreme-score outliers.",
         "growth": "revenue_growth and eps_growth each winsorized (0.5th/99.5th pct) before averaging; then z-score. Tighter bounds compress post-winsorization std and increase cap-hits; 0.5%/99.5% balances outlier control with distribution preservation.",
         "z_score_note": "All factors use cross_section_zscore(): (x - mean) / std clipped to [-2.5, 2.5]",
     }
@@ -562,7 +570,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     ticker_count = len(factors_df)
 
     async with engine.begin() as conn:
-        # ── Step 7: write regime snapshot ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+        # ── Step 7: write regime snapshot ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
         await conn.execute(
             text(
@@ -590,7 +598,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             output_summary={"snapshot_date": str(score_date), "regime": confirmed_regime},
         )
 
-        # ── Step 8: write factor scores ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+        # ── Step 8: write factor scores ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
         for _, row in factors_df.iterrows():
             def _val(v):
@@ -631,7 +639,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             output_summary={"written_count": ticker_count, "score_date": str(score_date)},
         )
 
-        # ── Mark run successful ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+        # ── Mark run successful ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
         await conn.execute(
             text(
                 "UPDATE factor_runs SET "
