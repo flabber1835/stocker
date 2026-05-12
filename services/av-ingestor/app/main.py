@@ -29,6 +29,14 @@ BENCHMARK_TICKERS = ("SPY", "QQQ")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE ingest_runs SET status='failed', completed_at=NOW(), "
+                "error_message='Service restarted while run was active' "
+                "WHERE status='running'"
+            )
+        )
     yield
     await engine.dispose()
 

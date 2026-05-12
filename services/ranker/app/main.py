@@ -36,6 +36,14 @@ async def lifespan(app: FastAPI):
     global strategy, engine
     strategy = _load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE ranking_runs SET status='failed', completed_at=NOW(), "
+                "error_message='Service restarted while run was active' "
+                "WHERE status='running'"
+            )
+        )
     yield
     await engine.dispose()
 
@@ -577,7 +585,12 @@ async def start_rank_job(background_tasks: BackgroundTasks, factor_run_id: str |
                 )
             )
             latest = row.fetchone()
-        regime = latest.regime if latest else "unknown"
+        if latest is None:
+            raise HTTPException(
+                status_code=400,
+                detail="no successful factor run found — run: make factors first",
+            )
+        regime = latest.regime
 
     background_tasks.add_task(_run_rank_job, ranking_run_id, factor_run_id)
     return {

@@ -38,6 +38,14 @@ async def lifespan(app: FastAPI):
     global strategy, engine
     strategy = _load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE factor_runs SET status='failed', completed_at=NOW(), "
+                "error_message='Service restarted while run was active' "
+                "WHERE status='running'"
+            )
+        )
     yield
     await engine.dispose()
 
