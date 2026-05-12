@@ -34,6 +34,11 @@ async def proxy_universe():
     return await _proxy("/universe")
 
 
+@app.get("/api/portfolio")
+async def proxy_portfolio():
+    return await _proxy("/portfolio")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     return HTMLResponse(content=_HTML)
@@ -350,6 +355,7 @@ footer span{color:var(--cyan)}
 
 <div class="tabs">
   <button class="tab active" onclick="switchTab('rankings',this)">Rankings</button>
+  <button class="tab" onclick="switchTab('portfolio',this)">Portfolio</button>
   <button class="tab" onclick="switchTab('universe',this)">Universe</button>
 </div>
 
@@ -384,6 +390,39 @@ footer span{color:var(--cyan)}
       </thead>
       <tbody id="r-body">
         <tr><td colspan="11" class="loading">LOADING RANKINGS</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div id="pane-portfolio" class="pane">
+  <div class="stats">
+    <div class="stat"><div class="lbl">Positions</div><div class="val" id="p-count">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Est. Annual Vol</div><div class="val orange" id="p-vol">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Avg Pairwise Corr</div><div class="val" id="p-corr">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Portfolio Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="p-date">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Regime</div><div class="val orange" id="p-regime">&#8212;</div></div>
+  </div>
+  <div class="toolbar">
+    <input type="search" id="p-search" placeholder="// FILTER TICKER" oninput="renderPortfolio()">
+    <button class="btn" onclick="loadPortfolio()">&#x21BA; REFRESH</button>
+    <span class="badge-count" id="p-count-badge"></span>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th onclick="sortPortfolio('position')" id="ph-position">POS</th>
+          <th onclick="sortPortfolio('ticker')" id="ph-ticker">TICKER</th>
+          <th onclick="sortPortfolio('weight')" id="ph-weight">WEIGHT</th>
+          <th onclick="sortPortfolio('composite_score')" id="ph-composite_score">COMPOSITE</th>
+          <th onclick="sortPortfolio('original_rank')" id="ph-original_rank">ORIG RANK</th>
+          <th onclick="sortPortfolio('adj_score')" id="ph-adj_score">ADJ SCORE</th>
+          <th onclick="sortPortfolio('portfolio_vol_at_add')" id="ph-portfolio_vol_at_add">VOL AT ADD</th>
+        </tr>
+      </thead>
+      <tbody id="p-body">
+        <tr><td colspan="7" class="loading">LOADING PORTFOLIO</td></tr>
       </tbody>
     </table>
   </div>
@@ -424,9 +463,10 @@ footer span{color:var(--cyan)}
 </div>
 
 <script>
-let rankData=[], uniData=[];
+let rankData=[], uniData=[], portData=[];
 let rankSort={col:'rank',dir:1};
 let uniSort={col:'weight_pct',dir:-1};
+let portSort={col:'position',dir:1};
 let uniHideTiny=true;
 
 function toggleTiny(){
@@ -483,6 +523,67 @@ async function loadRegime(){
   }catch(e){
     $('rb-regime').textContent='UNAVAILABLE';
   }
+}
+
+async function loadPortfolio(){
+  $('p-body').innerHTML='<tr><td colspan="7" class="loading">LOADING PORTFOLIO</td></tr>';
+  try{
+    const d=await fetch('/api/portfolio').then(r=>{
+      if(!r.ok)throw new Error(r.status);
+      return r.json();
+    });
+    const run=d.run||{};
+    portData=d.holdings||[];
+    $('p-count').textContent=run.selected_count??portData.length;
+    $('p-vol').textContent=run.portfolio_estimated_vol!=null?(+run.portfolio_estimated_vol*100).toFixed(1)+'%':'—';
+    $('p-corr').textContent=run.avg_pairwise_correlation!=null?(+run.avg_pairwise_correlation).toFixed(3):'—';
+    $('p-date').textContent=run.portfolio_date||'—';
+    $('p-regime').textContent=(run.regime||'—').toUpperCase().replace('_',' ');
+    renderPortfolio();
+  }catch(e){
+    $('p-body').innerHTML='<tr><td colspan="7" class="error">NO PORTFOLIO DATA — RUN: make portfolio</td></tr>';
+  }
+}
+
+function sortPortfolio(col){
+  if(portSort.col===col)portSort.dir*=-1;
+  else{portSort.col=col;portSort.dir=col==='position'||col==='original_rank'?1:-1;}
+  clearSort('ph-');
+  const th=$('ph-'+col);
+  if(th)th.classList.add(portSort.dir===1?'asc':'desc');
+  renderPortfolio();
+}
+
+function renderPortfolio(){
+  const q=($('p-search').value||'').toUpperCase().trim();
+  let rows=portData.filter(r=>!q||r.ticker.includes(q));
+  const col=portSort.col,dir=portSort.dir;
+  rows.sort((a,b)=>{
+    const av=a[col],bv=b[col];
+    if(av==null&&bv==null)return 0;
+    if(av==null)return 1;if(bv==null)return -1;
+    return(av<bv?-1:av>bv?1:0)*dir;
+  });
+  $('p-count-badge').textContent=rows.length+' / '+portData.length+' SHOWN';
+  if(!rows.length){$('p-body').innerHTML='<tr><td colspan="7" class="loading">NO RESULTS</td></tr>';return;}
+  const maxComp=Math.max(...rows.map(r=>+(r.composite_score)||0));
+  $('p-body').innerHTML=rows.map(r=>{
+    const w=barW(r.composite_score,maxComp);
+    const compCls=r.composite_score!=null?(+r.composite_score>0?'pos':'neg'):'neu';
+    const wt=r.weight!=null?((+r.weight)*100).toFixed(1)+'%':'—';
+    const vol=r.portfolio_vol_at_add!=null?((+r.portfolio_vol_at_add)*100).toFixed(1)+'%':'—';
+    const adj=r.adj_score!=null?(+r.adj_score).toFixed(3):'—';
+    return '<tr>'
+      +'<td><span class="t-rank">'+r.position+'</span></td>'
+      +'<td><span class="t-ticker">'+r.ticker+'</span></td>'
+      +'<td class="t-wt">'+wt+'</td>'
+      +'<td><div class="score-wrap"><span class="score-num '+compCls+'">'+fmtScore(r.composite_score)+'</span>'
+      +'<div class="score-track"><div class="score-fill" style="width:'+w+'%"></div></div></div></td>'
+      +'<td class="neu">'+(r.original_rank??'—')+'</td>'
+      +'<td class="pos">'+adj+'</td>'
+      +'<td class="t-wt">'+vol+'</td>'
+      +'</tr>';
+  }).join('');
 }
 
 async function loadRankings(){
@@ -619,9 +720,11 @@ function renderUniverse(){
 (async()=>{
   await loadRegime();
   await loadRankings();
-  await loadUniverse();
+  loadPortfolio();
+  loadUniverse();
   $('rh-rank').classList.add('asc');
   $('uh-weight_pct').classList.add('desc');
+  $('ph-position').classList.add('asc');
 })();
 </script>
 </body>

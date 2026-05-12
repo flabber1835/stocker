@@ -1,5 +1,5 @@
 .PHONY: up down logs build test integration-test shell-api shell-db \
-        universe data prices fundamentals factors rank pipeline
+        universe data prices fundamentals factors rank portfolio pipeline
 
 # ── Compose lifecycle ──────────────────────────────────────────────────────────────────────────────────
 
@@ -102,8 +102,19 @@ fundamentals:
 	@echo "Fetching fundamentals only..."
 	curl -sf -X POST http://localhost:8001/jobs/fetch-fundamentals | python3 -m json.tool
 
+portfolio:
+	@echo "Building greedy covariance-penalized portfolio from latest ranking run..."
+	@RUN_ID=$$(curl -sf -X POST http://localhost:8008/jobs/build \
+	           | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])') && \
+	echo "  run_id=$$RUN_ID" && \
+	until STATUS=$$(curl -sf http://localhost:8008/runs/$$RUN_ID 2>/dev/null \
+	                | python3 -c 'import sys,json; print(json.load(sys.stdin).get("status","running"))' 2>/dev/null); \
+	      [ "$$STATUS" = "success" ] || [ "$$STATUS" = "failed" ]; do \
+		printf '.'; sleep 2; \
+	done && echo " $$STATUS"
+
 # Run the full pipeline end-to-end (each step waits for completion before proceeding)
-pipeline: universe data factors rank
+pipeline: universe data factors rank portfolio
 	@echo ""
 	@echo "Pipeline complete. View results:"
 	@echo "  Rankings:  http://localhost:8000/rankings"

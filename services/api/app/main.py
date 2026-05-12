@@ -249,7 +249,7 @@ async def get_trace(trace_id: str):
             if row:
                 linked_factor_run = {k: str(v) if hasattr(v, "hex") else (str(v) if hasattr(v, "isoformat") else v) for k, v in dict(row).items()}
 
-        if root_run_id and trace["job_type"] == "rank_run":
+        if root_run_id and trace["job_type"] in ("rank_run", "portfolio_build"):
             rr = await conn.execute(
                 text(
                     "SELECT run_id, status, regime, rank_date, universe_count, ranked_count, "
@@ -302,4 +302,80 @@ async def get_trace(trace_id: str):
         "factor_run": linked_factor_run,
         "ranking_run": linked_ranking_run,
         "steps": [_fmt_step(s) for s in steps],
+    }
+
+
+# ── Portfolio ─────────────────────────────────────────────────────────────────────────────────
+
+@app.get("/portfolio")
+async def get_portfolio(run_id: str | None = None):
+    async with engine.connect() as conn:
+        if run_id:
+            run_row = await conn.execute(
+                text(
+                    "SELECT run_id, trace_id, source_ranking_run_id, strategy_id, config_hash, "
+                    "       regime, portfolio_date, status, candidate_count, selected_count, "
+                    "       covariance_window_days, avg_pairwise_correlation, portfolio_estimated_vol, "
+                    "       error_message, started_at, completed_at "
+                    "FROM portfolio_runs WHERE run_id = :rid"
+                ),
+                {"rid": run_id},
+            )
+        else:
+            run_row = await conn.execute(
+                text(
+                    "SELECT run_id, trace_id, source_ranking_run_id, strategy_id, config_hash, "
+                    "       regime, portfolio_date, status, candidate_count, selected_count, "
+                    "       covariance_window_days, avg_pairwise_correlation, portfolio_estimated_vol, "
+                    "       error_message, started_at, completed_at "
+                    "FROM portfolio_runs WHERE status = 'success' "
+                    "ORDER BY completed_at DESC LIMIT 1"
+                )
+            )
+        run = run_row.mappings().first()
+    if run is None:
+        raise HTTPException(404, "No portfolio yet. Run: make portfolio")
+
+    async with engine.connect() as conn:
+        holdings_rows = await conn.execute(
+            text(
+                "SELECT ticker, position, weight, composite_score, original_rank, "
+                "       adj_score, portfolio_vol_at_add "
+                "FROM portfolio_holdings WHERE run_id = :rid ORDER BY position ASC"
+            ),
+            {"rid": str(run["run_id"])},
+        )
+        holdings = [dict(r) for r in holdings_rows.mappings()]
+
+    return {
+        "run": {
+            "run_id": str(run["run_id"]),
+            "trace_id": str(run["trace_id"]) if run["trace_id"] else None,
+            "source_ranking_run_id": str(run["source_ranking_run_id"]),
+            "strategy_id": run["strategy_id"],
+            "config_hash": run["config_hash"],
+            "regime": run["regime"],
+            "portfolio_date": str(run["portfolio_date"]) if run["portfolio_date"] else None,
+            "status": run["status"],
+            "candidate_count": run["candidate_count"],
+            "selected_count": run["selected_count"],
+            "covariance_window_days": run["covariance_window_days"],
+            "avg_pairwise_correlation": float(run["avg_pairwise_correlation"]) if run["avg_pairwise_correlation"] is not None else None,
+            "portfolio_estimated_vol": float(run["portfolio_estimated_vol"]) if run["portfolio_estimated_vol"] is not None else None,
+            "error_message": run["error_message"],
+            "started_at": run["started_at"].isoformat() if run["started_at"] else None,
+            "completed_at": run["completed_at"].isoformat() if run["completed_at"] else None,
+        },
+        "holdings": [
+            {
+                "ticker": h["ticker"],
+                "position": h["position"],
+                "weight": float(h["weight"]),
+                "composite_score": float(h["composite_score"]) if h["composite_score"] is not None else None,
+                "original_rank": h["original_rank"],
+                "adj_score": float(h["adj_score"]) if h["adj_score"] is not None else None,
+                "portfolio_vol_at_add": float(h["portfolio_vol_at_add"]) if h["portfolio_vol_at_add"] is not None else None,
+            }
+            for h in holdings
+        ],
     }

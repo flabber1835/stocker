@@ -188,12 +188,21 @@ services:
   portfolio-builder:
     build:
       context: .
-      dockerfile: services/stub/Dockerfile
+      dockerfile: services/portfolio-builder/Dockerfile
     restart: unless-stopped
     ports:
       - "8008:8000"
     environment:
       SERVICE_NAME: portfolio-builder
+      DATABASE_URL: postgresql+asyncpg://stocker:stocker@postgres:5432/stocker
+      REDIS_URL: redis://redis:6379/0
+      STRATEGY_CONFIG_PATH: /app/strategies/quality_core_v1.yaml
+      ARTIFACTS_PATH: /artifacts
+    volumes:
+      - artifacts:/artifacts
+      - ./strategies:/app/strategies:ro
+    depends_on:
+      - postgres
 
   alpaca-sync:
     build:

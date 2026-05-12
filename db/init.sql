@@ -245,3 +245,52 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, created_at ASC);
+
+-- ── Portfolio runs ────────────────────────────────────────────────────────────────────────────────
+-- One row per portfolio-builder job. Holdings live in portfolio_holdings.
+
+CREATE TABLE IF NOT EXISTS portfolio_runs (
+    run_id                   UUID         PRIMARY KEY,
+    trace_id                 UUID,
+    source_ranking_run_id    UUID         NOT NULL,
+    strategy_id              VARCHAR(100) NOT NULL,
+    config_hash              VARCHAR(16),
+    regime                   VARCHAR(30)  NOT NULL,
+    portfolio_date           DATE         NOT NULL,
+    status                   VARCHAR(20)  NOT NULL DEFAULT 'running',
+    candidate_count          INTEGER,
+    selected_count           INTEGER,
+    covariance_window_days   INTEGER,
+    avg_pairwise_correlation NUMERIC(8,6),
+    portfolio_estimated_vol  NUMERIC(8,6),
+    error_message            TEXT,
+    started_at               TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    completed_at             TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_portfolio_runs_started ON portfolio_runs(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_portfolio_runs_ranking ON portfolio_runs(source_ranking_run_id);
+
+-- ── Portfolio holdings ────────────────────────────────────────────────────────────────────────────
+-- Per-ticker rows for each portfolio run.
+
+CREATE TABLE IF NOT EXISTS portfolio_holdings (
+    id                    SERIAL PRIMARY KEY,
+    run_id                UUID         NOT NULL,
+    source_ranking_run_id UUID         NOT NULL,
+    strategy_id           VARCHAR(100) NOT NULL,
+    regime                VARCHAR(20)  NOT NULL,
+    portfolio_date        DATE         NOT NULL,
+    ticker                VARCHAR(20)  NOT NULL,
+    position              INTEGER      NOT NULL,
+    weight                NUMERIC(8,6) NOT NULL,
+    composite_score       NUMERIC(10,6),
+    original_rank         INTEGER,
+    adj_score             NUMERIC(10,6),
+    portfolio_vol_at_add  NUMERIC(10,6),
+    created_at            TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    UNIQUE (run_id, ticker)
+);
+
+CREATE INDEX IF NOT EXISTS idx_portfolio_holdings_run  ON portfolio_holdings(run_id);
+CREATE INDEX IF NOT EXISTS idx_portfolio_holdings_date ON portfolio_holdings(portfolio_date DESC, position ASC);
