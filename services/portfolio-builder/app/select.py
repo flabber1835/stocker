@@ -69,15 +69,29 @@ def greedy_select(
     return result
 
 
-def build_covariance(prices_df: pd.DataFrame, window_days: int) -> pd.DataFrame:
+def build_covariance(
+    prices_df: pd.DataFrame,
+    window_days: int,
+    min_observations: int = 126,
+    shrinkage: float = 0.20,
+) -> tuple[pd.DataFrame, list[str]]:
     """
     Build an annualised daily-return covariance matrix from a long-format
     price DataFrame with columns [ticker, date, adjusted_close].
+
+    Tickers with fewer than min_observations non-NaN return observations are
+    dropped (returned as the second element of the tuple so callers can log them).
+
+    Ledoit-Wolf-style shrinkage blends the sample covariance with its diagonal:
+        shrunk = (1 - shrinkage) * sample_cov + shrinkage * diag(sample_variances)
+    This reduces estimation error without requiring a full optimizer.
 
     NaN covariances (ticker pairs with no overlapping history) are filled
     with 0 (zero-correlation assumption). Zero or negative variances on the
     diagonal are replaced with the ticker's empirical variance or a small
     floor so the greedy loop never divides by zero.
+
+    Returns (cov_matrix, tickers_dropped_insufficient_obs).
     """
     pivot = prices_df.pivot_table(
         index="date", columns="ticker", values="adjusted_close"
@@ -87,6 +101,13 @@ def build_covariance(prices_df: pd.DataFrame, window_days: int) -> pd.DataFrame:
         pivot = pivot.iloc[-window_days:]
 
     log_returns = np.log(pivot / pivot.shift(1)).dropna(how="all")
+
+    # Drop tickers that don't have enough observations for stable covariance estimates
+    obs_counts = log_returns.count()
+    valid = obs_counts[obs_counts >= min_observations].index.tolist()
+    dropped = [t for t in log_returns.columns if t not in valid]
+    log_returns = log_returns[valid]
+
     cov = log_returns.cov() * 252  # annualise daily covariance
     cov = cov.fillna(0.0)
 
@@ -96,4 +117,13 @@ def build_covariance(prices_df: pd.DataFrame, window_days: int) -> pd.DataFrame:
             col = log_returns[t].dropna() if t in log_returns.columns else pd.Series(dtype=float)
             cov.loc[t, t] = float(col.var() * 252) if len(col) > 1 else 1e-6
 
-    return cov
+    # Ledoit-Wolf-style shrinkage toward the diagonal
+    if shrinkage > 0:
+        diag_cov = pd.DataFrame(
+            np.diag(np.diag(cov.values)),
+            index=cov.index,
+            columns=cov.columns,
+        )
+        cov = (1.0 - shrinkage) * cov + shrinkage * diag_cov
+
+    return cov, dropped

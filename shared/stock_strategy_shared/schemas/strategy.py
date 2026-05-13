@@ -70,6 +70,9 @@ class PortfolioBuilderConfig(BaseModel):
     candidate_count: int = Field(default=100, ge=10, le=500)
     max_positions: int = Field(default=30, ge=1, le=100)
     covariance_window_days: int = Field(default=252, ge=20, le=504)
+    min_covariance_observations: int = Field(default=126, ge=20, le=504)
+    covariance_shrinkage: float = Field(default=0.20, ge=0.0, le=1.0)
+    require_positive_composite_score: bool = False
     weighting: Literal["equal_weight"] = "equal_weight"
 
 

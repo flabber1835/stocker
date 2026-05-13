@@ -138,16 +138,17 @@ def test_greedy_select_single_candidate():
 def test_build_covariance_shape():
     tickers = ["A", "B", "C"]
     df = _prices_df(tickers, n_days=300)
-    cov = build_covariance(df, window_days=252)
+    cov, dropped = build_covariance(df, window_days=252)
     assert cov.shape == (3, 3)
     assert list(cov.index) == tickers
     assert list(cov.columns) == tickers
+    assert dropped == []
 
 
 def test_build_covariance_positive_diagonal():
     tickers = ["A", "B", "C", "D"]
     df = _prices_df(tickers, n_days=300)
-    cov = build_covariance(df, window_days=252)
+    cov, _ = build_covariance(df, window_days=252)
     for t in tickers:
         assert cov.loc[t, t] > 0, f"variance for {t} is not positive"
 
@@ -155,7 +156,7 @@ def test_build_covariance_positive_diagonal():
 def test_build_covariance_symmetric():
     tickers = ["A", "B", "C"]
     df = _prices_df(tickers, n_days=300)
-    cov = build_covariance(df, window_days=252)
+    cov, _ = build_covariance(df, window_days=252)
     np.testing.assert_allclose(cov.values, cov.values.T, atol=1e-10)
 
 
@@ -163,8 +164,8 @@ def test_build_covariance_window_truncation():
     """With window_days=50, only the last 50 rows of returns should be used."""
     tickers = ["A", "B"]
     df = _prices_df(tickers, n_days=300)
-    cov_full = build_covariance(df, window_days=252)
-    cov_short = build_covariance(df, window_days=50)
+    cov_full, _ = build_covariance(df, window_days=252, min_observations=20)
+    cov_short, _ = build_covariance(df, window_days=50, min_observations=20)
     # Variances should differ since they use different history windows
     assert cov_full.loc["A", "A"] != cov_short.loc["A", "A"]
 
@@ -172,5 +173,29 @@ def test_build_covariance_window_truncation():
 def test_build_covariance_no_nan():
     tickers = ["A", "B", "C"]
     df = _prices_df(tickers, n_days=300)
-    cov = build_covariance(df, window_days=252)
+    cov, _ = build_covariance(df, window_days=252)
     assert not cov.isnull().any().any()
+
+
+def test_build_covariance_drops_sparse_tickers():
+    """Tickers with fewer observations than min_observations are excluded."""
+    tickers = ["A", "B", "C"]
+    df_full = _prices_df(tickers, n_days=300)
+    # Give "C" only 50 observations by keeping just the last 50 rows for it
+    df_c_sparse = df_full[df_full["ticker"] == "C"].tail(50)
+    df = pd.concat([df_full[df_full["ticker"] != "C"], df_c_sparse])
+    cov, dropped = build_covariance(df, window_days=252, min_observations=126)
+    assert "C" in dropped
+    assert "C" not in cov.index
+
+
+def test_build_covariance_shrinkage_reduces_off_diagonal():
+    """Shrinkage should pull off-diagonal elements toward zero."""
+    tickers = ["A", "B"]
+    df = _prices_df(tickers, n_days=300)
+    cov_raw, _ = build_covariance(df, window_days=252, shrinkage=0.0)
+    cov_shrunk, _ = build_covariance(df, window_days=252, shrinkage=0.5)
+    # Off-diagonal should be smaller in magnitude after shrinkage
+    assert abs(cov_shrunk.loc["A", "B"]) < abs(cov_raw.loc["A", "B"])
+    # Diagonal should be unchanged (shrinkage toward diagonal keeps variances)
+    np.testing.assert_allclose(cov_raw.loc["A", "A"], cov_shrunk.loc["A", "A"], rtol=1e-6)
