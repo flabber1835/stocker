@@ -67,7 +67,7 @@ data:
 	echo "  run_id=$$RUN_ID" && \
 	until STATUS=$$(curl -sf http://localhost:8001/runs/$$RUN_ID 2>/dev/null \
 	                | python3 -c 'import sys,json; print(json.load(sys.stdin).get("status","running"))' 2>/dev/null); \
-	      [ "$$STATUS" = "success" ] || [ "$$STATUS" = "failed" ]; do \
+	      [ "$$STATUS" = "success" ] || [ "$$STATUS" = "partial_success" ] || [ "$$STATUS" = "failed" ]; do \
 		printf '.'; sleep 5; \
 	done && echo " $$STATUS"
 
@@ -96,11 +96,25 @@ rank:
 # Targeted refreshes (use when you only need one dataset updated)
 prices:
 	@echo "Fetching prices only..."
-	curl -sf -X POST http://localhost:8001/jobs/fetch-prices | python3 -m json.tool
+	@RUN_ID=$$(curl -sf -X POST http://localhost:8001/jobs/fetch-prices \
+	           | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])') && \
+	echo "  run_id=$$RUN_ID" && \
+	until STATUS=$$(curl -sf http://localhost:8001/runs/$$RUN_ID 2>/dev/null \
+	                | python3 -c 'import sys,json; print(json.load(sys.stdin).get("status","running"))' 2>/dev/null); \
+	      [ "$$STATUS" = "success" ] || [ "$$STATUS" = "partial_success" ] || [ "$$STATUS" = "failed" ]; do \
+		printf '.'; sleep 5; \
+	done && echo " $$STATUS"
 
 fundamentals:
 	@echo "Fetching fundamentals only..."
-	curl -sf -X POST http://localhost:8001/jobs/fetch-fundamentals | python3 -m json.tool
+	@RUN_ID=$$(curl -sf -X POST http://localhost:8001/jobs/fetch-fundamentals \
+	           | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])') && \
+	echo "  run_id=$$RUN_ID" && \
+	until STATUS=$$(curl -sf http://localhost:8001/runs/$$RUN_ID 2>/dev/null \
+	                | python3 -c 'import sys,json; print(json.load(sys.stdin).get("status","running"))' 2>/dev/null); \
+	      [ "$$STATUS" = "success" ] || [ "$$STATUS" = "partial_success" ] || [ "$$STATUS" = "failed" ]; do \
+		printf '.'; sleep 5; \
+	done && echo " $$STATUS"
 
 portfolio:
 	@echo "Building greedy covariance-penalized portfolio from latest ranking run..."

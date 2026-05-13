@@ -89,6 +89,11 @@ check_rankings_exist() {
 echo "=== Stocker integration test (MOCK_DATA=true) ==="
 echo ""
 
+# 0. Tear down any leftover state from a previous run (volumes included so DB starts fresh)
+echo "Step 0: Cleaning up any prior run..."
+docker compose down -v --remove-orphans 2>/dev/null || true
+echo "  Done."
+
 # 1. Bring up with mock data
 echo "Step 1: Starting services with MOCK_DATA=true..."
 MOCK_DATA=true docker compose up -d --build

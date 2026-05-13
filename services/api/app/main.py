@@ -234,7 +234,12 @@ async def get_trace(trace_id: str):
 
         linked_factor_run = None
         linked_ranking_run = None
+        linked_portfolio_run = None
         root_run_id = trace["root_run_id"]
+
+        def _fmt_row(row):
+            return {k: str(v) if hasattr(v, "hex") else (str(v) if hasattr(v, "isoformat") else v)
+                    for k, v in dict(row).items()}
 
         if root_run_id and trace["job_type"] == "factor_run":
             fr = await conn.execute(
@@ -247,9 +252,21 @@ async def get_trace(trace_id: str):
             )
             row = fr.mappings().first()
             if row:
-                linked_factor_run = {k: str(v) if hasattr(v, "hex") else (str(v) if hasattr(v, "isoformat") else v) for k, v in dict(row).items()}
+                linked_factor_run = _fmt_row(row)
+            # Find the ranking run that consumed this factor run as input
+            rr = await conn.execute(
+                text(
+                    "SELECT run_id, status, regime, rank_date, universe_count, ranked_count, dropped_count "
+                    "FROM ranking_runs WHERE source_factor_run_id = :frid "
+                    "ORDER BY started_at DESC LIMIT 1"
+                ),
+                {"frid": str(root_run_id)},
+            )
+            rr_row = rr.mappings().first()
+            if rr_row:
+                linked_ranking_run = _fmt_row(rr_row)
 
-        if root_run_id and trace["job_type"] in ("rank_run", "portfolio_run"):
+        if root_run_id and trace["job_type"] == "rank_run":
             rr = await conn.execute(
                 text(
                     "SELECT run_id, status, regime, rank_date, universe_count, ranked_count, "
@@ -260,20 +277,20 @@ async def get_trace(trace_id: str):
             )
             row = rr.mappings().first()
             if row:
-                linked_ranking_run = {k: str(v) if hasattr(v, "hex") else (str(v) if hasattr(v, "isoformat") else v) for k, v in dict(row).items()}
+                linked_ranking_run = _fmt_row(row)
 
-        # For a factor_run trace, also find the ranking run that inherited it
-        if trace["job_type"] == "factor_run":
-            rr2 = await conn.execute(
+        if root_run_id and trace["job_type"] == "portfolio_run":
+            pr = await conn.execute(
                 text(
-                    "SELECT run_id, status, regime, rank_date, universe_count, ranked_count, dropped_count "
-                    "FROM ranking_runs WHERE trace_id = :tid ORDER BY started_at DESC LIMIT 1"
+                    "SELECT run_id, status, regime, portfolio_date, candidate_count, selected_count, "
+                    "       avg_pairwise_correlation, portfolio_estimated_vol, source_ranking_run_id "
+                    "FROM portfolio_runs WHERE run_id = :rid"
                 ),
-                {"tid": trace_id},
+                {"rid": str(root_run_id)},
             )
-            row2 = rr2.mappings().first()
-            if row2:
-                linked_ranking_run = {k: str(v) if hasattr(v, "hex") else (str(v) if hasattr(v, "isoformat") else v) for k, v in dict(row2).items()}
+            row = pr.mappings().first()
+            if row:
+                linked_portfolio_run = _fmt_row(row)
 
     def _fmt_step(s):
         return {
@@ -301,6 +318,7 @@ async def get_trace(trace_id: str):
         "notes": trace["notes"],
         "factor_run": linked_factor_run,
         "ranking_run": linked_ranking_run,
+        "portfolio_run": linked_portfolio_run,
         "steps": [_fmt_step(s) for s in steps],
     }
 

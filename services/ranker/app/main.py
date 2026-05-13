@@ -198,10 +198,8 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
     rank_date = latest.score_date
     factor_ticker_count = latest.ticker_count
 
-    # Inherit the trace from the source factor run if available, else start a new one
-    inherited_trace_id = str(latest.trace_id) if latest.trace_id else None
-    trace_id = inherited_trace_id or str(uuid.uuid4())
-    new_trace = inherited_trace_id is None
+    # Each rank job gets its own trace (one trace per job)
+    trace_id = str(uuid.uuid4())
     await _checkpoint(trace_id, ranking_run_id, started_at)  # initial write: running, 0 steps
 
     async with engine.begin() as conn:
@@ -221,20 +219,18 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
             },
         )
 
-        # If no inherited trace, create a new execution_trace for this rank-only run
-        if new_trace:
-            await conn.execute(
-                text(
-                    "INSERT INTO execution_traces "
-                    "(trace_id, job_type, status, root_run_id, strategy_id, config_hash, started_at) "
-                    "VALUES (:tid, 'rank_run', 'running', :rid, :sid, :ch, :now)"
-                ),
-                {
-                    "tid": trace_id, "rid": ranking_run_id,
-                    "sid": strategy.strategy_id, "ch": config_hash,
-                    "now": started_at,
-                },
-            )
+        await conn.execute(
+            text(
+                "INSERT INTO execution_traces "
+                "(trace_id, job_type, status, root_run_id, strategy_id, config_hash, started_at) "
+                "VALUES (:tid, 'rank_run', 'running', :rid, :sid, :ch, :now)"
+            ),
+            {
+                "tid": trace_id, "rid": ranking_run_id,
+                "sid": strategy.strategy_id, "ch": config_hash,
+                "now": started_at,
+            },
+        )
 
         await _log_step(
             conn, trace_id, "load_factor_run", "success",
@@ -244,7 +240,6 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
                 "regime": regime,
                 "score_date": str(rank_date),
                 "ticker_count": factor_ticker_count,
-                "trace_inherited": not new_trace,
             },
         )
     await _checkpoint(trace_id, ranking_run_id, started_at)
@@ -515,15 +510,13 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
             },
         )
 
-        # Finalise execution_trace if we own it (new standalone rank trace)
-        if new_trace:
-            await conn.execute(
-                text(
-                    "UPDATE execution_traces SET status='success', completed_at=:now "
-                    "WHERE trace_id=:tid"
-                ),
-                {"tid": trace_id, "now": datetime.now(timezone.utc)},
-            )
+        await conn.execute(
+            text(
+                "UPDATE execution_traces SET status='success', completed_at=:now "
+                "WHERE trace_id=:tid"
+            ),
+            {"tid": trace_id, "now": datetime.now(timezone.utc)},
+        )
 
     print(f"[ranker] run {ranking_run_id} SUCCESS: {ranked_count} ranked "
           f"({dropped_count} dropped), top={top_ticker}, regime={regime}, date={rank_date}, "

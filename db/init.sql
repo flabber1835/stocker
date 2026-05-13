@@ -82,12 +82,12 @@ CREATE TABLE IF NOT EXISTS regime_snapshots (
 CREATE INDEX IF NOT EXISTS idx_regime_date ON regime_snapshots(snapshot_date DESC);
 
 -- ── Execution traces ───────────────────────────────────────────────────────────────────────────────────────────────────────
--- One trace per top-level job (factor_run or rank_run). Steps record each sub-operation.
+-- One trace per top-level job. Steps record each sub-operation.
 -- Answers: what data was used, what config was active, what happened at each step.
 
 CREATE TABLE IF NOT EXISTS execution_traces (
     trace_id        UUID         PRIMARY KEY,
-    job_type        VARCHAR(50)  NOT NULL,        -- 'factor_run' | 'rank_run'
+    job_type        VARCHAR(50)  NOT NULL,        -- 'factor_run' | 'rank_run' | 'portfolio_run'
     status          VARCHAR(20)  NOT NULL DEFAULT 'running',  -- running|success|failed|skipped
     root_run_id     UUID,                         -- factor_runs.run_id or ranking_runs.run_id
     strategy_id     VARCHAR(100),
@@ -121,16 +121,18 @@ CREATE INDEX IF NOT EXISTS idx_steps_trace ON execution_steps(trace_id, started_
 -- Allows make data to poll for completion instead of checking price_rows > 0.
 
 CREATE TABLE IF NOT EXISTS ingest_runs (
-    run_id          UUID         PRIMARY KEY,
-    job_type        VARCHAR(50)  NOT NULL,   -- fetch-universe|fetch-data|fetch-prices|fetch-fundamentals
-    status          VARCHAR(20)  NOT NULL DEFAULT 'running',  -- running|success|failed
-    ticker_count    INTEGER,
-    price_rows      INTEGER,
-    fund_rows       INTEGER,
-    error_count     INTEGER      NOT NULL DEFAULT 0,
-    error_message   TEXT,
-    started_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    completed_at    TIMESTAMPTZ
+    run_id                    UUID         PRIMARY KEY,
+    job_type                  VARCHAR(50)  NOT NULL,   -- fetch-universe|fetch-data|fetch-prices|fetch-fundamentals
+    status                    VARCHAR(20)  NOT NULL DEFAULT 'running',  -- running|success|partial_success|failed
+    ticker_count              INTEGER,
+    price_rows                INTEGER,
+    fund_rows                 INTEGER,
+    error_count               INTEGER      NOT NULL DEFAULT 0,
+    error_message             TEXT,
+    price_coverage_pct        NUMERIC(6,4),            -- fraction of tickers with price data (0..1)
+    fundamental_coverage_pct  NUMERIC(6,4),            -- fraction of tickers with fundamental data (0..1)
+    started_at                TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    completed_at              TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS idx_ingest_runs_started ON ingest_runs(started_at DESC);
@@ -166,7 +168,7 @@ CREATE INDEX IF NOT EXISTS idx_factor_runs_trace  ON factor_runs(trace_id);
 
 CREATE TABLE IF NOT EXISTS factor_scores (
     id              SERIAL PRIMARY KEY,
-    run_id          UUID         NOT NULL,
+    run_id          UUID         NOT NULL REFERENCES factor_runs(run_id),
     ticker          VARCHAR(20)  NOT NULL,
     score_date      DATE         NOT NULL,
     momentum        NUMERIC(10,6),  -- z-score, clipped [-2.5, 2.5]
@@ -188,7 +190,7 @@ CREATE INDEX IF NOT EXISTS idx_factor_scores_date ON factor_scores(score_date DE
 CREATE TABLE IF NOT EXISTS ranking_runs (
     run_id               UUID         PRIMARY KEY,
     trace_id             UUID,                         -- execution_traces.trace_id
-    source_factor_run_id UUID         NOT NULL,        -- factor_runs.run_id used as input
+    source_factor_run_id UUID         NOT NULL REFERENCES factor_runs(run_id),
     strategy_id          VARCHAR(100) NOT NULL,
     config_hash          VARCHAR(16),
     regime               VARCHAR(30)  NOT NULL,
@@ -211,8 +213,8 @@ CREATE INDEX IF NOT EXISTS idx_ranking_runs_trace        ON ranking_runs(trace_i
 
 CREATE TABLE IF NOT EXISTS rankings (
     id                    SERIAL PRIMARY KEY,
-    run_id                UUID         NOT NULL,   -- ranking_runs.run_id
-    source_factor_run_id  UUID         NOT NULL,   -- factor_runs.run_id this ranking was built from
+    run_id                UUID         NOT NULL REFERENCES ranking_runs(run_id),
+    source_factor_run_id  UUID         NOT NULL REFERENCES factor_runs(run_id),
     strategy_id           VARCHAR(100) NOT NULL,
     regime                VARCHAR(20)  NOT NULL,
     rank_date             DATE         NOT NULL,   -- score_date of the source factor run
@@ -252,7 +254,7 @@ CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, created_at ASC);
 CREATE TABLE IF NOT EXISTS portfolio_runs (
     run_id                   UUID         PRIMARY KEY,
     trace_id                 UUID,
-    source_ranking_run_id    UUID         NOT NULL,
+    source_ranking_run_id    UUID         NOT NULL REFERENCES ranking_runs(run_id),
     strategy_id              VARCHAR(100) NOT NULL,
     config_hash              VARCHAR(16),
     regime                   VARCHAR(30)  NOT NULL,
@@ -276,8 +278,8 @@ CREATE INDEX IF NOT EXISTS idx_portfolio_runs_ranking ON portfolio_runs(source_r
 
 CREATE TABLE IF NOT EXISTS portfolio_holdings (
     id                    SERIAL PRIMARY KEY,
-    run_id                UUID         NOT NULL,
-    source_ranking_run_id UUID         NOT NULL,
+    run_id                UUID         NOT NULL REFERENCES portfolio_runs(run_id),
+    source_ranking_run_id UUID         NOT NULL REFERENCES ranking_runs(run_id),
     strategy_id           VARCHAR(100) NOT NULL,
     regime                VARCHAR(20)  NOT NULL,
     portfolio_date        DATE         NOT NULL,
