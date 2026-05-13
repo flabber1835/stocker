@@ -323,9 +323,11 @@ async def _do_build(
 
     # ── Step 4: build covariance matrix ────────────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
-    cov = build_covariance(
+    cov, tickers_dropped_obs = build_covariance(
         prices_df[prices_df["ticker"].isin(rankable_tickers)],
         window_days=pb_cfg.covariance_window_days,
+        min_observations=pb_cfg.min_covariance_observations,
+        shrinkage=pb_cfg.covariance_shrinkage,
     )
 
     # Restrict scores Series to tickers present in cov (some may have been dropped)
@@ -345,24 +347,46 @@ async def _do_build(
     else:
         avg_pairwise_corr = 0.0
 
+    cov_warnings = []
+    if tickers_dropped_obs:
+        cov_warnings.append(
+            f"{len(tickers_dropped_obs)} tickers dropped: insufficient observations "
+            f"(< {pb_cfg.min_covariance_observations}): {tickers_dropped_obs}"
+        )
+
     async with engine.begin() as conn:
         await _log_step(
             conn, trace_id, "build_covariance", "success",
             started_at=t0,
             input_summary={
                 "window_days": pb_cfg.covariance_window_days,
-                "ticker_count": len(available_tickers),
+                "min_observations": pb_cfg.min_covariance_observations,
+                "shrinkage": pb_cfg.covariance_shrinkage,
+                "ticker_count": len(rankable_tickers),
             },
             output_summary={
                 "matrix_size": len(cov),
+                "tickers_dropped_insufficient_obs": len(tickers_dropped_obs),
                 "avg_pairwise_correlation": round(avg_pairwise_corr, 4),
             },
+            warnings=cov_warnings or None,
         )
 
     # ── Step 5: greedy selection ────────────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
+
+    # Optionally exclude candidates with a negative composite score before selection
+    negative_excluded: list[str] = []
+    if pb_cfg.require_positive_composite_score:
+        negative_excluded = [t for t in available_tickers if scores_map[t] < 0]
+        if negative_excluded:
+            pos_tickers = [t for t in available_tickers if scores_map[t] >= 0]
+            scores = scores[pos_tickers]
+            cov = cov.loc[pos_tickers, pos_tickers]
+
     selected = greedy_select(scores, cov, target=pb_cfg.max_positions)
     selected_tickers = [s["ticker"] for s in selected]
+    selected_negative_score_count = sum(1 for s in selected if s["composite_score"] < 0)
 
     # Equal weight
     weight = round(1.0 / len(selected), 6)
@@ -389,21 +413,36 @@ async def _do_build(
     else:
         highest_corr_pair = None
 
+    sel_warnings = []
+    if selected_negative_score_count:
+        sel_warnings.append(
+            f"{selected_negative_score_count} selected tickers have negative composite scores"
+        )
+    if negative_excluded:
+        sel_warnings.append(
+            f"{len(negative_excluded)} candidates excluded: negative composite score "
+            f"(require_positive_composite_score=true)"
+        )
+
     async with engine.begin() as conn:
         await _log_step(
             conn, trace_id, "greedy_select", "success",
             started_at=t0,
             input_summary={
-                "candidate_count": len(available_tickers),
+                "candidate_count": len(scores),
                 "target_positions": pb_cfg.max_positions,
+                "require_positive_composite_score": pb_cfg.require_positive_composite_score,
+                "negative_score_excluded": len(negative_excluded),
             },
             output_summary={
                 "selected_count": len(selected),
+                "selected_negative_score_count": selected_negative_score_count,
                 "portfolio_estimated_vol": round(portfolio_vol, 4),
                 "avg_candidate_pool_correlation": round(avg_pairwise_corr, 4),
                 "highest_corr_pair": highest_corr_pair,
                 "selected_tickers": selected_tickers,
             },
+            warnings=sel_warnings or None,
         )
 
     # ── Step 6: write portfolio run + holdings ───────────────────────────────────────────────────────────────────────────────────────────────────
@@ -498,6 +537,8 @@ async def _do_build(
         regime=regime,
         portfolio_date=str(portfolio_date),
         selected_count=len(selected),
+        selected_negative_score_count=selected_negative_score_count,
+        tickers_dropped_insufficient_obs=len(tickers_dropped_obs),
         portfolio_estimated_vol=round(portfolio_vol, 4),
         avg_pairwise_correlation=round(avg_pairwise_corr, 4),
         highest_corr_pair=highest_corr_pair,
@@ -507,6 +548,9 @@ async def _do_build(
             "candidate_count": pb_cfg.candidate_count,
             "max_positions": pb_cfg.max_positions,
             "covariance_window_days": pb_cfg.covariance_window_days,
+            "min_covariance_observations": pb_cfg.min_covariance_observations,
+            "covariance_shrinkage": pb_cfg.covariance_shrinkage,
+            "require_positive_composite_score": pb_cfg.require_positive_composite_score,
             "weighting": pb_cfg.weighting,
         },
         holdings=holdings_detail,

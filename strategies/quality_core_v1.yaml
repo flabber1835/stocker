@@ -75,10 +75,13 @@ factor_weights:
 
 portfolio_builder:
   method: greedy_score_per_port_vol  # score / hypothetical equal-weight portfolio vol (total, not marginal delta)
-  candidate_count: 100             # top N from ranker fed into greedy selection
-  max_positions: 30                # final portfolio size
-  covariance_window_days: 252      # trading days used to build covariance matrix
-  weighting: equal_weight          # equal weight across selected positions
+  candidate_count: 100               # top N from ranker fed into greedy selection
+  max_positions: 30                  # final portfolio size
+  covariance_window_days: 252        # trading days used to build covariance matrix
+  min_covariance_observations: 126   # drop tickers with fewer non-NaN return observations (~6 months)
+  covariance_shrinkage: 0.20         # Ledoit-Wolf-style: 80% sample + 20% diagonal
+  require_positive_composite_score: false  # set true to exclude negative-score names pre-selection
+  weighting: equal_weight            # equal weight across selected positions
 
 max_positions: 30
 min_score_percentile: 0.0
