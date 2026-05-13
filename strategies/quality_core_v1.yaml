@@ -81,7 +81,8 @@ portfolio_builder:
   min_covariance_observations: 126   # drop tickers with fewer non-NaN return observations (~6 months)
   covariance_shrinkage: 0.20         # Ledoit-Wolf-style: 80% sample + 20% diagonal
   require_positive_composite_score: false  # set true to exclude negative-score names pre-selection
-  weighting: equal_weight            # equal weight across selected positions
+  weighting: adj_score_proportional  # equal_weight | adj_score_proportional | score_proportional | inverse_vol
+  max_position_weight: 0.10          # hard cap per position; excess redistributed to others
 
 max_positions: 30
 min_score_percentile: 0.0

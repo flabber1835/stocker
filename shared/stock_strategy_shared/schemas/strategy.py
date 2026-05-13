@@ -73,7 +73,13 @@ class PortfolioBuilderConfig(BaseModel):
     min_covariance_observations: int = Field(default=126, ge=20, le=504)
     covariance_shrinkage: float = Field(default=0.20, ge=0.0, le=1.0)
     require_positive_composite_score: bool = False
-    weighting: Literal["equal_weight"] = "equal_weight"
+    weighting: Literal[
+        "equal_weight",
+        "adj_score_proportional",
+        "score_proportional",
+        "inverse_vol",
+    ] = "equal_weight"
+    max_position_weight: float = Field(default=0.10, gt=0, le=1.0)
 
 
 class StrategyConfig(BaseModel):
