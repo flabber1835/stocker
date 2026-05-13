@@ -46,6 +46,13 @@ async def lifespan(app: FastAPI):
                 "WHERE status='running'"
             )
         )
+        await conn.execute(
+            text(
+                "UPDATE execution_traces SET status='failed', completed_at=NOW(), "
+                "notes='Service restarted while trace was active' "
+                "WHERE status='running' AND job_type='factor_run'"
+            )
+        )
     yield
     await engine.dispose()
 
@@ -531,7 +538,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         "liquidity": "log(1 + mean(close × volume)) over last 20 days, then z-score",
         "quality": "ROE and -D/E each winsorized (1st/99th pct) then component z-scored; averaged per ticker; then cross-sectional z-score ±2.5. Replaces prior min-max approach which capped upside at ~0.5σ.",
         "value": "earnings yield (1/PE, PE≤50) and book yield (1/PB, PB≤50), each winsorized (1st/99th pct); averaged per ticker; then z-score. Prior 200x cap produced 88 extreme-score outliers.",
-        "growth": "revenue_growth and eps_growth each winsorized (0.5th/99.5th pct) before averaging; then z-score. Tighter bounds compress post-winsorization std and increase cap-hits; 0.5%/99.5% balances outlier control with distribution preservation.",
+        "growth": "revenue_growth and eps_growth each winsorized (1st/99th pct) then component z-scored; averaged per ticker; then cross-sectional z-score ±2.5. Mirrors the quality pattern to prevent a single hypergrowth name from compressing the cross-section.",
         "z_score_note": "All factors use cross_section_zscore(): (x - mean) / std clipped to [-2.5, 2.5]",
     }
 

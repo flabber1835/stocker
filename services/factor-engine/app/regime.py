@@ -57,7 +57,10 @@ def detect_regime(spy_prices: pd.DataFrame, config: RegimeDetectionConfig) -> di
             break
 
     if raw_regime is None:
-        raw_regime = list(config.regimes.keys())[0]
+        raise RuntimeError(
+            f"No regime matched trend_above={trend_above}, vol_above={vol_above}. "
+            "This should never happen if regimes_cover_all_combinations validation passed."
+        )
 
     return {
         "raw_regime": raw_regime,

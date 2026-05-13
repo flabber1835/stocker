@@ -44,6 +44,13 @@ async def lifespan(app: FastAPI):
                 "WHERE status='running'"
             )
         )
+        await conn.execute(
+            text(
+                "UPDATE execution_traces SET status='failed', completed_at=NOW(), "
+                "notes='Service restarted while trace was active' "
+                "WHERE status='running' AND job_type='rank_run'"
+            )
+        )
     yield
     await engine.dispose()
 

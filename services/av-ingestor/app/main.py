@@ -335,17 +335,23 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                                   tickers_done=i + 1, total_tickers=len(price_tickers),
                                   price_rows=price_rows_written, fund_rows=fund_ok,
                                   error_count=err_count)
+        status = "partial_success" if err_count > 0 else "success"
+        await _finish_run(run_id, status,
+                          ticker_count=len(price_tickers), price_rows=price_rows_written,
+                          fund_rows=fund_ok, error_count=err_count)
+        await _write_trace_file(run_id, "fetch-data", status, started_at,
+                                tickers_done=len(price_tickers), total_tickers=len(price_tickers),
+                                price_rows=price_rows_written, fund_rows=fund_ok,
+                                error_count=err_count)
+        print("[fetch-data] done")
+    except Exception as exc:
+        err = str(exc)[:1000]
+        print(f"[fetch-data] FATAL: {exc}")
+        await _finish_run(run_id, "failed", error_message=err)
+        await _write_trace_file(run_id, "fetch-data", "failed", started_at, error_message=err)
+        raise
     finally:
         await client.close()
-
-    await _finish_run(run_id, "success",
-                      ticker_count=len(price_tickers), price_rows=price_rows_written,
-                      fund_rows=fund_ok, error_count=err_count)
-    await _write_trace_file(run_id, "fetch-data", "success", started_at,
-                            tickers_done=len(price_tickers), total_tickers=len(price_tickers),
-                            price_rows=price_rows_written, fund_rows=fund_ok,
-                            error_count=err_count)
-    print("[fetch-data] done")
 
 
 async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
@@ -394,15 +400,21 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
                 await _checkpoint(run_id, "fetch-prices", started_at,
                                   tickers_done=i + 1, total_tickers=len(all_tickers),
                                   price_rows=rows_written, error_count=err_count)
+        status = "partial_success" if err_count > 0 else "success"
+        await _finish_run(run_id, status,
+                          ticker_count=len(all_tickers), price_rows=rows_written, error_count=err_count)
+        await _write_trace_file(run_id, "fetch-prices", status, started_at,
+                                tickers_done=len(all_tickers), total_tickers=len(all_tickers),
+                                price_rows=rows_written, error_count=err_count)
+        print("[fetch-prices] done")
+    except Exception as exc:
+        err = str(exc)[:1000]
+        print(f"[fetch-prices] FATAL: {exc}")
+        await _finish_run(run_id, "failed", error_message=err)
+        await _write_trace_file(run_id, "fetch-prices", "failed", started_at, error_message=err)
+        raise
     finally:
         await client.close()
-
-    await _finish_run(run_id, "success",
-                      ticker_count=len(all_tickers), price_rows=rows_written, error_count=err_count)
-    await _write_trace_file(run_id, "fetch-prices", "success", started_at,
-                            tickers_done=len(all_tickers), total_tickers=len(all_tickers),
-                            price_rows=rows_written, error_count=err_count)
-    print("[fetch-prices] done")
 
 
 async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
@@ -452,12 +464,18 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
                 await _checkpoint(run_id, "fetch-fundamentals", started_at,
                                   tickers_done=i + 1, total_tickers=len(investable),
                                   fund_rows=fund_ok, error_count=err_count)
+        status = "partial_success" if err_count > 0 else "success"
+        await _finish_run(run_id, status,
+                          ticker_count=len(investable), fund_rows=fund_ok, error_count=err_count)
+        await _write_trace_file(run_id, "fetch-fundamentals", status, started_at,
+                                tickers_done=len(investable), total_tickers=len(investable),
+                                fund_rows=fund_ok, error_count=err_count)
+        print("[fetch-fundamentals] done")
+    except Exception as exc:
+        err = str(exc)[:1000]
+        print(f"[fetch-fundamentals] FATAL: {exc}")
+        await _finish_run(run_id, "failed", error_message=err)
+        await _write_trace_file(run_id, "fetch-fundamentals", "failed", started_at, error_message=err)
+        raise
     finally:
         await client.close()
-
-    await _finish_run(run_id, "success",
-                      ticker_count=len(investable), fund_rows=fund_ok, error_count=err_count)
-    await _write_trace_file(run_id, "fetch-fundamentals", "success", started_at,
-                            tickers_done=len(investable), total_tickers=len(investable),
-                            fund_rows=fund_ok, error_count=err_count)
-    print("[fetch-fundamentals] done")
