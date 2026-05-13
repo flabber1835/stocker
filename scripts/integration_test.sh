@@ -9,6 +9,7 @@ BASE_URL_API="http://localhost:8000"
 BASE_URL_AV="http://localhost:8001"
 BASE_URL_FE="http://localhost:8002"
 BASE_URL_RANKER="http://localhost:8003"
+BASE_URL_PB="http://localhost:8008"
 
 pass=0
 fail=0
@@ -97,14 +98,16 @@ wait_healthy "$BASE_URL_API"    "api"
 wait_healthy "$BASE_URL_AV"     "av-ingestor"
 wait_healthy "$BASE_URL_FE"     "factor-engine"
 wait_healthy "$BASE_URL_RANKER" "ranker"
+wait_healthy "$BASE_URL_PB"     "portfolio-builder"
 
 # 2. Health checks
 echo ""
 echo "Step 2: Health checks..."
-check "api health"           "$(curl -sf $BASE_URL_API/health)"    '"status":"ok"'
-check "av-ingestor health"   "$(curl -sf $BASE_URL_AV/health)"     '"status":"ok"'
-check "factor-engine health" "$(curl -sf $BASE_URL_FE/health)"     '"status":"ok"'
-check "ranker health"        "$(curl -sf $BASE_URL_RANKER/health)"  '"status":"ok"'
+check "api health"              "$(curl -sf $BASE_URL_API/health)"    '"status":"ok"'
+check "av-ingestor health"      "$(curl -sf $BASE_URL_AV/health)"     '"status":"ok"'
+check "factor-engine health"    "$(curl -sf $BASE_URL_FE/health)"     '"status":"ok"'
+check "ranker health"           "$(curl -sf $BASE_URL_RANKER/health)"  '"status":"ok"'
+check "portfolio-builder health" "$(curl -sf $BASE_URL_PB/health)"    '"status":"ok"'
 
 # 3. Run pipeline — each step polls until the previous job is done before continuing
 echo ""
@@ -128,9 +131,21 @@ result=$(curl -sf -X POST $BASE_URL_RANKER/jobs/rank)
 check "rank accepted" "$result" '"status":"started"'
 poll_until "rankings written" 30 check_rankings_exist
 
+echo "Step 7: Build portfolio..."
+result=$(curl -sf -X POST $BASE_URL_PB/jobs/build)
+check "build accepted" "$result" '"status":"started"'
+pb_run_id=$(echo "$result" | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])')
+
+check_portfolio_done() {
+    local s
+    s=$(curl -sf "$BASE_URL_PB/runs/$pb_run_id" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])')
+    [ "$s" = "success" ]
+}
+poll_until "portfolio run complete" 60 check_portfolio_done
+
 # 4. Verify results
 echo ""
-echo "Step 7: Verify results..."
+echo "Step 8: Verify results..."
 regime=$(curl -sf $BASE_URL_FE/regime/current)
 check "regime current returns data" "$regime" '"regime":'
 check "regime has raw_regime field" "$regime" '"raw_regime":'
@@ -139,9 +154,13 @@ rankings=$(curl -sf "$BASE_URL_API/rankings?limit=10")
 check "rankings endpoint returns data" "$rankings" '"count":'
 check "rankings has at least one ticker" "$rankings" '"ticker":'
 
+portfolio=$(curl -sf "$BASE_URL_API/portfolio")
+check "portfolio endpoint returns run" "$portfolio" '"run_id":'
+check "portfolio has holdings" "$portfolio" '"holdings":'
+
 # 5. Tear down
 echo ""
-echo "Step 8: Tearing down..."
+echo "Step 9: Tearing down..."
 docker compose down -v
 echo "  Done."
 

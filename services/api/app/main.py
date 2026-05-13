@@ -249,7 +249,7 @@ async def get_trace(trace_id: str):
             if row:
                 linked_factor_run = {k: str(v) if hasattr(v, "hex") else (str(v) if hasattr(v, "isoformat") else v) for k, v in dict(row).items()}
 
-        if root_run_id and trace["job_type"] in ("rank_run", "portfolio_build"):
+        if root_run_id and trace["job_type"] in ("rank_run", "portfolio_run"):
             rr = await conn.execute(
                 text(
                     "SELECT run_id, status, regime, rank_date, universe_count, ranked_count, "

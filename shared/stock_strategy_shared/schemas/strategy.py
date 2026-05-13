@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -65,11 +66,11 @@ class UniverseConfig(BaseModel):
 
 
 class PortfolioBuilderConfig(BaseModel):
-    method: str = "greedy_marginal_vol"
+    method: Literal["greedy_score_per_port_vol"] = "greedy_score_per_port_vol"
     candidate_count: int = Field(default=100, ge=10, le=500)
     max_positions: int = Field(default=30, ge=1, le=100)
     covariance_window_days: int = Field(default=252, ge=20, le=504)
-    weighting: str = "equal_weight"
+    weighting: Literal["equal_weight"] = "equal_weight"
 
 
 class StrategyConfig(BaseModel):
