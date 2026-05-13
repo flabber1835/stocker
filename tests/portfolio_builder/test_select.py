@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import pytest
-from app.select import greedy_select, build_covariance
+from app.select import greedy_select, build_covariance, compute_weights
 
 
 def _simple_cov(tickers: list[str], vol: float = 0.20, corr: float = 0.0) -> pd.DataFrame:
@@ -199,3 +199,74 @@ def test_build_covariance_shrinkage_reduces_off_diagonal():
     assert abs(cov_shrunk.loc["A", "B"]) < abs(cov_raw.loc["A", "B"])
     # Diagonal should be unchanged (shrinkage toward diagonal keeps variances)
     np.testing.assert_allclose(cov_raw.loc["A", "A"], cov_shrunk.loc["A", "A"], rtol=1e-6)
+
+
+# ── compute_weights ───────────────────────────────────────────────────────────
+
+def _make_selected(tickers, scores, adj_scores=None):
+    if adj_scores is None:
+        adj_scores = scores
+    return [
+        {"ticker": t, "composite_score": s, "adj_score": a, "position": i + 1,
+         "portfolio_vol_at_add": 0.3}
+        for i, (t, s, a) in enumerate(zip(tickers, scores, adj_scores))
+    ]
+
+
+def test_compute_weights_equal_sums_to_one():
+    tickers = ["A", "B", "C", "D"]
+    selected = _make_selected(tickers, [1.0, 0.8, 0.6, 0.4])
+    cov = _simple_cov(tickers)
+    w = compute_weights(selected, cov, "equal_weight")
+    assert abs(sum(w.values()) - 1.0) < 1e-9
+    assert all(abs(v - 0.25) < 1e-6 for v in w.values())
+
+
+def test_compute_weights_adj_score_proportional():
+    tickers = ["A", "B"]
+    selected = _make_selected(tickers, [1.0, 1.0], adj_scores=[3.0, 1.0])
+    cov = _simple_cov(tickers)
+    w = compute_weights(selected, cov, "adj_score_proportional")
+    assert abs(sum(w.values()) - 1.0) < 1e-9
+    assert w["A"] > w["B"]
+    assert abs(w["A"] - 0.75) < 1e-6
+
+
+def test_compute_weights_score_proportional_negative_scores():
+    """Negative scores are shifted positive before proportioning."""
+    tickers = ["A", "B", "C"]
+    selected = _make_selected(tickers, [-0.5, 0.0, 0.5])
+    cov = _simple_cov(tickers)
+    w = compute_weights(selected, cov, "score_proportional")
+    assert abs(sum(w.values()) - 1.0) < 1e-5  # 6-decimal rounding across 3 values
+    assert w["C"] > w["B"] > w["A"]
+
+
+def test_compute_weights_inverse_vol():
+    """Lower-vol tickers get higher weight."""
+    tickers = ["A", "B"]
+    cov = _simple_cov(tickers, vol=0.20)
+    cov.loc["B", "B"] = 0.40 ** 2  # B is twice as volatile
+    selected = _make_selected(tickers, [1.0, 1.0])
+    w = compute_weights(selected, cov, "inverse_vol")
+    assert abs(sum(w.values()) - 1.0) < 1e-9
+    assert w["A"] > w["B"]
+
+
+def test_compute_weights_max_position_cap():
+    """No weight should exceed max_position_weight."""
+    tickers = ["A", "B", "C", "D"]
+    # Give A a huge adj_score so it would dominate without the cap
+    selected = _make_selected(tickers, [1.0, 0.1, 0.1, 0.1], adj_scores=[100.0, 1.0, 1.0, 1.0])
+    cov = _simple_cov(tickers)
+    w = compute_weights(selected, cov, "adj_score_proportional", max_position_weight=0.40)
+    assert abs(sum(w.values()) - 1.0) < 1e-9
+    assert all(v <= 0.40 + 1e-9 for v in w.values())
+    assert abs(w["A"] - 0.40) < 1e-6
+
+
+def test_compute_weights_unknown_method_raises():
+    selected = _make_selected(["A"], [1.0])
+    cov = _simple_cov(["A"])
+    with pytest.raises(ValueError, match="Unknown weighting method"):
+        compute_weights(selected, cov, "magic_weights")

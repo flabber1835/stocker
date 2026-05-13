@@ -127,3 +127,71 @@ def build_covariance(
         cov = (1.0 - shrinkage) * cov + shrinkage * diag_cov
 
     return cov, dropped
+
+
+def compute_weights(
+    selected: list[dict],
+    cov: pd.DataFrame,
+    method: str,
+    max_position_weight: float = 1.0,
+) -> dict[str, float]:
+    """
+    Compute portfolio weights for the selected tickers.
+
+    Methods:
+      equal_weight           — 1/N for every position
+      adj_score_proportional — proportional to adj_score (score/portfolio-vol ratio
+                               from the greedy loop); rewards high-conviction + low-vol
+      score_proportional     — proportional to composite_score (shifted positive)
+      inverse_vol            — proportional to 1/σ_i (individual vol from diagonal of cov)
+
+    max_position_weight is enforced via iterative capping: excess weight from capped
+    positions is redistributed proportionally to uncapped positions until stable.
+    Returns weights that sum to 1.0.
+    """
+    tickers = [s["ticker"] for s in selected]
+    n = len(tickers)
+
+    if method == "equal_weight":
+        raw = {t: 1.0 / n for t in tickers}
+
+    elif method == "adj_score_proportional":
+        vals = {s["ticker"]: s["adj_score"] for s in selected}
+        total = sum(vals.values())
+        raw = {t: vals[t] / total for t in tickers}
+
+    elif method == "score_proportional":
+        vals = {s["ticker"]: s["composite_score"] for s in selected}
+        min_s = min(vals.values())
+        if min_s <= 0:
+            vals = {t: v - min_s + 1.0 for t, v in vals.items()}
+        total = sum(vals.values())
+        raw = {t: vals[t] / total for t in tickers}
+
+    elif method == "inverse_vol":
+        inv = {t: 1.0 / max(float(np.sqrt(cov.loc[t, t])), 1e-6) for t in tickers}
+        total = sum(inv.values())
+        raw = {t: inv[t] / total for t in tickers}
+
+    else:
+        raise ValueError(f"Unknown weighting method: {method!r}")
+
+    # Iterative cap: redistribute excess from capped positions to uncapped ones
+    weights = dict(raw)
+    for _ in range(n):
+        over = {t: w for t, w in weights.items() if w > max_position_weight + 1e-9}
+        if not over:
+            break
+        excess = sum(w - max_position_weight for w in over.values())
+        for t in over:
+            weights[t] = max_position_weight
+        under = {t: w for t, w in weights.items() if t not in over}
+        total_under = sum(under.values())
+        if total_under < 1e-12:
+            break
+        for t in under:
+            weights[t] += excess * (weights[t] / total_under)
+
+    # Normalise to exactly 1.0 (guard against floating-point drift)
+    total = sum(weights.values())
+    return {t: round(weights[t] / total, 6) for t in tickers}

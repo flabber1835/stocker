@@ -12,7 +12,7 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy import text
 
-from app.select import greedy_select, build_covariance
+from app.select import greedy_select, build_covariance, compute_weights
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
@@ -388,11 +388,15 @@ async def _do_build(
     selected_tickers = [s["ticker"] for s in selected]
     selected_negative_score_count = sum(1 for s in selected if s["composite_score"] < 0)
 
-    # Equal weight
-    weight = round(1.0 / len(selected), 6)
+    # Compute weights according to configured method
+    weights = compute_weights(
+        selected, cov,
+        method=pb_cfg.weighting,
+        max_position_weight=pb_cfg.max_position_weight,
+    )
 
-    # Final portfolio volatility (equal-weighted)
-    w_vec = np.ones(len(selected)) / len(selected)
+    # Final portfolio volatility using actual weights
+    w_vec = np.array([weights[t] for t in selected_tickers])
     final_cov = cov.loc[selected_tickers, selected_tickers].values
     portfolio_vol = float(np.sqrt(max(float(w_vec @ final_cov @ w_vec), 1e-12)))
 
@@ -424,6 +428,7 @@ async def _do_build(
             f"(require_positive_composite_score=true)"
         )
 
+    weight_values = [weights[t] for t in selected_tickers]
     async with engine.begin() as conn:
         await _log_step(
             conn, trace_id, "greedy_select", "success",
@@ -433,6 +438,8 @@ async def _do_build(
                 "target_positions": pb_cfg.max_positions,
                 "require_positive_composite_score": pb_cfg.require_positive_composite_score,
                 "negative_score_excluded": len(negative_excluded),
+                "weighting": pb_cfg.weighting,
+                "max_position_weight": pb_cfg.max_position_weight,
             },
             output_summary={
                 "selected_count": len(selected),
@@ -440,6 +447,8 @@ async def _do_build(
                 "portfolio_estimated_vol": round(portfolio_vol, 4),
                 "avg_candidate_pool_correlation": round(avg_pairwise_corr, 4),
                 "highest_corr_pair": highest_corr_pair,
+                "weight_min": round(min(weight_values), 6),
+                "weight_max": round(max(weight_values), 6),
                 "selected_tickers": selected_tickers,
             },
             warnings=sel_warnings or None,
@@ -470,7 +479,7 @@ async def _do_build(
                     "pd": portfolio_date,
                     "ticker": ticker,
                     "pos": item["position"],
-                    "weight": weight,
+                    "weight": weights[ticker],
                     "cs": round(item["composite_score"], 6),
                     "orank": rank_map.get(ticker),
                     "adj": round(item["adj_score"], 6),
@@ -527,7 +536,7 @@ async def _do_build(
             "composite_score": _fmt(item["composite_score"]),
             "adj_score": _fmt(item["adj_score"]),
             "portfolio_vol_at_add": _fmt(item["portfolio_vol_at_add"]),
-            "weight": weight,
+            "weight": weights[item["ticker"]],
         }
         for item in selected
     ]
@@ -552,6 +561,7 @@ async def _do_build(
             "covariance_shrinkage": pb_cfg.covariance_shrinkage,
             "require_positive_composite_score": pb_cfg.require_positive_composite_score,
             "weighting": pb_cfg.weighting,
+            "max_position_weight": pb_cfg.max_position_weight,
         },
         holdings=holdings_detail,
     )
