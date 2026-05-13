@@ -26,7 +26,7 @@ def _prices_df(tickers: list[str], n_days: int = 300, seed: int = 0) -> pd.DataF
     return pd.DataFrame(rows)
 
 
-# ── greedy_select ──────────────────────────────────────────────────────────────
+# ── greedy_select ──────────────────────────────────────────────────────────────────────────────
 
 def test_greedy_select_returns_target_count():
     tickers = [f"T{i}" for i in range(50)]
@@ -133,7 +133,7 @@ def test_greedy_select_single_candidate():
     assert result[0]["position"] == 1
 
 
-# ── build_covariance ───────────────────────────────────────────────────────────
+# ── build_covariance ─────────────────────────────────────────────────────────────────────────────
 
 def test_build_covariance_shape():
     tickers = ["A", "B", "C"]

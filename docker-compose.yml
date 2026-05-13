@@ -1,6 +1,6 @@
 services:
 
-  # ── Infrastructure ─────────────────────────────────────────────────────────────────────────────────────────
+  # ── Infrastructure ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
   postgres:
     image: postgres:16
@@ -33,7 +33,7 @@ services:
       timeout: 3s
       retries: 10
 
-  # ── Working services ────────────────────────────────────────────────────────────────────────────────
+  # ── Working services ──────────────────────────────────────────────────────────────────────────
 
   api:
     build:
@@ -152,7 +152,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Stubbed services (filled in later) ──────────────────────────────────────────────────
+  # ── Stubbed services (filled in later) ────────────────────────────────────────────────────────────────────────────
   # Each stub serves GET /health → {"status":"ok","service":"<name>"}
 
   strategy-validator:

@@ -48,7 +48,7 @@ def _large_fund(n: int = 50, seed: int = 0) -> pd.DataFrame:
     })
 
 
-# ── cross_section_zscore ─────────────────────────────────────────────────────
+# ── cross_section_zscore ─────────────────────────────────────────────────────────────────────────
 
 def test_zscore_clips_to_2_5():
     s = pd.Series([1.0, 2.0, 100.0, -100.0])
@@ -78,7 +78,7 @@ def test_zscore_all_nan():
     assert z.isna().all()
 
 
-# ── _winsorize ────────────────────────────────────────────────────────────────
+# ── _winsorize ────────────────────────────────────────────────────────────────────────────────────
 
 def test_winsorize_clips_extremes():
     s = pd.Series(list(range(100)) + [10000, -10000])
@@ -105,7 +105,7 @@ def test_winsorize_preserves_interior_order():
     assert (w[interior].rank() == s[interior].rank()).all()
 
 
-# ── _component_zscore ─────────────────────────────────────────────────────────
+# ── _component_zscore ────────────────────────────────────────────────────────────────────────────────────
 
 def test_component_zscore_zero_mean():
     s = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0])
@@ -125,7 +125,7 @@ def test_component_zscore_zero_std_returns_zeros():
     assert (z == 0.0).all()
 
 
-# ── compute_quality ───────────────────────────────────────────────────────────
+# ── compute_quality ────────────────────────────────────────────────────────────────────────────────────
 
 def test_quality_upside_not_compressed():
     """
@@ -160,7 +160,7 @@ def test_quality_uses_partial_data():
     assert pd.notna(result["A"])
 
 
-# ── compute_growth ────────────────────────────────────────────────────────────
+# ── compute_growth ────────────────────────────────────────────────────────────────────────────────────
 
 def test_growth_winsorization_prevents_outlier_collapse():
     """
@@ -194,7 +194,7 @@ def test_growth_partial_data():
     assert pd.notna(result["A"])
 
 
-# ── compute_value ─────────────────────────────────────────────────────────────
+# ── compute_value ─────────────────────────────────────────────────────────────────────────────────────
 
 def test_value_pe_cap_at_50():
     """Stocks with PE=200 and PE=100 should produce the same earnings yield as PE=50."""
@@ -228,7 +228,7 @@ def test_value_winsorization_reduces_outliers():
     assert extreme <= 10, f"{extreme} tickers hit extreme z-score after winsorization"
 
 
-# ── compute_low_volatility ────────────────────────────────────────────────────
+# ── compute_low_volatility ────────────────────────────────────────────────────────────────────────────────────
 
 def test_low_volatility_handles_sparse_tickers():
     rng = np.random.default_rng(42)
@@ -247,7 +247,7 @@ def test_low_volatility_is_negative_vol():
     assert (result < 0).all()
 
 
-# ── compute_momentum ──────────────────────────────────────────────────────────
+# ── compute_momentum ──────────────────────────────────────────────────────────────────────────────────────
 
 def test_compute_momentum_needs_253_rows():
     pivot = _pivot(["A"], n=200)
@@ -261,7 +261,7 @@ def test_compute_momentum_returns_series():
     assert set(result.index) == {"A", "B", "C"}
 
 
-# ── compute_all_factors ───────────────────────────────────────────────────────
+# ── compute_all_factors ─────────────────────────────────────────────────────────────────────────────────────
 
 def test_compute_all_factors_columns():
     df = _prices_long(["AAPL", "MSFT", "GOOG"], n=300)

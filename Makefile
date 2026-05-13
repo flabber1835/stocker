@@ -1,7 +1,7 @@
 .PHONY: up down logs build test integration-test shell-api shell-db \
         universe data prices fundamentals factors rank portfolio pipeline
 
-# ── Compose lifecycle ──────────────────────────────────────────────────────────────────────────────────
+# ── Compose lifecycle ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 up:
 	docker compose up -d
@@ -15,12 +15,12 @@ build:
 logs:
 	docker compose logs -f
 
-# ── Database ───────────────────────────────────────────────────────────────────────────────────────
+# ── Database ──────────────────────────────────────────────────────────────────────────────────────────────
 
 shell-db:
 	docker compose exec postgres psql -U stocker -d stocker
 
-# ── Service shells ──────────────────────────────────────────────────────────────────────────────────
+# ── Service shells ────────────────────────────────────────────────────────────────────────────────────────────
 
 shell-api:
 	docker compose exec api bash
@@ -34,7 +34,7 @@ shell-factors:
 shell-ranker:
 	docker compose exec ranker bash
 
-# ── Tests ──────────────────────────────────────────────────────────────────────────────────────────
+# ── Tests ──────────────────────────────────────────────────────────────────────────────────────────────────
 # Unit tests: runs without Docker.
 
 test:
@@ -46,7 +46,7 @@ test:
 integration-test:
 	bash scripts/integration_test.sh
 
-# ── Pipeline steps (run in order) ──────────────────────────────────────────────────────────────────
+# ── Pipeline steps (run in order) ──────────────────────────────────────────────────────────────────────────────
 # Each step polls until the job completes before returning.
 
 universe:

@@ -654,7 +654,7 @@ function renderRankings(){
       +'<div class="score-track"><div class="score-fill" style="width:'+w+'%"></div></div></div></td>'
       +'<td><span class="pct-pill '+pctCls+'">'+pctVal+'</span></td>'
       +'<td><div class="fbars">'+bars+'</div></td>'
-      +FACTORS.map(f=>'<td class="'+zColor(r[f])+'">'+(r[f]!=null?(+r[f]).toFixed(2):'—')+'</td>').join('')
+      +FACTORS.map(f=>'<td class="'+zColor(r[f])+'">'+( r[f]!=null?(+r[f]).toFixed(2):'—')+'</td>').join('')
       +'</tr>';
   }).join('');
 }
