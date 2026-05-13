@@ -27,6 +27,10 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSe
 BENCHMARK_TICKERS = ("SPY", "QQQ")
 
 
+def _coverage(ok: int, total: int) -> Optional[float]:
+    return ok / total if total else None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
@@ -66,18 +70,25 @@ async def _finish_run(
     fund_rows: Optional[int] = None,
     error_count: int = 0,
     error_message: Optional[str] = None,
+    price_coverage_pct: Optional[float] = None,
+    fundamental_coverage_pct: Optional[float] = None,
 ) -> None:
     async with engine.begin() as conn:
         await conn.execute(
             text(
                 "UPDATE ingest_runs SET status=:status, completed_at=:now, "
                 "ticker_count=:tc, price_rows=:pr, fund_rows=:fr, "
-                "error_count=:ec, error_message=:err WHERE run_id=:rid"
+                "error_count=:ec, error_message=:err, "
+                "price_coverage_pct=:pcp, fundamental_coverage_pct=:fcp "
+                "WHERE run_id=:rid"
             ),
             {
                 "status": status, "now": datetime.now(timezone.utc),
                 "tc": ticker_count, "pr": price_rows, "fr": fund_rows,
-                "ec": error_count, "err": error_message, "rid": run_id,
+                "ec": error_count, "err": error_message,
+                "pcp": round(price_coverage_pct, 4) if price_coverage_pct is not None else None,
+                "fcp": round(fundamental_coverage_pct, 4) if fundamental_coverage_pct is not None else None,
+                "rid": run_id,
             },
         )
 
@@ -163,7 +174,8 @@ async def get_run(run_id: str):
         row = await conn.execute(
             text(
                 "SELECT run_id, job_type, status, ticker_count, price_rows, fund_rows, "
-                "       error_count, error_message, started_at, completed_at "
+                "       error_count, error_message, price_coverage_pct, fundamental_coverage_pct, "
+                "       started_at, completed_at "
                 "FROM ingest_runs WHERE run_id = :rid"
             ),
             {"rid": run_id},
@@ -180,6 +192,8 @@ async def get_run(run_id: str):
         "fund_rows": result["fund_rows"],
         "error_count": result["error_count"],
         "error_message": result["error_message"],
+        "price_coverage_pct": float(result["price_coverage_pct"]) if result["price_coverage_pct"] is not None else None,
+        "fundamental_coverage_pct": float(result["fundamental_coverage_pct"]) if result["fundamental_coverage_pct"] is not None else None,
         "started_at": result["started_at"].isoformat() if result["started_at"] else None,
         "completed_at": result["completed_at"].isoformat() if result["completed_at"] else None,
     }
@@ -255,6 +269,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
     extra_benchmarks = [t for t in BENCHMARK_TICKERS if t not in set(tickers)]
     price_tickers = tickers + extra_benchmarks
     fundamental_tickers = [t for t in tickers if t not in benchmark_set]
+    fundamental_set = set(fundamental_tickers)
     today = date.today()
     print(f"[fetch-data] starting: {len(price_tickers)} price tickers, "
           f"{len(fundamental_tickers)} fundamental tickers")
@@ -297,9 +312,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                 err_count += 1
                 print(f"[fetch-data] {ticker} prices: error - {e}")
 
-            if ticker not in set(fundamental_tickers):
-                pass
-            else:
+            if ticker in fundamental_set:
                 try:
                     overview = await client.get_overview(ticker)
                     if overview:
@@ -336,9 +349,12 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                                   price_rows=price_rows_written, fund_rows=fund_ok,
                                   error_count=err_count)
         status = "partial_success" if err_count > 0 else "success"
+        pcp = _coverage(price_ok, len(price_tickers))
+        fcp = _coverage(fund_ok, len(fundamental_tickers))
         await _finish_run(run_id, status,
                           ticker_count=len(price_tickers), price_rows=price_rows_written,
-                          fund_rows=fund_ok, error_count=err_count)
+                          fund_rows=fund_ok, error_count=err_count,
+                          price_coverage_pct=pcp, fundamental_coverage_pct=fcp)
         await _write_trace_file(run_id, "fetch-data", status, started_at,
                                 tickers_done=len(price_tickers), total_tickers=len(price_tickers),
                                 price_rows=price_rows_written, fund_rows=fund_ok,
@@ -364,7 +380,7 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
                       tickers_done=0, total_tickers=len(all_tickers),
                       price_rows=0, error_count=0)
 
-    rows_written = err_count = 0
+    rows_written = err_count = tickers_ok = 0
     client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA)
     try:
         for i, ticker in enumerate(all_tickers):
@@ -392,6 +408,7 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
                                   "volume": r["volume"]} for r in rows],
                             )
                     rows_written += len(rows)
+                    tickers_ok += 1
                     print(f"[fetch-prices] {ticker}: upserted {len(rows)} rows ({i+1}/{len(all_tickers)})")
             except Exception as e:
                 err_count += 1
@@ -401,11 +418,14 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
                                   tickers_done=i + 1, total_tickers=len(all_tickers),
                                   price_rows=rows_written, error_count=err_count)
         status = "partial_success" if err_count > 0 else "success"
+        pcp = _coverage(tickers_ok, len(all_tickers))
         await _finish_run(run_id, status,
-                          ticker_count=len(all_tickers), price_rows=rows_written, error_count=err_count)
+                          ticker_count=len(all_tickers), price_rows=rows_written, error_count=err_count,
+                          price_coverage_pct=pcp)
         await _write_trace_file(run_id, "fetch-prices", status, started_at,
                                 tickers_done=len(all_tickers), total_tickers=len(all_tickers),
-                                price_rows=rows_written, error_count=err_count)
+                                price_rows=rows_written, error_count=err_count,
+                                price_coverage_pct=pcp)
         print("[fetch-prices] done")
     except Exception as exc:
         err = str(exc)[:1000]
@@ -465,8 +485,10 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
                                   tickers_done=i + 1, total_tickers=len(investable),
                                   fund_rows=fund_ok, error_count=err_count)
         status = "partial_success" if err_count > 0 else "success"
+        fcp = _coverage(fund_ok, len(investable))
         await _finish_run(run_id, status,
-                          ticker_count=len(investable), fund_rows=fund_ok, error_count=err_count)
+                          ticker_count=len(investable), fund_rows=fund_ok, error_count=err_count,
+                          fundamental_coverage_pct=fcp)
         await _write_trace_file(run_id, "fetch-fundamentals", status, started_at,
                                 tickers_done=len(investable), total_tickers=len(investable),
                                 fund_rows=fund_ok, error_count=err_count)

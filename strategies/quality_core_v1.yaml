@@ -85,7 +85,7 @@ min_score_percentile: 0.0
 min_non_null_factors: 6   # all 6 factors required — any ticker with a null factor is dropped to prevent weight drift
 required_factors:         # belt-and-suspenders: explicitly name each factor with non-zero weight
   - quality               # 0.15–0.25 weight; no fundamental data = no ranking
-  - growth                # 0.05–0.21 weight; right-skewed; winsorized at 0.5%/99.5%
+  - growth                # 0.05–0.21 weight; right-skewed; winsorized at 1%/99%
   - value                 # 0.08–0.28 weight; was the primary driver of remaining weight drift
   - momentum              # 0.10–0.27 weight; requires 252 days of price history
   - low_volatility        # 0.14–0.34 weight; requires price history

@@ -10,6 +10,12 @@ engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
 app = FastAPI(title="stocker-api")
 
 
+def _fmt_row(row) -> dict:
+    """Serialize a DB row: UUIDs and datetimes → str, everything else unchanged."""
+    return {k: str(v) if hasattr(v, "hex") or hasattr(v, "isoformat") else v
+            for k, v in dict(row).items()}
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "api"}
@@ -234,6 +240,7 @@ async def get_trace(trace_id: str):
 
         linked_factor_run = None
         linked_ranking_run = None
+        linked_portfolio_run = None
         root_run_id = trace["root_run_id"]
 
         if root_run_id and trace["job_type"] == "factor_run":
@@ -247,9 +254,21 @@ async def get_trace(trace_id: str):
             )
             row = fr.mappings().first()
             if row:
-                linked_factor_run = {k: str(v) if hasattr(v, "hex") else (str(v) if hasattr(v, "isoformat") else v) for k, v in dict(row).items()}
+                linked_factor_run = _fmt_row(row)
+            # Find the ranking run that consumed this factor run as input
+            rr = await conn.execute(
+                text(
+                    "SELECT run_id, status, regime, rank_date, universe_count, ranked_count, dropped_count "
+                    "FROM ranking_runs WHERE source_factor_run_id = :frid "
+                    "ORDER BY started_at DESC LIMIT 1"
+                ),
+                {"frid": str(root_run_id)},
+            )
+            rr_row = rr.mappings().first()
+            if rr_row:
+                linked_ranking_run = _fmt_row(rr_row)
 
-        if root_run_id and trace["job_type"] in ("rank_run", "portfolio_run"):
+        if root_run_id and trace["job_type"] == "rank_run":
             rr = await conn.execute(
                 text(
                     "SELECT run_id, status, regime, rank_date, universe_count, ranked_count, "
@@ -260,20 +279,20 @@ async def get_trace(trace_id: str):
             )
             row = rr.mappings().first()
             if row:
-                linked_ranking_run = {k: str(v) if hasattr(v, "hex") else (str(v) if hasattr(v, "isoformat") else v) for k, v in dict(row).items()}
+                linked_ranking_run = _fmt_row(row)
 
-        # For a factor_run trace, also find the ranking run that inherited it
-        if trace["job_type"] == "factor_run":
-            rr2 = await conn.execute(
+        if root_run_id and trace["job_type"] == "portfolio_run":
+            pr = await conn.execute(
                 text(
-                    "SELECT run_id, status, regime, rank_date, universe_count, ranked_count, dropped_count "
-                    "FROM ranking_runs WHERE trace_id = :tid ORDER BY started_at DESC LIMIT 1"
+                    "SELECT run_id, status, regime, portfolio_date, candidate_count, selected_count, "
+                    "       avg_pairwise_correlation, portfolio_estimated_vol, source_ranking_run_id "
+                    "FROM portfolio_runs WHERE run_id = :rid"
                 ),
-                {"tid": trace_id},
+                {"rid": str(root_run_id)},
             )
-            row2 = rr2.mappings().first()
-            if row2:
-                linked_ranking_run = {k: str(v) if hasattr(v, "hex") else (str(v) if hasattr(v, "isoformat") else v) for k, v in dict(row2).items()}
+            row = pr.mappings().first()
+            if row:
+                linked_portfolio_run = _fmt_row(row)
 
     def _fmt_step(s):
         return {
@@ -301,6 +320,7 @@ async def get_trace(trace_id: str):
         "notes": trace["notes"],
         "factor_run": linked_factor_run,
         "ranking_run": linked_ranking_run,
+        "portfolio_run": linked_portfolio_run,
         "steps": [_fmt_step(s) for s in steps],
     }
 
@@ -333,10 +353,8 @@ async def get_portfolio(run_id: str | None = None):
                 )
             )
         run = run_row.mappings().first()
-    if run is None:
-        raise HTTPException(404, "No portfolio yet. Run: make portfolio")
-
-    async with engine.connect() as conn:
+        if run is None:
+            raise HTTPException(404, "No portfolio yet. Run: make portfolio")
         holdings_rows = await conn.execute(
             text(
                 "SELECT ticker, position, weight, composite_score, original_rank, "
