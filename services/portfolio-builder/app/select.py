@@ -95,7 +95,7 @@ def build_covariance(
     """
     pivot = prices_df.pivot_table(
         index="date", columns="ticker", values="adjusted_close"
-    ).sort_index()
+    ).sort_index().astype(float)  # Decimal from DB → float64 before log returns
 
     if len(pivot) > window_days:
         pivot = pivot.iloc[-window_days:]
