@@ -27,6 +27,10 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSe
 BENCHMARK_TICKERS = ("SPY", "QQQ")
 
 
+def _coverage(ok: int, total: int) -> Optional[float]:
+    return ok / total if total else None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
@@ -265,6 +269,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
     extra_benchmarks = [t for t in BENCHMARK_TICKERS if t not in set(tickers)]
     price_tickers = tickers + extra_benchmarks
     fundamental_tickers = [t for t in tickers if t not in benchmark_set]
+    fundamental_set = set(fundamental_tickers)
     today = date.today()
     print(f"[fetch-data] starting: {len(price_tickers)} price tickers, "
           f"{len(fundamental_tickers)} fundamental tickers")
@@ -307,9 +312,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                 err_count += 1
                 print(f"[fetch-data] {ticker} prices: error - {e}")
 
-            if ticker not in set(fundamental_tickers):
-                pass
-            else:
+            if ticker in fundamental_set:
                 try:
                     overview = await client.get_overview(ticker)
                     if overview:
@@ -346,8 +349,8 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                                   price_rows=price_rows_written, fund_rows=fund_ok,
                                   error_count=err_count)
         status = "partial_success" if err_count > 0 else "success"
-        pcp = price_ok / len(price_tickers) if price_tickers else None
-        fcp = fund_ok / len(fundamental_tickers) if fundamental_tickers else None
+        pcp = _coverage(price_ok, len(price_tickers))
+        fcp = _coverage(fund_ok, len(fundamental_tickers))
         await _finish_run(run_id, status,
                           ticker_count=len(price_tickers), price_rows=price_rows_written,
                           fund_rows=fund_ok, error_count=err_count,
@@ -415,7 +418,7 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
                                   tickers_done=i + 1, total_tickers=len(all_tickers),
                                   price_rows=rows_written, error_count=err_count)
         status = "partial_success" if err_count > 0 else "success"
-        pcp = tickers_ok / len(all_tickers) if all_tickers else None
+        pcp = _coverage(tickers_ok, len(all_tickers))
         await _finish_run(run_id, status,
                           ticker_count=len(all_tickers), price_rows=rows_written, error_count=err_count,
                           price_coverage_pct=pcp)
@@ -482,7 +485,7 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
                                   tickers_done=i + 1, total_tickers=len(investable),
                                   fund_rows=fund_ok, error_count=err_count)
         status = "partial_success" if err_count > 0 else "success"
-        fcp = fund_ok / len(investable) if investable else None
+        fcp = _coverage(fund_ok, len(investable))
         await _finish_run(run_id, status,
                           ticker_count=len(investable), fund_rows=fund_ok, error_count=err_count,
                           fundamental_coverage_pct=fcp)

@@ -198,7 +198,6 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
     rank_date = latest.score_date
     factor_ticker_count = latest.ticker_count
 
-    # Each rank job gets its own trace (one trace per job)
     trace_id = str(uuid.uuid4())
     await _checkpoint(trace_id, ranking_run_id, started_at)  # initial write: running, 0 steps
 

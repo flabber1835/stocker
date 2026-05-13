@@ -10,6 +10,12 @@ engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
 app = FastAPI(title="stocker-api")
 
 
+def _fmt_row(row) -> dict:
+    """Serialize a DB row: UUIDs and datetimes → str, everything else unchanged."""
+    return {k: str(v) if hasattr(v, "hex") or hasattr(v, "isoformat") else v
+            for k, v in dict(row).items()}
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "api"}
@@ -237,10 +243,6 @@ async def get_trace(trace_id: str):
         linked_portfolio_run = None
         root_run_id = trace["root_run_id"]
 
-        def _fmt_row(row):
-            return {k: str(v) if hasattr(v, "hex") else (str(v) if hasattr(v, "isoformat") else v)
-                    for k, v in dict(row).items()}
-
         if root_run_id and trace["job_type"] == "factor_run":
             fr = await conn.execute(
                 text(
@@ -351,10 +353,8 @@ async def get_portfolio(run_id: str | None = None):
                 )
             )
         run = run_row.mappings().first()
-    if run is None:
-        raise HTTPException(404, "No portfolio yet. Run: make portfolio")
-
-    async with engine.connect() as conn:
+        if run is None:
+            raise HTTPException(404, "No portfolio yet. Run: make portfolio")
         holdings_rows = await conn.execute(
             text(
                 "SELECT ticker, position, weight, composite_score, original_rank, "
