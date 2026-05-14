@@ -224,9 +224,9 @@ services:
       - "11434:11434"
     volumes:
       - ollama_models:/root/.ollama
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       OLLAMA_KEEP_ALIVE: 24h
-      OLLAMA_SKIP_GPU_CHECK: "1"
       CUDA_VISIBLE_DEVICES: ""
       HIP_VISIBLE_DEVICES: ""
     healthcheck:
