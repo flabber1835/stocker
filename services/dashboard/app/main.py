@@ -122,37 +122,51 @@ async def vetter_exclusions(run_id: str):
 
 # ── Pipeline status aggregation ───────────────────────────────────────────────
 
+async def _safe_fetch(coro, fallback):
+    try:
+        return await asyncio.wait_for(coro, timeout=5.0)
+    except Exception:
+        return fallback
+
+
 @app.get("/api/pipeline-status")
 async def pipeline_status():
-    async with httpx.AsyncClient(timeout=8.0) as client:
-        results = await asyncio.gather(
-            client.get(f"{API_URL}/universe"),
-            client.get(f"{API_URL}/rankings"),
-            client.get(f"{VETTER_URL}/runs/latest"),
-            client.get(f"{API_URL}/portfolio"),
-            return_exceptions=True,
+    async with httpx.AsyncClient(timeout=6.0) as client:
+        async def fetch_universe():
+            return await client.get(f"{API_URL}/universe")
+
+        async def fetch_rankings():
+            return await client.get(f"{API_URL}/rankings")
+
+        async def fetch_vetter():
+            return await client.get(f"{VETTER_URL}/runs/latest")
+
+        async def fetch_portfolio():
+            return await client.get(f"{API_URL}/portfolio")
+
+        r0, r1, r2, r3 = await asyncio.gather(
+            _safe_fetch(fetch_universe(),  {"error": "timeout"}),
+            _safe_fetch(fetch_rankings(),  {"error": "timeout"}),
+            _safe_fetch(fetch_vetter(),    {"error": "timeout"}),
+            _safe_fetch(fetch_portfolio(), {"error": "timeout"}),
         )
 
     uni_date = port_date = rank_date = None
     vetter_info = None
 
-    r0 = results[0]
-    if not isinstance(r0, Exception) and r0.status_code == 200:
+    if not isinstance(r0, dict) and r0.status_code == 200:
         snap = r0.json().get("snapshot") or {}
         uni_date = snap.get("snapshot_date")
 
-    r1 = results[1]
-    if not isinstance(r1, Exception) and r1.status_code == 200:
+    if not isinstance(r1, dict) and r1.status_code == 200:
         rankings = r1.json().get("rankings") or []
         if rankings:
             rank_date = rankings[0].get("rank_date")
 
-    r2 = results[2]
-    if not isinstance(r2, Exception) and r2.status_code == 200:
+    if not isinstance(r2, dict) and r2.status_code == 200:
         vetter_info = r2.json()
 
-    r3 = results[3]
-    if not isinstance(r3, Exception) and r3.status_code == 200:
+    if not isinstance(r3, dict) and r3.status_code == 200:
         run = r3.json().get("run") or {}
         port_date = run.get("portfolio_date")
 
@@ -827,6 +841,9 @@ function switchTab(name, btn){
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   btn.classList.add('active');
   $('pane-'+name).classList.add('active');
+  if(name !== 'vet'){
+    _currentVetterRunId = null;
+  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
