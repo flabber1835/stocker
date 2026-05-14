@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import traceback
 import uuid
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
@@ -122,7 +123,6 @@ async def _write_trace_file(
             json.dump(payload, f, indent=2, default=str)
         print(f"[factor-engine] trace → {path} ({len(steps)} steps, status={status})")
     except Exception as exc:
-        import traceback
         print(f"[factor-engine] WARNING: failed to write trace file for {trace_id}: {exc}")
         traceback.print_exc()
 
@@ -221,7 +221,6 @@ async def _run_calculate(run_id: str, trace_id: str, today: date) -> None:
     try:
         skip_reason = await _do_calculate(run_id, trace_id, today, started_at)
     except Exception as exc:
-        import traceback
         traceback.print_exc()
         err = str(exc)[:1000]
         print(f"[calculate] run {run_id} FAILED: {exc}")

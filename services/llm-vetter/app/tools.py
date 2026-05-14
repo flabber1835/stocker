@@ -58,7 +58,17 @@ async def fetch_av_news(
                 log.warning("AV news fetch failed: %s", exc)
                 continue
 
-            for article in data.get("feed", []):
+            # Detect API-level errors/notices returned as JSON (not HTTP errors)
+            if "Note" in data or "Information" in data or "Error Message" in data:
+                msg = data.get("Note") or data.get("Information") or data.get("Error Message")
+                log.warning("AV news API message (no feed returned): %s", msg)
+                continue
+
+            feed = data.get("feed", [])
+            log.info("AV news: batch of %d tickers → %d articles returned", len(batch), len(feed))
+
+            filtered_by_relevance = 0
+            for article in feed:
                 title = article.get("title", "")
                 summary = article.get("summary", "")
                 published = article.get("time_published", "")[:8]  # YYYYMMDD
@@ -71,8 +81,8 @@ async def fetch_av_news(
                     sentiment_label = ts.get("ticker_sentiment_label", "Neutral")
                     relevance = float(ts.get("relevance_score", 0))
 
-                    # Only include articles with meaningful relevance
-                    if relevance < 0.3:
+                    if relevance < 0.1:
+                        filtered_by_relevance += 1
                         continue
 
                     if len(result[ticker]) < max_articles_per_ticker:
@@ -81,8 +91,15 @@ async def fetch_av_news(
                             "summary": summary[:300],
                             "sentiment": sentiment_label,
                             "sentiment_score": round(sentiment_score, 3),
+                            "relevance_score": round(relevance, 3),
                             "published": published,
                         })
+
+            tickers_with_news = sum(1 for t in batch if result.get(t))
+            log.info(
+                "AV news: %d/%d tickers got articles (filtered %d by relevance<0.1)",
+                tickers_with_news, len(batch), filtered_by_relevance,
+            )
 
     return result
 
@@ -126,6 +143,51 @@ async def fetch_av_earnings_calendar(
             log.warning("AV earnings calendar fetch failed: %s", exc)
 
     return result
+
+
+async def search_web(
+    query: str,
+    api_key: str,
+    *,
+    max_results: int = 4,
+) -> list[dict]:
+    """
+    Generic web search via Tavily for an arbitrary query string.
+    Used by the agentic vetter loop when the LLM calls the web_search tool.
+    """
+    if not api_key:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(
+                TAVILY_BASE,
+                json={
+                    "api_key": api_key,
+                    "query": query,
+                    "search_depth": "basic",
+                    "max_results": max_results,
+                    "include_domains": [
+                        "reuters.com", "bloomberg.com", "ft.com",
+                        "wsj.com", "cnbc.com", "marketwatch.com",
+                        "seekingalpha.com", "barrons.com", "sec.gov",
+                        "finance.yahoo.com", "thestreet.com",
+                    ],
+                },
+                timeout=20,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return [
+                {
+                    "title":   r.get("title", ""),
+                    "content": r.get("content", r.get("snippet", ""))[:500],
+                    "url":     r.get("url", ""),
+                }
+                for r in data.get("results", [])
+            ]
+    except Exception as exc:
+        log.warning("Tavily search failed for query '%s': %s", query, exc)
+        return []
 
 
 async def fetch_tavily_news(

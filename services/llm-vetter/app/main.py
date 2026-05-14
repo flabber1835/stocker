@@ -28,7 +28,7 @@ engine: AsyncEngine
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global engine
-    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
+    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5)
 
     async with engine.begin() as conn:
         await conn.execute(
@@ -210,12 +210,14 @@ async def _run_vet(run_id: str, trace_id: str, source_ranking_run_id: str) -> No
             {"tid": trace_id, "rid": run_id, "now": started_at},
         )
 
-    # Shared state so the exception handler has partial results
+    # Shared mutable state so the exception handler can access partial results and
+    # the total candidate count even when _do_vet raises before returning.
     ticker_results: list[dict] = []
-    candidates_total: list[int] = [0]
+    from types import SimpleNamespace
+    state = SimpleNamespace(candidates_total=0)
 
     try:
-        await _do_vet(run_id, trace_id, started_at, source_ranking_run_id, ticker_results, candidates_total)
+        await _do_vet(run_id, trace_id, started_at, source_ranking_run_id, ticker_results, state)
     except Exception as exc:
         err = str(exc)[:1000]
         tb = _traceback.format_exc()
@@ -239,7 +241,7 @@ async def _run_vet(run_id: str, trace_id: str, source_ranking_run_id: str) -> No
         await _write_trace_file(
             trace_id, run_id, "failed", started_at,
             ticker_results=ticker_results,
-            candidates_total=candidates_total[0],
+            candidates_total=state.candidates_total,
             failure={
                 "error":             err,
                 "traceback":         tb,
@@ -256,7 +258,7 @@ async def _do_vet(
     started_at: datetime,
     source_ranking_run_id: str,
     ticker_results: list[dict],
-    candidates_total: list[int],
+    state,  # SimpleNamespace with candidates_total
 ) -> None:
     today = date.today().isoformat()
 
@@ -279,7 +281,7 @@ async def _do_vet(
         raise RuntimeError("No rankings found for this ranking run")
 
     tickers = [c["ticker"] for c in candidates]
-    candidates_total[0] = len(candidates)
+    state.candidates_total = len(candidates)
 
     async with engine.begin() as conn:
         await _log_step(
@@ -318,6 +320,7 @@ async def _do_vet(
                 client=client,
                 model=OLLAMA_MODEL,
                 today=today,
+                tavily_api_key=TAVILY_API_KEY,
             )
         except Exception as ticker_exc:
             tb_str = _traceback.format_exc()
@@ -389,13 +392,14 @@ async def _do_vet(
             f"[{result['confidence']}] {result['reason'][:80]}"
         )
 
-        # Write trace file after every ticker with running status and progress
-        await _write_trace_file(
-            trace_id, run_id, "running", started_at,
-            ticker_results=ticker_results,
-            candidates_total=candidates_total[0],
-            progress={"completed": i + 1, "total": len(candidates)},
-        )
+        # Write trace file every 5 tickers (or on the last one) to avoid O(N²) I/O
+        if (i + 1) % 5 == 0 or i == len(candidates) - 1:
+            await _write_trace_file(
+                trace_id, run_id, "running", started_at,
+                ticker_results=ticker_results,
+                candidates_total=state.candidates_total,
+                progress={"completed": i + 1, "total": len(candidates)},
+            )
 
     # ── Step 4: write results ────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
@@ -454,11 +458,7 @@ async def _do_vet(
     await _write_trace_file(
         trace_id, run_id, "success", started_at,
         ticker_results=ticker_results,
-        candidates_total=candidates_total[0],
-        model=OLLAMA_MODEL,
-        system_prompt=ticker_results[0].get("system_prompt", "") if ticker_results else "",
-        candidate_count=len(candidates),
-        flagged_count=len(exclusions),
+        candidates_total=state.candidates_total,
         data_sources=data_sources,
         excluded_tickers=[e["ticker"] for e in exclusions],
         hallucination_flags=all_flags,
@@ -611,6 +611,68 @@ async def approve_run(run_id: str):
             {"rid": run_id},
         )
     return {"run_id": run_id, "approved": True}
+
+
+@app.get("/runs/{run_id}/ticker-results")
+async def get_ticker_results(run_id: str):
+    """Return per-ticker results from the trace file for live UI updates."""
+    async with engine.connect() as conn:
+        row = await conn.execute(
+            text(
+                "SELECT run_id, trace_id, status, started_at, candidate_count "
+                "FROM vetter_runs WHERE run_id=:rid"
+            ),
+            {"rid": run_id},
+        )
+        run = row.fetchone()
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    if not ARTIFACTS_PATH:
+        return {
+            "run_id": run_id, "status": run.status,
+            "ticker_results": [], "progress": {"completed": 0, "total": run.candidate_count or 0},
+        }
+
+    trace_id = str(run.trace_id)
+    started_date = run.started_at.strftime("%Y-%m-%d")
+    fname = f"{started_date}_vetter_run_{trace_id[:8]}.json"
+    fpath = os.path.join(ARTIFACTS_PATH, "traces", fname)
+
+    if not os.path.exists(fpath):
+        return {
+            "run_id": run_id, "status": run.status,
+            "ticker_results": [], "progress": {"completed": 0, "total": run.candidate_count or 0},
+        }
+
+    try:
+        def _read():
+            with open(fpath) as f:
+                return json.load(f)
+        trace_data = await asyncio.to_thread(_read)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to read trace file: {exc}")
+
+    _SUMMARY_FIELDS = {
+        "ticker", "exclude", "reason", "confidence", "risk_type",
+        "had_av_news", "had_earnings", "had_tavily", "agent_searches",
+        "latency_ms", "crashed", "parse_error", "hallucination_flags", "earnings_date",
+    }
+    slim_results = [
+        {k: r.get(k) for k in _SUMMARY_FIELDS}
+        for r in trace_data.get("ticker_results", [])
+    ]
+
+    return {
+        "run_id":         run_id,
+        "status":         run.status,
+        "ticker_results": slim_results,
+        "progress":       trace_data.get("progress") or {
+            "completed": len(slim_results),
+            "total":     run.candidate_count or len(slim_results),
+        },
+        "summary":        trace_data.get("summary"),
+    }
 
 
 @app.post("/runs/{run_id}/reject")
