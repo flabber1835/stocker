@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import traceback as _traceback
 import uuid
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
@@ -103,39 +104,65 @@ async def _log_step(
     )
 
 
+def _build_summary(ticker_results: list[dict], candidates_total: int) -> dict:
+    latencies = [r.get("latency_ms", 0) for r in ticker_results if r.get("latency_ms")]
+    all_flags = [
+        {"ticker": r["ticker"], "flag": f}
+        for r in ticker_results
+        for f in r.get("hallucination_flags", [])
+    ]
+    return {
+        "total_candidates":    candidates_total,
+        "completed":           len(ticker_results),
+        "remaining":           candidates_total - len(ticker_results),
+        "excluded":            sum(1 for r in ticker_results if r.get("exclude")),
+        "kept":                sum(1 for r in ticker_results if not r.get("exclude") and not r.get("crashed")),
+        "crashed":             sum(1 for r in ticker_results if r.get("crashed")),
+        "parse_errors":        sum(1 for r in ticker_results if r.get("parse_error")),
+        "hallucination_flags": len(all_flags),
+        "tickers_with_flags":  [f["ticker"] for f in all_flags],
+        "confidence_dist": {
+            "high":   sum(1 for r in ticker_results if r.get("confidence") == "high"),
+            "medium": sum(1 for r in ticker_results if r.get("confidence") == "medium"),
+            "low":    sum(1 for r in ticker_results if r.get("confidence") == "low"),
+        },
+        "tickers_no_data": [
+            r["ticker"] for r in ticker_results
+            if not r.get("had_av_news") and not r.get("had_earnings") and not r.get("had_tavily")
+        ],
+        "avg_latency_ms":   round(sum(latencies) / len(latencies)) if latencies else None,
+        "total_latency_ms": sum(latencies),
+        "all_hallucination_flags": all_flags,
+    }
+
+
 async def _write_trace_file(
     trace_id: str,
     run_id: str,
     status: str,
     started_at: datetime,
+    ticker_results: list[dict],
+    candidates_total: int,
     **extra,
 ) -> None:
     if not ARTIFACTS_PATH:
         return
     try:
-        async with engine.connect() as conn:
-            rows = await conn.execute(
-                text(
-                    "SELECT service, step_name, status, started_at, completed_at, "
-                    "       input_summary, output_summary, warnings, error_message "
-                    "FROM execution_steps WHERE trace_id = :tid ORDER BY started_at ASC"
-                ),
-                {"tid": trace_id},
-            )
-            steps = [dict(r) for r in rows.mappings()]
-
+        summary = _build_summary(ticker_results, candidates_total)
         traces_dir = os.path.join(ARTIFACTS_PATH, "traces")
         fname = f"{started_at.strftime('%Y-%m-%d')}_vetter_run_{trace_id[:8]}.json"
         payload = {
-            "trace_id":   trace_id,
-            "run_id":     run_id,
-            "job_type":   "vetter_run",
-            "status":     status,
-            "model":      OLLAMA_MODEL,
-            "started_at": started_at.isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "trace_id":        trace_id,
+            "run_id":          run_id,
+            "job_type":        "vetter_run",
+            "status":          status,
+            "model":           OLLAMA_MODEL,
+            "started_at":      started_at.isoformat(),
+            "updated_at":      datetime.now(timezone.utc).isoformat(),
+            "system_prompt":   ticker_results[0].get("system_prompt", "") if ticker_results else "",
+            "summary":         summary,
+            "ticker_results":  ticker_results,
             **extra,
-            "steps": steps,
         }
         path = os.path.join(traces_dir, fname)
 
@@ -145,11 +172,11 @@ async def _write_trace_file(
                 json.dump(payload, f, indent=2, default=str)
 
         await asyncio.to_thread(_write)
-        print(f"[llm-vetter] trace -> {path} ({len(steps)} steps, status={status})")
+        if status != "running":
+            print(f"[llm-vetter] trace -> {path} ({len(ticker_results)} tickers, status={status})")
     except Exception as exc:
-        import traceback
         print(f"[llm-vetter] WARNING: failed to write trace file: {exc}")
-        traceback.print_exc()
+        _traceback.print_exc()
 
 
 # ── Vetting job ──────────────────────────────────────────────────────────────
@@ -176,11 +203,18 @@ async def _run_vet(run_id: str, trace_id: str, source_ranking_run_id: str) -> No
             {"tid": trace_id, "rid": run_id, "now": started_at},
         )
 
+    # Mutable list populated by _do_vet — accessible here even if _do_vet raises
+    ticker_results: list[dict] = []
+    candidates_total: list[int] = [0]
+
     try:
-        await _do_vet(run_id, trace_id, started_at, source_ranking_run_id)
+        await _do_vet(run_id, trace_id, started_at, source_ranking_run_id,
+                      ticker_results, candidates_total)
     except Exception as exc:
         err = str(exc)[:1000]
-        print(f"[llm-vetter] run {run_id} FAILED: {exc}")
+        err_tb = _traceback.format_exc()[:5000]
+        last = ticker_results[-1]["ticker"] if ticker_results else None
+        print(f"[llm-vetter] run {run_id} FAILED at ticker={last}: {exc}")
         async with engine.begin() as conn:
             await conn.execute(
                 text("UPDATE vetter_runs SET status='failed', completed_at=NOW(), "
@@ -192,7 +226,17 @@ async def _run_vet(run_id: str, trace_id: str, source_ranking_run_id: str) -> No
                      "notes=:err WHERE trace_id=:tid"),
                 {"tid": trace_id, "err": err},
             )
-        await _write_trace_file(trace_id, run_id, "failed", started_at, error=err)
+        await _write_trace_file(
+            trace_id, run_id, "failed", started_at,
+            ticker_results=ticker_results,
+            candidates_total=candidates_total[0],
+            failure={
+                "error":      err,
+                "traceback":  err_tb,
+                "failed_at_ticker": last,
+                "tickers_completed": len(ticker_results),
+            },
+        )
         raise
 
 
@@ -201,6 +245,8 @@ async def _do_vet(
     trace_id: str,
     started_at: datetime,
     source_ranking_run_id: str,
+    ticker_results: list[dict],
+    candidates_total: list[int],
 ) -> None:
     today = date.today().isoformat()
 
@@ -223,6 +269,7 @@ async def _do_vet(
         raise RuntimeError("No rankings found for this ranking run")
 
     tickers = [c["ticker"] for c in candidates]
+    candidates_total[0] = len(candidates)
 
     async with engine.begin() as conn:
         await _log_step(
@@ -246,25 +293,48 @@ async def _do_vet(
 
     # ── Step 3: vet each ticker individually ─────────────────────────────────
     client = OllamaClient(host=OLLAMA_HOST)
-    ticker_results: list[dict] = []
     exclusions: list[dict] = []
 
-    for c in candidates:
+    for i, c in enumerate(candidates):
         ticker = c["ticker"]
         t0 = datetime.now(timezone.utc)
 
-        result = await vet_single_ticker(
-            ticker,
-            news=av_news.get(ticker, []),
-            earnings_date=earnings_calendar.get(ticker),
-            tavily_articles=tavily_results.get(ticker, []),
-            client=client,
-            model=OLLAMA_MODEL,
-            today=today,
-        )
-        ticker_results.append(result)
+        try:
+            result = await vet_single_ticker(
+                ticker,
+                news=av_news.get(ticker, []),
+                earnings_date=earnings_calendar.get(ticker),
+                tavily_articles=tavily_results.get(ticker, []),
+                client=client,
+                model=OLLAMA_MODEL,
+                today=today,
+            )
+            step_status = "success"
+            step_error = None
+        except Exception as exc:
+            err_msg = str(exc)
+            err_tb = _traceback.format_exc()
+            print(f"[llm-vetter] {ticker}: CRASHED — {err_msg[:120]}")
+            result = {
+                "ticker":      ticker,
+                "exclude":     False,
+                "reason":      f"Vetting crashed — defaulting to keep: {err_msg[:200]}",
+                "confidence":  "low",
+                "risk_type":   "none",
+                "had_av_news":   bool(av_news.get(ticker)),
+                "had_earnings":  earnings_calendar.get(ticker) is not None,
+                "had_tavily":    bool(tavily_results.get(ticker)),
+                "crashed":     True,
+                "error":       err_msg,
+                "traceback":   err_tb,
+                "latency_ms":  round((datetime.now(timezone.utc) - t0).total_seconds() * 1000),
+                "hallucination_flags": [],
+            }
+            step_status = "failed"
+            step_error = err_msg[:500]
 
-        if result["exclude"]:
+        ticker_results.append(result)
+        if result.get("exclude"):
             exclusions.append(result)
 
         step_warnings = list(result.get("hallucination_flags", []))
@@ -273,10 +343,11 @@ async def _do_vet(
 
         async with engine.begin() as conn:
             await _log_step(
-                conn, trace_id, f"vet_{ticker}", "success",
+                conn, trace_id, f"vet_{ticker}", step_status,
                 started_at=t0,
                 input_summary={
                     "ticker":        ticker,
+                    "rank":          c["rank"],
                     "had_av_news":   result["had_av_news"],
                     "had_earnings":  result["had_earnings"],
                     "had_tavily":    result["had_tavily"],
@@ -294,13 +365,25 @@ async def _do_vet(
                     "raw_response": result.get("raw_response", ""),
                     "latency_ms":   result.get("latency_ms"),
                     "parse_error":  result.get("parse_error", False),
+                    "crashed":      result.get("crashed", False),
                 },
                 warnings=step_warnings if step_warnings else None,
+                error_message=step_error,
             )
 
         print(
-            f"[llm-vetter] {ticker}: {'EXCLUDE' if result['exclude'] else 'keep'} "
+            f"[llm-vetter] [{i+1}/{len(candidates)}] {ticker}: "
+            f"{'EXCLUDE' if result['exclude'] else 'keep'} "
             f"[{result['confidence']}] {result['reason'][:80]}"
+        )
+
+        # Write live trace after every ticker so it's inspectable mid-run
+        await _write_trace_file(
+            trace_id, run_id, "running", started_at,
+            ticker_results=ticker_results,
+            candidates_total=len(candidates),
+            progress={"completed": i + 1, "total": len(candidates)},
+            data_sources=data_sources,
         )
 
     # ── Step 4: write results ────────────────────────────────────────────────
@@ -348,43 +431,16 @@ async def _do_vet(
 
     print(
         f"[llm-vetter] run {run_id} SUCCESS: "
-        f"{len(exclusions)}/{len(candidates)} flagged for exclusion"
+        f"{len(exclusions)}/{len(candidates)} excluded, "
+        f"{sum(1 for r in ticker_results if r.get('crashed'))} crashed"
     )
-
-    latencies = [r.get("latency_ms", 0) for r in ticker_results if r.get("latency_ms")]
-    all_flags = [
-        {"ticker": r["ticker"], "flag": f}
-        for r in ticker_results
-        for f in r.get("hallucination_flags", [])
-    ]
-    confidence_dist = {
-        "high":   sum(1 for r in ticker_results if r["confidence"] == "high"),
-        "medium": sum(1 for r in ticker_results if r["confidence"] == "medium"),
-        "low":    sum(1 for r in ticker_results if r["confidence"] == "low"),
-    }
 
     await _write_trace_file(
         trace_id, run_id, "success", started_at,
-        model=OLLAMA_MODEL,
-        system_prompt=ticker_results[0].get("system_prompt", "") if ticker_results else "",
-        candidate_count=len(candidates),
-        flagged_count=len(exclusions),
+        ticker_results=ticker_results,
+        candidates_total=len(candidates),
         data_sources=data_sources,
         excluded_tickers=[e["ticker"] for e in exclusions],
-        summary={
-            "total_candidates":    len(candidates),
-            "excluded":            len(exclusions),
-            "kept":                len(candidates) - len(exclusions),
-            "parse_errors":        sum(1 for r in ticker_results if r.get("parse_error")),
-            "hallucination_flags": len(all_flags),
-            "tickers_with_flags":  [f["ticker"] for f in all_flags],
-            "confidence_dist":     confidence_dist,
-            "tickers_no_data":     [r["ticker"] for r in ticker_results if not r["had_av_news"] and not r["had_earnings"] and not r["had_tavily"]],
-            "avg_latency_ms":      round(sum(latencies) / len(latencies)) if latencies else None,
-            "total_latency_ms":    sum(latencies),
-        },
-        hallucination_flags=all_flags,
-        ticker_results=ticker_results,
     )
 
 
