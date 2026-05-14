@@ -228,14 +228,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       OLLAMA_KEEP_ALIVE: 24h
-      CUDA_VISIBLE_DEVICES: ""
-      HIP_VISIBLE_DEVICES: ""
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:11434/api/tags > /dev/null 2>&1 || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 20
-      start_period: 30s
+      retries: 10
+      start_period: 20s
 
   ollama-init:
     image: ollama/ollama:latest
@@ -244,7 +242,7 @@ services:
       - ollama_models:/root/.ollama
     environment:
       OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["sh", "-c", "until curl -sf http://ollama:11434/api/tags > /dev/null; do echo 'waiting for ollama...'; sleep 5; done && ollama pull ${OLLAMA_MODEL:-qwen2.5:14b}"]
+    entrypoint: ["sh", "-c", "until wget -qO- http://ollama:11434/api/tags > /dev/null 2>&1; do echo 'waiting for ollama...'; sleep 5; done && ollama pull ${OLLAMA_MODEL:-qwen2.5:14b}"]
     depends_on:
       - ollama
 
