@@ -1,11 +1,12 @@
 from __future__ import annotations
 import os
+import re
 from fastapi import FastAPI, HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
 
 DATABASE_URL = os.environ["DATABASE_URL"]
-engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
+engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
 
 app = FastAPI(title="stocker-api")
 
@@ -96,6 +97,9 @@ async def get_universe():
 
 @app.get("/factors/{ticker}")
 async def get_factors(ticker: str):
+    if not re.match(r'^[A-Z0-9.\-]{1,10}$', ticker):
+        raise HTTPException(status_code=400, detail=f"Invalid ticker format: {ticker}")
+    ticker = ticker.upper()
     async with engine.connect() as conn:
         rows = await conn.execute(
             text(

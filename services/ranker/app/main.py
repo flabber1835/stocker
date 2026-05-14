@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import traceback
 import uuid
 from contextlib import asynccontextmanager
 from datetime import timezone, datetime
@@ -28,14 +29,20 @@ def _load_strategy(path: str) -> StrategyConfig:
     global config_hash
     config_hash = hashlib.sha256(raw).hexdigest()[:16]
     import yaml
-    return StrategyConfig(**yaml.safe_load(raw))
+    try:
+        config = StrategyConfig(**yaml.safe_load(raw))
+    except Exception as exc:
+        raise RuntimeError(f"Failed to load strategy config from {STRATEGY_CONFIG_PATH}: {exc}") from exc
+    return config
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global strategy, engine
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL environment variable is required")
     strategy = _load_strategy(STRATEGY_CONFIG_PATH)
-    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
+    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
     async with engine.begin() as conn:
         await conn.execute(
             text(
@@ -164,10 +171,12 @@ async def _log_step(
 
 async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -> None:
     started_at = datetime.now(timezone.utc)
+    trace_id: str | None = None
 
-    async with engine.begin() as conn:
-        # ── Step 1: load factor run (specific or latest successful) ───
-        t0 = datetime.now(timezone.utc)
+    try:
+        async with engine.begin() as conn:
+            # ── Step 1: load factor run (specific or latest successful) ───
+            t0 = datetime.now(timezone.utc)
         if factor_run_id:
             row = await conn.execute(
                 text(

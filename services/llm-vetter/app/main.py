@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import traceback as _traceback
 import uuid
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
@@ -27,7 +28,7 @@ engine: AsyncEngine
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global engine
-    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
+    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
 
     async with engine.begin() as conn:
         await conn.execute(
@@ -56,10 +57,10 @@ async def _check_model() -> None:
         await client.show(OLLAMA_MODEL)
         print(f"[llm-vetter] Model {OLLAMA_MODEL} is available")
     except Exception as exc:
-        print(
-            f"[llm-vetter] WARNING: model {OLLAMA_MODEL} not found ({exc}). "
-            f"Run: docker compose exec ollama ollama pull {OLLAMA_MODEL}"
-        )
+        raise RuntimeError(
+            f"[llm-vetter] Model {OLLAMA_MODEL} not available at {OLLAMA_HOST}: {exc}. "
+            f"Pull it with: docker compose exec ollama ollama pull {OLLAMA_MODEL}"
+        ) from exc
 
 
 app = FastAPI(title="llm-vetter", lifespan=lifespan)
@@ -103,29 +104,59 @@ async def _log_step(
     )
 
 
+def _build_summary(ticker_results: list[dict], candidates_total: int) -> dict:
+    """Compute a run summary from in-memory ticker_results."""
+    completed = len(ticker_results)
+    remaining = max(0, candidates_total - completed)
+    excluded = [r for r in ticker_results if r.get("exclude")]
+    crashed = [r for r in ticker_results if r.get("crashed")]
+    parse_errors = sum(1 for r in ticker_results if r.get("parse_error"))
+    all_flags = [
+        {"ticker": r["ticker"], "flag": f}
+        for r in ticker_results
+        for f in r.get("hallucination_flags", [])
+    ]
+    confidence_dist = {
+        "high":   sum(1 for r in ticker_results if r.get("confidence") == "high"),
+        "medium": sum(1 for r in ticker_results if r.get("confidence") == "medium"),
+        "low":    sum(1 for r in ticker_results if r.get("confidence") == "low"),
+    }
+    tickers_no_data = [
+        r["ticker"] for r in ticker_results
+        if not r.get("had_av_news") and not r.get("had_earnings") and not r.get("had_tavily")
+    ]
+    latencies = [r.get("latency_ms", 0) for r in ticker_results if r.get("latency_ms")]
+    return {
+        "total_candidates":    candidates_total,
+        "completed":           completed,
+        "remaining":           remaining,
+        "excluded":            len(excluded),
+        "kept":                completed - len(excluded) - len(crashed),
+        "crashed":             len(crashed),
+        "parse_errors":        parse_errors,
+        "hallucination_flags": len(all_flags),
+        "confidence_dist":     confidence_dist,
+        "tickers_no_data":     tickers_no_data,
+        "avg_latency_ms":      round(sum(latencies) / len(latencies)) if latencies else None,
+        "total_latency_ms":    sum(latencies),
+    }
+
+
 async def _write_trace_file(
     trace_id: str,
     run_id: str,
     status: str,
     started_at: datetime,
+    ticker_results: list[dict],
+    candidates_total: int,
     **extra,
 ) -> None:
     if not ARTIFACTS_PATH:
         return
     try:
-        async with engine.connect() as conn:
-            rows = await conn.execute(
-                text(
-                    "SELECT service, step_name, status, started_at, completed_at, "
-                    "       input_summary, output_summary, warnings, error_message "
-                    "FROM execution_steps WHERE trace_id = :tid ORDER BY started_at ASC"
-                ),
-                {"tid": trace_id},
-            )
-            steps = [dict(r) for r in rows.mappings()]
-
         traces_dir = os.path.join(ARTIFACTS_PATH, "traces")
         fname = f"{started_at.strftime('%Y-%m-%d')}_vetter_run_{trace_id[:8]}.json"
+        summary = _build_summary(ticker_results, candidates_total)
         payload = {
             "trace_id":   trace_id,
             "run_id":     run_id,
@@ -134,8 +165,9 @@ async def _write_trace_file(
             "model":      OLLAMA_MODEL,
             "started_at": started_at.isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
+            "summary":    summary,
             **extra,
-            "steps": steps,
+            "ticker_results": ticker_results,
         }
         path = os.path.join(traces_dir, fname)
 
@@ -145,11 +177,13 @@ async def _write_trace_file(
                 json.dump(payload, f, indent=2, default=str)
 
         await asyncio.to_thread(_write)
-        print(f"[llm-vetter] trace -> {path} ({len(steps)} steps, status={status})")
+        print(
+            f"[llm-vetter] trace -> {path} "
+            f"({summary['completed']}/{summary['total_candidates']} tickers, status={status})"
+        )
     except Exception as exc:
-        import traceback
         print(f"[llm-vetter] WARNING: failed to write trace file: {exc}")
-        traceback.print_exc()
+        _traceback.print_exc()
 
 
 # ── Vetting job ──────────────────────────────────────────────────────────────
