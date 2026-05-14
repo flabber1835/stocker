@@ -32,6 +32,8 @@ def _component_zscore(s: pd.Series) -> pd.Series:
 
 
 def compute_momentum(prices: pd.DataFrame) -> pd.Series:
+    # prices must contain only trading-day rows (no weekend/holiday NaN rows);
+    # iloc[-252] and iloc[-21] are positional, so calendar rows would shorten the look-back.
     if len(prices) < 253:
         return pd.Series(dtype=float)
 
@@ -88,15 +90,16 @@ def compute_quality(fundamentals: pd.DataFrame) -> pd.Series:
     neg_dte_z = _component_zscore(_winsorize(-dte[has_dte])) if has_dte.any() else pd.Series(dtype=float)
 
     all_tickers = fund.index
-    result = pd.Series(index=all_tickers, dtype=float)
+    components = pd.DataFrame(index=all_tickers)
+    if not roe_z.empty:
+        components["roe"] = roe_z.reindex(all_tickers)
+    if not neg_dte_z.empty:
+        components["neg_dte"] = neg_dte_z.reindex(all_tickers)
 
-    for ticker in all_tickers:
-        parts = []
-        if ticker in roe_z.index and pd.notna(roe_z.get(ticker)):
-            parts.append(roe_z[ticker])
-        if ticker in neg_dte_z.index and pd.notna(neg_dte_z.get(ticker)):
-            parts.append(neg_dte_z[ticker])
-        result[ticker] = np.mean(parts) if parts else np.nan
+    if components.empty:
+        result = pd.Series(np.nan, index=all_tickers)
+    else:
+        result = components.mean(axis=1, skipna=True)
 
     result.name = "quality"
     return result
@@ -133,18 +136,11 @@ def compute_value(fundamentals: pd.DataFrame) -> pd.Series:
     book_yield_final.loc[by_w.index] = by_w
 
     all_tickers = fund.index
-    result = pd.Series(index=all_tickers, dtype=float)
-
-    for ticker in all_tickers:
-        parts = []
-        ey = earnings_yield_final.get(ticker) if ticker in earnings_yield_final.index else np.nan
-        by = book_yield_final.get(ticker) if ticker in book_yield_final.index else np.nan
-        if pd.notna(ey):
-            parts.append(ey)
-        if pd.notna(by):
-            parts.append(by)
-        result[ticker] = np.mean(parts) if parts else np.nan
-
+    components = pd.DataFrame({
+        "earnings_yield": earnings_yield_final.reindex(all_tickers),
+        "book_yield": book_yield_final.reindex(all_tickers),
+    })
+    result = components.mean(axis=1, skipna=True)
     result.name = "value"
     return result
 
@@ -175,17 +171,16 @@ def compute_growth(fundamentals: pd.DataFrame) -> pd.Series:
     eps_g_z = _component_zscore(eps_g_w) if not eps_g_w.empty else eps_g_w
 
     all_tickers = fund.index
-    result = pd.Series(index=all_tickers, dtype=float)
+    components = pd.DataFrame(index=all_tickers)
+    if not rev_g_z.empty:
+        components["rev_g"] = rev_g_z.reindex(all_tickers)
+    if not eps_g_z.empty:
+        components["eps_g"] = eps_g_z.reindex(all_tickers)
 
-    for ticker in all_tickers:
-        parts = []
-        rg = rev_g_z.get(ticker) if ticker in rev_g_z.index else np.nan
-        eg = eps_g_z.get(ticker) if ticker in eps_g_z.index else np.nan
-        if pd.notna(rg):
-            parts.append(rg)
-        if pd.notna(eg):
-            parts.append(eg)
-        result[ticker] = np.mean(parts) if parts else np.nan
+    if components.empty:
+        result = pd.Series(np.nan, index=all_tickers)
+    else:
+        result = components.mean(axis=1, skipna=True)
 
     result.name = "growth"
     return result

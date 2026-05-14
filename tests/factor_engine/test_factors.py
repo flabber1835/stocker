@@ -211,6 +211,32 @@ def test_value_pe_cap_at_50():
     assert abs(result["RICH50"] - result["RICH200"]) < 1e-9
 
 
+def test_value_negative_pe_excluded():
+    """Loss-making companies (negative P/E) must not receive a negative earnings yield.
+    The .where(pe > 0) guard should produce NaN for those tickers so they are excluded
+    from the earnings_yield component rather than penalised."""
+    fund = pd.DataFrame([
+        {"ticker": "PROFIT", "pe_ratio": 20.0, "pb_ratio": 2.0,
+         "roe": 0.2, "debt_to_equity": 0.5, "revenue_growth": 0.1, "eps_growth": 0.1},
+        {"ticker": "LOSS",   "pe_ratio": -5.0,  "pb_ratio": 2.0,
+         "roe": -0.1, "debt_to_equity": 0.5, "revenue_growth": -0.1, "eps_growth": -0.1},
+    ])
+    result = compute_value(fund)
+    # LOSS has negative P/E: earnings_yield component must be NaN (not a negative number),
+    # so the value score is derived solely from book_yield (which is positive for pb=2).
+    # In any case the score must not be driven lower by a spurious negative earnings yield.
+    profit_score = result["PROFIT"]
+    loss_score = result["LOSS"]
+    assert pd.notna(profit_score), "profitable ticker should have a value score"
+    # The key invariant: a loss-making company's value score must not be boosted above a
+    # profitable company's simply because -1/PE gave a large positive number.
+    # Negative earnings yield must have been excluded, not inverted.
+    assert not (loss_score > profit_score + 0.5), (
+        f"LOSS score {loss_score:.3f} is suspiciously higher than PROFIT {profit_score:.3f}; "
+        "negative P/E may have been inverted instead of excluded"
+    )
+
+
 def test_value_winsorization_reduces_outliers():
     """
     Cross-sectional z-scores of value should not have many extreme outliers
