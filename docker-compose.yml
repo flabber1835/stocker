@@ -213,6 +213,46 @@ services:
       timeout: 5s
       retries: 5
 
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      OLLAMA_KEEP_ALIVE: 24h
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  llm-vetter:
+    build:
+      context: .
+      dockerfile: services/llm-vetter/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8016:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://stocker:stocker@postgres:5432/stocker
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:14b}
+      AV_API_KEY: ${AV_API_KEY:-demo}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      VET_CANDIDATE_COUNT: ${VET_CANDIDATE_COUNT:-50}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   alpaca-sync:
     build:
       context: .
@@ -286,3 +326,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  ollama_models:

@@ -1,5 +1,5 @@
 .PHONY: up down logs build test integration-test shell-api shell-db \
-        universe data prices fundamentals factors rank portfolio pipeline
+        universe data prices fundamentals factors rank vet portfolio pipeline pull-model
 
 # ── Compose lifecycle ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -90,6 +90,43 @@ fundamentals:
 portfolio:
 	@echo "Building greedy covariance-penalized portfolio from latest ranking run..."
 	$(call poll_job,http://localhost:8008/jobs/build,http://localhost:8008,2)
+
+# ── LLM vetter ────────────────────────────────────────────────────────────────
+
+# Pull the Ollama model (run once after first `make up`; downloads ~9 GB)
+pull-model:
+	@echo "Pulling $(OLLAMA_MODEL) into Ollama (this may take several minutes)..."
+	docker compose exec ollama ollama pull $(or $(OLLAMA_MODEL),qwen2.5:14b)
+	@echo "Model ready."
+
+# Run LLM vetter on the latest ranking run, show results, and prompt for approval.
+# Usage: make vet
+# To skip and go straight to portfolio: make portfolio
+vet:
+	@echo "Running LLM vetter (model: $(or $(OLLAMA_MODEL),qwen2.5:14b))..."
+	$(eval VET_RUN_ID := $(shell curl -sf -X POST http://localhost:8016/jobs/vet | python3 -c "import sys,json; print(json.load(sys.stdin)['run_id'])"))
+	@echo "Vetter run started: $(VET_RUN_ID)"
+	@echo "Polling for completion..."
+	@until [ "$$(curl -sf http://localhost:8016/runs/$(VET_RUN_ID) | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")" != "running" ]; do \
+		printf "."; sleep 5; \
+	done
+	@echo ""
+	@echo "=== LLM Vetter Results ==="
+	@curl -sf http://localhost:8016/runs/$(VET_RUN_ID)/exclusions | python3 -c "\
+import sys, json; \
+d = json.load(sys.stdin); \
+excs = d['exclusions']; \
+print(f\"Flagged {len(excs)} tickers for exclusion:\"); \
+[print(f\"  [{e['confidence'].upper():6}] {e['ticker']}: {e['reason'][:80]}\") for e in excs] or print('  (none flagged)'); \
+"
+	@echo ""
+	@read -p "Approve these exclusions? [y/N] " ans; \
+	if [ "$$ans" = "y" ] || [ "$$ans" = "Y" ]; then \
+		curl -sf -X POST http://localhost:8016/runs/$(VET_RUN_ID)/approve > /dev/null; \
+		echo "Approved. Run: make portfolio VETTER_RUN_ID=$(VET_RUN_ID)"; \
+	else \
+		echo "Not approved. Run: make portfolio  (to build without vetter exclusions)"; \
+	fi
 
 # Run the full pipeline end-to-end (each step waits for completion before proceeding)
 pipeline: universe data factors rank portfolio
