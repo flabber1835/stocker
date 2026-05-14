@@ -242,7 +242,7 @@ services:
       - ollama_models:/root/.ollama
     environment:
       OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["sh", "-c", "until ollama list > /dev/null 2>&1; do echo 'waiting for ollama...'; sleep 5; done && ollama pull ${OLLAMA_MODEL:-qwen2.5:14b}"]
+    entrypoint: ["sh", "-c", "until ollama list > /dev/null 2>&1; do echo 'waiting for ollama...'; sleep 5; done && ollama pull ${OLLAMA_MODEL:-qwen2.5:7b}"]
     depends_on:
       - ollama
 
