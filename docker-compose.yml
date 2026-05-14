@@ -146,6 +146,10 @@ services:
       - "8004:8000"
     environment:
       API_URL: http://api:8000
+      AV_INGESTOR_URL: http://av-ingestor:8000
+      RANKER_URL: http://ranker:8000
+      VETTER_URL: http://llm-vetter:8000
+      PORTFOLIO_URL: http://portfolio-builder:8000
     depends_on:
       api:
         condition: service_healthy

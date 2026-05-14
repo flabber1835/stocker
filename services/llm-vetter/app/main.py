@@ -406,6 +406,25 @@ async def start_vet(
     }
 
 
+@app.get("/runs/latest")
+async def get_latest_run():
+    async with engine.connect() as conn:
+        row = await conn.execute(
+            text(
+                "SELECT run_id, status, candidate_count, flagged_count, approved, "
+                "       approved_at, started_at, completed_at "
+                "FROM vetter_runs ORDER BY started_at DESC LIMIT 1"
+            )
+        )
+        result = row.fetchone()
+    if result is None:
+        raise HTTPException(status_code=404, detail="No vetter runs yet")
+    return {
+        k: (str(v) if isinstance(v, uuid.UUID) else (v.isoformat() if hasattr(v, "isoformat") else v))
+        for k, v in dict(result._mapping).items()
+    }
+
+
 @app.get("/runs/{run_id}")
 async def get_run(run_id: str):
     async with engine.connect() as conn:
