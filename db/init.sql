@@ -87,7 +87,7 @@ CREATE INDEX IF NOT EXISTS idx_regime_date ON regime_snapshots(snapshot_date DES
 
 CREATE TABLE IF NOT EXISTS execution_traces (
     trace_id        UUID         PRIMARY KEY,
-    job_type        VARCHAR(50)  NOT NULL,        -- 'factor_run' | 'rank_run' | 'portfolio_run'
+    job_type        VARCHAR(50)  NOT NULL,        -- 'factor_run' | 'rank_run' | 'portfolio_run' | 'vetter_run'
     status          VARCHAR(20)  NOT NULL DEFAULT 'running',  -- running|success|failed|skipped
     root_run_id     UUID,                         -- factor_runs.run_id or ranking_runs.run_id
     strategy_id     VARCHAR(100),
@@ -303,6 +303,7 @@ CREATE INDEX IF NOT EXISTS idx_portfolio_holdings_date ON portfolio_holdings(por
 
 CREATE TABLE IF NOT EXISTS vetter_runs (
     run_id                UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    trace_id              UUID,                    -- execution_traces.trace_id
     source_ranking_run_id UUID         NOT NULL REFERENCES ranking_runs(run_id),
     strategy_id           VARCHAR(100) NOT NULL,
     model                 VARCHAR(100) NOT NULL,
