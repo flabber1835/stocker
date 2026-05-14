@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
 async def _check_model() -> None:
     try:
         client = OllamaClient(host=OLLAMA_HOST)
-        await asyncio.to_thread(client.show, OLLAMA_MODEL)
+        await client.show(OLLAMA_MODEL)
         print(f"[llm-vetter] Model {OLLAMA_MODEL} is available")
     except Exception as exc:
         print(
