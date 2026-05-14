@@ -979,6 +979,7 @@ async function _runRankChain(btn){
   _setBadge('rank', 'SUCCESS', 'success');
   _setJobPanel('rank', 'success');
   if(btn) btn.disabled = false;
+  loadRegime();
   loadRankings();
   setTimeout(loadPipelineStatus, 1000);
 }
