@@ -358,7 +358,7 @@ async def health():
     model_ok = False
     try:
         client = OllamaClient(host=OLLAMA_HOST)
-        await asyncio.to_thread(client.show, OLLAMA_MODEL)
+        await client.show(OLLAMA_MODEL)
         model_ok = True
     except Exception:
         pass
