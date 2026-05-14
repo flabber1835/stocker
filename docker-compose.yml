@@ -226,12 +226,15 @@ services:
       - ollama_models:/root/.ollama
     environment:
       OLLAMA_KEEP_ALIVE: 24h
-      OLLAMA_NO_GPU: "1"
+      OLLAMA_SKIP_GPU_CHECK: "1"
+      CUDA_VISIBLE_DEVICES: ""
+      HIP_VISIBLE_DEVICES: ""
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
-      interval: 15s
-      timeout: 10s
-      retries: 12
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
 
   ollama-init:
     image: ollama/ollama:0.6.8
