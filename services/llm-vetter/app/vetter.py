@@ -18,6 +18,7 @@ human-supervised workflow.
 
 import json
 import logging
+import time
 from datetime import date
 
 from ollama import AsyncClient
@@ -143,6 +144,50 @@ async def fetch_ticker_data(
     return av_news, earnings_calendar, tavily_results, data_sources
 
 
+def _detect_hallucination_flags(
+    ticker: str,
+    parsed: dict,
+    news: list[dict],
+    earnings_date: str | None,
+    raw: str,
+) -> list[str]:
+    """
+    Heuristic checks for suspicious LLM output.
+    These are signals for human review, not hard rejections.
+    """
+    flags = []
+    exclude = parsed.get("exclude", False)
+    confidence = parsed.get("confidence", "low")
+    reason = parsed.get("reason", "")
+    risk_type = parsed.get("risk_type", "none")
+
+    # Exclude with no data and high/medium confidence is suspicious
+    if exclude and not news and not earnings_date and confidence in ("high", "medium"):
+        flags.append(f"EXCLUDE with {confidence} confidence but no news/earnings data provided")
+
+    # Exclude with risk_type=none is contradictory
+    if exclude and risk_type == "none":
+        flags.append("EXCLUDE decision but risk_type='none' — contradictory")
+
+    # Keep with high confidence and a non-none risk_type is contradictory
+    if not exclude and confidence == "high" and risk_type != "none":
+        flags.append(f"KEEP with high confidence but risk_type='{risk_type}' — contradictory")
+
+    # Very short reason suggests the model didn't reason properly
+    if len(reason) < 25:
+        flags.append(f"Reason suspiciously short ({len(reason)} chars): '{reason}'")
+
+    # Reason doesn't mention the ticker (model may have confused tickers)
+    if ticker.upper() not in reason.upper() and len(reason) > 50:
+        flags.append(f"Reason does not mention ticker '{ticker}' — possible ticker confusion")
+
+    # Raw JSON unexpectedly long (model leaked extra content outside schema)
+    if len(raw) > 800:
+        flags.append(f"Raw response unusually long ({len(raw)} chars) — possible schema bleed")
+
+    return flags
+
+
 async def vet_single_ticker(
     ticker: str,
     news: list[dict],
@@ -155,20 +200,13 @@ async def vet_single_ticker(
     """
     Ask the LLM to make a single exclude/keep decision for one ticker.
 
-    Returns:
-        {
-          "ticker": str,
-          "exclude": bool,
-          "reason": str,
-          "confidence": "high"|"medium"|"low",
-          "risk_type": str,
-          "had_av_news": bool,
-          "had_earnings": bool,
-          "had_tavily": bool,
-        }
+    Returns a dict with the decision plus full execution trace fields:
+    prompt, raw_response, latency_ms, news_titles, hallucination_flags.
     """
     user_message = _format_ticker_message(ticker, news, earnings_date, tavily_articles, today)
+    news_titles = [a.get("title", "") for a in (news + tavily_articles)]
 
+    t0 = time.monotonic()
     response = await client.chat(
         model=model,
         messages=[
@@ -178,24 +216,36 @@ async def vet_single_ticker(
         format=PER_TICKER_SCHEMA,
         options={"temperature": 0.1, "num_predict": 256},
     )
+    latency_ms = round((time.monotonic() - t0) * 1000)
 
     raw = response.message.content
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
         log.error("Invalid JSON for ticker %s: %s | raw: %s", ticker, exc, raw[:300])
-        # Fail safe: do not exclude on a parse error
         return {
-            "ticker": ticker,
-            "exclude": False,
-            "reason": f"LLM response could not be parsed — defaulting to keep. Raw: {raw[:100]}",
-            "confidence": "low",
-            "risk_type": "none",
-            "had_av_news": bool(news),
-            "had_earnings": earnings_date is not None,
-            "had_tavily": bool(tavily_articles),
-            "parse_error": True,
+            "ticker":      ticker,
+            "exclude":     False,
+            "reason":      f"LLM response could not be parsed — defaulting to keep. Raw: {raw[:100]}",
+            "confidence":  "low",
+            "risk_type":   "none",
+            "had_av_news":    bool(news),
+            "had_earnings":   earnings_date is not None,
+            "had_tavily":     bool(tavily_articles),
+            "parse_error":    True,
+            "latency_ms":     latency_ms,
+            "prompt":         user_message,
+            "system_prompt":  SYSTEM_PROMPT,
+            "raw_response":   raw,
+            "news_titles":    news_titles,
+            "earnings_date":  earnings_date,
+            "hallucination_flags": [f"JSON parse error: {exc}"],
         }
+
+    hallucination_flags = _detect_hallucination_flags(ticker, parsed, news, earnings_date, raw)
+    if hallucination_flags:
+        for flag in hallucination_flags:
+            log.warning("[llm-vetter] %s hallucination flag: %s", ticker, flag)
 
     return {
         "ticker":      ticker,
@@ -203,7 +253,14 @@ async def vet_single_ticker(
         "reason":      parsed.get("reason", ""),
         "confidence":  parsed.get("confidence", "low"),
         "risk_type":   parsed.get("risk_type", "none"),
-        "had_av_news":   bool(news),
-        "had_earnings":  earnings_date is not None,
-        "had_tavily":    bool(tavily_articles),
+        "had_av_news":    bool(news),
+        "had_earnings":   earnings_date is not None,
+        "had_tavily":     bool(tavily_articles),
+        "latency_ms":     latency_ms,
+        "prompt":         user_message,
+        "system_prompt":  SYSTEM_PROMPT,
+        "raw_response":   raw,
+        "news_titles":    news_titles,
+        "earnings_date":  earnings_date,
+        "hallucination_flags": hallucination_flags,
     }
