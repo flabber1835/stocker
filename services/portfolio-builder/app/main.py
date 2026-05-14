@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import os
@@ -130,7 +131,6 @@ async def _write_trace_file(
             steps = [dict(r) for r in rows.mappings()]
 
         traces_dir = os.path.join(ARTIFACTS_PATH, "traces")
-        os.makedirs(traces_dir, exist_ok=True)
         fname = f"{started_at.strftime('%Y-%m-%d')}_portfolio_run_{trace_id[:8]}.json"
         payload = {
             "trace_id": trace_id,
@@ -145,8 +145,13 @@ async def _write_trace_file(
             "steps": steps,
         }
         path = os.path.join(traces_dir, fname)
-        with open(path, "w") as f:
-            json.dump(payload, f, indent=2, default=str)
+
+        def _write_file() -> None:
+            os.makedirs(traces_dir, exist_ok=True)
+            with open(path, "w") as f:
+                json.dump(payload, f, indent=2, default=str)
+
+        await asyncio.to_thread(_write_file)
         print(f"[portfolio-builder] trace -> {path} ({len(steps)} steps, status={status})")
     except Exception as exc:
         import traceback
@@ -620,7 +625,7 @@ async def get_run(run_id: str):
         result = row.fetchone()
     if result is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-    return {k: (str(v) if hasattr(v, "hex") else (v.isoformat() if hasattr(v, "isoformat") else v))
+    return {k: (str(v) if isinstance(v, uuid.UUID) else (v.isoformat() if hasattr(v, "isoformat") else v))
             for k, v in dict(result._mapping).items()}
 
 

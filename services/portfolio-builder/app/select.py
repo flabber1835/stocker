@@ -44,6 +44,11 @@ def greedy_select(
         best_candidate: str | None = None
         best_vol: float = 0.0
         n = len(portfolio) + 1
+        # Equal-weight assumption during selection: using actual weights here would
+        # require re-solving the weighting problem for every candidate on every step,
+        # which makes selection order depend on the weighting method. Equal weight
+        # is a consistent and fast proxy; the final portfolio vol is recomputed from
+        # actual weights in main.py after selection.
         w = np.ones(n) / n
 
         for candidate in available:
@@ -158,6 +163,11 @@ def compute_weights(
     elif method == "adj_score_proportional":
         vals = {s["ticker"]: s["adj_score"] for s in selected}
         total = sum(vals.values())
+        if total <= 0:
+            raise ValueError(
+                f"adj_score_proportional: sum of adj_scores is {total:.6f}; "
+                "all adj_scores must be positive (greedy_select base-shifts scores before dividing)"
+            )
         raw = {t: vals[t] / total for t in tickers}
 
     elif method == "score_proportional":
