@@ -1,90 +1,94 @@
 """
-Core vetting logic: pre-fetches news + earnings data for each candidate ticker,
-then asks the LLM to identify 30-day holding risks.
+Core vetting logic for the LLM vetter.
 
-Design choices:
-- Data is pre-fetched and formatted before the LLM call. This avoids tool-calling
-  latency (30+ round trips) and keeps the LLM focused on reasoning, not retrieval.
-- A single structured-output call handles all candidates at once. qwen2.5:14b
-  handles 100-ticker contexts reliably within its window.
-- Tavily is used as a fallback for tickers that AV returned no news on.
-- Temperature is set very low (0.1) for consistent, reproducible JSON output.
+Structured as three composable pieces so main.py can drive the loop and
+log an execution_step after every individual ticker decision:
+
+  1. fetch_ticker_data()   — pre-fetch AV news + earnings + optional Tavily
+                             for all candidates concurrently (fast, one round-trip)
+  2. vet_single_ticker()   — one Ollama call focused on a single ticker
+  3. (loop + trace in main.py)
+
+Per-ticker prompts are more focused than a single batch prompt: the model
+only sees one company at a time, so it cannot satisfice by skimming. Each
+call produces ~60-80 output tokens, so total generation time on CPU is
+~30 tickers × 80 tokens / 3 tok/s ≈ 13 minutes — acceptable for a
+human-supervised workflow.
 """
 
-import asyncio
+import json
 import logging
 from datetime import date
 
 from ollama import AsyncClient
 
 from app.tools import fetch_av_news, fetch_av_earnings_calendar, fetch_tavily_news
+import asyncio
 
 log = logging.getLogger("llm-vetter.vetter")
 
-# JSON schema for Ollama structured output — qwen2.5 respects this reliably
-RESPONSE_SCHEMA = {
+# Structured-output schema for a single-ticker decision
+PER_TICKER_SCHEMA = {
     "type": "object",
     "properties": {
-        "exclusions": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "ticker":     {"type": "string"},
-                    "reason":     {"type": "string"},
-                    "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-                    "risk_type":  {"type": "string"},
-                },
-                "required": ["ticker", "reason", "confidence", "risk_type"],
-            },
+        "exclude":    {"type": "boolean"},
+        "reason":     {"type": "string"},
+        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+        "risk_type":  {
+            "type": "string",
+            "enum": ["earnings", "regulatory", "management", "legal", "sector", "none"],
         },
-        "summary": {"type": "string"},
     },
-    "required": ["exclusions", "summary"],
+    "required": ["exclude", "reason", "confidence", "risk_type"],
 }
 
 SYSTEM_PROMPT = """\
-You are a financial risk analyst reviewing stocks for a 30-day equity portfolio holding.
+You are a financial risk analyst. Decide whether to EXCLUDE a single stock from a
+30-day equity portfolio holding.
 
-Your task: identify stocks in the provided list that carry specific, identifiable risks
-that make a 30-day holding inadvisable RIGHT NOW. You are given recent news and upcoming
-earnings dates for each stock.
+You will be given recent news (with sentiment labels) and an upcoming earnings date
+if one falls within the next 45 days.
 
-Reasons to flag a stock for EXCLUSION:
-- Upcoming earnings within 30 days with clear signs of expected disappointment
-  (analyst estimate cuts, revenue warnings, margin pressure commentary)
-- Significant negative news: regulatory action, fraud allegations, product recall,
+EXCLUDE the stock (exclude=true) only when there is CLEAR and SPECIFIC evidence of:
+- Upcoming earnings with deteriorating analyst expectations, revenue warnings, or
+  guidance cuts likely within the 30-day window
+- Significant negative news: regulatory action, fraud allegation, product recall,
   key executive departure, major customer loss
-- Pending legal or regulatory decisions with binary outcomes
-- Recent analyst consensus downgrades (multiple downgrades in past week)
+- Pending binary legal or regulatory decision with material downside
+- Multiple analyst consensus downgrades within the past 7 days
 
-Do NOT flag based on:
-- General market uncertainty or macro concerns that apply to all stocks
-- Minor price weakness without a specific catalyst
-- Long-term structural concerns that don't affect the next 30 days
-- Absence of news (silence is neutral, not negative)
+Do NOT exclude based on:
+- General macro or market uncertainty (applies to all stocks equally)
+- Minor price weakness with no specific catalyst
+- Long-term concerns that do not affect the next 30 days
+- Absence of news — silence is neutral, not negative
 
-Be conservative: only flag stocks with CLEAR and SPECIFIC evidence. The portfolio
-algorithm has already filtered for quality; your job is to catch near-term event risk
-that a quantitative model cannot see.
+Set confidence:
+  "high"   — clear, imminent, specific risk
+  "medium" — material concern but uncertain timing or magnitude
+  "low"    — weak signal, worth noting but not strongly actionable
 
-Respond with a JSON object matching the schema. Set confidence to:
-- "high":   clear evidence of imminent specific risk
-- "medium": material concern but uncertain timing or magnitude
-- "low":    weak signal worth noting but not strongly actionable
+If not excluding, set risk_type to "none" and explain briefly why the stock is
+safe to hold for 30 days given the available information.
 """
 
 
-def _format_candidate_block(
+def _format_ticker_message(
     ticker: str,
     news: list[dict],
     earnings_date: str | None,
     tavily_articles: list[dict],
+    today: str,
 ) -> str:
-    lines = [f"### {ticker}"]
+    lines = [
+        f"Today: {today}",
+        f"Ticker: {ticker}",
+        f"Holding period: 30 days",
+        "",
+    ]
 
     if earnings_date:
-        lines.append(f"UPCOMING EARNINGS: {earnings_date}")
+        lines.append(f"UPCOMING EARNINGS DATE: {earnings_date}")
 
     all_articles = news + tavily_articles
     if all_articles:
@@ -93,125 +97,113 @@ def _format_candidate_block(
             sentiment = f" [{a['sentiment']}]" if "sentiment" in a else ""
             lines.append(f"  - {a['title']}{sentiment}")
             if a.get("summary"):
-                lines.append(f"    {a['summary'][:200]}")
+                lines.append(f"    {a['summary'][:250]}")
     else:
         lines.append("RECENT NEWS: none retrieved")
 
     return "\n".join(lines)
 
 
-async def vet_candidates(
-    candidates: list[dict],  # [{"ticker": str, "rank": int, "composite_score": float}]
-    *,
-    ollama_host: str,
-    model: str,
+async def fetch_ticker_data(
+    tickers: list[str],
     av_api_key: str,
     tavily_api_key: str,
-) -> dict:
+) -> tuple[dict[str, list[dict]], dict[str, str | None], dict[str, list[dict]], dict]:
     """
-    Vet a list of ranked candidates for 30-day holding risks.
+    Pre-fetch all external data for the candidate list concurrently.
 
-    Returns:
-        {
-          "exclusions": [{"ticker", "reason", "confidence", "risk_type"}, ...],
-          "summary": str,
-          "data_sources": {"av_news": int, "earnings_calendar": int, "tavily": int},
-        }
+    Returns (av_news, earnings_calendar, tavily_results, data_source_counts).
     """
-    tickers = [c["ticker"] for c in candidates]
-    today = date.today().isoformat()
-
-    log.info("Fetching data for %d candidates (date=%s)", len(tickers), today)
-
-    # Fetch AV news and earnings calendar concurrently
     av_news, earnings_calendar = await asyncio.gather(
         fetch_av_news(tickers, av_api_key),
         fetch_av_earnings_calendar(tickers, av_api_key),
     )
 
-    # Use Tavily for tickers that AV returned no news on (if key is configured)
     tavily_results: dict[str, list[dict]] = {}
     if tavily_api_key:
         tickers_without_news = [t for t in tickers if not av_news.get(t)]
         if tickers_without_news:
-            log.info("Fetching Tavily news for %d tickers with no AV data", len(tickers_without_news))
-            tavily_tasks = [
-                fetch_tavily_news(t, tavily_api_key)
-                for t in tickers_without_news
-            ]
-            tavily_fetched = await asyncio.gather(*tavily_tasks)
-            tavily_results = dict(zip(tickers_without_news, tavily_fetched))
+            log.info("Fetching Tavily for %d tickers with no AV news", len(tickers_without_news))
+            fetched = await asyncio.gather(
+                *[fetch_tavily_news(t, tavily_api_key) for t in tickers_without_news]
+            )
+            tavily_results = dict(zip(tickers_without_news, fetched))
 
-    av_news_count = sum(1 for t in tickers if av_news.get(t))
-    earnings_count = sum(1 for t in tickers if earnings_calendar.get(t))
-    tavily_count = sum(1 for t in tickers if tavily_results.get(t))
-
+    data_sources = {
+        "av_news_tickers":          sum(1 for t in tickers if av_news.get(t)),
+        "earnings_calendar_tickers": sum(1 for t in tickers if earnings_calendar.get(t)),
+        "tavily_tickers":           sum(1 for t in tickers if tavily_results.get(t)),
+    }
     log.info(
-        "Data summary: AV news=%d tickers, earnings=%d tickers, Tavily=%d tickers",
-        av_news_count, earnings_count, tavily_count,
+        "Data fetch complete: AV news=%d, earnings=%d, Tavily=%d",
+        data_sources["av_news_tickers"],
+        data_sources["earnings_calendar_tickers"],
+        data_sources["tavily_tickers"],
     )
+    return av_news, earnings_calendar, tavily_results, data_sources
 
-    # Build the per-ticker data blocks
-    candidate_blocks = []
-    for c in candidates:
-        ticker = c["ticker"]
-        block = _format_candidate_block(
-            ticker,
-            news=av_news.get(ticker, []),
-            earnings_date=earnings_calendar.get(ticker),
-            tavily_articles=tavily_results.get(ticker, []),
-        )
-        candidate_blocks.append(block)
 
-    user_message = (
-        f"Today's date: {today}\n"
-        f"Portfolio holding period: 30 days\n"
-        f"Candidates to review ({len(tickers)} total):\n\n"
-        + "\n\n".join(candidate_blocks)
-    )
+async def vet_single_ticker(
+    ticker: str,
+    news: list[dict],
+    earnings_date: str | None,
+    tavily_articles: list[dict],
+    client: AsyncClient,
+    model: str,
+    today: str,
+) -> dict:
+    """
+    Ask the LLM to make a single exclude/keep decision for one ticker.
 
-    log.info("Calling Ollama model=%s with %d candidates", model, len(tickers))
+    Returns:
+        {
+          "ticker": str,
+          "exclude": bool,
+          "reason": str,
+          "confidence": "high"|"medium"|"low",
+          "risk_type": str,
+          "had_av_news": bool,
+          "had_earnings": bool,
+          "had_tavily": bool,
+        }
+    """
+    user_message = _format_ticker_message(ticker, news, earnings_date, tavily_articles, today)
 
-    client = AsyncClient(host=ollama_host)
     response = await client.chat(
         model=model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user",   "content": user_message},
         ],
-        format=RESPONSE_SCHEMA,
-        options={"temperature": 0.1, "num_predict": 2048},
+        format=PER_TICKER_SCHEMA,
+        options={"temperature": 0.1, "num_predict": 256},
     )
 
     raw = response.message.content
-    import json
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
-        log.error("Failed to parse LLM response as JSON: %s\nRaw: %s", exc, raw[:500])
-        raise RuntimeError(f"LLM returned invalid JSON: {exc}") from exc
-
-    exclusions = parsed.get("exclusions", [])
-    summary = parsed.get("summary", f"Reviewed {len(tickers)} candidates.")
-
-    # Validate tickers — only keep tickers that were actually in the candidate list
-    ticker_set = set(tickers)
-    valid_exclusions = [e for e in exclusions if e.get("ticker") in ticker_set]
-    if len(valid_exclusions) < len(exclusions):
-        hallucinated = len(exclusions) - len(valid_exclusions)
-        log.warning("LLM hallucinated %d tickers not in candidate list — dropped", hallucinated)
-
-    log.info(
-        "Vetting complete: %d/%d flagged for exclusion",
-        len(valid_exclusions), len(tickers),
-    )
+        log.error("Invalid JSON for ticker %s: %s | raw: %s", ticker, exc, raw[:300])
+        # Fail safe: do not exclude on a parse error
+        return {
+            "ticker": ticker,
+            "exclude": False,
+            "reason": f"LLM response could not be parsed — defaulting to keep. Raw: {raw[:100]}",
+            "confidence": "low",
+            "risk_type": "none",
+            "had_av_news": bool(news),
+            "had_earnings": earnings_date is not None,
+            "had_tavily": bool(tavily_articles),
+            "parse_error": True,
+        }
 
     return {
-        "exclusions": valid_exclusions,
-        "summary": summary,
-        "data_sources": {
-            "av_news_tickers": av_news_count,
-            "earnings_calendar_tickers": earnings_count,
-            "tavily_tickers": tavily_count,
-        },
+        "ticker":      ticker,
+        "exclude":     bool(parsed.get("exclude", False)),
+        "reason":      parsed.get("reason", ""),
+        "confidence":  parsed.get("confidence", "low"),
+        "risk_type":   parsed.get("risk_type", "none"),
+        "had_av_news":   bool(news),
+        "had_earnings":  earnings_date is not None,
+        "had_tavily":    bool(tavily_articles),
     }
