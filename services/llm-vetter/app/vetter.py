@@ -256,6 +256,8 @@ async def vet_single_ticker(
             {"role": "user",   "content": user_message},
         ]
 
+        tool_calls_made = False
+
         for _ in range(MAX_TOOL_CALLS):
             resp = await client.chat(
                 model=model,
@@ -265,10 +267,27 @@ async def vet_single_ticker(
             )
 
             if not resp.message.tool_calls:
+                # Model is ready to decide — preserve its reasoning in context
+                messages.append({"role": "assistant", "content": resp.message.content or ""})
                 break
 
-            # Add assistant message (contains the tool_calls list)
-            messages.append(resp.message)
+            tool_calls_made = True
+
+            # Serialize the assistant message with tool_calls as a plain dict
+            asst_msg: dict = {
+                "role": "assistant",
+                "content": resp.message.content or "",
+                "tool_calls": [
+                    {
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments if isinstance(tc.function.arguments, dict) else {},
+                        }
+                    }
+                    for tc in resp.message.tool_calls
+                ],
+            }
+            messages.append(asst_msg)
 
             for tc in resp.message.tool_calls:
                 fn_name = tc.function.name
@@ -285,7 +304,6 @@ async def vet_single_ticker(
                             f"**{r['title']}**\n{r['content']}"
                             for r in results
                         )
-                        # Extend news_titles for trace
                         news_titles += [r["title"] for r in results]
                     else:
                         result_text = "No results found."
@@ -295,11 +313,13 @@ async def vet_single_ticker(
 
                 messages.append({"role": "tool", "content": result_text})
 
-        # Final structured decision — no tools, format enforced
-        messages.append({
-            "role": "user",
-            "content": "Based on your research, provide your final KEEP or EXCLUDE decision.",
-        })
+        # Final structured decision — enforce schema, remind model if it searched
+        final_prompt = (
+            "Based on your research, provide your final KEEP or EXCLUDE decision."
+            if tool_calls_made else
+            "Provide your KEEP or EXCLUDE decision."
+        )
+        messages.append({"role": "user", "content": final_prompt})
         response = await client.chat(
             model=model,
             messages=messages,

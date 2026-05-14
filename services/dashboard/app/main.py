@@ -120,13 +120,25 @@ async def vetter_exclusions(run_id: str):
         return JSONResponse(content={"error": str(exc)}, status_code=502)
 
 
+@app.get("/api/vetter/ticker-results/{run_id}")
+async def vetter_ticker_results(run_id: str):
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"{VETTER_URL}/runs/{run_id}/ticker-results")
+            return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=502)
+
+
 # ── Pipeline status aggregation ───────────────────────────────────────────────
 
 async def _safe_fetch(coro, fallback):
     try:
         return await asyncio.wait_for(coro, timeout=5.0)
-    except Exception:
-        return fallback
+    except asyncio.TimeoutError:
+        return {"error": "timeout"}
+    except Exception as exc:
+        return {"error": f"fetch_failed:{type(exc).__name__}"}
 
 
 @app.get("/api/pipeline-status")
@@ -547,6 +559,14 @@ td{padding:9px 14px;white-space:nowrap}
 .conf-high  {color:var(--red);border-color:var(--red)}
 .conf-medium{color:var(--yellow);border-color:var(--yellow)}
 .conf-low   {color:var(--muted);border-color:var(--muted)}
+.verdict-exclude{color:var(--red);font-weight:700;letter-spacing:.08em}
+.verdict-keep{color:var(--green);font-weight:700;letter-spacing:.08em}
+.verdict-crashed{color:var(--yellow);font-weight:700;letter-spacing:.08em}
+.v-live-label{
+  display:inline-block;margin-left:6px;
+  font-size:.62rem;letter-spacing:.12em;color:var(--yellow);
+  animation:pulse 1.2s infinite;vertical-align:middle;
+}
 .vetter-actions{
   display:none;
   align-items:center;gap:14px;
@@ -732,7 +752,33 @@ footer span{color:var(--cyan)}
     <div class="stat"><div class="lbl">Run Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="v-date">&#8212;</div></div>
     <div class="stat"><div class="lbl">Approval</div><div class="val" style="font-size:1rem;padding-top:4px" id="v-approved">&#8212;</div></div>
   </div>
-  <div id="v-exclusions-wrap" style="display:none">
+  <!-- Live per-ticker analysis feed -->
+  <div id="v-ticker-analysis" style="display:none;margin-top:6px">
+    <div class="toolbar" style="margin-bottom:10px">
+      <span style="color:var(--muted);font-size:.72rem;letter-spacing:.15em;text-transform:uppercase">TICKER ANALYSIS</span>
+      <span id="v-live-badge" class="v-live-label" style="display:none">● LIVE</span>
+      <span class="badge-count" id="v-ticker-count"></span>
+    </div>
+    <div class="tbl-wrap" style="max-height:45vh">
+      <table>
+        <thead>
+          <tr>
+            <th>TICKER</th>
+            <th>VERDICT</th>
+            <th>CONFIDENCE</th>
+            <th>RISK TYPE</th>
+            <th>REASON</th>
+            <th>SEARCHES</th>
+          </tr>
+        </thead>
+        <tbody id="v-ticker-body">
+          <tr><td colspan="6" class="loading">WAITING FOR ANALYSIS</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="v-exclusions-wrap" style="display:none;margin-top:14px">
     <div class="toolbar" style="margin-bottom:10px">
       <span style="color:var(--muted);font-size:.72rem;letter-spacing:.15em;text-transform:uppercase">EXCLUSION RECOMMENDATIONS</span>
       <span class="badge-count" id="v-exc-count"></span>
@@ -944,6 +990,7 @@ async function startJob(tab){
     const runId = data.run_id;
     if(!runId) throw new Error('No run_id returned');
     _pollJob(tab, runId);
+    if(tab === 'vet') _startVetterTickerPoll(runId);
   }catch(e){
     _setProgress(tab, 100, true);
     _setBadge(tab, 'ERROR', 'failed');
@@ -1078,7 +1125,10 @@ function _pollJob(tab, runId){
 // ── Vetter-specific ───────────────────────────────────────────────────────────
 async function _onVetterSuccess(runId){
   _currentVetterRunId = runId;
-  await loadVetterExclusions(runId);
+  await Promise.all([
+    loadVetterExclusions(runId),
+    _loadVetterTickers(runId, false),
+  ]);
 }
 
 async function loadVetterExclusions(runId){
@@ -1158,6 +1208,68 @@ function esc(s){
   return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+// ── Live ticker analysis ──────────────────────────────────────────────────────
+let _vetterTickerPollId = null;
+
+function _startVetterTickerPoll(runId){
+  if(_vetterTickerPollId){ clearInterval(_vetterTickerPollId); _vetterTickerPollId=null; }
+  _loadVetterTickers(runId, true);
+  _vetterTickerPollId = setInterval(async()=>{
+    const done = await _loadVetterTickers(runId, true);
+    if(done){ clearInterval(_vetterTickerPollId); _vetterTickerPollId=null; }
+  }, 3000);
+}
+
+async function _loadVetterTickers(runId, live){
+  try{
+    const r = await fetch('/api/vetter/ticker-results/'+runId);
+    const d = await r.json();
+    const results = d.ticker_results || [];
+    const status  = d.status;
+    const prog    = d.progress || {};
+    const running = status === 'running';
+
+    $('v-ticker-analysis').style.display = results.length ? 'block' : 'none';
+    $('v-live-badge').style.display = (running && live) ? 'inline-block' : 'none';
+
+    if(results.length){
+      const completed = prog.completed ?? results.length;
+      const total     = prog.total     ?? completed;
+      $('v-ticker-count').textContent = completed+' / '+total+(running ? ' — ANALYZING…' : ' COMPLETE');
+
+      // EXCLUDE first, then alphabetical
+      const sorted = [...results].sort((a,b)=>{
+        if(!!a.exclude !== !!b.exclude) return a.exclude ? -1 : 1;
+        return (a.ticker||'').localeCompare(b.ticker||'');
+      });
+
+      $('v-ticker-body').innerHTML = sorted.map(r=>{
+        const verdict   = r.crashed ? 'CRASHED' : r.exclude ? 'EXCLUDE' : 'KEEP';
+        const vCls      = r.crashed ? 'verdict-crashed' : r.exclude ? 'verdict-exclude' : 'verdict-keep';
+        const tCls      = r.crashed ? 'neu' : r.exclude ? 'neg' : 'pos';
+        const confCls   = 'conf-'+(r.confidence||'low');
+        const riskType  = (r.risk_type && r.risk_type!=='none') ? r.risk_type : '—';
+        const searches  = r.agent_searches || [];
+        const searchTxt = searches.length ? searches.length+' search'+(searches.length>1?'es':'') : '—';
+        const flags     = r.hallucination_flags || [];
+        const flagTxt   = flags.length ? ' <span style="color:var(--yellow);font-size:.65rem" title="'+esc(flags.join('; '))+'">⚠'+flags.length+'</span>' : '';
+        return '<tr>'
+          +'<td><span class="t-ticker '+tCls+'">'+esc(r.ticker||'')+'</span></td>'
+          +'<td><span class="'+vCls+'">'+verdict+'</span></td>'
+          +'<td><span class="pct-pill '+confCls+'">'+(r.confidence||'low').toUpperCase()+'</span></td>'
+          +'<td><span class="t-sector">'+esc(riskType)+'</span></td>'
+          +'<td style="color:#7aaabb;font-size:.78rem;max-width:400px;white-space:normal">'+esc(r.reason||'')+'</td>'
+          +'<td style="color:var(--muted);font-size:.72rem;white-space:nowrap">'+searchTxt+flagTxt+'</td>'
+          +'</tr>';
+      }).join('');
+    }
+    return !running;
+  }catch(e){
+    console.warn('ticker-results error', e);
+    return false;
+  }
+}
+
 // ── Pipeline status / staleness ───────────────────────────────────────────────
 async function loadPipelineStatus(){
   try{
@@ -1192,6 +1304,7 @@ async function loadPipelineStatus(){
         if(_currentVetterRunId !== vetter.run_id || $('v-body').innerHTML.includes('LOADING')){
           _currentVetterRunId = vetter.run_id;
           loadVetterExclusions(vetter.run_id);
+          _loadVetterTickers(vetter.run_id, false);
         }
       }
     }

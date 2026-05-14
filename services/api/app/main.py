@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
 
 DATABASE_URL = os.environ["DATABASE_URL"]
-engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
+engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=7)
 
 app = FastAPI(title="stocker-api")
 
