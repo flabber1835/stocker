@@ -6,6 +6,7 @@ import httpx
 
 API_URL             = os.getenv("API_URL",             "http://api:8000")
 AV_INGESTOR_URL     = os.getenv("AV_INGESTOR_URL",     "http://av-ingestor:8000")
+FACTOR_ENGINE_URL   = os.getenv("FACTOR_ENGINE_URL",   "http://factor-engine:8000")
 RANKER_URL          = os.getenv("RANKER_URL",           "http://ranker:8000")
 VETTER_URL          = os.getenv("VETTER_URL",           "http://llm-vetter:8000")
 PORTFOLIO_URL       = os.getenv("PORTFOLIO_URL",        "http://portfolio-builder:8000")
@@ -14,12 +15,16 @@ app = FastAPI(title="stocker-dashboard")
 
 _JOB_SERVICES = {
     "universe":  AV_INGESTOR_URL,
+    "data":      AV_INGESTOR_URL,
+    "factors":   FACTOR_ENGINE_URL,
     "rank":      RANKER_URL,
     "vet":       VETTER_URL,
     "portfolio": PORTFOLIO_URL,
 }
 _JOB_PATHS = {
     "universe":  "/jobs/fetch-universe",
+    "data":      "/jobs/fetch-data",
+    "factors":   "/jobs/calculate",
     "rank":      "/jobs/rank",
     "vet":       "/jobs/vet",
     "portfolio": "/jobs/build",
@@ -899,7 +904,6 @@ async function startJob(tab){
   const btn = ids ? $(ids.start) : null;
   if(btn) btn.disabled = true;
 
-  // Clear previous poll
   if(_jobPolls[tab]){
     clearInterval(_jobPolls[tab].incrId);
     clearInterval(_jobPolls[tab].pollId);
@@ -909,6 +913,12 @@ async function startJob(tab){
   _setBadge(tab, 'STARTING…', 'running');
   _setJobPanel(tab, 'running');
   _setProgress(tab, 2);
+
+  // Rank chains three steps: fetch-data → calculate factors → rank
+  if(tab === 'rank'){
+    _runRankChain(btn);
+    return;
+  }
 
   try{
     const res = await fetch('/api/jobs/'+tab, {method:'POST'});
@@ -924,6 +934,77 @@ async function startJob(tab){
     if(btn) btn.disabled = false;
     console.error('startJob '+tab, e.message);
   }
+}
+
+// Runs fetch-data → calculate → rank sequentially, updating progress across all 3 steps
+async function _runRankChain(btn){
+  const steps = [
+    {job:'data',    label:'FETCHING DATA',    successStatuses:['success','partial_success'], pctStart:2,  pctEnd:33},
+    {job:'factors', label:'CALC FACTORS',     successStatuses:['success','skipped'],         pctStart:33, pctEnd:66},
+    {job:'rank',    label:'RANKING',          successStatuses:['success','skipped'],         pctStart:66, pctEnd:100},
+  ];
+
+  for(const step of steps){
+    _setBadge('rank', step.label, 'running');
+    _setProgress('rank', step.pctStart);
+
+    let runId;
+    try{
+      const res = await fetch('/api/jobs/'+step.job, {method:'POST'});
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.detail || data.error || res.status);
+      runId = data.run_id;
+      if(!runId) throw new Error('No run_id returned');
+    }catch(e){
+      _setProgress('rank', 100, true);
+      _setBadge('rank', 'ERROR: '+step.label, 'failed');
+      _setJobPanel('rank', 'failed');
+      if(btn) btn.disabled = false;
+      console.error('rank chain '+step.job, e.message);
+      return;
+    }
+
+    // Poll until done
+    const status = await _pollUntilDone(step.job, runId, step.pctStart, step.pctEnd);
+    if(!step.successStatuses.includes(status)){
+      _setProgress('rank', 100, true);
+      _setBadge('rank', 'FAILED: '+step.label, 'failed');
+      _setJobPanel('rank', 'failed');
+      if(btn) btn.disabled = false;
+      return;
+    }
+  }
+
+  _setProgress('rank', 100);
+  _setBadge('rank', 'SUCCESS', 'success');
+  _setJobPanel('rank', 'success');
+  if(btn) btn.disabled = false;
+  loadRankings();
+  setTimeout(loadPipelineStatus, 1000);
+}
+
+// Polls /api/jobs/{job}/{runId}/status until terminal, animating progress pctStart→pctEnd
+function _pollUntilDone(job, runId, pctStart, pctEnd){
+  return new Promise(resolve => {
+    let pct = pctStart;
+    const range = pctEnd - pctStart;
+    const incrId = setInterval(()=>{
+      if(pct < pctStart + range * 0.88){ pct += range * 0.003; _setProgress('rank', pct); }
+    }, 1500);
+
+    const pollId = setInterval(async ()=>{
+      try{
+        const r = await fetch('/api/jobs/'+job+'/'+runId+'/status');
+        const d = await r.json();
+        const status = d.status;
+        if(status === 'running' || status == null) return;
+        clearInterval(incrId);
+        clearInterval(pollId);
+        _setProgress('rank', pctEnd);
+        resolve(status);
+      }catch(e){ /* ignore transient errors */ }
+    }, 5000);
+  });
 }
 
 function _pollJob(tab, runId){
