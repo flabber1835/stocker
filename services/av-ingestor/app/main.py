@@ -1,5 +1,7 @@
 import json
 import os
+import re
+import traceback
 import uuid
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
@@ -13,15 +15,22 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from .alpha_vantage import AVClient
 from .universe import download_iwv_holdings, get_benchmark_tickers, save_universe_snapshot
 
-DATABASE_URL = os.environ["DATABASE_URL"]
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+if not DATABASE_URL:
+    raise RuntimeError("Missing required environment variable: DATABASE_URL")
+
 AV_API_KEY = os.getenv("AV_API_KEY", "demo")
+if AV_API_KEY in ("", "demo"):
+    print("[av-ingestor] WARNING: AV_API_KEY is 'demo' — using Alpha Vantage demo key, data will be very limited")
 AV_RATE_LIMIT_RPM = int(os.getenv("AV_RATE_LIMIT_RPM", "75"))
 MOCK_DATA = os.getenv("MOCK_DATA", "false").lower() == "true"
 ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
 
 CHECKPOINT_EVERY = 100
 
-engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
+_TICKER_RE = re.compile(r'^[A-Z0-9.\-]{1,10}$')
+
+engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 BENCHMARK_TICKERS = ("SPY", "QQQ")
@@ -121,7 +130,6 @@ async def _write_trace_file(
             json.dump(payload, f, indent=2, default=str)
         print(f"[{job_type}] trace → {path} (status={status})")
     except Exception as exc:
-        import traceback
         print(f"[{job_type}] WARNING: failed to write trace file: {exc}")
         traceback.print_exc()
 
@@ -146,26 +154,26 @@ async def fetch_universe(background_tasks: BackgroundTasks):
 
 @app.post("/jobs/fetch-data")
 async def fetch_data(background_tasks: BackgroundTasks):
-    tickers = await _get_universe_tickers()
+    tickers, snapshot_id = await _get_universe_tickers()
     run_id = str(uuid.uuid4())
     background_tasks.add_task(_run_fetch_data, run_id, tickers)
-    return {"status": "started", "job": "fetch-data", "run_id": run_id, "ticker_count": len(tickers)}
+    return {"status": "started", "job": "fetch-data", "run_id": run_id, "ticker_count": len(tickers), "snapshot_id": snapshot_id}
 
 
 @app.post("/jobs/fetch-prices")
 async def fetch_prices(background_tasks: BackgroundTasks):
-    tickers = await _get_universe_tickers()
+    tickers, snapshot_id = await _get_universe_tickers()
     run_id = str(uuid.uuid4())
     background_tasks.add_task(_run_fetch_prices, run_id, tickers)
-    return {"status": "started", "job": "fetch-prices", "run_id": run_id, "ticker_count": len(tickers)}
+    return {"status": "started", "job": "fetch-prices", "run_id": run_id, "ticker_count": len(tickers), "snapshot_id": snapshot_id}
 
 
 @app.post("/jobs/fetch-fundamentals")
 async def fetch_fundamentals(background_tasks: BackgroundTasks):
-    tickers = await _get_universe_tickers()
+    tickers, snapshot_id = await _get_universe_tickers()
     run_id = str(uuid.uuid4())
     background_tasks.add_task(_run_fetch_fundamentals, run_id, tickers)
-    return {"status": "started", "job": "fetch-fundamentals", "run_id": run_id}
+    return {"status": "started", "job": "fetch-fundamentals", "run_id": run_id, "snapshot_id": snapshot_id}
 
 
 @app.get("/runs/{run_id}")
@@ -219,16 +227,23 @@ async def status():
 
 # ── Helpers ──────────────────────────────────
 
-async def _get_universe_tickers() -> list[str]:
+async def _get_universe_tickers() -> tuple[list[str], int | None]:
+    """Return (tickers, snapshot_id) pinned to the latest snapshot at call time."""
     async with SessionLocal() as session:
+        snap_row = await session.execute(
+            text("SELECT MAX(id) FROM universe_snapshots")
+        )
+        snapshot_id = snap_row.scalar()
+        if snapshot_id is None:
+            return [], None
         result = await session.execute(
             text(
                 "SELECT DISTINCT ut.ticker FROM universe_tickers ut "
-                "JOIN universe_snapshots us ON ut.snapshot_id = us.id "
-                "WHERE us.id = (SELECT MAX(id) FROM universe_snapshots)"
-            )
+                "WHERE ut.snapshot_id = :sid"
+            ),
+            {"sid": snapshot_id},
         )
-        return [row[0] for row in result.fetchall()]
+        return [row[0] for row in result.fetchall()], snapshot_id
 
 
 # ── Job implementations ────────────────────────────
@@ -255,6 +270,7 @@ async def _run_fetch_universe(run_id: str) -> None:
         await _write_trace_file(run_id, "fetch-universe", "success", started_at,
                                 ticker_count=len(all_tickers), snapshot_id=snapshot_id)
     except Exception as exc:
+        traceback.print_exc()
         err = str(exc)[:1000]
         print(f"[fetch-universe] FAILED: {exc}")
         await _finish_run(run_id, "failed", error_message=err)
@@ -281,6 +297,9 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
     client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA)
     try:
         for i, ticker in enumerate(price_tickers):
+            if not _TICKER_RE.match(ticker):
+                print(f"[fetch-data] skipping invalid ticker: {ticker!r}")
+                continue
             label = f"({i+1}/{len(price_tickers)})"
             try:
                 rows = await client.get_daily_prices(ticker)
@@ -349,7 +368,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                                   price_rows=price_rows_written, fund_rows=fund_ok,
                                   error_count=err_count)
         status = "partial_success" if err_count > 0 else "success"
-        pcp = _coverage(price_ok, len(price_tickers))
+        pcp = _coverage(price_rows_written, len(price_tickers))
         fcp = _coverage(fund_ok, len(fundamental_tickers))
         await _finish_run(run_id, status,
                           ticker_count=len(price_tickers), price_rows=price_rows_written,
@@ -361,6 +380,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                                 error_count=err_count)
         print("[fetch-data] done")
     except Exception as exc:
+        traceback.print_exc()
         err = str(exc)[:1000]
         print(f"[fetch-data] FATAL: {exc}")
         await _finish_run(run_id, "failed", error_message=err)
@@ -384,6 +404,9 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
     client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA)
     try:
         for i, ticker in enumerate(all_tickers):
+            if not _TICKER_RE.match(ticker):
+                print(f"[fetch-prices] skipping invalid ticker: {ticker!r}")
+                continue
             try:
                 rows = await client.get_daily_prices(ticker)
                 if not rows:
@@ -418,7 +441,7 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
                                   tickers_done=i + 1, total_tickers=len(all_tickers),
                                   price_rows=rows_written, error_count=err_count)
         status = "partial_success" if err_count > 0 else "success"
-        pcp = _coverage(tickers_ok, len(all_tickers))
+        pcp = _coverage(rows_written, len(all_tickers))
         await _finish_run(run_id, status,
                           ticker_count=len(all_tickers), price_rows=rows_written, error_count=err_count,
                           price_coverage_pct=pcp)
@@ -428,6 +451,7 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
                                 price_coverage_pct=pcp)
         print("[fetch-prices] done")
     except Exception as exc:
+        traceback.print_exc()
         err = str(exc)[:1000]
         print(f"[fetch-prices] FATAL: {exc}")
         await _finish_run(run_id, "failed", error_message=err)
@@ -451,6 +475,9 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
     client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA)
     try:
         for i, ticker in enumerate(investable):
+            if not _TICKER_RE.match(ticker):
+                print(f"[fetch-fundamentals] skipping invalid ticker: {ticker!r}")
+                continue
             try:
                 overview = await client.get_overview(ticker)
                 if not overview:
@@ -494,6 +521,7 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
                                 fund_rows=fund_ok, error_count=err_count)
         print("[fetch-fundamentals] done")
     except Exception as exc:
+        traceback.print_exc()
         err = str(exc)[:1000]
         print(f"[fetch-fundamentals] FATAL: {exc}")
         await _finish_run(run_id, "failed", error_message=err)

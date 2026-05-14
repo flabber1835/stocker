@@ -165,6 +165,10 @@ def _detect_hallucination_flags(
     if exclude and not news and not earnings_date and confidence in ("high", "medium"):
         flags.append(f"EXCLUDE with {confidence} confidence but no news/earnings data provided")
 
+    # Exclude with no supporting data at any confidence is suspicious
+    if exclude and not news and not earnings_date:
+        flags.append("EXCLUDE with no supporting data (no news, no earnings date)")
+
     # Exclude with risk_type=none is contradictory
     if exclude and risk_type == "none":
         flags.append("EXCLUDE decision but risk_type='none' — contradictory")

@@ -30,14 +30,22 @@ def _load_strategy(path: str) -> StrategyConfig:
         raw = f.read()
     global config_hash
     config_hash = hashlib.sha256(raw.encode()).hexdigest()[:16]
-    return StrategyConfig(**yaml.safe_load(raw))
+    try:
+        config = StrategyConfig(**yaml.safe_load(raw))
+    except Exception as exc:
+        raise RuntimeError(f"Failed to load strategy config from {path}: {exc}") from exc
+    return config
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global strategy, engine
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL environment variable is required")
+    if not STRATEGY_CONFIG_PATH:
+        raise RuntimeError("STRATEGY_CONFIG_PATH environment variable is required")
     strategy = _load_strategy(STRATEGY_CONFIG_PATH)
-    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
+    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
     async with engine.begin() as conn:
         await conn.execute(
             text(
@@ -213,6 +221,8 @@ async def _run_calculate(run_id: str, trace_id: str, today: date) -> None:
     try:
         skip_reason = await _do_calculate(run_id, trace_id, today, started_at)
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         err = str(exc)[:1000]
         print(f"[calculate] run {run_id} FAILED: {exc}")
         async with engine.begin() as conn:
@@ -523,7 +533,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             # outliers whose raw score was so far from the mean that cross_section_zscore
             # hit the hard clip. Large clipped counts indicate a skewed raw distribution
             # (e.g., a few hypergrowth names compressing the rest).
-            clipped_mask = factors_df[col].notna() & (factors_df[col].abs() >= 2.49)
+            clipped_mask = factors_df[col].notna() & (factors_df[col].abs() >= 2.5)
             clipped_rows = factors_df[clipped_mask][["ticker", col]]
             if not clipped_rows.empty:
                 clipped_by_factor[col] = [

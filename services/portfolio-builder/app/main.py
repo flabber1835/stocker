@@ -31,14 +31,20 @@ def _load_strategy(path: str) -> StrategyConfig:
         raw = f.read()
     global config_hash
     config_hash = hashlib.sha256(raw.encode()).hexdigest()[:16]
-    return StrategyConfig(**yaml.safe_load(raw))
+    try:
+        config = StrategyConfig(**yaml.safe_load(raw))
+    except Exception as exc:
+        raise RuntimeError(f"Failed to load strategy config from {STRATEGY_CONFIG_PATH}: {exc}") from exc
+    return config
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global strategy, engine
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL environment variable is required")
     strategy = _load_strategy(STRATEGY_CONFIG_PATH)
-    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
+    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
     async with engine.begin() as conn:
         await conn.execute(
             text(
@@ -161,7 +167,7 @@ async def _write_trace_file(
 
 # ── Build job ───────────────────────────────────────────────────────────────────────────────────
 
-async def _run_build(run_id: str, trace_id: str, ranking_run_id: Optional[str], vetter_run_id: Optional[str] = None) -> None:
+async def _run_build(run_id: str, trace_id: str, source_ranking_run_id: Optional[str], vetter_run_id: Optional[str] = None) -> None:
     started_at = datetime.now(timezone.utc)
     pb_cfg = strategy.portfolio_builder
 
@@ -169,10 +175,10 @@ async def _run_build(run_id: str, trace_id: str, ranking_run_id: Optional[str], 
     # This prevents the error-handler from trying to UPDATE a portfolio_runs row that
     # was never INSERTed (same bug pattern previously fixed in ranker).
     async with engine.connect() as conn:
-        if ranking_run_id:
+        if source_ranking_run_id:
             row = await conn.execute(
                 text("SELECT run_id, regime, rank_date FROM ranking_runs WHERE run_id=:rid AND status='success'"),
-                {"rid": ranking_run_id},
+                {"rid": source_ranking_run_id},
             )
         else:
             row = await conn.execute(
@@ -182,8 +188,8 @@ async def _run_build(run_id: str, trace_id: str, ranking_run_id: Optional[str], 
 
     if rr is None:
         msg = (
-            f"ranking run {ranking_run_id} not found or not successful"
-            if ranking_run_id else "no successful ranking run found — run: make rank first"
+            f"ranking run {source_ranking_run_id} not found or not successful"
+            if source_ranking_run_id else "no successful ranking run found — run: make rank first"
         )
         print(f"[portfolio-builder] run {run_id} skipped: {msg}")
         return
@@ -370,6 +376,17 @@ async def _do_build(
         min_observations=pb_cfg.min_covariance_observations,
         shrinkage=pb_cfg.covariance_shrinkage,
     )
+
+    if cov is None or len(cov) == 0:
+        raise RuntimeError(
+            f"Covariance matrix is empty — candidates have insufficient price history. "
+            f"Need at least 2 tickers with overlapping price data."
+        )
+
+    eigenvalues = np.linalg.eigvalsh(cov.values)
+    min_eigenvalue = float(eigenvalues.min())
+    if min_eigenvalue < 1e-8:
+        print(f"[portfolio-builder] WARNING: covariance matrix near rank-deficient (min eigenvalue={min_eigenvalue:.2e}). Portfolio vol estimates may be unreliable.")
 
     # Restrict scores Series to tickers present in cov (some may have been dropped)
     available_tickers = [t for t in rankable_tickers if t in cov.index]

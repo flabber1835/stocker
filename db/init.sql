@@ -183,6 +183,7 @@ CREATE TABLE IF NOT EXISTS factor_scores (
 
 CREATE INDEX IF NOT EXISTS idx_factor_scores_run  ON factor_scores(run_id);
 CREATE INDEX IF NOT EXISTS idx_factor_scores_date ON factor_scores(score_date DESC);
+CREATE INDEX IF NOT EXISTS idx_factor_scores_run_ticker ON factor_scores(run_id, ticker);
 
 -- ── Ranking runs ────────────────────────────────────────────────────────────────────────────────────────────────
 -- One row per ranking job. Per-ticker rows live in the rankings table.

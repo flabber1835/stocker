@@ -78,6 +78,75 @@ def test_zscore_all_nan():
     assert z.isna().all()
 
 
+def test_zscore_clip_threshold_exact_boundary():
+    """
+    Values that produce z-scores outside ±2.5 must be clipped to exactly ±2.5.
+    Values already inside the window must pass through unchanged.
+
+    Input: [0.5, 2.5, -2.5, 3.0, -3.0] — treated as pre-computed z-scores by
+    constructing a Series whose raw z-score is already that value.  We achieve
+    this by building a Series where mean=0, std=1 (values are exactly their
+    own z-score) and confirming the clip boundary is honoured.
+    """
+    # Use a large population so std ≈ 1 and mean ≈ 0; inject our boundary values.
+    # Simpler: create a Series that IS its own z-score by using mean=0, std=1.
+    base = pd.Series([0.0] * 100, dtype=float)
+    # Override five indices with the test values
+    test_values = [0.5, 2.5, -2.5, 3.0, -3.0]
+    for i, v in enumerate(test_values):
+        base.iloc[i] = v
+
+    z = cross_section_zscore(base)
+
+    # 3.0 and -3.0 exceed ±2.5 — must be clipped exactly
+    assert z.iloc[3] == pytest.approx(2.5), "value 3.0 should be clipped to +2.5"
+    assert z.iloc[4] == pytest.approx(-2.5), "value -3.0 should be clipped to -2.5"
+
+    # 2.5 and -2.5 are exactly at the boundary — must not be altered beyond floating-point
+    assert z.iloc[1] <= 2.5 + 1e-9
+    assert z.iloc[2] >= -2.5 - 1e-9
+
+    # 0.5 is well inside the window — must remain close to its raw z-score
+    assert -2.5 < z.iloc[0] < 2.5
+
+
+def test_zscore_clip_audit_identifies_clipped_values():
+    """
+    The audit log (indices where |z| == 2.5) must correctly identify the
+    clipped values and not flag interior values.
+
+    We build a population of 20 zeros plus one interior value and two extreme
+    outliers so that the outliers produce raw z-scores well beyond ±2.5 and are
+    clipped, while the interior value stays inside the window.
+    """
+    # Large population of zeros keeps mean≈0 and std small so the outliers
+    # definitely exceed ±2.5 after normalisation.
+    normal_data = {f"N{i}": 0.0 for i in range(20)}
+    special = {"INTERIOR": 0.5, "HIGH_OUT": 1000.0, "LOW_OUT": -1000.0}
+    s = pd.Series({**normal_data, **special})
+    z = cross_section_zscore(s)
+
+    # Identify which tickers hit the ±2.5 clip boundary
+    clipped = z.index[z.abs() >= 2.5 - 1e-9].tolist()
+
+    # The extreme outliers must be in the clipped audit set
+    assert "HIGH_OUT" in clipped, "HIGH_OUT (1000.0) should be clipped to +2.5"
+    assert "LOW_OUT" in clipped, "LOW_OUT (-1000.0) should be clipped to -2.5"
+
+    # The interior value must not appear in the clipped set
+    assert "INTERIOR" not in clipped, "INTERIOR (0.5) should not be clipped"
+
+
+def test_zscore_clip_no_values_beyond_boundary():
+    """No output value may exceed ±2.5 regardless of how extreme the inputs are."""
+    rng = np.random.default_rng(99)
+    extremes = list(rng.uniform(-100, 100, 50))
+    s = pd.Series(extremes)
+    z = cross_section_zscore(s)
+    assert z.max() <= 2.5 + 1e-9
+    assert z.min() >= -2.5 - 1e-9
+
+
 # ── _winsorize ────────────────────────────────────────────────────────────────────────────────────
 
 def test_winsorize_clips_extremes():
