@@ -23,10 +23,37 @@ from datetime import date
 
 from ollama import AsyncClient
 
-from app.tools import fetch_av_news, fetch_av_earnings_calendar, fetch_tavily_news
+from app.tools import fetch_av_news, fetch_av_earnings_calendar, fetch_tavily_news, search_web
 import asyncio
 
 log = logging.getLogger("llm-vetter.vetter")
+
+MAX_TOOL_CALLS = 3  # max web searches the agent may make per ticker
+
+AGENT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": (
+                "Search the web for recent news, analyst reports, earnings guidance, "
+                "SEC filings, or regulatory news about a specific stock. "
+                "Use targeted queries such as 'MRNA Moderna earnings guidance 2026' "
+                "or 'CENX Century Aluminum SEC filing regulatory 2026'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Specific search query for the stock",
+                    }
+                },
+                "required": ["query"],
+            },
+        },
+    }
+]
 
 # Structured-output schema for a single-ticker decision
 PER_TICKER_SCHEMA = {
@@ -47,8 +74,11 @@ SYSTEM_PROMPT = """\
 You are a financial risk analyst. Decide whether to EXCLUDE a single stock from a
 30-day equity portfolio holding.
 
-You will be given recent news (with sentiment labels) and an upcoming earnings date
-if one falls within the next 45 days.
+You have a web_search tool. Use it proactively — run 1-2 targeted searches per
+ticker to check for risks even when no news is pre-loaded. Good queries:
+  "TICKER company name earnings guidance Q2 2026"
+  "TICKER company name analyst downgrade SEC filing 2026"
+  "TICKER company name recall lawsuit regulatory news"
 
 EXCLUDE the stock (exclude=true) only when there is CLEAR and SPECIFIC evidence of:
 - Upcoming earnings with deteriorating analyst expectations, revenue warnings, or
@@ -62,7 +92,7 @@ Do NOT exclude based on:
 - General macro or market uncertainty (applies to all stocks equally)
 - Minor price weakness with no specific catalyst
 - Long-term concerns that do not affect the next 30 days
-- Absence of news — silence is neutral, not negative
+- Absence of news after searching — silence is neutral, not negative
 
 Set confidence:
   "high"   — clear, imminent, specific risk
@@ -70,7 +100,7 @@ Set confidence:
   "low"    — weak signal, worth noting but not strongly actionable
 
 If not excluding, set risk_type to "none" and explain briefly why the stock is
-safe to hold for 30 days given the available information.
+safe to hold for 30 days given available information.
 """
 
 
@@ -202,29 +232,96 @@ async def vet_single_ticker(
     client: AsyncClient,
     model: str,
     today: str,
+    tavily_api_key: str = "",
 ) -> dict:
     """
     Ask the LLM to make a single exclude/keep decision for one ticker.
 
-    Returns a dict with the decision plus full execution trace fields:
-    prompt, raw_response, latency_ms, news_titles, hallucination_flags.
+    When tavily_api_key is provided the model runs as an agent: it can call
+    web_search up to MAX_TOOL_CALLS times before giving its final decision.
+    Without a Tavily key it falls back to a single structured call.
+
+    Returns a dict with the decision plus full execution trace fields.
     """
     user_message = _format_ticker_message(ticker, news, earnings_date, tavily_articles, today)
     news_titles = [a.get("title", "") for a in (news + tavily_articles)]
+    agent_searches: list[dict] = []
 
     t0 = time.monotonic()
-    response = await client.chat(
-        model=model,
-        messages=[
+
+    if tavily_api_key:
+        # ── Agentic loop ─────────────────────────────────────────────────────
+        messages: list[dict] = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user",   "content": user_message},
-        ],
-        format=PER_TICKER_SCHEMA,
-        options={"temperature": 0.1, "num_predict": 256},
-    )
-    latency_ms = round((time.monotonic() - t0) * 1000)
+        ]
 
+        for _ in range(MAX_TOOL_CALLS):
+            resp = await client.chat(
+                model=model,
+                messages=messages,
+                tools=AGENT_TOOLS,
+                options={"temperature": 0.1},
+            )
+
+            if not resp.message.tool_calls:
+                break
+
+            # Add assistant message (contains the tool_calls list)
+            messages.append(resp.message)
+
+            for tc in resp.message.tool_calls:
+                fn_name = tc.function.name
+                args = tc.function.arguments if isinstance(tc.function.arguments, dict) else {}
+                query = args.get("query", "")
+
+                log.info("[agent] %s → %s(%r)", ticker, fn_name, query)
+
+                if fn_name == "web_search" and query:
+                    results = await search_web(query, tavily_api_key)
+                    agent_searches.append({"query": query, "result_count": len(results)})
+                    if results:
+                        result_text = "\n\n".join(
+                            f"**{r['title']}**\n{r['content']}"
+                            for r in results
+                        )
+                        # Extend news_titles for trace
+                        news_titles += [r["title"] for r in results]
+                    else:
+                        result_text = "No results found."
+                else:
+                    result_text = f"Unknown tool: {fn_name}"
+                    agent_searches.append({"query": query, "result_count": 0, "error": "unknown tool"})
+
+                messages.append({"role": "tool", "content": result_text})
+
+        # Final structured decision — no tools, format enforced
+        messages.append({
+            "role": "user",
+            "content": "Based on your research, provide your final KEEP or EXCLUDE decision.",
+        })
+        response = await client.chat(
+            model=model,
+            messages=messages,
+            format=PER_TICKER_SCHEMA,
+            options={"temperature": 0.1, "num_predict": 256},
+        )
+
+    else:
+        # ── Single-call fallback (no Tavily configured) ───────────────────────
+        response = await client.chat(
+            model=model,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user",   "content": user_message},
+            ],
+            format=PER_TICKER_SCHEMA,
+            options={"temperature": 0.1, "num_predict": 256},
+        )
+
+    latency_ms = round((time.monotonic() - t0) * 1000)
     raw = response.message.content
+
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -239,6 +336,7 @@ async def vet_single_ticker(
             "had_earnings":   earnings_date is not None,
             "had_tavily":     bool(tavily_articles),
             "parse_error":    True,
+            "agent_searches": agent_searches,
             "latency_ms":     latency_ms,
             "prompt":         user_message,
             "system_prompt":  SYSTEM_PROMPT,
@@ -262,6 +360,7 @@ async def vet_single_ticker(
         "had_av_news":    bool(news),
         "had_earnings":   earnings_date is not None,
         "had_tavily":     bool(tavily_articles),
+        "agent_searches": agent_searches,
         "latency_ms":     latency_ms,
         "prompt":         user_message,
         "system_prompt":  SYSTEM_PROMPT,

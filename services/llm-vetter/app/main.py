@@ -318,6 +318,7 @@ async def _do_vet(
                 client=client,
                 model=OLLAMA_MODEL,
                 today=today,
+                tavily_api_key=TAVILY_API_KEY,
             )
         except Exception as ticker_exc:
             tb_str = _traceback.format_exc()
