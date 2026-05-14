@@ -145,6 +145,51 @@ async def fetch_av_earnings_calendar(
     return result
 
 
+async def search_web(
+    query: str,
+    api_key: str,
+    *,
+    max_results: int = 4,
+) -> list[dict]:
+    """
+    Generic web search via Tavily for an arbitrary query string.
+    Used by the agentic vetter loop when the LLM calls the web_search tool.
+    """
+    if not api_key:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(
+                TAVILY_BASE,
+                json={
+                    "api_key": api_key,
+                    "query": query,
+                    "search_depth": "basic",
+                    "max_results": max_results,
+                    "include_domains": [
+                        "reuters.com", "bloomberg.com", "ft.com",
+                        "wsj.com", "cnbc.com", "marketwatch.com",
+                        "seekingalpha.com", "barrons.com", "sec.gov",
+                        "finance.yahoo.com", "thestreet.com",
+                    ],
+                },
+                timeout=20,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return [
+                {
+                    "title":   r.get("title", ""),
+                    "content": r.get("content", r.get("snippet", ""))[:500],
+                    "url":     r.get("url", ""),
+                }
+                for r in data.get("results", [])
+            ]
+    except Exception as exc:
+        log.warning("Tavily search failed for query '%s': %s", query, exc)
+        return []
+
+
 async def fetch_tavily_news(
     ticker: str,
     api_key: str,
