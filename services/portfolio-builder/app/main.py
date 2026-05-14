@@ -161,7 +161,7 @@ async def _write_trace_file(
 
 # ── Build job ───────────────────────────────────────────────────────────────────────────────────
 
-async def _run_build(run_id: str, trace_id: str, ranking_run_id: Optional[str]) -> None:
+async def _run_build(run_id: str, trace_id: str, ranking_run_id: Optional[str], vetter_run_id: Optional[str] = None) -> None:
     started_at = datetime.now(timezone.utc)
     pb_cfg = strategy.portfolio_builder
 
@@ -205,19 +205,20 @@ async def _run_build(run_id: str, trace_id: str, ranking_run_id: Optional[str]) 
         await conn.execute(
             text(
                 "INSERT INTO portfolio_runs "
-                "(run_id, trace_id, source_ranking_run_id, strategy_id, config_hash, "
+                "(run_id, trace_id, source_ranking_run_id, vetter_run_id, strategy_id, config_hash, "
                 " regime, portfolio_date, status, started_at) "
-                "VALUES (:rid, :tid, :src, :sid, :ch, :regime, :pd, 'running', :now)"
+                "VALUES (:rid, :tid, :src, :vrid, :sid, :ch, :regime, :pd, 'running', :now)"
             ),
             {
                 "rid": run_id, "tid": trace_id, "src": source_ranking_run_id,
+                "vrid": vetter_run_id,
                 "sid": strategy.strategy_id, "ch": config_hash,
                 "regime": regime, "pd": portfolio_date, "now": started_at,
             },
         )
 
     try:
-        await _do_build(run_id, trace_id, started_at, source_ranking_run_id, regime, portfolio_date, pb_cfg)
+        await _do_build(run_id, trace_id, started_at, source_ranking_run_id, regime, portfolio_date, pb_cfg, vetter_run_id)
     except Exception as exc:
         err = str(exc)[:1000]
         print(f"[portfolio-builder] run {run_id} FAILED: {exc}")
@@ -242,6 +243,7 @@ async def _do_build(
     regime: str,
     portfolio_date,
     pb_cfg,
+    vetter_run_id: Optional[str] = None,
 ) -> None:
     # ranking run already resolved and both DB rows already inserted by _run_build
 
@@ -284,6 +286,40 @@ async def _do_build(
             input_summary={"candidate_count": pb_cfg.candidate_count},
             output_summary={"loaded": len(candidate_tickers), "top_ticker": candidate_tickers[0]},
         )
+
+    # ── Step 2b: apply LLM vetter exclusions ─────────────────────────────────────────────────────────────────────────────────────────────
+    vetter_excluded: list[str] = []
+    if vetter_run_id:
+        async with engine.connect() as conn:
+            exc_rows = await conn.execute(
+                text(
+                    "SELECT ticker, confidence, reason FROM vetter_exclusions "
+                    "WHERE run_id = :rid ORDER BY confidence DESC, ticker ASC"
+                ),
+                {"rid": vetter_run_id},
+            )
+            vetter_excluded = [r.ticker for r in exc_rows.fetchall()]
+
+        if vetter_excluded:
+            candidate_tickers = [t for t in candidate_tickers if t not in set(vetter_excluded)]
+            scores_map = {t: v for t, v in scores_map.items() if t not in set(vetter_excluded)}
+            rank_map = {t: v for t, v in rank_map.items() if t not in set(vetter_excluded)}
+
+        async with engine.begin() as conn:
+            await _log_step(
+                conn, trace_id, "apply_vetter_exclusions", "success",
+                started_at=t0,
+                input_summary={"vetter_run_id": vetter_run_id},
+                output_summary={
+                    "excluded_count": len(vetter_excluded),
+                    "excluded_tickers": vetter_excluded,
+                    "remaining_candidates": len(candidate_tickers),
+                },
+                warnings=(
+                    [f"LLM vetter excluded {len(vetter_excluded)} tickers: {vetter_excluded}"]
+                    if vetter_excluded else None
+                ),
+            )
 
     # ── Step 3: load price data for covariance ───────────────────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
@@ -578,10 +614,9 @@ async def _do_build(
 async def start_build(
     background_tasks: BackgroundTasks,
     ranking_run_id: Optional[str] = None,
+    vetter_run_id: Optional[str] = None,
 ):
     # Pre-validate that a ranking run exists before issuing a run_id the client will poll.
-    # Without this check, _run_build could silently return without ever inserting a
-    # portfolio_runs row, making GET /runs/{run_id} return 404 forever.
     async with engine.connect() as conn:
         if ranking_run_id:
             chk = await conn.execute(
@@ -598,14 +633,35 @@ async def start_build(
                 detail="no successful ranking run found — run: make rank first",
             )
 
+        # If a vetter_run_id is provided it must be approved
+        if vetter_run_id:
+            vchk = await conn.execute(
+                text("SELECT approved, status FROM vetter_runs WHERE run_id=:rid"),
+                {"rid": vetter_run_id},
+            )
+            vrow = vchk.fetchone()
+            if vrow is None:
+                raise HTTPException(status_code=404, detail=f"Vetter run {vetter_run_id} not found")
+            if vrow.status != "success":
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Vetter run status is '{vrow.status}', must be 'success'",
+                )
+            if not vrow.approved:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Vetter run has not been approved — call POST /runs/{id}/approve on the llm-vetter first",
+                )
+
     run_id = str(uuid.uuid4())
     trace_id = str(uuid.uuid4())
-    background_tasks.add_task(_run_build, run_id, trace_id, ranking_run_id)
+    background_tasks.add_task(_run_build, run_id, trace_id, ranking_run_id, vetter_run_id)
     return {
         "status": "started",
         "job": "build",
         "run_id": run_id,
         "trace_id": trace_id,
+        "vetter_run_id": vetter_run_id,
     }
 
 

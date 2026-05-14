@@ -255,6 +255,7 @@ CREATE TABLE IF NOT EXISTS portfolio_runs (
     run_id                   UUID         PRIMARY KEY,
     trace_id                 UUID,
     source_ranking_run_id    UUID         NOT NULL REFERENCES ranking_runs(run_id),
+    vetter_run_id            UUID,        -- optional: FK set after vetter_runs table exists
     strategy_id              VARCHAR(100) NOT NULL,
     config_hash              VARCHAR(16),
     regime                   VARCHAR(30)  NOT NULL,
@@ -296,3 +297,40 @@ CREATE TABLE IF NOT EXISTS portfolio_holdings (
 
 CREATE INDEX IF NOT EXISTS idx_portfolio_holdings_run  ON portfolio_holdings(run_id);
 CREATE INDEX IF NOT EXISTS idx_portfolio_holdings_date ON portfolio_holdings(portfolio_date DESC, position ASC);
+
+-- ── LLM vetter runs ───────────────────────────────────────────────────────────────────────────────────
+-- One row per vetting job. Stores whether the run was approved by a human operator.
+
+CREATE TABLE IF NOT EXISTS vetter_runs (
+    run_id                UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    source_ranking_run_id UUID         NOT NULL REFERENCES ranking_runs(run_id),
+    strategy_id           VARCHAR(100) NOT NULL,
+    model                 VARCHAR(100) NOT NULL,
+    status                VARCHAR(20)  NOT NULL DEFAULT 'running',  -- running|success|failed
+    candidate_count       INTEGER,
+    flagged_count         INTEGER,
+    approved              BOOLEAN      NOT NULL DEFAULT FALSE,
+    approved_at           TIMESTAMPTZ,
+    started_at            TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    completed_at          TIMESTAMPTZ,
+    error_message         TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_vetter_runs_ranking ON vetter_runs(source_ranking_run_id);
+CREATE INDEX IF NOT EXISTS idx_vetter_runs_started ON vetter_runs(started_at DESC);
+
+-- ── LLM vetter exclusions ─────────────────────────────────────────────────────────────────────────────
+-- Per-ticker exclusion recommendations from the LLM vetter.
+
+CREATE TABLE IF NOT EXISTS vetter_exclusions (
+    id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id      UUID         NOT NULL REFERENCES vetter_runs(run_id) ON DELETE CASCADE,
+    ticker      VARCHAR(20)  NOT NULL,
+    reason      TEXT         NOT NULL,
+    confidence  VARCHAR(10)  NOT NULL CHECK (confidence IN ('high', 'medium', 'low')),
+    risk_type   VARCHAR(50),
+    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    UNIQUE (run_id, ticker)
+);
+
+CREATE INDEX IF NOT EXISTS idx_vetter_exclusions_run ON vetter_exclusions(run_id);
