@@ -267,25 +267,35 @@ async def _do_vet(
         if result["exclude"]:
             exclusions.append(result)
 
+        step_warnings = list(result.get("hallucination_flags", []))
+        if result.get("parse_error"):
+            step_warnings.insert(0, "Parse error — defaulted to keep")
+
         async with engine.begin() as conn:
             await _log_step(
                 conn, trace_id, f"vet_{ticker}", "success",
                 started_at=t0,
                 input_summary={
-                    "ticker":       ticker,
-                    "had_av_news":  result["had_av_news"],
-                    "had_earnings": result["had_earnings"],
-                    "had_tavily":   result["had_tavily"],
+                    "ticker":        ticker,
+                    "had_av_news":   result["had_av_news"],
+                    "had_earnings":  result["had_earnings"],
+                    "had_tavily":    result["had_tavily"],
+                    "earnings_date": result.get("earnings_date"),
+                    "news_count":    len(result.get("news_titles", [])),
+                    "news_titles":   result.get("news_titles", []),
+                    "prompt":        result.get("prompt", ""),
+                    "system_prompt": result.get("system_prompt", ""),
                 },
                 output_summary={
-                    "exclude":    result["exclude"],
-                    "confidence": result["confidence"],
-                    "risk_type":  result["risk_type"],
-                    "reason":     result["reason"][:120],
+                    "exclude":      result["exclude"],
+                    "confidence":   result["confidence"],
+                    "risk_type":    result["risk_type"],
+                    "reason":       result["reason"],
+                    "raw_response": result.get("raw_response", ""),
+                    "latency_ms":   result.get("latency_ms"),
+                    "parse_error":  result.get("parse_error", False),
                 },
-                warnings=(
-                    [f"Parse error — defaulted to keep"] if result.get("parse_error") else None
-                ),
+                warnings=step_warnings if step_warnings else None,
             )
 
         print(
@@ -341,12 +351,39 @@ async def _do_vet(
         f"{len(exclusions)}/{len(candidates)} flagged for exclusion"
     )
 
+    latencies = [r.get("latency_ms", 0) for r in ticker_results if r.get("latency_ms")]
+    all_flags = [
+        {"ticker": r["ticker"], "flag": f}
+        for r in ticker_results
+        for f in r.get("hallucination_flags", [])
+    ]
+    confidence_dist = {
+        "high":   sum(1 for r in ticker_results if r["confidence"] == "high"),
+        "medium": sum(1 for r in ticker_results if r["confidence"] == "medium"),
+        "low":    sum(1 for r in ticker_results if r["confidence"] == "low"),
+    }
+
     await _write_trace_file(
         trace_id, run_id, "success", started_at,
+        model=OLLAMA_MODEL,
+        system_prompt=ticker_results[0].get("system_prompt", "") if ticker_results else "",
         candidate_count=len(candidates),
         flagged_count=len(exclusions),
         data_sources=data_sources,
         excluded_tickers=[e["ticker"] for e in exclusions],
+        summary={
+            "total_candidates":    len(candidates),
+            "excluded":            len(exclusions),
+            "kept":                len(candidates) - len(exclusions),
+            "parse_errors":        sum(1 for r in ticker_results if r.get("parse_error")),
+            "hallucination_flags": len(all_flags),
+            "tickers_with_flags":  [f["ticker"] for f in all_flags],
+            "confidence_dist":     confidence_dist,
+            "tickers_no_data":     [r["ticker"] for r in ticker_results if not r["had_av_news"] and not r["had_earnings"] and not r["had_tavily"]],
+            "avg_latency_ms":      round(sum(latencies) / len(latencies)) if latencies else None,
+            "total_latency_ms":    sum(latencies),
+        },
+        hallucination_flags=all_flags,
         ticker_results=ticker_results,
     )
 
