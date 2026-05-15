@@ -336,3 +336,27 @@ CREATE TABLE IF NOT EXISTS vetter_exclusions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_vetter_exclusions_run ON vetter_exclusions(run_id);
+
+-- ── LLM vetter decisions (all tickers, not just exclusions) ───────────────────
+-- Stores the full per-ticker decision including positive catalyst signal so the
+-- portfolio-builder can apply conviction-based score boosts at selection time.
+
+CREATE TABLE IF NOT EXISTS vetter_decisions (
+    id                  UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id              UUID         NOT NULL REFERENCES vetter_runs(run_id) ON DELETE CASCADE,
+    ticker              VARCHAR(20)  NOT NULL,
+    exclude             BOOLEAN      NOT NULL DEFAULT FALSE,
+    reason              TEXT,
+    confidence          VARCHAR(10)  CHECK (confidence IN ('high', 'medium', 'low')),
+    risk_type           VARCHAR(50),
+    positive_catalyst   BOOLEAN      NOT NULL DEFAULT FALSE,
+    positive_conviction VARCHAR(10)  NOT NULL DEFAULT 'none'
+                            CHECK (positive_conviction IN ('high', 'medium', 'low', 'none')),
+    positive_reason     TEXT,
+    created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    UNIQUE (run_id, ticker)
+);
+
+CREATE INDEX IF NOT EXISTS idx_vetter_decisions_run ON vetter_decisions(run_id);
+CREATE INDEX IF NOT EXISTS idx_vetter_decisions_catalyst ON vetter_decisions(run_id, positive_catalyst)
+    WHERE positive_catalyst = TRUE;
