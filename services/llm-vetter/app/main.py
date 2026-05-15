@@ -28,7 +28,7 @@ engine: AsyncEngine
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global engine
-    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
+    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5)
 
     async with engine.begin() as conn:
         await conn.execute(
@@ -219,12 +219,15 @@ async def _run_vet(run_id: str, trace_id: str, source_ranking_run_id: str) -> No
             {"tid": trace_id, "rid": run_id, "now": started_at},
         )
 
-    # Shared state so the exception handler has partial results
+    # Shared mutable state so the exception handler can access partial results and
+    # the total candidate count even when _do_vet raises before returning.
     ticker_results: list[dict] = []
-    candidates_total: list[int] = [0]
+    from types import SimpleNamespace
+    # 0 is the safe default; _do_vet sets this before the loop
+    state = SimpleNamespace(candidates_total=0)
 
     try:
-        await _do_vet(run_id, trace_id, started_at, source_ranking_run_id, ticker_results, candidates_total)
+        await _do_vet(run_id, trace_id, started_at, source_ranking_run_id, ticker_results, state)
     except Exception as exc:
         err = str(exc)[:1000]
         tb = _traceback.format_exc()
@@ -248,7 +251,7 @@ async def _run_vet(run_id: str, trace_id: str, source_ranking_run_id: str) -> No
         await _write_trace_file(
             trace_id, run_id, "failed", started_at,
             ticker_results=ticker_results,
-            candidates_total=candidates_total[0],
+            candidates_total=state.candidates_total,
             failure={
                 "error":             err,
                 "traceback":         tb,
@@ -265,7 +268,7 @@ async def _do_vet(
     started_at: datetime,
     source_ranking_run_id: str,
     ticker_results: list[dict],
-    candidates_total: list[int],
+    state,  # SimpleNamespace with candidates_total
 ) -> None:
     today = date.today().isoformat()
 
@@ -288,7 +291,7 @@ async def _do_vet(
         raise RuntimeError("No rankings found for this ranking run")
 
     tickers = [c["ticker"] for c in candidates]
-    candidates_total[0] = len(candidates)
+    state.candidates_total = len(candidates)
 
     async with engine.begin() as conn:
         await _log_step(
@@ -399,11 +402,10 @@ async def _do_vet(
             f"[{result['confidence']}] {result['reason'][:80]}"
         )
 
-        # Write trace file after every ticker with running status and progress
         await _write_trace_file(
             trace_id, run_id, "running", started_at,
             ticker_results=ticker_results,
-            candidates_total=candidates_total[0],
+            candidates_total=state.candidates_total,
             progress={"completed": i + 1, "total": len(candidates)},
         )
 
@@ -464,7 +466,7 @@ async def _do_vet(
     await _write_trace_file(
         trace_id, run_id, "success", started_at,
         ticker_results=ticker_results,
-        candidates_total=candidates_total[0],
+        candidates_total=state.candidates_total,
         model=OLLAMA_MODEL,
         system_prompt=ticker_results[0].get("system_prompt", "") if ticker_results else "",
         candidate_count=len(candidates),

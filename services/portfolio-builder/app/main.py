@@ -44,7 +44,7 @@ async def lifespan(app: FastAPI):
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL environment variable is required")
     strategy = _load_strategy(STRATEGY_CONFIG_PATH)
-    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
+    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5)
     async with engine.begin() as conn:
         await conn.execute(
             text(
@@ -405,7 +405,7 @@ async def _do_build(
 
     eigenvalues = np.linalg.eigvalsh(cov.values)
     min_eigenvalue = float(eigenvalues.min())
-    if min_eigenvalue < 1e-8:
+    if min_eigenvalue < _MIN_EIGENVALUE:
         print(f"[portfolio-builder] WARNING: covariance matrix near rank-deficient (min eigenvalue={min_eigenvalue:.2e}). Portfolio vol estimates may be unreliable.")
 
     # Restrict scores Series to tickers present in cov (some may have been dropped)
