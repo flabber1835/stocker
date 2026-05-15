@@ -357,6 +357,61 @@ async def _do_build(
                 ),
             )
 
+    # ── Step 2c: apply LLM vetter conviction boosts ──────────────────────────────────────────────────────────────────────────────────────
+    conviction_boosts_applied: dict[str, dict] = {}
+    if vetter_run_id:
+        vetter_cfg = strategy.vetter
+        boost_map = vetter_cfg.conviction_boosts
+
+        async with engine.connect() as conn:
+            conv_rows = await conn.execute(
+                text(
+                    "SELECT ticker, positive_conviction FROM vetter_decisions "
+                    "WHERE run_id = :rid AND positive_catalyst = TRUE"
+                ),
+                {"rid": vetter_run_id},
+            )
+            conviction_map = {r.ticker: r.positive_conviction for r in conv_rows.fetchall()}
+
+        for ticker, conviction in conviction_map.items():
+            if ticker not in scores_map:
+                continue
+            boost = boost_map.get(conviction, 0.0)
+            if boost <= 0:
+                continue
+            original = scores_map[ticker]
+            scores_map[ticker] = original * (1.0 + boost)
+            conviction_boosts_applied[ticker] = {
+                "conviction": conviction,
+                "boost_factor": boost,
+                "original_score": round(original, 6),
+                "adjusted_score": round(scores_map[ticker], 6),
+            }
+
+        if conviction_boosts_applied:
+            async with engine.begin() as conn:
+                await _log_step(
+                    conn, trace_id, "apply_conviction_boosts", "success",
+                    started_at=t0,
+                    input_summary={
+                        "vetter_run_id": vetter_run_id,
+                        "conviction_boosts_config": boost_map,
+                        "conviction_max_boost": vetter_cfg.conviction_max_boost,
+                    },
+                    output_summary={
+                        "boosted_count": len(conviction_boosts_applied),
+                        "boosted_tickers": conviction_boosts_applied,
+                    },
+                )
+            print(
+                f"[portfolio-builder] conviction boosts applied to "
+                f"{len(conviction_boosts_applied)} tickers: "
+                + ", ".join(
+                    f"{t}(+{v['boost_factor']*100:.0f}%)"
+                    for t, v in conviction_boosts_applied.items()
+                )
+            )
+
     # ── Step 3: load price data for covariance ───────────────────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
     lookback_days = int(pb_cfg.covariance_window_days * 1.5)  # extra buffer for weekends/holidays
@@ -733,7 +788,9 @@ async def _do_build(
             "require_positive_composite_score": pb_cfg.require_positive_composite_score,
             "weighting": pb_cfg.weighting,
             "max_position_weight": pb_cfg.max_position_weight,
+            "vetter_conviction_max_boost": strategy.vetter.conviction_max_boost,
         },
+        conviction_boosts_applied=conviction_boosts_applied,
         holdings=holdings_detail,
     )
 

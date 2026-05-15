@@ -65,6 +65,14 @@ class UniverseConfig(BaseModel):
     min_avg_dollar_volume_20d: float = 20_000_000
 
 
+class VetterConfig(BaseModel):
+    candidate_count: int = Field(default=50, ge=5, le=200)
+    conviction_max_boost: float = Field(default=0.25, ge=0.0, le=1.0)
+    conviction_boosts: dict[str, float] = Field(
+        default_factory=lambda: {"high": 0.25, "medium": 0.12, "low": 0.05, "none": 0.0}
+    )
+
+
 class PortfolioBuilderConfig(BaseModel):
     method: Literal["greedy_score_per_port_vol"] = "greedy_score_per_port_vol"
     candidate_count: int = Field(default=100, ge=10, le=500)
@@ -95,6 +103,7 @@ class StrategyConfig(BaseModel):
     min_non_null_factors: int = Field(default=3, ge=1, le=6)
     required_factors: list[str] = Field(default_factory=list)
     portfolio_builder: PortfolioBuilderConfig = Field(default_factory=PortfolioBuilderConfig)
+    vetter: VetterConfig = Field(default_factory=VetterConfig)
 
     @model_validator(mode="after")
     def weights_match_regimes(self) -> StrategyConfig:

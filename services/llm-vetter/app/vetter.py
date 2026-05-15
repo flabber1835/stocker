@@ -59,15 +59,21 @@ AGENT_TOOLS = [
 PER_TICKER_SCHEMA = {
     "type": "object",
     "properties": {
-        "exclude":    {"type": "boolean"},
-        "reason":     {"type": "string"},
-        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-        "risk_type":  {
+        "exclude":              {"type": "boolean"},
+        "reason":               {"type": "string"},
+        "confidence":           {"type": "string", "enum": ["high", "medium", "low"]},
+        "risk_type":            {
             "type": "string",
             "enum": ["earnings", "regulatory", "management", "legal", "sector", "none"],
         },
+        "positive_catalyst":    {"type": "boolean"},
+        "positive_conviction":  {"type": "string", "enum": ["high", "medium", "low", "none"]},
+        "positive_reason":      {"type": "string"},
     },
-    "required": ["exclude", "reason", "confidence", "risk_type"],
+    "required": [
+        "exclude", "reason", "confidence", "risk_type",
+        "positive_catalyst", "positive_conviction", "positive_reason",
+    ],
 }
 
 SYSTEM_PROMPT = """\
@@ -126,6 +132,27 @@ MANDATORY CONFIDENCE RULES — you MUST follow these exactly:
 
 If not excluding, set risk_type to "none" and explain briefly why the stock is
 safe to hold for 30 days given available information.
+
+POSITIVE CATALYST ASSESSMENT:
+In the same pass, assess whether there is a POSITIVE catalyst likely to drive
+outperformance in the next 30 days. Set positive_catalyst=true only when there
+is CLEAR and SPECIFIC evidence of:
+- Upcoming earnings where analyst consensus expects a strong beat, or recent
+  upward estimate revisions explicitly cited
+- Analyst upgrades or price target increases published within the past 14 days
+- Positive product launch, major contract win, regulatory approval, or
+  partnership announcement that is recent and specific
+- Significant insider buying signal from a filing you can cite
+
+The same evidence rules apply to positive_conviction as to confidence:
+  "high"   — specific, verifiable, recent positive catalyst with a cited source
+  "medium" — material positive signal but uncertain timing or magnitude
+  "low"    — mild tailwind worth noting, weakly supported
+  "none"   — no clear positive catalyst found (most common — default to this)
+
+If no positive catalyst exists, set positive_catalyst=false,
+positive_conviction="none", positive_reason="" (empty string).
+Do NOT invent positive reasons. Silence is neutral, not positive.
 """
 
 
@@ -402,6 +429,9 @@ async def vet_single_ticker(
             "reason":      f"LLM response could not be parsed — defaulting to keep. Raw: {raw[:100]}",
             "confidence":  "low",
             "risk_type":   "none",
+            "positive_catalyst":   False,
+            "positive_conviction": "none",
+            "positive_reason":     "",
             "had_av_news":    bool(news),
             "had_earnings":   earnings_date is not None,
             "had_tavily":     bool(tavily_articles),
@@ -451,12 +481,30 @@ async def vet_single_ticker(
             f"AUTO-OVERRIDDEN: exclude=True ({original_confidence} confidence) with no supporting data → forced to KEEP"
         )
 
+    # Positive conviction override: downgrade high/medium positive conviction with no data
+    if (
+        parsed.get("positive_catalyst", False)
+        and not has_any_supporting_data
+        and parsed.get("positive_conviction", "none") in ("high", "medium")
+    ):
+        log.warning(
+            "[llm-vetter] %s: downgrading positive_conviction from %s → low (no supporting data)",
+            ticker, parsed["positive_conviction"],
+        )
+        parsed["positive_conviction"] = "low"
+        hallucination_flags.append(
+            f"positive_conviction downgraded to 'low' — no supporting data found"
+        )
+
     return {
         "ticker":      ticker,
         "exclude":     bool(parsed.get("exclude", False)),
         "reason":      parsed.get("reason", ""),
         "confidence":  parsed.get("confidence", "low"),
         "risk_type":   parsed.get("risk_type", "none"),
+        "positive_catalyst":   bool(parsed.get("positive_catalyst", False)),
+        "positive_conviction": parsed.get("positive_conviction", "none"),
+        "positive_reason":     parsed.get("positive_reason", ""),
         "had_av_news":    bool(news),
         "had_earnings":   earnings_date is not None,
         "had_tavily":     bool(tavily_articles),
