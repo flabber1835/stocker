@@ -21,6 +21,13 @@ log = logging.getLogger("llm-vetter.tools")
 AV_BASE = "https://www.alphavantage.co/query"
 TAVILY_BASE = "https://api.tavily.com/search"
 
+_FINANCIAL_DOMAINS = [
+    "reuters.com", "bloomberg.com", "ft.com",
+    "wsj.com", "cnbc.com", "marketwatch.com",
+    "seekingalpha.com", "barrons.com", "sec.gov",
+    "finance.yahoo.com", "thestreet.com",
+]
+
 
 async def fetch_av_news(
     tickers: list[str],
@@ -168,29 +175,24 @@ async def search_web(
     if not api_key:
         return []
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
+        async with httpx.AsyncClient(timeout=45) as client:
             resp = await client.post(
                 TAVILY_BASE,
                 json={
                     "api_key": api_key,
                     "query": query,
-                    "search_depth": "basic",
+                    "search_depth": "advanced",
                     "max_results": max_results,
-                    "include_domains": [
-                        "reuters.com", "bloomberg.com", "ft.com",
-                        "wsj.com", "cnbc.com", "marketwatch.com",
-                        "seekingalpha.com", "barrons.com", "sec.gov",
-                        "finance.yahoo.com", "thestreet.com",
-                    ],
+                    "include_domains": _FINANCIAL_DOMAINS,
                 },
-                timeout=20,
+                timeout=45,
             )
             resp.raise_for_status()
             data = resp.json()
             return [
                 {
                     "title":   r.get("title", ""),
-                    "content": r.get("content", r.get("snippet", ""))[:500],
+                    "content": r.get("content", r.get("snippet", ""))[:1500],
                     "url":     r.get("url", ""),
                 }
                 for r in data.get("results", [])
@@ -215,26 +217,22 @@ async def fetch_tavily_news(
 
     query = f"{ticker} stock news risks outlook"
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
+        async with httpx.AsyncClient(timeout=45) as client:
             resp = await client.post(
                 TAVILY_BASE,
                 json={
                     "api_key": api_key,
                     "query": query,
-                    "search_depth": "basic",
+                    "search_depth": "advanced",
                     "max_results": max_results,
-                    "include_domains": [
-                        "reuters.com", "bloomberg.com", "ft.com",
-                        "wsj.com", "cnbc.com", "marketwatch.com",
-                        "seekingalpha.com", "barrons.com",
-                    ],
+                    "include_domains": _FINANCIAL_DOMAINS,
                 },
-                timeout=20,
+                timeout=45,
             )
             resp.raise_for_status()
             data = resp.json()
             return [
-                {"title": r.get("title", ""), "summary": r.get("content", "")[:300]}
+                {"title": r.get("title", ""), "summary": r.get("content", "")[:1000]}
                 for r in data.get("results", [])
             ]
     except Exception as exc:

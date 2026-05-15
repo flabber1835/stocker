@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import os
+import traceback
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -19,6 +20,16 @@ from stock_strategy_shared.schemas.strategy import StrategyConfig
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
+
+_MIN_EIGENVALUE = 1e-8  # numerical zero threshold for PSD matrix repair
+
+
+def _fmt_row(row) -> dict:
+    return {
+        k: (str(v) if isinstance(v, uuid.UUID) else (v.isoformat() if hasattr(v, "isoformat") else v))
+        for k, v in dict(row._mapping).items()
+    }
+
 
 strategy: StrategyConfig
 engine: AsyncEngine
@@ -160,7 +171,6 @@ async def _write_trace_file(
         await asyncio.to_thread(_write_file)
         print(f"[portfolio-builder] trace -> {path} ({len(steps)} steps, status={status})")
     except Exception as exc:
-        import traceback
         print(f"[portfolio-builder] WARNING: failed to write trace file: {exc}")
         traceback.print_exc()
 
@@ -385,7 +395,7 @@ async def _do_build(
 
     eigenvalues = np.linalg.eigvalsh(cov.values)
     min_eigenvalue = float(eigenvalues.min())
-    if min_eigenvalue < 1e-8:
+    if min_eigenvalue < _MIN_EIGENVALUE:
         print(f"[portfolio-builder] WARNING: covariance matrix near rank-deficient (min eigenvalue={min_eigenvalue:.2e}). Portfolio vol estimates may be unreliable.")
 
     # Restrict scores Series to tickers present in cov (some may have been dropped)
@@ -394,6 +404,7 @@ async def _do_build(
     cov = cov.loc[available_tickers, available_tickers]
 
     # Portfolio-level correlation summary for the audit log
+    # corr_matrix is reused below for the highest-correlated pair among selected tickers.
     n_cov = len(available_tickers)
     if n_cov > 1:
         std = np.sqrt(np.diag(cov.values))
@@ -403,6 +414,7 @@ async def _do_build(
         upper_idx = np.triu_indices(n_cov, k=1)
         avg_pairwise_corr = float(np.mean(corr_matrix[upper_idx]))
     else:
+        corr_matrix = None
         avg_pairwise_corr = 0.0
 
     cov_warnings = []
@@ -458,12 +470,11 @@ async def _do_build(
     final_cov = cov.loc[selected_tickers, selected_tickers].values
     portfolio_vol = float(np.sqrt(max(float(w_vec @ final_cov @ w_vec), 1e-12)))
 
-    # Highest-correlated pair for the trace (informational)
-    if len(selected_tickers) > 1:
-        sub_std = np.sqrt(np.diag(final_cov))
-        sub_outer = np.outer(sub_std, sub_std)
-        with np.errstate(invalid="ignore", divide="ignore"):
-            sub_corr = np.where(sub_outer > 0, final_cov / sub_outer, 0.0)
+    # Highest-correlated pair for the trace (informational).
+    # Reuse corr_matrix computed above; slice it to the selected-ticker indices.
+    if len(selected_tickers) > 1 and corr_matrix is not None:
+        sel_idx = [available_tickers.index(t) for t in selected_tickers]
+        sub_corr = corr_matrix[np.ix_(sel_idx, sel_idx)]
         uidx = np.triu_indices(len(selected_tickers), k=1)
         max_corr_idx = int(np.argmax(sub_corr[uidx]))
         i_idx, j_idx = uidx[0][max_corr_idx], uidx[1][max_corr_idx]
@@ -698,8 +709,7 @@ async def get_run(run_id: str):
         result = row.fetchone()
     if result is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-    return {k: (str(v) if isinstance(v, uuid.UUID) else (v.isoformat() if hasattr(v, "isoformat") else v))
-            for k, v in dict(result._mapping).items()}
+    return _fmt_row(result)
 
 
 @app.get("/portfolio/latest")

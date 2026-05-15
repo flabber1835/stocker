@@ -14,6 +14,14 @@ from ollama import AsyncClient as OllamaClient
 
 from app.vetter import fetch_ticker_data, vet_single_ticker
 
+
+def _fmt_row(row) -> dict:
+    return {
+        k: (str(v) if isinstance(v, uuid.UUID) else (v.isoformat() if hasattr(v, "isoformat") else v))
+        for k, v in dict(row._mapping).items()
+    }
+
+
 DATABASE_URL   = os.getenv("DATABASE_URL", "")
 OLLAMA_HOST    = os.getenv("OLLAMA_HOST", "http://ollama:11434")
 OLLAMA_MODEL   = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
@@ -214,6 +222,7 @@ async def _run_vet(run_id: str, trace_id: str, source_ranking_run_id: str) -> No
     # the total candidate count even when _do_vet raises before returning.
     ticker_results: list[dict] = []
     from types import SimpleNamespace
+    # 0 is the safe default; _do_vet sets this before the loop
     state = SimpleNamespace(candidates_total=0)
 
     try:
@@ -531,10 +540,7 @@ async def get_latest_run():
         result = row.fetchone()
     if result is None:
         raise HTTPException(status_code=404, detail="No vetter runs yet")
-    return {
-        k: (str(v) if isinstance(v, uuid.UUID) else (v.isoformat() if hasattr(v, "isoformat") else v))
-        for k, v in dict(result._mapping).items()
-    }
+    return _fmt_row(result)
 
 
 @app.get("/runs/{run_id}")
@@ -552,10 +558,7 @@ async def get_run(run_id: str):
         result = row.fetchone()
     if result is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-    return {
-        k: (str(v) if isinstance(v, uuid.UUID) else (v.isoformat() if hasattr(v, "isoformat") else v))
-        for k, v in dict(result._mapping).items()
-    }
+    return _fmt_row(result)
 
 
 @app.get("/runs/{run_id}/exclusions")
