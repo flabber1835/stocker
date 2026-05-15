@@ -71,8 +71,15 @@ PER_TICKER_SCHEMA = {
 }
 
 SYSTEM_PROMPT = """\
-You are a financial risk analyst. Decide whether to EXCLUDE a single stock from a
-30-day equity portfolio holding.
+You are a financial risk analyst reviewing stocks selected by a quantitative equity
+strategy. Each stock was chosen because it scored highly on quality, value, momentum,
+growth, or low-volatility factors — or some combination. Your job is to decide
+whether to EXCLUDE a single stock from a 30-day equity portfolio holding.
+
+IMPORTANT CONTEXT: The quantitative model selects stocks for investment thesis reasons.
+A deep-value stock may intentionally be distressed. A momentum stock may already be
+priced for growth. Before excluding, consider whether the risk you found is ALREADY
+REFLECTED in why the model selected this stock, or whether it is a NEW, UNPRICED risk.
 
 You have a web_search tool. Use it proactively — run 1-2 targeted searches per
 ticker to check for risks even when no news is pre-loaded. Good queries:
@@ -83,8 +90,8 @@ ticker to check for risks even when no news is pre-loaded. Good queries:
 EXCLUDE the stock (exclude=true) only when there is CLEAR and SPECIFIC evidence of:
 - Upcoming earnings with deteriorating analyst expectations, revenue warnings, or
   guidance cuts likely within the 30-day window
-- Significant negative news: regulatory action, fraud allegation, product recall,
-  key executive departure, major customer loss
+- Significant NEGATIVE news that is NEW and UNPRICED: regulatory action, fraud allegation,
+  product recall, key executive departure, major customer loss
 - Pending binary legal or regulatory decision with material downside
 - Multiple analyst consensus downgrades within the past 7 days
 
@@ -93,9 +100,10 @@ Do NOT exclude based on:
 - Minor price weakness with no specific catalyst
 - Long-term concerns that do not affect the next 30 days
 - Absence of news after searching — silence is neutral, not negative
+- Known challenges that are already reflected in the stock's valuation (high EY, low PB)
 
 Set confidence:
-  "high"   — clear, imminent, specific risk
+  "high"   — clear, imminent, specific risk that is NEW and UNPRICED
   "medium" — material concern but uncertain timing or magnitude
   "low"    — weak signal, worth noting but not strongly actionable
 
@@ -152,13 +160,14 @@ async def fetch_ticker_data(
 
     tavily_results: dict[str, list[dict]] = {}
     if tavily_api_key:
-        tickers_without_news = [t for t in tickers if not av_news.get(t)]
-        if tickers_without_news:
-            log.info("Fetching Tavily for %d tickers with no AV news", len(tickers_without_news))
-            fetched = await asyncio.gather(
-                *[fetch_tavily_news(t, tavily_api_key) for t in tickers_without_news]
-            )
-            tavily_results = dict(zip(tickers_without_news, fetched))
+        # Fetch Tavily for all tickers unconditionally so recent events (earnings
+        # surprises, SEC actions, analyst downgrades from the past week) are always
+        # captured regardless of AV news coverage.
+        log.info("Fetching Tavily for all %d tickers", len(tickers))
+        fetched = await asyncio.gather(
+            *[fetch_tavily_news(t, tavily_api_key) for t in tickers]
+        )
+        tavily_results = dict(zip(tickers, fetched))
 
     data_sources = {
         "av_news_tickers":          sum(1 for t in tickers if av_news.get(t)),
@@ -180,6 +189,7 @@ def _detect_hallucination_flags(
     news: list[dict],
     earnings_date: str | None,
     raw: str,
+    today: str | None = None,
 ) -> list[str]:
     """
     Heuristic checks for suspicious LLM output.
@@ -220,6 +230,22 @@ def _detect_hallucination_flags(
     # Raw JSON unexpectedly long (model leaked extra content outside schema)
     if len(raw) > 800:
         flags.append(f"Raw response unusually long ({len(raw)} chars) — possible schema bleed")
+
+    # Contradiction: reason says "no concerns" / "no risk" but exclude=True
+    no_concern_phrases = ("no concerns", "no significant", "no material", "no risk", "safe to hold", "no issues")
+    if exclude and any(p in reason.lower() for p in no_concern_phrases):
+        flags.append("Reason language suggests no concern but exclude=True — contradiction")
+
+    # Future date hallucination: earnings_date provided but reason references a different date
+    if earnings_date and today:
+        # Check if reason mentions a year that doesn't match today's year (crude check)
+        import re as _re
+        years_in_reason = set(_re.findall(r"\b20\d\d\b", reason))
+        current_year = today[:4]
+        next_year = str(int(current_year) + 1)
+        bad_years = years_in_reason - {current_year, next_year}
+        if bad_years:
+            flags.append(f"Reason references unexpected year(s) {bad_years} — possible date hallucination")
 
     return flags
 
@@ -346,7 +372,7 @@ async def vet_single_ticker(
             "hallucination_flags": [f"JSON parse error: {exc}"],
         }
 
-    hallucination_flags = _detect_hallucination_flags(ticker, parsed, news, earnings_date, raw)
+    hallucination_flags = _detect_hallucination_flags(ticker, parsed, news, earnings_date, raw, today=today)
     if hallucination_flags:
         for flag in hallucination_flags:
             log.warning("[llm-vetter] %s hallucination flag: %s", ticker, flag)

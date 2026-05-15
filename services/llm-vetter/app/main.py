@@ -57,10 +57,12 @@ async def _check_model() -> None:
         await client.show(OLLAMA_MODEL)
         print(f"[llm-vetter] Model {OLLAMA_MODEL} is available")
     except Exception as exc:
-        raise RuntimeError(
-            f"[llm-vetter] Model {OLLAMA_MODEL} not available at {OLLAMA_HOST}: {exc}. "
+        # Non-fatal at startup: Ollama may still be pulling the model or warming up.
+        # The model is only required when a vet request arrives.
+        print(
+            f"[llm-vetter] WARNING: Model {OLLAMA_MODEL} not available at {OLLAMA_HOST}: {exc}. "
             f"Pull it with: docker compose exec ollama ollama pull {OLLAMA_MODEL}"
-        ) from exc
+        )
 
 
 app = FastAPI(title="llm-vetter", lifespan=lifespan)
@@ -192,14 +194,21 @@ async def _run_vet(run_id: str, trace_id: str, source_ranking_run_id: str) -> No
     started_at = datetime.now(timezone.utc)
 
     async with engine.begin() as conn:
+        sid_row = await conn.execute(
+            text("SELECT strategy_id FROM ranking_runs WHERE run_id = :rid"),
+            {"rid": source_ranking_run_id},
+        )
+        sid_result = sid_row.fetchone()
+        source_strategy_id = sid_result.strategy_id if sid_result else "unknown"
+
         await conn.execute(
             text(
                 "INSERT INTO vetter_runs "
                 "(run_id, trace_id, source_ranking_run_id, strategy_id, model, status, started_at) "
-                "VALUES (:rid, :tid, :src, 'llm-vetter', :model, 'running', :now)"
+                "VALUES (:rid, :tid, :src, :sid, :model, 'running', :now)"
             ),
             {"rid": run_id, "tid": trace_id, "src": source_ranking_run_id,
-             "model": OLLAMA_MODEL, "now": started_at},
+             "sid": source_strategy_id, "model": OLLAMA_MODEL, "now": started_at},
         )
         await conn.execute(
             text(

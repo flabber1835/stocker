@@ -117,7 +117,7 @@ async def fetch_av_earnings_calendar(
 
     ticker_set = set(tickers)
     result: dict[str, str | None] = {t: None for t in tickers}
-    cutoff = date.today() + timedelta(days=45)
+    cutoff = date.today() + timedelta(days=90)
 
     async with httpx.AsyncClient(timeout=30) as client:
         try:

@@ -6,10 +6,16 @@ def greedy_select(
     scores: pd.Series,
     cov: pd.DataFrame,
     target: int = 30,
+    sector_map: dict[str, str] | None = None,
+    max_sector_weight: float = 1.0,
 ) -> list[dict]:
     """
     Greedy portfolio construction: pick tickers that maximise
     candidate_score / hypothetical_portfolio_vol one at a time.
+
+    Sector cap: when sector_map and max_sector_weight are provided, any candidate
+    that would push a sector past the cap under equal-weight assumptions is skipped.
+    The cap is enforced as a hard constraint during selection, not post-hoc.
 
     Two traps handled:
       1. Negative z-scores: shift all scores to be strictly positive before
@@ -22,14 +28,34 @@ def greedy_select(
     base = (scores - min_s + 1.0) if min_s <= 0 else scores.copy()
 
     portfolio: list[str] = []
+    sector_counts: dict[str, int] = {}
     available = list(base.index)
     result: list[dict] = []
 
+    def _sector_ok(candidate: str, current_size: int) -> bool:
+        if sector_map is None or max_sector_weight >= 1.0:
+            return True
+        sector = sector_map.get(candidate)
+        if not sector:
+            return True
+        new_size = current_size + 1
+        new_count = sector_counts.get(sector, 0) + 1
+        return (new_count / new_size) <= max_sector_weight
+
     # First pick: highest standalone score — no covariance context yet
-    first = str(base.idxmax())
+    first_candidates = [t for t in [str(base.idxmax())] + list(base.sort_values(ascending=False).index)
+                        if _sector_ok(t, 0)]
+    if not first_candidates:
+        return result
+    first = first_candidates[0]
+
     standalone_var = max(float(cov.loc[first, first]), 1e-12)
     standalone_vol = float(np.sqrt(standalone_var))
     portfolio.append(first)
+    if sector_map:
+        s = sector_map.get(first)
+        if s:
+            sector_counts[s] = sector_counts.get(s, 0) + 1
     available.remove(first)
     result.append({
         "ticker": first,
@@ -52,6 +78,8 @@ def greedy_select(
         w = np.ones(n) / n
 
         for candidate in available:
+            if not _sector_ok(candidate, len(portfolio)):
+                continue
             test = portfolio + [candidate]
             sub = cov.loc[test, test].values
             port_vol = float(np.sqrt(max(float(w @ sub @ w), 1e-12)))
@@ -61,7 +89,14 @@ def greedy_select(
                 best_candidate = candidate
                 best_vol = port_vol
 
+        if best_candidate is None:
+            break
+
         portfolio.append(best_candidate)
+        if sector_map:
+            s = sector_map.get(best_candidate)
+            if s:
+                sector_counts[s] = sector_counts.get(s, 0) + 1
         available.remove(best_candidate)
         result.append({
             "ticker": best_candidate,

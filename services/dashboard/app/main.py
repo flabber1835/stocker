@@ -125,6 +125,8 @@ async def vetter_exclusions(run_id: str):
 async def _safe_fetch(coro, fallback):
     try:
         return await asyncio.wait_for(coro, timeout=5.0)
+    except asyncio.TimeoutError:
+        return fallback
     except Exception:
         return fallback
 
