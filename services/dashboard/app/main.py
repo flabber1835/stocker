@@ -160,15 +160,24 @@ async def pipeline_status():
         async def fetch_portfolio():
             return await client.get(f"{API_URL}/portfolio")
 
-        r0, r1, r2, r3 = await asyncio.gather(
-            _safe_fetch(fetch_universe(),  {"error": "timeout"}),
-            _safe_fetch(fetch_rankings(),  {"error": "timeout"}),
-            _safe_fetch(fetch_vetter(),    {"error": "timeout"}),
-            _safe_fetch(fetch_portfolio(), {"error": "timeout"}),
+        async def fetch_data_latest():
+            return await client.get(f"{AV_INGESTOR_URL}/runs/latest")
+
+        async def fetch_factors_latest():
+            return await client.get(f"{FACTOR_ENGINE_URL}/runs/latest")
+
+        r0, r1, r2, r3, r4, r5 = await asyncio.gather(
+            _safe_fetch(fetch_universe(),       {"error": "timeout"}),
+            _safe_fetch(fetch_rankings(),       {"error": "timeout"}),
+            _safe_fetch(fetch_vetter(),         {"error": "timeout"}),
+            _safe_fetch(fetch_portfolio(),      {"error": "timeout"}),
+            _safe_fetch(fetch_data_latest(),    {"error": "timeout"}),
+            _safe_fetch(fetch_factors_latest(), {"error": "timeout"}),
         )
 
     uni_date = port_date = rank_date = None
     vetter_info = None
+    rank_chain_running = None  # name of the currently-running rank chain step, if any
 
     if not isinstance(r0, dict) and r0.status_code == 200:
         snap = r0.json().get("snapshot") or {}
@@ -186,11 +195,22 @@ async def pipeline_status():
         run = r3.json().get("run") or {}
         port_date = run.get("portfolio_date")
 
+    if not isinstance(r4, dict) and r4.status_code == 200:
+        d = r4.json()
+        if d.get("status") == "running":
+            rank_chain_running = "data"
+
+    if rank_chain_running is None and not isinstance(r5, dict) and r5.status_code == 200:
+        d = r5.json()
+        if d.get("status") == "running":
+            rank_chain_running = "factors"
+
     return {
-        "universe_date": uni_date,
-        "rank_date":     rank_date,
-        "vetter":        vetter_info,
-        "portfolio_date": port_date,
+        "universe_date":      uni_date,
+        "rank_date":          rank_date,
+        "vetter":             vetter_info,
+        "portfolio_date":     port_date,
+        "rank_chain_running": rank_chain_running,
     }
 
 
@@ -1340,15 +1360,28 @@ async function loadPipelineStatus(){
     const d = await fetch('/api/pipeline-status').then(r=>r.json());
     _pipelineStatus = d;
 
-    const uniDate  = d.universe_date  || null;
-    const rankDate = d.rank_date      || null;
-    const vetter   = d.vetter         || null;
-    const portDate = d.portfolio_date || null;
+    const uniDate          = d.universe_date      || null;
+    const rankDate         = d.rank_date          || null;
+    const vetter           = d.vetter             || null;
+    const portDate         = d.portfolio_date     || null;
+    const rankChainRunning = d.rank_chain_running || null; // 'data' | 'factors' | null
 
     // Update last-run dates in job panels
-    if(uniDate)  { $('uni-last-date').textContent  = uniDate;  if(!_jobPolls['universe'])                    { _setBadge('universe',  'DONE','success'); _setJobPanel('universe','success');  _setProgress('universe',  100); } }
-    if(rankDate) { $('rank-last-date').textContent = rankDate; if(!_jobPolls['rank'] && !_rankChainResuming) { _setBadge('rank',      'DONE','success'); _setJobPanel('rank','success');      _setProgress('rank',      100); } }
-    if(portDate) { $('port-last-date').textContent = portDate; if(!_jobPolls['portfolio'])                   { _setBadge('portfolio', 'DONE','success'); _setJobPanel('portfolio','success');  _setProgress('portfolio', 100); } }
+    if(uniDate)  { $('uni-last-date').textContent  = uniDate;  if(!_jobPolls['universe'])                                         { _setBadge('universe',  'DONE','success'); _setJobPanel('universe','success');  _setProgress('universe',  100); } }
+    if(rankDate) { $('rank-last-date').textContent = rankDate; if(!_jobPolls['rank'] && !_rankChainResuming && !rankChainRunning) { _setBadge('rank',      'DONE','success'); _setJobPanel('rank','success');      _setProgress('rank',      100); } }
+    if(portDate) { $('port-last-date').textContent = portDate; if(!_jobPolls['portfolio'])                                        { _setBadge('portfolio', 'DONE','success'); _setJobPanel('portfolio','success');  _setProgress('portfolio', 100); } }
+
+    // If a rank chain step is running in another browser, reflect it here immediately
+    // before _resumeRankChain() kicks in asynchronously below.
+    if(rankChainRunning && !_jobPolls['rank'] && !_rankChainResuming){
+      const label = rankChainRunning === 'data' ? 'FETCHING DATA' : 'CALC FACTORS';
+      const pct   = rankChainRunning === 'data' ? 15 : 40;
+      _setBadge('rank', label, 'running');
+      _setJobPanel('rank', 'running');
+      _setProgress('rank', pct);
+      const btn = $('rank-start');
+      if(btn) btn.disabled = true;
+    }
 
     if(vetter){
       const vetDate = (vetter.completed_at || vetter.started_at || '').slice(0,10);
