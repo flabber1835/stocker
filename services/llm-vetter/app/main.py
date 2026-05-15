@@ -322,7 +322,7 @@ async def _do_vet(
         )
 
     # ── Step 3: vet each ticker individually ─────────────────────────────────
-    client = OllamaClient(host=OLLAMA_HOST, timeout=120)
+    client = OllamaClient(host=OLLAMA_HOST, timeout=600)
     exclusions: list[dict] = []
 
     for i, c in enumerate(candidates):
