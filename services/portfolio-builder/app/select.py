@@ -32,19 +32,22 @@ def greedy_select(
     available = list(base.index)
     result: list[dict] = []
 
-    def _sector_ok(candidate: str, current_size: int) -> bool:
+    def _sector_ok(candidate: str) -> bool:
         if sector_map is None or max_sector_weight >= 1.0:
             return True
         sector = sector_map.get(candidate)
         if not sector:
             return True
-        new_size = current_size + 1
+        # Measure concentration against the target size, not the current interim
+        # size. A 30% cap on a 30-stock portfolio means ≤9 stocks per sector.
+        # Using current_size+1 as denominator makes the constraint unsatisfiable
+        # at small portfolio sizes (e.g. 1/2=50% > 30%), terminating selection early.
         new_count = sector_counts.get(sector, 0) + 1
-        return (new_count / new_size) <= max_sector_weight
+        return (new_count / target) <= max_sector_weight
 
     # First pick: highest standalone score — no sector cap on position 1
     # (a single stock cannot violate a concentration limit by definition)
-    first_candidates = list(base.sort_values(ascending=False).index)
+    first_candidates = [t for t in base.sort_values(ascending=False).index if _sector_ok(t)]
     if not first_candidates:
         return result
     first = first_candidates[0]
@@ -78,7 +81,7 @@ def greedy_select(
         w = np.ones(n) / n
 
         for candidate in available:
-            if not _sector_ok(candidate, len(portfolio)):
+            if not _sector_ok(candidate):
                 continue
             test = portfolio + [candidate]
             sub = cov.loc[test, test].values
