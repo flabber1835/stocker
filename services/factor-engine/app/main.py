@@ -773,6 +773,35 @@ async def get_current_regime():
     }
 
 
+@app.get("/runs/latest")
+async def get_latest_run():
+    async with engine.connect() as conn:
+        row = await conn.execute(
+            text(
+                "SELECT run_id, trace_id, strategy_id, config_hash, status, regime, "
+                "       score_date, ticker_count, warning_count, started_at, completed_at, error_message "
+                "FROM factor_runs ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+            )
+        )
+        result = row.fetchone()
+    if result is None:
+        return {"run_id": None, "status": "no_runs"}
+    return {
+        "run_id": str(result.run_id),
+        "trace_id": str(result.trace_id) if result.trace_id else None,
+        "strategy_id": result.strategy_id,
+        "config_hash": result.config_hash,
+        "status": result.status,
+        "regime": result.regime,
+        "score_date": str(result.score_date) if result.score_date else None,
+        "ticker_count": result.ticker_count,
+        "warning_count": result.warning_count,
+        "started_at": result.started_at.isoformat() if result.started_at else None,
+        "completed_at": result.completed_at.isoformat() if result.completed_at else None,
+        "error_message": result.error_message,
+    }
+
+
 @app.get("/runs/{run_id}")
 async def get_run(run_id: str):
     async with engine.connect() as conn:
