@@ -207,6 +207,28 @@ async def get_run(run_id: str):
     }
 
 
+@app.get("/runs/latest")
+async def get_latest_run():
+    async with engine.connect() as conn:
+        row = await conn.execute(
+            text(
+                "SELECT run_id, job_type, status, ticker_count, price_rows, fund_rows, "
+                "       error_count, error_message, started_at, completed_at "
+                "FROM ingest_runs ORDER BY started_at DESC LIMIT 1"
+            )
+        )
+        result = row.mappings().first()
+    if result is None:
+        raise HTTPException(status_code=404, detail="No ingest runs yet")
+    return {
+        "run_id": str(result["run_id"]),
+        "job_type": result["job_type"],
+        "status": result["status"],
+        "started_at": result["started_at"].isoformat() if result["started_at"] else None,
+        "completed_at": result["completed_at"].isoformat() if result["completed_at"] else None,
+    }
+
+
 @app.get("/status")
 async def status():
     async with SessionLocal() as session:
