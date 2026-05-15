@@ -389,7 +389,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
                     if pd.isna(row.get(f)) and weights_used.get(f, 0) > 0
                 ])
                 if null_weighted:
-                    max_drift = max(abs(w / w_sum - w) for f, w in available.items())
+                    max_drift = max(abs(w / w_sum - w) for w in available.values())
                     if max_drift > 0.02:  # only surface if any single factor shifts by >2 pp
                         weight_drift_tickers.append({
                             "ticker": str(row["ticker"]),

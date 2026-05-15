@@ -130,17 +130,23 @@ def compute_value(fundamentals: pd.DataFrame) -> pd.Series:
     ey_w = _winsorize(ey_valid) if not ey_valid.empty else ey_valid
     by_w = _winsorize(by_valid) if not by_valid.empty else by_valid
 
-    earnings_yield_final = earnings_yield.copy()
-    earnings_yield_final.loc[ey_w.index] = ey_w
-    book_yield_final = book_yield.copy()
-    book_yield_final.loc[by_w.index] = by_w
+    # Component z-score each yield before averaging so earnings_yield (~0.07)
+    # and book_yield (~0.67) contribute equal weight instead of book_yield
+    # dominating at ~10x the raw scale.
+    ey_z = _component_zscore(ey_w) if not ey_w.empty else ey_w
+    by_z = _component_zscore(by_w) if not by_w.empty else by_w
 
     all_tickers = fund.index
-    components = pd.DataFrame({
-        "earnings_yield": earnings_yield_final.reindex(all_tickers),
-        "book_yield": book_yield_final.reindex(all_tickers),
-    })
-    result = components.mean(axis=1, skipna=True)
+    components = pd.DataFrame(index=all_tickers)
+    if not ey_z.empty:
+        components["earnings_yield"] = ey_z.reindex(all_tickers)
+    if not by_z.empty:
+        components["book_yield"] = by_z.reindex(all_tickers)
+
+    if components.empty:
+        result = pd.Series(np.nan, index=all_tickers)
+    else:
+        result = components.mean(axis=1, skipna=True)
     result.name = "value"
     return result
 

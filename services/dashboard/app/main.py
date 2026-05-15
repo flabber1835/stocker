@@ -150,9 +150,9 @@ async def _safe_fetch(coro, fallback):
     try:
         return await asyncio.wait_for(coro, timeout=5.0)
     except asyncio.TimeoutError:
-        return {"error": "timeout"}
-    except Exception as exc:
-        return {"error": f"fetch_failed:{type(exc).__name__}"}
+        return fallback
+    except Exception:
+        return fallback
 
 
 @app.get("/api/pipeline-status")

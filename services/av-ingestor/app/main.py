@@ -33,7 +33,7 @@ _TICKER_RE = re.compile(r'^[A-Z0-9.\-]{1,10}$')
 engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
-BENCHMARK_TICKERS = ("SPY", "QQQ")
+BENCHMARK_TICKERS = ("SPY", "QQQ", "IWM", "SOXX")
 
 
 def _coverage(ok: int, total: int) -> Optional[float]:
@@ -145,8 +145,21 @@ async def health():
     return {"status": "ok", "service": "av-ingestor"}
 
 
+async def _assert_no_running_job() -> None:
+    async with engine.connect() as conn:
+        row = await conn.execute(
+            text("SELECT run_id FROM ingest_runs WHERE status='running' LIMIT 1")
+        )
+        if row.fetchone() is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Another ingest job is already running. Wait for it to complete.",
+            )
+
+
 @app.post("/jobs/fetch-universe")
 async def fetch_universe(background_tasks: BackgroundTasks):
+    await _assert_no_running_job()
     run_id = str(uuid.uuid4())
     background_tasks.add_task(_run_fetch_universe, run_id)
     return {"status": "started", "job": "fetch-universe", "run_id": run_id}
@@ -154,6 +167,7 @@ async def fetch_universe(background_tasks: BackgroundTasks):
 
 @app.post("/jobs/fetch-data")
 async def fetch_data(background_tasks: BackgroundTasks):
+    await _assert_no_running_job()
     tickers, snapshot_id = await _get_universe_tickers()
     run_id = str(uuid.uuid4())
     background_tasks.add_task(_run_fetch_data, run_id, tickers)
@@ -162,6 +176,7 @@ async def fetch_data(background_tasks: BackgroundTasks):
 
 @app.post("/jobs/fetch-prices")
 async def fetch_prices(background_tasks: BackgroundTasks):
+    await _assert_no_running_job()
     tickers, snapshot_id = await _get_universe_tickers()
     run_id = str(uuid.uuid4())
     background_tasks.add_task(_run_fetch_prices, run_id, tickers)
@@ -170,10 +185,33 @@ async def fetch_prices(background_tasks: BackgroundTasks):
 
 @app.post("/jobs/fetch-fundamentals")
 async def fetch_fundamentals(background_tasks: BackgroundTasks):
+    await _assert_no_running_job()
     tickers, snapshot_id = await _get_universe_tickers()
     run_id = str(uuid.uuid4())
     background_tasks.add_task(_run_fetch_fundamentals, run_id, tickers)
     return {"status": "started", "job": "fetch-fundamentals", "run_id": run_id, "snapshot_id": snapshot_id}
+
+
+@app.get("/runs/latest")
+async def get_latest_run():
+    async with engine.connect() as conn:
+        row = await conn.execute(
+            text(
+                "SELECT run_id, job_type, status, ticker_count, price_rows, fund_rows, "
+                "       error_count, error_message, started_at, completed_at "
+                "FROM ingest_runs ORDER BY started_at DESC LIMIT 1"
+            )
+        )
+        result = row.mappings().first()
+    if result is None:
+        raise HTTPException(status_code=404, detail="No ingest runs yet")
+    return {
+        "run_id": str(result["run_id"]),
+        "job_type": result["job_type"],
+        "status": result["status"],
+        "started_at": result["started_at"].isoformat() if result["started_at"] else None,
+        "completed_at": result["completed_at"].isoformat() if result["completed_at"] else None,
+    }
 
 
 @app.get("/runs/{run_id}")
@@ -202,28 +240,6 @@ async def get_run(run_id: str):
         "error_message": result["error_message"],
         "price_coverage_pct": float(result["price_coverage_pct"]) if result["price_coverage_pct"] is not None else None,
         "fundamental_coverage_pct": float(result["fundamental_coverage_pct"]) if result["fundamental_coverage_pct"] is not None else None,
-        "started_at": result["started_at"].isoformat() if result["started_at"] else None,
-        "completed_at": result["completed_at"].isoformat() if result["completed_at"] else None,
-    }
-
-
-@app.get("/runs/latest")
-async def get_latest_run():
-    async with engine.connect() as conn:
-        row = await conn.execute(
-            text(
-                "SELECT run_id, job_type, status, ticker_count, price_rows, fund_rows, "
-                "       error_count, error_message, started_at, completed_at "
-                "FROM ingest_runs ORDER BY started_at DESC LIMIT 1"
-            )
-        )
-        result = row.mappings().first()
-    if result is None:
-        raise HTTPException(status_code=404, detail="No ingest runs yet")
-    return {
-        "run_id": str(result["run_id"]),
-        "job_type": result["job_type"],
-        "status": result["status"],
         "started_at": result["started_at"].isoformat() if result["started_at"] else None,
         "completed_at": result["completed_at"].isoformat() if result["completed_at"] else None,
     }
@@ -318,6 +334,9 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                       price_rows=0, fund_rows=0, error_count=0)
 
     price_ok = price_rows_written = fund_ok = err_count = 0
+    # avg_dollar_volume_20d computed from the last 20 price rows for each ticker,
+    # since AV OVERVIEW does not reliably provide this field.
+    _ticker_avg_dv: dict[str, float] = {}
     client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA)
     try:
         for i, ticker in enumerate(price_tickers):
@@ -348,6 +367,10 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                             )
                     price_rows_written += len(rows)
                     price_ok += 1
+                    last_20 = sorted(rows, key=lambda r: r["date"])[-20:]
+                    dv_vals = [(r["close"] or 0) * (r["volume"] or 0) for r in last_20]
+                    if dv_vals:
+                        _ticker_avg_dv[ticker] = sum(dv_vals) / len(dv_vals)
                     print(f"[fetch-data] {ticker} prices: {len(rows)} rows {label}")
                 else:
                     print(f"[fetch-data] {ticker} prices: no data {label}")
@@ -359,6 +382,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                 try:
                     overview = await client.get_overview(ticker)
                     if overview:
+                        overview["avg_volume"] = _ticker_avg_dv.get(ticker)
                         async with SessionLocal() as session:
                             async with session.begin():
                                 await session.execute(
@@ -392,8 +416,8 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                                   price_rows=price_rows_written, fund_rows=fund_ok,
                                   error_count=err_count)
         status = "partial_success" if err_count > 0 else "success"
-        pcp = _coverage(price_ok, len(price_tickers))       # tickers with any rows / total tickers
-        fcp = _coverage(fund_ok, len(fundamental_tickers))  # tickers with fundamentals / total
+        pcp = _coverage(price_ok, len(price_tickers))
+        fcp = _coverage(fund_ok, len(fundamental_tickers))
         await _finish_run(run_id, status,
                           ticker_count=len(price_tickers), price_rows=price_rows_written,
                           fund_rows=fund_ok, error_count=err_count,
@@ -465,7 +489,7 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
                                   tickers_done=i + 1, total_tickers=len(all_tickers),
                                   price_rows=rows_written, error_count=err_count)
         status = "partial_success" if err_count > 0 else "success"
-        pcp = _coverage(tickers_ok, len(all_tickers))  # tickers with any rows / total tickers
+        pcp = _coverage(tickers_ok, len(all_tickers))
         await _finish_run(run_id, status,
                           ticker_count=len(all_tickers), price_rows=rows_written, error_count=err_count,
                           price_coverage_pct=pcp)
@@ -507,6 +531,20 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
                 if not overview:
                     print(f"[fetch-fundamentals] {ticker}: no data returned")
                 else:
+                    # Compute avg_dollar_volume_20d from existing price data
+                    async with engine.connect() as conn:
+                        dv_row = await conn.execute(
+                            text(
+                                "SELECT AVG(close * volume) FROM ("
+                                "  SELECT close, volume FROM daily_prices "
+                                "  WHERE ticker = :ticker ORDER BY date DESC LIMIT 20"
+                                ") t"
+                            ),
+                            {"ticker": ticker},
+                        )
+                        dv_val = dv_row.scalar()
+                    overview["avg_volume"] = float(dv_val) if dv_val is not None else None
+
                     async with SessionLocal() as session:
                         async with session.begin():
                             await session.execute(

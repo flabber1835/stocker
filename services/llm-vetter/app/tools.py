@@ -68,7 +68,7 @@ async def fetch_av_news(
                 log.warning("AV news fetch failed: %s", exc)
                 continue
 
-            # Detect API-level errors returned as JSON (not HTTP errors)
+            # Detect API-level errors/notices returned as JSON (not HTTP errors)
             if "Note" in data or "Information" in data or "Error Message" in data:
                 error_key = next(k for k in ("Note", "Information", "Error Message") if k in data)
                 msg = data[error_key]
@@ -134,7 +134,7 @@ async def fetch_av_earnings_calendar(
 
     ticker_set = set(tickers)
     result: dict[str, str | None] = {t: None for t in tickers}
-    cutoff = date.today() + timedelta(days=45)
+    cutoff = date.today() + timedelta(days=90)
 
     async with httpx.AsyncClient(timeout=30) as client:
         try:

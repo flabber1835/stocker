@@ -44,7 +44,7 @@ IWV_CSV_URL = (
     "?fileType=csv&fileName=IWV_holdings&dataType=fund"
 )
 
-_TICKER_RE = re.compile(r"^[A-Z]{1,5}$")
+_TICKER_RE = re.compile(r"^[A-Z]{1,5}([.\-][A-Z0-9]{1,4})?$")
 
 
 async def download_iwv_holdings(session: httpx.AsyncClient) -> list[dict]:
@@ -134,8 +134,10 @@ def _mock_universe() -> list[dict]:
 
 async def get_benchmark_tickers(session: httpx.AsyncClient) -> list[dict]:
     return [
-        {"ticker": "SPY", "name": "SPDR S&P 500 ETF", "weight_pct": None, "sector": None, "asset_class": "ETF"},
-        {"ticker": "QQQ", "name": "Invesco QQQ Trust", "weight_pct": None, "sector": None, "asset_class": "ETF"},
+        {"ticker": "SPY",  "name": "SPDR S&P 500 ETF",             "weight_pct": None, "sector": None, "asset_class": "ETF"},
+        {"ticker": "QQQ",  "name": "Invesco QQQ Trust",             "weight_pct": None, "sector": None, "asset_class": "ETF"},
+        {"ticker": "IWM",  "name": "iShares Russell 2000 ETF",      "weight_pct": None, "sector": None, "asset_class": "ETF"},
+        {"ticker": "SOXX", "name": "iShares Semiconductor ETF",     "weight_pct": None, "sector": None, "asset_class": "ETF"},
     ]
 
 

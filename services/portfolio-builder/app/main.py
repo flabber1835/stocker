@@ -303,6 +303,26 @@ async def _do_build(
             output_summary={"loaded": len(candidate_tickers), "top_ticker": candidate_tickers[0]},
         )
 
+    # ── Step 2a: apply do-not-buy list ───────────────────────────────────────────────────────────────────────────────────────────────────
+    do_not_buy_set = set(t.upper() for t in (pb_cfg.do_not_buy or []))
+    if do_not_buy_set:
+        dnb_excluded = [t for t in candidate_tickers if t.upper() in do_not_buy_set]
+        candidate_tickers = [t for t in candidate_tickers if t.upper() not in do_not_buy_set]
+        scores_map = {t: v for t, v in scores_map.items() if t.upper() not in do_not_buy_set}
+        rank_map = {t: v for t, v in rank_map.items() if t.upper() not in do_not_buy_set}
+        if dnb_excluded:
+            async with engine.begin() as conn:
+                await _log_step(
+                    conn, trace_id, "apply_do_not_buy", "success",
+                    started_at=t0,
+                    output_summary={
+                        "excluded_count": len(dnb_excluded),
+                        "excluded_tickers": dnb_excluded,
+                        "remaining_candidates": len(candidate_tickers),
+                    },
+                    warnings=[f"do-not-buy list excluded {len(dnb_excluded)} tickers: {dnb_excluded}"],
+                )
+
     # ── Step 2b: apply LLM vetter exclusions ─────────────────────────────────────────────────────────────────────────────────────────────
     vetter_excluded: list[str] = []
     if vetter_run_id:
@@ -442,6 +462,78 @@ async def _do_build(
             warnings=cov_warnings or None,
         )
 
+    # ── Step 4b: apply universe filters (min_price, min_avg_dollar_volume) ──────────────────────────────────────────
+    t0 = datetime.now(timezone.utc)
+    universe_cfg = strategy.universe
+    min_price = universe_cfg.min_price
+    min_avg_dv = universe_cfg.min_avg_dollar_volume_20d
+
+    async with engine.connect() as conn:
+        # Latest closing price per ticker
+        price_filter_rows = await conn.execute(
+            text(
+                "SELECT DISTINCT ON (ticker) ticker, close "
+                "FROM daily_prices WHERE ticker = ANY(:tickers) "
+                "ORDER BY ticker, date DESC"
+            ),
+            {"tickers": available_tickers},
+        )
+        latest_prices = {r.ticker: float(r.close) for r in price_filter_rows.fetchall()}
+
+        # 20-day avg dollar volume from fundamentals (computed during ingestion)
+        avg_dv_rows = await conn.execute(
+            text(
+                "SELECT DISTINCT ON (ticker) ticker, avg_volume "
+                "FROM fundamentals WHERE ticker = ANY(:tickers) "
+                "ORDER BY ticker, as_of_date DESC"
+            ),
+            {"tickers": available_tickers},
+        )
+        avg_dv_map = {r.ticker: float(r.avg_volume) for r in avg_dv_rows.fetchall() if r.avg_volume is not None}
+
+    price_filtered = [t for t in available_tickers if latest_prices.get(t, 0) < min_price]
+    dv_filtered = [t for t in available_tickers if t in avg_dv_map and avg_dv_map[t] < min_avg_dv]
+    universe_filtered = set(price_filtered) | set(dv_filtered)
+
+    if universe_filtered:
+        available_tickers = [t for t in available_tickers if t not in universe_filtered]
+        scores = scores[[t for t in scores.index if t not in universe_filtered]]
+        cov = cov.loc[available_tickers, available_tickers]
+
+    async with engine.begin() as conn:
+        await _log_step(
+            conn, trace_id, "apply_universe_filters", "success",
+            started_at=t0,
+            input_summary={
+                "min_price": min_price,
+                "min_avg_dollar_volume_20d": min_avg_dv,
+            },
+            output_summary={
+                "price_filtered": price_filtered,
+                "dv_filtered": dv_filtered,
+                "remaining": len(available_tickers),
+            },
+            warnings=(
+                [f"{len(universe_filtered)} tickers filtered: price<{min_price} or avg_dv<{min_avg_dv}"]
+                if universe_filtered else None
+            ),
+        )
+
+    # ── Step 4c: load sector data for sector cap enforcement ──────────────────────────────────────────────────────
+    t0 = datetime.now(timezone.utc)
+    async with engine.connect() as conn:
+        sector_rows = await conn.execute(
+            text(
+                "SELECT DISTINCT ON (ut.ticker) ut.ticker, ut.sector "
+                "FROM universe_tickers ut "
+                "JOIN universe_snapshots us ON ut.snapshot_id = us.id "
+                "WHERE ut.ticker = ANY(:tickers) "
+                "ORDER BY ut.ticker, us.snapshot_date DESC"
+            ),
+            {"tickers": available_tickers},
+        )
+        sector_map = {r.ticker: r.sector for r in sector_rows.fetchall() if r.sector}
+
     # ── Step 5: greedy selection ────────────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
 
@@ -454,7 +546,12 @@ async def _do_build(
             scores = scores[pos_tickers]
             cov = cov.loc[pos_tickers, pos_tickers]
 
-    selected = greedy_select(scores, cov, target=pb_cfg.max_positions)
+    selected = greedy_select(
+        scores, cov,
+        target=pb_cfg.max_positions,
+        sector_map=sector_map,
+        max_sector_weight=pb_cfg.max_sector_weight,
+    )
     selected_tickers = [s["ticker"] for s in selected]
     selected_negative_score_count = sum(1 for s in selected if s["composite_score"] < 0)
 
@@ -509,6 +606,8 @@ async def _do_build(
                 "negative_score_excluded": len(negative_excluded),
                 "weighting": pb_cfg.weighting,
                 "max_position_weight": pb_cfg.max_position_weight,
+                "max_sector_weight": pb_cfg.max_sector_weight,
+                "sector_map_size": len(sector_map),
             },
             output_summary={
                 "selected_count": len(selected),
