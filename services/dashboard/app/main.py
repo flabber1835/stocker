@@ -1431,9 +1431,9 @@ async function loadPipelineStatus(){
     const portDate = d.portfolio_date || null;
 
     // Update last-run dates in job panels
-    if(uniDate)  { $('uni-last-date').textContent  = uniDate;  _setBadge('universe',  'DONE','success'); _setJobPanel('universe','success'); }
-    if(rankDate) { $('rank-last-date').textContent = rankDate; _setBadge('rank',      'DONE','success'); _setJobPanel('rank','success'); }
-    if(portDate) { $('port-last-date').textContent = portDate; _setBadge('portfolio', 'DONE','success'); _setJobPanel('portfolio','success'); }
+    if(uniDate)  { $('uni-last-date').textContent  = uniDate;  _setBadge('universe',  'DONE','success'); _setJobPanel('universe','success');  if(!_jobPolls['universe'])                           _setProgress('universe',  100); }
+    if(rankDate) { $('rank-last-date').textContent = rankDate; _setBadge('rank',      'DONE','success'); _setJobPanel('rank','success');      if(!_jobPolls['rank'] && !_rankChainResuming)         _setProgress('rank',      100); }
+    if(portDate) { $('port-last-date').textContent = portDate; _setBadge('portfolio', 'DONE','success'); _setJobPanel('portfolio','success');  if(!_jobPolls['portfolio'])                          _setProgress('portfolio', 100); }
 
     if(vetter){
       const vetDate = (vetter.completed_at || vetter.started_at || '').slice(0,10);
