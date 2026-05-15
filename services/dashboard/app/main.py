@@ -903,9 +903,8 @@ function switchTab(name, btn){
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   btn.classList.add('active');
   $('pane-'+name).classList.add('active');
-  if(name !== 'vet'){
-    _currentVetterRunId = null;
-  }
+  // _currentVetterRunId is intentionally preserved across tab switches so
+  // approve/reject keep working; loadPipelineStatus updates it as needed.
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -1088,9 +1087,15 @@ function _pollUntilDone(job, runId, pctStart, pctEnd){
   });
 }
 
-function _pollJob(tab, runId){
-  if(_jobPolls[tab]) return;  // already polling this tab — don't double-start
-  let pct = 2;
+function _pollJob(tab, runId, startPct=2){
+  if(_jobPolls[tab]){
+    if(_jobPolls[tab].runId === runId) return;  // same job, already polling
+    // New run_id — clear stale poll so we don't block the new job
+    clearInterval(_jobPolls[tab].incrId);
+    clearInterval(_jobPolls[tab].pollId);
+    delete _jobPolls[tab];
+  }
+  let pct = startPct;
 
   // For the vetter, progress is driven by real ticker data in _loadVetterTickers.
   // For other tabs, use a fake smooth animation since we have no step-level data.
@@ -1326,33 +1331,93 @@ async function _loadVetterTickers(runId, live){
 
 // Resume live polling for any job that is currently running.
 // Called on page load so any browser picks up in-progress jobs automatically.
+// Resume simple tabs (universe, portfolio) that have a running job.
 async function _resumeRunningJobs(){
-  // Simple tabs where we just need run_id + status
-  const simpleTabs = ['universe', 'portfolio'];
-  for(const tab of simpleTabs){
+  for(const tab of ['universe', 'portfolio']){
     try{
       const d = await fetch('/api/jobs/'+tab+'/latest').then(r=>r.json());
       if(d.run_id && d.status === 'running'){
         _setBadge(tab, 'RUNNING', 'running');
         _setJobPanel(tab, 'running');
-        _setProgress(tab, 2);
-        _pollJob(tab, d.run_id);
+        _setProgress(tab, 30);
+        _pollJob(tab, d.run_id, 30);
       }
     }catch(e){ /* service may be down */ }
   }
 
-  // Rank tab uses a chain of factor + ranking runs; resume the ranker run_id
-  try{
-    const d = await fetch('/api/jobs/rank/latest').then(r=>r.json());
-    if(d.run_id && d.status === 'running'){
-      _setBadge('rank', 'RUNNING', 'running');
-      _setJobPanel('rank', 'running');
-      _setProgress('rank', 2);
-      _pollJob('rank', d.run_id);
-    }
-  }catch(e){ /* ignore */ }
+  // Rank chain covers three sequential sub-jobs (data → factors → rank).
+  // Any one of them may be in-flight when a second browser opens.
+  _resumeRankChain();
 
-  // Vetter is handled inside loadPipelineStatus (we already have the run_id there)
+  // Vetter is handled inside loadPipelineStatus (pipeline-status returns its run_id)
+}
+
+// Track whether a rank-chain resume is in progress to prevent loadPipelineStatus
+// from double-starting a second chain watcher.
+let _rankChainResuming = false;
+
+async function _resumeRankChain(){
+  if(_rankChainResuming || _jobPolls['rank']) return;
+  const steps = [
+    {job:'data',    label:'FETCHING DATA', successStatuses:['success','partial_success'], pctStart:2,  pctEnd:33},
+    {job:'factors', label:'CALC FACTORS',  successStatuses:['success','skipped'],         pctStart:33, pctEnd:66},
+    {job:'rank',    label:'RANKING',       successStatuses:['success','skipped'],         pctStart:66, pctEnd:100},
+  ];
+
+  // Find the first step that is currently running.
+  let runningStep = null, runningRunId = null;
+  for(const step of steps){
+    try{
+      const d = await fetch('/api/jobs/'+step.job+'/latest').then(r=>r.json());
+      if(d.run_id && d.status === 'running'){ runningStep = step; runningRunId = d.run_id; break; }
+    }catch(e){}
+  }
+  if(!runningStep) return;
+
+  _rankChainResuming = true;
+  _setBadge('rank', runningStep.label, 'running');
+  _setJobPanel('rank', 'running');
+  _setProgress('rank', runningStep.pctStart + (runningStep.pctEnd - runningStep.pctStart) * 0.3);
+
+  // Wait for the in-flight step to finish, then poll subsequent steps as the
+  // original browser starts them (with a brief wait for handoff).
+  for(let i = steps.indexOf(runningStep); i < steps.length; i++){
+    const step = steps[i];
+    // For the first step we already have the runId; for later steps fetch it.
+    let rid = (i === steps.indexOf(runningStep)) ? runningRunId : null;
+    if(!rid){
+      // Wait up to 15 s for the original browser to POST the next job.
+      for(let attempt = 0; attempt < 6; attempt++){
+        await new Promise(r => setTimeout(r, 2500));
+        try{
+          const d = await fetch('/api/jobs/'+step.job+'/latest').then(r=>r.json());
+          if(d.run_id && d.status === 'running'){ rid = d.run_id; break; }
+          // Already finished before we caught it — that is fine, move on.
+          if(d.run_id && step.successStatuses.includes(d.status)){ rid = null; break; }
+        }catch(e){}
+      }
+    }
+    if(!rid) continue;  // step finished before we caught it; continue to next
+
+    _setBadge('rank', step.label, 'running');
+    _setProgress('rank', step.pctStart);
+    const finalStatus = await _pollUntilDone(step.job, rid, step.pctStart, step.pctEnd);
+    if(!step.successStatuses.includes(finalStatus)){
+      _setProgress('rank', 100, true);
+      _setBadge('rank', 'FAILED', 'failed');
+      _setJobPanel('rank', 'failed');
+      _rankChainResuming = false;
+      return;
+    }
+  }
+
+  _setProgress('rank', 100);
+  _setBadge('rank', 'SUCCESS', 'success');
+  _setJobPanel('rank', 'success');
+  _rankChainResuming = false;
+  loadRegime();
+  loadRankings();
+  setTimeout(loadPipelineStatus, 1000);
 }
 
 async function loadPipelineStatus(){
@@ -1384,7 +1449,7 @@ async function loadPipelineStatus(){
         // Resume live updates in this browser even if it didn't start the job
         _currentVetterRunId = vetter.run_id;
         _setJobPanel('vet', 'running');
-        _pollJob('vet', vetter.run_id);
+        _pollJob('vet', vetter.run_id, 30);
         _startVetterTickerPoll(vetter.run_id);
       } else if(vetter.status === 'success' && vetter.run_id){
         _setJobPanel('vet','success');
@@ -1410,6 +1475,24 @@ async function loadPipelineStatus(){
     const portWarn = rankDate && portDate && rankDate > portDate;
     $('port-warning').style.display = portWarn ? 'block' : 'none';
     _setTabWarn('tab-portfolio', portWarn);
+
+    // Self-heal: if no poll is registered for a simple tab, check whether a job
+    // is running (catches jobs that started after this browser opened).
+    for(const tab of ['universe', 'portfolio']){
+      if(_jobPolls[tab]) continue;
+      fetch('/api/jobs/'+tab+'/latest').then(r=>r.json()).then(d=>{
+        if(d.run_id && d.status === 'running'){
+          _setBadge(tab, 'RUNNING', 'running');
+          _setJobPanel(tab, 'running');
+          _setProgress(tab, 30);
+          _pollJob(tab, d.run_id, 30);
+        }
+      }).catch(()=>{});
+    }
+    // Self-heal rank chain (skip if a chain resume is already in progress)
+    if(!_jobPolls['rank'] && !_rankChainResuming){
+      _resumeRankChain();
+    }
 
   }catch(e){
     console.warn('pipeline-status error', e);
