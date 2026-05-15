@@ -42,9 +42,9 @@ def greedy_select(
         new_count = sector_counts.get(sector, 0) + 1
         return (new_count / new_size) <= max_sector_weight
 
-    # First pick: highest standalone score — no covariance context yet
-    first_candidates = [t for t in [str(base.idxmax())] + list(base.sort_values(ascending=False).index)
-                        if _sector_ok(t, 0)]
+    # First pick: highest standalone score — no sector cap on position 1
+    # (a single stock cannot violate a concentration limit by definition)
+    first_candidates = list(base.sort_values(ascending=False).index)
     if not first_candidates:
         return result
     first = first_candidates[0]
