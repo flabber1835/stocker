@@ -28,7 +28,7 @@ ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
 
 CHECKPOINT_EVERY = 100
 
-_TICKER_RE = re.compile(r"^[A-Z]{1,5}([.\-][A-Z0-9]{1,4})?$")
+_TICKER_RE = re.compile(r'^[A-Z0-9.\-]{1,10}$')
 
 engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
@@ -199,7 +199,7 @@ async def get_latest_run():
             text(
                 "SELECT run_id, job_type, status, ticker_count, price_rows, fund_rows, "
                 "       error_count, error_message, started_at, completed_at "
-                "FROM ingest_runs ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+                "FROM ingest_runs ORDER BY started_at DESC LIMIT 1"
             )
         )
         result = row.mappings().first()
@@ -368,7 +368,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                     price_rows_written += len(rows)
                     price_ok += 1
                     last_20 = sorted(rows, key=lambda r: r["date"])[-20:]
-                    dv_vals = [(r["adjusted_close"] or 0) * (r["volume"] or 0) for r in last_20]
+                    dv_vals = [(r["close"] or 0) * (r["volume"] or 0) for r in last_20]
                     if dv_vals:
                         _ticker_avg_dv[ticker] = sum(dv_vals) / len(dv_vals)
                     print(f"[fetch-data] {ticker} prices: {len(rows)} rows {label}")
@@ -535,8 +535,8 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
                     async with engine.connect() as conn:
                         dv_row = await conn.execute(
                             text(
-                                "SELECT AVG(adjusted_close * volume) FROM ("
-                                "  SELECT adjusted_close, volume FROM daily_prices "
+                                "SELECT AVG(close * volume) FROM ("
+                                "  SELECT close, volume FROM daily_prices "
                                 "  WHERE ticker = :ticker ORDER BY date DESC LIMIT 20"
                                 ") t"
                             ),

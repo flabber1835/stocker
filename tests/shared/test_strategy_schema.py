@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 from stock_strategy_shared.schemas.strategy import (
-    StrategyConfig, FactorWeights, RegimeDetectionConfig, RegimeCondition,
+    StrategyConfig, FactorWeights, RegimeDetectionConfig, RegimeCondition, VetterConfig,
 )
 
 VALID_REGIME_DETECTION = {
@@ -79,3 +79,41 @@ def test_universe_config_defaults():
     assert cfg.universe.min_price == 5.0
     assert cfg.universe.min_avg_dollar_volume_20d == 20_000_000
     assert cfg.universe.etf_ticker == "IWV"
+
+
+# ── VetterConfig ──────────────────────────────────────────────────────────────
+
+def test_vetter_config_defaults():
+    cfg = VetterConfig()
+    assert cfg.candidate_count == 50
+    assert cfg.conviction_max_boost == 0.25
+    assert cfg.conviction_boosts == {"high": 0.25, "medium": 0.12, "low": 0.05, "none": 0.0}
+
+
+def test_vetter_config_custom_boosts():
+    cfg = VetterConfig(conviction_boosts={"high": 0.20, "medium": 0.10, "low": 0.03, "none": 0.0})
+    assert cfg.conviction_boosts["high"] == 0.20
+
+
+def test_vetter_config_unknown_boost_key_raises():
+    with pytest.raises(ValidationError, match="unknown keys"):
+        VetterConfig(conviction_boosts={"high": 0.20, "extreme": 0.50, "none": 0.0})
+
+
+def test_vetter_config_boost_value_out_of_range_raises():
+    with pytest.raises(ValidationError, match="outside \\[0, 1\\]"):
+        VetterConfig(conviction_boosts={"high": 1.5, "medium": 0.10, "low": 0.05, "none": 0.0})
+
+
+def test_vetter_config_in_strategy_config():
+    cfg = make_config(vetter={"candidate_count": 75, "conviction_max_boost": 0.30,
+                              "conviction_boosts": {"high": 0.30, "medium": 0.15, "low": 0.05, "none": 0.0}})
+    assert cfg.vetter.candidate_count == 75
+    assert cfg.vetter.conviction_max_boost == 0.30
+
+
+def test_vetter_config_max_boost_range():
+    with pytest.raises(ValidationError):
+        VetterConfig(conviction_max_boost=1.5)
+    with pytest.raises(ValidationError):
+        VetterConfig(conviction_max_boost=-0.1)
