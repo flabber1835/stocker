@@ -112,17 +112,7 @@ async def job_status(tab: str, run_id: str):
         return JSONResponse(content={"error": str(exc)}, status_code=502)
 
 
-# ── Vetter approval/exclusions ────────────────────────────────────────────────
-
-@app.post("/api/vetter/approve/{run_id}")
-async def vetter_approve(run_id: str):
-    return await _proxy_post(f"{VETTER_URL}/runs/{run_id}/approve")
-
-
-@app.post("/api/vetter/reject/{run_id}")
-async def vetter_reject(run_id: str):
-    return await _proxy_post(f"{VETTER_URL}/runs/{run_id}/reject")
-
+# ── Vetter exclusions ─────────────────────────────────────────────────────────
 
 @app.get("/api/vetter/exclusions/{run_id}")
 async def vetter_exclusions(run_id: str):
@@ -467,26 +457,7 @@ select option{background:var(--panel2)}
   text-transform:uppercase;
 }
 .btn:hover{border-color:var(--cyan);color:var(--cyan);box-shadow:var(--glow-sm)}
-.btn-approve{
-  background:transparent;
-  border:1px solid var(--green);
-  color:var(--green);
-  font-family:inherit;font-size:.72rem;
-  letter-spacing:.15em;padding:8px 18px;
-  cursor:pointer;transition:all .2s;
-  text-transform:uppercase;
-}
-.btn-approve:hover{box-shadow:0 0 8px rgba(0,255,157,0.5)}
-.btn-reject{
-  background:transparent;
-  border:1px solid var(--red);
-  color:var(--red);
-  font-family:inherit;font-size:.72rem;
-  letter-spacing:.15em;padding:8px 18px;
-  cursor:pointer;transition:all .2s;
-  text-transform:uppercase;
-}
-.btn-reject:hover{box-shadow:0 0 8px rgba(255,45,85,0.5)}
+
 .badge-count{
   margin-left:auto;font-size:.7rem;
   color:var(--muted);letter-spacing:.1em;
@@ -581,17 +552,7 @@ td{padding:9px 14px;white-space:nowrap}
   font-size:.62rem;letter-spacing:.12em;color:var(--yellow);
   animation:pulse 1.2s infinite;vertical-align:middle;
 }
-.vetter-actions{
-  display:none;
-  align-items:center;gap:14px;
-  padding:14px 0 0;
-  border-top:1px solid var(--border);
-  margin-top:14px;
-}
-.vetter-approved{
-  color:var(--green);text-shadow:0 0 8px rgba(0,255,157,0.5);
-  font-size:.8rem;letter-spacing:.15em;
-}
+
 .loading,.error{
   text-align:center;padding:64px 20px;
   font-size:.82rem;letter-spacing:.2em;
@@ -764,7 +725,6 @@ footer span{color:var(--cyan)}
     <div class="stat"><div class="lbl">Candidates Reviewed</div><div class="val" id="v-candidates">&#8212;</div></div>
     <div class="stat"><div class="lbl">Flagged for Exclusion</div><div class="val orange" id="v-flagged">&#8212;</div></div>
     <div class="stat"><div class="lbl">Run Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="v-date">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Approval</div><div class="val" style="font-size:1rem;padding-top:4px" id="v-approved">&#8212;</div></div>
   </div>
   <!-- Live per-ticker analysis feed -->
   <div id="v-ticker-analysis" style="display:none;margin-top:6px">
@@ -813,14 +773,6 @@ footer span{color:var(--cyan)}
           <tr><td colspan="4" class="loading">LOADING EXCLUSIONS</td></tr>
         </tbody>
       </table>
-    </div>
-    <div class="vetter-actions" id="v-actions">
-      <button class="btn-approve" onclick="vetterApprove()">&#10003; APPROVE EXCLUSIONS</button>
-      <button class="btn-reject" onclick="vetterReject()">&#215; REJECT / OVERRIDE</button>
-      <span style="color:var(--muted);font-size:.72rem">Approving locks these exclusions for the next portfolio build.</span>
-    </div>
-    <div id="v-approved-msg" style="display:none;padding-top:14px">
-      <span class="vetter-approved">&#10003; EXCLUSIONS APPROVED — ready to build portfolio</span>
     </div>
   </div>
 </div>
@@ -894,7 +846,7 @@ const _jobPolls = {};
 // Pipeline dates for staleness checks
 let _pipelineStatus = {};
 
-// Current vetter run id (for approve/reject)
+// Current vetter run id (for live ticker polling)
 let _currentVetterRunId = null;
 
 // ── Tabs ─────────────────────────────────────────────────────────────────────
@@ -903,8 +855,8 @@ function switchTab(name, btn){
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   btn.classList.add('active');
   $('pane-'+name).classList.add('active');
-  // _currentVetterRunId is intentionally preserved across tab switches so
-  // approve/reject keep working; loadPipelineStatus updates it as needed.
+  // _currentVetterRunId is preserved across tab switches so loadPipelineStatus
+  // can resume live ticker polling for the active run.
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -1181,52 +1133,11 @@ async function loadVetterExclusions(runId){
       }).join('');
     }
 
-    // Show approve/reject or already-approved message
-    if(d.approved){
-      $('v-actions').style.display = 'none';
-      $('v-approved-msg').style.display = 'block';
-      $('v-approved').textContent = '✓ APPROVED';
-      $('v-approved').style.color = 'var(--green)';
-    } else {
-      $('v-actions').style.display = 'flex';
-      $('v-approved-msg').style.display = 'none';
-      $('v-approved').textContent = 'PENDING';
-      $('v-approved').style.color = 'var(--yellow)';
-    }
   }catch(e){
     $('v-body').innerHTML = '<tr><td colspan="4" class="error">FAILED TO LOAD EXCLUSIONS</td></tr>';
   }
 }
 
-async function vetterApprove(){
-  if(!_currentVetterRunId) return;
-  try{
-    const r = await fetch('/api/vetter/approve/'+_currentVetterRunId, {method:'POST'});
-    if(!r.ok) throw new Error(r.status);
-    $('v-actions').style.display = 'none';
-    $('v-approved-msg').style.display = 'block';
-    $('v-approved').textContent = '✓ APPROVED';
-    $('v-approved').style.color = 'var(--green)';
-  }catch(e){
-    alert('Approval failed: '+e.message);
-  }
-}
-
-async function vetterReject(){
-  if(!_currentVetterRunId) return;
-  try{
-    const r = await fetch('/api/vetter/reject/'+_currentVetterRunId, {method:'POST'});
-    if(!r.ok) throw new Error(r.status);
-    $('v-approved').textContent = 'REJECTED';
-    $('v-approved').style.color = 'var(--red)';
-    $('v-actions').style.display = 'none';
-    $('v-approved-msg').style.display = 'block';
-    $('v-approved-msg').querySelector('span').textContent = '✕ EXCLUSIONS REJECTED — portfolio will use full ranked list';
-    $('v-approved-msg').querySelector('span').style.color = 'var(--red)';
-  }catch(e){
-    alert('Reject failed: '+e.message);
-  }
-}
 
 function esc(s){
   return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -1446,8 +1357,6 @@ async function loadPipelineStatus(){
       $('v-date').textContent = vetDate || '—';
       if(vetter.candidate_count != null) $('v-candidates').textContent = vetter.candidate_count;
       if(vetter.flagged_count   != null) $('v-flagged').textContent    = vetter.flagged_count;
-      $('v-approved').textContent = vetter.approved ? '✓ APPROVED' : 'PENDING';
-      $('v-approved').style.color = vetter.approved ? 'var(--green)' : 'var(--yellow)';
 
       if(vetter.status === 'running' && vetter.run_id){
         // Resume live updates in this browser even if it didn't start the job
