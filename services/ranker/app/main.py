@@ -119,7 +119,6 @@ async def _write_trace_file(
             json.dump(payload, f, indent=2, default=str)
         print(f"[ranker] trace → {path} ({len(steps)} steps, status={status})")
     except Exception as exc:
-        import traceback
         print(f"[ranker] WARNING: failed to write trace file for {trace_id}: {exc}")
         traceback.print_exc()
 
