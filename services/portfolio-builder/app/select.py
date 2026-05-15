@@ -32,19 +32,20 @@ def greedy_select(
     available = list(base.index)
     result: list[dict] = []
 
-    def _sector_ok(candidate: str, current_size: int) -> bool:
+    def _sector_ok(candidate: str) -> bool:
         if sector_map is None or max_sector_weight >= 1.0:
             return True
         sector = sector_map.get(candidate)
         if not sector:
             return True
-        new_size = current_size + 1
         new_count = sector_counts.get(sector, 0) + 1
-        return (new_count / new_size) <= max_sector_weight
+        # Use target as denominator: k/target <= max_sector_weight is the correct constraint.
+        # Using current_size+1 would block pick 2 in any sector (1/2=0.50 > 0.30).
+        return (new_count / target) <= max_sector_weight
 
     # First pick: highest standalone score — no covariance context yet
     first_candidates = [t for t in [str(base.idxmax())] + list(base.sort_values(ascending=False).index)
-                        if _sector_ok(t, 0)]
+                        if _sector_ok(t)]
     if not first_candidates:
         return result
     first = first_candidates[0]
@@ -78,7 +79,7 @@ def greedy_select(
         w = np.ones(n) / n
 
         for candidate in available:
-            if not _sector_ok(candidate, len(portfolio)):
+            if not _sector_ok(candidate):
                 continue
             test = portfolio + [candidate]
             sub = cov.loc[test, test].values

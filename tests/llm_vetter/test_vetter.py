@@ -183,3 +183,88 @@ async def test_multiple_crashes_still_produces_all_results():
     ok = [r for r in results if not r.get("crashed")]
     assert len(crashed) == 3
     assert len(ok) == 3
+
+
+# ── _detect_hallucination_flags ───────────────────────────────────────────────
+
+from app.vetter import _detect_hallucination_flags
+
+
+def _parsed(exclude=False, confidence="low", risk_type="none", reason="No significant risk identified for this ticker.", positive_catalyst=False):
+    return {
+        "exclude": exclude,
+        "confidence": confidence,
+        "risk_type": risk_type,
+        "reason": reason,
+        "positive_catalyst": positive_catalyst,
+    }
+
+
+def test_no_flags_for_clean_keep():
+    flags = _detect_hallucination_flags("AAPL", _parsed(), news=[], earnings_date=None, raw="{}")
+    assert flags == []
+
+
+def test_exclude_high_confidence_no_data_flagged():
+    flags = _detect_hallucination_flags(
+        "XYZ", _parsed(exclude=True, confidence="high", risk_type="earnings",
+                       reason="XYZ missed Q1 earnings badly and guidance was cut."),
+        news=[], earnings_date=None, raw="{}"
+    )
+    assert any("high confidence" in f for f in flags)
+
+
+def test_exclude_no_data_always_flagged():
+    flags = _detect_hallucination_flags(
+        "XYZ", _parsed(exclude=True, confidence="low", risk_type="governance",
+                       reason="XYZ had governance concerns worth noting."),
+        news=[], earnings_date=None, raw="{}"
+    )
+    assert any("no supporting data" in f.lower() for f in flags)
+
+
+def test_exclude_with_news_not_flagged_for_no_data():
+    news = [{"title": "XYZ Misses Q1 Revenue Estimates by 15%", "summary": "...", "sentiment": "Bearish"}]
+    flags = _detect_hallucination_flags(
+        "XYZ", _parsed(exclude=True, confidence="high", risk_type="earnings",
+                       reason="XYZ missed Q1 earnings badly."),
+        news=news, earnings_date=None, raw="{}"
+    )
+    no_data_flags = [f for f in flags if "no supporting data" in f.lower() or "no news/earnings" in f.lower()]
+    assert no_data_flags == []
+
+
+def test_contradictory_exclude_true_positive_catalyst_flagged():
+    flags = _detect_hallucination_flags(
+        "AAPL", _parsed(exclude=True, confidence="medium", risk_type="macro",
+                        reason="AAPL faces macro headwinds.", positive_catalyst=True),
+        news=[], earnings_date=None, raw="{}"
+    )
+    assert any("positive_catalyst" in f for f in flags)
+
+
+def test_exclude_risk_type_none_flagged():
+    flags = _detect_hallucination_flags(
+        "XYZ", _parsed(exclude=True, confidence="low", risk_type="none",
+                       reason="XYZ has some concerns."),
+        news=[], earnings_date=None, raw="{}"
+    )
+    assert any("risk_type='none'" in f for f in flags)
+
+
+def test_short_reason_flagged():
+    flags = _detect_hallucination_flags(
+        "XYZ", _parsed(reason="Bad."),
+        news=[], earnings_date=None, raw="{}"
+    )
+    assert any("short" in f.lower() for f in flags)
+
+
+def test_no_flag_for_valid_exclude_with_earnings():
+    flags = _detect_hallucination_flags(
+        "XYZ", _parsed(exclude=True, confidence="high", risk_type="earnings",
+                       reason="XYZ is expected to miss Q2 earnings significantly."),
+        news=[], earnings_date="2026-06-01", raw="{}"
+    )
+    no_data_flags = [f for f in flags if "no supporting data" in f.lower() or "no news/earnings" in f.lower()]
+    assert no_data_flags == []

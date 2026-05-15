@@ -72,6 +72,17 @@ class VetterConfig(BaseModel):
         default_factory=lambda: {"high": 0.25, "medium": 0.12, "low": 0.05, "none": 0.0}
     )
 
+    @model_validator(mode="after")
+    def conviction_boosts_keys_valid(self) -> "VetterConfig":
+        allowed = {"high", "medium", "low", "none"}
+        unknown = set(self.conviction_boosts.keys()) - allowed
+        if unknown:
+            raise ValueError(f"conviction_boosts has unknown keys: {unknown}. Allowed: {allowed}")
+        for k, v in self.conviction_boosts.items():
+            if not (0.0 <= v <= 1.0):
+                raise ValueError(f"conviction_boosts['{k}'] = {v} is outside [0, 1]")
+        return self
+
 
 class PortfolioBuilderConfig(BaseModel):
     method: Literal["greedy_score_per_port_vol"] = "greedy_score_per_port_vol"

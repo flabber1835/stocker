@@ -266,6 +266,11 @@ def _detect_hallucination_flags(
     if exclude and any(p in reason.lower() for p in no_concern_phrases):
         flags.append("Reason language suggests no concern but exclude=True — contradiction")
 
+    # Contradiction: exclude=True and positive_catalyst=True simultaneously
+    positive_catalyst = parsed.get("positive_catalyst", False)
+    if exclude and positive_catalyst:
+        flags.append("exclude=True and positive_catalyst=True simultaneously — contradictory")
+
     # Future date hallucination: earnings_date provided but reason references a different date
     if earnings_date and today:
         # Check if reason mentions a year that doesn't match today's year (crude check)

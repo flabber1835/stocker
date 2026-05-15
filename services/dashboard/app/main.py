@@ -1373,11 +1373,12 @@ async function _loadVetterTickers(runId, live){
             +'</div>';
         }
 
-        // Reason section — handle AUTO-OVERRIDE prefix
+        // Reason section — handle AUTO-OVERRIDE prefix (Python writes "[AUTO-OVERRIDE: ...")
         let reasonText = esc(r.reason || '');
-        if(reasonText.startsWith('AUTO-OVERRIDE')){
-          const rest = reasonText.slice('AUTO-OVERRIDE'.length).replace(/^[:\s–—-]+/,'');
-          reasonText = '<span class="vc-auto-override">AUTO-OVERRIDE</span>'+rest;
+        const autoOverrideMatch = reasonText.match(/^\[?(AUTO-OVERRIDE)[:\s–—-]*/i);
+        if(autoOverrideMatch){
+          const rest = reasonText.slice(autoOverrideMatch[0].length).replace(/\]?\s*/,'');
+          reasonText = '<span class="vc-auto-override">AUTO-OVERRIDE</span> '+rest;
         }
         const flagsHtml = flags.length
           ? '<div class="vc-flags">'+flags.map(f=>'<span class="vc-flag">⚠ '+esc(f)+'</span>').join('')+'</div>'

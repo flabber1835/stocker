@@ -373,10 +373,11 @@ async def _do_build(
             )
             conviction_map = {r.ticker: r.positive_conviction for r in conv_rows.fetchall()}
 
+        max_boost = vetter_cfg.conviction_max_boost
         for ticker, conviction in conviction_map.items():
             if ticker not in scores_map:
                 continue
-            boost = boost_map.get(conviction, 0.0)
+            boost = min(boost_map.get(conviction, 0.0), max_boost)
             if boost <= 0:
                 continue
             original = scores_map[ticker]

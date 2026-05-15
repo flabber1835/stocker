@@ -62,14 +62,28 @@ async def lifespan(app: FastAPI):
                 "    ticker              VARCHAR(20)  NOT NULL,"
                 "    exclude             BOOLEAN      NOT NULL DEFAULT FALSE,"
                 "    reason              TEXT,"
-                "    confidence          VARCHAR(10),"
+                "    confidence          VARCHAR(10)  CHECK (confidence IN ('high', 'medium', 'low')),"
                 "    risk_type           VARCHAR(50),"
                 "    positive_catalyst   BOOLEAN      NOT NULL DEFAULT FALSE,"
-                "    positive_conviction VARCHAR(10)  NOT NULL DEFAULT 'none',"
+                "    positive_conviction VARCHAR(10)  NOT NULL DEFAULT 'none'"
+                "        CHECK (positive_conviction IN ('high', 'medium', 'low', 'none')),"
                 "    positive_reason     TEXT,"
                 "    created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),"
                 "    UNIQUE (run_id, ticker)"
                 ")"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_vetter_decisions_run "
+                "ON vetter_decisions(run_id)"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_vetter_decisions_catalyst "
+                "ON vetter_decisions(run_id, positive_catalyst) "
+                "WHERE positive_catalyst = TRUE"
             )
         )
 
@@ -226,7 +240,7 @@ async def _write_trace_file(
 
 # ── Vetting job ──────────────────────────────────────────────────────────────
 
-async def _run_vet(run_id: str, trace_id: str, source_ranking_run_id: str) -> None:
+async def _run_vet(run_id: str, trace_id: str, source_ranking_run_id: str, candidate_count: int = VET_CANDIDATE_COUNT) -> None:
     started_at = datetime.now(timezone.utc)
 
     async with engine.begin() as conn:
@@ -263,7 +277,7 @@ async def _run_vet(run_id: str, trace_id: str, source_ranking_run_id: str) -> No
     state = SimpleNamespace(candidates_total=0)
 
     try:
-        await _do_vet(run_id, trace_id, started_at, source_ranking_run_id, ticker_results, state)
+        await _do_vet(run_id, trace_id, started_at, source_ranking_run_id, ticker_results, state, candidate_count=candidate_count)
     except Exception as exc:
         err = str(exc)[:1000]
         tb = _traceback.format_exc()
@@ -305,6 +319,7 @@ async def _do_vet(
     source_ranking_run_id: str,
     ticker_results: list[dict],
     state,  # SimpleNamespace with candidates_total
+    candidate_count: int = VET_CANDIDATE_COUNT,
 ) -> None:
     today = date.today().isoformat()
 
@@ -316,7 +331,7 @@ async def _do_vet(
                 "SELECT ticker, rank, composite_score FROM rankings "
                 "WHERE run_id = :rid ORDER BY rank ASC LIMIT :n"
             ),
-            {"rid": source_ranking_run_id, "n": VET_CANDIDATE_COUNT},
+            {"rid": source_ranking_run_id, "n": candidate_count},
         )
         candidates = [
             {"ticker": r.ticker, "rank": r.rank, "composite_score": float(r.composite_score)}
@@ -568,7 +583,9 @@ async def health():
 async def start_vet(
     background_tasks: BackgroundTasks,
     ranking_run_id: Optional[str] = None,
+    candidate_count: Optional[int] = None,
 ):
+    effective_count = candidate_count if candidate_count is not None else VET_CANDIDATE_COUNT
     async with engine.connect() as conn:
         if ranking_run_id:
             chk = await conn.execute(
@@ -586,7 +603,7 @@ async def start_vet(
 
     run_id = str(uuid.uuid4())
     trace_id = str(uuid.uuid4())
-    background_tasks.add_task(_run_vet, run_id, trace_id, source_ranking_run_id)
+    background_tasks.add_task(_run_vet, run_id, trace_id, source_ranking_run_id, effective_count)
     return {
         "status": "started",
         "job": "vet",
@@ -594,7 +611,7 @@ async def start_vet(
         "trace_id": trace_id,
         "source_ranking_run_id": source_ranking_run_id,
         "model": OLLAMA_MODEL,
-        "candidate_count": VET_CANDIDATE_COUNT,
+        "candidate_count": effective_count,
     }
 
 
