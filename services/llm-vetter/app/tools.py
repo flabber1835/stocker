@@ -30,15 +30,18 @@ async def fetch_av_news(
     max_articles_per_ticker: int = 4,
 ) -> dict[str, list[dict]]:
     """
-    Fetch recent news sentiment from Alpha Vantage for up to 50 tickers at once.
-    Returns {ticker: [{"title":..., "summary":..., "sentiment":..., "published":...}]}.
+    Fetch recent news sentiment from Alpha Vantage for the candidate list.
+
+    Uses batches of 10 tickers per request so each ticker competes with fewer
+    others for the per-request limit, giving better per-ticker coverage.
+    With a 75 RPM key, 5 batches for 50 candidates is well within quota.
     """
     if not api_key or api_key == "demo":
         return {}
 
     since = (date.today() - timedelta(days=lookback_days)).strftime("%Y%m%dT0000")
-    # AV accepts comma-separated tickers; cap at 50 to stay within API limits
-    batches = [tickers[i:i + 50] for i in range(0, len(tickers), 50)]
+    batch_size = 10  # small enough that each ticker gets fair share of results
+    batches = [tickers[i:i + batch_size] for i in range(0, len(tickers), batch_size)]
     result: dict[str, list[dict]] = {t: [] for t in tickers}
 
     async with httpx.AsyncClient(timeout=30) as client:
@@ -58,16 +61,15 @@ async def fetch_av_news(
                 log.warning("AV news fetch failed: %s", exc)
                 continue
 
-            # Detect API-level errors/notices returned as JSON (not HTTP errors)
+            # Detect API-level errors returned as JSON (not HTTP errors)
             if "Note" in data or "Information" in data or "Error Message" in data:
                 error_key = next(k for k in ("Note", "Information", "Error Message") if k in data)
                 msg = data[error_key]
                 log.warning(
-                    "AV news API error (key=%r, tickers=%s, time_from=%s, limit=%s): %s",
+                    "AV news API error (key=%r, tickers=[%s], time_from=%s): %s",
                     error_key,
-                    ",".join(batch[:5]) + ("..." if len(batch) > 5 else ""),
+                    ",".join(batch),
                     since,
-                    "50",
                     msg,
                 )
                 continue
