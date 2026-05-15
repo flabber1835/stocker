@@ -110,6 +110,20 @@ Set confidence:
   "medium" — material concern but uncertain timing or magnitude
   "low"    — weak signal, worth noting but not strongly actionable
 
+MANDATORY CONFIDENCE RULES — you MUST follow these exactly:
+1. To use "high" or "medium" confidence you MUST cite a SPECIFIC headline, filing
+   number, analyst name, or data point in your reason. Vague statements like "there
+   may be upcoming earnings risk" or "the company faces sector headwinds" are NOT
+   sufficient for high or medium confidence.
+2. If you searched and found nothing material, you MUST use "low" confidence.
+3. If you have no news, no earnings date, and your searches returned nothing
+   actionable, you MUST set exclude=false. Absence of evidence is NEVER a reason
+   to exclude — it is neutral.
+4. NEVER set exclude=true purely from general knowledge or training data without
+   a specific, verifiable, RECENT (within 60 days) event to cite. Historical
+   knowledge about a company's sector or general reputation is not a valid basis
+   for exclusion.
+
 If not excluding, set risk_type to "none" and explain briefly why the stock is
 safe to hold for 30 days given available information.
 """
@@ -399,6 +413,34 @@ async def vet_single_ticker(
     if hallucination_flags:
         for flag in hallucination_flags:
             log.warning("[llm-vetter] %s hallucination flag: %s", ticker, flag)
+
+    # Hard override: reverse exclusions that have no data support at high/medium confidence.
+    # The model is hallucinating — it excluded with conviction but produced zero evidence.
+    # Check all data sources including agent-retrieved results.
+    all_sources = news + tavily_articles
+    agent_found_data = any(s.get("result_count", 0) > 0 for s in agent_searches)
+    has_any_supporting_data = bool(all_sources) or earnings_date is not None or agent_found_data
+
+    if (
+        parsed.get("exclude", False)
+        and not has_any_supporting_data
+        and parsed.get("confidence", "low") in ("high", "medium")
+    ):
+        original_confidence = parsed["confidence"]
+        log.warning(
+            "[llm-vetter] %s: AUTO-OVERRIDE — exclude=True with %s confidence but no data found; reversing to KEEP",
+            ticker, original_confidence,
+        )
+        parsed["exclude"] = False
+        parsed["confidence"] = "low"
+        parsed["reason"] = (
+            f"[AUTO-OVERRIDE: exclusion reversed — no news, no earnings, no search results found. "
+            f"Original model decision was exclude=True with {original_confidence} confidence.] "
+            + parsed.get("reason", "")
+        )
+        hallucination_flags.append(
+            f"AUTO-OVERRIDDEN: exclude=True ({original_confidence} confidence) with no supporting data → forced to KEEP"
+        )
 
     return {
         "ticker":      ticker,
