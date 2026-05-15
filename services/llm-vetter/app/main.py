@@ -410,12 +410,13 @@ async def _do_vet(
             f"[{result['confidence']}] {result['reason'][:80]}"
         )
 
-        await _write_trace_file(
-            trace_id, run_id, "running", started_at,
-            ticker_results=ticker_results,
-            candidates_total=state.candidates_total,
-            progress={"completed": i + 1, "total": len(candidates)},
-        )
+        if (i + 1) % 10 == 0:
+            await _write_trace_file(
+                trace_id, run_id, "running", started_at,
+                ticker_results=ticker_results,
+                candidates_total=state.candidates_total,
+                progress={"completed": i + 1, "total": len(candidates)},
+            )
 
     # ── Step 4: write results ────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
@@ -547,7 +548,7 @@ async def get_latest_run():
             text(
                 "SELECT run_id, status, candidate_count, flagged_count, approved, "
                 "       approved_at, started_at, completed_at "
-                "FROM vetter_runs ORDER BY started_at DESC LIMIT 1"
+                "FROM vetter_runs ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
             )
         )
         result = row.fetchone()

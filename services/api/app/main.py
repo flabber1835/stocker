@@ -264,7 +264,7 @@ async def get_trace(trace_id: str):
                 text(
                     "SELECT run_id, status, regime, rank_date, universe_count, ranked_count, dropped_count "
                     "FROM ranking_runs WHERE source_factor_run_id = :frid "
-                    "ORDER BY started_at DESC LIMIT 1"
+                    "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
                 ),
                 {"frid": str(root_run_id)},
             )

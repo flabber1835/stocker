@@ -256,7 +256,7 @@ CREATE TABLE IF NOT EXISTS portfolio_runs (
     run_id                   UUID         PRIMARY KEY,
     trace_id                 UUID,
     source_ranking_run_id    UUID         NOT NULL REFERENCES ranking_runs(run_id),
-    vetter_run_id            UUID,        -- optional: FK set after vetter_runs table exists
+    vetter_run_id            UUID         REFERENCES vetter_runs(run_id),
     strategy_id              VARCHAR(100) NOT NULL,
     config_hash              VARCHAR(16),
     regime                   VARCHAR(30)  NOT NULL,

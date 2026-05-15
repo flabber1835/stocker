@@ -32,8 +32,9 @@ def _component_zscore(s: pd.Series) -> pd.Series:
 
 
 def compute_momentum(prices: pd.DataFrame) -> pd.Series:
-    # prices must contain only trading-day rows (no weekend/holiday NaN rows);
-    # iloc[-252] and iloc[-21] are positional, so calendar rows would shorten the look-back.
+    # Drop all-NaN rows (calendar gaps) before positional indexing so that
+    # iloc[-252] and iloc[-21] always land on real trading days.
+    prices = prices.dropna(how="all")
     if len(prices) < 253:
         return pd.Series(dtype=float)
 
