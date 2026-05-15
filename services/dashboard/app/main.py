@@ -85,6 +85,20 @@ async def trigger_job(tab: str):
 
 # ── Job status polling ────────────────────────────────────────────────────────
 
+@app.get("/api/jobs/{tab}/latest")
+async def job_latest(tab: str):
+    """Return the most recent run for a job tab — used by any browser to resume live polling."""
+    if tab not in _JOB_SERVICES:
+        raise HTTPException(status_code=404, detail=f"Unknown job tab: {tab}")
+    base = _JOB_SERVICES[tab]
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            r = await client.get(f"{base}/runs/latest")
+            return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=502)
+
+
 @app.get("/api/jobs/{tab}/{run_id}/status")
 async def job_status(tab: str, run_id: str):
     if tab not in _JOB_SERVICES:
@@ -1075,6 +1089,7 @@ function _pollUntilDone(job, runId, pctStart, pctEnd){
 }
 
 function _pollJob(tab, runId){
+  if(_jobPolls[tab]) return;  // already polling this tab — don't double-start
   let pct = 2;
 
   // For the vetter, progress is driven by real ticker data in _loadVetterTickers.
@@ -1216,7 +1231,7 @@ function esc(s){
 let _vetterTickerPollId = null;
 
 function _startVetterTickerPoll(runId){
-  if(_vetterTickerPollId){ clearInterval(_vetterTickerPollId); _vetterTickerPollId=null; }
+  if(_vetterTickerPollId) return;  // already polling — don't double-start
   _loadVetterTickers(runId, true);
   _vetterTickerPollId = setInterval(async()=>{
     const done = await _loadVetterTickers(runId, true);
@@ -1308,6 +1323,38 @@ async function _loadVetterTickers(runId, live){
 }
 
 // ── Pipeline status / staleness ───────────────────────────────────────────────
+
+// Resume live polling for any job that is currently running.
+// Called on page load so any browser picks up in-progress jobs automatically.
+async function _resumeRunningJobs(){
+  // Simple tabs where we just need run_id + status
+  const simpleTabs = ['universe', 'portfolio'];
+  for(const tab of simpleTabs){
+    try{
+      const d = await fetch('/api/jobs/'+tab+'/latest').then(r=>r.json());
+      if(d.run_id && d.status === 'running'){
+        _setBadge(tab, 'RUNNING', 'running');
+        _setJobPanel(tab, 'running');
+        _setProgress(tab, 2);
+        _pollJob(tab, d.run_id);
+      }
+    }catch(e){ /* service may be down */ }
+  }
+
+  // Rank tab uses a chain of factor + ranking runs; resume the ranker run_id
+  try{
+    const d = await fetch('/api/jobs/rank/latest').then(r=>r.json());
+    if(d.run_id && d.status === 'running'){
+      _setBadge('rank', 'RUNNING', 'running');
+      _setJobPanel('rank', 'running');
+      _setProgress('rank', 2);
+      _pollJob('rank', d.run_id);
+    }
+  }catch(e){ /* ignore */ }
+
+  // Vetter is handled inside loadPipelineStatus (we already have the run_id there)
+}
+
 async function loadPipelineStatus(){
   try{
     const d = await fetch('/api/pipeline-status').then(r=>r.json());
@@ -1327,16 +1374,20 @@ async function loadPipelineStatus(){
       const vetDate = (vetter.completed_at || vetter.started_at || '').slice(0,10);
       $('vet-last-date').textContent = vetDate || '—';
       _setBadge('vet', vetter.status.toUpperCase(), vetter.status==='success'?'success':vetter.status);
-      if(vetter.status === 'success') _setJobPanel('vet','success');
       $('v-date').textContent = vetDate || '—';
       if(vetter.candidate_count != null) $('v-candidates').textContent = vetter.candidate_count;
       if(vetter.flagged_count   != null) $('v-flagged').textContent    = vetter.flagged_count;
       $('v-approved').textContent = vetter.approved ? '✓ APPROVED' : 'PENDING';
       $('v-approved').style.color = vetter.approved ? 'var(--green)' : 'var(--yellow)';
-      if(vetter.run_id && !_currentVetterRunId){
+
+      if(vetter.status === 'running' && vetter.run_id){
+        // Resume live updates in this browser even if it didn't start the job
         _currentVetterRunId = vetter.run_id;
-      }
-      if(vetter.status === 'success' && vetter.run_id){
+        _setJobPanel('vet', 'running');
+        _pollJob('vet', vetter.run_id);
+        _startVetterTickerPoll(vetter.run_id);
+      } else if(vetter.status === 'success' && vetter.run_id){
+        _setJobPanel('vet','success');
         $('v-exclusions-wrap').style.display = 'block';
         if(_currentVetterRunId !== vetter.run_id || $('v-body').innerHTML.includes('LOADING')){
           _currentVetterRunId = vetter.run_id;
@@ -1347,18 +1398,15 @@ async function loadPipelineStatus(){
     }
 
     // Staleness warnings
-    // Rank tab: warn if universe newer than rank
     const rankWarn = uniDate && rankDate && uniDate > rankDate;
     $('rank-warning').style.display = rankWarn ? 'block' : 'none';
     _setTabWarn('tab-rank', rankWarn);
 
-    // Vetter tab: warn if rank newer than vetter run
     const vetDate2 = vetter ? (vetter.completed_at || vetter.started_at || '').slice(0,10) : null;
     const vetWarn = rankDate && vetDate2 && rankDate > vetDate2;
     $('vet-warning').style.display = vetWarn ? 'block' : 'none';
     _setTabWarn('tab-vet', vetWarn);
 
-    // Portfolio tab: warn if rank newer than portfolio
     const portWarn = rankDate && portDate && rankDate > portDate;
     $('port-warning').style.display = portWarn ? 'block' : 'none';
     _setTabWarn('tab-portfolio', portWarn);
@@ -1601,12 +1649,16 @@ function renderPortfolio(){
 (async()=>{
   await loadRegime();
   await loadPipelineStatus();
+  await _resumeRunningJobs();  // pick up any in-progress jobs in any browser
   loadUniverse();
   loadRankings();
   loadPortfolio();
   $('rh-rank').classList.add('asc');
   $('uh-weight_pct').classList.add('desc');
   $('ph-position').classList.add('asc');
+
+  // Refresh pipeline status every 10s so any browser detects newly started jobs
+  setInterval(loadPipelineStatus, 10000);
 })();
 </script>
 </body>

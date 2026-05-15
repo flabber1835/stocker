@@ -693,6 +693,27 @@ async def start_build(
     }
 
 
+@app.get("/runs/latest")
+async def get_latest_run():
+    async with engine.connect() as conn:
+        row = await conn.execute(
+            text(
+                "SELECT run_id, status, portfolio_date, started_at, completed_at "
+                "FROM portfolio_runs ORDER BY started_at DESC LIMIT 1"
+            )
+        )
+        result = row.fetchone()
+    if result is None:
+        raise HTTPException(status_code=404, detail="No portfolio runs yet")
+    return {
+        "run_id": str(result.run_id),
+        "status": result.status,
+        "portfolio_date": str(result.portfolio_date) if result.portfolio_date else None,
+        "started_at": result.started_at.isoformat() if result.started_at else None,
+        "completed_at": result.completed_at.isoformat() if result.completed_at else None,
+    }
+
+
 @app.get("/runs/{run_id}")
 async def get_run(run_id: str):
     async with engine.connect() as conn:
