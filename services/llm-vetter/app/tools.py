@@ -48,8 +48,8 @@ async def fetch_av_news(
                     "function": "NEWS_SENTIMENT",
                     "tickers": ",".join(batch),
                     "time_from": since,
-                    "sort": "RELEVANCE",
-                    "limit": "200",
+                    "sort": "LATEST",
+                    "limit": "50",
                     "apikey": api_key,
                 })
                 resp.raise_for_status()
@@ -60,8 +60,16 @@ async def fetch_av_news(
 
             # Detect API-level errors/notices returned as JSON (not HTTP errors)
             if "Note" in data or "Information" in data or "Error Message" in data:
-                msg = data.get("Note") or data.get("Information") or data.get("Error Message")
-                log.warning("AV news API message (no feed returned): %s", msg)
+                error_key = next(k for k in ("Note", "Information", "Error Message") if k in data)
+                msg = data[error_key]
+                log.warning(
+                    "AV news API error (key=%r, tickers=%s, time_from=%s, limit=%s): %s",
+                    error_key,
+                    ",".join(batch[:5]) + ("..." if len(batch) > 5 else ""),
+                    since,
+                    "50",
+                    msg,
+                )
                 continue
 
             feed = data.get("feed", [])
