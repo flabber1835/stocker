@@ -53,6 +53,25 @@ async def lifespan(app: FastAPI):
                 "WHERE status='running' AND job_type='vetter_run'"
             )
         )
+        # Ensure vetter_decisions table exists (may not be present in older DB deployments)
+        await conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS vetter_decisions ("
+                "    id                  UUID         PRIMARY KEY DEFAULT gen_random_uuid(),"
+                "    run_id              UUID         NOT NULL REFERENCES vetter_runs(run_id) ON DELETE CASCADE,"
+                "    ticker              VARCHAR(20)  NOT NULL,"
+                "    exclude             BOOLEAN      NOT NULL DEFAULT FALSE,"
+                "    reason              TEXT,"
+                "    confidence          VARCHAR(10),"
+                "    risk_type           VARCHAR(50),"
+                "    positive_catalyst   BOOLEAN      NOT NULL DEFAULT FALSE,"
+                "    positive_conviction VARCHAR(10)  NOT NULL DEFAULT 'none',"
+                "    positive_reason     TEXT,"
+                "    created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),"
+                "    UNIQUE (run_id, ticker)"
+                ")"
+            )
+        )
 
     await _check_model()
     yield
@@ -136,19 +155,28 @@ def _build_summary(ticker_results: list[dict], candidates_total: int) -> dict:
         if not r.get("had_av_news") and not r.get("had_earnings") and not r.get("had_tavily")
     ]
     latencies = [r.get("latency_ms", 0) for r in ticker_results if r.get("latency_ms")]
+    positive_catalysts = [r for r in ticker_results if r.get("positive_catalyst")]
+    positive_conviction_dist = {
+        "high":   sum(1 for r in ticker_results if r.get("positive_conviction") == "high"),
+        "medium": sum(1 for r in ticker_results if r.get("positive_conviction") == "medium"),
+        "low":    sum(1 for r in ticker_results if r.get("positive_conviction") == "low"),
+    }
     return {
-        "total_candidates":    candidates_total,
-        "completed":           completed,
-        "remaining":           remaining,
-        "excluded":            len(excluded),
-        "kept":                completed - len(excluded) - len(crashed),
-        "crashed":             len(crashed),
-        "parse_errors":        parse_errors,
-        "hallucination_flags": len(all_flags),
-        "confidence_dist":     confidence_dist,
-        "tickers_no_data":     tickers_no_data,
-        "avg_latency_ms":      round(sum(latencies) / len(latencies)) if latencies else None,
-        "total_latency_ms":    sum(latencies),
+        "total_candidates":       candidates_total,
+        "completed":              completed,
+        "remaining":              remaining,
+        "excluded":               len(excluded),
+        "kept":                   completed - len(excluded) - len(crashed),
+        "crashed":                len(crashed),
+        "parse_errors":           parse_errors,
+        "hallucination_flags":    len(all_flags),
+        "confidence_dist":        confidence_dist,
+        "tickers_no_data":        tickers_no_data,
+        "avg_latency_ms":         round(sum(latencies) / len(latencies)) if latencies else None,
+        "total_latency_ms":       sum(latencies),
+        "positive_catalysts":     len(positive_catalysts),
+        "positive_catalyst_tickers": [r["ticker"] for r in positive_catalysts],
+        "positive_conviction_dist":  positive_conviction_dist,
     }
 
 
@@ -392,14 +420,17 @@ async def _do_vet(
                     "system_prompt": result.get("system_prompt", ""),
                 },
                 output_summary={
-                    "exclude":      result["exclude"],
-                    "confidence":   result["confidence"],
-                    "risk_type":    result["risk_type"],
-                    "reason":       result["reason"],
-                    "raw_response": result.get("raw_response", ""),
-                    "latency_ms":   result.get("latency_ms"),
-                    "parse_error":  result.get("parse_error", False),
-                    "crashed":      result.get("crashed", False),
+                    "exclude":              result["exclude"],
+                    "confidence":           result["confidence"],
+                    "risk_type":            result["risk_type"],
+                    "reason":               result["reason"],
+                    "positive_catalyst":    result.get("positive_catalyst", False),
+                    "positive_conviction":  result.get("positive_conviction", "none"),
+                    "positive_reason":      result.get("positive_reason", ""),
+                    "raw_response":         result.get("raw_response", ""),
+                    "latency_ms":           result.get("latency_ms"),
+                    "parse_error":          result.get("parse_error", False),
+                    "crashed":              result.get("crashed", False),
                 },
                 warnings=step_warnings if step_warnings else None,
                 error_message=result["reason"] if result.get("crashed") else None,
@@ -437,6 +468,33 @@ async def _do_vet(
                     "reason": exc["reason"],
                     "conf":   exc["confidence"],
                     "rtype":  exc["risk_type"],
+                },
+            )
+
+        # Write ALL ticker decisions (not just exclusions) so portfolio-builder
+        # can query conviction boosts for the full candidate set.
+        for r in ticker_results:
+            if r.get("crashed"):
+                continue
+            await conn.execute(
+                text(
+                    "INSERT INTO vetter_decisions "
+                    "(run_id, ticker, exclude, reason, confidence, risk_type, "
+                    " positive_catalyst, positive_conviction, positive_reason) "
+                    "VALUES (:rid, :ticker, :excl, :reason, :conf, :rtype, "
+                    "        :pc, :pconv, :preason) "
+                    "ON CONFLICT (run_id, ticker) DO NOTHING"
+                ),
+                {
+                    "rid":     run_id,
+                    "ticker":  r["ticker"],
+                    "excl":    r.get("exclude", False),
+                    "reason":  r.get("reason", ""),
+                    "conf":    r.get("confidence", "low"),
+                    "rtype":   r.get("risk_type", "none"),
+                    "pc":      r.get("positive_catalyst", False),
+                    "pconv":   r.get("positive_conviction", "none"),
+                    "preason": r.get("positive_reason", ""),
                 },
             )
 
@@ -669,6 +727,7 @@ async def get_ticker_results(run_id: str):
 
     _SUMMARY_FIELDS = {
         "ticker", "exclude", "reason", "confidence", "risk_type",
+        "positive_catalyst", "positive_conviction", "positive_reason",
         "had_av_news", "had_earnings", "had_tavily", "agent_searches",
         "latency_ms", "crashed", "parse_error", "hallucination_flags",
         "earnings_date", "news_titles",

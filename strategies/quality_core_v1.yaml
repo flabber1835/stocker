@@ -86,6 +86,15 @@ portfolio_builder:
   max_sector_weight: 0.30            # no single GICS sector may exceed 30% of the portfolio
   do_not_buy: []                     # hard-exclude list: ESG screens, legal holds, insider restrictions
 
+vetter:
+  candidate_count: 50          # top N from ranker sent to LLM vetter for review
+  conviction_max_boost: 0.25   # max fractional score increase from LLM positive signal
+  conviction_boosts:           # fractional boost per conviction level
+    high:   0.25               # score × 1.25 — strong near-term catalyst found
+    medium: 0.12               # score × 1.12 — moderate positive signal
+    low:    0.05               # score × 1.05 — mild tailwind noted
+    none:   0.0                # no adjustment
+
 max_positions: 30
 min_score_percentile: 0.0
 min_non_null_factors: 6   # all 6 factors required — any ticker with a null factor is dropped to prevent weight drift
