@@ -21,6 +21,13 @@ log = logging.getLogger("llm-vetter.tools")
 AV_BASE = "https://www.alphavantage.co/query"
 TAVILY_BASE = "https://api.tavily.com/search"
 
+_FINANCIAL_DOMAINS = [
+    "reuters.com", "bloomberg.com", "ft.com",
+    "wsj.com", "cnbc.com", "marketwatch.com",
+    "seekingalpha.com", "barrons.com", "sec.gov",
+    "finance.yahoo.com", "thestreet.com",
+]
+
 
 async def fetch_av_news(
     tickers: list[str],
@@ -30,15 +37,18 @@ async def fetch_av_news(
     max_articles_per_ticker: int = 4,
 ) -> dict[str, list[dict]]:
     """
-    Fetch recent news sentiment from Alpha Vantage for up to 50 tickers at once.
-    Returns {ticker: [{"title":..., "summary":..., "sentiment":..., "published":...}]}.
+    Fetch recent news sentiment from Alpha Vantage for the candidate list.
+
+    Uses batches of 10 tickers per request so each ticker competes with fewer
+    others for the per-request limit, giving better per-ticker coverage.
+    With a 75 RPM key, 5 batches for 50 candidates is well within quota.
     """
     if not api_key or api_key == "demo":
         return {}
 
     since = (date.today() - timedelta(days=lookback_days)).strftime("%Y%m%dT0000")
-    # AV accepts comma-separated tickers; cap at 50 to stay within API limits
-    batches = [tickers[i:i + 50] for i in range(0, len(tickers), 50)]
+    batch_size = 10  # small enough that each ticker gets fair share of results
+    batches = [tickers[i:i + batch_size] for i in range(0, len(tickers), batch_size)]
     result: dict[str, list[dict]] = {t: [] for t in tickers}
 
     async with httpx.AsyncClient(timeout=30) as client:
@@ -48,8 +58,8 @@ async def fetch_av_news(
                     "function": "NEWS_SENTIMENT",
                     "tickers": ",".join(batch),
                     "time_from": since,
-                    "sort": "RELEVANCE",
-                    "limit": "200",
+                    "sort": "LATEST",
+                    "limit": "50",
                     "apikey": api_key,
                 })
                 resp.raise_for_status()

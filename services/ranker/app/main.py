@@ -119,7 +119,6 @@ async def _write_trace_file(
             json.dump(payload, f, indent=2, default=str)
         print(f"[ranker] trace → {path} ({len(steps)} steps, status={status})")
     except Exception as exc:
-        import traceback
         print(f"[ranker] WARNING: failed to write trace file for {trace_id}: {exc}")
         traceback.print_exc()
 
@@ -627,6 +626,28 @@ async def start_rank_job(background_tasks: BackgroundTasks, factor_run_id: str |
         "run_id": ranking_run_id,
         "strategy": strategy.strategy_id,
         "regime": regime,
+    }
+
+
+@app.get("/runs/latest")
+async def get_latest_run():
+    async with engine.connect() as conn:
+        row = await conn.execute(
+            text(
+                "SELECT run_id, status, regime, rank_date, started_at, completed_at "
+                "FROM ranking_runs ORDER BY started_at DESC LIMIT 1"
+            )
+        )
+        result = row.fetchone()
+    if result is None:
+        raise HTTPException(status_code=404, detail="No ranking runs yet")
+    return {
+        "run_id": str(result.run_id),
+        "status": result.status,
+        "regime": result.regime,
+        "rank_date": str(result.rank_date) if result.rank_date else None,
+        "started_at": result.started_at.isoformat() if result.started_at else None,
+        "completed_at": result.completed_at.isoformat() if result.completed_at else None,
     }
 
 

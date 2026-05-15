@@ -266,22 +266,24 @@ async def status():
 # ── Helpers ──────────────────────────────────
 
 async def _get_universe_tickers() -> tuple[list[str], int | None]:
-    """Return (tickers, snapshot_id) pinned to the latest snapshot at call time."""
+    """Return (tickers, snapshot_id) pinned to the latest snapshot at call time.
+
+    Uses a single atomic subquery so a concurrent snapshot insert cannot cause
+    the snapshot_id and ticker list to diverge (TOCTOU fix).
+    """
     async with SessionLocal() as session:
-        snap_row = await session.execute(
-            text("SELECT MAX(id) FROM universe_snapshots")
-        )
-        snapshot_id = snap_row.scalar()
-        if snapshot_id is None:
-            return [], None
         result = await session.execute(
             text(
-                "SELECT DISTINCT ut.ticker FROM universe_tickers ut "
-                "WHERE ut.snapshot_id = :sid"
-            ),
-            {"sid": snapshot_id},
+                "SELECT DISTINCT ut.ticker, ut.snapshot_id "
+                "FROM universe_tickers ut "
+                "WHERE ut.snapshot_id = (SELECT MAX(id) FROM universe_snapshots)"
+            )
         )
-        return [row[0] for row in result.fetchall()], snapshot_id
+        rows = result.fetchall()
+        if not rows:
+            return [], None
+        snapshot_id = rows[0][1]
+        return [row[0] for row in rows], snapshot_id
 
 
 # ── Job implementations ────────────────────────────
@@ -414,7 +416,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                                   price_rows=price_rows_written, fund_rows=fund_ok,
                                   error_count=err_count)
         status = "partial_success" if err_count > 0 else "success"
-        pcp = _coverage(price_rows_written, len(price_tickers))
+        pcp = _coverage(price_ok, len(price_tickers))
         fcp = _coverage(fund_ok, len(fundamental_tickers))
         await _finish_run(run_id, status,
                           ticker_count=len(price_tickers), price_rows=price_rows_written,
@@ -487,7 +489,7 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
                                   tickers_done=i + 1, total_tickers=len(all_tickers),
                                   price_rows=rows_written, error_count=err_count)
         status = "partial_success" if err_count > 0 else "success"
-        pcp = _coverage(rows_written, len(all_tickers))
+        pcp = _coverage(tickers_ok, len(all_tickers))
         await _finish_run(run_id, status,
                           ticker_count=len(all_tickers), price_rows=rows_written, error_count=err_count,
                           price_coverage_pct=pcp)

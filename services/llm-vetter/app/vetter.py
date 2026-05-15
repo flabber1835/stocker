@@ -81,6 +81,7 @@ A deep-value stock may intentionally be distressed. A momentum stock may already
 priced for growth. Before excluding, consider whether the risk you found is ALREADY
 REFLECTED in why the model selected this stock, or whether it is a NEW, UNPRICED risk.
 
+
 You have a web_search tool. Use it proactively — run 1-2 targeted searches per
 ticker to check for risks even when no news is pre-loaded. Good queries:
   "TICKER company name earnings guidance Q2 2026"
@@ -94,6 +95,8 @@ EXCLUDE the stock (exclude=true) only when there is CLEAR and SPECIFIC evidence 
   product recall, key executive departure, major customer loss
 - Pending binary legal or regulatory decision with material downside
 - Multiple analyst consensus downgrades within the past 7 days
+- Pending acquisition or merger where the stock is the TARGET and the deal has not
+  yet closed — binary event risk (deal break, arb spread collapse, regulatory block)
 
 Do NOT exclude based on:
 - General macro or market uncertainty (applies to all stocks equally)
@@ -213,9 +216,9 @@ def _detect_hallucination_flags(
     if exclude and risk_type == "none":
         flags.append("EXCLUDE decision but risk_type='none' — contradictory")
 
-    # Keep with high confidence and a non-none risk_type is contradictory
-    if not exclude and confidence == "high" and risk_type != "none":
-        flags.append(f"KEEP with high confidence but risk_type='{risk_type}' — contradictory")
+    # Keep with high/medium confidence and a non-none risk_type is contradictory
+    if not exclude and confidence in ("high", "medium") and risk_type != "none":
+        flags.append(f"KEEP with {confidence} confidence but risk_type='{risk_type}' — contradictory")
 
     # Very short reason suggests the model didn't reason properly
     if len(reason) < 25:

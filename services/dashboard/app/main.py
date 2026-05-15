@@ -85,6 +85,20 @@ async def trigger_job(tab: str):
 
 # ── Job status polling ────────────────────────────────────────────────────────
 
+@app.get("/api/jobs/{tab}/latest")
+async def job_latest(tab: str):
+    """Return the most recent run for a job tab — used by any browser to resume live polling."""
+    if tab not in _JOB_SERVICES:
+        raise HTTPException(status_code=404, detail=f"Unknown job tab: {tab}")
+    base = _JOB_SERVICES[tab]
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            r = await client.get(f"{base}/runs/latest")
+            return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=502)
+
+
 @app.get("/api/jobs/{tab}/{run_id}/status")
 async def job_status(tab: str, run_id: str):
     if tab not in _JOB_SERVICES:
@@ -115,6 +129,16 @@ async def vetter_exclusions(run_id: str):
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
             r = await client.get(f"{VETTER_URL}/runs/{run_id}/exclusions")
+            return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=502)
+
+
+@app.get("/api/vetter/ticker-results/{run_id}")
+async def vetter_ticker_results(run_id: str):
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"{VETTER_URL}/runs/{run_id}/ticker-results")
             return JSONResponse(content=r.json(), status_code=r.status_code)
     except Exception as exc:
         return JSONResponse(content={"error": str(exc)}, status_code=502)
@@ -549,6 +573,14 @@ td{padding:9px 14px;white-space:nowrap}
 .conf-high  {color:var(--red);border-color:var(--red)}
 .conf-medium{color:var(--yellow);border-color:var(--yellow)}
 .conf-low   {color:var(--muted);border-color:var(--muted)}
+.verdict-exclude{color:var(--red);font-weight:700;letter-spacing:.08em}
+.verdict-keep{color:var(--green);font-weight:700;letter-spacing:.08em}
+.verdict-crashed{color:var(--yellow);font-weight:700;letter-spacing:.08em}
+.v-live-label{
+  display:inline-block;margin-left:6px;
+  font-size:.62rem;letter-spacing:.12em;color:var(--yellow);
+  animation:pulse 1.2s infinite;vertical-align:middle;
+}
 .vetter-actions{
   display:none;
   align-items:center;gap:14px;
@@ -734,7 +766,35 @@ footer span{color:var(--cyan)}
     <div class="stat"><div class="lbl">Run Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="v-date">&#8212;</div></div>
     <div class="stat"><div class="lbl">Approval</div><div class="val" style="font-size:1rem;padding-top:4px" id="v-approved">&#8212;</div></div>
   </div>
-  <div id="v-exclusions-wrap" style="display:none">
+  <!-- Live per-ticker analysis feed -->
+  <div id="v-ticker-analysis" style="display:none;margin-top:6px">
+    <div class="toolbar" style="margin-bottom:10px">
+      <span style="color:var(--muted);font-size:.72rem;letter-spacing:.15em;text-transform:uppercase">TICKER ANALYSIS</span>
+      <span id="v-live-badge" class="v-live-label" style="display:none">● LIVE</span>
+      <span class="badge-count" id="v-ticker-count"></span>
+    </div>
+    <div class="tbl-wrap" style="max-height:55vh">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:70px">TICKER</th>
+            <th style="width:80px">VERDICT</th>
+            <th style="width:75px">CONF</th>
+            <th style="width:90px">RISK TYPE</th>
+            <th style="width:110px">DATA SOURCES</th>
+            <th>REASON</th>
+            <th style="width:130px">WEB SEARCHES</th>
+            <th style="width:65px">LATENCY</th>
+          </tr>
+        </thead>
+        <tbody id="v-ticker-body">
+          <tr><td colspan="8" class="loading">WAITING FOR ANALYSIS</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="v-exclusions-wrap" style="display:none;margin-top:14px">
     <div class="toolbar" style="margin-bottom:10px">
       <span style="color:var(--muted);font-size:.72rem;letter-spacing:.15em;text-transform:uppercase">EXCLUSION RECOMMENDATIONS</span>
       <span class="badge-count" id="v-exc-count"></span>
@@ -946,6 +1006,7 @@ async function startJob(tab){
     const runId = data.run_id;
     if(!runId) throw new Error('No run_id returned');
     _pollJob(tab, runId);
+    if(tab === 'vet') _startVetterTickerPoll(runId);
   }catch(e){
     _setProgress(tab, 100, true);
     _setBadge(tab, 'ERROR', 'failed');
@@ -1028,9 +1089,12 @@ function _pollUntilDone(job, runId, pctStart, pctEnd){
 }
 
 function _pollJob(tab, runId){
+  if(_jobPolls[tab]) return;  // already polling this tab — don't double-start
   let pct = 2;
 
-  const incrId = setInterval(()=>{
+  // For the vetter, progress is driven by real ticker data in _loadVetterTickers.
+  // For other tabs, use a fake smooth animation since we have no step-level data.
+  const incrId = tab === 'vet' ? null : setInterval(()=>{
     if(pct < 88){ pct += 0.3; _setProgress(tab, pct); }
   }, 1500);
 
@@ -1042,7 +1106,7 @@ function _pollJob(tab, runId){
 
       if(status === 'running' || status == null) return;
 
-      clearInterval(incrId);
+      if(incrId) clearInterval(incrId);
       clearInterval(pollId);
       delete _jobPolls[tab];
 
@@ -1080,7 +1144,10 @@ function _pollJob(tab, runId){
 // ── Vetter-specific ───────────────────────────────────────────────────────────
 async function _onVetterSuccess(runId){
   _currentVetterRunId = runId;
-  await loadVetterExclusions(runId);
+  await Promise.all([
+    loadVetterExclusions(runId),
+    _loadVetterTickers(runId, false),
+  ]);
 }
 
 async function loadVetterExclusions(runId){
@@ -1160,7 +1227,134 @@ function esc(s){
   return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+// ── Live ticker analysis ──────────────────────────────────────────────────────
+let _vetterTickerPollId = null;
+
+function _startVetterTickerPoll(runId){
+  if(_vetterTickerPollId) return;  // already polling — don't double-start
+  _loadVetterTickers(runId, true);
+  _vetterTickerPollId = setInterval(async()=>{
+    const done = await _loadVetterTickers(runId, true);
+    if(done){ clearInterval(_vetterTickerPollId); _vetterTickerPollId=null; }
+  }, 2000);
+}
+
+async function _loadVetterTickers(runId, live){
+  try{
+    const r = await fetch('/api/vetter/ticker-results/'+runId);
+    const d = await r.json();
+    const results = d.ticker_results || [];
+    const status  = d.status;
+    const prog    = d.progress || {};
+    const running = status === 'running';
+
+    $('v-ticker-analysis').style.display = results.length ? 'block' : 'none';
+    $('v-live-badge').style.display = (running && live) ? 'inline-block' : 'none';
+
+    if(results.length){
+      const completed = prog.completed ?? results.length;
+      const total     = prog.total     ?? completed;
+      $('v-ticker-count').textContent = completed+' / '+total+(running ? ' — ANALYZING…' : ' COMPLETE');
+
+      // Drive the real progress bar from actual ticker completion, not fake animation
+      if(total > 0) _setProgress('vet', Math.round((completed / total) * 100));
+
+      // EXCLUDE first, then by confidence desc, then alphabetical
+      const confRank = {high:0,medium:1,low:2};
+      const sorted = [...results].sort((a,b)=>{
+        if(!!a.exclude !== !!b.exclude) return a.exclude ? -1 : 1;
+        const cr = (confRank[a.confidence]??2)-(confRank[b.confidence]??2);
+        if(cr!==0) return cr;
+        return (a.ticker||'').localeCompare(b.ticker||'');
+      });
+
+      $('v-ticker-body').innerHTML = sorted.map(r=>{
+        const verdict   = r.crashed ? 'CRASHED' : r.exclude ? 'EXCLUDE' : 'KEEP';
+        const vCls      = r.crashed ? 'verdict-crashed' : r.exclude ? 'verdict-exclude' : 'verdict-keep';
+        const tCls      = r.crashed ? 'neu' : r.exclude ? 'neg' : 'pos';
+        const confCls   = 'conf-'+(r.confidence||'low');
+        const riskType  = (r.risk_type && r.risk_type!=='none') ? r.risk_type.toUpperCase() : '—';
+        const searches  = r.agent_searches || [];
+        const flags     = r.hallucination_flags || [];
+        const latMs     = r.latency_ms ? (r.latency_ms/1000).toFixed(1)+'s' : '—';
+
+        // Data sources badges
+        const srcParts = [];
+        if(r.had_av_news)   srcParts.push('<span style="color:var(--green);font-size:.65rem;font-weight:600">AV</span>');
+        if(r.had_tavily)    srcParts.push('<span style="color:#7aaabb;font-size:.65rem;font-weight:600">TAVILY</span>');
+        if(searches.length) srcParts.push('<span style="color:var(--orange);font-size:.65rem;font-weight:600">AGENT</span>');
+        if(r.had_earnings)  srcParts.push('<span style="color:var(--yellow);font-size:.65rem;font-weight:600">EARN</span>');
+        const srcTxt = srcParts.length ? srcParts.join(' ') : '<span style="color:var(--muted);font-size:.65rem">none</span>';
+
+        // Search queries tooltip
+        const searchTxt = searches.length
+          ? searches.map(s=>'&#128269; '+esc(s.query||'')+(s.result_count!=null?' ('+s.result_count+')':'')).join('<br>')
+          : '<span style="color:var(--muted)">—</span>';
+
+        // News titles tooltip
+        const newsTitles = r.news_titles || [];
+        const newsTitle  = newsTitles.length ? newsTitles.slice(0,6).join('\n') : '';
+        const newsCountTxt = newsTitles.length
+          ? '<span title="'+esc(newsTitle)+'" style="cursor:default;color:var(--muted);font-size:.65rem">'+newsTitles.length+' article'+(newsTitles.length>1?'s':'')+'</span>'
+          : '';
+
+        // Hallucination flags
+        const flagTxt = flags.length
+          ? '<br><span style="color:var(--yellow);font-size:.65rem" title="'+esc(flags.join('\n'))+'">⚠ '+flags.length+' flag'+(flags.length>1?'s':'')+'</span>'
+          : '';
+
+        return '<tr>'
+          +'<td style="white-space:nowrap"><span class="t-ticker '+tCls+'">'+esc(r.ticker||'')+'</span></td>'
+          +'<td><span class="'+vCls+'" style="font-weight:700;font-size:.78rem">'+verdict+'</span></td>'
+          +'<td><span class="pct-pill '+confCls+'">'+(r.confidence||'low').toUpperCase()+'</span></td>'
+          +'<td style="font-size:.72rem;color:#aaa">'+esc(riskType)+'</td>'
+          +'<td style="font-size:.72rem;line-height:1.6">'+srcTxt+(newsCountTxt?'<br>'+newsCountTxt:'')+'</td>'
+          +'<td style="color:#c5d5dd;font-size:.76rem;white-space:normal;max-width:380px">'+esc(r.reason||'')+flagTxt+'</td>'
+          +'<td style="font-size:.7rem;color:var(--muted);line-height:1.7">'+searchTxt+'</td>'
+          +'<td style="font-size:.7rem;color:var(--muted);text-align:right;white-space:nowrap">'+latMs+'</td>'
+          +'</tr>';
+      }).join('');
+    }
+    return !running;
+  }catch(e){
+    console.warn('ticker-results error', e);
+    return false;
+  }
+}
+
 // ── Pipeline status / staleness ───────────────────────────────────────────────
+
+// Resume live polling for any job that is currently running.
+// Called on page load so any browser picks up in-progress jobs automatically.
+async function _resumeRunningJobs(){
+  // Simple tabs where we just need run_id + status
+  const simpleTabs = ['universe', 'portfolio'];
+  for(const tab of simpleTabs){
+    try{
+      const d = await fetch('/api/jobs/'+tab+'/latest').then(r=>r.json());
+      if(d.run_id && d.status === 'running'){
+        _setBadge(tab, 'RUNNING', 'running');
+        _setJobPanel(tab, 'running');
+        _setProgress(tab, 2);
+        _pollJob(tab, d.run_id);
+      }
+    }catch(e){ /* service may be down */ }
+  }
+
+  // Rank tab uses a chain of factor + ranking runs; resume the ranker run_id
+  try{
+    const d = await fetch('/api/jobs/rank/latest').then(r=>r.json());
+    if(d.run_id && d.status === 'running'){
+      _setBadge('rank', 'RUNNING', 'running');
+      _setJobPanel('rank', 'running');
+      _setProgress('rank', 2);
+      _pollJob('rank', d.run_id);
+    }
+  }catch(e){ /* ignore */ }
+
+  // Vetter is handled inside loadPipelineStatus (we already have the run_id there)
+}
+
 async function loadPipelineStatus(){
   try{
     const d = await fetch('/api/pipeline-status').then(r=>r.json());
@@ -1180,37 +1374,39 @@ async function loadPipelineStatus(){
       const vetDate = (vetter.completed_at || vetter.started_at || '').slice(0,10);
       $('vet-last-date').textContent = vetDate || '—';
       _setBadge('vet', vetter.status.toUpperCase(), vetter.status==='success'?'success':vetter.status);
-      if(vetter.status === 'success') _setJobPanel('vet','success');
       $('v-date').textContent = vetDate || '—';
       if(vetter.candidate_count != null) $('v-candidates').textContent = vetter.candidate_count;
       if(vetter.flagged_count   != null) $('v-flagged').textContent    = vetter.flagged_count;
       $('v-approved').textContent = vetter.approved ? '✓ APPROVED' : 'PENDING';
       $('v-approved').style.color = vetter.approved ? 'var(--green)' : 'var(--yellow)';
-      if(vetter.run_id && !_currentVetterRunId){
+
+      if(vetter.status === 'running' && vetter.run_id){
+        // Resume live updates in this browser even if it didn't start the job
         _currentVetterRunId = vetter.run_id;
-      }
-      if(vetter.status === 'success' && vetter.run_id){
+        _setJobPanel('vet', 'running');
+        _pollJob('vet', vetter.run_id);
+        _startVetterTickerPoll(vetter.run_id);
+      } else if(vetter.status === 'success' && vetter.run_id){
+        _setJobPanel('vet','success');
         $('v-exclusions-wrap').style.display = 'block';
         if(_currentVetterRunId !== vetter.run_id || $('v-body').innerHTML.includes('LOADING')){
           _currentVetterRunId = vetter.run_id;
           loadVetterExclusions(vetter.run_id);
+          _loadVetterTickers(vetter.run_id, false);
         }
       }
     }
 
     // Staleness warnings
-    // Rank tab: warn if universe newer than rank
     const rankWarn = uniDate && rankDate && uniDate > rankDate;
     $('rank-warning').style.display = rankWarn ? 'block' : 'none';
     _setTabWarn('tab-rank', rankWarn);
 
-    // Vetter tab: warn if rank newer than vetter run
     const vetDate2 = vetter ? (vetter.completed_at || vetter.started_at || '').slice(0,10) : null;
     const vetWarn = rankDate && vetDate2 && rankDate > vetDate2;
     $('vet-warning').style.display = vetWarn ? 'block' : 'none';
     _setTabWarn('tab-vet', vetWarn);
 
-    // Portfolio tab: warn if rank newer than portfolio
     const portWarn = rankDate && portDate && rankDate > portDate;
     $('port-warning').style.display = portWarn ? 'block' : 'none';
     _setTabWarn('tab-portfolio', portWarn);
@@ -1453,12 +1649,16 @@ function renderPortfolio(){
 (async()=>{
   await loadRegime();
   await loadPipelineStatus();
+  await _resumeRunningJobs();  // pick up any in-progress jobs in any browser
   loadUniverse();
   loadRankings();
   loadPortfolio();
   $('rh-rank').classList.add('asc');
   $('uh-weight_pct').classList.add('desc');
   $('ph-position').classList.add('asc');
+
+  // Refresh pipeline status every 10s so any browser detects newly started jobs
+  setInterval(loadPipelineStatus, 10000);
 })();
 </script>
 </body>

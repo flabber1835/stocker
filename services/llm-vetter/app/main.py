@@ -14,6 +14,14 @@ from ollama import AsyncClient as OllamaClient
 
 from app.vetter import fetch_ticker_data, vet_single_ticker
 
+
+def _fmt_row(row) -> dict:
+    return {
+        k: (str(v) if isinstance(v, uuid.UUID) else (v.isoformat() if hasattr(v, "isoformat") else v))
+        for k, v in dict(row._mapping).items()
+    }
+
+
 DATABASE_URL   = os.getenv("DATABASE_URL", "")
 OLLAMA_HOST    = os.getenv("OLLAMA_HOST", "http://ollama:11434")
 OLLAMA_MODEL   = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
@@ -545,10 +553,7 @@ async def get_latest_run():
         result = row.fetchone()
     if result is None:
         raise HTTPException(status_code=404, detail="No vetter runs yet")
-    return {
-        k: (str(v) if isinstance(v, uuid.UUID) else (v.isoformat() if hasattr(v, "isoformat") else v))
-        for k, v in dict(result._mapping).items()
-    }
+    return _fmt_row(result)
 
 
 @app.get("/runs/{run_id}")
@@ -566,10 +571,7 @@ async def get_run(run_id: str):
         result = row.fetchone()
     if result is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-    return {
-        k: (str(v) if isinstance(v, uuid.UUID) else (v.isoformat() if hasattr(v, "isoformat") else v))
-        for k, v in dict(result._mapping).items()
-    }
+    return _fmt_row(result)
 
 
 @app.get("/runs/{run_id}/exclusions")
@@ -623,6 +625,69 @@ async def approve_run(run_id: str):
             {"rid": run_id},
         )
     return {"run_id": run_id, "approved": True}
+
+
+@app.get("/runs/{run_id}/ticker-results")
+async def get_ticker_results(run_id: str):
+    """Return per-ticker results from the trace file for live UI updates."""
+    async with engine.connect() as conn:
+        row = await conn.execute(
+            text(
+                "SELECT run_id, trace_id, status, started_at, candidate_count "
+                "FROM vetter_runs WHERE run_id=:rid"
+            ),
+            {"rid": run_id},
+        )
+        run = row.fetchone()
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    if not ARTIFACTS_PATH:
+        return {
+            "run_id": run_id, "status": run.status,
+            "ticker_results": [], "progress": {"completed": 0, "total": run.candidate_count or 0},
+        }
+
+    trace_id = str(run.trace_id)
+    started_date = run.started_at.strftime("%Y-%m-%d")
+    fname = f"{started_date}_vetter_run_{trace_id[:8]}.json"
+    fpath = os.path.join(ARTIFACTS_PATH, "traces", fname)
+
+    if not os.path.exists(fpath):
+        return {
+            "run_id": run_id, "status": run.status,
+            "ticker_results": [], "progress": {"completed": 0, "total": run.candidate_count or 0},
+        }
+
+    try:
+        def _read():
+            with open(fpath) as f:
+                return json.load(f)
+        trace_data = await asyncio.to_thread(_read)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to read trace file: {exc}")
+
+    _SUMMARY_FIELDS = {
+        "ticker", "exclude", "reason", "confidence", "risk_type",
+        "had_av_news", "had_earnings", "had_tavily", "agent_searches",
+        "latency_ms", "crashed", "parse_error", "hallucination_flags",
+        "earnings_date", "news_titles",
+    }
+    slim_results = [
+        {k: r.get(k) for k in _SUMMARY_FIELDS}
+        for r in trace_data.get("ticker_results", [])
+    ]
+
+    return {
+        "run_id":         run_id,
+        "status":         run.status,
+        "ticker_results": slim_results,
+        "progress":       trace_data.get("progress") or {
+            "completed": len(slim_results),
+            "total":     run.candidate_count or len(slim_results),
+        },
+        "summary":        trace_data.get("summary"),
+    }
 
 
 @app.post("/runs/{run_id}/reject")
