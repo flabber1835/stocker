@@ -112,7 +112,17 @@ async def job_status(tab: str, run_id: str):
         return JSONResponse(content={"error": str(exc)}, status_code=502)
 
 
-# ── Vetter exclusions ─────────────────────────────────────────────────────────
+# ── Vetter approval/exclusions ────────────────────────────────────────────────
+
+@app.post("/api/vetter/approve/{run_id}")
+async def vetter_approve(run_id: str):
+    return await _proxy_post(f"{VETTER_URL}/runs/{run_id}/approve")
+
+
+@app.post("/api/vetter/reject/{run_id}")
+async def vetter_reject(run_id: str):
+    return await _proxy_post(f"{VETTER_URL}/runs/{run_id}/reject")
+
 
 @app.get("/api/vetter/exclusions/{run_id}")
 async def vetter_exclusions(run_id: str):
@@ -160,24 +170,15 @@ async def pipeline_status():
         async def fetch_portfolio():
             return await client.get(f"{API_URL}/portfolio")
 
-        async def fetch_data_latest():
-            return await client.get(f"{AV_INGESTOR_URL}/runs/latest")
-
-        async def fetch_factors_latest():
-            return await client.get(f"{FACTOR_ENGINE_URL}/runs/latest")
-
-        r0, r1, r2, r3, r4, r5 = await asyncio.gather(
-            _safe_fetch(fetch_universe(),       {"error": "timeout"}),
-            _safe_fetch(fetch_rankings(),       {"error": "timeout"}),
-            _safe_fetch(fetch_vetter(),         {"error": "timeout"}),
-            _safe_fetch(fetch_portfolio(),      {"error": "timeout"}),
-            _safe_fetch(fetch_data_latest(),    {"error": "timeout"}),
-            _safe_fetch(fetch_factors_latest(), {"error": "timeout"}),
+        r0, r1, r2, r3 = await asyncio.gather(
+            _safe_fetch(fetch_universe(),  {"error": "timeout"}),
+            _safe_fetch(fetch_rankings(),  {"error": "timeout"}),
+            _safe_fetch(fetch_vetter(),    {"error": "timeout"}),
+            _safe_fetch(fetch_portfolio(), {"error": "timeout"}),
         )
 
     uni_date = port_date = rank_date = None
     vetter_info = None
-    rank_chain_running = None  # name of the currently-running rank chain step, if any
 
     if not isinstance(r0, dict) and r0.status_code == 200:
         snap = r0.json().get("snapshot") or {}
@@ -195,22 +196,11 @@ async def pipeline_status():
         run = r3.json().get("run") or {}
         port_date = run.get("portfolio_date")
 
-    if not isinstance(r4, dict) and r4.status_code == 200:
-        d = r4.json()
-        if d.get("status") == "running":
-            rank_chain_running = "data"
-
-    if rank_chain_running is None and not isinstance(r5, dict) and r5.status_code == 200:
-        d = r5.json()
-        if d.get("status") == "running":
-            rank_chain_running = "factors"
-
     return {
-        "universe_date":      uni_date,
-        "rank_date":          rank_date,
-        "vetter":             vetter_info,
-        "portfolio_date":     port_date,
-        "rank_chain_running": rank_chain_running,
+        "universe_date": uni_date,
+        "rank_date":     rank_date,
+        "vetter":        vetter_info,
+        "portfolio_date": port_date,
     }
 
 
@@ -829,6 +819,7 @@ footer span{color:var(--blue)}
     <div class="stat"><div class="lbl">Candidates Reviewed</div><div class="val" id="v-candidates">&#8212;</div></div>
     <div class="stat"><div class="lbl">Flagged for Exclusion</div><div class="val orange" id="v-flagged">&#8212;</div></div>
     <div class="stat"><div class="lbl">Run Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="v-date">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Approval</div><div class="val" style="font-size:1rem;padding-top:4px" id="v-approved">&#8212;</div></div>
   </div>
   <!-- Live per-ticker analysis feed (card layout) -->
   <div id="v-ticker-analysis" style="display:none;margin-top:8px">
@@ -861,6 +852,14 @@ footer span{color:var(--blue)}
           <tr><td colspan="4" class="loading">Loading exclusions</td></tr>
         </tbody>
       </table>
+    </div>
+    <div class="vetter-actions" id="v-actions">
+      <button class="btn-approve" onclick="vetterApprove()">&#10003; APPROVE EXCLUSIONS</button>
+      <button class="btn-reject" onclick="vetterReject()">&#215; REJECT / OVERRIDE</button>
+      <span style="color:var(--muted);font-size:.72rem">Approving locks these exclusions for the next portfolio build.</span>
+    </div>
+    <div id="v-approved-msg" style="display:none;padding-top:14px">
+      <span class="vetter-approved">&#10003; EXCLUSIONS APPROVED — ready to build portfolio</span>
     </div>
   </div>
 </div>
@@ -934,7 +933,7 @@ const _jobPolls = {};
 // Pipeline dates for staleness checks
 let _pipelineStatus = {};
 
-// Current vetter run id (for live ticker polling)
+// Current vetter run id (for approve/reject)
 let _currentVetterRunId = null;
 
 // ── Tabs ─────────────────────────────────────────────────────────────────────
@@ -943,8 +942,9 @@ function switchTab(name, btn){
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   btn.classList.add('active');
   $('pane-'+name).classList.add('active');
-  // _currentVetterRunId is preserved across tab switches so loadPipelineStatus
-  // can resume live ticker polling for the active run.
+  if(name !== 'vet'){
+    _currentVetterRunId = null;
+  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -1127,15 +1127,9 @@ function _pollUntilDone(job, runId, pctStart, pctEnd){
   });
 }
 
-function _pollJob(tab, runId, startPct=2){
-  if(_jobPolls[tab]){
-    if(_jobPolls[tab].runId === runId) return;  // same job, already polling
-    // New run_id — clear stale poll so we don't block the new job
-    clearInterval(_jobPolls[tab].incrId);
-    clearInterval(_jobPolls[tab].pollId);
-    delete _jobPolls[tab];
-  }
-  let pct = startPct;
+function _pollJob(tab, runId){
+  if(_jobPolls[tab]) return;  // already polling this tab — don't double-start
+  let pct = 2;
 
   // For the vetter, progress is driven by real ticker data in _loadVetterTickers.
   // For other tabs, use a fake smooth animation since we have no step-level data.
@@ -1221,11 +1215,52 @@ async function loadVetterExclusions(runId){
       }).join('');
     }
 
+    // Show approve/reject or already-approved message
+    if(d.approved){
+      $('v-actions').style.display = 'none';
+      $('v-approved-msg').style.display = 'block';
+      $('v-approved').textContent = '✓ APPROVED';
+      $('v-approved').style.color = 'var(--green)';
+    } else {
+      $('v-actions').style.display = 'flex';
+      $('v-approved-msg').style.display = 'none';
+      $('v-approved').textContent = 'PENDING';
+      $('v-approved').style.color = 'var(--yellow)';
+    }
   }catch(e){
     $('v-body').innerHTML = '<tr><td colspan="4" class="error">Failed to load exclusions</td></tr>';
   }
 }
 
+async function vetterApprove(){
+  if(!_currentVetterRunId) return;
+  try{
+    const r = await fetch('/api/vetter/approve/'+_currentVetterRunId, {method:'POST'});
+    if(!r.ok) throw new Error(r.status);
+    $('v-actions').style.display = 'none';
+    $('v-approved-msg').style.display = 'block';
+    $('v-approved').textContent = '✓ APPROVED';
+    $('v-approved').style.color = 'var(--green)';
+  }catch(e){
+    alert('Approval failed: '+e.message);
+  }
+}
+
+async function vetterReject(){
+  if(!_currentVetterRunId) return;
+  try{
+    const r = await fetch('/api/vetter/reject/'+_currentVetterRunId, {method:'POST'});
+    if(!r.ok) throw new Error(r.status);
+    $('v-approved').textContent = 'REJECTED';
+    $('v-approved').style.color = 'var(--red)';
+    $('v-actions').style.display = 'none';
+    $('v-approved-msg').style.display = 'block';
+    $('v-approved-msg').querySelector('span').textContent = '✕ EXCLUSIONS REJECTED — portfolio will use full ranked list';
+    $('v-approved-msg').querySelector('span').style.color = 'var(--red)';
+  }catch(e){
+    alert('Reject failed: '+e.message);
+  }
+}
 
 function esc(s){
   return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -1338,11 +1373,12 @@ async function _loadVetterTickers(runId, live){
             +'</div>';
         }
 
-        // Reason section — handle AUTO-OVERRIDE prefix
+        // Reason section — handle AUTO-OVERRIDE prefix (Python writes "[AUTO-OVERRIDE: ...")
         let reasonText = esc(r.reason || '');
-        if(reasonText.startsWith('AUTO-OVERRIDE')){
-          const rest = reasonText.slice('AUTO-OVERRIDE'.length).replace(/^[:\s–—-]+/,'');
-          reasonText = '<span class="vc-auto-override">AUTO-OVERRIDE</span>'+rest;
+        const autoOverrideMatch = reasonText.match(/^\[?(AUTO-OVERRIDE)[:\s–—-]*/i);
+        if(autoOverrideMatch){
+          const rest = reasonText.slice(autoOverrideMatch[0].length).replace(/\]?\s*/,'');
+          reasonText = '<span class="vc-auto-override">AUTO-OVERRIDE</span> '+rest;
         }
         const flagsHtml = flags.length
           ? '<div class="vc-flags">'+flags.map(f=>'<span class="vc-flag">⚠ '+esc(f)+'</span>').join('')+'</div>'
@@ -1385,97 +1421,33 @@ async function _loadVetterTickers(runId, live){
 
 // Resume live polling for any job that is currently running.
 // Called on page load so any browser picks up in-progress jobs automatically.
-// Resume simple tabs (universe, portfolio) that have a running job.
 async function _resumeRunningJobs(){
-  for(const tab of ['universe', 'portfolio']){
+  // Simple tabs where we just need run_id + status
+  const simpleTabs = ['universe', 'portfolio'];
+  for(const tab of simpleTabs){
     try{
       const d = await fetch('/api/jobs/'+tab+'/latest').then(r=>r.json());
       if(d.run_id && d.status === 'running'){
         _setBadge(tab, 'RUNNING', 'running');
         _setJobPanel(tab, 'running');
-        _setProgress(tab, 30);
-        _pollJob(tab, d.run_id, 30);
+        _setProgress(tab, 2);
+        _pollJob(tab, d.run_id);
       }
     }catch(e){ /* service may be down */ }
   }
 
-  // Rank chain covers three sequential sub-jobs (data → factors → rank).
-  // Any one of them may be in-flight when a second browser opens.
-  _resumeRankChain();
-
-  // Vetter is handled inside loadPipelineStatus (pipeline-status returns its run_id)
-}
-
-// Track whether a rank-chain resume is in progress to prevent loadPipelineStatus
-// from double-starting a second chain watcher.
-let _rankChainResuming = false;
-
-async function _resumeRankChain(){
-  if(_rankChainResuming || _jobPolls['rank']) return;
-  const steps = [
-    {job:'data',    label:'FETCHING DATA', successStatuses:['success','partial_success'], pctStart:2,  pctEnd:33},
-    {job:'factors', label:'CALC FACTORS',  successStatuses:['success','skipped'],         pctStart:33, pctEnd:66},
-    {job:'rank',    label:'RANKING',       successStatuses:['success','skipped'],         pctStart:66, pctEnd:100},
-  ];
-
-  // Find the first step that is currently running.
-  let runningStep = null, runningRunId = null;
-  for(const step of steps){
-    try{
-      const d = await fetch('/api/jobs/'+step.job+'/latest').then(r=>r.json());
-      if(d.run_id && d.status === 'running'){ runningStep = step; runningRunId = d.run_id; break; }
-    }catch(e){}
-  }
-  if(!runningStep) return;
-
-  _rankChainResuming = true;
-  const _rBtn = $('rank-start');
-  if(_rBtn) _rBtn.disabled = true;
-  _setBadge('rank', runningStep.label, 'running');
-  _setJobPanel('rank', 'running');
-  _setProgress('rank', runningStep.pctStart + (runningStep.pctEnd - runningStep.pctStart) * 0.3);
-
-  // Wait for the in-flight step to finish, then poll subsequent steps as the
-  // original browser starts them (with a brief wait for handoff).
-  for(let i = steps.indexOf(runningStep); i < steps.length; i++){
-    const step = steps[i];
-    // For the first step we already have the runId; for later steps fetch it.
-    let rid = (i === steps.indexOf(runningStep)) ? runningRunId : null;
-    if(!rid){
-      // Wait up to 15 s for the original browser to POST the next job.
-      for(let attempt = 0; attempt < 6; attempt++){
-        await new Promise(r => setTimeout(r, 2500));
-        try{
-          const d = await fetch('/api/jobs/'+step.job+'/latest').then(r=>r.json());
-          if(d.run_id && d.status === 'running'){ rid = d.run_id; break; }
-          // Already finished before we caught it — that is fine, move on.
-          if(d.run_id && step.successStatuses.includes(d.status)){ rid = null; break; }
-        }catch(e){}
-      }
+  // Rank tab uses a chain of factor + ranking runs; resume the ranker run_id
+  try{
+    const d = await fetch('/api/jobs/rank/latest').then(r=>r.json());
+    if(d.run_id && d.status === 'running'){
+      _setBadge('rank', 'RUNNING', 'running');
+      _setJobPanel('rank', 'running');
+      _setProgress('rank', 2);
+      _pollJob('rank', d.run_id);
     }
-    if(!rid) continue;  // step finished before we caught it; continue to next
+  }catch(e){ /* ignore */ }
 
-    _setBadge('rank', step.label, 'running');
-    _setProgress('rank', step.pctStart);
-    const finalStatus = await _pollUntilDone(step.job, rid, step.pctStart, step.pctEnd);
-    if(!step.successStatuses.includes(finalStatus)){
-      _setProgress('rank', 100, true);
-      _setBadge('rank', 'FAILED', 'failed');
-      _setJobPanel('rank', 'failed');
-      _rankChainResuming = false;
-      if(_rBtn) _rBtn.disabled = false;
-      return;
-    }
-  }
-
-  _setProgress('rank', 100);
-  _setBadge('rank', 'SUCCESS', 'success');
-  _setJobPanel('rank', 'success');
-  _rankChainResuming = false;
-  if(_rBtn) _rBtn.disabled = false;
-  loadRegime();
-  loadRankings();
-  setTimeout(loadPipelineStatus, 1000);
+  // Vetter is handled inside loadPipelineStatus (we already have the run_id there)
 }
 
 async function loadPipelineStatus(){
@@ -1483,28 +1455,15 @@ async function loadPipelineStatus(){
     const d = await fetch('/api/pipeline-status').then(r=>r.json());
     _pipelineStatus = d;
 
-    const uniDate          = d.universe_date      || null;
-    const rankDate         = d.rank_date          || null;
-    const vetter           = d.vetter             || null;
-    const portDate         = d.portfolio_date     || null;
-    const rankChainRunning = d.rank_chain_running || null; // 'data' | 'factors' | null
+    const uniDate  = d.universe_date  || null;
+    const rankDate = d.rank_date      || null;
+    const vetter   = d.vetter         || null;
+    const portDate = d.portfolio_date || null;
 
     // Update last-run dates in job panels
-    if(uniDate)  { $('uni-last-date').textContent  = uniDate;  if(!_jobPolls['universe'])                                         { _setBadge('universe',  'DONE','success'); _setJobPanel('universe','success');  _setProgress('universe',  100); } }
-    if(rankDate) { $('rank-last-date').textContent = rankDate; if(!_jobPolls['rank'] && !_rankChainResuming && !rankChainRunning) { _setBadge('rank',      'DONE','success'); _setJobPanel('rank','success');      _setProgress('rank',      100); } }
-    if(portDate) { $('port-last-date').textContent = portDate; if(!_jobPolls['portfolio'])                                        { _setBadge('portfolio', 'DONE','success'); _setJobPanel('portfolio','success');  _setProgress('portfolio', 100); } }
-
-    // If a rank chain step is running in another browser, reflect it here immediately
-    // before _resumeRankChain() kicks in asynchronously below.
-    if(rankChainRunning && !_jobPolls['rank'] && !_rankChainResuming){
-      const label = rankChainRunning === 'data' ? 'FETCHING DATA' : 'CALC FACTORS';
-      const pct   = rankChainRunning === 'data' ? 15 : 40;
-      _setBadge('rank', label, 'running');
-      _setJobPanel('rank', 'running');
-      _setProgress('rank', pct);
-      const btn = $('rank-start');
-      if(btn) btn.disabled = true;
-    }
+    if(uniDate)  { $('uni-last-date').textContent  = uniDate;  _setBadge('universe',  'DONE','success'); _setJobPanel('universe','success'); }
+    if(rankDate) { $('rank-last-date').textContent = rankDate; _setBadge('rank',      'DONE','success'); _setJobPanel('rank','success'); }
+    if(portDate) { $('port-last-date').textContent = portDate; _setBadge('portfolio', 'DONE','success'); _setJobPanel('portfolio','success'); }
 
     if(vetter){
       const vetDate = (vetter.completed_at || vetter.started_at || '').slice(0,10);
@@ -1513,12 +1472,14 @@ async function loadPipelineStatus(){
       $('v-date').textContent = vetDate || '—';
       if(vetter.candidate_count != null) $('v-candidates').textContent = vetter.candidate_count;
       if(vetter.flagged_count   != null) $('v-flagged').textContent    = vetter.flagged_count;
+      $('v-approved').textContent = vetter.approved ? '✓ APPROVED' : 'PENDING';
+      $('v-approved').style.color = vetter.approved ? 'var(--green)' : 'var(--yellow)';
 
       if(vetter.status === 'running' && vetter.run_id){
         // Resume live updates in this browser even if it didn't start the job
         _currentVetterRunId = vetter.run_id;
         _setJobPanel('vet', 'running');
-        _pollJob('vet', vetter.run_id, 30);
+        _pollJob('vet', vetter.run_id);
         _startVetterTickerPoll(vetter.run_id);
       } else if(vetter.status === 'success' && vetter.run_id){
         _setJobPanel('vet','success');
@@ -1544,24 +1505,6 @@ async function loadPipelineStatus(){
     const portWarn = rankDate && portDate && rankDate > portDate;
     $('port-warning').style.display = portWarn ? 'block' : 'none';
     _setTabWarn('tab-portfolio', portWarn);
-
-    // Self-heal: if no poll is registered for a simple tab, check whether a job
-    // is running (catches jobs that started after this browser opened).
-    for(const tab of ['universe', 'portfolio']){
-      if(_jobPolls[tab]) continue;
-      fetch('/api/jobs/'+tab+'/latest').then(r=>r.json()).then(d=>{
-        if(d.run_id && d.status === 'running'){
-          _setBadge(tab, 'RUNNING', 'running');
-          _setJobPanel(tab, 'running');
-          _setProgress(tab, 30);
-          _pollJob(tab, d.run_id, 30);
-        }
-      }).catch(()=>{});
-    }
-    // Self-heal rank chain (skip if a chain resume is already in progress)
-    if(!_jobPolls['rank'] && !_rankChainResuming){
-      _resumeRankChain();
-    }
 
   }catch(e){
     console.warn('pipeline-status error', e);

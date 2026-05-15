@@ -38,16 +38,14 @@ def greedy_select(
         sector = sector_map.get(candidate)
         if not sector:
             return True
-        # Measure concentration against the target size, not the current interim
-        # size. A 30% cap on a 30-stock portfolio means ≤9 stocks per sector.
-        # Using current_size+1 as denominator makes the constraint unsatisfiable
-        # at small portfolio sizes (e.g. 1/2=50% > 30%), terminating selection early.
         new_count = sector_counts.get(sector, 0) + 1
+        # Use target as denominator: k/target <= max_sector_weight is the correct constraint.
+        # Using current_size+1 would block pick 2 in any sector (1/2=0.50 > 0.30).
         return (new_count / target) <= max_sector_weight
 
-    # First pick: highest standalone score — no sector cap on position 1
-    # (a single stock cannot violate a concentration limit by definition)
-    first_candidates = [t for t in base.sort_values(ascending=False).index if _sector_ok(t)]
+    # First pick: highest standalone score — no covariance context yet
+    first_candidates = [t for t in [str(base.idxmax())] + list(base.sort_values(ascending=False).index)
+                        if _sector_ok(t)]
     if not first_candidates:
         return result
     first = first_candidates[0]

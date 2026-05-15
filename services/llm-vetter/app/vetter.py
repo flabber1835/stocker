@@ -116,20 +116,6 @@ Set confidence:
   "medium" — material concern but uncertain timing or magnitude
   "low"    — weak signal, worth noting but not strongly actionable
 
-MANDATORY CONFIDENCE RULES — you MUST follow these exactly:
-1. To use "high" or "medium" confidence you MUST cite a SPECIFIC headline, filing
-   number, analyst name, or data point in your reason. Vague statements like "there
-   may be upcoming earnings risk" or "the company faces sector headwinds" are NOT
-   sufficient for high or medium confidence.
-2. If you searched and found nothing material, you MUST use "low" confidence.
-3. If you have no news, no earnings date, and your searches returned nothing
-   actionable, you MUST set exclude=false. Absence of evidence is NEVER a reason
-   to exclude — it is neutral.
-4. NEVER set exclude=true purely from general knowledge or training data without
-   a specific, verifiable, RECENT (within 60 days) event to cite. Historical
-   knowledge about a company's sector or general reputation is not a valid basis
-   for exclusion.
-
 If not excluding, set risk_type to "none" and explain briefly why the stock is
 safe to hold for 30 days given available information.
 
@@ -234,8 +220,6 @@ def _detect_hallucination_flags(
     earnings_date: str | None,
     raw: str,
     today: str | None = None,
-    tavily_articles: list[dict] | None = None,
-    agent_searches: list[dict] | None = None,
 ) -> list[str]:
     """
     Heuristic checks for suspicious LLM output.
@@ -247,18 +231,13 @@ def _detect_hallucination_flags(
     reason = parsed.get("reason", "")
     risk_type = parsed.get("risk_type", "none")
 
-    # Check ALL data sources, not just AV news
-    all_articles = news + (tavily_articles or [])
-    agent_found_data = any(s.get("result_count", 0) > 0 for s in (agent_searches or []))
-    has_any_data = bool(all_articles) or earnings_date is not None or agent_found_data
-
     # Exclude with no data and high/medium confidence is suspicious
-    if exclude and not has_any_data and confidence in ("high", "medium"):
-        flags.append(f"EXCLUDE with {confidence} confidence but no news/earnings/search data found")
+    if exclude and not news and not earnings_date and confidence in ("high", "medium"):
+        flags.append(f"EXCLUDE with {confidence} confidence but no news/earnings data provided")
 
     # Exclude with no supporting data at any confidence is suspicious
-    if exclude and not has_any_data:
-        flags.append("EXCLUDE with no supporting data (no AV news, no Tavily, no agent search results, no earnings date)")
+    if exclude and not news and not earnings_date:
+        flags.append("EXCLUDE with no supporting data (no news, no earnings date)")
 
     # Exclude with risk_type=none is contradictory
     if exclude and risk_type == "none":
@@ -286,6 +265,11 @@ def _detect_hallucination_flags(
     no_concern_phrases = ("no concerns", "no significant", "no material", "no risk", "safe to hold", "no issues")
     if exclude and any(p in reason.lower() for p in no_concern_phrases):
         flags.append("Reason language suggests no concern but exclude=True — contradiction")
+
+    # Contradiction: exclude=True and positive_catalyst=True simultaneously
+    positive_catalyst = parsed.get("positive_catalyst", False)
+    if exclude and positive_catalyst:
+        flags.append("exclude=True and positive_catalyst=True simultaneously — contradictory")
 
     # Future date hallucination: earnings_date provided but reason references a different date
     if earnings_date and today:
@@ -446,10 +430,7 @@ async def vet_single_ticker(
             "hallucination_flags": [f"JSON parse error: {exc}"],
         }
 
-    hallucination_flags = _detect_hallucination_flags(
-        ticker, parsed, news, earnings_date, raw,
-        today=today, tavily_articles=tavily_articles, agent_searches=agent_searches,
-    )
+    hallucination_flags = _detect_hallucination_flags(ticker, parsed, news, earnings_date, raw, today=today)
     if hallucination_flags:
         for flag in hallucination_flags:
             log.warning("[llm-vetter] %s hallucination flag: %s", ticker, flag)
@@ -495,6 +476,7 @@ async def vet_single_ticker(
         hallucination_flags.append(
             f"positive_conviction downgraded to 'low' — no supporting data found"
         )
+
 
     return {
         "ticker":      ticker,

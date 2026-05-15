@@ -363,3 +363,57 @@ def test_build_covariance_near_singular_warns(capsys):
     )
     assert "WARNING" in captured.out
     assert "rank-deficient" in captured.out
+
+
+# ── Sector cap: target-denominator fix ─────────────────────────────────────────
+
+def test_sector_cap_selects_multiple_stocks():
+    """
+    With max_sector_weight=0.30 and 30 candidates all in the same sector,
+    the portfolio must contain more than 1 stock (old bug: used current_size+1
+    as denominator, so pick 2 always failed 1/2=0.50>0.30).
+    """
+    tickers = [f"T{i}" for i in range(30)]
+    scores = pd.Series({t: float(30 - i) for i, t in enumerate(tickers)})
+    cov = _simple_cov(tickers, vol=0.20)
+    sector_map = {t: "TECH" for t in tickers}  # all same sector
+
+    result = greedy_select(scores, cov, target=30, sector_map=sector_map, max_sector_weight=0.30)
+
+    # With correct target-denominator: max 9 TECH stocks in a 30-stock portfolio
+    # So we should get exactly 9 (the cap), not 1
+    assert len(result) == 9, f"Expected 9 stocks (30% of 30), got {len(result)}"
+
+
+def test_sector_cap_respects_max_per_sector():
+    """
+    With 20 tickers split evenly across 2 sectors and a 0.30 cap,
+    each sector can have at most floor(0.30 * 10) = 3 stocks in a 10-stock portfolio.
+    """
+    tickers_a = [f"A{i}" for i in range(10)]
+    tickers_b = [f"B{i}" for i in range(10)]
+    all_tickers = tickers_a + tickers_b
+    # Give sector A higher scores so it would be preferred without cap
+    scores = pd.Series({t: 2.0 for t in tickers_a} | {t: 1.0 for t in tickers_b})
+    cov = _simple_cov(all_tickers, vol=0.20)
+    sector_map = {t: "TECH" for t in tickers_a} | {t: "HEALTH" for t in tickers_b}
+
+    result = greedy_select(scores, cov, target=10, sector_map=sector_map, max_sector_weight=0.30)
+
+    sector_counts: dict[str, int] = {}
+    for r in result:
+        s = sector_map[r["ticker"]]
+        sector_counts[s] = sector_counts.get(s, 0) + 1
+
+    for sector, count in sector_counts.items():
+        assert count / 10 <= 0.30 + 1e-9, f"{sector} has {count}/10 = {count/10:.2f} > 0.30"
+
+
+def test_sector_cap_no_limit_when_disabled():
+    """Without sector_map, all 30 tickers from one sector should be selectable."""
+    tickers = [f"T{i}" for i in range(30)]
+    scores = pd.Series({t: float(30 - i) for i, t in enumerate(tickers)})
+    cov = _simple_cov(tickers, vol=0.20)
+
+    result = greedy_select(scores, cov, target=30, sector_map=None, max_sector_weight=0.30)
+    assert len(result) == 30

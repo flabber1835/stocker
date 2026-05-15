@@ -273,8 +273,8 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
                 "  COALESCE(asset_class, '') ILIKE '%ETF%'"
                 "  OR COALESCE(asset_class, '') ILIKE '%Future%'"
                 "  OR COALESCE(name, '') ~* "
-                "  '(ProShares|iShares|SPDR|Invesco|Direxion|VanEck|WisdomTree|First Trust"
-                "|\\bETF\\b|\\bFund\\b|\\bLeveraged\\b|\\bInverse\\b)'"
+                "  '(ProShares|iShares|SPDR|Invesco|Direxion|VanEck|WisdomTree"
+                "|\\bETF\\b|\\bFund\\b|\\bTrust\\b|\\bIndex\\b|\\bLeveraged\\b|\\bInverse\\b|\\bFuture)'"
                 "  OR ticker ~* 'FUT$'"
                 "  OR ticker ~ '^[A-Z]{1,4}[0-9]{1,2}[A-Z]?[0-9]?$'"
                 ")"
@@ -322,11 +322,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         # ── Step 2: load SPY prices ───────────────────────────────────────────────────────────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
         spy_rows = await conn.execute(
-            text(
-                "SELECT date, adjusted_close FROM daily_prices "
-                "WHERE ticker = 'SPY' AND date >= NOW() - INTERVAL '600 days' "
-                "ORDER BY date ASC"
-            )
+            text("SELECT date, adjusted_close FROM daily_prices WHERE ticker = 'SPY' ORDER BY date ASC")
         )
         spy_df = pd.DataFrame(spy_rows.fetchall(), columns=["date", "adjusted_close"])
 
@@ -618,28 +614,12 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             output_summary={"snapshot_date": str(score_date), "regime": confirmed_regime},
         )
 
-        # ── Step 8: write factor scores (bulk insert) ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+        # ── Step 8: write factor scores ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
+        for _, row in factors_df.iterrows():
+            def _val(v):
+                return None if pd.isna(v) else float(v)
 
-        def _val(v):
-            return None if pd.isna(v) else float(v)
-
-        factor_score_rows = [
-            {
-                "run_id": run_id,
-                "ticker": str(row["ticker"]),
-                "score_date": score_date,
-                "momentum": _val(row.get("momentum")),
-                "quality": _val(row.get("quality")),
-                "value": _val(row.get("value")),
-                "growth": _val(row.get("growth")),
-                "low_volatility": _val(row.get("low_volatility")),
-                "liquidity": _val(row.get("liquidity")),
-                "calculated_at": calculated_at,
-            }
-            for _, row in factors_df.iterrows()
-        ]
-        if factor_score_rows:
             await conn.execute(
                 text(
                     "INSERT INTO factor_scores "
@@ -656,7 +636,18 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
                     "  liquidity     = EXCLUDED.liquidity, "
                     "  calculated_at = EXCLUDED.calculated_at"
                 ),
-                factor_score_rows,
+                {
+                    "run_id": run_id,
+                    "ticker": str(row["ticker"]),
+                    "score_date": score_date,
+                    "momentum": _val(row.get("momentum")),
+                    "quality": _val(row.get("quality")),
+                    "value": _val(row.get("value")),
+                    "growth": _val(row.get("growth")),
+                    "low_volatility": _val(row.get("low_volatility")),
+                    "liquidity": _val(row.get("liquidity")),
+                    "calculated_at": calculated_at,
+                },
             )
         await _log_step(
             conn, trace_id, "write_factor_scores", "success",
@@ -770,35 +761,6 @@ async def get_current_regime():
         "spy_vs_sma": float(result.spy_vs_sma) if result.spy_vs_sma is not None else None,
         "realized_vol": float(result.realized_vol) if result.realized_vol is not None else None,
         "calculated_at": result.calculated_at.isoformat() if result.calculated_at else None,
-    }
-
-
-@app.get("/runs/latest")
-async def get_latest_run():
-    async with engine.connect() as conn:
-        row = await conn.execute(
-            text(
-                "SELECT run_id, trace_id, strategy_id, config_hash, status, regime, "
-                "       score_date, ticker_count, warning_count, started_at, completed_at, error_message "
-                "FROM factor_runs ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
-            )
-        )
-        result = row.fetchone()
-    if result is None:
-        return {"run_id": None, "status": "no_runs"}
-    return {
-        "run_id": str(result.run_id),
-        "trace_id": str(result.trace_id) if result.trace_id else None,
-        "strategy_id": result.strategy_id,
-        "config_hash": result.config_hash,
-        "status": result.status,
-        "regime": result.regime,
-        "score_date": str(result.score_date) if result.score_date else None,
-        "ticker_count": result.ticker_count,
-        "warning_count": result.warning_count,
-        "started_at": result.started_at.isoformat() if result.started_at else None,
-        "completed_at": result.completed_at.isoformat() if result.completed_at else None,
-        "error_message": result.error_message,
     }
 
 
