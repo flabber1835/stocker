@@ -759,20 +759,22 @@ footer span{color:var(--cyan)}
       <span id="v-live-badge" class="v-live-label" style="display:none">● LIVE</span>
       <span class="badge-count" id="v-ticker-count"></span>
     </div>
-    <div class="tbl-wrap" style="max-height:45vh">
+    <div class="tbl-wrap" style="max-height:55vh">
       <table>
         <thead>
           <tr>
-            <th>TICKER</th>
-            <th>VERDICT</th>
-            <th>CONFIDENCE</th>
-            <th>RISK TYPE</th>
+            <th style="width:70px">TICKER</th>
+            <th style="width:80px">VERDICT</th>
+            <th style="width:75px">CONF</th>
+            <th style="width:90px">RISK TYPE</th>
+            <th style="width:110px">DATA SOURCES</th>
             <th>REASON</th>
-            <th>SEARCHES</th>
+            <th style="width:130px">WEB SEARCHES</th>
+            <th style="width:65px">LATENCY</th>
           </tr>
         </thead>
         <tbody id="v-ticker-body">
-          <tr><td colspan="6" class="loading">WAITING FOR ANALYSIS</td></tr>
+          <tr><td colspan="8" class="loading">WAITING FOR ANALYSIS</td></tr>
         </tbody>
       </table>
     </div>
@@ -1217,7 +1219,7 @@ function _startVetterTickerPoll(runId){
   _vetterTickerPollId = setInterval(async()=>{
     const done = await _loadVetterTickers(runId, true);
     if(done){ clearInterval(_vetterTickerPollId); _vetterTickerPollId=null; }
-  }, 3000);
+  }, 2000);
 }
 
 async function _loadVetterTickers(runId, live){
@@ -1237,9 +1239,12 @@ async function _loadVetterTickers(runId, live){
       const total     = prog.total     ?? completed;
       $('v-ticker-count').textContent = completed+' / '+total+(running ? ' — ANALYZING…' : ' COMPLETE');
 
-      // EXCLUDE first, then alphabetical
+      // EXCLUDE first, then by confidence desc, then alphabetical
+      const confRank = {high:0,medium:1,low:2};
       const sorted = [...results].sort((a,b)=>{
         if(!!a.exclude !== !!b.exclude) return a.exclude ? -1 : 1;
+        const cr = (confRank[a.confidence]??2)-(confRank[b.confidence]??2);
+        if(cr!==0) return cr;
         return (a.ticker||'').localeCompare(b.ticker||'');
       });
 
@@ -1248,18 +1253,45 @@ async function _loadVetterTickers(runId, live){
         const vCls      = r.crashed ? 'verdict-crashed' : r.exclude ? 'verdict-exclude' : 'verdict-keep';
         const tCls      = r.crashed ? 'neu' : r.exclude ? 'neg' : 'pos';
         const confCls   = 'conf-'+(r.confidence||'low');
-        const riskType  = (r.risk_type && r.risk_type!=='none') ? r.risk_type : '—';
+        const riskType  = (r.risk_type && r.risk_type!=='none') ? r.risk_type.toUpperCase() : '—';
         const searches  = r.agent_searches || [];
-        const searchTxt = searches.length ? searches.length+' search'+(searches.length>1?'es':'') : '—';
         const flags     = r.hallucination_flags || [];
-        const flagTxt   = flags.length ? ' <span style="color:var(--yellow);font-size:.65rem" title="'+esc(flags.join('; '))+'">⚠'+flags.length+'</span>' : '';
+        const latMs     = r.latency_ms ? (r.latency_ms/1000).toFixed(1)+'s' : '—';
+
+        // Data sources badges
+        const srcParts = [];
+        if(r.had_av_news)   srcParts.push('<span style="color:var(--green);font-size:.65rem;font-weight:600">AV</span>');
+        if(r.had_tavily)    srcParts.push('<span style="color:#7aaabb;font-size:.65rem;font-weight:600">TAVILY</span>');
+        if(searches.length) srcParts.push('<span style="color:var(--orange);font-size:.65rem;font-weight:600">AGENT</span>');
+        if(r.had_earnings)  srcParts.push('<span style="color:var(--yellow);font-size:.65rem;font-weight:600">EARN</span>');
+        const srcTxt = srcParts.length ? srcParts.join(' ') : '<span style="color:var(--muted);font-size:.65rem">none</span>';
+
+        // Search queries tooltip
+        const searchTxt = searches.length
+          ? searches.map(s=>'&#128269; '+esc(s.query||'')+(s.result_count!=null?' ('+s.result_count+')':'')).join('<br>')
+          : '<span style="color:var(--muted)">—</span>';
+
+        // News titles tooltip
+        const newsTitles = r.news_titles || [];
+        const newsTitle  = newsTitles.length ? newsTitles.slice(0,6).join('\n') : '';
+        const newsCountTxt = newsTitles.length
+          ? '<span title="'+esc(newsTitle)+'" style="cursor:default;color:var(--muted);font-size:.65rem">'+newsTitles.length+' article'+(newsTitles.length>1?'s':'')+'</span>'
+          : '';
+
+        // Hallucination flags
+        const flagTxt = flags.length
+          ? '<br><span style="color:var(--yellow);font-size:.65rem" title="'+esc(flags.join('\n'))+'">⚠ '+flags.length+' flag'+(flags.length>1?'s':'')+'</span>'
+          : '';
+
         return '<tr>'
-          +'<td><span class="t-ticker '+tCls+'">'+esc(r.ticker||'')+'</span></td>'
-          +'<td><span class="'+vCls+'">'+verdict+'</span></td>'
+          +'<td style="white-space:nowrap"><span class="t-ticker '+tCls+'">'+esc(r.ticker||'')+'</span></td>'
+          +'<td><span class="'+vCls+'" style="font-weight:700;font-size:.78rem">'+verdict+'</span></td>'
           +'<td><span class="pct-pill '+confCls+'">'+(r.confidence||'low').toUpperCase()+'</span></td>'
-          +'<td><span class="t-sector">'+esc(riskType)+'</span></td>'
-          +'<td style="color:#7aaabb;font-size:.78rem;max-width:400px;white-space:normal">'+esc(r.reason||'')+'</td>'
-          +'<td style="color:var(--muted);font-size:.72rem;white-space:nowrap">'+searchTxt+flagTxt+'</td>'
+          +'<td style="font-size:.72rem;color:#aaa">'+esc(riskType)+'</td>'
+          +'<td style="font-size:.72rem;line-height:1.6">'+srcTxt+(newsCountTxt?'<br>'+newsCountTxt:'')+'</td>'
+          +'<td style="color:#c5d5dd;font-size:.76rem;white-space:normal;max-width:380px">'+esc(r.reason||'')+flagTxt+'</td>'
+          +'<td style="font-size:.7rem;color:var(--muted);line-height:1.7">'+searchTxt+'</td>'
+          +'<td style="font-size:.7rem;color:var(--muted);text-align:right;white-space:nowrap">'+latMs+'</td>'
           +'</tr>';
       }).join('');
     }
