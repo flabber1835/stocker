@@ -553,7 +553,7 @@ async def get_latest_run():
         )
         result = row.fetchone()
     if result is None:
-        raise HTTPException(status_code=404, detail="No vetter runs yet")
+        return {"run_id": None, "status": "no_runs"}
     return _fmt_row(result)
 
 

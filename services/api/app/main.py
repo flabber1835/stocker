@@ -35,7 +35,7 @@ async def get_regime():
         )
         result = row.mappings().first()
     if result is None:
-        raise HTTPException(404, "No regime data yet. Run: make factors")
+        return {"regime": None}
     return dict(result)
 
 
@@ -57,14 +57,15 @@ async def get_rankings(limit: int = 50, run_id: str | None = None):
                 text(
                     "SELECT ticker, rank, composite_score, percentile, regime, rank_date, factor_scores "
                     "FROM rankings WHERE run_id = ("
-                    "  SELECT run_id FROM rankings ORDER BY ranked_at DESC LIMIT 1"
+                    "  SELECT run_id FROM ranking_runs WHERE status='success' "
+                    "  ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
                     ") ORDER BY rank ASC LIMIT :limit"
                 ),
                 {"limit": limit},
             )
         results = [dict(r) for r in rows.mappings()]
     if not results:
-        raise HTTPException(404, "No rankings yet. Run: make pipeline")
+        return {"count": 0, "rankings": []}
     return {"count": len(results), "rankings": results}
 
 
@@ -358,7 +359,8 @@ async def get_portfolio(run_id: str | None = None):
             )
         run = run_row.mappings().first()
         if run is None:
-            raise HTTPException(404, "No portfolio yet. Run: make portfolio")
+            return {"run": None, "holdings": []}
+
         holdings_rows = await conn.execute(
             text(
                 "SELECT ticker, position, weight, composite_score, original_rank, "
