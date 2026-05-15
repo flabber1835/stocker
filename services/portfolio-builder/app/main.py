@@ -23,6 +23,14 @@ ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
 
 _MIN_EIGENVALUE = 1e-8  # numerical zero threshold for PSD matrix repair
 
+
+def _fmt_row(row) -> dict:
+    return {
+        k: (str(v) if isinstance(v, uuid.UUID) else (v.isoformat() if hasattr(v, "isoformat") else v))
+        for k, v in dict(row._mapping).items()
+    }
+
+
 strategy: StrategyConfig
 engine: AsyncEngine
 config_hash: str = ""
@@ -701,10 +709,7 @@ async def get_run(run_id: str):
         result = row.fetchone()
     if result is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-    return {
-        k: (str(v) if isinstance(v, uuid.UUID) else (v.isoformat() if hasattr(v, "isoformat") else v))
-        for k, v in dict(result._mapping).items()
-    }
+    return _fmt_row(result)
 
 
 @app.get("/portfolio/latest")
