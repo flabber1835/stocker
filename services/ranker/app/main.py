@@ -191,7 +191,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
                         "SELECT run_id, trace_id, regime, score_date, ticker_count "
                         "FROM factor_runs "
                         "WHERE status = 'success' AND ticker_count > 0 "
-                        "ORDER BY completed_at DESC LIMIT 1"
+                        "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
                     )
                 )
             latest = row.fetchone()
@@ -624,7 +624,7 @@ async def start_rank_job(background_tasks: BackgroundTasks, factor_run_id: str |
                 text(
                     "SELECT regime FROM factor_runs "
                     "WHERE status = 'success' AND ticker_count > 0 "
-                    "ORDER BY completed_at DESC LIMIT 1"
+                    "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
                 )
             )
             latest = row.fetchone()

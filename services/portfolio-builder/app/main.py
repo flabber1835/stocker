@@ -192,7 +192,7 @@ async def _run_build(run_id: str, trace_id: str, source_ranking_run_id: Optional
             )
         else:
             row = await conn.execute(
-                text("SELECT run_id, regime, rank_date FROM ranking_runs WHERE status='success' ORDER BY completed_at DESC LIMIT 1")
+                text("SELECT run_id, regime, rank_date FROM ranking_runs WHERE status='success' ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1")
             )
         rr = row.fetchone()
 
@@ -779,7 +779,7 @@ async def start_build(
             )
         else:
             chk = await conn.execute(
-                text("SELECT 1 FROM ranking_runs WHERE status='success' ORDER BY completed_at DESC LIMIT 1")
+                text("SELECT 1 FROM ranking_runs WHERE status='success' ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1")
             )
         if chk.fetchone() is None:
             raise HTTPException(
@@ -867,7 +867,7 @@ async def get_latest_portfolio():
                 "SELECT run_id, regime, portfolio_date, selected_count, "
                 "       portfolio_estimated_vol, avg_pairwise_correlation "
                 "FROM portfolio_runs WHERE status='success' "
-                "ORDER BY completed_at DESC LIMIT 1"
+                "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
             )
         )
         run = run_row.fetchone()

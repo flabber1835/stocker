@@ -354,7 +354,7 @@ async def get_portfolio(run_id: str | None = None):
                     "       covariance_window_days, avg_pairwise_correlation, portfolio_estimated_vol, "
                     "       error_message, started_at, completed_at "
                     "FROM portfolio_runs WHERE status = 'success' "
-                    "ORDER BY completed_at DESC LIMIT 1"
+                    "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
                 )
             )
         run = run_row.mappings().first()
