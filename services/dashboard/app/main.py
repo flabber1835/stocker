@@ -73,6 +73,11 @@ async def proxy_portfolio():
     return await _proxy("/portfolio")
 
 
+@app.get("/api/data-freshness")
+async def proxy_data_freshness():
+    return await _proxy("/data-freshness")
+
+
 # ── Job triggers ──────────────────────────────────────────────────────────────
 
 @app.post("/api/jobs/{tab}")
@@ -355,6 +360,20 @@ header{
   flex:0 0 100%;
 }
 .job-warning::before{content:'⚠  '}
+/* ── Data freshness strip ── */
+.freshness-strip{
+  display:flex;flex-wrap:wrap;gap:6px 16px;
+  padding:8px 16px;
+  background:var(--panel2);
+  border:1px solid var(--border);
+  border-radius:6px;
+  margin-bottom:14px;
+}
+.fresh-item{display:flex;align-items:center;gap:6px;font-size:.72rem}
+.fresh-lbl{color:var(--secondary);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+.fresh-val{color:var(--primary);font-family:var(--font-mono);white-space:nowrap}
+.fresh-val.stale{color:var(--amber)}
+.fresh-val.fresh{color:var(--green)}
 .job-controls{display:flex;align-items:center;gap:10px;margin-left:auto}
 .btn-start{
   background:var(--blue);
@@ -748,6 +767,13 @@ footer span{color:var(--blue)}
 
 <!-- ── Rank pane ── -->
 <div id="pane-rank" class="pane">
+  <!-- Data freshness strip — shows how old each data layer is -->
+  <div class="freshness-strip" id="freshness-strip">
+    <div class="fresh-item"><span class="fresh-lbl">Prices</span><span class="fresh-val" id="fresh-prices">—</span></div>
+    <div class="fresh-item"><span class="fresh-lbl">Fundamentals</span><span class="fresh-val" id="fresh-funds">—</span></div>
+    <div class="fresh-item"><span class="fresh-lbl">Factors</span><span class="fresh-val" id="fresh-factors">—</span></div>
+    <div class="fresh-item"><span class="fresh-lbl">Rankings</span><span class="fresh-val" id="fresh-rankings">—</span></div>
+  </div>
   <div class="job-panel" id="jp-rank">
     <div class="job-meta">
       <span class="job-lbl">LAST RUN</span>
@@ -1740,6 +1766,52 @@ function renderPortfolio(){
   }).join('');
 }
 
+// ── Data freshness ───────────────────────────────────────────────────────────
+let _freshnessTimestamps = {};  // { prices, fundamentals, factors, rankings } → ISO strings
+
+function _relativeAge(isoStr){
+  if(!isoStr) return '—';
+  const diffMs = Date.now() - new Date(isoStr).getTime();
+  if(diffMs < 0) return '—';
+  const mins  = Math.floor(diffMs / 60000);
+  const hours = Math.floor(mins  / 60);
+  const days  = Math.floor(hours / 24);
+  if(days >= 1)  return days  + (days  === 1 ? ' day ago'  : ' days ago');
+  if(hours >= 1) return hours + 'h ' + (mins % 60) + 'm ago';
+  return mins + 'm ago';
+}
+
+function _updateFreshnessDisplay(){
+  const ts = _freshnessTimestamps;
+  const priceTs  = ts.prices?.last_fetched || null;
+  const fundTs   = ts.fundamentals?.last_fetched || null;
+  const factorTs = ts.factors?.completed_at || null;
+  const rankTs   = ts.rankings?.completed_at || null;
+
+  function _setEl(id, isoTs){
+    const el = $(id);
+    if(!el) return;
+    const label = _relativeAge(isoTs);
+    el.textContent = label;
+    // Stale = older than 25h (accounts for overnight gap on weekends)
+    const diffH = isoTs ? (Date.now() - new Date(isoTs).getTime()) / 3600000 : Infinity;
+    el.className = 'fresh-val ' + (diffH > 25 ? 'stale' : diffH < 2 ? 'fresh' : '');
+  }
+
+  _setEl('fresh-prices',   priceTs);
+  _setEl('fresh-funds',    fundTs);
+  _setEl('fresh-factors',  factorTs);
+  _setEl('fresh-rankings', rankTs);
+}
+
+async function loadDataFreshness(){
+  try{
+    const d = await fetch('/api/data-freshness').then(r=>r.json());
+    _freshnessTimestamps = d;
+    _updateFreshnessDisplay();
+  }catch(e){ console.warn('data-freshness error', e); }
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 (async()=>{
   await loadRegime();
@@ -1748,12 +1820,17 @@ function renderPortfolio(){
   loadUniverse();
   loadRankings();
   loadPortfolio();
+  loadDataFreshness();
   $('rh-rank').classList.add('asc');
   $('uh-weight_pct').classList.add('desc');
   $('ph-position').classList.add('asc');
 
   // Refresh pipeline status every 10s so any browser detects newly started jobs
   setInterval(loadPipelineStatus, 10000);
+  // Tick the freshness display every minute so "44m ago" counts up live
+  setInterval(_updateFreshnessDisplay, 60000);
+  // Reload actual timestamps every 5 minutes
+  setInterval(loadDataFreshness, 300000);
 })();
 </script>
 </body>

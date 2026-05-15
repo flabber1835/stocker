@@ -318,6 +318,34 @@ async def _run_fetch_universe(run_id: str) -> None:
         raise
 
 
+async def _load_price_staleness() -> tuple[dict[str, date], date | None]:
+    """Return (ticker→latest_date_in_db, spy_max_date).
+
+    spy_max_date is the ground-truth for what the most recent available trading
+    date is.  Any ticker whose latest_date already equals spy_max_date has
+    up-to-date prices and can be skipped.
+    """
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            text("SELECT ticker, MAX(date) AS latest FROM daily_prices GROUP BY ticker")
+        )
+        ticker_latest = {r.ticker: r.latest for r in rows.fetchall()}
+    spy_max = ticker_latest.get("SPY")
+    return ticker_latest, spy_max
+
+
+async def _load_fund_staleness() -> dict[str, date]:
+    """Return ticker→most_recent_fetched_at for fundamentals."""
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            text(
+                "SELECT ticker, MAX(fetched_at)::date AS last_fetched "
+                "FROM fundamentals GROUP BY ticker"
+            )
+        )
+        return {r.ticker: r.last_fetched for r in rows.fetchall()}
+
+
 async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
     started_at = datetime.now(timezone.utc)
     await _start_run(run_id, "fetch-data")
@@ -327,13 +355,25 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
     fundamental_tickers = [t for t in tickers if t not in benchmark_set]
     fundamental_set = set(fundamental_tickers)
     today = date.today()
-    print(f"[fetch-data] starting: {len(price_tickers)} price tickers, "
-          f"{len(fundamental_tickers)} fundamental tickers")
+
+    # Check what's already in the DB so we can skip up-to-date tickers.
+    ticker_latest, spy_max = await _load_price_staleness()
+    fund_latest = await _load_fund_staleness()
+
+    price_skip = sum(1 for t in price_tickers if spy_max and ticker_latest.get(t) == spy_max)
+    fund_skip  = sum(1 for t in fundamental_tickers if fund_latest.get(t) == today)
+    print(
+        f"[fetch-data] starting: {len(price_tickers)} price tickers "
+        f"({price_skip} already current, spy_max={spy_max}), "
+        f"{len(fundamental_tickers)} fundamental tickers ({fund_skip} already current today)"
+    )
     await _checkpoint(run_id, "fetch-data", started_at,
                       tickers_done=0, total_tickers=len(price_tickers),
-                      price_rows=0, fund_rows=0, error_count=0)
+                      price_rows=0, fund_rows=0, error_count=0,
+                      price_skipped=price_skip, fund_skipped=fund_skip)
 
     price_ok = price_rows_written = fund_ok = err_count = 0
+    price_skipped = fund_skipped = 0
     # avg_dollar_volume_20d computed from the last 20 price rows for each ticker,
     # since AV OVERVIEW does not reliably provide this field.
     _ticker_avg_dv: dict[str, float] = {}
@@ -344,76 +384,95 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                 print(f"[fetch-data] skipping invalid ticker: {ticker!r}")
                 continue
             label = f"({i+1}/{len(price_tickers)})"
-            try:
-                rows = await client.get_daily_prices(ticker)
-                if rows:
-                    async with SessionLocal() as session:
-                        async with session.begin():
-                            await session.execute(
-                                text(
-                                    "INSERT INTO daily_prices "
-                                    "    (ticker, date, open, high, low, close, adjusted_close, volume) "
-                                    "VALUES "
-                                    "    (:ticker, :date, :open, :high, :low, :close, :adjusted_close, :volume) "
-                                    "ON CONFLICT (ticker, date) DO UPDATE SET "
-                                    "    open=EXCLUDED.open, high=EXCLUDED.high, low=EXCLUDED.low, "
-                                    "    close=EXCLUDED.close, adjusted_close=EXCLUDED.adjusted_close, "
-                                    "    volume=EXCLUDED.volume, fetched_at=NOW()"
-                                ),
-                                [{"ticker": ticker, "date": date.fromisoformat(r["date"]),
-                                  "open": r["open"], "high": r["high"], "low": r["low"],
-                                  "close": r["close"], "adjusted_close": r["adjusted_close"],
-                                  "volume": r["volume"]} for r in rows],
-                            )
-                    price_rows_written += len(rows)
-                    price_ok += 1
-                    last_20 = sorted(rows, key=lambda r: r["date"])[-20:]
-                    dv_vals = [(r["close"] or 0) * (r["volume"] or 0) for r in last_20]
-                    if dv_vals:
-                        _ticker_avg_dv[ticker] = sum(dv_vals) / len(dv_vals)
-                    print(f"[fetch-data] {ticker} prices: {len(rows)} rows {label}")
-                else:
-                    print(f"[fetch-data] {ticker} prices: no data {label}")
-            except Exception as e:
-                err_count += 1
-                print(f"[fetch-data] {ticker} prices: error - {e}")
 
-            if ticker in fundamental_set:
+            # Skip price fetch if this ticker's DB date already matches the latest trading date.
+            if spy_max and ticker_latest.get(ticker) == spy_max:
+                print(f"[fetch-data] {ticker} prices: already current ({spy_max}) {label}")
+                price_ok += 1
+                price_skipped += 1
+                # Still need avg_dv for fundamentals below — use existing price data.
+                _ticker_avg_dv[ticker] = 0.0
+            else:
                 try:
-                    overview = await client.get_overview(ticker)
-                    if overview:
-                        overview["avg_volume"] = _ticker_avg_dv.get(ticker)
+                    # Use compact (last 100 days) if we already have a price history; full otherwise.
+                    use_compact = ticker_latest.get(ticker) is not None
+                    rows = await client.get_daily_prices(ticker, compact=use_compact)
+                    if rows:
                         async with SessionLocal() as session:
                             async with session.begin():
                                 await session.execute(
                                     text(
-                                        "INSERT INTO fundamentals "
-                                        "    (ticker, as_of_date, pe_ratio, pb_ratio, roe, debt_to_equity, "
-                                        "     revenue_growth, eps_growth, market_cap, avg_volume) "
+                                        "INSERT INTO daily_prices "
+                                        "    (ticker, date, open, high, low, close, adjusted_close, volume) "
                                         "VALUES "
-                                        "    (:ticker, :as_of_date, :pe_ratio, :pb_ratio, :roe, :debt_to_equity, "
-                                        "     :revenue_growth, :eps_growth, :market_cap, :avg_volume) "
-                                        "ON CONFLICT (ticker, as_of_date) DO UPDATE SET "
-                                        "    pe_ratio=EXCLUDED.pe_ratio, pb_ratio=EXCLUDED.pb_ratio, "
-                                        "    roe=EXCLUDED.roe, debt_to_equity=EXCLUDED.debt_to_equity, "
-                                        "    revenue_growth=EXCLUDED.revenue_growth, eps_growth=EXCLUDED.eps_growth, "
-                                        "    market_cap=EXCLUDED.market_cap, avg_volume=EXCLUDED.avg_volume, "
-                                        "    fetched_at=NOW()"
+                                        "    (:ticker, :date, :open, :high, :low, :close, :adjusted_close, :volume) "
+                                        "ON CONFLICT (ticker, date) DO UPDATE SET "
+                                        "    open=EXCLUDED.open, high=EXCLUDED.high, low=EXCLUDED.low, "
+                                        "    close=EXCLUDED.close, adjusted_close=EXCLUDED.adjusted_close, "
+                                        "    volume=EXCLUDED.volume, fetched_at=NOW()"
                                     ),
-                                    {"ticker": ticker, "as_of_date": today, **overview},
+                                    [{"ticker": ticker, "date": date.fromisoformat(r["date"]),
+                                      "open": r["open"], "high": r["high"], "low": r["low"],
+                                      "close": r["close"], "adjusted_close": r["adjusted_close"],
+                                      "volume": r["volume"]} for r in rows],
                                 )
-                        fund_ok += 1
-                        print(f"[fetch-data] {ticker} fundamentals: upserted {label}")
+                        price_rows_written += len(rows)
+                        price_ok += 1
+                        last_20 = sorted(rows, key=lambda r: r["date"])[-20:]
+                        dv_vals = [(r["close"] or 0) * (r["volume"] or 0) for r in last_20]
+                        if dv_vals:
+                            _ticker_avg_dv[ticker] = sum(dv_vals) / len(dv_vals)
+                        mode = "compact" if use_compact else "full"
+                        print(f"[fetch-data] {ticker} prices: {len(rows)} rows [{mode}] {label}")
                     else:
-                        print(f"[fetch-data] {ticker} fundamentals: no data {label}")
+                        print(f"[fetch-data] {ticker} prices: no data {label}")
                 except Exception as e:
                     err_count += 1
-                    print(f"[fetch-data] {ticker} fundamentals: error - {e}")
+                    print(f"[fetch-data] {ticker} prices: error - {e}")
+
+            if ticker in fundamental_set:
+                # Skip fundamentals if already fetched today — AV OVERVIEW is static within a day.
+                if fund_latest.get(ticker) == today:
+                    print(f"[fetch-data] {ticker} fundamentals: already current (today) {label}")
+                    fund_ok += 1
+                    fund_skipped += 1
+                else:
+                    try:
+                        overview = await client.get_overview(ticker)
+                        if overview:
+                            overview["avg_volume"] = _ticker_avg_dv.get(ticker)
+                            async with SessionLocal() as session:
+                                async with session.begin():
+                                    await session.execute(
+                                        text(
+                                            "INSERT INTO fundamentals "
+                                            "    (ticker, as_of_date, pe_ratio, pb_ratio, roe, debt_to_equity, "
+                                            "     revenue_growth, eps_growth, market_cap, avg_volume) "
+                                            "VALUES "
+                                            "    (:ticker, :as_of_date, :pe_ratio, :pb_ratio, :roe, :debt_to_equity, "
+                                            "     :revenue_growth, :eps_growth, :market_cap, :avg_volume) "
+                                            "ON CONFLICT (ticker, as_of_date) DO UPDATE SET "
+                                            "    pe_ratio=EXCLUDED.pe_ratio, pb_ratio=EXCLUDED.pb_ratio, "
+                                            "    roe=EXCLUDED.roe, debt_to_equity=EXCLUDED.debt_to_equity, "
+                                            "    revenue_growth=EXCLUDED.revenue_growth, eps_growth=EXCLUDED.eps_growth, "
+                                            "    market_cap=EXCLUDED.market_cap, avg_volume=EXCLUDED.avg_volume, "
+                                            "    fetched_at=NOW()"
+                                        ),
+                                        {"ticker": ticker, "as_of_date": today, **overview},
+                                    )
+                            fund_ok += 1
+                            print(f"[fetch-data] {ticker} fundamentals: upserted {label}")
+                        else:
+                            print(f"[fetch-data] {ticker} fundamentals: no data {label}")
+                    except Exception as e:
+                        err_count += 1
+                        print(f"[fetch-data] {ticker} fundamentals: error - {e}")
 
             if (i + 1) % CHECKPOINT_EVERY == 0:
                 await _checkpoint(run_id, "fetch-data", started_at,
                                   tickers_done=i + 1, total_tickers=len(price_tickers),
                                   price_rows=price_rows_written, fund_rows=fund_ok,
+                                  price_skipped=price_skipped, fund_skipped=fund_skipped,
                                   error_count=err_count)
         status = "partial_success" if err_count > 0 else "success"
         pcp = _coverage(price_ok, len(price_tickers))
@@ -425,8 +484,9 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
         await _write_trace_file(run_id, "fetch-data", status, started_at,
                                 tickers_done=len(price_tickers), total_tickers=len(price_tickers),
                                 price_rows=price_rows_written, fund_rows=fund_ok,
+                                price_skipped=price_skipped, fund_skipped=fund_skipped,
                                 error_count=err_count)
-        print("[fetch-data] done")
+        print(f"[fetch-data] done — {price_skipped} price / {fund_skipped} fund tickers skipped (already current)")
     except Exception as exc:
         traceback.print_exc()
         err = str(exc)[:1000]
@@ -443,20 +503,29 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
     await _start_run(run_id, "fetch-prices")
     extra = [t for t in BENCHMARK_TICKERS if t not in set(tickers)]
     all_tickers = tickers + extra
-    print(f"[fetch-prices] starting for {len(all_tickers)} tickers")
+
+    ticker_latest, spy_max = await _load_price_staleness()
+    skip_count = sum(1 for t in all_tickers if spy_max and ticker_latest.get(t) == spy_max)
+    print(f"[fetch-prices] starting for {len(all_tickers)} tickers ({skip_count} already current, spy_max={spy_max})")
     await _checkpoint(run_id, "fetch-prices", started_at,
                       tickers_done=0, total_tickers=len(all_tickers),
-                      price_rows=0, error_count=0)
+                      price_rows=0, error_count=0, skipped=skip_count)
 
-    rows_written = err_count = tickers_ok = 0
+    rows_written = err_count = tickers_ok = skipped = 0
     client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA)
     try:
         for i, ticker in enumerate(all_tickers):
             if not _TICKER_RE.match(ticker):
                 print(f"[fetch-prices] skipping invalid ticker: {ticker!r}")
                 continue
+            if spy_max and ticker_latest.get(ticker) == spy_max:
+                print(f"[fetch-prices] {ticker}: already current ({spy_max}) ({i+1}/{len(all_tickers)})")
+                tickers_ok += 1
+                skipped += 1
+                continue
             try:
-                rows = await client.get_daily_prices(ticker)
+                use_compact = ticker_latest.get(ticker) is not None
+                rows = await client.get_daily_prices(ticker, compact=use_compact)
                 if not rows:
                     print(f"[fetch-prices] {ticker}: no data returned")
                 else:
@@ -480,14 +549,15 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
                             )
                     rows_written += len(rows)
                     tickers_ok += 1
-                    print(f"[fetch-prices] {ticker}: upserted {len(rows)} rows ({i+1}/{len(all_tickers)})")
+                    mode = "compact" if use_compact else "full"
+                    print(f"[fetch-prices] {ticker}: {len(rows)} rows [{mode}] ({i+1}/{len(all_tickers)})")
             except Exception as e:
                 err_count += 1
                 print(f"[fetch-prices] {ticker}: error - {e}")
             if (i + 1) % CHECKPOINT_EVERY == 0:
                 await _checkpoint(run_id, "fetch-prices", started_at,
                                   tickers_done=i + 1, total_tickers=len(all_tickers),
-                                  price_rows=rows_written, error_count=err_count)
+                                  price_rows=rows_written, skipped=skipped, error_count=err_count)
         status = "partial_success" if err_count > 0 else "success"
         pcp = _coverage(tickers_ok, len(all_tickers))
         await _finish_run(run_id, status,
@@ -495,9 +565,9 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
                           price_coverage_pct=pcp)
         await _write_trace_file(run_id, "fetch-prices", status, started_at,
                                 tickers_done=len(all_tickers), total_tickers=len(all_tickers),
-                                price_rows=rows_written, error_count=err_count,
+                                price_rows=rows_written, skipped=skipped, error_count=err_count,
                                 price_coverage_pct=pcp)
-        print("[fetch-prices] done")
+        print(f"[fetch-prices] done — {skipped} tickers skipped (already current)")
     except Exception as exc:
         traceback.print_exc()
         err = str(exc)[:1000]
@@ -513,25 +583,32 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
     started_at = datetime.now(timezone.utc)
     await _start_run(run_id, "fetch-fundamentals")
     investable = [t for t in tickers if t not in set(BENCHMARK_TICKERS)]
-    print(f"[fetch-fundamentals] starting for {len(investable)} investable tickers")
     today = date.today()
+
+    fund_latest = await _load_fund_staleness()
+    skip_count = sum(1 for t in investable if fund_latest.get(t) == today)
+    print(f"[fetch-fundamentals] starting for {len(investable)} investable tickers ({skip_count} already current today)")
     await _checkpoint(run_id, "fetch-fundamentals", started_at,
                       tickers_done=0, total_tickers=len(investable),
-                      fund_rows=0, error_count=0)
+                      fund_rows=0, error_count=0, skipped=skip_count)
 
-    fund_ok = err_count = 0
+    fund_ok = err_count = skipped = 0
     client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA)
     try:
         for i, ticker in enumerate(investable):
             if not _TICKER_RE.match(ticker):
                 print(f"[fetch-fundamentals] skipping invalid ticker: {ticker!r}")
                 continue
+            if fund_latest.get(ticker) == today:
+                print(f"[fetch-fundamentals] {ticker}: already current (today) ({i+1}/{len(investable)})")
+                fund_ok += 1
+                skipped += 1
+                continue
             try:
                 overview = await client.get_overview(ticker)
                 if not overview:
                     print(f"[fetch-fundamentals] {ticker}: no data returned")
                 else:
-                    # Compute avg_dollar_volume_20d from existing price data
                     async with engine.connect() as conn:
                         dv_row = await conn.execute(
                             text(
@@ -572,7 +649,7 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
             if (i + 1) % CHECKPOINT_EVERY == 0:
                 await _checkpoint(run_id, "fetch-fundamentals", started_at,
                                   tickers_done=i + 1, total_tickers=len(investable),
-                                  fund_rows=fund_ok, error_count=err_count)
+                                  fund_rows=fund_ok, skipped=skipped, error_count=err_count)
         status = "partial_success" if err_count > 0 else "success"
         fcp = _coverage(fund_ok, len(investable))
         await _finish_run(run_id, status,
@@ -580,8 +657,8 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
                           fundamental_coverage_pct=fcp)
         await _write_trace_file(run_id, "fetch-fundamentals", status, started_at,
                                 tickers_done=len(investable), total_tickers=len(investable),
-                                fund_rows=fund_ok, error_count=err_count)
-        print("[fetch-fundamentals] done")
+                                fund_rows=fund_ok, skipped=skipped, error_count=err_count)
+        print(f"[fetch-fundamentals] done — {skipped} tickers skipped (already current)")
     except Exception as exc:
         traceback.print_exc()
         err = str(exc)[:1000]
