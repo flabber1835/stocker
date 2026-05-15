@@ -1077,7 +1077,9 @@ function _pollUntilDone(job, runId, pctStart, pctEnd){
 function _pollJob(tab, runId){
   let pct = 2;
 
-  const incrId = setInterval(()=>{
+  // For the vetter, progress is driven by real ticker data in _loadVetterTickers.
+  // For other tabs, use a fake smooth animation since we have no step-level data.
+  const incrId = tab === 'vet' ? null : setInterval(()=>{
     if(pct < 88){ pct += 0.3; _setProgress(tab, pct); }
   }, 1500);
 
@@ -1089,7 +1091,7 @@ function _pollJob(tab, runId){
 
       if(status === 'running' || status == null) return;
 
-      clearInterval(incrId);
+      if(incrId) clearInterval(incrId);
       clearInterval(pollId);
       delete _jobPolls[tab];
 
@@ -1238,6 +1240,9 @@ async function _loadVetterTickers(runId, live){
       const completed = prog.completed ?? results.length;
       const total     = prog.total     ?? completed;
       $('v-ticker-count').textContent = completed+' / '+total+(running ? ' — ANALYZING…' : ' COMPLETE');
+
+      // Drive the real progress bar from actual ticker completion, not fake animation
+      if(total > 0) _setProgress('vet', Math.round((completed / total) * 100));
 
       // EXCLUDE first, then by confidence desc, then alphabetical
       const confRank = {high:0,medium:1,low:2};
