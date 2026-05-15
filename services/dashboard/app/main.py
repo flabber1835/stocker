@@ -690,7 +690,7 @@ footer span{color:var(--blue)}
   <span class="rb-metric">SPY <span id="rb-spy">&#8212;</span></span>
   <span class="rb-metric">vs SMA200 <span id="rb-sma">&#8212;</span></span>
   <span class="rb-metric">RVOL20 <span id="rb-vol">&#8212;</span></span>
-  <span style="margin-left:auto;font-size:.68rem;color:var(--muted)" id="rb-ts">&#8212;</span>
+  <span style="margin-left:auto;font-size:.68rem;color:var(--secondary)" id="rb-ts">&#8212;</span>
 </div>
 
 <div class="tabs">
