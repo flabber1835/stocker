@@ -25,6 +25,7 @@ _FINANCIAL_DOMAINS = [
     "reuters.com", "bloomberg.com", "ft.com",
     "wsj.com", "cnbc.com", "marketwatch.com",
     "seekingalpha.com", "barrons.com", "sec.gov",
+    "fda.gov", "ftc.gov",
     "finance.yahoo.com", "thestreet.com",
 ]
 

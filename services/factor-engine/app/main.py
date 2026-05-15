@@ -273,8 +273,8 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
                 "  COALESCE(asset_class, '') ILIKE '%ETF%'"
                 "  OR COALESCE(asset_class, '') ILIKE '%Future%'"
                 "  OR COALESCE(name, '') ~* "
-                "  '(ProShares|iShares|SPDR|Invesco|Direxion|VanEck|WisdomTree"
-                "|\\bETF\\b|\\bFund\\b|\\bTrust\\b|\\bIndex\\b|\\bLeveraged\\b|\\bInverse\\b|\\bFuture)'"
+                "  '(ProShares|iShares|SPDR|Invesco|Direxion|VanEck|WisdomTree|First Trust"
+                "|\\bETF\\b|\\bFund\\b|\\bLeveraged\\b|\\bInverse\\b)'"
                 "  OR ticker ~* 'FUT$'"
                 "  OR ticker ~ '^[A-Z]{1,4}[0-9]{1,2}[A-Z]?[0-9]?$'"
                 ")"
@@ -322,7 +322,11 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         # ── Step 2: load SPY prices ───────────────────────────────────────────────────────────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
         spy_rows = await conn.execute(
-            text("SELECT date, adjusted_close FROM daily_prices WHERE ticker = 'SPY' ORDER BY date ASC")
+            text(
+                "SELECT date, adjusted_close FROM daily_prices "
+                "WHERE ticker = 'SPY' AND date >= NOW() - INTERVAL '600 days' "
+                "ORDER BY date ASC"
+            )
         )
         spy_df = pd.DataFrame(spy_rows.fetchall(), columns=["date", "adjusted_close"])
 
@@ -614,12 +618,28 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             output_summary={"snapshot_date": str(score_date), "regime": confirmed_regime},
         )
 
-        # ── Step 8: write factor scores ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+        # ── Step 8: write factor scores (bulk insert) ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
-        for _, row in factors_df.iterrows():
-            def _val(v):
-                return None if pd.isna(v) else float(v)
 
+        def _val(v):
+            return None if pd.isna(v) else float(v)
+
+        factor_score_rows = [
+            {
+                "run_id": run_id,
+                "ticker": str(row["ticker"]),
+                "score_date": score_date,
+                "momentum": _val(row.get("momentum")),
+                "quality": _val(row.get("quality")),
+                "value": _val(row.get("value")),
+                "growth": _val(row.get("growth")),
+                "low_volatility": _val(row.get("low_volatility")),
+                "liquidity": _val(row.get("liquidity")),
+                "calculated_at": calculated_at,
+            }
+            for _, row in factors_df.iterrows()
+        ]
+        if factor_score_rows:
             await conn.execute(
                 text(
                     "INSERT INTO factor_scores "
@@ -636,18 +656,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
                     "  liquidity     = EXCLUDED.liquidity, "
                     "  calculated_at = EXCLUDED.calculated_at"
                 ),
-                {
-                    "run_id": run_id,
-                    "ticker": str(row["ticker"]),
-                    "score_date": score_date,
-                    "momentum": _val(row.get("momentum")),
-                    "quality": _val(row.get("quality")),
-                    "value": _val(row.get("value")),
-                    "growth": _val(row.get("growth")),
-                    "low_volatility": _val(row.get("low_volatility")),
-                    "liquidity": _val(row.get("liquidity")),
-                    "calculated_at": calculated_at,
-                },
+                factor_score_rows,
             )
         await _log_step(
             conn, trace_id, "write_factor_scores", "success",

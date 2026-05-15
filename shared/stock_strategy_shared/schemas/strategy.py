@@ -80,7 +80,7 @@ class PortfolioBuilderConfig(BaseModel):
         "inverse_vol",
     ] = "equal_weight"
     max_position_weight: float = Field(default=0.10, gt=0, le=1.0)
-    max_sector_weight: float = Field(default=0.40, gt=0, le=1.0)
+    max_sector_weight: float = Field(default=0.30, gt=0, le=1.0)
     do_not_buy: list[str] = Field(default_factory=list)
 
 
@@ -90,7 +90,6 @@ class StrategyConfig(BaseModel):
     universe: UniverseConfig = UniverseConfig()
     regime_detection: RegimeDetectionConfig
     factor_weights: dict[str, FactorWeights]  # keyed by regime name
-    # top-level max_positions is a convenience alias; portfolio_builder.max_positions takes precedence
     max_positions: int = Field(default=30, ge=1, le=500)
     min_score_percentile: float = Field(default=0.0, ge=0, le=1)
     min_non_null_factors: int = Field(default=3, ge=1, le=6)
@@ -104,4 +103,12 @@ class StrategyConfig(BaseModel):
         missing = regime_names - weight_names
         if missing:
             raise ValueError(f"factor_weights missing entries for regimes: {missing}")
+        return self
+
+    @model_validator(mode="after")
+    def sync_max_positions(self) -> StrategyConfig:
+        pb_default = 30
+        if (self.portfolio_builder.max_positions == pb_default
+                and self.max_positions != pb_default):
+            self.portfolio_builder.max_positions = self.max_positions
         return self
