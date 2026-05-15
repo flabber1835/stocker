@@ -87,6 +87,8 @@ EXCLUDE the stock (exclude=true) only when there is CLEAR and SPECIFIC evidence 
   key executive departure, major customer loss
 - Pending binary legal or regulatory decision with material downside
 - Multiple analyst consensus downgrades within the past 7 days
+- Pending acquisition or merger where the stock is the TARGET and the deal has not
+  yet closed — binary event risk (deal break, arb spread collapse, regulatory block)
 
 Do NOT exclude based on:
 - General macro or market uncertainty (applies to all stocks equally)
@@ -203,9 +205,9 @@ def _detect_hallucination_flags(
     if exclude and risk_type == "none":
         flags.append("EXCLUDE decision but risk_type='none' — contradictory")
 
-    # Keep with high confidence and a non-none risk_type is contradictory
-    if not exclude and confidence == "high" and risk_type != "none":
-        flags.append(f"KEEP with high confidence but risk_type='{risk_type}' — contradictory")
+    # Keep with high/medium confidence and a non-none risk_type is contradictory
+    if not exclude and confidence in ("high", "medium") and risk_type != "none":
+        flags.append(f"KEEP with {confidence} confidence but risk_type='{risk_type}' — contradictory")
 
     # Very short reason suggests the model didn't reason properly
     if len(reason) < 25:
@@ -340,7 +342,7 @@ async def vet_single_ticker(
         )
 
     latency_ms = round((time.monotonic() - t0) * 1000)
-    raw = response.message.content
+    raw = (response.message.content or "").strip()
 
     try:
         parsed = json.loads(raw)

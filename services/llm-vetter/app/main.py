@@ -392,14 +392,12 @@ async def _do_vet(
             f"[{result['confidence']}] {result['reason'][:80]}"
         )
 
-        # Write trace file every 5 tickers (or on the last one) to avoid O(N²) I/O
-        if (i + 1) % 5 == 0 or i == len(candidates) - 1:
-            await _write_trace_file(
-                trace_id, run_id, "running", started_at,
-                ticker_results=ticker_results,
-                candidates_total=state.candidates_total,
-                progress={"completed": i + 1, "total": len(candidates)},
-            )
+        await _write_trace_file(
+            trace_id, run_id, "running", started_at,
+            ticker_results=ticker_results,
+            candidates_total=state.candidates_total,
+            progress={"completed": i + 1, "total": len(candidates)},
+        )
 
     # ── Step 4: write results ────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
@@ -656,7 +654,8 @@ async def get_ticker_results(run_id: str):
     _SUMMARY_FIELDS = {
         "ticker", "exclude", "reason", "confidence", "risk_type",
         "had_av_news", "had_earnings", "had_tavily", "agent_searches",
-        "latency_ms", "crashed", "parse_error", "hallucination_flags", "earnings_date",
+        "latency_ms", "crashed", "parse_error", "hallucination_flags",
+        "earnings_date", "news_titles",
     }
     slim_results = [
         {k: r.get(k) for k in _SUMMARY_FIELDS}
