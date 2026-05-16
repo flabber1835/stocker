@@ -271,7 +271,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
         # Deduplicate while preserving order — universe snapshots can contain duplicate
         # rows for the same ticker (e.g., multi-class share companies appearing twice in
-        # the ETF holdings CSV), which inflates dropped_count and produces duplicate audit entries.
+        # the AV LISTING_STATUS feed), which inflates dropped_count and produces duplicate audit entries.
         universe_tickers = list(dict.fromkeys(raw_tickers))
         duplicates_removed = len(raw_tickers) - len(universe_tickers)
 
