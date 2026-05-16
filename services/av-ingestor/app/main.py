@@ -344,7 +344,7 @@ async def _run_fetch_universe(run_id: str) -> None:
 
         async with SessionLocal() as session:
             async with session.begin():
-                snapshot_id = await save_universe_snapshot(session, "IWV", all_tickers)
+                snapshot_id = await save_universe_snapshot(session, "AV_LISTING", all_tickers)
         print(f"[fetch-universe] saved snapshot_id={snapshot_id} with {len(all_tickers)} tickers")
         await _finish_run(run_id, "success", ticker_count=len(all_tickers))
         await _write_trace_file(run_id, "fetch-universe", "success", started_at,

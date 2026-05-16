@@ -36,7 +36,7 @@ Built:
 
 ```text
 av-ingestor service
-IWV/ETF holdings universe fetch (fetch-universe job type)
+AV LISTING_STATUS universe fetch (fetch-universe job type)
 daily price and fundamentals ingestion (fetch-data job type)
 incremental fetch (skips tickers already up to date)
 strict ticker regex validation

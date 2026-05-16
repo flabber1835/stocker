@@ -1,4 +1,4 @@
-# quality_core_v1 — Russell 3000 quality-tilted strategy with 4-bucket regime detection
+# quality_core_v1 — broad US equity quality-tilted strategy with 4-bucket regime detection
 #
 # Regime separates two market questions:
 #   Trend:      should I be aggressive or defensive?     (SPY vs 200-day SMA)
@@ -11,13 +11,12 @@
 
 strategy_id: quality_core_v1
 description: >
-  Quality-tilted monthly ranking across the Russell 3000 universe.
+  Quality-tilted monthly ranking across the broad US equity universe (AV LISTING_STATUS).
   4-bucket regime (trend × volatility) with 5-day confirmation smoothing.
   Factor weights shift materially across regimes.
 
 universe:
-  source: etf_holdings
-  etf_ticker: IWV
+  source: av_listing
   min_price: 5.0
   min_avg_dollar_volume_20d: 20000000
   exclude_asset_classes:           # asset_class column substrings; ILIKE match

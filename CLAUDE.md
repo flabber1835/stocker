@@ -110,12 +110,13 @@ Do not assume perfect point-in-time fundamentals.
 Do not use Alpha Vantage for intraday trading decisions if Alpaca data is available.
 ```
 
-Universe construction: the equity universe is built from ETF holdings, not from Alpha Vantage.
+Universe construction: the equity universe is built from Alpha Vantage LISTING_STATUS.
 
 ```text
-Use IWV (iShares Russell 3000 ETF) or VTHR (Vanguard Russell 3000 ETF) daily holdings files.
-Download the holdings CSV, extract tickers, store in Postgres as the active universe snapshot.
-See docs/data-sources.md for full details.
+Use AV LISTING_STATUS (function=LISTING_STATUS) to fetch all active US equities on major exchanges.
+Filter to Stock asset type, active status, and US exchanges (NYSE, NASDAQ, NYSE MKT, BATS, etc.).
+Store the resulting ticker list in Postgres as the active universe snapshot.
+IWV/VTHR ETF holdings CSV downloads have been retired — AV LISTING_STATUS is the canonical source.
 ```
 
 ### Alpaca API
@@ -682,8 +683,7 @@ strategy_id: quality_core_v1
 description: Balanced quality-momentum strategy with regime-dependent weights
 
 universe:
-  source: etf_holdings
-  etf_ticker: IWV
+  source: av_listing
   min_price: 5.0
   min_avg_dollar_volume_20d: 20000000
 

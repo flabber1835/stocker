@@ -59,8 +59,7 @@ class RegimeDetectionConfig(BaseModel):
 
 
 class UniverseConfig(BaseModel):
-    source: str = "etf_holdings"
-    etf_ticker: str = "IWV"
+    source: str = "av_listing"
     min_price: float = 5.0
     min_avg_dollar_volume_20d: float = 20_000_000
     # Securities matching these asset_class substrings (ILIKE) are excluded from universe

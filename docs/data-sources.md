@@ -94,61 +94,49 @@ intraday backtesting
 
 ## Universe Construction
 
-### Design Decision: Russell 3000 proxy via ETF holdings
+### Design Decision: Alpha Vantage LISTING_STATUS as canonical universe source
 
-The equity universe is built by downloading the holdings of an ETF that tracks the Russell 3000 Index, not by subscribing to an official Russell membership list.
+The equity universe is built from the Alpha Vantage LISTING_STATUS API endpoint, not from ETF holdings CSV downloads.
 
-Preferred ETFs:
+API endpoint:
 
 ```text
-IWV  = iShares Russell 3000 ETF  (BlackRock)
-VTHR = Vanguard Russell 3000 ETF (Vanguard)
+https://www.alphavantage.co/query?function=LISTING_STATUS&apikey={api_key}
 ```
-
-Both track the Russell 3000 Index. VTHR holds roughly 3,000 stocks representing approximately 98% of the investable U.S. equity market.
 
 How it works:
 
 ```text
-1. Download the ETF's current holdings file (CSV or JSON, published daily by the provider)
-2. Extract the ticker list
-3. Store tickers in Postgres as the active universe snapshot
-4. Use that ticker list as the input to av-ingestor and factor-engine
-5. Refresh the holdings on a schedule (monthly before rebalance, or more frequently)
+1. Fetch the full LISTING_STATUS CSV from Alpha Vantage
+2. Filter to: status=active, assetType=Stock, exchange in US_EXCHANGES
+3. Apply ticker regex validation (1–5 uppercase letters, optional suffix)
+4. Store the resulting ticker list in Postgres as the active universe snapshot
+5. Use that ticker list as the input to factor-engine
+6. Refresh on a schedule (monthly before rebalance, or more frequently)
 ```
 
-Where to download holdings:
+US exchanges included:
 
 ```text
-IWV:  https://www.ishares.com/us/products/239714/ (Holdings tab, CSV export)
-VTHR: https://investor.vanguard.com/etf/profile/portfolio/VTHR (Holdings export)
+NYSE, NASDAQ, NYSE MKT, NYSE ARCA, NYSE American, BATS, OTC
 ```
 
 Why this approach:
 
 ```text
-- No official Russell 3000 API exists for retail subscribers
-- ETF providers publish daily holdings and are legally required to track the index closely
-- IWV and VTHR holdings diverge from the true index by at most a few tickers
-- This is the standard proxy used by quant researchers without institutional index access
+- Stable, API-native — no dependency on third-party file hosting or Cloudflare-blocked downloads
+- Alpha Vantage is already a required dependency for prices and fundamentals
+- Returns 3000+ active US equities, covering the broad investable universe
+- No separate ETF holdings file to maintain or download
 ```
 
 Limitations to keep in mind:
 
 ```text
-- Holdings reflect the ETF rebalance lag, not the live Russell index
-- Small differences may exist between IWV and VTHR due to sampling or rebalance timing
-- Delisted or suspended tickers may linger briefly before the ETF removes them
-- Does not provide the historical point-in-time Russell membership needed for clean backtesting
-```
-
-For backtesting survivorship bias:
-
-```text
-The holdings snapshot gives today's universe, not the universe at a historical date.
-This introduces survivorship bias in backtests. Accept this limitation for Phase 5.
-If clean historical universe data becomes a priority, evaluate Sharadar or a similar
-historical constituents dataset.
+- Not an official index — does not exactly match Russell 3000 or any benchmark
+- May include tickers delisted with a slight lag; factor filters (min_price, min_avg_dollar_volume_20d) remove illiquid names
+- Does not provide historical point-in-time membership for survivorship-bias-free backtesting
+- For clean historical universe data, evaluate Sharadar in a future phase
 ```
 
 ## Current Design Choice
@@ -157,7 +145,7 @@ Start with:
 
 ```text
 Alpha Vantage + Alpaca
-Russell 3000 proxy via IWV or VTHR ETF holdings
+AV LISTING_STATUS as the canonical equity universe source
 ```
 
 Add new sources later only if specific weaknesses matter.

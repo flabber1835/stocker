@@ -79,7 +79,7 @@ def test_universe_config_defaults():
     cfg = make_config()
     assert cfg.universe.min_price == 5.0
     assert cfg.universe.min_avg_dollar_volume_20d == 20_000_000
-    assert cfg.universe.etf_ticker == "IWV"
+    assert cfg.universe.source == "av_listing"
 
 
 # ── VetterConfig ──────────────────────────────────────────────────────────────
