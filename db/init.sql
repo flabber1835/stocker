@@ -360,3 +360,41 @@ CREATE TABLE IF NOT EXISTS vetter_decisions (
 CREATE INDEX IF NOT EXISTS idx_vetter_decisions_run ON vetter_decisions(run_id);
 CREATE INDEX IF NOT EXISTS idx_vetter_decisions_catalyst ON vetter_decisions(run_id, positive_catalyst)
     WHERE positive_catalyst = TRUE;
+
+-- ── Alpaca sync runs ──────────────────────────────────────────────────────────
+-- One row per alpaca-sync invocation. Tracks account state at sync time.
+
+CREATE TABLE IF NOT EXISTS alpaca_sync_runs (
+    run_id         UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    status         VARCHAR(20)  NOT NULL DEFAULT 'running',
+    account_value  NUMERIC(14,2),
+    buying_power   NUMERIC(14,2),
+    cash           NUMERIC(14,2),
+    position_count INTEGER,
+    error_message  TEXT,
+    started_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    completed_at   TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_alpaca_sync_runs_started ON alpaca_sync_runs(started_at DESC);
+
+-- ── Live positions ────────────────────────────────────────────────────────────
+-- Current broker positions as of the latest successful alpaca-sync run.
+
+CREATE TABLE IF NOT EXISTS live_positions (
+    id              SERIAL        PRIMARY KEY,
+    sync_run_id     UUID          NOT NULL REFERENCES alpaca_sync_runs(run_id) ON DELETE CASCADE,
+    ticker          VARCHAR(20)   NOT NULL,
+    qty             NUMERIC(16,6) NOT NULL,
+    avg_entry_price NUMERIC(14,4),
+    current_price   NUMERIC(14,4),
+    market_value    NUMERIC(14,2),
+    cost_basis      NUMERIC(14,2),
+    unrealized_pl   NUMERIC(14,2),
+    unrealized_plpc NUMERIC(10,6),
+    side            VARCHAR(10),
+    synced_at       TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    UNIQUE (sync_run_id, ticker)
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_positions_sync ON live_positions(sync_run_id);

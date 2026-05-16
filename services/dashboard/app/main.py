@@ -73,11 +73,6 @@ async def proxy_portfolio():
     return await _proxy("/portfolio")
 
 
-@app.get("/api/data-freshness")
-async def proxy_data_freshness():
-    return await _proxy("/data-freshness")
-
-
 # ── Job triggers ──────────────────────────────────────────────────────────────
 
 @app.post("/api/jobs/{tab}")
@@ -115,6 +110,11 @@ async def job_status(tab: str, run_id: str):
             return JSONResponse(content=r.json(), status_code=r.status_code)
     except Exception as exc:
         return JSONResponse(content={"error": str(exc)}, status_code=502)
+
+
+@app.get("/api/live-portfolio")
+async def proxy_live_portfolio():
+    return await _proxy("/live-portfolio")
 
 
 @app.get("/api/vetter/exclusions/{run_id}")
@@ -172,14 +172,18 @@ async def pipeline_status():
         async def fetch_factors_latest():
             return await client.get(f"{FACTOR_ENGINE_URL}/runs/latest")
 
-        r0, r1, r2, r3, r4, r5, r6 = await asyncio.gather(
-            _safe_fetch(fetch_universe(),       {"error": "timeout"}),
-            _safe_fetch(fetch_rankings(),       {"error": "timeout"}),
-            _safe_fetch(fetch_vetter(),         {"error": "timeout"}),
-            _safe_fetch(fetch_portfolio(),      {"error": "timeout"}),
-            _safe_fetch(fetch_ranker(),         {"error": "timeout"}),
-            _safe_fetch(fetch_data_latest(),    {"error": "timeout"}),
-            _safe_fetch(fetch_factors_latest(), {"error": "timeout"}),
+        async def fetch_portfolio_latest():
+            return await client.get(f"{PORTFOLIO_URL}/runs/latest")
+
+        r0, r1, r2, r3, r4, r5, r6, r7 = await asyncio.gather(
+            _safe_fetch(fetch_universe(),        {"error": "timeout"}),
+            _safe_fetch(fetch_rankings(),        {"error": "timeout"}),
+            _safe_fetch(fetch_vetter(),          {"error": "timeout"}),
+            _safe_fetch(fetch_portfolio(),       {"error": "timeout"}),
+            _safe_fetch(fetch_ranker(),          {"error": "timeout"}),
+            _safe_fetch(fetch_data_latest(),     {"error": "timeout"}),
+            _safe_fetch(fetch_factors_latest(),  {"error": "timeout"}),
+            _safe_fetch(fetch_portfolio_latest(),{"error": "timeout"}),
         )
 
     uni_date = port_date = rank_date = None
@@ -209,15 +213,28 @@ async def pipeline_status():
         rank_completed_at = r4.json().get("completed_at")
 
     rank_chain_running = None
+    universe_running   = False
+    portfolio_running  = False
+
     if not isinstance(r5, dict) and r5.status_code == 200:
-        d = r5.json()
-        if d.get("status") == "running":
-            rank_chain_running = "data"
+        d5 = r5.json()
+        if d5.get("status") == "running":
+            jtype = d5.get("job_type", "")
+            if jtype == "fetch-data":
+                rank_chain_running = "data"
+            elif jtype == "fetch-universe":
+                universe_running = True
 
     if rank_chain_running is None and not isinstance(r6, dict) and r6.status_code == 200:
-        d = r6.json()
-        if d.get("status") == "running":
+        d6 = r6.json()
+        if d6.get("status") == "running":
             rank_chain_running = "factors"
+
+    if not isinstance(r7, dict) and r7.status_code == 200:
+        d7 = r7.json()
+        if d7.get("status") == "running":
+            portfolio_running = True
+
 
     # Compare full ISO timestamps so date-only differences (e.g. universe
     # snapshot_date=today vs rank_date=last trading day) don't cause false alarms.
@@ -226,14 +243,16 @@ async def pipeline_status():
     port_warning = bool(rank_completed_at and (not port_completed_at or rank_completed_at > port_completed_at))
 
     return {
-        "universe_date":     uni_date,
-        "rank_date":         rank_date,
-        "vetter":            vetter_info,
-        "portfolio_date":    port_date,
-        "rank_warning":      rank_warning,
-        "vet_warning":       vet_warning,
-        "port_warning":      port_warning,
+        "universe_date":      uni_date,
+        "rank_date":          rank_date,
+        "vetter":             vetter_info,
+        "portfolio_date":     port_date,
+        "rank_warning":       rank_warning,
+        "vet_warning":        vet_warning,
+        "port_warning":       port_warning,
         "rank_chain_running": rank_chain_running,
+        "universe_running":   universe_running,
+        "portfolio_running":  portfolio_running,
     }
 
 
@@ -388,20 +407,6 @@ header{
   flex:0 0 100%;
 }
 .job-warning::before{content:'⚠  '}
-/* ── Data freshness strip ── */
-.freshness-strip{
-  display:flex;flex-wrap:wrap;gap:6px 16px;
-  padding:8px 16px;
-  background:var(--panel2);
-  border:1px solid var(--border);
-  border-radius:6px;
-  margin-bottom:14px;
-}
-.fresh-item{display:flex;align-items:center;gap:6px;font-size:.72rem}
-.fresh-lbl{color:var(--secondary);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
-.fresh-val{color:var(--primary);font-family:var(--font-mono);white-space:nowrap}
-.fresh-val.stale{color:var(--amber)}
-.fresh-val.fresh{color:var(--green)}
 .job-controls{display:flex;align-items:center;gap:10px;margin-left:auto}
 .btn-start{
   background:var(--blue);
@@ -717,6 +722,35 @@ footer{
   text-transform:uppercase;
 }
 footer span{color:var(--blue)}
+
+/* ── Live portfolio panel ── */
+.live-conn-bar{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 16px;
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:6px;
+  margin-bottom:14px;
+  font-size:.78rem;
+}
+.live-dot{font-size:.9rem}
+.live-dot.connected{color:var(--green)}
+.live-dot.disconnected{color:var(--secondary)}
+.live-conn-label{font-weight:600;color:var(--primary)}
+.live-conn-label.connected{color:var(--green)}
+.live-conn-label.disconnected{color:var(--secondary)}
+.live-sync-time{margin-left:auto;font-size:.72rem;color:var(--secondary);font-family:var(--font-mono)}
+.live-not-connected{
+  text-align:center;padding:56px 20px;
+  color:var(--secondary);font-size:.82rem;line-height:1.8;
+}
+.live-not-connected code{
+  font-family:var(--font-mono);color:var(--blue);
+  background:var(--panel2);padding:1px 6px;border-radius:3px;
+}
+.pl-pos{color:var(--green);font-family:var(--font-mono)}
+.pl-neg{color:var(--red);font-family:var(--font-mono)}
+.pl-neu{color:var(--secondary);font-family:var(--font-mono)}
 </style>
 </head>
 <body>
@@ -745,6 +779,7 @@ footer span{color:var(--blue)}
   <button class="tab" id="tab-rank" onclick="switchTab('rank',this)">Rank</button>
   <button class="tab" id="tab-vet" onclick="switchTab('vet',this)">Vetter</button>
   <button class="tab" id="tab-portfolio" onclick="switchTab('portfolio',this)">Portfolio</button>
+  <button class="tab" id="tab-live" onclick="switchTab('live',this)">Live</button>
 </div>
 
 <!-- ── Universe pane ── -->
@@ -795,13 +830,6 @@ footer span{color:var(--blue)}
 
 <!-- ── Rank pane ── -->
 <div id="pane-rank" class="pane">
-  <!-- Data freshness strip — shows how old each data layer is -->
-  <div class="freshness-strip" id="freshness-strip">
-    <div class="fresh-item"><span class="fresh-lbl">Prices</span><span class="fresh-val" id="fresh-prices">—</span></div>
-    <div class="fresh-item"><span class="fresh-lbl">Fundamentals</span><span class="fresh-val" id="fresh-funds">—</span></div>
-    <div class="fresh-item"><span class="fresh-lbl">Factors</span><span class="fresh-val" id="fresh-factors">—</span></div>
-    <div class="fresh-item"><span class="fresh-lbl">Rankings</span><span class="fresh-val" id="fresh-rankings">—</span></div>
-  </div>
   <div class="job-panel" id="jp-rank">
     <div class="job-meta">
       <span class="job-lbl">LAST RUN</span>
@@ -953,6 +981,53 @@ footer span{color:var(--blue)}
       </thead>
       <tbody id="p-body">
         <tr><td colspan="7" class="loading">Loading portfolio</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Live Portfolio pane ── -->
+<div id="pane-live" class="pane">
+  <div class="live-conn-bar">
+    <span class="live-dot disconnected" id="live-dot">●</span>
+    <span class="live-conn-label disconnected" id="live-conn-label">Checking…</span>
+    <span class="live-sync-time" id="live-sync-time"></span>
+  </div>
+
+  <div class="stats" id="live-account-stats" style="display:none">
+    <div class="stat"><div class="lbl">Account Value</div><div class="val" id="live-acct-val">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Cash</div><div class="val" id="live-cash">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Buying Power</div><div class="val" id="live-bp">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Positions</div><div class="val" id="live-pos-count">&#8212;</div></div>
+  </div>
+
+  <div class="live-not-connected" id="live-not-connected" style="display:none">
+    Alpaca sync not configured.<br>
+    Deploy the <code>alpaca-sync</code> service and set broker credentials<br>
+    to populate live positions here.
+  </div>
+
+  <div class="toolbar" id="live-toolbar" style="display:none">
+    <button class="btn" onclick="loadLivePortfolio()">&#x21BA; REFRESH</button>
+    <span class="badge-count" id="live-count-badge"></span>
+  </div>
+
+  <div class="tbl-wrap" id="live-tbl-wrap" style="display:none">
+    <table>
+      <thead>
+        <tr>
+          <th onclick="sortLive('ticker')" id="lh-ticker">TICKER</th>
+          <th onclick="sortLive('market_value')" id="lh-market_value">MKT VALUE</th>
+          <th onclick="sortLive('weight')" id="lh-weight">WEIGHT</th>
+          <th onclick="sortLive('qty')" id="lh-qty">SHARES</th>
+          <th onclick="sortLive('avg_entry_price')" id="lh-avg_entry_price">AVG ENTRY</th>
+          <th onclick="sortLive('current_price')" id="lh-current_price">PRICE</th>
+          <th onclick="sortLive('unrealized_pl')" id="lh-unrealized_pl">UNRLZD P&amp;L</th>
+          <th onclick="sortLive('unrealized_plpc')" id="lh-unrealized_plpc">P&amp;L %</th>
+        </tr>
+      </thead>
+      <tbody id="live-body">
+        <tr><td colspan="8" class="loading">Loading live positions</td></tr>
       </tbody>
     </table>
   </div>
@@ -1501,10 +1576,45 @@ async function loadPipelineStatus(){
     const vetter   = d.vetter         || null;
     const portDate = d.portfolio_date || null;
 
-    // Update last-run dates in job panels
-    if(uniDate)  { $('uni-last-date').textContent  = uniDate;  _setBadge('universe',  'DONE','success'); _setJobPanel('universe','success'); }
-    if(rankDate) { $('rank-last-date').textContent = rankDate; _setBadge('rank',      'DONE','success'); _setJobPanel('rank','success'); }
-    if(portDate) { $('port-last-date').textContent = portDate; _setBadge('portfolio', 'DONE','success'); _setJobPanel('portfolio','success'); }
+    const universeRunning  = !!d.universe_running;
+    const portfolioRunning = !!d.portfolio_running;
+    const rankChainRunning = d.rank_chain_running || null;
+
+    // Universe: detect if running in another browser, don't overwrite local poll state
+    if(universeRunning && !_jobPolls['universe']){
+      _setBadge('universe', 'RUNNING', 'running');
+      _setJobPanel('universe', 'running');
+      _setProgress('universe', 2);
+      fetch('/api/jobs/universe/latest').then(r=>r.json()).then(ld=>{
+        if(ld.run_id) _pollJob('universe', ld.run_id);
+      }).catch(()=>{});
+    } else if(!_jobPolls['universe']){
+      if(uniDate) { $('uni-last-date').textContent = uniDate; _setBadge('universe','DONE','success'); _setJobPanel('universe','success'); }
+    }
+
+    // Rank chain: detect if running in another browser, don't overwrite local poll state
+    const rankPolling = !!(_jobPolls['rank'] || _jobPolls['data'] || _jobPolls['factors']);
+    if(rankChainRunning && !rankPolling){
+      const lbl = rankChainRunning==='data' ? 'FETCHING DATA' : 'CALC FACTORS';
+      const pct = rankChainRunning==='data' ? 2 : 33;
+      _setBadge('rank', lbl, 'running');
+      _setJobPanel('rank', 'running');
+      _setProgress('rank', pct);
+    } else if(!rankPolling){
+      if(rankDate) { $('rank-last-date').textContent = rankDate; _setBadge('rank','DONE','success'); _setJobPanel('rank','success'); }
+    }
+
+    // Portfolio: detect if running in another browser, don't overwrite local poll state
+    if(portfolioRunning && !_jobPolls['portfolio']){
+      _setBadge('portfolio', 'RUNNING', 'running');
+      _setJobPanel('portfolio', 'running');
+      _setProgress('portfolio', 2);
+      fetch('/api/jobs/portfolio/latest').then(r=>r.json()).then(ld=>{
+        if(ld.run_id) _pollJob('portfolio', ld.run_id);
+      }).catch(()=>{});
+    } else if(!_jobPolls['portfolio']){
+      if(portDate) { $('port-last-date').textContent = portDate; _setBadge('portfolio','DONE','success'); _setJobPanel('portfolio','success'); }
+    }
 
     if(vetter){
       const vetDate = (vetter.completed_at || vetter.started_at || '').slice(0,10);
@@ -1784,6 +1894,101 @@ function renderPortfolio(){
   }).join('');
 }
 
+// ── Live Portfolio ────────────────────────────────────────────────────────────
+let liveData = [];
+let liveSort = {col:'market_value', dir:-1};
+
+function sortLive(col){
+  if(liveSort.col===col)liveSort.dir*=-1;
+  else{liveSort.col=col;liveSort.dir=-1;}
+  clearSort('lh-');
+  const th=$('lh-'+col);
+  if(th)th.classList.add(liveSort.dir===1?'asc':'desc');
+  renderLive();
+}
+
+function renderLive(){
+  const col=liveSort.col,dir=liveSort.dir;
+  const rows=[...liveData].sort((a,b)=>{
+    const av=a[col],bv=b[col];
+    if(av==null&&bv==null)return 0;
+    if(av==null)return 1;if(bv==null)return -1;
+    return(av<bv?-1:av>bv?1:0)*dir;
+  });
+  $('live-count-badge').textContent=rows.length+' POSITIONS';
+  if(!rows.length){$('live-body').innerHTML='<tr><td colspan="8" style="padding:20px 14px;color:var(--secondary)">No positions</td></tr>';return;}
+  const fmt$=v=>v==null?'—':'$'+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const fmtPct=v=>v==null?'—':(v*100).toFixed(2)+'%';
+  const fmtShares=v=>v==null?'—':(Math.abs(v)>=100?(+v).toFixed(0):(+v).toFixed(4));
+  $('live-body').innerHTML=rows.map(p=>{
+    const plCls=p.unrealized_pl==null?'pl-neu':p.unrealized_pl>0?'pl-pos':'pl-neg';
+    const plPctCls=p.unrealized_plpc==null?'pl-neu':p.unrealized_plpc>0?'pl-pos':'pl-neg';
+    const wt=p.weight!=null?((p.weight)*100).toFixed(1)+'%':'—';
+    return '<tr>'
+      +'<td><span class="t-ticker">'+esc(p.ticker)+'</span></td>'
+      +'<td class="t-wt">'+fmt$(p.market_value)+'</td>'
+      +'<td class="t-wt">'+wt+'</td>'
+      +'<td class="t-wt">'+fmtShares(p.qty)+'</td>'
+      +'<td class="t-wt">'+fmt$(p.avg_entry_price)+'</td>'
+      +'<td class="t-wt">'+fmt$(p.current_price)+'</td>'
+      +'<td class="'+plCls+'">'+(p.unrealized_pl!=null?(p.unrealized_pl>=0?'+':'')+fmt$(p.unrealized_pl):'—')+'</td>'
+      +'<td class="'+plPctCls+'">'+(p.unrealized_plpc!=null?(p.unrealized_plpc>=0?'+':'')+fmtPct(p.unrealized_plpc):'—')+'</td>'
+      +'</tr>';
+  }).join('');
+}
+
+async function loadLivePortfolio(){
+  try{
+    const d=await fetch('/api/live-portfolio').then(r=>r.json());
+
+    const dotEl=$('live-dot');
+    const lblEl=$('live-conn-label');
+    const statsEl=$('live-account-stats');
+    const notConnEl=$('live-not-connected');
+    const toolbarEl=$('live-toolbar');
+    const tblEl=$('live-tbl-wrap');
+
+    if(!d.connected){
+      dotEl.className='live-dot disconnected';
+      lblEl.textContent='NOT CONNECTED';
+      lblEl.className='live-conn-label disconnected';
+      $('live-sync-time').textContent='';
+      statsEl.style.display='none';
+      notConnEl.style.display='block';
+      toolbarEl.style.display='none';
+      tblEl.style.display='none';
+      return;
+    }
+
+    const sync=d.sync||{};
+    dotEl.className='live-dot connected';
+    lblEl.textContent='CONNECTED — PAPER TRADING';
+    lblEl.className='live-conn-label connected';
+    if(sync.synced_at){
+      $('live-sync-time').textContent='Last sync: '+new Date(sync.synced_at).toLocaleString();
+    }
+
+    const fmt$=v=>v==null?'—':'$'+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    $('live-acct-val').textContent=fmt$(sync.account_value);
+    $('live-cash').textContent=fmt$(sync.cash);
+    $('live-bp').textContent=fmt$(sync.buying_power);
+    $('live-pos-count').textContent=sync.position_count??d.positions.length;
+
+    statsEl.style.display='flex';
+    notConnEl.style.display='none';
+    toolbarEl.style.display='flex';
+    tblEl.style.display='block';
+
+    liveData=d.positions||[];
+    renderLive();
+    $('lh-market_value').classList.add('desc');
+  }catch(e){
+    const lblEl=$('live-conn-label');
+    if(lblEl){ lblEl.textContent='ERROR'; lblEl.className='live-conn-label disconnected'; }
+    console.warn('live-portfolio error', e);
+  }
+}
+
 // ── Data freshness ───────────────────────────────────────────────────────────
 let _freshnessTimestamps = {};  // { prices, fundamentals, factors, rankings } → ISO strings
 
@@ -1838,6 +2043,7 @@ async function loadDataFreshness(){
   loadUniverse();
   loadRankings();
   loadPortfolio();
+  loadLivePortfolio();
   loadDataFreshness();
   $('rh-rank').classList.add('asc');
   $('uh-weight_pct').classList.add('desc');
