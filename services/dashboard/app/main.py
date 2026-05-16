@@ -823,14 +823,11 @@ footer span{color:var(--blue)}
   </div>
   <div class="stats">
     <div class="stat"><div class="lbl">Total Tickers</div><div class="val" id="u-total">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Sectors</div><div class="val" id="u-sectors">&#8212;</div></div>
-    <div class="stat"><div class="lbl">ETF Source</div><div class="val" style="font-size:1.1rem;padding-top:6px" id="u-etf">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Universe Source</div><div class="val" style="font-size:1.1rem;padding-top:6px" id="u-etf">&#8212;</div></div>
     <div class="stat"><div class="lbl">Snapshot Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="u-date">&#8212;</div></div>
   </div>
   <div class="toolbar">
     <input type="search" id="u-search" placeholder="Filter ticker or name" oninput="renderUniverse()">
-    <select id="u-sector" onchange="renderUniverse()"><option value="">ALL SECTORS</option></select>
-    <button class="btn" id="u-hide-tiny" onclick="toggleTiny()">HIDE TINY &#10003;</button>
     <button class="btn" onclick="loadUniverse()">&#x21BA; REFRESH</button>
     <span class="badge-count" id="u-count"></span>
   </div>
@@ -840,12 +837,10 @@ footer span{color:var(--blue)}
         <tr>
           <th onclick="sortUniverse('ticker')" id="uh-ticker">TICKER</th>
           <th onclick="sortUniverse('name')" id="uh-name">NAME</th>
-          <th onclick="sortUniverse('sector')" id="uh-sector">SECTOR</th>
-          <th onclick="sortUniverse('weight_pct')" id="uh-weight_pct">WEIGHT %</th>
         </tr>
       </thead>
       <tbody id="u-body">
-        <tr><td colspan="4" class="loading">Loading universe</td></tr>
+        <tr><td colspan="2" class="loading">Loading universe</td></tr>
       </tbody>
     </table>
   </div>
@@ -1072,9 +1067,9 @@ const fmtScore=v=>v==null?'—':(+v).toFixed(3);
 // ── Data stores ──────────────────────────────────────────────────────────────
 let rankData=[], uniData=[], portData=[];
 let rankSort={col:'rank',dir:1};
-let uniSort={col:'weight_pct',dir:-1};
+let uniSort={col:'ticker',dir:1};
 let portSort={col:'position',dir:1};
-let uniHideTiny=true;
+let uniHideTiny=false;
 
 // Active job polling handles { tab: { incrId, pollId, runId } }
 const _jobPolls = {};
@@ -1112,11 +1107,6 @@ function barW(comp,max){
 }
 function clearSort(pfx){
   document.querySelectorAll('[id^="'+pfx+'"]').forEach(el=>el.classList.remove('asc','desc'));
-}
-function toggleTiny(){
-  uniHideTiny=!uniHideTiny;
-  $('u-hide-tiny').textContent='HIDE TINY '+(uniHideTiny?'✓':'○');
-  renderUniverse();
 }
 
 // ── Job control ───────────────────────────────────────────────────────────────
@@ -1741,19 +1731,15 @@ async function loadUniverse(){
     $('u-total').textContent=uniData.length;
     $('u-etf').textContent=snap.etf_ticker||'—';
     $('u-date').textContent=snap.snapshot_date||'—';
-    const sectors=[...new Set(uniData.map(t=>t.sector).filter(Boolean))].sort();
-    $('u-sectors').textContent=sectors.length;
-    const sel=$('u-sector');
-    sel.innerHTML='<option value="">ALL SECTORS</option>'+sectors.map(s=>'<option value="'+s+'">'+s+'</option>').join('');
     renderUniverse();
   }catch(e){
-    $('u-body').innerHTML='<tr><td colspan="4" class="error">No universe data</td></tr>';
+    $('u-body').innerHTML='<tr><td colspan="2" class="error">No universe data</td></tr>';
   }
 }
 
 function sortUniverse(col){
   if(uniSort.col===col)uniSort.dir*=-1;
-  else{uniSort.col=col;uniSort.dir=col==='weight_pct'?-1:1;}
+  else{uniSort.col=col;uniSort.dir=1;}
   clearSort('uh-');
   const th=$('uh-'+col);
   if(th)th.classList.add(uniSort.dir===1?'asc':'desc');
@@ -1762,28 +1748,21 @@ function sortUniverse(col){
 
 function renderUniverse(){
   const q=($('u-search').value||'').toUpperCase().trim();
-  const sec=$('u-sector').value;
   let rows=uniData.filter(t=>
-    (!q||t.ticker.includes(q)||(t.name||'').toUpperCase().includes(q))&&
-    (!sec||t.sector===sec)&&
-    (!uniHideTiny||(t.weight_pct==null||+t.weight_pct>=0.01))
+    (!q||t.ticker.includes(q)||(t.name||'').toUpperCase().includes(q))
   );
-  const hiddenCount=uniHideTiny?uniData.filter(t=>t.weight_pct!=null&&+t.weight_pct<0.01).length:0;
   const col=uniSort.col,dir=uniSort.dir;
   rows.sort((a,b)=>{
-    let av=a[col],bv=b[col];
-    if(col==='weight_pct'){av=+(av||0);bv=+(bv||0);}
+    const av=a[col],bv=b[col];
     if(av==null&&bv==null)return 0;
     if(av==null)return 1;if(bv==null)return -1;
     return(av<bv?-1:av>bv?1:0)*dir;
   });
-  $('u-count').textContent=rows.length+' shown'+(hiddenCount?' ('+hiddenCount+' tiny hidden)':'');
-  if(!rows.length){$('u-body').innerHTML='<tr><td colspan="4" class="loading">No results</td></tr>';return;}
+  $('u-count').textContent=rows.length+' shown';
+  if(!rows.length){$('u-body').innerHTML='<tr><td colspan="2" class="loading">No results</td></tr>';return;}
   $('u-body').innerHTML=rows.map(t=>'<tr>'
     +'<td><span class="t-ticker">'+t.ticker+'</span></td>'
     +'<td><span class="t-name">'+(t.name||'—')+'</span></td>'
-    +'<td><span class="t-sector">'+(t.sector||'—')+'</span></td>'
-    +'<td class="t-wt">'+(t.weight_pct!=null?(+t.weight_pct).toFixed(4)+'%':'—')+'</td>'
     +'</tr>').join('');
 }
 
@@ -2075,7 +2054,7 @@ async function loadDataFreshness(){
   loadLivePortfolio();
   loadDataFreshness();
   $('rh-rank').classList.add('asc');
-  $('uh-weight_pct').classList.add('desc');
+  $('uh-ticker').classList.add('asc');
   $('ph-position').classList.add('asc');
 
   // Refresh pipeline status every 10s so any browser detects newly started jobs
