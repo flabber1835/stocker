@@ -1,14 +1,7 @@
-import yaml
 import pandas as pd
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 FACTORS = ["momentum", "quality", "value", "growth", "low_volatility", "liquidity"]
-
-
-def load_strategy(path: str) -> StrategyConfig:
-    with open(path) as f:
-        data = yaml.safe_load(f)
-    return StrategyConfig(**data)
 
 
 def rank_universe(

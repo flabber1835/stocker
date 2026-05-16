@@ -18,6 +18,7 @@ human-supervised workflow.
 
 import json
 import logging
+import re
 import time
 from datetime import date
 from typing import Literal
@@ -314,8 +315,7 @@ def _detect_hallucination_flags(
     # Future date hallucination: earnings_date provided but reason references a different date
     if earnings_date and today:
         # Check if reason mentions a year that doesn't match today's year (crude check)
-        import re as _re
-        years_in_reason = set(_re.findall(r"\b20\d\d\b", reason))
+        years_in_reason = set(re.findall(r"\b20\d\d\b", reason))
         current_year = today[:4]
         next_year = str(int(current_year) + 1)
         bad_years = years_in_reason - {current_year, next_year}

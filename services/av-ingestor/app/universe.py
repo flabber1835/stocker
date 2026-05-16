@@ -92,13 +92,8 @@ async def download_av_listing(session: httpx.AsyncClient, api_key: str) -> list[
     return rows
 
 
-async def download_iwv_holdings(session: httpx.AsyncClient, av_api_key: str = "") -> list[dict]:
-    """Build the equity universe from Alpha Vantage LISTING_STATUS.
-
-    AV LISTING_STATUS is the canonical universe source. The IWV ETF holdings CSV
-    approach has been retired — AV provides a stable, API-native list of active US
-    equities on major exchanges without relying on third-party file downloads.
-    """
+async def download_av_universe(session: httpx.AsyncClient, av_api_key: str = "") -> list[dict]:
+    """Build the equity universe from Alpha Vantage LISTING_STATUS."""
     if os.getenv("MOCK_DATA", "false").lower() == "true":
         return _mock_universe()
 

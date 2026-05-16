@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import traceback
@@ -54,6 +55,16 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="factor-engine", lifespan=lifespan)
+
+_job_lock = asyncio.Lock()
+
+
+async def _assert_no_running_job(conn) -> None:
+    row = await conn.execute(
+        text("SELECT run_id FROM factor_runs WHERE status='running' LIMIT 1")
+    )
+    if row.fetchone() is not None:
+        raise HTTPException(status_code=409, detail="a factor calculation job is already running")
 
 
 @app.get("/health")
@@ -310,10 +321,11 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         spy_lookback = strategy.factor_engine.spy_price_lookback_days
         spy_rows = await conn.execute(
             text(
-                f"SELECT date, adjusted_close FROM daily_prices "
-                f"WHERE ticker = 'SPY' AND date >= NOW() - INTERVAL '{spy_lookback} days' "
-                f"ORDER BY date ASC"
-            )
+                "SELECT date, adjusted_close FROM daily_prices "
+                "WHERE ticker = 'SPY' AND date >= NOW() - (:lookback * INTERVAL '1 day') "
+                "ORDER BY date ASC"
+            ),
+            {"lookback": spy_lookback},
         )
         spy_df = pd.DataFrame(spy_rows.fetchall(), columns=["date", "adjusted_close"])
 
@@ -394,11 +406,11 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         price_lookback = max(fe.momentum_long_window, fe.volatility_window) + 150
         price_rows = await conn.execute(
             text(
-                f"SELECT ticker, date, adjusted_close, close, volume FROM daily_prices "
-                f"WHERE ticker = ANY(:tickers) AND date >= CURRENT_DATE - INTERVAL '{price_lookback} days' "
-                f"ORDER BY ticker, date ASC"
+                "SELECT ticker, date, adjusted_close, close, volume FROM daily_prices "
+                "WHERE ticker = ANY(:tickers) AND date >= CURRENT_DATE - (:lookback * INTERVAL '1 day') "
+                "ORDER BY ticker, date ASC"
             ),
-            {"tickers": universe_tickers},
+            {"tickers": universe_tickers, "lookback": price_lookback},
         )
         prices_df = pd.DataFrame(
             price_rows.fetchall(),
@@ -751,10 +763,13 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
 @app.post("/jobs/calculate")
 async def start_calculate(background_tasks: BackgroundTasks):
-    run_id = str(uuid.uuid4())
-    trace_id = str(uuid.uuid4())
-    today = date.today()
-    background_tasks.add_task(_run_calculate, run_id, trace_id, today)
+    async with _job_lock:
+        async with engine.connect() as conn:
+            await _assert_no_running_job(conn)
+        run_id = str(uuid.uuid4())
+        trace_id = str(uuid.uuid4())
+        today = date.today()
+        background_tasks.add_task(_run_calculate, run_id, trace_id, today)
     return {
         "status": "started",
         "job": "calculate",

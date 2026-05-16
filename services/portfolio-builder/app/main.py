@@ -64,6 +64,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="portfolio-builder", lifespan=lifespan)
 
+_job_lock = asyncio.Lock()
+
+
+async def _assert_no_running_job(conn) -> None:
+    row = await conn.execute(
+        text("SELECT run_id FROM portfolio_runs WHERE status='running' LIMIT 1")
+    )
+    if row.fetchone() is not None:
+        raise HTTPException(status_code=409, detail="a portfolio build job is already running")
+
 
 @app.get("/health")
 async def health():
@@ -817,9 +827,12 @@ async def start_build(
                     detail=f"Vetter run status is '{vrow.status}', must be 'success'",
                 )
 
-    run_id = str(uuid.uuid4())
-    trace_id = str(uuid.uuid4())
-    background_tasks.add_task(_run_build, run_id, trace_id, ranking_run_id, vetter_run_id)
+    async with _job_lock:
+        async with engine.connect() as inner_conn:
+            await _assert_no_running_job(inner_conn)
+        run_id = str(uuid.uuid4())
+        trace_id = str(uuid.uuid4())
+        background_tasks.add_task(_run_build, run_id, trace_id, ranking_run_id, vetter_run_id)
     return {
         "status": "started",
         "job": "build",

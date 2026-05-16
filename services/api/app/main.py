@@ -505,5 +505,6 @@ async def get_live_portfolio():
             ],
         }
     except Exception:
-        # Tables may not exist if alpaca-sync has never run
+        import traceback
+        traceback.print_exc()
         return {"connected": False, "positions": [], "sync": None}

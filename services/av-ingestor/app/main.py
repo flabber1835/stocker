@@ -14,7 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from .alpha_vantage import AVClient
-from .universe import download_iwv_holdings, get_benchmark_tickers, save_universe_snapshot
+from .universe import download_av_universe, get_benchmark_tickers, save_universe_snapshot
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 if not DATABASE_URL:
@@ -345,7 +345,7 @@ async def _run_fetch_universe(run_id: str) -> None:
     print("[fetch-universe] starting")
     try:
         async with httpx.AsyncClient() as http:
-            tickers = await download_iwv_holdings(http, av_api_key=AV_API_KEY)
+            tickers = await download_av_universe(http, av_api_key=AV_API_KEY)
             benchmarks = await get_benchmark_tickers(http)
         all_tickers = tickers + benchmarks
         print(f"[fetch-universe] downloaded {len(tickers)} universe + {len(benchmarks)} benchmarks")

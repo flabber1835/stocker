@@ -2,10 +2,10 @@ import numpy as np
 
 
 def annualized_return(total_return: float, n_days: int) -> float:
-    """(1 + total_return)^(252/n_days) - 1"""
+    """(1 + total_return)^(365.25/n_days) - 1  — n_days is calendar days."""
     if n_days <= 0:
         return 0.0
-    return (1.0 + total_return) ** (252.0 / n_days) - 1.0
+    return (1.0 + total_return) ** (365.25 / n_days) - 1.0
 
 
 def sharpe_ratio(monthly_returns: list[float], rf_annual: float = 0.05) -> float:

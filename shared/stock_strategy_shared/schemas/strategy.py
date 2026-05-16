@@ -17,8 +17,8 @@ class FactorWeights(BaseModel):
             self.momentum + self.quality + self.value
             + self.growth + self.low_volatility + self.liquidity
         )
-        if abs(total - 1.0) > 0.01:
-            raise ValueError(f"Factor weights must sum to 1.0, got {total:.4f}")
+        if abs(total - 1.0) > 1e-6:
+            raise ValueError(f"Factor weights must sum to 1.0, got {total:.6f}")
         return self
 
 
@@ -237,9 +237,9 @@ class StrategyConfig(BaseModel):
 
     @model_validator(mode="after")
     def sync_max_positions(self) -> "StrategyConfig":
-        pb_default = 30
-        if (self.portfolio_builder.max_positions == pb_default
-                and self.max_positions != pb_default):
+        pb_field_default = PortfolioBuilderConfig.model_fields["max_positions"].default
+        if (self.portfolio_builder.max_positions == pb_field_default
+                and self.max_positions != pb_field_default):
             self.portfolio_builder.max_positions = self.max_positions
         return self
 

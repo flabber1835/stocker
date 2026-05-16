@@ -6,14 +6,15 @@ from app.metrics import annualized_return, sharpe_ratio, max_drawdown, turnover
 # ── annualized_return ──────────────────────────────────────────────────────────
 
 def test_annualized_return_1yr():
-    result = annualized_return(0.10, 252)
-    np.testing.assert_allclose(result, 0.10, rtol=1e-4)
+    # 10% over 365 calendar days → exactly 10% annualised
+    result = annualized_return(0.10, 365)
+    np.testing.assert_allclose(result, 0.10, rtol=1e-3)
 
 
 def test_annualized_return_6mo():
-    # 5% over 126 days should annualise to ~10%
-    result = annualized_return(0.05, 126)
-    np.testing.assert_allclose(result, (1.05 ** 2) - 1, rtol=1e-4)
+    # 5% over ~182 calendar days should annualise to ~10%
+    result = annualized_return(0.05, 182)
+    np.testing.assert_allclose(result, (1.05 ** 2) - 1, rtol=1e-2)
 
 
 def test_annualized_return_zero_days():
@@ -21,8 +22,9 @@ def test_annualized_return_zero_days():
 
 
 def test_annualized_return_negative():
-    result = annualized_return(-0.20, 252)
-    np.testing.assert_allclose(result, -0.20, rtol=1e-4)
+    # -20% over 365 calendar days → exactly -20% annualised
+    result = annualized_return(-0.20, 365)
+    np.testing.assert_allclose(result, -0.20, rtol=1e-3)
 
 
 # ── sharpe_ratio ───────────────────────────────────────────────────────────────

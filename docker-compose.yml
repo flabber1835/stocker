@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: stocker
-      POSTGRES_PASSWORD: stocker
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stocker}
       POSTGRES_DB: stocker
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -211,7 +211,7 @@ services:
       ARTIFACTS_PATH: /artifacts
     volumes:
       - ./artifacts:/artifacts
-      - ./strategies:/app/strategies:ro
+      - ./strategies:/strategies:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -228,7 +228,6 @@ services:
       - "11434:11434"
     volumes:
       - ollama_models:/root/.ollama
-      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       OLLAMA_KEEP_ALIVE: 24h
     healthcheck:
@@ -334,6 +333,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   evaluator:
     build:

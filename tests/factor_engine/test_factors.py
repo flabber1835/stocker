@@ -381,4 +381,8 @@ def test_compute_all_factors_handles_empty_fundamentals():
                                   "debt_to_equity", "revenue_growth", "eps_growth"])
     result = compute_all_factors(df, fund)
     assert len(result) == 2
-    assert result["momentum"].notna().any() or result["momentum"].isna().all()
+    # With no fundamentals, factor scores that need them must be NaN; price-only factors are not.
+    for col in ("quality", "value", "growth"):
+        assert result[col].isna().all(), f"{col} should be all-NaN with empty fundamentals"
+    for col in ("momentum", "low_volatility", "liquidity"):
+        assert result[col].notna().any(), f"{col} should have values with sufficient price data"

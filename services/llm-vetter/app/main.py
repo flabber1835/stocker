@@ -511,6 +511,8 @@ async def _do_vet(
             progress={"completed": i + 1, "total": len(candidates)},
         )
 
+    await client.close()
+
     # ── Step 4: write results ────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
     completed_at = datetime.now(timezone.utc)
