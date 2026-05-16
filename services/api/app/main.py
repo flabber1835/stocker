@@ -22,6 +22,51 @@ async def health():
     return {"status": "ok", "service": "api"}
 
 
+@app.get("/data-freshness")
+async def data_freshness():
+    """Return the latest timestamp for each data layer so the UI can display data age."""
+    async with engine.connect() as conn:
+        prices_row = (await conn.execute(text(
+            "SELECT MAX(date) AS max_date, MAX(fetched_at) AS last_fetched FROM daily_prices"
+        ))).mappings().first()
+
+        funds_row = (await conn.execute(text(
+            "SELECT MAX(as_of_date) AS max_date, MAX(fetched_at) AS last_fetched FROM fundamentals"
+        ))).mappings().first()
+
+        factors_row = (await conn.execute(text(
+            "SELECT score_date, completed_at FROM factor_runs "
+            "WHERE status='success' ORDER BY completed_at DESC LIMIT 1"
+        ))).mappings().first()
+
+        rankings_row = (await conn.execute(text(
+            "SELECT rank_date, completed_at FROM ranking_runs "
+            "WHERE status='success' ORDER BY completed_at DESC LIMIT 1"
+        ))).mappings().first()
+
+    def _iso(v):
+        return v.isoformat() if v and hasattr(v, "isoformat") else (str(v) if v else None)
+
+    return {
+        "prices": {
+            "max_date":     _iso(prices_row["max_date"])     if prices_row else None,
+            "last_fetched": _iso(prices_row["last_fetched"]) if prices_row else None,
+        },
+        "fundamentals": {
+            "max_date":     _iso(funds_row["max_date"])     if funds_row else None,
+            "last_fetched": _iso(funds_row["last_fetched"]) if funds_row else None,
+        },
+        "factors": {
+            "score_date":   _iso(factors_row["score_date"])   if factors_row else None,
+            "completed_at": _iso(factors_row["completed_at"]) if factors_row else None,
+        },
+        "rankings": {
+            "rank_date":    _iso(rankings_row["rank_date"])    if rankings_row else None,
+            "completed_at": _iso(rankings_row["completed_at"]) if rankings_row else None,
+        },
+    }
+
+
 # ── Regime ────────────────────────────────────────────────────────────────────────────────────
 
 @app.get("/regime")
