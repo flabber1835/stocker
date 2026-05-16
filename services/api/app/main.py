@@ -22,6 +22,51 @@ async def health():
     return {"status": "ok", "service": "api"}
 
 
+@app.get("/data-freshness")
+async def data_freshness():
+    """Return the latest timestamp for each data layer so the UI can display data age."""
+    async with engine.connect() as conn:
+        prices_row = (await conn.execute(text(
+            "SELECT MAX(date) AS max_date, MAX(fetched_at) AS last_fetched FROM daily_prices"
+        ))).mappings().first()
+
+        funds_row = (await conn.execute(text(
+            "SELECT MAX(as_of_date) AS max_date, MAX(fetched_at) AS last_fetched FROM fundamentals"
+        ))).mappings().first()
+
+        factors_row = (await conn.execute(text(
+            "SELECT score_date, completed_at FROM factor_runs "
+            "WHERE status='success' ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+        ))).mappings().first()
+
+        rankings_row = (await conn.execute(text(
+            "SELECT rank_date, completed_at FROM ranking_runs "
+            "WHERE status='success' ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+        ))).mappings().first()
+
+    def _iso(v):
+        return v.isoformat() if v and hasattr(v, "isoformat") else (str(v) if v else None)
+
+    return {
+        "prices": {
+            "max_date":     _iso(prices_row["max_date"])     if prices_row else None,
+            "last_fetched": _iso(prices_row["last_fetched"]) if prices_row else None,
+        },
+        "fundamentals": {
+            "max_date":     _iso(funds_row["max_date"])     if funds_row else None,
+            "last_fetched": _iso(funds_row["last_fetched"]) if funds_row else None,
+        },
+        "factors": {
+            "score_date":   _iso(factors_row["score_date"])   if factors_row else None,
+            "completed_at": _iso(factors_row["completed_at"]) if factors_row else None,
+        },
+        "rankings": {
+            "rank_date":    _iso(rankings_row["rank_date"])    if rankings_row else None,
+            "completed_at": _iso(rankings_row["completed_at"]) if rankings_row else None,
+        },
+    }
+
+
 # ── Regime ────────────────────────────────────────────────────────────────────────────────────
 
 @app.get("/regime")
@@ -35,7 +80,7 @@ async def get_regime():
         )
         result = row.mappings().first()
     if result is None:
-        raise HTTPException(404, "No regime data yet. Run: make factors")
+        return {"regime": None}
     return dict(result)
 
 
@@ -57,14 +102,15 @@ async def get_rankings(limit: int = 50, run_id: str | None = None):
                 text(
                     "SELECT ticker, rank, composite_score, percentile, regime, rank_date, factor_scores "
                     "FROM rankings WHERE run_id = ("
-                    "  SELECT run_id FROM rankings ORDER BY ranked_at DESC LIMIT 1"
+                    "  SELECT run_id FROM ranking_runs WHERE status='success'"
+                    "  ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
                     ") ORDER BY rank ASC LIMIT :limit"
                 ),
                 {"limit": limit},
             )
         results = [dict(r) for r in rows.mappings()]
     if not results:
-        raise HTTPException(404, "No rankings yet. Run: make pipeline")
+        return {"count": 0, "rankings": []}
     return {"count": len(results), "rankings": results}
 
 
@@ -264,7 +310,7 @@ async def get_trace(trace_id: str):
                 text(
                     "SELECT run_id, status, regime, rank_date, universe_count, ranked_count, dropped_count "
                     "FROM ranking_runs WHERE source_factor_run_id = :frid "
-                    "ORDER BY started_at DESC LIMIT 1"
+                    "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
                 ),
                 {"frid": str(root_run_id)},
             )
@@ -353,12 +399,12 @@ async def get_portfolio(run_id: str | None = None):
                     "       covariance_window_days, avg_pairwise_correlation, portfolio_estimated_vol, "
                     "       error_message, started_at, completed_at "
                     "FROM portfolio_runs WHERE status = 'success' "
-                    "ORDER BY completed_at DESC LIMIT 1"
+                    "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
                 )
             )
         run = run_row.mappings().first()
         if run is None:
-            raise HTTPException(404, "No portfolio yet. Run: make portfolio")
+            return {"run": None, "holdings": []}
         holdings_rows = await conn.execute(
             text(
                 "SELECT ticker, position, weight, composite_score, original_rank, "

@@ -1134,6 +1134,10 @@ function _setBadge(tab, text, cls){
 function _setJobPanel(tab, cls){
   const panel = $('jp-'+tab);
   if(panel) panel.className = 'job-panel ' + (cls||'');
+  // Keep the start button in sync with the running state across all browsers.
+  const ids = TAB_IDS[tab];
+  const btn = ids ? $(ids.start) : null;
+  if(btn) btn.disabled = (cls === 'running');
 }
 
 async function startJob(tab){
@@ -1402,9 +1406,14 @@ async function _loadVetterTickers(runId, live){
         // Verdict badge
         const vBadgeCls = r.crashed ? 'vc-badge-crashed' : r.exclude ? 'vc-badge-exclude' : 'vc-badge-keep';
 
-        // Risk confidence badge
+        // Risk confidence badge — only shown when there is an actual risk signal.
+        // conf = LLM confidence in its verdict, not the risk level itself.
+        // Showing "HIGH RISK" on a KEEP with no risk type is misleading.
+        const hasRisk = r.exclude || (r.risk_type && r.risk_type !== 'none');
         const riskBadgeCls = 'vc-badge-risk-'+(conf);
-        const riskBadge = '<span class="vc-badge '+riskBadgeCls+'">'+conf.toUpperCase()+' RISK</span>';
+        const riskBadge = hasRisk
+          ? '<span class="vc-badge '+riskBadgeCls+'">'+conf.toUpperCase()+' RISK</span>'
+          : '';
 
         // Positive catalyst badge (only if present and not none)
         const catBadge = (posCatalyst && posConviction !== 'none')

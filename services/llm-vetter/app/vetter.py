@@ -93,6 +93,7 @@ ticker to check for risks even when no news is pre-loaded. Good queries:
   "TICKER company name earnings guidance Q2 2026"
   "TICKER company name analyst downgrade SEC filing 2026"
   "TICKER company name recall lawsuit regulatory news"
+Never repeat a search query you have already issued for this ticker.
 
 EXCLUDE the stock (exclude=true) only when there is CLEAR and SPECIFIC evidence of:
 - Upcoming earnings with deteriorating analyst expectations, revenue warnings, or
@@ -130,15 +131,20 @@ is CLEAR and SPECIFIC evidence of:
   partnership announcement that is recent and specific
 - Significant insider buying signal from a filing you can cite
 
-The same evidence rules apply to positive_conviction as to confidence:
-  "high"   — specific, verifiable, recent positive catalyst with a cited source
+These three fields are a LOCKED UNIT — they must be consistent:
+
+  positive_catalyst=true  → set positive_conviction to 'high', 'medium', or 'low'
+                            based on evidence strength, and populate positive_reason
+                            with the specific cited source.
+
+  positive_catalyst=false → positive_conviction MUST be 'none'
+                            positive_reason MUST be '' (empty string)
+                            No partial credit. No "mild signals." Silence is neutral.
+
+Evidence strength for positive_conviction:
+  "high"   — specific, verifiable, recent catalyst with a cited source
   "medium" — material positive signal but uncertain timing or magnitude
   "low"    — mild tailwind worth noting, weakly supported
-  "none"   — no clear positive catalyst found (most common — default to this)
-
-If no positive catalyst exists, set positive_catalyst=false,
-positive_conviction="none", positive_reason="" (empty string).
-Do NOT invent positive reasons. Silence is neutral, not positive.
 """
 
 
@@ -220,6 +226,8 @@ def _detect_hallucination_flags(
     earnings_date: str | None,
     raw: str,
     today: str | None = None,
+    tavily_articles: list[dict] | None = None,
+    agent_searches: list[dict] | None = None,
 ) -> list[str]:
     """
     Heuristic checks for suspicious LLM output.
@@ -250,12 +258,6 @@ def _detect_hallucination_flags(
     # Very short reason suggests the model didn't reason properly
     if len(reason) < 25:
         flags.append(f"Reason suspiciously short ({len(reason)} chars): '{reason}'")
-
-    # Reason doesn't mention the ticker (model may have confused tickers).
-    # Only meaningful when data was provided — generic "no news" reasons are expected otherwise.
-    has_data = bool(news) or earnings_date is not None
-    if has_data and ticker.upper() not in reason.upper() and len(reason) > 50:
-        flags.append(f"Reason does not mention ticker '{ticker}' — possible ticker confusion")
 
     # Raw JSON unexpectedly long (model leaked extra content outside schema)
     if len(raw) > 800:
@@ -305,7 +307,14 @@ async def vet_single_ticker(
     Returns a dict with the decision plus full execution trace fields.
     """
     user_message = _format_ticker_message(ticker, news, earnings_date, tavily_articles, today)
-    news_titles = [a.get("title", "") for a in (news + tavily_articles)]
+    # Use a set to deduplicate titles; list preserves insertion order via dict.fromkeys.
+    _seen_titles: set[str] = set()
+    news_titles: list[str] = []
+    for a in (news + tavily_articles):
+        t = a.get("title", "")
+        if t and t not in _seen_titles:
+            _seen_titles.add(t)
+            news_titles.append(t)
     agent_searches: list[dict] = []
 
     t0 = time.monotonic()
@@ -359,15 +368,19 @@ async def vet_single_ticker(
 
                 if fn_name == "web_search" and query:
                     results = await search_web(query, tavily_api_key)
-                    agent_searches.append({"query": query, "result_count": len(results)})
-                    if results:
+                    # Filter to articles not already seen from pre-fetch or prior searches.
+                    new_results = [r for r in results if r["title"] not in _seen_titles]
+                    agent_searches.append({"query": query, "result_count": len(new_results)})
+                    if new_results:
                         result_text = "\n\n".join(
                             f"**{r['title']}**\n{r['content']}"
-                            for r in results
+                            for r in new_results
                         )
-                        news_titles += [r["title"] for r in results]
+                        for r in new_results:
+                            _seen_titles.add(r["title"])
+                            news_titles.append(r["title"])
                     else:
-                        result_text = "No results found."
+                        result_text = "No new results found (all results already seen)."
                 else:
                     result_text = f"Unknown tool: {fn_name}"
                     agent_searches.append({"query": query, "result_count": 0, "error": "unknown tool"})
@@ -430,7 +443,10 @@ async def vet_single_ticker(
             "hallucination_flags": [f"JSON parse error: {exc}"],
         }
 
-    hallucination_flags = _detect_hallucination_flags(ticker, parsed, news, earnings_date, raw, today=today)
+    hallucination_flags = _detect_hallucination_flags(
+        ticker, parsed, news, earnings_date, raw, today=today,
+        tavily_articles=tavily_articles, agent_searches=agent_searches,
+    )
     if hallucination_flags:
         for flag in hallucination_flags:
             log.warning("[llm-vetter] %s hallucination flag: %s", ticker, flag)
