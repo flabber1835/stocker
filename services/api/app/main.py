@@ -401,3 +401,63 @@ async def get_portfolio(run_id: str | None = None):
             for h in holdings
         ],
     }
+
+
+# ── Live portfolio (broker positions via alpaca-sync) ─────────────────────────
+
+@app.get("/live-portfolio")
+async def get_live_portfolio():
+    def _iso(v):
+        return v.isoformat() if v and hasattr(v, "isoformat") else (str(v) if v else None)
+
+    def _f(v):
+        return float(v) if v is not None else None
+
+    try:
+        async with engine.connect() as conn:
+            sync_row = (await conn.execute(text(
+                "SELECT run_id, status, account_value, buying_power, cash, "
+                "position_count, completed_at "
+                "FROM alpaca_sync_runs WHERE status='success' "
+                "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+            ))).mappings().first()
+
+            if sync_row is None:
+                return {"connected": False, "positions": [], "sync": None}
+
+            pos_rows = (await conn.execute(text(
+                "SELECT ticker, qty, avg_entry_price, current_price, market_value, "
+                "cost_basis, unrealized_pl, unrealized_plpc, side "
+                "FROM live_positions WHERE sync_run_id = :rid "
+                "ORDER BY market_value DESC NULLS LAST"
+            ), {"rid": str(sync_row["run_id"])})).mappings().fetchall()
+
+        total_mv = sum(float(p["market_value"] or 0) for p in pos_rows)
+        return {
+            "connected": True,
+            "sync": {
+                "synced_at":     _iso(sync_row["completed_at"]),
+                "account_value": _f(sync_row["account_value"]),
+                "buying_power":  _f(sync_row["buying_power"]),
+                "cash":          _f(sync_row["cash"]),
+                "position_count": sync_row["position_count"],
+            },
+            "positions": [
+                {
+                    "ticker":          p["ticker"],
+                    "qty":             _f(p["qty"]),
+                    "avg_entry_price": _f(p["avg_entry_price"]),
+                    "current_price":   _f(p["current_price"]),
+                    "market_value":    _f(p["market_value"]),
+                    "cost_basis":      _f(p["cost_basis"]),
+                    "unrealized_pl":   _f(p["unrealized_pl"]),
+                    "unrealized_plpc": _f(p["unrealized_plpc"]),
+                    "weight":          float(p["market_value"]) / total_mv if total_mv and p["market_value"] else None,
+                    "side":            p["side"],
+                }
+                for p in pos_rows
+            ],
+        }
+    except Exception:
+        # Tables may not exist if alpaca-sync has never run
+        return {"connected": False, "positions": [], "sync": None}
