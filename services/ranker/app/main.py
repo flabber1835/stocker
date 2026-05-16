@@ -191,7 +191,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
                         "SELECT run_id, trace_id, regime, score_date, ticker_count "
                         "FROM factor_runs "
                         "WHERE status = 'success' AND ticker_count > 0 "
-                        "ORDER BY completed_at DESC LIMIT 1"
+                        "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
                     )
                 )
             latest = row.fetchone()
@@ -448,47 +448,46 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
 
         # ── Step 4: write rankings ────────────────────────────────────────────────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
-        async with engine.begin() as conn:
-            for _, row in ranked_df.iterrows():
-                factor_snapshot = {
+        ranking_rows = [
+            {
+                "run_id": ranking_run_id,
+                "source_factor_run_id": source_factor_run_id,
+                "strategy_id": strategy.strategy_id,
+                "regime": regime,
+                "rank_date": rank_date,
+                "ticker": str(row["ticker"]),
+                "rank": int(row["rank"]),
+                "composite_score": None if pd.isna(row["composite_score"]) else float(row["composite_score"]),
+                "percentile": None if pd.isna(row["percentile"]) else float(row["percentile"]),
+                "factor_scores": json.dumps({
                     f: (None if pd.isna(row[f]) else float(row[f]))
                     for f in FACTORS
                     if f in ranked_df.columns
-                }
-                composite = None if pd.isna(row["composite_score"]) else float(row["composite_score"])
-                percentile = None if pd.isna(row["percentile"]) else float(row["percentile"])
-
-                await conn.execute(
-                    text(
-                        """
-                        INSERT INTO rankings
-                            (run_id, source_factor_run_id, strategy_id, regime, rank_date, ticker, rank,
-                             composite_score, percentile, factor_scores, ranked_at)
-                        VALUES
-                            (:run_id, :source_factor_run_id, :strategy_id, :regime, :rank_date, :ticker, :rank,
-                             :composite_score, :percentile, CAST(:factor_scores AS jsonb), :ranked_at)
-                        ON CONFLICT (run_id, ticker) DO UPDATE SET
-                            rank                 = EXCLUDED.rank,
-                            composite_score      = EXCLUDED.composite_score,
-                            percentile           = EXCLUDED.percentile,
-                            factor_scores        = EXCLUDED.factor_scores,
-                            ranked_at            = EXCLUDED.ranked_at
-                        """
-                    ),
-                    {
-                        "run_id": ranking_run_id,
-                        "source_factor_run_id": source_factor_run_id,
-                        "strategy_id": strategy.strategy_id,
-                        "regime": regime,
-                        "rank_date": rank_date,
-                        "ticker": str(row["ticker"]),
-                        "rank": int(row["rank"]),
-                        "composite_score": composite,
-                        "percentile": percentile,
-                        "factor_scores": json.dumps(factor_snapshot),
-                        "ranked_at": ranked_at,
-                    },
-                )
+                }),
+                "ranked_at": ranked_at,
+            }
+            for _, row in ranked_df.iterrows()
+        ]
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO rankings
+                        (run_id, source_factor_run_id, strategy_id, regime, rank_date, ticker, rank,
+                         composite_score, percentile, factor_scores, ranked_at)
+                    VALUES
+                        (:run_id, :source_factor_run_id, :strategy_id, :regime, :rank_date, :ticker, :rank,
+                         :composite_score, :percentile, CAST(:factor_scores AS jsonb), :ranked_at)
+                    ON CONFLICT (run_id, ticker) DO UPDATE SET
+                        rank                 = EXCLUDED.rank,
+                        composite_score      = EXCLUDED.composite_score,
+                        percentile           = EXCLUDED.percentile,
+                        factor_scores        = EXCLUDED.factor_scores,
+                        ranked_at            = EXCLUDED.ranked_at
+                    """
+                ),
+                ranking_rows,
+            )
 
             await _log_step(
                 conn, trace_id, "write_rankings", "success",
@@ -585,8 +584,21 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
             print(f"[ranker] WARNING: failed to update DB with failure status for run {ranking_run_id}")
 
 
+async def _assert_no_running_job() -> None:
+    async with engine.connect() as conn:
+        row = await conn.execute(
+            text("SELECT run_id FROM ranking_runs WHERE status='running' LIMIT 1")
+        )
+        if row.fetchone() is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Another ranking job is already running. Wait for it to complete.",
+            )
+
+
 @app.post("/jobs/rank")
 async def start_rank_job(background_tasks: BackgroundTasks, factor_run_id: str | None = None):
+    await _assert_no_running_job()
     ranking_run_id = str(uuid.uuid4())
 
     if factor_run_id:
@@ -608,7 +620,7 @@ async def start_rank_job(background_tasks: BackgroundTasks, factor_run_id: str |
                 text(
                     "SELECT regime FROM factor_runs "
                     "WHERE status = 'success' AND ticker_count > 0 "
-                    "ORDER BY completed_at DESC LIMIT 1"
+                    "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
                 )
             )
             latest = row.fetchone()
@@ -635,7 +647,7 @@ async def get_latest_run():
         row = await conn.execute(
             text(
                 "SELECT run_id, status, regime, rank_date, started_at, completed_at "
-                "FROM ranking_runs ORDER BY started_at DESC LIMIT 1"
+                "FROM ranking_runs ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
             )
         )
         result = row.fetchone()
@@ -687,7 +699,10 @@ async def get_run(run_id: str):
 async def _fetch_top_rankings(n: int) -> list[dict]:
     async with engine.begin() as conn:
         run_row = await conn.execute(
-            text("SELECT run_id FROM rankings ORDER BY ranked_at DESC LIMIT 1")
+            text(
+                "SELECT run_id FROM ranking_runs WHERE status='success' "
+                "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+            )
         )
         latest_run = run_row.fetchone()
         if latest_run is None:

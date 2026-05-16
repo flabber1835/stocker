@@ -99,7 +99,7 @@ class PortfolioBuilderConfig(BaseModel):
         "inverse_vol",
     ] = "equal_weight"
     max_position_weight: float = Field(default=0.10, gt=0, le=1.0)
-    max_sector_weight: float = Field(default=0.40, gt=0, le=1.0)
+    max_sector_weight: float = Field(default=0.30, gt=0, le=1.0)
     do_not_buy: list[str] = Field(default_factory=list)
 
 
@@ -116,6 +116,14 @@ class StrategyConfig(BaseModel):
     required_factors: list[str] = Field(default_factory=list)
     portfolio_builder: PortfolioBuilderConfig = Field(default_factory=PortfolioBuilderConfig)
     vetter: VetterConfig = Field(default_factory=VetterConfig)
+
+    @model_validator(mode="after")
+    def sync_max_positions(self) -> "StrategyConfig":
+        pb_default = 30
+        if (self.portfolio_builder.max_positions == pb_default
+                and self.max_positions != pb_default):
+            self.portfolio_builder.max_positions = self.max_positions
+        return self
 
     @model_validator(mode="after")
     def weights_match_regimes(self) -> StrategyConfig:

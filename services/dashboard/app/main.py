@@ -166,12 +166,20 @@ async def pipeline_status():
         async def fetch_ranker():
             return await client.get(f"{RANKER_URL}/runs/latest")
 
-        r0, r1, r2, r3, r4 = await asyncio.gather(
-            _safe_fetch(fetch_universe(),  {"error": "timeout"}),
-            _safe_fetch(fetch_rankings(),  {"error": "timeout"}),
-            _safe_fetch(fetch_vetter(),    {"error": "timeout"}),
-            _safe_fetch(fetch_portfolio(), {"error": "timeout"}),
-            _safe_fetch(fetch_ranker(),    {"error": "timeout"}),
+        async def fetch_data_latest():
+            return await client.get(f"{AV_INGESTOR_URL}/runs/latest")
+
+        async def fetch_factors_latest():
+            return await client.get(f"{FACTOR_ENGINE_URL}/runs/latest")
+
+        r0, r1, r2, r3, r4, r5, r6 = await asyncio.gather(
+            _safe_fetch(fetch_universe(),       {"error": "timeout"}),
+            _safe_fetch(fetch_rankings(),       {"error": "timeout"}),
+            _safe_fetch(fetch_vetter(),         {"error": "timeout"}),
+            _safe_fetch(fetch_portfolio(),      {"error": "timeout"}),
+            _safe_fetch(fetch_ranker(),         {"error": "timeout"}),
+            _safe_fetch(fetch_data_latest(),    {"error": "timeout"}),
+            _safe_fetch(fetch_factors_latest(), {"error": "timeout"}),
         )
 
     uni_date = port_date = rank_date = None
@@ -200,6 +208,17 @@ async def pipeline_status():
     if not isinstance(r4, dict) and r4.status_code == 200:
         rank_completed_at = r4.json().get("completed_at")
 
+    rank_chain_running = None
+    if not isinstance(r5, dict) and r5.status_code == 200:
+        d = r5.json()
+        if d.get("status") == "running":
+            rank_chain_running = "data"
+
+    if rank_chain_running is None and not isinstance(r6, dict) and r6.status_code == 200:
+        d = r6.json()
+        if d.get("status") == "running":
+            rank_chain_running = "factors"
+
     # Compare full ISO timestamps so date-only differences (e.g. universe
     # snapshot_date=today vs rank_date=last trading day) don't cause false alarms.
     rank_warning = bool(uni_fetched_at and (not rank_completed_at or uni_fetched_at > rank_completed_at))
@@ -207,13 +226,14 @@ async def pipeline_status():
     port_warning = bool(rank_completed_at and (not port_completed_at or rank_completed_at > port_completed_at))
 
     return {
-        "universe_date":  uni_date,
-        "rank_date":      rank_date,
-        "vetter":         vetter_info,
-        "portfolio_date": port_date,
-        "rank_warning":   rank_warning,
-        "vet_warning":    vet_warning,
-        "port_warning":   port_warning,
+        "universe_date":     uni_date,
+        "rank_date":         rank_date,
+        "vetter":            vetter_info,
+        "portfolio_date":    port_date,
+        "rank_warning":      rank_warning,
+        "vet_warning":       vet_warning,
+        "port_warning":      port_warning,
+        "rank_chain_running": rank_chain_running,
     }
 
 
@@ -967,9 +987,6 @@ function switchTab(name, btn){
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   btn.classList.add('active');
   $('pane-'+name).classList.add('active');
-  if(name !== 'vet'){
-    _currentVetterRunId = null;
-  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
