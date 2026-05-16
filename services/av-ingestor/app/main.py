@@ -390,8 +390,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                 print(f"[fetch-data] {ticker} prices: already current ({spy_max}) {label}")
                 price_ok += 1
                 price_skipped += 1
-                # Still need avg_dv for fundamentals below — use existing price data.
-                _ticker_avg_dv[ticker] = 0.0
+                # avg_dv will be read from DB if this ticker needs a fundamentals update
             else:
                 try:
                     # Use compact (last 100 days) if we already have a price history; full otherwise.
@@ -440,6 +439,20 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                     try:
                         overview = await client.get_overview(ticker)
                         if overview:
+                            # If price was skipped (already current), look up avg_dv from DB.
+                            if ticker not in _ticker_avg_dv:
+                                async with engine.connect() as dv_conn:
+                                    dv_row = await dv_conn.execute(
+                                        text(
+                                            "SELECT AVG(close * volume) AS avg_dv FROM ("
+                                            "  SELECT close, volume FROM daily_prices "
+                                            "  WHERE ticker=:t ORDER BY date DESC LIMIT 20"
+                                            ") sub"
+                                        ),
+                                        {"t": ticker},
+                                    )
+                                    dv_val = dv_row.scalar()
+                                    _ticker_avg_dv[ticker] = float(dv_val) if dv_val is not None else None
                             overview["avg_volume"] = _ticker_avg_dv.get(ticker)
                             async with SessionLocal() as session:
                                 async with session.begin():
