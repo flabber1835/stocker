@@ -93,6 +93,7 @@ ticker to check for risks even when no news is pre-loaded. Good queries:
   "TICKER company name earnings guidance Q2 2026"
   "TICKER company name analyst downgrade SEC filing 2026"
   "TICKER company name recall lawsuit regulatory news"
+Never repeat a search query you have already issued for this ticker.
 
 EXCLUDE the stock (exclude=true) only when there is CLEAR and SPECIFIC evidence of:
 - Upcoming earnings with deteriorating analyst expectations, revenue warnings, or
@@ -130,15 +131,20 @@ is CLEAR and SPECIFIC evidence of:
   partnership announcement that is recent and specific
 - Significant insider buying signal from a filing you can cite
 
-The same evidence rules apply to positive_conviction as to confidence:
-  "high"   — specific, verifiable, recent positive catalyst with a cited source
+These three fields are a LOCKED UNIT — they must be consistent:
+
+  positive_catalyst=true  → set positive_conviction to 'high', 'medium', or 'low'
+                            based on evidence strength, and populate positive_reason
+                            with the specific cited source.
+
+  positive_catalyst=false → positive_conviction MUST be 'none'
+                            positive_reason MUST be '' (empty string)
+                            No partial credit. No "mild signals." Silence is neutral.
+
+Evidence strength for positive_conviction:
+  "high"   — specific, verifiable, recent catalyst with a cited source
   "medium" — material positive signal but uncertain timing or magnitude
   "low"    — mild tailwind worth noting, weakly supported
-  "none"   — no clear positive catalyst found (most common — default to this)
-
-If no positive catalyst exists, set positive_catalyst=false,
-positive_conviction="none", positive_reason="" (empty string).
-Do NOT invent positive reasons. Silence is neutral, not positive.
 """
 
 
