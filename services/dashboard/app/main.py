@@ -580,6 +580,13 @@ header{
   width: 30% !important;
   animation: indeterminate-slide 1.4s ease-in-out infinite;
 }
+.progress-fill.pulsing {
+  animation: progress-pulse 1.6s ease-in-out infinite;
+}
+@keyframes progress-pulse {
+  0%,100% { opacity:1; }
+  50%      { opacity:.5; }
+}
 @keyframes indeterminate-slide {
   0%   { transform: translateX(-200%); }
   100% { transform: translateX(500%); }
@@ -1536,12 +1543,18 @@ function renderJob(tab, state, prev) {
   const pctId  = {universe:'uni-pct', rank:'rank-pct', vetter:'vet-pct', portfolio:'portfolio-pct'}[tab];
   const fillEl = $(fillId), wrapEl = $(wrapId), pctEl = $(pctId);
   if (fillEl) {
-    fillEl.classList.remove('indeterminate', 'error');
+    fillEl.classList.remove('indeterminate', 'pulsing', 'error');
     if (running) {
       wrapEl && (wrapEl.style.display = 'flex');
-      fillEl.classList.add('indeterminate');
-      const stepPct = {fetch_data:'20%', calc_factors:'55%', ranking:'85%'}[state.step] || '';
-      if (pctEl) pctEl.textContent = stepPct;
+      const stepPct = {fetch_data:'20%', calc_factors:'55%', ranking:'85%'}[state.step];
+      if (stepPct) {
+        fillEl.style.width = stepPct;
+        fillEl.classList.add('pulsing');
+        if (pctEl) pctEl.textContent = stepPct;
+      } else {
+        fillEl.classList.add('indeterminate');
+        if (pctEl) pctEl.textContent = '';
+      }
     } else if (done) {
       fillEl.style.width = '100%';
       if (pctEl) pctEl.textContent = '100%';
