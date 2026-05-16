@@ -74,6 +74,14 @@ async def proxy_portfolio():
 
 
 # ── Job triggers ──────────────────────────────────────────────────────────────
+# NOTE: rank-chain must be registered before the wildcard /api/jobs/{tab} route
+# so FastAPI matches it as a literal path rather than a {tab} parameter.
+
+@app.post("/api/jobs/rank-chain")
+async def start_rank_chain_alias(background_tasks: BackgroundTasks):
+    background_tasks.add_task(_run_rank_chain_bg)
+    return {"status": "started"}
+
 
 @app.post("/api/jobs/{tab}")
 async def trigger_job(tab: str):
@@ -349,12 +357,6 @@ async def pipeline_status():
             "portfolio": port_warning,
         },
     }
-
-
-@app.post("/api/jobs/rank-chain")
-async def start_rank_chain(background_tasks: BackgroundTasks):
-    background_tasks.add_task(_run_rank_chain_bg)
-    return {"status": "started"}
 
 
 async def _run_rank_chain_bg():
