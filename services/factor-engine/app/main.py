@@ -762,10 +762,18 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
 
 @app.post("/jobs/calculate")
-async def start_calculate(background_tasks: BackgroundTasks):
+async def start_calculate(background_tasks: BackgroundTasks, force: bool = False):
     async with _job_lock:
         async with engine.connect() as conn:
             await _assert_no_running_job(conn)
+            if not force:
+                today = date.today()
+                row = await conn.execute(
+                    text("SELECT run_id FROM factor_runs WHERE status='success' AND score_date=:d LIMIT 1"),
+                    {"d": today},
+                )
+                if row.fetchone() is not None:
+                    return {"status": "already_ran_today", "job": "calculate", "date": str(today)}
         run_id = str(uuid.uuid4())
         trace_id = str(uuid.uuid4())
         today = date.today()

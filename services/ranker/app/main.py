@@ -4,7 +4,7 @@ import os
 import traceback
 import uuid
 from contextlib import asynccontextmanager
-from datetime import timezone, datetime
+from datetime import date, timezone, datetime
 
 import pandas as pd
 from fastapi import FastAPI, BackgroundTasks, HTTPException
@@ -588,9 +588,19 @@ async def _assert_no_running_job() -> None:
 
 
 @app.post("/jobs/rank")
-async def start_rank_job(background_tasks: BackgroundTasks, factor_run_id: str | None = None):
+async def start_rank_job(background_tasks: BackgroundTasks, factor_run_id: str | None = None, force: bool = False):
     async with _job_lock:
         await _assert_no_running_job()
+
+        if not force:
+            async with engine.begin() as conn:
+                row = await conn.execute(
+                    text("SELECT run_id FROM ranking_runs WHERE status='success' AND rank_date=:d LIMIT 1"),
+                    {"d": date.today()},
+                )
+                if row.fetchone() is not None:
+                    return {"status": "already_ran_today", "job": "rank", "date": str(date.today())}
+
         ranking_run_id = str(uuid.uuid4())
 
         if factor_run_id:

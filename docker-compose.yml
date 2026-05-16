@@ -352,12 +352,24 @@ services:
   scheduler:
     build:
       context: .
-      dockerfile: services/stub/Dockerfile
+      dockerfile: services/scheduler/Dockerfile
     restart: unless-stopped
     ports:
       - "8015:8000"
     environment:
-      SERVICE_NAME: scheduler
+      AV_INGESTOR_URL:   http://av-ingestor:8000
+      FACTOR_ENGINE_URL: http://factor-engine:8000
+      RANKER_URL:        http://ranker:8000
+      RANK_SCHEDULE_CRON: ${RANK_SCHEDULE_CRON:-15 21 * * 1-5}
+    depends_on:
+      - av-ingestor
+      - factor-engine
+      - ranker
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:
