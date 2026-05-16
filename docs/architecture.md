@@ -114,30 +114,34 @@ User prompt
 
 ## Inter-Service Communication
 
-Two mechanisms are used, matched to path semantics. Do not collapse them into one.
+Two mechanisms are used, matched to path semantics.
 
-### Batch path: Postgres job table
+### Batch path: direct HTTP from dashboard orchestrator
 
-The scheduler and all batch-triggered workflows use a `jobs` table in Postgres as a durable task queue.
-
-```text
-Pattern: SELECT ... FOR UPDATE SKIP LOCKED
-```
-
-Used for:
+The dashboard server orchestrates the rank chain via direct HTTP calls to the
+downstream services. This is initiated by `POST /api/jobs/rank-chain` and runs
+as a background task on the dashboard process.
 
 ```text
-scheduler → av-ingestor (daily Alpha Vantage refresh)
-scheduler → factor-engine (factor recalculation)
-scheduler → ranker (monthly ranking run)
-scheduler → portfolio-builder (monthly rebalance)
-scheduler → backtester (scheduled backtest runs)
-scheduler → alpaca-sync (periodic position sync)
+dashboard (rank-chain bg task)
+  → POST av-ingestor  /jobs/fetch-data   → poll /runs/latest until done
+  → POST factor-engine /jobs/calculate   → poll /runs/latest until done
+  → POST ranker        /jobs/rank        → poll /runs/latest until done
 ```
 
-Why: batch jobs require durability, retry on failure, and a natural run history. The `jobs` table doubles as an audit log of what ran and when. If the scheduler or a worker restarts, no job is lost.
+Each service independently manages its own run state in Postgres (one row per
+run, status transitions: running → success/failed). The dashboard polls each
+service's `/runs/latest` endpoint every 5 seconds to detect completion before
+advancing to the next step.
 
-The scheduler writes a job row to Postgres before triggering work. Workers poll with SKIP LOCKED. On completion the row is updated with status, result, and timestamp.
+A `409 Conflict` response means a step is already running from a previous trigger.
+The orchestrator treats this as "wait for it" rather than aborting.
+
+Why direct HTTP (not a Postgres jobs table): the rank chain is triggered
+interactively from the dashboard and completes within an hour. Durability of the
+queue itself is not required — each service's run table already provides the audit
+log and recovery point. A scheduler service (Phase 7) can call the same HTTP
+endpoints.
 
 ### Real-time path: synchronous HTTP
 
@@ -157,13 +161,20 @@ risk-service → trade-executor (approved trade intent)
 strategy-validator → api (validation result)
 ```
 
-Why: the intraday path is latency-sensitive and benefits from a simple, traceable request-response model. The risk-service becomes a synchronous gatekeeper — every call either returns approved or rejected with a reason. This makes the boundary easy to test and audit.
+Why: the intraday path is latency-sensitive and benefits from a simple, traceable
+request-response model. The risk-service becomes a synchronous gatekeeper — every
+call either returns approved or rejected with a reason. This makes the boundary easy
+to test and audit.
 
-Requirement: all HTTP calls on this path must have explicit timeouts. If risk-service does not respond within the timeout, the signal is dropped and logged. intraday-monitor must never block indefinitely.
+Requirement: all HTTP calls on this path must have explicit timeouts. If risk-service
+does not respond within the timeout, the signal is dropped and logged.
+intraday-monitor must never block indefinitely.
 
 ### Upgrade path
 
-If intraday latency requirements tighten after observing real paper trading, the real-time path may be migrated to Redis Streams. Only the intraday-monitor producer and risk-service consumer need to change. This decision should be deferred until Phase 6 data is available.
+If intraday latency requirements tighten after observing real paper trading, the
+real-time path may be migrated to Redis Streams. Only the intraday-monitor producer
+and risk-service consumer need to change. Defer until Phase 6 data is available.
 
 ## Regime Detection
 

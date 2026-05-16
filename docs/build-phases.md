@@ -44,6 +44,7 @@ adjusted_close × volume for dollar-volume filtering
 75 req/min rate limiting
 Postgres storage with UPSERT
 job_type field to distinguish universe vs data runs
+in-memory per-ticker progress counter exposed in /runs/latest
 ```
 
 ## Phase 4: Monthly Stock Engine ✅ DONE
@@ -57,6 +58,7 @@ ranker: composite scoring by regime, min_score_percentile filter, ranking runs
 portfolio-builder: greedy_score_per_port_vol, sector caps, covariance shrinkage
 portfolio-builder: ON CONFLICT DO UPDATE for idempotent rebalance
 api: /universe, /rankings, /portfolio, /regime endpoints
+shared/stock_strategy_shared/loader.py: shared load_strategy() used by all services
 ```
 
 ## Phase 4.5: LLM Vetter ✅ DONE
@@ -74,20 +76,54 @@ Informational only — no approval gate, no portfolio blocking
 Conviction boosts applied in portfolio-builder (high: +0.25, medium: +0.12, low: +0.05)
 ```
 
-## Phase 5: Backtesting ← NEXT
+## Phase 4.6: Dashboard Cloud-Native Refactor ✅ DONE
 
-Build:
+The dashboard was rewritten to behave as a standard cloud-native web app. All job
+state lives on the server; browsers are pure render clients.
+
+Built:
 
 ```text
-backtester service
-replay historical ranking runs against forward returns
-simulated trades, returns, drawdowns, turnover
-Sharpe-like metrics
-benchmark comparison (SPY)
-position history
-monthly rebalance history
-backtest report artifacts
+GET /api/pipeline-status — single endpoint returning structured status for all 4
+    pipeline stages (universe, rank, vetter, portfolio) with step labels and real
+    percentage for the rank chain
+POST /api/jobs/rank-chain — server-side orchestrator that runs fetch-data →
+    calc-factors → rank sequentially; handles 409 (already running) by waiting
+setInterval(refresh, 2000) — all browsers poll pipeline-status every 2 seconds
+    and render identically; no per-browser state machine
+renderJob(tab, state, prev) — pure render function; detects running→done
+    transition to trigger data reloads
+Progress bar: real percentage during fetch-data (tickers_done/total_tickers × 80%),
+    fixed 85% during factor calc, 95% during ranking, 100% on done
 ```
+
+Architecture principle: the server is the sole source of truth for job state.
+Any browser on any device sees identical progress because all state comes from
+the same /api/pipeline-status poll.
+
+## Phase 5: Backtesting ✅ DONE
+
+Built:
+
+```text
+backtester service (port 8013)
+POST /jobs/backtest — triggers background replay run (date_from, date_to, tx_cost_bps)
+GET /runs/latest, /runs/{id}, /runs/{id}/monthly — backtest results
+services/backtester/app/simulate.py — pure run_backtest() function
+    replays saved portfolio_runs against forward daily_prices
+    weight-averaged period returns, SPY benchmark, tx cost deduction
+    equity curve compounding
+services/backtester/app/metrics.py — pure functions:
+    annualized_return, sharpe_ratio, max_drawdown, turnover
+backtest_runs table — one row per run, summary metrics
+backtest_monthly table — one row per rebalance period, holdings snapshot JSONB
+28 unit tests (tests/backtester/test_metrics.py, test_simulate.py)
+Tables created by lifespan if they don't exist (no migration required)
+```
+
+Input source: saved `portfolio_runs` + `portfolio_holdings` rows from portfolio-builder.
+Does not re-simulate the pipeline — uses actual historical decisions to avoid
+reimplementing portfolio construction logic.
 
 ## Phase 6: Alpaca Paper Trading (partial)
 
