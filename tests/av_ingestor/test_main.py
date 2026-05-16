@@ -196,3 +196,72 @@ class TestAvgDvFallback:
         dv = self._simulate_price_loop(["MSFT"], ticker_latest, spy_max)
         assert "MSFT" in dv
         assert dv["MSFT"] > 0
+
+
+# ── Benchmark ticker ordering ─────────────────────────────────────────────────
+#
+# SPY is the reference for skip detection (spy_max).  If benchmarks are fetched
+# last and the run is interrupted, spy_max=None on the next run and every
+# ticker is re-fetched from scratch.  Benchmarks must therefore come FIRST.
+
+BENCHMARK_TICKERS = ("SPY", "QQQ", "IWM", "SOXX")
+
+
+def _build_price_tickers(universe_tickers: list[str]) -> list[str]:
+    """Replicate the ticker-list construction from _run_fetch_data."""
+    universe_set = set(universe_tickers)
+    extra_benchmarks = [t for t in BENCHMARK_TICKERS if t not in universe_set]
+    return extra_benchmarks + list(universe_tickers)
+
+
+def _build_all_tickers(universe_tickers: list[str]) -> list[str]:
+    """Replicate the ticker-list construction from _run_fetch_prices."""
+    universe_set = set(universe_tickers)
+    extra = [t for t in BENCHMARK_TICKERS if t not in universe_set]
+    return extra + list(universe_tickers)
+
+
+class TestBenchmarkOrdering:
+    def test_spy_is_first_ticker_in_fetch_data(self):
+        """SPY must be the first ticker fetched so spy_max lands in the DB early."""
+        tickers = _build_price_tickers(["AAPL", "MSFT", "GOOG"])
+        assert tickers[0] == "SPY", f"Expected SPY first, got {tickers[0]!r}"
+
+    def test_all_benchmarks_precede_universe_tickers(self):
+        """All benchmark tickers must appear before any universe ticker."""
+        universe = ["AAPL", "MSFT", "GOOG", "AMZN"]
+        tickers = _build_price_tickers(universe)
+        benchmark_indices = [i for i, t in enumerate(tickers) if t in BENCHMARK_TICKERS]
+        universe_indices  = [i for i, t in enumerate(tickers) if t in set(universe)]
+        assert max(benchmark_indices) < min(universe_indices), (
+            "All benchmarks must come before any universe ticker"
+        )
+
+    def test_universe_tickers_not_duplicated_when_they_overlap_benchmarks(self):
+        """If the universe happens to contain SPY, it should not appear twice."""
+        universe = ["SPY", "AAPL", "MSFT"]
+        tickers = _build_price_tickers(universe)
+        assert tickers.count("SPY") == 1, "SPY must appear exactly once"
+
+    def test_fetch_prices_benchmarks_also_first(self):
+        """Same ordering fix applies to _run_fetch_prices."""
+        universe = ["AAPL", "MSFT"]
+        tickers = _build_all_tickers(universe)
+        assert tickers[0] == "SPY", f"Expected SPY first in fetch-prices, got {tickers[0]!r}"
+
+    def test_spy_max_available_after_partial_run(self):
+        """
+        Simulate an interrupted fetch: only the first N tickers were written to DB.
+        With SPY first, spy_max is available after even a single-ticker partial run.
+        """
+        universe = ["AAPL", "MSFT", "GOOG"]
+        tickers = _build_price_tickers(universe)
+
+        # Simulate DB state after only the first ticker was successfully written
+        db_after_one_write = {tickers[0]: date(2026, 5, 14)}
+        spy_max = db_after_one_write.get("SPY")
+
+        assert spy_max is not None, (
+            "spy_max must be available after the first ticker is written — "
+            "requires SPY to be first in the fetch order"
+        )

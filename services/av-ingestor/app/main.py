@@ -350,8 +350,11 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
     started_at = datetime.now(timezone.utc)
     await _start_run(run_id, "fetch-data")
     benchmark_set = set(BENCHMARK_TICKERS)
+    # Fetch benchmark tickers (SPY etc.) FIRST so spy_max lands in the DB early.
+    # If benchmarks are last and the run is interrupted, spy_max=None on the next
+    # run and every ticker gets re-fetched from scratch.
     extra_benchmarks = [t for t in BENCHMARK_TICKERS if t not in set(tickers)]
-    price_tickers = tickers + extra_benchmarks
+    price_tickers = extra_benchmarks + list(tickers)
     fundamental_tickers = [t for t in tickers if t not in benchmark_set]
     fundamental_set = set(fundamental_tickers)
     today = date.today()
@@ -514,8 +517,9 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
 async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
     started_at = datetime.now(timezone.utc)
     await _start_run(run_id, "fetch-prices")
+    # Benchmarks first so SPY is written early — same reasoning as _run_fetch_data.
     extra = [t for t in BENCHMARK_TICKERS if t not in set(tickers)]
-    all_tickers = tickers + extra
+    all_tickers = extra + list(tickers)
 
     ticker_latest, spy_max = await _load_price_staleness()
     skip_count = sum(1 for t in all_tickers if spy_max and ticker_latest.get(t) == spy_max)
