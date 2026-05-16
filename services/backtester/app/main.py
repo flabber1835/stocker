@@ -32,13 +32,51 @@ async def lifespan(app: FastAPI):
     strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10)
     async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "UPDATE backtest_runs SET status='failed', completed_at=NOW(), "
-                "error_message='Service restarted while run was active' "
-                "WHERE status='running'"
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS backtest_runs (
+                run_id                      UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+                strategy_id                 VARCHAR(100) NOT NULL,
+                config_hash                 VARCHAR(16),
+                status                      VARCHAR(20)  NOT NULL DEFAULT 'running'
+                                                CHECK (status IN ('running','success','failed')),
+                date_from                   DATE,
+                date_to                     DATE,
+                n_rebalances                INTEGER,
+                source_portfolio_run_ids    JSONB,
+                total_return                NUMERIC(12,6),
+                annualized_return           NUMERIC(12,6),
+                sharpe_ratio                NUMERIC(10,4),
+                max_drawdown                NUMERIC(10,4),
+                avg_monthly_turnover        NUMERIC(10,4),
+                win_rate                    NUMERIC(10,4),
+                benchmark_total_return      NUMERIC(12,6),
+                benchmark_annualized_return NUMERIC(12,6),
+                tx_cost_bps                 INTEGER      NOT NULL DEFAULT 0,
+                started_at                  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+                completed_at                TIMESTAMPTZ,
+                error_message               TEXT
             )
-        )
+        """))
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS backtest_monthly (
+                id                SERIAL       PRIMARY KEY,
+                run_id            UUID         NOT NULL REFERENCES backtest_runs(run_id) ON DELETE CASCADE,
+                period_start      DATE         NOT NULL,
+                period_end        DATE         NOT NULL,
+                regime            VARCHAR(50),
+                portfolio_return  NUMERIC(12,6),
+                benchmark_return  NUMERIC(12,6),
+                excess_return     NUMERIC(12,6),
+                turnover          NUMERIC(10,4),
+                n_holdings        INTEGER,
+                holdings_snapshot JSONB
+            )
+        """))
+        await conn.execute(text(
+            "UPDATE backtest_runs SET status='failed', completed_at=NOW(), "
+            "error_message='Service restarted while run was active' "
+            "WHERE status='running'"
+        ))
     yield
     await engine.dispose()
 
