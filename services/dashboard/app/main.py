@@ -175,19 +175,25 @@ async def pipeline_status():
         async def fetch_portfolio():
             return await client.get(f"{API_URL}/portfolio")
 
-        r0, r1, r2, r3 = await asyncio.gather(
+        async def fetch_ranker():
+            return await client.get(f"{RANKER_URL}/runs/latest")
+
+        r0, r1, r2, r3, r4 = await asyncio.gather(
             _safe_fetch(fetch_universe(),  {"error": "timeout"}),
             _safe_fetch(fetch_rankings(),  {"error": "timeout"}),
             _safe_fetch(fetch_vetter(),    {"error": "timeout"}),
             _safe_fetch(fetch_portfolio(), {"error": "timeout"}),
+            _safe_fetch(fetch_ranker(),    {"error": "timeout"}),
         )
 
     uni_date = port_date = rank_date = None
+    uni_fetched_at = rank_completed_at = vet_completed_at = port_completed_at = None
     vetter_info = None
 
     if not isinstance(r0, dict) and r0.status_code == 200:
         snap = r0.json().get("snapshot") or {}
         uni_date = snap.get("snapshot_date")
+        uni_fetched_at = snap.get("fetched_at")
 
     if not isinstance(r1, dict) and r1.status_code == 200:
         rankings = r1.json().get("rankings") or []
@@ -196,16 +202,30 @@ async def pipeline_status():
 
     if not isinstance(r2, dict) and r2.status_code == 200:
         vetter_info = r2.json()
+        vet_completed_at = vetter_info.get("completed_at")
 
     if not isinstance(r3, dict) and r3.status_code == 200:
         run = r3.json().get("run") or {}
         port_date = run.get("portfolio_date")
+        port_completed_at = run.get("completed_at")
+
+    if not isinstance(r4, dict) and r4.status_code == 200:
+        rank_completed_at = r4.json().get("completed_at")
+
+    # Compare full ISO timestamps so date-only differences (e.g. universe
+    # snapshot_date=today vs rank_date=last trading day) don't cause false alarms.
+    rank_warning = bool(uni_fetched_at and (not rank_completed_at or uni_fetched_at > rank_completed_at))
+    vet_warning  = bool(rank_completed_at and (not vet_completed_at  or rank_completed_at > vet_completed_at))
+    port_warning = bool(rank_completed_at and (not port_completed_at or rank_completed_at > port_completed_at))
 
     return {
-        "universe_date": uni_date,
-        "rank_date":     rank_date,
-        "vetter":        vetter_info,
+        "universe_date":  uni_date,
+        "rank_date":      rank_date,
+        "vetter":         vetter_info,
         "portfolio_date": port_date,
+        "rank_warning":   rank_warning,
+        "vet_warning":    vet_warning,
+        "port_warning":   port_warning,
     }
 
 
@@ -1518,19 +1538,15 @@ async function loadPipelineStatus(){
       }
     }
 
-    // Staleness warnings
-    const rankWarn = uniDate && rankDate && uniDate > rankDate;
-    $('rank-warning').style.display = rankWarn ? 'block' : 'none';
-    _setTabWarn('tab-rank', rankWarn);
+    // Staleness warnings — pre-computed in Python using full ISO timestamps
+    $('rank-warning').style.display = d.rank_warning ? 'block' : 'none';
+    _setTabWarn('tab-rank', d.rank_warning);
 
-    const vetDate2 = vetter ? (vetter.completed_at || vetter.started_at || '').slice(0,10) : null;
-    const vetWarn = rankDate && vetDate2 && rankDate > vetDate2;
-    $('vet-warning').style.display = vetWarn ? 'block' : 'none';
-    _setTabWarn('tab-vet', vetWarn);
+    $('vet-warning').style.display = d.vet_warning ? 'block' : 'none';
+    _setTabWarn('tab-vet', d.vet_warning);
 
-    const portWarn = rankDate && portDate && rankDate > portDate;
-    $('port-warning').style.display = portWarn ? 'block' : 'none';
-    _setTabWarn('tab-portfolio', portWarn);
+    $('port-warning').style.display = d.port_warning ? 'block' : 'none';
+    _setTabWarn('tab-portfolio', d.port_warning);
 
   }catch(e){
     console.warn('pipeline-status error', e);
