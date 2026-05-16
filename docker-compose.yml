@@ -320,12 +320,20 @@ services:
   backtester:
     build:
       context: .
-      dockerfile: services/stub/Dockerfile
+      dockerfile: services/backtester/Dockerfile
     restart: unless-stopped
     ports:
       - "8013:8000"
     environment:
-      SERVICE_NAME: backtester
+      DATABASE_URL: postgresql+asyncpg://stocker:stocker@postgres:5432/stocker
+      STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
+      ARTIFACTS_PATH: /artifacts
+    volumes:
+      - ./artifacts:/artifacts
+      - ./strategies:/strategies:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   evaluator:
     build:
