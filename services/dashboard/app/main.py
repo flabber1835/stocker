@@ -1173,9 +1173,15 @@ function _pollUntilDone(job, runId, pctStart, pctEnd){
   });
 }
 
-function _pollJob(tab, runId){
-  if(_jobPolls[tab]) return;  // already polling this tab — don't double-start
-  let pct = 2;
+function _pollJob(tab, runId, startPct=2){
+  if(_jobPolls[tab]){
+    if(_jobPolls[tab].runId === runId) return;  // same job, already polling
+    // New run_id — clear stale poll so we don't block the new job
+    clearInterval(_jobPolls[tab].incrId);
+    clearInterval(_jobPolls[tab].pollId);
+    delete _jobPolls[tab];
+  }
+  let pct = startPct;
 
   // For the vetter, progress is driven by real ticker data in _loadVetterTickers.
   // For other tabs, use a fake smooth animation since we have no step-level data.
@@ -1430,7 +1436,8 @@ async function _loadVetterTickers(runId, live){
 
 // Resume live polling for any job that is currently running.
 // Called on page load so any browser picks up in-progress jobs automatically.
-async function _resumeRunningJobs(){
+// rank_chain_running: 'data' | 'factors' | null — from pipeline-status response.
+async function _resumeRunningJobs(rank_chain_running){
   // Simple tabs where we just need run_id + status
   const simpleTabs = ['universe', 'portfolio'];
   for(const tab of simpleTabs){
@@ -1445,16 +1452,41 @@ async function _resumeRunningJobs(){
     }catch(e){ /* service may be down */ }
   }
 
-  // Rank tab uses a chain of factor + ranking runs; resume the ranker run_id
-  try{
-    const d = await fetch('/api/jobs/rank/latest').then(r=>r.json());
-    if(d.run_id && d.status === 'running'){
-      _setBadge('rank', 'RUNNING', 'running');
-      _setJobPanel('rank', 'running');
-      _setProgress('rank', 2);
-      _pollJob('rank', d.run_id);
-    }
-  }catch(e){ /* ignore */ }
+  // Rank tab: use rank_chain_running from pipeline-status to resume from the correct step
+  if(rank_chain_running === 'data'){
+    // av-ingestor fetch-data is still running — resume from data step
+    try{
+      const d = await fetch('/api/jobs/data/latest').then(r=>r.json());
+      if(d.run_id){
+        _setBadge('rank', 'FETCHING DATA', 'running');
+        _setJobPanel('rank', 'running');
+        _setProgress('rank', 2);
+        _pollJob('fetch', d.run_id);
+      }
+    }catch(e){ /* ignore */ }
+  } else if(rank_chain_running === 'factors'){
+    // factor-engine is still running — resume from factors step
+    try{
+      const d = await fetch('/api/jobs/factors/latest').then(r=>r.json());
+      if(d.run_id){
+        _setBadge('rank', 'CALC FACTORS', 'running');
+        _setJobPanel('rank', 'running');
+        _setProgress('rank', 33);
+        _pollJob('factors', d.run_id);
+      }
+    }catch(e){ /* ignore */ }
+  } else {
+    // Fall back to checking ranker directly
+    try{
+      const d = await fetch('/api/jobs/rank/latest').then(r=>r.json());
+      if(d.run_id && d.status === 'running'){
+        _setBadge('rank', 'RUNNING', 'running');
+        _setJobPanel('rank', 'running');
+        _setProgress('rank', 2);
+        _pollJob('rank', d.run_id);
+      }
+    }catch(e){ /* ignore */ }
+  }
 
   // Vetter is handled inside loadPipelineStatus (we already have the run_id there)
 }
@@ -1802,7 +1834,7 @@ async function loadDataFreshness(){
 (async()=>{
   await loadRegime();
   await loadPipelineStatus();
-  await _resumeRunningJobs();  // pick up any in-progress jobs in any browser
+  await _resumeRunningJobs(_pipelineStatus && _pipelineStatus.rank_chain_running);  // pick up any in-progress jobs in any browser
   loadUniverse();
   loadRankings();
   loadPortfolio();

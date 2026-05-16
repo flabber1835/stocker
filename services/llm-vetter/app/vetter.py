@@ -220,6 +220,8 @@ def _detect_hallucination_flags(
     earnings_date: str | None,
     raw: str,
     today: str | None = None,
+    tavily_articles: list[dict] | None = None,
+    agent_searches: list[dict] | None = None,
 ) -> list[str]:
     """
     Heuristic checks for suspicious LLM output.
@@ -253,7 +255,7 @@ def _detect_hallucination_flags(
 
     # Reason doesn't mention the ticker (model may have confused tickers).
     # Only meaningful when data was provided — generic "no news" reasons are expected otherwise.
-    has_data = bool(news) or earnings_date is not None
+    has_data = bool(news) or earnings_date is not None or bool(tavily_articles) or bool(agent_searches)
     if has_data and ticker.upper() not in reason.upper() and len(reason) > 50:
         flags.append(f"Reason does not mention ticker '{ticker}' — possible ticker confusion")
 
@@ -430,7 +432,10 @@ async def vet_single_ticker(
             "hallucination_flags": [f"JSON parse error: {exc}"],
         }
 
-    hallucination_flags = _detect_hallucination_flags(ticker, parsed, news, earnings_date, raw, today=today)
+    hallucination_flags = _detect_hallucination_flags(
+        ticker, parsed, news, earnings_date, raw, today=today,
+        tavily_articles=tavily_articles, agent_searches=agent_searches,
+    )
     if hallucination_flags:
         for flag in hallucination_flags:
             log.warning("[llm-vetter] %s hallucination flag: %s", ticker, flag)
