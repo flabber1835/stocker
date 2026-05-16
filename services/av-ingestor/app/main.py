@@ -239,7 +239,7 @@ async def get_latest_run():
             text(
                 "SELECT run_id, job_type, status, ticker_count, price_rows, fund_rows, "
                 "       error_count, error_message, started_at, completed_at "
-                "FROM ingest_runs ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+                "FROM ingest_runs ORDER BY started_at DESC LIMIT 1"
             )
         )
         result = row.mappings().first()

@@ -797,7 +797,7 @@ async def get_latest_run():
             text(
                 "SELECT run_id, trace_id, strategy_id, config_hash, status, regime, "
                 "       score_date, ticker_count, warning_count, started_at, completed_at, error_message "
-                "FROM factor_runs ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+                "FROM factor_runs ORDER BY started_at DESC LIMIT 1"
             )
         )
         result = row.fetchone()

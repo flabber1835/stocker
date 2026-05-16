@@ -639,7 +639,7 @@ async def get_latest_run():
         row = await conn.execute(
             text(
                 "SELECT run_id, status, regime, rank_date, started_at, completed_at "
-                "FROM ranking_runs ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+                "FROM ranking_runs ORDER BY started_at DESC LIMIT 1"
             )
         )
         result = row.fetchone()
