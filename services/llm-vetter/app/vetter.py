@@ -253,12 +253,6 @@ def _detect_hallucination_flags(
     if len(reason) < 25:
         flags.append(f"Reason suspiciously short ({len(reason)} chars): '{reason}'")
 
-    # Reason doesn't mention the ticker (model may have confused tickers).
-    # Only meaningful when data was provided — generic "no news" reasons are expected otherwise.
-    has_data = bool(news) or earnings_date is not None or bool(tavily_articles) or bool(agent_searches)
-    if has_data and ticker.upper() not in reason.upper() and len(reason) > 50:
-        flags.append(f"Reason does not mention ticker '{ticker}' — possible ticker confusion")
-
     # Raw JSON unexpectedly long (model leaked extra content outside schema)
     if len(raw) > 800:
         flags.append(f"Raw response unusually long ({len(raw)} chars) — possible schema bleed")
