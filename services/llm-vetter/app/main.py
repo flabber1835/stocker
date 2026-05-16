@@ -1,5 +1,4 @@
 import asyncio
-import hashlib
 import json
 import os
 import traceback as _traceback
@@ -14,6 +13,7 @@ from sqlalchemy import text
 from ollama import AsyncClient as OllamaClient
 
 from app.vetter import fetch_ticker_data, vet_single_ticker
+from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 
@@ -30,7 +30,6 @@ OLLAMA_MODEL         = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
 OLLAMA_TIMEOUT_SECS  = int(os.getenv("OLLAMA_TIMEOUT_SECS", "300"))
 AV_API_KEY           = os.getenv("AV_API_KEY", "")
 TAVILY_API_KEY       = os.getenv("TAVILY_API_KEY", "")
-VET_CANDIDATE_COUNT  = int(os.getenv("VET_CANDIDATE_COUNT", "50"))
 ARTIFACTS_PATH       = os.getenv("ARTIFACTS_PATH", "")
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
 
@@ -39,22 +38,10 @@ strategy: StrategyConfig
 config_hash: str = ""
 
 
-def _load_strategy(path: str) -> StrategyConfig:
-    import yaml
-    global config_hash
-    with open(path) as f:
-        raw = f.read()
-    config_hash = hashlib.sha256(raw.encode()).hexdigest()[:16]
-    try:
-        return StrategyConfig(**yaml.safe_load(raw))
-    except Exception as exc:
-        raise RuntimeError(f"Failed to load strategy config from {path}: {exc}") from exc
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global engine, strategy
-    strategy = _load_strategy(STRATEGY_CONFIG_PATH)
+    global engine, strategy, config_hash
+    strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5)
 
     async with engine.begin() as conn:
@@ -259,7 +246,7 @@ async def _write_trace_file(
 
 # ── Vetting job ──────────────────────────────────────────────────────────────
 
-async def _run_vet(run_id: str, trace_id: str, source_ranking_run_id: str, candidate_count: int = VET_CANDIDATE_COUNT) -> None:
+async def _run_vet(run_id: str, trace_id: str, source_ranking_run_id: str, candidate_count: int) -> None:
     started_at = datetime.now(timezone.utc)
 
     async with engine.begin() as conn:
@@ -371,7 +358,7 @@ async def _do_vet(
     source_ranking_run_id: str,
     ticker_results: list[dict],
     state,  # SimpleNamespace with candidates_total
-    candidate_count: int = VET_CANDIDATE_COUNT,
+    candidate_count: int,
 ) -> None:
     today = date.today().isoformat()
 
@@ -405,13 +392,16 @@ async def _do_vet(
 
     # ── Step 2: fetch external data ───────────────────────────────────────────
     vcfg = strategy.vetter
+    # Pre-fetch slightly more results than the per-call agent limit so the
+    # agentic loop has context before it runs its own targeted searches.
+    _prefetch_results = vcfg.max_searches_per_ticker + 2
     t0 = datetime.now(timezone.utc)
     av_news, earnings_calendar, tavily_results, data_sources = await fetch_ticker_data(
         tickers, AV_API_KEY, TAVILY_API_KEY,
         news_lookback_days=vcfg.news_lookback_days,
         max_articles_per_ticker=vcfg.max_articles_per_ticker,
         earnings_horizon_days=vcfg.earnings_horizon_days,
-        max_search_results=vcfg.max_searches_per_ticker + 2,  # slightly more for pre-fetch than per-search
+        max_search_results=_prefetch_results,
     )
 
     async with engine.begin() as conn:
@@ -447,7 +437,7 @@ async def _do_vet(
                 holding_period_days=vcfg.holding_period_days,
                 max_searches_per_ticker=vcfg.max_searches_per_ticker,
                 strictness=vcfg.strictness,
-                max_search_results=vcfg.max_searches_per_ticker + 2,
+                max_search_results=_prefetch_results,
             )
 
         result = await _vet_with_crash_isolation(
@@ -609,14 +599,7 @@ async def _do_vet(
         model=OLLAMA_MODEL,
         strategy_id=strategy.strategy_id,
         config_hash=config_hash,
-        vetter_config={
-            "holding_period_days": vcfg.holding_period_days,
-            "strictness": vcfg.strictness,
-            "max_searches_per_ticker": vcfg.max_searches_per_ticker,
-            "news_lookback_days": vcfg.news_lookback_days,
-            "max_articles_per_ticker": vcfg.max_articles_per_ticker,
-            "earnings_horizon_days": vcfg.earnings_horizon_days,
-        },
+        vetter_config=vcfg.model_dump(),
         system_prompt=ticker_results[0].get("system_prompt", "") if ticker_results else "",
         candidate_count=len(candidates),
         flagged_count=len(exclusions),

@@ -1,5 +1,4 @@
 import asyncio
-import hashlib
 import json
 import os
 import traceback
@@ -12,7 +11,8 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy import text
 
-from app.rank import load_strategy, rank_universe, FACTORS
+from app.rank import rank_universe, FACTORS
+from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
@@ -24,25 +24,12 @@ engine: AsyncEngine
 config_hash: str = ""
 
 
-def _load_strategy(path: str) -> StrategyConfig:
-    with open(path, "rb") as f:
-        raw = f.read()
-    global config_hash
-    config_hash = hashlib.sha256(raw).hexdigest()[:16]
-    import yaml
-    try:
-        config = StrategyConfig(**yaml.safe_load(raw))
-    except Exception as exc:
-        raise RuntimeError(f"Failed to load strategy config from {STRATEGY_CONFIG_PATH}: {exc}") from exc
-    return config
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global strategy, engine
+    global strategy, engine, config_hash
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL environment variable is required")
-    strategy = _load_strategy(STRATEGY_CONFIG_PATH)
+    strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10)
     async with engine.begin() as conn:
         await conn.execute(

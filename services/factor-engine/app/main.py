@@ -1,4 +1,3 @@
-import hashlib
 import json
 import os
 import traceback
@@ -15,6 +14,7 @@ from sqlalchemy import text
 from app.factors import compute_all_factors
 from app.regime import detect_regime, resolve_confirmed_regime
 from stock_strategy_shared.schemas.strategy import StrategyConfig
+from stock_strategy_shared.loader import load_strategy
 
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
@@ -25,27 +25,14 @@ engine: AsyncEngine
 config_hash: str = ""
 
 
-def _load_strategy(path: str) -> StrategyConfig:
-    import yaml
-    with open(path) as f:
-        raw = f.read()
-    global config_hash
-    config_hash = hashlib.sha256(raw.encode()).hexdigest()[:16]
-    try:
-        config = StrategyConfig(**yaml.safe_load(raw))
-    except Exception as exc:
-        raise RuntimeError(f"Failed to load strategy config from {path}: {exc}") from exc
-    return config
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global strategy, engine
+    global strategy, engine, config_hash
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL environment variable is required")
     if not STRATEGY_CONFIG_PATH:
         raise RuntimeError("STRATEGY_CONFIG_PATH environment variable is required")
-    strategy = _load_strategy(STRATEGY_CONFIG_PATH)
+    strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
     async with engine.begin() as conn:
         await conn.execute(
@@ -548,16 +535,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
     # Factor methodology built from live config — included in audit trace so any
     # change to factor_engine parameters is automatically reflected in the artifact.
-    fe = strategy.factor_engine
     factor_methodology = {
-        "config": {
-            "zscore_clip": fe.zscore_clip,
-            "momentum_short_window": fe.momentum_short_window,
-            "momentum_long_window": fe.momentum_long_window,
-            "volatility_window": fe.volatility_window,
-            "liquidity_window": fe.liquidity_window,
-            "pe_pb_cap": fe.pe_pb_cap,
-        },
         "momentum": (
             f"return over {fe.momentum_long_window} days skipping last {fe.momentum_short_window}: "
             f"(price[-{fe.momentum_short_window}] / price[-{fe.momentum_long_window}]) - 1, "

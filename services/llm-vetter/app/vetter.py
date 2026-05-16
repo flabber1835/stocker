@@ -20,6 +20,7 @@ import json
 import logging
 import time
 from datetime import date
+from typing import Literal
 
 from ollama import AsyncClient
 
@@ -335,7 +336,7 @@ async def vet_single_ticker(
     tavily_api_key: str = "",
     holding_period_days: int = 30,
     max_searches_per_ticker: int = 3,
-    strictness: str = "moderate",
+    strictness: Literal["strict", "moderate", "permissive"] = "moderate",
     max_search_results: int = 5,
 ) -> dict:
     """
@@ -347,6 +348,11 @@ async def vet_single_ticker(
 
     Returns a dict with the decision plus full execution trace fields.
     """
+    vetter_config = {
+        "holding_period_days": holding_period_days,
+        "strictness": strictness,
+        "max_searches_per_ticker": max_searches_per_ticker,
+    }
     system_prompt = _build_system_prompt(holding_period_days=holding_period_days, strictness=strictness)
     user_message = _format_ticker_message(ticker, news, earnings_date, tavily_articles, today, holding_period_days=holding_period_days)
     # Use a set to deduplicate titles; list preserves insertion order via dict.fromkeys.
@@ -493,11 +499,7 @@ async def vet_single_ticker(
             "raw_response":   raw,
             "news_titles":    news_titles,
             "earnings_date":  earnings_date,
-            "vetter_config": {
-                "holding_period_days": holding_period_days,
-                "strictness": strictness,
-                "max_searches_per_ticker": max_searches_per_ticker,
-            },
+            "vetter_config": vetter_config,
             "hallucination_flags": [f"JSON parse error: {exc}"],
         }
 
@@ -571,10 +573,6 @@ async def vet_single_ticker(
         "raw_response":   raw,
         "news_titles":    news_titles,
         "earnings_date":  earnings_date,
-        "vetter_config": {
-            "holding_period_days": holding_period_days,
-            "strictness": strictness,
-            "max_searches_per_ticker": max_searches_per_ticker,
-        },
+        "vetter_config": vetter_config,
         "hallucination_flags": hallucination_flags,
     }

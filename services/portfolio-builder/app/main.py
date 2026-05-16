@@ -1,5 +1,4 @@
 import asyncio
-import hashlib
 import json
 import os
 import traceback
@@ -15,6 +14,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy import text
 
 from app.select import greedy_select, build_covariance, compute_weights
+from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
@@ -36,25 +36,12 @@ engine: AsyncEngine
 config_hash: str = ""
 
 
-def _load_strategy(path: str) -> StrategyConfig:
-    import yaml
-    with open(path) as f:
-        raw = f.read()
-    global config_hash
-    config_hash = hashlib.sha256(raw.encode()).hexdigest()[:16]
-    try:
-        config = StrategyConfig(**yaml.safe_load(raw))
-    except Exception as exc:
-        raise RuntimeError(f"Failed to load strategy config from {STRATEGY_CONFIG_PATH}: {exc}") from exc
-    return config
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global strategy, engine
+    global strategy, engine, config_hash
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL environment variable is required")
-    strategy = _load_strategy(STRATEGY_CONFIG_PATH)
+    strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5)
     async with engine.begin() as conn:
         await conn.execute(
