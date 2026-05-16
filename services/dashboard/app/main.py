@@ -1766,9 +1766,9 @@ function renderUniverse(){
   let rows=uniData.filter(t=>
     (!q||t.ticker.includes(q)||(t.name||'').toUpperCase().includes(q))&&
     (!sec||t.sector===sec)&&
-    (!uniHideTiny||(t.weight_pct!=null&&+t.weight_pct>=0.01))
+    (!uniHideTiny||(t.weight_pct==null||+t.weight_pct>=0.01))
   );
-  const hiddenCount=uniHideTiny?uniData.filter(t=>t.weight_pct==null||+t.weight_pct<0.01).length:0;
+  const hiddenCount=uniHideTiny?uniData.filter(t=>t.weight_pct!=null&&+t.weight_pct<0.01).length:0;
   const col=uniSort.col,dir=uniSort.dir;
   rows.sort((a,b)=>{
     let av=a[col],bv=b[col];
