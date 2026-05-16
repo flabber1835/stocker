@@ -307,7 +307,14 @@ async def vet_single_ticker(
     Returns a dict with the decision plus full execution trace fields.
     """
     user_message = _format_ticker_message(ticker, news, earnings_date, tavily_articles, today)
-    news_titles = [a.get("title", "") for a in (news + tavily_articles)]
+    # Use a set to deduplicate titles; list preserves insertion order via dict.fromkeys.
+    _seen_titles: set[str] = set()
+    news_titles: list[str] = []
+    for a in (news + tavily_articles):
+        t = a.get("title", "")
+        if t and t not in _seen_titles:
+            _seen_titles.add(t)
+            news_titles.append(t)
     agent_searches: list[dict] = []
 
     t0 = time.monotonic()
@@ -361,15 +368,19 @@ async def vet_single_ticker(
 
                 if fn_name == "web_search" and query:
                     results = await search_web(query, tavily_api_key)
-                    agent_searches.append({"query": query, "result_count": len(results)})
-                    if results:
+                    # Filter to articles not already seen from pre-fetch or prior searches.
+                    new_results = [r for r in results if r["title"] not in _seen_titles]
+                    agent_searches.append({"query": query, "result_count": len(new_results)})
+                    if new_results:
                         result_text = "\n\n".join(
                             f"**{r['title']}**\n{r['content']}"
-                            for r in results
+                            for r in new_results
                         )
-                        news_titles += [r["title"] for r in results]
+                        for r in new_results:
+                            _seen_titles.add(r["title"])
+                            news_titles.append(r["title"])
                     else:
-                        result_text = "No results found."
+                        result_text = "No new results found (all results already seen)."
                 else:
                     result_text = f"Unknown tool: {fn_name}"
                     agent_searches.append({"query": query, "result_count": 0, "error": "unknown tool"})
