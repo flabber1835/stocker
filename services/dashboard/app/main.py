@@ -370,13 +370,12 @@ async def _run_rank_chain_bg():
         for base_url, start_path, status_url in steps:
             try:
                 r = await client.post(base_url + start_path)
-                if r.status_code not in (200, 201, 202):
+                if r.status_code == 409:
+                    # Step already running from a previous trigger — wait for it
+                    print(f"[rank-chain] step {start_path} already running, waiting")
+                elif r.status_code not in (200, 201, 202):
                     print(f"[rank-chain] step {start_path} failed to start: {r.status_code}")
                     return
-                run_id = r.json().get("run_id")
-                if not run_id:
-                    # Job may have been skipped or already running — check status
-                    pass
                 # Poll until terminal
                 for _ in range(720):  # max 1 hour
                     await asyncio.sleep(5)
