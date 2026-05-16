@@ -1539,21 +1539,22 @@ function renderJob(tab, state, prev) {
   if (fillEl) {
     fillEl.classList.remove('indeterminate', 'error');
     if (running) {
-      wrapEl && (wrapEl.style.display = '');
+      wrapEl && (wrapEl.style.display = 'flex');
       fillEl.classList.add('indeterminate');
       if (pctEl) pctEl.textContent = '';
     } else if (done) {
       fillEl.style.width = '100%';
       if (pctEl) pctEl.textContent = '100%';
-      wrapEl && (wrapEl.style.display = '');
+      wrapEl && (wrapEl.style.display = 'flex');
     } else if (failed) {
       fillEl.style.width = '100%';
       fillEl.classList.add('error');
       if (pctEl) pctEl.textContent = '';
-      wrapEl && (wrapEl.style.display = '');
+      wrapEl && (wrapEl.style.display = 'flex');
     } else {
       fillEl.style.width = '0%';
       if (pctEl) pctEl.textContent = '0%';
+      wrapEl && (wrapEl.style.display = 'none');
     }
   }
 
