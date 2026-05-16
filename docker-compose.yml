@@ -263,10 +263,11 @@ services:
       OLLAMA_TIMEOUT_SECS: ${OLLAMA_TIMEOUT_SECS:-300}
       AV_API_KEY: ${AV_API_KEY:-demo}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
-      VET_CANDIDATE_COUNT: ${VET_CANDIDATE_COUNT:-50}
+      STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
       ARTIFACTS_PATH: /artifacts
     volumes:
       - ./artifacts:/artifacts
+      - ./strategies:/strategies:ro
     depends_on:
       postgres:
         condition: service_healthy

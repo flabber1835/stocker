@@ -28,8 +28,6 @@ import asyncio
 
 log = logging.getLogger("llm-vetter.vetter")
 
-MAX_TOOL_CALLS = 3  # max web searches the agent may make per ticker
-
 AGENT_TOOLS = [
     {
         "type": "function",
@@ -76,28 +74,22 @@ PER_TICKER_SCHEMA = {
     ],
 }
 
-SYSTEM_PROMPT = """\
-You are a financial risk analyst reviewing stocks selected by a quantitative equity
-strategy. Each stock was chosen because it scored highly on quality, value, momentum,
-growth, or low-volatility factors — or some combination. Your job is to decide
-whether to EXCLUDE a single stock from a 30-day equity portfolio holding.
+_STRICTNESS_EXCLUDE_CLAUSE = {
+    "strict": """\
+EXCLUDE the stock (exclude=true) when there is evidence of material concern, even if
+the timing or magnitude is uncertain. Err on the side of caution — the model can always
+find replacements. Reasons to exclude include:
+- Any significant negative news or regulatory attention, even if the outcome is unclear
+- Upcoming earnings with ANY deteriorating analyst signals (not just imminent guidance cuts)
+- Multiple analyst downgrades within the past 14 days
+- Material legal or regulatory proceedings with uncertain outcome
+- Management changes or insider selling patterns
+- Pending M&A where the stock is the TARGET (binary event risk)""",
 
-IMPORTANT CONTEXT: The quantitative model selects stocks for investment thesis reasons.
-A deep-value stock may intentionally be distressed. A momentum stock may already be
-priced for growth. Before excluding, consider whether the risk you found is ALREADY
-REFLECTED in why the model selected this stock, or whether it is a NEW, UNPRICED risk.
-
-
-You have a web_search tool. Use it proactively — run 1-2 targeted searches per
-ticker to check for risks even when no news is pre-loaded. Good queries:
-  "TICKER company name earnings guidance Q2 2026"
-  "TICKER company name analyst downgrade SEC filing 2026"
-  "TICKER company name recall lawsuit regulatory news"
-Never repeat a search query you have already issued for this ticker.
-
+    "moderate": """\
 EXCLUDE the stock (exclude=true) only when there is CLEAR and SPECIFIC evidence of:
 - Upcoming earnings with deteriorating analyst expectations, revenue warnings, or
-  guidance cuts likely within the 30-day window
+  guidance cuts likely within the holding-period window
 - Significant NEGATIVE news that is NEW and UNPRICED: regulatory action, fraud allegation,
   product recall, key executive departure, major customer loss
 - Pending binary legal or regulatory decision with material downside
@@ -108,9 +100,48 @@ EXCLUDE the stock (exclude=true) only when there is CLEAR and SPECIFIC evidence 
 Do NOT exclude based on:
 - General macro or market uncertainty (applies to all stocks equally)
 - Minor price weakness with no specific catalyst
-- Long-term concerns that do not affect the next 30 days
+- Long-term concerns that do not affect the holding period
 - Absence of news after searching — silence is neutral, not negative
-- Known challenges that are already reflected in the stock's valuation (high EY, low PB)
+- Known challenges that are already reflected in the stock's valuation (high EY, low PB)""",
+
+    "permissive": """\
+EXCLUDE the stock (exclude=true) ONLY when there is an IMMINENT, HIGH-CONVICTION,
+BINARY event that materially threatens the investment within the exact holding period:
+- Earnings already expected to massively miss consensus with explicit analyst warnings
+- Active regulatory shutdown, trading halt, or SEC fraud enforcement action
+- Announced deal break in a pending acquisition (stock is target)
+
+Do NOT exclude for:
+- Uncertain or speculative risks
+- Downgrades without accompanying price target cuts below current price
+- Long-term fundamental concerns
+- Any macro risk
+- Any risk already visible in the valuation metrics (the model selected this for a reason)
+- Absence of news — silence is strongly neutral in permissive mode""",
+}
+
+
+def _build_system_prompt(holding_period_days: int = 30, strictness: str = "moderate") -> str:
+    exclude_clause = _STRICTNESS_EXCLUDE_CLAUSE.get(strictness, _STRICTNESS_EXCLUDE_CLAUSE["moderate"])
+    return f"""\
+You are a financial risk analyst reviewing stocks selected by a quantitative equity
+strategy. Each stock was chosen because it scored highly on quality, value, momentum,
+growth, or low-volatility factors — or some combination. Your job is to decide
+whether to EXCLUDE a single stock from a {holding_period_days}-day equity portfolio holding.
+
+IMPORTANT CONTEXT: The quantitative model selects stocks for investment thesis reasons.
+A deep-value stock may intentionally be distressed. A momentum stock may already be
+priced for growth. Before excluding, consider whether the risk you found is ALREADY
+REFLECTED in why the model selected this stock, or whether it is a NEW, UNPRICED risk.
+
+You have a web_search tool. Use it proactively — run 1-2 targeted searches per
+ticker to check for risks even when no news is pre-loaded. Good queries:
+  "TICKER company name earnings guidance Q2 2026"
+  "TICKER company name analyst downgrade SEC filing 2026"
+  "TICKER company name recall lawsuit regulatory news"
+Never repeat a search query you have already issued for this ticker.
+
+{exclude_clause}
 
 Set confidence:
   "high"   — clear, imminent, specific risk that is NEW and UNPRICED
@@ -118,11 +149,11 @@ Set confidence:
   "low"    — weak signal, worth noting but not strongly actionable
 
 If not excluding, set risk_type to "none" and explain briefly why the stock is
-safe to hold for 30 days given available information.
+safe to hold for {holding_period_days} days given available information.
 
 POSITIVE CATALYST ASSESSMENT:
 In the same pass, assess whether there is a POSITIVE catalyst likely to drive
-outperformance in the next 30 days. Set positive_catalyst=true only when there
+outperformance in the next {holding_period_days} days. Set positive_catalyst=true only when there
 is CLEAR and SPECIFIC evidence of:
 - Upcoming earnings where analyst consensus expects a strong beat, or recent
   upward estimate revisions explicitly cited
@@ -154,11 +185,12 @@ def _format_ticker_message(
     earnings_date: str | None,
     tavily_articles: list[dict],
     today: str,
+    holding_period_days: int = 30,
 ) -> str:
     lines = [
         f"Today: {today}",
         f"Ticker: {ticker}",
-        f"Holding period: 30 days",
+        f"Holding period: {holding_period_days} days",
         "",
     ]
 
@@ -183,6 +215,11 @@ async def fetch_ticker_data(
     tickers: list[str],
     av_api_key: str,
     tavily_api_key: str,
+    *,
+    news_lookback_days: int = 7,
+    max_articles_per_ticker: int = 4,
+    earnings_horizon_days: int = 90,
+    max_search_results: int = 5,
 ) -> tuple[dict[str, list[dict]], dict[str, str | None], dict[str, list[dict]], dict]:
     """
     Pre-fetch all external data for the candidate list concurrently.
@@ -190,8 +227,8 @@ async def fetch_ticker_data(
     Returns (av_news, earnings_calendar, tavily_results, data_source_counts).
     """
     av_news, earnings_calendar = await asyncio.gather(
-        fetch_av_news(tickers, av_api_key),
-        fetch_av_earnings_calendar(tickers, av_api_key),
+        fetch_av_news(tickers, av_api_key, lookback_days=news_lookback_days, max_articles_per_ticker=max_articles_per_ticker),
+        fetch_av_earnings_calendar(tickers, av_api_key, earnings_horizon_days=earnings_horizon_days),
     )
 
     tavily_results: dict[str, list[dict]] = {}
@@ -201,7 +238,7 @@ async def fetch_ticker_data(
         # captured regardless of AV news coverage.
         log.info("Fetching Tavily for all %d tickers", len(tickers))
         fetched = await asyncio.gather(
-            *[fetch_tavily_news(t, tavily_api_key) for t in tickers]
+            *[fetch_tavily_news(t, tavily_api_key, max_results=max_search_results) for t in tickers]
         )
         tavily_results = dict(zip(tickers, fetched))
 
@@ -296,17 +333,22 @@ async def vet_single_ticker(
     model: str,
     today: str,
     tavily_api_key: str = "",
+    holding_period_days: int = 30,
+    max_searches_per_ticker: int = 3,
+    strictness: str = "moderate",
+    max_search_results: int = 5,
 ) -> dict:
     """
     Ask the LLM to make a single exclude/keep decision for one ticker.
 
     When tavily_api_key is provided the model runs as an agent: it can call
-    web_search up to MAX_TOOL_CALLS times before giving its final decision.
+    web_search up to max_searches_per_ticker times before giving its final decision.
     Without a Tavily key it falls back to a single structured call.
 
     Returns a dict with the decision plus full execution trace fields.
     """
-    user_message = _format_ticker_message(ticker, news, earnings_date, tavily_articles, today)
+    system_prompt = _build_system_prompt(holding_period_days=holding_period_days, strictness=strictness)
+    user_message = _format_ticker_message(ticker, news, earnings_date, tavily_articles, today, holding_period_days=holding_period_days)
     # Use a set to deduplicate titles; list preserves insertion order via dict.fromkeys.
     _seen_titles: set[str] = set()
     news_titles: list[str] = []
@@ -322,14 +364,14 @@ async def vet_single_ticker(
     if tavily_api_key:
         # ── Agentic loop ─────────────────────────────────────────────────────
         messages: list[dict] = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user",   "content": user_message},
         ]
 
         tool_calls_made = False
         loop_ended_on_tool_call = False
 
-        for _ in range(MAX_TOOL_CALLS):
+        for _ in range(max_searches_per_ticker):
             resp = await client.chat(
                 model=model,
                 messages=messages,
@@ -368,7 +410,7 @@ async def vet_single_ticker(
                 log.info("[agent] %s → %s(%r)", ticker, fn_name, query)
 
                 if fn_name == "web_search" and query:
-                    results = await search_web(query, tavily_api_key)
+                    results = await search_web(query, tavily_api_key, max_results=max_search_results)
                     # Filter to articles not already seen from pre-fetch or prior searches.
                     new_results = [r for r in results if r["title"] not in _seen_titles]
                     agent_searches.append({"query": query, "result_count": len(new_results)})
@@ -417,7 +459,7 @@ async def vet_single_ticker(
         response = await client.chat(
             model=model,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user",   "content": user_message},
             ],
             format=PER_TICKER_SCHEMA,
@@ -447,10 +489,15 @@ async def vet_single_ticker(
             "agent_searches": agent_searches,
             "latency_ms":     latency_ms,
             "prompt":         user_message,
-            "system_prompt":  SYSTEM_PROMPT,
+            "system_prompt":  system_prompt,
             "raw_response":   raw,
             "news_titles":    news_titles,
             "earnings_date":  earnings_date,
+            "vetter_config": {
+                "holding_period_days": holding_period_days,
+                "strictness": strictness,
+                "max_searches_per_ticker": max_searches_per_ticker,
+            },
             "hallucination_flags": [f"JSON parse error: {exc}"],
         }
 
@@ -520,9 +567,14 @@ async def vet_single_ticker(
         "agent_searches": agent_searches,
         "latency_ms":     latency_ms,
         "prompt":         user_message,
-        "system_prompt":  SYSTEM_PROMPT,
+        "system_prompt":  system_prompt,
         "raw_response":   raw,
         "news_titles":    news_titles,
         "earnings_date":  earnings_date,
+        "vetter_config": {
+            "holding_period_days": holding_period_days,
+            "strictness": strictness,
+            "max_searches_per_ticker": max_searches_per_ticker,
+        },
         "hallucination_flags": hallucination_flags,
     }

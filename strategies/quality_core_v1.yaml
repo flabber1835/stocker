@@ -20,6 +20,32 @@ universe:
   etf_ticker: IWV
   min_price: 5.0
   min_avg_dollar_volume_20d: 20000000
+  exclude_asset_classes:           # asset_class column substrings; ILIKE match
+    - ETF
+    - Future
+  exclude_name_patterns:           # PostgreSQL ~* patterns matched against name column
+    - ProShares
+    - iShares
+    - SPDR
+    - Invesco
+    - Direxion
+    - VanEck
+    - WisdomTree
+    - First Trust
+    - "\\bETF\\b"
+    - "\\bFund\\b"
+    - "\\bLeveraged\\b"
+    - "\\bInverse\\b"
+    - "\\bFuture\\b"
+
+factor_engine:
+  zscore_clip: 2.5           # hard clip after cross-sectional z-scoring (±2.5σ)
+  momentum_short_window: 21  # recent-price reference: skip last ~1 month
+  momentum_long_window: 252  # base-price reference: ~12-month lookback
+  volatility_window: 252     # trading days for realized-vol (low_volatility factor)
+  liquidity_window: 20       # trading days for avg dollar volume (liquidity factor)
+  pe_pb_cap: 50.0            # cap PE and PB before computing yields; beyond this the signal is flat
+  spy_price_lookback_days: 600  # calendar days of SPY history loaded for regime detection
 
 regime_detection:
   slow_sma: 200            # SPY trend anchor — 200-day SMA
@@ -87,13 +113,31 @@ portfolio_builder:
   do_not_buy: []                     # hard-exclude list: ESG screens, legal holds, insider restrictions
 
 vetter:
+  enabled: true
   candidate_count: 50          # top N from ranker sent to LLM vetter for review
   conviction_max_boost: 0.25   # max fractional score increase from LLM positive signal
   conviction_boosts:           # fractional boost per conviction level
-    high:   0.25               # score × 1.25 — strong near-term catalyst found
-    medium: 0.12               # score × 1.12 — moderate positive signal
-    low:    0.05               # score × 1.05 — mild tailwind noted
+    high:   0.25               # strong near-term catalyst found
+    medium: 0.12               # moderate positive signal
+    low:    0.05               # mild tailwind noted
     none:   0.0                # no adjustment
+  holding_period_days: 30      # expected holding period — frames the LLM's risk assessment window
+  max_searches_per_ticker: 3   # agentic web searches allowed per ticker
+  news_lookback_days: 7        # how far back to pull AV news sentiment
+  max_articles_per_ticker: 4   # max AV news articles loaded per ticker
+  earnings_horizon_days: 90    # flag upcoming earnings within this many days
+  strictness: moderate         # strict | moderate | permissive
+
+intraday:
+  enabled: false               # intraday-monitor service not yet built
+  benchmark_ticker: SPY
+  trim_winners_enabled: false
+  trim_winner_threshold_pct: 10.0         # trim if stock up this % intraday
+  trim_winner_partial_pct: 25.0           # sell this fraction of position
+  trim_time_window_minutes_before_close: 60
+  delay_buys_after_spike_enabled: false
+  delay_buy_spike_threshold_pct: 15.0
+  risk_event_action: reduce              # cut | reduce | hold
 
 max_positions: 30
 min_score_percentile: 0.0

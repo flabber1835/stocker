@@ -36,6 +36,7 @@ async def fetch_av_news(
     *,
     lookback_days: int = 7,
     max_articles_per_ticker: int = 4,
+    max_results_per_batch: int = 50,
 ) -> dict[str, list[dict]]:
     """
     Fetch recent news sentiment from Alpha Vantage for the candidate list.
@@ -60,7 +61,7 @@ async def fetch_av_news(
                     "tickers": ",".join(batch),
                     "time_from": since,
                     "sort": "LATEST",
-                    "limit": "50",
+                    "limit": str(max_results_per_batch),
                     "apikey": api_key,
                 })
                 resp.raise_for_status()
@@ -125,17 +126,19 @@ async def fetch_av_news(
 async def fetch_av_earnings_calendar(
     tickers: list[str],
     api_key: str,
+    *,
+    earnings_horizon_days: int = 90,
 ) -> dict[str, str | None]:
     """
     Fetch upcoming earnings dates from Alpha Vantage EARNINGS_CALENDAR (CSV endpoint).
-    Returns {ticker: "YYYY-MM-DD"} for tickers with earnings in the next 45 days, else None.
+    Returns {ticker: "YYYY-MM-DD"} for tickers with earnings within earnings_horizon_days.
     """
     if not api_key or api_key == "demo":
         return {t: None for t in tickers}
 
     ticker_set = set(tickers)
     result: dict[str, str | None] = {t: None for t in tickers}
-    cutoff = date.today() + timedelta(days=90)
+    cutoff = date.today() + timedelta(days=earnings_horizon_days)
 
     async with httpx.AsyncClient(timeout=30) as client:
         try:
@@ -167,7 +170,7 @@ async def search_web(
     query: str,
     api_key: str,
     *,
-    max_results: int = 4,
+    max_results: int = 5,
 ) -> list[dict]:
     """
     Generic web search via Tavily for an arbitrary query string.
@@ -207,7 +210,7 @@ async def fetch_tavily_news(
     ticker: str,
     api_key: str,
     *,
-    max_results: int = 3,
+    max_results: int = 5,
 ) -> list[dict]:
     """
     Search Tavily for recent news about a ticker. Used for tickers where AV

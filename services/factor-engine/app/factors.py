@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import numpy as np
 import pandas as pd
 
+from stock_strategy_shared.schemas.strategy import FactorEngineConfig
 
-def cross_section_zscore(series: pd.Series) -> pd.Series:
+
+def cross_section_zscore(series: pd.Series, clip: float = 2.5) -> pd.Series:
     valid = series.dropna()
     result = pd.Series(float("nan"), index=series.index)
     if valid.empty:
@@ -11,7 +15,7 @@ def cross_section_zscore(series: pd.Series) -> pd.Series:
     if std == 0 or pd.isna(std):
         result.loc[valid.index] = 0.0
         return result
-    result.loc[valid.index] = ((valid - valid.mean()) / std).clip(-2.5, 2.5)
+    result.loc[valid.index] = ((valid - valid.mean()) / std).clip(-clip, clip)
     return result
 
 
@@ -31,40 +35,44 @@ def _component_zscore(s: pd.Series) -> pd.Series:
     return (s - s.mean()) / std
 
 
-def compute_momentum(prices: pd.DataFrame) -> pd.Series:
+def compute_momentum(
+    prices: pd.DataFrame,
+    short_window: int = 21,
+    long_window: int = 252,
+) -> pd.Series:
     # prices must contain only trading-day rows (no weekend/holiday NaN rows);
-    # iloc[-252] and iloc[-21] are positional, so calendar rows would shorten the look-back.
+    # iloc[-long_window] and iloc[-short_window] are positional, so calendar rows would shorten the look-back.
     prices = prices.dropna(how="all")
-    if len(prices) < 253:
+    if len(prices) < long_window + 1:
         return pd.Series(dtype=float)
 
-    price_252 = prices.iloc[-252]
-    price_21 = prices.iloc[-21]
+    price_long = prices.iloc[-long_window]
+    price_short = prices.iloc[-short_window]
 
-    momentum = (price_21 / price_252) - 1.0
+    momentum = (price_short / price_long) - 1.0
     momentum.name = "momentum"
     return momentum
 
 
-def compute_low_volatility(prices: pd.DataFrame) -> pd.Series:
+def compute_low_volatility(prices: pd.DataFrame, window: int = 252) -> pd.Series:
     if len(prices) < 2:
         return pd.Series(dtype=float)
 
-    window = prices.iloc[-252:] if len(prices) >= 252 else prices
-    log_returns = np.log(window / window.shift(1))
+    hist = prices.iloc[-window:] if len(prices) >= window else prices
+    log_returns = np.log(hist / hist.shift(1))
     vol = log_returns.std(skipna=True) * np.sqrt(252)  # per-ticker std, ignores missing days
     score = -vol
     score.name = "low_volatility"
     return score
 
 
-def compute_liquidity(prices_long: pd.DataFrame) -> pd.Series:
+def compute_liquidity(prices_long: pd.DataFrame, window: int = 20) -> pd.Series:
     recent = prices_long.copy()
     recent = recent.sort_values("date")
-    last_20 = recent.groupby("ticker").tail(20)
-    last_20 = last_20.copy()
-    last_20["dollar_vol"] = last_20["close"].astype(float) * last_20["volume"].astype(float)
-    avg_dv = last_20.groupby("ticker")["dollar_vol"].mean()
+    last_n = recent.groupby("ticker").tail(window)
+    last_n = last_n.copy()
+    last_n["dollar_vol"] = last_n["close"].astype(float) * last_n["volume"].astype(float)
+    avg_dv = last_n.groupby("ticker")["dollar_vol"].mean()
     score = np.log1p(avg_dv)
     score.name = "liquidity"
     return score
@@ -106,22 +114,20 @@ def compute_quality(fundamentals: pd.DataFrame) -> pd.Series:
     return result
 
 
-def compute_value(fundamentals: pd.DataFrame) -> pd.Series:
+def compute_value(fundamentals: pd.DataFrame, pe_pb_cap: float = 50.0) -> pd.Series:
     """
     Mean of earnings yield (1/PE) and book yield (1/PB).
 
-    PE/PB are capped at 50x — beyond that the yield signal is economically flat.
-    The prior 200x cap left headroom for outliers to distort the cross-section
-    (88 tickers hit extreme z-scores in the 17500196 run). Yields are additionally
-    winsorized at 1st/99th percentile before averaging.
+    PE/PB are capped at pe_pb_cap — beyond that the yield signal is economically flat.
+    Yields are additionally winsorized at 1st/99th percentile before averaging.
     """
     fund = fundamentals.set_index("ticker")
 
     pe = fund["pe_ratio"].astype(float) if "pe_ratio" in fund.columns else pd.Series(dtype=float)
     pb = fund["pb_ratio"].astype(float) if "pb_ratio" in fund.columns else pd.Series(dtype=float)
 
-    pe_capped = pe.clip(upper=50)
-    pb_capped = pb.clip(upper=50)
+    pe_capped = pe.clip(upper=pe_pb_cap)
+    pb_capped = pb.clip(upper=pe_pb_cap)
 
     earnings_yield = 1.0 / pe_capped.where(pe_capped > 0)
     book_yield = 1.0 / pb_capped.where(pb_capped > 0)
@@ -196,7 +202,11 @@ def compute_growth(fundamentals: pd.DataFrame) -> pd.Series:
 def compute_all_factors(
     prices_long: pd.DataFrame,
     fundamentals: pd.DataFrame,
+    cfg: FactorEngineConfig | None = None,
 ) -> pd.DataFrame:
+    if cfg is None:
+        cfg = FactorEngineConfig()
+
     prices_long = prices_long.copy()
     prices_long["date"] = pd.to_datetime(prices_long["date"])
     prices_long = prices_long.sort_values(["ticker", "date"])
@@ -205,11 +215,11 @@ def compute_all_factors(
     pivot = prices_long.pivot_table(index="date", columns="ticker", values="adjusted_close")
     pivot = pivot.sort_index()
 
-    momentum_raw = compute_momentum(pivot)
-    low_vol_raw = compute_low_volatility(pivot)
-    liquidity_raw = compute_liquidity(prices_long)
+    momentum_raw = compute_momentum(pivot, short_window=cfg.momentum_short_window, long_window=cfg.momentum_long_window)
+    low_vol_raw = compute_low_volatility(pivot, window=cfg.volatility_window)
+    liquidity_raw = compute_liquidity(prices_long, window=cfg.liquidity_window)
     quality_raw = compute_quality(fundamentals)
-    value_raw = compute_value(fundamentals)
+    value_raw = compute_value(fundamentals, pe_pb_cap=cfg.pe_pb_cap)
     growth_raw = compute_growth(fundamentals)
 
     all_tickers = prices_long["ticker"].unique().tolist()
@@ -219,12 +229,12 @@ def compute_all_factors(
     def _align(raw: pd.Series) -> pd.Series:
         return raw.reindex(result.index)
 
-    result["momentum"] = cross_section_zscore(_align(momentum_raw))
-    result["low_volatility"] = cross_section_zscore(_align(low_vol_raw))
-    result["liquidity"] = cross_section_zscore(_align(liquidity_raw))
-    result["quality"] = cross_section_zscore(_align(quality_raw))
-    result["value"] = cross_section_zscore(_align(value_raw))
-    result["growth"] = cross_section_zscore(_align(growth_raw))
+    result["momentum"] = cross_section_zscore(_align(momentum_raw), clip=cfg.zscore_clip)
+    result["low_volatility"] = cross_section_zscore(_align(low_vol_raw), clip=cfg.zscore_clip)
+    result["liquidity"] = cross_section_zscore(_align(liquidity_raw), clip=cfg.zscore_clip)
+    result["quality"] = cross_section_zscore(_align(quality_raw), clip=cfg.zscore_clip)
+    result["value"] = cross_section_zscore(_align(value_raw), clip=cfg.zscore_clip)
+    result["growth"] = cross_section_zscore(_align(growth_raw), clip=cfg.zscore_clip)
 
     result = result.reset_index()
     return result

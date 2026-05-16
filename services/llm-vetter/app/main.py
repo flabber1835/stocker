@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import os
 import traceback as _traceback
@@ -13,6 +14,7 @@ from sqlalchemy import text
 from ollama import AsyncClient as OllamaClient
 
 from app.vetter import fetch_ticker_data, vet_single_ticker
+from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 
 def _fmt_row(row) -> dict:
@@ -22,21 +24,37 @@ def _fmt_row(row) -> dict:
     }
 
 
-DATABASE_URL        = os.getenv("DATABASE_URL", "")
-OLLAMA_HOST         = os.getenv("OLLAMA_HOST", "http://ollama:11434")
-OLLAMA_MODEL        = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
-OLLAMA_TIMEOUT_SECS = int(os.getenv("OLLAMA_TIMEOUT_SECS", "300"))
-AV_API_KEY          = os.getenv("AV_API_KEY", "")
-TAVILY_API_KEY      = os.getenv("TAVILY_API_KEY", "")
-VET_CANDIDATE_COUNT = int(os.getenv("VET_CANDIDATE_COUNT", "50"))
-ARTIFACTS_PATH      = os.getenv("ARTIFACTS_PATH", "")
+DATABASE_URL         = os.getenv("DATABASE_URL", "")
+OLLAMA_HOST          = os.getenv("OLLAMA_HOST", "http://ollama:11434")
+OLLAMA_MODEL         = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
+OLLAMA_TIMEOUT_SECS  = int(os.getenv("OLLAMA_TIMEOUT_SECS", "300"))
+AV_API_KEY           = os.getenv("AV_API_KEY", "")
+TAVILY_API_KEY       = os.getenv("TAVILY_API_KEY", "")
+VET_CANDIDATE_COUNT  = int(os.getenv("VET_CANDIDATE_COUNT", "50"))
+ARTIFACTS_PATH       = os.getenv("ARTIFACTS_PATH", "")
+STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
 
 engine: AsyncEngine
+strategy: StrategyConfig
+config_hash: str = ""
+
+
+def _load_strategy(path: str) -> StrategyConfig:
+    import yaml
+    global config_hash
+    with open(path) as f:
+        raw = f.read()
+    config_hash = hashlib.sha256(raw.encode()).hexdigest()[:16]
+    try:
+        return StrategyConfig(**yaml.safe_load(raw))
+    except Exception as exc:
+        raise RuntimeError(f"Failed to load strategy config from {path}: {exc}") from exc
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global engine
+    global engine, strategy
+    strategy = _load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5)
 
     async with engine.begin() as conn:
@@ -386,15 +404,25 @@ async def _do_vet(
         )
 
     # ── Step 2: fetch external data ───────────────────────────────────────────
+    vcfg = strategy.vetter
     t0 = datetime.now(timezone.utc)
     av_news, earnings_calendar, tavily_results, data_sources = await fetch_ticker_data(
         tickers, AV_API_KEY, TAVILY_API_KEY,
+        news_lookback_days=vcfg.news_lookback_days,
+        max_articles_per_ticker=vcfg.max_articles_per_ticker,
+        earnings_horizon_days=vcfg.earnings_horizon_days,
+        max_search_results=vcfg.max_searches_per_ticker + 2,  # slightly more for pre-fetch than per-search
     )
 
     async with engine.begin() as conn:
         await _log_step(
             conn, trace_id, "fetch_data", "success",
             started_at=t0,
+            input_summary={
+                "news_lookback_days": vcfg.news_lookback_days,
+                "max_articles_per_ticker": vcfg.max_articles_per_ticker,
+                "earnings_horizon_days": vcfg.earnings_horizon_days,
+            },
             output_summary=data_sources,
         )
 
@@ -416,6 +444,10 @@ async def _do_vet(
                 model=OLLAMA_MODEL,
                 today=today,
                 tavily_api_key=TAVILY_API_KEY,
+                holding_period_days=vcfg.holding_period_days,
+                max_searches_per_ticker=vcfg.max_searches_per_ticker,
+                strictness=vcfg.strictness,
+                max_search_results=vcfg.max_searches_per_ticker + 2,
             )
 
         result = await _vet_with_crash_isolation(
@@ -458,6 +490,7 @@ async def _do_vet(
                     "news_titles":   result.get("news_titles", []),
                     "prompt":        result.get("prompt", ""),
                     "system_prompt": result.get("system_prompt", ""),
+                    "vetter_config": result.get("vetter_config", {}),
                 },
                 output_summary={
                     "exclude":              result["exclude"],
@@ -574,6 +607,16 @@ async def _do_vet(
         ticker_results=ticker_results,
         candidates_total=state.candidates_total,
         model=OLLAMA_MODEL,
+        strategy_id=strategy.strategy_id,
+        config_hash=config_hash,
+        vetter_config={
+            "holding_period_days": vcfg.holding_period_days,
+            "strictness": vcfg.strictness,
+            "max_searches_per_ticker": vcfg.max_searches_per_ticker,
+            "news_lookback_days": vcfg.news_lookback_days,
+            "max_articles_per_ticker": vcfg.max_articles_per_ticker,
+            "earnings_horizon_days": vcfg.earnings_horizon_days,
+        },
         system_prompt=ticker_results[0].get("system_prompt", "") if ticker_results else "",
         candidate_count=len(candidates),
         flagged_count=len(exclusions),
@@ -601,6 +644,11 @@ async def health():
         "model_ready": model_ok,
         "av_configured": bool(AV_API_KEY and AV_API_KEY != "demo"),
         "tavily_configured": bool(TAVILY_API_KEY),
+        "strategy_id": strategy.strategy_id,
+        "config_hash": config_hash,
+        "vetter_enabled": strategy.vetter.enabled,
+        "holding_period_days": strategy.vetter.holding_period_days,
+        "strictness": strategy.vetter.strictness,
     }
 
 
@@ -610,7 +658,12 @@ async def start_vet(
     ranking_run_id: Optional[str] = None,
     candidate_count: Optional[int] = None,
 ):
-    effective_count = candidate_count if candidate_count is not None else VET_CANDIDATE_COUNT
+    if not strategy.vetter.enabled:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Vetter is disabled for strategy '{strategy.strategy_id}' (vetter.enabled=false in config)"
+        )
+    effective_count = candidate_count if candidate_count is not None else strategy.vetter.candidate_count
     async with engine.connect() as conn:
         if ranking_run_id:
             chk = await conn.execute(

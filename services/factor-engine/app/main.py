@@ -265,21 +265,20 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             return "no universe snapshot"
 
         snapshot_id = snap[0]
+        asset_class_patterns = [f"%{ac}%" for ac in strategy.universe.exclude_asset_classes]
+        name_pattern = "(" + "|".join(strategy.universe.exclude_name_patterns) + ")"
         ticker_rows = await conn.execute(
             text(
                 "SELECT ticker FROM universe_tickers "
                 "WHERE snapshot_id = :sid "
                 "AND NOT ("
-                "  COALESCE(asset_class, '') ILIKE '%ETF%'"
-                "  OR COALESCE(asset_class, '') ILIKE '%Future%'"
-                "  OR COALESCE(name, '') ~* "
-                "  '(ProShares|iShares|SPDR|Invesco|Direxion|VanEck|WisdomTree|First Trust"
-                "|\\bETF\\b|\\bFund\\b|\\bLeveraged\\b|\\bInverse\\b|\\bFuture)'"
+                "  COALESCE(asset_class, '') ILIKE ANY(:asset_class_patterns)"
+                "  OR COALESCE(name, '') ~* :name_pattern"
                 "  OR ticker ~* 'FUT$'"
                 "  OR ticker ~ '^[A-Z]{1,4}[0-9]{1,2}[A-Z]?[0-9]?$'"
                 ")"
             ),
-            {"sid": snapshot_id},
+            {"sid": snapshot_id, "asset_class_patterns": asset_class_patterns, "name_pattern": name_pattern},
         )
         raw_tickers = [r[0] for r in ticker_rows.fetchall()]
 
@@ -321,8 +320,13 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     async with engine.connect() as conn:
         # ── Step 2: load SPY prices ───────────────────────────────────────────────────────────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
+        spy_lookback = strategy.factor_engine.spy_price_lookback_days
         spy_rows = await conn.execute(
-            text("SELECT date, adjusted_close FROM daily_prices WHERE ticker = 'SPY' AND date >= NOW() - INTERVAL '600 days' ORDER BY date ASC")
+            text(
+                f"SELECT date, adjusted_close FROM daily_prices "
+                f"WHERE ticker = 'SPY' AND date >= NOW() - INTERVAL '{spy_lookback} days' "
+                f"ORDER BY date ASC"
+            )
         )
         spy_df = pd.DataFrame(spy_rows.fetchall(), columns=["date", "adjusted_close"])
 
@@ -399,11 +403,13 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     async with engine.connect() as conn:
         # ── Step 4: load price history ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
+        fe = strategy.factor_engine
+        price_lookback = max(fe.momentum_long_window, fe.volatility_window) + 150
         price_rows = await conn.execute(
             text(
-                "SELECT ticker, date, adjusted_close, close, volume FROM daily_prices "
-                "WHERE ticker = ANY(:tickers) AND date >= CURRENT_DATE - INTERVAL '400 days' "
-                "ORDER BY ticker, date ASC"
+                f"SELECT ticker, date, adjusted_close, close, volume FROM daily_prices "
+                f"WHERE ticker = ANY(:tickers) AND date >= CURRENT_DATE - INTERVAL '{price_lookback} days' "
+                f"ORDER BY ticker, date ASC"
             ),
             {"tickers": universe_tickers},
         )
@@ -508,7 +514,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
     # ── Step 6: calculate factors ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
-    factors_df = compute_all_factors(prices_long=prices_df, fundamentals=fund_df)
+    factors_df = compute_all_factors(prices_long=prices_df, fundamentals=fund_df, cfg=strategy.factor_engine)
     null_quality_count = int(factors_df["quality"].isna().sum()) if "quality" in factors_df.columns else 0
 
     _factor_cols = ["momentum", "quality", "value", "growth", "low_volatility", "liquidity"]
@@ -528,11 +534,11 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
                 "p50": round(float(s.quantile(0.50)), 4) if len(s) > 0 else None,
                 "p75": round(float(s.quantile(0.75)), 4) if len(s) > 0 else None,
             }
-            # Count tickers at the ±2.5 z-score cap — these are genuinely extreme
+            # Count tickers at the z-score clip boundary — these are genuinely extreme
             # outliers whose raw score was so far from the mean that cross_section_zscore
             # hit the hard clip. Large clipped counts indicate a skewed raw distribution
             # (e.g., a few hypergrowth names compressing the rest).
-            clipped_mask = factors_df[col].notna() & (factors_df[col].abs() >= 2.5)
+            clipped_mask = factors_df[col].notna() & (factors_df[col].abs() >= strategy.factor_engine.zscore_clip)
             clipped_rows = factors_df[clipped_mask][["ticker", col]]
             if not clipped_rows.empty:
                 clipped_by_factor[col] = [
@@ -540,29 +546,59 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
                     for _, r in clipped_rows.iterrows()
                 ]
 
-    # Factor methodology notes for audit trail
+    # Factor methodology built from live config — included in audit trace so any
+    # change to factor_engine parameters is automatically reflected in the artifact.
+    fe = strategy.factor_engine
     factor_methodology = {
-        "momentum": "12-month return skipping last month: (price[-21] / price[-252]) - 1, then cross-sectional z-score clipped at ±2.5",
-        "low_volatility": "annualized log-return std over 252 days, negated (lower vol = higher score), then z-score",
-        "liquidity": "log(1 + mean(close × volume)) over last 20 days, then z-score",
-        "quality": "ROE and -D/E each winsorized (1st/99th pct) then component z-scored; averaged per ticker; then cross-sectional z-score ±2.5. Replaces prior min-max approach which capped upside at ~0.5σ.",
-        "value": "earnings yield (1/PE, PE≤50) and book yield (1/PB, PB≤50), each winsorized (1st/99th pct); averaged per ticker; then z-score. Prior 200x cap produced 88 extreme-score outliers.",
-        "growth": "revenue_growth and eps_growth each winsorized (1st/99th pct) then component z-scored; averaged per ticker; then cross-sectional z-score ±2.5. Mirrors the quality pattern to prevent a single hypergrowth name from compressing the cross-section.",
-        "z_score_note": "All factors use cross_section_zscore(): (x - mean) / std clipped to [-2.5, 2.5]",
+        "config": {
+            "zscore_clip": fe.zscore_clip,
+            "momentum_short_window": fe.momentum_short_window,
+            "momentum_long_window": fe.momentum_long_window,
+            "volatility_window": fe.volatility_window,
+            "liquidity_window": fe.liquidity_window,
+            "pe_pb_cap": fe.pe_pb_cap,
+        },
+        "momentum": (
+            f"return over {fe.momentum_long_window} days skipping last {fe.momentum_short_window}: "
+            f"(price[-{fe.momentum_short_window}] / price[-{fe.momentum_long_window}]) - 1, "
+            f"then cross-sectional z-score clipped at ±{fe.zscore_clip}"
+        ),
+        "low_volatility": (
+            f"annualized log-return std over {fe.volatility_window} days, negated (lower vol = higher score), "
+            f"then z-score ±{fe.zscore_clip}"
+        ),
+        "liquidity": (
+            f"log(1 + mean(close × volume)) over last {fe.liquidity_window} days, "
+            f"then z-score ±{fe.zscore_clip}"
+        ),
+        "quality": (
+            f"ROE and -D/E each winsorized (1st/99th pct) then component z-scored; "
+            f"averaged per ticker; then cross-sectional z-score ±{fe.zscore_clip}"
+        ),
+        "value": (
+            f"earnings yield (1/PE, PE≤{fe.pe_pb_cap:.0f}) and book yield (1/PB, PB≤{fe.pe_pb_cap:.0f}), "
+            f"each winsorized (1st/99th pct); averaged per ticker; then z-score ±{fe.zscore_clip}"
+        ),
+        "growth": (
+            f"revenue_growth and eps_growth each winsorized (1st/99th pct) then component z-scored; "
+            f"averaged per ticker; then cross-sectional z-score ±{fe.zscore_clip}"
+        ),
+        "z_score_note": f"All factors use cross_section_zscore(): (x - mean) / std clipped to [-{fe.zscore_clip}, {fe.zscore_clip}]",
     }
 
     # Tickers that had price data but fewer than 253 rows (insufficient for momentum)
+    min_price_rows = strategy.factor_engine.momentum_long_window + 1
     low_coverage_tickers = [
         {"ticker": t, "row_count": info["row_count"]}
         for t, info in coverage_by_ticker.items()
-        if info["row_count"] < 253
+        if info["row_count"] < min_price_rows
     ]
 
     step_warnings = []
     if null_quality_count > 0:
         step_warnings.append(f"{null_quality_count} tickers have null quality (no fundamentals)")
     if low_coverage_tickers:
-        step_warnings.append(f"{len(low_coverage_tickers)} tickers have < 253 price rows (insufficient for momentum)")
+        step_warnings.append(f"{len(low_coverage_tickers)} tickers have < {min_price_rows} price rows (insufficient for momentum)")
 
     async with engine.begin() as conn:
         await _log_step(
@@ -571,6 +607,14 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             input_summary={
                 "price_tickers": len(tickers_with_prices),
                 "fundamental_tickers": tickers_with_fundamentals,
+                "factor_engine_config": {
+                    "zscore_clip": fe.zscore_clip,
+                    "momentum_short_window": fe.momentum_short_window,
+                    "momentum_long_window": fe.momentum_long_window,
+                    "volatility_window": fe.volatility_window,
+                    "liquidity_window": fe.liquidity_window,
+                    "pe_pb_cap": fe.pe_pb_cap,
+                },
             },
             output_summary={
                 "ticker_count": len(factors_df),

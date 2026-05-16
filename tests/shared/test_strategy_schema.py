@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 from stock_strategy_shared.schemas.strategy import (
     StrategyConfig, FactorWeights, RegimeDetectionConfig, RegimeCondition, VetterConfig,
+    FactorEngineConfig, IntradayConfig, UniverseConfig,
 )
 
 VALID_REGIME_DETECTION = {
@@ -117,3 +118,117 @@ def test_vetter_config_max_boost_range():
         VetterConfig(conviction_max_boost=1.5)
     with pytest.raises(ValidationError):
         VetterConfig(conviction_max_boost=-0.1)
+
+
+# ── FactorEngineConfig ────────────────────────────────────────────────────────
+
+def test_factor_engine_defaults():
+    cfg = FactorEngineConfig()
+    assert cfg.zscore_clip == 2.5
+    assert cfg.momentum_short_window == 21
+    assert cfg.momentum_long_window == 252
+    assert cfg.volatility_window == 252
+    assert cfg.liquidity_window == 20
+    assert cfg.pe_pb_cap == 50.0
+    assert cfg.spy_price_lookback_days == 600
+
+
+def test_factor_engine_custom_values():
+    cfg = FactorEngineConfig(
+        zscore_clip=3.0,
+        momentum_short_window=5,
+        momentum_long_window=126,
+        pe_pb_cap=100.0,
+    )
+    assert cfg.zscore_clip == 3.0
+    assert cfg.momentum_long_window == 126
+    assert cfg.pe_pb_cap == 100.0
+
+
+def test_factor_engine_in_strategy_config():
+    cfg = make_config(factor_engine={"zscore_clip": 3.0, "pe_pb_cap": 30.0})
+    assert cfg.factor_engine.zscore_clip == 3.0
+    assert cfg.factor_engine.pe_pb_cap == 30.0
+
+
+def test_factor_engine_zscore_clip_bounds():
+    with pytest.raises(ValidationError):
+        FactorEngineConfig(zscore_clip=0)  # must be > 0
+    with pytest.raises(ValidationError):
+        FactorEngineConfig(zscore_clip=11)  # must be <= 10
+
+
+# ── VetterConfig new fields ───────────────────────────────────────────────────
+
+def test_vetter_new_field_defaults():
+    cfg = VetterConfig()
+    assert cfg.enabled is True
+    assert cfg.holding_period_days == 30
+    assert cfg.max_searches_per_ticker == 3
+    assert cfg.news_lookback_days == 7
+    assert cfg.max_articles_per_ticker == 4
+    assert cfg.earnings_horizon_days == 90
+    assert cfg.strictness == "moderate"
+
+
+def test_vetter_strictness_values():
+    for level in ("strict", "moderate", "permissive"):
+        cfg = VetterConfig(strictness=level)
+        assert cfg.strictness == level
+
+
+def test_vetter_strictness_invalid_raises():
+    with pytest.raises(ValidationError):
+        VetterConfig(strictness="extreme")
+
+
+def test_vetter_disabled_flag():
+    cfg = make_config(vetter={"enabled": False, "conviction_boosts": {"high": 0.25, "medium": 0.12, "low": 0.05, "none": 0.0}})
+    assert cfg.vetter.enabled is False
+
+
+# ── UniverseConfig new fields ─────────────────────────────────────────────────
+
+def test_universe_exclusion_defaults():
+    cfg = UniverseConfig()
+    assert "ETF" in cfg.exclude_asset_classes
+    assert "Future" in cfg.exclude_asset_classes
+    assert any("iShares" in p for p in cfg.exclude_name_patterns)
+
+
+def test_universe_custom_exclusions():
+    cfg = UniverseConfig(
+        exclude_asset_classes=["ETF"],
+        exclude_name_patterns=["ProShares", "Invesco"],
+    )
+    assert cfg.exclude_asset_classes == ["ETF"]
+    assert cfg.exclude_name_patterns == ["ProShares", "Invesco"]
+
+
+# ── IntradayConfig ────────────────────────────────────────────────────────────
+
+def test_intraday_defaults():
+    cfg = IntradayConfig()
+    assert cfg.enabled is False
+    assert cfg.trim_winners_enabled is False
+    assert cfg.trim_winner_threshold_pct == 10.0
+    assert cfg.trim_winner_partial_pct == 25.0
+    assert cfg.risk_event_action == "reduce"
+    assert cfg.benchmark_ticker == "SPY"
+
+
+def test_intraday_risk_event_action_values():
+    for action in ("cut", "reduce", "hold"):
+        cfg = IntradayConfig(risk_event_action=action)
+        assert cfg.risk_event_action == action
+
+
+def test_intraday_invalid_action_raises():
+    with pytest.raises(ValidationError):
+        IntradayConfig(risk_event_action="ignore")
+
+
+def test_intraday_in_strategy_config():
+    cfg = make_config(intraday={"enabled": True, "trim_winners_enabled": True, "trim_winner_threshold_pct": 8.0})
+    assert cfg.intraday.enabled is True
+    assert cfg.intraday.trim_winner_threshold_pct == 8.0
