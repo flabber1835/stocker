@@ -264,6 +264,7 @@ async def pipeline_status():
     rank_status = "none"
     rank_step = None
     rank_step_label = None
+    rank_pct = None  # real percentage 0-100, None means unknown
 
     if not isinstance(r5, dict) and r5.status_code == 200:
         d5 = r5.json()
@@ -271,6 +272,11 @@ async def pipeline_status():
             rank_status = "running"
             rank_step = "fetch_data"
             rank_step_label = "Fetching Data"
+            done = d5.get("tickers_done", 0)
+            total = d5.get("total_tickers") or 0
+            if total > 0:
+                # fetch-data covers the first 80% of the pipeline
+                rank_pct = round(done / total * 80)
 
     if rank_status != "running" and not isinstance(r6, dict) and r6.status_code == 200:
         d6 = r6.json()
@@ -278,12 +284,14 @@ async def pipeline_status():
             rank_status = "running"
             rank_step = "calc_factors"
             rank_step_label = "Calculating Factors"
+            rank_pct = 85
 
     if rank_status != "running" and not isinstance(r4, dict) and r4.status_code == 200:
         if ranker_status_raw == "running":
             rank_status = "running"
             rank_step = "ranking"
             rank_step_label = "Ranking"
+            rank_pct = 95
 
     if rank_status != "running":
         if ranker_status_raw in ("success", "partial_success", "skipped"):
@@ -340,6 +348,7 @@ async def pipeline_status():
             "status":     rank_status,
             "step":       rank_step,
             "step_label": rank_step_label,
+            "pct":        rank_pct,
             "date":       rank_date,
         },
         "vetter": {
@@ -1546,11 +1555,11 @@ function renderJob(tab, state, prev) {
     fillEl.classList.remove('indeterminate', 'pulsing', 'error');
     if (running) {
       wrapEl && (wrapEl.style.display = 'flex');
-      const stepPct = {fetch_data:'20%', calc_factors:'55%', ranking:'85%'}[state.step];
-      if (stepPct) {
-        fillEl.style.width = stepPct;
+      const pct = (state.pct != null) ? state.pct : null;
+      if (pct != null) {
+        fillEl.style.width = pct + '%';
         fillEl.classList.add('pulsing');
-        if (pctEl) pctEl.textContent = stepPct;
+        if (pctEl) pctEl.textContent = pct + '%';
       } else {
         fillEl.classList.add('indeterminate');
         if (pctEl) pctEl.textContent = '';

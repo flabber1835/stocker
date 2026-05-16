@@ -31,6 +31,10 @@ CHECKPOINT_EVERY = 100
 
 _TICKER_RE = re.compile(r"^[A-Z]{1,5}([.\-][A-Z0-9]{1,4})?$")
 
+# In-memory progress for the currently running fetch-data job.
+# Polled by /runs/latest so the dashboard can show real progress.
+_fetch_data_progress: dict = {}  # {run_id, tickers_done, total_tickers}
+
 engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
@@ -245,13 +249,19 @@ async def get_latest_run():
         result = row.mappings().first()
     if result is None:
         raise HTTPException(status_code=404, detail="No ingest runs yet")
-    return {
-        "run_id": str(result["run_id"]),
+    run_id = str(result["run_id"])
+    resp = {
+        "run_id": run_id,
         "job_type": result["job_type"],
         "status": result["status"],
         "started_at": result["started_at"].isoformat() if result["started_at"] else None,
         "completed_at": result["completed_at"].isoformat() if result["completed_at"] else None,
     }
+    # Attach live progress if this is the currently running fetch-data job.
+    if _fetch_data_progress.get("run_id") == run_id:
+        resp["tickers_done"] = _fetch_data_progress["tickers_done"]
+        resp["total_tickers"] = _fetch_data_progress["total_tickers"]
+    return resp
 
 
 @app.get("/runs/{run_id}")
@@ -410,6 +420,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
         f"({price_skip} already current, spy_max={spy_max}), "
         f"{len(fundamental_tickers)} fundamental tickers ({fund_skip} already current today)"
     )
+    _fetch_data_progress.update({"run_id": run_id, "tickers_done": 0, "total_tickers": len(price_tickers)})
     await _checkpoint(run_id, "fetch-data", started_at,
                       tickers_done=0, total_tickers=len(price_tickers),
                       price_rows=0, fund_rows=0, error_count=0,
@@ -427,6 +438,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
             if not _TICKER_RE.match(ticker):
                 print(f"[fetch-data] skipping invalid ticker: {ticker!r}")
                 continue
+            _fetch_data_progress["tickers_done"] = i + 1
             label = f"({i+1}/{len(price_tickers)})"
 
             # Skip price fetch if this ticker's DB date already matches the latest trading date.
@@ -556,6 +568,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
         await _write_trace_file(run_id, "fetch-data", "failed", started_at, error_message=err)
         raise
     finally:
+        _fetch_data_progress.clear()
         await client.close()
 
 
