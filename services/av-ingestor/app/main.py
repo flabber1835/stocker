@@ -377,6 +377,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
 
     price_ok = price_rows_written = fund_ok = err_count = 0
     price_skipped = fund_skipped = 0
+    error_tickers: list[str] = []
     # avg_dollar_volume_20d computed from the last 20 price rows for each ticker,
     # since AV OVERVIEW does not reliably provide this field.
     _ticker_avg_dv: dict[str, float] = {}
@@ -430,6 +431,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                         print(f"[fetch-data] {ticker} prices: no data {label}")
                 except Exception as e:
                     err_count += 1
+                    error_tickers.append(f"{ticker}:prices")
                     print(f"[fetch-data] {ticker} prices: error - {e}")
 
             if ticker in fundamental_set:
@@ -482,6 +484,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                             print(f"[fetch-data] {ticker} fundamentals: no data {label}")
                     except Exception as e:
                         err_count += 1
+                        error_tickers.append(f"{ticker}:fundamentals")
                         print(f"[fetch-data] {ticker} fundamentals: error - {e}")
 
             if (i + 1) % CHECKPOINT_EVERY == 0:
@@ -501,7 +504,9 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                                 tickers_done=len(price_tickers), total_tickers=len(price_tickers),
                                 price_rows=price_rows_written, fund_rows=fund_ok,
                                 price_skipped=price_skipped, fund_skipped=fund_skipped,
-                                error_count=err_count)
+                                error_count=err_count, error_tickers=error_tickers)
+        if error_tickers:
+            print(f"[fetch-data] {err_count} errors: {', '.join(error_tickers)}")
         print(f"[fetch-data] done — {price_skipped} price / {fund_skipped} fund tickers skipped (already current)")
     except Exception as exc:
         traceback.print_exc()
@@ -529,6 +534,7 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
                       price_rows=0, error_count=0, skipped=skip_count)
 
     rows_written = err_count = tickers_ok = skipped = 0
+    error_tickers: list[str] = []
     client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA)
     try:
         for i, ticker in enumerate(all_tickers):
@@ -570,6 +576,7 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
                     print(f"[fetch-prices] {ticker}: {len(rows)} rows [{mode}] ({i+1}/{len(all_tickers)})")
             except Exception as e:
                 err_count += 1
+                error_tickers.append(ticker)
                 print(f"[fetch-prices] {ticker}: error - {e}")
             if (i + 1) % CHECKPOINT_EVERY == 0:
                 await _checkpoint(run_id, "fetch-prices", started_at,
@@ -583,7 +590,9 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
         await _write_trace_file(run_id, "fetch-prices", status, started_at,
                                 tickers_done=len(all_tickers), total_tickers=len(all_tickers),
                                 price_rows=rows_written, skipped=skipped, error_count=err_count,
-                                price_coverage_pct=pcp)
+                                error_tickers=error_tickers, price_coverage_pct=pcp)
+        if error_tickers:
+            print(f"[fetch-prices] {err_count} errors: {', '.join(error_tickers)}")
         print(f"[fetch-prices] done — {skipped} tickers skipped (already current)")
     except Exception as exc:
         traceback.print_exc()
@@ -610,6 +619,7 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
                       fund_rows=0, error_count=0, skipped=skip_count)
 
     fund_ok = err_count = skipped = 0
+    error_tickers: list[str] = []
     client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA)
     try:
         for i, ticker in enumerate(investable):
@@ -662,6 +672,7 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
                     print(f"[fetch-fundamentals] {ticker}: upserted ({i+1}/{len(investable)})")
             except Exception as e:
                 err_count += 1
+                error_tickers.append(ticker)
                 print(f"[fetch-fundamentals] {ticker}: error - {e}")
             if (i + 1) % CHECKPOINT_EVERY == 0:
                 await _checkpoint(run_id, "fetch-fundamentals", started_at,
@@ -674,7 +685,10 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
                           fundamental_coverage_pct=fcp)
         await _write_trace_file(run_id, "fetch-fundamentals", status, started_at,
                                 tickers_done=len(investable), total_tickers=len(investable),
-                                fund_rows=fund_ok, skipped=skipped, error_count=err_count)
+                                fund_rows=fund_ok, skipped=skipped, error_count=err_count,
+                                error_tickers=error_tickers)
+        if error_tickers:
+            print(f"[fetch-fundamentals] {err_count} errors: {', '.join(error_tickers)}")
         print(f"[fetch-fundamentals] done — {skipped} tickers skipped (already current)")
     except Exception as exc:
         traceback.print_exc()
