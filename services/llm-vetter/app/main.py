@@ -621,8 +621,8 @@ async def get_latest_run():
     async with engine.connect() as conn:
         row = await conn.execute(
             text(
-                "SELECT run_id, status, candidate_count, flagged_count, approved, "
-                "       approved_at, started_at, completed_at "
+                "SELECT run_id, status, candidate_count, flagged_count, "
+                "       started_at, completed_at "
                 "FROM vetter_runs ORDER BY started_at DESC LIMIT 1"
             )
         )
@@ -638,7 +638,7 @@ async def get_run(run_id: str):
         row = await conn.execute(
             text(
                 "SELECT run_id, trace_id, source_ranking_run_id, strategy_id, model, status, "
-                "       candidate_count, flagged_count, approved, approved_at, "
+                "       candidate_count, flagged_count, "
                 "       started_at, completed_at, error_message "
                 "FROM vetter_runs WHERE run_id=:rid"
             ),
@@ -654,7 +654,7 @@ async def get_run(run_id: str):
 async def get_exclusions(run_id: str):
     async with engine.connect() as conn:
         run_row = await conn.execute(
-            text("SELECT status, candidate_count, flagged_count, approved FROM vetter_runs WHERE run_id=:rid"),
+            text("SELECT status, candidate_count, flagged_count FROM vetter_runs WHERE run_id=:rid"),
             {"rid": run_id},
         )
         run = run_row.fetchone()
@@ -673,34 +673,10 @@ async def get_exclusions(run_id: str):
     return {
         "run_id":          run_id,
         "status":          run.status,
-        "approved":        run.approved,
         "candidate_count": run.candidate_count,
         "flagged_count":   run.flagged_count,
         "exclusions":      exclusions,
     }
-
-
-@app.post("/runs/{run_id}/approve")
-async def approve_run(run_id: str):
-    """Human approval gate — must be called before portfolio-builder will use this run."""
-    async with engine.begin() as conn:
-        row = await conn.execute(
-            text("SELECT status FROM vetter_runs WHERE run_id=:rid"),
-            {"rid": run_id},
-        )
-        result = row.fetchone()
-        if result is None:
-            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-        if result.status != "success":
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot approve a run with status '{result.status}' — must be 'success'",
-            )
-        await conn.execute(
-            text("UPDATE vetter_runs SET approved=TRUE, approved_at=NOW() WHERE run_id=:rid"),
-            {"rid": run_id},
-        )
-    return {"run_id": run_id, "approved": True}
 
 
 @app.get("/runs/{run_id}/ticker-results")
@@ -767,17 +743,3 @@ async def get_ticker_results(run_id: str):
     }
 
 
-@app.post("/runs/{run_id}/reject")
-async def reject_run(run_id: str):
-    async with engine.begin() as conn:
-        row = await conn.execute(
-            text("SELECT run_id FROM vetter_runs WHERE run_id=:rid"),
-            {"rid": run_id},
-        )
-        if row.fetchone() is None:
-            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-        await conn.execute(
-            text("UPDATE vetter_runs SET approved=FALSE WHERE run_id=:rid"),
-            {"rid": run_id},
-        )
-    return {"run_id": run_id, "approved": False}

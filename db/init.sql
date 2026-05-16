@@ -249,6 +249,28 @@ CREATE TABLE IF NOT EXISTS jobs (
 
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, created_at ASC);
 
+-- ── LLM vetter runs ───────────────────────────────────────────────────────────────────────────────────
+-- One row per vetting job. Stores whether the run was approved by a human operator.
+
+CREATE TABLE IF NOT EXISTS vetter_runs (
+    run_id                UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    trace_id              UUID,                    -- execution_traces.trace_id
+    source_ranking_run_id UUID         NOT NULL REFERENCES ranking_runs(run_id),
+    strategy_id           VARCHAR(100) NOT NULL,
+    model                 VARCHAR(100) NOT NULL,
+    status                VARCHAR(20)  NOT NULL DEFAULT 'running',  -- running|success|failed
+    candidate_count       INTEGER,
+    flagged_count         INTEGER,
+    approved              BOOLEAN      NOT NULL DEFAULT FALSE,
+    approved_at           TIMESTAMPTZ,
+    started_at            TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    completed_at          TIMESTAMPTZ,
+    error_message         TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_vetter_runs_ranking ON vetter_runs(source_ranking_run_id);
+CREATE INDEX IF NOT EXISTS idx_vetter_runs_started ON vetter_runs(started_at DESC);
+
 -- ── Portfolio runs ────────────────────────────────────────────────────────────────────────────────────────────────
 -- One row per portfolio-builder job. Holdings live in portfolio_holdings.
 
@@ -256,7 +278,7 @@ CREATE TABLE IF NOT EXISTS portfolio_runs (
     run_id                   UUID         PRIMARY KEY,
     trace_id                 UUID,
     source_ranking_run_id    UUID         NOT NULL REFERENCES ranking_runs(run_id),
-    vetter_run_id            UUID,        -- optional: FK set after vetter_runs table exists
+    vetter_run_id            UUID REFERENCES vetter_runs(run_id),
     strategy_id              VARCHAR(100) NOT NULL,
     config_hash              VARCHAR(16),
     regime                   VARCHAR(30)  NOT NULL,
@@ -298,28 +320,6 @@ CREATE TABLE IF NOT EXISTS portfolio_holdings (
 
 CREATE INDEX IF NOT EXISTS idx_portfolio_holdings_run  ON portfolio_holdings(run_id);
 CREATE INDEX IF NOT EXISTS idx_portfolio_holdings_date ON portfolio_holdings(portfolio_date DESC, position ASC);
-
--- ── LLM vetter runs ───────────────────────────────────────────────────────────────────────────────────
--- One row per vetting job. Stores whether the run was approved by a human operator.
-
-CREATE TABLE IF NOT EXISTS vetter_runs (
-    run_id                UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
-    trace_id              UUID,                    -- execution_traces.trace_id
-    source_ranking_run_id UUID         NOT NULL REFERENCES ranking_runs(run_id),
-    strategy_id           VARCHAR(100) NOT NULL,
-    model                 VARCHAR(100) NOT NULL,
-    status                VARCHAR(20)  NOT NULL DEFAULT 'running',  -- running|success|failed
-    candidate_count       INTEGER,
-    flagged_count         INTEGER,
-    approved              BOOLEAN      NOT NULL DEFAULT FALSE,
-    approved_at           TIMESTAMPTZ,
-    started_at            TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    completed_at          TIMESTAMPTZ,
-    error_message         TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_vetter_runs_ranking ON vetter_runs(source_ranking_run_id);
-CREATE INDEX IF NOT EXISTS idx_vetter_runs_started ON vetter_runs(started_at DESC);
 
 -- ── LLM vetter exclusions ─────────────────────────────────────────────────────────────────────────────
 -- Per-ticker exclusion recommendations from the LLM vetter.

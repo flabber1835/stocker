@@ -192,7 +192,7 @@ async def _run_build(run_id: str, trace_id: str, source_ranking_run_id: Optional
             )
         else:
             row = await conn.execute(
-                text("SELECT run_id, regime, rank_date FROM ranking_runs WHERE status='success' ORDER BY completed_at DESC LIMIT 1")
+                text("SELECT run_id, regime, rank_date FROM ranking_runs WHERE status='success' ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1")
             )
         rr = row.fetchone()
 
@@ -454,10 +454,61 @@ async def _do_build(
     if not rankable_tickers:
         raise RuntimeError("no price data available for any candidates")
 
+    # ── Step 3b: apply universe filters before covariance (min_price, min_avg_dollar_volume) ──────────────────────────
+    t0 = datetime.now(timezone.utc)
+    universe_cfg = strategy.universe
+    min_price = universe_cfg.min_price
+    min_avg_dv = universe_cfg.min_avg_dollar_volume_20d
+
+    # Latest adjusted_close per ticker using already-loaded prices_df (no extra DB query)
+    latest_prices = (
+        prices_df[prices_df["ticker"].isin(rankable_tickers)]
+        .sort_values("date")
+        .groupby("ticker")["adjusted_close"]
+        .last()
+        .to_dict()
+    )
+
+    async with engine.connect() as conn:
+        # 20-day avg dollar volume from fundamentals (computed during ingestion)
+        avg_dv_rows = await conn.execute(
+            text(
+                "SELECT DISTINCT ON (ticker) ticker, avg_volume "
+                "FROM fundamentals WHERE ticker = ANY(:tickers) "
+                "ORDER BY ticker, as_of_date DESC"
+            ),
+            {"tickers": rankable_tickers},
+        )
+        avg_dv_map = {r.ticker: float(r.avg_volume) for r in avg_dv_rows.fetchall() if r.avg_volume is not None}
+
+    price_filtered = [t for t in rankable_tickers if latest_prices.get(t, 0) < min_price]
+    dv_filtered = [t for t in rankable_tickers if t not in avg_dv_map or avg_dv_map[t] < min_avg_dv]
+    universe_filtered = set(price_filtered) | set(dv_filtered)
+    filtered_tickers = [t for t in rankable_tickers if t not in universe_filtered]
+
+    async with engine.begin() as conn:
+        await _log_step(
+            conn, trace_id, "apply_universe_filters", "success",
+            started_at=t0,
+            input_summary={
+                "min_price": min_price,
+                "min_avg_dollar_volume_20d": min_avg_dv,
+            },
+            output_summary={
+                "price_filtered": price_filtered,
+                "dv_filtered": dv_filtered,
+                "remaining": len(filtered_tickers),
+            },
+            warnings=(
+                [f"{len(universe_filtered)} tickers filtered: price<{min_price} or avg_dv<{min_avg_dv}"]
+                if universe_filtered else None
+            ),
+        )
+
     # ── Step 4: build covariance matrix ────────────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
     cov, tickers_dropped_obs = build_covariance(
-        prices_df[prices_df["ticker"].isin(rankable_tickers)],
+        prices_df[prices_df["ticker"].isin(filtered_tickers)],
         window_days=pb_cfg.covariance_window_days,
         min_observations=pb_cfg.min_covariance_observations,
         shrinkage=pb_cfg.covariance_shrinkage,
@@ -474,8 +525,8 @@ async def _do_build(
     if min_eigenvalue < _MIN_EIGENVALUE:
         print(f"[portfolio-builder] WARNING: covariance matrix near rank-deficient (min eigenvalue={min_eigenvalue:.2e}). Portfolio vol estimates may be unreliable.")
 
-    # Restrict scores Series to tickers present in cov (some may have been dropped)
-    available_tickers = [t for t in rankable_tickers if t in cov.index]
+    # Restrict scores Series to tickers present in cov (some may have been dropped for insufficient obs)
+    available_tickers = [t for t in filtered_tickers if t in cov.index]
     scores = pd.Series({t: scores_map[t] for t in available_tickers})
     cov = cov.loc[available_tickers, available_tickers]
 
@@ -508,7 +559,7 @@ async def _do_build(
                 "window_days": pb_cfg.covariance_window_days,
                 "min_observations": pb_cfg.min_covariance_observations,
                 "shrinkage": pb_cfg.covariance_shrinkage,
-                "ticker_count": len(rankable_tickers),
+                "ticker_count": len(filtered_tickers),
             },
             output_summary={
                 "matrix_size": len(cov),
@@ -516,63 +567,6 @@ async def _do_build(
                 "avg_pairwise_correlation": round(avg_pairwise_corr, 4),
             },
             warnings=cov_warnings or None,
-        )
-
-    # ── Step 4b: apply universe filters (min_price, min_avg_dollar_volume) ──────────────────────────────────────────
-    t0 = datetime.now(timezone.utc)
-    universe_cfg = strategy.universe
-    min_price = universe_cfg.min_price
-    min_avg_dv = universe_cfg.min_avg_dollar_volume_20d
-
-    async with engine.connect() as conn:
-        # Latest closing price per ticker
-        price_filter_rows = await conn.execute(
-            text(
-                "SELECT DISTINCT ON (ticker) ticker, close "
-                "FROM daily_prices WHERE ticker = ANY(:tickers) "
-                "ORDER BY ticker, date DESC"
-            ),
-            {"tickers": available_tickers},
-        )
-        latest_prices = {r.ticker: float(r.close) for r in price_filter_rows.fetchall()}
-
-        # 20-day avg dollar volume from fundamentals (computed during ingestion)
-        avg_dv_rows = await conn.execute(
-            text(
-                "SELECT DISTINCT ON (ticker) ticker, avg_volume "
-                "FROM fundamentals WHERE ticker = ANY(:tickers) "
-                "ORDER BY ticker, as_of_date DESC"
-            ),
-            {"tickers": available_tickers},
-        )
-        avg_dv_map = {r.ticker: float(r.avg_volume) for r in avg_dv_rows.fetchall() if r.avg_volume is not None}
-
-    price_filtered = [t for t in available_tickers if latest_prices.get(t, 0) < min_price]
-    dv_filtered = [t for t in available_tickers if t in avg_dv_map and avg_dv_map[t] < min_avg_dv]
-    universe_filtered = set(price_filtered) | set(dv_filtered)
-
-    if universe_filtered:
-        available_tickers = [t for t in available_tickers if t not in universe_filtered]
-        scores = scores[[t for t in scores.index if t not in universe_filtered]]
-        cov = cov.loc[available_tickers, available_tickers]
-
-    async with engine.begin() as conn:
-        await _log_step(
-            conn, trace_id, "apply_universe_filters", "success",
-            started_at=t0,
-            input_summary={
-                "min_price": min_price,
-                "min_avg_dollar_volume_20d": min_avg_dv,
-            },
-            output_summary={
-                "price_filtered": price_filtered,
-                "dv_filtered": dv_filtered,
-                "remaining": len(available_tickers),
-            },
-            warnings=(
-                [f"{len(universe_filtered)} tickers filtered: price<{min_price} or avg_dv<{min_avg_dv}"]
-                if universe_filtered else None
-            ),
         )
 
     # ── Step 4c: load sector data for sector cap enforcement ──────────────────────────────────────────────────────
@@ -693,7 +687,10 @@ async def _do_build(
                     " adj_score, portfolio_vol_at_add) "
                     "VALUES (:run_id, :src, :sid, :regime, :pd, "
                     "        :ticker, :pos, :weight, :cs, :orank, :adj, :pvol) "
-                    "ON CONFLICT (run_id, ticker) DO NOTHING"
+                    "ON CONFLICT (run_id, ticker) DO UPDATE SET "
+                    "  weight=EXCLUDED.weight, position=EXCLUDED.position, "
+                    "  composite_score=EXCLUDED.composite_score, original_rank=EXCLUDED.original_rank, "
+                    "  adj_score=EXCLUDED.adj_score, portfolio_vol_at_add=EXCLUDED.portfolio_vol_at_add"
                 ),
                 {
                     "run_id": run_id,
@@ -810,7 +807,7 @@ async def start_build(
             )
         else:
             chk = await conn.execute(
-                text("SELECT 1 FROM ranking_runs WHERE status='success' ORDER BY completed_at DESC LIMIT 1")
+                text("SELECT 1 FROM ranking_runs WHERE status='success' ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1")
             )
         if chk.fetchone() is None:
             raise HTTPException(
@@ -818,10 +815,9 @@ async def start_build(
                 detail="no successful ranking run found — run: make rank first",
             )
 
-        # If a vetter_run_id is provided it must be approved
         if vetter_run_id:
             vchk = await conn.execute(
-                text("SELECT approved, status FROM vetter_runs WHERE run_id=:rid"),
+                text("SELECT status FROM vetter_runs WHERE run_id=:rid"),
                 {"rid": vetter_run_id},
             )
             vrow = vchk.fetchone()
@@ -831,11 +827,6 @@ async def start_build(
                 raise HTTPException(
                     status_code=400,
                     detail=f"Vetter run status is '{vrow.status}', must be 'success'",
-                )
-            if not vrow.approved:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Vetter run has not been approved — call POST /runs/{id}/approve on the llm-vetter first",
                 )
 
     run_id = str(uuid.uuid4())
@@ -856,7 +847,7 @@ async def get_latest_run():
         row = await conn.execute(
             text(
                 "SELECT run_id, status, portfolio_date, started_at, completed_at "
-                "FROM portfolio_runs ORDER BY started_at DESC LIMIT 1"
+                "FROM portfolio_runs ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
             )
         )
         result = row.fetchone()
@@ -898,7 +889,7 @@ async def get_latest_portfolio():
                 "SELECT run_id, regime, portfolio_date, selected_count, "
                 "       portfolio_estimated_vol, avg_pairwise_correlation "
                 "FROM portfolio_runs WHERE status='success' "
-                "ORDER BY completed_at DESC LIMIT 1"
+                "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
             )
         )
         run = run_row.fetchone()
