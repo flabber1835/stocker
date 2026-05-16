@@ -327,6 +327,7 @@ async def vet_single_ticker(
         ]
 
         tool_calls_made = False
+        loop_ended_on_tool_call = False
 
         for _ in range(MAX_TOOL_CALLS):
             resp = await client.chat(
@@ -386,11 +387,21 @@ async def vet_single_ticker(
                     agent_searches.append({"query": query, "result_count": 0, "error": "unknown tool"})
 
                 messages.append({"role": "tool", "content": result_text})
+        else:
+            # Loop exhausted MAX_TOOL_CALLS and the last response was still requesting
+            # tool calls (never produced a text response). Those unfetched tool calls
+            # are dropped. Append a note so the final prompt has a clean message to
+            # respond to rather than a dangling tool-call assistant message.
+            loop_ended_on_tool_call = True
+            messages.append({
+                "role": "user",
+                "content": "Search limit reached. Synthesize your decision from the information gathered so far.",
+            })
 
         # Final structured decision — enforce schema, remind model if it searched
         final_prompt = (
             "Based on your research, provide your final KEEP or EXCLUDE decision."
-            if tool_calls_made else
+            if (tool_calls_made and not loop_ended_on_tool_call) else
             "Provide your KEEP or EXCLUDE decision."
         )
         messages.append({"role": "user", "content": final_prompt})

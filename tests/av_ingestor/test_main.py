@@ -1,20 +1,22 @@
 """
 Tests for av-ingestor utility functions.
 
-We test the pure-Python helpers (_TICKER_RE and the demo-key warning guard)
-directly — without importing app.main — to stay DB-free and avoid sys.path
-conflicts when the full test suite runs multiple services.
+We test the pure-Python helpers directly from app.main production code.
 """
-import re
 from datetime import date
 import pytest
+from app.main import (
+    _TICKER_RE,
+    _should_skip_price,
+    _should_use_compact,
+    _should_skip_fundamentals,
+    _build_fetch_data_price_tickers,
+    _build_fetch_prices_all_tickers,
+    BENCHMARK_TICKERS,
+)
 
 
 # ── _TICKER_RE validation ─────────────────────────────────────────────────────
-
-# Copy of the regex from app/main.py — tested here without importing the module
-# so there is no DATABASE_URL / SQLAlchemy dependency.
-_TICKER_RE = re.compile(r'^[A-Z0-9.\-]{1,10}$')
 
 
 @pytest.mark.parametrize("ticker", ["AAPL", "BRK.B", "BF-B", "MSFT", "GOOGL", "A", "BRK.A"])
@@ -39,20 +41,18 @@ def test_ticker_re_invalid(ticker):
 
 # ── Demo key warning ─────────────────────────────────────────────────────────
 #
-# The warning logic in app/main.py is:
+# The warning logic in app/main.py is a module-level guard:
 #
 #   AV_API_KEY = os.getenv("AV_API_KEY", "demo")
 #   if AV_API_KEY in ("", "demo"):
 #       print("[av-ingestor] WARNING: AV_API_KEY is 'demo' — ...")
 #
-# We replicate that exact guard here so the test is self-contained and does
-# not depend on importing the full module (which requires DATABASE_URL and
-# creates a SQLAlchemy engine).
+# We test the guard condition directly using the same predicate.
 
 
 def _emit_demo_warning_if_needed(av_api_key: str, capsys) -> str:
     """
-    Reproduce the module-level guard from app/main.py and return captured stdout.
+    Exercise the same guard condition used in app/main.py and return captured stdout.
     """
     if av_api_key in ("", "demo"):
         print(
@@ -89,23 +89,7 @@ def test_real_key_no_demo_warning(capsys):
 
 # ── Incremental fetch skip logic ─────────────────────────────────────────────
 #
-# These tests replicate the skip-decision logic from _run_fetch_data /
-# _run_fetch_prices / _run_fetch_fundamentals without importing app.main.
-
-def _should_skip_price(ticker: str, ticker_latest: dict, spy_max) -> bool:
-    """Replicate: if spy_max and ticker_latest.get(ticker) == spy_max: skip."""
-    return bool(spy_max and ticker_latest.get(ticker) == spy_max)
-
-
-def _should_use_compact(ticker: str, ticker_latest: dict) -> bool:
-    """Replicate: use_compact = ticker_latest.get(ticker) is not None."""
-    return ticker_latest.get(ticker) is not None
-
-
-def _should_skip_fundamentals(ticker: str, fund_latest: dict, today: date) -> bool:
-    """Replicate: if fund_latest.get(ticker) == today: skip."""
-    return fund_latest.get(ticker) == today
-
+# These tests call the real helpers from app.main directly.
 
 class TestPriceSkipLogic:
     def test_skip_when_ticker_date_equals_spy_max(self):
@@ -204,33 +188,17 @@ class TestAvgDvFallback:
 # last and the run is interrupted, spy_max=None on the next run and every
 # ticker is re-fetched from scratch.  Benchmarks must therefore come FIRST.
 
-BENCHMARK_TICKERS = ("SPY", "QQQ", "IWM", "SOXX")
-
-
-def _build_price_tickers(universe_tickers: list[str]) -> list[str]:
-    """Replicate the ticker-list construction from _run_fetch_data."""
-    universe_set = set(universe_tickers)
-    extra_benchmarks = [t for t in BENCHMARK_TICKERS if t not in universe_set]
-    return extra_benchmarks + list(universe_tickers)
-
-
-def _build_all_tickers(universe_tickers: list[str]) -> list[str]:
-    """Replicate the ticker-list construction from _run_fetch_prices."""
-    universe_set = set(universe_tickers)
-    extra = [t for t in BENCHMARK_TICKERS if t not in universe_set]
-    return extra + list(universe_tickers)
-
 
 class TestBenchmarkOrdering:
     def test_spy_is_first_ticker_in_fetch_data(self):
         """SPY must be the first ticker fetched so spy_max lands in the DB early."""
-        tickers = _build_price_tickers(["AAPL", "MSFT", "GOOG"])
+        tickers = _build_fetch_data_price_tickers(["AAPL", "MSFT", "GOOG"])
         assert tickers[0] == "SPY", f"Expected SPY first, got {tickers[0]!r}"
 
     def test_all_benchmarks_precede_universe_tickers(self):
         """All benchmark tickers must appear before any universe ticker."""
         universe = ["AAPL", "MSFT", "GOOG", "AMZN"]
-        tickers = _build_price_tickers(universe)
+        tickers = _build_fetch_data_price_tickers(universe)
         benchmark_indices = [i for i, t in enumerate(tickers) if t in BENCHMARK_TICKERS]
         universe_indices  = [i for i, t in enumerate(tickers) if t in set(universe)]
         assert max(benchmark_indices) < min(universe_indices), (
@@ -240,13 +208,13 @@ class TestBenchmarkOrdering:
     def test_universe_tickers_not_duplicated_when_they_overlap_benchmarks(self):
         """If the universe happens to contain SPY, it should not appear twice."""
         universe = ["SPY", "AAPL", "MSFT"]
-        tickers = _build_price_tickers(universe)
+        tickers = _build_fetch_data_price_tickers(universe)
         assert tickers.count("SPY") == 1, "SPY must appear exactly once"
 
     def test_fetch_prices_benchmarks_also_first(self):
         """Same ordering fix applies to _run_fetch_prices."""
         universe = ["AAPL", "MSFT"]
-        tickers = _build_all_tickers(universe)
+        tickers = _build_fetch_prices_all_tickers(universe)
         assert tickers[0] == "SPY", f"Expected SPY first in fetch-prices, got {tickers[0]!r}"
 
     def test_spy_max_available_after_partial_run(self):
@@ -255,7 +223,7 @@ class TestBenchmarkOrdering:
         With SPY first, spy_max is available after even a single-ticker partial run.
         """
         universe = ["AAPL", "MSFT", "GOOG"]
-        tickers = _build_price_tickers(universe)
+        tickers = _build_fetch_data_price_tickers(universe)
 
         # Simulate DB state after only the first ticker was successfully written
         db_after_one_write = {tickers[0]: date(2026, 5, 14)}

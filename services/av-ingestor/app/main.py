@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import re
@@ -36,6 +37,37 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSe
 BENCHMARK_TICKERS = ("SPY", "QQQ", "IWM", "SOXX")
 
 
+# ── Pure deterministic helpers (importable for tests) ─────────────────────────
+
+def _should_skip_price(ticker: str, ticker_latest: dict, spy_max) -> bool:
+    """Return True if this ticker's price data is already current (matches spy_max)."""
+    return bool(spy_max and ticker_latest.get(ticker) == spy_max)
+
+
+def _should_use_compact(ticker: str, ticker_latest: dict) -> bool:
+    """Return True if the ticker already has price history — use compact (100-day) fetch."""
+    return ticker_latest.get(ticker) is not None
+
+
+def _should_skip_fundamentals(ticker: str, fund_latest: dict, today) -> bool:
+    """Return True if fundamentals were already fetched today (AV OVERVIEW is static intraday)."""
+    return fund_latest.get(ticker) == today
+
+
+def _build_fetch_data_price_tickers(universe_tickers: list[str]) -> list[str]:
+    """Return the ordered ticker list used by _run_fetch_data: benchmarks first, then universe."""
+    universe_set = set(universe_tickers)
+    extra_benchmarks = [t for t in BENCHMARK_TICKERS if t not in universe_set]
+    return extra_benchmarks + list(universe_tickers)
+
+
+def _build_fetch_prices_all_tickers(universe_tickers: list[str]) -> list[str]:
+    """Return the ordered ticker list used by _run_fetch_prices: benchmarks first, then universe."""
+    universe_set = set(universe_tickers)
+    extra = [t for t in BENCHMARK_TICKERS if t not in universe_set]
+    return extra + list(universe_tickers)
+
+
 def _coverage(ok: int, total: int) -> Optional[float]:
     return ok / total if total else None
 
@@ -55,6 +87,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="av-ingestor", lifespan=lifespan)
+
+# Serialises concurrent job-start requests so the TOCTOU check-then-insert is atomic.
+# Single-process service (Docker), so asyncio.Lock is sufficient.
+_job_lock = asyncio.Lock()
 
 
 # ── Run lifecycle helpers ────────────────────────────────
@@ -159,36 +195,40 @@ async def _assert_no_running_job() -> None:
 
 @app.post("/jobs/fetch-universe")
 async def fetch_universe(background_tasks: BackgroundTasks):
-    await _assert_no_running_job()
-    run_id = str(uuid.uuid4())
-    background_tasks.add_task(_run_fetch_universe, run_id)
+    async with _job_lock:
+        await _assert_no_running_job()
+        run_id = str(uuid.uuid4())
+        background_tasks.add_task(_run_fetch_universe, run_id)
     return {"status": "started", "job": "fetch-universe", "run_id": run_id}
 
 
 @app.post("/jobs/fetch-data")
 async def fetch_data(background_tasks: BackgroundTasks):
-    await _assert_no_running_job()
-    tickers, snapshot_id = await _get_universe_tickers()
-    run_id = str(uuid.uuid4())
-    background_tasks.add_task(_run_fetch_data, run_id, tickers)
+    async with _job_lock:
+        await _assert_no_running_job()
+        tickers, snapshot_id = await _get_universe_tickers()
+        run_id = str(uuid.uuid4())
+        background_tasks.add_task(_run_fetch_data, run_id, tickers)
     return {"status": "started", "job": "fetch-data", "run_id": run_id, "ticker_count": len(tickers), "snapshot_id": snapshot_id}
 
 
 @app.post("/jobs/fetch-prices")
 async def fetch_prices(background_tasks: BackgroundTasks):
-    await _assert_no_running_job()
-    tickers, snapshot_id = await _get_universe_tickers()
-    run_id = str(uuid.uuid4())
-    background_tasks.add_task(_run_fetch_prices, run_id, tickers)
+    async with _job_lock:
+        await _assert_no_running_job()
+        tickers, snapshot_id = await _get_universe_tickers()
+        run_id = str(uuid.uuid4())
+        background_tasks.add_task(_run_fetch_prices, run_id, tickers)
     return {"status": "started", "job": "fetch-prices", "run_id": run_id, "ticker_count": len(tickers), "snapshot_id": snapshot_id}
 
 
 @app.post("/jobs/fetch-fundamentals")
 async def fetch_fundamentals(background_tasks: BackgroundTasks):
-    await _assert_no_running_job()
-    tickers, snapshot_id = await _get_universe_tickers()
-    run_id = str(uuid.uuid4())
-    background_tasks.add_task(_run_fetch_fundamentals, run_id, tickers)
+    async with _job_lock:
+        await _assert_no_running_job()
+        tickers, snapshot_id = await _get_universe_tickers()
+        run_id = str(uuid.uuid4())
+        background_tasks.add_task(_run_fetch_fundamentals, run_id, tickers)
     return {"status": "started", "job": "fetch-fundamentals", "run_id": run_id, "snapshot_id": snapshot_id}
 
 

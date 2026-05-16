@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import os
@@ -63,6 +64,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ranker", lifespan=lifespan)
+
+# Serialises concurrent job-start requests so the TOCTOU check-then-insert is atomic.
+_job_lock = asyncio.Lock()
 
 
 @app.get("/health")
@@ -598,40 +602,41 @@ async def _assert_no_running_job() -> None:
 
 @app.post("/jobs/rank")
 async def start_rank_job(background_tasks: BackgroundTasks, factor_run_id: str | None = None):
-    await _assert_no_running_job()
-    ranking_run_id = str(uuid.uuid4())
+    async with _job_lock:
+        await _assert_no_running_job()
+        ranking_run_id = str(uuid.uuid4())
 
-    if factor_run_id:
-        async with engine.begin() as conn:
-            row = await conn.execute(
-                text(
-                    "SELECT regime FROM factor_runs "
-                    "WHERE run_id = :rid AND status = 'success' AND ticker_count > 0"
-                ),
-                {"rid": factor_run_id},
-            )
-            result = row.fetchone()
-        if not result:
-            raise HTTPException(status_code=404, detail=f"Factor run {factor_run_id} not found or not successful")
-        regime = result.regime
-    else:
-        async with engine.begin() as conn:
-            row = await conn.execute(
-                text(
-                    "SELECT regime FROM factor_runs "
-                    "WHERE status = 'success' AND ticker_count > 0 "
-                    "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+        if factor_run_id:
+            async with engine.begin() as conn:
+                row = await conn.execute(
+                    text(
+                        "SELECT regime FROM factor_runs "
+                        "WHERE run_id = :rid AND status = 'success' AND ticker_count > 0"
+                    ),
+                    {"rid": factor_run_id},
                 )
-            )
-            latest = row.fetchone()
-        if latest is None:
-            raise HTTPException(
-                status_code=400,
-                detail="no successful factor run found — run: make factors first",
-            )
-        regime = latest.regime
+                result = row.fetchone()
+            if not result:
+                raise HTTPException(status_code=404, detail=f"Factor run {factor_run_id} not found or not successful")
+            regime = result.regime
+        else:
+            async with engine.begin() as conn:
+                row = await conn.execute(
+                    text(
+                        "SELECT regime FROM factor_runs "
+                        "WHERE status = 'success' AND ticker_count > 0 "
+                        "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+                    )
+                )
+                latest = row.fetchone()
+            if latest is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="no successful factor run found — run: make factors first",
+                )
+            regime = latest.regime
 
-    background_tasks.add_task(_run_rank_job, ranking_run_id, factor_run_id)
+        background_tasks.add_task(_run_rank_job, ranking_run_id, factor_run_id)
     return {
         "status": "started",
         "job": "rank",

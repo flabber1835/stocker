@@ -39,8 +39,13 @@ def greedy_select(
         if not sector:
             return True
         new_count = sector_counts.get(sector, 0) + 1
-        # Use target as denominator: k/target <= max_sector_weight is the correct constraint.
-        # Using current_size+1 would block pick 2 in any sector (1/2=0.50 > 0.30).
+        # Use target as denominator so the cap is evaluated against the intended
+        # portfolio size, not the current (growing) one. Using len(portfolio)+1
+        # would be too restrictive early: pick 2 from any sector would fail
+        # (1/2=50% > 30%). The tradeoff: if the final portfolio is smaller than
+        # target (e.g. only 15 stocks qualify), sector concentration may exceed
+        # max_sector_weight on a per-actual-weight basis — this is accepted because
+        # the alternative would prevent the portfolio from being built at all.
         return (new_count / target) <= max_sector_weight
 
     # First pick: highest standalone score — no covariance context yet
@@ -222,16 +227,20 @@ def compute_weights(
     else:
         raise ValueError(f"Unknown weighting method: {method!r}")
 
-    # Iterative cap: redistribute excess from capped positions to uncapped ones
+    # Iterative cap: redistribute excess from capped positions to uncapped ones.
+    # Track ever-capped tickers across iterations so they never receive redistributed
+    # weight and exceed the cap again in a later round.
     weights = dict(raw)
+    ever_capped: set[str] = set()
     for _ in range(n):
-        over = {t: w for t, w in weights.items() if w > max_position_weight + 1e-9}
+        over = {t: w for t, w in weights.items() if w > max_position_weight + 1e-9 and t not in ever_capped}
         if not over:
             break
+        ever_capped.update(over.keys())
         excess = sum(w - max_position_weight for w in over.values())
         for t in over:
             weights[t] = max_position_weight
-        under = {t: w for t, w in weights.items() if t not in over}
+        under = {t: w for t, w in weights.items() if t not in ever_capped}
         total_under = sum(under.values())
         if total_under < 1e-12:
             break

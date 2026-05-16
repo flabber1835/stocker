@@ -17,6 +17,7 @@ never clear, even immediately after a successful ranking run.
 Fix: compare full ISO timestamps — uni_fetched_at vs rank_completed_at.
 """
 import pytest
+from app.main import _compute_pipeline_warnings
 
 
 def _compute_warnings(
@@ -25,18 +26,8 @@ def _compute_warnings(
     vet_completed_at: str | None,
     port_completed_at: str | None,
 ) -> dict:
-    """
-    Replicate the warning-computation block from dashboard pipeline_status().
-    ISO string comparison is correct: both timestamps are UTC and sort lexically.
-    """
-    rank_warning = bool(
-        uni_fetched_at and (not rank_completed_at or uni_fetched_at > rank_completed_at)
-    )
-    vet_warning = bool(
-        rank_completed_at and (not vet_completed_at or rank_completed_at > vet_completed_at)
-    )
-    port_warning = bool(
-        rank_completed_at and (not port_completed_at or rank_completed_at > port_completed_at)
+    rank_warning, vet_warning, port_warning = _compute_pipeline_warnings(
+        uni_fetched_at, rank_completed_at, vet_completed_at, port_completed_at
     )
     return {
         "rank_warning": rank_warning,

@@ -261,8 +261,6 @@ CREATE TABLE IF NOT EXISTS vetter_runs (
     status                VARCHAR(20)  NOT NULL DEFAULT 'running',  -- running|success|failed
     candidate_count       INTEGER,
     flagged_count         INTEGER,
-    approved              BOOLEAN      NOT NULL DEFAULT FALSE,
-    approved_at           TIMESTAMPTZ,
     started_at            TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     completed_at          TIMESTAMPTZ,
     error_message         TEXT

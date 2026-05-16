@@ -8,6 +8,7 @@ the test does not need a live DB, Ollama, or FastAPI server.
 import asyncio
 import pytest
 from unittest.mock import AsyncMock, patch
+from app.main import _vet_with_crash_isolation
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -61,16 +62,13 @@ def _make_crash_result(ticker: str, exc: Exception) -> dict:
 
 async def _run_vetting_loop(candidates: list[str], vet_single_ticker_fn) -> list[dict]:
     """
-    Minimal reproduction of the crash-isolation loop from main._do_vet.
-    The real loop catches exceptions per ticker and continues; this mirrors
-    that behaviour so we can unit-test isolation without a live service.
+    Thin wrapper around the real crash-isolation helper from app.main.
+    Calls _vet_with_crash_isolation for each ticker so tests exercise the
+    production isolation logic directly.
     """
     ticker_results: list[dict] = []
     for ticker in candidates:
-        try:
-            result = await vet_single_ticker_fn(ticker)
-        except Exception as exc:
-            result = _make_crash_result(ticker, exc)
+        result = await _vet_with_crash_isolation(ticker, vet_single_ticker_fn)
         ticker_results.append(result)
     return ticker_results
 

@@ -313,6 +313,39 @@ async def _run_vet(run_id: str, trace_id: str, source_ranking_run_id: str, candi
         raise
 
 
+async def _vet_with_crash_isolation(
+    ticker: str,
+    vet_fn,  # async callable(ticker) returning a result dict
+    fallback_fields: dict | None = None,
+) -> dict:
+    """Run vetting for one ticker; catch all exceptions and return a crash result dict."""
+    try:
+        return await vet_fn(ticker)
+    except Exception as exc:
+        import traceback as _tb
+        fields = fallback_fields or {}
+        return {
+            "ticker":             ticker,
+            "exclude":            False,
+            "reason":             f"Ticker vetting crashed: {exc}",
+            "confidence":         "low",
+            "risk_type":          "none",
+            "had_av_news":        fields.get("had_av_news", False),
+            "had_earnings":       fields.get("had_earnings", False),
+            "had_tavily":         fields.get("had_tavily", False),
+            "parse_error":        False,
+            "crashed":            True,
+            "crash_traceback":    _tb.format_exc(),
+            "latency_ms":         fields.get("latency_ms", 0),
+            "prompt":             "",
+            "system_prompt":      "",
+            "raw_response":       "",
+            "news_titles":        [],
+            "earnings_date":      fields.get("earnings_date"),
+            "hallucination_flags": [],
+        }
+
+
 async def _do_vet(
     run_id: str,
     trace_id: str,
@@ -373,40 +406,31 @@ async def _do_vet(
         ticker = c["ticker"]
         t0 = datetime.now(timezone.utc)
 
-        try:
-            result = await vet_single_ticker(
-                ticker,
-                news=av_news.get(ticker, []),
-                earnings_date=earnings_calendar.get(ticker),
-                tavily_articles=tavily_results.get(ticker, []),
+        async def _vet_fn(t: str) -> dict:
+            return await vet_single_ticker(
+                t,
+                news=av_news.get(t, []),
+                earnings_date=earnings_calendar.get(t),
+                tavily_articles=tavily_results.get(t, []),
                 client=client,
                 model=OLLAMA_MODEL,
                 today=today,
                 tavily_api_key=TAVILY_API_KEY,
             )
-        except Exception as ticker_exc:
-            tb_str = _traceback.format_exc()
-            print(f"[llm-vetter] {ticker}: CRASHED — {ticker_exc}")
-            result = {
-                "ticker":             ticker,
-                "exclude":            False,
-                "reason":             f"Ticker vetting crashed: {ticker_exc}",
-                "confidence":         "low",
-                "risk_type":          "none",
-                "had_av_news":        bool(av_news.get(ticker)),
-                "had_earnings":       earnings_calendar.get(ticker) is not None,
-                "had_tavily":         bool(tavily_results.get(ticker)),
-                "parse_error":        False,
-                "crashed":            True,
-                "crash_traceback":    tb_str,
-                "latency_ms":         round((datetime.now(timezone.utc) - t0).total_seconds() * 1000),
-                "prompt":             "",
-                "system_prompt":      "",
-                "raw_response":       "",
-                "news_titles":        [],
-                "earnings_date":      earnings_calendar.get(ticker),
-                "hallucination_flags": [],
-            }
+
+        result = await _vet_with_crash_isolation(
+            ticker,
+            _vet_fn,
+            fallback_fields={
+                "had_av_news":   bool(av_news.get(ticker)),
+                "had_earnings":  earnings_calendar.get(ticker) is not None,
+                "had_tavily":    bool(tavily_results.get(ticker)),
+                "latency_ms":    round((datetime.now(timezone.utc) - t0).total_seconds() * 1000),
+                "earnings_date": earnings_calendar.get(ticker),
+            },
+        )
+        if result.get("crashed"):
+            print(f"[llm-vetter] {ticker}: CRASHED — {result['reason']}")
 
         ticker_results.append(result)
 

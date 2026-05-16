@@ -153,6 +153,18 @@ async def _safe_fetch(coro, fallback):
         return fallback
 
 
+def _compute_pipeline_warnings(
+    uni_fetched_at: str | None,
+    rank_completed_at: str | None,
+    vet_completed_at: str | None,
+    port_completed_at: str | None,
+) -> tuple[bool, bool, bool]:
+    rank_warning = bool(uni_fetched_at and (not rank_completed_at or uni_fetched_at > rank_completed_at))
+    vet_warning  = bool(rank_completed_at and (not vet_completed_at  or rank_completed_at > vet_completed_at))
+    port_warning = bool(rank_completed_at and (not port_completed_at or rank_completed_at > port_completed_at))
+    return rank_warning, vet_warning, port_warning
+
+
 @app.get("/api/pipeline-status")
 async def pipeline_status():
     async with httpx.AsyncClient(timeout=6.0) as client:
@@ -243,9 +255,9 @@ async def pipeline_status():
 
     # Compare full ISO timestamps so date-only differences (e.g. universe
     # snapshot_date=today vs rank_date=last trading day) don't cause false alarms.
-    rank_warning = bool(uni_fetched_at and (not rank_completed_at or uni_fetched_at > rank_completed_at))
-    vet_warning  = bool(rank_completed_at and (not vet_completed_at  or rank_completed_at > vet_completed_at))
-    port_warning = bool(rank_completed_at and (not port_completed_at or rank_completed_at > port_completed_at))
+    rank_warning, vet_warning, port_warning = _compute_pipeline_warnings(
+        uni_fetched_at, rank_completed_at, vet_completed_at, port_completed_at
+    )
 
     return {
         "universe_date":      uni_date,

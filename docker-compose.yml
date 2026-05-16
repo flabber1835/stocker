@@ -166,12 +166,15 @@ services:
   strategy-validator:
     build:
       context: .
-      dockerfile: services/stub/Dockerfile
+      dockerfile: services/strategy-validator/Dockerfile
     restart: unless-stopped
     ports:
       - "8005:8000"
-    environment:
-      SERVICE_NAME: strategy-validator
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   strategy-config-service:
     build:
