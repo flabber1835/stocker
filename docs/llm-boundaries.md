@@ -12,6 +12,7 @@ classify thematic exposure
 suggest strategy changes
 generate reports
 explain trade signals
+vet stocks for risk signals and positive catalysts (llm-vetter, advisory only)
 ```
 
 ## Forbidden LLM Responsibilities
@@ -26,6 +27,7 @@ invent missing data
 override safety limits
 directly decide position sizing without deterministic checks
 directly modify approved strategy registry
+block portfolio construction (vetter output is advisory, never a hard gate)
 ```
 
 ## Correct Pattern

@@ -54,7 +54,11 @@ Combines factor scores according to strategy config and produces ranked universe
 
 ### portfolio-builder
 
-Converts ranked stocks into target portfolio weights.
+Converts ranked stocks into target portfolio weights. Applies conviction boosts from the vetter when available. Does not require vetter approval — vetter output is advisory.
+
+### llm-vetter
+
+Vets ranked stocks using LLM reasoning (Ollama or OpenAI) and Tavily web search. Produces per-stock signals: `exclude`, `risk_type`, `risk_confidence`, `positive_catalyst`, `positive_conviction`, `reason`. Results are stored in `vetter_decisions` and used by portfolio-builder for soft score adjustments. The vetter is never a hard gate — portfolio construction proceeds whether or not the vetter has run.
 
 ### alpaca-sync
 

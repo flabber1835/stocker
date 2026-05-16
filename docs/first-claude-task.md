@@ -1,32 +1,38 @@
-# First Claude Code Task
+# Current State and Next Priorities
 
-Paste this into Claude Code after creating the repo with this documentation.
+This file tracks where the project stands and what to build next.
+It replaces the original first-task prompt (phases 1–4 are complete).
 
-```text
-Read CLAUDE.md and the docs folder.
+## What Is Built
 
-Create the initial repo skeleton for Phase 1 and the beginning of Phase 2.
+See `docs/build-phases.md` for full details.
 
-Build:
+Phases 1–4.5 are complete:
+- Docker Compose stack (postgres, redis, api, dashboard)
+- Strategy schema and validator
+- Alpha Vantage ingestor (universe + daily data)
+- Factor engine, ranker, portfolio-builder
+- LLM vetter (Tavily + Ollama/OpenAI, advisory only)
+- Dashboard with universe / rank / vetter / portfolio / live tabs
+- DB schema for alpaca_sync_runs and live_positions
 
-- docker-compose.yml
-- .env.example
-- Makefile
-- README.md
-- shared Python package for strategy schemas
-- services/api with FastAPI health endpoint
-- services/strategy-validator with FastAPI health endpoint and /validate endpoint
-- sample strategy config under strategies/quality_ai_overlay_v1.yaml
-- pytest tests for the strategy validator
-- postgres and redis services in compose
+## What to Build Next
 
-Use Python 3.12, FastAPI, Pydantic, pytest.
+### Phase 5: Backtester
 
-Do not implement real Alpha Vantage or Alpaca calls yet.
+The most useful next step before touching live trading. The ranker has historical
+ranking runs in Postgres. A backtester can replay those against forward returns
+to measure whether the factor weights and regime logic actually work.
 
-Keep services minimal and clear.
+Starting point: forward return attribution against existing `ranking_runs` rows.
 
-Make `docker compose up` work.
+### Phase 6 (remainder): Alpaca Paper Trading Services
 
-Make `make test` run tests.
-```
+- `alpaca-sync` service: reads account, positions, orders, fills from Alpaca API and writes to the existing `alpaca_sync_runs` / `live_positions` tables
+- `risk-service`: hard safety gate, deterministic, heavily tested
+- `trade-executor`: paper trading only, requires prior risk approval
+- `intraday-monitor`: signal creation only, no direct trading
+
+### Phase 7: Scheduler
+
+Automate the daily/monthly pipeline with a scheduler service.

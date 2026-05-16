@@ -1,8 +1,8 @@
 # Build Phases
 
-## Phase 1: Docker Compose Skeleton
+## Phase 1: Docker Compose Skeleton ✅ DONE
 
-Build:
+Built:
 
 ```text
 postgres
@@ -18,77 +18,107 @@ pytest setup
 README
 ```
 
-No real Alpha Vantage or Alpaca calls yet.
+## Phase 2: Strategy Schema and Validator ✅ DONE
 
-## Phase 2: Strategy Schema and Validator
-
-Build:
+Built:
 
 ```text
-strict Pydantic models
-sample strategy configs
-validation endpoint
+StrategyConfig Pydantic models (shared/stock_strategy_shared/schemas/strategy.py)
+RegimeDetectionConfig, FactorWeights, PortfolioBuilderConfig, VetterConfig
+/validate endpoint
 unit tests
 dangerous-config rejection tests
 ```
 
-## Phase 3: Alpha Vantage Ingestor
+## Phase 3: Alpha Vantage Ingestor ✅ DONE
 
-Build:
+Built:
 
 ```text
-Alpha Vantage client skeleton
-mock mode
-rate-limit handling
-sample ticker ingestion
-Postgres storage
+av-ingestor service
+IWV/ETF holdings universe fetch (fetch-universe job type)
+daily price and fundamentals ingestion (fetch-data job type)
+incremental fetch (skips tickers already up to date)
+strict ticker regex validation
+adjusted_close × volume for dollar-volume filtering
+75 req/min rate limiting
+Postgres storage with UPSERT
+job_type field to distinguish universe vs data runs
 ```
 
-## Phase 4: Monthly Stock Engine
+## Phase 4: Monthly Stock Engine ✅ DONE
 
-Build:
+Built:
 
 ```text
-factor-engine
-ranker
-portfolio-builder
-sample ranking workflow
+factor-engine: momentum, quality, value, growth, low_volatility, beta, liquidity, drawdown
+factor-engine: SPY regime detection (trend × volatility, 4 buckets, confirmation smoothing)
+ranker: composite scoring by regime, min_score_percentile filter, ranking runs
+portfolio-builder: greedy_score_per_port_vol, sector caps, covariance shrinkage
+portfolio-builder: ON CONFLICT DO UPDATE for idempotent rebalance
+api: /universe, /rankings, /portfolio, /regime endpoints
 ```
 
-## Phase 5: Backtesting
+## Phase 4.5: LLM Vetter ✅ DONE
+
+Built:
+
+```text
+llm-vetter service
+Tavily web search for news and catalysts
+Ollama (local) or OpenAI LLM vetting
+Output: exclude, risk_type, risk_confidence, positive_catalyst, positive_conviction, reason
+vetter_decisions table in Postgres
+Dashboard vetter tab: KEEP/EXCLUDE/RISK badges, catalyst badges, news sources
+Informational only — no approval gate, no portfolio blocking
+Conviction boosts applied in portfolio-builder (high: +0.25, medium: +0.12, low: +0.05)
+```
+
+## Phase 5: Backtesting ← NEXT
 
 Build:
 
 ```text
-backtester
-evaluator
+backtester service
+replay historical ranking runs against forward returns
+simulated trades, returns, drawdowns, turnover
+Sharpe-like metrics
+benchmark comparison (SPY)
+position history
+monthly rebalance history
 backtest report artifacts
-strategy comparison
 ```
 
-## Phase 6: Alpaca Paper Trading
+## Phase 6: Alpaca Paper Trading (partial)
+
+DB schema done:
+
+```text
+alpaca_sync_runs table
+live_positions table
+/live-portfolio API endpoint
+Dashboard "Live" tab — connected/disconnected state, positions table
+```
+
+Still to build:
+
+```text
+alpaca-sync service (reads positions/orders/fills from Alpaca, writes to Postgres)
+intraday-monitor service
+risk-service (hard safety gate)
+trade-executor (paper trading only)
+```
+
+## Phase 7: Scheduler and Automation
 
 Build:
 
 ```text
-alpaca-sync
-intraday-monitor
-risk-service
-trade-executor
-paper trading only
-```
-
-## Phase 7: Dashboard and Reports
-
-Build:
-
-```text
-rankings view
-portfolio view
-signals view
-orders/fills view
-backtest reports
-strategy registry view
+scheduler service
+daily Alpha Vantage refresh job
+monthly ranking job
+monthly portfolio rebalance job
+periodic alpaca-sync job
 ```
 
 ## Phase 8: Live Trading Readiness

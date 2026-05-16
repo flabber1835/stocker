@@ -43,6 +43,7 @@ artifacts volume
 av-ingestor
 factor-engine
 ranker
+llm-vetter        ← advisory LLM vetting between ranker and portfolio-builder
 portfolio-builder
 backtester
 evaluator
