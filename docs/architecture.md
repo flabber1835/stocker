@@ -10,7 +10,7 @@ Prompt
   → validated YAML/JSON
   → backtest
   → approval
-  → monthly portfolio ranking
+  → daily ranking (continuous buffer-zone rebalance)
   → intraday monitoring
   → risk validation
   → Alpaca order execution
@@ -210,7 +210,7 @@ Confirmation smoothing: both the trend signal and the vol signal must be consist
 for `confirmation_days` consecutive trading days before a regime switch is accepted.
 This prevents flipping regimes on a single bad day. Default is 5 days. If signals
 are mixed, a majority vote across the confirmation window is used. This is especially
-important for monthly rebalancing where a one-day blip should not change the portfolio.
+important for continuous rebalancing where a one-day blip should not trigger a position change.
 
 The SMA period, vol window, vol threshold, confirmation days, regime names, and
 conditions are all defined in the strategy YAML under `regime_detection`. The

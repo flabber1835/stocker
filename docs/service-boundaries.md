@@ -69,6 +69,23 @@ Converts ranked stocks into target portfolio weights. Applies conviction boosts 
 the vetter when available (high: +0.25, medium: +0.12, low: +0.05). Does not require
 vetter approval — vetter output is advisory only.
 
+**Rebalance model: continuous buffer-zone (not fixed monthly)**
+
+The portfolio is not replaced on a fixed schedule. Instead, the daily ranking run
+drives incremental changes via a delta engine:
+
+- A ticker enters the portfolio when its rank ≤ `entry_rank` threshold for
+  `confirmation_days` consecutive days.
+- A ticker exits when its rank > `exit_rank` threshold (where exit_rank > entry_rank)
+  for `confirmation_days` consecutive days.
+- Tickers between entry_rank and exit_rank are held — the buffer zone prevents
+  whipsawing on normal z-score noise.
+- A full weight normalization (periodic rebalance) runs every N days to rebalance
+  position sizes without necessarily changing holdings.
+
+Holdings can be held longer than 30 days if they remain in the buffer zone, or
+shorter if they deteriorate quickly. There is no forced monthly exit.
+
 ### llm-vetter
 
 Vets ranked stocks using LLM reasoning (Ollama or OpenAI) and Tavily web search.

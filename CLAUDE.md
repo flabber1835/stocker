@@ -14,7 +14,7 @@ Prompt
   → validated YAML/JSON
   → backtest
   → approval
-  → monthly portfolio ranking
+  → daily ranking + continuous buffer-zone rebalance
   → intraday monitoring
   → risk validation
   → Alpaca order execution
@@ -158,7 +158,19 @@ Polygon/Massive:
 
 # Strategy Concept
 
-The system supports monthly stock picking from a Russell-3000-like U.S. equity universe.
+The system ranks stocks daily from a Russell-3000-like U.S. equity universe and manages
+a live portfolio using a continuous buffer-zone rebalance model — not a fixed monthly cycle.
+
+**Rebalance model:**
+
+```text
+Rankings run daily after market close (scheduler fires at 4:15pm ET).
+A stock enters the portfolio when rank ≤ entry_rank for confirmation_days in a row.
+A stock exits when rank > exit_rank for confirmation_days in a row.
+Stocks between entry_rank and exit_rank are held (buffer prevents whipsawing).
+Holding period is variable — held as long as the stock stays in the buffer zone.
+Periodic weight normalization rebalances position sizes without forcing exits.
+```
 
 Two initial strategy styles:
 
@@ -541,7 +553,7 @@ turnover
 Sharpe-like metrics
 benchmark comparison
 position history
-monthly rebalance history
+period-by-period holdings history
 ```
 
 Backtester should be deterministic and reproducible.
@@ -571,8 +583,8 @@ Cannot deploy changes directly.
 Triggers scheduled workflows:
 
 ```text
-daily Alpha Vantage refresh
-monthly ranking
+daily Alpha Vantage refresh (fetch-data → factor-calculate → rank chain)
+delta engine run (buffer-zone entry/exit evaluation)
 backtests
 Alpaca sync jobs
 intraday monitor startup

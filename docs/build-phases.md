@@ -145,17 +145,41 @@ risk-service (hard safety gate)
 trade-executor (paper trading only)
 ```
 
-## Phase 7: Scheduler and Automation
+## Phase 7: Scheduler and Automation (partial ✅)
 
-Build:
+Built:
 
 ```text
-scheduler service
-daily Alpha Vantage refresh job
-monthly ranking job
-monthly portfolio rebalance job
+scheduler service (port 8015)
+daily chain: fetch-data → factor-calculate → rank fires at 4:15pm ET weekdays
+Same-day dedup guard on factor-engine and ranker (skips if already ran today)
+POST /jobs/run-now — manual trigger; GET /status — chain state and next scheduled run
+Fundamentals refresh cadence: weekly (7-day window) instead of daily —
+  AV OVERVIEW is quarterly data, daily re-fetch was wasteful
+RANK_SCHEDULE_CRON env var overrides the default schedule
+```
+
+Still to build:
+
+```text
+delta engine — compares today's rankings to live portfolio, produces add/exit proposals
+live_portfolio table — current holdings with entry date, entry rank, current rank, weight
+periodic weight normalization (full rebalance of sizes without forced holdings change)
 periodic alpaca-sync job
 ```
+
+## Rebalance Model Decision
+
+**Fixed monthly rebalance is retired.** The portfolio uses a continuous buffer-zone model:
+
+- Rankings run daily (scheduler fires after market close).
+- A ticker enters when rank ≤ `entry_rank` for `confirmation_days` consecutive days.
+- A ticker exits when rank > `exit_rank` for `confirmation_days` consecutive days.
+- Tickers between entry_rank and exit_rank are held (buffer prevents whipsawing).
+- Holding period is variable — a position is held as long as it stays in the buffer zone.
+- A periodic weight normalization (not a full replacement) runs every N days.
+
+This replaces the prior design of: pick top-30, hold exactly 30 days, repeat.
 
 ## Phase 8: Live Trading Readiness
 
