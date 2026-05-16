@@ -1061,6 +1061,10 @@ function _setBadge(tab, text, cls){
 function _setJobPanel(tab, cls){
   const panel = $('jp-'+tab);
   if(panel) panel.className = 'job-panel ' + (cls||'');
+  // Keep the start button in sync with the running state across all browsers.
+  const ids = TAB_IDS[tab];
+  const btn = ids ? $(ids.start) : null;
+  if(btn) btn.disabled = (cls === 'running');
 }
 
 async function startJob(tab){
