@@ -13,6 +13,11 @@ PORTFOLIO_URL       = os.getenv("PORTFOLIO_URL",        "http://portfolio-builde
 
 app = FastAPI(title="stocker-dashboard")
 
+# Set True for the lifetime of a rank-chain run so pipeline-status returns
+# rank=running even during the inter-step gaps between fetch-data, calc-factors,
+# and ranking (each gap is up to 2s while the orchestrator polls).
+_rank_chain_running: bool = False
+
 _JOB_SERVICES = {
     "universe":  AV_INGESTOR_URL,
     "data":      AV_INGESTOR_URL,
@@ -293,6 +298,13 @@ async def pipeline_status():
             rank_step_label = "Ranking"
             rank_pct = 95
 
+    # If the orchestrator is still running (inter-step gap), keep rank as running
+    # so the progress bar doesn't flash done between steps.
+    if rank_status != "running" and _rank_chain_running:
+        rank_status = "running"
+        rank_step = rank_step or "starting"
+        rank_step_label = rank_step_label or "Starting"
+
     if rank_status != "running":
         if ranker_status_raw in ("success", "partial_success", "skipped"):
             rank_status = "success"
@@ -370,38 +382,42 @@ async def pipeline_status():
 
 async def _run_rank_chain_bg():
     """Run fetch-data -> calculate-factors -> rank sequentially, server-side."""
-    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=600.0)) as client:
-        steps = [
-            (AV_INGESTOR_URL, "/jobs/fetch-data", AV_INGESTOR_URL + "/runs/latest"),
-            (FACTOR_ENGINE_URL, "/jobs/calculate", FACTOR_ENGINE_URL + "/runs/latest"),
-            (RANKER_URL, "/jobs/rank", RANKER_URL + "/runs/latest"),
-        ]
-        for base_url, start_path, status_url in steps:
-            try:
-                r = await client.post(base_url + start_path)
-                if r.status_code == 409:
-                    # Step already running from a previous trigger — wait for it
-                    print(f"[rank-chain] step {start_path} already running, waiting")
-                elif r.status_code not in (200, 201, 202):
-                    print(f"[rank-chain] step {start_path} failed to start: {r.status_code}")
+    global _rank_chain_running
+    _rank_chain_running = True
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=600.0)) as client:
+            steps = [
+                (AV_INGESTOR_URL, "/jobs/fetch-data", AV_INGESTOR_URL + "/runs/latest"),
+                (FACTOR_ENGINE_URL, "/jobs/calculate", FACTOR_ENGINE_URL + "/runs/latest"),
+                (RANKER_URL, "/jobs/rank", RANKER_URL + "/runs/latest"),
+            ]
+            for base_url, start_path, status_url in steps:
+                try:
+                    r = await client.post(base_url + start_path)
+                    if r.status_code == 409:
+                        print(f"[rank-chain] step {start_path} already running, waiting")
+                    elif r.status_code not in (200, 201, 202):
+                        print(f"[rank-chain] step {start_path} failed to start: {r.status_code}")
+                        return
+                    # Poll until terminal (2s matches the dashboard refresh rate)
+                    for _ in range(1800):  # max 1 hour
+                        await asyncio.sleep(2)
+                        try:
+                            s = await client.get(status_url)
+                            status = s.json().get("status", "running")
+                            if status not in ("running", ""):
+                                if status == "failed":
+                                    print(f"[rank-chain] step {start_path} failed")
+                                    return
+                                break
+                        except Exception:
+                            pass
+                except Exception as exc:
+                    print(f"[rank-chain] exception in step {start_path}: {exc}")
                     return
-                # Poll until terminal
-                for _ in range(720):  # max 1 hour
-                    await asyncio.sleep(5)
-                    try:
-                        s = await client.get(status_url)
-                        status = s.json().get("status", "running")
-                        if status not in ("running", ""):
-                            if status == "failed":
-                                print(f"[rank-chain] step {start_path} failed")
-                                return
-                            break
-                    except Exception:
-                        pass
-            except Exception as exc:
-                print(f"[rank-chain] exception in step {start_path}: {exc}")
-                return
-    print("[rank-chain] all steps complete")
+        print("[rank-chain] all steps complete")
+    finally:
+        _rank_chain_running = False
 
 
 @app.get("/", response_class=HTMLResponse)
