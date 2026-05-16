@@ -335,7 +335,7 @@ async def _run_fetch_universe(run_id: str) -> None:
     print("[fetch-universe] starting")
     try:
         async with httpx.AsyncClient() as http:
-            tickers = await download_iwv_holdings(http)
+            tickers = await download_iwv_holdings(http, av_api_key=AV_API_KEY)
             benchmarks = await get_benchmark_tickers(http)
         all_tickers = tickers + benchmarks
         print(f"[fetch-universe] downloaded {len(tickers)} universe + {len(benchmarks)} benchmarks")

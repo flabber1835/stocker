@@ -1,10 +1,13 @@
 import io
+import logging
 import os
 import re
 from datetime import date
 
 import httpx
 import pandas as pd
+
+log = logging.getLogger("av-ingestor.universe")
 
 MOCK_TICKERS = [
     ("AAPL", "Apple Inc", "Information Technology"),
@@ -46,58 +49,144 @@ IWV_CSV_URL = (
 
 _TICKER_RE = re.compile(r"^[A-Z]{1,5}([.\-][A-Z0-9]{1,4})?$")
 
+_AV_LISTING_URL = "https://www.alphavantage.co/query?function=LISTING_STATUS&apikey={api_key}"
 
-async def download_iwv_holdings(session: httpx.AsyncClient) -> list[dict]:
-    if os.getenv("MOCK_DATA", "false").lower() == "true":
-        return _mock_universe()
+# Exchanges considered part of the broad US equity universe.
+_US_EXCHANGES = {"NYSE", "NASDAQ", "NYSE MKT", "NYSE ARCA", "NYSE American", "BATS", "OTC"}
 
-    response = await session.get(IWV_CSV_URL, follow_redirects=True, timeout=30.0)
+
+async def download_av_listing(session: httpx.AsyncClient, api_key: str) -> list[dict]:
+    """Fetch all active US equities from Alpha Vantage LISTING_STATUS.
+
+    Used as fallback when the IWV holdings CSV is unavailable.
+    Returns the same dict schema as download_iwv_holdings, with weight_pct=None.
+    """
+    url = _AV_LISTING_URL.format(api_key=api_key)
+    response = await session.get(url, follow_redirects=True, timeout=30.0)
     response.raise_for_status()
 
-    # iShares CSVs have a variable number of metadata rows before the actual header.
-    # Scan to find the first row that contains a recognisable column name.
-    lines = response.text.splitlines()
-    header_idx = None
-    for i, line in enumerate(lines):
-        if any(kw in line for kw in ("Ticker", "TICKER", "Symbol")):
-            header_idx = i
-            break
-
-    if header_idx is None:
-        raise ValueError("Could not locate header row in IWV holdings CSV")
-
-    # on_bad_lines='skip' drops footer/disclaimer rows that have fewer columns than the header
-    df = pd.read_csv(
-        io.StringIO(response.text),
-        skiprows=header_idx,
-        header=0,
-        dtype=str,
-        on_bad_lines="skip",
-    )
+    df = pd.read_csv(io.StringIO(response.text), dtype=str)
     df.columns = [c.strip() for c in df.columns]
-
-    ticker_col = _find_column(df, ["Ticker", "TICKER", "Symbol"])
-    name_col = _find_column(df, ["Name", "NAME", "Security"])
-    weight_col = _find_column(df, ["Weight (%)", "Weight(%)", "WEIGHT (%)", "Weight"])
-    sector_col = _find_column(df, ["Sector", "SECTOR"])
-    asset_class_col = _find_column(df, ["Asset Class", "ASSET CLASS", "AssetClass"])
 
     rows = []
     for _, row in df.iterrows():
-        ticker = str(row.get(ticker_col, "")).strip()
+        ticker = str(row.get("symbol", "")).strip()
         if not _TICKER_RE.match(ticker):
+            continue
+        if str(row.get("status", "")).strip().lower() != "active":
+            continue
+        if str(row.get("assetType", "")).strip() not in ("Stock",):
+            continue
+        exchange = str(row.get("exchange", "")).strip()
+        if exchange not in _US_EXCHANGES:
             continue
         rows.append(
             {
                 "ticker": ticker,
-                "name": str(row.get(name_col, "")).strip() if name_col else None,
-                "weight_pct": _parse_float(row.get(weight_col)) if weight_col else None,
-                "sector": str(row.get(sector_col, "")).strip() if sector_col else None,
-                "asset_class": str(row.get(asset_class_col, "")).strip() if asset_class_col else None,
+                "name": str(row.get("name", "")).strip() or None,
+                "weight_pct": None,
+                "sector": None,
+                "asset_class": "Equity",
             }
         )
 
+    if len(rows) < 100:
+        raise ValueError(
+            f"AV LISTING_STATUS returned only {len(rows)} active US stocks — expected 3000+."
+        )
+
     return rows
+
+
+async def download_iwv_holdings(session: httpx.AsyncClient, av_api_key: str = "") -> list[dict]:
+    """Download IWV ETF holdings CSV. Falls back to AV LISTING_STATUS if iShares is unreachable.
+
+    The iShares direct-download URL is occasionally blocked by Cloudflare or CDN
+    bot-protection, returning HTML instead of CSV. When that happens we fall back to
+    Alpha Vantage LISTING_STATUS (active US equities on major exchanges) so the
+    universe build succeeds.  The fallback rows have weight_pct=None and sector=None.
+    """
+    if os.getenv("MOCK_DATA", "false").lower() == "true":
+        return _mock_universe()
+
+    iwv_error: Exception | None = None
+    try:
+        response = await session.get(IWV_CSV_URL, follow_redirects=True, timeout=30.0)
+        response.raise_for_status()
+
+        # iShares CSVs have a variable number of metadata rows before the actual header.
+        # Scan to find the first row that contains a recognisable column name.
+        lines = response.text.splitlines()
+        header_idx = None
+        for i, line in enumerate(lines):
+            if any(kw in line for kw in ("Ticker", "TICKER", "Symbol")):
+                header_idx = i
+                break
+
+        if header_idx is None:
+            raise ValueError("Could not locate header row in IWV holdings CSV (response may be HTML)")
+
+        # on_bad_lines='skip' drops footer/disclaimer rows that have fewer columns than the header
+        df = pd.read_csv(
+            io.StringIO(response.text),
+            skiprows=header_idx,
+            header=0,
+            dtype=str,
+            on_bad_lines="skip",
+        )
+        df.columns = [c.strip() for c in df.columns]
+
+        ticker_col = _find_column(df, ["Ticker", "TICKER", "Symbol"])
+        if ticker_col is None:
+            raise ValueError(
+                f"IWV CSV missing expected ticker column. "
+                f"Found columns: {list(df.columns[:10])}"
+            )
+        name_col = _find_column(df, ["Name", "NAME", "Security"])
+        weight_col = _find_column(df, ["Weight (%)", "Weight(%)", "WEIGHT (%)", "Weight"])
+        sector_col = _find_column(df, ["Sector", "SECTOR"])
+        asset_class_col = _find_column(df, ["Asset Class", "ASSET CLASS", "AssetClass"])
+
+        rows = []
+        for _, row in df.iterrows():
+            ticker = str(row.get(ticker_col, "")).strip()
+            if not _TICKER_RE.match(ticker):
+                continue
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "name": str(row.get(name_col, "")).strip() if name_col else None,
+                    "weight_pct": _parse_float(row.get(weight_col)) if weight_col else None,
+                    "sector": str(row.get(sector_col, "")).strip() if sector_col else None,
+                    "asset_class": str(row.get(asset_class_col, "")).strip() if asset_class_col else None,
+                }
+            )
+
+        if len(rows) < 50:
+            raise ValueError(
+                f"IWV CSV parsed only {len(rows)} valid tickers — expected 2000+. "
+                f"Response may be an error page or the CSV format changed."
+            )
+
+        return rows
+
+    except Exception as exc:
+        iwv_error = exc
+
+    # ── Fallback: AV LISTING_STATUS ──────────────────────────────────────────
+    log.warning(
+        "[universe] IWV holdings download failed (%s); falling back to AV LISTING_STATUS", iwv_error
+    )
+    print(f"[universe] IWV download failed: {iwv_error}")
+    print("[universe] Falling back to Alpha Vantage LISTING_STATUS for universe construction")
+
+    if not av_api_key or av_api_key == "demo":
+        raise RuntimeError(
+            f"IWV download failed ({iwv_error}) and AV_API_KEY is not set — "
+            f"cannot build universe. Set AV_API_KEY or use MOCK_DATA=true."
+        )
+
+    return await download_av_listing(session, av_api_key)
 
 
 def _find_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
