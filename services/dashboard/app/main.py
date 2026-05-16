@@ -812,7 +812,7 @@ footer span{color:var(--blue)}
   <div class="stats">
     <div class="stat"><div class="lbl">Total Ranked</div><div class="val" id="r-total">&#8212;</div></div>
     <div class="stat"><div class="lbl">Top Score</div><div class="val" id="r-top">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Regime</div><div class="val orange" id="r-regime">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Regime</div><div class="val" id="r-regime">&#8212;</div></div>
     <div class="stat"><div class="lbl">Rank Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="r-date">&#8212;</div></div>
   </div>
   <div class="toolbar">
@@ -932,7 +932,7 @@ footer span{color:var(--blue)}
     <div class="stat"><div class="lbl">Est. Annual Vol</div><div class="val orange" id="p-vol">&#8212;</div></div>
     <div class="stat"><div class="lbl">Avg Pairwise Corr</div><div class="val" id="p-corr">&#8212;</div></div>
     <div class="stat"><div class="lbl">Portfolio Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="p-date">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Regime</div><div class="val orange" id="p-regime">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Regime</div><div class="val" id="p-regime">&#8212;</div></div>
   </div>
   <div class="toolbar">
     <input type="search" id="p-search" placeholder="Filter ticker" oninput="renderPortfolio()">
@@ -1567,6 +1567,16 @@ function _setTabWarn(tabId, show){
 }
 
 // ── Regime ────────────────────────────────────────────────────────────────────
+// Apply regime name + consistent color to any element.
+// Uses the same CSS classes as the regime bar (.regime-bull_calm etc.)
+function _setRegimeEl(id, regime){
+  const el=$(id);
+  if(!el) return;
+  el.textContent = regime ? regime.toUpperCase().replace('_',' ') : '—';
+  el.className = el.className.replace(/\bregime-\S+/g, '').trim();
+  if(regime && regime !== 'unknown') el.className += ' regime-' + regime;
+}
+
 async function loadRegime(){
   try{
     const d=await fetch('/api/regime').then(r=>r.json());
@@ -1581,7 +1591,7 @@ async function loadRegime(){
     $('rb-sma').innerHTML='<span class="'+smaCls+'">'+smaStr+'</span>';
     $('rb-vol').textContent=d.realized_vol?(parseFloat(d.realized_vol)*100).toFixed(1)+'%':'—';
     if(d.calculated_at)$('rb-ts').textContent=new Date(d.calculated_at).toLocaleString();
-    $('r-regime').textContent=regime.toUpperCase().replace('_',' ');
+    _setRegimeEl('r-regime', regime);
   }catch(e){
     $('rb-regime').textContent='UNAVAILABLE';
   }
@@ -1734,7 +1744,7 @@ async function loadPortfolio(){
     $('p-vol').textContent=run.portfolio_estimated_vol!=null?(+run.portfolio_estimated_vol*100).toFixed(1)+'%':'—';
     $('p-corr').textContent=run.avg_pairwise_correlation!=null?(+run.avg_pairwise_correlation).toFixed(3):'—';
     $('p-date').textContent=run.portfolio_date||'—';
-    $('p-regime').textContent=(run.regime||'—').toUpperCase().replace('_',' ');
+    _setRegimeEl('p-regime', run.regime||null);
     renderPortfolio();
   }catch(e){
     $('p-body').innerHTML='<tr><td colspan="7" class="error">No portfolio data</td></tr>';
