@@ -96,14 +96,14 @@ portfolio:
 # Pull the Ollama model (run once after first `make up`; downloads ~9 GB)
 pull-model:
 	@echo "Pulling $(OLLAMA_MODEL) into Ollama (this may take several minutes)..."
-	docker compose exec ollama ollama pull $(or $(OLLAMA_MODEL),qwen2.5:14b)
+	docker compose exec ollama ollama pull $(or $(OLLAMA_MODEL),qwen2.5:7b)
 	@echo "Model ready."
 
 # Run LLM vetter on the latest ranking run, show results, and prompt for approval.
 # Usage: make vet
 # To skip and go straight to portfolio: make portfolio
 vet:
-	@echo "Running LLM vetter (model: $(or $(OLLAMA_MODEL),qwen2.5:14b))..."
+	@echo "Running LLM vetter (model: $(or $(OLLAMA_MODEL),qwen2.5:7b))..."
 	$(eval VET_RUN_ID := $(shell curl -sf -X POST http://localhost:8016/jobs/vet | python3 -c "import sys,json; print(json.load(sys.stdin)['run_id'])"))
 	@echo "Vetter run started: $(VET_RUN_ID)"
 	@echo "Polling for completion..."

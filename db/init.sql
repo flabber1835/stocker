@@ -194,7 +194,7 @@ CREATE TABLE IF NOT EXISTS ranking_runs (
     source_factor_run_id UUID         NOT NULL REFERENCES factor_runs(run_id),
     strategy_id          VARCHAR(100) NOT NULL,
     config_hash          VARCHAR(16),
-    regime               VARCHAR(30)  NOT NULL,
+    regime               VARCHAR(50)  NOT NULL,
     rank_date            DATE         NOT NULL,
     status               VARCHAR(20)  NOT NULL DEFAULT 'running',  -- running|success|failed
     universe_count       INTEGER,                      -- tickers from factor run
@@ -217,7 +217,7 @@ CREATE TABLE IF NOT EXISTS rankings (
     run_id                UUID         NOT NULL REFERENCES ranking_runs(run_id),
     source_factor_run_id  UUID         NOT NULL REFERENCES factor_runs(run_id),
     strategy_id           VARCHAR(100) NOT NULL,
-    regime                VARCHAR(20)  NOT NULL,
+    regime                VARCHAR(50)  NOT NULL,
     rank_date             DATE         NOT NULL,   -- score_date of the source factor run
     ticker                VARCHAR(20)  NOT NULL,
     rank                  INTEGER      NOT NULL,
@@ -305,7 +305,7 @@ CREATE TABLE IF NOT EXISTS portfolio_holdings (
     run_id                UUID         NOT NULL REFERENCES portfolio_runs(run_id),
     source_ranking_run_id UUID         NOT NULL REFERENCES ranking_runs(run_id),
     strategy_id           VARCHAR(100) NOT NULL,
-    regime                VARCHAR(20)  NOT NULL,
+    regime                VARCHAR(50)  NOT NULL,
     portfolio_date        DATE         NOT NULL,
     ticker                VARCHAR(20)  NOT NULL,
     position              INTEGER      NOT NULL,

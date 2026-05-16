@@ -117,6 +117,11 @@ async def proxy_live_portfolio():
     return await _proxy("/live-portfolio")
 
 
+@app.get("/api/data-freshness")
+async def proxy_data_freshness():
+    return await _proxy("/data-freshness")
+
+
 @app.get("/api/vetter/exclusions/{run_id}")
 async def vetter_exclusions(run_id: str):
     try:
@@ -457,6 +462,12 @@ header{
   color:var(--strong);font-family:var(--font-mono);
 }
 .stat .val.orange{color:var(--amber)}
+.fresh-strip{display:flex;gap:18px;margin-bottom:12px;flex-wrap:wrap;padding:6px 10px;background:var(--panel);border-radius:6px;border:1px solid var(--border)}
+.fresh-item{display:flex;gap:6px;align-items:baseline}
+.fresh-lbl{font-size:.72rem;color:var(--secondary);text-transform:uppercase;letter-spacing:.04em}
+.fresh-val{font-size:.85rem;font-family:var(--font-mono)}
+.fresh-val.fresh{color:var(--green)}
+.fresh-val.stale{color:var(--amber)}
 .toolbar{display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap}
 input[type=search]{
   background:var(--panel);
@@ -850,6 +861,12 @@ footer span{color:var(--blue)}
     <div class="stat"><div class="lbl">Top Score</div><div class="val" id="r-top">&#8212;</div></div>
     <div class="stat"><div class="lbl">Regime</div><div class="val" id="r-regime">&#8212;</div></div>
     <div class="stat"><div class="lbl">Rank Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="r-date">&#8212;</div></div>
+  </div>
+  <div class="fresh-strip">
+    <span class="fresh-item"><span class="fresh-lbl">Prices</span><span class="fresh-val" id="fresh-prices">—</span></span>
+    <span class="fresh-item"><span class="fresh-lbl">Fundamentals</span><span class="fresh-val" id="fresh-funds">—</span></span>
+    <span class="fresh-item"><span class="fresh-lbl">Factors</span><span class="fresh-val" id="fresh-factors">—</span></span>
+    <span class="fresh-item"><span class="fresh-lbl">Rankings</span><span class="fresh-val" id="fresh-rankings">—</span></span>
   </div>
   <div class="toolbar">
     <input type="search" id="r-search" placeholder="Filter ticker" oninput="renderRankings()">
@@ -1536,7 +1553,7 @@ async function _resumeRunningJobs(rank_chain_running){
         _setBadge('rank', 'FETCHING DATA', 'running');
         _setJobPanel('rank', 'running');
         _setProgress('rank', 2);
-        _pollJob('fetch', d.run_id);
+        _pollJob('data', d.run_id);
       }
     }catch(e){ /* ignore */ }
   } else if(rank_chain_running === 'factors'){
@@ -1632,7 +1649,7 @@ async function loadPipelineStatus(){
       } else if(vetter.status === 'success' && vetter.run_id){
         _setJobPanel('vet','success');
         $('v-exclusions-wrap').style.display = 'block';
-        if(_currentVetterRunId !== vetter.run_id || $('v-body').innerHTML.includes('LOADING')){
+        if(_currentVetterRunId !== vetter.run_id || $('v-body').innerHTML.includes('Loading')){
           _currentVetterRunId = vetter.run_id;
           loadVetterExclusions(vetter.run_id);
           _loadVetterTickers(vetter.run_id, false);

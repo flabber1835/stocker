@@ -381,7 +381,8 @@ async def _do_build(
             if boost <= 0:
                 continue
             original = scores_map[ticker]
-            scores_map[ticker] = original * (1.0 + boost)
+            # Additive boost so negative-score stocks are lifted, not penalised further
+            scores_map[ticker] = original + abs(original) * boost
             conviction_boosts_applied[ticker] = {
                 "conviction": conviction,
                 "boost_factor": boost,

@@ -30,6 +30,8 @@ def rank_universe(
         if any(pd.isna(row.get(f)) for f in required):
             return float("nan")
         weight_sum = sum(available.values())
+        if weight_sum == 0:
+            return float("nan")
         return sum((w / weight_sum) * row[f] for f, w in available.items())
 
     df["composite_score"] = df.apply(compute_score, axis=1)

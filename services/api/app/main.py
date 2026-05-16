@@ -81,7 +81,7 @@ async def get_regime():
         result = row.mappings().first()
     if result is None:
         return {"regime": None}
-    return dict(result)
+    return _fmt_row(result)
 
 
 # ── Rankings ─────────────────────────────────────────────────────────────────────────────────
