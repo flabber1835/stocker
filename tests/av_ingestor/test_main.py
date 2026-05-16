@@ -126,16 +126,22 @@ class TestPriceSkipLogic:
 
 
 class TestFundamentalsSkipLogic:
-    def test_skip_when_already_fetched_today(self):
-        """Fundamentals fetched today → skip (AV OVERVIEW is static intraday)."""
+    def test_skip_when_fetched_today(self):
+        """Fundamentals fetched today → skip."""
         today = date(2026, 5, 16)
         fund_latest = {"AAPL": today}
         assert _should_skip_fundamentals("AAPL", fund_latest, today) is True
 
-    def test_no_skip_when_fetched_yesterday(self):
-        """Fundamentals fetched yesterday → re-fetch today."""
+    def test_skip_when_fetched_6_days_ago(self):
+        """Fundamentals fetched 6 days ago → still within 7-day window, skip."""
         today = date(2026, 5, 16)
-        fund_latest = {"AAPL": date(2026, 5, 15)}
+        fund_latest = {"AAPL": date(2026, 5, 10)}
+        assert _should_skip_fundamentals("AAPL", fund_latest, today) is True
+
+    def test_no_skip_when_fetched_7_days_ago(self):
+        """Fundamentals fetched exactly 7 days ago → stale, must re-fetch."""
+        today = date(2026, 5, 16)
+        fund_latest = {"AAPL": date(2026, 5, 9)}
         assert _should_skip_fundamentals("AAPL", fund_latest, today) is False
 
     def test_no_skip_when_ticker_missing(self):

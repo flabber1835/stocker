@@ -53,9 +53,12 @@ def _should_use_compact(ticker: str, ticker_latest: dict) -> bool:
     return ticker_latest.get(ticker) is not None
 
 
-def _should_skip_fundamentals(ticker: str, fund_latest: dict, today) -> bool:
-    """Return True if fundamentals were already fetched today (AV OVERVIEW is static intraday)."""
-    return fund_latest.get(ticker) == today
+def _should_skip_fundamentals(ticker: str, fund_latest: dict, today: date, max_age_days: int = 7) -> bool:
+    """Return True if fundamentals were fetched within max_age_days (AV OVERVIEW is quarterly data)."""
+    last = fund_latest.get(ticker)
+    if last is None:
+        return False
+    return (today - last).days < max_age_days
 
 
 def _build_fetch_data_price_tickers(universe_tickers: list[str]) -> list[str]:
@@ -414,7 +417,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
     fund_latest = await _load_fund_staleness()
 
     price_skip = sum(1 for t in price_tickers if spy_max and ticker_latest.get(t) == spy_max)
-    fund_skip  = sum(1 for t in fundamental_tickers if fund_latest.get(t) == today)
+    fund_skip  = sum(1 for t in fundamental_tickers if _should_skip_fundamentals(t, fund_latest, today))
     print(
         f"[fetch-data] starting: {len(price_tickers)} price tickers "
         f"({price_skip} already current, spy_max={spy_max}), "
@@ -487,8 +490,8 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                     print(f"[fetch-data] {ticker} prices: error - {e}")
 
             if ticker in fundamental_set:
-                # Skip fundamentals if already fetched today — AV OVERVIEW is static within a day.
-                if fund_latest.get(ticker) == today:
+                # Skip fundamentals if fetched within the last 7 days — AV OVERVIEW is quarterly data.
+                if _should_skip_fundamentals(ticker, fund_latest, today):
                     print(f"[fetch-data] {ticker} fundamentals: already current (today) {label}")
                     fund_ok += 1
                     fund_skipped += 1
