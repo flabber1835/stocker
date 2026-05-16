@@ -100,6 +100,7 @@ class AVClient:
             "eps_growth": _to_float(data.get("QuarterlyEarningsGrowthYOY")),
             "market_cap": _to_int(data.get("MarketCapitalization")),
             "avg_volume": None,  # AV OVERVIEW has no reliable avg_volume field; calculated from daily_prices locally
+            "sector": data.get("Sector") or None,
         }
 
 
@@ -150,6 +151,12 @@ def _mock_prices(ticker: str, days: int = 400) -> list[dict]:
     return rows
 
 
+_MOCK_SECTORS = [
+    "Information Technology", "Health Care", "Financials",
+    "Consumer Discretionary", "Communication Services", "Industrials",
+    "Consumer Staples", "Energy", "Utilities", "Real Estate", "Materials",
+]
+
 def _mock_overview(ticker: str) -> dict:
     rng = random.Random(_stable_seed(ticker))
     return {
@@ -161,4 +168,5 @@ def _mock_overview(ticker: str) -> dict:
         "eps_growth": round(rng.uniform(-0.10, 0.40), 6),
         "market_cap": rng.randint(1_000_000_000, 3_000_000_000_000),
         "avg_volume": rng.randint(1_000_000, 50_000_000),
+        "sector": rng.choice(_MOCK_SECTORS),
     }

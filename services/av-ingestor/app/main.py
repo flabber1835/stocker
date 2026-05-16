@@ -512,6 +512,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                                     _ticker_avg_dv[ticker] = float(dv_val) if dv_val is not None else None
                             overview["avg_volume"] = _ticker_avg_dv.get(ticker)
                             async with SessionLocal() as session:
+                                sector = overview.pop("sector", None)
                                 async with session.begin():
                                     await session.execute(
                                         text(
@@ -530,6 +531,14 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                                         ),
                                         {"ticker": ticker, "as_of_date": today, **overview},
                                     )
+                                    if sector:
+                                        await session.execute(
+                                            text(
+                                                "UPDATE universe_tickers SET sector=:sector "
+                                                "WHERE ticker=:ticker AND sector IS DISTINCT FROM :sector"
+                                            ),
+                                            {"ticker": ticker, "sector": sector},
+                                        )
                             fund_ok += 1
                             print(f"[fetch-data] {ticker} fundamentals: upserted {label}")
                         else:
@@ -702,6 +711,7 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
                         dv_val = dv_row.scalar()
                     overview["avg_volume"] = float(dv_val) if dv_val is not None else None
 
+                    sector = overview.pop("sector", None)
                     async with SessionLocal() as session:
                         async with session.begin():
                             await session.execute(
@@ -721,6 +731,14 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
                                 ),
                                 {"ticker": ticker, "as_of_date": today, **overview},
                             )
+                            if sector:
+                                await session.execute(
+                                    text(
+                                        "UPDATE universe_tickers SET sector=:sector "
+                                        "WHERE ticker=:ticker AND sector IS DISTINCT FROM :sector"
+                                    ),
+                                    {"ticker": ticker, "sector": sector},
+                                )
                     fund_ok += 1
                     print(f"[fetch-fundamentals] {ticker}: upserted ({i+1}/{len(investable)})")
             except Exception as e:
