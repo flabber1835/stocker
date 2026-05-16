@@ -22,13 +22,14 @@ def _fmt_row(row) -> dict:
     }
 
 
-DATABASE_URL   = os.getenv("DATABASE_URL", "")
-OLLAMA_HOST    = os.getenv("OLLAMA_HOST", "http://ollama:11434")
-OLLAMA_MODEL   = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
-AV_API_KEY     = os.getenv("AV_API_KEY", "")
-TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
+DATABASE_URL        = os.getenv("DATABASE_URL", "")
+OLLAMA_HOST         = os.getenv("OLLAMA_HOST", "http://ollama:11434")
+OLLAMA_MODEL        = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
+OLLAMA_TIMEOUT_SECS = int(os.getenv("OLLAMA_TIMEOUT_SECS", "300"))
+AV_API_KEY          = os.getenv("AV_API_KEY", "")
+TAVILY_API_KEY      = os.getenv("TAVILY_API_KEY", "")
 VET_CANDIDATE_COUNT = int(os.getenv("VET_CANDIDATE_COUNT", "50"))
-ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
+ARTIFACTS_PATH      = os.getenv("ARTIFACTS_PATH", "")
 
 engine: AsyncEngine
 
@@ -365,7 +366,7 @@ async def _do_vet(
         )
 
     # ── Step 3: vet each ticker individually ─────────────────────────────────
-    client = OllamaClient(host=OLLAMA_HOST, timeout=120)
+    client = OllamaClient(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT_SECS)
     exclusions: list[dict] = []
 
     for i, c in enumerate(candidates):
