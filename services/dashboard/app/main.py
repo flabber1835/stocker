@@ -1540,7 +1540,8 @@ function renderJob(tab, state, prev) {
     if (running) {
       wrapEl && (wrapEl.style.display = 'flex');
       fillEl.classList.add('indeterminate');
-      if (pctEl) pctEl.textContent = '';
+      const stepPct = {fetch_data:'20%', calc_factors:'55%', ranking:'85%'}[state.step] || '';
+      if (pctEl) pctEl.textContent = stepPct;
     } else if (done) {
       fillEl.style.width = '100%';
       if (pctEl) pctEl.textContent = '100%';
