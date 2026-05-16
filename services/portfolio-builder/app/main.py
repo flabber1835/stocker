@@ -818,10 +818,9 @@ async def start_build(
                 detail="no successful ranking run found — run: make rank first",
             )
 
-        # If a vetter_run_id is provided it must be approved
         if vetter_run_id:
             vchk = await conn.execute(
-                text("SELECT approved, status FROM vetter_runs WHERE run_id=:rid"),
+                text("SELECT status FROM vetter_runs WHERE run_id=:rid"),
                 {"rid": vetter_run_id},
             )
             vrow = vchk.fetchone()
@@ -831,11 +830,6 @@ async def start_build(
                 raise HTTPException(
                     status_code=400,
                     detail=f"Vetter run status is '{vrow.status}', must be 'success'",
-                )
-            if not vrow.approved:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Vetter run has not been approved — call POST /runs/{id}/approve on the llm-vetter first",
                 )
 
     run_id = str(uuid.uuid4())

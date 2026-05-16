@@ -117,18 +117,6 @@ async def job_status(tab: str, run_id: str):
         return JSONResponse(content={"error": str(exc)}, status_code=502)
 
 
-# ── Vetter approval/exclusions ────────────────────────────────────────────────
-
-@app.post("/api/vetter/approve/{run_id}")
-async def vetter_approve(run_id: str):
-    return await _proxy_post(f"{VETTER_URL}/runs/{run_id}/approve")
-
-
-@app.post("/api/vetter/reject/{run_id}")
-async def vetter_reject(run_id: str):
-    return await _proxy_post(f"{VETTER_URL}/runs/{run_id}/reject")
-
-
 @app.get("/api/vetter/exclusions/{run_id}")
 async def vetter_exclusions(run_id: str):
     try:
@@ -865,7 +853,6 @@ footer span{color:var(--blue)}
     <div class="stat"><div class="lbl">Candidates Reviewed</div><div class="val" id="v-candidates">&#8212;</div></div>
     <div class="stat"><div class="lbl">Flagged for Exclusion</div><div class="val orange" id="v-flagged">&#8212;</div></div>
     <div class="stat"><div class="lbl">Run Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="v-date">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Approval</div><div class="val" style="font-size:1rem;padding-top:4px" id="v-approved">&#8212;</div></div>
   </div>
   <!-- Live per-ticker analysis feed (card layout) -->
   <div id="v-ticker-analysis" style="display:none;margin-top:8px">
@@ -898,14 +885,6 @@ footer span{color:var(--blue)}
           <tr><td colspan="4" class="loading">Loading exclusions</td></tr>
         </tbody>
       </table>
-    </div>
-    <div class="vetter-actions" id="v-actions">
-      <button class="btn-approve" onclick="vetterApprove()">&#10003; APPROVE EXCLUSIONS</button>
-      <button class="btn-reject" onclick="vetterReject()">&#215; REJECT / OVERRIDE</button>
-      <span style="color:var(--muted);font-size:.72rem">Approving locks these exclusions for the next portfolio build.</span>
-    </div>
-    <div id="v-approved-msg" style="display:none;padding-top:14px">
-      <span class="vetter-approved">&#10003; EXCLUSIONS APPROVED — ready to build portfolio</span>
     </div>
   </div>
 </div>
@@ -1265,50 +1244,8 @@ async function loadVetterExclusions(runId){
       }).join('');
     }
 
-    // Show approve/reject or already-approved message
-    if(d.approved){
-      $('v-actions').style.display = 'none';
-      $('v-approved-msg').style.display = 'block';
-      $('v-approved').textContent = '✓ APPROVED';
-      $('v-approved').style.color = 'var(--green)';
-    } else {
-      $('v-actions').style.display = 'flex';
-      $('v-approved-msg').style.display = 'none';
-      $('v-approved').textContent = 'PENDING';
-      $('v-approved').style.color = 'var(--yellow)';
-    }
   }catch(e){
     $('v-body').innerHTML = '<tr><td colspan="4" class="error">Failed to load exclusions</td></tr>';
-  }
-}
-
-async function vetterApprove(){
-  if(!_currentVetterRunId) return;
-  try{
-    const r = await fetch('/api/vetter/approve/'+_currentVetterRunId, {method:'POST'});
-    if(!r.ok) throw new Error(r.status);
-    $('v-actions').style.display = 'none';
-    $('v-approved-msg').style.display = 'block';
-    $('v-approved').textContent = '✓ APPROVED';
-    $('v-approved').style.color = 'var(--green)';
-  }catch(e){
-    alert('Approval failed: '+e.message);
-  }
-}
-
-async function vetterReject(){
-  if(!_currentVetterRunId) return;
-  try{
-    const r = await fetch('/api/vetter/reject/'+_currentVetterRunId, {method:'POST'});
-    if(!r.ok) throw new Error(r.status);
-    $('v-approved').textContent = 'REJECTED';
-    $('v-approved').style.color = 'var(--red)';
-    $('v-actions').style.display = 'none';
-    $('v-approved-msg').style.display = 'block';
-    $('v-approved-msg').querySelector('span').textContent = '✕ EXCLUSIONS REJECTED — portfolio will use full ranked list';
-    $('v-approved-msg').querySelector('span').style.color = 'var(--red)';
-  }catch(e){
-    alert('Reject failed: '+e.message);
   }
 }
 
@@ -1527,9 +1464,6 @@ async function loadPipelineStatus(){
       $('v-date').textContent = vetDate || '—';
       if(vetter.candidate_count != null) $('v-candidates').textContent = vetter.candidate_count;
       if(vetter.flagged_count   != null) $('v-flagged').textContent    = vetter.flagged_count;
-      $('v-approved').textContent = vetter.approved ? '✓ APPROVED' : 'PENDING';
-      $('v-approved').style.color = vetter.approved ? 'var(--green)' : 'var(--yellow)';
-
       if(vetter.status === 'running' && vetter.run_id){
         // Resume live updates in this browser even if it didn't start the job
         _currentVetterRunId = vetter.run_id;
