@@ -235,6 +235,7 @@ async def pipeline_status():
         if d7.get("status") == "running":
             portfolio_running = True
 
+
     # Compare full ISO timestamps so date-only differences (e.g. universe
     # snapshot_date=today vs rank_date=last trading day) don't cause false alarms.
     rank_warning = bool(uni_fetched_at and (not rank_completed_at or uni_fetched_at > rank_completed_at))
@@ -847,7 +848,7 @@ footer span{color:var(--blue)}
   <div class="stats">
     <div class="stat"><div class="lbl">Total Ranked</div><div class="val" id="r-total">&#8212;</div></div>
     <div class="stat"><div class="lbl">Top Score</div><div class="val" id="r-top">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Regime</div><div class="val orange" id="r-regime">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Regime</div><div class="val" id="r-regime">&#8212;</div></div>
     <div class="stat"><div class="lbl">Rank Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="r-date">&#8212;</div></div>
   </div>
   <div class="toolbar">
@@ -958,7 +959,7 @@ footer span{color:var(--blue)}
     <div class="stat"><div class="lbl">Est. Annual Vol</div><div class="val orange" id="p-vol">&#8212;</div></div>
     <div class="stat"><div class="lbl">Avg Pairwise Corr</div><div class="val" id="p-corr">&#8212;</div></div>
     <div class="stat"><div class="lbl">Portfolio Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="p-date">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Regime</div><div class="val orange" id="p-regime">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Regime</div><div class="val" id="p-regime">&#8212;</div></div>
   </div>
   <div class="toolbar">
     <input type="search" id="p-search" placeholder="Filter ticker" oninput="renderPortfolio()">
@@ -1061,9 +1062,6 @@ function switchTab(name, btn){
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   btn.classList.add('active');
   $('pane-'+name).classList.add('active');
-  if(name !== 'vet'){
-    _currentVetterRunId = null;
-  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -1250,9 +1248,15 @@ function _pollUntilDone(job, runId, pctStart, pctEnd){
   });
 }
 
-function _pollJob(tab, runId){
-  if(_jobPolls[tab]) return;  // already polling this tab — don't double-start
-  let pct = 2;
+function _pollJob(tab, runId, startPct=2){
+  if(_jobPolls[tab]){
+    if(_jobPolls[tab].runId === runId) return;  // same job, already polling
+    // New run_id — clear stale poll so we don't block the new job
+    clearInterval(_jobPolls[tab].incrId);
+    clearInterval(_jobPolls[tab].pollId);
+    delete _jobPolls[tab];
+  }
+  let pct = startPct;
 
   // For the vetter, progress is driven by real ticker data in _loadVetterTickers.
   // For other tabs, use a fake smooth animation since we have no step-level data.
@@ -1507,7 +1511,8 @@ async function _loadVetterTickers(runId, live){
 
 // Resume live polling for any job that is currently running.
 // Called on page load so any browser picks up in-progress jobs automatically.
-async function _resumeRunningJobs(){
+// rank_chain_running: 'data' | 'factors' | null — from pipeline-status response.
+async function _resumeRunningJobs(rank_chain_running){
   // Simple tabs where we just need run_id + status
   const simpleTabs = ['universe', 'portfolio'];
   for(const tab of simpleTabs){
@@ -1522,16 +1527,41 @@ async function _resumeRunningJobs(){
     }catch(e){ /* service may be down */ }
   }
 
-  // Rank tab uses a chain of factor + ranking runs; resume the ranker run_id
-  try{
-    const d = await fetch('/api/jobs/rank/latest').then(r=>r.json());
-    if(d.run_id && d.status === 'running'){
-      _setBadge('rank', 'RUNNING', 'running');
-      _setJobPanel('rank', 'running');
-      _setProgress('rank', 2);
-      _pollJob('rank', d.run_id);
-    }
-  }catch(e){ /* ignore */ }
+  // Rank tab: use rank_chain_running from pipeline-status to resume from the correct step
+  if(rank_chain_running === 'data'){
+    // av-ingestor fetch-data is still running — resume from data step
+    try{
+      const d = await fetch('/api/jobs/data/latest').then(r=>r.json());
+      if(d.run_id){
+        _setBadge('rank', 'FETCHING DATA', 'running');
+        _setJobPanel('rank', 'running');
+        _setProgress('rank', 2);
+        _pollJob('fetch', d.run_id);
+      }
+    }catch(e){ /* ignore */ }
+  } else if(rank_chain_running === 'factors'){
+    // factor-engine is still running — resume from factors step
+    try{
+      const d = await fetch('/api/jobs/factors/latest').then(r=>r.json());
+      if(d.run_id){
+        _setBadge('rank', 'CALC FACTORS', 'running');
+        _setJobPanel('rank', 'running');
+        _setProgress('rank', 33);
+        _pollJob('factors', d.run_id);
+      }
+    }catch(e){ /* ignore */ }
+  } else {
+    // Fall back to checking ranker directly
+    try{
+      const d = await fetch('/api/jobs/rank/latest').then(r=>r.json());
+      if(d.run_id && d.status === 'running'){
+        _setBadge('rank', 'RUNNING', 'running');
+        _setJobPanel('rank', 'running');
+        _setProgress('rank', 2);
+        _pollJob('rank', d.run_id);
+      }
+    }catch(e){ /* ignore */ }
+  }
 
   // Vetter is handled inside loadPipelineStatus (we already have the run_id there)
 }
@@ -1593,7 +1623,6 @@ async function loadPipelineStatus(){
       $('v-date').textContent = vetDate || '—';
       if(vetter.candidate_count != null) $('v-candidates').textContent = vetter.candidate_count;
       if(vetter.flagged_count   != null) $('v-flagged').textContent    = vetter.flagged_count;
-
       if(vetter.status === 'running' && vetter.run_id){
         // Resume live updates in this browser even if it didn't start the job
         _currentVetterRunId = vetter.run_id;
@@ -1640,6 +1669,16 @@ function _setTabWarn(tabId, show){
 }
 
 // ── Regime ────────────────────────────────────────────────────────────────────
+// Apply regime name + consistent color to any element.
+// Uses the same CSS classes as the regime bar (.regime-bull_calm etc.)
+function _setRegimeEl(id, regime){
+  const el=$(id);
+  if(!el) return;
+  el.textContent = regime ? regime.toUpperCase().replace('_',' ') : '—';
+  el.className = el.className.replace(/\bregime-\S+/g, '').trim();
+  if(regime && regime !== 'unknown') el.className += ' regime-' + regime;
+}
+
 async function loadRegime(){
   try{
     const d=await fetch('/api/regime').then(r=>r.json());
@@ -1654,7 +1693,7 @@ async function loadRegime(){
     $('rb-sma').innerHTML='<span class="'+smaCls+'">'+smaStr+'</span>';
     $('rb-vol').textContent=d.realized_vol?(parseFloat(d.realized_vol)*100).toFixed(1)+'%':'—';
     if(d.calculated_at)$('rb-ts').textContent=new Date(d.calculated_at).toLocaleString();
-    $('r-regime').textContent=regime.toUpperCase().replace('_',' ');
+    _setRegimeEl('r-regime', regime);
   }catch(e){
     $('rb-regime').textContent='UNAVAILABLE';
   }
@@ -1807,7 +1846,7 @@ async function loadPortfolio(){
     $('p-vol').textContent=run.portfolio_estimated_vol!=null?(+run.portfolio_estimated_vol*100).toFixed(1)+'%':'—';
     $('p-corr').textContent=run.avg_pairwise_correlation!=null?(+run.avg_pairwise_correlation).toFixed(3):'—';
     $('p-date').textContent=run.portfolio_date||'—';
-    $('p-regime').textContent=(run.regime||'—').toUpperCase().replace('_',' ');
+    _setRegimeEl('p-regime', run.regime||null);
     renderPortfolio();
   }catch(e){
     $('p-body').innerHTML='<tr><td colspan="7" class="error">No portfolio data</td></tr>';
