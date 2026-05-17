@@ -131,13 +131,20 @@ async def mark_orphaned_runs_failed(
     If trace_job_type is given, also marks matching execution_traces rows as failed.
     """
     from sqlalchemy import text
-    await conn.execute(
-        text(
-            f"UPDATE {run_table} SET status='failed', completed_at=NOW(), "  # noqa: S608
-            "error_message='Service restarted while run was active' "
-            "WHERE status='running'"
+    from sqlalchemy.exc import ProgrammingError
+    try:
+        await conn.execute(
+            text(
+                f"UPDATE {run_table} SET status='failed', completed_at=NOW(), "  # noqa: S608
+                "error_message='Service restarted while run was active' "
+                "WHERE status='running'"
+            )
         )
-    )
+    except ProgrammingError as exc:
+        if "UndefinedTableError" in type(exc.orig).__name__ or "does not exist" in str(exc):
+            print(f"[tracing] WARNING: table '{run_table}' does not exist yet — skipping orphan cleanup")
+            return
+        raise
     if trace_job_type:
         await conn.execute(
             text(
