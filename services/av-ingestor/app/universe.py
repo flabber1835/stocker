@@ -172,7 +172,7 @@ def _mock_universe() -> list[dict]:
     ]
 
 
-async def get_benchmark_tickers(session: httpx.AsyncClient) -> list[dict]:
+async def get_benchmark_tickers() -> list[dict]:
     return [
         {"ticker": "SPY",  "name": "SPDR S&P 500 ETF",             "weight_pct": None, "sector": None, "asset_class": "ETF"},
         {"ticker": "QQQ",  "name": "Invesco QQQ Trust",             "weight_pct": None, "sector": None, "asset_class": "ETF"},

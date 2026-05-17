@@ -62,10 +62,15 @@ def _should_skip_fundamentals(ticker: str, fund_latest: dict, today: date, max_a
 
 
 def _build_benchmarks_first(universe_tickers: list[str]) -> list[str]:
-    """Return the ordered ticker list with benchmarks first, then universe (deduped)."""
-    universe_set = set(universe_tickers)
-    extra_benchmarks = [t for t in BENCHMARK_TICKERS if t not in universe_set]
-    return extra_benchmarks + list(universe_tickers)
+    """Return the ordered ticker list with benchmarks first, then universe (deduped).
+
+    Benchmarks are always moved to the front regardless of whether they appear in the
+    universe list. This ensures SPY is fetched first so spy_max lands in the DB before
+    any universe-ticker skip evaluation.
+    """
+    benchmark_set = set(BENCHMARK_TICKERS)
+    without_benchmarks = [t for t in universe_tickers if t not in benchmark_set]
+    return list(BENCHMARK_TICKERS) + without_benchmarks
 
 
 def _coverage(ok: int, total: int) -> Optional[float]:
@@ -99,12 +104,13 @@ async def _upsert_fundamentals(session, ticker: str, overview: dict, today: date
     await session.execute(
         text(
             "INSERT INTO fundamentals "
-            "    (ticker, as_of_date, pe_ratio, pb_ratio, roe, debt_to_equity, "
+            "    (ticker, as_of_date, source, pe_ratio, pb_ratio, roe, debt_to_equity, "
             "     revenue_growth, eps_growth, market_cap, avg_volume) "
             "VALUES "
-            "    (:ticker, :as_of_date, :pe_ratio, :pb_ratio, :roe, :debt_to_equity, "
+            "    (:ticker, :as_of_date, 'alpha_vantage', :pe_ratio, :pb_ratio, :roe, :debt_to_equity, "
             "     :revenue_growth, :eps_growth, :market_cap, :avg_volume) "
             "ON CONFLICT (ticker, as_of_date) DO UPDATE SET "
+            "    source='alpha_vantage', "
             "    pe_ratio=EXCLUDED.pe_ratio, pb_ratio=EXCLUDED.pb_ratio, "
             "    roe=EXCLUDED.roe, debt_to_equity=EXCLUDED.debt_to_equity, "
             "    revenue_growth=EXCLUDED.revenue_growth, eps_growth=EXCLUDED.eps_growth, "
@@ -394,7 +400,7 @@ async def _run_fetch_universe(run_id: str) -> None:
     try:
         async with httpx.AsyncClient() as http:
             tickers, listing_stats = await download_av_universe(http, av_api_key=AV_API_KEY)
-            benchmarks = await get_benchmark_tickers(http)
+        benchmarks = await get_benchmark_tickers()
         all_tickers = tickers + benchmarks
         print(
             f"[fetch-universe] downloaded {len(tickers)} universe + {len(benchmarks)} benchmarks "
@@ -410,9 +416,12 @@ async def _run_fetch_universe(run_id: str) -> None:
                 snapshot_id = await save_universe_snapshot(session, "AV_LISTING", all_tickers)
         print(f"[fetch-universe] saved snapshot_id={snapshot_id} with {len(all_tickers)} tickers")
         await _finish_run(run_id, "success", ticker_count=len(all_tickers))
+        # BUG 10: strip large row arrays (10k+ rows each) before writing to trace to
+        # avoid bloating the artifact with multi-MB JSON files.
+        trace_stats = {k: v for k, v in listing_stats.items() if k not in ("raw_listing", "filtered_rows", "accepted_tickers")}
         await _write_trace_file(run_id, "fetch-universe", "success", started_at,
                                 ticker_count=len(all_tickers), snapshot_id=snapshot_id,
-                                listing_stats=listing_stats)
+                                listing_stats=trace_stats)
     except Exception as exc:
         traceback.print_exc()
         err = str(exc)[:1000]
@@ -439,11 +448,11 @@ async def _load_price_staleness() -> tuple[dict[str, date], date | None]:
 
 
 async def _load_fund_staleness() -> dict[str, date]:
-    """Return ticker→most_recent_fetched_at for fundamentals."""
+    """Return ticker→most_recent_fetched_at (UTC date) for fundamentals."""
     async with engine.connect() as conn:
         rows = await conn.execute(
             text(
-                "SELECT ticker, MAX(fetched_at)::date AS last_fetched "
+                "SELECT ticker, (MAX(fetched_at) AT TIME ZONE 'UTC')::date AS last_fetched "
                 "FROM fundamentals GROUP BY ticker"
             )
         )
@@ -460,7 +469,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
     price_tickers = _build_benchmarks_first(tickers)
     fundamental_tickers = [t for t in tickers if t not in benchmark_set]
     fundamental_set = set(fundamental_tickers)
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
 
     # Check what's already in the DB so we can skip up-to-date tickers.
     ticker_latest, spy_max = await _load_price_staleness()
@@ -494,6 +503,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
     # same stale date → all would be incorrectly skipped. Reloading after benchmarks
     # gives the true current trading date for universe-ticker skip evaluation.
     _spy_max_reloaded = False
+    _spy_fetch_failed = False  # BUG 8: if SPY fails, invalidate spy_max after reload
     client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA)
     try:
         for i, ticker in enumerate(price_tickers):
@@ -510,6 +520,11 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
             if not _spy_max_reloaded and not is_benchmark:
                 _spy_max_reloaded = True
                 ticker_latest, spy_max = await _load_price_staleness()
+                if _spy_fetch_failed:
+                    # SPY couldn't be written — old spy_max is stale. Clear it so
+                    # no universe ticker is incorrectly skipped.
+                    print("[fetch-data] WARNING: SPY fetch failed; disabling skip optimisation for this run")
+                    spy_max = None
 
             # Benchmarks are never skipped — they must be fetched to establish the
             # current trading date. Universe tickers skip only when already current.
@@ -529,7 +544,12 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                         price_rows_written += len(rows)
                         price_ok += 1
                         last_20 = sorted(rows, key=lambda r: r["date"])[-20:]
-                        dv_vals = [(r["adjusted_close"] or 0) * (r["volume"] or 0) for r in last_20]
+                        # BUG 5: skip rows with NULL adjusted_close to avoid diluting avg_dv with zeros
+                        dv_vals = [
+                            r["adjusted_close"] * (r["volume"] or 0)
+                            for r in last_20
+                            if r.get("adjusted_close")
+                        ]
                         if dv_vals:
                             _ticker_avg_dv[ticker] = sum(dv_vals) / len(dv_vals)
                         mode = "compact" if use_compact else "full"
@@ -539,6 +559,8 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                 except Exception as e:
                     err_count += 1
                     error_tickers.append(f"{ticker}:prices")
+                    if is_benchmark and ticker == "SPY":
+                        _spy_fetch_failed = True
                     print(f"[fetch-data] {ticker} prices: error - {e}")
 
             if ticker in fundamental_set:
@@ -635,7 +657,11 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
     all_tickers = _build_benchmarks_first(tickers)
 
     ticker_latest, spy_max = await _load_price_staleness()
-    skip_count = sum(1 for t in all_tickers if spy_max and ticker_latest.get(t) == spy_max)
+    benchmark_set = set(BENCHMARK_TICKERS)
+    skip_count = sum(
+        1 for t in all_tickers
+        if t not in benchmark_set and spy_max and ticker_latest.get(t) == spy_max
+    )
     print(f"[fetch-prices] starting for {len(all_tickers)} tickers ({skip_count} already current, spy_max={spy_max})")
     await _checkpoint(run_id, "fetch-prices", started_at,
                       tickers_done=0, total_tickers=len(all_tickers),
@@ -643,14 +669,24 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
 
     rows_written = err_count = tickers_ok = skipped = 0
     error_tickers: list[str] = []
+    _spy_max_reloaded = False
+    _spy_fetch_failed = False  # BUG 8: if SPY fails, invalidate spy_max after reload
     client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA)
     try:
         for i, ticker in enumerate(all_tickers):
             if not _TICKER_RE.match(ticker):
                 print(f"[fetch-prices] skipping invalid ticker: {ticker!r}")
                 continue
-            if spy_max and ticker_latest.get(ticker) == spy_max:
-                print(f"[fetch-prices] {ticker}: already current ({spy_max}) ({i+1}/{len(all_tickers)})")
+            is_benchmark = ticker in benchmark_set
+            # Reload spy_max once we leave the benchmark block, same as _run_fetch_data.
+            if not _spy_max_reloaded and not is_benchmark:
+                _spy_max_reloaded = True
+                ticker_latest, spy_max = await _load_price_staleness()
+                if _spy_fetch_failed:
+                    print("[fetch-prices] WARNING: SPY fetch failed; disabling skip optimisation for this run")
+                    spy_max = None
+            # Benchmarks are never skipped; universe tickers skip only when already current.
+            if not is_benchmark and spy_max and ticker_latest.get(ticker) == spy_max:
                 tickers_ok += 1
                 skipped += 1
                 continue
@@ -670,6 +706,8 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
             except Exception as e:
                 err_count += 1
                 error_tickers.append(ticker)
+                if is_benchmark and ticker == "SPY":
+                    _spy_fetch_failed = True
                 print(f"[fetch-prices] {ticker}: error - {e}")
             if (i + 1) % CHECKPOINT_EVERY == 0:
                 await _checkpoint(run_id, "fetch-prices", started_at,
@@ -702,11 +740,11 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
     started_at = datetime.now(timezone.utc)
     await _start_run(run_id, "fetch-fundamentals")
     investable = [t for t in tickers if t not in set(BENCHMARK_TICKERS)]
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
 
     fund_latest = await _load_fund_staleness()
-    skip_count = sum(1 for t in investable if fund_latest.get(t) == today)
-    print(f"[fetch-fundamentals] starting for {len(investable)} investable tickers ({skip_count} already current today)")
+    skip_count = sum(1 for t in investable if _should_skip_fundamentals(t, fund_latest, today))
+    print(f"[fetch-fundamentals] starting for {len(investable)} investable tickers ({skip_count} already current)")
     await _checkpoint(run_id, "fetch-fundamentals", started_at,
                       tickers_done=0, total_tickers=len(investable),
                       fund_rows=0, error_count=0, skipped=skip_count)
@@ -719,8 +757,7 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
             if not _TICKER_RE.match(ticker):
                 print(f"[fetch-fundamentals] skipping invalid ticker: {ticker!r}")
                 continue
-            if fund_latest.get(ticker) == today:
-                print(f"[fetch-fundamentals] {ticker}: already current (today) ({i+1}/{len(investable)})")
+            if _should_skip_fundamentals(ticker, fund_latest, today):
                 fund_ok += 1
                 skipped += 1
                 continue
