@@ -49,7 +49,12 @@ def compute_momentum(
     price_long = prices.iloc[-long_window]
     price_short = prices.iloc[-short_window]
 
-    momentum = (price_short / price_long) - 1.0
+    # Guard: price_long <= 0 means corrupt/missing data (e.g. AV returned 0.0 for adjusted_close),
+    # not a real price. Replace with NaN so division produces NaN rather than inf.
+    valid_long = price_long.where(price_long > 0)
+    momentum = (price_short / valid_long) - 1.0
+    # Guard: replace any inf/-inf that slipped through with NaN
+    momentum = momentum.replace([float("inf"), float("-inf")], float("nan"))
     momentum.name = "momentum"
     return momentum
 

@@ -87,7 +87,8 @@ async def _upsert_prices(session, ticker: str, rows: list[dict]) -> None:
         ),
         [{"ticker": ticker, "date": date.fromisoformat(r["date"]),
           "open": r["open"], "high": r["high"], "low": r["low"],
-          "close": r["close"], "adjusted_close": r["adjusted_close"],
+          "close": r["close"],
+          "adjusted_close": r["adjusted_close"] if r.get("adjusted_close") else None,
           "volume": r["volume"]} for r in rows],
     )
 

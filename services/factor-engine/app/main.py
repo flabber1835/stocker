@@ -195,6 +195,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         snapshot_id = snap[0]
         asset_class_patterns = [f"%{ac}%" for ac in strategy.universe.exclude_asset_classes]
         name_pattern = "(" + "|".join(strategy.universe.exclude_name_patterns) + ")"
+        ticker_pattern_str = "(" + "|".join(strategy.universe.exclude_ticker_patterns) + ")"
         ticker_rows = await conn.execute(
             text(
                 "SELECT ticker FROM universe_tickers "
@@ -204,9 +205,15 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
                 "  OR COALESCE(name, '') ~* :name_pattern"
                 "  OR ticker ~* 'FUT$'"
                 "  OR ticker ~ '^[A-Z]{1,4}[0-9]{1,2}[A-Z]?[0-9]?$'"
+                "  OR ticker ~ :ticker_pattern"
                 ")"
             ),
-            {"sid": snapshot_id, "asset_class_patterns": asset_class_patterns, "name_pattern": name_pattern},
+            {
+                "sid": snapshot_id,
+                "asset_class_patterns": asset_class_patterns,
+                "name_pattern": name_pattern,
+                "ticker_pattern": ticker_pattern_str,
+            },
         )
         raw_tickers = [r[0] for r in ticker_rows.fetchall()]
 
@@ -223,6 +230,15 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         total_in_snap = total_snap_rows.scalar()
         excluded_count = total_in_snap - len(raw_tickers)
 
+        warrant_rows = await conn.execute(
+            text(
+                "SELECT COUNT(*) FROM universe_tickers "
+                "WHERE snapshot_id = :sid AND ticker ~ :ticker_pattern"
+            ),
+            {"sid": snapshot_id, "ticker_pattern": ticker_pattern_str},
+        )
+        excluded_warrants_units_rights = warrant_rows.scalar() or 0
+
     async with engine.begin() as conn:
         await _log_step(
             conn, trace_id, "load_universe",
@@ -232,6 +248,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             output_summary={
                 "total_in_snapshot": total_in_snap,
                 "excluded_etfs_funds": excluded_count,
+                "excluded_warrants_units_rights": excluded_warrants_units_rights,
                 "duplicates_removed": duplicates_removed,
                 "investable_count": len(universe_tickers),
             },
@@ -521,6 +538,13 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         step_warnings.append(f"{null_quality_count} tickers have null quality (no fundamentals)")
     if low_coverage_tickers:
         step_warnings.append(f"{len(low_coverage_tickers)} tickers have < {min_price_rows} price rows (insufficient for momentum)")
+    if "momentum" in factors_df.columns:
+        momentum_series = factors_df["momentum"]
+        if momentum_series.empty or momentum_series.isna().all():
+            step_warnings.append(
+                "momentum_raw is empty or all-NaN — likely corrupt adjusted_close data; "
+                "check daily_prices for zero values"
+            )
 
     async with engine.begin() as conn:
         await _log_step(

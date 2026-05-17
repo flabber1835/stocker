@@ -74,6 +74,20 @@ class UniverseConfig(BaseModel):
             r"\yETF\y", r"\yFund\y", r"\yLeveraged\y", r"\yInverse\y", r"\yFuture\y",
         ]
     )
+    # PostgreSQL ~ patterns (case-sensitive); matched against the ticker column; union joined with |.
+    # Excludes non-investable securities such as warrants, units, and rights.
+    exclude_ticker_patterns: list[str] = Field(
+        default_factory=lambda: [
+            r"-WS$",         # warrants with dash (APGB-WS)
+            r"-W$",          # warrants with dash (ARMK-W)
+            r"-U$",          # units with dash (APGB-U)
+            r"-R$",          # rights with dash (AVK-R)
+            r"[A-Z]{5,}W$",  # warrants without dash (ADALW) — 5+ uppercase letters ending W
+            r"[A-Z]{5,}U$",  # units without dash (ADALU) — 5+ uppercase letters ending U
+        ],
+        description="PostgreSQL ~ patterns matched against ticker column; union-joined with |. "
+                    "Excludes non-investable securities like warrants, units, and rights."
+    )
 
 
 class FactorEngineConfig(BaseModel):
