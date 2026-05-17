@@ -1599,9 +1599,11 @@ function renderJob(tab, state, prev) {
   const dateEl = {universe:'uni-last-date', rank:'rank-last-date', vetter:'vet-last-date', portfolio:'port-last-date'}[tab];
   if (dateEl && state.date) $(dateEl) && ($(dateEl).textContent = state.date);
 
-  // Transition: was running → now done. Reload tab data.
+  // Reload tab data when: (a) transition running→done, or (b) done but prev was unknown
+  // (b) handles mobile waking up after missing the transition while backgrounded.
   const wasRunning = (prev.status === 'running');
-  if (wasRunning && done) {
+  const prevUnknown = (prev.status == null || prev.status === 'none' || prev.status === undefined);
+  if ((wasRunning && done) || (prevUnknown && done)) {
     if (tab === 'universe')  loadUniverse();
     if (tab === 'rank')      loadRankings();
     if (tab === 'vetter') {
@@ -1998,6 +2000,12 @@ async function loadDataFreshness(){
   // Server-driven render loop: poll every 2s so every browser sees the same state
   setInterval(refresh, 2000);
   refresh();  // immediate first call
+  // On mobile, browsers suspend setInterval when the tab is backgrounded.
+  // Trigger an immediate refresh when the user returns to the tab so they
+  // never see stale state after switching away during a long pipeline run.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refresh();
+  });
   // Tick the freshness display every minute so "44m ago" counts up live
   setInterval(_updateFreshnessDisplay, 60000);
   // Reload actual timestamps every 5 minutes
