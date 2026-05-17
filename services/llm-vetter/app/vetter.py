@@ -242,27 +242,25 @@ def _format_ticker_message(
         "",
     ]
 
-    # Quantitative standing section
-    quant_lines = []
+    # Quantitative standing section — always shown (portfolio status is always meaningful)
+    lines.append("QUANTITATIVE STANDING (why the model selected this stock):")
     if rank is not None:
-        pct = f" (top {round(rank / total_candidates * 100):.0f}%)" if total_candidates else ""
-        quant_lines.append(f"  Rank: {rank}{f' of {total_candidates}' if total_candidates else ''}{pct}")
+        # Avoid misleading "top 100%" for the lowest-ranked candidate
+        pct = f" (top {round(rank / total_candidates * 100):.0f}%)" if total_candidates and rank < total_candidates else ""
+        lines.append(f"  Rank: {rank}{f' of {total_candidates}' if total_candidates else ''}{pct}")
     if composite_score is not None:
-        quant_lines.append(f"  Composite score: {composite_score:.4f}")
+        lines.append(f"  Composite score: {composite_score:.4f}")
     if factor_scores:
         fs_str = ", ".join(f"{k}={v:+.2f}" for k, v in sorted(factor_scores.items()) if v is not None)
-        quant_lines.append(f"  Factor z-scores: {fs_str}")
+        lines.append(f"  Factor z-scores: {fs_str}")
     if regime:
-        quant_lines.append(f"  Active regime: {regime}")
+        lines.append(f"  Active regime: {regime}")
     if sector:
-        quant_lines.append(f"  Sector: {sector}")
-    quant_lines.append(
+        lines.append(f"  Sector: {sector}")
+    lines.append(
         f"  Portfolio status: {'ALREADY HELD — assess continuation risk' if in_portfolio else 'CANDIDATE FOR ENTRY — assess entry risk'}"
     )
-    if quant_lines:
-        lines.append("QUANTITATIVE STANDING (why the model selected this stock):")
-        lines.extend(quant_lines)
-        lines.append("")
+    lines.append("")
 
     if earnings_date:
         lines.append(f"UPCOMING EARNINGS DATE: {earnings_date}")
@@ -345,14 +343,15 @@ def _detect_hallucination_flags(
     confidence = parsed.get("confidence", "low")
     reason = parsed.get("reason", "")
     risk_type = parsed.get("risk_type", "none")
+    has_data = bool(news or earnings_date or tavily_articles or agent_searches)
 
     # Exclude with no data and high/medium confidence is suspicious
-    if exclude and not news and not earnings_date and confidence in ("high", "medium"):
-        flags.append(f"EXCLUDE with {confidence} confidence but no news/earnings data provided")
+    if exclude and not has_data and confidence in ("high", "medium"):
+        flags.append(f"EXCLUDE with {confidence} confidence but no news/earnings/search data provided")
 
     # Exclude with no supporting data at any confidence is suspicious
-    if exclude and not news and not earnings_date:
-        flags.append("EXCLUDE with no supporting data (no news, no earnings date)")
+    if exclude and not has_data:
+        flags.append("EXCLUDE with no supporting data (no news, no earnings date, no search results)")
 
     # Exclude with risk_type=none is contradictory
     if exclude and risk_type == "none":
@@ -568,13 +567,17 @@ async def vet_single_ticker(
                 "content": "Search limit reached. Synthesize your decision from the information gathered so far.",
             })
 
-        # Final structured decision — enforce schema, remind model if it searched
-        final_prompt = (
-            "Based on your research, provide your final KEEP or EXCLUDE decision."
-            if (tool_calls_made and not loop_ended_on_tool_call) else
-            "Provide your KEEP or EXCLUDE decision."
-        )
-        messages.append({"role": "user", "content": final_prompt})
+        # Final structured decision — enforce schema.
+        # When loop_ended_on_tool_call=True the previous message is already a user
+        # message ("Search limit reached..."), so do NOT append another user message
+        # to avoid back-to-back user messages which some backends reject.
+        if not loop_ended_on_tool_call:
+            final_prompt = (
+                "Based on your research, provide your final KEEP or EXCLUDE decision."
+                if tool_calls_made else
+                "Provide your KEEP or EXCLUDE decision."
+            )
+            messages.append({"role": "user", "content": final_prompt})
         response = await client.chat(
             model=model,
             messages=messages,
@@ -660,20 +663,24 @@ async def vet_single_ticker(
             f"AUTO-OVERRIDDEN: exclude=True ({original_confidence} confidence) with no supporting data → forced to KEEP"
         )
 
-    # Positive conviction override: downgrade high/medium positive conviction with no data
+    # Positive conviction override: clear catalyst entirely when no supporting data.
+    # Leaving positive_catalyst=True with conviction="low" and empty reason is
+    # internally contradictory (the LOCKED UNIT rule) and still triggers a small
+    # score boost in portfolio-builder with zero evidentiary basis.
     if (
         parsed.get("positive_catalyst", False)
         and not has_any_supporting_data
         and parsed.get("positive_conviction", "none") in ("high", "medium")
     ):
         log.warning(
-            "[llm-vetter] %s: downgrading positive_conviction from %s → low (no supporting data)",
+            "[llm-vetter] %s: clearing positive catalyst — %s conviction with no supporting data",
             ticker, parsed["positive_conviction"],
         )
-        parsed["positive_conviction"] = "low"
+        parsed["positive_catalyst"] = False
+        parsed["positive_conviction"] = "none"
         parsed["positive_reason"] = ""
         hallucination_flags.append(
-            f"positive_conviction downgraded to 'low' and positive_reason cleared — no supporting data found"
+            "positive_catalyst cleared (was high/medium conviction with no supporting data)"
         )
 
 

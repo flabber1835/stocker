@@ -134,9 +134,13 @@ async def fetch_av_earnings_calendar(
 
     async with httpx.AsyncClient(timeout=30) as client:
         try:
+            # AV supports "3month" (~91d) or "12month". Use 12month when the
+            # configured horizon exceeds 91 days so all relevant dates are fetched;
+            # the local cutoff filter below then trims to the exact horizon.
+            av_horizon = "12month" if earnings_horizon_days > 91 else "3month"
             resp = await client.get(AV_BASE, params={
                 "function": "EARNINGS_CALENDAR",
-                "horizon": "3month",
+                "horizon": av_horizon,
                 "apikey": api_key,
             })
             resp.raise_for_status()

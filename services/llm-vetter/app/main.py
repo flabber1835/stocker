@@ -282,7 +282,7 @@ async def _do_vet(
             {
                 "ticker":          r.ticker,
                 "rank":            r.rank,
-                "composite_score": float(r.composite_score),
+                "composite_score": float(r.composite_score) if r.composite_score is not None else None,
                 "percentile":      float(r.percentile) if r.percentile is not None else None,
                 "factor_scores":   r.factor_scores if r.factor_scores else {},
                 "regime":          r.regime,
@@ -311,14 +311,18 @@ async def _do_vet(
         )
         sector_map: dict[str, str | None] = {r.ticker: r.sector for r in sector_rows.fetchall()}
 
-    # Fetch current portfolio holdings to identify already-held tickers
+    # Fetch holdings from the most recent successful portfolio run only.
+    # Using all historical runs would mark long-dropped tickers as "held",
+    # causing the LLM to apply the lenient exit standard instead of entry standard.
     async with engine.connect() as conn:
         held_rows = await conn.execute(
             text(
-                "SELECT DISTINCT ph.ticker FROM portfolio_holdings ph "
-                "JOIN portfolio_runs pr ON ph.run_id = pr.run_id "
-                "WHERE pr.strategy_id = :sid AND pr.status = 'success' "
-                "ORDER BY ph.ticker"
+                "SELECT ph.ticker FROM portfolio_holdings ph "
+                "WHERE ph.run_id = ("
+                "  SELECT run_id FROM portfolio_runs "
+                "  WHERE strategy_id = :sid AND status = 'success' "
+                "  ORDER BY completed_at DESC LIMIT 1"
+                ")"
             ),
             {"sid": source_strategy_id},
         )
