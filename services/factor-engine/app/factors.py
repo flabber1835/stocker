@@ -28,7 +28,17 @@ def _winsorize(s: pd.Series, lo_pct: float = 0.01, hi_pct: float = 0.99) -> pd.S
 
 
 def _component_zscore(s: pd.Series) -> pd.Series:
-    """Z-score without clipping — used to put factor components on equal scale before combining."""
+    """Z-score without clipping — used to put factor components on equal scale before combining.
+
+    Must be called with a pre-filtered series that contains only non-NaN values (e.g. roe[has_roe]).
+    Callers that filter to different-sized valid subsets before calling (e.g. ROE on 800 tickers,
+    D/E on 400 tickers) produce component z-scores relative to their own sub-population.
+    This is an accepted approximation: the subsequent cross_section_zscore in compute_all_factors
+    re-normalises the composite across the full universe, so the within-composite scale difference
+    is absorbed at that stage. The remaining effect — tickers with only one component contributing
+    a full N(0,1) while tickers with both contribute a mean of two N(0,1)s (σ≈0.71) — is minor
+    relative to the ranking signal.
+    """
     std = s.std()
     if std == 0 or pd.isna(std):
         return pd.Series(0.0, index=s.index)
@@ -60,7 +70,10 @@ def compute_momentum(
 
 
 def compute_low_volatility(prices: pd.DataFrame, window: int = 252) -> pd.Series:
-    if len(prices) < 2:
+    # Require at least one quarter of data (63 trading days → 62 log-returns).
+    # Fewer rows produce an annualized vol estimate with enormous standard error
+    # that would be mistaken for a confident low-volatility signal.
+    if len(prices) < 63:
         return pd.Series(dtype=float)
 
     hist = prices.iloc[-window:] if len(prices) >= window else prices
@@ -71,13 +84,26 @@ def compute_low_volatility(prices: pd.DataFrame, window: int = 252) -> pd.Series
     return score
 
 
-def compute_liquidity(prices_long: pd.DataFrame, window: int = 20) -> pd.Series:
+def compute_liquidity(prices_long: pd.DataFrame, window: int = 20, max_staleness_days: int = 7) -> pd.Series:
     recent = prices_long.copy()
     recent = recent.sort_values("date")
     last_n = recent.groupby("ticker").tail(window)
     last_n = last_n.copy()
-    last_n["dollar_vol"] = last_n["adjusted_close"].astype(float) * last_n["volume"].astype(float)
+    # Dollar volume must use unadjusted close — adjusted_close is backward-adjusted for
+    # splits/dividends and understates the actual amount of money that traded (e.g. a
+    # 10:1 split makes adjusted_close 10x smaller than the real transaction price).
+    last_n["dollar_vol"] = last_n["close"].astype(float) * last_n["volume"].astype(float)
     avg_dv = last_n.groupby("ticker")["dollar_vol"].mean()
+
+    # tail(window) takes the last N rows by position, not by date. A halted or
+    # delisted stock with old rows in the DB would get a valid dollar-vol score
+    # computed from stale data. Drop tickers whose most recent data is more than
+    # max_staleness_days behind the dataset's reference date (= SPY's latest date).
+    reference_date = recent["date"].max()
+    latest_by_ticker = last_n.groupby("ticker")["date"].max()
+    stale = latest_by_ticker < (reference_date - pd.Timedelta(days=max_staleness_days))
+    avg_dv = avg_dv[~stale]
+
     score = np.log1p(avg_dv)
     score.name = "liquidity"
     return score
@@ -217,7 +243,9 @@ def compute_all_factors(
     prices_long = prices_long.sort_values(["ticker", "date"])
 
     prices_long["adjusted_close"] = prices_long["adjusted_close"].astype(float)
-    pivot = prices_long.pivot_table(index="date", columns="ticker", values="adjusted_close")
+    # Use pivot() not pivot_table(): pivot() raises ValueError on duplicate (date, ticker) pairs,
+    # making data integrity issues visible. pivot_table() silently averages duplicates.
+    pivot = prices_long.pivot(index="date", columns="ticker", values="adjusted_close")
     pivot = pivot.sort_index()
 
     momentum_raw = compute_momentum(pivot, short_window=cfg.momentum_short_window, long_window=cfg.momentum_long_window)

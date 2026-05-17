@@ -422,15 +422,16 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         t0 = datetime.now(timezone.utc)
         fund_rows = await conn.execute(
             text(
-                "SELECT DISTINCT ON (ticker) ticker, pe_ratio, pb_ratio, roe, debt_to_equity, "
+                "SELECT DISTINCT ON (ticker) ticker, as_of_date, pe_ratio, pb_ratio, roe, debt_to_equity, "
                 "revenue_growth, eps_growth FROM fundamentals "
-                "WHERE ticker = ANY(:tickers) ORDER BY ticker, as_of_date DESC"
+                "WHERE ticker = ANY(:tickers) AND source != 'no_data' "
+                "ORDER BY ticker, as_of_date DESC"
             ),
             {"tickers": universe_tickers},
         )
         fund_df = pd.DataFrame(
             fund_rows.fetchall(),
-            columns=["ticker", "pe_ratio", "pb_ratio", "roe", "debt_to_equity",
+            columns=["ticker", "as_of_date", "pe_ratio", "pb_ratio", "roe", "debt_to_equity",
                      "revenue_growth", "eps_growth"],
         )
 
@@ -441,6 +442,13 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     fund_warnings = []
     if tickers_without_fundamentals > 0:
         fund_warnings.append(f"{tickers_without_fundamentals} tickers have no fundamentals — quality/value/growth will be null")
+    # Warn if any fetched fundamentals are stale (>90 days old) — signals AV ingestor issues.
+    stale_fund_count = 0
+    if not fund_df.empty and "as_of_date" in fund_df.columns:
+        fund_df["as_of_date"] = pd.to_datetime(fund_df["as_of_date"]).dt.date
+        stale_fund_count = int((fund_df["as_of_date"].apply(lambda d: (today - d).days) > 90).sum())
+        if stale_fund_count > 0:
+            fund_warnings.append(f"{stale_fund_count} tickers have fundamentals older than 90 days")
 
     async with engine.begin() as conn:
         await _log_step(
@@ -450,6 +458,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             output_summary={
                 "tickers_with_fundamentals": tickers_with_fundamentals,
                 "tickers_without_fundamentals": tickers_without_fundamentals,
+                "stale_fundamentals_count": stale_fund_count,
                 "no_fundamentals_tickers": no_fundamentals_tickers,
             },
             warnings=fund_warnings or None,
@@ -460,7 +469,9 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
     # ── Step 6: calculate factors ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
-    factors_df = compute_all_factors(prices_long=prices_df, fundamentals=fund_df, cfg=strategy.factor_engine)
+    # Drop as_of_date before passing to compute_all_factors — it's only needed for staleness checks above.
+    fund_df_for_factors = fund_df.drop(columns=["as_of_date"], errors="ignore")
+    factors_df = compute_all_factors(prices_long=prices_df, fundamentals=fund_df_for_factors, cfg=strategy.factor_engine)
     null_quality_count = int(factors_df["quality"].isna().sum()) if "quality" in factors_df.columns else 0
 
     _factor_cols = ["momentum", "quality", "value", "growth", "low_volatility", "liquidity"]
@@ -671,7 +682,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
                 "score_date": score_date,
                 "snap_id": snapshot_id,
                 "price_max": price_max_date,
-                "warn_count": null_quality_count,
+                "warn_count": len(step_warnings),
             },
         )
         await _finish_trace(conn, trace_id, "success")
@@ -724,6 +735,11 @@ async def start_calculate(background_tasks: BackgroundTasks, force: bool = False
             await _assert_no_running_job(conn)
             if not force:
                 today = date.today()
+                # Guard checks score_date = today (the wall-clock date), not the SPY max date.
+                # If the factor engine runs before today's prices are loaded, score_date will be
+                # yesterday — the guard allows that run, and allows a second run after prices are
+                # refreshed (score_date becomes today). This is correct: two runs on the same
+                # calendar day with different score_dates are genuinely distinct calculation results.
                 row = await conn.execute(
                     text("SELECT run_id FROM factor_runs WHERE status='success' AND score_date=:d LIMIT 1"),
                     {"d": today},
