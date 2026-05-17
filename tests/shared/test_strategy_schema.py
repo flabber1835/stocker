@@ -163,7 +163,8 @@ def test_factor_engine_zscore_clip_bounds():
 def test_vetter_new_field_defaults():
     cfg = VetterConfig()
     assert cfg.enabled is True
-    assert cfg.holding_period_days == 30
+    assert cfg.risk_horizon_days == 90
+    assert cfg.system_prompt_file is None
     assert cfg.max_searches_per_ticker == 3
     assert cfg.news_lookback_days == 7
     assert cfg.max_articles_per_ticker == 4

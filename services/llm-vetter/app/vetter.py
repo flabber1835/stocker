@@ -91,7 +91,7 @@ find replacements. Reasons to exclude include:
     "moderate": """\
 EXCLUDE the stock (exclude=true) only when there is CLEAR and SPECIFIC evidence of:
 - Upcoming earnings with deteriorating analyst expectations, revenue warnings, or
-  guidance cuts likely within the holding-period window
+  guidance cuts within the assessment window
 - Significant NEGATIVE news that is NEW and UNPRICED: regulatory action, fraud allegation,
   product recall, key executive departure, major customer loss
 - Pending binary legal or regulatory decision with material downside
@@ -123,13 +123,36 @@ Do NOT exclude for:
 }
 
 
-def _build_system_prompt(holding_period_days: int = 30, strictness: str = "moderate") -> str:
+def _build_system_prompt(
+    entry_rank: int = 25,
+    exit_rank: int = 40,
+    confirmation_days: int = 3,
+    risk_horizon_days: int = 90,
+    strictness: str = "moderate",
+    system_prompt_override: str | None = None,
+) -> str:
     exclude_clause = _STRICTNESS_EXCLUDE_CLAUSE.get(strictness, _STRICTNESS_EXCLUDE_CLAUSE["moderate"])
+    if system_prompt_override is not None:
+        return system_prompt_override.format(
+            entry_rank=entry_rank,
+            exit_rank=exit_rank,
+            confirmation_days=confirmation_days,
+            risk_horizon_days=risk_horizon_days,
+            exclude_clause=exclude_clause,
+        )
     return f"""\
 You are a financial risk analyst reviewing stocks selected by a quantitative equity
 strategy. Each stock was chosen because it scored highly on quality, value, momentum,
 growth, or low-volatility factors — or some combination. Your job is to decide
-whether to EXCLUDE a single stock from a {holding_period_days}-day equity portfolio holding.
+whether to EXCLUDE a single stock from the portfolio.
+
+PORTFOLIO MODEL: This is a buffer-zone strategy, not a fixed-window trade.
+A stock enters when it ranks ≤ {entry_rank} for {confirmation_days} consecutive daily
+ranking runs, and exits only when it ranks > {exit_rank} for {confirmation_days}
+consecutive runs. Typical holding period: weeks to several months — not fixed.
+
+RISK ASSESSMENT WINDOW: Assess risks over a practical {risk_horizon_days}-day horizon.
+Events beyond this window are background noise unless they represent structural changes.
 
 IMPORTANT CONTEXT: The quantitative model selects stocks for investment thesis reasons.
 A deep-value stock may intentionally be distressed. A momentum stock may already be
@@ -151,12 +174,12 @@ Set confidence:
   "low"    — weak signal, worth noting but not strongly actionable
 
 If not excluding, set risk_type to "none" and explain briefly why the stock is
-safe to hold for {holding_period_days} days given available information.
+safe to hold given available information.
 
 POSITIVE CATALYST ASSESSMENT:
 In the same pass, assess whether there is a POSITIVE catalyst likely to drive
-outperformance in the next {holding_period_days} days. Set positive_catalyst=true only when there
-is CLEAR and SPECIFIC evidence of:
+outperformance within the next {risk_horizon_days} days. Set positive_catalyst=true only when
+there is CLEAR and SPECIFIC evidence of:
 - Upcoming earnings where analyst consensus expects a strong beat, or recent
   upward estimate revisions explicitly cited
 - Analyst upgrades or price target increases published within the past 14 days
@@ -187,12 +210,17 @@ def _format_ticker_message(
     earnings_date: str | None,
     tavily_articles: list[dict],
     today: str,
-    holding_period_days: int = 30,
+    entry_rank: int = 25,
+    exit_rank: int = 40,
+    confirmation_days: int = 3,
+    risk_horizon_days: int = 90,
 ) -> str:
     lines = [
         f"Today: {today}",
         f"Ticker: {ticker}",
-        f"Holding period: {holding_period_days} days",
+        f"Portfolio model: enter at rank ≤ {entry_rank} (×{confirmation_days} days), "
+        f"exit at rank > {exit_rank} (×{confirmation_days} days). "
+        f"Risk horizon: {risk_horizon_days} days.",
         "",
     ]
 
@@ -334,10 +362,14 @@ async def vet_single_ticker(
     model: str,
     today: str,
     tavily_api_key: str = "",
-    holding_period_days: int = 30,
+    entry_rank: int = 25,
+    exit_rank: int = 40,
+    confirmation_days: int = 3,
+    risk_horizon_days: int = 90,
     max_searches_per_ticker: int = 3,
     strictness: Literal["strict", "moderate", "permissive"] = "moderate",
     max_search_results: int = 5,
+    system_prompt_override: str | None = None,
 ) -> dict:
     """
     Ask the LLM to make a single exclude/keep decision for one ticker.
@@ -349,12 +381,28 @@ async def vet_single_ticker(
     Returns a dict with the decision plus full execution trace fields.
     """
     vetter_config = {
-        "holding_period_days": holding_period_days,
+        "entry_rank": entry_rank,
+        "exit_rank": exit_rank,
+        "confirmation_days": confirmation_days,
+        "risk_horizon_days": risk_horizon_days,
         "strictness": strictness,
         "max_searches_per_ticker": max_searches_per_ticker,
     }
-    system_prompt = _build_system_prompt(holding_period_days=holding_period_days, strictness=strictness)
-    user_message = _format_ticker_message(ticker, news, earnings_date, tavily_articles, today, holding_period_days=holding_period_days)
+    system_prompt = _build_system_prompt(
+        entry_rank=entry_rank,
+        exit_rank=exit_rank,
+        confirmation_days=confirmation_days,
+        risk_horizon_days=risk_horizon_days,
+        strictness=strictness,
+        system_prompt_override=system_prompt_override,
+    )
+    user_message = _format_ticker_message(
+        ticker, news, earnings_date, tavily_articles, today,
+        entry_rank=entry_rank,
+        exit_rank=exit_rank,
+        confirmation_days=confirmation_days,
+        risk_horizon_days=risk_horizon_days,
+    )
     # Use a set to deduplicate titles; list preserves insertion order via dict.fromkeys.
     _seen_titles: set[str] = set()
     news_titles: list[str] = []

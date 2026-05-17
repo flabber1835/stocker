@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Literal
+from typing import Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -139,10 +139,16 @@ class VetterConfig(BaseModel):
     conviction_boosts: dict[str, float] = Field(
         default_factory=lambda: {"high": 0.25, "medium": 0.12, "low": 0.05, "none": 0.0}
     )
-    holding_period_days: int = Field(
-        default=30, ge=1, le=365,
-        description="Expected holding period assumption passed to the LLM. "
-                    "Changes how the model frames risk (earnings in 45 days is irrelevant for 5-day holds)."
+    risk_horizon_days: int = Field(
+        default=90, ge=1, le=365,
+        description="Risk assessment horizon passed to the LLM. Events beyond this window are treated as "
+                    "background noise. Holding periods are variable (weeks to months) under the buffer-zone model."
+    )
+    system_prompt_file: Optional[str] = Field(
+        default=None,
+        description="Path to a custom system prompt file for the LLM vetter. "
+                    "Supports placeholders: {entry_rank}, {exit_rank}, {confirmation_days}, "
+                    "{risk_horizon_days}, {exclude_clause}. If None, the built-in prompt is used."
     )
     max_searches_per_ticker: int = Field(
         default=3, ge=1, le=10,

@@ -33,6 +33,7 @@ STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_co
 engine: AsyncEngine
 strategy: StrategyConfig
 config_hash: str = ""
+_system_prompt_override: str | None = None
 
 _job_lock = asyncio.Lock()
 
@@ -51,9 +52,18 @@ async def _assert_no_running_job() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global engine, strategy, config_hash
+    global engine, strategy, config_hash, _system_prompt_override
     strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5)
+
+    if strategy.vetter.system_prompt_file:
+        try:
+            with open(strategy.vetter.system_prompt_file) as f:
+                _system_prompt_override = f.read()
+            print(f"[llm-vetter] Loaded custom system prompt from {strategy.vetter.system_prompt_file}")
+        except OSError as e:
+            print(f"[llm-vetter] WARNING: Could not load system_prompt_file "
+                  f"'{strategy.vetter.system_prompt_file}': {e} — using built-in prompt")
 
     async with engine.begin() as conn:
         await mark_orphaned_runs_failed(conn, "vetter_runs", trace_job_type="vetter_run")
@@ -306,6 +316,7 @@ async def _do_vet(
     # ── Step 3: vet each ticker individually ─────────────────────────────────
     client = OllamaClient(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT_SECS)
     exclusions: list[dict] = []
+    de = strategy.delta_engine
 
     try:
         for i, c in enumerate(candidates):
@@ -322,10 +333,14 @@ async def _do_vet(
                     model=OLLAMA_MODEL,
                     today=today,
                     tavily_api_key=TAVILY_API_KEY,
-                    holding_period_days=vcfg.holding_period_days,
+                    entry_rank=de.entry_rank,
+                    exit_rank=de.exit_rank,
+                    confirmation_days=de.confirmation_days,
+                    risk_horizon_days=vcfg.risk_horizon_days,
                     max_searches_per_ticker=vcfg.max_searches_per_ticker,
                     strictness=vcfg.strictness,
                     max_search_results=_prefetch_results,
+                    system_prompt_override=_system_prompt_override,
                 )
 
             result = await _vet_with_crash_isolation(
@@ -521,7 +536,8 @@ async def health():
         "strategy_id": strategy.strategy_id,
         "config_hash": config_hash,
         "vetter_enabled": strategy.vetter.enabled,
-        "holding_period_days": strategy.vetter.holding_period_days,
+        "risk_horizon_days": strategy.vetter.risk_horizon_days,
+        "system_prompt_file": strategy.vetter.system_prompt_file,
         "strictness": strategy.vetter.strictness,
     }
 

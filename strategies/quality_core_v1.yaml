@@ -120,7 +120,8 @@ vetter:
     medium: 0.12               # moderate positive signal
     low:    0.05               # mild tailwind noted
     none:   0.0                # no adjustment
-  holding_period_days: 30      # expected holding period — frames the LLM's risk assessment window
+  risk_horizon_days: 90        # risk assessment window — holding is variable (weeks to months)
+  system_prompt_file: /strategies/quality_core_v1.vetter_prompt.txt
   max_searches_per_ticker: 3   # agentic web searches allowed per ticker
   news_lookback_days: 7        # how far back to pull AV news sentiment
   max_articles_per_ticker: 4   # max AV news articles loaded per ticker
