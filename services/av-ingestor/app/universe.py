@@ -47,11 +47,25 @@ _TICKER_RE = re.compile(r"^[A-Z]{1,5}([.\-][A-Z0-9]{1,4})?$")
 # Warrants (-W, -WS), units (-U), rights (-R), and their no-dash equivalents.
 # 5-char tickers ending in W/U where first 4 chars are a base ticker (e.g. BTMDW, BTMDU).
 _WARRANT_RE = re.compile(
-    r"-W[S]?$"       # dash-warrant: APGB-W, APGB-WS
-    r"|-U$"          # dash-unit:    APGB-U
-    r"|-R$"          # dash-right:   AVK-R
-    r"|[A-Z]{4,}W$"  # no-dash warrant: BTMDW (4+W), ADALW (5+W)
-    r"|[A-Z]{4,}U$"  # no-dash unit:    BTMDU (4+U), ADALU (5+U)
+    r"-W[S]?$"        # dash-warrant: APGB-W, APGB-WS
+    r"|-U$"           # dash-unit:    APGB-U
+    r"|-R$"           # dash-right:   AVK-R
+    r"|[A-Z]{4,}W$"   # no-dash warrant: BTMDW (4+W), ADALW (5+W)
+    r"|[A-Z]{4,}U$"   # no-dash unit:    BTMDU (4+U), ADALU (5+U)
+    r"|[A-Z]{4,}WS$"  # no-dash warrant with WS suffix: FTWWS
+)
+
+# Name keywords that identify non-investable securities regardless of ticker format.
+# Catches rights (SPAC rights ending in R), when-issued spinoff shares (ending in V),
+# and warrants with non-standard ticker suffixes (Z, L) that can't be safely pattern-matched.
+_NON_INVESTABLE_NAME_RE = re.compile(
+    r"\bright[s]?\b"         # SPAC rights: "Right", "Rights"
+    r"|\bwhen.?issued\b"     # spinoff when-issued shares
+    r"|\bwt\.?\b"            # warrant abbreviation: "Wt", "Wt."
+    r"|\bwarrant[s]?\b"      # full word: "Warrant", "Warrants"
+    r"|\bcontingent.value\b" # contingent value rights (CVRs)
+    r"|\bsubscription.right" # subscription rights
+    , re.I
 )
 
 _AV_LISTING_URL = "https://www.alphavantage.co/query?function=LISTING_STATUS&apikey={api_key}"
@@ -85,6 +99,10 @@ async def download_av_listing(session: httpx.AsyncClient, api_key: str) -> tuple
             continue
         if _WARRANT_RE.search(ticker):
             filtered_rows.append({**av_row, "_filter_reason": "warrant_or_unit"})
+            continue
+        name = av_row.get("name", "")
+        if _NON_INVESTABLE_NAME_RE.search(name):
+            filtered_rows.append({**av_row, "_filter_reason": "non_investable_name"})
             continue
         if av_row.get("status", "").lower() != "active":
             filtered_rows.append({**av_row, "_filter_reason": "inactive"})
