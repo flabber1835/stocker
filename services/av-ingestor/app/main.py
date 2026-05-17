@@ -514,7 +514,6 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
             # Benchmarks are never skipped — they must be fetched to establish the
             # current trading date. Universe tickers skip only when already current.
             if not is_benchmark and spy_max and ticker_latest.get(ticker) == spy_max:
-                print(f"[fetch-data] {ticker} prices: already current ({spy_max}) {label}")
                 price_ok += 1
                 price_skipped += 1
                 # avg_dv will be read from DB if this ticker needs a fundamentals update
@@ -545,7 +544,6 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
             if ticker in fundamental_set:
                 # Skip fundamentals if fetched within the last 7 days — AV OVERVIEW is quarterly data.
                 if _should_skip_fundamentals(ticker, fund_latest, today):
-                    print(f"[fetch-data] {ticker} fundamentals: fresh enough, skipping {label}")
                     fund_ok += 1
                     fund_skipped += 1
                 else:
@@ -580,6 +578,11 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                         print(f"[fetch-data] {ticker} fundamentals: error - {e}")
 
             if (i + 1) % CHECKPOINT_EVERY == 0:
+                print(
+                    f"[fetch-data] progress {i+1}/{len(price_tickers)}: "
+                    f"fetched={price_ok - price_skipped} skipped={price_skipped} "
+                    f"fund_skipped={fund_skipped} errors={err_count}"
+                )
                 await _checkpoint(run_id, "fetch-data", started_at,
                                   tickers_done=i + 1, total_tickers=len(price_tickers),
                                   price_rows=price_rows_written, fund_rows=fund_ok,
