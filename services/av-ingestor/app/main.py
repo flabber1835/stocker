@@ -571,6 +571,19 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                             fund_ok += 1
                             print(f"[fetch-data] {ticker} fundamentals: upserted {label}")
                         else:
+                            # Record the attempt so we don't retry this ticker every run.
+                            # Inserts a null sentinel row; ON CONFLICT updates fetched_at so
+                            # _load_fund_staleness sees it and skips for 7 days.
+                            async with SessionLocal() as session:
+                                async with session.begin():
+                                    await session.execute(
+                                        text(
+                                            "INSERT INTO fundamentals (ticker, as_of_date, source) "
+                                            "VALUES (:ticker, :today, 'no_data') "
+                                            "ON CONFLICT (ticker, as_of_date) DO UPDATE SET fetched_at=NOW()"
+                                        ),
+                                        {"ticker": ticker, "today": today},
+                                    )
                             print(f"[fetch-data] {ticker} fundamentals: no data {label}")
                     except Exception as e:
                         err_count += 1
@@ -714,6 +727,16 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
             try:
                 overview = await client.get_overview(ticker)
                 if not overview:
+                    async with SessionLocal() as session:
+                        async with session.begin():
+                            await session.execute(
+                                text(
+                                    "INSERT INTO fundamentals (ticker, as_of_date, source) "
+                                    "VALUES (:ticker, :today, 'no_data') "
+                                    "ON CONFLICT (ticker, as_of_date) DO UPDATE SET fetched_at=NOW()"
+                                ),
+                                {"ticker": ticker, "today": today},
+                            )
                     print(f"[fetch-fundamentals] {ticker}: no data returned")
                 else:
                     async with engine.connect() as conn:
