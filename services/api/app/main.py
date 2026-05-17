@@ -8,6 +8,8 @@ from fastapi import FastAPI, HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
 
+from stock_strategy_shared.tracing import fmt_row
+
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=7) if DATABASE_URL else None
 
@@ -22,17 +24,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="stocker-api", lifespan=lifespan)
 
 
-def _fmt_row(row) -> dict:
-    """Serialize a DB row: UUIDs and datetimes → str, everything else unchanged."""
-    out = {}
-    for k, v in dict(row).items():
-        if isinstance(v, uuid.UUID):
-            out[k] = str(v)
-        elif hasattr(v, "isoformat"):
-            out[k] = v.isoformat()
-        else:
-            out[k] = v
-    return out
+_fmt_row = fmt_row
 
 
 @app.get("/health")

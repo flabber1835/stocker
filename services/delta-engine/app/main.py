@@ -14,6 +14,7 @@ from sqlalchemy import text
 from app.engine import evaluate_all, RankObservation
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
+from stock_strategy_shared.tracing import fmt_row, log_step, write_trace_file, mark_orphaned_runs_failed
 
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
@@ -34,13 +35,7 @@ async def lifespan(app: FastAPI):
     strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5)
     async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "UPDATE delta_runs SET status='failed', completed_at=NOW(), "
-                "error_message='Service restarted while run was active' "
-                "WHERE status='running'"
-            )
-        )
+        await mark_orphaned_runs_failed(conn, "delta_runs")
     yield
     await engine.dispose()
 
@@ -50,49 +45,16 @@ app = FastAPI(title="delta-engine", lifespan=lifespan)
 
 # ── Format helpers ────────────────────────────────────────────────────────────
 
-def _fmt_row(row) -> dict:
-    return {
-        k: (str(v) if isinstance(v, uuid.UUID) else (v.isoformat() if hasattr(v, "isoformat") else v))
-        for k, v in dict(row._mapping).items()
-    }
+_fmt_row = fmt_row
 
 
 # ── Trace / step helpers ──────────────────────────────────────────────────────
 
-async def _log_step(
-    conn,
-    trace_id: str,
-    step_name: str,
-    status: str,
-    *,
-    started_at: Optional[datetime] = None,
-    input_summary: Optional[dict] = None,
-    output_summary: Optional[dict] = None,
-    warnings: Optional[list] = None,
-    error_message: Optional[str] = None,
-) -> None:
-    now = datetime.now(timezone.utc)
-    await conn.execute(
-        text(
-            "INSERT INTO execution_steps "
-            "(step_id, trace_id, service, step_name, status, started_at, completed_at, "
-            " input_summary, output_summary, warnings, error_message) "
-            "VALUES (:sid, :tid, 'delta-engine', :step, :status, :started, :now, "
-            "        CAST(:inp AS jsonb), CAST(:out AS jsonb), CAST(:warn AS jsonb), :err)"
-        ),
-        {
-            "sid": str(uuid.uuid4()),
-            "tid": trace_id,
-            "step": step_name,
-            "status": status,
-            "started": started_at or now,
-            "now": now,
-            "inp": json.dumps(input_summary) if input_summary else None,
-            "out": json.dumps(output_summary) if output_summary else None,
-            "warn": json.dumps(warnings) if warnings else None,
-            "err": error_message,
-        },
-    )
+async def _log_step(conn, trace_id, step_name, status, *, started_at=None,
+                    input_summary=None, output_summary=None, warnings=None, error_message=None):
+    await log_step(conn, trace_id, "delta-engine", step_name, status,
+                   started_at=started_at, input_summary=input_summary,
+                   output_summary=output_summary, warnings=warnings, error_message=error_message)
 
 
 async def _write_trace_file(
@@ -102,46 +64,13 @@ async def _write_trace_file(
     started_at: datetime,
     **extra,
 ) -> None:
-    if not ARTIFACTS_PATH:
-        return
-    try:
-        async with engine.connect() as conn:
-            rows = await conn.execute(
-                text(
-                    "SELECT service, step_name, status, started_at, completed_at, "
-                    "       input_summary, output_summary, warnings, error_message "
-                    "FROM execution_steps WHERE trace_id = :tid ORDER BY started_at ASC"
-                ),
-                {"tid": trace_id},
-            )
-            steps = [dict(r) for r in rows.mappings()]
-
-        traces_dir = os.path.join(ARTIFACTS_PATH, "traces")
-        fname = f"{started_at.strftime('%Y-%m-%d')}_delta_run_{trace_id[:8]}.json"
-        payload = {
-            "trace_id": trace_id,
-            "run_id": run_id,
-            "job_type": "delta_run",
-            "status": status,
-            "strategy_id": strategy.strategy_id,
-            "config_hash": config_hash,
-            "started_at": started_at.isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-            **extra,
-            "steps": steps,
-        }
-        path = os.path.join(traces_dir, fname)
-
-        def _write_file() -> None:
-            os.makedirs(traces_dir, exist_ok=True)
-            with open(path, "w") as f:
-                json.dump(payload, f, indent=2, default=str)
-
-        await asyncio.to_thread(_write_file)
-        print(f"[delta-engine] trace -> {path} ({len(steps)} steps, status={status})")
-    except Exception as exc:
-        print(f"[delta-engine] WARNING: failed to write trace file: {exc}")
-        traceback.print_exc()
+    await write_trace_file(
+        engine, ARTIFACTS_PATH, trace_id, run_id, "delta_run", status, started_at,
+        service_label="delta-engine",
+        strategy_id=strategy.strategy_id,
+        config_hash=config_hash,
+        **extra,
+    )
 
 
 # ── Concurrency guard ─────────────────────────────────────────────────────────

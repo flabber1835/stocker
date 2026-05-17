@@ -16,13 +16,9 @@ from ollama import AsyncClient as OllamaClient
 from app.vetter import fetch_ticker_data, vet_single_ticker
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
+from stock_strategy_shared.tracing import fmt_row, log_step, write_trace_file, mark_orphaned_runs_failed
 
-
-def _fmt_row(row) -> dict:
-    return {
-        k: (str(v) if isinstance(v, uuid.UUID) else (v.isoformat() if hasattr(v, "isoformat") else v))
-        for k, v in dict(row._mapping).items()
-    }
+_fmt_row = fmt_row
 
 
 DATABASE_URL         = os.getenv("DATABASE_URL", "")
@@ -46,20 +42,7 @@ async def lifespan(app: FastAPI):
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5)
 
     async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "UPDATE vetter_runs SET status='failed', completed_at=NOW(), "
-                "error_message='Service restarted while run was active' "
-                "WHERE status='running'"
-            )
-        )
-        await conn.execute(
-            text(
-                "UPDATE execution_traces SET status='failed', completed_at=NOW(), "
-                "notes='Service restarted while trace was active' "
-                "WHERE status='running' AND job_type='vetter_run'"
-            )
-        )
+        await mark_orphaned_runs_failed(conn, "vetter_runs", trace_job_type="vetter_run")
 
     await _check_model()
     yield
@@ -85,40 +68,11 @@ app = FastAPI(title="llm-vetter", lifespan=lifespan)
 
 # ── Trace helpers ────────────────────────────────────────────────────────────
 
-async def _log_step(
-    conn,
-    trace_id: str,
-    step_name: str,
-    status: str,
-    *,
-    started_at: Optional[datetime] = None,
-    input_summary: Optional[dict] = None,
-    output_summary: Optional[dict] = None,
-    warnings: Optional[list] = None,
-    error_message: Optional[str] = None,
-) -> None:
-    now = datetime.now(timezone.utc)
-    await conn.execute(
-        text(
-            "INSERT INTO execution_steps "
-            "(step_id, trace_id, service, step_name, status, started_at, completed_at, "
-            " input_summary, output_summary, warnings, error_message) "
-            "VALUES (:sid, :tid, 'llm-vetter', :step, :status, :started, :now, "
-            "        CAST(:inp AS jsonb), CAST(:out AS jsonb), CAST(:warn AS jsonb), :err)"
-        ),
-        {
-            "sid":     str(uuid.uuid4()),
-            "tid":     trace_id,
-            "step":    step_name,
-            "status":  status,
-            "started": started_at or now,
-            "now":     now,
-            "inp":     json.dumps(input_summary)  if input_summary  else None,
-            "out":     json.dumps(output_summary) if output_summary else None,
-            "warn":    json.dumps(warnings)       if warnings       else None,
-            "err":     error_message,
-        },
-    )
+async def _log_step(conn, trace_id, step_name, status, *, started_at=None,
+                    input_summary=None, output_summary=None, warnings=None, error_message=None):
+    await log_step(conn, trace_id, "llm-vetter", step_name, status,
+                   started_at=started_at, input_summary=input_summary,
+                   output_summary=output_summary, warnings=warnings, error_message=error_message)
 
 
 def _build_summary(ticker_results: list[dict], candidates_total: int) -> dict:
@@ -173,43 +127,13 @@ async def _write_trace_file(
     run_id: str,
     status: str,
     started_at: datetime,
-    ticker_results: list[dict],
-    candidates_total: int,
     **extra,
 ) -> None:
-    if not ARTIFACTS_PATH:
-        return
-    try:
-        traces_dir = os.path.join(ARTIFACTS_PATH, "traces")
-        fname = f"{started_at.strftime('%Y-%m-%d')}_vetter_run_{trace_id[:8]}.json"
-        summary = _build_summary(ticker_results, candidates_total)
-        payload = {
-            "trace_id":   trace_id,
-            "run_id":     run_id,
-            "job_type":   "vetter_run",
-            "status":     status,
-            "model":      OLLAMA_MODEL,
-            "started_at": started_at.isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-            "summary":    summary,
-            **extra,
-            "ticker_results": ticker_results,
-        }
-        path = os.path.join(traces_dir, fname)
-
-        def _write():
-            os.makedirs(traces_dir, exist_ok=True)
-            with open(path, "w") as f:
-                json.dump(payload, f, indent=2, default=str)
-
-        await asyncio.to_thread(_write)
-        print(
-            f"[llm-vetter] trace -> {path} "
-            f"({summary['completed']}/{summary['total_candidates']} tickers, status={status})"
-        )
-    except Exception as exc:
-        print(f"[llm-vetter] WARNING: failed to write trace file: {exc}")
-        _traceback.print_exc()
+    await write_trace_file(
+        engine, ARTIFACTS_PATH, trace_id, run_id, "vetter_run", status, started_at,
+        service_label="llm-vetter",
+        **extra,
+    )
 
 
 # ── Vetting job ──────────────────────────────────────────────────────────────

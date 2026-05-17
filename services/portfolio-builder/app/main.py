@@ -89,89 +89,21 @@ async def health():
 
 # ── Trace helpers ───────────────────────────────────────────────────────────────────────────────────
 
-async def _log_step(
-    conn,
-    trace_id: str,
-    step_name: str,
-    status: str,
-    *,
-    started_at: Optional[datetime] = None,
-    input_summary: Optional[dict] = None,
-    output_summary: Optional[dict] = None,
-    warnings: Optional[list] = None,
-    error_message: Optional[str] = None,
-) -> None:
-    now = datetime.now(timezone.utc)
-    await conn.execute(
-        text(
-            "INSERT INTO execution_steps "
-            "(step_id, trace_id, service, step_name, status, started_at, completed_at, "
-            " input_summary, output_summary, warnings, error_message) "
-            "VALUES (:sid, :tid, 'portfolio-builder', :step, :status, :started, :now, "
-            "        CAST(:inp AS jsonb), CAST(:out AS jsonb), CAST(:warn AS jsonb), :err)"
-        ),
-        {
-            "sid": str(uuid.uuid4()),
-            "tid": trace_id,
-            "step": step_name,
-            "status": status,
-            "started": started_at or now,
-            "now": now,
-            "inp": json.dumps(input_summary) if input_summary else None,
-            "out": json.dumps(output_summary) if output_summary else None,
-            "warn": json.dumps(warnings) if warnings else None,
-            "err": error_message,
-        },
+async def _log_step(conn, trace_id, step_name, status, *, started_at=None,
+                    input_summary=None, output_summary=None, warnings=None, error_message=None):
+    await log_step(conn, trace_id, "portfolio-builder", step_name, status,
+                   started_at=started_at, input_summary=input_summary,
+                   output_summary=output_summary, warnings=warnings, error_message=error_message)
+
+
+async def _write_trace_file(trace_id: str, run_id: str, status: str, started_at: datetime, **extra) -> None:
+    await write_trace_file(
+        engine, ARTIFACTS_PATH, trace_id, run_id, "portfolio_run", status, started_at,
+        service_label="portfolio-builder",
+        strategy_id=strategy.strategy_id,
+        config_hash=config_hash,
+        **extra,
     )
-
-
-async def _write_trace_file(
-    trace_id: str,
-    run_id: str,
-    status: str,
-    started_at: datetime,
-    **extra,
-) -> None:
-    if not ARTIFACTS_PATH:
-        return
-    try:
-        async with engine.connect() as conn:
-            rows = await conn.execute(
-                text(
-                    "SELECT service, step_name, status, started_at, completed_at, "
-                    "       input_summary, output_summary, warnings, error_message "
-                    "FROM execution_steps WHERE trace_id = :tid ORDER BY started_at ASC"
-                ),
-                {"tid": trace_id},
-            )
-            steps = [dict(r) for r in rows.mappings()]
-
-        traces_dir = os.path.join(ARTIFACTS_PATH, "traces")
-        fname = f"{started_at.strftime('%Y-%m-%d')}_portfolio_run_{trace_id[:8]}.json"
-        payload = {
-            "trace_id": trace_id,
-            "run_id": run_id,
-            "job_type": "portfolio_run",
-            "status": status,
-            "strategy_id": strategy.strategy_id,
-            "config_hash": config_hash,
-            "started_at": started_at.isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-            **extra,
-            "steps": steps,
-        }
-        path = os.path.join(traces_dir, fname)
-
-        def _write_file() -> None:
-            os.makedirs(traces_dir, exist_ok=True)
-            with open(path, "w") as f:
-                json.dump(payload, f, indent=2, default=str)
-
-        await asyncio.to_thread(_write_file)
-        print(f"[portfolio-builder] trace -> {path} ({len(steps)} steps, status={status})")
-    except Exception as exc:
-        print(f"[portfolio-builder] WARNING: failed to write trace file: {exc}")
-        traceback.print_exc()
 
 
 # ── Build job ───────────────────────────────────────────────────────────────────────────────────
