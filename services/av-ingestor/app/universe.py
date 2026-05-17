@@ -74,42 +74,50 @@ async def download_av_listing(session: httpx.AsyncClient, api_key: str) -> tuple
     df.columns = [c.strip() for c in df.columns]
 
     rows = []
-    stats = {"total_rows": len(df), "filtered_ticker_format": 0, "filtered_warrant_unit": 0,
-             "filtered_inactive": 0, "filtered_non_stock": 0, "filtered_exchange": 0, "accepted": 0}
+    raw_rows = []       # every row AV returned, as-is
+    filtered_rows = []  # rows dropped, with reason attached
     for _, row in df.iterrows():
-        ticker = str(row.get("symbol", "")).strip()
+        av_row = {k: str(v).strip() for k, v in row.items()}
+        raw_rows.append(av_row)
+        ticker = av_row.get("symbol", "")
         if not _TICKER_RE.match(ticker):
-            stats["filtered_ticker_format"] += 1
+            filtered_rows.append({**av_row, "_filter_reason": "ticker_format"})
             continue
         if _WARRANT_RE.search(ticker):
-            stats["filtered_warrant_unit"] += 1
+            filtered_rows.append({**av_row, "_filter_reason": "warrant_or_unit"})
             continue
-        if str(row.get("status", "")).strip().lower() != "active":
-            stats["filtered_inactive"] += 1
+        if av_row.get("status", "").lower() != "active":
+            filtered_rows.append({**av_row, "_filter_reason": "inactive"})
             continue
-        if str(row.get("assetType", "")).strip() not in ("Stock",):
-            stats["filtered_non_stock"] += 1
+        if av_row.get("assetType", "") not in ("Stock",):
+            filtered_rows.append({**av_row, "_filter_reason": "non_stock"})
             continue
-        exchange = str(row.get("exchange", "")).strip()
-        if exchange not in _US_EXCHANGES:
-            stats["filtered_exchange"] += 1
+        if av_row.get("exchange", "") not in _US_EXCHANGES:
+            filtered_rows.append({**av_row, "_filter_reason": "wrong_exchange"})
             continue
         rows.append(
             {
                 "ticker": ticker,
-                "name": str(row.get("name", "")).strip() or None,
+                "name": av_row.get("name") or None,
                 "weight_pct": None,
                 "sector": None,
                 "asset_class": "Equity",
             }
         )
-        stats["accepted"] += 1
 
     if len(rows) < 100:
         raise ValueError(
             f"AV LISTING_STATUS returned only {len(rows)} active US stocks — expected 3000+."
         )
 
+    stats = {
+        "total_rows": len(raw_rows),
+        "accepted": len(rows),
+        "filtered": len(filtered_rows),
+        "raw_listing": raw_rows,
+        "filtered_rows": filtered_rows,
+        "accepted_tickers": [r["ticker"] for r in rows],
+    }
     return rows, stats
 
 
