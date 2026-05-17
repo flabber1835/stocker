@@ -329,7 +329,8 @@ async def _get_universe_tickers() -> tuple[list[str], int | None]:
             text(
                 "SELECT DISTINCT ut.ticker, ut.snapshot_id "
                 "FROM universe_tickers ut "
-                "WHERE ut.snapshot_id = (SELECT MAX(id) FROM universe_snapshots)"
+                "WHERE ut.snapshot_id = (SELECT MAX(id) FROM universe_snapshots) "
+                "ORDER BY ut.ticker"
             )
         )
         rows = result.fetchall()
