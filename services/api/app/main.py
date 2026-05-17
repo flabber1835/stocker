@@ -488,7 +488,31 @@ async def get_live_portfolio():
                 "ORDER BY market_value DESC NULLS LAST"
             ), {"rid": str(sync_row["run_id"])})).mappings().fetchall()
 
-        total_mv = sum(float(p["market_value"] or 0) for p in pos_rows)
+        positions = [
+            {
+                "ticker":          p["ticker"],
+                "qty":             _f(p["qty"]),
+                "avg_entry_price": _f(p["avg_entry_price"]),
+                "current_price":   _f(p["current_price"]),
+                "market_value":    _f(p["market_value"]),
+                "cost_basis":      _f(p["cost_basis"]),
+                "unrealized_pl":   _f(p["unrealized_pl"]),
+                "unrealized_plpc": _f(p["unrealized_plpc"]),
+                "weight":          None,
+                "side":            p["side"],
+            }
+            for p in pos_rows
+        ]
+        total_long_mv = sum(p["market_value"] for p in positions if p["market_value"] is not None and p["market_value"] > 0)
+        total_short_mv = sum(abs(p["market_value"]) for p in positions if p["market_value"] is not None and p["market_value"] < 0)
+        for p in positions:
+            mv = p["market_value"]
+            if mv is None:
+                p["weight"] = None
+            elif mv >= 0:
+                p["weight"] = mv / total_long_mv if total_long_mv > 0 else 0.0
+            else:
+                p["weight"] = -abs(mv) / total_short_mv if total_short_mv > 0 else 0.0
         return {
             "connected": True,
             "sync": {
@@ -498,21 +522,7 @@ async def get_live_portfolio():
                 "cash":          _f(sync_row["cash"]),
                 "position_count": sync_row["position_count"],
             },
-            "positions": [
-                {
-                    "ticker":          p["ticker"],
-                    "qty":             _f(p["qty"]),
-                    "avg_entry_price": _f(p["avg_entry_price"]),
-                    "current_price":   _f(p["current_price"]),
-                    "market_value":    _f(p["market_value"]),
-                    "cost_basis":      _f(p["cost_basis"]),
-                    "unrealized_pl":   _f(p["unrealized_pl"]),
-                    "unrealized_plpc": _f(p["unrealized_plpc"]),
-                    "weight":          float(p["market_value"]) / total_mv if total_mv and p["market_value"] else None,
-                    "side":            p["side"],
-                }
-                for p in pos_rows
-            ],
+            "positions": positions,
         }
     except Exception:
         print(f"[api] get_live_portfolio error: {traceback.format_exc()}")

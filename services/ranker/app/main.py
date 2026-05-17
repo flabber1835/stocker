@@ -282,6 +282,7 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
         composite_formula = (
             " + ".join(formula_parts)
             + " (weights re-normalized to sum=1 among non-null factors per ticker)"
+            + " [NOTE: weights re-normalized per-ticker when factors are null; see weight_drift_tickers in audit]"
         )
         percentile_methodology = (
             f"percentile = 1 - (rank - 1) / (N - 1) where N={ranked_count}; "

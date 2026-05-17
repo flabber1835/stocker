@@ -216,7 +216,7 @@ async def _run_step(
                 continue
             run_date = (data.get(date_field) or "")[:10]
             run_status = data.get("status")
-            if run_date == today and run_status == "success":
+            if run_date == today and run_status in ("success",) + extra_ok_statuses:
                 print(f"[scheduler] {step_name}: complete (run_id={data.get('run_id', '?')})")
                 return True
             if run_date == today and run_status == "failed":
