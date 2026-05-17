@@ -234,23 +234,37 @@ async def _do_delta(
 
     recent_run_ids = [str(r.run_id) for r in recent_runs]
 
-    # Load all rankings for those runs
+    # Load all rankings for those runs, ordered by rank ASC so that when
+    # capacity is exactly 1 slot, the best-ranked (lowest rank number) ticker
+    # wins deterministically during universe iteration.
     async with engine.connect() as conn:
         ranking_rows = await conn.execute(
             text(
-                "SELECT r.ticker, r.rank, r.composite_score, rr.rank_date "
+                "SELECT r.ticker, r.rank, r.composite_score, rr.rank_date, rr.completed_at "
                 "FROM rankings r "
                 "JOIN ranking_runs rr ON rr.run_id = r.run_id "
                 "WHERE r.run_id = ANY(:run_ids) "
-                "ORDER BY r.ticker, rr.rank_date DESC"
+                "ORDER BY r.rank ASC, r.ticker, rr.rank_date DESC"
             ),
             {"run_ids": recent_run_ids},
         )
         raw_rankings = ranking_rows.fetchall()
 
+    # Deduplicate: each (ticker, rank_date) pair may appear more than once when
+    # a date has multiple ranking runs (e.g. after a force re-run). Keep only
+    # the row with the most recent completed_at so that a single calendar date
+    # never counts as two confirmation days.
+    _dedup: dict[tuple[str, object], object] = {}
+    for row in raw_rankings:
+        key = (row.ticker, row.rank_date)
+        existing = _dedup.get(key)
+        if existing is None or (row.completed_at or "") > (existing.completed_at or ""):
+            _dedup[key] = row
+    deduped_rankings = list(_dedup.values())
+
     # Build universe: ticker → list[RankObservation] sorted date DESC
     universe: dict[str, list[RankObservation]] = {}
-    for row in raw_rankings:
+    for row in deduped_rankings:
         obs = RankObservation(
             run_date=row.rank_date,
             rank=row.rank,
@@ -258,7 +272,7 @@ async def _do_delta(
         )
         universe.setdefault(row.ticker, []).append(obs)
 
-    # Ensure each ticker's list is sorted date DESC
+    # Ensure each ticker's list is sorted date DESC (most-recent first)
     for ticker in universe:
         universe[ticker].sort(key=lambda o: o.run_date, reverse=True)
 

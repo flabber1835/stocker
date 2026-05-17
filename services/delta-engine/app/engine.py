@@ -33,7 +33,12 @@ def _consecutive_in_zone(
     predicate,
     required: int,
 ) -> int:
-    """Count consecutive leading observations (most-recent first) satisfying predicate."""
+    """Count consecutive leading observations (most-recent first) satisfying predicate.
+
+    Only the most recent ``required`` observations are examined (``observations[:required]``).
+    Callers must pass observations sorted most-recent-first so that the leading
+    slice corresponds to the most recent calendar days.
+    """
     count = 0
     for obs in observations[:required]:
         if predicate(obs):

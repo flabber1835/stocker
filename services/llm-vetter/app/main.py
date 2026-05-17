@@ -5,6 +5,7 @@ import traceback as _traceback
 import uuid
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
+from types import SimpleNamespace
 from typing import Optional
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException
@@ -57,39 +58,6 @@ async def lifespan(app: FastAPI):
                 "UPDATE execution_traces SET status='failed', completed_at=NOW(), "
                 "notes='Service restarted while trace was active' "
                 "WHERE status='running' AND job_type='vetter_run'"
-            )
-        )
-        # Ensure vetter_decisions table exists (may not be present in older DB deployments)
-        await conn.execute(
-            text(
-                "CREATE TABLE IF NOT EXISTS vetter_decisions ("
-                "    id                  UUID         PRIMARY KEY DEFAULT gen_random_uuid(),"
-                "    run_id              UUID         NOT NULL REFERENCES vetter_runs(run_id) ON DELETE CASCADE,"
-                "    ticker              VARCHAR(20)  NOT NULL,"
-                "    exclude             BOOLEAN      NOT NULL DEFAULT FALSE,"
-                "    reason              TEXT,"
-                "    confidence          VARCHAR(10)  CHECK (confidence IN ('high', 'medium', 'low')),"
-                "    risk_type           VARCHAR(50),"
-                "    positive_catalyst   BOOLEAN      NOT NULL DEFAULT FALSE,"
-                "    positive_conviction VARCHAR(10)  NOT NULL DEFAULT 'none'"
-                "        CHECK (positive_conviction IN ('high', 'medium', 'low', 'none')),"
-                "    positive_reason     TEXT,"
-                "    created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),"
-                "    UNIQUE (run_id, ticker)"
-                ")"
-            )
-        )
-        await conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS idx_vetter_decisions_run "
-                "ON vetter_decisions(run_id)"
-            )
-        )
-        await conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS idx_vetter_decisions_catalyst "
-                "ON vetter_decisions(run_id, positive_catalyst) "
-                "WHERE positive_catalyst = TRUE"
             )
         )
 
@@ -278,7 +246,6 @@ async def _run_vet(run_id: str, trace_id: str, source_ranking_run_id: str, candi
     # Shared mutable state so the exception handler can access partial results and
     # the total candidate count even when _do_vet raises before returning.
     ticker_results: list[dict] = []
-    from types import SimpleNamespace
     # 0 is the safe default; _do_vet sets this before the loop
     state = SimpleNamespace(candidates_total=0)
 
@@ -327,7 +294,6 @@ async def _vet_with_crash_isolation(
     try:
         return await vet_fn(ticker)
     except Exception as exc:
-        import traceback as _tb
         fields = fallback_fields or {}
         return {
             "ticker":             ticker,
@@ -340,7 +306,7 @@ async def _vet_with_crash_isolation(
             "had_tavily":         fields.get("had_tavily", False),
             "parse_error":        False,
             "crashed":            True,
-            "crash_traceback":    _tb.format_exc(),
+            "crash_traceback":    _traceback.format_exc(),
             "latency_ms":         fields.get("latency_ms", 0),
             "prompt":             "",
             "system_prompt":      "",
@@ -420,98 +386,99 @@ async def _do_vet(
     client = OllamaClient(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT_SECS)
     exclusions: list[dict] = []
 
-    for i, c in enumerate(candidates):
-        ticker = c["ticker"]
-        t0 = datetime.now(timezone.utc)
+    try:
+        for i, c in enumerate(candidates):
+            ticker = c["ticker"]
+            t0 = datetime.now(timezone.utc)
 
-        async def _vet_fn(t: str) -> dict:
-            return await vet_single_ticker(
-                t,
-                news=av_news.get(t, []),
-                earnings_date=earnings_calendar.get(t),
-                tavily_articles=tavily_results.get(t, []),
-                client=client,
-                model=OLLAMA_MODEL,
-                today=today,
-                tavily_api_key=TAVILY_API_KEY,
-                holding_period_days=vcfg.holding_period_days,
-                max_searches_per_ticker=vcfg.max_searches_per_ticker,
-                strictness=vcfg.strictness,
-                max_search_results=_prefetch_results,
+            async def _vet_fn(t: str) -> dict:
+                return await vet_single_ticker(
+                    t,
+                    news=av_news.get(t, []),
+                    earnings_date=earnings_calendar.get(t),
+                    tavily_articles=tavily_results.get(t, []),
+                    client=client,
+                    model=OLLAMA_MODEL,
+                    today=today,
+                    tavily_api_key=TAVILY_API_KEY,
+                    holding_period_days=vcfg.holding_period_days,
+                    max_searches_per_ticker=vcfg.max_searches_per_ticker,
+                    strictness=vcfg.strictness,
+                    max_search_results=_prefetch_results,
+                )
+
+            result = await _vet_with_crash_isolation(
+                ticker,
+                _vet_fn,
+                fallback_fields={
+                    "had_av_news":   bool(av_news.get(ticker)),
+                    "had_earnings":  earnings_calendar.get(ticker) is not None,
+                    "had_tavily":    bool(tavily_results.get(ticker)),
+                    "latency_ms":    round((datetime.now(timezone.utc) - t0).total_seconds() * 1000),
+                    "earnings_date": earnings_calendar.get(ticker),
+                },
+            )
+            if result.get("crashed"):
+                print(f"[llm-vetter] {ticker}: CRASHED — {result['reason']}")
+
+            ticker_results.append(result)
+
+            if result.get("exclude"):
+                exclusions.append(result)
+
+            step_warnings = list(result.get("hallucination_flags", []))
+            if result.get("parse_error"):
+                step_warnings.insert(0, "Parse error — defaulted to keep")
+            if result.get("crashed"):
+                step_warnings.insert(0, f"Ticker crashed: {result['reason']}")
+
+            step_status = "error" if result.get("crashed") else "success"
+            async with engine.begin() as conn:
+                await _log_step(
+                    conn, trace_id, f"vet_{ticker}", step_status,
+                    started_at=t0,
+                    input_summary={
+                        "ticker":        ticker,
+                        "had_av_news":   result["had_av_news"],
+                        "had_earnings":  result["had_earnings"],
+                        "had_tavily":    result["had_tavily"],
+                        "earnings_date": result.get("earnings_date"),
+                        "news_count":    len(result.get("news_titles", [])),
+                        "news_titles":   result.get("news_titles", []),
+                        "prompt":        result.get("prompt", ""),
+                        "system_prompt": result.get("system_prompt", ""),
+                        "vetter_config": result.get("vetter_config", {}),
+                    },
+                    output_summary={
+                        "exclude":              result["exclude"],
+                        "confidence":           result["confidence"],
+                        "risk_type":            result["risk_type"],
+                        "reason":               result["reason"],
+                        "positive_catalyst":    result.get("positive_catalyst", False),
+                        "positive_conviction":  result.get("positive_conviction", "none"),
+                        "positive_reason":      result.get("positive_reason", ""),
+                        "raw_response":         result.get("raw_response", ""),
+                        "latency_ms":           result.get("latency_ms"),
+                        "parse_error":          result.get("parse_error", False),
+                        "crashed":              result.get("crashed", False),
+                    },
+                    warnings=step_warnings if step_warnings else None,
+                    error_message=result["reason"] if result.get("crashed") else None,
+                )
+
+            print(
+                f"[llm-vetter] {ticker}: {'CRASHED' if result.get('crashed') else 'EXCLUDE' if result['exclude'] else 'keep'} "
+                f"[{result['confidence']}] {result['reason'][:80]}"
             )
 
-        result = await _vet_with_crash_isolation(
-            ticker,
-            _vet_fn,
-            fallback_fields={
-                "had_av_news":   bool(av_news.get(ticker)),
-                "had_earnings":  earnings_calendar.get(ticker) is not None,
-                "had_tavily":    bool(tavily_results.get(ticker)),
-                "latency_ms":    round((datetime.now(timezone.utc) - t0).total_seconds() * 1000),
-                "earnings_date": earnings_calendar.get(ticker),
-            },
-        )
-        if result.get("crashed"):
-            print(f"[llm-vetter] {ticker}: CRASHED — {result['reason']}")
-
-        ticker_results.append(result)
-
-        if result.get("exclude"):
-            exclusions.append(result)
-
-        step_warnings = list(result.get("hallucination_flags", []))
-        if result.get("parse_error"):
-            step_warnings.insert(0, "Parse error — defaulted to keep")
-        if result.get("crashed"):
-            step_warnings.insert(0, f"Ticker crashed: {result['reason']}")
-
-        step_status = "error" if result.get("crashed") else "success"
-        async with engine.begin() as conn:
-            await _log_step(
-                conn, trace_id, f"vet_{ticker}", step_status,
-                started_at=t0,
-                input_summary={
-                    "ticker":        ticker,
-                    "had_av_news":   result["had_av_news"],
-                    "had_earnings":  result["had_earnings"],
-                    "had_tavily":    result["had_tavily"],
-                    "earnings_date": result.get("earnings_date"),
-                    "news_count":    len(result.get("news_titles", [])),
-                    "news_titles":   result.get("news_titles", []),
-                    "prompt":        result.get("prompt", ""),
-                    "system_prompt": result.get("system_prompt", ""),
-                    "vetter_config": result.get("vetter_config", {}),
-                },
-                output_summary={
-                    "exclude":              result["exclude"],
-                    "confidence":           result["confidence"],
-                    "risk_type":            result["risk_type"],
-                    "reason":               result["reason"],
-                    "positive_catalyst":    result.get("positive_catalyst", False),
-                    "positive_conviction":  result.get("positive_conviction", "none"),
-                    "positive_reason":      result.get("positive_reason", ""),
-                    "raw_response":         result.get("raw_response", ""),
-                    "latency_ms":           result.get("latency_ms"),
-                    "parse_error":          result.get("parse_error", False),
-                    "crashed":              result.get("crashed", False),
-                },
-                warnings=step_warnings if step_warnings else None,
-                error_message=result["reason"] if result.get("crashed") else None,
+            await _write_trace_file(
+                trace_id, run_id, "running", started_at,
+                ticker_results=ticker_results,
+                candidates_total=state.candidates_total,
+                progress={"completed": i + 1, "total": len(candidates)},
             )
-
-        print(
-            f"[llm-vetter] {ticker}: {'CRASHED' if result.get('crashed') else 'EXCLUDE' if result['exclude'] else 'keep'} "
-            f"[{result['confidence']}] {result['reason'][:80]}"
-        )
-
-        await _write_trace_file(
-            trace_id, run_id, "running", started_at,
-            ticker_results=ticker_results,
-            candidates_total=state.candidates_total,
-            progress={"completed": i + 1, "total": len(candidates)},
-        )
-
-    await client.close()
+    finally:
+        await client.close()
 
     # ── Step 4: write results ────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
