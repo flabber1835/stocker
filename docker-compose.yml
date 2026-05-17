@@ -357,14 +357,18 @@ services:
     ports:
       - "8015:8000"
     environment:
-      AV_INGESTOR_URL:   http://av-ingestor:8000
-      FACTOR_ENGINE_URL: http://factor-engine:8000
-      RANKER_URL:        http://ranker:8000
+      AV_INGESTOR_URL:       http://av-ingestor:8000
+      FACTOR_ENGINE_URL:     http://factor-engine:8000
+      RANKER_URL:            http://ranker:8000
+      VETTER_URL:            http://llm-vetter:8000
+      PORTFOLIO_BUILDER_URL: http://portfolio-builder:8000
       RANK_SCHEDULE_CRON: ${RANK_SCHEDULE_CRON:-15 21 * * 1-5}
     depends_on:
       - av-ingestor
       - factor-engine
       - ranker
+      - llm-vetter
+      - portfolio-builder
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 10s

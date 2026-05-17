@@ -11,9 +11,11 @@ from fastapi import FastAPI
 
 from app.staleness import is_stale
 
-AV_INGESTOR_URL   = os.getenv("AV_INGESTOR_URL",   "http://av-ingestor:8000")
-FACTOR_ENGINE_URL = os.getenv("FACTOR_ENGINE_URL",  "http://factor-engine:8000")
-RANKER_URL        = os.getenv("RANKER_URL",          "http://ranker:8000")
+AV_INGESTOR_URL       = os.getenv("AV_INGESTOR_URL",       "http://av-ingestor:8000")
+FACTOR_ENGINE_URL     = os.getenv("FACTOR_ENGINE_URL",      "http://factor-engine:8000")
+RANKER_URL            = os.getenv("RANKER_URL",             "http://ranker:8000")
+VETTER_URL            = os.getenv("VETTER_URL",             "http://llm-vetter:8000")
+PORTFOLIO_BUILDER_URL = os.getenv("PORTFOLIO_BUILDER_URL",  "http://portfolio-builder:8000")
 
 # Default: 21:15 UTC = 4:15 pm ET, weekdays only (market close + 15 min buffer).
 # Override via env var using standard cron syntax, e.g. "0 22 * * 1-5"
@@ -23,7 +25,7 @@ _scheduler: Optional[AsyncIOScheduler] = None
 _chain_lock = asyncio.Lock()
 _chain_status: dict = {
     "status": "idle",   # idle | running | success | failed
-    "last_run": None,   # {date, started_at, completed_at, steps}
+    "last_run": None,   # {date, started_at, completed_at, steps, run_ids}
     "next_run": None,
 }
 
@@ -141,6 +143,17 @@ async def _already_ran_today(
         return False
 
 
+async def _get_latest_run_id(client: httpx.AsyncClient, service_url: str) -> Optional[str]:
+    """Return the run_id from the most recent run at this service, or None on failure."""
+    try:
+        r = await client.get(f"{service_url}/runs/latest", timeout=10.0)
+        if r.status_code == 200:
+            return r.json().get("run_id")
+    except Exception:
+        pass
+    return None
+
+
 async def _run_step(
     client: httpx.AsyncClient,
     service_url: str,
@@ -150,10 +163,12 @@ async def _run_step(
     step_name: str,
     max_minutes: int,
     job_type_filter: Optional[str] = None,
+    params: Optional[dict] = None,
 ) -> bool:
     """
     Trigger one step of the daily chain and wait for today's run to complete.
     Skips gracefully if already done today. Returns True on success.
+    params are forwarded as query parameters on the POST request.
     """
     if await _already_ran_today(client, service_url, date_field, today, job_type_filter):
         print(f"[scheduler] {step_name}: already ran today — skipping")
@@ -161,7 +176,7 @@ async def _run_step(
 
     print(f"[scheduler] {step_name}: starting")
     try:
-        r = await client.post(f"{service_url}{start_path}", timeout=15.0)
+        r = await client.post(f"{service_url}{start_path}", timeout=15.0, params=params)
     except Exception as exc:
         print(f"[scheduler] {step_name}: failed to reach service — {exc}")
         return False
@@ -169,8 +184,15 @@ async def _run_step(
     if r.status_code == 409:
         print(f"[scheduler] {step_name}: already running — waiting for completion")
     elif r.status_code in (200, 201, 202):
-        run_id = r.json().get("run_id", "?")
-        print(f"[scheduler] {step_name}: started run_id={run_id}")
+        resp = r.json()
+        run_id = resp.get("run_id", "?")
+        # Log any extra fields from the response for auditing (e.g. source_ranking_run_id, model)
+        audit_fields = {
+            k: v for k, v in resp.items()
+            if k not in ("status", "job") and v not in (None, "?", "")
+        }
+        audit_str = ", ".join(f"{k}={v}" for k, v in audit_fields.items())
+        print(f"[scheduler] {step_name}: started — {audit_str}")
     else:
         print(f"[scheduler] {step_name}: unexpected status {r.status_code} — {r.text[:200]}")
         return False
@@ -188,10 +210,11 @@ async def _run_step(
             run_date = (data.get(date_field) or "")[:10]
             run_status = data.get("status")
             if run_date == today and run_status == "success":
-                print(f"[scheduler] {step_name}: complete")
+                print(f"[scheduler] {step_name}: complete (run_id={data.get('run_id', '?')})")
                 return True
             if run_date == today and run_status == "failed":
-                print(f"[scheduler] {step_name}: failed — {data.get('error_message', '')[:200]}")
+                err = (data.get("error_message") or "")[:200]
+                print(f"[scheduler] {step_name}: failed — run_id={data.get('run_id', '?')} error={err!r}")
                 return False
         except Exception:
             pass
@@ -204,6 +227,11 @@ async def _run_step(
     return False
 
 
+def _fail_chain() -> None:
+    _chain_status["status"] = "failed"
+    _chain_status["last_run"]["completed_at"] = datetime.now(timezone.utc).isoformat()
+
+
 async def _run_daily_chain():
     global _chain_status
     if _chain_lock.locked():
@@ -214,11 +242,13 @@ async def _run_daily_chain():
         today = date.today().isoformat()
         started_at = datetime.now(timezone.utc)
         steps: dict[str, str] = {}
+        run_ids: dict[str, str] = {}   # step_name → service run_id for cross-referencing logs
         _chain_status.update({"status": "running", "last_run": {
             "date": today,
             "started_at": started_at.isoformat(),
             "completed_at": None,
             "steps": steps,
+            "run_ids": run_ids,
         }})
         print(f"[scheduler] daily chain started for {today}")
 
@@ -233,9 +263,11 @@ async def _run_daily_chain():
                 job_type_filter="fetch-data",
             )
             steps["fetch_data"] = "success" if ok else "failed"
+            if ok:
+                if rid := await _get_latest_run_id(client, AV_INGESTOR_URL):
+                    run_ids["fetch_data"] = rid
             if not ok:
-                _chain_status["status"] = "failed"
-                _chain_status["last_run"]["completed_at"] = datetime.now(timezone.utc).isoformat()
+                _fail_chain()
                 return
 
             # Step 2 — factor calculation
@@ -247,9 +279,11 @@ async def _run_daily_chain():
                 max_minutes=30,
             )
             steps["factor_calculate"] = "success" if ok else "failed"
+            if ok:
+                if rid := await _get_latest_run_id(client, FACTOR_ENGINE_URL):
+                    run_ids["factor_calculate"] = rid
             if not ok:
-                _chain_status["status"] = "failed"
-                _chain_status["last_run"]["completed_at"] = datetime.now(timezone.utc).isoformat()
+                _fail_chain()
                 return
 
             # Step 3 — ranking
@@ -261,13 +295,63 @@ async def _run_daily_chain():
                 max_minutes=10,
             )
             steps["rank"] = "success" if ok else "failed"
+            if ok:
+                if rid := await _get_latest_run_id(client, RANKER_URL):
+                    run_ids["rank"] = rid
             if not ok:
-                _chain_status["status"] = "failed"
-                _chain_status["last_run"]["completed_at"] = datetime.now(timezone.utc).isoformat()
+                _fail_chain()
+                return
+
+            # Step 4 — vetter (informational; failure does not abort the chain)
+            # The vetter is "not a gate" — portfolio-builder proceeds even without it,
+            # just without LLM conviction boosts applied to scores.
+            vetter_run_id: Optional[str] = None
+            ok = await _run_step(
+                client, VETTER_URL, "/jobs/vet",
+                date_field="completed_at",
+                today=today,
+                step_name="vet",
+                max_minutes=60,
+            )
+            steps["vet"] = "success" if ok else "failed"
+            if ok:
+                vetter_run_id = await _get_latest_run_id(client, VETTER_URL)
+                if vetter_run_id:
+                    run_ids["vet"] = vetter_run_id
+            else:
+                print(
+                    "[scheduler] vet: step failed — portfolio-builder will proceed "
+                    "without LLM conviction boosts (vetter is informational only)"
+                )
+
+            # Step 5 — portfolio-builder (always runs; vetter_run_id passed when available)
+            pb_params = {"vetter_run_id": vetter_run_id} if vetter_run_id else None
+            ok = await _run_step(
+                client, PORTFOLIO_BUILDER_URL, "/jobs/build",
+                date_field="portfolio_date",
+                today=today,
+                step_name="portfolio-build",
+                max_minutes=15,
+                params=pb_params,
+            )
+            steps["portfolio_build"] = "success" if ok else "failed"
+            if ok:
+                if rid := await _get_latest_run_id(client, PORTFOLIO_BUILDER_URL):
+                    run_ids["portfolio_build"] = rid
+                vetter_note = f"vetter_run_id={vetter_run_id}" if vetter_run_id else "no vetter"
+                print(
+                    f"[scheduler] portfolio-build: run_id={run_ids.get('portfolio_build', '?')}"
+                    f" ({vetter_note})"
+                )
+            if not ok:
+                _fail_chain()
                 return
 
         _chain_status["status"] = "success"
         _chain_status["last_run"]["completed_at"] = datetime.now(timezone.utc).isoformat()
         _refresh_next_run()
         elapsed = (datetime.now(timezone.utc) - started_at).total_seconds() / 60
-        print(f"[scheduler] daily chain complete for {today} ({elapsed:.1f} min)")
+        print(
+            f"[scheduler] daily chain complete for {today} ({elapsed:.1f} min) — "
+            f"steps={steps} run_ids={run_ids}"
+        )

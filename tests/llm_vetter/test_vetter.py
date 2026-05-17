@@ -258,6 +258,130 @@ def test_short_reason_flagged():
     assert any("short" in f.lower() for f in flags)
 
 
+# ── _build_summary ────────────────────────────────────────────────────────────
+
+from app.main import _build_summary
+
+
+def _r(
+    ticker,
+    *,
+    exclude=False,
+    crashed=False,
+    confidence="low",
+    positive_catalyst=False,
+    positive_conviction="none",
+    had_av_news=False,
+    had_earnings=False,
+    had_tavily=False,
+    latency_ms=100,
+    hallucination_flags=None,
+):
+    return {
+        "ticker": ticker,
+        "exclude": exclude,
+        "crashed": crashed,
+        "confidence": confidence,
+        "positive_catalyst": positive_catalyst,
+        "positive_conviction": positive_conviction,
+        "had_av_news": had_av_news,
+        "had_earnings": had_earnings,
+        "had_tavily": had_tavily,
+        "latency_ms": latency_ms,
+        "hallucination_flags": hallucination_flags or [],
+    }
+
+
+class TestBuildSummary:
+    def test_empty_results(self):
+        s = _build_summary([], 10)
+        assert s["total_candidates"] == 10
+        assert s["completed"] == 0
+        assert s["remaining"] == 10
+        assert s["excluded"] == 0
+        assert s["kept"] == 0
+        assert s["crashed"] == 0
+        assert s["avg_latency_ms"] is None
+
+    def test_counts_excluded_kept_remaining(self):
+        results = [_r("AAPL"), _r("MSFT", exclude=True), _r("GOOG")]
+        s = _build_summary(results, 5)
+        assert s["excluded"] == 1
+        assert s["kept"] == 2
+        assert s["completed"] == 3
+        assert s["remaining"] == 2
+
+    def test_crashed_not_counted_as_kept_or_excluded(self):
+        results = [_r("AAPL"), _r("CRASH", crashed=True)]
+        s = _build_summary(results, 2)
+        assert s["crashed"] == 1
+        assert s["kept"] == 1
+        assert s["excluded"] == 0
+
+    def test_confidence_distribution(self):
+        results = [
+            _r("A", confidence="high"),
+            _r("B", confidence="medium"),
+            _r("C", confidence="low"),
+            _r("D", confidence="low"),
+        ]
+        s = _build_summary(results, 4)
+        assert s["confidence_dist"] == {"high": 1, "medium": 1, "low": 2}
+
+    def test_positive_catalysts_and_conviction_dist(self):
+        results = [
+            _r("AAPL", positive_catalyst=True, positive_conviction="high"),
+            _r("MSFT", positive_catalyst=True, positive_conviction="low"),
+            _r("GOOG"),
+        ]
+        s = _build_summary(results, 3)
+        assert s["positive_catalysts"] == 2
+        assert set(s["positive_catalyst_tickers"]) == {"AAPL", "MSFT"}
+        assert s["positive_conviction_dist"]["high"] == 1
+        assert s["positive_conviction_dist"]["low"] == 1
+        assert s["positive_conviction_dist"]["medium"] == 0
+
+    def test_no_data_tickers(self):
+        results = [
+            _r("AAPL", had_av_news=True),
+            _r("EMPTY"),  # all had_* False
+        ]
+        s = _build_summary(results, 2)
+        assert "EMPTY" in s["tickers_no_data"]
+        assert "AAPL" not in s["tickers_no_data"]
+
+    def test_avg_and_total_latency(self):
+        results = [_r("AAPL", latency_ms=100), _r("MSFT", latency_ms=300)]
+        s = _build_summary(results, 2)
+        assert s["avg_latency_ms"] == 200
+        assert s["total_latency_ms"] == 400
+
+    def test_hallucination_flag_count(self):
+        results = [
+            _r("AAPL", hallucination_flags=["flag1", "flag2"]),
+            _r("MSFT", hallucination_flags=["flag3"]),
+        ]
+        s = _build_summary(results, 2)
+        assert s["hallucination_flags"] == 3
+
+    def test_all_excluded(self):
+        results = [_r("A", exclude=True), _r("B", exclude=True)]
+        s = _build_summary(results, 2)
+        assert s["excluded"] == 2
+        assert s["kept"] == 0
+        assert s["remaining"] == 0
+
+    def test_parse_errors_counted(self):
+        results = [_r("A"), {"ticker": "B", "exclude": False, "crashed": False,
+                              "confidence": "low", "positive_catalyst": False,
+                              "positive_conviction": "none", "had_av_news": False,
+                              "had_earnings": False, "had_tavily": False,
+                              "latency_ms": 50, "hallucination_flags": [],
+                              "parse_error": True}]
+        s = _build_summary(results, 2)
+        assert s["parse_errors"] == 1
+
+
 def test_no_flag_for_valid_exclude_with_earnings():
     flags = _detect_hallucination_flags(
         "XYZ", _parsed(exclude=True, confidence="high", risk_type="earnings",

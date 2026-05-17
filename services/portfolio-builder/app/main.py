@@ -24,6 +24,24 @@ ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
 _MIN_EIGENVALUE = 1e-8  # numerical zero threshold for PSD matrix repair
 
 
+def _apply_conviction_boost(
+    original_score: float,
+    conviction: str,
+    boost_map: dict,
+    max_boost: float,
+) -> float:
+    """
+    Additive LLM conviction boost: score += abs(score) * boost_factor.
+    Using abs() means negative-score stocks are lifted toward zero rather than
+    penalised further, and positive-score stocks are amplified proportionally.
+    Returns original_score unchanged when conviction is 'none' or unknown.
+    """
+    boost = min(boost_map.get(conviction, 0.0), max_boost)
+    if boost <= 0:
+        return original_score
+    return original_score + abs(original_score) * boost
+
+
 def _fmt_row(row) -> dict:
     return {
         k: (str(v) if isinstance(v, uuid.UUID) else (v.isoformat() if hasattr(v, "isoformat") else v))
@@ -378,8 +396,7 @@ async def _do_build(
             if boost <= 0:
                 continue
             original = scores_map[ticker]
-            # Additive boost so negative-score stocks are lifted, not penalised further
-            scores_map[ticker] = original + abs(original) * boost
+            scores_map[ticker] = _apply_conviction_boost(original, conviction, boost_map, max_boost)
             conviction_boosts_applied[ticker] = {
                 "conviction": conviction,
                 "boost_factor": boost,
