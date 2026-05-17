@@ -71,7 +71,7 @@ class UniverseConfig(BaseModel):
         default_factory=lambda: [
             "ProShares", "iShares", "SPDR", "Invesco", "Direxion",
             "VanEck", "WisdomTree", "First Trust",
-            r"\bETF\b", r"\bFund\b", r"\bLeveraged\b", r"\bInverse\b", r"\bFuture\b",
+            r"\yETF\y", r"\yFund\y", r"\yLeveraged\y", r"\yInverse\y", r"\yFuture\y",
         ]
     )
 

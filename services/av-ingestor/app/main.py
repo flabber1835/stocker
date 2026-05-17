@@ -61,22 +61,65 @@ def _should_skip_fundamentals(ticker: str, fund_latest: dict, today: date, max_a
     return (today - last).days < max_age_days
 
 
-def _build_fetch_data_price_tickers(universe_tickers: list[str]) -> list[str]:
-    """Return the ordered ticker list used by _run_fetch_data: benchmarks first, then universe."""
+def _build_benchmarks_first(universe_tickers: list[str]) -> list[str]:
+    """Return the ordered ticker list with benchmarks first, then universe (deduped)."""
     universe_set = set(universe_tickers)
     extra_benchmarks = [t for t in BENCHMARK_TICKERS if t not in universe_set]
     return extra_benchmarks + list(universe_tickers)
 
 
-def _build_fetch_prices_all_tickers(universe_tickers: list[str]) -> list[str]:
-    """Return the ordered ticker list used by _run_fetch_prices: benchmarks first, then universe."""
-    universe_set = set(universe_tickers)
-    extra = [t for t in BENCHMARK_TICKERS if t not in universe_set]
-    return extra + list(universe_tickers)
-
-
 def _coverage(ok: int, total: int) -> Optional[float]:
     return ok / total if total else None
+
+
+async def _upsert_prices(session, ticker: str, rows: list[dict]) -> None:
+    """Upsert daily price rows for a single ticker."""
+    await session.execute(
+        text(
+            "INSERT INTO daily_prices "
+            "    (ticker, date, open, high, low, close, adjusted_close, volume) "
+            "VALUES "
+            "    (:ticker, :date, :open, :high, :low, :close, :adjusted_close, :volume) "
+            "ON CONFLICT (ticker, date) DO UPDATE SET "
+            "    open=EXCLUDED.open, high=EXCLUDED.high, low=EXCLUDED.low, "
+            "    close=EXCLUDED.close, adjusted_close=EXCLUDED.adjusted_close, "
+            "    volume=EXCLUDED.volume, fetched_at=NOW()"
+        ),
+        [{"ticker": ticker, "date": date.fromisoformat(r["date"]),
+          "open": r["open"], "high": r["high"], "low": r["low"],
+          "close": r["close"], "adjusted_close": r["adjusted_close"],
+          "volume": r["volume"]} for r in rows],
+    )
+
+
+async def _upsert_fundamentals(session, ticker: str, overview: dict, today: date) -> None:
+    """Upsert fundamental data for a single ticker. Pops 'sector' from overview dict."""
+    sector = overview.pop("sector", None)
+    await session.execute(
+        text(
+            "INSERT INTO fundamentals "
+            "    (ticker, as_of_date, pe_ratio, pb_ratio, roe, debt_to_equity, "
+            "     revenue_growth, eps_growth, market_cap, avg_volume) "
+            "VALUES "
+            "    (:ticker, :as_of_date, :pe_ratio, :pb_ratio, :roe, :debt_to_equity, "
+            "     :revenue_growth, :eps_growth, :market_cap, :avg_volume) "
+            "ON CONFLICT (ticker, as_of_date) DO UPDATE SET "
+            "    pe_ratio=EXCLUDED.pe_ratio, pb_ratio=EXCLUDED.pb_ratio, "
+            "    roe=EXCLUDED.roe, debt_to_equity=EXCLUDED.debt_to_equity, "
+            "    revenue_growth=EXCLUDED.revenue_growth, eps_growth=EXCLUDED.eps_growth, "
+            "    market_cap=EXCLUDED.market_cap, avg_volume=EXCLUDED.avg_volume, "
+            "    fetched_at=NOW()"
+        ),
+        {"ticker": ticker, "as_of_date": today, **overview},
+    )
+    if sector:
+        await session.execute(
+            text(
+                "UPDATE universe_tickers SET sector=:sector "
+                "WHERE ticker=:ticker AND sector IS DISTINCT FROM :sector"
+            ),
+            {"ticker": ticker, "sector": sector},
+        )
 
 
 @asynccontextmanager
@@ -407,8 +450,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
     # Fetch benchmark tickers (SPY etc.) FIRST so spy_max lands in the DB early.
     # If benchmarks are last and the run is interrupted, spy_max=None on the next
     # run and every ticker gets re-fetched from scratch.
-    extra_benchmarks = [t for t in BENCHMARK_TICKERS if t not in set(tickers)]
-    price_tickers = extra_benchmarks + list(tickers)
+    price_tickers = _build_benchmarks_first(tickers)
     fundamental_tickers = [t for t in tickers if t not in benchmark_set]
     fundamental_set = set(fundamental_tickers)
     today = date.today()
@@ -477,22 +519,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                     if rows:
                         async with SessionLocal() as session:
                             async with session.begin():
-                                await session.execute(
-                                    text(
-                                        "INSERT INTO daily_prices "
-                                        "    (ticker, date, open, high, low, close, adjusted_close, volume) "
-                                        "VALUES "
-                                        "    (:ticker, :date, :open, :high, :low, :close, :adjusted_close, :volume) "
-                                        "ON CONFLICT (ticker, date) DO UPDATE SET "
-                                        "    open=EXCLUDED.open, high=EXCLUDED.high, low=EXCLUDED.low, "
-                                        "    close=EXCLUDED.close, adjusted_close=EXCLUDED.adjusted_close, "
-                                        "    volume=EXCLUDED.volume, fetched_at=NOW()"
-                                    ),
-                                    [{"ticker": ticker, "date": date.fromisoformat(r["date"]),
-                                      "open": r["open"], "high": r["high"], "low": r["low"],
-                                      "close": r["close"], "adjusted_close": r["adjusted_close"],
-                                      "volume": r["volume"]} for r in rows],
-                                )
+                                await _upsert_prices(session, ticker, rows)
                         price_rows_written += len(rows)
                         price_ok += 1
                         last_20 = sorted(rows, key=lambda r: r["date"])[-20:]
@@ -534,33 +561,8 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                                     _ticker_avg_dv[ticker] = float(dv_val) if dv_val is not None else None
                             overview["avg_volume"] = _ticker_avg_dv.get(ticker)
                             async with SessionLocal() as session:
-                                sector = overview.pop("sector", None)
                                 async with session.begin():
-                                    await session.execute(
-                                        text(
-                                            "INSERT INTO fundamentals "
-                                            "    (ticker, as_of_date, pe_ratio, pb_ratio, roe, debt_to_equity, "
-                                            "     revenue_growth, eps_growth, market_cap, avg_volume) "
-                                            "VALUES "
-                                            "    (:ticker, :as_of_date, :pe_ratio, :pb_ratio, :roe, :debt_to_equity, "
-                                            "     :revenue_growth, :eps_growth, :market_cap, :avg_volume) "
-                                            "ON CONFLICT (ticker, as_of_date) DO UPDATE SET "
-                                            "    pe_ratio=EXCLUDED.pe_ratio, pb_ratio=EXCLUDED.pb_ratio, "
-                                            "    roe=EXCLUDED.roe, debt_to_equity=EXCLUDED.debt_to_equity, "
-                                            "    revenue_growth=EXCLUDED.revenue_growth, eps_growth=EXCLUDED.eps_growth, "
-                                            "    market_cap=EXCLUDED.market_cap, avg_volume=EXCLUDED.avg_volume, "
-                                            "    fetched_at=NOW()"
-                                        ),
-                                        {"ticker": ticker, "as_of_date": today, **overview},
-                                    )
-                                    if sector:
-                                        await session.execute(
-                                            text(
-                                                "UPDATE universe_tickers SET sector=:sector "
-                                                "WHERE ticker=:ticker AND sector IS DISTINCT FROM :sector"
-                                            ),
-                                            {"ticker": ticker, "sector": sector},
-                                        )
+                                    await _upsert_fundamentals(session, ticker, overview, today)
                             fund_ok += 1
                             print(f"[fetch-data] {ticker} fundamentals: upserted {label}")
                         else:
@@ -607,8 +609,7 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
     started_at = datetime.now(timezone.utc)
     await _start_run(run_id, "fetch-prices")
     # Benchmarks first so SPY is written early — same reasoning as _run_fetch_data.
-    extra = [t for t in BENCHMARK_TICKERS if t not in set(tickers)]
-    all_tickers = extra + list(tickers)
+    all_tickers = _build_benchmarks_first(tickers)
 
     ticker_latest, spy_max = await _load_price_staleness()
     skip_count = sum(1 for t in all_tickers if spy_max and ticker_latest.get(t) == spy_max)
@@ -638,22 +639,7 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
                 else:
                     async with SessionLocal() as session:
                         async with session.begin():
-                            await session.execute(
-                                text(
-                                    "INSERT INTO daily_prices "
-                                    "    (ticker, date, open, high, low, close, adjusted_close, volume) "
-                                    "VALUES "
-                                    "    (:ticker, :date, :open, :high, :low, :close, :adjusted_close, :volume) "
-                                    "ON CONFLICT (ticker, date) DO UPDATE SET "
-                                    "    open=EXCLUDED.open, high=EXCLUDED.high, low=EXCLUDED.low, "
-                                    "    close=EXCLUDED.close, adjusted_close=EXCLUDED.adjusted_close, "
-                                    "    volume=EXCLUDED.volume, fetched_at=NOW()"
-                                ),
-                                [{"ticker": ticker, "date": date.fromisoformat(r["date"]),
-                                  "open": r["open"], "high": r["high"], "low": r["low"],
-                                  "close": r["close"], "adjusted_close": r["adjusted_close"],
-                                  "volume": r["volume"]} for r in rows],
-                            )
+                            await _upsert_prices(session, ticker, rows)
                     rows_written += len(rows)
                     tickers_ok += 1
                     mode = "compact" if use_compact else "full"
@@ -733,34 +719,9 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
                         dv_val = dv_row.scalar()
                     overview["avg_volume"] = float(dv_val) if dv_val is not None else None
 
-                    sector = overview.pop("sector", None)
                     async with SessionLocal() as session:
                         async with session.begin():
-                            await session.execute(
-                                text(
-                                    "INSERT INTO fundamentals "
-                                    "    (ticker, as_of_date, pe_ratio, pb_ratio, roe, debt_to_equity, "
-                                    "     revenue_growth, eps_growth, market_cap, avg_volume) "
-                                    "VALUES "
-                                    "    (:ticker, :as_of_date, :pe_ratio, :pb_ratio, :roe, :debt_to_equity, "
-                                    "     :revenue_growth, :eps_growth, :market_cap, :avg_volume) "
-                                    "ON CONFLICT (ticker, as_of_date) DO UPDATE SET "
-                                    "    pe_ratio=EXCLUDED.pe_ratio, pb_ratio=EXCLUDED.pb_ratio, "
-                                    "    roe=EXCLUDED.roe, debt_to_equity=EXCLUDED.debt_to_equity, "
-                                    "    revenue_growth=EXCLUDED.revenue_growth, eps_growth=EXCLUDED.eps_growth, "
-                                    "    market_cap=EXCLUDED.market_cap, avg_volume=EXCLUDED.avg_volume, "
-                                    "    fetched_at=NOW()"
-                                ),
-                                {"ticker": ticker, "as_of_date": today, **overview},
-                            )
-                            if sector:
-                                await session.execute(
-                                    text(
-                                        "UPDATE universe_tickers SET sector=:sector "
-                                        "WHERE ticker=:ticker AND sector IS DISTINCT FROM :sector"
-                                    ),
-                                    {"ticker": ticker, "sector": sector},
-                                )
+                            await _upsert_fundamentals(session, ticker, overview, today)
                     fund_ok += 1
                     print(f"[fetch-fundamentals] {ticker}: upserted ({i+1}/{len(investable)})")
             except Exception as e:

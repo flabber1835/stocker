@@ -114,7 +114,10 @@ async def _startup_catch_up():
                 f"[scheduler] stale data detected on startup "
                 f"(last rank: {last_date}, today: {today}) — triggering catch-up run"
             )
-            await _run_daily_chain()
+            try:
+                await _run_daily_chain()
+            except Exception as e:
+                print(f"[scheduler] catch-up chain failed: {e}")
         else:
             print(f"[scheduler] data is current (last rank: {last_date}) — no catch-up needed")
 
@@ -127,6 +130,7 @@ async def _already_ran_today(
     date_field: str,
     today: str,
     job_type_filter: Optional[str] = None,
+    extra_ok_statuses: tuple = (),
 ) -> bool:
     """Return True if the service has a successful run for today."""
     try:
@@ -134,7 +138,8 @@ async def _already_ran_today(
         if r.status_code != 200:
             return False
         data = r.json()
-        if data.get("status") != "success":
+        ok_statuses = ("success",) + extra_ok_statuses
+        if data.get("status") not in ok_statuses:
             return False
         if job_type_filter and data.get("job_type") != job_type_filter:
             return False
@@ -165,13 +170,14 @@ async def _run_step(
     max_minutes: int,
     job_type_filter: Optional[str] = None,
     params: Optional[dict] = None,
+    extra_ok_statuses: tuple = (),
 ) -> bool:
     """
     Trigger one step of the daily chain and wait for today's run to complete.
     Skips gracefully if already done today. Returns True on success.
     params are forwarded as query parameters on the POST request.
     """
-    if await _already_ran_today(client, service_url, date_field, today, job_type_filter):
+    if await _already_ran_today(client, service_url, date_field, today, job_type_filter, extra_ok_statuses):
         print(f"[scheduler] {step_name}: already ran today — skipping")
         return True
 
@@ -255,13 +261,17 @@ async def _run_daily_chain():
 
         async with httpx.AsyncClient() as client:
             # Step 1 — fetch-data (incremental prices + fundamentals for all tickers)
+            # Use started_at (not completed_at) so a run that crosses UTC midnight is still
+            # recognised as "today's run" when completed_at falls on the next calendar day.
+            # Accept partial_success so a run where most tickers succeeded doesn't re-trigger.
             ok = await _run_step(
                 client, AV_INGESTOR_URL, "/jobs/fetch-data",
-                date_field="completed_at",
+                date_field="started_at",
                 today=today,
                 step_name="fetch-data",
                 max_minutes=180,
                 job_type_filter="fetch-data",
+                extra_ok_statuses=("partial_success",),
             )
             steps["fetch_data"] = "success" if ok else "failed"
             if ok:
