@@ -14,6 +14,7 @@ from sqlalchemy import text
 from app.rank import rank_universe, FACTORS
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
+from stock_strategy_shared.tracing import fmt_row, log_step, write_trace_file, mark_orphaned_runs_failed
 
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
@@ -32,20 +33,7 @@ async def lifespan(app: FastAPI):
     strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10)
     async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "UPDATE ranking_runs SET status='failed', completed_at=NOW(), "
-                "error_message='Service restarted while run was active' "
-                "WHERE status='running'"
-            )
-        )
-        await conn.execute(
-            text(
-                "UPDATE execution_traces SET status='failed', completed_at=NOW(), "
-                "notes='Service restarted while trace was active' "
-                "WHERE status='running' AND job_type='rank_run'"
-            )
-        )
+        await mark_orphaned_runs_failed(conn, "ranking_runs", trace_job_type="rank_run")
     yield
     await engine.dispose()
 
@@ -76,42 +64,13 @@ async def _write_trace_file(
     started_at: datetime,
     **extra,
 ) -> None:
-    if not ARTIFACTS_PATH:
-        return
-    try:
-        async with engine.connect() as conn:
-            rows = await conn.execute(
-                text(
-                    "SELECT service, step_name, status, started_at, completed_at, "
-                    "       input_summary, output_summary, warnings, error_message "
-                    "FROM execution_steps WHERE trace_id = :tid ORDER BY started_at ASC"
-                ),
-                {"tid": trace_id},
-            )
-            steps = [dict(r) for r in rows.mappings()]
-
-        traces_dir = os.path.join(ARTIFACTS_PATH, "traces")
-        os.makedirs(traces_dir, exist_ok=True)
-        fname = f"{started_at.strftime('%Y-%m-%d')}_rank_run_{trace_id[:8]}.json"
-        payload = {
-            "trace_id": trace_id,
-            "run_id": run_id,
-            "job_type": job_type,
-            "status": status,
-            "strategy_id": strategy.strategy_id,
-            "config_hash": config_hash,
-            "started_at": started_at.isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-            **extra,
-            "steps": steps,
-        }
-        path = os.path.join(traces_dir, fname)
-        with open(path, "w") as f:
-            json.dump(payload, f, indent=2, default=str)
-        print(f"[ranker] trace → {path} ({len(steps)} steps, status={status})")
-    except Exception as exc:
-        print(f"[ranker] WARNING: failed to write trace file for {trace_id}: {exc}")
-        traceback.print_exc()
+    await write_trace_file(
+        engine, ARTIFACTS_PATH, trace_id, run_id, job_type, status, started_at,
+        service_label="ranker",
+        strategy_id=strategy.strategy_id,
+        config_hash=config_hash,
+        **extra,
+    )
 
 
 async def _checkpoint(trace_id: str, run_id: str, started_at: datetime) -> None:
@@ -121,40 +80,11 @@ async def _checkpoint(trace_id: str, run_id: str, started_at: datetime) -> None:
 
 # ── Trace helpers ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-async def _log_step(
-    conn,
-    trace_id: str,
-    step_name: str,
-    status: str,
-    *,
-    started_at=None,
-    input_summary=None,
-    output_summary=None,
-    warnings=None,
-    error_message=None,
-) -> None:
-    now = datetime.now(timezone.utc)
-    await conn.execute(
-        text(
-            "INSERT INTO execution_steps "
-            "(step_id, trace_id, service, step_name, status, started_at, completed_at, "
-            " input_summary, output_summary, warnings, error_message) "
-            "VALUES (:sid, :tid, 'ranker', :step, :status, :started, :now, "
-            "        CAST(:inp AS jsonb), CAST(:out AS jsonb), CAST(:warn AS jsonb), :err)"
-        ),
-        {
-            "sid": str(uuid.uuid4()),
-            "tid": trace_id,
-            "step": step_name,
-            "status": status,
-            "started": started_at or now,
-            "now": now,
-            "inp": json.dumps(input_summary) if input_summary else None,
-            "out": json.dumps(output_summary) if output_summary else None,
-            "warn": json.dumps(warnings) if warnings else None,
-            "err": error_message,
-        },
-    )
+async def _log_step(conn, trace_id, step_name, status, *, started_at=None,
+                    input_summary=None, output_summary=None, warnings=None, error_message=None):
+    await log_step(conn, trace_id, "ranker", step_name, status,
+                   started_at=started_at, input_summary=input_summary,
+                   output_summary=output_summary, warnings=warnings, error_message=error_message)
 
 
 # ── Rank job ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────

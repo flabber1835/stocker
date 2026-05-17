@@ -16,6 +16,7 @@ from sqlalchemy import text
 from app.select import greedy_select, build_covariance, compute_weights
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
+from stock_strategy_shared.tracing import fmt_row, log_step, write_trace_file, mark_orphaned_runs_failed
 
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
@@ -42,11 +43,7 @@ def _apply_conviction_boost(
     return original_score + abs(original_score) * boost
 
 
-def _fmt_row(row) -> dict:
-    return {
-        k: (str(v) if isinstance(v, uuid.UUID) else (v.isoformat() if hasattr(v, "isoformat") else v))
-        for k, v in dict(row._mapping).items()
-    }
+_fmt_row = fmt_row
 
 
 strategy: StrategyConfig
@@ -62,20 +59,7 @@ async def lifespan(app: FastAPI):
     strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5)
     async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "UPDATE portfolio_runs SET status='failed', completed_at=NOW(), "
-                "error_message='Service restarted while run was active' "
-                "WHERE status='running'"
-            )
-        )
-        await conn.execute(
-            text(
-                "UPDATE execution_traces SET status='failed', completed_at=NOW(), "
-                "notes='Service restarted while trace was active' "
-                "WHERE status='running' AND job_type='portfolio_run'"
-            )
-        )
+        await mark_orphaned_runs_failed(conn, "portfolio_runs", trace_job_type="portfolio_run")
     yield
     await engine.dispose()
 
