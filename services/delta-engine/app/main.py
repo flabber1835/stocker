@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
     strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5)
     async with engine.begin() as conn:
-        await mark_orphaned_runs_failed(conn, "delta_runs")
+        await mark_orphaned_runs_failed(conn, "delta_runs", trace_job_type="delta_run")
     yield
     await engine.dispose()
 

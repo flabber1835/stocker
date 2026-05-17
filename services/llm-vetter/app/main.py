@@ -61,6 +61,15 @@ async def lifespan(app: FastAPI):
             with open(strategy.vetter.system_prompt_file) as f:
                 _system_prompt_override = f.read()
             print(f"[llm-vetter] Loaded custom system prompt from {strategy.vetter.system_prompt_file}")
+            try:
+                _system_prompt_override.format(
+                    entry_rank=0, exit_rank=0, confirmation_days=0,
+                    risk_horizon_days=0, exclude_clause="",
+                )
+            except KeyError as e:
+                print(f"[llm-vetter] WARNING: Invalid placeholder {e} in system_prompt_file "
+                      f"'{strategy.vetter.system_prompt_file}' — falling back to built-in prompt")
+                _system_prompt_override = None
         except OSError as e:
             print(f"[llm-vetter] WARNING: Could not load system_prompt_file "
                   f"'{strategy.vetter.system_prompt_file}': {e} — using built-in prompt")

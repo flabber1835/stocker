@@ -418,12 +418,15 @@ CREATE TABLE IF NOT EXISTS backtest_runs (
     benchmark_total_return      NUMERIC(12,6),
     benchmark_annualized_return NUMERIC(12,6),
     tx_cost_bps                 INTEGER      NOT NULL DEFAULT 0,
+    trace_id                    UUID         REFERENCES execution_traces(trace_id),
     started_at                  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     completed_at                TIMESTAMPTZ,
     error_message               TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_backtest_runs_strategy ON backtest_runs(strategy_id, started_at DESC);
+
+ALTER TABLE backtest_runs ADD COLUMN IF NOT EXISTS trace_id UUID REFERENCES execution_traces(trace_id);
 
 CREATE TABLE IF NOT EXISTS backtest_monthly (
     id                SERIAL       PRIMARY KEY,

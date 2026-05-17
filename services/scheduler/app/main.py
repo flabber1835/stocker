@@ -360,7 +360,7 @@ async def _run_daily_chain():
             vetter_run_id: Optional[str] = None
             ok = await _run_step(
                 client, VETTER_URL, "/jobs/vet",
-                date_field="completed_at",
+                date_field="started_at",
                 today=today,
                 step_name="vet",
                 max_minutes=VETTER_MAX_MINUTES,

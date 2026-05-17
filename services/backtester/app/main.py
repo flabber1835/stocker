@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from app.simulate import run_backtest
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
+from stock_strategy_shared.tracing import log_step, write_trace_file, mark_orphaned_runs_failed
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
@@ -32,11 +33,7 @@ async def lifespan(app: FastAPI):
     strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10)
     async with engine.begin() as conn:
-        await conn.execute(text(
-            "UPDATE backtest_runs SET status='failed', completed_at=NOW(), "
-            "error_message='Service restarted while run was active' "
-            "WHERE status='running'"
-        ))
+        await mark_orphaned_runs_failed(conn, "backtest_runs", trace_job_type="backtest_run")
     yield
     await engine.dispose()
 
@@ -68,13 +65,21 @@ async def _assert_no_running_job(conn) -> None:
         )
 
 
+async def _log_step(conn, trace_id, step_name, status, *, started_at=None,
+                    input_summary=None, output_summary=None, error_message=None):
+    await log_step(conn, trace_id, "backtester", step_name, status,
+                   started_at=started_at, input_summary=input_summary,
+                   output_summary=output_summary, error_message=error_message)
+
+
 async def _run_backtest_bg(
     run_id: str,
+    trace_id: str,
     date_from: str,
     date_to: str,
     tx_cost_bps: int,
+    started_at: datetime,
 ) -> None:
-    started_at = datetime.now(timezone.utc)
     try:
         # ── Step 1: load portfolio runs from DB ───────────────────────────────
         async with engine.connect() as conn:
@@ -128,8 +133,20 @@ async def _run_backtest_bg(
                     ),
                     {"rid": run_id, "now": datetime.now(timezone.utc)},
                 )
+                await conn.execute(
+                    text("UPDATE execution_traces SET status='failed', completed_at=NOW(), "
+                         "notes='No portfolio runs found' WHERE trace_id=:tid"),
+                    {"tid": trace_id},
+                )
             print(f"[backtester] run {run_id} FAILED: no portfolio runs found")
             return
+
+        t0 = datetime.now(timezone.utc)
+        async with engine.begin() as conn:
+            await _log_step(conn, trace_id, "load_portfolio_runs", "success",
+                            started_at=started_at,
+                            output_summary={"portfolio_runs": len(portfolio_runs),
+                                            "source_run_ids": source_run_ids[:5]})
 
         # ── Step 2: collect all tickers and load prices ───────────────────────
         all_tickers: set[str] = set()
@@ -166,10 +183,26 @@ async def _run_backtest_bg(
             ]
         )
 
+        async with engine.begin() as conn:
+            await _log_step(conn, trace_id, "load_prices", "success",
+                            started_at=t0,
+                            output_summary={"tickers": len(all_tickers),
+                                            "price_rows": len(price_records)})
+        t0 = datetime.now(timezone.utc)
+
         # ── Step 3: run backtest ──────────────────────────────────────────────
         result = run_backtest(portfolio_runs, prices_df, tx_cost_bps=tx_cost_bps)
         summary = result["summary"]
         periods = result["periods"]
+
+        async with engine.begin() as conn:
+            await _log_step(conn, trace_id, "run_simulation", "success",
+                            started_at=t0,
+                            output_summary={"periods": len(periods),
+                                            "total_return": summary.get("total_return"),
+                                            "sharpe_ratio": summary.get("sharpe_ratio"),
+                                            "max_drawdown": summary.get("max_drawdown")})
+        t0 = datetime.now(timezone.utc)
 
         # ── Step 3b: fail fast if simulation produced no valid periods ────────
         if not periods:
@@ -181,6 +214,11 @@ async def _run_backtest_bg(
                         "WHERE run_id=:rid"
                     ),
                     {"rid": run_id, "now": datetime.now(timezone.utc)},
+                )
+                await conn.execute(
+                    text("UPDATE execution_traces SET status='failed', completed_at=NOW(), "
+                         "notes='No valid periods produced' WHERE trace_id=:tid"),
+                    {"tid": trace_id},
                 )
             print(f"[backtester] run {run_id} FAILED: no valid periods produced")
             return
@@ -250,6 +288,27 @@ async def _run_backtest_bg(
                 },
             )
 
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("UPDATE execution_traces SET status='success', completed_at=:now WHERE trace_id=:tid"),
+                {"tid": trace_id, "now": datetime.now(timezone.utc)},
+            )
+            await _log_step(conn, trace_id, "write_results", "success",
+                            started_at=t0,
+                            output_summary={"periods_written": len(periods),
+                                            "n_rebalances": summary.get("n_rebalances")})
+
+        await write_trace_file(
+            engine, ARTIFACTS_PATH, trace_id, run_id, "backtest_run", "success", started_at,
+            service_label="backtester",
+            strategy_id=strategy.strategy_id,
+            config_hash=config_hash,
+            date_from=date_from,
+            date_to=date_to,
+            tx_cost_bps=tx_cost_bps,
+            summary=summary,
+        )
+
         print(
             f"[backtester] run {run_id} SUCCESS: {len(periods)} periods, "
             f"total_return={summary.get('total_return')}, "
@@ -270,6 +329,17 @@ async def _run_backtest_bg(
                     ),
                     {"rid": run_id, "now": datetime.now(timezone.utc), "err": err_msg},
                 )
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text("UPDATE execution_traces SET status='failed', completed_at=NOW(), "
+                         "notes=:err WHERE trace_id=:tid"),
+                    {"tid": trace_id, "err": err_msg},
+                )
+            await write_trace_file(
+                engine, ARTIFACTS_PATH, trace_id, run_id, "backtest_run", "failed", started_at,
+                service_label="backtester",
+                error=err_msg,
+            )
         except Exception:
             traceback.print_exc()
             print(f"[backtester] WARNING: failed to update DB with failure status for run {run_id}")
@@ -293,28 +363,42 @@ async def start_backtest_job(
         async with engine.connect() as conn:
             await _assert_no_running_job(conn)
 
+        started_at = datetime.now(timezone.utc)
+        trace_id = str(uuid.uuid4())
         run_id = str(uuid.uuid4())
         async with engine.begin() as conn:
             await conn.execute(
                 text(
                     "INSERT INTO backtest_runs "
-                    "(run_id, strategy_id, config_hash, status, date_from, date_to, tx_cost_bps, started_at) "
-                    "VALUES (:rid, :sid, :ch, 'running', :date_from, :date_to, :tx, :now)"
+                    "(run_id, trace_id, strategy_id, config_hash, status, date_from, date_to, tx_cost_bps, started_at) "
+                    "VALUES (:rid, :tid, :sid, :ch, 'running', :date_from, :date_to, :tx, :now)"
                 ),
                 {
                     "rid": run_id,
+                    "tid": trace_id,
                     "sid": strategy.strategy_id,
                     "ch": config_hash,
                     "date_from": date_from,
                     "date_to": date_to,
                     "tx": tx_cost_bps,
-                    "now": datetime.now(timezone.utc),
+                    "now": started_at,
                 },
             )
+            await conn.execute(
+                text(
+                    "INSERT INTO execution_traces "
+                    "(trace_id, job_type, status, root_run_id, strategy_id, config_hash, started_at) "
+                    "VALUES (:tid, 'backtest_run', 'running', :rid, :sid, :ch, :now)"
+                ),
+                {"tid": trace_id, "rid": run_id, "sid": strategy.strategy_id,
+                 "ch": config_hash, "now": started_at},
+            )
 
-        background_tasks.add_task(_run_backtest_bg, run_id, date_from, date_to, tx_cost_bps)
+        background_tasks.add_task(
+            _run_backtest_bg, run_id, trace_id, date_from, date_to, tx_cost_bps, started_at
+        )
 
-    return {"status": "started", "run_id": run_id}
+    return {"status": "started", "run_id": run_id, "trace_id": trace_id}
 
 
 @app.get("/runs/latest")
