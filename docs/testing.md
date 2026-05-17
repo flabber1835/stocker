@@ -1,16 +1,29 @@
 # Testing
 
-Use `pytest`.
+Use `pytest`. Run from the `tests/` directory after `pip install -e ../shared`.
+
+## Test Coverage (current)
+
+```text
+tests/shared/          27 tests  — StrategyConfig, VetterConfig, FactorEngineConfig,
+                                   UniverseConfig, IntradayConfig schema validation
+tests/llm_vetter/      29 tests  — hallucination detection, auto-override,
+                                   crash isolation, _build_summary, contradiction checks
+tests/av_ingestor/      9 tests  — ticker validation, dollar volume, incremental skip
+tests/portfolio_builder/ 8 tests — greedy selection, sector caps, covariance
+tests/backtester/      28 tests  — simulate.py (7), metrics.py (8), plus edge cases
+```
 
 ## Priority Test Targets
 
 ```text
-strategy-validator
-risk-service
-factor-engine
-ranker
-backtester
-intraday-monitor
+strategy-validator    ✅ covered via shared/test_strategy_schema.py
+llm-vetter            ✅ covered via llm_vetter/test_vetter.py
+factor-engine         ✅ covered via regression tests
+backtester            ✅ covered via backtester/test_simulate.py + test_metrics.py
+risk-service          ⬜ not yet built
+intraday-monitor      ⬜ not yet built
+ranker                ⬜ unit tests pending
 ```
 
 ## Required Test Types
@@ -23,8 +36,21 @@ unknown LLM-generated fields are rejected
 factor calculations are deterministic
 rankings are reproducible
 backtest output is reproducible
-risk-service blocks unsafe trades
-trade-executor cannot run without risk approval
+hallucination flags correctly detect contradictions
+conviction boosts attenuated by flag count
+crash isolation: one ticker crash does not abort the vetter loop
+risk-service blocks unsafe trades          (when built)
+trade-executor cannot run without approval (when built)
+```
+
+## Test Gaps to Address
+
+```text
+ranker: no unit tests for composite scoring or regime-weight application
+portfolio-builder: no test for conviction boost attenuation by hallucination_flag_count
+llm-vetter: no test for _format_ticker_message with quantitative context
+llm-vetter: no test for fetch_av_news concurrency / semaphore behaviour
+llm-vetter: no end-to-end agentic loop test (requires mock Ollama client)
 ```
 
 ## Service Expectations
@@ -34,27 +60,26 @@ Every service should have:
 ```text
 health endpoint
 unit tests
-clear README
 typed Pydantic models where useful
 ```
 
 ## Example Commands
 
 ```bash
-make test
-pytest
-docker compose run --rm strategy-validator pytest
+cd tests && pip install -e ../shared
+pytest                          # all tests
+pytest shared/ -v               # schema tests only
+pytest llm_vetter/ -v           # vetter tests only
+pytest backtester/ -v           # backtester tests only
 ```
 
-## Early Testing Philosophy
+## Testing Philosophy
 
-Test the safety boundary first.
+Test the safety boundary first, then correctness of deterministic engines.
 
-The first important tests should prove:
-
-```text
-bad strategy configs are rejected
-dangerous risk limits are rejected
-no order can be submitted without risk approval
-paper trading is the default
-```
+Priority order:
+1. Config validation (strategy schema) — bad configs must be rejected before reaching any service
+2. Risk service safety rules — when built, every hard rule needs a test
+3. Deterministic engines (factor-engine, ranker, backtester) — same inputs → same outputs
+4. Advisory layers (vetter) — hallucination detection and override logic
+5. Integration paths — end-to-end with mocked external services

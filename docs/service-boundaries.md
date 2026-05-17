@@ -65,9 +65,19 @@ Runs after factor-engine completes. Lifespan marks orphaned runs as failed on st
 
 ### portfolio-builder
 
-Converts ranked stocks into target portfolio weights. Applies conviction boosts from
-the vetter when available (high: +0.25, medium: +0.12, low: +0.05). Does not require
-vetter approval — vetter output is advisory only.
+Converts ranked stocks into target portfolio weights.
+
+Steps:
+1. Load top N candidates from ranking run
+2. Apply LLM vetter exclusions (soft — does not block if vetter hasn't run)
+3. Apply conviction boosts from vetter (attenuated by hallucination_flag_count)
+4. Load price history for covariance matrix
+5. Apply universe filters (min_price, min_avg_dollar_volume_20d)
+6. Build covariance matrix (Ledoit-Wolf shrinkage)
+7. Greedy score-per-portfolio-vol selection with sector caps
+8. Write holdings to portfolio_holdings
+
+Does not require vetter approval — vetter output is advisory only.
 
 **Rebalance model: continuous buffer-zone (not fixed monthly)**
 
@@ -88,12 +98,37 @@ shorter if they deteriorate quickly. There is no forced monthly exit.
 
 ### llm-vetter
 
-Vets ranked stocks using LLM reasoning (Ollama or OpenAI) and Tavily web search.
-Produces per-stock signals: `exclude`, `risk_type`, `risk_confidence`,
-`positive_catalyst`, `positive_conviction`, `reason`. Results stored in
-`vetter_decisions` and used by portfolio-builder for soft score adjustments.
-The vetter is never a hard gate — portfolio construction proceeds whether or not
-the vetter has run.
+Vets ranked stocks using LLM reasoning (Ollama, temperature=0.1) and Tavily web search.
+
+**Data flow per run:**
+1. Load top N candidates from the latest ranking run (rank, composite_score,
+   factor z-scores, regime, sector, portfolio status)
+2. Pre-fetch concurrently: AV news (per-ticker, semaphore-bounded), earnings
+   calendar, Tavily web search for each ticker
+3. For each ticker: run agentic LLM loop (up to max_searches_per_ticker tool calls)
+   then structured JSON final decision
+4. Detect hallucination flags; apply auto-override and conviction downgrade as needed
+5. Write decisions to `vetter_decisions` (including hallucination_flag_count)
+
+**Outputs:** `exclude`, `confidence`, `risk_type`, `positive_catalyst`,
+`positive_conviction`, `positive_reason`, `hallucination_flags`, `hallucination_flag_count`
+
+**Quantitative context provided to LLM:** ticker rank, total candidates, composite
+score, factor z-scores, active regime, sector, whether the stock is already held.
+This grounds the LLM assessment — a top-5 ranked stock needs stronger evidence
+to exclude than a rank-48 stock.
+
+**The vetter is advisory only.** Portfolio construction never waits for or requires
+vetter output. Conviction boosts from the vetter influence score ordering within
+the candidate pool but are attenuated when hallucination flags are present:
+- 0 flags: full boost
+- 1 flag: 75% of boost
+- 2 flags: 50% of boost
+- 3+ flags: boost skipped
+
+**Strategy-configurable prompt:** `VetterConfig.system_prompt_file` allows a
+custom system prompt (with placeholders for entry_rank, exit_rank, etc.) to be
+loaded at startup. Falls back to the built-in buffer-zone aware prompt.
 
 ### backtester
 

@@ -66,14 +66,56 @@ shared/stock_strategy_shared/loader.py: shared load_strategy() used by all servi
 Built:
 
 ```text
-llm-vetter service
-Tavily web search for news and catalysts
-Ollama (local) or OpenAI LLM vetting
-Output: exclude, risk_type, risk_confidence, positive_catalyst, positive_conviction, reason
-vetter_decisions table in Postgres
+llm-vetter service (port 8010)
+Per-ticker concurrent AV news fetch (one request per ticker, semaphore-bounded)
+Tavily pre-fetch for all candidates + agentic web_search tool during LLM loop
+Ollama (local LLM) vetting with structured JSON schema output
+Output: exclude, risk_type, confidence, positive_catalyst, positive_conviction,
+        positive_reason, hallucination_flags
+vetter_decisions table in Postgres (includes hallucination_flag_count)
+vetter_exclusions table for excluded tickers
 Dashboard vetter tab: KEEP/EXCLUDE/RISK badges, catalyst badges, news sources
 Informational only — no approval gate, no portfolio blocking
-Conviction boosts applied in portfolio-builder (high: +0.25, medium: +0.12, low: +0.05)
+
+Conviction boosts applied in portfolio-builder, attenuated by hallucination flag count:
+  high: +0.25, medium: +0.12, low: +0.05 (config-driven, capped by conviction_max_boost)
+  1 flag → 75% of boost, 2 flags → 50%, 3+ flags → boost skipped entirely
+
+Hallucination detection:
+  - Exclude with no supporting data
+  - Contradiction: exclude=True with positive_catalyst=True
+  - Contradiction: exclude=True with risk_type='none'
+  - Date hallucination: unexpected year in reason or positive_reason
+  - Missing evidence: positive_catalyst=True with empty positive_reason
+  - Contradiction: positive_catalyst=False with non-'none' conviction
+  - Auto-override: exclude=True with no data at any confidence → forced KEEP
+  - Conviction downgrade: high/medium positive_conviction with no data → low,
+    positive_reason cleared
+
+Quantitative context fed to LLM per ticker:
+  rank, total_candidates, composite_score, factor z-scores, active regime,
+  sector, portfolio status (already held vs candidate for entry)
+
+Buffer-zone aware prompt:
+  - System prompt describes entry/exit rank thresholds and confirmation_days
+  - Per-ticker message shows quantitative standing to ground LLM reasoning
+  - ALREADY HELD stocks assessed against exit standard (not entry standard)
+  - LLM instructed to treat top-5 ranked stocks with higher quant conviction
+
+Temperature set to 0.1 on all Ollama calls (reduces hallucination frequency)
+
+System prompt is strategy-configurable:
+  VetterConfig.system_prompt_file → loaded at startup, validated for placeholders,
+  falls back to built-in prompt on error. Custom prompts use:
+  {entry_rank}, {exit_rank}, {confirmation_days}, {risk_horizon_days}, {exclude_clause}
+
+VetterConfig fields: enabled, candidate_count, conviction_max_boost,
+  conviction_boosts, risk_horizon_days, system_prompt_file, strictness,
+  max_searches_per_ticker, news_lookback_days, max_articles_per_ticker,
+  earnings_horizon_days
+
+Crash isolation: per-ticker exception handling — one bad LLM call does not
+  abort the full run. Crashed tickers default to exclude=False (safe keep).
 ```
 
 ## Phase 4.6: Dashboard Cloud-Native Refactor ✅ DONE
@@ -151,12 +193,24 @@ Built:
 
 ```text
 scheduler service (port 8015)
-daily chain: fetch-data → factor-calculate → rank fires at 4:15pm ET weekdays
+daily chain: fetch-data → factor-calculate → rank → vetter fires at 4:15pm ET weekdays
 Same-day dedup guard on factor-engine and ranker (skips if already ran today)
 POST /jobs/run-now — manual trigger; GET /status — chain state and next scheduled run
 Fundamentals refresh cadence: weekly (7-day window) instead of daily —
   AV OVERVIEW is quarterly data, daily re-fetch was wasteful
 RANK_SCHEDULE_CRON env var overrides the default schedule
+
+Timeout handling:
+  fetch-data: 4 hour timeout (large ingest job)
+  factor-calculate: 30 min timeout
+  rank: 30 min timeout
+  vetter: computed as (OLLAMA_TIMEOUT_SECS × candidate_count + 600) seconds
+          i.e., per-ticker timeout × n tickers + 10 min buffer
+  
+Scheduler date safety:
+  factor-engine and ranker dedup use started_at (not completed_at) to avoid
+  cross-midnight race when a job starts before midnight and completes after.
+  Vetter dedup likewise uses started_at date field.
 ```
 
 Still to build:
