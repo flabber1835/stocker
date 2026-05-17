@@ -300,7 +300,7 @@ async def _run_daily_chain():
                 date_field="started_at",
                 today=today,
                 step_name="fetch-data",
-                max_minutes=180,
+                max_minutes=240,
                 job_type_filter="fetch-data",
                 extra_ok_statuses=("partial_success",),
             )
