@@ -352,9 +352,10 @@ async def _do_build(
             vetter_excluded = [r.ticker for r in exc_rows.fetchall()]
 
         if vetter_excluded:
-            candidate_tickers = [t for t in candidate_tickers if t not in set(vetter_excluded)]
-            scores_map = {t: v for t, v in scores_map.items() if t not in set(vetter_excluded)}
-            rank_map = {t: v for t, v in rank_map.items() if t not in set(vetter_excluded)}
+            excluded_set = set(vetter_excluded)
+            candidate_tickers = [t for t in candidate_tickers if t not in excluded_set]
+            scores_map = {t: v for t, v in scores_map.items() if t not in excluded_set}
+            rank_map = {t: v for t, v in rank_map.items() if t not in excluded_set}
 
         async with engine.begin() as conn:
             await _log_step(

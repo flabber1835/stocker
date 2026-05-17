@@ -190,6 +190,23 @@ async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -
         if latest is None:
             msg = f"factor run {factor_run_id} not found or not successful" if factor_run_id else "no successful factor run found"
             print(f"[ranker] {msg} — aborting")
+            # Insert a failed ranking_runs row so callers polling /runs/latest get a
+            # definitive failed status rather than 404 forever.
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "INSERT INTO ranking_runs "
+                        "(run_id, strategy_id, config_hash, status, started_at, completed_at, error_message) "
+                        "VALUES (:rid, :sid, :ch, 'failed', :now, :now, :err)"
+                    ),
+                    {
+                        "rid": ranking_run_id,
+                        "sid": strategy.strategy_id,
+                        "ch": config_hash,
+                        "now": started_at,
+                        "err": msg,
+                    },
+                )
             return
 
         source_factor_run_id = str(latest.run_id)

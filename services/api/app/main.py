@@ -1,20 +1,38 @@
 from __future__ import annotations
 import os
 import re
+import traceback
+import uuid
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
 
-DATABASE_URL = os.environ["DATABASE_URL"]
-engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=7)
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=7) if DATABASE_URL else None
 
-app = FastAPI(title="stocker-api")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if not DATABASE_URL:
+        raise RuntimeError("Missing required environment variable: DATABASE_URL")
+    yield
+
+
+app = FastAPI(title="stocker-api", lifespan=lifespan)
 
 
 def _fmt_row(row) -> dict:
     """Serialize a DB row: UUIDs and datetimes → str, everything else unchanged."""
-    return {k: str(v) if hasattr(v, "hex") or hasattr(v, "isoformat") else v
-            for k, v in dict(row).items()}
+    out = {}
+    for k, v in dict(row).items():
+        if isinstance(v, uuid.UUID):
+            out[k] = str(v)
+        elif hasattr(v, "isoformat"):
+            out[k] = v.isoformat()
+        else:
+            out[k] = v
+    return out
 
 
 @app.get("/health")
@@ -505,6 +523,5 @@ async def get_live_portfolio():
             ],
         }
     except Exception:
-        import traceback
-        traceback.print_exc()
+        print(f"[api] get_live_portfolio error: {traceback.format_exc()}")
         return {"connected": False, "positions": [], "sync": None}
