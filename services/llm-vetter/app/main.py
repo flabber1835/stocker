@@ -149,6 +149,13 @@ async def _run_vet(run_id: str, trace_id: str, source_ranking_run_id: str, candi
         sid_result = sid_row.fetchone()
         source_strategy_id = sid_result.strategy_id if sid_result else "unknown"
 
+    if source_strategy_id != strategy.strategy_id:
+        print(
+            f"[llm-vetter] WARNING: ranking run used strategy '{source_strategy_id}' "
+            f"but vetter has '{strategy.strategy_id}' mounted — config drift possible"
+        )
+
+    async with engine.begin() as conn:
         await conn.execute(
             text(
                 "INSERT INTO vetter_runs "
@@ -174,7 +181,7 @@ async def _run_vet(run_id: str, trace_id: str, source_ranking_run_id: str, candi
     state = SimpleNamespace(candidates_total=0)
 
     try:
-        await _do_vet(run_id, trace_id, started_at, source_ranking_run_id, ticker_results, state, candidate_count=candidate_count)
+        await _do_vet(run_id, trace_id, started_at, source_ranking_run_id, ticker_results, state, candidate_count=candidate_count, source_strategy_id=source_strategy_id)
     except Exception as exc:
         err = str(exc)[:1000]
         tb = _traceback.format_exc()
@@ -249,6 +256,7 @@ async def _do_vet(
     ticker_results: list[dict],
     state,  # SimpleNamespace with candidates_total
     candidate_count: int,
+    source_strategy_id: str = "unknown",
 ) -> None:
     today = date.today().isoformat()
 
@@ -490,7 +498,8 @@ async def _do_vet(
         ticker_results=ticker_results,
         candidates_total=state.candidates_total,
         model=OLLAMA_MODEL,
-        strategy_id=strategy.strategy_id,
+        source_strategy_id=source_strategy_id,
+        local_strategy_id=strategy.strategy_id,
         config_hash=config_hash,
         vetter_config=vcfg.model_dump(),
         system_prompt=ticker_results[0].get("system_prompt", "") if ticker_results else "",
@@ -554,6 +563,17 @@ async def start_vet(
         if row is None:
             raise HTTPException(status_code=400, detail="No successful ranking run found — run the ranker first")
         source_ranking_run_id = str(row.run_id)
+
+    # quick model availability pre-flight — fail fast rather than silently
+    # completing the run with zero results after a long timeout
+    try:
+        client = OllamaClient(host=OLLAMA_HOST)
+        await client.show(OLLAMA_MODEL)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Ollama model '{OLLAMA_MODEL}' is not available at {OLLAMA_HOST}: {exc}",
+        )
 
     run_id = str(uuid.uuid4())
     trace_id = str(uuid.uuid4())

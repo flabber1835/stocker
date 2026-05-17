@@ -507,11 +507,13 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     }
 
     # Tickers that had price data but fewer than 253 rows (insufficient for momentum)
+    # OR whose most recent price date is stale (more than 7 calendar days before today).
     min_price_rows = strategy.factor_engine.momentum_long_window + 1
     low_coverage_tickers = [
-        {"ticker": t, "row_count": info["row_count"]}
+        {"ticker": t, "row_count": info["row_count"], "date_max": info["date_max"]}
         for t, info in coverage_by_ticker.items()
         if info["row_count"] < min_price_rows
+        or (today - date.fromisoformat(info["date_max"])).days > 7  # stale data
     ]
 
     step_warnings = []

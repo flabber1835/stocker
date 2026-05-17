@@ -271,3 +271,28 @@ class StrategyConfig(BaseModel):
         if missing:
             raise ValueError(f"factor_weights missing entries for regimes: {missing}")
         return self
+
+    @model_validator(mode="after")
+    def liquidity_weight_consistent_with_required_factors(self) -> "StrategyConfig":
+        if "liquidity" not in self.required_factors:
+            return self
+        for regime, weights in self.factor_weights.items():
+            if weights.liquidity == 0.0:
+                raise ValueError(
+                    f"required_factors includes 'liquidity' but regime '{regime}' has liquidity weight 0.0 "
+                    f"— either add a liquidity weight or remove it from required_factors"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def vetter_candidate_count_covers_portfolio(self) -> "StrategyConfig":
+        if not self.vetter.enabled:
+            return self
+        n = self.portfolio_builder.max_positions
+        c = self.vetter.candidate_count
+        if n > c:
+            raise ValueError(
+                f"portfolio_builder.max_positions ({n}) exceeds vetter.candidate_count ({c}) "
+                f"— vetter will not have enough candidates to fill the portfolio"
+            )
+        return self
