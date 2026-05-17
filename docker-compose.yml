@@ -349,6 +349,29 @@ services:
     environment:
       SERVICE_NAME: evaluator
 
+  delta-engine:
+    build:
+      context: .
+      dockerfile: services/delta-engine/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8017:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
+      STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
+      ARTIFACTS_PATH: /artifacts
+    volumes:
+      - ./artifacts:/artifacts
+      - ./strategies:/strategies:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   scheduler:
     build:
       context: .
@@ -362,13 +385,14 @@ services:
       RANKER_URL:            http://ranker:8000
       VETTER_URL:            http://llm-vetter:8000
       PORTFOLIO_BUILDER_URL: http://portfolio-builder:8000
+      DELTA_ENGINE_URL:      http://delta-engine:8000
       RANK_SCHEDULE_CRON: ${RANK_SCHEDULE_CRON:-15 21 * * 1-5}
     depends_on:
       - av-ingestor
       - factor-engine
       - ranker
       - llm-vetter
-      - portfolio-builder
+      - delta-engine
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 10s

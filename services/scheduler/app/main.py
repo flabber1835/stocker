@@ -15,7 +15,8 @@ AV_INGESTOR_URL       = os.getenv("AV_INGESTOR_URL",       "http://av-ingestor:8
 FACTOR_ENGINE_URL     = os.getenv("FACTOR_ENGINE_URL",      "http://factor-engine:8000")
 RANKER_URL            = os.getenv("RANKER_URL",             "http://ranker:8000")
 VETTER_URL            = os.getenv("VETTER_URL",             "http://llm-vetter:8000")
-PORTFOLIO_BUILDER_URL = os.getenv("PORTFOLIO_BUILDER_URL",  "http://portfolio-builder:8000")
+PORTFOLIO_BUILDER_URL = os.getenv("PORTFOLIO_BUILDER_URL",  "http://portfolio-builder:8000")  # manual/monthly use only
+DELTA_ENGINE_URL      = os.getenv("DELTA_ENGINE_URL",       "http://delta-engine:8000")
 
 # Default: 21:15 UTC = 4:15 pm ET, weekdays only (market close + 15 min buffer).
 # Override via env var using standard cron syntax, e.g. "0 22 * * 1-5"
@@ -303,8 +304,7 @@ async def _run_daily_chain():
                 return
 
             # Step 4 — vetter (informational; failure does not abort the chain)
-            # The vetter is "not a gate" — portfolio-builder proceeds even without it,
-            # just without LLM conviction boosts applied to scores.
+            # The vetter is "not a gate" — delta engine proceeds even without it.
             vetter_run_id: Optional[str] = None
             ok = await _run_step(
                 client, VETTER_URL, "/jobs/vet",
@@ -320,29 +320,22 @@ async def _run_daily_chain():
                     run_ids["vet"] = vetter_run_id
             else:
                 print(
-                    "[scheduler] vet: step failed — portfolio-builder will proceed "
-                    "without LLM conviction boosts (vetter is informational only)"
+                    "[scheduler] vet: step failed — delta engine will proceed "
+                    "(vetter is informational only)"
                 )
 
-            # Step 5 — portfolio-builder (always runs; vetter_run_id passed when available)
-            pb_params = {"vetter_run_id": vetter_run_id} if vetter_run_id else None
+            # Step 5 — delta engine (buffer-zone entry/exit evaluation)
             ok = await _run_step(
-                client, PORTFOLIO_BUILDER_URL, "/jobs/build",
-                date_field="portfolio_date",
+                client, DELTA_ENGINE_URL, "/jobs/run",
+                date_field="run_date",
                 today=today,
-                step_name="portfolio-build",
-                max_minutes=15,
-                params=pb_params,
+                step_name="delta",
+                max_minutes=10,
             )
-            steps["portfolio_build"] = "success" if ok else "failed"
+            steps["delta"] = "success" if ok else "failed"
             if ok:
-                if rid := await _get_latest_run_id(client, PORTFOLIO_BUILDER_URL):
-                    run_ids["portfolio_build"] = rid
-                vetter_note = f"vetter_run_id={vetter_run_id}" if vetter_run_id else "no vetter"
-                print(
-                    f"[scheduler] portfolio-build: run_id={run_ids.get('portfolio_build', '?')}"
-                    f" ({vetter_note})"
-                )
+                if rid := await _get_latest_run_id(client, DELTA_ENGINE_URL):
+                    run_ids["delta"] = rid
             if not ok:
                 _fail_chain()
                 return
