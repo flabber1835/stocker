@@ -2,15 +2,40 @@
 Tests for _already_ran_today and _startup_catch_up in app.main.
 
 We avoid importing the full FastAPI app (which requires APScheduler and network
-services). Instead we import the helper function directly and patch the httpx
-client responses with a minimal mock.
+services). Instead we stub out the missing optional dependencies at the module
+level before importing, then import the helper functions directly and patch
+httpx client responses with a minimal mock.
 """
 import asyncio
+import sys
+import types
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.main import _already_ran_today, _startup_catch_up
+# ── Stub out apscheduler so app.main can be imported without the real package ──
+
+def _make_apscheduler_stubs():
+    """Insert lightweight stubs for apscheduler modules into sys.modules."""
+    # apscheduler.schedulers.asyncio
+    schedulers_pkg = types.ModuleType("apscheduler.schedulers")
+    asyncio_mod = types.ModuleType("apscheduler.schedulers.asyncio")
+    asyncio_mod.AsyncIOScheduler = MagicMock()
+    sys.modules.setdefault("apscheduler", types.ModuleType("apscheduler"))
+    sys.modules.setdefault("apscheduler.schedulers", schedulers_pkg)
+    sys.modules.setdefault("apscheduler.schedulers.asyncio", asyncio_mod)
+
+    # apscheduler.triggers.cron
+    triggers_pkg = types.ModuleType("apscheduler.triggers")
+    cron_mod = types.ModuleType("apscheduler.triggers.cron")
+    cron_mod.CronTrigger = MagicMock()
+    sys.modules.setdefault("apscheduler.triggers", triggers_pkg)
+    sys.modules.setdefault("apscheduler.triggers.cron", cron_mod)
+
+
+_make_apscheduler_stubs()
+
+from app.main import _already_ran_today, _startup_catch_up  # noqa: E402
 
 
 # ── Minimal httpx response mock ───────────────────────────────────────────────
