@@ -89,6 +89,17 @@ async def start_rank_chain_alias(background_tasks: BackgroundTasks):
     return {"status": "started"}
 
 
+@app.get("/api/jobs/rank-chain/latest")
+async def rank_chain_latest():
+    """Return the scheduler chain status — equivalent to /runs/latest for other services."""
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            r = await client.get(f"{SCHEDULER_URL}/status")
+            return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=502)
+
+
 @app.post("/api/jobs/{tab}")
 async def trigger_job(tab: str):
     if tab not in _JOB_SERVICES:
@@ -250,6 +261,11 @@ async def pipeline_status():
         ranker_status_raw = None
 
     # ── Determine universe status ──────────────────────────────────────────────
+    # The av-ingestor /runs/latest returns the most recent run of ANY type.
+    # fetch-data runs daily and will usually be the latest, masking an older
+    # fetch-universe result. Use uni_date (snapshot exists) as the primary signal
+    # for success; only override with the live run status when fetch-universe is
+    # actively running or has explicitly failed with no snapshot saved at all.
     universe_status = "none"
     if not isinstance(r5, dict) and r5.status_code == 200:
         d5 = r5.json()
@@ -257,9 +273,10 @@ async def pipeline_status():
         av_status = d5.get("status", "")
         if av_status == "running" and jtype == "fetch-universe":
             universe_status = "running"
-        elif av_status in ("success", "partial_success") and jtype == "fetch-universe":
-            universe_status = "success"
-        elif av_status == "failed" and jtype == "fetch-universe":
+        elif av_status == "failed" and jtype == "fetch-universe" and not uni_date:
+            # Only surface a fetch-universe failure when there is genuinely no
+            # universe snapshot — if a snapshot exists from a prior run, it is
+            # still valid and the failure is already captured in the run history.
             universe_status = "failed"
         elif uni_date:
             universe_status = "success"
@@ -1570,11 +1587,14 @@ function renderJob(tab, state, prev) {
                  : done    ? 'DONE'
                  : failed  ? 'FAILED'
                  : 'NOT RUN';
-  const badgeCls = running ? 'running' : done ? 'success' : failed ? 'error' : 'idle';
+  // cls names must match CSS: .badge-running, .badge-success, .badge-failed, .badge-notrun
+  const badgeCls = running ? 'running' : done ? 'success' : failed ? 'failed' : 'notrun';
 
   // Badge + panel — always update so badge resets to NOT RUN if service disappears
   _setBadge(tab, label, badgeCls);
-  _setJobPanel(tab, running ? 'running' : done ? 'success' : failed ? 'failed' : 'idle');
+  // Pass '' (not 'idle') for the inactive state — .job-panel.idle has no CSS rule;
+  // the base .job-panel border-left var(--secondary) applies correctly without it.
+  _setJobPanel(tab, running ? 'running' : done ? 'success' : failed ? 'failed' : '');
 
   // Progress bar — for vet tab, _loadVetterTickers drives the bar from real counts;
   // skip the indeterminate override here to avoid jitter between the two writers.
