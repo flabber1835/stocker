@@ -300,8 +300,11 @@ async def pipeline_status():
             rank_pct = 95
 
     # If the orchestrator is still running (inter-step gap), keep rank as running
-    # so the progress bar doesn't flash done between steps.
-    if rank_status != "running" and _rank_chain_running:
+    # so the progress bar doesn't flash done between steps. Only applies when no
+    # service has already reported a confirmed terminal state — prevents the flag
+    # from holding "running" for hours if the scheduler becomes unreachable.
+    confirmed_terminal = ranker_status_raw in ("success", "partial_success", "skipped", "failed")
+    if rank_status != "running" and _rank_chain_running and not confirmed_terminal:
         rank_status = "running"
         rank_step = rank_step or "starting"
         rank_step_label = rank_step_label or "Starting"
@@ -1241,6 +1244,12 @@ function switchTab(name, btn){
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   btn.classList.add('active');
   $('pane-'+name).classList.add('active');
+  // Load tab data on switch — vetter is not pre-loaded at boot so this is
+  // the only trigger for users who open the tab after a pipeline run finished.
+  if (name === 'vet') {
+    const s = _prevJobState.vet || {};
+    if (s.run_id) { loadVetterExclusions(s.run_id); _loadVetterTickers(s.run_id, false); }
+  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -1370,7 +1379,10 @@ function esc(s){
 
 // ── Live ticker analysis ──────────────────────────────────────────────────────
 
+let _vetterTickersInFlight = false;
 async function _loadVetterTickers(runId, live){
+  if (_vetterTickersInFlight) return;
+  _vetterTickersInFlight = true;
   try{
     const r = await fetch('/api/vetter/ticker-results/'+runId);
     const d = await r.json();
@@ -1511,19 +1523,21 @@ async function _loadVetterTickers(runId, live){
   }catch(e){
     console.warn('ticker-results error', e);
     return false;
+  } finally {
+    _vetterTickersInFlight = false;
   }
 }
 
 // ── Server-driven render loop ──────────────────────────────────────────────
 
-let _prevJobState = {universe:{}, rank:{}, vetter:{}, portfolio:{}};
+let _prevJobState = {universe:{}, rank:{}, vet:{}, portfolio:{}};
 
 async function refresh() {
   try {
     const d = await fetch('/api/pipeline-status').then(r => r.json());
     renderJob('universe', d.universe || {}, _prevJobState.universe || {});
     renderJob('rank',     d.rank     || {}, _prevJobState.rank     || {});
-    renderJob('vetter',   d.vetter   || {}, _prevJobState.vetter   || {});
+    renderJob('vet',      d.vetter   || {}, _prevJobState.vet      || {});
     renderJob('portfolio',d.portfolio|| {}, _prevJobState.portfolio|| {});
     // Warnings
     if (d.warnings) {
@@ -1541,7 +1555,7 @@ async function refresh() {
     _prevJobState = {
       universe:  d.universe  || {},
       rank:      d.rank      || {},
-      vetter:    d.vetter    || {},
+      vet:       d.vetter    || {},
       portfolio: d.portfolio || {},
     };
   } catch(e) { /* service may be temporarily down */ }
@@ -1555,16 +1569,18 @@ function renderJob(tab, state, prev) {
   const label    = running ? (state.step_label || 'RUNNING')
                  : done    ? 'DONE'
                  : failed  ? 'FAILED'
-                 : null;
+                 : 'NOT RUN';
+  const badgeCls = running ? 'running' : done ? 'success' : failed ? 'error' : 'idle';
 
-  // Badge + panel
-  if (label) _setBadge(tab, label, running ? 'running' : done ? 'success' : 'error');
+  // Badge + panel — always update so badge resets to NOT RUN if service disappears
+  _setBadge(tab, label, badgeCls);
   _setJobPanel(tab, running ? 'running' : done ? 'success' : failed ? 'failed' : 'idle');
 
-  // Progress bar
-  const fillId = {universe:'uni-fill', rank:'rank-fill', vetter:'vet-fill', portfolio:'portfolio-fill'}[tab];
-  const wrapId = {universe:'uni-prog-wrap', rank:'rank-prog-wrap', vetter:'vet-prog-wrap', portfolio:'portfolio-prog-wrap'}[tab];
-  const pctId  = {universe:'uni-pct', rank:'rank-pct', vetter:'vet-pct', portfolio:'portfolio-pct'}[tab];
+  // Progress bar — for vet tab, _loadVetterTickers drives the bar from real counts;
+  // skip the indeterminate override here to avoid jitter between the two writers.
+  const fillId = {universe:'uni-fill', rank:'rank-fill', vet:'vet-fill', portfolio:'portfolio-fill'}[tab];
+  const wrapId = {universe:'uni-prog-wrap', rank:'rank-prog-wrap', vet:'vet-prog-wrap', portfolio:'portfolio-prog-wrap'}[tab];
+  const pctId  = {universe:'uni-pct', rank:'rank-pct', vet:'vet-pct', portfolio:'portfolio-pct'}[tab];
   const fillEl = $(fillId), wrapEl = $(wrapId), pctEl = $(pctId);
   if (fillEl) {
     fillEl.classList.remove('indeterminate', 'pulsing', 'error');
@@ -1575,7 +1591,8 @@ function renderJob(tab, state, prev) {
         fillEl.style.width = pct + '%';
         fillEl.classList.add('pulsing');
         if (pctEl) pctEl.textContent = pct + '%';
-      } else {
+      } else if (tab !== 'vet') {
+        // vet progress bar is driven by _loadVetterTickers; don't overwrite with indeterminate
         fillEl.classList.add('indeterminate');
         if (pctEl) pctEl.textContent = '';
       }
@@ -1596,23 +1613,23 @@ function renderJob(tab, state, prev) {
   }
 
   // Date
-  const dateEl = {universe:'uni-last-date', rank:'rank-last-date', vetter:'vet-last-date', portfolio:'port-last-date'}[tab];
+  const dateEl = {universe:'uni-last-date', rank:'rank-last-date', vet:'vet-last-date', portfolio:'port-last-date'}[tab];
   if (dateEl && state.date) $(dateEl) && ($(dateEl).textContent = state.date);
 
-  // Reload tab data when: (a) transition running→done, or (b) done but prev was unknown
+  // Reload tab data when: (a) transition running→done, or (b) done but prev was unknown.
   // (b) handles mobile waking up after missing the transition while backgrounded.
   const wasRunning = (prev.status === 'running');
   const prevUnknown = (prev.status == null || prev.status === 'none' || prev.status === undefined);
   if ((wasRunning && done) || (prevUnknown && done)) {
     if (tab === 'universe')  loadUniverse();
     if (tab === 'rank')      loadRankings();
-    if (tab === 'vetter') {
+    if (tab === 'vet') {
       if (state.run_id) {
         loadVetterExclusions(state.run_id);
         _loadVetterTickers(state.run_id, false);
       }
     }
-    if (tab === 'portfolio') { loadPortfolio(); loadLivePortfolio(); }
+    if (tab === 'portfolio') loadPortfolio();
   }
 }
 
