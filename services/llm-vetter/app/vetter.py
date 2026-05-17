@@ -340,15 +340,30 @@ def _detect_hallucination_flags(
     if exclude and positive_catalyst:
         flags.append("exclude=True and positive_catalyst=True simultaneously — contradictory")
 
-    # Future date hallucination: earnings_date provided but reason references a different date
-    if earnings_date and today:
-        # Check if reason mentions a year that doesn't match today's year (crude check)
-        years_in_reason = set(re.findall(r"\b20\d\d\b", reason))
+    # Future date hallucination: reason or positive_reason references an unexpected year
+    if today:
         current_year = today[:4]
         next_year = str(int(current_year) + 1)
-        bad_years = years_in_reason - {current_year, next_year}
+        allowed_years = {current_year, next_year}
+        years_in_reason = set(re.findall(r"\b20\d\d\b", reason))
+        bad_years = years_in_reason - allowed_years
         if bad_years:
             flags.append(f"Reason references unexpected year(s) {bad_years} — possible date hallucination")
+        positive_reason = parsed.get("positive_reason", "")
+        years_in_positive_reason = set(re.findall(r"\b20\d\d\b", positive_reason))
+        bad_positive_years = years_in_positive_reason - allowed_years
+        if bad_positive_years:
+            flags.append(f"positive_reason references unexpected year(s) {bad_positive_years} — possible date hallucination")
+
+    # Contradiction: positive_catalyst=True but positive_reason is empty/very short
+    positive_reason_text = parsed.get("positive_reason", "")
+    if parsed.get("positive_catalyst", False) and len(positive_reason_text.strip()) < 15:
+        flags.append(f"positive_catalyst=True but positive_reason is empty/too short ({len(positive_reason_text)} chars)")
+
+    # Contradiction: positive_catalyst=False but conviction is not 'none'
+    positive_conviction = parsed.get("positive_conviction", "none")
+    if not parsed.get("positive_catalyst", False) and positive_conviction not in ("none", ""):
+        flags.append(f"positive_catalyst=False but positive_conviction='{positive_conviction}' — contradictory")
 
     return flags
 
@@ -597,8 +612,9 @@ async def vet_single_ticker(
             ticker, parsed["positive_conviction"],
         )
         parsed["positive_conviction"] = "low"
+        parsed["positive_reason"] = ""
         hallucination_flags.append(
-            f"positive_conviction downgraded to 'low' — no supporting data found"
+            f"positive_conviction downgraded to 'low' and positive_reason cleared — no supporting data found"
         )
 
 

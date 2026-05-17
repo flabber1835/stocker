@@ -258,6 +258,66 @@ def test_short_reason_flagged():
     assert any("short" in f.lower() for f in flags)
 
 
+def test_date_hallucination_in_reason_flagged():
+    """Year clearly in the past should be flagged as date hallucination."""
+    parsed = _parsed(reason="XYZ reported strong earnings in Q3 2019 results.")
+    flags = _detect_hallucination_flags("XYZ", parsed, news=[], earnings_date=None, raw="{}", today="2026-05-17")
+    assert any("unexpected year" in f.lower() for f in flags)
+
+
+def test_date_hallucination_current_year_not_flagged():
+    """Current year and next year in reason are fine."""
+    parsed = _parsed(reason="XYZ expected to report Q2 2026 earnings in August 2027.")
+    flags = _detect_hallucination_flags("XYZ", parsed, news=[], earnings_date=None, raw="{}", today="2026-05-17")
+    date_flags = [f for f in flags if "unexpected year" in f.lower()]
+    assert date_flags == []
+
+
+def test_date_hallucination_in_positive_reason_flagged():
+    """Old year in positive_reason should also be flagged."""
+    parsed = {
+        **_parsed(positive_catalyst=True),
+        "positive_conviction": "high",
+        "positive_reason": "XYZ signed a landmark AI partnership in January 2020.",
+    }
+    flags = _detect_hallucination_flags("XYZ", parsed, news=[], earnings_date=None, raw="{}", today="2026-05-17")
+    positive_date_flags = [f for f in flags if "positive_reason" in f and "unexpected year" in f]
+    assert positive_date_flags, f"Expected positive_reason date flag, got: {flags}"
+
+
+def test_positive_catalyst_true_empty_reason_flagged():
+    """positive_catalyst=True with no positive_reason text should be flagged."""
+    parsed = {
+        **_parsed(positive_catalyst=True),
+        "positive_conviction": "high",
+        "positive_reason": "",
+    }
+    flags = _detect_hallucination_flags("XYZ", parsed, news=[], earnings_date=None, raw="{}")
+    assert any("positive_reason" in f and "empty" in f.lower() for f in flags)
+
+
+def test_positive_catalyst_false_with_conviction_flagged():
+    """positive_catalyst=False with a non-'none' conviction is contradictory."""
+    parsed = {
+        **_parsed(positive_catalyst=False),
+        "positive_conviction": "medium",
+        "positive_reason": "",
+    }
+    flags = _detect_hallucination_flags("XYZ", parsed, news=[], earnings_date=None, raw="{}")
+    assert any("positive_catalyst=False" in f and "positive_conviction" in f for f in flags)
+
+
+def test_positive_catalyst_false_none_conviction_not_flagged():
+    """positive_catalyst=False with conviction='none' is normal — no flag."""
+    parsed = {
+        **_parsed(positive_catalyst=False),
+        "positive_conviction": "none",
+        "positive_reason": "",
+    }
+    flags = _detect_hallucination_flags("XYZ", parsed, news=[], earnings_date=None, raw="{}")
+    assert not any("positive_conviction" in f for f in flags)
+
+
 # ── _build_summary ────────────────────────────────────────────────────────────
 
 from app.main import _build_summary
