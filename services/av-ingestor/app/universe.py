@@ -44,6 +44,16 @@ MOCK_TICKERS = [
 
 _TICKER_RE = re.compile(r"^[A-Z]{1,5}([.\-][A-Z0-9]{1,4})?$")
 
+# Warrants (-W, -WS), units (-U), rights (-R), and their no-dash equivalents.
+# 5-char tickers ending in W/U where first 4 chars are a base ticker (e.g. BTMDW, BTMDU).
+_WARRANT_RE = re.compile(
+    r"-W[S]?$"       # dash-warrant: APGB-W, APGB-WS
+    r"|-U$"          # dash-unit:    APGB-U
+    r"|-R$"          # dash-right:   AVK-R
+    r"|[A-Z]{4,}W$"  # no-dash warrant: BTMDW (4+W), ADALW (5+W)
+    r"|[A-Z]{4,}U$"  # no-dash unit:    BTMDU (4+U), ADALU (5+U)
+)
+
 _AV_LISTING_URL = "https://www.alphavantage.co/query?function=LISTING_STATUS&apikey={api_key}"
 
 # Exchanges considered part of the broad US equity universe.
@@ -66,6 +76,8 @@ async def download_av_listing(session: httpx.AsyncClient, api_key: str) -> list[
     for _, row in df.iterrows():
         ticker = str(row.get("symbol", "")).strip()
         if not _TICKER_RE.match(ticker):
+            continue
+        if _WARRANT_RE.search(ticker):
             continue
         if str(row.get("status", "")).strip().lower() != "active":
             continue
