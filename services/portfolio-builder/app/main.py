@@ -544,6 +544,44 @@ async def _do_build(
         max_position_weight=pb_cfg.max_position_weight,
     )
 
+    # H4: Re-normalize after cap clipping so weights always sum to 1.0.
+    # compute_weights redistributes excess iteratively, but floating-point drift
+    # or edge cases (all tickers at cap) can leave the sum below 1.0 (silent
+    # under-investment). Log the cash residual before normalization for auditability,
+    # then apply the standard iterative clip+normalize until stable (≤10 rounds).
+    max_pw = pb_cfg.max_position_weight
+    cash_residual_before_normalize = round(1.0 - sum(weights.values()), 8)
+    if abs(cash_residual_before_normalize) > 1e-9:
+        print(
+            f"[portfolio-builder] cash residual before re-normalize: "
+            f"{cash_residual_before_normalize:.8f} (sum={sum(weights.values()):.8f})"
+        )
+    for _clip_round in range(10):
+        weights = {t: min(w, max_pw) for t, w in weights.items()}
+        _wsum = sum(weights.values())
+        if _wsum > 0:
+            weights = {t: w / _wsum for t, w in weights.items()}
+        if not any(w > max_pw + 1e-9 for w in weights.values()):
+            break
+
+    # M5: Compute and log per-sector weights post-build.
+    # sector_map is loaded in step 4c and is in scope here.
+    sector_weights: dict[str, float] = {}
+    for _t, _w in weights.items():
+        _sector = sector_map.get(_t, "Unknown")
+        sector_weights[_sector] = sector_weights.get(_sector, 0.0) + _w
+    print(
+        f"[portfolio-builder] sector weights post-build: "
+        + ", ".join(f"{s}={w:.3f}" for s, w in sorted(sector_weights.items()))
+    )
+    max_sw = pb_cfg.max_sector_weight
+    for _sector, _sw in sector_weights.items():
+        if _sw > max_sw + 1e-6:
+            print(
+                f"[portfolio-builder] WARNING: sector '{_sector}' weight {_sw:.3f} "
+                f"exceeds cap {max_sw}"
+            )
+
     # Final portfolio volatility using actual weights
     w_vec = np.array([weights[t] for t in selected_tickers])
     final_cov = cov.loc[selected_tickers, selected_tickers].values
@@ -599,6 +637,8 @@ async def _do_build(
                 "highest_corr_pair": highest_corr_pair,
                 "weight_min": round(min(weight_values), 6),
                 "weight_max": round(max(weight_values), 6),
+                "cash_residual_before_normalize": cash_residual_before_normalize,
+                "sector_weights": {s: round(w, 6) for s, w in sorted(sector_weights.items())},
                 "selected_tickers": selected_tickers,
             },
             warnings=sel_warnings or None,
@@ -704,6 +744,8 @@ async def _do_build(
         portfolio_estimated_vol=round(portfolio_vol, 4),
         avg_pairwise_correlation=round(avg_pairwise_corr, 4),
         highest_corr_pair=highest_corr_pair,
+        cash_residual_before_normalize=cash_residual_before_normalize,
+        sector_weights={s: round(w, 6) for s, w in sorted(sector_weights.items())},
         source_ranking_run_id=source_ranking_run_id,
         portfolio_config={
             "method": pb_cfg.method,
