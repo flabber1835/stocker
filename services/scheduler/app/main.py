@@ -99,14 +99,44 @@ async def _get_last_rank_date(client: httpx.AsyncClient) -> date | None:
     return None
 
 
+async def _has_universe(client: httpx.AsyncClient) -> bool:
+    """Return True if av-ingestor reports a non-empty universe snapshot."""
+    try:
+        r = await client.get(f"{AV_INGESTOR_URL}/status", timeout=10.0)
+        if r.status_code == 200:
+            return (r.json().get("universe_tickers") or 0) > 0
+    except Exception:
+        pass
+    return False
+
+
 async def _startup_catch_up():
     """
-    Called once on startup. Triggers an immediate chain run if the ranking data
-    is stale — i.e. the system was offline long enough to miss one or more trading
-    days. Waits briefly for dependent services to be reachable first.
+    Called once on startup. On a cold start (empty DB) triggers fetch-universe
+    first, then runs the full daily chain. On a warm start triggers the chain
+    only if ranking data is stale.
     """
     await asyncio.sleep(10)  # give other services time to start
     async with httpx.AsyncClient() as client:
+        # Cold-start guard: if no universe exists, fetch it before anything else.
+        if not await _has_universe(client):
+            print("[scheduler] no universe found — triggering fetch-universe before daily chain")
+            try:
+                ok = await _run_step(
+                    client, AV_INGESTOR_URL, "/jobs/fetch-universe",
+                    date_field="started_at",
+                    today=date.today().isoformat(),
+                    step_name="fetch-universe",
+                    max_minutes=10,
+                    job_type_filter="fetch-universe",
+                )
+                if not ok:
+                    print("[scheduler] fetch-universe failed on cold start — aborting catch-up")
+                    return
+            except Exception as e:
+                print(f"[scheduler] fetch-universe failed on cold start: {e}")
+                return
+
         last_date = await _get_last_rank_date(client)
         today = date.today()
         if is_stale(last_date, today):
