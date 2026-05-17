@@ -351,6 +351,7 @@ CREATE TABLE IF NOT EXISTS vetter_decisions (
     positive_conviction VARCHAR(10)  NOT NULL DEFAULT 'none'
                             CHECK (positive_conviction IN ('high', 'medium', 'low', 'none')),
     positive_reason     TEXT,
+    hallucination_flag_count INTEGER NOT NULL DEFAULT 0,
     created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     UNIQUE (run_id, ticker)
 );
@@ -427,6 +428,8 @@ CREATE TABLE IF NOT EXISTS backtest_runs (
 CREATE INDEX IF NOT EXISTS idx_backtest_runs_strategy ON backtest_runs(strategy_id, started_at DESC);
 
 ALTER TABLE backtest_runs ADD COLUMN IF NOT EXISTS trace_id UUID REFERENCES execution_traces(trace_id);
+
+ALTER TABLE vetter_decisions ADD COLUMN IF NOT EXISTS hallucination_flag_count INTEGER NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS backtest_monthly (
     id                SERIAL       PRIMARY KEY,

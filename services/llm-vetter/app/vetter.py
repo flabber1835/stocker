@@ -154,6 +154,17 @@ consecutive runs. Typical holding period: weeks to several months — not fixed.
 RISK ASSESSMENT WINDOW: Assess risks over a practical {risk_horizon_days}-day horizon.
 Events beyond this window are background noise unless they represent structural changes.
 
+QUANTITATIVE CONTEXT: Each stock's rank, composite score, factor z-scores, sector,
+and active market regime are provided in the user message. Use this context:
+- A stock ranked in the top 5 was selected with high quant conviction — require clear
+  and specific evidence before excluding it, not general concern.
+- Factor z-scores show WHY the model selected it (quality=+2.1 means strong quality
+  signal). A "distressed" looking stock may have been selected precisely because of
+  high value score — known concerns may be already priced in.
+- ALREADY HELD stocks: prefer to continue holding unless the risk is new and unpriced.
+  The exit threshold (rank > {exit_rank}) requires sustained degradation, not one bad day.
+- CANDIDATE FOR ENTRY stocks: apply normal scrutiny.
+
 IMPORTANT CONTEXT: The quantitative model selects stocks for investment thesis reasons.
 A deep-value stock may intentionally be distressed. A momentum stock may already be
 priced for growth. Before excluding, consider whether the risk you found is ALREADY
@@ -214,6 +225,13 @@ def _format_ticker_message(
     exit_rank: int = 40,
     confirmation_days: int = 3,
     risk_horizon_days: int = 90,
+    rank: int | None = None,
+    total_candidates: int | None = None,
+    composite_score: float | None = None,
+    factor_scores: dict | None = None,
+    sector: str | None = None,
+    regime: str | None = None,
+    in_portfolio: bool = False,
 ) -> str:
     lines = [
         f"Today: {today}",
@@ -223,6 +241,28 @@ def _format_ticker_message(
         f"Risk horizon: {risk_horizon_days} days.",
         "",
     ]
+
+    # Quantitative standing section
+    quant_lines = []
+    if rank is not None:
+        pct = f" (top {round(rank / total_candidates * 100):.0f}%)" if total_candidates else ""
+        quant_lines.append(f"  Rank: {rank}{f' of {total_candidates}' if total_candidates else ''}{pct}")
+    if composite_score is not None:
+        quant_lines.append(f"  Composite score: {composite_score:.4f}")
+    if factor_scores:
+        fs_str = ", ".join(f"{k}={v:+.2f}" for k, v in sorted(factor_scores.items()) if v is not None)
+        quant_lines.append(f"  Factor z-scores: {fs_str}")
+    if regime:
+        quant_lines.append(f"  Active regime: {regime}")
+    if sector:
+        quant_lines.append(f"  Sector: {sector}")
+    quant_lines.append(
+        f"  Portfolio status: {'ALREADY HELD — assess continuation risk' if in_portfolio else 'CANDIDATE FOR ENTRY — assess entry risk'}"
+    )
+    if quant_lines:
+        lines.append("QUANTITATIVE STANDING (why the model selected this stock):")
+        lines.extend(quant_lines)
+        lines.append("")
 
     if earnings_date:
         lines.append(f"UPCOMING EARNINGS DATE: {earnings_date}")
@@ -385,6 +425,13 @@ async def vet_single_ticker(
     strictness: Literal["strict", "moderate", "permissive"] = "moderate",
     max_search_results: int = 5,
     system_prompt_override: str | None = None,
+    rank: int | None = None,
+    total_candidates: int | None = None,
+    composite_score: float | None = None,
+    factor_scores: dict | None = None,
+    sector: str | None = None,
+    regime: str | None = None,
+    in_portfolio: bool = False,
 ) -> dict:
     """
     Ask the LLM to make a single exclude/keep decision for one ticker.
@@ -402,6 +449,11 @@ async def vet_single_ticker(
         "risk_horizon_days": risk_horizon_days,
         "strictness": strictness,
         "max_searches_per_ticker": max_searches_per_ticker,
+        "rank": rank,
+        "composite_score": composite_score,
+        "sector": sector,
+        "regime": regime,
+        "in_portfolio": in_portfolio,
     }
     system_prompt = _build_system_prompt(
         entry_rank=entry_rank,
@@ -417,6 +469,13 @@ async def vet_single_ticker(
         exit_rank=exit_rank,
         confirmation_days=confirmation_days,
         risk_horizon_days=risk_horizon_days,
+        rank=rank,
+        total_candidates=total_candidates,
+        composite_score=composite_score,
+        factor_scores=factor_scores,
+        sector=sector,
+        regime=regime,
+        in_portfolio=in_portfolio,
     )
     # Use a set to deduplicate titles; list preserves insertion order via dict.fromkeys.
     _seen_titles: set[str] = set()

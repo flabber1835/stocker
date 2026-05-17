@@ -273,13 +273,20 @@ async def _do_vet(
     async with engine.connect() as conn:
         rows = await conn.execute(
             text(
-                "SELECT ticker, rank, composite_score FROM rankings "
-                "WHERE run_id = :rid ORDER BY rank ASC LIMIT :n"
+                "SELECT ticker, rank, composite_score, percentile, factor_scores, regime "
+                "FROM rankings WHERE run_id = :rid ORDER BY rank ASC LIMIT :n"
             ),
             {"rid": source_ranking_run_id, "n": candidate_count},
         )
         candidates = [
-            {"ticker": r.ticker, "rank": r.rank, "composite_score": float(r.composite_score)}
+            {
+                "ticker":          r.ticker,
+                "rank":            r.rank,
+                "composite_score": float(r.composite_score),
+                "percentile":      float(r.percentile) if r.percentile is not None else None,
+                "factor_scores":   r.factor_scores if r.factor_scores else {},
+                "regime":          r.regime,
+            }
             for r in rows.fetchall()
         ]
 
@@ -288,6 +295,34 @@ async def _do_vet(
 
     tickers = [c["ticker"] for c in candidates]
     state.candidates_total = len(candidates)
+
+    # Fetch sector per ticker from universe_tickers (most recent snapshot)
+    ticker_set_pg = tickers  # already a list
+    async with engine.connect() as conn:
+        sector_rows = await conn.execute(
+            text(
+                "SELECT DISTINCT ON (ut.ticker) ut.ticker, ut.sector "
+                "FROM universe_tickers ut "
+                "JOIN universe_snapshots us ON ut.snapshot_id = us.id "
+                "WHERE ut.ticker = ANY(:tickers) "
+                "ORDER BY ut.ticker, us.snapshot_date DESC"
+            ),
+            {"tickers": ticker_set_pg},
+        )
+        sector_map: dict[str, str | None] = {r.ticker: r.sector for r in sector_rows.fetchall()}
+
+    # Fetch current portfolio holdings to identify already-held tickers
+    async with engine.connect() as conn:
+        held_rows = await conn.execute(
+            text(
+                "SELECT DISTINCT ph.ticker FROM portfolio_holdings ph "
+                "JOIN portfolio_runs pr ON ph.run_id = pr.run_id "
+                "WHERE pr.strategy_id = :sid AND pr.status = 'success' "
+                "ORDER BY ph.ticker"
+            ),
+            {"sid": source_strategy_id},
+        )
+        held_tickers: set[str] = {r.ticker for r in held_rows.fetchall()}
 
     async with engine.begin() as conn:
         await _log_step(
@@ -333,6 +368,7 @@ async def _do_vet(
             t0 = datetime.now(timezone.utc)
 
             async def _vet_fn(t: str) -> dict:
+                _c = next(x for x in candidates if x["ticker"] == t)
                 return await vet_single_ticker(
                     t,
                     news=av_news.get(t, []),
@@ -350,6 +386,13 @@ async def _do_vet(
                     strictness=vcfg.strictness,
                     max_search_results=_prefetch_results,
                     system_prompt_override=_system_prompt_override,
+                    rank=_c["rank"],
+                    total_candidates=len(candidates),
+                    composite_score=_c["composite_score"],
+                    factor_scores=_c.get("factor_scores"),
+                    sector=sector_map.get(t),
+                    regime=_c.get("regime"),
+                    in_portfolio=t in held_tickers,
                 )
 
             result = await _vet_with_crash_isolation(
@@ -457,9 +500,9 @@ async def _do_vet(
                 text(
                     "INSERT INTO vetter_decisions "
                     "(run_id, ticker, exclude, reason, confidence, risk_type, "
-                    " positive_catalyst, positive_conviction, positive_reason) "
+                    " positive_catalyst, positive_conviction, positive_reason, hallucination_flag_count) "
                     "VALUES (:rid, :ticker, :excl, :reason, :conf, :rtype, "
-                    "        :pc, :pconv, :preason) "
+                    "        :pc, :pconv, :preason, :hfc) "
                     "ON CONFLICT (run_id, ticker) DO NOTHING"
                 ),
                 {
@@ -472,6 +515,7 @@ async def _do_vet(
                     "pc":      r.get("positive_catalyst", False),
                     "pconv":   r.get("positive_conviction", "none"),
                     "preason": r.get("positive_reason", ""),
+                    "hfc":     len(r.get("hallucination_flags", [])),
                 },
             )
 

@@ -13,6 +13,18 @@ RISK ASSESSMENT WINDOW: Assess risks over a practical {risk_horizon_days}-day ho
 Events beyond this window are background noise unless they represent structural,
 fundamental changes (fraud, going-concern, business model collapse).
 
+QUANTITATIVE CONTEXT: The user message includes the stock's rank, composite score, factor
+z-scores, active regime, and sector. Use these to calibrate your assessment:
+- A stock ranked in the top 5 of {entry_rank} candidates was selected with the highest
+  quant conviction — require clear, specific, unpriced evidence before excluding.
+- Factor z-scores explain the selection thesis. A high quality score (>+1.5) means the
+  model sees strong profitability. A high momentum score means recent price strength.
+  Known concerns reflected in these factors are already priced in.
+- ALREADY HELD stocks: apply the exit standard. The strategy exits only when rank >
+  {exit_rank} for {confirmation_days} consecutive days. Prefer continuation unless you
+  find a genuinely new, unpriced risk.
+- CANDIDATE FOR ENTRY stocks: apply the entry standard normally.
+
 IMPORTANT CONTEXT: The quantitative model selects stocks for investment thesis reasons.
 A deep-value stock may intentionally be distressed. A momentum stock may already be
 priced for growth. Before excluding, consider whether the risk you found is ALREADY

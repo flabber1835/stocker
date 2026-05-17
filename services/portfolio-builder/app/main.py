@@ -255,25 +255,39 @@ async def _do_build(
         async with engine.connect() as conn:
             conv_rows = await conn.execute(
                 text(
-                    "SELECT ticker, positive_conviction FROM vetter_decisions "
+                    "SELECT ticker, positive_conviction, COALESCE(hallucination_flag_count, 0) AS hallucination_flag_count "
+                    "FROM vetter_decisions "
                     "WHERE run_id = :rid AND positive_catalyst = TRUE"
                 ),
                 {"rid": vetter_run_id},
             )
-            conviction_map = {r.ticker: r.positive_conviction for r in conv_rows.fetchall()}
+            conviction_map = {
+                r.ticker: {"conviction": r.positive_conviction, "flag_count": r.hallucination_flag_count}
+                for r in conv_rows.fetchall()
+            }
 
         max_boost = vetter_cfg.conviction_max_boost
-        for ticker, conviction in conviction_map.items():
+        for ticker, cv_info in conviction_map.items():
             if ticker not in scores_map:
                 continue
+            conviction = cv_info["conviction"]
+            flag_count = cv_info.get("flag_count", 0)
+            # Attenuate boost when LLM output had hallucination flags
             boost = min(boost_map.get(conviction, 0.0), max_boost)
+            if flag_count >= 3:
+                boost = 0.0  # too many flags — skip boost entirely
+            elif flag_count == 2:
+                boost *= 0.5
+            elif flag_count == 1:
+                boost *= 0.75
             if boost <= 0:
                 continue
             original = scores_map[ticker]
             scores_map[ticker] = _apply_conviction_boost(original, conviction, boost_map, max_boost)
             conviction_boosts_applied[ticker] = {
                 "conviction": conviction,
-                "boost_factor": boost,
+                "boost_factor": round(boost, 4),
+                "flag_count": flag_count,
                 "original_score": round(original, 6),
                 "adjusted_score": round(scores_map[ticker], 6),
             }
