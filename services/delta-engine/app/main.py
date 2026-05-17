@@ -414,42 +414,10 @@ async def _do_delta(
     )
 
 
-async def _run_delta(run_id: str, trace_id: str) -> None:
-    started_at = datetime.now(timezone.utc)
+async def _run_delta(run_id: str, trace_id: str, started_at: datetime) -> None:
+    # delta_runs + execution_traces rows were inserted by the handler inside
+    # _job_lock before add_task was called — no INSERT needed here.
     de_cfg = strategy.delta_engine
-
-    # Insert DB rows before starting work so the error handler can UPDATE them
-    run_date_init = date.today()
-    async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "INSERT INTO delta_runs "
-                "(run_id, trace_id, strategy_id, config_hash, status, run_date, started_at) "
-                "VALUES (:rid, :tid, :sid, :ch, 'running', :rd, :now)"
-            ),
-            {
-                "rid": run_id,
-                "tid": trace_id,
-                "sid": strategy.strategy_id,
-                "ch": config_hash,
-                "rd": run_date_init,
-                "now": started_at,
-            },
-        )
-        await conn.execute(
-            text(
-                "INSERT INTO execution_traces "
-                "(trace_id, job_type, status, root_run_id, strategy_id, config_hash, started_at) "
-                "VALUES (:tid, 'delta_run', 'running', :rid, :sid, :ch, :now)"
-            ),
-            {
-                "tid": trace_id,
-                "rid": run_id,
-                "sid": strategy.strategy_id,
-                "ch": config_hash,
-                "now": started_at,
-            },
-        )
 
     try:
         await _do_delta(run_id, trace_id, started_at, de_cfg)
@@ -518,7 +486,34 @@ async def start_delta_run(background_tasks: BackgroundTasks, force: bool = False
 
         run_id = str(uuid.uuid4())
         trace_id = str(uuid.uuid4())
-        background_tasks.add_task(_run_delta, run_id, trace_id)
+        started_at = datetime.now(timezone.utc)
+        run_date_init = date.today()
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO delta_runs "
+                    "(run_id, trace_id, strategy_id, config_hash, status, run_date, started_at) "
+                    "VALUES (:rid, :tid, :sid, :ch, 'running', :rd, :now)"
+                ),
+                {
+                    "rid": run_id, "tid": trace_id,
+                    "sid": strategy.strategy_id, "ch": config_hash,
+                    "rd": run_date_init, "now": started_at,
+                },
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO execution_traces "
+                    "(trace_id, job_type, status, root_run_id, strategy_id, config_hash, started_at) "
+                    "VALUES (:tid, 'delta_run', 'running', :rid, :sid, :ch, :now)"
+                ),
+                {
+                    "tid": trace_id, "rid": run_id,
+                    "sid": strategy.strategy_id, "ch": config_hash,
+                    "now": started_at,
+                },
+            )
+        background_tasks.add_task(_run_delta, run_id, trace_id, started_at)
 
     return {
         "status": "started",

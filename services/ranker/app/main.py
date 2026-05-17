@@ -89,94 +89,32 @@ async def _log_step(conn, trace_id, step_name, status, *, started_at=None,
 
 # ── Rank job ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-async def _run_rank_job(ranking_run_id: str, factor_run_id: str | None = None) -> None:
-    started_at = datetime.now(timezone.utc)
-    trace_id: str | None = None
+async def _run_rank_job(
+    ranking_run_id: str,
+    trace_id: str,
+    started_at: datetime,
+    source_factor_run_id: str,
+    regime: str,
+    rank_date,
+    factor_run_id: str | None = None,
+) -> None:
+    # ranking_runs + execution_traces rows were already inserted by the handler inside
+    # _job_lock before add_task was called — no INSERT needed here.
+
+    await _checkpoint(trace_id, ranking_run_id, started_at)  # initial write: running, 0 steps
+
+    # Load ticker_count for trace logging
+    t0 = datetime.now(timezone.utc)
+    async with engine.connect() as conn:
+        row = await conn.execute(
+            text("SELECT ticker_count FROM factor_runs WHERE run_id = :rid"),
+            {"rid": source_factor_run_id},
+        )
+        frow = row.fetchone()
+        factor_ticker_count = frow.ticker_count if frow else 0
 
     try:
         async with engine.begin() as conn:
-            # ── Step 1: load factor run (specific or latest successful) ───
-            t0 = datetime.now(timezone.utc)
-            if factor_run_id:
-                row = await conn.execute(
-                    text(
-                        "SELECT run_id, trace_id, regime, score_date, ticker_count "
-                        "FROM factor_runs "
-                        "WHERE run_id = :rid AND status = 'success' AND ticker_count > 0"
-                    ),
-                    {"rid": factor_run_id},
-                )
-            else:
-                row = await conn.execute(
-                    text(
-                        "SELECT run_id, trace_id, regime, score_date, ticker_count "
-                        "FROM factor_runs "
-                        "WHERE status = 'success' AND ticker_count > 0 "
-                        "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
-                    )
-                )
-            latest = row.fetchone()
-
-        if latest is None:
-            msg = f"factor run {factor_run_id} not found or not successful" if factor_run_id else "no successful factor run found"
-            print(f"[ranker] {msg} — aborting")
-            # Insert a failed ranking_runs row so callers polling /runs/latest get a
-            # definitive failed status rather than 404 forever.
-            async with engine.begin() as conn:
-                await conn.execute(
-                    text(
-                        "INSERT INTO ranking_runs "
-                        "(run_id, strategy_id, config_hash, status, started_at, completed_at, error_message) "
-                        "VALUES (:rid, :sid, :ch, 'failed', :now, :now, :err)"
-                    ),
-                    {
-                        "rid": ranking_run_id,
-                        "sid": strategy.strategy_id,
-                        "ch": config_hash,
-                        "now": started_at,
-                        "err": msg,
-                    },
-                )
-            return
-
-        source_factor_run_id = str(latest.run_id)
-        regime = latest.regime
-        rank_date = latest.score_date
-        factor_ticker_count = latest.ticker_count
-
-        trace_id = str(uuid.uuid4())
-        await _checkpoint(trace_id, ranking_run_id, started_at)  # initial write: running, 0 steps
-
-        async with engine.begin() as conn:
-            # Create ranking_runs row
-            await conn.execute(
-                text(
-                    "INSERT INTO ranking_runs "
-                    "(run_id, trace_id, source_factor_run_id, strategy_id, config_hash, "
-                    " regime, rank_date, status, started_at) "
-                    "VALUES (:rid, :tid, :src, :sid, :ch, :regime, :rd, 'running', :now)"
-                ),
-                {
-                    "rid": ranking_run_id, "tid": trace_id,
-                    "src": source_factor_run_id, "sid": strategy.strategy_id,
-                    "ch": config_hash, "regime": regime, "rd": rank_date,
-                    "now": started_at,
-                },
-            )
-
-            await conn.execute(
-                text(
-                    "INSERT INTO execution_traces "
-                    "(trace_id, job_type, status, root_run_id, strategy_id, config_hash, started_at) "
-                    "VALUES (:tid, 'rank_run', 'running', :rid, :sid, :ch, :now)"
-                ),
-                {
-                    "tid": trace_id, "rid": ranking_run_id,
-                    "sid": strategy.strategy_id, "ch": config_hash,
-                    "now": started_at,
-                },
-            )
-
             await _log_step(
                 conn, trace_id, "load_factor_run", "success",
                 started_at=t0,
@@ -552,10 +490,10 @@ async def start_rank_job(background_tasks: BackgroundTasks, factor_run_id: str |
         ranking_run_id = str(uuid.uuid4())
 
         if factor_run_id:
-            async with engine.begin() as conn:
+            async with engine.connect() as conn:
                 row = await conn.execute(
                     text(
-                        "SELECT regime FROM factor_runs "
+                        "SELECT run_id, regime, score_date FROM factor_runs "
                         "WHERE run_id = :rid AND status = 'success' AND ticker_count > 0"
                     ),
                     {"rid": factor_run_id},
@@ -563,12 +501,14 @@ async def start_rank_job(background_tasks: BackgroundTasks, factor_run_id: str |
                 result = row.fetchone()
             if not result:
                 raise HTTPException(status_code=404, detail=f"Factor run {factor_run_id} not found or not successful")
+            source_factor_run_id = str(result.run_id)
             regime = result.regime
+            rank_date = result.score_date
         else:
-            async with engine.begin() as conn:
+            async with engine.connect() as conn:
                 row = await conn.execute(
                     text(
-                        "SELECT regime FROM factor_runs "
+                        "SELECT run_id, regime, score_date FROM factor_runs "
                         "WHERE status = 'success' AND ticker_count > 0 "
                         "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
                     )
@@ -579,9 +519,43 @@ async def start_rank_job(background_tasks: BackgroundTasks, factor_run_id: str |
                     status_code=400,
                     detail="no successful factor run found — run: make factors first",
                 )
+            source_factor_run_id = str(latest.run_id)
             regime = latest.regime
+            rank_date = latest.score_date
 
-        background_tasks.add_task(_run_rank_job, ranking_run_id, factor_run_id)
+        trace_id = str(uuid.uuid4())
+        started_at = datetime.now(timezone.utc)
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO ranking_runs "
+                    "(run_id, trace_id, source_factor_run_id, strategy_id, config_hash, "
+                    " regime, rank_date, status, started_at) "
+                    "VALUES (:rid, :tid, :src, :sid, :ch, :regime, :rd, 'running', :now)"
+                ),
+                {
+                    "rid": ranking_run_id, "tid": trace_id,
+                    "src": source_factor_run_id, "sid": strategy.strategy_id,
+                    "ch": config_hash, "regime": regime, "rd": rank_date,
+                    "now": started_at,
+                },
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO execution_traces "
+                    "(trace_id, job_type, status, root_run_id, strategy_id, config_hash, started_at) "
+                    "VALUES (:tid, 'rank_run', 'running', :rid, :sid, :ch, :now)"
+                ),
+                {
+                    "tid": trace_id, "rid": ranking_run_id,
+                    "sid": strategy.strategy_id, "ch": config_hash,
+                    "now": started_at,
+                },
+            )
+        background_tasks.add_task(
+            _run_rank_job, ranking_run_id, trace_id, started_at,
+            source_factor_run_id, regime, rank_date, factor_run_id,
+        )
     return {
         "status": "started",
         "job": "rank",

@@ -126,23 +126,9 @@ async def _log_step(conn, trace_id, step_name, status, *, started_at=None,
 
 # ── Run lifecycle ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-async def _run_calculate(run_id: str, trace_id: str, today: date) -> None:
-    started_at = datetime.now(timezone.utc)
-
-    async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "INSERT INTO factor_runs "
-                "(run_id, trace_id, strategy_id, config_hash, status, started_at) "
-                "VALUES (:run_id, :trace_id, :strategy_id, :config_hash, 'running', :started_at)"
-            ),
-            {
-                "run_id": run_id, "trace_id": trace_id,
-                "strategy_id": strategy.strategy_id, "config_hash": config_hash,
-                "started_at": started_at,
-            },
-        )
-        await _create_trace(conn, trace_id, "factor_run", run_id)
+async def _run_calculate(run_id: str, trace_id: str, today: date, started_at: datetime) -> None:
+    # DB rows (factor_runs + execution_traces) were inserted by the handler inside
+    # _job_lock before add_task was called — no INSERT needed here.
 
     await _checkpoint(trace_id, run_id, started_at)  # initial write: running, 0 steps
 
@@ -748,8 +734,21 @@ async def start_calculate(background_tasks: BackgroundTasks, force: bool = False
                     return {"status": "already_ran_today", "job": "calculate", "date": str(today)}
         run_id = str(uuid.uuid4())
         trace_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc)
         today = date.today()
-        background_tasks.add_task(_run_calculate, run_id, trace_id, today)
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO factor_runs "
+                    "(run_id, trace_id, strategy_id, config_hash, status, started_at) "
+                    "VALUES (:run_id, :trace_id, :strategy_id, :config_hash, 'running', :started_at)"
+                ),
+                {"run_id": run_id, "trace_id": trace_id,
+                 "strategy_id": strategy.strategy_id, "config_hash": config_hash,
+                 "started_at": now},
+            )
+            await _create_trace(conn, trace_id, "factor_run", run_id)
+        background_tasks.add_task(_run_calculate, run_id, trace_id, today, now)
     return {
         "status": "started",
         "job": "calculate",

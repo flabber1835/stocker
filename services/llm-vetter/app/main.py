@@ -34,6 +34,20 @@ engine: AsyncEngine
 strategy: StrategyConfig
 config_hash: str = ""
 
+_job_lock = asyncio.Lock()
+
+
+async def _assert_no_running_job() -> None:
+    async with engine.connect() as conn:
+        row = await conn.execute(
+            text("SELECT run_id FROM vetter_runs WHERE status='running' LIMIT 1")
+        )
+        if row.fetchone() is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="A vetter job is already running. Wait for it to complete.",
+            )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -138,41 +152,16 @@ async def _write_trace_file(
 
 # ── Vetting job ──────────────────────────────────────────────────────────────
 
-async def _run_vet(run_id: str, trace_id: str, source_ranking_run_id: str, candidate_count: int) -> None:
-    started_at = datetime.now(timezone.utc)
-
-    async with engine.begin() as conn:
-        sid_row = await conn.execute(
-            text("SELECT strategy_id FROM ranking_runs WHERE run_id = :rid"),
-            {"rid": source_ranking_run_id},
-        )
-        sid_result = sid_row.fetchone()
-        source_strategy_id = sid_result.strategy_id if sid_result else "unknown"
-
-    if source_strategy_id != strategy.strategy_id:
-        print(
-            f"[llm-vetter] WARNING: ranking run used strategy '{source_strategy_id}' "
-            f"but vetter has '{strategy.strategy_id}' mounted — config drift possible"
-        )
-
-    async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "INSERT INTO vetter_runs "
-                "(run_id, trace_id, source_ranking_run_id, strategy_id, model, status, started_at) "
-                "VALUES (:rid, :tid, :src, :sid, :model, 'running', :now)"
-            ),
-            {"rid": run_id, "tid": trace_id, "src": source_ranking_run_id,
-             "sid": source_strategy_id, "model": OLLAMA_MODEL, "now": started_at},
-        )
-        await conn.execute(
-            text(
-                "INSERT INTO execution_traces "
-                "(trace_id, job_type, status, root_run_id, started_at) "
-                "VALUES (:tid, 'vetter_run', 'running', :rid, :now)"
-            ),
-            {"tid": trace_id, "rid": run_id, "now": started_at},
-        )
+async def _run_vet(
+    run_id: str,
+    trace_id: str,
+    source_ranking_run_id: str,
+    source_strategy_id: str,
+    candidate_count: int,
+    started_at: datetime,
+) -> None:
+    # DB rows (vetter_runs + execution_traces) were inserted by the handler inside
+    # _job_lock before add_task was called — no INSERT needed here.
 
     # Shared mutable state so the exception handler can access partial results and
     # the total candidate count even when _do_vet raises before returning.
@@ -549,20 +538,29 @@ async def start_vet(
             detail=f"Vetter is disabled for strategy '{strategy.strategy_id}' (vetter.enabled=false in config)"
         )
     effective_count = candidate_count if candidate_count is not None else strategy.vetter.candidate_count
+
+    # Resolve ranking run before acquiring the lock so validation errors return fast.
     async with engine.connect() as conn:
         if ranking_run_id:
             chk = await conn.execute(
-                text("SELECT run_id FROM ranking_runs WHERE run_id=:rid AND status='success'"),
+                text("SELECT run_id, strategy_id FROM ranking_runs WHERE run_id=:rid AND status='success'"),
                 {"rid": ranking_run_id},
             )
         else:
             chk = await conn.execute(
-                text("SELECT run_id FROM ranking_runs WHERE status='success' ORDER BY completed_at DESC LIMIT 1")
+                text("SELECT run_id, strategy_id FROM ranking_runs WHERE status='success' ORDER BY completed_at DESC LIMIT 1")
             )
         row = chk.fetchone()
         if row is None:
             raise HTTPException(status_code=400, detail="No successful ranking run found — run the ranker first")
         source_ranking_run_id = str(row.run_id)
+        source_strategy_id = row.strategy_id if row.strategy_id else "unknown"
+
+    if source_strategy_id != strategy.strategy_id:
+        print(
+            f"[llm-vetter] WARNING: ranking run used strategy '{source_strategy_id}' "
+            f"but vetter has '{strategy.strategy_id}' mounted — config drift possible"
+        )
 
     # quick model availability pre-flight — fail fast rather than silently
     # completing the run with zero results after a long timeout
@@ -575,9 +573,33 @@ async def start_vet(
             detail=f"Ollama model '{OLLAMA_MODEL}' is not available at {OLLAMA_HOST}: {exc}",
         )
 
-    run_id = str(uuid.uuid4())
-    trace_id = str(uuid.uuid4())
-    background_tasks.add_task(_run_vet, run_id, trace_id, source_ranking_run_id, effective_count)
+    async with _job_lock:
+        await _assert_no_running_job()
+        run_id = str(uuid.uuid4())
+        trace_id = str(uuid.uuid4())
+        started_at = datetime.now(timezone.utc)
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO vetter_runs "
+                    "(run_id, trace_id, source_ranking_run_id, strategy_id, model, status, started_at) "
+                    "VALUES (:rid, :tid, :src, :sid, :model, 'running', :now)"
+                ),
+                {"rid": run_id, "tid": trace_id, "src": source_ranking_run_id,
+                 "sid": source_strategy_id, "model": OLLAMA_MODEL, "now": started_at},
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO execution_traces "
+                    "(trace_id, job_type, status, root_run_id, started_at) "
+                    "VALUES (:tid, 'vetter_run', 'running', :rid, :now)"
+                ),
+                {"tid": trace_id, "rid": run_id, "now": started_at},
+            )
+        background_tasks.add_task(
+            _run_vet, run_id, trace_id, source_ranking_run_id,
+            source_strategy_id, effective_count, started_at,
+        )
     return {
         "status": "started",
         "job": "vet",

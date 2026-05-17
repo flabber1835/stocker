@@ -108,61 +108,18 @@ async def _write_trace_file(trace_id: str, run_id: str, status: str, started_at:
 
 # ── Build job ───────────────────────────────────────────────────────────────────────────────────
 
-async def _run_build(run_id: str, trace_id: str, source_ranking_run_id: Optional[str], vetter_run_id: Optional[str] = None) -> None:
-    started_at = datetime.now(timezone.utc)
+async def _run_build(
+    run_id: str,
+    trace_id: str,
+    source_ranking_run_id: str,
+    vetter_run_id: Optional[str],
+    regime: str,
+    portfolio_date,
+    started_at: datetime,
+) -> None:
+    # DB rows (portfolio_runs + execution_traces) were inserted by the handler inside
+    # _job_lock before add_task was called — no lookup or INSERT needed here.
     pb_cfg = strategy.portfolio_builder
-
-    # Resolve the ranking run first so we can fail fast before inserting any DB rows.
-    # This prevents the error-handler from trying to UPDATE a portfolio_runs row that
-    # was never INSERTed (same bug pattern previously fixed in ranker).
-    async with engine.connect() as conn:
-        if source_ranking_run_id:
-            row = await conn.execute(
-                text("SELECT run_id, regime, rank_date FROM ranking_runs WHERE run_id=:rid AND status='success'"),
-                {"rid": source_ranking_run_id},
-            )
-        else:
-            row = await conn.execute(
-                text("SELECT run_id, regime, rank_date FROM ranking_runs WHERE status='success' ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1")
-            )
-        rr = row.fetchone()
-
-    if rr is None:
-        msg = (
-            f"ranking run {source_ranking_run_id} not found or not successful"
-            if source_ranking_run_id else "no successful ranking run found — run: make rank first"
-        )
-        print(f"[portfolio-builder] run {run_id} skipped: {msg}")
-        return
-
-    source_ranking_run_id = str(rr.run_id)
-    regime = rr.regime
-    portfolio_date = rr.rank_date
-
-    # Both DB rows exist from this point forward; the error handler can safely UPDATE them.
-    async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "INSERT INTO execution_traces "
-                "(trace_id, job_type, status, root_run_id, strategy_id, config_hash, started_at) "
-                "VALUES (:tid, 'portfolio_run', 'running', :rid, :sid, :ch, :now)"
-            ),
-            {"tid": trace_id, "rid": run_id, "sid": strategy.strategy_id, "ch": config_hash, "now": started_at},
-        )
-        await conn.execute(
-            text(
-                "INSERT INTO portfolio_runs "
-                "(run_id, trace_id, source_ranking_run_id, vetter_run_id, strategy_id, config_hash, "
-                " regime, portfolio_date, status, started_at) "
-                "VALUES (:rid, :tid, :src, :vrid, :sid, :ch, :regime, :pd, 'running', :now)"
-            ),
-            {
-                "rid": run_id, "tid": trace_id, "src": source_ranking_run_id,
-                "vrid": vetter_run_id,
-                "sid": strategy.strategy_id, "ch": config_hash,
-                "regime": regime, "pd": portfolio_date, "now": started_at,
-            },
-        )
 
     try:
         await _do_build(run_id, trace_id, started_at, source_ranking_run_id, regime, portfolio_date, pb_cfg, vetter_run_id)
@@ -772,22 +729,26 @@ async def start_build(
     ranking_run_id: Optional[str] = None,
     vetter_run_id: Optional[str] = None,
 ):
-    # Pre-validate that a ranking run exists before issuing a run_id the client will poll.
+    # Pre-validate ranking + vetter runs outside the lock so errors return fast.
     async with engine.connect() as conn:
         if ranking_run_id:
             chk = await conn.execute(
-                text("SELECT 1 FROM ranking_runs WHERE run_id=:rid AND status='success'"),
+                text("SELECT run_id, regime, rank_date FROM ranking_runs WHERE run_id=:rid AND status='success'"),
                 {"rid": ranking_run_id},
             )
         else:
             chk = await conn.execute(
-                text("SELECT 1 FROM ranking_runs WHERE status='success' ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1")
+                text("SELECT run_id, regime, rank_date FROM ranking_runs WHERE status='success' ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1")
             )
-        if chk.fetchone() is None:
+        rr = chk.fetchone()
+        if rr is None:
             raise HTTPException(
                 status_code=400,
                 detail="no successful ranking run found — run: make rank first",
             )
+        source_ranking_run_id = str(rr.run_id)
+        regime = rr.regime
+        portfolio_date = rr.rank_date
 
         if vetter_run_id:
             vchk = await conn.execute(
@@ -808,7 +769,35 @@ async def start_build(
             await _assert_no_running_job(inner_conn)
         run_id = str(uuid.uuid4())
         trace_id = str(uuid.uuid4())
-        background_tasks.add_task(_run_build, run_id, trace_id, ranking_run_id, vetter_run_id)
+        started_at = datetime.now(timezone.utc)
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO execution_traces "
+                    "(trace_id, job_type, status, root_run_id, strategy_id, config_hash, started_at) "
+                    "VALUES (:tid, 'portfolio_run', 'running', :rid, :sid, :ch, :now)"
+                ),
+                {"tid": trace_id, "rid": run_id, "sid": strategy.strategy_id, "ch": config_hash, "now": started_at},
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO portfolio_runs "
+                    "(run_id, trace_id, source_ranking_run_id, vetter_run_id, strategy_id, config_hash, "
+                    " regime, portfolio_date, status, started_at) "
+                    "VALUES (:rid, :tid, :src, :vrid, :sid, :ch, :regime, :pd, 'running', :now)"
+                ),
+                {
+                    "rid": run_id, "tid": trace_id, "src": source_ranking_run_id,
+                    "vrid": vetter_run_id,
+                    "sid": strategy.strategy_id, "ch": config_hash,
+                    "regime": regime, "pd": portfolio_date, "now": started_at,
+                },
+            )
+        background_tasks.add_task(
+            _run_build, run_id, trace_id,
+            source_ranking_run_id, vetter_run_id,
+            regime, portfolio_date, started_at,
+        )
     return {
         "status": "started",
         "job": "build",

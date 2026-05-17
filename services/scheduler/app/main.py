@@ -9,7 +9,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI
 
-from app.staleness import is_stale
+from app.staleness import is_stale, last_trading_day
 
 AV_INGESTOR_URL       = os.getenv("AV_INGESTOR_URL",       "http://av-ingestor:8000")
 FACTOR_ENGINE_URL     = os.getenv("FACTOR_ENGINE_URL",      "http://factor-engine:8000")
@@ -277,6 +277,7 @@ async def _run_daily_chain():
 
     async with _chain_lock:
         today = date.today().isoformat()
+        trading_today = last_trading_day(date.today()).isoformat()
         started_at = datetime.now(timezone.utc)
         steps: dict[str, str] = {}
         run_ids: dict[str, str] = {}   # step_name → service run_id for cross-referencing logs
@@ -312,10 +313,12 @@ async def _run_daily_chain():
                 return
 
             # Step 2 — factor calculation
+            # score_date = last SPY trading date in DB, not wall-clock today.
+            # On weekends/holidays these differ, so compare against trading_today.
             ok = await _run_step(
                 client, FACTOR_ENGINE_URL, "/jobs/calculate",
                 date_field="score_date",
-                today=today,
+                today=trading_today,
                 step_name="factor-calculate",
                 max_minutes=30,
             )
@@ -328,10 +331,11 @@ async def _run_daily_chain():
                 return
 
             # Step 3 — ranking
+            # rank_date inherits from score_date (last SPY trading date), same reasoning.
             ok = await _run_step(
                 client, RANKER_URL, "/jobs/rank",
                 date_field="rank_date",
-                today=today,
+                today=trading_today,
                 step_name="rank",
                 max_minutes=10,
             )
