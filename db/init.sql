@@ -441,3 +441,45 @@ CREATE TABLE IF NOT EXISTS backtest_monthly (
 
 CREATE INDEX IF NOT EXISTS idx_backtest_monthly_run ON backtest_monthly(run_id, period_start ASC);
 
+-- ── Delta engine runs ─────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS delta_runs (
+    run_id                   UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    trace_id                 UUID,
+    strategy_id              VARCHAR(100) NOT NULL,
+    config_hash              VARCHAR(16),
+    status                   VARCHAR(20)  NOT NULL DEFAULT 'running'
+                                 CHECK (status IN ('running','success','failed')),
+    run_date                 DATE         NOT NULL,
+    source_ranking_run_id    UUID,
+    source_portfolio_run_id  UUID,
+    entry_rank               INTEGER,
+    exit_rank                INTEGER,
+    confirmation_days        INTEGER,
+    max_positions            INTEGER,
+    current_portfolio_size   INTEGER,
+    entries_count            INTEGER      NOT NULL DEFAULT 0,
+    exits_count              INTEGER      NOT NULL DEFAULT 0,
+    holds_count              INTEGER      NOT NULL DEFAULT 0,
+    watches_count            INTEGER      NOT NULL DEFAULT 0,
+    started_at               TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    completed_at             TIMESTAMPTZ,
+    error_message            TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_delta_runs_date ON delta_runs(run_date DESC);
+
+CREATE TABLE IF NOT EXISTS delta_intents (
+    id                    UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id                UUID         NOT NULL REFERENCES delta_runs(run_id) ON DELETE CASCADE,
+    ticker                VARCHAR(20)  NOT NULL,
+    action                VARCHAR(10)  NOT NULL CHECK (action IN ('entry','exit','hold','watch')),
+    rank                  INTEGER,
+    composite_score       NUMERIC(12,6),
+    confirmation_days_met INTEGER,
+    current_weight        NUMERIC(10,6),
+    reason                TEXT,
+    created_at            TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_delta_intents_run ON delta_intents(run_id, action);
+

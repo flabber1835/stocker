@@ -219,6 +219,25 @@ class PortfolioBuilderConfig(BaseModel):
     do_not_buy: list[str] = Field(default_factory=list)
 
 
+class DeltaEngineConfig(BaseModel):
+    entry_rank: int = Field(default=25, ge=1, le=500,
+        description="Stocks ranked ≤ this for confirmation_days consecutive runs enter the portfolio.")
+    exit_rank: int = Field(default=40, ge=1, le=500,
+        description="Stocks ranked > this for confirmation_days consecutive runs exit the portfolio.")
+    confirmation_days: int = Field(default=3, ge=1, le=21,
+        description="Consecutive daily ranking runs required to confirm entry or exit.")
+    max_positions: int = Field(default=30, ge=1, le=100,
+        description="Maximum portfolio size. New entries blocked when at capacity unless a simultaneous exit creates room.")
+
+    @model_validator(mode="after")
+    def exit_rank_exceeds_entry_rank(self) -> "DeltaEngineConfig":
+        if self.exit_rank <= self.entry_rank:
+            raise ValueError(
+                f"exit_rank ({self.exit_rank}) must be greater than entry_rank ({self.entry_rank}) to create a buffer zone"
+            )
+        return self
+
+
 class StrategyConfig(BaseModel):
     strategy_id: str
     description: str = ""
@@ -234,6 +253,7 @@ class StrategyConfig(BaseModel):
     portfolio_builder: PortfolioBuilderConfig = Field(default_factory=PortfolioBuilderConfig)
     vetter: VetterConfig = Field(default_factory=VetterConfig)
     intraday: IntradayConfig = Field(default_factory=IntradayConfig)
+    delta_engine: DeltaEngineConfig = Field(default_factory=DeltaEngineConfig)
 
     @model_validator(mode="after")
     def sync_max_positions(self) -> "StrategyConfig":
