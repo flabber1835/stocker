@@ -171,6 +171,20 @@ async def _run_backtest_bg(
         summary = result["summary"]
         periods = result["periods"]
 
+        # ── Step 3b: fail fast if simulation produced no valid periods ────────
+        if not periods:
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "UPDATE backtest_runs SET status='failed', completed_at=:now, "
+                        "error_message='no valid periods produced — all rebalance windows lacked forward price data' "
+                        "WHERE run_id=:rid"
+                    ),
+                    {"rid": run_id, "now": datetime.now(timezone.utc)},
+                )
+            print(f"[backtester] run {run_id} FAILED: no valid periods produced")
+            return
+
         # ── Step 4: insert backtest_monthly rows ──────────────────────────────
         if periods:
             monthly_rows = [

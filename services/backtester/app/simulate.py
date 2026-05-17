@@ -36,10 +36,13 @@ def run_backtest(
         if period_end is None:
             # Last period: look for the next trading day 21 business days out
             future_dates = [d for d in all_dates if d > period_start]
+            if not future_dates:
+                continue
             if len(future_dates) < 21:
-                if not future_dates:
-                    continue
                 period_end = future_dates[-1]
+                # Drop the period if there is no meaningful forward window
+                if period_end <= period_start:
+                    continue
             else:
                 period_end = future_dates[20]
 
@@ -91,6 +94,9 @@ def run_backtest(
                     benchmark_return = float(p_end / p_start - 1.0)
 
         n_days = (period_end - period_start).days
+        # Drop degenerate periods with no forward data
+        if period_end <= period_start:
+            continue
 
         periods.append({
             "period_start": str(period_start.date()),
