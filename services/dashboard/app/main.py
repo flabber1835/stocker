@@ -10,6 +10,7 @@ FACTOR_ENGINE_URL   = os.getenv("FACTOR_ENGINE_URL",   "http://factor-engine:800
 RANKER_URL          = os.getenv("RANKER_URL",           "http://ranker:8000")
 VETTER_URL          = os.getenv("VETTER_URL",           "http://llm-vetter:8000")
 PORTFOLIO_URL       = os.getenv("PORTFOLIO_URL",        "http://portfolio-builder:8000")
+SCHEDULER_URL       = os.getenv("SCHEDULER_URL",        "http://scheduler:8000")
 
 app = FastAPI(title="stocker-dashboard")
 
@@ -381,41 +382,39 @@ async def pipeline_status():
 
 
 async def _run_rank_chain_bg():
-    """Run fetch-data -> calculate-factors -> rank sequentially, server-side."""
+    """Delegate the full chain to the scheduler, which has correct per-step timeouts."""
     global _rank_chain_running
     _rank_chain_running = True
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=600.0)) as client:
-            steps = [
-                (AV_INGESTOR_URL, "/jobs/fetch-data", AV_INGESTOR_URL + "/runs/latest"),
-                (FACTOR_ENGINE_URL, "/jobs/calculate", FACTOR_ENGINE_URL + "/runs/latest"),
-                (RANKER_URL, "/jobs/rank", RANKER_URL + "/runs/latest"),
-            ]
-            for base_url, start_path, status_url in steps:
-                try:
-                    r = await client.post(base_url + start_path)
-                    if r.status_code == 409:
-                        print(f"[rank-chain] step {start_path} already running, waiting")
-                    elif r.status_code not in (200, 201, 202):
-                        print(f"[rank-chain] step {start_path} failed to start: {r.status_code}")
-                        return
-                    # Poll until terminal (2s matches the dashboard refresh rate)
-                    for _ in range(1800):  # max 1 hour
-                        await asyncio.sleep(2)
-                        try:
-                            s = await client.get(status_url)
-                            status = s.json().get("status", "running")
-                            if status not in ("running", ""):
-                                if status == "failed":
-                                    print(f"[rank-chain] step {start_path} failed")
-                                    return
-                                break
-                        except Exception:
-                            pass
-                except Exception as exc:
-                    print(f"[rank-chain] exception in step {start_path}: {exc}")
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            try:
+                r = await client.post(f"{SCHEDULER_URL}/jobs/run-now")
+                if r.status_code == 200:
+                    data = r.json()
+                    if data.get("status") == "already_running":
+                        print("[rank-chain] scheduler chain already running — monitoring progress")
+                    else:
+                        print("[rank-chain] scheduler chain started")
+                else:
+                    print(f"[rank-chain] scheduler returned {r.status_code}: {r.text[:200]}")
                     return
-        print("[rank-chain] all steps complete")
+            except Exception as exc:
+                print(f"[rank-chain] failed to reach scheduler: {exc}")
+                return
+
+        # Poll scheduler /status until the chain reaches a terminal state.
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            for _ in range(5400):  # max 3 hours (matches scheduler's fetch-data timeout)
+                await asyncio.sleep(2)
+                try:
+                    s = await client.get(f"{SCHEDULER_URL}/status")
+                    if s.status_code == 200:
+                        chain_status = s.json().get("status", "running")
+                        if chain_status in ("success", "failed"):
+                            print(f"[rank-chain] scheduler chain finished: {chain_status}")
+                            break
+                except Exception:
+                    pass
     finally:
         _rank_chain_running = False
 
