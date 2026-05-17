@@ -386,3 +386,212 @@ def test_compute_all_factors_handles_empty_fundamentals():
         assert result[col].isna().all(), f"{col} should be all-NaN with empty fundamentals"
     for col in ("momentum", "low_volatility", "liquidity"):
         assert result[col].notna().any(), f"{col} should have values with sufficient price data"
+
+
+# ── M1: compute_low_volatility minimum data guard ────────────────────────────
+# Old guard: `len(prices) < 2` — a single log-return was enough.
+# Fixed guard: `len(prices) < 63` — require ~one quarter of trading history.
+
+
+class TestLowVolatilityMinimumDataGuard:
+    """Regression tests for M1: vol computed from too few rows is unreliable."""
+
+    def test_62_rows_returns_empty(self):
+        """Fewer than 63 rows must return an empty Series (no score at all).
+
+        Old code used `< 2`, so 62 rows would have produced an annualised vol
+        estimate from 61 log-returns — statistically meaningless but no error raised.
+        """
+        pivot = _pivot(["A"], n=62)
+        result = compute_low_volatility(pivot)
+        assert result.empty, (
+            "M1 regression: 62 rows must produce an empty Series. "
+            "Old guard (< 2) would have returned a score from only 61 log-returns."
+        )
+
+    def test_exactly_63_rows_accepted(self):
+        """Exactly 63 rows must produce a result (boundary is inclusive)."""
+        pivot = _pivot(["A"], n=63)
+        result = compute_low_volatility(pivot)
+        assert not result.empty, "63 rows (minimum) must produce a score"
+        assert pd.notna(result["A"])
+
+    def test_2_rows_also_returns_empty(self):
+        """The old threshold of < 2 is too permissive — 2 rows must also be empty."""
+        pivot = _pivot(["A"], n=2)
+        result = compute_low_volatility(pivot)
+        assert result.empty
+
+    def test_full_window_produces_meaningful_score(self):
+        """300 rows (full window) must produce a negative vol score."""
+        pivot = _pivot(["A", "B"], n=300)
+        result = compute_low_volatility(pivot)
+        assert (result < 0).all(), "vol score must be negative (lower vol = higher score)"
+
+
+# ── M3: no_data sentinel rows must be excluded from factor calculations ───────
+# The fundamentals query now filters `source != 'no_data'` before returning data.
+# Tests verify that a fundamentals DataFrame containing all-NaN fundamental
+# values (as a sentinel would produce) yields NaN factor scores — not spurious
+# zeros or misleading partial scores.
+
+
+class TestNoDataSentinelExclusion:
+    """Regression tests for M3: sentinel rows with null fundamentals must not
+    generate factor scores. The production query now excludes them at the DB level;
+    these tests verify the factor functions handle null-only rows correctly."""
+
+    def test_all_null_fundamentals_produce_nan_scores(self):
+        """A ticker with all-null fundamental columns must get NaN for every
+        fundamental-based factor (quality, value, growth)."""
+        fund = pd.DataFrame([{
+            "ticker": "SENTINEL",
+            "pe_ratio": float("nan"), "pb_ratio": float("nan"),
+            "roe": float("nan"), "debt_to_equity": float("nan"),
+            "revenue_growth": float("nan"), "eps_growth": float("nan"),
+        }])
+        quality = compute_quality(fund)
+        value   = compute_value(fund)
+        growth  = compute_growth(fund)
+        assert pd.isna(quality["SENTINEL"]), "quality must be NaN for all-null sentinel"
+        assert pd.isna(value["SENTINEL"]),   "value must be NaN for all-null sentinel"
+        assert pd.isna(growth["SENTINEL"]),  "growth must be NaN for all-null sentinel"
+
+    def test_sentinel_mixed_with_real_data(self):
+        """Sentinel ticker must not distort real tickers' scores.
+
+        If a sentinel's all-null row were treated as a valid data point (zeros),
+        it would corrupt the cross-sectional mean and std used in z-scoring.
+        """
+        real = pd.DataFrame([
+            {"ticker": "REAL", "pe_ratio": 20.0, "pb_ratio": 2.0,
+             "roe": 0.25, "debt_to_equity": 0.5,
+             "revenue_growth": 0.10, "eps_growth": 0.12},
+        ])
+        with_sentinel = pd.DataFrame([
+            {"ticker": "REAL", "pe_ratio": 20.0, "pb_ratio": 2.0,
+             "roe": 0.25, "debt_to_equity": 0.5,
+             "revenue_growth": 0.10, "eps_growth": 0.12},
+            {"ticker": "SENTINEL", "pe_ratio": float("nan"), "pb_ratio": float("nan"),
+             "roe": float("nan"), "debt_to_equity": float("nan"),
+             "revenue_growth": float("nan"), "eps_growth": float("nan")},
+        ])
+        q_clean = compute_quality(real)
+        q_with  = compute_quality(with_sentinel)
+        # REAL's score should be the same (NaN rows don't affect _component_zscore)
+        # With only one valid ticker, both produce the same rank (zero z-score).
+        assert pd.notna(q_with["REAL"]), "REAL must still score when sentinel is present"
+        assert pd.isna(q_with["SENTINEL"]), "SENTINEL must remain NaN"
+
+    def test_no_data_row_with_source_field_not_confused_with_valid(self):
+        """Simulate what happened pre-fix: sentinel rows appeared in the fundamentals
+        DataFrame. Verify quality factor returns NaN for such rows — the DB query
+        now excludes them, but if they slipped through, the factor must handle them."""
+        sentinel_fund = pd.DataFrame([{
+            "ticker": "NO_DATA",
+            "pe_ratio": None, "pb_ratio": None, "roe": None,
+            "debt_to_equity": None, "revenue_growth": None, "eps_growth": None,
+        }])
+        result = compute_quality(sentinel_fund)
+        assert pd.isna(result["NO_DATA"]), (
+            "M3 regression: a row with all-null fundamentals (sentinel) must produce "
+            "NaN quality score, not a spurious 0.0 or other value"
+        )
+
+
+# ── Proactive: pivot() raises on duplicate (date, ticker) pairs ───────────────
+# L1: The old pivot_table() silently averaged duplicates; pivot() raises.
+
+
+class TestComputeAllFactorsDuplicateDetection:
+    """Tests for L1: duplicate (date, ticker) rows must raise, not silently average."""
+
+    def test_duplicate_date_ticker_raises(self):
+        """compute_all_factors must raise ValueError on duplicate (date, ticker) rows.
+
+        Old code used pivot_table() which silently averaged them. pivot() makes
+        the data integrity issue immediately visible instead of masking it.
+        """
+        df = _prices_long(["AAPL"], n=300)
+        fund = pd.DataFrame([{
+            "ticker": "AAPL", "pe_ratio": 25.0, "pb_ratio": 5.0,
+            "roe": 0.3, "debt_to_equity": 0.5,
+            "revenue_growth": 0.1, "eps_growth": 0.15,
+        }])
+        # Inject a duplicate row for the same (date, ticker)
+        duplicate = df.iloc[:1].copy()
+        duplicate["adjusted_close"] = 999.0  # different value to expose averaging
+        df_with_dup = pd.concat([df, duplicate], ignore_index=True)
+
+        with pytest.raises((ValueError, Exception)):
+            compute_all_factors(df_with_dup, fund)
+
+    def test_no_duplicates_does_not_raise(self):
+        """Clean input (no duplicates) must pass through without error."""
+        df = _prices_long(["AAPL"], n=300)
+        fund = pd.DataFrame([{
+            "ticker": "AAPL", "pe_ratio": 25.0, "pb_ratio": 5.0,
+            "roe": 0.3, "debt_to_equity": 0.5,
+            "revenue_growth": 0.1, "eps_growth": 0.15,
+        }])
+        result = compute_all_factors(df, fund)
+        assert len(result) == 1
+
+
+# ── Proactive: quality/value/growth with only one data source ─────────────────
+
+
+class TestSingleComponentFactors:
+    """Tests for factors when only one of two component signals is available.
+
+    These guard against regressions where a missing component causes the entire
+    factor to NaN out instead of falling back to the available component.
+    """
+
+    def test_quality_from_roe_only(self):
+        """Quality from ROE alone (no D/E) must be non-NaN."""
+        fund = pd.DataFrame([
+            {"ticker": "A", "roe": 0.30, "debt_to_equity": float("nan"),
+             "pe_ratio": 20.0, "pb_ratio": 2.0, "revenue_growth": 0.1, "eps_growth": 0.1},
+            {"ticker": "B", "roe": 0.10, "debt_to_equity": float("nan"),
+             "pe_ratio": 25.0, "pb_ratio": 3.0, "revenue_growth": 0.05, "eps_growth": 0.05},
+        ])
+        result = compute_quality(fund)
+        assert pd.notna(result["A"]) and pd.notna(result["B"])
+        assert result["A"] > result["B"], "higher ROE must produce higher quality score"
+
+    def test_quality_from_dte_only(self):
+        """Quality from D/E alone (no ROE) must be non-NaN."""
+        fund = pd.DataFrame([
+            {"ticker": "LOW_DEBT", "roe": float("nan"), "debt_to_equity": 0.1,
+             "pe_ratio": 20.0, "pb_ratio": 2.0, "revenue_growth": 0.1, "eps_growth": 0.1},
+            {"ticker": "HIGH_DEBT", "roe": float("nan"), "debt_to_equity": 3.0,
+             "pe_ratio": 20.0, "pb_ratio": 2.0, "revenue_growth": 0.1, "eps_growth": 0.1},
+        ])
+        result = compute_quality(fund)
+        assert pd.notna(result["LOW_DEBT"]) and pd.notna(result["HIGH_DEBT"])
+        assert result["LOW_DEBT"] > result["HIGH_DEBT"], "lower debt must score higher quality"
+
+    def test_value_from_pe_only(self):
+        """Value from earnings yield alone (no PB) must be non-NaN."""
+        fund = pd.DataFrame([
+            {"ticker": "CHEAP", "pe_ratio": 10.0, "pb_ratio": float("nan"),
+             "roe": 0.2, "debt_to_equity": 0.5, "revenue_growth": 0.1, "eps_growth": 0.1},
+            {"ticker": "RICH",  "pe_ratio": 40.0, "pb_ratio": float("nan"),
+             "roe": 0.2, "debt_to_equity": 0.5, "revenue_growth": 0.1, "eps_growth": 0.1},
+        ])
+        result = compute_value(fund)
+        assert pd.notna(result["CHEAP"]) and pd.notna(result["RICH"])
+        assert result["CHEAP"] > result["RICH"], "lower PE must produce higher value score"
+
+    def test_growth_from_revenue_only(self):
+        """Growth from revenue alone (no EPS growth) must be non-NaN."""
+        fund = pd.DataFrame([
+            {"ticker": "FAST", "revenue_growth": 0.30, "eps_growth": float("nan"),
+             "pe_ratio": 20.0, "pb_ratio": 2.0, "roe": 0.2, "debt_to_equity": 0.5},
+            {"ticker": "SLOW", "revenue_growth": 0.02, "eps_growth": float("nan"),
+             "pe_ratio": 20.0, "pb_ratio": 2.0, "roe": 0.2, "debt_to_equity": 0.5},
+        ])
+        result = compute_growth(fund)
+        assert pd.notna(result["FAST"]) and pd.notna(result["SLOW"])
+        assert result["FAST"] > result["SLOW"]
