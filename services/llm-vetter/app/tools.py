@@ -9,6 +9,7 @@ They never raise — on API failure they return an empty result so the LLM still
 gets to make a best-effort decision based on whatever data is available.
 """
 
+import asyncio
 import csv
 import io
 import logging
@@ -36,90 +37,81 @@ async def fetch_av_news(
     *,
     lookback_days: int = 7,
     max_articles_per_ticker: int = 4,
-    max_results_per_batch: int = 50,
+    max_results_per_ticker: int = 50,
+    concurrency: int = 10,
 ) -> dict[str, list[dict]]:
     """
-    Fetch recent news sentiment from Alpha Vantage for the candidate list.
+    Fetch recent news sentiment from Alpha Vantage — one request per ticker.
 
-    Uses batches of 10 tickers per request so each ticker competes with fewer
-    others for the per-request limit, giving better per-ticker coverage.
-    With a 75 RPM key, 5 batches for 50 candidates is well within quota.
+    Individual calls give all results focused on one ticker, so relevance scores
+    are higher and per-ticker coverage is much better than batching multiple
+    tickers together (where 50 results are split across 10 tickers).
+    With a 75 RPM key and concurrency=10, 50 tickers completes in ~10 seconds
+    well within quota.
     """
     if not api_key or api_key == "demo":
         return {}
 
     since = (date.today() - timedelta(days=lookback_days)).strftime("%Y%m%dT0000")
-    batch_size = 10  # small enough that each ticker gets fair share of results
-    batches = [tickers[i:i + batch_size] for i in range(0, len(tickers), batch_size)]
     result: dict[str, list[dict]] = {t: [] for t in tickers}
+    sem = asyncio.Semaphore(concurrency)
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        for batch in batches:
+    async def _fetch_one(client: httpx.AsyncClient, ticker: str) -> None:
+        async with sem:
             try:
                 resp = await client.get(AV_BASE, params={
                     "function": "NEWS_SENTIMENT",
-                    "tickers": ",".join(batch),
+                    "tickers": ticker,
                     "time_from": since,
                     "sort": "LATEST",
-                    "limit": str(max_results_per_batch),
+                    "limit": str(max_results_per_ticker),
                     "apikey": api_key,
                 })
                 resp.raise_for_status()
                 data = resp.json()
             except Exception as exc:
-                log.warning("AV news fetch failed: %s", exc)
-                continue
+                log.warning("AV news fetch failed for %s: %s", ticker, exc)
+                return
 
-            # Detect API-level errors/notices returned as JSON (not HTTP errors)
             if "Note" in data or "Information" in data or "Error Message" in data:
                 error_key = next(k for k in ("Note", "Information", "Error Message") if k in data)
-                msg = data[error_key]
-                log.warning(
-                    "AV news API error (key=%r, tickers=[%s], time_from=%s): %s",
-                    error_key,
-                    ",".join(batch),
-                    since,
-                    msg,
-                )
-                continue
+                log.warning("AV news API error for %s (%s): %s", ticker, error_key, data[error_key])
+                return
 
             feed = data.get("feed", [])
-            log.info("AV news: batch of %d tickers → %d articles returned", len(batch), len(feed))
-
-            filtered_by_relevance = 0
+            filtered = 0
             for article in feed:
                 title = article.get("title", "")
                 summary = article.get("summary", "")
-                published = article.get("time_published", "")[:8]  # YYYYMMDD
+                published = article.get("time_published", "")[:8]
 
                 for ts in article.get("ticker_sentiment", []):
-                    ticker = ts.get("ticker", "")
-                    if ticker not in result:
+                    if ts.get("ticker", "") != ticker:
                         continue
-                    sentiment_score = float(ts.get("ticker_sentiment_score", 0))
-                    sentiment_label = ts.get("ticker_sentiment_label", "Neutral")
                     relevance = float(ts.get("relevance_score", 0))
-
                     if relevance < 0.1:
-                        filtered_by_relevance += 1
+                        filtered += 1
                         continue
-
                     if len(result[ticker]) < max_articles_per_ticker:
                         result[ticker].append({
                             "title": title,
                             "summary": summary[:300],
-                            "sentiment": sentiment_label,
-                            "sentiment_score": round(sentiment_score, 3),
+                            "sentiment": ts.get("ticker_sentiment_label", "Neutral"),
+                            "sentiment_score": round(float(ts.get("ticker_sentiment_score", 0)), 3),
                             "relevance_score": round(relevance, 3),
                             "published": published,
                         })
 
-            tickers_with_news = sum(1 for t in batch if result.get(t))
             log.info(
-                "AV news: %d/%d tickers got articles (filtered %d by relevance<0.1)",
-                tickers_with_news, len(batch), filtered_by_relevance,
+                "AV news: %s → %d articles kept, %d filtered (relevance<0.1), %d in feed",
+                ticker, len(result[ticker]), filtered, len(feed),
             )
 
+    async with httpx.AsyncClient(timeout=30) as client:
+        await asyncio.gather(*[_fetch_one(client, t) for t in tickers])
+
+    tickers_with_news = sum(1 for t in tickers if result[t])
+    log.info("AV news complete: %d/%d tickers got articles", tickers_with_news, len(tickers))
     return result
 
 
