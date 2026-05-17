@@ -239,3 +239,101 @@ class TestBenchmarkOrdering:
             "spy_max must be available after the first ticker is written — "
             "requires SPY to be first in the fetch order"
         )
+
+
+# ── Stale data recovery ───────────────────────────────────────────────────────
+#
+# When the system comes back after a multi-day outage:
+#   - spy_max (loaded from DB at job start) = the old stale date
+#   - every universe ticker's DB date also = that same stale date
+#   - without the fix: ticker_latest[t] == spy_max for ALL tickers → all skipped
+#   - the fix: benchmark tickers are never skipped; spy_max is reloaded from DB
+#     after benchmarks run, giving the true current date for universe evaluation
+
+class TestStaleRecovery:
+
+    def _simulate_skip_check(self, ticker, ticker_latest, spy_max, benchmark_set):
+        """Mirror the fixed skip condition from _run_fetch_data."""
+        is_benchmark = ticker in benchmark_set
+        if not is_benchmark and spy_max and ticker_latest.get(ticker) == spy_max:
+            return "skipped"
+        return "fetched"
+
+    def test_benchmark_never_skipped_even_when_current(self):
+        """SPY must be fetched even when its DB date matches spy_max."""
+        stale_date = date(2026, 5, 13)  # Wednesday — two days ago
+        ticker_latest = {"SPY": stale_date, "AAPL": stale_date}
+        spy_max = stale_date  # stale cached value
+        result = self._simulate_skip_check("SPY", ticker_latest, spy_max, {"SPY", "QQQ"})
+        assert result == "fetched", "SPY (benchmark) must never be skipped"
+
+    def test_universe_ticker_skipped_when_current(self):
+        """Universe ticker matching fresh spy_max is correctly skipped."""
+        today = date(2026, 5, 16)
+        ticker_latest = {"SPY": today, "AAPL": today}
+        spy_max = today
+        result = self._simulate_skip_check("AAPL", ticker_latest, spy_max, {"SPY", "QQQ"})
+        assert result == "skipped"
+
+    def test_universe_ticker_not_skipped_when_stale(self):
+        """After spy_max reloads to today, stale universe ticker must be fetched."""
+        today = date(2026, 5, 16)
+        stale_date = date(2026, 5, 13)
+        ticker_latest = {"AAPL": stale_date}  # stale
+        spy_max = today  # reloaded after benchmark fetch
+        result = self._simulate_skip_check("AAPL", ticker_latest, spy_max, {"SPY", "QQQ"})
+        assert result == "fetched"
+
+    def test_all_tickers_stale_only_universe_gets_fetched_after_reload(self):
+        """
+        Full multi-day outage scenario:
+          1. Job starts: spy_max = stale_date (2 days ago)
+          2. SPY is first → not skipped (benchmark) → fetched → DB now has today
+          3. spy_max reloads → spy_max = today
+          4. AAPL's DB date = stale_date ≠ today → fetched
+        """
+        stale_date = date(2026, 5, 13)
+        today = date(2026, 5, 16)
+        benchmark_set = {"SPY", "QQQ", "IWM"}
+
+        # Step 1: initial state — everything stale
+        initial_spy_max = stale_date
+        ticker_latest_initial = {"SPY": stale_date, "AAPL": stale_date, "MSFT": stale_date}
+
+        # SPY is a benchmark → never skipped regardless of spy_max
+        assert self._simulate_skip_check(
+            "SPY", ticker_latest_initial, initial_spy_max, benchmark_set
+        ) == "fetched"
+
+        # Step 2: after SPY is fetched and DB updated, reload spy_max
+        spy_max_after_reload = today
+        ticker_latest_after_reload = {"SPY": today, "AAPL": stale_date, "MSFT": stale_date}
+
+        # AAPL's DB date (stale) ≠ new spy_max (today) → fetched
+        assert self._simulate_skip_check(
+            "AAPL", ticker_latest_after_reload, spy_max_after_reload, benchmark_set
+        ) == "fetched"
+
+        assert self._simulate_skip_check(
+            "MSFT", ticker_latest_after_reload, spy_max_after_reload, benchmark_set
+        ) == "fetched"
+
+    def test_normal_run_universe_tickers_skipped(self):
+        """After a normal previous run, all tickers at today's date are correctly skipped."""
+        today = date(2026, 5, 16)
+        benchmark_set = {"SPY", "QQQ", "IWM"}
+        ticker_latest = {"SPY": today, "AAPL": today, "MSFT": today}
+        spy_max = today
+
+        # SPY: benchmark, never skipped → fetched (to confirm today is still current)
+        assert self._simulate_skip_check("SPY", ticker_latest, spy_max, benchmark_set) == "fetched"
+        # Universe tickers: up to date → skipped
+        assert self._simulate_skip_check("AAPL", ticker_latest, spy_max, benchmark_set) == "skipped"
+        assert self._simulate_skip_check("MSFT", ticker_latest, spy_max, benchmark_set) == "skipped"
+
+    def test_no_spy_max_forces_full_fetch(self):
+        """If spy_max is None (first ever run), universe tickers are always fetched."""
+        spy_max = None
+        ticker_latest = {}
+        benchmark_set = {"SPY", "QQQ"}
+        assert self._simulate_skip_check("AAPL", ticker_latest, spy_max, benchmark_set) == "fetched"

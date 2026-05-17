@@ -9,6 +9,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI
 
+from app.staleness import is_stale
+
 AV_INGESTOR_URL   = os.getenv("AV_INGESTOR_URL",   "http://av-ingestor:8000")
 FACTOR_ENGINE_URL = os.getenv("FACTOR_ENGINE_URL",  "http://factor-engine:8000")
 RANKER_URL        = os.getenv("RANKER_URL",          "http://ranker:8000")
@@ -31,10 +33,20 @@ async def lifespan(app: FastAPI):
     global _scheduler
     _scheduler = AsyncIOScheduler(timezone="UTC")
     trigger = CronTrigger.from_crontab(RANK_SCHEDULE_CRON, timezone="UTC")
-    _scheduler.add_job(_run_daily_chain, trigger, id="daily_rank_chain", replace_existing=True)
+    _scheduler.add_job(
+        _run_daily_chain, trigger,
+        id="daily_rank_chain",
+        replace_existing=True,
+        # Fire within 1 hour of a missed schedule (e.g. brief restart at 4:20pm).
+        # For longer gaps (multi-day outage) the startup catch-up below handles it.
+        misfire_grace_time=3600,
+    )
     _scheduler.start()
     _refresh_next_run()
     print(f"[scheduler] started — cron={RANK_SCHEDULE_CRON!r}, next_run={_chain_status['next_run']}")
+    # Catch-up: if the system was offline long enough to miss trading days, trigger
+    # an immediate chain run rather than waiting until the next scheduled window.
+    asyncio.create_task(_startup_catch_up())
     yield
     _scheduler.shutdown(wait=False)
 
@@ -67,6 +79,41 @@ async def run_now():
         return {"status": "already_running"}
     asyncio.create_task(_run_daily_chain())
     return {"status": "started"}
+
+
+# ── Startup catch-up ─────────────────────────────────────────────────────────
+
+async def _get_last_rank_date(client: httpx.AsyncClient) -> date | None:
+    """Return the date of the last successful ranking run, or None."""
+    try:
+        r = await client.get(f"{RANKER_URL}/runs/latest", timeout=10.0)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("status") == "success" and data.get("rank_date"):
+                return date.fromisoformat(data["rank_date"][:10])
+    except Exception:
+        pass
+    return None
+
+
+async def _startup_catch_up():
+    """
+    Called once on startup. Triggers an immediate chain run if the ranking data
+    is stale — i.e. the system was offline long enough to miss one or more trading
+    days. Waits briefly for dependent services to be reachable first.
+    """
+    await asyncio.sleep(10)  # give other services time to start
+    async with httpx.AsyncClient() as client:
+        last_date = await _get_last_rank_date(client)
+        today = date.today()
+        if is_stale(last_date, today):
+            print(
+                f"[scheduler] stale data detected on startup "
+                f"(last rank: {last_date}, today: {today}) — triggering catch-up run"
+            )
+            await _run_daily_chain()
+        else:
+            print(f"[scheduler] data is current (last rank: {last_date}) — no catch-up needed")
 
 
 # ── Core chain logic ──────────────────────────────────────────────────────────

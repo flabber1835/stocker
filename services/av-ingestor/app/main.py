@@ -416,7 +416,10 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
     ticker_latest, spy_max = await _load_price_staleness()
     fund_latest = await _load_fund_staleness()
 
-    price_skip = sum(1 for t in price_tickers if spy_max and ticker_latest.get(t) == spy_max)
+    price_skip = sum(
+        1 for t in price_tickers
+        if t not in benchmark_set and spy_max and ticker_latest.get(t) == spy_max
+    )
     fund_skip  = sum(1 for t in fundamental_tickers if _should_skip_fundamentals(t, fund_latest, today))
     print(
         f"[fetch-data] starting: {len(price_tickers)} price tickers "
@@ -435,6 +438,12 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
     # avg_dollar_volume_20d computed from the last 20 price rows for each ticker,
     # since AV OVERVIEW does not reliably provide this field.
     _ticker_avg_dv: dict[str, float] = {}
+    # Guards a one-time reload of spy_max after all benchmark tickers have been
+    # processed. If the system was offline for multiple days, the initial spy_max
+    # is the stale cached DB date. Every universe ticker's DB date matches that
+    # same stale date → all would be incorrectly skipped. Reloading after benchmarks
+    # gives the true current trading date for universe-ticker skip evaluation.
+    _spy_max_reloaded = False
     client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA)
     try:
         for i, ticker in enumerate(price_tickers):
@@ -444,8 +453,17 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
             _fetch_data_progress["tickers_done"] = i + 1
             label = f"({i+1}/{len(price_tickers)})"
 
-            # Skip price fetch if this ticker's DB date already matches the latest trading date.
-            if spy_max and ticker_latest.get(ticker) == spy_max:
+            is_benchmark = ticker in benchmark_set
+
+            # Once we move past the leading benchmark tickers into the universe,
+            # reload spy_max so it reflects the freshly written SPY date.
+            if not _spy_max_reloaded and not is_benchmark:
+                _spy_max_reloaded = True
+                ticker_latest, spy_max = await _load_price_staleness()
+
+            # Benchmarks are never skipped — they must be fetched to establish the
+            # current trading date. Universe tickers skip only when already current.
+            if not is_benchmark and spy_max and ticker_latest.get(ticker) == spy_max:
                 print(f"[fetch-data] {ticker} prices: already current ({spy_max}) {label}")
                 price_ok += 1
                 price_skipped += 1
@@ -492,7 +510,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
             if ticker in fundamental_set:
                 # Skip fundamentals if fetched within the last 7 days — AV OVERVIEW is quarterly data.
                 if _should_skip_fundamentals(ticker, fund_latest, today):
-                    print(f"[fetch-data] {ticker} fundamentals: already current (today) {label}")
+                    print(f"[fetch-data] {ticker} fundamentals: fresh enough, skipping {label}")
                     fund_ok += 1
                     fund_skipped += 1
                 else:
