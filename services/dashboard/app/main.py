@@ -1,5 +1,6 @@
 import asyncio
 import os
+from datetime import datetime
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 import httpx
@@ -178,15 +179,33 @@ async def _safe_fetch(coro, fallback):
         return fallback
 
 
+def _parse_ts(ts: str | None):
+    """Parse an ISO 8601 timestamp to a timezone-aware datetime, or None on failure.
+
+    Handles both '+00:00' and 'Z' suffixes so string comparison bugs (where
+    lexicographic order differs from chronological order across formats) are avoided.
+    """
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+
+
 def _compute_pipeline_warnings(
     uni_fetched_at: str | None,
     rank_completed_at: str | None,
     vet_completed_at: str | None,
     port_completed_at: str | None,
 ) -> tuple[bool, bool, bool]:
-    rank_warning = bool(uni_fetched_at and (not rank_completed_at or uni_fetched_at > rank_completed_at))
-    vet_warning  = bool(rank_completed_at and (not vet_completed_at  or rank_completed_at > vet_completed_at))
-    port_warning = bool(rank_completed_at and (not port_completed_at or rank_completed_at > port_completed_at))
+    uni_ts   = _parse_ts(uni_fetched_at)
+    rank_ts  = _parse_ts(rank_completed_at)
+    vet_ts   = _parse_ts(vet_completed_at)
+    port_ts  = _parse_ts(port_completed_at)
+    rank_warning = bool(uni_ts  and (not rank_ts or uni_ts  > rank_ts))
+    vet_warning  = bool(rank_ts and (not vet_ts  or rank_ts > vet_ts))
+    port_warning = bool(rank_ts and (not port_ts or rank_ts > port_ts))
     return rank_warning, vet_warning, port_warning
 
 
@@ -217,15 +236,19 @@ async def pipeline_status():
         async def fetch_portfolio_latest():
             return await client.get(f"{PORTFOLIO_URL}/runs/latest")
 
-        r0, r1, r2, r3, r4, r5, r6, r7 = await asyncio.gather(
-            _safe_fetch(fetch_universe(),        {"error": "timeout"}),
-            _safe_fetch(fetch_rankings(),        {"error": "timeout"}),
-            _safe_fetch(fetch_vetter(),          {"error": "timeout"}),
-            _safe_fetch(fetch_portfolio(),       {"error": "timeout"}),
-            _safe_fetch(fetch_ranker(),          {"error": "timeout"}),
-            _safe_fetch(fetch_data_latest(),     {"error": "timeout"}),
-            _safe_fetch(fetch_factors_latest(),  {"error": "timeout"}),
-            _safe_fetch(fetch_portfolio_latest(),{"error": "timeout"}),
+        async def fetch_scheduler_status():
+            return await client.get(f"{SCHEDULER_URL}/status")
+
+        r0, r1, r2, r3, r4, r5, r6, r7, r8 = await asyncio.gather(
+            _safe_fetch(fetch_universe(),         {"error": "timeout"}),
+            _safe_fetch(fetch_rankings(),         {"error": "timeout"}),
+            _safe_fetch(fetch_vetter(),           {"error": "timeout"}),
+            _safe_fetch(fetch_portfolio(),        {"error": "timeout"}),
+            _safe_fetch(fetch_ranker(),           {"error": "timeout"}),
+            _safe_fetch(fetch_data_latest(),      {"error": "timeout"}),
+            _safe_fetch(fetch_factors_latest(),   {"error": "timeout"}),
+            _safe_fetch(fetch_portfolio_latest(), {"error": "timeout"}),
+            _safe_fetch(fetch_scheduler_status(), {"error": "timeout"}),
         )
 
     uni_date = port_date = rank_date = None
@@ -243,11 +266,11 @@ async def pipeline_status():
         if rankings:
             rank_date = rankings[0].get("rank_date")
 
-    if not isinstance(r2, dict) and r2.status_code == 200:
-        vetter_info = r2.json()
-        vet_completed_at = vetter_info.get("completed_at")
-        vetter_run_id = vetter_info.get("run_id")
-        vetter_status_raw = vetter_info.get("status")
+    d2 = r2.json() if (not isinstance(r2, dict) and r2.status_code == 200) else {}
+    if d2:
+        vet_completed_at = d2.get("completed_at")
+        vetter_run_id = d2.get("run_id")
+        vetter_status_raw = d2.get("status")
 
     if not isinstance(r3, dict) and r3.status_code == 200:
         run = r3.json().get("run") or {}
@@ -255,10 +278,24 @@ async def pipeline_status():
         port_completed_at = run.get("completed_at")
 
     if not isinstance(r4, dict) and r4.status_code == 200:
-        rank_completed_at = r4.json().get("completed_at")
-        ranker_status_raw = r4.json().get("status")
+        d4 = r4.json()
+        rank_completed_at = d4.get("completed_at")
+        ranker_status_raw = d4.get("status")
     else:
         ranker_status_raw = None
+
+    scheduler_chain_running = False
+    scheduler_step_label = None
+    if not isinstance(r8, dict) and r8.status_code == 200:
+        d8 = r8.json()
+        if d8.get("status") == "running":
+            scheduler_chain_running = True
+            # Surface the active step name if available (last_run.steps keys)
+            last_run = d8.get("last_run") or {}
+            steps = last_run.get("steps") or {}
+            running_steps = [k for k, v in steps.items() if v == "running"]
+            if running_steps:
+                scheduler_step_label = running_steps[-1].replace("_", " ").title()
 
     # ── Determine universe status ──────────────────────────────────────────────
     # The av-ingestor /runs/latest returns the most recent run of ANY type.
@@ -267,8 +304,8 @@ async def pipeline_status():
     # for success; only override with the live run status when fetch-universe is
     # actively running or has explicitly failed with no snapshot saved at all.
     universe_status = "none"
-    if not isinstance(r5, dict) and r5.status_code == 200:
-        d5 = r5.json()
+    d5 = r5.json() if (not isinstance(r5, dict) and r5.status_code == 200) else {}
+    if d5:
         jtype = d5.get("job_type", "")
         av_status = d5.get("status", "")
         if av_status == "running" and jtype == "fetch-universe":
@@ -289,17 +326,15 @@ async def pipeline_status():
     rank_step_label = None
     rank_pct = None  # real percentage 0-100, None means unknown
 
-    if not isinstance(r5, dict) and r5.status_code == 200:
-        d5 = r5.json()
-        if d5.get("status") == "running" and d5.get("job_type") == "fetch-data":
-            rank_status = "running"
-            rank_step = "fetch_data"
-            rank_step_label = "Fetching Data"
-            done = d5.get("tickers_done", 0)
-            total = d5.get("total_tickers") or 0
-            if total > 0:
-                # fetch-data covers the first 80% of the pipeline
-                rank_pct = round(done / total * 80)
+    if d5 and d5.get("status") == "running" and d5.get("job_type") == "fetch-data":
+        rank_status = "running"
+        rank_step = "fetch_data"
+        rank_step_label = "Fetching Data"
+        done = d5.get("tickers_done", 0)
+        total = d5.get("total_tickers") or 0
+        if total > 0:
+            # fetch-data covers the first 80% of the pipeline
+            rank_pct = round(done / total * 80)
 
     if rank_status != "running" and not isinstance(r6, dict) and r6.status_code == 200:
         d6 = r6.json()
@@ -317,14 +352,16 @@ async def pipeline_status():
             rank_pct = 95
 
     # If the orchestrator is still running (inter-step gap), keep rank as running
-    # so the progress bar doesn't flash done between steps. Only applies when no
-    # service has already reported a confirmed terminal state — prevents the flag
-    # from holding "running" for hours if the scheduler becomes unreachable.
+    # so the progress bar doesn't flash done between steps.
+    # scheduler_chain_running covers cron-fired runs (autonomous scheduler trigger).
+    # _rank_chain_running covers manual "Start Rank" triggers from the dashboard.
+    # Neither overrides a confirmed terminal state already reported by the ranker.
     confirmed_terminal = ranker_status_raw in ("success", "partial_success", "skipped", "failed")
-    if rank_status != "running" and _rank_chain_running and not confirmed_terminal:
+    orchestrator_running = scheduler_chain_running or _rank_chain_running
+    if rank_status != "running" and orchestrator_running and not confirmed_terminal:
         rank_status = "running"
         rank_step = rank_step or "starting"
-        rank_step_label = rank_step_label or "Starting"
+        rank_step_label = rank_step_label or scheduler_step_label or "Starting"
 
     if rank_status != "running":
         if ranker_status_raw in ("success", "partial_success", "skipped"):
@@ -346,9 +383,8 @@ async def pipeline_status():
         vetter_status = vetter_status_raw
 
     vetter_date = None
-    if not isinstance(r2, dict) and r2.status_code == 200:
-        vi = r2.json()
-        raw_dt = vi.get("completed_at") or vi.get("started_at") or ""
+    if d2:
+        raw_dt = d2.get("completed_at") or d2.get("started_at") or ""
         vetter_date = raw_dt[:10] if raw_dt else None
 
     # ── Determine portfolio status ────────────────────────────────────────────
@@ -430,7 +466,7 @@ async def _run_rank_chain_bg():
                     s = await client.get(f"{SCHEDULER_URL}/status")
                     if s.status_code == 200:
                         chain_status = s.json().get("status", "running")
-                        if chain_status in ("success", "failed"):
+                        if chain_status in ("success", "failed", "idle"):
                             print(f"[rank-chain] scheduler chain finished: {chain_status}")
                             break
                 except Exception:
@@ -522,8 +558,10 @@ header{
   background:var(--panel2);border:1px solid var(--border);
 }
 .regime-bull_calm   {color:var(--green);border-color:var(--green)}
+.regime-bull_stress {color:var(--amber);border-color:var(--amber)}
 .regime-bull_volatile{color:var(--amber);border-color:var(--amber)}
 .regime-bear_calm   {color:var(--blue);border-color:var(--blue)}
+.regime-bear_stress {color:var(--red);border-color:var(--red)}
 .regime-bear_volatile{color:var(--red);border-color:var(--red)}
 .tabs{
   display:flex;gap:0;
@@ -1261,12 +1299,12 @@ function switchTab(name, btn){
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   btn.classList.add('active');
   $('pane-'+name).classList.add('active');
-  // Load tab data on switch — vetter is not pre-loaded at boot so this is
-  // the only trigger for users who open the tab after a pipeline run finished.
+  // Load tab data on switch for tabs not pre-loaded at boot.
   if (name === 'vet') {
     const s = _prevJobState.vet || {};
     if (s.run_id) { loadVetterExclusions(s.run_id); _loadVetterTickers(s.run_id, false); }
   }
+  if (name === 'live') loadLivePortfolio();
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -1291,13 +1329,6 @@ function clearSort(pfx){
 }
 
 // ── Job control ───────────────────────────────────────────────────────────────
-const JOB_SUCCESS = {
-  universe: ['success','partial_success'],
-  rank:     ['success','skipped'],
-  vet:      ['success'],
-  portfolio:['success'],
-};
-
 // Map tab name → DOM id prefixes
 const TAB_IDS = {
   universe: {wrap:'uni-prog-wrap', fill:'uni-fill', pct:'uni-pct', badge:'uni-badge', start:'uni-start'},
@@ -1642,7 +1673,7 @@ function renderJob(tab, state, prev) {
   const prevUnknown = (prev.status == null || prev.status === 'none' || prev.status === undefined);
   if ((wasRunning && done) || (prevUnknown && done)) {
     if (tab === 'universe')  loadUniverse();
-    if (tab === 'rank')      loadRankings();
+    if (tab === 'rank')      { loadRankings(); loadRegime(); }
     if (tab === 'vet') {
       if (state.run_id) {
         loadVetterExclusions(state.run_id);
@@ -1699,7 +1730,7 @@ async function loadRegime(){
 
 // ── Universe ──────────────────────────────────────────────────────────────────
 async function loadUniverse(){
-  $('u-body').innerHTML='<tr><td colspan="4" class="loading">Loading universe</td></tr>';
+  $('u-body').innerHTML='<tr><td colspan="2" class="loading">Loading universe</td></tr>';
   try{
     const d=await fetch('/api/universe').then(r=>{
       if(!r.ok)throw new Error(r.status);
