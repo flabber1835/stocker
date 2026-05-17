@@ -60,10 +60,11 @@ _AV_LISTING_URL = "https://www.alphavantage.co/query?function=LISTING_STATUS&api
 _US_EXCHANGES = {"NYSE", "NASDAQ", "NYSE MKT", "NYSE ARCA", "NYSE American", "BATS", "OTC"}
 
 
-async def download_av_listing(session: httpx.AsyncClient, api_key: str) -> list[dict]:
+async def download_av_listing(session: httpx.AsyncClient, api_key: str) -> tuple[list[dict], dict]:
     """Fetch all active US equities from Alpha Vantage LISTING_STATUS.
 
-    This is the canonical universe source. Returns dicts with weight_pct=None and sector=None.
+    This is the canonical universe source. Returns (rows, stats) where stats contains
+    counts for each filter stage so callers can log what was dropped and why.
     """
     url = _AV_LISTING_URL.format(api_key=api_key)
     response = await session.get(url, follow_redirects=True, timeout=30.0)
@@ -73,18 +74,25 @@ async def download_av_listing(session: httpx.AsyncClient, api_key: str) -> list[
     df.columns = [c.strip() for c in df.columns]
 
     rows = []
+    stats = {"total_rows": len(df), "filtered_ticker_format": 0, "filtered_warrant_unit": 0,
+             "filtered_inactive": 0, "filtered_non_stock": 0, "filtered_exchange": 0, "accepted": 0}
     for _, row in df.iterrows():
         ticker = str(row.get("symbol", "")).strip()
         if not _TICKER_RE.match(ticker):
+            stats["filtered_ticker_format"] += 1
             continue
         if _WARRANT_RE.search(ticker):
+            stats["filtered_warrant_unit"] += 1
             continue
         if str(row.get("status", "")).strip().lower() != "active":
+            stats["filtered_inactive"] += 1
             continue
         if str(row.get("assetType", "")).strip() not in ("Stock",):
+            stats["filtered_non_stock"] += 1
             continue
         exchange = str(row.get("exchange", "")).strip()
         if exchange not in _US_EXCHANGES:
+            stats["filtered_exchange"] += 1
             continue
         rows.append(
             {
@@ -95,19 +103,25 @@ async def download_av_listing(session: httpx.AsyncClient, api_key: str) -> list[
                 "asset_class": "Equity",
             }
         )
+        stats["accepted"] += 1
 
     if len(rows) < 100:
         raise ValueError(
             f"AV LISTING_STATUS returned only {len(rows)} active US stocks — expected 3000+."
         )
 
-    return rows
+    return rows, stats
 
 
-async def download_av_universe(session: httpx.AsyncClient, av_api_key: str = "") -> list[dict]:
-    """Build the equity universe from Alpha Vantage LISTING_STATUS."""
+async def download_av_universe(session: httpx.AsyncClient, av_api_key: str = "") -> tuple[list[dict], dict]:
+    """Build the equity universe from Alpha Vantage LISTING_STATUS.
+
+    Returns (tickers, stats) where stats contains filter-stage counts.
+    """
     if os.getenv("MOCK_DATA", "false").lower() == "true":
-        return _mock_universe()
+        tickers = _mock_universe()
+        stats = {"total_rows": len(tickers), "accepted": len(tickers), "filtered_warrant_unit": 0}
+        return tickers, stats
 
     if not av_api_key or av_api_key == "demo":
         raise RuntimeError(

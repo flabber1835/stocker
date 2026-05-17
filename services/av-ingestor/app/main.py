@@ -393,10 +393,15 @@ async def _run_fetch_universe(run_id: str) -> None:
     print("[fetch-universe] starting")
     try:
         async with httpx.AsyncClient() as http:
-            tickers = await download_av_universe(http, av_api_key=AV_API_KEY)
+            tickers, listing_stats = await download_av_universe(http, av_api_key=AV_API_KEY)
             benchmarks = await get_benchmark_tickers(http)
         all_tickers = tickers + benchmarks
-        print(f"[fetch-universe] downloaded {len(tickers)} universe + {len(benchmarks)} benchmarks")
+        print(
+            f"[fetch-universe] downloaded {len(tickers)} universe + {len(benchmarks)} benchmarks "
+            f"(filtered: {listing_stats.get('filtered_warrant_unit', 0)} warrants/units, "
+            f"{listing_stats.get('filtered_non_stock', 0)} non-stock, "
+            f"{listing_stats.get('filtered_exchange', 0)} wrong-exchange)"
+        )
         await _checkpoint(run_id, "fetch-universe", started_at,
                           step="save", ticker_count=len(all_tickers))
 
@@ -406,7 +411,8 @@ async def _run_fetch_universe(run_id: str) -> None:
         print(f"[fetch-universe] saved snapshot_id={snapshot_id} with {len(all_tickers)} tickers")
         await _finish_run(run_id, "success", ticker_count=len(all_tickers))
         await _write_trace_file(run_id, "fetch-universe", "success", started_at,
-                                ticker_count=len(all_tickers), snapshot_id=snapshot_id)
+                                ticker_count=len(all_tickers), snapshot_id=snapshot_id,
+                                listing_stats=listing_stats)
     except Exception as exc:
         traceback.print_exc()
         err = str(exc)[:1000]
