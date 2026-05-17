@@ -1,4 +1,5 @@
 import asyncio
+import math
 import os
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
@@ -21,6 +22,13 @@ DELTA_ENGINE_URL      = os.getenv("DELTA_ENGINE_URL",       "http://delta-engine
 # Default: 21:15 UTC = 4:15 pm ET, weekdays only (market close + 15 min buffer).
 # Override via env var using standard cron syntax, e.g. "0 22 * * 1-5"
 RANK_SCHEDULE_CRON = os.getenv("RANK_SCHEDULE_CRON", "15 21 * * 1-5")
+
+# Vetter timeout: per-ticker Ollama limit × candidate count + buffer.
+# All three values are overridable via env so tuning doesn't require a rebuild.
+_VETTER_TIMEOUT_SECS    = int(os.getenv("VETTER_TIMEOUT_SECS",    "600"))   # must match OLLAMA_TIMEOUT_SECS in llm-vetter
+_VETTER_CANDIDATE_COUNT = int(os.getenv("VETTER_CANDIDATE_COUNT", "50"))    # must match strategy.vetter.candidate_count
+_VETTER_BUFFER_MINUTES  = int(os.getenv("VETTER_BUFFER_MINUTES",  "30"))
+VETTER_MAX_MINUTES = math.ceil(_VETTER_TIMEOUT_SECS / 60) * _VETTER_CANDIDATE_COUNT + _VETTER_BUFFER_MINUTES
 
 _scheduler: Optional[AsyncIOScheduler] = None
 _chain_lock = asyncio.Lock()
@@ -355,7 +363,7 @@ async def _run_daily_chain():
                 date_field="completed_at",
                 today=today,
                 step_name="vet",
-                max_minutes=60,
+                max_minutes=VETTER_MAX_MINUTES,
             )
             steps["vet"] = "success" if ok else "failed"
             if ok:
