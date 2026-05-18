@@ -27,6 +27,27 @@ app = FastAPI(title="stocker-api", lifespan=lifespan)
 _fmt_row = fmt_row
 
 
+def _linear_slope(ranks: list[float]) -> float | None:
+    """OLS slope for an ordered sequence of rank values (x = 0, 1, 2, ...).
+
+    Mirrors the SQL REGR_SLOPE(rank, row_number) logic used in /rankings.
+    x indices are always equally-spaced integers — actual date gaps (weekends,
+    holidays, missed runs) are intentionally collapsed so every recorded run
+    counts as one step. Returns None for fewer than 2 points.
+    """
+    n = len(ranks)
+    if n < 2:
+        return None
+    xs = list(range(n))
+    mx = sum(xs) / n
+    my = sum(ranks) / n
+    num = sum((x - mx) * (y - my) for x, y in zip(xs, ranks))
+    den = sum((x - mx) ** 2 for x in xs)
+    if den == 0:
+        return None
+    return num / den
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "api"}
