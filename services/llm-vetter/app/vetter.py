@@ -635,7 +635,7 @@ async def vet_single_ticker(
             "system": system_prompt,
             "messages": messages,
             "temperature": 0.1,
-            "max_tokens": 256,
+            "max_tokens": 512,
             "response_schema": PER_TICKER_SCHEMA,
         }
         final_resp_data = await _gateway_chat(gateway_url, final_payload)
