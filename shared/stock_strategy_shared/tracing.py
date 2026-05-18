@@ -10,10 +10,12 @@ from typing import Optional
 
 
 def fmt_row(row) -> dict:
-    """Serialize a SQLAlchemy Row: UUIDs → str, datetimes → isoformat, rest unchanged."""
+    """Serialize a SQLAlchemy Row or RowMapping: UUIDs → str, datetimes → isoformat, rest unchanged."""
     import uuid as _uuid
     out = {}
-    for k, v in dict(row._mapping).items():
+    # Row has ._mapping; RowMapping (from .mappings().first()) is itself the mapping
+    mapping = row._mapping if hasattr(row, "_mapping") else row
+    for k, v in dict(mapping).items():
         if isinstance(v, _uuid.UUID):
             out[k] = str(v)
         elif hasattr(v, "isoformat"):

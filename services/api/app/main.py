@@ -88,7 +88,7 @@ async def get_regime():
                 "FROM regime_snapshots ORDER BY snapshot_date DESC, calculated_at DESC LIMIT 1"
             )
         )
-        result = row.mappings().first()
+        result = row.fetchone()
     if result is None:
         return {"regime": None}
     return _fmt_row(result)
