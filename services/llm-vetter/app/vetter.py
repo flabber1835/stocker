@@ -243,6 +243,9 @@ POSITIVE CATALYST — LOCKED UNIT (all three must be consistent):
   - Analyst upgrade or price target increase published within the past 14 days (cited)
   - Specific contract win, regulatory approval, or major partnership (cited, recent)
   - Significant insider buying from a named SEC filing (cited)
+
+OUTPUT LENGTH: Keep `reason` and `positive_reason` to 100 words or fewer each.
+Be direct — one or two sentences stating the specific finding is ideal.
 """
 
 
@@ -413,9 +416,10 @@ def _detect_hallucination_flags(
 
     # Future date hallucination: reason or positive_reason references an unexpected year
     if today:
-        current_year = today[:4]
-        next_year = str(int(current_year) + 1)
-        allowed_years = {current_year, next_year}
+        current_year = int(today[:4])
+        # Allow prior year (recent history), current year, and up to 2 years
+        # forward (analyst targets, guidance). Flag only implausibly distant years.
+        allowed_years = {str(y) for y in range(current_year - 1, current_year + 3)}
         years_in_reason = set(re.findall(r"\b20\d\d\b", reason))
         bad_years = years_in_reason - allowed_years
         if bad_years:
@@ -635,7 +639,7 @@ async def vet_single_ticker(
             "system": system_prompt,
             "messages": messages,
             "temperature": 0.1,
-            "max_tokens": 1024,
+            "max_tokens": 512,
             "response_schema": PER_TICKER_SCHEMA,
         }
         final_resp_data = await _gateway_chat(gateway_url, final_payload)
@@ -646,7 +650,7 @@ async def vet_single_ticker(
             "system": system_prompt,
             "messages": [{"role": "user", "content": user_message}],
             "temperature": 0.1,
-            "max_tokens": 1024,
+            "max_tokens": 512,
             "response_schema": PER_TICKER_SCHEMA,
         }
         final_resp_data = await _gateway_chat(gateway_url, final_payload)
