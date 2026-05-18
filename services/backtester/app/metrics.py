@@ -8,17 +8,27 @@ def annualized_return(total_return: float, n_days: int) -> float:
     return (1.0 + total_return) ** (365.25 / n_days) - 1.0
 
 
-def sharpe_ratio(monthly_returns: list[float], rf_annual: float = 0.05) -> float:
-    """Annualized Sharpe. Returns 0.0 if std == 0."""
-    arr = np.array(monthly_returns, dtype=float)
+def sharpe_ratio(
+    period_returns: list[float],
+    rf_annual: float = 0.05,
+    periods_per_year: float = 12.0,
+) -> float:
+    """Annualized Sharpe. Returns 0.0 if std == 0.
+
+    periods_per_year should match the actual rebalance frequency:
+      12  → monthly (default, matches classic backtests)
+      252 → daily
+      Pass (252 / avg_calendar_days_per_period) for variable-length periods.
+    """
+    arr = np.array(period_returns, dtype=float)
     if len(arr) < 2:
         return 0.0
-    rf_monthly = (1 + rf_annual) ** (1 / 12) - 1
-    excess = arr - rf_monthly
+    rf_per_period = (1 + rf_annual) ** (1 / periods_per_year) - 1
+    excess = arr - rf_per_period
     std = float(np.std(excess, ddof=1))
     if std < 1e-10:
         return 0.0
-    return float(np.mean(excess) / std * np.sqrt(12))
+    return float(np.mean(excess) / std * np.sqrt(periods_per_year))
 
 
 def max_drawdown(equity_curve: list[float]) -> float:

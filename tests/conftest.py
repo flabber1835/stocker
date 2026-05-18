@@ -1,27 +1,53 @@
 """
-Root conftest: ensures each service test package gets its own clean sys.path
-by clearing the 'app' module cache between service test directories.
+Root conftest: ensures each service test package imports the right 'app' module.
 
-Without this, running multiple service suites together (e.g. llm_gateway +
-llm_vetter) causes the second suite to import 'app' from the first service's
-path because pytest caches the module after the first collection.
+All conftest.py files are loaded upfront before any test collection begins, so
+module-level sys.path.insert() in child conftest files all accumulate. This root
+conftest uses pytest_pycollect_makemodule — which fires immediately before each
+test module is imported — to move the correct service path to sys.path[0].
 """
 import sys
+import os
+from pathlib import Path
+
+_SERVICE_MAP = {
+    "api":              "api",
+    "av_ingestor":      "av-ingestor",
+    "backtester":       "backtester",
+    "dashboard":        "dashboard",
+    "delta_engine":     "delta-engine",
+    "factor_engine":    "factor-engine",
+    "llm_gateway":      "llm-gateway",
+    "llm_vetter":       "llm-vetter",
+    "portfolio_builder":"portfolio-builder",
+    "ranker":           "ranker",
+    "scheduler":        "scheduler",
+}
+
+_ROOT = Path(__file__).parent.parent
 
 
-def pytest_collection_modifyitems(items):
-    """No-op hook — just ensures this conftest is loaded early."""
+def _activate_service(test_dir_name: str) -> None:
+    """Clear cached app modules and move the right service path to sys.path[0]."""
+    service = _SERVICE_MAP.get(test_dir_name)
+    if service is None:
+        return
+    service_path = str(_ROOT / "services" / service)
+    for key in list(sys.modules.keys()):
+        if key == "app" or key.startswith("app."):
+            del sys.modules[key]
+    if service_path in sys.path:
+        sys.path.remove(service_path)
+    sys.path.insert(0, service_path)
+
+
+def pytest_pycollect_makemodule(module_path: Path, parent):
+    """Fires immediately before pytest imports a test module.
+    Activates the correct service so module-level imports resolve correctly."""
+    _activate_service(module_path.parent.name)
 
 
 def pytest_runtest_setup(item):
-    """Before each test, verify the 'app' module in sys.modules came from
-    the same directory as the test file. If not, clear it so the correct
-    service's conftest can re-insert its own path on the next import."""
-    test_dir = str(item.fspath.dirpath())
-    app_mod = sys.modules.get("app")
-    if app_mod is not None:
-        app_file = getattr(app_mod, "__file__", "") or ""
-        if app_file and test_dir not in app_file:
-            for key in list(sys.modules.keys()):
-                if key == "app" or key.startswith("app."):
-                    del sys.modules[key]
+    """Before each test, re-activate the service in case a previous suite
+    left a stale 'app' module in sys.modules."""
+    _activate_service(Path(str(item.fspath)).parent.name)

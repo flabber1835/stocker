@@ -26,6 +26,16 @@ app = FastAPI(title="stocker-api", lifespan=lifespan)
 
 _fmt_row = fmt_row
 
+_TICKER_RE = re.compile(r'^[A-Z0-9.\-]{1,10}$')
+
+
+def _validate_ticker(ticker: str) -> str:
+    """Normalize and validate a ticker symbol. Raises 400 on invalid format."""
+    ticker = ticker.upper().strip()
+    if not _TICKER_RE.match(ticker):
+        raise HTTPException(status_code=400, detail=f"Invalid ticker format: {ticker!r}")
+    return ticker
+
 
 def _linear_slope(ranks: list[float]) -> float | None:
     """OLS slope for an ordered sequence of rank values (x = 0, 1, 2, ...).
@@ -198,9 +208,7 @@ async def get_universe():
 
 @app.get("/factors/{ticker}")
 async def get_factors(ticker: str):
-    if not re.match(r'^[A-Z0-9.\-]{1,10}$', ticker):
-        raise HTTPException(status_code=400, detail=f"Invalid ticker format: {ticker}")
-    ticker = ticker.upper()
+    ticker = _validate_ticker(ticker)
     async with engine.connect() as conn:
         rows = await conn.execute(
             text(
@@ -320,6 +328,10 @@ async def list_traces(limit: int = 20):
 
 @app.get("/traces/{trace_id}")
 async def get_trace(trace_id: str):
+    try:
+        uuid.UUID(trace_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid trace_id format: {trace_id!r}")
     async with engine.connect() as conn:
         trace_row = await conn.execute(
             text(

@@ -365,36 +365,36 @@ async def _do_vet(
     de = strategy.delta_engine
     candidate_map = {c["ticker"]: c for c in candidates}
 
+    async def _vet_fn(t: str) -> dict:
+        _c = candidate_map[t]
+        return await vet_single_ticker(
+            t,
+            news=av_news.get(t, []),
+            earnings_date=earnings_calendar.get(t),
+            tavily_articles=tavily_results.get(t, []),
+            gateway_url=LLM_GATEWAY_URL,
+            today=today,
+            tavily_api_key=TAVILY_API_KEY,
+            entry_rank=de.entry_rank,
+            exit_rank=de.exit_rank,
+            confirmation_days=de.confirmation_days,
+            risk_horizon_days=vcfg.risk_horizon_days,
+            max_searches_per_ticker=vcfg.max_searches_per_ticker,
+            strictness=vcfg.strictness,
+            max_search_results=_prefetch_results,
+            system_prompt_override=_system_prompt_override,
+            rank=_c["rank"],
+            total_candidates=len(candidates),
+            composite_score=_c["composite_score"],
+            factor_scores=_c.get("factor_scores"),
+            sector=sector_map.get(t),
+            regime=_c.get("regime"),
+            in_portfolio=t in held_tickers,
+        )
+
     for i, c in enumerate(candidates):
         ticker = c["ticker"]
         t0 = datetime.now(timezone.utc)
-
-        async def _vet_fn(t: str) -> dict:
-            _c = candidate_map[t]
-            return await vet_single_ticker(
-                t,
-                news=av_news.get(t, []),
-                earnings_date=earnings_calendar.get(t),
-                tavily_articles=tavily_results.get(t, []),
-                gateway_url=LLM_GATEWAY_URL,
-                today=today,
-                tavily_api_key=TAVILY_API_KEY,
-                entry_rank=de.entry_rank,
-                exit_rank=de.exit_rank,
-                confirmation_days=de.confirmation_days,
-                risk_horizon_days=vcfg.risk_horizon_days,
-                max_searches_per_ticker=vcfg.max_searches_per_ticker,
-                strictness=vcfg.strictness,
-                max_search_results=_prefetch_results,
-                system_prompt_override=_system_prompt_override,
-                rank=_c["rank"],
-                total_candidates=len(candidates),
-                composite_score=_c["composite_score"],
-                factor_scores=_c.get("factor_scores"),
-                sector=sector_map.get(t),
-                regime=_c.get("regime"),
-                in_portfolio=t in held_tickers,
-            )
 
         result = await _vet_with_crash_isolation(
             ticker,

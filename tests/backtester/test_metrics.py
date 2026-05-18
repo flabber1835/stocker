@@ -35,6 +35,25 @@ def test_sharpe_all_positive():
     assert result > 0
 
 
+def test_sharpe_periods_per_year_scales_result():
+    # Same returns, different frequency assumption: daily (252) vs monthly (12)
+    # Daily Sharpe should be sqrt(252/12) ≈ 4.58× larger than monthly Sharpe.
+    # Use rf_annual=0 so both Sharpes are positive and the ratio is exactly
+    # sqrt(periods_per_year_daily / periods_per_year_monthly).
+    returns = [0.01, 0.03] * 12  # alternating → non-zero std, well above rf=0
+    s_monthly = sharpe_ratio(returns, rf_annual=0.0, periods_per_year=12)
+    s_daily   = sharpe_ratio(returns, rf_annual=0.0, periods_per_year=252)
+    assert s_daily > s_monthly
+    import math
+    assert abs(s_daily / s_monthly - math.sqrt(252 / 12)) < 0.001
+
+
+def test_sharpe_default_is_monthly():
+    # Default periods_per_year=12 should match explicit monthly call
+    returns = [0.02, 0.03, -0.01, 0.04, 0.02, 0.01, 0.03, 0.02, -0.01, 0.03, 0.02, 0.01]
+    assert sharpe_ratio(returns) == pytest.approx(sharpe_ratio(returns, periods_per_year=12))
+
+
 def test_sharpe_all_negative():
     # Consistently negative returns below risk-free → Sharpe < 0
     result = sharpe_ratio([-0.03, -0.02, -0.04, -0.03, -0.05, -0.02, -0.04, -0.03, -0.02, -0.04, -0.03, -0.05])

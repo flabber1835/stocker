@@ -139,7 +139,11 @@ def build_covariance(
 
     Returns (cov_matrix, tickers_dropped_insufficient_obs).
     """
-    pivot = prices_df.pivot_table(
+    # Deduplicate (date, ticker) pairs before pivoting — keep the last ingested
+    # row so duplicate prices surface as an explicit choice rather than a silent
+    # average (pivot_table would silently average duplicates).
+    prices_df = prices_df.drop_duplicates(subset=["date", "ticker"], keep="last")
+    pivot = prices_df.pivot(
         index="date", columns="ticker", values="adjusted_close"
     ).sort_index().astype(float)  # Decimal from DB → float64 before log returns
 

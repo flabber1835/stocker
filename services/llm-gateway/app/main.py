@@ -150,7 +150,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         except (httpx.TimeoutException, httpx.ConnectError, httpx.RemoteProtocolError) as exc:
             last_exc = exc
             if attempt < 2:
-                backoff = 2.0 ** attempt  # 1s, 2s, 4s
+                backoff = 2.0 ** attempt  # attempt 0 → 1s, attempt 1 → 2s (3 attempts total)
                 log.warning("[llm-gateway] Transient error on attempt %d: %s — retrying in %.0fs", attempt + 1, exc, backoff)
                 await asyncio.sleep(backoff)
         except HTTPException:

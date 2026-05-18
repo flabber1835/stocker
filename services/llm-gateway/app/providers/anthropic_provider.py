@@ -14,15 +14,11 @@ from app.providers.base import BaseProvider
 from app.schemas import ChatRequest, ChatResponse, ToolCall
 
 
-_HEALTH_CACHE_TTL = 30.0  # seconds
-
-
 class AnthropicProvider(BaseProvider):
     def __init__(self, api_key: str, model: str) -> None:
         self._client = anthropic.AsyncAnthropic(api_key=api_key)
+        self._api_key = api_key
         self._model = model
-        self._health_checked_at: float = 0.0
-        self._health_cached: bool = False
 
     @property
     def name(self) -> str:
@@ -33,17 +29,9 @@ class AnthropicProvider(BaseProvider):
         return self._model
 
     async def health_check(self) -> bool:
-        # Cache result for 30s to avoid billing on every /health poll.
-        now = time.monotonic()
-        if now - self._health_checked_at < _HEALTH_CACHE_TTL:
-            return self._health_cached
-        try:
-            await self._client.models.list()
-            self._health_cached = True
-        except Exception:
-            self._health_cached = False
-        self._health_checked_at = time.monotonic()
-        return self._health_cached
+        # Readiness check: verify the API key is configured without making a
+        # billed API call. Actual auth errors surface on the first chat() call.
+        return bool(self._api_key)
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         model = request.model or self._model

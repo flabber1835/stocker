@@ -43,7 +43,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://stocker:stocker@postgres:5432/stocker
+      DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       REDIS_URL: redis://redis:6379
       LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
@@ -65,7 +65,7 @@ services:
     ports:
       - "8001:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://stocker:stocker@postgres:5432/stocker
+      DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       REDIS_URL: redis://redis:6379
       AV_API_KEY: ${AV_API_KEY:-demo}
       AV_RATE_LIMIT_RPM: ${AV_RATE_LIMIT_RPM:-75}
@@ -94,7 +94,7 @@ services:
     ports:
       - "8002:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://stocker:stocker@postgres:5432/stocker
+      DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       REDIS_URL: redis://redis:6379
       STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
       ARTIFACTS_PATH: /artifacts
@@ -120,7 +120,7 @@ services:
     ports:
       - "8003:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://stocker:stocker@postgres:5432/stocker
+      DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       REDIS_URL: redis://redis:6379
       STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
       ARTIFACTS_PATH: /artifacts
@@ -216,7 +216,7 @@ services:
       - "8008:8000"
     environment:
       SERVICE_NAME: portfolio-builder
-      DATABASE_URL: postgresql+asyncpg://stocker:stocker@postgres:5432/stocker
+      DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       REDIS_URL: redis://redis:6379/0
       STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
       ARTIFACTS_PATH: /artifacts
@@ -269,7 +269,7 @@ services:
     ports:
       - "8016:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://stocker:stocker@postgres:5432/stocker
+      DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       LLM_GATEWAY_URL: http://llm-gateway:8000
       AV_API_KEY: ${AV_API_KEY:-demo}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
@@ -337,7 +337,7 @@ services:
     ports:
       - "8013:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://stocker:stocker@postgres:5432/stocker
+      DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
       ARTIFACTS_PATH: /artifacts
     volumes:
@@ -404,11 +404,16 @@ services:
       VETTER_CANDIDATE_COUNT:    ${VETTER_CANDIDATE_COUNT:-50}
       VETTER_BUFFER_MINUTES:     ${VETTER_BUFFER_MINUTES:-30}
     depends_on:
-      - av-ingestor
-      - factor-engine
-      - ranker
-      - llm-vetter
-      - delta-engine
+      av-ingestor:
+        condition: service_healthy
+      factor-engine:
+        condition: service_healthy
+      ranker:
+        condition: service_healthy
+      llm-vetter:
+        condition: service_healthy
+      delta-engine:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 10s

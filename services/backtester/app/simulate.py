@@ -133,10 +133,15 @@ def run_backtest(
 
     win_rate = sum(1 for p in periods if p["excess_return"] > 0) / len(periods)
 
+    # Derive periods_per_year from actual average period length so Sharpe is
+    # correct for monthly, weekly, or irregular rebalance frequencies.
+    avg_period_days = total_days / len(periods) if periods else 21.0
+    periods_per_year = 365.25 / max(avg_period_days, 1.0)
+
     summary = {
         "total_return": round(total_return, 6),
         "annualized_return": round(annualized_return(total_return, total_days), 6),
-        "sharpe_ratio": round(sharpe_ratio(monthly_returns), 4),
+        "sharpe_ratio": round(sharpe_ratio(monthly_returns, periods_per_year=periods_per_year), 4),
         "max_drawdown": round(max_drawdown(equity_curve), 4),
         "avg_monthly_turnover": round(float(np.mean([p["turnover"] for p in periods])), 4),
         "win_rate": round(win_rate, 4),

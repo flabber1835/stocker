@@ -256,12 +256,22 @@ class TestStartupCatchUp:
     async def test_catchup_triggered_when_stale(self):
         """
         If data is stale, _run_daily_chain IS called once.
+
+        The conftest clears app.* from sys.modules before each test, so
+        patch("app.main.*") targets a freshly re-imported module whose __dict__
+        is different from _startup_catch_up.__globals__. We therefore patch the
+        function's own globals dict directly so the mocks actually take effect.
         """
+        mock_chain = AsyncMock()
+        patched_globals = {
+            "_has_universe": AsyncMock(return_value=True),
+            "_get_last_rank_date": AsyncMock(return_value=None),
+            "_run_daily_chain": mock_chain,
+            "is_stale": MagicMock(return_value=True),
+        }
         with (
-            patch("app.main.asyncio.sleep", new=AsyncMock()),
-            patch("app.main._get_last_rank_date", new=AsyncMock(return_value=None)),
-            patch("app.main.is_stale", return_value=True),
-            patch("app.main._run_daily_chain", new=AsyncMock()) as mock_chain,
+            patch.dict(_startup_catch_up.__globals__, patched_globals),
+            patch("asyncio.sleep", new=AsyncMock()),   # patches real asyncio module
         ):
             await _startup_catch_up()
-            mock_chain.assert_called_once()
+        mock_chain.assert_called_once()

@@ -201,6 +201,23 @@ def test_build_covariance_shrinkage_reduces_off_diagonal():
     np.testing.assert_allclose(cov_raw.loc["A", "A"], cov_shrunk.loc["A", "A"], rtol=1e-6)
 
 
+def test_build_covariance_deduplicates_prices():
+    """Duplicate (date, ticker) rows must be dropped (keep last) not silently averaged."""
+    tickers = ["A", "B"]
+    df_clean = _prices_df(tickers, n_days=200)
+    # Duplicate every row for ticker A — if silently averaged the covariance would
+    # be identical but pivot() would have raised. After the fix, the last row wins
+    # and the result should match the clean covariance.
+    df_duped = pd.concat([df_clean, df_clean[df_clean["ticker"] == "A"]], ignore_index=True)
+    cov_clean, _ = build_covariance(df_clean, window_days=200, min_observations=50)
+    cov_deduped, _ = build_covariance(df_duped, window_days=200, min_observations=50)
+    # Covariance should be identical — duplicates discarded, not averaged
+    np.testing.assert_allclose(
+        cov_clean.values, cov_deduped.values, rtol=1e-6,
+        err_msg="build_covariance produced different covariance for duplicated input"
+    )
+
+
 # ── compute_weights ───────────────────────────────────────────────────────────
 
 def _make_selected(tickers, scores, adj_scores=None):

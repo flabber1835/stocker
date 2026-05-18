@@ -243,6 +243,12 @@ async def _run_step(
         return False
 
     # Poll /runs/latest until today's run succeeds or fails.
+    # Stall detection: if a run stays in 'running' status for more than
+    # stall_minutes without the service restarting it, treat it as hung.
+    stall_minutes = min(30, max_minutes)
+    last_seen_run_id: str | None = None
+    last_progress_tick: int = 0
+
     for tick in range(max_minutes * 30):  # every 2 s
         await asyncio.sleep(2)
         try:
@@ -261,8 +267,18 @@ async def _run_step(
                 err = (data.get("error_message") or "")[:200]
                 print(f"[scheduler] {step_name}: failed — run_id={data.get('run_id', '?')} error={err!r}")
                 return False
+            # Reset stall timer whenever we see a new run_id or a non-running status
+            current_run_id = data.get("run_id")
+            if current_run_id != last_seen_run_id or run_status != "running":
+                last_seen_run_id = current_run_id
+                last_progress_tick = tick
         except Exception:
             pass
+
+        elapsed_ticks = tick - last_progress_tick
+        if elapsed_ticks * 2 >= stall_minutes * 60:
+            print(f"[scheduler] {step_name}: stalled — no progress for {stall_minutes} min, aborting")
+            return False
 
         if tick % 150 == 149:  # log every 5 minutes
             elapsed = (tick + 1) * 2 // 60
