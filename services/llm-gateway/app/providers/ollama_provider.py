@@ -14,6 +14,7 @@ from app.schemas import ChatRequest, ChatResponse, ToolCall
 
 
 _HEALTH_CACHE_TTL = 30.0  # seconds
+_HEALTH_TIMEOUT = 5.0     # short timeout so health checks never hang
 
 
 class OllamaProvider(BaseProvider):
@@ -22,6 +23,7 @@ class OllamaProvider(BaseProvider):
         self._model = model
         self._timeout = timeout
         self._client = ollama.AsyncClient(host=host, timeout=timeout)
+        self._health_client = ollama.AsyncClient(host=host, timeout=_HEALTH_TIMEOUT)
         self._health_checked_at: float = 0.0
         self._health_cached: bool = False
 
@@ -38,7 +40,7 @@ class OllamaProvider(BaseProvider):
         if now - self._health_checked_at < _HEALTH_CACHE_TTL:
             return self._health_cached
         try:
-            await self._client.list()
+            await self._health_client.list()
             self._health_cached = True
         except Exception:
             self._health_cached = False
@@ -46,9 +48,8 @@ class OllamaProvider(BaseProvider):
         return self._health_cached
 
     async def list_models(self) -> list[str]:
-        """Return available model names from Ollama."""
         try:
-            resp = await self._client.list()
+            resp = await self._health_client.list()
             return [m.model for m in (resp.models or [])]
         except Exception:
             return []
