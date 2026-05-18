@@ -19,6 +19,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 30s
 
   redis:
     image: redis:7-alpine
@@ -54,9 +55,10 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
-      interval: 10s
-      timeout: 5s
+      interval: 15s
+      timeout: 10s
       retries: 5
+      start_period: 30s
 
   av-ingestor:
     build:
@@ -76,7 +78,7 @@ services:
       PYTHONUNBUFFERED: "1"
       ARTIFACTS_PATH: /artifacts
     volumes:
-      - ./artifacts:/artifacts
+      - artifacts_data:/artifacts
     depends_on:
       postgres:
         condition: service_healthy
@@ -85,8 +87,9 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 10s
-      timeout: 5s
+      timeout: 10s
       retries: 5
+      start_period: 30s
 
   factor-engine:
     build:
@@ -105,15 +108,16 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ./strategies:/strategies:ro
-      - ./artifacts:/artifacts
+      - artifacts_data:/artifacts
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
-      interval: 10s
-      timeout: 5s
+      interval: 15s
+      timeout: 10s
       retries: 5
+      start_period: 30s
 
   ranker:
     build:
@@ -131,15 +135,16 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ./strategies:/strategies:ro
-      - ./artifacts:/artifacts
+      - artifacts_data:/artifacts
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
-      interval: 10s
-      timeout: 5s
+      interval: 15s
+      timeout: 10s
       retries: 5
+      start_period: 30s
 
   dashboard:
     build:
@@ -162,9 +167,10 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
-      interval: 10s
-      timeout: 5s
+      interval: 15s
+      timeout: 10s
       retries: 5
+      start_period: 30s
 
   # ── Stubbed services (filled in later) ────────────────────────────────────────────────────────────────────────────
   # Each stub serves GET /health → {"status":"ok","service":"<name>"}
@@ -179,9 +185,10 @@ services:
       - "8005:8000"
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
-      interval: 10s
-      timeout: 5s
+      interval: 15s
+      timeout: 10s
       retries: 5
+      start_period: 30s
 
   strategy-config-service:
     build:
@@ -211,9 +218,10 @@ services:
       OLLAMA_TIMEOUT_SECS: ${OLLAMA_TIMEOUT_SECS:-600}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
-      interval: 10s
-      timeout: 5s
+      interval: 15s
+      timeout: 10s
       retries: 5
+      start_period: 30s
 
   portfolio-builder:
     build:
@@ -230,16 +238,17 @@ services:
       STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
       ARTIFACTS_PATH: /artifacts
     volumes:
-      - ./artifacts:/artifacts
+      - artifacts_data:/artifacts
       - ./strategies:/strategies:ro
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
-      interval: 10s
-      timeout: 5s
+      interval: 15s
+      timeout: 10s
       retries: 5
+      start_period: 30s
 
   ollama:
     image: ollama/ollama:latest
@@ -286,7 +295,7 @@ services:
       STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
       ARTIFACTS_PATH: /artifacts
     volumes:
-      - ./artifacts:/artifacts
+      - artifacts_data:/artifacts
       - ./strategies:/strategies:ro
     depends_on:
       postgres:
@@ -295,9 +304,10 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
-      interval: 10s
-      timeout: 5s
+      interval: 15s
+      timeout: 10s
       retries: 5
+      start_period: 30s
 
   alpaca-sync:
     build:
@@ -356,16 +366,17 @@ services:
       STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
       ARTIFACTS_PATH: /artifacts
     volumes:
-      - ./artifacts:/artifacts
+      - artifacts_data:/artifacts
       - ./strategies:/strategies:ro
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
-      interval: 10s
-      timeout: 5s
+      interval: 15s
+      timeout: 10s
       retries: 5
+      start_period: 30s
 
   evaluator:
     build:
@@ -391,16 +402,17 @@ services:
       STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
       ARTIFACTS_PATH: /artifacts
     volumes:
-      - ./artifacts:/artifacts
+      - artifacts_data:/artifacts
       - ./strategies:/strategies:ro
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
-      interval: 10s
-      timeout: 5s
+      interval: 15s
+      timeout: 10s
       retries: 5
+      start_period: 30s
 
   scheduler:
     build:
@@ -434,11 +446,13 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
-      interval: 10s
-      timeout: 5s
+      interval: 15s
+      timeout: 10s
       retries: 5
+      start_period: 30s
 
 volumes:
   postgres_data:
   redis_data:
   ollama_models:
+  artifacts_data:
