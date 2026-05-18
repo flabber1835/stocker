@@ -38,7 +38,8 @@ async def fetch_av_news(
     lookback_days: int = 7,
     max_articles_per_ticker: int = 4,
     max_results_per_ticker: int = 50,
-    concurrency: int = 10,
+    concurrency: int = 5,
+    min_request_interval: float = 0.25,
 ) -> dict[str, list[dict]]:
     """
     Fetch recent news sentiment from Alpha Vantage — one request per ticker.
@@ -46,8 +47,11 @@ async def fetch_av_news(
     Individual calls give all results focused on one ticker, so relevance scores
     are higher and per-ticker coverage is much better than batching multiple
     tickers together (where 50 results are split across 10 tickers).
-    With a 75 RPM key and concurrency=10, 50 tickers completes in ~10 seconds
-    well within quota.
+
+    Rate limiting: requests are serialized through a start_lock so they begin no
+    faster than 1/min_request_interval per second (default 4 RPS), well within
+    AV's stated 5 RPS burst limit. concurrency caps in-flight requests.
+    50 tickers at 0.25s spacing completes in ~15 seconds, well within 75 RPM quota.
     """
     if not api_key or api_key == "demo":
         return {}
@@ -55,9 +59,19 @@ async def fetch_av_news(
     since = (date.today() - timedelta(days=lookback_days)).strftime("%Y%m%dT0000")
     result: dict[str, list[dict]] = {t: [] for t in tickers}
     sem = asyncio.Semaphore(concurrency)
+    start_lock = asyncio.Lock()
+    last_sent_at: list[float] = [0.0]
 
     async def _fetch_one(client: httpx.AsyncClient, ticker: str) -> None:
         async with sem:
+            # Enforce minimum inter-request interval to avoid AV burst detection.
+            async with start_lock:
+                now = asyncio.get_event_loop().time()
+                wait = min_request_interval - (now - last_sent_at[0])
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                last_sent_at[0] = asyncio.get_event_loop().time()
+
             try:
                 resp = await client.get(AV_BASE, params={
                     "function": "NEWS_SENTIMENT",
