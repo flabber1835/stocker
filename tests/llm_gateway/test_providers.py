@@ -10,6 +10,7 @@ import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 # Ensure llm-gateway's 'app' package is on sys.path regardless of which other
@@ -27,6 +28,9 @@ if _app is None or _GW_PATH not in _os.path.abspath(getattr(_app, "__file__", ""
 # installed in the test environment (it lives inside the Docker container only).
 _mock_anthropic = MagicMock()
 _mock_anthropic.AsyncAnthropic = MagicMock
+# Real exception classes so `except (anthropic.RateLimitError, ...)` works at runtime.
+_mock_anthropic.RateLimitError = type("RateLimitError", (Exception,), {})
+_mock_anthropic.InternalServerError = type("InternalServerError", (Exception,), {})
 sys.modules.setdefault("anthropic", _mock_anthropic)
 
 from app.schemas import ChatRequest, ChatResponse, Message, ToolCall, ToolDef
@@ -408,3 +412,25 @@ async def test_ollama_tool_result_message():
     tool_msg = msgs[-1]
     assert tool_msg["role"] == "tool"
     assert tool_msg["content"] == "MSFT earnings beat estimates"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_rate_limit_raises_httpx_connect_error():
+    """RateLimitError and InternalServerError should be re-raised as httpx.ConnectError."""
+    import anthropic as _anthropic
+
+    for exc_class in (_anthropic.RateLimitError, _anthropic.InternalServerError):
+        with patch("anthropic.AsyncAnthropic") as MockClient:
+            mock_instance = AsyncMock()
+            mock_instance.messages = AsyncMock()
+            mock_instance.messages.create = AsyncMock(side_effect=exc_class("overloaded"))
+            MockClient.return_value = mock_instance
+
+            provider = AnthropicProvider(api_key="test-key", model="claude-haiku-4-5-20251001")
+            provider._client = mock_instance
+
+            request = ChatRequest(
+                messages=[Message(role="user", content="Hello")],
+            )
+            with pytest.raises(httpx.ConnectError):
+                await provider.chat(request)

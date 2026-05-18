@@ -8,6 +8,7 @@ import os
 import time
 
 import anthropic
+import httpx
 
 from app.providers.base import BaseProvider
 from app.schemas import ChatRequest, ChatResponse, ToolCall
@@ -118,7 +119,12 @@ class AnthropicProvider(BaseProvider):
         if tools:
             kwargs["tools"] = tools
 
-        response = await self._client.messages.create(**kwargs)
+        try:
+            response = await self._client.messages.create(**kwargs)
+        except (anthropic.RateLimitError, anthropic.InternalServerError) as exc:
+            # 429 rate-limit and 529 overloaded are transient — re-raise as
+            # httpx.ConnectError so the gateway retry loop handles them.
+            raise httpx.ConnectError(str(exc)) from exc
 
         latency_ms = round((time.monotonic() - t0) * 1000)
 
