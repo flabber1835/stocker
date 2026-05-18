@@ -21,8 +21,8 @@ env/
 # Environment / secrets
 .env
 
-# Docker volumes
-postgres_data/
+# Docker volumes / local data
+database/
 redis_data/
 
 # Artifacts / reports
