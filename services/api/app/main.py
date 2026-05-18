@@ -102,19 +102,43 @@ async def get_rankings(limit: int = 50, run_id: str | None = None):
         if run_id:
             rows = await conn.execute(
                 text(
-                    "SELECT ticker, rank, composite_score, percentile, regime, rank_date, factor_scores "
-                    "FROM rankings WHERE run_id = :run_id ORDER BY rank ASC LIMIT :limit"
+                    "WITH recent_runs AS ("
+                    "  SELECT run_id, ROW_NUMBER() OVER (ORDER BY rank_date ASC) - 1 AS x_pos"
+                    "  FROM ranking_runs WHERE status='success' ORDER BY rank_date DESC LIMIT 5"
+                    "),"
+                    "ticker_slopes AS ("
+                    "  SELECT r.ticker,"
+                    "    REGR_SLOPE(r.rank::double precision, rr.x_pos::double precision) AS rank_slope"
+                    "  FROM rankings r JOIN recent_runs rr ON rr.run_id = r.run_id"
+                    "  GROUP BY r.ticker"
+                    ")"
+                    "SELECT r.ticker, r.rank, r.composite_score, r.percentile, r.regime, r.rank_date,"
+                    "  r.factor_scores, ts.rank_slope "
+                    "FROM rankings r LEFT JOIN ticker_slopes ts ON ts.ticker = r.ticker "
+                    "WHERE r.run_id = :run_id ORDER BY r.rank ASC LIMIT :limit"
                 ),
                 {"run_id": run_id, "limit": limit},
             )
         else:
             rows = await conn.execute(
                 text(
-                    "SELECT ticker, rank, composite_score, percentile, regime, rank_date, factor_scores "
-                    "FROM rankings WHERE run_id = ("
+                    "WITH recent_runs AS ("
+                    "  SELECT run_id, ROW_NUMBER() OVER (ORDER BY rank_date ASC) - 1 AS x_pos"
+                    "  FROM ranking_runs WHERE status='success' ORDER BY rank_date DESC LIMIT 5"
+                    "),"
+                    "ticker_slopes AS ("
+                    "  SELECT r.ticker,"
+                    "    REGR_SLOPE(r.rank::double precision, rr.x_pos::double precision) AS rank_slope"
+                    "  FROM rankings r JOIN recent_runs rr ON rr.run_id = r.run_id"
+                    "  GROUP BY r.ticker"
+                    ")"
+                    "SELECT r.ticker, r.rank, r.composite_score, r.percentile, r.regime, r.rank_date,"
+                    "  r.factor_scores, ts.rank_slope "
+                    "FROM rankings r LEFT JOIN ticker_slopes ts ON ts.ticker = r.ticker "
+                    "WHERE r.run_id = ("
                     "  SELECT run_id FROM ranking_runs WHERE status='success'"
                     "  ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
-                    ") ORDER BY rank ASC LIMIT :limit"
+                    ") ORDER BY r.rank ASC LIMIT :limit"
                 ),
                 {"limit": limit},
             )

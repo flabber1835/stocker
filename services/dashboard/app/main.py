@@ -770,6 +770,8 @@ td{padding:9px 14px;white-space:nowrap}
   font-family:var(--font-mono);
   min-width:36px;display:inline-block;text-align:right;
 }
+.rank-up{color:#3fb950;font-size:.6rem;margin-left:3px;vertical-align:middle}
+.rank-dn{color:#f85149;font-size:.6rem;margin-left:3px;vertical-align:middle}
 .t-name{color:var(--secondary);font-size:.78rem;max-width:180px;overflow:hidden;text-overflow:ellipsis}
 .t-sector{
   display:inline-block;padding:2px 7px;border-radius:3px;
@@ -1789,7 +1791,8 @@ async function loadRankings(){
       return{rank:r.rank,ticker:r.ticker,composite_score:r.composite_score,
         percentile:r.percentile,momentum:fs.momentum,quality:fs.quality,
         value:fs.value,growth:fs.growth,low_volatility:fs.low_volatility,
-        liquidity:fs.liquidity,rank_date:r.rank_date,regime:r.regime};
+        liquidity:fs.liquidity,rank_date:r.rank_date,regime:r.regime,
+        rank_slope:r.rank_slope!=null?+r.rank_slope:null};
     });
     $('r-total').textContent=rankData.length;
     if(rankData.length){
@@ -1838,8 +1841,12 @@ function renderRankings(){
     const pctCls=pctColor(r.percentile);
     const pctVal=r.percentile!=null?(+r.percentile*100).toFixed(0)+'%':'—';
     const compCls=r.composite_score!=null?(+r.composite_score>0?'pos':'neg'):'neu';
+    const slope=r.rank_slope;
+    const arrow=slope==null||Math.abs(slope)<1?'':slope<0
+      ?'<span class="rank-up">&#9650;</span>'
+      :'<span class="rank-dn">&#9660;</span>';
     return '<tr>'
-      +'<td><span class="t-rank">'+r.rank+'</span></td>'
+      +'<td><span class="t-rank">'+r.rank+'</span>'+arrow+'</td>'
       +'<td><span class="t-ticker">'+r.ticker+'</span></td>'
       +'<td><div class="score-wrap"><span class="score-num '+compCls+'">'+fmtScore(r.composite_score)+'</span>'
       +'<div class="score-track"><div class="score-fill" style="width:'+w+'%"></div></div></div></td>'
