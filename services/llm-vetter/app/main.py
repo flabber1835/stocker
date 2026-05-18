@@ -8,10 +8,10 @@ from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from typing import Optional
 
+import httpx
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy import text
-from ollama import AsyncClient as OllamaClient
 
 from app.vetter import fetch_ticker_data, vet_single_ticker
 from stock_strategy_shared.loader import load_strategy
@@ -22,9 +22,7 @@ _fmt_row = fmt_row
 
 
 DATABASE_URL         = os.getenv("DATABASE_URL", "")
-OLLAMA_HOST          = os.getenv("OLLAMA_HOST", "http://ollama:11434")
-OLLAMA_MODEL         = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
-OLLAMA_TIMEOUT_SECS  = int(os.getenv("OLLAMA_TIMEOUT_SECS", "600"))
+LLM_GATEWAY_URL      = os.getenv("LLM_GATEWAY_URL", "http://llm-gateway:8000")
 AV_API_KEY           = os.getenv("AV_API_KEY", "")
 TAVILY_API_KEY       = os.getenv("TAVILY_API_KEY", "")
 ARTIFACTS_PATH       = os.getenv("ARTIFACTS_PATH", "")
@@ -77,22 +75,23 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await mark_orphaned_runs_failed(conn, "vetter_runs", trace_job_type="vetter_run")
 
-    await _check_model()
+    await _check_gateway()
     yield
     await engine.dispose()
 
 
-async def _check_model() -> None:
+async def _check_gateway() -> None:
     try:
-        client = OllamaClient(host=OLLAMA_HOST)
-        await client.show(OLLAMA_MODEL)
-        print(f"[llm-vetter] Model {OLLAMA_MODEL} is available")
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"{LLM_GATEWAY_URL}/health")
+            r.raise_for_status()
+            data = r.json()
+        print(f"[llm-vetter] LLM gateway available at {LLM_GATEWAY_URL}: {data}")
     except Exception as exc:
-        # Non-fatal at startup: Ollama may still be pulling the model or warming up.
-        # The model is only required when a vet request arrives.
+        # Non-fatal at startup: gateway may still be starting up.
         print(
-            f"[llm-vetter] WARNING: Model {OLLAMA_MODEL} not available at {OLLAMA_HOST}: {exc}. "
-            f"Pull it with: docker compose exec ollama ollama pull {OLLAMA_MODEL}"
+            f"[llm-vetter] WARNING: LLM gateway not reachable at {LLM_GATEWAY_URL}: {exc}. "
+            f"Ensure the llm-gateway service is running."
         )
 
 
@@ -362,12 +361,10 @@ async def _do_vet(
         )
 
     # ── Step 3: vet each ticker individually ─────────────────────────────────
-    client = OllamaClient(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT_SECS)
     exclusions: list[dict] = []
     de = strategy.delta_engine
 
-    try:
-        for i, c in enumerate(candidates):
+    for i, c in enumerate(candidates):
             ticker = c["ticker"]
             t0 = datetime.now(timezone.utc)
 
@@ -378,8 +375,7 @@ async def _do_vet(
                     news=av_news.get(t, []),
                     earnings_date=earnings_calendar.get(t),
                     tavily_articles=tavily_results.get(t, []),
-                    client=client,
-                    model=OLLAMA_MODEL,
+                    gateway_url=LLM_GATEWAY_URL,
                     today=today,
                     tavily_api_key=TAVILY_API_KEY,
                     entry_rank=de.entry_rank,
@@ -469,8 +465,6 @@ async def _do_vet(
                 candidates_total=state.candidates_total,
                 progress={"completed": i + 1, "total": len(candidates)},
             )
-    finally:
-        await client.close()
 
     # ── Step 4: write results ────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
@@ -558,7 +552,7 @@ async def _do_vet(
         trace_id, run_id, "success", started_at,
         ticker_results=ticker_results,
         candidates_total=state.candidates_total,
-        model=OLLAMA_MODEL,
+        model=f"gateway:{LLM_GATEWAY_URL}",
         source_strategy_id=source_strategy_id,
         local_strategy_id=strategy.strategy_id,
         config_hash=config_hash,
@@ -576,18 +570,22 @@ async def _do_vet(
 
 @app.get("/health")
 async def health():
-    model_ok = False
+    gateway_ok = False
+    gateway_info: dict = {}
     try:
-        client = OllamaClient(host=OLLAMA_HOST)
-        await client.show(OLLAMA_MODEL)
-        model_ok = True
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{LLM_GATEWAY_URL}/health")
+            r.raise_for_status()
+            gateway_info = r.json()
+            gateway_ok = True
     except Exception:
         pass
     return {
         "status": "ok",
         "service": "llm-vetter",
-        "model": OLLAMA_MODEL,
-        "model_ready": model_ok,
+        "gateway_url": LLM_GATEWAY_URL,
+        "gateway_ok": gateway_ok,
+        "gateway_provider": gateway_info.get("default_provider"),
         "av_configured": bool(AV_API_KEY and AV_API_KEY != "demo"),
         "tavily_configured": bool(TAVILY_API_KEY),
         "strategy_id": strategy.strategy_id,
@@ -635,15 +633,15 @@ async def start_vet(
             f"but vetter has '{strategy.strategy_id}' mounted — config drift possible"
         )
 
-    # quick model availability pre-flight — fail fast rather than silently
-    # completing the run with zero results after a long timeout
+    # quick gateway pre-flight — fail fast rather than silently failing after a long timeout
     try:
-        client = OllamaClient(host=OLLAMA_HOST)
-        await client.show(OLLAMA_MODEL)
+        async with httpx.AsyncClient(timeout=5.0) as gw_client:
+            r = await gw_client.get(f"{LLM_GATEWAY_URL}/health")
+            r.raise_for_status()
     except Exception as exc:
         raise HTTPException(
             status_code=503,
-            detail=f"Ollama model '{OLLAMA_MODEL}' is not available at {OLLAMA_HOST}: {exc}",
+            detail=f"LLM gateway is not available at {LLM_GATEWAY_URL}: {exc}",
         )
 
     async with _job_lock:
@@ -659,7 +657,7 @@ async def start_vet(
                     "VALUES (:rid, :tid, :src, :sid, :model, 'running', :now)"
                 ),
                 {"rid": run_id, "tid": trace_id, "src": source_ranking_run_id,
-                 "sid": source_strategy_id, "model": OLLAMA_MODEL, "now": started_at},
+                 "sid": source_strategy_id, "model": f"gateway:{LLM_GATEWAY_URL}", "now": started_at},
             )
             await conn.execute(
                 text(
@@ -679,7 +677,7 @@ async def start_vet(
         "run_id": run_id,
         "trace_id": trace_id,
         "source_ranking_run_id": source_ranking_run_id,
-        "model": OLLAMA_MODEL,
+        "gateway_url": LLM_GATEWAY_URL,
         "candidate_count": effective_count,
     }
 

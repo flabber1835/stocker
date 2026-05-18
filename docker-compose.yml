@@ -190,12 +190,24 @@ services:
   llm-gateway:
     build:
       context: .
-      dockerfile: services/stub/Dockerfile
+      dockerfile: services/llm-gateway/Dockerfile
     restart: unless-stopped
     ports:
       - "8007:8000"
     environment:
-      SERVICE_NAME: llm-gateway
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
+      OLLAMA_TIMEOUT_SECS: ${OLLAMA_TIMEOUT_SECS:-600}
+    depends_on:
+      - ollama
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   portfolio-builder:
     build:
@@ -258,9 +270,7 @@ services:
       - "8016:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://stocker:stocker@postgres:5432/stocker
-      OLLAMA_HOST: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
-      OLLAMA_TIMEOUT_SECS: ${OLLAMA_TIMEOUT_SECS:-600}
+      LLM_GATEWAY_URL: http://llm-gateway:8000
       AV_API_KEY: ${AV_API_KEY:-demo}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
@@ -270,6 +280,8 @@ services:
       - ./strategies:/strategies:ro
     depends_on:
       postgres:
+        condition: service_healthy
+      llm-gateway:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]

@@ -23,10 +23,18 @@ import time
 from datetime import date
 from typing import Literal
 
-from ollama import AsyncClient
+import httpx
 
 from app.tools import fetch_av_news, fetch_av_earnings_calendar, fetch_tavily_news, search_web
 import asyncio
+
+# Gateway chat endpoint helper
+async def _gateway_chat(gateway_url: str, payload: dict) -> dict:
+    """POST to /v1/chat and return the parsed JSON response dict."""
+    async with httpx.AsyncClient(timeout=700.0) as client:
+        r = await client.post(f"{gateway_url}/v1/chat", json=payload)
+        r.raise_for_status()
+        return r.json()
 
 log = logging.getLogger("llm-vetter.vetter")
 
@@ -433,8 +441,7 @@ async def vet_single_ticker(
     news: list[dict],
     earnings_date: str | None,
     tavily_articles: list[dict],
-    client: AsyncClient,
-    model: str,
+    gateway_url: str,
     today: str,
     tavily_api_key: str = "",
     entry_rank: int = 25,
@@ -509,51 +516,55 @@ async def vet_single_ticker(
 
     t0 = time.monotonic()
 
+    # Build the web_search ToolDef for the gateway (unified format)
+    web_search_tool = {
+        "name": AGENT_TOOLS[0]["function"]["name"],
+        "description": AGENT_TOOLS[0]["function"]["description"],
+        "parameters": AGENT_TOOLS[0]["function"]["parameters"],
+    }
+
     if tavily_api_key:
         # ── Agentic loop ─────────────────────────────────────────────────────
+        # Messages use unified gateway format (no system role — system is top-level)
         messages: list[dict] = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user",   "content": user_message},
+            {"role": "user", "content": user_message},
         ]
 
         tool_calls_made = False
         loop_ended_on_tool_call = False
 
         for _ in range(max_searches_per_ticker):
-            resp = await client.chat(
-                model=model,
-                messages=messages,
-                tools=AGENT_TOOLS,
-                options={"temperature": 0.1},
-            )
+            payload = {
+                "system": system_prompt,
+                "messages": messages,
+                "tools": [web_search_tool],
+                "temperature": 0.1,
+                "max_tokens": 512,
+            }
+            resp_data = await _gateway_chat(gateway_url, payload)
 
-            if not resp.message.tool_calls:
+            resp_tool_calls = resp_data.get("tool_calls", [])
+
+            if not resp_tool_calls:
                 # Model is ready to decide — preserve its reasoning in context
-                messages.append({"role": "assistant", "content": resp.message.content or ""})
+                messages.append({"role": "assistant", "content": resp_data.get("content", "")})
                 break
 
             tool_calls_made = True
 
-            # Serialize the assistant message with tool_calls as a plain dict
+            # Append assistant message with tool_calls in unified format
             asst_msg: dict = {
                 "role": "assistant",
-                "content": resp.message.content or "",
-                "tool_calls": [
-                    {
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments if isinstance(tc.function.arguments, dict) else {},
-                        }
-                    }
-                    for tc in resp.message.tool_calls
-                ],
+                "content": resp_data.get("content", ""),
+                "tool_calls": resp_tool_calls,  # [{id, name, arguments}]
             }
             messages.append(asst_msg)
 
-            for tc in resp.message.tool_calls:
-                fn_name = tc.function.name
-                args = tc.function.arguments if isinstance(tc.function.arguments, dict) else {}
+            for tc in resp_tool_calls:
+                fn_name = tc["name"]
+                args = tc.get("arguments", {}) if isinstance(tc.get("arguments"), dict) else {}
                 query = args.get("query", "")
+                tc_id = tc.get("id", "call_0")
 
                 log.info("[agent] %s → %s(%r)", ticker, fn_name, query)
 
@@ -576,7 +587,13 @@ async def vet_single_ticker(
                     result_text = f"Unknown tool: {fn_name}"
                     agent_searches.append({"query": query, "result_count": 0, "error": "unknown tool"})
 
-                messages.append({"role": "tool", "content": result_text})
+                # Tool result in unified format
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc_id,
+                    "name": fn_name,
+                    "content": result_text,
+                })
         else:
             # Loop exhausted MAX_TOOL_CALLS and the last response was still requesting
             # tool calls (never produced a text response). Those unfetched tool calls
@@ -599,27 +616,29 @@ async def vet_single_ticker(
                 "Provide your KEEP or EXCLUDE decision."
             )
             messages.append({"role": "user", "content": final_prompt})
-        response = await client.chat(
-            model=model,
-            messages=messages,
-            format=PER_TICKER_SCHEMA,
-            options={"temperature": 0.1, "num_predict": 256},
-        )
+
+        final_payload = {
+            "system": system_prompt,
+            "messages": messages,
+            "temperature": 0.1,
+            "max_tokens": 256,
+            "response_schema": PER_TICKER_SCHEMA,
+        }
+        final_resp_data = await _gateway_chat(gateway_url, final_payload)
 
     else:
         # ── Single-call fallback (no Tavily configured) ───────────────────────
-        response = await client.chat(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user",   "content": user_message},
-            ],
-            format=PER_TICKER_SCHEMA,
-            options={"temperature": 0.1, "num_predict": 256},
-        )
+        final_payload = {
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_message}],
+            "temperature": 0.1,
+            "max_tokens": 256,
+            "response_schema": PER_TICKER_SCHEMA,
+        }
+        final_resp_data = await _gateway_chat(gateway_url, final_payload)
 
     latency_ms = round((time.monotonic() - t0) * 1000)
-    raw = (response.message.content or "").strip()
+    raw = (final_resp_data.get("content") or "").strip()
 
     try:
         parsed = json.loads(raw)
