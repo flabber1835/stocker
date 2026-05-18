@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stocker}
       POSTGRES_DB: stocker
     volumes:
-      - ./database:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports:
       - "5433:5432"
@@ -439,5 +439,6 @@ services:
       retries: 5
 
 volumes:
+  postgres_data:
   redis_data:
   ollama_models:
