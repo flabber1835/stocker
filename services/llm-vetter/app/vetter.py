@@ -654,10 +654,16 @@ async def vet_single_ticker(
     latency_ms = round((time.monotonic() - t0) * 1000)
     raw = (final_resp_data.get("content") or "").strip()
 
+    # Strip markdown code fences that some models wrap around JSON output.
+    clean = raw
+    if clean.startswith("```"):
+        clean = re.sub(r"^```(?:json)?\s*", "", clean)
+        clean = re.sub(r"\s*```$", "", clean.strip()).strip()
+
     try:
-        parsed = json.loads(raw)
+        parsed = json.loads(clean)
     except json.JSONDecodeError as exc:
-        log.error("Invalid JSON for ticker %s: %s | raw: %s", ticker, exc, raw[:300])
+        log.error("Invalid JSON for ticker %s: %s | raw: %s", ticker, exc, clean[:300])
         return {
             "ticker":      ticker,
             "exclude":     False,
