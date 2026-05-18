@@ -398,7 +398,7 @@ def _detect_hallucination_flags(
         flags.append(f"Reason suspiciously short ({len(reason)} chars): '{reason}'")
 
     # Raw JSON unexpectedly long (model leaked extra content outside schema)
-    if len(raw) > 1800:
+    if len(raw) > 2500:
         flags.append(f"Raw response unusually long ({len(raw)} chars) — possible schema bleed")
 
     # Contradiction: reason says "no concerns" / "no risk" but exclude=True
@@ -635,7 +635,7 @@ async def vet_single_ticker(
             "system": system_prompt,
             "messages": messages,
             "temperature": 0.1,
-            "max_tokens": 512,
+            "max_tokens": 1024,
             "response_schema": PER_TICKER_SCHEMA,
         }
         final_resp_data = await _gateway_chat(gateway_url, final_payload)
@@ -646,7 +646,7 @@ async def vet_single_ticker(
             "system": system_prompt,
             "messages": [{"role": "user", "content": user_message}],
             "temperature": 0.1,
-            "max_tokens": 512,
+            "max_tokens": 1024,
             "response_schema": PER_TICKER_SCHEMA,
         }
         final_resp_data = await _gateway_chat(gateway_url, final_payload)
@@ -654,11 +654,22 @@ async def vet_single_ticker(
     latency_ms = round((time.monotonic() - t0) * 1000)
     raw = (final_resp_data.get("content") or "").strip()
 
-    # Strip markdown code fences that some models wrap around JSON output.
+    # Extract JSON from whatever format the model chose:
+    #   Case 1: leading code fence  ```json {...} ```
+    #   Case 2: JSON embedded in prose  "Here is my assessment:\n```json\n{...}\n```"
+    #   Case 3: bare prose with a JSON object somewhere  "Analysis...\n{...}"
     clean = raw
     if clean.startswith("```"):
         clean = re.sub(r"^```(?:json)?\s*", "", clean)
         clean = re.sub(r"\s*```$", "", clean.strip()).strip()
+    elif "```json" in clean:
+        m = re.search(r"```json\s*(.*?)\s*```", clean, re.DOTALL)
+        if m:
+            clean = m.group(1).strip()
+    else:
+        brace = clean.find("{")
+        if brace > 0:
+            clean = clean[brace:]
 
     try:
         # raw_decode stops after the first complete JSON value, ignoring any
