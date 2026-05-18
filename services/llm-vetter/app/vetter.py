@@ -398,7 +398,7 @@ def _detect_hallucination_flags(
         flags.append(f"Reason suspiciously short ({len(reason)} chars): '{reason}'")
 
     # Raw JSON unexpectedly long (model leaked extra content outside schema)
-    if len(raw) > 800:
+    if len(raw) > 1800:
         flags.append(f"Raw response unusually long ({len(raw)} chars) — possible schema bleed")
 
     # Contradiction: reason says "no concerns" / "no risk" but exclude=True
@@ -661,7 +661,9 @@ async def vet_single_ticker(
         clean = re.sub(r"\s*```$", "", clean.strip()).strip()
 
     try:
-        parsed = json.loads(clean)
+        # raw_decode stops after the first complete JSON value, ignoring any
+        # trailing content (closing fences, commentary) the model appends.
+        parsed, _ = json.JSONDecoder().raw_decode(clean)
     except json.JSONDecodeError as exc:
         log.error("Invalid JSON for ticker %s: %s | raw: %s", ticker, exc, clean[:300])
         return {
