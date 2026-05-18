@@ -263,7 +263,7 @@ def _format_ticker_message(
         fs_str = ", ".join(f"{k}={v:+.2f}" for k, v in sorted(factor_scores.items()) if v is not None)
         lines.append(f"  Factor z-scores: {fs_str}")
     if regime:
-        lines.append(f"  Active regime: {regime}")
+        lines.append(f"  Active regime: {regime}  ← USE THIS REGIME. Do not substitute a different one.")
     if sector:
         lines.append(f"  Sector: {sector}")
     lines.append(
@@ -342,6 +342,7 @@ def _detect_hallucination_flags(
     today: str | None = None,
     tavily_articles: list[dict] | None = None,
     agent_searches: list[dict] | None = None,
+    regime: str | None = None,
 ) -> list[str]:
     """
     Heuristic checks for suspicious LLM output.
@@ -412,6 +413,17 @@ def _detect_hallucination_flags(
     positive_conviction = parsed.get("positive_conviction", "none")
     if not parsed.get("positive_catalyst", False) and positive_conviction not in ("none", ""):
         flags.append(f"positive_catalyst=False but positive_conviction='{positive_conviction}' — contradictory")
+
+    # Regime hallucination: reason cites a regime name that doesn't match the input regime
+    all_regimes = {"bull_calm", "bull_stress", "bear_calm", "bear_stress"}
+    if regime and regime in all_regimes:
+        wrong_regimes = all_regimes - {regime}
+        reason_lower = reason.lower()
+        cited_wrong = [r for r in wrong_regimes if r in reason_lower]
+        if cited_wrong:
+            flags.append(
+                f"Reason references regime(s) {cited_wrong} but active regime is '{regime}' — regime hallucination"
+            )
 
     return flags
 
@@ -640,6 +652,7 @@ async def vet_single_ticker(
     hallucination_flags = _detect_hallucination_flags(
         ticker, parsed, news, earnings_date, raw, today=today,
         tavily_articles=tavily_articles, agent_searches=agent_searches,
+        regime=regime,
     )
     if hallucination_flags:
         for flag in hallucination_flags:

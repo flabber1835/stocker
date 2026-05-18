@@ -450,3 +450,24 @@ def test_no_flag_for_valid_exclude_with_earnings():
     )
     no_data_flags = [f for f in flags if "no supporting data" in f.lower() or "no news/earnings" in f.lower()]
     assert no_data_flags == []
+
+
+def test_regime_hallucination_flagged():
+    """Reason mentions bear_stress when active regime is bull_calm."""
+    parsed = _parsed(reason="Given the bear_stress regime, this stock fits defensive posture.")
+    flags = _detect_hallucination_flags("XYZ", parsed, news=[], earnings_date=None, raw="{}", regime="bull_calm")
+    assert any("regime hallucination" in f for f in flags)
+
+
+def test_regime_correct_not_flagged():
+    """Reason correctly mentions bull_calm — no flag."""
+    parsed = _parsed(reason="In bull_calm the momentum factor is weighted heavily.")
+    flags = _detect_hallucination_flags("XYZ", parsed, news=[], earnings_date=None, raw="{}", regime="bull_calm")
+    assert not any("regime hallucination" in f for f in flags)
+
+
+def test_regime_none_no_flag():
+    """When regime is not passed (None), skip the check entirely."""
+    parsed = _parsed(reason="Given the bear_stress regime, some concern exists.")
+    flags = _detect_hallucination_flags("XYZ", parsed, news=[], earnings_date=None, raw="{}", regime=None)
+    assert not any("regime hallucination" in f for f in flags)
