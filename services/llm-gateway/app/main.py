@@ -117,14 +117,9 @@ async def list_providers():
             ok = await p.health_check()
         except Exception:
             ok = False
-        # Try to list models for Ollama
         models: list[str] = []
-        if hasattr(p, "_client") and name == "ollama":
-            try:
-                resp = await p._client.list()
-                models = [m.model for m in (resp.models or [])]
-            except Exception:
-                pass
+        if hasattr(p, "list_models"):
+            models = await p.list_models()
         result.append(ProviderInfo(
             name=name,
             available=ok,

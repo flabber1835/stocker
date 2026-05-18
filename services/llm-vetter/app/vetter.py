@@ -6,7 +6,7 @@ log an execution_step after every individual ticker decision:
 
   1. fetch_ticker_data()   — pre-fetch AV news + earnings + optional Tavily
                              for all candidates concurrently (fast, one round-trip)
-  2. vet_single_ticker()   — one Ollama call focused on a single ticker
+  2. vet_single_ticker()   — one gateway call focused on a single ticker
   3. (loop + trace in main.py)
 
 Per-ticker prompts are more focused than a single batch prompt: the model
@@ -16,8 +16,10 @@ call produces ~60-80 output tokens, so total generation time on CPU is
 human-supervised workflow.
 """
 
+import asyncio
 import json
 import logging
+import os
 import re
 import time
 from datetime import date
@@ -26,12 +28,14 @@ from typing import Literal
 import httpx
 
 from app.tools import fetch_av_news, fetch_av_earnings_calendar, fetch_tavily_news, search_web
-import asyncio
+
+# Timeout for gateway HTTP calls — must exceed OLLAMA_TIMEOUT_SECS in llm-gateway
+_GATEWAY_TIMEOUT = float(os.getenv("GATEWAY_TIMEOUT_SECS", "700"))
 
 # Gateway chat endpoint helper
 async def _gateway_chat(gateway_url: str, payload: dict) -> dict:
     """POST to /v1/chat and return the parsed JSON response dict."""
-    async with httpx.AsyncClient(timeout=700.0) as client:
+    async with httpx.AsyncClient(timeout=_GATEWAY_TIMEOUT) as client:
         r = await client.post(f"{gateway_url}/v1/chat", json=payload)
         r.raise_for_status()
         return r.json()

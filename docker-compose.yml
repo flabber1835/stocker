@@ -202,7 +202,8 @@ services:
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
       OLLAMA_TIMEOUT_SECS: ${OLLAMA_TIMEOUT_SECS:-600}
     depends_on:
-      - ollama
+      ollama:
+        condition: service_started  # don't block if Ollama is slow/unhealthy (e.g. no GPU)
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 10s

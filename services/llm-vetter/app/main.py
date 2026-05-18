@@ -363,108 +363,109 @@ async def _do_vet(
     # ── Step 3: vet each ticker individually ─────────────────────────────────
     exclusions: list[dict] = []
     de = strategy.delta_engine
+    candidate_map = {c["ticker"]: c for c in candidates}
 
     for i, c in enumerate(candidates):
-            ticker = c["ticker"]
-            t0 = datetime.now(timezone.utc)
+        ticker = c["ticker"]
+        t0 = datetime.now(timezone.utc)
 
-            async def _vet_fn(t: str) -> dict:
-                _c = next(x for x in candidates if x["ticker"] == t)
-                return await vet_single_ticker(
-                    t,
-                    news=av_news.get(t, []),
-                    earnings_date=earnings_calendar.get(t),
-                    tavily_articles=tavily_results.get(t, []),
-                    gateway_url=LLM_GATEWAY_URL,
-                    today=today,
-                    tavily_api_key=TAVILY_API_KEY,
-                    entry_rank=de.entry_rank,
-                    exit_rank=de.exit_rank,
-                    confirmation_days=de.confirmation_days,
-                    risk_horizon_days=vcfg.risk_horizon_days,
-                    max_searches_per_ticker=vcfg.max_searches_per_ticker,
-                    strictness=vcfg.strictness,
-                    max_search_results=_prefetch_results,
-                    system_prompt_override=_system_prompt_override,
-                    rank=_c["rank"],
-                    total_candidates=len(candidates),
-                    composite_score=_c["composite_score"],
-                    factor_scores=_c.get("factor_scores"),
-                    sector=sector_map.get(t),
-                    regime=_c.get("regime"),
-                    in_portfolio=t in held_tickers,
-                )
+        async def _vet_fn(t: str) -> dict:
+            _c = candidate_map[t]
+            return await vet_single_ticker(
+                t,
+                news=av_news.get(t, []),
+                earnings_date=earnings_calendar.get(t),
+                tavily_articles=tavily_results.get(t, []),
+                gateway_url=LLM_GATEWAY_URL,
+                today=today,
+                tavily_api_key=TAVILY_API_KEY,
+                entry_rank=de.entry_rank,
+                exit_rank=de.exit_rank,
+                confirmation_days=de.confirmation_days,
+                risk_horizon_days=vcfg.risk_horizon_days,
+                max_searches_per_ticker=vcfg.max_searches_per_ticker,
+                strictness=vcfg.strictness,
+                max_search_results=_prefetch_results,
+                system_prompt_override=_system_prompt_override,
+                rank=_c["rank"],
+                total_candidates=len(candidates),
+                composite_score=_c["composite_score"],
+                factor_scores=_c.get("factor_scores"),
+                sector=sector_map.get(t),
+                regime=_c.get("regime"),
+                in_portfolio=t in held_tickers,
+            )
 
-            result = await _vet_with_crash_isolation(
-                ticker,
-                _vet_fn,
-                fallback_fields={
-                    "had_av_news":   bool(av_news.get(ticker)),
-                    "had_earnings":  earnings_calendar.get(ticker) is not None,
-                    "had_tavily":    bool(tavily_results.get(ticker)),
-                    "latency_ms":    round((datetime.now(timezone.utc) - t0).total_seconds() * 1000),
-                    "earnings_date": earnings_calendar.get(ticker),
+        result = await _vet_with_crash_isolation(
+            ticker,
+            _vet_fn,
+            fallback_fields={
+                "had_av_news":   bool(av_news.get(ticker)),
+                "had_earnings":  earnings_calendar.get(ticker) is not None,
+                "had_tavily":    bool(tavily_results.get(ticker)),
+                "latency_ms":    round((datetime.now(timezone.utc) - t0).total_seconds() * 1000),
+                "earnings_date": earnings_calendar.get(ticker),
+            },
+        )
+        if result.get("crashed"):
+            print(f"[llm-vetter] {ticker}: CRASHED — {result['reason']}")
+
+        ticker_results.append(result)
+
+        if result.get("exclude"):
+            exclusions.append(result)
+
+        step_warnings = list(result.get("hallucination_flags", []))
+        if result.get("parse_error"):
+            step_warnings.insert(0, "Parse error — defaulted to keep")
+        if result.get("crashed"):
+            step_warnings.insert(0, f"Ticker crashed: {result['reason']}")
+
+        step_status = "error" if result.get("crashed") else "success"
+        async with engine.begin() as conn:
+            await _log_step(
+                conn, trace_id, f"vet_{ticker}", step_status,
+                started_at=t0,
+                input_summary={
+                    "ticker":        ticker,
+                    "had_av_news":   result["had_av_news"],
+                    "had_earnings":  result["had_earnings"],
+                    "had_tavily":    result["had_tavily"],
+                    "earnings_date": result.get("earnings_date"),
+                    "news_count":    len(result.get("news_titles", [])),
+                    "news_titles":   result.get("news_titles", []),
+                    "prompt":        result.get("prompt", ""),
+                    "system_prompt": result.get("system_prompt", ""),
+                    "vetter_config": result.get("vetter_config", {}),
                 },
-            )
-            if result.get("crashed"):
-                print(f"[llm-vetter] {ticker}: CRASHED — {result['reason']}")
-
-            ticker_results.append(result)
-
-            if result.get("exclude"):
-                exclusions.append(result)
-
-            step_warnings = list(result.get("hallucination_flags", []))
-            if result.get("parse_error"):
-                step_warnings.insert(0, "Parse error — defaulted to keep")
-            if result.get("crashed"):
-                step_warnings.insert(0, f"Ticker crashed: {result['reason']}")
-
-            step_status = "error" if result.get("crashed") else "success"
-            async with engine.begin() as conn:
-                await _log_step(
-                    conn, trace_id, f"vet_{ticker}", step_status,
-                    started_at=t0,
-                    input_summary={
-                        "ticker":        ticker,
-                        "had_av_news":   result["had_av_news"],
-                        "had_earnings":  result["had_earnings"],
-                        "had_tavily":    result["had_tavily"],
-                        "earnings_date": result.get("earnings_date"),
-                        "news_count":    len(result.get("news_titles", [])),
-                        "news_titles":   result.get("news_titles", []),
-                        "prompt":        result.get("prompt", ""),
-                        "system_prompt": result.get("system_prompt", ""),
-                        "vetter_config": result.get("vetter_config", {}),
-                    },
-                    output_summary={
-                        "exclude":              result["exclude"],
-                        "confidence":           result["confidence"],
-                        "risk_type":            result["risk_type"],
-                        "reason":               result["reason"],
-                        "positive_catalyst":    result.get("positive_catalyst", False),
-                        "positive_conviction":  result.get("positive_conviction", "none"),
-                        "positive_reason":      result.get("positive_reason", ""),
-                        "raw_response":         result.get("raw_response", ""),
-                        "latency_ms":           result.get("latency_ms"),
-                        "parse_error":          result.get("parse_error", False),
-                        "crashed":              result.get("crashed", False),
-                    },
-                    warnings=step_warnings if step_warnings else None,
-                    error_message=result["reason"] if result.get("crashed") else None,
-                )
-
-            print(
-                f"[llm-vetter] {ticker}: {'CRASHED' if result.get('crashed') else 'EXCLUDE' if result['exclude'] else 'keep'} "
-                f"[{result['confidence']}] {result['reason'][:80]}"
+                output_summary={
+                    "exclude":              result["exclude"],
+                    "confidence":           result["confidence"],
+                    "risk_type":            result["risk_type"],
+                    "reason":               result["reason"],
+                    "positive_catalyst":    result.get("positive_catalyst", False),
+                    "positive_conviction":  result.get("positive_conviction", "none"),
+                    "positive_reason":      result.get("positive_reason", ""),
+                    "raw_response":         result.get("raw_response", ""),
+                    "latency_ms":           result.get("latency_ms"),
+                    "parse_error":          result.get("parse_error", False),
+                    "crashed":              result.get("crashed", False),
+                },
+                warnings=step_warnings if step_warnings else None,
+                error_message=result["reason"] if result.get("crashed") else None,
             )
 
-            await _write_trace_file(
-                trace_id, run_id, "running", started_at,
-                ticker_results=ticker_results,
-                candidates_total=state.candidates_total,
-                progress={"completed": i + 1, "total": len(candidates)},
-            )
+        print(
+            f"[llm-vetter] {ticker}: {'CRASHED' if result.get('crashed') else 'EXCLUDE' if result['exclude'] else 'keep'} "
+            f"[{result['confidence']}] {result['reason'][:80]}"
+        )
+
+        await _write_trace_file(
+            trace_id, run_id, "running", started_at,
+            ticker_results=ticker_results,
+            candidates_total=state.candidates_total,
+            progress={"completed": i + 1, "total": len(candidates)},
+        )
 
     # ── Step 4: write results ────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)

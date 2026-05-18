@@ -4,12 +4,24 @@ Tests for llm-gateway provider translation logic.
 Tests mock the underlying Anthropic and Ollama clients so no API calls are made.
 """
 import json
+import os as _os
 import sys
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+# Ensure llm-gateway's 'app' package is on sys.path regardless of which other
+# service conftest.py ran last (all conftest files are loaded before test imports).
+_GW_PATH = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "..", "services", "llm-gateway"))
+_app = sys.modules.get("app")
+if _app is None or _GW_PATH not in _os.path.abspath(getattr(_app, "__file__", "") or ""):
+    for _k in list(sys.modules.keys()):
+        if _k == "app" or _k.startswith("app."):
+            del sys.modules[_k]
+    if _GW_PATH not in sys.path:
+        sys.path.insert(0, _GW_PATH)
 
 # Mock the 'anthropic' package before any imports touch it, since it may not be
 # installed in the test environment (it lives inside the Docker container only).
@@ -18,6 +30,11 @@ _mock_anthropic.AsyncAnthropic = MagicMock
 sys.modules.setdefault("anthropic", _mock_anthropic)
 
 from app.schemas import ChatRequest, ChatResponse, Message, ToolCall, ToolDef
+
+# Import provider classes at module level so they're captured before any other
+# service's test module is collected and overwrites sys.modules["app"].
+from app.providers.anthropic_provider import AnthropicProvider
+from app.providers.ollama_provider import OllamaProvider
 
 
 # ── AnthropicProvider tests ──────────────────────────────────────────────────
@@ -56,7 +73,6 @@ def _make_anthropic_tool_response(tool_id: str, tool_name: str, tool_input: dict
 
 @pytest.mark.asyncio
 async def test_anthropic_simple_response():
-    from app.providers.anthropic_provider import AnthropicProvider
 
     mock_response = _make_anthropic_text_response("This is a test response")
 
@@ -87,7 +103,6 @@ async def test_anthropic_simple_response():
 
 @pytest.mark.asyncio
 async def test_anthropic_tool_use_response():
-    from app.providers.anthropic_provider import AnthropicProvider
 
     mock_response = _make_anthropic_tool_response(
         tool_id="toolu_abc123",
@@ -125,7 +140,6 @@ async def test_anthropic_tool_use_response():
 @pytest.mark.asyncio
 async def test_anthropic_tool_result_message():
     """role='tool' messages should be converted to Anthropic user messages with tool_result blocks."""
-    from app.providers.anthropic_provider import AnthropicProvider
 
     mock_response = _make_anthropic_text_response("Done")
     captured_kwargs = {}
@@ -175,7 +189,6 @@ async def test_anthropic_tool_result_message():
 @pytest.mark.asyncio
 async def test_anthropic_system_prompt_cached():
     """System prompt should be sent as cache_control ephemeral block."""
-    from app.providers.anthropic_provider import AnthropicProvider
 
     mock_response = _make_anthropic_text_response("ok")
     captured_kwargs = {}
@@ -212,7 +225,6 @@ async def test_anthropic_system_prompt_cached():
 @pytest.mark.asyncio
 async def test_anthropic_response_schema_appended_to_system():
     """response_schema should be appended to the system prompt text."""
-    from app.providers.anthropic_provider import AnthropicProvider
 
     schema = {"type": "object", "properties": {"exclude": {"type": "boolean"}}, "required": ["exclude"]}
     mock_response = _make_anthropic_text_response('{"exclude": false}')
@@ -266,7 +278,6 @@ def _make_ollama_tool_call(name: str, arguments: dict):
 
 @pytest.mark.asyncio
 async def test_ollama_simple_response():
-    from app.providers.ollama_provider import OllamaProvider
 
     mock_resp = _make_ollama_response("AAPL looks fine", tool_calls=None, prompt_eval_count=25, eval_count=12)
 
@@ -295,7 +306,6 @@ async def test_ollama_simple_response():
 @pytest.mark.asyncio
 async def test_ollama_tool_calls_response():
     """Ollama tool calls should map to unified ToolCall with synthetic IDs."""
-    from app.providers.ollama_provider import OllamaProvider
 
     tc0 = _make_ollama_tool_call("web_search", {"query": "AAPL earnings"})
     tc1 = _make_ollama_tool_call("web_search", {"query": "AAPL SEC filing"})
@@ -317,16 +327,16 @@ async def test_ollama_tool_calls_response():
 
     assert resp.stop_reason == "tool_use"
     assert len(resp.tool_calls) == 2
-    assert resp.tool_calls[0].id == "call_0"
+    assert resp.tool_calls[0].id.startswith("call_")
+    assert len(resp.tool_calls[0].id) > 5  # UUID-based, not just "call_0"
     assert resp.tool_calls[0].name == "web_search"
     assert resp.tool_calls[0].arguments == {"query": "AAPL earnings"}
-    assert resp.tool_calls[1].id == "call_1"
+    assert resp.tool_calls[1].id != resp.tool_calls[0].id  # unique per call
 
 
 @pytest.mark.asyncio
 async def test_ollama_system_as_first_message():
     """System prompt should be injected as first message with role='system'."""
-    from app.providers.ollama_provider import OllamaProvider
 
     mock_resp = _make_ollama_response("ok", tool_calls=None)
     captured_kwargs = {}
@@ -359,7 +369,6 @@ async def test_ollama_system_as_first_message():
 @pytest.mark.asyncio
 async def test_ollama_tool_result_message():
     """role='tool' messages should become {'role': 'tool', 'content': ...} in Ollama messages."""
-    from app.providers.ollama_provider import OllamaProvider
 
     mock_resp = _make_ollama_response("ok", tool_calls=None)
     captured_kwargs = {}

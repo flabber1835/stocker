@@ -5,6 +5,19 @@ The per-ticker crash isolation logic lives in main._do_vet (the for-loop
 around vet_single_ticker).  We extract and test that pattern directly so
 the test does not need a live DB, Ollama, or FastAPI server.
 """
+import os as _os, sys as _sys
+
+# Ensure llm-vetter's 'app' package is on sys.path regardless of which other
+# service's test files ran first and cached a different 'app' module.
+_VETTER_PATH = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "..", "services", "llm-vetter"))
+_app = _sys.modules.get("app")
+if _app is None or _VETTER_PATH not in _os.path.abspath(getattr(_app, "__file__", "") or ""):
+    for _k in list(_sys.modules.keys()):
+        if _k == "app" or _k.startswith("app."):
+            del _sys.modules[_k]
+    if _VETTER_PATH not in _sys.path:
+        _sys.path.insert(0, _VETTER_PATH)
+
 import asyncio
 import pytest
 from unittest.mock import AsyncMock, patch

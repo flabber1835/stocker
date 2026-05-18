@@ -1,6 +1,19 @@
 """
 Tests for llm-gateway Pydantic schemas.
 """
+import os as _os, sys as _sys
+
+# Ensure llm-gateway's 'app' package is on sys.path regardless of which other
+# service conftest.py ran last (all conftest files are loaded before test imports).
+_GW_PATH = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "..", "services", "llm-gateway"))
+_app = _sys.modules.get("app")
+if _app is None or _GW_PATH not in _os.path.abspath(getattr(_app, "__file__", "") or ""):
+    for _k in list(_sys.modules.keys()):
+        if _k == "app" or _k.startswith("app."):
+            del _sys.modules[_k]
+    if _GW_PATH not in _sys.path:
+        _sys.path.insert(0, _GW_PATH)
+
 from app.schemas import (
     ChatRequest, ChatResponse, Message, ToolCall, ToolDef, ProviderInfo
 )

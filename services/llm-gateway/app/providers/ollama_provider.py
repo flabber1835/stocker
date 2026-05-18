@@ -4,11 +4,16 @@ Ollama provider for the LLM gateway.
 from __future__ import annotations
 
 import time
+import uuid
 
+import httpx
 import ollama
 
 from app.providers.base import BaseProvider
 from app.schemas import ChatRequest, ChatResponse, ToolCall
+
+
+_HEALTH_CACHE_TTL = 30.0  # seconds
 
 
 class OllamaProvider(BaseProvider):
@@ -17,6 +22,8 @@ class OllamaProvider(BaseProvider):
         self._model = model
         self._timeout = timeout
         self._client = ollama.AsyncClient(host=host, timeout=timeout)
+        self._health_checked_at: float = 0.0
+        self._health_cached: bool = False
 
     @property
     def name(self) -> str:
@@ -27,11 +34,24 @@ class OllamaProvider(BaseProvider):
         return self._model
 
     async def health_check(self) -> bool:
+        now = time.monotonic()
+        if now - self._health_checked_at < _HEALTH_CACHE_TTL:
+            return self._health_cached
         try:
             await self._client.list()
-            return True
+            self._health_cached = True
         except Exception:
-            return False
+            self._health_cached = False
+        self._health_checked_at = time.monotonic()
+        return self._health_cached
+
+    async def list_models(self) -> list[str]:
+        """Return available model names from Ollama."""
+        try:
+            resp = await self._client.list()
+            return [m.model for m in (resp.models or [])]
+        except Exception:
+            return []
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         model = request.model or self._model
@@ -87,7 +107,14 @@ class OllamaProvider(BaseProvider):
         if request.response_schema is not None:
             kwargs["format"] = request.response_schema
 
-        resp = await self._client.chat(**kwargs)
+        try:
+            resp = await self._client.chat(**kwargs)
+        except ollama.ResponseError as exc:
+            # Re-raise 5xx responses as httpx.ConnectError so the gateway
+            # retry loop treats them as transient and retries automatically.
+            if getattr(exc, "status_code", 0) in (502, 503, 504):
+                raise httpx.ConnectError(str(exc)) from exc
+            raise
 
         latency_ms = round((time.monotonic() - t0) * 1000)
 
@@ -95,12 +122,12 @@ class OllamaProvider(BaseProvider):
         tool_calls: list[ToolCall] = []
 
         if resp.message.tool_calls:
-            for i, tc in enumerate(resp.message.tool_calls):
+            for tc in resp.message.tool_calls:
                 args = tc.function.arguments
                 if not isinstance(args, dict):
                     args = {}
                 tool_calls.append(ToolCall(
-                    id=f"call_{i}",
+                    id=f"call_{uuid.uuid4().hex[:8]}",
                     name=tc.function.name,
                     arguments=args,
                 ))

@@ -13,10 +13,15 @@ from app.providers.base import BaseProvider
 from app.schemas import ChatRequest, ChatResponse, ToolCall
 
 
+_HEALTH_CACHE_TTL = 30.0  # seconds
+
+
 class AnthropicProvider(BaseProvider):
     def __init__(self, api_key: str, model: str) -> None:
         self._client = anthropic.AsyncAnthropic(api_key=api_key)
         self._model = model
+        self._health_checked_at: float = 0.0
+        self._health_cached: bool = False
 
     @property
     def name(self) -> str:
@@ -27,17 +32,26 @@ class AnthropicProvider(BaseProvider):
         return self._model
 
     async def health_check(self) -> bool:
+        # Cache result for 30s to avoid billing on every /health poll.
+        now = time.monotonic()
+        if now - self._health_checked_at < _HEALTH_CACHE_TTL:
+            return self._health_cached
         try:
             await self._client.models.list()
-            return True
+            self._health_cached = True
         except Exception:
-            return False
+            self._health_cached = False
+        self._health_checked_at = time.monotonic()
+        return self._health_cached
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         model = request.model or self._model
         t0 = time.monotonic()
 
-        # Build system prompt with optional schema appended
+        # Build system prompt with optional schema appended.
+        # NOTE: Unlike Ollama's format= param (grammar-constrained), this is
+        # advisory — Anthropic may still produce non-JSON. The caller must
+        # handle json.JSONDecodeError with a safe fallback.
         system_text = request.system or ""
         if request.response_schema is not None:
             schema_suffix = f"\n\nRespond ONLY with valid JSON matching this schema: {json.dumps(request.response_schema)}"
