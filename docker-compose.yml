@@ -39,6 +39,7 @@ services:
     build:
       context: .
       dockerfile: services/api/Dockerfile
+      network: host
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -61,6 +62,7 @@ services:
     build:
       context: .
       dockerfile: services/av-ingestor/Dockerfile
+      network: host
     restart: unless-stopped
     ports:
       - "8001:8000"
@@ -90,6 +92,7 @@ services:
     build:
       context: .
       dockerfile: services/factor-engine/Dockerfile
+      network: host
     restart: unless-stopped
     ports:
       - "8002:8000"
@@ -116,6 +119,7 @@ services:
     build:
       context: .
       dockerfile: services/ranker/Dockerfile
+      network: host
     restart: unless-stopped
     ports:
       - "8003:8000"
@@ -141,6 +145,7 @@ services:
     build:
       context: .
       dockerfile: services/dashboard/Dockerfile
+      network: host
     restart: unless-stopped
     ports:
       - "8004:8000"
@@ -168,6 +173,7 @@ services:
     build:
       context: .
       dockerfile: services/strategy-validator/Dockerfile
+      network: host
     restart: unless-stopped
     ports:
       - "8005:8000"
@@ -181,6 +187,7 @@ services:
     build:
       context: .
       dockerfile: services/stub/Dockerfile
+      network: host
     restart: unless-stopped
     ports:
       - "8006:8000"
@@ -191,6 +198,7 @@ services:
     build:
       context: .
       dockerfile: services/llm-gateway/Dockerfile
+      network: host
     restart: unless-stopped
     ports:
       - "8007:8000"
@@ -211,6 +219,7 @@ services:
     build:
       context: .
       dockerfile: services/portfolio-builder/Dockerfile
+      network: host
     restart: unless-stopped
     ports:
       - "8008:8000"
@@ -265,6 +274,7 @@ services:
     build:
       context: .
       dockerfile: services/llm-vetter/Dockerfile
+      network: host
     restart: unless-stopped
     ports:
       - "8016:8000"
@@ -293,6 +303,7 @@ services:
     build:
       context: .
       dockerfile: services/stub/Dockerfile
+      network: host
     restart: unless-stopped
     ports:
       - "8009:8000"
@@ -303,6 +314,7 @@ services:
     build:
       context: .
       dockerfile: services/stub/Dockerfile
+      network: host
     restart: unless-stopped
     ports:
       - "8010:8000"
@@ -313,6 +325,7 @@ services:
     build:
       context: .
       dockerfile: services/stub/Dockerfile
+      network: host
     restart: unless-stopped
     ports:
       - "8011:8000"
@@ -323,6 +336,7 @@ services:
     build:
       context: .
       dockerfile: services/stub/Dockerfile
+      network: host
     restart: unless-stopped
     ports:
       - "8012:8000"
@@ -333,6 +347,7 @@ services:
     build:
       context: .
       dockerfile: services/backtester/Dockerfile
+      network: host
     restart: unless-stopped
     ports:
       - "8013:8000"
@@ -356,6 +371,7 @@ services:
     build:
       context: .
       dockerfile: services/stub/Dockerfile
+      network: host
     restart: unless-stopped
     ports:
       - "8014:8000"
@@ -366,6 +382,7 @@ services:
     build:
       context: .
       dockerfile: services/delta-engine/Dockerfile
+      network: host
     restart: unless-stopped
     ports:
       - "8017:8000"
@@ -389,6 +406,7 @@ services:
     build:
       context: .
       dockerfile: services/scheduler/Dockerfile
+      network: host
     restart: unless-stopped
     ports:
       - "8015:8000"
