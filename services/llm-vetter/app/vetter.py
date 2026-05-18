@@ -37,7 +37,17 @@ async def _gateway_chat(gateway_url: str, payload: dict) -> dict:
     """POST to /v1/chat and return the parsed JSON response dict."""
     async with httpx.AsyncClient(timeout=_GATEWAY_TIMEOUT) as client:
         r = await client.post(f"{gateway_url}/v1/chat", json=payload)
-        r.raise_for_status()
+        if not r.is_success:
+            # Include the response body so the actual provider error is visible in logs.
+            try:
+                detail = r.json().get("detail", r.text[:300])
+            except Exception:
+                detail = r.text[:300]
+            raise httpx.HTTPStatusError(
+                f"Gateway {r.status_code}: {detail}",
+                request=r.request,
+                response=r,
+            )
         return r.json()
 
 log = logging.getLogger("llm-vetter.vetter")
