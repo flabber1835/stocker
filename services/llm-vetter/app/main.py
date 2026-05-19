@@ -17,7 +17,7 @@ from app.vetter import fetch_ticker_data, vet_single_ticker
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 from stock_strategy_shared.tracing import fmt_row, log_step, write_trace_file, mark_orphaned_runs_failed
-from stock_strategy_shared.db import wait_for_db, create_db_engine
+from stock_strategy_shared.db import wait_for_db
 
 _fmt_row = fmt_row
 
@@ -53,7 +53,7 @@ async def _assert_no_running_job() -> None:
 async def lifespan(app: FastAPI):
     global engine, strategy, config_hash, _system_prompt_override
     strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
-    engine = create_db_engine(DATABASE_URL, pool_size=3, max_overflow=5)
+    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5)
     await wait_for_db(engine)
 
     if strategy.vetter.system_prompt_file:

@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from .alpha_vantage import AVClient
 from .universe import download_av_universe, get_benchmark_tickers, save_universe_snapshot
-from stock_strategy_shared.db import wait_for_db, create_db_engine
+from stock_strategy_shared.db import wait_for_db
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 if not DATABASE_URL:
@@ -36,7 +36,7 @@ _TICKER_RE = re.compile(r"^[A-Z]{1,5}([.\-][A-Z0-9]{1,4})?$")
 # Polled by /runs/latest so the dashboard can show real progress.
 _fetch_data_progress: dict = {}  # {run_id, tickers_done, total_tickers}
 
-engine = create_db_engine(DATABASE_URL, pool_size=10, max_overflow=20)
+engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 BENCHMARK_TICKERS = ("SPY", "QQQ", "IWM", "SOXX")

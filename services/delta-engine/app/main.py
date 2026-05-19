@@ -15,7 +15,7 @@ from app.engine import evaluate_all, RankObservation
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 from stock_strategy_shared.tracing import fmt_row, log_step, write_trace_file, mark_orphaned_runs_failed
-from stock_strategy_shared.db import wait_for_db, create_db_engine
+from stock_strategy_shared.db import wait_for_db
 
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL environment variable is required")
     strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
-    engine = create_db_engine(DATABASE_URL, pool_size=3, max_overflow=5)
+    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5)
     await wait_for_db(engine)
     async with engine.begin() as conn:
         await mark_orphaned_runs_failed(conn, "delta_runs", trace_job_type="delta_run")

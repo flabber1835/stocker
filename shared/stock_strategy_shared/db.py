@@ -7,26 +7,7 @@ import logging
 log = logging.getLogger(__name__)
 
 
-def create_db_engine(database_url: str, pool_size: int = 5, max_overflow: int = 10):
-    """
-    Create an async SQLAlchemy engine with ssl disabled.
-
-    asyncpg defaults to trying SSL first. On some Docker/NAS network stacks
-    the SSL probe hangs rather than being quickly refused, causing TimeoutError
-    on every connection attempt. Disabling SSL avoids this entirely — the
-    postgres container doesn't use SSL anyway.
-    """
-    from sqlalchemy.ext.asyncio import create_async_engine
-    return create_async_engine(
-        database_url,
-        pool_pre_ping=True,
-        pool_size=pool_size,
-        max_overflow=max_overflow,
-        connect_args={"ssl": False},
-    )
-
-
-async def wait_for_db(engine, retries: int = 20, delay: float = 3.0) -> None:
+async def wait_for_db(engine, retries: int = 10, delay: float = 3.0) -> None:
     """
     Retry a lightweight DB ping until Postgres is ready to accept connections.
 
