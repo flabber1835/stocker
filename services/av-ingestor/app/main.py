@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from .alpha_vantage import AVClient
 from .universe import download_av_universe, get_benchmark_tickers, save_universe_snapshot
+from stock_strategy_shared.db import wait_for_db
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 if not DATABASE_URL:
@@ -131,6 +132,7 @@ async def _upsert_fundamentals(session, ticker: str, overview: dict, today: date
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await wait_for_db(engine)
     async with engine.begin() as conn:
         await conn.execute(
             text(
