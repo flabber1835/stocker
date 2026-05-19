@@ -722,18 +722,28 @@ async def start_calculate(background_tasks: BackgroundTasks, force: bool = False
         async with engine.connect() as conn:
             await _assert_no_running_job(conn)
             if not force:
-                today = date.today()
-                # Guard checks score_date = today (the wall-clock date), not the SPY max date.
-                # If the factor engine runs before today's prices are loaded, score_date will be
-                # yesterday — the guard allows that run, and allows a second run after prices are
-                # refreshed (score_date becomes today). This is correct: two runs on the same
-                # calendar day with different score_dates are genuinely distinct calculation results.
-                row = await conn.execute(
-                    text("SELECT run_id FROM factor_runs WHERE status='success' AND score_date=:d LIMIT 1"),
-                    {"d": today},
+                # Guard against duplicate runs: check the actual SPY max price date
+                # (which determines what score_date this run would produce).
+                # Comparing against wall-clock today is wrong when prices lag by one
+                # day (e.g. any run before market close on a trading day).
+                spy_row = await conn.execute(
+                    text("SELECT MAX(date) FROM prices WHERE ticker = 'SPY'")
                 )
-                if row.fetchone() is not None:
-                    return {"status": "already_ran_today", "job": "calculate", "date": str(today)}
+                spy_max = spy_row.scalar()
+                if spy_max is not None:
+                    existing = await conn.execute(
+                        text(
+                            "SELECT run_id FROM factor_runs "
+                            "WHERE status='success' AND score_date=:d LIMIT 1"
+                        ),
+                        {"d": spy_max},
+                    )
+                    if existing.fetchone() is not None:
+                        return {
+                            "status": "already_ran_today",
+                            "job": "calculate",
+                            "date": str(spy_max),
+                        }
         run_id = str(uuid.uuid4())
         trace_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc)

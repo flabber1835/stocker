@@ -230,6 +230,11 @@ async def _run_step(
         print(f"[scheduler] {step_name}: already running — waiting for completion")
     elif r.status_code in (200, 201, 202):
         resp = r.json()
+        # Service says it already completed an equivalent run (e.g. factor engine
+        # blocked because SPY price data hasn't advanced since the last run).
+        if resp.get("status") == "already_ran_today":
+            print(f"[scheduler] {step_name}: already ran (date={resp.get('date', '?')}) — skipping")
+            return True
         run_id = resp.get("run_id", "?")
         # Log any extra fields from the response for auditing (e.g. source_ranking_run_id, model)
         audit_fields = {

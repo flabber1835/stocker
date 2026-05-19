@@ -482,12 +482,32 @@ async def start_rank_job(background_tasks: BackgroundTasks, factor_run_id: str |
 
         if not force:
             async with engine.begin() as conn:
-                row = await conn.execute(
-                    text("SELECT run_id FROM ranking_runs WHERE status='success' AND rank_date=:d LIMIT 1"),
-                    {"d": date.today()},
+                # Guard against duplicate runs: derive the rank_date from the latest
+                # successful factor run (same logic used below). Comparing against
+                # wall-clock today breaks when prices lag (e.g. before market close).
+                latest_factor = await conn.execute(
+                    text(
+                        "SELECT score_date FROM factor_runs "
+                        "WHERE status='success' AND ticker_count > 0 "
+                        "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+                    )
                 )
-                if row.fetchone() is not None:
-                    return {"status": "already_ran_today", "job": "rank", "date": str(date.today())}
+                factor_row = latest_factor.fetchone()
+                if factor_row is not None:
+                    guard_date = factor_row.score_date
+                    existing = await conn.execute(
+                        text(
+                            "SELECT run_id FROM ranking_runs "
+                            "WHERE status='success' AND rank_date=:d LIMIT 1"
+                        ),
+                        {"d": guard_date},
+                    )
+                    if existing.fetchone() is not None:
+                        return {
+                            "status": "already_ran_today",
+                            "job": "rank",
+                            "date": str(guard_date),
+                        }
 
         ranking_run_id = str(uuid.uuid4())
 
