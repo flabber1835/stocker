@@ -5,13 +5,13 @@ import traceback
 import uuid
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
-from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
 
 from stock_strategy_shared.tracing import fmt_row
+from stock_strategy_shared.db import create_db_engine
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=7) if DATABASE_URL else None
+engine = create_db_engine(DATABASE_URL, pool_size=3, max_overflow=7) if DATABASE_URL else None
 
 
 @asynccontextmanager
