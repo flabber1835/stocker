@@ -28,7 +28,7 @@ async def wait_for_db(engine, retries: int = 10, delay: float = 3.0) -> None:
                     f"Database not ready after {retries} attempts: {exc}"
                 ) from exc
             log.warning(
-                "DB not ready (attempt %d/%d): %s — retrying in %.0fs",
+                "DB not ready (attempt %d/%d): %r — retrying in %.0fs",
                 attempt, retries, exc, delay,
             )
             await asyncio.sleep(delay)
