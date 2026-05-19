@@ -7,7 +7,7 @@ import logging
 log = logging.getLogger(__name__)
 
 
-async def wait_for_db(engine, retries: int = 10, delay: float = 3.0) -> None:
+async def wait_for_db(engine, retries: int = 20, delay: float = 3.0) -> None:
     """
     Retry a lightweight DB ping until Postgres is ready to accept connections.
 
