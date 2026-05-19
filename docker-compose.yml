@@ -78,7 +78,7 @@ services:
       PYTHONUNBUFFERED: "1"
       ARTIFACTS_PATH: /artifacts
     volumes:
-      - artifacts_data:/artifacts
+      - ./artifacts:/artifacts
     depends_on:
       postgres:
         condition: service_healthy
@@ -108,7 +108,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ./strategies:/strategies:ro
-      - artifacts_data:/artifacts
+      - ./artifacts:/artifacts
     depends_on:
       postgres:
         condition: service_healthy
@@ -135,7 +135,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ./strategies:/strategies:ro
-      - artifacts_data:/artifacts
+      - ./artifacts:/artifacts
     depends_on:
       postgres:
         condition: service_healthy
@@ -238,7 +238,7 @@ services:
       STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
       ARTIFACTS_PATH: /artifacts
     volumes:
-      - artifacts_data:/artifacts
+      - ./artifacts:/artifacts
       - ./strategies:/strategies:ro
     depends_on:
       postgres:
@@ -295,7 +295,7 @@ services:
       STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
       ARTIFACTS_PATH: /artifacts
     volumes:
-      - artifacts_data:/artifacts
+      - ./artifacts:/artifacts
       - ./strategies:/strategies:ro
     depends_on:
       postgres:
@@ -366,7 +366,7 @@ services:
       STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
       ARTIFACTS_PATH: /artifacts
     volumes:
-      - artifacts_data:/artifacts
+      - ./artifacts:/artifacts
       - ./strategies:/strategies:ro
     depends_on:
       postgres:
@@ -402,7 +402,7 @@ services:
       STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
       ARTIFACTS_PATH: /artifacts
     volumes:
-      - artifacts_data:/artifacts
+      - ./artifacts:/artifacts
       - ./strategies:/strategies:ro
     depends_on:
       postgres:
@@ -455,4 +455,3 @@ volumes:
   postgres_data:
   redis_data:
   ollama_models:
-  artifacts_data:
