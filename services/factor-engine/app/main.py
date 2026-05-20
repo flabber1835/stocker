@@ -727,7 +727,7 @@ async def start_calculate(background_tasks: BackgroundTasks, force: bool = False
                 # Comparing against wall-clock today is wrong when prices lag by one
                 # day (e.g. any run before market close on a trading day).
                 spy_row = await conn.execute(
-                    text("SELECT MAX(date) FROM prices WHERE ticker = 'SPY'")
+                    text("SELECT MAX(date) FROM daily_prices WHERE ticker = 'SPY'")
                 )
                 spy_max = spy_row.scalar()
                 if spy_max is not None:
