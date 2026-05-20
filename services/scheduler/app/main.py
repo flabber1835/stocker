@@ -2,7 +2,7 @@ import asyncio
 import math
 import os
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -209,6 +209,8 @@ async def _run_step(
     job_type_filter: Optional[str] = None,
     params: Optional[dict] = None,
     extra_ok_statuses: tuple = (),
+    stall_minutes: Optional[int] = None,
+    also_accept_date: Optional[str] = None,
 ) -> bool:
     """
     Trigger one step of the daily chain and wait for today's run to complete.
@@ -249,8 +251,10 @@ async def _run_step(
 
     # Poll /runs/latest until today's run succeeds or fails.
     # Stall detection: if a run stays in 'running' status for more than
-    # stall_minutes without the service restarting it, treat it as hung.
-    stall_minutes = min(30, max_minutes)
+    # effective_stall_minutes without the service restarting it, treat it as hung.
+    # Callers can pass stall_minutes=max_minutes to disable early stall detection
+    # for long-running jobs (e.g. cold-start fetch-data).
+    effective_stall = stall_minutes if stall_minutes is not None else min(30, max_minutes)
     last_seen_run_id: str | None = None
     last_progress_tick: int = 0
 
@@ -265,10 +269,13 @@ async def _run_step(
                 continue
             run_date = (data.get(date_field) or "")[:10]
             run_status = data.get("status")
-            if run_date == today and run_status in ("success",) + extra_ok_statuses:
+            ok_dates = {today}
+            if also_accept_date:
+                ok_dates.add(also_accept_date)
+            if run_date in ok_dates and run_status in ("success",) + extra_ok_statuses:
                 print(f"[scheduler] {step_name}: complete (run_id={data.get('run_id', '?')})")
                 return True
-            if run_date == today and run_status == "failed":
+            if run_date in ok_dates and run_status == "failed":
                 err = (data.get("error_message") or "")[:200]
                 print(f"[scheduler] {step_name}: failed — run_id={data.get('run_id', '?')} error={err!r}")
                 return False
@@ -281,8 +288,8 @@ async def _run_step(
             pass
 
         elapsed_ticks = tick - last_progress_tick
-        if elapsed_ticks * 2 >= stall_minutes * 60:
-            print(f"[scheduler] {step_name}: stalled — no progress for {stall_minutes} min, aborting")
+        if elapsed_ticks * 2 >= effective_stall * 60:
+            print(f"[scheduler] {step_name}: stalled — no progress for {effective_stall} min, aborting")
             return False
 
         if tick % 150 == 149:  # log every 5 minutes
@@ -307,6 +314,10 @@ async def _run_daily_chain():
     async with _chain_lock:
         today = date.today().isoformat()
         trading_today = last_trading_day(date.today()).isoformat()
+        # Prices lag market close: on a trading day before 4 PM ET, score_date
+        # will be the previous trading day, not today. Accept either date so the
+        # scheduler recognises a completed run regardless of when it polled.
+        prev_trading_day = last_trading_day(date.today() - timedelta(days=1)).isoformat()
         started_at = datetime.now(timezone.utc)
         steps: dict[str, str] = {}
         run_ids: dict[str, str] = {}   # step_name → service run_id for cross-referencing logs
@@ -324,6 +335,8 @@ async def _run_daily_chain():
             # Use started_at (not completed_at) so a run that crosses UTC midnight is still
             # recognised as "today's run" when completed_at falls on the next calendar day.
             # Accept partial_success so a run where most tickers succeeded doesn't re-trigger.
+            # stall_minutes=max_minutes disables early stall detection: a cold-start full
+            # historical fetch legitimately runs for 4+ hours with no status change.
             ok = await _run_step(
                 client, AV_INGESTOR_URL, "/jobs/fetch-data",
                 date_field="started_at",
@@ -332,6 +345,7 @@ async def _run_daily_chain():
                 max_minutes=240,
                 job_type_filter="fetch-data",
                 extra_ok_statuses=("partial_success",),
+                stall_minutes=240,
             )
             steps["fetch_data"] = "success" if ok else "failed"
             if ok:
@@ -343,13 +357,16 @@ async def _run_daily_chain():
 
             # Step 2 — factor calculation
             # score_date = last SPY trading date in DB, not wall-clock today.
-            # On weekends/holidays these differ, so compare against trading_today.
+            # Before market close score_date = prev_trading_day; after close it
+            # equals trading_today. Accept both so the chain isn't date-sensitive
+            # to exactly when it runs relative to market close.
             ok = await _run_step(
                 client, FACTOR_ENGINE_URL, "/jobs/calculate",
                 date_field="score_date",
                 today=trading_today,
                 step_name="factor-calculate",
                 max_minutes=30,
+                also_accept_date=prev_trading_day,
             )
             steps["factor_calculate"] = "success" if ok else "failed"
             if ok:
@@ -367,6 +384,7 @@ async def _run_daily_chain():
                 today=trading_today,
                 step_name="rank",
                 max_minutes=10,
+                also_accept_date=prev_trading_day,
             )
             steps["rank"] = "success" if ok else "failed"
             if ok:
