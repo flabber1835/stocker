@@ -169,6 +169,7 @@ async def _already_ran_today(
     today: str,
     job_type_filter: Optional[str] = None,
     extra_ok_statuses: tuple = (),
+    also_accept_date: Optional[str] = None,
 ) -> bool:
     """Return True if the service has a successful run for today."""
     try:
@@ -182,7 +183,10 @@ async def _already_ran_today(
         if job_type_filter and data.get("job_type") != job_type_filter:
             return False
         run_date = (data.get(date_field) or "")[:10]
-        return run_date == today
+        ok_dates = {today}
+        if also_accept_date:
+            ok_dates.add(also_accept_date)
+        return run_date in ok_dates
     except Exception:
         return False
 
@@ -217,7 +221,7 @@ async def _run_step(
     Skips gracefully if already done today. Returns True on success.
     params are forwarded as query parameters on the POST request.
     """
-    if await _already_ran_today(client, service_url, date_field, today, job_type_filter, extra_ok_statuses):
+    if await _already_ran_today(client, service_url, date_field, today, job_type_filter, extra_ok_statuses, also_accept_date):
         print(f"[scheduler] {step_name}: already ran today — skipping")
         return True
 
