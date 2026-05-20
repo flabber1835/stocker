@@ -38,6 +38,19 @@ _chain_status: dict = {
     "next_run": None,
 }
 
+# Ring buffer of startup and chain events for /debug/log — survives until next restart.
+_MAX_LOG = 500
+_event_log: list[dict] = []
+
+
+def _log(msg: str, **extra) -> None:
+    """Append a timestamped entry to the in-process event log and print to stdout."""
+    entry = {"ts": datetime.now(timezone.utc).isoformat(), "msg": msg, **extra}
+    _event_log.append(entry)
+    if len(_event_log) > _MAX_LOG:
+        _event_log.pop(0)
+    print(f"[scheduler] {msg}", flush=True)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -54,7 +67,7 @@ async def lifespan(app: FastAPI):
     )
     _scheduler.start()
     _refresh_next_run()
-    print(f"[scheduler] started — cron={RANK_SCHEDULE_CRON!r}, next_run={_chain_status['next_run']}")
+    _log(f"started — cron={RANK_SCHEDULE_CRON!r}, next_run={_chain_status['next_run']}")
     # Catch-up: if the system was offline long enough to miss trading days, trigger
     # an immediate chain run rather than waiting until the next scheduled window.
     asyncio.create_task(_startup_catch_up())
@@ -82,6 +95,12 @@ async def health():
 async def status():
     _refresh_next_run()
     return {**_chain_status, "cron": RANK_SCHEDULE_CRON}
+
+
+@app.get("/debug/log")
+async def debug_log():
+    """Return the in-process event log for forensic inspection. Survives until next restart."""
+    return {"count": len(_event_log), "events": _event_log}
 
 
 @app.post("/jobs/run-now")
@@ -125,10 +144,13 @@ async def _startup_catch_up():
     only if ranking data is stale.
     """
     await asyncio.sleep(10)  # give other services time to start
+    _log("catch-up: woke up after startup delay")
     async with httpx.AsyncClient() as client:
         # Cold-start guard: if no universe exists, fetch it before anything else.
-        if not await _has_universe(client):
-            print("[scheduler] no universe found — triggering fetch-universe before daily chain")
+        has_universe = await _has_universe(client)
+        _log(f"catch-up: universe check → has_universe={has_universe}")
+        if not has_universe:
+            _log("catch-up: no universe — triggering fetch-universe before daily chain")
             try:
                 ok = await _run_step(
                     client, AV_INGESTOR_URL, "/jobs/fetch-universe",
@@ -139,25 +161,24 @@ async def _startup_catch_up():
                     job_type_filter="fetch-universe",
                 )
                 if not ok:
-                    print("[scheduler] fetch-universe failed on cold start — aborting catch-up")
+                    _log("catch-up: fetch-universe FAILED — aborting catch-up")
                     return
             except Exception as e:
-                print(f"[scheduler] fetch-universe failed on cold start: {e}")
+                _log(f"catch-up: fetch-universe raised exception — aborting catch-up", error=str(e))
                 return
 
         last_date = await _get_last_rank_date(client)
         today = date.today()
-        if is_stale(last_date, today):
-            print(
-                f"[scheduler] stale data detected on startup "
-                f"(last rank: {last_date}, today: {today}) — triggering catch-up run"
-            )
+        stale = is_stale(last_date, today)
+        _log(f"catch-up: staleness check", last_rank=str(last_date), today=str(today), stale=stale)
+        if stale:
+            _log("catch-up: data is stale — triggering catch-up chain")
             try:
                 await _run_daily_chain()
             except Exception as e:
-                print(f"[scheduler] catch-up chain failed: {e}")
+                _log("catch-up: chain raised exception", error=str(e))
         else:
-            print(f"[scheduler] data is current (last rank: {last_date}) — no catch-up needed")
+            _log("catch-up: data is current — no catch-up needed")
 
 
 # ── Core chain logic ──────────────────────────────────────────────────────────
@@ -175,19 +196,30 @@ async def _already_ran_today(
     try:
         r = await client.get(f"{service_url}/runs/latest", timeout=10.0)
         if r.status_code != 200:
+            _log(f"_already_ran_today: {service_url} returned HTTP {r.status_code} → False")
             return False
         data = r.json()
         ok_statuses = ("success",) + extra_ok_statuses
-        if data.get("status") not in ok_statuses:
-            return False
-        if job_type_filter and data.get("job_type") != job_type_filter:
-            return False
+        run_status = data.get("status")
         run_date = (data.get(date_field) or "")[:10]
+        run_job = data.get("job_type", "?")
         ok_dates = {today}
         if also_accept_date:
             ok_dates.add(also_accept_date)
-        return run_date in ok_dates
-    except Exception:
+        if run_status not in ok_statuses:
+            _log(f"_already_ran_today: {service_url} status={run_status!r} not in {ok_statuses} → False",
+                 run_date=run_date, job_type=run_job)
+            return False
+        if job_type_filter and data.get("job_type") != job_type_filter:
+            _log(f"_already_ran_today: {service_url} job_type={run_job!r} != {job_type_filter!r} → False",
+                 run_date=run_date)
+            return False
+        result = run_date in ok_dates
+        _log(f"_already_ran_today: {service_url} run_date={run_date!r} ok_dates={ok_dates} → {result}",
+             run_status=run_status, job_type=run_job)
+        return result
+    except Exception as exc:
+        _log(f"_already_ran_today: {service_url} raised exception → False", error=str(exc))
         return False
 
 
@@ -222,35 +254,34 @@ async def _run_step(
     params are forwarded as query parameters on the POST request.
     """
     if await _already_ran_today(client, service_url, date_field, today, job_type_filter, extra_ok_statuses, also_accept_date):
-        print(f"[scheduler] {step_name}: already ran today — skipping")
+        _log(f"{step_name}: already ran today — skipping")
         return True
 
-    print(f"[scheduler] {step_name}: starting")
+    _log(f"{step_name}: starting POST to {service_url}{start_path}",
+         today=today, also_accept_date=also_accept_date,
+         max_minutes=max_minutes, effective_stall=stall_minutes if stall_minutes is not None else min(30, max_minutes))
     try:
         r = await client.post(f"{service_url}{start_path}", timeout=15.0, params=params)
     except Exception as exc:
-        print(f"[scheduler] {step_name}: failed to reach service — {exc}")
+        _log(f"{step_name}: failed to reach service", error=str(exc))
         return False
 
     if r.status_code == 409:
-        print(f"[scheduler] {step_name}: already running — waiting for completion")
+        _log(f"{step_name}: already running (HTTP 409) — waiting for completion")
     elif r.status_code in (200, 201, 202):
         resp = r.json()
         # Service says it already completed an equivalent run (e.g. factor engine
         # blocked because SPY price data hasn't advanced since the last run).
         if resp.get("status") == "already_ran_today":
-            print(f"[scheduler] {step_name}: already ran (date={resp.get('date', '?')}) — skipping")
+            _log(f"{step_name}: already ran (date={resp.get('date', '?')}) — skipping")
             return True
-        run_id = resp.get("run_id", "?")
-        # Log any extra fields from the response for auditing (e.g. source_ranking_run_id, model)
         audit_fields = {
             k: v for k, v in resp.items()
             if k not in ("status", "job") and v not in (None, "?", "")
         }
-        audit_str = ", ".join(f"{k}={v}" for k, v in audit_fields.items())
-        print(f"[scheduler] {step_name}: started — {audit_str}")
+        _log(f"{step_name}: accepted by service (HTTP {r.status_code})", **audit_fields)
     else:
-        print(f"[scheduler] {step_name}: unexpected status {r.status_code} — {r.text[:200]}")
+        _log(f"{step_name}: unexpected HTTP {r.status_code}", body=r.text[:200])
         return False
 
     # Poll /runs/latest until today's run succeeds or fails.
@@ -277,11 +308,11 @@ async def _run_step(
             if also_accept_date:
                 ok_dates.add(also_accept_date)
             if run_date in ok_dates and run_status in ("success",) + extra_ok_statuses:
-                print(f"[scheduler] {step_name}: complete (run_id={data.get('run_id', '?')})")
+                _log(f"{step_name}: complete", run_id=data.get("run_id", "?"), run_date=run_date)
                 return True
             if run_date in ok_dates and run_status == "failed":
                 err = (data.get("error_message") or "")[:200]
-                print(f"[scheduler] {step_name}: failed — run_id={data.get('run_id', '?')} error={err!r}")
+                _log(f"{step_name}: FAILED", run_id=data.get("run_id", "?"), run_date=run_date, error=err)
                 return False
             # Reset stall timer whenever we see a new run_id or a non-running status
             current_run_id = data.get("run_id")
@@ -293,26 +324,29 @@ async def _run_step(
 
         elapsed_ticks = tick - last_progress_tick
         if elapsed_ticks * 2 >= effective_stall * 60:
-            print(f"[scheduler] {step_name}: stalled — no progress for {effective_stall} min, aborting")
+            _log(f"{step_name}: STALLED — no progress for {effective_stall} min",
+                 last_seen_run_id=last_seen_run_id, today=today, also_accept_date=also_accept_date)
             return False
 
         if tick % 150 == 149:  # log every 5 minutes
             elapsed = (tick + 1) * 2 // 60
-            print(f"[scheduler] {step_name}: still waiting ({elapsed} min elapsed)")
+            _log(f"{step_name}: still waiting", elapsed_min=elapsed, last_seen_run_id=last_seen_run_id)
 
-    print(f"[scheduler] {step_name}: timed out after {max_minutes} minutes")
+    _log(f"{step_name}: TIMED OUT after {max_minutes} minutes")
     return False
 
 
 def _fail_chain() -> None:
     _chain_status["status"] = "failed"
     _chain_status["last_run"]["completed_at"] = datetime.now(timezone.utc).isoformat()
+    steps = (_chain_status.get("last_run") or {}).get("steps", {})
+    _log("daily chain FAILED", steps=steps)
 
 
 async def _run_daily_chain():
     global _chain_status
     if _chain_lock.locked():
-        print("[scheduler] daily chain already running — skipping duplicate trigger")
+        _log("daily chain already running — skipping duplicate trigger")
         return
 
     async with _chain_lock:
@@ -332,7 +366,7 @@ async def _run_daily_chain():
             "steps": steps,
             "run_ids": run_ids,
         }})
-        print(f"[scheduler] daily chain started for {today}")
+        _log(f"daily chain started", today=today, trading_today=trading_today, prev_trading_day=prev_trading_day)
 
         async with httpx.AsyncClient() as client:
             # Step 1 — fetch-data (incremental prices + fundamentals for all tickers)
@@ -414,10 +448,7 @@ async def _run_daily_chain():
                 if vetter_run_id:
                     run_ids["vet"] = vetter_run_id
             else:
-                print(
-                    "[scheduler] vet: step failed — delta engine will proceed "
-                    "(vetter is informational only)"
-                )
+                _log("vet: step failed — delta engine will proceed (vetter is informational only)")
 
             # Step 5 — delta engine (buffer-zone entry/exit evaluation)
             ok = await _run_step(
@@ -439,7 +470,5 @@ async def _run_daily_chain():
         _chain_status["last_run"]["completed_at"] = datetime.now(timezone.utc).isoformat()
         _refresh_next_run()
         elapsed = (datetime.now(timezone.utc) - started_at).total_seconds() / 60
-        print(
-            f"[scheduler] daily chain complete for {today} ({elapsed:.1f} min) — "
-            f"steps={steps} run_ids={run_ids}"
-        )
+        _log(f"daily chain COMPLETE", today=today, elapsed_min=round(elapsed, 1),
+             steps=steps, run_ids=run_ids)
