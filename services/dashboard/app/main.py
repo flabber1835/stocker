@@ -355,7 +355,12 @@ async def pipeline_status():
     rank_step_label = None
     rank_pct = None  # real percentage 0-100, None means unknown
 
-    if d5 and d5.get("status") == "running" and d5.get("job_type") == "fetch-data":
+    # Compute terminal state first — a completed ranker overrides any stale
+    # "running" records left in upstream services (av-ingestor, factor-engine)
+    # after a container restart or interrupted run.
+    confirmed_terminal = ranker_status_raw in ("success", "partial_success", "skipped", "failed")
+
+    if not confirmed_terminal and d5 and d5.get("status") == "running" and d5.get("job_type") == "fetch-data":
         rank_status = "running"
         rank_step = "fetch_data"
         rank_step_label = "Fetching Data"
@@ -365,7 +370,7 @@ async def pipeline_status():
             # fetch-data covers the first 80% of the pipeline
             rank_pct = round(done / total * 80)
 
-    if rank_status != "running" and not isinstance(r6, dict) and r6.status_code == 200:
+    if not confirmed_terminal and rank_status != "running" and not isinstance(r6, dict) and r6.status_code == 200:
         d6 = r6.json()
         if d6.get("status") == "running":
             rank_status = "running"
@@ -373,7 +378,7 @@ async def pipeline_status():
             rank_step_label = "Calculating Factors"
             rank_pct = 85
 
-    if rank_status != "running" and not isinstance(r4, dict) and r4.status_code == 200:
+    if not confirmed_terminal and rank_status != "running" and not isinstance(r4, dict) and r4.status_code == 200:
         if ranker_status_raw == "running":
             rank_status = "running"
             rank_step = "ranking"
@@ -385,7 +390,6 @@ async def pipeline_status():
     # scheduler_chain_running covers cron-fired runs (autonomous scheduler trigger).
     # _rank_chain_running covers manual "Start Rank" triggers from the dashboard.
     # Neither overrides a confirmed terminal state already reported by the ranker.
-    confirmed_terminal = ranker_status_raw in ("success", "partial_success", "skipped", "failed")
     orchestrator_running = scheduler_chain_running or _rank_chain_running
     if rank_status != "running" and orchestrator_running and not confirmed_terminal:
         rank_status = "running"
