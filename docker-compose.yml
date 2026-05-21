@@ -480,7 +480,11 @@ services:
       VETTER_TIMEOUT_SECS:       ${VETTER_TIMEOUT_SECS:-600}
       VETTER_CANDIDATE_COUNT:    ${VETTER_CANDIDATE_COUNT:-50}
       VETTER_BUFFER_MINUTES:     ${VETTER_BUFFER_MINUTES:-30}
+      DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
+      SUPERVISOR_INTERVAL_SECS: ${SUPERVISOR_INTERVAL_SECS:-300}
     depends_on:
+      postgres:
+        condition: service_healthy
       av-ingestor:
         condition: service_healthy
       factor-engine:

@@ -581,3 +581,15 @@ ALTER TABLE alpaca_orders
 ALTER TABLE live_positions ADD COLUMN IF NOT EXISTS lastday_price NUMERIC(14,4);
 ALTER TABLE live_positions ADD COLUMN IF NOT EXISTS change_today  NUMERIC(10,6);
 
+-- Scheduler chain run audit table
+CREATE TABLE IF NOT EXISTS scheduler_runs (
+    run_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    started_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    status       TEXT NOT NULL DEFAULT 'running',
+    chain_date   TEXT NOT NULL,
+    steps        JSONB NOT NULL DEFAULT '{}',
+    run_ids      JSONB NOT NULL DEFAULT '{}'
+);
+

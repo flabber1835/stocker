@@ -1,14 +1,14 @@
 import asyncio
-import math
 import os
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field as dc_field
 from datetime import date, datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from fastapi import FastAPI
+from fastapi import BackgroundTasks, FastAPI
 
 from app.staleness import is_stale, last_trading_day
 
@@ -19,23 +19,23 @@ VETTER_URL            = os.getenv("VETTER_URL",             "http://llm-vetter:8
 PORTFOLIO_BUILDER_URL = os.getenv("PORTFOLIO_BUILDER_URL",  "http://portfolio-builder:8000")  # manual/monthly use only
 DELTA_ENGINE_URL      = os.getenv("DELTA_ENGINE_URL",       "http://delta-engine:8000")
 ALPACA_SYNC_URL       = os.getenv("ALPACA_SYNC_URL",        "http://alpaca-sync:8000")
+DATABASE_URL          = os.getenv("DATABASE_URL", "")
 
 # Default: 21:15 UTC = 4:15 pm ET, weekdays only (market close + 15 min buffer).
 # Override via env var using standard cron syntax, e.g. "0 22 * * 1-5"
 RANK_SCHEDULE_CRON = os.getenv("RANK_SCHEDULE_CRON", "15 21 * * 1-5")
 
-# Vetter timeout: per-ticker Ollama limit × candidate count + buffer.
-# All three values are overridable via env so tuning doesn't require a rebuild.
-_VETTER_TIMEOUT_SECS    = int(os.getenv("VETTER_TIMEOUT_SECS",    "600"))   # must match OLLAMA_TIMEOUT_SECS in llm-vetter
-_VETTER_CANDIDATE_COUNT = int(os.getenv("VETTER_CANDIDATE_COUNT", "50"))    # must match strategy.vetter.candidate_count
-_VETTER_BUFFER_MINUTES  = int(os.getenv("VETTER_BUFFER_MINUTES",  "30"))
-VETTER_MAX_MINUTES = math.ceil(_VETTER_TIMEOUT_SECS / 60) * _VETTER_CANDIDATE_COUNT + _VETTER_BUFFER_MINUTES
+SUPERVISOR_INTERVAL_SECS = int(os.getenv("SUPERVISOR_INTERVAL_SECS", "300"))
 
 _scheduler: Optional[AsyncIOScheduler] = None
 _chain_lock = asyncio.Lock()
 _chain_status: dict = {
-    "status": "idle",   # idle | running | success | failed
-    "last_run": None,   # {date, started_at, completed_at, steps, run_ids}
+    "status": "idle",      # idle | running | success | failed
+    "date": None,          # chain_date (YYYY-MM-DD) for the current/last run
+    "steps": {},           # step_name → state string (idle/running/done/failed)
+    "run_ids": {},         # step_name → service run_id
+    "last_completed": None,
+    "current_run_id": None,  # DB run_id for current chain run
     "next_run": None,
 }
 
@@ -53,66 +53,103 @@ def _log(msg: str, **extra) -> None:
     print(f"[scheduler] {msg}", flush=True)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global _scheduler
-    _scheduler = AsyncIOScheduler(timezone="UTC")
-    trigger = CronTrigger.from_crontab(RANK_SCHEDULE_CRON, timezone="UTC")
-    _scheduler.add_job(
-        _run_daily_chain, trigger,
-        id="daily_rank_chain",
-        replace_existing=True,
-        # Fire within 1 hour of a missed schedule (e.g. brief restart at 4:20pm).
-        # For longer gaps (multi-day outage) the startup catch-up below handles it.
-        misfire_grace_time=3600,
-    )
-    _scheduler.start()
-    _refresh_next_run()
-    _log(f"started — cron={RANK_SCHEDULE_CRON!r}, next_run={_chain_status['next_run']}")
-    # Catch-up: if the system was offline long enough to miss trading days, trigger
-    # an immediate chain run rather than waiting until the next scheduled window.
-    asyncio.create_task(_startup_catch_up())
-    yield
-    _scheduler.shutdown(wait=False)
+# ── Step definitions ──────────────────────────────────────────────────────────
+
+@dataclass
+class _StepDef:
+    name: str
+    url: str
+    start_path: str
+    date_field: str
+    use_trading_day: bool = False   # use last_trading_day() for date comparison
+    also_accept_prev: bool = False  # also accept prev_trading_day
+    job_type: str | None = None     # job_type filter on /runs/latest
+    extra_ok: tuple = ()            # extra ok statuses beyond "success"
+    optional: bool = False          # if True, failure does not abort chain
+    params: dict | None = None      # extra POST query params
 
 
-app = FastAPI(title="scheduler", lifespan=lifespan)
+_STEPS: list[_StepDef] = [
+    _StepDef("fetch-data", AV_INGESTOR_URL, "/jobs/fetch-data", "started_at",
+             job_type="fetch-data", extra_ok=("partial_success",)),
+    _StepDef("factor-calculate", FACTOR_ENGINE_URL, "/jobs/calculate", "score_date",
+             use_trading_day=True, also_accept_prev=True),
+    _StepDef("rank", RANKER_URL, "/jobs/rank", "rank_date",
+             use_trading_day=True, also_accept_prev=True),
+    _StepDef("vet", VETTER_URL, "/jobs/vet", "started_at", optional=True),
+    _StepDef("delta", DELTA_ENGINE_URL, "/jobs/run", "run_date"),
+]
 
 
-def _refresh_next_run():
-    if _scheduler:
-        job = _scheduler.get_job("daily_rank_chain")
-        _chain_status["next_run"] = (
-            job.next_run_time.isoformat() if job and job.next_run_time else None
+# ── DB helpers ────────────────────────────────────────────────────────────────
+
+async def _db_connect():
+    """Open a single asyncpg connection. Returns None if DATABASE_URL not set."""
+    if not DATABASE_URL:
+        return None
+    try:
+        import asyncpg
+        url = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+        return await asyncpg.connect(url)
+    except Exception as exc:
+        _log("DB: connect failed", error=str(exc))
+        return None
+
+
+async def _db_open_run(chain_date: str) -> str | None:
+    conn = await _db_connect()
+    if not conn:
+        return None
+    try:
+        row = await conn.fetchrow(
+            "INSERT INTO scheduler_runs (chain_date, status) VALUES ($1, 'running') RETURNING run_id::text",
+            chain_date,
         )
+        return row["run_id"] if row else None
+    except Exception as exc:
+        _log("DB: open_run failed", error=str(exc))
+        return None
+    finally:
+        await conn.close()
 
 
-@app.get("/health")
-async def health():
-    return {"status": "ok", "service": "scheduler"}
+async def _db_update_run(run_id: str | None, status: str, steps: dict, run_ids: dict) -> None:
+    if not run_id:
+        return
+    conn = await _db_connect()
+    if not conn:
+        return
+    try:
+        import json as _json
+        await conn.execute(
+            "UPDATE scheduler_runs SET updated_at=NOW(), status=$2, steps=$3, run_ids=$4 WHERE run_id=$1",
+            run_id, status, _json.dumps(steps), _json.dumps(run_ids),
+        )
+    except Exception as exc:
+        _log("DB: update_run failed", error=str(exc))
+    finally:
+        await conn.close()
 
 
-@app.get("/status")
-async def status():
-    _refresh_next_run()
-    return {**_chain_status, "cron": RANK_SCHEDULE_CRON}
+async def _db_close_run(run_id: str | None, status: str, steps: dict, run_ids: dict) -> None:
+    if not run_id:
+        return
+    conn = await _db_connect()
+    if not conn:
+        return
+    try:
+        import json as _json
+        await conn.execute(
+            "UPDATE scheduler_runs SET updated_at=NOW(), completed_at=NOW(), status=$2, steps=$3, run_ids=$4 WHERE run_id=$1",
+            run_id, status, _json.dumps(steps), _json.dumps(run_ids),
+        )
+    except Exception as exc:
+        _log("DB: close_run failed", error=str(exc))
+    finally:
+        await conn.close()
 
 
-@app.get("/debug/log")
-async def debug_log():
-    """Return the in-process event log for forensic inspection. Survives until next restart."""
-    return {"count": len(_event_log), "events": _event_log}
-
-
-@app.post("/jobs/run-now")
-async def run_now():
-    if _chain_lock.locked():
-        return {"status": "already_running"}
-    asyncio.create_task(_run_daily_chain())
-    return {"status": "started"}
-
-
-# ── Startup catch-up ─────────────────────────────────────────────────────────
+# ── Core helpers ──────────────────────────────────────────────────────────────
 
 async def _get_last_rank_date(client: httpx.AsyncClient) -> date | None:
     """Return the date of the last successful ranking run, or None."""
@@ -137,58 +174,6 @@ async def _has_universe(client: httpx.AsyncClient) -> bool:
         pass
     return False
 
-
-async def _startup_catch_up():
-    """
-    Called once on startup. On a cold start (empty DB) triggers fetch-universe
-    first, then runs the full daily chain. On a warm start triggers the chain
-    only if ranking data is stale.
-    """
-    await asyncio.sleep(10)  # give other services time to start
-    _log("catch-up: woke up after startup delay")
-    async with httpx.AsyncClient() as client:
-        # Kick off Alpaca sync as a fire-and-forget background task so the
-        # Portfolio tab populates without blocking the rest of the catch-up
-        # chain. The alpaca-sync service also self-triggers on its own startup,
-        # so this is mostly a backstop.
-        asyncio.create_task(_trigger_alpaca_sync(client_url=ALPACA_SYNC_URL, context="startup-catch-up"))
-
-        # Cold-start guard: if no universe exists, fetch it before anything else.
-        has_universe = await _has_universe(client)
-        _log(f"catch-up: universe check → has_universe={has_universe}")
-        if not has_universe:
-            _log("catch-up: no universe — triggering fetch-universe before daily chain")
-            try:
-                ok = await _run_step(
-                    client, AV_INGESTOR_URL, "/jobs/fetch-universe",
-                    date_field="started_at",
-                    today=date.today().isoformat(),
-                    step_name="fetch-universe",
-                    max_minutes=10,
-                    job_type_filter="fetch-universe",
-                )
-                if not ok:
-                    _log("catch-up: fetch-universe FAILED — aborting catch-up")
-                    return
-            except Exception as e:
-                _log(f"catch-up: fetch-universe raised exception — aborting catch-up", error=str(e))
-                return
-
-        last_date = await _get_last_rank_date(client)
-        today = date.today()
-        stale = is_stale(last_date, today)
-        _log(f"catch-up: staleness check", last_rank=str(last_date), today=str(today), stale=stale)
-        if stale:
-            _log("catch-up: data is stale — triggering catch-up chain")
-            try:
-                await _run_daily_chain()
-            except Exception as e:
-                _log("catch-up: chain raised exception", error=str(e))
-        else:
-            _log("catch-up: data is current — no catch-up needed")
-
-
-# ── Core chain logic ──────────────────────────────────────────────────────────
 
 async def _already_ran_today(
     client: httpx.AsyncClient,
@@ -287,245 +272,255 @@ async def _trigger_alpaca_sync(
             await client.aclose()
 
 
-async def _run_step(
+# ── Supervisor state-machine ──────────────────────────────────────────────────
+
+StepState = Literal["done", "running", "failed", "idle"]
+
+
+async def _step_state(
     client: httpx.AsyncClient,
-    service_url: str,
-    start_path: str,
-    date_field: str,
+    step: _StepDef,
     today: str,
-    step_name: str,
-    max_minutes: int,
-    job_type_filter: Optional[str] = None,
-    params: Optional[dict] = None,
-    extra_ok_statuses: tuple = (),
-    stall_minutes: Optional[int] = None,
-    also_accept_date: Optional[str] = None,
-) -> bool:
-    """
-    Trigger one step of the daily chain and wait for today's run to complete.
-    Skips gracefully if already done today. Returns True on success.
-    params are forwarded as query parameters on the POST request.
-    """
-    if await _already_ran_today(client, service_url, date_field, today, job_type_filter, extra_ok_statuses, also_accept_date):
-        _log(f"{step_name}: already ran today — skipping")
-        return True
-
-    _log(f"{step_name}: starting POST to {service_url}{start_path}",
-         today=today, also_accept_date=also_accept_date,
-         max_minutes=max_minutes, effective_stall=stall_minutes if stall_minutes is not None else min(30, max_minutes))
+    trading_day: str,
+    prev_trading_day: str,
+) -> StepState:
     try:
-        r = await client.post(f"{service_url}{start_path}", timeout=15.0, params=params)
+        r = await client.get(f"{step.url}/runs/latest", timeout=10.0)
+        if r.status_code != 200:
+            return "idle"
+        data = r.json()
+        if step.job_type and data.get("job_type") != step.job_type:
+            return "idle"
+        target = trading_day if step.use_trading_day else today
+        ok_dates = {target, prev_trading_day} if step.also_accept_prev else {target}
+        run_date = (data.get(step.date_field) or "")[:10]
+        run_status = data.get("status")
+        if run_date not in ok_dates:
+            return "idle"
+        if run_status in ("success",) + step.extra_ok:
+            return "done"
+        if run_status == "running":
+            return "running"
+        if run_status in ("failed",):
+            return "failed"
+        return "idle"
+    except Exception:
+        return "idle"
+
+
+async def _trigger_step(client: httpx.AsyncClient, step: _StepDef) -> None:
+    try:
+        r = await client.post(f"{step.url}{step.start_path}", timeout=15.0, params=step.params or {})
+        if r.status_code == 409:
+            _log(f"supervisor: {step.name}: already running (409) — will check next tick")
+        elif r.status_code in (200, 201, 202):
+            resp = r.json()
+            if resp.get("status") == "already_ran_today":
+                _log(f"supervisor: {step.name}: service reports already_ran_today")
+            else:
+                _log(f"supervisor: {step.name}: triggered", **{k: v for k, v in resp.items() if k not in ("status",) and v not in (None, "")})
+        else:
+            _log(f"supervisor: {step.name}: trigger HTTP {r.status_code}", body=r.text[:200])
     except Exception as exc:
-        _log(f"{step_name}: failed to reach service", error=str(exc))
-        return False
-
-    if r.status_code == 409:
-        _log(f"{step_name}: already running (HTTP 409) — waiting for completion")
-    elif r.status_code in (200, 201, 202):
-        resp = r.json()
-        # Service says it already completed an equivalent run (e.g. factor engine
-        # blocked because SPY price data hasn't advanced since the last run).
-        if resp.get("status") == "already_ran_today":
-            _log(f"{step_name}: already ran (date={resp.get('date', '?')}) — skipping")
-            return True
-        audit_fields = {
-            k: v for k, v in resp.items()
-            if k not in ("status", "job") and v not in (None, "?", "")
-        }
-        _log(f"{step_name}: accepted by service (HTTP {r.status_code})", **audit_fields)
-    else:
-        _log(f"{step_name}: unexpected HTTP {r.status_code}", body=r.text[:200])
-        return False
-
-    # Poll /runs/latest until today's run succeeds or fails.
-    # Stall detection: if a run stays in 'running' status for more than
-    # effective_stall_minutes without the service restarting it, treat it as hung.
-    # Callers can pass stall_minutes=max_minutes to disable early stall detection
-    # for long-running jobs (e.g. cold-start fetch-data).
-    effective_stall = stall_minutes if stall_minutes is not None else min(30, max_minutes)
-    last_seen_run_id: str | None = None
-    last_progress_tick: int = 0
-
-    for tick in range(max_minutes * 30):  # every 2 s
-        await asyncio.sleep(2)
-        try:
-            r = await client.get(f"{service_url}/runs/latest", timeout=10.0)
-            if r.status_code != 200:
-                continue
-            data = r.json()
-            if job_type_filter and data.get("job_type") != job_type_filter:
-                continue
-            run_date = (data.get(date_field) or "")[:10]
-            run_status = data.get("status")
-            ok_dates = {today}
-            if also_accept_date:
-                ok_dates.add(also_accept_date)
-            if run_date in ok_dates and run_status in ("success",) + extra_ok_statuses:
-                _log(f"{step_name}: complete", run_id=data.get("run_id", "?"), run_date=run_date)
-                return True
-            if run_date in ok_dates and run_status == "failed":
-                err = (data.get("error_message") or "")[:200]
-                _log(f"{step_name}: FAILED", run_id=data.get("run_id", "?"), run_date=run_date, error=err)
-                return False
-            # Reset stall timer whenever we see a new run_id or a non-running status
-            current_run_id = data.get("run_id")
-            if current_run_id != last_seen_run_id or run_status != "running":
-                last_seen_run_id = current_run_id
-                last_progress_tick = tick
-        except Exception:
-            pass
-
-        elapsed_ticks = tick - last_progress_tick
-        if elapsed_ticks * 2 >= effective_stall * 60:
-            _log(f"{step_name}: STALLED — no progress for {effective_stall} min",
-                 last_seen_run_id=last_seen_run_id, today=today, also_accept_date=also_accept_date)
-            return False
-
-        if tick % 150 == 149:  # log every 5 minutes
-            elapsed = (tick + 1) * 2 // 60
-            _log(f"{step_name}: still waiting", elapsed_min=elapsed, last_seen_run_id=last_seen_run_id)
-
-    _log(f"{step_name}: TIMED OUT after {max_minutes} minutes")
-    return False
+        _log(f"supervisor: {step.name}: trigger failed", error=str(exc))
 
 
-def _fail_chain() -> None:
-    _chain_status["status"] = "failed"
-    _chain_status["last_run"]["completed_at"] = datetime.now(timezone.utc).isoformat()
-    steps = (_chain_status.get("last_run") or {}).get("steps", {})
-    _log("daily chain FAILED", steps=steps)
+async def _supervisor_tick() -> None:
+    """
+    Non-blocking state-machine supervisor. Reads each step's status from its
+    /runs/latest endpoint and triggers the first pending step, then returns.
+    On the next tick (every SUPERVISOR_INTERVAL_SECS seconds) it advances again.
 
+    Survives restarts: on each tick it re-reads live DB state from each service
+    rather than relying on in-process memory, so a restarted scheduler always
+    resumes from the correct position without any recovery logic.
+    """
+    today = date.today().isoformat()
+    trading_day = last_trading_day(date.today()).isoformat()
+    prev_trading_day = last_trading_day(date.today() - timedelta(days=1)).isoformat()
 
-async def _run_daily_chain():
-    global _chain_status
     if _chain_lock.locked():
-        _log("daily chain already running — skipping duplicate trigger")
+        _log("supervisor: tick skipped — another tick is in progress")
         return
 
     async with _chain_lock:
-        today = date.today().isoformat()
-        trading_today = last_trading_day(date.today()).isoformat()
-        # Prices lag market close: on a trading day before 4 PM ET, score_date
-        # will be the previous trading day, not today. Accept either date so the
-        # scheduler recognises a completed run regardless of when it polled.
-        prev_trading_day = last_trading_day(date.today() - timedelta(days=1)).isoformat()
-        started_at = datetime.now(timezone.utc)
-        steps: dict[str, str] = {}
-        run_ids: dict[str, str] = {}   # step_name → service run_id for cross-referencing logs
-        _chain_status.update({"status": "running", "last_run": {
-            "date": today,
-            "started_at": started_at.isoformat(),
-            "completed_at": None,
-            "steps": steps,
-            "run_ids": run_ids,
-        }})
-        _log(f"daily chain started", today=today, trading_today=trading_today, prev_trading_day=prev_trading_day)
+        # Reset per-day accounting when the calendar date rolls over
+        if _chain_status.get("date") != today:
+            _chain_status.update({"date": today, "steps": {}, "run_ids": {}, "current_run_id": None})
 
         async with httpx.AsyncClient() as client:
-            # Step 1 — fetch-data (incremental prices + fundamentals for all tickers)
-            # Use started_at (not completed_at) so a run that crosses UTC midnight is still
-            # recognised as "today's run" when completed_at falls on the next calendar day.
-            # Accept partial_success so a run where most tickers succeeded doesn't re-trigger.
-            # stall_minutes=max_minutes disables early stall detection: a cold-start full
-            # historical fetch of 6000+ tickers can legitimately run for 6+ hours.
-            ok = await _run_step(
-                client, AV_INGESTOR_URL, "/jobs/fetch-data",
-                date_field="started_at",
-                today=today,
-                step_name="fetch-data",
-                max_minutes=600,
-                job_type_filter="fetch-data",
-                extra_ok_statuses=("partial_success",),
-                stall_minutes=600,
-            )
-            steps["fetch_data"] = "success" if ok else "failed"
-            if ok:
-                if rid := await _get_latest_run_id(client, AV_INGESTOR_URL):
-                    run_ids["fetch_data"] = rid
-            if not ok:
-                _fail_chain()
+            # Cold-start guard: if no universe, trigger fetch-universe and wait
+            if not await _has_universe(client):
+                _log("supervisor: no universe — triggering fetch-universe")
+                try:
+                    r = await client.post(f"{AV_INGESTOR_URL}/jobs/fetch-universe", timeout=15.0)
+                    _log("supervisor: fetch-universe triggered", status_code=r.status_code)
+                except Exception as exc:
+                    _log("supervisor: fetch-universe trigger failed", error=str(exc))
+                _chain_status["status"] = "running"
                 return
 
-            # Step 2 — factor calculation
-            # score_date = last SPY trading date in DB, not wall-clock today.
-            # Before market close score_date = prev_trading_day; after close it
-            # equals trading_today. Accept both so the chain isn't date-sensitive
-            # to exactly when it runs relative to market close.
-            ok = await _run_step(
-                client, FACTOR_ENGINE_URL, "/jobs/calculate",
-                date_field="score_date",
-                today=trading_today,
-                step_name="factor-calculate",
-                max_minutes=30,
-                also_accept_date=prev_trading_day,
-            )
-            steps["factor_calculate"] = "success" if ok else "failed"
-            if ok:
-                if rid := await _get_latest_run_id(client, FACTOR_ENGINE_URL):
-                    run_ids["factor_calculate"] = rid
-            if not ok:
-                _fail_chain()
+            # Open a DB trace row when the chain starts for today
+            if not _chain_status.get("current_run_id"):
+                run_id = await _db_open_run(today)
+                _chain_status["current_run_id"] = run_id
+                _log("supervisor: opened chain run", db_run_id=run_id, today=today)
+
+            run_id = _chain_status.get("current_run_id")
+
+            for step in _STEPS:
+                state = await _step_state(client, step, today, trading_day, prev_trading_day)
+                _chain_status["steps"][step.name] = state
+                _log(f"supervisor: {step.name} → {state}")
+
+                if state == "done":
+                    if svc_run_id := await _get_latest_run_id(client, step.url):
+                        _chain_status["run_ids"][step.name] = svc_run_id
+                    continue
+
+                if state == "running":
+                    _chain_status["status"] = "running"
+                    await _db_update_run(run_id, "running", _chain_status["steps"], _chain_status["run_ids"])
+                    return  # wait for next tick
+
+                if state == "failed":
+                    if step.optional:
+                        _log(f"supervisor: {step.name} failed — optional, continuing chain")
+                        continue
+                    _chain_status["status"] = "failed"
+                    await _db_close_run(run_id, "failed", _chain_status["steps"], _chain_status["run_ids"])
+                    _log(f"supervisor: {step.name} failed — chain suspended for {today}; fix and re-trigger or wait for tomorrow")
+                    return
+
+                # state == "idle" — trigger this step and wait for the next tick
+                _chain_status["status"] = "running"
+                await _trigger_step(client, step)
+                await _db_update_run(run_id, "running", _chain_status["steps"], _chain_status["run_ids"])
                 return
 
-            # Step 3 — ranking
-            # rank_date inherits from score_date (last SPY trading date), same reasoning.
-            ok = await _run_step(
-                client, RANKER_URL, "/jobs/rank",
-                date_field="rank_date",
-                today=trading_today,
-                step_name="rank",
-                max_minutes=10,
-                also_accept_date=prev_trading_day,
+            # All steps done
+            now = datetime.now(timezone.utc)
+            _chain_status.update({"status": "success", "last_completed": now.isoformat()})
+            await _db_close_run(run_id, "success", _chain_status["steps"], _chain_status["run_ids"])
+            _chain_status["current_run_id"] = None  # allow new run tomorrow
+            _refresh_next_run()
+            _log("supervisor: chain complete", today=today, steps=_chain_status["steps"], run_ids=_chain_status["run_ids"])
+
+            # Fire-and-forget alpaca sync after all pipeline steps succeed
+            asyncio.create_task(_trigger_alpaca_sync(context="supervisor-chain-complete"))
+
+
+# ── Startup catch-up ──────────────────────────────────────────────────────────
+
+async def _startup_catch_up() -> None:
+    """Thin wrapper: wait for services to start, then fire the first supervisor tick."""
+    await asyncio.sleep(10)
+    _log("startup: services ready — firing initial supervisor tick")
+    try:
+        await _supervisor_tick()
+    except Exception as exc:
+        _log("startup: supervisor tick raised exception", error=str(exc))
+
+
+# ── Fast polling for manual run-now ──────────────────────────────────────────
+
+async def _run_supervised_fast() -> None:
+    """Poll the supervisor every 10 seconds until the chain reaches a terminal state.
+    Used by manual 'run-now' triggers so the UI updates promptly without waiting
+    for the 5-minute interval tick."""
+    for _ in range(3600):
+        await _supervisor_tick()
+        if _chain_status.get("status") in ("success", "failed"):
+            break
+        await asyncio.sleep(10)
+
+
+# ── App lifecycle ─────────────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _scheduler
+    _scheduler = AsyncIOScheduler(timezone="UTC")
+
+    # Cron trigger: daily at market close (default 21:15 UTC = 4:15pm ET weekdays)
+    _scheduler.add_job(
+        _supervisor_tick,
+        CronTrigger.from_crontab(RANK_SCHEDULE_CRON, timezone="UTC"),
+        id="daily_cron",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
+    # Interval trigger: advance the chain every SUPERVISOR_INTERVAL_SECS seconds.
+    # start_date is 15 seconds from now so the first tick fires after services are up.
+    from apscheduler.triggers.interval import IntervalTrigger
+    _scheduler.add_job(
+        _supervisor_tick,
+        IntervalTrigger(seconds=SUPERVISOR_INTERVAL_SECS,
+                        start_date=datetime.now(timezone.utc) + timedelta(seconds=15)),
+        id="supervisor_interval",
+        replace_existing=True,
+    )
+
+    _scheduler.start()
+    _refresh_next_run()
+    _log("started", cron=RANK_SCHEDULE_CRON, interval_secs=SUPERVISOR_INTERVAL_SECS,
+         next_run=_chain_status["next_run"])
+    asyncio.create_task(_startup_catch_up())
+    yield
+    _scheduler.shutdown(wait=False)
+
+
+app = FastAPI(title="scheduler", lifespan=lifespan)
+
+
+def _refresh_next_run():
+    if _scheduler:
+        job = _scheduler.get_job("daily_cron")
+        _chain_status["next_run"] = (
+            job.next_run_time.isoformat() if job and job.next_run_time else None
+        )
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "scheduler"}
+
+
+@app.get("/status")
+async def status():
+    _refresh_next_run()
+    return {**_chain_status, "cron": RANK_SCHEDULE_CRON}
+
+
+@app.get("/debug/log")
+async def debug_log():
+    """Return the in-process event log for forensic inspection. Survives until next restart."""
+    return {"count": len(_event_log), "events": _event_log}
+
+
+@app.post("/jobs/run-now")
+async def run_now(background_tasks: BackgroundTasks):
+    if _chain_lock.locked():
+        return {"status": "already_running"}
+    background_tasks.add_task(_run_supervised_fast)
+    return {"status": "started"}
+
+
+@app.get("/runs/latest")
+async def runs_latest():
+    """Return the last persisted scheduler chain run from the DB, or the in-memory status."""
+    conn = await _db_connect()
+    if conn:
+        try:
+            row = await conn.fetchrow(
+                "SELECT run_id::text, started_at, updated_at, completed_at, status, chain_date, steps, run_ids "
+                "FROM scheduler_runs ORDER BY started_at DESC LIMIT 1"
             )
-            steps["rank"] = "success" if ok else "failed"
-            if ok:
-                if rid := await _get_latest_run_id(client, RANKER_URL):
-                    run_ids["rank"] = rid
-            if not ok:
-                _fail_chain()
-                return
-
-            # Step 4 — vetter (informational; failure does not abort the chain)
-            # The vetter is "not a gate" — delta engine proceeds even without it.
-            vetter_run_id: Optional[str] = None
-            ok = await _run_step(
-                client, VETTER_URL, "/jobs/vet",
-                date_field="started_at",
-                today=today,
-                step_name="vet",
-                max_minutes=VETTER_MAX_MINUTES,
-            )
-            steps["vet"] = "success" if ok else "failed"
-            if ok:
-                vetter_run_id = await _get_latest_run_id(client, VETTER_URL)
-                if vetter_run_id:
-                    run_ids["vet"] = vetter_run_id
-            else:
-                _log("vet: step failed — delta engine will proceed (vetter is informational only)")
-
-            # Step 5 — delta engine (buffer-zone entry/exit evaluation)
-            ok = await _run_step(
-                client, DELTA_ENGINE_URL, "/jobs/run",
-                date_field="run_date",
-                today=today,
-                step_name="delta",
-                max_minutes=10,
-            )
-            steps["delta"] = "success" if ok else "failed"
-            if ok:
-                if rid := await _get_latest_run_id(client, DELTA_ENGINE_URL):
-                    run_ids["delta"] = rid
-            if not ok:
-                _fail_chain()
-                return
-
-            # Step 6 — alpaca sync (refresh broker positions after delta engine run)
-            await _trigger_alpaca_sync(client, context="daily-chain")
-            steps["alpaca_sync"] = "triggered"
-
-        _chain_status["status"] = "success"
-        _chain_status["last_run"]["completed_at"] = datetime.now(timezone.utc).isoformat()
-        _refresh_next_run()
-        elapsed = (datetime.now(timezone.utc) - started_at).total_seconds() / 60
-        _log(f"daily chain COMPLETE", today=today, elapsed_min=round(elapsed, 1),
-             steps=steps, run_ids=run_ids)
+            if row:
+                return dict(row)
+        except Exception:
+            pass
+        finally:
+            await conn.close()
+    return _chain_status

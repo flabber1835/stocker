@@ -35,7 +35,7 @@ def _make_apscheduler_stubs():
 
 _make_apscheduler_stubs()
 
-from app.main import _already_ran_today, _startup_catch_up  # noqa: E402
+from app.main import _already_ran_today, _startup_catch_up, _supervisor_tick  # noqa: E402
 
 
 # ── Minimal httpx response mock ───────────────────────────────────────────────
@@ -226,52 +226,42 @@ class TestStartupCatchUp:
     @pytest.mark.asyncio
     async def test_exception_in_chain_is_caught(self):
         """
-        If _run_daily_chain raises, _startup_catch_up must catch it
+        If _supervisor_tick raises, _startup_catch_up must catch it
         and not propagate the exception to the caller.
         """
         with (
             patch("app.main.asyncio.sleep", new=AsyncMock()),  # skip the 10s delay
-            patch("app.main._get_last_rank_date", new=AsyncMock(return_value=None)),
-            patch("app.main.is_stale", return_value=True),
-            patch("app.main._run_daily_chain", new=AsyncMock(side_effect=RuntimeError("test error"))),
+            patch.dict(
+                _startup_catch_up.__globals__,
+                {"_supervisor_tick": AsyncMock(side_effect=RuntimeError("test error"))},
+            ),
         ):
             # Should complete without raising
             await _startup_catch_up()
 
     @pytest.mark.asyncio
-    async def test_no_catchup_when_data_is_current(self):
+    async def test_supervisor_tick_called_once_on_startup(self):
         """
-        If data is current (not stale), _run_daily_chain must NOT be called.
+        _startup_catch_up always fires exactly one supervisor tick after the delay.
         """
+        mock_tick = AsyncMock()
         with (
             patch("app.main.asyncio.sleep", new=AsyncMock()),
-            patch("app.main._get_last_rank_date", new=AsyncMock(return_value=None)),
-            patch("app.main.is_stale", return_value=False),
-            patch("app.main._run_daily_chain", new=AsyncMock()) as mock_chain,
+            patch.dict(_startup_catch_up.__globals__, {"_supervisor_tick": mock_tick}),
         ):
             await _startup_catch_up()
-            mock_chain.assert_not_called()
+        mock_tick.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_catchup_triggered_when_stale(self):
         """
-        If data is stale, _run_daily_chain IS called once.
-
-        The conftest clears app.* from sys.modules before each test, so
-        patch("app.main.*") targets a freshly re-imported module whose __dict__
-        is different from _startup_catch_up.__globals__. We therefore patch the
-        function's own globals dict directly so the mocks actually take effect.
+        _startup_catch_up fires the supervisor tick regardless of staleness.
+        The staleness logic now lives inside the tick itself.
         """
-        mock_chain = AsyncMock()
-        patched_globals = {
-            "_has_universe": AsyncMock(return_value=True),
-            "_get_last_rank_date": AsyncMock(return_value=None),
-            "_run_daily_chain": mock_chain,
-            "is_stale": MagicMock(return_value=True),
-        }
+        mock_tick = AsyncMock()
         with (
-            patch.dict(_startup_catch_up.__globals__, patched_globals),
+            patch.dict(_startup_catch_up.__globals__, {"_supervisor_tick": mock_tick}),
             patch("asyncio.sleep", new=AsyncMock()),   # patches real asyncio module
         ):
             await _startup_catch_up()
-        mock_chain.assert_called_once()
+        mock_tick.assert_called_once()
