@@ -181,51 +181,21 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             return "no universe snapshot"
 
         snapshot_id = snap[0]
-        asset_class_patterns = [f"%{ac}%" for ac in strategy.universe.exclude_asset_classes]
-        name_pattern = "(" + "|".join(strategy.universe.exclude_name_patterns) + ")"
-        ticker_pattern_str = "(" + "|".join(strategy.universe.exclude_ticker_patterns) + ")"
+        # Non-investable securities (warrants, ETFs, leveraged products, futures) are
+        # filtered out at fetch-universe time (av-ingestor). No further exclusions needed here.
         ticker_rows = await conn.execute(
-            text(
-                "SELECT ticker FROM universe_tickers "
-                "WHERE snapshot_id = :sid "
-                "AND NOT ("
-                "  COALESCE(asset_class, '') ILIKE ANY(:asset_class_patterns)"
-                "  OR COALESCE(name, '') ~* :name_pattern"
-                "  OR ticker ~* 'FUT$'"
-                "  OR ticker ~ '^[A-Z]{1,4}[0-9]{1,2}[A-Z]?[0-9]?$'"
-                "  OR ticker ~ :ticker_pattern"
-                ")"
-            ),
-            {
-                "sid": snapshot_id,
-                "asset_class_patterns": asset_class_patterns,
-                "name_pattern": name_pattern,
-                "ticker_pattern": ticker_pattern_str,
-            },
+            text("SELECT ticker FROM universe_tickers WHERE snapshot_id = :sid"),
+            {"sid": snapshot_id},
         )
         raw_tickers = [r[0] for r in ticker_rows.fetchall()]
 
         # Deduplicate while preserving order — universe snapshots can contain duplicate
         # rows for the same ticker (e.g., multi-class share companies appearing twice in
-        # the AV LISTING_STATUS feed), which inflates dropped_count and produces duplicate audit entries.
+        # the AV LISTING_STATUS feed).
         universe_tickers = list(dict.fromkeys(raw_tickers))
         duplicates_removed = len(raw_tickers) - len(universe_tickers)
 
-        total_snap_rows = await conn.execute(
-            text("SELECT COUNT(*) FROM universe_tickers WHERE snapshot_id = :sid"),
-            {"sid": snapshot_id},
-        )
-        total_in_snap = total_snap_rows.scalar()
-        excluded_count = total_in_snap - len(raw_tickers)
-
-        warrant_rows = await conn.execute(
-            text(
-                "SELECT COUNT(*) FROM universe_tickers "
-                "WHERE snapshot_id = :sid AND ticker ~ :ticker_pattern"
-            ),
-            {"sid": snapshot_id, "ticker_pattern": ticker_pattern_str},
-        )
-        excluded_warrants_units_rights = warrant_rows.scalar() or 0
+        total_in_snap = len(raw_tickers)
 
     async with engine.begin() as conn:
         await _log_step(
@@ -235,20 +205,18 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             input_summary={"snapshot_id": snapshot_id},
             output_summary={
                 "total_in_snapshot": total_in_snap,
-                "excluded_etfs_funds": excluded_count,
-                "excluded_warrants_units_rights": excluded_warrants_units_rights,
                 "duplicates_removed": duplicates_removed,
                 "investable_count": len(universe_tickers),
             },
-            error_message="empty universe after ETF/fund exclusion" if not universe_tickers else None,
+            error_message="empty universe snapshot" if not universe_tickers else None,
         )
     await _checkpoint(trace_id, run_id, started_at)
 
     if not universe_tickers:
-        print("[calculate] universe snapshot is empty after ETF/fund exclusion")
-        return "empty universe after ETF exclusion"
+        print("[calculate] universe snapshot is empty")
+        return "empty universe snapshot"
 
-    print(f"[calculate] universe: {len(universe_tickers)} tickers (ETFs/funds excluded)")
+    print(f"[calculate] universe: {len(universe_tickers)} tickers")
 
     async with engine.connect() as conn:
         # ── Step 2: load SPY prices ───────────────────────────────────────────────────────────────────────────────────────────────────────

@@ -55,16 +55,39 @@ _WARRANT_RE = re.compile(
     r"|[A-Z]{4,}WS$"  # no-dash warrant with WS suffix: FTWWS
 )
 
+# Futures and options-like ticker patterns: tickers containing embedded digits
+# (e.g. CL2025Z, ES2506M) that slip through AV LISTING_STATUS as assetType=Stock.
+_DERIVATIVE_TICKER_RE = re.compile(
+    r"FUT$"                             # explicit futures suffix
+    r"|^[A-Z]{1,4}[0-9]{1,2}[A-Z]?[0-9]?$"  # embedded-digit futures/options ticker
+)
+
 # Name keywords that identify non-investable securities regardless of ticker format.
 # Catches rights (SPAC rights ending in R), when-issued spinoff shares (ending in V),
-# and warrants with non-standard ticker suffixes (Z, L) that can't be safely pattern-matched.
+# warrants with non-standard ticker suffixes, ETF providers, leveraged/inverse products,
+# and fund wrappers that AV sometimes classifies as assetType=Stock.
 _NON_INVESTABLE_NAME_RE = re.compile(
-    r"\bright[s]?\b"         # SPAC rights: "Right", "Rights"
-    r"|\bwhen.?issued\b"     # spinoff when-issued shares
-    r"|\bwt\.?\b"            # warrant abbreviation: "Wt", "Wt."
-    r"|\bwarrant[s]?\b"      # full word: "Warrant", "Warrants"
-    r"|\bcontingent.value\b" # contingent value rights (CVRs)
-    r"|\bsubscription.right" # subscription rights
+    r"\bright[s]?\b"          # SPAC rights: "Right", "Rights"
+    r"|\bwhen.?issued\b"      # spinoff when-issued shares
+    r"|\bwt\.?\b"             # warrant abbreviation: "Wt", "Wt."
+    r"|\bwarrant[s]?\b"       # full word: "Warrant", "Warrants"
+    r"|\bcontingent.value\b"  # contingent value rights (CVRs)
+    r"|\bsubscription.right"  # subscription rights
+    # ETF providers — these products sometimes appear as assetType=Stock in AV data
+    r"|ProShares"
+    r"|iShares"
+    r"|\bSPDR\b"
+    r"|Invesco"
+    r"|Direxion"
+    r"|VanEck"
+    r"|WisdomTree"
+    r"|First Trust"
+    # Generic non-investable keywords
+    r"|\bETF\b"
+    r"|\bFund\b"
+    r"|\bLeveraged\b"
+    r"|\bInverse\b"
+    r"|\bFuture[s]?\b"
     , re.I
 )
 
@@ -99,6 +122,9 @@ async def download_av_listing(session: httpx.AsyncClient, api_key: str) -> tuple
             continue
         if _WARRANT_RE.search(ticker):
             filtered_rows.append({**av_row, "_filter_reason": "warrant_or_unit"})
+            continue
+        if _DERIVATIVE_TICKER_RE.search(ticker):
+            filtered_rows.append({**av_row, "_filter_reason": "derivative_ticker"})
             continue
         name = av_row.get("name", "")
         if _NON_INVESTABLE_NAME_RE.search(name):

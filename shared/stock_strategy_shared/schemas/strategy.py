@@ -62,32 +62,6 @@ class UniverseConfig(BaseModel):
     source: str = "av_listing"
     min_price: float = 5.0
     min_avg_dollar_volume_20d: float = 20_000_000
-    # Securities matching these asset_class substrings (ILIKE) are excluded from universe
-    exclude_asset_classes: list[str] = Field(
-        default_factory=lambda: ["ETF", "Future"]
-    )
-    # PostgreSQL ~* patterns; matched against the name column; union joined with |
-    exclude_name_patterns: list[str] = Field(
-        default_factory=lambda: [
-            "ProShares", "iShares", "SPDR", "Invesco", "Direxion",
-            "VanEck", "WisdomTree", "First Trust",
-            r"\yETF\y", r"\yFund\y", r"\yLeveraged\y", r"\yInverse\y", r"\yFuture\y",
-        ]
-    )
-    # PostgreSQL ~ patterns (case-sensitive); matched against the ticker column; union joined with |.
-    # Excludes non-investable securities such as warrants, units, and rights.
-    exclude_ticker_patterns: list[str] = Field(
-        default_factory=lambda: [
-            r"-WS$",         # warrants with dash (APGB-WS)
-            r"-W$",          # warrants with dash (ARMK-W)
-            r"-U$",          # units with dash (APGB-U)
-            r"-R$",          # rights with dash (AVK-R)
-            r"[A-Z]{4,}W$",  # warrants without dash (BTMDW, ADALW) — 4+ uppercase letters ending W
-            r"[A-Z]{4,}U$",  # units without dash (BTMDU, ADALU) — 4+ uppercase letters ending U
-        ],
-        description="PostgreSQL ~ patterns matched against ticker column; union-joined with |. "
-                    "Excludes non-investable securities like warrants, units, and rights."
-    )
 
 
 class FactorEngineConfig(BaseModel):
