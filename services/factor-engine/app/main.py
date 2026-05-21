@@ -390,8 +390,18 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     # same convention used by compute_liquidity and portfolio-builder.
     last20 = prices_df_sorted.groupby("ticker").tail(20).copy()
     last20["dv"] = last20["close"].astype(float) * last20["volume"].astype(float)
-    avg_dv_20d = last20.groupby("ticker")["dv"].mean().fillna(0.0)
+    avg_dv_20d = last20.groupby("ticker")["dv"].mean()
+    # Staleness guard: match compute_liquidity — zero out avg_dv for tickers whose most
+    # recent row is more than 7 calendar days behind the dataset reference date.
+    # Without this, a halted stock with old high-volume rows passes the liquidity filter
+    # and contaminates z-score means for one run before the required-factor gate drops it.
+    _ref_date = prices_df_sorted["date"].max()
+    _latest_by_ticker = last20.groupby("ticker")["date"].max()
+    _stale = _latest_by_ticker[_latest_by_ticker < (_ref_date - pd.Timedelta(days=7))].index
+    avg_dv_20d.loc[_stale] = 0.0
+    avg_dv_20d = avg_dv_20d.fillna(0.0)
 
+    no_price_data_count = len(no_price_tickers)  # capture before Step 4b resets it
     below_price_list = [
         t for t in tickers_with_prices if latest_price.get(t, 0.0) < min_price_filter
     ]
@@ -411,7 +421,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
     print(
         f"[calculate] universe filter: {pre_filter_count} → {len(universe_tickers)} tickers "
-        f"({len(below_price_list)} below price ${min_price_filter}, "
+        f"({no_price_data_count} no price data, {len(below_price_list)} below price ${min_price_filter}, "
         f"{len(below_dv_list)} below avg_dv ${min_avg_dv_filter/1e6:.0f}M)"
     )
 
@@ -427,6 +437,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             output_summary={
                 "post_filter_count": len(universe_tickers),
                 "filtered_count": pre_filter_count - len(universe_tickers),
+                "no_price_data_count": no_price_data_count,
                 "below_min_price_count": len(below_price_list),
                 "below_min_avg_dv_count": len(below_dv_list),
             },

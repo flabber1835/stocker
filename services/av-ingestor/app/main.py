@@ -471,20 +471,19 @@ async def _load_investable_tickers() -> frozenset[str] | None:
     this correctly identifies the ~3,000 investable names out of ~6,600 in the universe.
     """
     async with engine.connect() as conn:
-        run_row = await conn.execute(
+        rows = await conn.execute(
             text(
-                "SELECT run_id FROM factor_runs WHERE status='success' "
-                "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+                "SELECT DISTINCT fs.ticker "
+                "FROM factor_scores fs "
+                "JOIN factor_runs fr ON fr.run_id = fs.run_id "
+                "WHERE fr.status = 'success' "
+                "  AND fr.completed_at = ("
+                "    SELECT MAX(completed_at) FROM factor_runs WHERE status = 'success'"
+                "  )"
             )
         )
-        run = run_row.fetchone()
-        if run is None:
-            return None
-        ticker_rows = await conn.execute(
-            text("SELECT DISTINCT ticker FROM factor_scores WHERE run_id = :rid"),
-            {"rid": run[0]},
-        )
-        return frozenset(r[0] for r in ticker_rows.fetchall())
+        tickers = frozenset(r[0] for r in rows.fetchall())
+    return tickers if tickers else None
 
 
 async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:

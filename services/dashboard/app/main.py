@@ -1744,17 +1744,19 @@ async function loadUniverse(){
     // Fall back to the raw snapshot if no factor run exists yet (cold start).
     let investable=true;
     let d;
-    try{
-      d=await fetch('/api/universe/investable').then(r=>{
-        if(!r.ok)throw new Error(r.status);
-        return r.json();
-      });
-    }catch(_){
+    const invResp=await fetch('/api/universe/investable');
+    if(invResp.status===404){
+      // Cold start: no factor run yet — fall back to raw snapshot.
       investable=false;
-      d=await fetch('/api/universe').then(r=>{
-        if(!r.ok)throw new Error(r.status);
-        return r.json();
-      });
+      const rawResp=await fetch('/api/universe');
+      if(!rawResp.ok)throw new Error(rawResp.status);
+      d=await rawResp.json();
+    }else if(!invResp.ok){
+      // Any non-404 error (500, network failure) should surface rather than
+      // silently falling back to the raw snapshot and masking the bug.
+      throw new Error(invResp.status);
+    }else{
+      d=await invResp.json();
     }
     if(investable){
       uniData=d.tickers||[];
