@@ -461,6 +461,32 @@ async def _load_fund_staleness() -> dict[str, date]:
         return {r.ticker: r.last_fetched for r in rows.fetchall()}
 
 
+async def _load_investable_tickers() -> frozenset[str] | None:
+    """Return tickers scored in the latest successful factor run, or None on cold start.
+
+    None → no factor run exists yet; fetch fundamentals for everything.
+    A frozenset → skip fundamentals for tickers absent from factor_scores if they
+    were checked within 30 days (vs the normal 7-day window for investable tickers).
+    Tickers only appear in factor_scores if they passed price/liquidity filters, so
+    this correctly identifies the ~3,000 investable names out of ~6,600 in the universe.
+    """
+    async with engine.connect() as conn:
+        run_row = await conn.execute(
+            text(
+                "SELECT run_id FROM factor_runs WHERE status='success' "
+                "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+            )
+        )
+        run = run_row.fetchone()
+        if run is None:
+            return None
+        ticker_rows = await conn.execute(
+            text("SELECT DISTINCT ticker FROM factor_scores WHERE run_id = :rid"),
+            {"rid": run[0]},
+        )
+        return frozenset(r[0] for r in ticker_rows.fetchall())
+
+
 async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
     started_at = datetime.now(timezone.utc)
     await _start_run(run_id, "fetch-data")
@@ -476,17 +502,34 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
     # Check what's already in the DB so we can skip up-to-date tickers.
     ticker_latest, spy_max = await _load_price_staleness()
     fund_latest = await _load_fund_staleness()
+    investable_tickers = await _load_investable_tickers()
 
     price_skip = sum(
         1 for t in price_tickers
         if t not in benchmark_set and spy_max and ticker_latest.get(t) == spy_max
     )
-    fund_skip  = sum(1 for t in fundamental_tickers if _should_skip_fundamentals(t, fund_latest, today))
-    print(
-        f"[fetch-data] starting: {len(price_tickers)} price tickers "
-        f"({price_skip} already current, spy_max={spy_max}), "
-        f"{len(fundamental_tickers)} fundamental tickers ({fund_skip} already current today)"
+    fund_skip = sum(
+        1 for t in fundamental_tickers
+        if _should_skip_fundamentals(
+            t, fund_latest, today,
+            max_age_days=7 if (investable_tickers is None or t in investable_tickers) else 30,
+        )
     )
+    if investable_tickers is not None:
+        non_inv = sum(1 for t in fundamental_tickers if t not in investable_tickers)
+        print(
+            f"[fetch-data] starting: {len(price_tickers)} price tickers "
+            f"({price_skip} already current, spy_max={spy_max}), "
+            f"{len(fundamental_tickers)} fundamental tickers ({fund_skip} already current, "
+            f"{non_inv} non-investable on 30d window)"
+        )
+    else:
+        print(
+            f"[fetch-data] starting: {len(price_tickers)} price tickers "
+            f"({price_skip} already current, spy_max={spy_max}), "
+            f"{len(fundamental_tickers)} fundamental tickers ({fund_skip} already current today) "
+            f"[cold start — fetching all]"
+        )
     _fetch_data_progress.update({"run_id": run_id, "tickers_done": 0, "total_tickers": len(price_tickers)})
     await _checkpoint(run_id, "fetch-data", started_at,
                       tickers_done=0, total_tickers=len(price_tickers),
@@ -575,8 +618,11 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                     print(f"[fetch-data] {ticker} prices: error - {e}")
 
             if ticker in fundamental_set:
-                # Skip fundamentals if fetched within the last 7 days — AV OVERVIEW is quarterly data.
-                if _should_skip_fundamentals(ticker, fund_latest, today):
+                # Investable tickers: 7-day window (AV OVERVIEW is quarterly, weekly is plenty).
+                # Non-investable tickers (failed price/liquidity in last factor run): 30-day window.
+                # Cold start (investable_tickers is None): always use 7-day window.
+                fund_max_age = 7 if (investable_tickers is None or ticker in investable_tickers) else 30
+                if _should_skip_fundamentals(ticker, fund_latest, today, max_age_days=fund_max_age):
                     fund_ok += 1
                     fund_skipped += 1
                 else:
