@@ -13,11 +13,9 @@ from fastapi import BackgroundTasks, FastAPI
 from app.staleness import is_stale, last_trading_day
 
 AV_INGESTOR_URL       = os.getenv("AV_INGESTOR_URL",       "http://av-ingestor:8000")
-FACTOR_ENGINE_URL     = os.getenv("FACTOR_ENGINE_URL",      "http://factor-engine:8000")
-RANKER_URL            = os.getenv("RANKER_URL",             "http://ranker:8000")
+PIPELINE_URL          = os.getenv("PIPELINE_URL",           "http://pipeline:8000")
 VETTER_URL            = os.getenv("VETTER_URL",             "http://llm-vetter:8000")
 PORTFOLIO_BUILDER_URL = os.getenv("PORTFOLIO_BUILDER_URL",  "http://portfolio-builder:8000")  # manual/monthly use only
-DELTA_ENGINE_URL      = os.getenv("DELTA_ENGINE_URL",       "http://delta-engine:8000")
 ALPACA_SYNC_URL       = os.getenv("ALPACA_SYNC_URL",        "http://alpaca-sync:8000")
 DATABASE_URL          = os.getenv("DATABASE_URL", "")
 
@@ -72,12 +70,9 @@ class _StepDef:
 _STEPS: list[_StepDef] = [
     _StepDef("fetch-data", AV_INGESTOR_URL, "/jobs/fetch-data", "started_at",
              job_type="fetch-data", extra_ok=("partial_success",)),
-    _StepDef("factor-calculate", FACTOR_ENGINE_URL, "/jobs/calculate", "score_date",
-             use_trading_day=True, also_accept_prev=True),
-    _StepDef("rank", RANKER_URL, "/jobs/rank", "rank_date",
+    _StepDef("pipeline", PIPELINE_URL, "/jobs/run", "run_date",
              use_trading_day=True, also_accept_prev=True),
     _StepDef("vet", VETTER_URL, "/jobs/vet", "started_at", optional=True),
-    _StepDef("delta", DELTA_ENGINE_URL, "/jobs/run", "run_date"),
 ]
 
 
@@ -152,13 +147,13 @@ async def _db_close_run(run_id: str | None, status: str, steps: dict, run_ids: d
 # ── Core helpers ──────────────────────────────────────────────────────────────
 
 async def _get_last_rank_date(client: httpx.AsyncClient) -> date | None:
-    """Return the date of the last successful ranking run, or None."""
+    """Return the date of the last successful pipeline run, or None."""
     try:
-        r = await client.get(f"{RANKER_URL}/runs/latest", timeout=10.0)
+        r = await client.get(f"{PIPELINE_URL}/runs/latest", timeout=10.0)
         if r.status_code == 200:
             data = r.json()
-            if data.get("status") == "success" and data.get("rank_date"):
-                return date.fromisoformat(data["rank_date"][:10])
+            if data.get("status") == "success" and data.get("run_date"):
+                return date.fromisoformat(data["run_date"][:10])
     except Exception:
         pass
     return None

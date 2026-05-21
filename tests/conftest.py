@@ -20,6 +20,7 @@ _SERVICE_MAP = {
     "factor_engine":    "factor-engine",
     "llm_gateway":      "llm-gateway",
     "llm_vetter":       "llm-vetter",
+    "pipeline":         "pipeline",
     "portfolio_builder":"portfolio-builder",
     "ranker":           "ranker",
     "risk_service":     "risk-service",

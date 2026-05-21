@@ -9,6 +9,7 @@ from datetime import date, datetime, timezone
 from typing import Optional
 
 import httpx
+import redis.asyncio as aioredis
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -20,6 +21,8 @@ from stock_strategy_shared.db import wait_for_db
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 if not DATABASE_URL:
     raise RuntimeError("Missing required environment variable: DATABASE_URL")
+
+REDIS_URL = os.getenv("REDIS_URL", "")
 
 AV_API_KEY = os.getenv("AV_API_KEY", "demo")
 if AV_API_KEY in ("", "demo"):
@@ -231,6 +234,39 @@ async def _write_trace_file(
 
 async def _checkpoint(run_id: str, job_type: str, started_at: datetime, **progress) -> None:
     await _write_trace_file(run_id, job_type, "running", started_at, **progress)
+
+
+# ── Redis Streams publishing ─────────────────────────────────────────────────
+
+PIPELINE_STREAM = "stocker:pipeline_events"
+
+
+async def _publish_fetch_complete(run_date: str, run_id: str) -> None:
+    """Publish a fetch_data.complete event to the pipeline Redis stream.
+
+    Non-blocking: failures are logged and swallowed so they never affect
+    the ingest run's own success/failure status.
+    """
+    if not REDIS_URL:
+        print("[av-ingestor] REDIS_URL not set — skipping pipeline event publish")
+        return
+    try:
+        r = aioredis.from_url(REDIS_URL, decode_responses=True)
+        try:
+            await r.xadd(
+                PIPELINE_STREAM,
+                {
+                    "event": "fetch_data.complete",
+                    "run_date": run_date,
+                    "run_id": run_id,
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            print(f"[av-ingestor] published fetch_data.complete to {PIPELINE_STREAM} (run_date={run_date})")
+        finally:
+            await r.aclose()
+    except Exception as exc:
+        print(f"[av-ingestor] WARNING: failed to publish pipeline event: {exc}")
 
 
 # ── Endpoints ──────────────────────────────────
@@ -694,6 +730,9 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
         if error_tickers:
             print(f"[fetch-data] {err_count} errors: {', '.join(error_tickers)}")
         print(f"[fetch-data] done — {price_skipped} price / {fund_skipped} fund tickers skipped (already current)")
+        # Publish pipeline event so the pipeline service can auto-start factor/rank/delta.
+        # Published for both "success" and "partial_success" — either is actionable.
+        asyncio.create_task(_publish_fetch_complete(str(today), run_id))
     except Exception as exc:
         traceback.print_exc()
         err = str(exc)[:1000]

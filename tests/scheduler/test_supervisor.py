@@ -276,7 +276,7 @@ class TestSupervisorTick:
 
         assert mock_trigger.call_count == 1
         triggered_step = mock_trigger.call_args[0][1]
-        assert triggered_step.name == "factor-calculate"
+        assert triggered_step.name == "pipeline"
 
     @pytest.mark.asyncio
     async def test_suspends_on_required_failure(self):
@@ -307,12 +307,13 @@ class TestSupervisorTick:
 
     @pytest.mark.asyncio
     async def test_skips_optional_failure(self):
-        """vet failed (optional=True) → chain continues to delta step."""
+        """vet failed (optional=True) → chain succeeds (no steps after vet in new sequence)."""
         self._reset_chain_status()
         mock_trigger = AsyncMock()
+        mock_db_close = AsyncMock()
 
         async def _fake_step_state(client, step, today, trading_day, prev_trading_day):
-            if step.name in ("fetch-data", "factor-calculate", "rank"):
+            if step.name in ("fetch-data", "pipeline"):
                 return "done"
             if step.name == "vet":
                 return "failed"
@@ -325,13 +326,16 @@ class TestSupervisorTick:
             "_get_latest_run_id": AsyncMock(return_value=None),
             "_db_open_run": AsyncMock(return_value="run-uuid-1"),
             "_db_update_run": AsyncMock(),
-            "_db_close_run": AsyncMock(),
+            "_db_close_run": mock_db_close,
+            "asyncio": type("_FakeAsyncio", (), {
+                "create_task": staticmethod(lambda coro: (coro.close() if hasattr(coro, "close") else None) or MagicMock()),
+            })(),
         }):
             await _supervisor_tick()
 
-        assert mock_trigger.call_count == 1
-        triggered_step = mock_trigger.call_args[0][1]
-        assert triggered_step.name == "delta"
+        # vet is optional and last step — chain should complete successfully
+        mock_trigger.assert_not_called()
+        assert _chain_status["status"] == "success"
 
     @pytest.mark.asyncio
     async def test_marks_success_when_all_done(self):

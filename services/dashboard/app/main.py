@@ -7,12 +7,10 @@ import httpx
 
 API_URL             = os.getenv("API_URL",             "http://api:8000")
 AV_INGESTOR_URL     = os.getenv("AV_INGESTOR_URL",     "http://av-ingestor:8000")
-FACTOR_ENGINE_URL   = os.getenv("FACTOR_ENGINE_URL",   "http://factor-engine:8000")
-RANKER_URL          = os.getenv("RANKER_URL",           "http://ranker:8000")
+PIPELINE_URL        = os.getenv("PIPELINE_URL",        "http://pipeline:8000")
 VETTER_URL          = os.getenv("VETTER_URL",           "http://llm-vetter:8000")
 PORTFOLIO_URL       = os.getenv("PORTFOLIO_URL",        "http://portfolio-builder:8000")
 SCHEDULER_URL       = os.getenv("SCHEDULER_URL",        "http://scheduler:8000")
-DELTA_ENGINE_URL    = os.getenv("DELTA_ENGINE_URL",     "http://delta-engine:8000")
 
 app = FastAPI(title="stocker-dashboard")
 
@@ -24,20 +22,18 @@ _rank_chain_running: bool = False
 _JOB_SERVICES = {
     "universe":  AV_INGESTOR_URL,
     "data":      AV_INGESTOR_URL,
-    "factors":   FACTOR_ENGINE_URL,
-    "rank":      RANKER_URL,
+    "pipeline":  PIPELINE_URL,
+    "rank":      PIPELINE_URL,
     "vet":       VETTER_URL,
     "portfolio": PORTFOLIO_URL,
-    "delta":     DELTA_ENGINE_URL,
 }
 _JOB_PATHS = {
     "universe":  "/jobs/fetch-universe",
     "data":      "/jobs/fetch-data",
-    "factors":   "/jobs/calculate",
-    "rank":      "/jobs/rank",
+    "pipeline":  "/jobs/run",
+    "rank":      "/jobs/run",
     "vet":       "/jobs/vet",
     "portfolio": "/jobs/build",
-    "delta":     "/jobs/run",
 }
 
 
@@ -253,14 +249,11 @@ async def pipeline_status():
         async def fetch_portfolio():
             return await client.get(f"{API_URL}/portfolio")
 
-        async def fetch_ranker():
-            return await client.get(f"{RANKER_URL}/runs/latest")
+        async def fetch_pipeline_latest():
+            return await client.get(f"{PIPELINE_URL}/runs/latest")
 
         async def fetch_data_latest():
             return await client.get(f"{AV_INGESTOR_URL}/runs/latest")
-
-        async def fetch_factors_latest():
-            return await client.get(f"{FACTOR_ENGINE_URL}/runs/latest")
 
         async def fetch_portfolio_latest():
             return await client.get(f"{PORTFOLIO_URL}/runs/latest")
@@ -268,14 +261,13 @@ async def pipeline_status():
         async def fetch_scheduler_status():
             return await client.get(f"{SCHEDULER_URL}/status")
 
-        r0, r1, r2, r3, r4, r5, r6, r7, r8 = await asyncio.gather(
+        r0, r1, r2, r3, r4, r5, r6, r7 = await asyncio.gather(
             _safe_fetch(fetch_universe(),         {"error": "timeout"}),
             _safe_fetch(fetch_rankings(),         {"error": "timeout"}),
             _safe_fetch(fetch_vetter(),           {"error": "timeout"}),
             _safe_fetch(fetch_portfolio(),        {"error": "timeout"}),
-            _safe_fetch(fetch_ranker(),           {"error": "timeout"}),
+            _safe_fetch(fetch_pipeline_latest(),  {"error": "timeout"}),
             _safe_fetch(fetch_data_latest(),      {"error": "timeout"}),
-            _safe_fetch(fetch_factors_latest(),   {"error": "timeout"}),
             _safe_fetch(fetch_portfolio_latest(), {"error": "timeout"}),
             _safe_fetch(fetch_scheduler_status(), {"error": "timeout"}),
         )
@@ -306,21 +298,28 @@ async def pipeline_status():
         port_date = run.get("portfolio_date")
         port_completed_at = run.get("completed_at")
 
+    # r4 = pipeline /runs/latest
+    pipeline_status_raw = None
     if not isinstance(r4, dict) and r4.status_code == 200:
         d4 = r4.json()
         rank_completed_at = d4.get("completed_at")
-        ranker_status_raw = d4.get("status")
+        pipeline_status_raw = d4.get("status")
+        # pipeline step sub-statuses
+        _pipeline_factor_status = d4.get("factor_status")
+        _pipeline_rank_status   = d4.get("ranking_status")
+        _pipeline_delta_status  = d4.get("delta_status")
     else:
-        ranker_status_raw = None
+        _pipeline_factor_status = _pipeline_rank_status = _pipeline_delta_status = None
 
     scheduler_chain_running = False
     scheduler_step_label = None
-    if not isinstance(r8, dict) and r8.status_code == 200:
-        d8 = r8.json()
-        if d8.get("status") == "running":
+    # r7 = scheduler /status
+    if not isinstance(r7, dict) and r7.status_code == 200:
+        d7_sched = r7.json()
+        if d7_sched.get("status") == "running":
             scheduler_chain_running = True
-            # Surface the active step name if available (last_run.steps keys)
-            last_run = d8.get("last_run") or {}
+            # Surface the active step name if available
+            last_run = d7_sched.get("last_run") or {}
             steps = last_run.get("steps") or {}
             running_steps = [k for k, v in steps.items() if v == "running"]
             if running_steps:
@@ -333,6 +332,7 @@ async def pipeline_status():
     # for success; only override with the live run status when fetch-universe is
     # actively running or has explicitly failed with no snapshot saved at all.
     universe_status = "none"
+    # r5 = av-ingestor /runs/latest
     d5 = r5.json() if (not isinstance(r5, dict) and r5.status_code == 200) else {}
     if d5:
         jtype = d5.get("job_type", "")
@@ -355,10 +355,9 @@ async def pipeline_status():
     rank_step_label = None
     rank_pct = None  # real percentage 0-100, None means unknown
 
-    # Compute terminal state first — a completed ranker overrides any stale
-    # "running" records left in upstream services (av-ingestor, factor-engine)
-    # after a container restart or interrupted run.
-    confirmed_terminal = ranker_status_raw in ("success", "partial_success", "skipped", "failed")
+    # Compute terminal state first — a completed pipeline run overrides any stale
+    # "running" records left in upstream services after a container restart.
+    confirmed_terminal = pipeline_status_raw in ("success", "partial_success", "skipped", "failed")
 
     if not confirmed_terminal and d5 and d5.get("status") == "running" and d5.get("job_type") == "fetch-data":
         rank_status = "running"
@@ -370,20 +369,25 @@ async def pipeline_status():
             # fetch-data covers the first 80% of the pipeline
             rank_pct = round(done / total * 80)
 
-    if not confirmed_terminal and rank_status != "running" and not isinstance(r6, dict) and r6.status_code == 200:
-        d6 = r6.json()
-        if d6.get("status") == "running":
-            rank_status = "running"
+    if not confirmed_terminal and rank_status != "running" and pipeline_status_raw == "running":
+        rank_status = "running"
+        # Surface sub-step from pipeline factor/ranking/delta status fields
+        if _pipeline_factor_status == "running":
             rank_step = "calc_factors"
             rank_step_label = "Calculating Factors"
-            rank_pct = 85
-
-    if not confirmed_terminal and rank_status != "running" and not isinstance(r4, dict) and r4.status_code == 200:
-        if ranker_status_raw == "running":
-            rank_status = "running"
+            rank_pct = 50
+        elif _pipeline_rank_status == "running":
             rank_step = "ranking"
             rank_step_label = "Ranking"
+            rank_pct = 80
+        elif _pipeline_delta_status == "running":
+            rank_step = "delta"
+            rank_step_label = "Delta Engine"
             rank_pct = 95
+        else:
+            rank_step = "pipeline"
+            rank_step_label = "Pipeline Running"
+            rank_pct = 60
 
     # If the orchestrator is still running (inter-step gap), keep rank as running
     # so the progress bar doesn't flash done between steps.
@@ -397,9 +401,9 @@ async def pipeline_status():
         rank_step_label = rank_step_label or scheduler_step_label or "Starting"
 
     if rank_status != "running":
-        if ranker_status_raw in ("success", "partial_success", "skipped"):
+        if pipeline_status_raw in ("success", "partial_success", "skipped"):
             rank_status = "success"
-        elif ranker_status_raw == "failed":
+        elif pipeline_status_raw == "failed":
             rank_status = "failed"
         elif rank_date:
             rank_status = "success"
@@ -421,10 +425,11 @@ async def pipeline_status():
         vetter_date = raw_dt[:10] if raw_dt else None
 
     # ── Determine portfolio status ────────────────────────────────────────────
+    # r6 = portfolio-builder /runs/latest
     portfolio_status = "none"
-    if not isinstance(r7, dict) and r7.status_code == 200:
-        d7 = r7.json()
-        ps = d7.get("status", "")
+    if not isinstance(r6, dict) and r6.status_code == 200:
+        d6_port = r6.json()
+        ps = d6_port.get("status", "")
         if ps == "running":
             portfolio_status = "running"
         elif ps in ("success", "partial_success"):
