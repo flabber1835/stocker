@@ -26,24 +26,6 @@ ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
 _MIN_EIGENVALUE = 1e-8  # numerical zero threshold for PSD matrix repair
 
 
-def _apply_conviction_boost(
-    original_score: float,
-    conviction: str,
-    boost_map: dict,
-    max_boost: float,
-) -> float:
-    """
-    Additive LLM conviction boost: score += abs(score) * boost_factor.
-    Using abs() means negative-score stocks are lifted toward zero rather than
-    penalised further, and positive-score stocks are amplified proportionally.
-    Returns original_score unchanged when conviction is 'none' or unknown.
-    """
-    boost = min(boost_map.get(conviction, 0.0), max_boost)
-    if boost <= 0:
-        return original_score
-    return original_score + abs(original_score) * boost
-
-
 _fmt_row = fmt_row
 
 
@@ -246,76 +228,6 @@ async def _do_build(
                     [f"LLM vetter excluded {len(vetter_excluded)} tickers: {vetter_excluded}"]
                     if vetter_excluded else None
                 ),
-            )
-
-    # ── Step 2c: apply LLM vetter conviction boosts ──────────────────────────────────────────────────────────────────────────────────────
-    conviction_boosts_applied: dict[str, dict] = {}
-    if vetter_run_id:
-        vetter_cfg = strategy.vetter
-        boost_map = vetter_cfg.conviction_boosts
-
-        async with engine.connect() as conn:
-            conv_rows = await conn.execute(
-                text(
-                    "SELECT ticker, positive_conviction, COALESCE(hallucination_flag_count, 0) AS hallucination_flag_count "
-                    "FROM vetter_decisions "
-                    "WHERE run_id = :rid AND positive_catalyst = TRUE"
-                ),
-                {"rid": vetter_run_id},
-            )
-            conviction_map = {
-                r.ticker: {"conviction": r.positive_conviction, "flag_count": r.hallucination_flag_count}
-                for r in conv_rows.fetchall()
-            }
-
-        max_boost = vetter_cfg.conviction_max_boost
-        for ticker, cv_info in conviction_map.items():
-            if ticker not in scores_map:
-                continue
-            conviction = cv_info["conviction"]
-            flag_count = cv_info.get("flag_count", 0)
-            # Attenuate boost when LLM output had hallucination flags
-            boost = min(boost_map.get(conviction, 0.0), max_boost)
-            if flag_count >= 3:
-                boost = 0.0  # too many flags — skip boost entirely
-            elif flag_count == 2:
-                boost *= 0.5
-            elif flag_count == 1:
-                boost *= 0.75
-            if boost <= 0:
-                continue
-            original = scores_map[ticker]
-            scores_map[ticker] = original + abs(original) * boost
-            conviction_boosts_applied[ticker] = {
-                "conviction": conviction,
-                "boost_factor": round(boost, 4),
-                "flag_count": flag_count,
-                "original_score": round(original, 6),
-                "adjusted_score": round(scores_map[ticker], 6),
-            }
-
-        if conviction_boosts_applied:
-            async with engine.begin() as conn:
-                await _log_step(
-                    conn, trace_id, "apply_conviction_boosts", "success",
-                    started_at=t0,
-                    input_summary={
-                        "vetter_run_id": vetter_run_id,
-                        "conviction_boosts_config": boost_map,
-                        "conviction_max_boost": vetter_cfg.conviction_max_boost,
-                    },
-                    output_summary={
-                        "boosted_count": len(conviction_boosts_applied),
-                        "boosted_tickers": conviction_boosts_applied,
-                    },
-                )
-            print(
-                f"[portfolio-builder] conviction boosts applied to "
-                f"{len(conviction_boosts_applied)} tickers: "
-                + ", ".join(
-                    f"{t}(+{v['boost_factor']*100:.0f}%)"
-                    for t, v in conviction_boosts_applied.items()
-                )
             )
 
     # ── Step 3: load price data for covariance ───────────────────────────────────────────────────────────────────────────────────────────
@@ -730,9 +642,7 @@ async def _do_build(
             "require_positive_composite_score": pb_cfg.require_positive_composite_score,
             "weighting": pb_cfg.weighting,
             "max_position_weight": pb_cfg.max_position_weight,
-            "vetter_conviction_max_boost": strategy.vetter.conviction_max_boost,
         },
-        conviction_boosts_applied=conviction_boosts_applied,
         holdings=holdings_detail,
     )
 

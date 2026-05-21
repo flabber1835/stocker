@@ -109,16 +109,6 @@ async def validate(request: Request):
 
     warnings: list[str] = []
 
-    # Warn if conviction_max_boost is lower than the highest conviction_boosts value
-    # (portfolio-builder will silently clamp, but it's a config inconsistency)
-    max_boost_val = max(cfg.vetter.conviction_boosts.values(), default=0.0)
-    if max_boost_val > cfg.vetter.conviction_max_boost:
-        warnings.append(
-            f"vetter.conviction_boosts has a value ({max_boost_val}) higher than "
-            f"conviction_max_boost ({cfg.vetter.conviction_max_boost}); "
-            "the higher values will be clamped at runtime"
-        )
-
     return {
         "valid": True,
         "strategy_id": cfg.strategy_id,

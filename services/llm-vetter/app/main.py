@@ -132,11 +132,6 @@ def _build_summary(ticker_results: list[dict], candidates_total: int) -> dict:
     ]
     latencies = [r.get("latency_ms", 0) for r in ticker_results if r.get("latency_ms")]
     positive_catalysts = [r for r in ticker_results if r.get("positive_catalyst")]
-    positive_conviction_dist = {
-        "high":   sum(1 for r in ticker_results if r.get("positive_conviction") == "high"),
-        "medium": sum(1 for r in ticker_results if r.get("positive_conviction") == "medium"),
-        "low":    sum(1 for r in ticker_results if r.get("positive_conviction") == "low"),
-    }
     return {
         "total_candidates":       candidates_total,
         "completed":              completed,
@@ -152,7 +147,6 @@ def _build_summary(ticker_results: list[dict], candidates_total: int) -> dict:
         "total_latency_ms":       sum(latencies),
         "positive_catalysts":     len(positive_catalysts),
         "positive_catalyst_tickers": [r["ticker"] for r in positive_catalysts],
-        "positive_conviction_dist":  positive_conviction_dist,
     }
 
 
@@ -446,7 +440,6 @@ async def _do_vet(
                     "risk_type":            result["risk_type"],
                     "reason":               result["reason"],
                     "positive_catalyst":    result.get("positive_catalyst", False),
-                    "positive_conviction":  result.get("positive_conviction", "none"),
                     "positive_reason":      result.get("positive_reason", ""),
                     "raw_response":         result.get("raw_response", ""),
                     "latency_ms":           result.get("latency_ms"),
@@ -492,8 +485,7 @@ async def _do_vet(
                 },
             )
 
-        # Write ALL ticker decisions (not just exclusions) so portfolio-builder
-        # can query conviction boosts for the full candidate set.
+        # Write ALL ticker decisions (not just exclusions) for full audit trail.
         for r in ticker_results:
             if r.get("crashed"):
                 continue
@@ -501,9 +493,9 @@ async def _do_vet(
                 text(
                     "INSERT INTO vetter_decisions "
                     "(run_id, ticker, exclude, reason, confidence, risk_type, "
-                    " positive_catalyst, positive_conviction, positive_reason, hallucination_flag_count) "
+                    " positive_catalyst, positive_reason, hallucination_flag_count) "
                     "VALUES (:rid, :ticker, :excl, :reason, :conf, :rtype, "
-                    "        :pc, :pconv, :preason, :hfc) "
+                    "        :pc, :preason, :hfc) "
                     "ON CONFLICT (run_id, ticker) DO NOTHING"
                 ),
                 {
@@ -514,7 +506,6 @@ async def _do_vet(
                     "conf":    r.get("confidence", "low"),
                     "rtype":   r.get("risk_type", "none"),
                     "pc":      r.get("positive_catalyst", False),
-                    "pconv":   r.get("positive_conviction", "none"),
                     "preason": r.get("positive_reason", ""),
                     "hfc":     len(r.get("hallucination_flags", [])),
                 },
@@ -790,7 +781,7 @@ async def get_ticker_results(run_id: str):
 
     _SUMMARY_FIELDS = {
         "ticker", "exclude", "reason", "confidence", "risk_type",
-        "positive_catalyst", "positive_conviction", "positive_reason",
+        "positive_catalyst", "positive_reason",
         "had_av_news", "had_earnings", "had_tavily", "agent_searches",
         "latency_ms", "crashed", "parse_error", "hallucination_flags",
         "earnings_date", "news_titles",

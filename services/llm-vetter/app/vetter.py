@@ -89,12 +89,11 @@ PER_TICKER_SCHEMA = {
             "enum": ["earnings", "regulatory", "management", "legal", "sector", "none"],
         },
         "positive_catalyst":    {"type": "boolean"},
-        "positive_conviction":  {"type": "string", "enum": ["high", "medium", "low", "none"]},
         "positive_reason":      {"type": "string"},
     },
     "required": [
         "exclude", "reason", "confidence", "risk_type",
-        "positive_catalyst", "positive_conviction", "positive_reason",
+        "positive_catalyst", "positive_reason",
     ],
 }
 
@@ -435,11 +434,6 @@ def _detect_hallucination_flags(
     if parsed.get("positive_catalyst", False) and len(positive_reason_text.strip()) < 15:
         flags.append(f"positive_catalyst=True but positive_reason is empty/too short ({len(positive_reason_text)} chars)")
 
-    # Contradiction: positive_catalyst=False but conviction is not 'none'
-    positive_conviction = parsed.get("positive_conviction", "none")
-    if not parsed.get("positive_catalyst", False) and positive_conviction not in ("none", ""):
-        flags.append(f"positive_catalyst=False but positive_conviction='{positive_conviction}' — contradictory")
-
     # Regime hallucination: reason cites a regime name that doesn't match the input regime
     all_regimes = {"bull_calm", "bull_stress", "bear_calm", "bear_stress"}
     if regime and regime in all_regimes:
@@ -688,7 +682,6 @@ async def vet_single_ticker(
             "confidence":  "low",
             "risk_type":   "none",
             "positive_catalyst":   False,
-            "positive_conviction": "none",
             "positive_reason":     "",
             "had_av_news":    bool(news),
             "had_earnings":   earnings_date is not None,
@@ -741,27 +734,6 @@ async def vet_single_ticker(
             f"AUTO-OVERRIDDEN: exclude=True ({original_confidence} confidence) with no supporting data → forced to KEEP"
         )
 
-    # Positive conviction override: clear catalyst entirely when no supporting data.
-    # Leaving positive_catalyst=True with conviction="low" and empty reason is
-    # internally contradictory (the LOCKED UNIT rule) and still triggers a small
-    # score boost in portfolio-builder with zero evidentiary basis.
-    if (
-        parsed.get("positive_catalyst", False)
-        and not has_any_supporting_data
-        and parsed.get("positive_conviction", "none") in ("high", "medium")
-    ):
-        log.warning(
-            "[llm-vetter] %s: clearing positive catalyst — %s conviction with no supporting data",
-            ticker, parsed["positive_conviction"],
-        )
-        parsed["positive_catalyst"] = False
-        parsed["positive_conviction"] = "none"
-        parsed["positive_reason"] = ""
-        hallucination_flags.append(
-            "positive_catalyst cleared (was high/medium conviction with no supporting data)"
-        )
-
-
     return {
         "ticker":      ticker,
         "exclude":     bool(parsed.get("exclude", False)),
@@ -769,7 +741,6 @@ async def vet_single_ticker(
         "confidence":  parsed.get("confidence", "low"),
         "risk_type":   parsed.get("risk_type", "none"),
         "positive_catalyst":   bool(parsed.get("positive_catalyst", False)),
-        "positive_conviction": parsed.get("positive_conviction", "none"),
         "positive_reason":     parsed.get("positive_reason", ""),
         "had_av_news":    bool(news),
         "had_earnings":   earnings_date is not None,

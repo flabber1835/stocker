@@ -109,10 +109,6 @@ class VetterConfig(BaseModel):
         description="Set false to skip LLM vetting entirely for this strategy."
     )
     candidate_count: int = Field(default=50, ge=5, le=200)
-    conviction_max_boost: float = Field(default=0.25, ge=0.0, le=1.0)
-    conviction_boosts: dict[str, float] = Field(
-        default_factory=lambda: {"high": 0.25, "medium": 0.12, "low": 0.05, "none": 0.0}
-    )
     risk_horizon_days: int = Field(
         default=90, ge=1, le=365,
         description="Risk assessment horizon passed to the LLM. Events beyond this window are treated as "
@@ -148,18 +144,6 @@ class VetterConfig(BaseModel):
             "permissive: exclude only on imminent binary events."
         )
     )
-
-    @model_validator(mode="after")
-    def conviction_boosts_keys_valid(self) -> "VetterConfig":
-        allowed = {"high", "medium", "low", "none"}
-        unknown = set(self.conviction_boosts.keys()) - allowed
-        if unknown:
-            raise ValueError(f"conviction_boosts has unknown keys: {unknown}. Allowed: {allowed}")
-        for k, v in self.conviction_boosts.items():
-            if not (0.0 <= v <= 1.0):
-                raise ValueError(f"conviction_boosts['{k}'] = {v} is outside [0, 1]")
-        return self
-
 
 class IntradayConfig(BaseModel):
     """Intraday monitoring behaviour.

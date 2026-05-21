@@ -336,8 +336,7 @@ CREATE TABLE IF NOT EXISTS vetter_exclusions (
 CREATE INDEX IF NOT EXISTS idx_vetter_exclusions_run ON vetter_exclusions(run_id);
 
 -- ── LLM vetter decisions (all tickers, not just exclusions) ───────────────────
--- Stores the full per-ticker decision including positive catalyst signal so the
--- portfolio-builder can apply conviction-based score boosts at selection time.
+-- Stores the full per-ticker decision including positive catalyst signal.
 
 CREATE TABLE IF NOT EXISTS vetter_decisions (
     id                  UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -348,8 +347,6 @@ CREATE TABLE IF NOT EXISTS vetter_decisions (
     confidence          VARCHAR(10)  CHECK (confidence IN ('high', 'medium', 'low')),
     risk_type           VARCHAR(50),
     positive_catalyst   BOOLEAN      NOT NULL DEFAULT FALSE,
-    positive_conviction VARCHAR(10)  NOT NULL DEFAULT 'none'
-                            CHECK (positive_conviction IN ('high', 'medium', 'low', 'none')),
     positive_reason     TEXT,
     hallucination_flag_count INTEGER NOT NULL DEFAULT 0,
     created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
@@ -359,6 +356,8 @@ CREATE TABLE IF NOT EXISTS vetter_decisions (
 CREATE INDEX IF NOT EXISTS idx_vetter_decisions_run ON vetter_decisions(run_id);
 CREATE INDEX IF NOT EXISTS idx_vetter_decisions_catalyst ON vetter_decisions(run_id, positive_catalyst)
     WHERE positive_catalyst = TRUE;
+
+ALTER TABLE vetter_decisions DROP COLUMN IF EXISTS positive_conviction;
 
 -- ── Alpaca sync runs ──────────────────────────────────────────────────────────
 -- One row per alpaca-sync invocation. Tracks account state at sync time.

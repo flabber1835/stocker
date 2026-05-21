@@ -290,7 +290,6 @@ def test_date_hallucination_in_positive_reason_flagged():
     """Old year in positive_reason should also be flagged."""
     parsed = {
         **_parsed(positive_catalyst=True),
-        "positive_conviction": "high",
         "positive_reason": "XYZ signed a landmark AI partnership in January 2020.",
     }
     flags = _detect_hallucination_flags("XYZ", parsed, news=[], earnings_date=None, raw="{}", today="2026-05-17")
@@ -302,33 +301,10 @@ def test_positive_catalyst_true_empty_reason_flagged():
     """positive_catalyst=True with no positive_reason text should be flagged."""
     parsed = {
         **_parsed(positive_catalyst=True),
-        "positive_conviction": "high",
         "positive_reason": "",
     }
     flags = _detect_hallucination_flags("XYZ", parsed, news=[], earnings_date=None, raw="{}")
     assert any("positive_reason" in f and "empty" in f.lower() for f in flags)
-
-
-def test_positive_catalyst_false_with_conviction_flagged():
-    """positive_catalyst=False with a non-'none' conviction is contradictory."""
-    parsed = {
-        **_parsed(positive_catalyst=False),
-        "positive_conviction": "medium",
-        "positive_reason": "",
-    }
-    flags = _detect_hallucination_flags("XYZ", parsed, news=[], earnings_date=None, raw="{}")
-    assert any("positive_catalyst=False" in f and "positive_conviction" in f for f in flags)
-
-
-def test_positive_catalyst_false_none_conviction_not_flagged():
-    """positive_catalyst=False with conviction='none' is normal — no flag."""
-    parsed = {
-        **_parsed(positive_catalyst=False),
-        "positive_conviction": "none",
-        "positive_reason": "",
-    }
-    flags = _detect_hallucination_flags("XYZ", parsed, news=[], earnings_date=None, raw="{}")
-    assert not any("positive_conviction" in f for f in flags)
 
 
 # ── _build_summary ────────────────────────────────────────────────────────────
@@ -343,7 +319,6 @@ def _r(
     crashed=False,
     confidence="low",
     positive_catalyst=False,
-    positive_conviction="none",
     had_av_news=False,
     had_earnings=False,
     had_tavily=False,
@@ -356,7 +331,6 @@ def _r(
         "crashed": crashed,
         "confidence": confidence,
         "positive_catalyst": positive_catalyst,
-        "positive_conviction": positive_conviction,
         "had_av_news": had_av_news,
         "had_earnings": had_earnings,
         "had_tavily": had_tavily,
@@ -401,18 +375,15 @@ class TestBuildSummary:
         s = _build_summary(results, 4)
         assert s["confidence_dist"] == {"high": 1, "medium": 1, "low": 2}
 
-    def test_positive_catalysts_and_conviction_dist(self):
+    def test_positive_catalysts_count(self):
         results = [
-            _r("AAPL", positive_catalyst=True, positive_conviction="high"),
-            _r("MSFT", positive_catalyst=True, positive_conviction="low"),
+            _r("AAPL", positive_catalyst=True),
+            _r("MSFT", positive_catalyst=True),
             _r("GOOG"),
         ]
         s = _build_summary(results, 3)
         assert s["positive_catalysts"] == 2
         assert set(s["positive_catalyst_tickers"]) == {"AAPL", "MSFT"}
-        assert s["positive_conviction_dist"]["high"] == 1
-        assert s["positive_conviction_dist"]["low"] == 1
-        assert s["positive_conviction_dist"]["medium"] == 0
 
     def test_no_data_tickers(self):
         results = [
@@ -447,7 +418,7 @@ class TestBuildSummary:
     def test_parse_errors_counted(self):
         results = [_r("A"), {"ticker": "B", "exclude": False, "crashed": False,
                               "confidence": "low", "positive_catalyst": False,
-                              "positive_conviction": "none", "had_av_news": False,
+                              "had_av_news": False,
                               "had_earnings": False, "had_tavily": False,
                               "latency_ms": 50, "hallucination_flags": [],
                               "parse_error": True}]

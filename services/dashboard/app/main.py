@@ -1475,7 +1475,6 @@ async function _loadVetterTickers(runId, live){
         const newsTitles= r.news_titles || [];
         const riskType  = (r.risk_type && r.risk_type!=='none') ? r.risk_type.replace(/_/g,' ') : null;
         const posCatalyst   = !!r.positive_catalyst;
-        const posConviction = r.positive_conviction || 'none';
         const posReason     = r.positive_reason || '';
 
         // Card top-border class
@@ -1493,11 +1492,6 @@ async function _loadVetterTickers(runId, live){
           ? '<span class="vc-badge '+riskBadgeCls+'">'+conf.toUpperCase()+' RISK</span>'
           : '';
 
-        // Positive catalyst badge (only if present and not none)
-        const catBadge = (posCatalyst && posConviction !== 'none')
-          ? '<span class="vc-badge vc-badge-catalyst-'+posConviction+'">'+posConviction.toUpperCase()+' CATALYST</span>'
-          : '';
-
         // Header
         const header = '<div class="vcard-header">'
           +'<span class="vc-ticker">'+esc(r.ticker||'')+'</span>'
@@ -1506,7 +1500,6 @@ async function _loadVetterTickers(runId, live){
           +'<span class="vc-badge '+vBadgeCls+'">'+verdict+'</span>'
           +riskBadge
           +(riskType ? '<span class="vc-badge" style="color:var(--secondary);border-color:var(--border)">'+esc(riskType.toUpperCase())+'</span>' : '')
-          +catBadge
           +'</div>'
           +'</div>';
 
@@ -1559,7 +1552,6 @@ async function _loadVetterTickers(runId, live){
             +'<div class="vc-catalyst-header">'
             +'<span class="vc-catalyst-arrow">⬆</span>'
             +'<span class="vc-catalyst-label">Positive Catalyst</span>'
-            +(posConviction !== 'none' ? '<span class="vc-badge vc-badge-catalyst-'+posConviction+'">'+posConviction.toUpperCase()+'</span>' : '')
             +'</div>'
             +'<div class="vc-catalyst-reason">'+esc(posReason)+'</div>'
             +'</div>'
