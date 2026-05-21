@@ -323,6 +323,7 @@ services:
       ALPACA_API_KEY: ${ALPACA_API_KEY:-}
       ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
       ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+      PYTHONUNBUFFERED: "1"
     depends_on:
       postgres:
         condition: service_healthy
@@ -358,6 +359,7 @@ services:
       LIVE_TRADING_ENABLED: ${LIVE_TRADING_ENABLED:-false}
       MAX_ORDER_NOTIONAL: ${MAX_ORDER_NOTIONAL:-50000.0}
       PAPER_ONLY: ${PAPER_ONLY:-true}
+      PYTHONUNBUFFERED: "1"
     depends_on:
       postgres:
         condition: service_healthy
@@ -384,6 +386,7 @@ services:
       RISK_SERVICE_URL: http://risk-service:8000
       EXIT_SYNC_MAX_AGE_HOURS: ${EXIT_SYNC_MAX_AGE_HOURS:-24}
       DEFAULT_MAX_POSITIONS: ${DEFAULT_MAX_POSITIONS:-30}
+      PYTHONUNBUFFERED: "1"
     depends_on:
       postgres:
         condition: service_healthy
