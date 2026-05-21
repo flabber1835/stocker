@@ -284,18 +284,19 @@ factor-engine        ← built (Phase 4)
 ranker               ← built (Phase 4)
 portfolio-builder    ← built (Phase 4)
 llm-vetter           ← built (Phase 4.5) — LLM-based stock vetting, informational only
-alpaca-sync          ← DB schema done; service not yet built
-intraday-monitor
-risk-service
-trade-executor
-llm-gateway
-strategy-config-service
+delta-engine         ← built (Phase 4.5) — buffer-zone entry/exit evaluation, produces delta_intents
+alpaca-sync          ← built (Phase 6) — broker position read sync, paper trading
+risk-service         ← built (Phase 6) — deterministic safety gate for trade approvals
+trade-executor       ← built (Phase 6) — submits paper orders to Alpaca
+scheduler            ← built (Phase 6) — daily chain + startup catch-up
 strategy-validator   ← built (Phase 2)
-backtester
-evaluator
-scheduler
 api                  ← built (Phase 1)
-dashboard            ← built and extended (Phases 1, 4, 4.5)
+dashboard            ← built and extended (Phases 1, 4, 4.5, 6)
+backtester           ← built (Phase 5)
+llm-gateway          ← partially built (provider abstraction skeleton in services/llm-gateway/)
+intraday-monitor     ← not yet built
+strategy-config-service ← not yet built
+evaluator            ← not yet built
 ```
 
 ---
@@ -956,16 +957,18 @@ stocker/
     ranker/              ← built: regime detection, factor weighting, scoring, ranking runs
     portfolio-builder/   ← built: greedy_score_per_port_vol, sector caps, conviction boosts
     llm-vetter/          ← built: Tavily + Ollama/OpenAI vetting, informational only
-    dashboard/           ← built: full trading dashboard with universe/rank/vetter/portfolio/live tabs
+    delta-engine/        ← built: buffer-zone entry/exit evaluation, produces delta_intents
+    dashboard/           ← built: universe/rank/vetter/portfolio/live/trade-proposal tabs
+    alpaca-sync/         ← built: GET /v2/account, GET /v2/positions; writes alpaca_sync_runs + live_positions
+    risk-service/        ← built: deterministic /check (kill switch, paper guard, notional limit)
+    trade-executor/      ← built: only service permitted to submit Alpaca orders; writes alpaca_orders
+    scheduler/           ← built: daily chain + startup catch-up
+    backtester/          ← built: replays portfolio_runs against forward daily_prices
+    llm-gateway/         ← partially built: provider abstraction skeleton
 
-    alpaca-sync/         ← not yet built (DB tables exist)
     intraday-monitor/    ← not yet built
-    risk-service/        ← not yet built
-    trade-executor/      ← not yet built
-    llm-gateway/         ← not yet built
-    backtester/          ← not yet built
     evaluator/           ← not yet built
-    scheduler/           ← not yet built
+    strategy-config-service/ ← not yet built
 
   tests/
     av_ingestor/

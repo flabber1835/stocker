@@ -21,7 +21,9 @@ strategy-validator    ✅ covered via shared/test_strategy_schema.py
 llm-vetter            ✅ covered via llm_vetter/test_vetter.py
 factor-engine         ✅ covered via regression tests
 backtester            ✅ covered via backtester/test_simulate.py + test_metrics.py
-risk-service          ⬜ not yet built
+risk-service          ⬜ built, no tests
+trade-executor        ⬜ built, no tests
+alpaca-sync           ⬜ built, no tests
 intraday-monitor      ⬜ not yet built
 ranker                ⬜ unit tests pending
 ```
@@ -51,6 +53,23 @@ portfolio-builder: no test for conviction boost attenuation by hallucination_fla
 llm-vetter: no test for _format_ticker_message with quantitative context
 llm-vetter: no test for fetch_av_news concurrency / semaphore behaviour
 llm-vetter: no end-to-end agentic loop test (requires mock Ollama client)
+
+risk-service:
+  kill switch path (KILL_SWITCH=true rejects everything)
+  paper-only guard (PAPER_ONLY=true rejects live)
+  notional limit (notional > MAX_ORDER_NOTIONAL rejected)
+  qty validation (qty <= 0 rejected)
+  live trading guard (trade_type="live" requires LIVE_TRADING_ENABLED=true)
+
+trade-executor:
+  risk_rejected persistence (writes alpaca_orders row but does NOT call Alpaca)
+  no-credentials short circuit (empty ALPACA_API_KEY → records failed row, no call)
+  double-submit protection
+
+api /trade/approve:
+  sizing math for entries: floor(account_value × weight / last_price)
+  exit-qty pulled from latest live_positions row
+  audit-row insertion on failure paths (risk reject, missing intent, etc.)
 ```
 
 ## Service Expectations

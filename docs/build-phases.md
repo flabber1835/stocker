@@ -167,24 +167,43 @@ Input source: saved `portfolio_runs` + `portfolio_holdings` rows from portfolio-
 Does not re-simulate the pipeline — uses actual historical decisions to avoid
 reimplementing portfolio construction logic.
 
-## Phase 6: Alpaca Paper Trading (partial)
+## Phase 6: Alpaca Paper Trading ✅ DONE (paper trading)
 
-DB schema done:
+Built:
 
 ```text
-alpaca_sync_runs table
-live_positions table
+alpaca-sync service
+  /health, POST /jobs/sync, GET /runs/latest, GET /positions
+  reads GET /v2/account and GET /v2/positions from Alpaca
+  writes alpaca_sync_runs and live_positions (incl. lastday_price, change_today for day P&L)
+  asyncio-locked single-flight; auto-syncs on startup when credentials are present
+
+risk-service
+  /health, POST /check
+  deterministic checks (in order): KILL_SWITCH, LIVE_TRADING_ENABLED + trade_type=="live",
+    PAPER_ONLY, qty > 0, notional ≤ MAX_ORDER_NOTIONAL
+  no DB writes; returns approved/reason/check_id
+
+trade-executor
+  /health, POST /jobs/submit, GET /orders/recent
+  ONLY service permitted to submit Alpaca orders
+  inserts alpaca_orders row whether submitted, risk-rejected, or failed (auditable)
+  market orders; time_in_force = "day" (immediate) or "opg" (Market on Open)
+  short-circuits when ALPACA_API_KEY is empty
+
+Tables:
+  alpaca_sync_runs, live_positions, alpaca_orders
+
 /live-portfolio API endpoint
 Dashboard "Live" tab — connected/disconnected state, positions table
+Dashboard "Trade Proposal" tab — hold/warn/sell/buy tags from delta_intents,
+  two approve buttons (Execute Now / Schedule for Open) per tradeable intent
 ```
 
-Still to build:
+Remaining in Phase 6:
 
 ```text
-alpaca-sync service (reads positions/orders/fills from Alpaca, writes to Postgres)
 intraday-monitor service
-risk-service (hard safety gate)
-trade-executor (paper trading only)
 ```
 
 ## Phase 7: Scheduler and Automation (partial ✅)
@@ -213,10 +232,17 @@ Scheduler date safety:
   Vetter dedup likewise uses started_at date field.
 ```
 
+Built (continued):
+
+```text
+delta-engine — compares today's rankings to live portfolio, produces add/exit proposals;
+  writes delta_runs and delta_intents (entry / exit / hold / watch) consumed by
+  /trade/approve and the dashboard "Trade Proposal" tab
+```
+
 Still to build:
 
 ```text
-delta engine — compares today's rankings to live portfolio, produces add/exit proposals
 live_portfolio table — current holdings with entry date, entry rank, current rank, weight
 periodic weight normalization (full rebalance of sizes without forced holdings change)
 periodic alpaca-sync job

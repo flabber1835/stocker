@@ -18,33 +18,56 @@ no trade if market data stale
 no trade if kill switch is active
 ```
 
-## Non-Negotiable Safety Laws
+## Implemented Safety Controls (Phase 6)
 
-These should be hard-coded or centrally enforced by `risk-service`.
+These are actually enforced in code today.
 
 ```text
-max position size
-max daily turnover
-max order size
-max daily loss
-no trade if data is stale
-no trade if config is invalid
-no trade if Alpaca data is unavailable
-paper/live mode guard
-kill switch
-human approval requirement for live trading
+KILL_SWITCH env var      — if "true", risk-service rejects all checks
+LIVE_TRADING_ENABLED     — must be "true" for trade_type=="live" to pass; default "false"
+PAPER_ONLY               — when "true", any live trade is rejected; default "true"
+MAX_ORDER_NOTIONAL       — default $50,000 per order
+qty > 0 validation       — enforced in risk-service /check
+
+Human approval required for every paper trade — every order today requires a
+  manual button click on the dashboard Trade Proposal tab. The system does not
+  auto-submit, even after the delta engine fires.
+
+trade-executor short-circuits when Alpaca credentials are empty
+llm-vetter cannot place trades; vetter is informational only
+```
+
+## Planned Safety Controls (future)
+
+Not yet implemented. Tracked here so they don't get forgotten.
+
+```text
+max daily turnover cap
+max daily loss cap
+max position size cap (per-ticker weight)
+max position count
+staleness check (reject if market data > N hours old)
+Alpaca availability check (reject if last alpaca-sync failed or stale)
+persist risk-service decisions to a risk_decisions audit table
+  (check_id is currently returned but not stored server-side)
 ```
 
 ## Trade Intent Flow
 
+Actual flow as of Phase 6 (paper trading):
+
 ```text
-intraday-monitor or portfolio-builder
-  → trade intent
-  → risk-service
-  → approved/rejected decision
-  → trade-executor
-  → Alpaca order
+delta-engine
+  → delta_intents
+  → dashboard human approval (Trade Proposal tab)
+  → api /trade/approve
+  → risk-service /check
+  → trade-executor /jobs/submit
+  → Alpaca
 ```
+
+`intraday-monitor` will become a second producer of trade intents once built. The
+risk-service interface is designed so both producers go through the same gate.
 
 ## LLM Restrictions
 

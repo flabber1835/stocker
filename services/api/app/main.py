@@ -4,6 +4,8 @@ import re
 import traceback
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from typing import Literal
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -16,6 +18,10 @@ from stock_strategy_shared.tracing import fmt_row
 DATABASE_URL       = os.getenv("DATABASE_URL", "")
 RISK_SERVICE_URL   = os.getenv("RISK_SERVICE_URL",   "http://risk-service:8000")
 TRADE_EXECUTOR_URL = os.getenv("TRADE_EXECUTOR_URL", "http://trade-executor:8000")
+ALPACA_SYNC_URL    = os.getenv("ALPACA_SYNC_URL",    "http://alpaca-sync:8000")
+
+# How stale an alpaca-sync result can be before we refuse to size an exit from it.
+EXIT_SYNC_MAX_AGE_HOURS = float(os.getenv("EXIT_SYNC_MAX_AGE_HOURS", "24"))
 engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=7) if DATABASE_URL else None
 
 
@@ -711,23 +717,84 @@ async def get_delta_latest():
         raise HTTPException(status_code=500, detail="Failed to fetch delta data")
 
 
+# ── Alpaca sync proxy ──────────────────────────────────────────────────────────
+# Routes the dashboard's sync request through the API so the dashboard doesn't
+# need its own ALPACA_SYNC_URL env var. Internal services still call alpaca-sync
+# directly when they need to.
+
+@app.post("/alpaca/sync")
+async def trigger_alpaca_sync():
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(f"{ALPACA_SYNC_URL}/jobs/sync")
+            return r.json()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"alpaca-sync unavailable: {exc}")
+
+
 # ── Trade approval ─────────────────────────────────────────────────────────────
 
 class TradeApproveRequest(BaseModel):
-    intent_id: str    # delta_intents.id
-    mode: str         # "immediate" or "scheduled"
+    intent_id: str    # delta_intents.id (UUID)
+    mode: Literal["immediate", "scheduled"]
+
+
+async def _audit_failed_attempt(
+    *, intent_id: str | None, ticker: str, action: str, side: str,
+    qty: float | None, notional: float | None, mode: str, error: str,
+) -> str:
+    """Insert an alpaca_orders row recording a trade attempt that failed before
+    reaching the executor. Returns the new order_id. Best-effort — if even this
+    insert fails, log and continue."""
+    order_id = str(uuid.uuid4())
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "INSERT INTO alpaca_orders ("
+                "  id, intent_id, ticker, action, side, qty, notional,"
+                "  order_type, time_in_force, status, mode,"
+                "  risk_approved, risk_reason, error_message, created_at"
+                ") VALUES ("
+                "  :id, :intent_id, :ticker, :action, :side, :qty, :notional,"
+                "  'market', :tif, 'failed', :mode,"
+                "  FALSE, '', :err, NOW()"
+                ")"
+            ), {
+                "id": order_id, "intent_id": intent_id, "ticker": ticker,
+                "action": action, "side": side, "qty": qty, "notional": notional,
+                "tif": "opg" if mode == "scheduled" else "day",
+                "mode": mode, "err": error[:1000],
+            })
+    except Exception:
+        print(f"[api] _audit_failed_attempt insert failed: {traceback.format_exc()}")
+    return order_id
 
 
 @app.post("/trade/approve")
 async def approve_trade(req: TradeApproveRequest):
-    if req.mode not in ("immediate", "scheduled"):
-        raise HTTPException(status_code=400, detail="mode must be 'immediate' or 'scheduled'")
+    # Validate intent_id is a UUID — sanity check before hitting the DB.
+    try:
+        uuid.UUID(req.intent_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="intent_id must be a UUID")
 
     def _f(v):
         return float(v) if v is not None else None
 
     try:
         async with engine.connect() as conn:
+            # Idempotency: refuse if this intent already has an open or submitted order.
+            existing = (await conn.execute(text(
+                "SELECT id, status FROM alpaca_orders "
+                "WHERE intent_id = :iid AND status IN ('pending','submitted') "
+                "LIMIT 1"
+            ), {"iid": req.intent_id})).mappings().first()
+            if existing:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Intent {req.intent_id} already has an open order ({existing['status']})",
+                )
+
             # Fetch the delta intent
             intent = (await conn.execute(text(
                 "SELECT id, ticker, action, rank, composite_score, current_weight "
@@ -738,7 +805,10 @@ async def approve_trade(req: TradeApproveRequest):
                 raise HTTPException(status_code=404, detail=f"Intent {req.intent_id} not found")
 
             if intent["action"] not in ("entry", "exit"):
-                raise HTTPException(status_code=400, detail=f"Intent action '{intent['action']}' is not tradeable")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Intent action '{intent['action']}' is not tradeable",
+                )
 
             ticker = intent["ticker"]
             action = intent["action"]
@@ -749,21 +819,38 @@ async def approve_trade(req: TradeApproveRequest):
             notional = 0.0
 
             if action == "exit":
-                # Sell the full position from live_positions
+                # Sell the full position from the latest sync — refuse if stale.
                 pos = (await conn.execute(text(
-                    "SELECT lp.qty, lp.current_price "
+                    "SELECT lp.qty, lp.current_price, sr.completed_at "
                     "FROM live_positions lp "
                     "JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
                     "WHERE lp.ticker = :t AND sr.status = 'success' "
                     "ORDER BY sr.completed_at DESC NULLS LAST LIMIT 1"
                 ), {"t": ticker})).mappings().first()
                 if pos is None or _f(pos["qty"]) is None:
-                    raise HTTPException(status_code=400, detail=f"No live position found for {ticker}")
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"No live position found for {ticker} — run alpaca-sync first",
+                    )
+                sync_age_hours = None
+                if pos["completed_at"] is not None:
+                    sync_age_hours = (
+                        datetime.now(timezone.utc) - pos["completed_at"]
+                    ).total_seconds() / 3600.0
+                if sync_age_hours is not None and sync_age_hours > EXIT_SYNC_MAX_AGE_HOURS:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"Latest alpaca-sync is {sync_age_hours:.1f}h old "
+                            f"(> {EXIT_SYNC_MAX_AGE_HOURS}h); refusing to size exit. "
+                            "Re-sync before approving."
+                        ),
+                    )
                 qty = abs(_f(pos["qty"]))
                 notional = qty * (_f(pos["current_price"]) or 0.0)
 
             else:
-                # Buy: use portfolio weight × account value ÷ current price
+                # Buy sizing: account_value × target_weight ÷ price.
                 weight = _f(intent["current_weight"])
 
                 # Fallback: look up weight in latest portfolio_holdings
@@ -781,29 +868,53 @@ async def approve_trade(req: TradeApproveRequest):
                 if not weight or weight <= 0:
                     weight = 1.0 / 30.0
 
-                # Get account value from latest successful sync
+                # Account value from latest successful sync.
                 acct = (await conn.execute(text(
                     "SELECT account_value FROM alpaca_sync_runs "
                     "WHERE status='success' ORDER BY completed_at DESC NULLS LAST LIMIT 1"
                 ))).mappings().first()
                 account_value = _f(acct["account_value"]) if acct else None
 
-                # Get last known price
-                price_row = (await conn.execute(text(
-                    "SELECT close FROM daily_prices "
-                    "WHERE ticker = :t ORDER BY price_date DESC LIMIT 1"
+                # Price: prefer live_positions.current_price (intraday) over
+                # daily_prices.close (stale until after-hours fetch). For a new
+                # entry we usually don't have a live row yet, so fall back.
+                live_px = (await conn.execute(text(
+                    "SELECT lp.current_price FROM live_positions lp "
+                    "JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
+                    "WHERE lp.ticker = :t AND sr.status = 'success' "
+                    "ORDER BY sr.completed_at DESC NULLS LAST LIMIT 1"
                 ), {"t": ticker})).mappings().first()
-                last_price = _f(price_row["close"]) if price_row else None
+                last_price = _f(live_px["current_price"]) if live_px else None
+                if last_price is None or last_price <= 0:
+                    price_row = (await conn.execute(text(
+                        "SELECT close FROM daily_prices "
+                        "WHERE ticker = :t ORDER BY price_date DESC LIMIT 1"
+                    ), {"t": ticker})).mappings().first()
+                    last_price = _f(price_row["close"]) if price_row else None
 
                 if account_value is None or last_price is None or last_price <= 0:
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Cannot compute qty for {ticker}: "
-                               f"account_value={account_value}, last_price={last_price}"
+                        detail=(
+                            f"Cannot compute qty for {ticker}: "
+                            f"account_value={account_value}, last_price={last_price}"
+                        ),
                     )
 
-                notional = account_value * weight
-                qty = max(1, math.floor(notional / last_price))
+                target_notional = account_value * weight
+                qty_int = math.floor(target_notional / last_price)
+                # If a single share already exceeds the target weight, refuse —
+                # silently rounding up to 1 share would massively overweight the
+                # position and override the strategy's risk discipline.
+                if qty_int < 1:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"Target notional ${target_notional:.2f} is below the price of "
+                            f"one share (${last_price:.2f}). Position too small to enter."
+                        ),
+                    )
+                qty = float(qty_int)
                 notional = qty * last_price
 
         # Call risk-service
@@ -817,7 +928,15 @@ async def approve_trade(req: TradeApproveRequest):
                 r = await client.post(f"{RISK_SERVICE_URL}/check", json=risk_payload)
                 risk_resp = r.json()
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Risk service unavailable: {exc}")
+            order_id = await _audit_failed_attempt(
+                intent_id=req.intent_id, ticker=ticker, action=action, side=side,
+                qty=qty, notional=notional, mode=req.mode,
+                error=f"Risk service unreachable: {exc}",
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=f"Risk service unavailable (attempt recorded as order {order_id}): {exc}",
+            )
 
         risk_approved = risk_resp.get("approved", False)
         risk_reason   = risk_resp.get("reason", "")
@@ -830,6 +949,7 @@ async def approve_trade(req: TradeApproveRequest):
             "action":        action,
             "side":          side,
             "qty":           qty,
+            "notional":      notional,
             "mode":          req.mode,
             "risk_check_id": check_id,
             "risk_approved": risk_approved,
@@ -840,7 +960,15 @@ async def approve_trade(req: TradeApproveRequest):
                 r = await client.post(f"{TRADE_EXECUTOR_URL}/jobs/submit", json=exec_payload)
                 exec_resp = r.json()
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Trade executor unavailable: {exc}")
+            order_id = await _audit_failed_attempt(
+                intent_id=req.intent_id, ticker=ticker, action=action, side=side,
+                qty=qty, notional=notional, mode=req.mode,
+                error=f"Trade executor unreachable after risk_approved={risk_approved}: {exc}",
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=f"Trade executor unavailable (attempt recorded as order {order_id}): {exc}",
+            )
 
         return {
             "ticker":        ticker,

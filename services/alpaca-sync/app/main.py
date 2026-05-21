@@ -3,7 +3,6 @@ import os
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from decimal import Decimal
 from typing import Optional
 
 import httpx
@@ -17,22 +16,19 @@ from stock_strategy_shared.db import wait_for_db
 # Configuration
 # ---------------------------------------------------------------------------
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
-if not DATABASE_URL:
-    raise RuntimeError("Missing required environment variable: DATABASE_URL")
-
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 ALPACA_API_KEY = os.getenv("ALPACA_API_KEY", "")
 ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
 ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
 
-_has_credentials = bool(ALPACA_API_KEY and ALPACA_API_KEY not in ("", "demo"))
+_has_credentials = bool(ALPACA_API_KEY) and ALPACA_API_KEY != "demo"
 
 # ---------------------------------------------------------------------------
-# Database
+# Database (engine + SessionLocal are created lazily in lifespan)
 # ---------------------------------------------------------------------------
 
-engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10)
-SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+engine = None  # type: ignore
+SessionLocal = None  # type: ignore
 
 # ---------------------------------------------------------------------------
 # Concurrency guard
@@ -121,9 +117,15 @@ async def _do_sync() -> str:
 
         synced_at = datetime.now(timezone.utc)
 
-        # 5 & 6. Insert position rows
+        # 5 & 6. Insert position rows (skip any with unparseable qty — NOT NULL in schema)
+        inserted = 0
         async with SessionLocal() as db:
             for pos in positions:
+                qty = _parse_float(pos.get("qty"))
+                ticker = pos.get("symbol", "")
+                if qty is None or not ticker:
+                    print(f"[alpaca-sync] Skipping position with missing qty/ticker: {pos}")
+                    continue
                 await db.execute(
                     text(
                         """
@@ -142,8 +144,8 @@ async def _do_sync() -> str:
                     ),
                     {
                         "sync_run_id": run_id,
-                        "ticker": pos.get("symbol", ""),
-                        "qty": _parse_float(pos.get("qty")),
+                        "ticker": ticker,
+                        "qty": qty,
                         "avg_entry_price": _parse_float(pos.get("avg_entry_price")),
                         "current_price": _parse_float(pos.get("current_price")),
                         "market_value": _parse_float(pos.get("market_value")),
@@ -156,6 +158,7 @@ async def _do_sync() -> str:
                         "synced_at": synced_at,
                     },
                 )
+                inserted += 1
 
             # 7. Update sync run to success
             completed_at = datetime.now(timezone.utc)
@@ -178,12 +181,12 @@ async def _do_sync() -> str:
                     "account_value": equity,
                     "buying_power": buying_power,
                     "cash": cash,
-                    "position_count": len(positions),
+                    "position_count": inserted,
                 },
             )
             await db.commit()
 
-        print(f"[alpaca-sync] Sync completed: run_id={run_id}, positions={len(positions)}")
+        print(f"[alpaca-sync] Sync completed: run_id={run_id}, positions={inserted}")
 
     except Exception as exc:
         # 8. Mark run as failed
@@ -227,6 +230,12 @@ async def _sync_with_lock() -> tuple[str, str]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global engine, SessionLocal
+    if not DATABASE_URL:
+        raise RuntimeError("Missing required environment variable: DATABASE_URL")
+    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10)
+    SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
     # Wait for DB with up to 60s (20 retries × 3s)
     await wait_for_db(engine, retries=20, delay=3.0)
 
@@ -256,6 +265,7 @@ async def lifespan(app: FastAPI):
         print("[alpaca-sync] WARNING: ALPACA_API_KEY is not set or is 'demo' — sync disabled on startup")
 
     yield
+    await engine.dispose()
 
 
 # ---------------------------------------------------------------------------
@@ -279,15 +289,7 @@ async def trigger_sync():
     """Trigger a sync. Respects the concurrency lock."""
     if _job_lock.locked():
         return {"status": "already_running"}
-
-    run_id = str(uuid.uuid4())
-
-    async def _bg():
-        await _sync_with_lock()
-
-    # Use a pre-generated run_id for the response; the actual run will create its own.
-    # We return "started" and let the task proceed independently.
-    asyncio.create_task(_bg())
+    asyncio.create_task(_sync_with_lock())
     return {"status": "started"}
 
 

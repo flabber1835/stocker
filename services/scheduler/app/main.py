@@ -147,8 +147,11 @@ async def _startup_catch_up():
     await asyncio.sleep(10)  # give other services time to start
     _log("catch-up: woke up after startup delay")
     async with httpx.AsyncClient() as client:
-        # Always sync Alpaca positions first so the Portfolio tab shows data immediately.
-        await _trigger_alpaca_sync(client, context="startup-catch-up")
+        # Kick off Alpaca sync as a fire-and-forget background task so the
+        # Portfolio tab populates without blocking the rest of the catch-up
+        # chain. The alpaca-sync service also self-triggers on its own startup,
+        # so this is mostly a backstop.
+        asyncio.create_task(_trigger_alpaca_sync(client_url=ALPACA_SYNC_URL, context="startup-catch-up"))
 
         # Cold-start guard: if no universe exists, fetch it before anything else.
         has_universe = await _has_universe(client)
@@ -238,10 +241,24 @@ async def _get_latest_run_id(client: httpx.AsyncClient, service_url: str) -> Opt
     return None
 
 
-async def _trigger_alpaca_sync(client: httpx.AsyncClient, context: str = "startup") -> None:
-    """Trigger alpaca-sync and wait up to 60s for completion. Non-blocking on failure."""
+async def _trigger_alpaca_sync(
+    client: httpx.AsyncClient | None = None,
+    context: str = "startup",
+    *,
+    client_url: str | None = None,
+) -> None:
+    """Trigger alpaca-sync and wait up to 60s for completion. Non-blocking on failure.
+
+    Creates an internal httpx client if `client` is None — required when launched
+    as a fire-and-forget asyncio.create_task() so the caller's client isn't closed
+    out from under us.
+    """
+    own_client = client is None
+    if own_client:
+        client = httpx.AsyncClient()
+    url = client_url or ALPACA_SYNC_URL
     try:
-        r = await client.post(f"{ALPACA_SYNC_URL}/jobs/sync", timeout=10.0)
+        r = await client.post(f"{url}/jobs/sync", timeout=10.0)
         if r.status_code == 409:
             _log(f"alpaca-sync ({context}): already running — waiting for completion")
         elif r.status_code not in (200, 201, 202):
@@ -251,7 +268,7 @@ async def _trigger_alpaca_sync(client: httpx.AsyncClient, context: str = "startu
         for _ in range(30):
             await asyncio.sleep(2)
             try:
-                s = await client.get(f"{ALPACA_SYNC_URL}/runs/latest", timeout=5.0)
+                s = await client.get(f"{url}/runs/latest", timeout=5.0)
                 if s.status_code == 200:
                     d = s.json()
                     if d.get("status") == "success":
@@ -265,6 +282,9 @@ async def _trigger_alpaca_sync(client: httpx.AsyncClient, context: str = "startu
         _log(f"alpaca-sync ({context}): timed out after 60s")
     except Exception as exc:
         _log(f"alpaca-sync ({context}): error", error=str(exc))
+    finally:
+        if own_client:
+            await client.aclose()
 
 
 async def _run_step(

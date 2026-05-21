@@ -152,7 +152,25 @@ API:
 
 ### alpaca-sync
 
-Syncs account, positions, orders, and fills from Alpaca. Does not submit orders.
+Read-only Alpaca sync. Pulls account state and positions from Alpaca and writes
+them to Postgres. Never submits orders.
+
+**Endpoints:**
+- `GET /health`
+- `POST /jobs/sync` — asyncio-locked single-flight run
+- `GET /runs/latest`
+- `GET /positions`
+
+**Behaviour:**
+- Calls only `GET /v2/account` and `GET /v2/positions` against Alpaca
+- Writes to `alpaca_sync_runs` and `live_positions` (including `lastday_price` and
+  `change_today` so the dashboard can compute day P&L)
+- Auto-syncs on startup when `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` are present
+
+**Env:** `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`, `ALPACA_BASE_URL`
+
+Alpaca credentials are mounted into this service but are deliberately scoped to
+read-only endpoints. **Must not place trades.**
 
 ### intraday-monitor
 
@@ -161,11 +179,37 @@ Does not place trades.
 
 ### risk-service
 
-Approves or rejects trade intents. Enforces hard safety rules. Cannot be bypassed.
+Stateless deterministic safety gate.
+
+**Endpoint:**
+- `POST /check {ticker, action, side, qty, notional, mode, trade_type}` →
+  `{approved, reason, check_id}`
+
+**Checks (in order):**
+1. `KILL_SWITCH` env — if "true", reject all checks
+2. `LIVE_TRADING_ENABLED` + `trade_type=="live"` guard — live requires the flag
+3. `PAPER_ONLY` guard — when "true", any live trade is rejected
+4. `qty > 0`
+5. `notional ≤ MAX_ORDER_NOTIONAL`
+
+No DB writes. `check_id` is a generated UUID returned to the caller but not
+currently persisted server-side (known gap — see risk-safety-rules.md).
 
 ### trade-executor
 
-Only service allowed to place Alpaca orders. Requires prior risk approval.
+The ONLY service permitted to submit Alpaca orders. Has no risk logic of its own —
+relies entirely on the `risk_approved` flag from the caller.
+
+**Endpoint:**
+- `POST /jobs/submit {intent_id, ticker, action, side, qty, mode, risk_check_id,
+  risk_approved, risk_reason}` → `{status, order_id, alpaca_order_id, alpaca_status}`
+
+**Behaviour:**
+- Inserts an `alpaca_orders` row whether the order is submitted, risk-rejected,
+  or fails — every approval click is auditable
+- Order type is always `market`
+- `time_in_force = "opg"` for `mode=scheduled` (Market on Open), `"day"` for `mode=immediate`
+- Short-circuits if `ALPACA_API_KEY` is empty (logs and records a failed row, no Alpaca call)
 
 ### llm-gateway
 
@@ -191,12 +235,23 @@ Triggers recurring jobs.
 ### api
 
 Backend API for the dashboard and control layer. Exposes:
-`/universe`, `/rankings`, `/portfolio`, `/regime`, `/live-portfolio`
+`/universe`, `/rankings`, `/portfolio`, `/regime`, `/live-portfolio`,
+`/delta/latest`, `/trade/approve`.
+
+`/trade/approve` is the only API path that triggers a real Alpaca order. It sizes
+the intent, calls `risk-service /check`, then calls `trade-executor /jobs/submit`
+(always, so risk rejections are recorded in `alpaca_orders` too).
 
 ### dashboard
 
 Displays strategy, rankings, portfolio, vetter output, live positions, and progress.
 Does not directly trade.
+
+**Trade Proposal tab:** renders delta_intents with hold/warn/sell/buy tags. Each
+tradeable intent (entry or exit) shows two approve buttons — "Execute Now"
+(`mode=immediate`, time_in_force="day") and "Schedule for Open"
+(`mode=scheduled`, time_in_force="opg"). Both POST to `/api/trade/approve`, which
+proxies to the api service. Hold/watch intents are informational only.
 
 Cloud-native render architecture: all job state lives on the server. Browsers poll
 `GET /api/pipeline-status` every 2 seconds and render identically regardless of

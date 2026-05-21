@@ -12,7 +12,6 @@ RANKER_URL          = os.getenv("RANKER_URL",           "http://ranker:8000")
 VETTER_URL          = os.getenv("VETTER_URL",           "http://llm-vetter:8000")
 PORTFOLIO_URL       = os.getenv("PORTFOLIO_URL",        "http://portfolio-builder:8000")
 SCHEDULER_URL       = os.getenv("SCHEDULER_URL",        "http://scheduler:8000")
-ALPACA_SYNC_URL     = os.getenv("ALPACA_SYNC_URL",      "http://alpaca-sync:8000")
 DELTA_ENGINE_URL    = os.getenv("DELTA_ENGINE_URL",     "http://delta-engine:8000")
 
 app = FastAPI(title="stocker-dashboard")
@@ -170,7 +169,7 @@ async def proxy_trade_approve(request: Request):
 
 @app.post("/api/alpaca-sync")
 async def trigger_alpaca_sync():
-    return await _proxy_post(f"{ALPACA_SYNC_URL}/jobs/sync")
+    return await _proxy_post(f"{API_URL}/alpaca/sync")
 
 
 @app.get("/api/data-freshness")
@@ -1307,10 +1306,9 @@ const $=id=>document.getElementById(id);
 const fmtScore=v=>v==null?'—':(+v).toFixed(3);
 
 // ── Data stores ──────────────────────────────────────────────────────────────
-let rankData=[], uniData=[], portData=[], deltaData=[];
+let rankData=[], uniData=[], deltaData=[];
 let rankSort={col:'rank',dir:1};
 let uniSort={col:'ticker',dir:1};
-let portSort={col:'position',dir:1};
 let deltaSort={col:'rank',dir:1};
 let uniHideTiny=false;
 
@@ -1897,68 +1895,6 @@ function renderRankings(){
   }).join('');
 }
 
-// ── Portfolio ─────────────────────────────────────────────────────────────────
-async function loadPortfolio(){
-  $('p-body').innerHTML='<tr><td colspan="7" class="loading">Loading portfolio</td></tr>';
-  try{
-    const d=await fetch('/api/portfolio').then(r=>{
-      if(!r.ok)throw new Error(r.status);
-      return r.json();
-    });
-    const run=d.run||{};
-    portData=d.holdings||[];
-    $('p-count').textContent=run.selected_count??portData.length;
-    $('p-vol').textContent=run.portfolio_estimated_vol!=null?(+run.portfolio_estimated_vol*100).toFixed(1)+'%':'—';
-    $('p-corr').textContent=run.avg_pairwise_correlation!=null?(+run.avg_pairwise_correlation).toFixed(3):'—';
-    $('p-date').textContent=run.portfolio_date||'—';
-    _setRegimeEl('p-regime', run.regime||null);
-    renderPortfolio();
-  }catch(e){
-    $('p-body').innerHTML='<tr><td colspan="7" class="error">No portfolio data</td></tr>';
-  }
-}
-
-function sortPortfolio(col){
-  if(portSort.col===col)portSort.dir*=-1;
-  else{portSort.col=col;portSort.dir=col==='position'||col==='original_rank'?1:-1;}
-  clearSort('ph-');
-  const th=$('ph-'+col);
-  if(th)th.classList.add(portSort.dir===1?'asc':'desc');
-  renderPortfolio();
-}
-
-function renderPortfolio(){
-  const q=($('p-search').value||'').toUpperCase().trim();
-  let rows=portData.filter(r=>!q||r.ticker.includes(q));
-  const col=portSort.col,dir=portSort.dir;
-  rows.sort((a,b)=>{
-    const av=a[col],bv=b[col];
-    if(av==null&&bv==null)return 0;
-    if(av==null)return 1;if(bv==null)return -1;
-    return(av<bv?-1:av>bv?1:0)*dir;
-  });
-  $('p-count-badge').textContent=rows.length+' / '+portData.length+' SHOWN';
-  if(!rows.length){$('p-body').innerHTML='<tr><td colspan="7" class="loading">No results</td></tr>';return;}
-  const maxComp=Math.max(...rows.map(r=>+(r.composite_score)||0));
-  $('p-body').innerHTML=rows.map(r=>{
-    const w=barW(r.composite_score,maxComp);
-    const compCls=r.composite_score!=null?(+r.composite_score>0?'pos':'neg'):'neu';
-    const wt=r.weight!=null?((+r.weight)*100).toFixed(1)+'%':'—';
-    const vol=r.portfolio_vol_at_add!=null?((+r.portfolio_vol_at_add)*100).toFixed(1)+'%':'—';
-    const adj=r.adj_score!=null?(+r.adj_score).toFixed(3):'—';
-    return '<tr>'
-      +'<td><span class="t-rank">'+r.position+'</span></td>'
-      +'<td><span class="t-ticker">'+r.ticker+'</span></td>'
-      +'<td class="t-wt">'+wt+'</td>'
-      +'<td><div class="score-wrap"><span class="score-num '+compCls+'">'+fmtScore(r.composite_score)+'</span>'
-      +'<div class="score-track"><div class="score-fill" style="width:'+w+'%"></div></div></div></td>'
-      +'<td class="neu">'+(r.original_rank??'—')+'</td>'
-      +'<td class="pos">'+adj+'</td>'
-      +'<td class="t-wt">'+vol+'</td>'
-      +'</tr>';
-  }).join('');
-}
-
 // ── Live Portfolio ────────────────────────────────────────────────────────────
 let liveData = [];
 let liveSort = {col:'market_value', dir:-1};
@@ -2206,6 +2142,11 @@ async function startDeltaRun(){
 }
 
 async function approveTrade(intentId, mode){
+  // Idempotency guard: if we've already started or finished a request for this
+  // intent in this browser tab, refuse to fire a second one. The API also
+  // enforces this at the DB layer, but checking here prevents a double-click
+  // from racing two HTTP requests at the network.
+  if(_approvalState[intentId]) return;
   _approvalState[intentId]={status:'pending'};
   renderDelta();
   try{
@@ -2217,6 +2158,8 @@ async function approveTrade(intentId, mode){
     const d=await r.json();
     if(!r.ok||d.error){
       _approvalState[intentId]={status:'err',msg:d.error||d.detail||'Failed'};
+    }else if(d.status==='duplicate'){
+      _approvalState[intentId]={status:'ok',msg:'Already submitted'};
     }else if(!d.risk_approved){
       _approvalState[intentId]={status:'err',msg:'Risk rejected: '+(d.risk_reason||'')};
     }else{

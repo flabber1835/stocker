@@ -98,6 +98,21 @@ Alpaca real-time data
   → Alpaca order
 ```
 
+Daily chain (scheduler):
+
+```text
+1. av-ingestor fetch-data
+2. factor-engine calculate
+3. ranker rank
+4. llm-vetter vet
+5. portfolio-builder build
+6. delta-engine evaluate
+7. alpaca-sync refresh
+```
+
+Startup catch-up: scheduler runs `alpaca-sync` first (non-blocking) so the live
+position view is current before any rank-chain work begins.
+
 ## Strategy Flow
 
 ```text
@@ -111,6 +126,36 @@ User prompt
   → approval
   → active strategy registry
 ```
+
+## Trade Approval Flow
+
+Every paper trade requires a human button click. The system does not auto-submit
+even after the delta engine fires — the delta_intents row is just a proposal until
+a human approves it on the dashboard.
+
+```text
+delta-engine → delta_intents (entry / exit / hold / watch)
+  → dashboard "Trade Proposal" tab (human review)
+  → human clicks "Execute Now" (mode=immediate) or "Schedule for Open" (mode=scheduled)
+  → dashboard POST /api/trade/approve
+  → api POST /trade/approve
+    → fetches the intent
+    → sizes the order
+        entries: floor(account_value × weight / last_price)
+        exits:   full position qty from latest live_positions
+    → calls risk-service POST /check
+    → calls trade-executor POST /jobs/submit (ALWAYS — so rejections are auditable)
+  → trade-executor inserts an alpaca_orders row
+    → if risk_approved: submits market order to Alpaca with
+        time_in_force = "day" (immediate)  or
+        time_in_force = "opg" (Market on Open, scheduled)
+```
+
+Known architectural debt: order qty sizing currently lives in the API service
+rather than in trade-executor or delta-engine. This is intentional for Phase 6
+simplicity but flagged for future refactoring — sizing logic ideally belongs
+closer to either the proposal producer (delta-engine) or the order submitter
+(trade-executor).
 
 ## Inter-Service Communication
 

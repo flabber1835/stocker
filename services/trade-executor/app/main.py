@@ -5,7 +5,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -18,14 +18,12 @@ logging.basicConfig(level=logging.INFO)
 
 # ── Environment variables ────────────────────────────────────────────────────
 
-DATABASE_URL = os.environ["DATABASE_URL"]
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 ALPACA_API_KEY = os.getenv("ALPACA_API_KEY", "")
 ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
 ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
 
-# ── DB helpers ───────────────────────────────────────────────────────────────
-
-engine: AsyncEngine = create_async_engine(DATABASE_URL, echo=False)
+engine: Optional[AsyncEngine] = None
 
 
 async def wait_for_db(eng: AsyncEngine, timeout: int = 60) -> None:
@@ -47,10 +45,14 @@ async def wait_for_db(eng: AsyncEngine, timeout: int = 60) -> None:
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+    global engine
+    if not DATABASE_URL:
+        raise RuntimeError("Missing required environment variable: DATABASE_URL")
+    engine = create_async_engine(DATABASE_URL, echo=False)
     await wait_for_db(engine)
     has_creds = bool(ALPACA_API_KEY and ALPACA_SECRET_KEY)
     logger.info(
-        "Alpaca credentials: %s", "present" if has_creds else "NOT SET — orders will fail"
+        "Alpaca credentials: %s", "present" if has_creds else "NOT SET — orders will be rejected"
     )
     yield
     await engine.dispose()
@@ -61,17 +63,29 @@ async def lifespan(application: FastAPI):
 app = FastAPI(title="trade-executor", lifespan=lifespan)
 
 
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def _f(v) -> Optional[float]:
+    return float(v) if v is not None else None
+
+
+def _iso(v) -> Optional[str]:
+    return v.isoformat() if v and hasattr(v, "isoformat") else None
+
+
 # ── Pydantic models ──────────────────────────────────────────────────────────
 
 
 class SubmitOrderRequest(BaseModel):
     intent_id: Optional[str] = None   # delta_intents.id (UUID string), nullable
     ticker: str
-    action: str        # "entry" or "exit"
-    side: str          # "buy" or "sell"
+    action: Literal["entry", "exit"]
+    side: Literal["buy", "sell"]
     qty: float
-    mode: str          # "immediate" or "scheduled"
-    risk_check_id: str # from risk-service /check response
+    notional: Optional[float] = None  # estimated dollar value at submission time
+    mode: Literal["immediate", "scheduled"]
+    risk_check_id: str
     risk_approved: bool
     risk_reason: str
 
@@ -79,71 +93,105 @@ class SubmitOrderRequest(BaseModel):
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 
+async def _mark_failed(order_id: str, error_message: str) -> None:
+    """Update an alpaca_orders row to status='failed' with an error message."""
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE alpaca_orders SET status='failed', error_message=:err "
+                "WHERE id=:id"
+            ),
+            {"id": order_id, "err": error_message[:1000]},
+        )
+
+
 @app.post("/jobs/submit")
 async def submit_order(req: SubmitOrderRequest) -> dict[str, Any]:
     """Validate, persist, and (if approved) submit an order to Alpaca."""
 
-    # 1. Validate action / side
-    if req.action not in ("entry", "exit"):
-        raise HTTPException(status_code=422, detail="action must be 'entry' or 'exit'")
-    if req.side not in ("buy", "sell"):
-        raise HTTPException(status_code=422, detail="side must be 'buy' or 'sell'")
-
-    # 2. Compute order params
     order_type = "market"
     time_in_force = "opg" if req.mode == "scheduled" else "day"
-
     order_id = str(uuid.uuid4())
-    intent_id = req.intent_id  # may be None
 
-    # 3. Insert pending row
+    # Idempotency guard: refuse if this intent already has an open or submitted order.
+    # The DB also has a partial unique index, but checking here gives a cleaner response.
+    if req.intent_id is not None:
+        async with engine.connect() as conn:
+            row = (await conn.execute(
+                text(
+                    "SELECT id, status FROM alpaca_orders "
+                    "WHERE intent_id = :iid AND status IN ('pending','submitted') "
+                    "LIMIT 1"
+                ),
+                {"iid": req.intent_id},
+            )).first()
+        if row is not None:
+            return {
+                "status": "duplicate",
+                "reason": f"Intent {req.intent_id} already has an open order ({row.status})",
+                "order_id": str(row.id),
+                "alpaca_order_id": None,
+                "alpaca_status": None,
+            }
+
+    # Insert audit row up front. Status reflects the outcome so we don't have a
+    # 'pending' → 'risk_rejected' window where a duplicate INSERT can race.
+    initial_status = "pending" if req.risk_approved else "risk_rejected"
     async with engine.begin() as conn:
         await conn.execute(
             text(
                 """
                 INSERT INTO alpaca_orders (
-                    id, intent_id, ticker, action, side, qty,
+                    id, intent_id, ticker, action, side, qty, notional,
                     order_type, time_in_force, status, mode,
                     risk_approved, risk_reason, created_at
                 ) VALUES (
-                    :id, :intent_id, :ticker, :action, :side, :qty,
-                    :order_type, :time_in_force, 'pending', :mode,
+                    :id, :intent_id, :ticker, :action, :side, :qty, :notional,
+                    :order_type, :time_in_force, :status, :mode,
                     :risk_approved, :risk_reason, NOW()
                 )
                 """
             ),
             {
                 "id": order_id,
-                "intent_id": intent_id,
+                "intent_id": req.intent_id,
                 "ticker": req.ticker,
                 "action": req.action,
                 "side": req.side,
                 "qty": req.qty,
+                "notional": req.notional,
                 "order_type": order_type,
                 "time_in_force": time_in_force,
+                "status": initial_status,
                 "mode": req.mode,
                 "risk_approved": req.risk_approved,
                 "risk_reason": req.risk_reason,
             },
         )
 
-    # 4. Risk rejected — update status and return early
     if not req.risk_approved:
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "UPDATE alpaca_orders SET status='risk_rejected' WHERE id=:id"
-                ),
-                {"id": order_id},
-            )
         return {
             "status": "risk_rejected",
             "reason": req.risk_reason,
             "order_id": order_id,
+            "alpaca_order_id": None,
+            "alpaca_status": None,
         }
 
-    # 5. Build Alpaca order payload
-    qty_str = str(round(req.qty)) if req.qty >= 1 else str(req.qty)
+    # Short-circuit when Alpaca credentials are missing — never hit the API
+    # with empty headers (every call would burn a 'failed' row otherwise).
+    if not (ALPACA_API_KEY and ALPACA_SECRET_KEY):
+        await _mark_failed(order_id, "Alpaca credentials not configured")
+        return {
+            "status": "failed",
+            "order_id": order_id,
+            "alpaca_order_id": None,
+            "alpaca_status": None,
+            "reason": "Alpaca credentials not configured",
+        }
+
+    # Alpaca paper trading accepts integer qty for "market" orders.
+    qty_str = str(int(req.qty)) if req.qty >= 1 else str(req.qty)
     alpaca_payload = {
         "symbol": req.ticker,
         "qty": qty_str,
@@ -151,10 +199,6 @@ async def submit_order(req: SubmitOrderRequest) -> dict[str, Any]:
         "type": "market",
         "time_in_force": time_in_force,
     }
-
-    # 6. POST to Alpaca
-    alpaca_order_id: Optional[str] = None
-    alpaca_status: Optional[str] = None
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -166,81 +210,53 @@ async def submit_order(req: SubmitOrderRequest) -> dict[str, Any]:
                     "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY,
                 },
             )
-
-        if resp.status_code in (200, 201):
-            # 7. Success
-            resp_data = resp.json()
-            alpaca_order_id = resp_data.get("id")
-            alpaca_status = resp_data.get("status")
-            submitted_at = datetime.now(timezone.utc)
-
-            async with engine.begin() as conn:
-                await conn.execute(
-                    text(
-                        """
-                        UPDATE alpaca_orders
-                        SET status='submitted',
-                            alpaca_order_id=:alpaca_order_id,
-                            alpaca_status=:alpaca_status,
-                            submitted_at=:submitted_at
-                        WHERE id=:id
-                        """
-                    ),
-                    {
-                        "id": order_id,
-                        "alpaca_order_id": alpaca_order_id,
-                        "alpaca_status": alpaca_status,
-                        "submitted_at": submitted_at,
-                    },
-                )
-
-            return {
-                "status": "submitted",
-                "order_id": order_id,
-                "alpaca_order_id": alpaca_order_id,
-                "alpaca_status": alpaca_status,
-            }
-        else:
-            # 8. Alpaca returned an error
-            error_text = resp.text
-            async with engine.begin() as conn:
-                await conn.execute(
-                    text(
-                        """
-                        UPDATE alpaca_orders
-                        SET status='failed', error_message=:error_message
-                        WHERE id=:id
-                        """
-                    ),
-                    {"id": order_id, "error_message": error_text},
-                )
-            return {
-                "status": "failed",
-                "order_id": order_id,
-                "alpaca_order_id": None,
-                "alpaca_status": None,
-            }
-
     except Exception as exc:
-        # Network or unexpected error
-        error_text = str(exc)
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    """
-                    UPDATE alpaca_orders
-                    SET status='failed', error_message=:error_message
-                    WHERE id=:id
-                    """
-                ),
-                {"id": order_id, "error_message": error_text},
-            )
+        await _mark_failed(order_id, f"Alpaca request failed: {exc}")
         return {
             "status": "failed",
             "order_id": order_id,
             "alpaca_order_id": None,
             "alpaca_status": None,
         }
+
+    if resp.status_code in (200, 201):
+        resp_data = resp.json()
+        alpaca_order_id = resp_data.get("id")
+        alpaca_status = resp_data.get("status")
+        submitted_at = datetime.now(timezone.utc)
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    """
+                    UPDATE alpaca_orders
+                    SET status='submitted',
+                        alpaca_order_id=:alpaca_order_id,
+                        alpaca_status=:alpaca_status,
+                        submitted_at=:submitted_at
+                    WHERE id=:id
+                    """
+                ),
+                {
+                    "id": order_id,
+                    "alpaca_order_id": alpaca_order_id,
+                    "alpaca_status": alpaca_status,
+                    "submitted_at": submitted_at,
+                },
+            )
+        return {
+            "status": "submitted",
+            "order_id": order_id,
+            "alpaca_order_id": alpaca_order_id,
+            "alpaca_status": alpaca_status,
+        }
+
+    await _mark_failed(order_id, resp.text[:1000])
+    return {
+        "status": "failed",
+        "order_id": order_id,
+        "alpaca_order_id": None,
+        "alpaca_status": None,
+    }
 
 
 @app.get("/orders/recent")
@@ -264,7 +280,32 @@ async def recent_orders() -> list[dict[str, Any]]:
         )
         rows = result.mappings().all()
 
-    return [dict(row) for row in rows]
+    return [
+        {
+            "id":              str(r["id"]),
+            "intent_id":       str(r["intent_id"]) if r["intent_id"] else None,
+            "alpaca_order_id": r["alpaca_order_id"],
+            "ticker":          r["ticker"],
+            "action":          r["action"],
+            "side":            r["side"],
+            "qty":             _f(r["qty"]),
+            "notional":        _f(r["notional"]),
+            "order_type":      r["order_type"],
+            "time_in_force":   r["time_in_force"],
+            "status":          r["status"],
+            "mode":            r["mode"],
+            "risk_approved":   r["risk_approved"],
+            "risk_reason":     r["risk_reason"],
+            "alpaca_status":   r["alpaca_status"],
+            "submitted_at":    _iso(r["submitted_at"]),
+            "filled_at":       _iso(r["filled_at"]),
+            "avg_fill_price":  _f(r["avg_fill_price"]),
+            "filled_qty":      _f(r["filled_qty"]),
+            "error_message":   r["error_message"],
+            "created_at":      _iso(r["created_at"]),
+        }
+        for r in rows
+    ]
 
 
 @app.get("/health")

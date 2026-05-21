@@ -49,6 +49,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       RISK_SERVICE_URL:   http://risk-service:8000
       TRADE_EXECUTOR_URL: http://trade-executor:8000
+      ALPACA_SYNC_URL:    http://alpaca-sync:8000
+      EXIT_SYNC_MAX_AGE_HOURS: ${EXIT_SYNC_MAX_AGE_HOURS:-24}
     depends_on:
       postgres:
         condition: service_healthy
@@ -163,10 +165,7 @@ services:
       VETTER_URL: http://llm-vetter:8000
       PORTFOLIO_URL: http://portfolio-builder:8000
       SCHEDULER_URL: http://scheduler:8000
-      ALPACA_SYNC_URL: http://alpaca-sync:8000
       DELTA_ENGINE_URL: http://delta-engine:8000
-      RISK_SERVICE_URL: http://risk-service:8000
-      TRADE_EXECUTOR_URL: http://trade-executor:8000
     depends_on:
       api:
         condition: service_healthy

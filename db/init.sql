@@ -519,6 +519,23 @@ CREATE TABLE IF NOT EXISTS alpaca_orders (
 CREATE INDEX IF NOT EXISTS idx_alpaca_orders_ticker  ON alpaca_orders(ticker);
 CREATE INDEX IF NOT EXISTS idx_alpaca_orders_created ON alpaca_orders(created_at DESC);
 
+-- Idempotency: a single delta intent can have at most one open or submitted
+-- order. Enforced at the DB so a race between two browser tabs cannot send two
+-- Alpaca orders for the same intent.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_alpaca_orders_intent_open
+  ON alpaca_orders(intent_id)
+  WHERE intent_id IS NOT NULL AND status IN ('pending','submitted');
+
+-- Lineage: link orders back to the delta intent that produced them so we can
+-- answer "which signal caused this trade?". ON DELETE SET NULL keeps the audit
+-- row even if a delta run is later purged.
+ALTER TABLE alpaca_orders
+  DROP CONSTRAINT IF EXISTS fk_alpaca_orders_intent;
+ALTER TABLE alpaca_orders
+  ADD CONSTRAINT fk_alpaca_orders_intent
+  FOREIGN KEY (intent_id) REFERENCES delta_intents(id) ON DELETE SET NULL
+  NOT VALID;
+
 ALTER TABLE live_positions ADD COLUMN IF NOT EXISTS lastday_price NUMERIC(14,4);
 ALTER TABLE live_positions ADD COLUMN IF NOT EXISTS change_today  NUMERIC(10,6);
 

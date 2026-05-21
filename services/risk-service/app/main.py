@@ -1,5 +1,6 @@
 import os
 import uuid
+from typing import Literal
 
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -16,12 +17,12 @@ PAPER_ONLY = os.getenv("PAPER_ONLY", "true").lower() == "true"
 
 class TradeCheckRequest(BaseModel):
     ticker: str
-    action: str        # "entry" or "exit"
-    side: str          # "buy" or "sell"
+    action: Literal["entry", "exit"]
+    side: Literal["buy", "sell"]
     qty: float
     notional: float    # estimated dollar value
-    mode: str          # "immediate" or "scheduled"
-    trade_type: str = "paper"  # "paper" or "live"
+    mode: Literal["immediate", "scheduled"]
+    trade_type: Literal["paper", "live"] = "paper"
 
 
 class TradeCheckResponse(BaseModel):
@@ -78,7 +79,15 @@ async def check_trade(req: TradeCheckRequest) -> TradeCheckResponse:
             check_id=check_id,
         )
 
-    # 5. Notional limit
+    # 5. Notional must be positive
+    if req.notional <= 0:
+        return TradeCheckResponse(
+            approved=False,
+            reason="Invalid notional: must be > 0",
+            check_id=check_id,
+        )
+
+    # 6. Notional limit
     if req.notional > MAX_ORDER_NOTIONAL:
         return TradeCheckResponse(
             approved=False,
@@ -104,4 +113,6 @@ async def health() -> dict:
         "service": "risk-service",
         "kill_switch": KILL_SWITCH,
         "paper_only": PAPER_ONLY,
+        "live_trading_enabled": LIVE_TRADING_ENABLED,
+        "max_order_notional": MAX_ORDER_NOTIONAL,
     }
