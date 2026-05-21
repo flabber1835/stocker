@@ -104,12 +104,10 @@ confidence: "high" | "medium" | "low"
 risk_type:  "earnings" | "regulatory" | "management" | "legal" | "sector" | "none"
             Must be "none" if exclude=false. Must NOT be "none" if exclude=true.
 
-POSITIVE CATALYST — these three fields are a LOCKED UNIT:
+POSITIVE CATALYST — these two fields must be consistent:
 
-  positive_catalyst=true  → conviction must be "high", "medium", or "low"
-                            reason must cite the specific source (article title, filing)
-  positive_catalyst=false → conviction MUST be "none"
-                            reason MUST be "" (empty string)
+  positive_catalyst=true  → positive_reason must cite the specific source (article title, filing)
+  positive_catalyst=false → positive_reason MUST be "" (empty string)
                             No partial credit. No "mild tailwinds." Silence is neutral.
 
   Set positive_catalyst=true ONLY for:
@@ -156,7 +154,7 @@ Reasoning:
   it names MEDX specifically with a cited percentage cut.
 
 Output:
-{{"exclude": true, "reason": "MEDX cut Q2 guidance 18% and withdrew full-year guidance citing reimbursement pressure — specific, recent, and unpriced. Simultaneous CFO departure adds management risk. Morgan Stanley downgraded to Underweight (PT $42→$28) with three additional firms under review 12 days before earnings. Two independent exclusion triggers; rank 41/50 warrants normal bar.", "confidence": "high", "risk_type": "earnings", "positive_catalyst": false, "positive_conviction": "none", "positive_reason": ""}}
+{{"exclude": true, "reason": "MEDX cut Q2 guidance 18% and withdrew full-year guidance citing reimbursement pressure — specific, recent, and unpriced. Simultaneous CFO departure adds management risk. Morgan Stanley downgraded to Underweight (PT $42→$28) with three additional firms under review 12 days before earnings. Two independent exclusion triggers; rank 41/50 warrants normal bar.", "confidence": "high", "risk_type": "earnings", "positive_catalyst": false, "positive_reason": ""}}
 
 ──────────────────────────────────────────────────────
 EXAMPLE 2 — KEEP: Already held, macro sector noise, high quant conviction
@@ -191,7 +189,7 @@ Reasoning:
   the beat was already reported — not a forward-looking catalyst with new information.
 
 Output:
-{{"exclude": false, "reason": "Drug pricing headwinds are sector-wide and priced into Healthcare valuations broadly — not specific to VRTX. Q1 beat with reaffirmed guidance and no analyst downgrades since. Exit standard applies (already held, rank 6/50 with quality=+2.14). No new, unpriced, VRTX-specific risk identified.", "confidence": "low", "risk_type": "none", "positive_catalyst": false, "positive_conviction": "none", "positive_reason": ""}}
+{{"exclude": false, "reason": "Drug pricing headwinds are sector-wide and priced into Healthcare valuations broadly — not specific to VRTX. Q1 beat with reaffirmed guidance and no analyst downgrades since. Exit standard applies (already held, rank 6/50 with quality=+2.14). No new, unpriced, VRTX-specific risk identified.", "confidence": "low", "risk_type": "none", "positive_catalyst": false, "positive_reason": ""}}
 
 ──────────────────────────────────────────────────────
 EXAMPLE 3 — KEEP + POSITIVE CATALYST: Contract win confirmed by search
@@ -226,7 +224,7 @@ Reasoning:
   named contract, cited source, within risk window.
 
 Output:
-{{"exclude": false, "reason": "No risk identified. Leidos won a $4.7B sole-source DoD ITES-4S contract (May 12) and raised revenue guidance after a Q1 beat. Factor profile (quality=+1.41, momentum=+1.18) fits the bear_stress defensive posture. Baird raised PT $168→$195 on May 12.", "confidence": "low", "risk_type": "none", "positive_catalyst": true, "positive_conviction": "high", "positive_reason": "Leidos awarded $4.7B sole-source DoD ITES-4S contract (May 12, 2026, search result). Baird price target raised $168→$195 same date citing multi-year revenue visibility. Revenue guidance raised in Q1 earnings (Apr 28)."}}
+{{"exclude": false, "reason": "No risk identified. Leidos won a $4.7B sole-source DoD ITES-4S contract (May 12) and raised revenue guidance after a Q1 beat. Factor profile (quality=+1.41, momentum=+1.18) fits the bear_stress defensive posture. Baird raised PT $168→$195 on May 12.", "confidence": "low", "risk_type": "none", "positive_catalyst": true, "positive_reason": "Leidos awarded $4.7B sole-source DoD ITES-4S contract (May 12, 2026, search result). Baird price target raised $168→$195 same date citing multi-year revenue visibility. Revenue guidance raised in Q1 earnings (Apr 28)."}}
 
 ──────────────────────────────────────────────────────
 EXAMPLE 4 — EXCLUDE: Regulatory binary event, M&A target
@@ -258,7 +256,7 @@ Reasoning:
   Rank 33/50 (lower quant conviction) makes this an easy exclusion call.
 
 Output:
-{{"exclude": true, "reason": "ATVI is a pending M&A target (TechCorp, $92/share deal). DOJ Antitrust opened a formal second-request review — binary outcome: deal closes at $92 (+2.9% upside) or breaks and stock falls 30–50%+ to pre-deal levels. Not an equity investment suitable for a factor portfolio. DOJ timeline 6–18 months overlaps the risk window. Rank 33/50 warrants normal exclusion bar.", "confidence": "high", "risk_type": "regulatory", "positive_catalyst": false, "positive_conviction": "none", "positive_reason": ""}}
+{{"exclude": true, "reason": "ATVI is a pending M&A target (TechCorp, $92/share deal). DOJ Antitrust opened a formal second-request review — binary outcome: deal closes at $92 (+2.9% upside) or breaks and stock falls 30–50%+ to pre-deal levels. Not an equity investment suitable for a factor portfolio. DOJ timeline 6–18 months overlaps the risk window. Rank 33/50 warrants normal exclusion bar.", "confidence": "high", "risk_type": "regulatory", "positive_catalyst": false, "positive_reason": ""}}
 
 ──────────────────────────────────────────────────────
 EXAMPLE 5 — KEEP: Value stock, distress already reflected in thesis
@@ -290,7 +288,7 @@ Reasoning:
   Excluding a value stock for "weak fundamentals" defeats the purpose of the value factor.
 
 Output:
-{{"exclude": false, "reason": "XPOF selected as a deep-value play (value=+2.31) in bear_calm where value is regime-favored. Revenue miss and same-store sales decline are the known challenges already reflected in the cheap valuation — not new, unpriced information. No specific near-term risk (no bankruptcy signal, no SEC action, no guidance cut). Long-term structural concerns are background noise, not exclusion triggers.", "confidence": "low", "risk_type": "none", "positive_catalyst": false, "positive_conviction": "none", "positive_reason": ""}}
+{{"exclude": false, "reason": "XPOF selected as a deep-value play (value=+2.31) in bear_calm where value is regime-favored. Revenue miss and same-store sales decline are the known challenges already reflected in the cheap valuation — not new, unpriced information. No specific near-term risk (no bankruptcy signal, no SEC action, no guidance cut). Long-term structural concerns are background noise, not exclusion triggers.", "confidence": "low", "risk_type": "none", "positive_catalyst": false, "positive_reason": ""}}
 
 ════════════════════════════════════════════════════════
 NOW ASSESS THE STOCK IN THE USER MESSAGE

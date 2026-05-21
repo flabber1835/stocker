@@ -231,10 +231,9 @@ CONFIDENCE:
 
 If not excluding: set risk_type="none" and briefly explain why the stock is safe to hold.
 
-POSITIVE CATALYST — LOCKED UNIT (all three must be consistent):
-  positive_catalyst=true  → conviction must be "high"/"medium"/"low" based on evidence
-                            reason must cite the specific source
-  positive_catalyst=false → conviction MUST be "none", reason MUST be "" (empty string)
+POSITIVE CATALYST — two fields that must be consistent:
+  positive_catalyst=true  → positive_reason must cite the specific source
+  positive_catalyst=false → positive_reason MUST be "" (empty string)
                             No partial credit. No "mild tailwinds." Silence is neutral.
 
   Set positive_catalyst=true ONLY for:
