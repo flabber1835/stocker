@@ -21,9 +21,9 @@ strategy-validator    ✅ covered via shared/test_strategy_schema.py
 llm-vetter            ✅ covered via llm_vetter/test_vetter.py
 factor-engine         ✅ covered via regression tests
 backtester            ✅ covered via backtester/test_simulate.py + test_metrics.py
-risk-service          ⬜ built, no tests
-trade-executor        ⬜ built, no tests
-alpaca-sync           ⬜ built, no tests
+risk-service          ✅ covered via risk_service/test_check.py (21 tests)
+trade-executor        ✅ covered via trade_executor/test_sizing.py + test_endpoints.py (16 tests)
+alpaca-sync           ✅ covered via alpaca_sync/test_parse_helpers.py + test_endpoints.py (16 tests)
 intraday-monitor      ⬜ not yet built
 ranker                ⬜ unit tests pending
 ```
@@ -41,8 +41,8 @@ backtest output is reproducible
 hallucination flags correctly detect contradictions
 conviction boosts attenuated by flag count
 crash isolation: one ticker crash does not abort the vetter loop
-risk-service blocks unsafe trades          (when built)
-trade-executor cannot run without approval (when built)
+risk-service blocks unsafe trades          ✅ tested
+trade-executor sizing math is deterministic ✅ tested
 ```
 
 ## Test Gaps to Address
@@ -54,22 +54,19 @@ llm-vetter: no test for _format_ticker_message with quantitative context
 llm-vetter: no test for fetch_av_news concurrency / semaphore behaviour
 llm-vetter: no end-to-end agentic loop test (requires mock Ollama client)
 
-risk-service:
-  kill switch path (KILL_SWITCH=true rejects everything)
-  paper-only guard (PAPER_ONLY=true rejects live)
-  notional limit (notional > MAX_ORDER_NOTIONAL rejected)
-  qty validation (qty <= 0 rejected)
-  live trading guard (trade_type="live" requires LIVE_TRADING_ENABLED=true)
-
-trade-executor:
-  risk_rejected persistence (writes alpaca_orders row but does NOT call Alpaca)
-  no-credentials short circuit (empty ALPACA_API_KEY → records failed row, no call)
-  double-submit protection
-
 api /trade/approve:
-  sizing math for entries: floor(account_value × weight / last_price)
-  exit-qty pulled from latest live_positions row
-  audit-row insertion on failure paths (risk reject, missing intent, etc.)
+  integration test for full proxy → trade-executor flow (needs DB fixture)
+
+trade-executor (end-to-end):
+  POST /jobs/submit happy path with DB + mocked risk-service + mocked Alpaca
+  POST /jobs/submit risk_rejected end-to-end persistence
+  double-submit protection at the DB unique-index level
+
+risk-service:
+  test that risk_decisions rows are written (needs DB fixture)
+
+alpaca-sync:
+  execution_traces + execution_steps written per sync (needs DB fixture)
 ```
 
 ## Service Expectations

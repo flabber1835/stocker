@@ -180,19 +180,27 @@ alpaca-sync service
 
 risk-service
   /health, POST /check
-  deterministic checks (in order): KILL_SWITCH, LIVE_TRADING_ENABLED + trade_type=="live",
-    PAPER_ONLY, qty > 0, notional ≤ MAX_ORDER_NOTIONAL
-  no DB writes; returns approved/reason/check_id
+  deterministic checks in order: KILL_SWITCH, LIVE_TRADING_ENABLED + trade_type=="live",
+    PAPER_ONLY, qty > 0, notional > 0, notional ≤ MAX_ORDER_NOTIONAL
+  persists every decision to risk_decisions (env snapshot included);
+    runs in degraded mode without persistence if DATABASE_URL is unset
 
 trade-executor
-  /health, POST /jobs/submit, GET /orders/recent
+  /health, POST /jobs/submit {intent_id, mode}, GET /orders/recent
   ONLY service permitted to submit Alpaca orders
-  inserts alpaca_orders row whether submitted, risk-rejected, or failed (auditable)
+  full orchestrator: loads intent → sizes order → calls risk-service → records
+    alpaca_orders → submits to Alpaca (if approved + credentials present)
+  writes an execution_trace + step-per-stage audit for every approval click
   market orders; time_in_force = "day" (immediate) or "opg" (Market on Open)
   short-circuits when ALPACA_API_KEY is empty
 
 Tables:
-  alpaca_sync_runs, live_positions, alpaca_orders
+  alpaca_sync_runs (now with trace_id)
+  live_positions (now with lastday_price, change_today)
+  alpaca_orders (now with risk_check_id FK → risk_decisions, trace_id FK → execution_traces,
+                 partial unique index on intent_id where status IN ('pending','submitted'))
+  risk_decisions (one row per /check call with env snapshot)
+  execution_traces / execution_steps (reused; alpaca_sync and trade_approval added as job_types)
 
 /live-portfolio API endpoint
 Dashboard "Live" tab — connected/disconnected state, positions table

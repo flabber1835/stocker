@@ -444,47 +444,70 @@ Does **not** place trades directly.
 
 ## risk-service
 
-Hard safety gate.
-
-Approves or rejects trade intents.
+Hard safety gate. Approves or rejects trade intents.
 
 The LLM must not bypass this service.
 
-Hard-coded safety laws include:
+Implemented controls (Phase 6):
 
 ```text
-max position size
-max daily turnover
-max order size
-max daily loss
-no trade if data is stale
-no trade if config is invalid
-no trade if Alpaca data is unavailable
-paper/live mode guard
-kill switch
-human approval requirement for live trading
+KILL_SWITCH                 — rejects all checks
+LIVE_TRADING_ENABLED        — gate for trade_type="live"
+PAPER_ONLY                  — rejects any live trade
+MAX_ORDER_NOTIONAL          — per-order dollar cap
+qty > 0
+notional > 0
+human approval (every paper trade requires a button click)
 ```
 
-Risk service should be deterministic and heavily tested.
+Persists every decision to `risk_decisions` with an env snapshot
+(KILL_SWITCH/PAPER_ONLY/LIVE_TRADING_ENABLED/MAX_ORDER_NOTIONAL at decision
+time). `alpaca_orders.risk_check_id` is a FK into this table — answers
+"which rule approved/rejected this trade?" auditably.
+
+Planned but not yet implemented: max daily turnover, max daily loss, max
+position size cap, max position count, factor-data staleness check, Alpaca
+availability check. See `docs/risk-safety-rules.md`.
+
+Risk service is deterministic and heavily tested.
 
 ## trade-executor
 
-Only service allowed to place Alpaca orders.
+Only service allowed to place Alpaca orders. Full orchestrator of the
+approval click — no other service does sizing or risk-checking.
 
-Responsibilities:
+Endpoint: `POST /jobs/submit {intent_id, mode}` → `TradeAttemptResponse`.
+
+Per-click steps (each logged to execution_steps under one trace_id):
 
 ```text
-receive approved trade intents
-submit Alpaca paper/live orders
-record submitted orders
-record fills
-record errors
-write audit log
+idempotency_check  — reject if intent already has an open/submitted order
+load_intent        — read delta_intents
+size_order         — entries: floor(account_value × weight / last_price)
+                     refuse if qty < 1 (position too small)
+                     exits: full position qty from latest live_positions
+                     refuse if alpaca-sync > EXIT_SYNC_MAX_AGE_HOURS old
+risk_check         — call risk-service /check
+record_order       — INSERT alpaca_orders (status = pending | risk_rejected)
+submit_alpaca      — POST /v2/orders if approved + credentials present
 ```
 
-No other service should contain Alpaca order-submission credentials.
+Persists:
+- one alpaca_orders row per attempt (status reflects final outcome)
+- one execution_traces row (job_type='trade_approval')
+- one execution_steps row per stage with input/output JSON
 
-Initial implementation must be paper-trading only.
+Order params:
+- type = "market"
+- time_in_force = "day" for mode=immediate, "opg" for mode=scheduled (MOO)
+
+Short-circuits when ALPACA_API_KEY is empty (records a failed row, no HTTP call).
+
+No other service should contain Alpaca order-submission credentials.
+alpaca-sync also has Alpaca credentials but only performs read calls
+(`GET /v2/account`, `GET /v2/positions`).
+
+Initial implementation is paper-trading only.
 
 ## llm-gateway
 

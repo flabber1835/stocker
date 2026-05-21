@@ -519,6 +519,48 @@ CREATE TABLE IF NOT EXISTS alpaca_orders (
 CREATE INDEX IF NOT EXISTS idx_alpaca_orders_ticker  ON alpaca_orders(ticker);
 CREATE INDEX IF NOT EXISTS idx_alpaca_orders_created ON alpaca_orders(created_at DESC);
 
+-- ── Risk decisions ────────────────────────────────────────────────────────────
+-- Every call to risk-service /check writes one row. Answers "which rule
+-- approved or rejected this trade?" — referenced by alpaca_orders.risk_check_id.
+
+CREATE TABLE IF NOT EXISTS risk_decisions (
+    decision_id      UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    ticker           VARCHAR(20)  NOT NULL,
+    action           VARCHAR(10)  NOT NULL,
+    side             VARCHAR(10)  NOT NULL,
+    qty              NUMERIC(16,6),
+    notional         NUMERIC(16,2),
+    mode             VARCHAR(20),
+    trade_type       VARCHAR(10)  NOT NULL DEFAULT 'paper',
+    approved         BOOLEAN      NOT NULL,
+    rule_triggered   VARCHAR(50),    -- 'kill_switch'|'live_disabled'|'paper_only'|'qty'|'notional_zero'|'notional_limit'|'ok'
+    reason           TEXT,
+    -- snapshot of env vars at decision time (so a config change later can't rewrite history)
+    kill_switch        BOOLEAN,
+    paper_only         BOOLEAN,
+    live_trading_enabled BOOLEAN,
+    max_order_notional NUMERIC(16,2),
+    created_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_risk_decisions_created ON risk_decisions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_risk_decisions_ticker  ON risk_decisions(ticker);
+
+-- alpaca_orders.risk_check_id should reference a risk_decisions row. SET NULL on
+-- delete preserves the order audit row even if risk decisions are pruned.
+ALTER TABLE alpaca_orders ADD COLUMN IF NOT EXISTS risk_check_id UUID;
+ALTER TABLE alpaca_orders
+  DROP CONSTRAINT IF EXISTS fk_alpaca_orders_risk;
+ALTER TABLE alpaca_orders
+  ADD CONSTRAINT fk_alpaca_orders_risk
+  FOREIGN KEY (risk_check_id) REFERENCES risk_decisions(decision_id) ON DELETE SET NULL
+  NOT VALID;
+
+-- Execution trace IDs on the trading tables so each approval click and each
+-- alpaca-sync run can be traced step-by-step in the dashboard's trace viewer.
+ALTER TABLE alpaca_orders     ADD COLUMN IF NOT EXISTS trace_id UUID REFERENCES execution_traces(trace_id);
+ALTER TABLE alpaca_sync_runs  ADD COLUMN IF NOT EXISTS trace_id UUID REFERENCES execution_traces(trace_id);
+
 -- Idempotency: a single delta intent can have at most one open or submitted
 -- order. Enforced at the DB so a race between two browser tabs cannot send two
 -- Alpaca orders for the same intent.

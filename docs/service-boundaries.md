@@ -179,37 +179,64 @@ Does not place trades.
 
 ### risk-service
 
-Stateless deterministic safety gate.
+Deterministic safety gate. Stateless logic; persists each decision for audit.
 
 **Endpoint:**
 - `POST /check {ticker, action, side, qty, notional, mode, trade_type}` →
-  `{approved, reason, check_id}`
+  `{approved, reason, check_id, rule_triggered}`
 
-**Checks (in order):**
-1. `KILL_SWITCH` env — if "true", reject all checks
-2. `LIVE_TRADING_ENABLED` + `trade_type=="live"` guard — live requires the flag
-3. `PAPER_ONLY` guard — when "true", any live trade is rejected
-4. `qty > 0`
-5. `notional ≤ MAX_ORDER_NOTIONAL`
+**Checks (in order — first failure wins):**
+1. `KILL_SWITCH` env — if "true", reject all checks (`rule_triggered=kill_switch`)
+2. `LIVE_TRADING_ENABLED` + `trade_type=="live"` guard (`live_disabled`)
+3. `PAPER_ONLY` guard — any live trade rejected (`paper_only`)
+4. `qty > 0` (`qty`)
+5. `notional > 0` (`notional_zero`)
+6. `notional ≤ MAX_ORDER_NOTIONAL` (`notional_limit`)
+7. Otherwise approve (`ok`)
 
-No DB writes. `check_id` is a generated UUID returned to the caller but not
-currently persisted server-side (known gap — see risk-safety-rules.md).
+**Persistence:** every call writes one `risk_decisions` row with a snapshot of
+the env vars at decision time. `check_id` equals `risk_decisions.decision_id`
+and is referenced by `alpaca_orders.risk_check_id` (FK with `ON DELETE SET NULL`).
+If `DATABASE_URL` is unset (test/dev) the service runs in degraded mode —
+`/check` still returns a valid `check_id` but no audit row is written.
+
+**Env:** `KILL_SWITCH`, `LIVE_TRADING_ENABLED`, `PAPER_ONLY`, `MAX_ORDER_NOTIONAL`,
+`DATABASE_URL`.
 
 ### trade-executor
 
-The ONLY service permitted to submit Alpaca orders. Has no risk logic of its own —
-relies entirely on the `risk_approved` flag from the caller.
+The ONLY service permitted to submit Alpaca orders. Owns the full approval
+lifecycle: loads the intent, sizes the order, calls risk-service, records the
+audit row, and submits to Alpaca.
 
 **Endpoint:**
-- `POST /jobs/submit {intent_id, ticker, action, side, qty, mode, risk_check_id,
-  risk_approved, risk_reason}` → `{status, order_id, alpaca_order_id, alpaca_status}`
+- `POST /jobs/submit {intent_id, mode}` → `TradeAttemptResponse`
 
-**Behaviour:**
-- Inserts an `alpaca_orders` row whether the order is submitted, risk-rejected,
-  or fails — every approval click is auditable
-- Order type is always `market`
-- `time_in_force = "opg"` for `mode=scheduled` (Market on Open), `"day"` for `mode=immediate`
-- Short-circuits if `ALPACA_API_KEY` is empty (logs and records a failed row, no Alpaca call)
+**Steps (each one writes an `execution_steps` row tied to a single trace):**
+1. `idempotency_check` — refuse if `alpaca_orders` already has an open or
+   submitted row for this `intent_id`
+2. `load_intent` — fetch `delta_intents` row
+3. `size_order` — entries: `floor(account_value × weight / last_price)`,
+   refuses with HTTP 400 if `qty < 1` ("position too small");
+   exits: full position qty from latest `live_positions`, refuses with HTTP 409
+   if sync is older than `EXIT_SYNC_MAX_AGE_HOURS`. Price source prefers
+   intraday `live_positions.current_price` over `daily_prices.close`.
+4. `risk_check` — POST risk-service `/check`; on 502 the audit row is still
+   written with `status='failed'`.
+5. `record_order` — INSERT `alpaca_orders` with the final status
+   (`pending` if approved, `risk_rejected` otherwise — no intermediate state)
+6. `submit_alpaca` — POST `/v2/orders` only if approved AND credentials present;
+   skipped with audit if `ALPACA_API_KEY` is empty.
+
+**Persistence:**
+- One `execution_traces` row per approval click, with `job_type='trade_approval'`
+- One `execution_steps` row per step (with input/output JSON summaries and
+  per-step durations)
+- One `alpaca_orders` row, linking back via `trace_id`, `intent_id`,
+  `risk_check_id`
+
+**Env:** `DATABASE_URL`, `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`, `ALPACA_BASE_URL`,
+`RISK_SERVICE_URL`, `EXIT_SYNC_MAX_AGE_HOURS`, `DEFAULT_MAX_POSITIONS`.
 
 ### llm-gateway
 
@@ -236,11 +263,12 @@ Triggers recurring jobs.
 
 Backend API for the dashboard and control layer. Exposes:
 `/universe`, `/rankings`, `/portfolio`, `/regime`, `/live-portfolio`,
-`/delta/latest`, `/trade/approve`.
+`/delta/latest`, `/trade/approve`, `/alpaca/sync`, `/traces`, `/data-freshness`.
 
-`/trade/approve` is the only API path that triggers a real Alpaca order. It sizes
-the intent, calls `risk-service /check`, then calls `trade-executor /jobs/submit`
-(always, so risk rejections are recorded in `alpaca_orders` too).
+`/trade/approve` is a thin proxy: it validates the intent_id UUID, runs an
+early idempotency check against `alpaca_orders`, then POSTs `{intent_id, mode}`
+to `trade-executor /jobs/submit`. All sizing, risk-checking, audit logging, and
+Alpaca submission live in `trade-executor`.
 
 ### dashboard
 

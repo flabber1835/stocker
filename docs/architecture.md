@@ -138,24 +138,41 @@ delta-engine → delta_intents (entry / exit / hold / watch)
   → dashboard "Trade Proposal" tab (human review)
   → human clicks "Execute Now" (mode=immediate) or "Schedule for Open" (mode=scheduled)
   → dashboard POST /api/trade/approve
-  → api POST /trade/approve
-    → fetches the intent
-    → sizes the order
-        entries: floor(account_value × weight / last_price)
-        exits:   full position qty from latest live_positions
-    → calls risk-service POST /check
-    → calls trade-executor POST /jobs/submit (ALWAYS — so rejections are auditable)
-  → trade-executor inserts an alpaca_orders row
-    → if risk_approved: submits market order to Alpaca with
-        time_in_force = "day" (immediate)  or
-        time_in_force = "opg" (Market on Open, scheduled)
+  → api POST /trade/approve  [thin proxy: UUID + idempotency check, then forward]
+  → trade-executor POST /jobs/submit  [the orchestrator]
+    1. load_intent       — read delta_intents row
+    2. size_order        — entries: floor(account_value × weight / last_price)
+                          exits:   full position qty from latest live_positions
+    3. risk_check        — call risk-service POST /check
+    4. record_order      — INSERT alpaca_orders (pending or risk_rejected)
+    5. submit_alpaca     — POST /v2/orders if approved + credentials present
 ```
 
-Known architectural debt: order qty sizing currently lives in the API service
-rather than in trade-executor or delta-engine. This is intentional for Phase 6
-simplicity but flagged for future refactoring — sizing logic ideally belongs
-closer to either the proposal producer (delta-engine) or the order submitter
-(trade-executor).
+Every approval click writes one `execution_traces` row plus an `execution_steps`
+row per step above, so the dashboard's trace viewer shows exactly which step
+succeeded, was skipped, or failed for any given click. Sizing decisions
+(weight source, account value, price source) and risk decisions (rule_triggered,
+reason) are recorded in step outputs.
+
+Risk-service writes one row to `risk_decisions` per `/check` call with the env
+snapshot (KILL_SWITCH, PAPER_ONLY, LIVE_TRADING_ENABLED, MAX_ORDER_NOTIONAL at
+the time of the decision) so historical decisions remain auditable even if the
+config later changes. `alpaca_orders.risk_check_id` is a FK into this table.
+
+### Audit chain
+
+```text
+execution_traces  ←  alpaca_orders.trace_id           (one trace per click)
+                  ←  alpaca_sync_runs.trace_id        (one trace per sync)
+execution_steps   ←  trace_id                          (one row per step)
+risk_decisions    ←  alpaca_orders.risk_check_id       (rule + env snapshot)
+delta_intents     ←  alpaca_orders.intent_id           (proposal lineage)
+```
+
+This satisfies the audit requirements from CLAUDE.md:
+- "Which prompt created this strategy?" → strategy_id + config_hash
+- "Which signal caused this trade?" → alpaca_orders.intent_id → delta_intents
+- "Which risk rule approved or rejected it?" → alpaca_orders.risk_check_id → risk_decisions
 
 ## Inter-Service Communication
 

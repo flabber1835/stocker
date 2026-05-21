@@ -46,24 +46,54 @@ max daily turnover cap
 max daily loss cap
 max position size cap (per-ticker weight)
 max position count
-staleness check (reject if market data > N hours old)
+staleness check on factor data (reject if market data > N hours old)
 Alpaca availability check (reject if last alpaca-sync failed or stale)
-persist risk-service decisions to a risk_decisions audit table
-  (check_id is currently returned but not stored server-side)
 ```
+
+Note: exit-sizing staleness IS enforced (`EXIT_SYNC_MAX_AGE_HOURS`, default 24h)
+inside trade-executor — refuses to size an exit from a stale alpaca-sync. The
+"staleness check" above refers to a broader rule that would also reject entries
+when underlying factor data is too old.
+
+## Audit Trail
+
+Every approval click produces a chain of audit rows so any trade can be traced
+back to its origin:
+
+```text
+delta_intents.id
+  ← alpaca_orders.intent_id          (which proposal triggered this order)
+
+execution_traces.trace_id
+  ← alpaca_orders.trace_id           (per-click trace, one trace per approval)
+  ← alpaca_sync_runs.trace_id        (per-sync trace, one trace per sync)
+execution_steps.trace_id
+  ← step-by-step audit of every trace (status, input/output JSON, duration, errors)
+
+risk_decisions.decision_id
+  ← alpaca_orders.risk_check_id      (which rule + env snapshot drove the decision)
+```
+
+The `risk_decisions` table captures the env snapshot at decision time
+(`KILL_SWITCH`, `PAPER_ONLY`, `LIVE_TRADING_ENABLED`, `MAX_ORDER_NOTIONAL`)
+so a later config change cannot rewrite the rationale of historical decisions.
 
 ## Trade Intent Flow
 
 Actual flow as of Phase 6 (paper trading):
 
 ```text
-delta-engine
-  → delta_intents
-  → dashboard human approval (Trade Proposal tab)
-  → api /trade/approve
-  → risk-service /check
-  → trade-executor /jobs/submit
-  → Alpaca
+delta-engine                                    [proposes]
+  → delta_intents row
+  → dashboard human review (Trade Proposal tab)
+  → human button click
+  → api /trade/approve                          [thin proxy: UUID + idempotency]
+  → trade-executor /jobs/submit                 [orchestrator]
+      → load_intent
+      → size_order
+      → risk-service /check                     [→ risk_decisions row]
+      → record alpaca_orders                    [→ audit row, always]
+      → POST Alpaca /v2/orders                  [only if approved + credentials]
 ```
 
 `intraday-monitor` will become a second producer of trade intents once built. The

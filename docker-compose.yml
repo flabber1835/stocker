@@ -47,10 +47,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       REDIS_URL: redis://redis:6379
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      RISK_SERVICE_URL:   http://risk-service:8000
       TRADE_EXECUTOR_URL: http://trade-executor:8000
       ALPACA_SYNC_URL:    http://alpaca-sync:8000
-      EXIT_SYNC_MAX_AGE_HOURS: ${EXIT_SYNC_MAX_AGE_HOURS:-24}
     depends_on:
       postgres:
         condition: service_healthy
@@ -355,10 +353,14 @@ services:
     ports:
       - "8011:8000"
     environment:
+      DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       KILL_SWITCH: ${KILL_SWITCH:-false}
       LIVE_TRADING_ENABLED: ${LIVE_TRADING_ENABLED:-false}
       MAX_ORDER_NOTIONAL: ${MAX_ORDER_NOTIONAL:-50000.0}
       PAPER_ONLY: ${PAPER_ONLY:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 10s
@@ -379,8 +381,13 @@ services:
       ALPACA_API_KEY: ${ALPACA_API_KEY:-}
       ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
       ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+      RISK_SERVICE_URL: http://risk-service:8000
+      EXIT_SYNC_MAX_AGE_HOURS: ${EXIT_SYNC_MAX_AGE_HOURS:-24}
+      DEFAULT_MAX_POSITIONS: ${DEFAULT_MAX_POSITIONS:-30}
     depends_on:
       postgres:
+        condition: service_healthy
+      risk-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]

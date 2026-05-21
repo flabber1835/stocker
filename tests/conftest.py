@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 
 _SERVICE_MAP = {
+    "alpaca_sync":      "alpaca-sync",
     "api":              "api",
     "av_ingestor":      "av-ingestor",
     "backtester":       "backtester",
@@ -21,7 +22,9 @@ _SERVICE_MAP = {
     "llm_vetter":       "llm-vetter",
     "portfolio_builder":"portfolio-builder",
     "ranker":           "ranker",
+    "risk_service":     "risk-service",
     "scheduler":        "scheduler",
+    "trade_executor":   "trade-executor",
 }
 
 _ROOT = Path(__file__).parent.parent

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import uuid
 from contextlib import asynccontextmanager
@@ -70,26 +71,67 @@ def _parse_float(v) -> Optional[float]:
         return None
 
 
+async def _log_step(
+    db, trace_id: str, step_name: str, status: str, started_at: datetime,
+    input_summary: Optional[dict] = None, output_summary: Optional[dict] = None,
+    error_message: Optional[str] = None,
+) -> None:
+    """Insert one execution_steps row for this trace."""
+    await db.execute(
+        text(
+            "INSERT INTO execution_steps "
+            "(step_id, trace_id, service, step_name, status, started_at, completed_at, "
+            " input_summary, output_summary, error_message) "
+            "VALUES (:sid, :tid, 'alpaca-sync', :step, :status, :started, :now, "
+            "        CAST(:inp AS jsonb), CAST(:out AS jsonb), :err)"
+        ),
+        {
+            "sid": str(uuid.uuid4()),
+            "tid": trace_id,
+            "step": step_name,
+            "status": status,
+            "started": started_at,
+            "now": datetime.now(timezone.utc),
+            "inp": json.dumps(input_summary) if input_summary else None,
+            "out": json.dumps(output_summary) if output_summary else None,
+            "err": error_message,
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Sync logic
 # ---------------------------------------------------------------------------
 
 
 async def _do_sync() -> str:
-    """Run a full Alpaca sync. Returns the run_id (str UUID)."""
+    """Run a full Alpaca sync. Returns the run_id (str UUID).
+
+    Each sync gets its own execution_trace with steps:
+      fetch_account → fetch_positions → write_positions
+    """
     run_id = str(uuid.uuid4())
+    trace_id = str(uuid.uuid4())
     started_at = datetime.now(timezone.utc)
 
     async with SessionLocal() as db:
-        # 1. Insert sync run row with status='running'
+        # Open trace + sync run together so every branch is auditable.
+        await db.execute(
+            text(
+                "INSERT INTO execution_traces "
+                "(trace_id, job_type, status, root_run_id, started_at) "
+                "VALUES (:tid, 'alpaca_sync', 'running', :rid, :now)"
+            ),
+            {"tid": trace_id, "rid": run_id, "now": started_at},
+        )
         await db.execute(
             text(
                 """
-                INSERT INTO alpaca_sync_runs (run_id, status, started_at)
-                VALUES (:run_id, 'running', :started_at)
+                INSERT INTO alpaca_sync_runs (run_id, status, started_at, trace_id)
+                VALUES (:run_id, 'running', :started_at, :trace_id)
                 """
             ),
-            {"run_id": run_id, "started_at": started_at},
+            {"run_id": run_id, "started_at": started_at, "trace_id": trace_id},
         )
         await db.commit()
 
@@ -99,32 +141,47 @@ async def _do_sync() -> str:
             "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY,
         }
 
+        # Step: fetch_account
+        t0 = datetime.now(timezone.utc)
         async with httpx.AsyncClient(timeout=30.0) as client:
-            # 2. Fetch account
             acct_resp = await client.get(f"{ALPACA_BASE_URL}/v2/account", headers=headers)
             acct_resp.raise_for_status()
             acct = acct_resp.json()
+            equity = _parse_float(acct.get("equity"))
+            buying_power = _parse_float(acct.get("buying_power"))
+            cash = _parse_float(acct.get("cash"))
+            async with SessionLocal() as db:
+                await _log_step(
+                    db, trace_id, "fetch_account", "success", t0,
+                    output_summary={"equity": equity, "buying_power": buying_power, "cash": cash},
+                )
+                await db.commit()
 
-            # 3. Fetch positions
+            # Step: fetch_positions
+            t0 = datetime.now(timezone.utc)
             pos_resp = await client.get(f"{ALPACA_BASE_URL}/v2/positions", headers=headers)
             pos_resp.raise_for_status()
             positions = pos_resp.json()
-
-        # 4. Parse account fields
-        equity = _parse_float(acct.get("equity"))
-        buying_power = _parse_float(acct.get("buying_power"))
-        cash = _parse_float(acct.get("cash"))
+            async with SessionLocal() as db:
+                await _log_step(
+                    db, trace_id, "fetch_positions", "success", t0,
+                    output_summary={"position_count": len(positions)},
+                )
+                await db.commit()
 
         synced_at = datetime.now(timezone.utc)
 
-        # 5 & 6. Insert position rows (skip any with unparseable qty — NOT NULL in schema)
+        # Step: write_positions
+        t0 = datetime.now(timezone.utc)
         inserted = 0
+        skipped = 0
         async with SessionLocal() as db:
             for pos in positions:
                 qty = _parse_float(pos.get("qty"))
                 ticker = pos.get("symbol", "")
                 if qty is None or not ticker:
                     print(f"[alpaca-sync] Skipping position with missing qty/ticker: {pos}")
+                    skipped += 1
                     continue
                 await db.execute(
                     text(
@@ -160,7 +217,12 @@ async def _do_sync() -> str:
                 )
                 inserted += 1
 
-            # 7. Update sync run to success
+            await _log_step(
+                db, trace_id, "write_positions", "success", t0,
+                output_summary={"inserted": inserted, "skipped": skipped},
+            )
+
+            # Update sync run + trace to success
             completed_at = datetime.now(timezone.utc)
             await db.execute(
                 text(
@@ -184,15 +246,33 @@ async def _do_sync() -> str:
                     "position_count": inserted,
                 },
             )
+            await db.execute(
+                text(
+                    "UPDATE execution_traces SET status='success', completed_at=:now "
+                    "WHERE trace_id=:tid"
+                ),
+                {"tid": trace_id, "now": completed_at},
+            )
             await db.commit()
 
         print(f"[alpaca-sync] Sync completed: run_id={run_id}, positions={inserted}")
 
     except Exception as exc:
-        # 8. Mark run as failed
+        # Mark sync run + trace as failed
         error_msg = str(exc)[:500]
         print(f"[alpaca-sync] Sync failed: run_id={run_id}, error={error_msg}")
         async with SessionLocal() as db:
+            await _log_step(
+                db, trace_id, "fetch_or_write", "failed", started_at,
+                error_message=error_msg,
+            )
+            await db.execute(
+                text(
+                    "UPDATE execution_traces SET status='failed', completed_at=:now, "
+                    "notes=:notes WHERE trace_id=:tid"
+                ),
+                {"tid": trace_id, "now": datetime.now(timezone.utc), "notes": error_msg[:200]},
+            )
             await db.execute(
                 text(
                     """
