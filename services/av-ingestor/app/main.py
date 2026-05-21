@@ -540,10 +540,19 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                     use_compact = ticker_latest.get(ticker) is not None
                     rows = await client.get_daily_prices(ticker, compact=use_compact)
                     if rows:
-                        async with SessionLocal() as session:
-                            async with session.begin():
-                                await _upsert_prices(session, ticker, rows)
-                        price_rows_written += len(rows)
+                        # Filter to only rows newer than what's already in the DB.
+                        # Compact fetches 100 days but we typically only need the last 1-2;
+                        # upserting all 100 would rewrite identical rows unnecessarily.
+                        latest_in_db = ticker_latest.get(ticker)
+                        new_rows = (
+                            [r for r in rows if date.fromisoformat(r["date"]) > latest_in_db]
+                            if latest_in_db else rows
+                        )
+                        if new_rows:
+                            async with SessionLocal() as session:
+                                async with session.begin():
+                                    await _upsert_prices(session, ticker, new_rows)
+                            price_rows_written += len(new_rows)
                         price_ok += 1
                         last_20 = sorted(rows, key=lambda r: r["date"])[-20:]
                         # BUG 5: skip rows with NULL adjusted_close to avoid diluting avg_dv with zeros
@@ -555,7 +564,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                         if dv_vals:
                             _ticker_avg_dv[ticker] = sum(dv_vals) / len(dv_vals)
                         mode = "compact" if use_compact else "full"
-                        print(f"[fetch-data] {ticker} prices: {len(rows)} rows [{mode}] {label}")
+                        print(f"[fetch-data] {ticker} prices: {len(new_rows)}/{len(rows)} new rows [{mode}] {label}")
                     else:
                         print(f"[fetch-data] {ticker} prices: no data {label}")
                 except Exception as e:
@@ -698,13 +707,19 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
                 if not rows:
                     print(f"[fetch-prices] {ticker}: no data returned")
                 else:
-                    async with SessionLocal() as session:
-                        async with session.begin():
-                            await _upsert_prices(session, ticker, rows)
-                    rows_written += len(rows)
+                    latest_in_db = ticker_latest.get(ticker)
+                    new_rows = (
+                        [r for r in rows if date.fromisoformat(r["date"]) > latest_in_db]
+                        if latest_in_db else rows
+                    )
+                    if new_rows:
+                        async with SessionLocal() as session:
+                            async with session.begin():
+                                await _upsert_prices(session, ticker, new_rows)
+                    rows_written += len(new_rows)
                     tickers_ok += 1
                     mode = "compact" if use_compact else "full"
-                    print(f"[fetch-prices] {ticker}: {len(rows)} rows [{mode}] ({i+1}/{len(all_tickers)})")
+                    print(f"[fetch-prices] {ticker}: {len(new_rows)}/{len(rows)} new rows [{mode}] ({i+1}/{len(all_tickers)})")
             except Exception as e:
                 err_count += 1
                 error_tickers.append(ticker)
