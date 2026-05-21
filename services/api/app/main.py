@@ -204,6 +204,49 @@ async def get_universe():
     return {"snapshot": dict(snapshot), "tickers": ticker_list}
 
 
+@app.get("/universe/investable")
+async def get_investable_universe():
+    """Return the investable universe — tickers that passed price/liquidity filters in the
+    latest successful factor run.  These are the exact tickers whose z-scores were computed
+    cross-sectionally together, so this list is the true peer group for ranking purposes.
+    Returns 404 when no successful factor run exists yet (cold start)."""
+    async with engine.connect() as conn:
+        run_row = await conn.execute(
+            text(
+                "SELECT run_id, score_date, ticker_count, regime "
+                "FROM factor_runs WHERE status='success' "
+                "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+            )
+        )
+        run = run_row.mappings().first()
+        if run is None:
+            raise HTTPException(
+                404,
+                "No successful factor run yet — run fetch-data then factor-calculate first.",
+            )
+        tickers_row = await conn.execute(
+            text(
+                "SELECT fs.ticker, ut.name, ut.sector "
+                "FROM factor_scores fs "
+                "LEFT JOIN universe_tickers ut "
+                "  ON ut.ticker = fs.ticker "
+                "  AND ut.snapshot_id = (SELECT MAX(id) FROM universe_snapshots) "
+                "WHERE fs.run_id = :rid "
+                "ORDER BY fs.ticker ASC"
+            ),
+            {"rid": run["run_id"]},
+        )
+        ticker_list = [dict(r) for r in tickers_row.mappings()]
+    return {
+        "source": "factor_scores",
+        "factor_run_id": str(run["run_id"]),
+        "score_date": str(run["score_date"]) if run["score_date"] else None,
+        "regime": run["regime"],
+        "ticker_count": len(ticker_list),
+        "tickers": ticker_list,
+    }
+
+
 # ── Factor scores ────────────────────────────────────────────────────────────────────────────
 
 @app.get("/factors/{ticker}")

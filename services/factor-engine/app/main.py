@@ -373,6 +373,69 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
     print(f"[calculate] loaded {len(prices_df)} price rows for {prices_df['ticker'].nunique()} tickers")
 
+    # ── Step 4b: apply universe price/liquidity filters ─────────────────────────
+    # Filter to the investable universe BEFORE computing z-scores so that penny
+    # stocks and illiquid names do not shift the cross-sectional mean/std used to
+    # normalise every other ticker's score.  This mirrors what portfolio-builder
+    # does at selection time, making z-scores "relative to what you can actually buy."
+    t0 = datetime.now(timezone.utc)
+    uni_cfg = strategy.universe
+    min_price_filter = uni_cfg.min_price
+    min_avg_dv_filter = uni_cfg.min_avg_dollar_volume_20d
+
+    prices_df_sorted = prices_df.sort_values("date")
+    # Latest adjusted_close per ticker (most recent trading day).
+    latest_price = prices_df_sorted.groupby("ticker")["adjusted_close"].last().fillna(0.0)
+    # Avg dollar volume over last 20 trading days — unadjusted close × volume,
+    # same convention used by compute_liquidity and portfolio-builder.
+    last20 = prices_df_sorted.groupby("ticker").tail(20).copy()
+    last20["dv"] = last20["close"].astype(float) * last20["volume"].astype(float)
+    avg_dv_20d = last20.groupby("ticker")["dv"].mean().fillna(0.0)
+
+    below_price_list = [
+        t for t in tickers_with_prices if latest_price.get(t, 0.0) < min_price_filter
+    ]
+    below_price_set = set(below_price_list)
+    below_dv_list = [
+        t for t in tickers_with_prices
+        if t not in below_price_set and avg_dv_20d.get(t, 0.0) < min_avg_dv_filter
+    ]
+    investable_set = tickers_with_prices - below_price_set - set(below_dv_list)
+
+    pre_filter_count = len(universe_tickers)
+    universe_tickers = [t for t in universe_tickers if t in investable_set]
+    prices_df = prices_df[prices_df["ticker"].isin(investable_set)].copy()
+    tickers_with_prices = investable_set
+    coverage_by_ticker = {t: v for t, v in coverage_by_ticker.items() if t in investable_set}
+    no_price_tickers = []  # by construction all remaining universe_tickers have prices
+
+    print(
+        f"[calculate] universe filter: {pre_filter_count} → {len(universe_tickers)} tickers "
+        f"({len(below_price_list)} below price ${min_price_filter}, "
+        f"{len(below_dv_list)} below avg_dv ${min_avg_dv_filter/1e6:.0f}M)"
+    )
+
+    async with engine.begin() as conn:
+        await _log_step(
+            conn, trace_id, "apply_universe_filters", "success",
+            started_at=t0,
+            input_summary={
+                "pre_filter_count": pre_filter_count,
+                "min_price": min_price_filter,
+                "min_avg_dollar_volume_20d": min_avg_dv_filter,
+            },
+            output_summary={
+                "post_filter_count": len(universe_tickers),
+                "filtered_count": pre_filter_count - len(universe_tickers),
+                "below_min_price_count": len(below_price_list),
+                "below_min_avg_dv_count": len(below_dv_list),
+            },
+        )
+    await _checkpoint(trace_id, run_id, started_at)
+
+    if not universe_tickers:
+        return "no investable tickers after universe filters — check min_price and min_avg_dollar_volume_20d"
+
     async with engine.connect() as conn:
         # ── Step 5: load fundamentals ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)

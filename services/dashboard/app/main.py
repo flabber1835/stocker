@@ -75,6 +75,11 @@ async def proxy_universe():
     return await _proxy("/universe")
 
 
+@app.get("/api/universe/investable")
+async def proxy_investable_universe():
+    return await _proxy("/universe/investable")
+
+
 @app.get("/api/portfolio")
 async def proxy_portfolio():
     return await _proxy("/portfolio")
@@ -1043,9 +1048,9 @@ footer span{color:var(--blue)}
     </div>
   </div>
   <div class="stats">
-    <div class="stat"><div class="lbl">Total Tickers</div><div class="val" id="u-total">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Investable Tickers</div><div class="val" id="u-total">&#8212;</div></div>
     <div class="stat"><div class="lbl">Universe Source</div><div class="val" style="font-size:1.1rem;padding-top:6px" id="u-etf">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Snapshot Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="u-date">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Score Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="u-date">&#8212;</div></div>
   </div>
   <div class="toolbar">
     <input type="search" id="u-search" placeholder="Filter ticker or name" oninput="renderUniverse()">
@@ -1734,15 +1739,35 @@ async function loadRegime(){
 async function loadUniverse(){
   $('u-body').innerHTML='<tr><td colspan="2" class="loading">Loading universe</td></tr>';
   try{
-    const d=await fetch('/api/universe').then(r=>{
-      if(!r.ok)throw new Error(r.status);
-      return r.json();
-    });
-    uniData=d.tickers||[];
-    const snap=d.snapshot||{};
-    $('u-total').textContent=uniData.length;
-    $('u-etf').textContent=snap.etf_ticker||'—';
-    $('u-date').textContent=snap.snapshot_date||'—';
+    // Prefer the investable universe (tickers that passed price/liquidity filters in
+    // the latest factor run — the real peer group for z-score comparison).
+    // Fall back to the raw snapshot if no factor run exists yet (cold start).
+    let investable=true;
+    let d;
+    try{
+      d=await fetch('/api/universe/investable').then(r=>{
+        if(!r.ok)throw new Error(r.status);
+        return r.json();
+      });
+    }catch(_){
+      investable=false;
+      d=await fetch('/api/universe').then(r=>{
+        if(!r.ok)throw new Error(r.status);
+        return r.json();
+      });
+    }
+    if(investable){
+      uniData=d.tickers||[];
+      $('u-total').textContent=uniData.length;
+      $('u-etf').textContent='AV Listing (investable)';
+      $('u-date').textContent=d.score_date||'—';
+    }else{
+      uniData=(d.tickers||[]);
+      const snap=d.snapshot||{};
+      $('u-total').textContent=uniData.length+' (raw snapshot)';
+      $('u-etf').textContent=snap.etf_ticker||'—';
+      $('u-date').textContent=snap.snapshot_date||'—';
+    }
     renderUniverse();
   }catch(e){
     $('u-body').innerHTML='<tr><td colspan="2" class="error">No universe data</td></tr>';
