@@ -12,6 +12,8 @@ RANKER_URL          = os.getenv("RANKER_URL",           "http://ranker:8000")
 VETTER_URL          = os.getenv("VETTER_URL",           "http://llm-vetter:8000")
 PORTFOLIO_URL       = os.getenv("PORTFOLIO_URL",        "http://portfolio-builder:8000")
 SCHEDULER_URL       = os.getenv("SCHEDULER_URL",        "http://scheduler:8000")
+ALPACA_SYNC_URL     = os.getenv("ALPACA_SYNC_URL",      "http://alpaca-sync:8000")
+DELTA_ENGINE_URL    = os.getenv("DELTA_ENGINE_URL",     "http://delta-engine:8000")
 
 app = FastAPI(title="stocker-dashboard")
 
@@ -27,6 +29,7 @@ _JOB_SERVICES = {
     "rank":      RANKER_URL,
     "vet":       VETTER_URL,
     "portfolio": PORTFOLIO_URL,
+    "delta":     DELTA_ENGINE_URL,
 }
 _JOB_PATHS = {
     "universe":  "/jobs/fetch-universe",
@@ -35,6 +38,7 @@ _JOB_PATHS = {
     "rank":      "/jobs/rank",
     "vet":       "/jobs/vet",
     "portfolio": "/jobs/build",
+    "delta":     "/jobs/run",
 }
 
 
@@ -146,6 +150,27 @@ async def job_status(tab: str, run_id: str):
 @app.get("/api/live-portfolio")
 async def proxy_live_portfolio():
     return await _proxy("/live-portfolio")
+
+
+@app.get("/api/delta/latest")
+async def proxy_delta_latest():
+    return await _proxy("/delta/latest")
+
+
+@app.post("/api/trade/approve")
+async def proxy_trade_approve(request: Request):
+    try:
+        body = await request.json()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(f"{API_URL}/trade/approve", json=body)
+            return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=502)
+
+
+@app.post("/api/alpaca-sync")
+async def trigger_alpaca_sync():
+    return await _proxy_post(f"{ALPACA_SYNC_URL}/jobs/sync")
 
 
 @app.get("/api/data-freshness")
@@ -1027,8 +1052,8 @@ footer span{color:var(--blue)}
   <button class="tab active" id="tab-universe" onclick="switchTab('universe',this)">Universe</button>
   <button class="tab" id="tab-rank" onclick="switchTab('rank',this)">Rank</button>
   <button class="tab" id="tab-vet" onclick="switchTab('vet',this)">Vetter</button>
-  <button class="tab" id="tab-portfolio" onclick="switchTab('portfolio',this)">Portfolio</button>
-  <button class="tab" id="tab-live" onclick="switchTab('live',this)">Live</button>
+  <button class="tab" id="tab-portfolio" onclick="switchTab('portfolio',this)">Trade Proposal</button>
+  <button class="tab" id="tab-live" onclick="switchTab('live',this)">Portfolio</button>
 </div>
 
 <!-- ── Universe pane ── -->
@@ -1187,50 +1212,37 @@ footer span{color:var(--blue)}
   </div>
 </div>
 
-<!-- ── Portfolio pane ── -->
+<!-- ── Trade Proposal pane ── -->
 <div id="pane-portfolio" class="pane">
-  <div class="job-panel" id="jp-portfolio">
-    <div class="job-meta">
-      <span class="job-lbl">LAST RUN</span>
-      <span class="job-date" id="port-last-date">—</span>
-      <span class="job-status-badge badge-notrun" id="port-badge">NOT RUN</span>
-    </div>
-    <div class="job-warning" id="port-warning">Newer ranking data available — re-run portfolio builder</div>
-    <div class="job-controls">
-      <div class="progress-wrap" id="portfolio-prog-wrap">
-        <div class="progress-track"><div class="progress-fill" id="portfolio-fill"></div></div>
-        <span class="progress-pct" id="portfolio-pct">0%</span>
-      </div>
-      <button class="btn-start" id="portfolio-start" onclick="startJob('portfolio')">&#9654; BUILD PORTFOLIO</button>
-    </div>
-  </div>
   <div class="stats">
-    <div class="stat"><div class="lbl">Positions</div><div class="val" id="p-count">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Est. Annual Vol</div><div class="val orange" id="p-vol">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Avg Pairwise Corr</div><div class="val" id="p-corr">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Portfolio Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="p-date">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Regime</div><div class="val" id="p-regime">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Buy (Entry)</div><div class="val pos" id="delta-entries">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Sell (Exit)</div><div class="val neg" id="delta-exits">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Hold</div><div class="val" id="delta-holds">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Watch</div><div class="val orange" id="delta-watches">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Run Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="delta-run-date">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Entry/Exit Rank</div><div class="val" id="delta-ranks">&#8212;</div></div>
   </div>
   <div class="toolbar">
-    <input type="search" id="p-search" placeholder="Filter ticker" oninput="renderPortfolio()">
-    <button class="btn" onclick="loadPortfolio()">&#x21BA; REFRESH</button>
-    <span class="badge-count" id="p-count-badge"></span>
+    <input type="search" id="delta-search" placeholder="Filter ticker" oninput="renderDelta()">
+    <button class="btn" onclick="loadDelta()">&#x21BA; REFRESH</button>
+    <button class="btn" onclick="startDeltaRun()" id="delta-run-btn">&#9654; RUN DELTA</button>
+    <span class="badge-count" id="delta-count-badge"></span>
   </div>
   <div class="tbl-wrap">
     <table>
       <thead>
         <tr>
-          <th onclick="sortPortfolio('position')" id="ph-position">POS</th>
-          <th onclick="sortPortfolio('ticker')" id="ph-ticker">TICKER</th>
-          <th onclick="sortPortfolio('weight')" id="ph-weight">WEIGHT</th>
-          <th onclick="sortPortfolio('composite_score')" id="ph-composite_score">COMPOSITE</th>
-          <th onclick="sortPortfolio('original_rank')" id="ph-original_rank">ORIG RANK</th>
-          <th onclick="sortPortfolio('adj_score')" id="ph-adj_score">ADJ SCORE</th>
-          <th onclick="sortPortfolio('portfolio_vol_at_add')" id="ph-portfolio_vol_at_add">VOL AT ADD</th>
+          <th onclick="sortDelta('ticker')" id="dh-ticker">TICKER</th>
+          <th onclick="sortDelta('action')" id="dh-action">ACTION</th>
+          <th onclick="sortDelta('rank')" id="dh-rank">RANK</th>
+          <th onclick="sortDelta('composite_score')" id="dh-composite_score">SCORE</th>
+          <th onclick="sortDelta('current_weight')" id="dh-current_weight">WEIGHT</th>
+          <th id="dh-reason">REASON</th>
+          <th id="dh-approve">APPROVE</th>
         </tr>
       </thead>
-      <tbody id="p-body">
-        <tr><td colspan="7" class="loading">Loading portfolio</td></tr>
+      <tbody id="delta-body">
+        <tr><td colspan="7" class="loading">Loading trade proposals</td></tr>
       </tbody>
     </table>
   </div>
@@ -1249,6 +1261,7 @@ footer span{color:var(--blue)}
     <div class="stat"><div class="lbl">Cash</div><div class="val" id="live-cash">&#8212;</div></div>
     <div class="stat"><div class="lbl">Buying Power</div><div class="val" id="live-bp">&#8212;</div></div>
     <div class="stat"><div class="lbl">Positions</div><div class="val" id="live-pos-count">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Today&apos;s P&amp;L</div><div class="val" id="live-day-pl">&#8212;</div></div>
   </div>
 
   <div class="live-not-connected" id="live-not-connected" style="display:none">
@@ -1259,6 +1272,7 @@ footer span{color:var(--blue)}
 
   <div class="toolbar" id="live-toolbar" style="display:none">
     <button class="btn" onclick="loadLivePortfolio()">&#x21BA; REFRESH</button>
+    <button class="btn" onclick="syncAlpaca()" id="alpaca-sync-btn">&#x21C4; SYNC ALPACA</button>
     <span class="badge-count" id="live-count-badge"></span>
   </div>
 
@@ -1272,12 +1286,14 @@ footer span{color:var(--blue)}
           <th onclick="sortLive('qty')" id="lh-qty">SHARES</th>
           <th onclick="sortLive('avg_entry_price')" id="lh-avg_entry_price">AVG ENTRY</th>
           <th onclick="sortLive('current_price')" id="lh-current_price">PRICE</th>
-          <th onclick="sortLive('unrealized_pl')" id="lh-unrealized_pl">UNRLZD P&amp;L</th>
-          <th onclick="sortLive('unrealized_plpc')" id="lh-unrealized_plpc">P&amp;L %</th>
+          <th onclick="sortLive('day_pl')" id="lh-day_pl">DAY P&amp;L</th>
+          <th onclick="sortLive('change_today')" id="lh-change_today">DAY %</th>
+          <th onclick="sortLive('unrealized_pl')" id="lh-unrealized_pl">TOTAL P&amp;L</th>
+          <th onclick="sortLive('unrealized_plpc')" id="lh-unrealized_plpc">TOTAL %</th>
         </tr>
       </thead>
       <tbody id="live-body">
-        <tr><td colspan="8" class="loading">Loading live positions</td></tr>
+        <tr><td colspan="10" class="loading">Loading positions</td></tr>
       </tbody>
     </table>
   </div>
@@ -1291,11 +1307,15 @@ const $=id=>document.getElementById(id);
 const fmtScore=v=>v==null?'—':(+v).toFixed(3);
 
 // ── Data stores ──────────────────────────────────────────────────────────────
-let rankData=[], uniData=[], portData=[];
+let rankData=[], uniData=[], portData=[], deltaData=[];
 let rankSort={col:'rank',dir:1};
 let uniSort={col:'ticker',dir:1};
 let portSort={col:'position',dir:1};
+let deltaSort={col:'rank',dir:1};
 let uniHideTiny=false;
+
+// Per-intent approval state: intent_id → {status, msg}
+let _approvalState = {};
 
 // Current vetter run id (for approve/reject)
 let _currentVetterRunId = null;
@@ -1312,6 +1332,7 @@ function switchTab(name, btn){
     if (s.run_id) { loadVetterExclusions(s.run_id); _loadVetterTickers(s.run_id, false); }
   }
   if (name === 'live') loadLivePortfolio();
+  if (name === 'portfolio') loadDelta();
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -1592,7 +1613,7 @@ async function refresh() {
       _setTabWarn('tab-rank',   d.warnings.rank);
       $('vet-warning').style.display     = d.warnings.vet       ? 'block' : 'none';
       _setTabWarn('tab-vet',    d.warnings.vet);
-      $('port-warning').style.display    = d.warnings.portfolio ? 'block' : 'none';
+      const portWarnEl=$('port-warning'); if(portWarnEl)portWarnEl.style.display=d.warnings.portfolio?'block':'none';
       _setTabWarn('tab-portfolio', d.warnings.portfolio);
     }
     // Live vetter ticker cards when running
@@ -1679,7 +1700,7 @@ function renderJob(tab, state, prev) {
         _loadVetterTickers(state.run_id, false);
       }
     }
-    if (tab === 'portfolio') loadPortfolio();
+    if (tab === 'portfolio') loadDelta();
   }
 }
 
@@ -1960,11 +1981,15 @@ function renderLive(){
     return(av<bv?-1:av>bv?1:0)*dir;
   });
   $('live-count-badge').textContent=rows.length+' POSITIONS';
-  if(!rows.length){$('live-body').innerHTML='<tr><td colspan="8" style="padding:20px 14px;color:var(--secondary)">No positions</td></tr>';return;}
+  if(!rows.length){$('live-body').innerHTML='<tr><td colspan="10" style="padding:20px 14px;color:var(--secondary)">No positions</td></tr>';return;}
   const fmt$=v=>v==null?'—':'$'+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
   const fmtPct=v=>v==null?'—':(v*100).toFixed(2)+'%';
+  const fmtChg=v=>v==null?'—':((v>=0?'+':'')+(v*100).toFixed(2)+'%');
   const fmtShares=v=>v==null?'—':(Math.abs(v)>=100?(+v).toFixed(0):(+v).toFixed(4));
+  const plSign=(v,f)=>v==null?'—':((v>=0?'+':'')+f(v));
   $('live-body').innerHTML=rows.map(p=>{
+    const dayPlCls=p.day_pl==null?'pl-neu':p.day_pl>0?'pl-pos':'pl-neg';
+    const dayPctCls=p.change_today==null?'pl-neu':p.change_today>0?'pl-pos':'pl-neg';
     const plCls=p.unrealized_pl==null?'pl-neu':p.unrealized_pl>0?'pl-pos':'pl-neg';
     const plPctCls=p.unrealized_plpc==null?'pl-neu':p.unrealized_plpc>0?'pl-pos':'pl-neg';
     const wt=p.weight!=null?((p.weight)*100).toFixed(1)+'%':'—';
@@ -1975,8 +2000,10 @@ function renderLive(){
       +'<td class="t-wt">'+fmtShares(p.qty)+'</td>'
       +'<td class="t-wt">'+fmt$(p.avg_entry_price)+'</td>'
       +'<td class="t-wt">'+fmt$(p.current_price)+'</td>'
-      +'<td class="'+plCls+'">'+(p.unrealized_pl!=null?(p.unrealized_pl>=0?'+':'')+fmt$(p.unrealized_pl):'—')+'</td>'
-      +'<td class="'+plPctCls+'">'+(p.unrealized_plpc!=null?(p.unrealized_plpc>=0?'+':'')+fmtPct(p.unrealized_plpc):'—')+'</td>'
+      +'<td class="'+dayPlCls+'">'+plSign(p.day_pl,fmt$)+'</td>'
+      +'<td class="'+dayPctCls+'">'+fmtChg(p.change_today)+'</td>'
+      +'<td class="'+plCls+'">'+plSign(p.unrealized_pl,fmt$)+'</td>'
+      +'<td class="'+plPctCls+'">'+fmtChg(p.unrealized_plpc)+'</td>'
       +'</tr>';
   }).join('');
 }
@@ -2026,6 +2053,14 @@ async function loadLivePortfolio(){
     liveData=d.positions||[];
     renderLive();
     $('lh-market_value').classList.add('desc');
+    // Compute total day P&L from positions
+    const totalDayPL=liveData.reduce((s,p)=>s+(p.day_pl||0),0);
+    const dayPlEl=$('live-day-pl');
+    if(dayPlEl){
+      const fmt$=v=>'$'+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+      dayPlEl.textContent=(totalDayPL>=0?'+':'')+fmt$(totalDayPL);
+      dayPlEl.className='val '+(totalDayPL>0?'pos':totalDayPL<0?'neg':'');
+    }
   }catch(e){
     const lblEl=$('live-conn-label');
     if(lblEl){ lblEl.textContent='ERROR'; lblEl.className='live-conn-label disconnected'; }
@@ -2079,17 +2114,143 @@ async function loadDataFreshness(){
   }catch(e){ console.warn('data-freshness error', e); }
 }
 
+// ── Trade Proposal (delta engine) ────────────────────────────────────────────
+function sortDelta(col){
+  if(deltaSort.col===col)deltaSort.dir*=-1;
+  else{deltaSort.col=col;deltaSort.dir=col==='rank'?1:-1;}
+  clearSort('dh-');
+  const th=$('dh-'+col);
+  if(th)th.classList.add(deltaSort.dir===1?'asc':'desc');
+  renderDelta();
+}
+
+function renderDelta(){
+  const q=($('delta-search').value||'').toUpperCase().trim();
+  let rows=deltaData.filter(r=>!q||r.ticker.includes(q));
+  const col=deltaSort.col,dir=deltaSort.dir;
+  rows.sort((a,b)=>{
+    const av=a[col],bv=b[col];
+    if(av==null&&bv==null)return 0;
+    if(av==null)return 1;if(bv==null)return -1;
+    return(av<bv?-1:av>bv?1:0)*dir;
+  });
+  $('delta-count-badge').textContent=rows.length+' INTENTS';
+  if(!rows.length){$('delta-body').innerHTML='<tr><td colspan="7" class="loading">No proposals</td></tr>';return;}
+  const actionTag={
+    entry:'<span style="background:#1a4a1a;color:#4caf50;padding:2px 6px;border-radius:3px;font-size:.7rem;font-weight:700">BUY</span>',
+    exit:'<span style="background:#4a1a1a;color:#f44336;padding:2px 6px;border-radius:3px;font-size:.7rem;font-weight:700">SELL</span>',
+    hold:'<span style="background:#1a2a4a;color:#42a5f5;padding:2px 6px;border-radius:3px;font-size:.7rem;font-weight:700">HOLD</span>',
+    watch:'<span style="background:#3a2a0a;color:#ff9800;padding:2px 6px;border-radius:3px;font-size:.7rem;font-weight:700">WATCH</span>',
+  };
+  $('delta-body').innerHTML=rows.map(r=>{
+    const tag=actionTag[r.action]||r.action;
+    const wt=r.current_weight!=null?((r.current_weight)*100).toFixed(1)+'%':'—';
+    const reason=r.reason?esc(r.reason.substring(0,60))+(r.reason.length>60?'…':''):'—';
+    let approveCells='<td></td>';
+    if(r.action==='entry'||r.action==='exit'){
+      const st=_approvalState[r.id]||{};
+      if(st.status==='pending'){
+        approveCells='<td><span style="color:var(--secondary);font-size:.75rem">Submitting…</span></td>';
+      }else if(st.status==='ok'){
+        approveCells='<td><span style="color:#4caf50;font-size:.75rem">'+esc(st.msg||'Submitted')+'</span></td>';
+      }else if(st.status==='err'){
+        approveCells='<td><span style="color:#f44336;font-size:.75rem" title="'+esc(st.msg||'')+'">Error</span></td>';
+      }else{
+        approveCells='<td>'
+          +'<button class="btn" style="padding:3px 8px;font-size:.72rem;margin-right:4px" onclick="approveTrade(\''+r.id+'\',\'immediate\')">&#9654; NOW</button>'
+          +'<button class="btn" style="padding:3px 8px;font-size:.72rem" onclick="approveTrade(\''+r.id+'\',\'scheduled\')">&#9711; MOO</button>'
+          +'</td>';
+      }
+    }
+    return '<tr>'
+      +'<td><span class="t-ticker">'+esc(r.ticker)+'</span></td>'
+      +'<td>'+tag+'</td>'
+      +'<td class="t-wt">'+(r.rank??'—')+'</td>'
+      +'<td class="t-wt">'+fmtScore(r.composite_score)+'</td>'
+      +'<td class="t-wt">'+wt+'</td>'
+      +'<td style="font-size:.75rem;color:var(--secondary);max-width:220px">'+reason+'</td>'
+      +approveCells
+      +'</tr>';
+  }).join('');
+}
+
+async function loadDelta(){
+  $('delta-body').innerHTML='<tr><td colspan="7" class="loading">Loading proposals</td></tr>';
+  try{
+    const d=await fetch('/api/delta/latest').then(r=>r.json());
+    const run=d.run||{};
+    deltaData=d.intents||[];
+    $('delta-entries').textContent=run.entries_count??'—';
+    $('delta-exits').textContent=run.exits_count??'—';
+    $('delta-holds').textContent=run.holds_count??'—';
+    $('delta-watches').textContent=run.watches_count??'—';
+    $('delta-run-date').textContent=run.run_date||'—';
+    $('delta-ranks').textContent=(run.entry_rank&&run.exit_rank)?(run.entry_rank+' / '+run.exit_rank):'—';
+    _approvalState={};
+    renderDelta();
+  }catch(e){
+    $('delta-body').innerHTML='<tr><td colspan="7" class="error">No delta data — run delta engine first</td></tr>';
+  }
+}
+
+async function startDeltaRun(){
+  const btn=$('delta-run-btn');
+  if(btn)btn.disabled=true;
+  try{
+    await fetch('/api/jobs/delta',{method:'POST'});
+    await new Promise(r=>setTimeout(r,2000));
+    await loadDelta();
+  }finally{
+    if(btn)btn.disabled=false;
+  }
+}
+
+async function approveTrade(intentId, mode){
+  _approvalState[intentId]={status:'pending'};
+  renderDelta();
+  try{
+    const r=await fetch('/api/trade/approve',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({intent_id:intentId,mode:mode})
+    });
+    const d=await r.json();
+    if(!r.ok||d.error){
+      _approvalState[intentId]={status:'err',msg:d.error||d.detail||'Failed'};
+    }else if(!d.risk_approved){
+      _approvalState[intentId]={status:'err',msg:'Risk rejected: '+(d.risk_reason||'')};
+    }else{
+      const modeLabel=mode==='scheduled'?'MOO scheduled':'Market order sent';
+      _approvalState[intentId]={status:'ok',msg:modeLabel+(d.alpaca_order_id?' ('+d.alpaca_order_id.substring(0,8)+'…)':'')};
+    }
+  }catch(e){
+    _approvalState[intentId]={status:'err',msg:String(e)};
+  }
+  renderDelta();
+}
+
+async function syncAlpaca(){
+  const btn=$('alpaca-sync-btn');
+  if(btn){btn.disabled=true;btn.textContent='Syncing…';}
+  try{
+    await fetch('/api/alpaca-sync',{method:'POST'});
+    await new Promise(r=>setTimeout(r,3000));
+    await loadLivePortfolio();
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='⇄ SYNC ALPACA';}
+  }
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 (async()=>{
   await loadRegime();
   loadUniverse();
   loadRankings();
-  loadPortfolio();
   loadLivePortfolio();
   loadDataFreshness();
   $('rh-rank').classList.add('asc');
   $('uh-ticker').classList.add('asc');
-  $('ph-position').classList.add('asc');
+  const dhRank=$('dh-rank'); if(dhRank)dhRank.classList.add('asc');
 
   // Server-driven render loop: poll every 2s so every browser sees the same state
   setInterval(refresh, 2000);

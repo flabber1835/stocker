@@ -5,12 +5,17 @@ import traceback
 import uuid
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import text
+import httpx
+import math
 
 from sqlalchemy.ext.asyncio import create_async_engine
 from stock_strategy_shared.tracing import fmt_row
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+DATABASE_URL       = os.getenv("DATABASE_URL", "")
+RISK_SERVICE_URL   = os.getenv("RISK_SERVICE_URL",   "http://risk-service:8000")
+TRADE_EXECUTOR_URL = os.getenv("TRADE_EXECUTOR_URL", "http://trade-executor:8000")
 engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=7) if DATABASE_URL else None
 
 
@@ -583,26 +588,36 @@ async def get_live_portfolio():
 
             pos_rows = (await conn.execute(text(
                 "SELECT ticker, qty, avg_entry_price, current_price, market_value, "
-                "cost_basis, unrealized_pl, unrealized_plpc, side "
+                "cost_basis, unrealized_pl, unrealized_plpc, side, "
+                "lastday_price, change_today "
                 "FROM live_positions WHERE sync_run_id = :rid "
                 "ORDER BY market_value DESC NULLS LAST"
             ), {"rid": str(sync_row["run_id"])})).mappings().fetchall()
 
-        positions = [
-            {
+        positions = []
+        for p in pos_rows:
+            qty = _f(p["qty"])
+            current_price = _f(p["current_price"])
+            lastday_price = _f(p.get("lastday_price"))
+            change_today  = _f(p.get("change_today"))
+            day_pl = None
+            if qty is not None and current_price is not None and lastday_price is not None:
+                day_pl = qty * (current_price - lastday_price)
+            positions.append({
                 "ticker":          p["ticker"],
-                "qty":             _f(p["qty"]),
+                "qty":             qty,
                 "avg_entry_price": _f(p["avg_entry_price"]),
-                "current_price":   _f(p["current_price"]),
+                "current_price":   current_price,
                 "market_value":    _f(p["market_value"]),
                 "cost_basis":      _f(p["cost_basis"]),
                 "unrealized_pl":   _f(p["unrealized_pl"]),
                 "unrealized_plpc": _f(p["unrealized_plpc"]),
+                "lastday_price":   lastday_price,
+                "change_today":    change_today,
+                "day_pl":          day_pl,
                 "weight":          None,
                 "side":            p["side"],
-            }
-            for p in pos_rows
-        ]
+            })
         total_long_mv = sum(p["market_value"] for p in positions if p["market_value"] is not None and p["market_value"] > 0)
         total_short_mv = sum(abs(p["market_value"]) for p in positions if p["market_value"] is not None and p["market_value"] < 0)
         for p in positions:
@@ -627,3 +642,220 @@ async def get_live_portfolio():
     except Exception:
         print(f"[api] get_live_portfolio error: {traceback.format_exc()}")
         return {"connected": False, "positions": [], "sync": None}
+
+
+# ── Delta engine intents ───────────────────────────────────────────────────────
+
+@app.get("/delta/latest")
+async def get_delta_latest():
+    def _iso(v):
+        return v.isoformat() if v and hasattr(v, "isoformat") else (str(v) if v else None)
+    def _f(v):
+        return float(v) if v is not None else None
+
+    try:
+        async with engine.connect() as conn:
+            run_row = (await conn.execute(text(
+                "SELECT run_id, status, run_date, entry_rank, exit_rank, "
+                "confirmation_days, max_positions, current_portfolio_size, "
+                "entries_count, exits_count, holds_count, watches_count, "
+                "started_at, completed_at, error_message "
+                "FROM delta_runs ORDER BY started_at DESC LIMIT 1"
+            ))).mappings().first()
+
+            if run_row is None:
+                return {"run": None, "intents": []}
+
+            run_id = str(run_row["run_id"])
+            intent_rows = (await conn.execute(text(
+                "SELECT id, ticker, action, rank, composite_score, "
+                "confirmation_days_met, current_weight, reason "
+                "FROM delta_intents WHERE run_id = :rid "
+                "ORDER BY action, rank ASC NULLS LAST, ticker"
+            ), {"rid": run_id})).mappings().fetchall()
+
+        return {
+            "run": {
+                "run_id":                str(run_row["run_id"]),
+                "status":                run_row["status"],
+                "run_date":              str(run_row["run_date"]) if run_row["run_date"] else None,
+                "entry_rank":            run_row["entry_rank"],
+                "exit_rank":             run_row["exit_rank"],
+                "confirmation_days":     run_row["confirmation_days"],
+                "max_positions":         run_row["max_positions"],
+                "current_portfolio_size": run_row["current_portfolio_size"],
+                "entries_count":         run_row["entries_count"],
+                "exits_count":           run_row["exits_count"],
+                "holds_count":           run_row["holds_count"],
+                "watches_count":         run_row["watches_count"],
+                "started_at":            _iso(run_row["started_at"]),
+                "completed_at":          _iso(run_row["completed_at"]),
+                "error_message":         run_row["error_message"],
+            },
+            "intents": [
+                {
+                    "id":                   str(r["id"]),
+                    "ticker":               r["ticker"],
+                    "action":               r["action"],
+                    "rank":                 r["rank"],
+                    "composite_score":      _f(r["composite_score"]),
+                    "confirmation_days_met": r["confirmation_days_met"],
+                    "current_weight":       _f(r["current_weight"]),
+                    "reason":               r["reason"],
+                }
+                for r in intent_rows
+            ],
+        }
+    except Exception:
+        print(f"[api] get_delta_latest error: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Failed to fetch delta data")
+
+
+# ── Trade approval ─────────────────────────────────────────────────────────────
+
+class TradeApproveRequest(BaseModel):
+    intent_id: str    # delta_intents.id
+    mode: str         # "immediate" or "scheduled"
+
+
+@app.post("/trade/approve")
+async def approve_trade(req: TradeApproveRequest):
+    if req.mode not in ("immediate", "scheduled"):
+        raise HTTPException(status_code=400, detail="mode must be 'immediate' or 'scheduled'")
+
+    def _f(v):
+        return float(v) if v is not None else None
+
+    try:
+        async with engine.connect() as conn:
+            # Fetch the delta intent
+            intent = (await conn.execute(text(
+                "SELECT id, ticker, action, rank, composite_score, current_weight "
+                "FROM delta_intents WHERE id = :iid"
+            ), {"iid": req.intent_id})).mappings().first()
+
+            if intent is None:
+                raise HTTPException(status_code=404, detail=f"Intent {req.intent_id} not found")
+
+            if intent["action"] not in ("entry", "exit"):
+                raise HTTPException(status_code=400, detail=f"Intent action '{intent['action']}' is not tradeable")
+
+            ticker = intent["ticker"]
+            action = intent["action"]
+            side   = "buy" if action == "entry" else "sell"
+
+            # Determine quantity
+            qty = 0.0
+            notional = 0.0
+
+            if action == "exit":
+                # Sell the full position from live_positions
+                pos = (await conn.execute(text(
+                    "SELECT lp.qty, lp.current_price "
+                    "FROM live_positions lp "
+                    "JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
+                    "WHERE lp.ticker = :t AND sr.status = 'success' "
+                    "ORDER BY sr.completed_at DESC NULLS LAST LIMIT 1"
+                ), {"t": ticker})).mappings().first()
+                if pos is None or _f(pos["qty"]) is None:
+                    raise HTTPException(status_code=400, detail=f"No live position found for {ticker}")
+                qty = abs(_f(pos["qty"]))
+                notional = qty * (_f(pos["current_price"]) or 0.0)
+
+            else:
+                # Buy: use portfolio weight × account value ÷ current price
+                weight = _f(intent["current_weight"])
+
+                # Fallback: look up weight in latest portfolio_holdings
+                if weight is None or weight <= 0:
+                    ph = (await conn.execute(text(
+                        "SELECT ph.weight FROM portfolio_holdings ph "
+                        "JOIN portfolio_runs pr ON pr.run_id = ph.run_id "
+                        "WHERE ph.ticker = :t AND pr.status = 'success' "
+                        "ORDER BY pr.completed_at DESC NULLS LAST LIMIT 1"
+                    ), {"t": ticker})).mappings().first()
+                    if ph:
+                        weight = _f(ph["weight"])
+
+                # Default to 1/30 if still no weight
+                if not weight or weight <= 0:
+                    weight = 1.0 / 30.0
+
+                # Get account value from latest successful sync
+                acct = (await conn.execute(text(
+                    "SELECT account_value FROM alpaca_sync_runs "
+                    "WHERE status='success' ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+                ))).mappings().first()
+                account_value = _f(acct["account_value"]) if acct else None
+
+                # Get last known price
+                price_row = (await conn.execute(text(
+                    "SELECT close FROM daily_prices "
+                    "WHERE ticker = :t ORDER BY price_date DESC LIMIT 1"
+                ), {"t": ticker})).mappings().first()
+                last_price = _f(price_row["close"]) if price_row else None
+
+                if account_value is None or last_price is None or last_price <= 0:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Cannot compute qty for {ticker}: "
+                               f"account_value={account_value}, last_price={last_price}"
+                    )
+
+                notional = account_value * weight
+                qty = max(1, math.floor(notional / last_price))
+                notional = qty * last_price
+
+        # Call risk-service
+        risk_payload = {
+            "ticker": ticker, "action": action, "side": side,
+            "qty": qty, "notional": notional,
+            "mode": req.mode, "trade_type": "paper",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r = await client.post(f"{RISK_SERVICE_URL}/check", json=risk_payload)
+                risk_resp = r.json()
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Risk service unavailable: {exc}")
+
+        risk_approved = risk_resp.get("approved", False)
+        risk_reason   = risk_resp.get("reason", "")
+        check_id      = risk_resp.get("check_id", str(uuid.uuid4()))
+
+        # Call trade-executor regardless of risk result (executor records the rejection)
+        exec_payload = {
+            "intent_id":     req.intent_id,
+            "ticker":        ticker,
+            "action":        action,
+            "side":          side,
+            "qty":           qty,
+            "mode":          req.mode,
+            "risk_check_id": check_id,
+            "risk_approved": risk_approved,
+            "risk_reason":   risk_reason,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                r = await client.post(f"{TRADE_EXECUTOR_URL}/jobs/submit", json=exec_payload)
+                exec_resp = r.json()
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Trade executor unavailable: {exc}")
+
+        return {
+            "ticker":        ticker,
+            "action":        action,
+            "side":          side,
+            "qty":           qty,
+            "notional":      notional,
+            "mode":          req.mode,
+            "risk_approved": risk_approved,
+            "risk_reason":   risk_reason,
+            **exec_resp,
+        }
+
+    except HTTPException:
+        raise
+    except Exception:
+        print(f"[api] approve_trade error: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Trade approval failed")

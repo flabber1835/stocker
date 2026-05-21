@@ -391,6 +391,8 @@ CREATE TABLE IF NOT EXISTS live_positions (
     unrealized_pl   NUMERIC(14,2),
     unrealized_plpc NUMERIC(10,6),
     side            VARCHAR(10),
+    lastday_price   NUMERIC(14,4),
+    change_today    NUMERIC(10,6),
     synced_at       TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
     UNIQUE (sync_run_id, ticker)
 );
@@ -487,4 +489,36 @@ CREATE TABLE IF NOT EXISTS delta_intents (
 );
 
 CREATE INDEX IF NOT EXISTS idx_delta_intents_run ON delta_intents(run_id, action);
+
+-- ── Trade execution ──────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS alpaca_orders (
+    id                UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    intent_id         UUID,
+    alpaca_order_id   VARCHAR(64),
+    ticker            VARCHAR(20)  NOT NULL,
+    action            VARCHAR(10)  NOT NULL,
+    side              VARCHAR(10)  NOT NULL,
+    qty               NUMERIC(16,4),
+    notional          NUMERIC(16,4),
+    order_type        VARCHAR(20),
+    time_in_force     VARCHAR(10),
+    status            VARCHAR(20)  NOT NULL DEFAULT 'pending',
+    mode              VARCHAR(20),
+    risk_approved     BOOLEAN      NOT NULL DEFAULT FALSE,
+    risk_reason       TEXT,
+    alpaca_status     VARCHAR(30),
+    submitted_at      TIMESTAMPTZ,
+    filled_at         TIMESTAMPTZ,
+    avg_fill_price    NUMERIC(16,4),
+    filled_qty        NUMERIC(16,4),
+    error_message     TEXT,
+    created_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_alpaca_orders_ticker  ON alpaca_orders(ticker);
+CREATE INDEX IF NOT EXISTS idx_alpaca_orders_created ON alpaca_orders(created_at DESC);
+
+ALTER TABLE live_positions ADD COLUMN IF NOT EXISTS lastday_price NUMERIC(14,4);
+ALTER TABLE live_positions ADD COLUMN IF NOT EXISTS change_today  NUMERIC(10,6);
 

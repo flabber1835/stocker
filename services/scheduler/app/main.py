@@ -18,6 +18,7 @@ RANKER_URL            = os.getenv("RANKER_URL",             "http://ranker:8000"
 VETTER_URL            = os.getenv("VETTER_URL",             "http://llm-vetter:8000")
 PORTFOLIO_BUILDER_URL = os.getenv("PORTFOLIO_BUILDER_URL",  "http://portfolio-builder:8000")  # manual/monthly use only
 DELTA_ENGINE_URL      = os.getenv("DELTA_ENGINE_URL",       "http://delta-engine:8000")
+ALPACA_SYNC_URL       = os.getenv("ALPACA_SYNC_URL",        "http://alpaca-sync:8000")
 
 # Default: 21:15 UTC = 4:15 pm ET, weekdays only (market close + 15 min buffer).
 # Override via env var using standard cron syntax, e.g. "0 22 * * 1-5"
@@ -146,6 +147,9 @@ async def _startup_catch_up():
     await asyncio.sleep(10)  # give other services time to start
     _log("catch-up: woke up after startup delay")
     async with httpx.AsyncClient() as client:
+        # Always sync Alpaca positions first so the Portfolio tab shows data immediately.
+        await _trigger_alpaca_sync(client, context="startup-catch-up")
+
         # Cold-start guard: if no universe exists, fetch it before anything else.
         has_universe = await _has_universe(client)
         _log(f"catch-up: universe check → has_universe={has_universe}")
@@ -232,6 +236,35 @@ async def _get_latest_run_id(client: httpx.AsyncClient, service_url: str) -> Opt
     except Exception:
         pass
     return None
+
+
+async def _trigger_alpaca_sync(client: httpx.AsyncClient, context: str = "startup") -> None:
+    """Trigger alpaca-sync and wait up to 60s for completion. Non-blocking on failure."""
+    try:
+        r = await client.post(f"{ALPACA_SYNC_URL}/jobs/sync", timeout=10.0)
+        if r.status_code == 409:
+            _log(f"alpaca-sync ({context}): already running — waiting for completion")
+        elif r.status_code not in (200, 201, 202):
+            _log(f"alpaca-sync ({context}): POST returned HTTP {r.status_code} — skipping")
+            return
+        # Poll until success or failure (up to 60s)
+        for _ in range(30):
+            await asyncio.sleep(2)
+            try:
+                s = await client.get(f"{ALPACA_SYNC_URL}/runs/latest", timeout=5.0)
+                if s.status_code == 200:
+                    d = s.json()
+                    if d.get("status") == "success":
+                        _log(f"alpaca-sync ({context}): complete — {d.get('position_count', 0)} positions")
+                        return
+                    if d.get("status") == "failed":
+                        _log(f"alpaca-sync ({context}): FAILED", error=d.get("error_message", ""))
+                        return
+            except Exception:
+                pass
+        _log(f"alpaca-sync ({context}): timed out after 60s")
+    except Exception as exc:
+        _log(f"alpaca-sync ({context}): error", error=str(exc))
 
 
 async def _run_step(
@@ -465,6 +498,10 @@ async def _run_daily_chain():
             if not ok:
                 _fail_chain()
                 return
+
+            # Step 6 — alpaca sync (refresh broker positions after delta engine run)
+            await _trigger_alpaca_sync(client, context="daily-chain")
+            steps["alpaca_sync"] = "triggered"
 
         _chain_status["status"] = "success"
         _chain_status["last_run"]["completed_at"] = datetime.now(timezone.utc).isoformat()

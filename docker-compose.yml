@@ -47,6 +47,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       REDIS_URL: redis://redis:6379
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      RISK_SERVICE_URL:   http://risk-service:8000
+      TRADE_EXECUTOR_URL: http://trade-executor:8000
     depends_on:
       postgres:
         condition: service_healthy
@@ -161,6 +163,10 @@ services:
       VETTER_URL: http://llm-vetter:8000
       PORTFOLIO_URL: http://portfolio-builder:8000
       SCHEDULER_URL: http://scheduler:8000
+      ALPACA_SYNC_URL: http://alpaca-sync:8000
+      DELTA_ENGINE_URL: http://delta-engine:8000
+      RISK_SERVICE_URL: http://risk-service:8000
+      TRADE_EXECUTOR_URL: http://trade-executor:8000
     depends_on:
       api:
         condition: service_healthy
@@ -310,13 +316,25 @@ services:
   alpaca-sync:
     build:
       context: .
-      dockerfile: services/stub/Dockerfile
+      dockerfile: services/alpaca-sync/Dockerfile
       network: host
     restart: unless-stopped
     ports:
       - "8009:8000"
     environment:
-      SERVICE_NAME: alpaca-sync
+      DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
+      ALPACA_API_KEY: ${ALPACA_API_KEY:-}
+      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
+      ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   intraday-monitor:
     build:
@@ -332,24 +350,45 @@ services:
   risk-service:
     build:
       context: .
-      dockerfile: services/stub/Dockerfile
+      dockerfile: services/risk-service/Dockerfile
       network: host
     restart: unless-stopped
     ports:
       - "8011:8000"
     environment:
-      SERVICE_NAME: risk-service
+      KILL_SWITCH: ${KILL_SWITCH:-false}
+      LIVE_TRADING_ENABLED: ${LIVE_TRADING_ENABLED:-false}
+      MAX_ORDER_NOTIONAL: ${MAX_ORDER_NOTIONAL:-50000.0}
+      PAPER_ONLY: ${PAPER_ONLY:-true}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   trade-executor:
     build:
       context: .
-      dockerfile: services/stub/Dockerfile
+      dockerfile: services/trade-executor/Dockerfile
       network: host
     restart: unless-stopped
     ports:
       - "8012:8000"
     environment:
-      SERVICE_NAME: trade-executor
+      DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
+      ALPACA_API_KEY: ${ALPACA_API_KEY:-}
+      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
+      ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
 
   backtester:
     build:
@@ -427,6 +466,7 @@ services:
       VETTER_URL:            http://llm-vetter:8000
       PORTFOLIO_BUILDER_URL: http://portfolio-builder:8000
       DELTA_ENGINE_URL:      http://delta-engine:8000
+      ALPACA_SYNC_URL:       http://alpaca-sync:8000
       RANK_SCHEDULE_CRON:        ${RANK_SCHEDULE_CRON:-15 21 * * 1-5}
       VETTER_TIMEOUT_SECS:       ${VETTER_TIMEOUT_SECS:-600}
       VETTER_CANDIDATE_COUNT:    ${VETTER_CANDIDATE_COUNT:-50}
@@ -441,6 +481,8 @@ services:
       llm-vetter:
         condition: service_healthy
       delta-engine:
+        condition: service_healthy
+      alpaca-sync:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
