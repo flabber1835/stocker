@@ -427,16 +427,16 @@ async def _run_daily_chain():
             # recognised as "today's run" when completed_at falls on the next calendar day.
             # Accept partial_success so a run where most tickers succeeded doesn't re-trigger.
             # stall_minutes=max_minutes disables early stall detection: a cold-start full
-            # historical fetch legitimately runs for 4+ hours with no status change.
+            # historical fetch of 6000+ tickers can legitimately run for 6+ hours.
             ok = await _run_step(
                 client, AV_INGESTOR_URL, "/jobs/fetch-data",
                 date_field="started_at",
                 today=today,
                 step_name="fetch-data",
-                max_minutes=240,
+                max_minutes=600,
                 job_type_filter="fetch-data",
                 extra_ok_statuses=("partial_success",),
-                stall_minutes=240,
+                stall_minutes=600,
             )
             steps["fetch_data"] = "success" if ok else "failed"
             if ok:
