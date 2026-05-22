@@ -524,6 +524,9 @@ _HTML = r"""<!DOCTYPE html>
 <title>Stocker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   STOCKER DASHBOARD  –  dark theme
+   ═══════════════════════════════════════════════════════════════════════════ */
 :root {
   --bg:       #0d1117;
   --panel:    #161b22;
@@ -553,55 +556,101 @@ body{
   font-size:13px;
   line-height:1.5;
 }
-.wrap{max-width:1500px;margin:0 auto;padding:20px 28px}
-header{
-  display:flex;align-items:center;justify-content:space-between;
-  padding:20px 0 18px;
-  margin-bottom:20px;
+
+/* ── Floating status bar ── */
+#status-bar{
+  position:sticky;
+  top:0;
+  z-index:100;
+  background:var(--bg);
   border-bottom:1px solid var(--border);
+  height:44px;
+  display:flex;
+  align-items:center;
+  gap:0;
+  padding:0 20px;
 }
-.logo{
-  font-size:1.25rem;font-weight:700;
-  letter-spacing:.06em;
-  color:var(--strong);
-  font-family:var(--font-ui);
+.sb-left{
+  display:flex;align-items:center;gap:8px;
+  flex:0 0 auto;
 }
-.logo em{color:var(--blue);font-style:normal}
-.sub{
-  font-size:.72rem;
-  color:var(--secondary);margin-top:2px;
-  text-transform:uppercase;letter-spacing:.08em;
-}
-#regime-bar{
-  display:flex;flex-wrap:wrap;align-items:center;gap:6px 20px;
-  background:var(--panel);
-  border:1px solid var(--border);
-  border-left:3px solid var(--blue);
-  padding:10px 18px;
-  margin-bottom:20px;
-  font-size:.78rem;
-  box-shadow:var(--shadow);
-}
-.rb-label{color:var(--secondary);text-transform:uppercase;font-size:.68rem;letter-spacing:.1em}
-.rb-val{color:var(--strong);font-weight:600;font-family:var(--font-mono)}
-.rb-sep{color:var(--border)}
-.rb-metric{color:var(--secondary);font-size:.75rem}
-.rb-metric span{color:var(--primary);font-family:var(--font-mono)}
-.rb-badge{
-  padding:2px 10px;border-radius:4px;
-  font-size:.68rem;letter-spacing:.08em;
+.sb-regime-badge{
+  padding:2px 9px;border-radius:3px;
+  font-size:.65rem;letter-spacing:.08em;
   text-transform:uppercase;font-weight:700;
   background:var(--panel2);border:1px solid var(--border);
+  white-space:nowrap;
 }
-.regime-bull_calm   {color:var(--green);border-color:var(--green)}
-.regime-bull_stress {color:var(--amber);border-color:var(--amber)}
-.regime-bull_volatile{color:var(--amber);border-color:var(--amber)}
-.regime-bear_calm   {color:var(--blue);border-color:var(--blue)}
-.regime-bear_stress {color:var(--red);border-color:var(--red)}
-.regime-bear_volatile{color:var(--red);border-color:var(--red)}
+.sb-regime-badge.regime-bull_calm   {color:var(--green);border-color:var(--green)}
+.sb-regime-badge.regime-bull_stress {color:var(--amber);border-color:var(--amber)}
+.sb-regime-badge.regime-bull_volatile{color:var(--amber);border-color:var(--amber)}
+.sb-regime-badge.regime-bear_calm   {color:var(--blue);border-color:var(--blue)}
+.sb-regime-badge.regime-bear_stress {color:var(--red);border-color:var(--red)}
+.sb-regime-badge.regime-bear_volatile{color:var(--red);border-color:var(--red)}
+.sb-regime-badge.regime-unknown     {color:var(--secondary);border-color:var(--border)}
+.sb-center{
+  flex:1;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-width:0;
+  gap:2px;
+}
+.sb-activity{
+  font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;font-weight:700;
+  line-height:1;
+}
+.sb-activity.act-green  {color:var(--green)}
+.sb-activity.act-amber  {color:var(--amber)}
+.sb-activity.act-blue   {color:var(--blue)}
+.sb-activity.act-purple {color:var(--purple)}
+.sb-activity.act-red    {color:var(--red)}
+.sb-activity.act-gray   {color:var(--secondary)}
+.sb-progress{
+  width:140px;height:2px;border-radius:1px;
+  background:var(--panel3);
+  position:relative;overflow:hidden;
+}
+.sb-progress-fill{
+  height:100%;border-radius:1px;
+  transition:width .4s ease;
+}
+.sb-progress-fill.col-green  {background:var(--green)}
+.sb-progress-fill.col-amber  {background:var(--amber)}
+.sb-progress-fill.col-blue   {background:var(--blue)}
+.sb-progress-fill.col-purple {background:var(--purple)}
+.sb-progress-fill.col-red    {background:var(--red)}
+.sb-progress-fill.col-gray   {background:var(--secondary)}
+.sb-progress-fill.indeterminate{
+  width:30% !important;
+  animation:sb-slide 1.4s ease-in-out infinite;
+}
+@keyframes sb-slide{
+  0%  {transform:translateX(-200%)}
+  100%{transform:translateX(600%)}
+}
+.sb-right{
+  flex:0 0 auto;
+  display:flex;align-items:center;gap:12px;
+  font-size:.7rem;color:var(--secondary);
+  font-family:var(--font-mono);
+}
+.sb-spy{white-space:nowrap}
+.sb-rankdate{white-space:nowrap}
+
+/* ── Action row (start buttons, below sticky bar, scrolls away) ── */
+.action-row{
+  display:flex;align-items:center;gap:8px;
+  padding:8px 20px;
+  background:var(--panel);
+  border-bottom:1px solid var(--border);
+}
+
+/* ── Page wrap ── */
+.wrap{max-width:1500px;margin:0 auto;padding:16px 28px}
+
+/* ── Tabs ── */
 .tabs{
   display:flex;gap:0;
-  margin-bottom:24px;
+  margin-bottom:20px;
   border-bottom:1px solid var(--border);
 }
 .tab{
@@ -663,7 +712,7 @@ header{
   font-size:.72rem;
   flex:0 0 100%;
 }
-.job-warning::before{content:'⚠  '}
+.job-warning::before{content:'\26a0  '}
 .job-controls{display:flex;align-items:center;gap:10px;margin-left:auto}
 .btn-start{
   background:var(--blue);
@@ -711,7 +760,7 @@ header{
 }
 .progress-pct{font-size:.7rem;color:var(--secondary);font-family:var(--font-mono);min-width:34px;text-align:right}
 
-/* ── Stats ── */
+/* ── Stats (Trades pane only) ── */
 .stats{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
 .stat{
   background:var(--panel);
@@ -729,12 +778,8 @@ header{
   color:var(--strong);font-family:var(--font-mono);
 }
 .stat .val.orange{color:var(--amber)}
-.fresh-strip{display:flex;gap:18px;margin-bottom:12px;flex-wrap:wrap;padding:6px 10px;background:var(--panel);border-radius:6px;border:1px solid var(--border)}
-.fresh-item{display:flex;gap:6px;align-items:baseline}
-.fresh-lbl{font-size:.72rem;color:var(--secondary);text-transform:uppercase;letter-spacing:.04em}
-.fresh-val{font-size:.85rem;font-family:var(--font-mono)}
-.fresh-val.fresh{color:var(--green)}
-.fresh-val.stale{color:var(--amber)}
+
+/* ── Toolbar ── */
 .toolbar{display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap}
 input[type=search]{
   background:var(--panel);
@@ -771,6 +816,8 @@ select option{background:var(--panel2)}
   margin-left:auto;font-size:.7rem;
   color:var(--secondary);font-family:var(--font-mono);
 }
+
+/* ── Tables ── */
 .tbl-wrap{
   overflow-x:auto;
   border:1px solid var(--border);border-radius:6px;
@@ -796,6 +843,140 @@ th.desc::after{content:' \25bc';color:var(--blue)}
 tbody tr{border-bottom:1px solid var(--border2);transition:background .1s}
 tbody tr:hover{background:rgba(88,166,255,0.04)}
 td{padding:9px 14px;white-space:nowrap}
+
+/* Clickable rank rows */
+tr.rank-row{cursor:pointer}
+tr.rank-row:hover td{background:rgba(88,166,255,0.06)}
+tr.rank-row.expanded td{background:rgba(88,166,255,0.08)}
+
+/* Detail expand row */
+tr.detail-row td{
+  padding:0;
+  white-space:normal;
+}
+.detail-inner{
+  padding:16px 20px;
+  background:var(--panel2);
+  border-left:3px solid var(--secondary);
+}
+.detail-inner.dl-held   {border-left-color:var(--green)}
+.detail-inner.dl-excl   {border-left-color:var(--red)}
+.detail-inner.dl-default{border-left-color:var(--border)}
+.detail-head{
+  display:flex;align-items:baseline;gap:12px;
+  margin-bottom:10px;
+  flex-wrap:wrap;
+}
+.detail-ticker{
+  font-family:var(--font-mono);font-size:1.1rem;font-weight:700;
+  color:var(--strong);
+}
+.detail-name{
+  font-size:.82rem;color:var(--secondary);flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.detail-yf-link{
+  font-size:.72rem;color:var(--blue);text-decoration:none;
+  white-space:nowrap;
+  border:1px solid rgba(88,166,255,.3);
+  padding:2px 8px;border-radius:3px;
+}
+.detail-yf-link:hover{background:rgba(88,166,255,.08)}
+.detail-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(120px,1fr));
+  gap:8px 16px;
+  margin-bottom:12px;
+}
+.detail-cell .dc-lbl{
+  font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--secondary);margin-bottom:2px;
+}
+.detail-cell .dc-val{
+  font-family:var(--font-mono);font-size:.88rem;color:var(--primary);font-weight:600;
+}
+.detail-section-label{
+  font-size:.62rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--secondary);margin-bottom:6px;margin-top:10px;
+}
+.factor-chips{display:inline-flex;gap:6px;flex-wrap:wrap}
+.factor-chip{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:3px 8px;border-radius:3px;
+  font-size:.7rem;font-family:var(--font-mono);
+  background:var(--panel3);border:1px solid var(--border);
+}
+.factor-chip .fc-lbl{color:var(--secondary);font-size:.62rem;letter-spacing:.04em}
+.factor-chip .fc-val{font-weight:700}
+.fc-pos{color:var(--green)}
+.fc-neg{color:var(--red)}
+.fc-neu{color:var(--secondary)}
+.detail-llm{
+  margin-top:12px;
+  padding:10px 14px;
+  background:var(--panel3);
+  border:1px solid var(--border);
+  border-radius:4px;
+}
+.llm-header{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  margin-bottom:8px;
+}
+.llm-label{
+  font-size:.6rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--purple);margin-right:4px;
+}
+.llm-verdict-badge{
+  padding:2px 8px;border-radius:3px;
+  font-size:.67rem;font-weight:700;letter-spacing:.05em;
+  font-family:var(--font-mono);
+}
+.llm-verdict-badge.vb-keep   {background:rgba(63,185,80,.15);color:var(--green);border:1px solid rgba(63,185,80,.4)}
+.llm-verdict-badge.vb-exclude{background:rgba(248,81,73,.15);color:var(--red);border:1px solid rgba(248,81,73,.4)}
+.llm-verdict-badge.vb-crashed{background:rgba(210,153,34,.15);color:var(--amber);border:1px solid rgba(210,153,34,.4)}
+.llm-conf-badge{
+  padding:2px 8px;border-radius:3px;
+  font-size:.65rem;font-weight:700;letter-spacing:.05em;
+  border:1px solid currentColor;font-family:var(--font-mono);
+}
+.llm-conf-badge.cb-high  {color:var(--red);border-color:var(--red)}
+.llm-conf-badge.cb-medium{color:var(--amber);border-color:var(--amber)}
+.llm-conf-badge.cb-low   {color:var(--secondary);border-color:var(--border)}
+.llm-risk-type{
+  font-size:.65rem;color:var(--secondary);
+  border:1px solid var(--border);padding:2px 7px;border-radius:3px;
+  text-transform:uppercase;letter-spacing:.04em;background:var(--panel2);
+}
+.llm-reason{
+  font-size:.8rem;line-height:1.65;color:var(--primary);white-space:normal;
+  margin-top:6px;
+}
+.llm-excl-reason{
+  margin-top:6px;font-size:.78rem;color:var(--red);font-weight:600;white-space:normal;
+}
+.llm-catalyst{
+  margin-top:8px;padding:8px 12px;
+  background:rgba(63,185,80,.05);
+  border:1px solid rgba(63,185,80,.2);
+  border-radius:3px;
+}
+.llm-catalyst-label{
+  font-size:.62rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--green);margin-bottom:4px;
+}
+.llm-catalyst-reason{font-size:.78rem;color:var(--primary);white-space:normal;line-height:1.6}
+.llm-flags{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.llm-flag{
+  display:inline-flex;align-items:center;gap:3px;
+  padding:2px 7px;border-radius:3px;
+  background:rgba(210,153,34,.1);border:1px solid rgba(210,153,34,.3);
+  color:var(--amber);font-size:.65rem;
+}
+.detail-held-note{
+  margin-top:8px;
+  font-size:.78rem;color:var(--green);font-weight:600;
+}
+
 .t-ticker{
   color:var(--blue);font-weight:700;
   font-family:var(--font-mono);
@@ -818,12 +999,6 @@ td{padding:9px 14px;white-space:nowrap}
 .overlay-badge.pos-cat {background:rgba(255,165,0,.16); color:#ffa500; border:1px solid rgba(255,165,0,.35)}
 tr.row-held    td{background:rgba(63,185,80,.04)}
 tr.row-excluded td{opacity:.55}
-.t-name{color:var(--secondary);font-size:.78rem;max-width:180px;overflow:hidden;text-overflow:ellipsis}
-.t-sector{
-  display:inline-block;padding:2px 7px;border-radius:3px;
-  font-size:.65rem;border:1px solid var(--border);
-  color:var(--secondary);letter-spacing:.04em;background:var(--panel2);
-}
 .t-wt{color:var(--secondary);font-size:.78rem;font-family:var(--font-mono)}
 .pos{color:var(--green)}
 .neg{color:var(--red)}
@@ -869,128 +1044,6 @@ tr.row-excluded td{opacity:.55}
 .conf-high  {color:var(--red);border-color:var(--red);background:rgba(248,81,73,0.1)}
 .conf-medium{color:var(--amber);border-color:var(--amber);background:rgba(210,153,34,0.1)}
 .conf-low   {color:var(--secondary);border-color:var(--border)}
-.verdict-exclude{color:var(--red);font-weight:700;letter-spacing:.04em;font-family:var(--font-mono)}
-.verdict-keep{color:var(--green);font-weight:700;letter-spacing:.04em;font-family:var(--font-mono)}
-.verdict-crashed{color:var(--amber);font-weight:700;letter-spacing:.04em;font-family:var(--font-mono)}
-.v-live-label{
-  display:inline-block;margin-left:6px;
-  font-size:.65rem;color:var(--amber);
-  animation:pulse 1.4s infinite;vertical-align:middle;
-}
-
-/* ── Vetter cards ── */
-.vetter-cards{display:flex;flex-direction:column;gap:12px;margin-top:4px}
-.vcard{
-  background:var(--panel);
-  border:1px solid var(--border);
-  border-radius:8px;
-  overflow:hidden;
-  box-shadow:var(--shadow);
-  transition:box-shadow .15s;
-}
-.vcard:hover{box-shadow:var(--shadow-md)}
-.vcard.vc-exclude{border-top:3px solid var(--red)}
-.vcard.vc-catalyst{border-top:3px solid var(--green)}
-.vcard.vc-crashed{border-top:3px solid var(--amber)}
-.vcard-header{
-  display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;
-  padding:12px 16px;
-  background:var(--panel2);
-  border-bottom:1px solid var(--border);
-}
-.vc-ticker{
-  font-family:var(--font-mono);font-size:1rem;font-weight:700;
-  color:var(--strong);margin-right:4px;
-}
-.vc-name{
-  font-size:.78rem;color:var(--secondary);
-  flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  min-width:0;
-}
-.vc-badges{display:flex;gap:6px;align-items:center;margin-left:auto;flex-wrap:wrap}
-.vc-badge{
-  display:inline-flex;align-items:center;
-  padding:2px 10px;border-radius:20px;
-  font-size:.67rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
-  border:1px solid currentColor;
-  white-space:nowrap;
-}
-.vc-badge-exclude{color:var(--red);border-color:var(--red);background:rgba(248,81,73,0.12)}
-.vc-badge-keep{color:var(--green);border-color:var(--green);background:rgba(63,185,80,0.1)}
-.vc-badge-crashed{color:var(--amber);border-color:var(--amber);background:rgba(210,153,34,0.1)}
-.vc-badge-risk-high{color:var(--red);border-color:var(--red);background:rgba(248,81,73,0.1)}
-.vc-badge-risk-medium{color:var(--amber);border-color:var(--amber);background:rgba(210,153,34,0.1)}
-.vc-badge-risk-low{color:var(--secondary);border-color:var(--border)}
-.vc-badge-catalyst-high{color:var(--green);border-color:var(--green);background:rgba(63,185,80,0.1)}
-.vc-badge-catalyst-medium{color:var(--blue);border-color:var(--blue);background:rgba(88,166,255,0.1)}
-.vc-badge-catalyst-low{color:var(--secondary);border-color:var(--border)}
-.vcard-meta{
-  display:flex;align-items:center;flex-wrap:wrap;gap:6px 16px;
-  padding:8px 16px;
-  border-bottom:1px solid var(--border2);
-  background:var(--panel);
-  font-size:.72rem;color:var(--secondary);
-}
-.vc-src{display:flex;align-items:center;gap:4px}
-.vc-src-ok{color:var(--green)}
-.vc-src-no{color:var(--secondary);opacity:.5}
-.vc-latency{margin-left:auto;font-family:var(--font-mono);font-size:.68rem}
-.vcard-section{padding:12px 16px;border-bottom:1px solid var(--border2)}
-.vcard-section:last-child{border-bottom:none}
-.vc-section-label{
-  font-size:.62rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
-  color:var(--secondary);margin-bottom:8px;
-}
-.vc-sources-list{list-style:none;display:flex;flex-direction:column;gap:4px}
-.vc-sources-list li{
-  font-size:.78rem;color:var(--secondary);
-  padding-left:12px;position:relative;
-  line-height:1.4;
-}
-.vc-sources-list li::before{content:'•';position:absolute;left:0;color:var(--border)}
-.vc-search-item{
-  display:flex;align-items:baseline;gap:6px;
-  font-size:.75rem;color:var(--secondary);padding-left:12px;position:relative;
-}
-.vc-search-item::before{content:'⌕';position:absolute;left:0;font-size:.7rem;color:var(--secondary)}
-.vc-search-query{color:var(--primary);font-family:var(--font-mono);font-size:.72rem}
-.vc-search-count{color:var(--secondary);font-size:.68rem}
-.vc-reason{
-  font-size:.85rem;line-height:1.65;color:var(--primary);
-  white-space:normal;
-}
-.vc-auto-override{
-  display:inline-block;
-  background:rgba(210,153,34,0.15);
-  border:1px solid rgba(210,153,34,0.4);
-  color:var(--amber);
-  padding:1px 8px;border-radius:4px;
-  font-size:.68rem;font-weight:700;letter-spacing:.06em;
-  margin-right:6px;vertical-align:baseline;
-}
-.vc-flags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-.vc-flag{
-  display:inline-flex;align-items:center;gap:4px;
-  padding:2px 8px;border-radius:4px;
-  background:rgba(210,153,34,0.1);
-  border:1px solid rgba(210,153,34,0.3);
-  color:var(--amber);font-size:.67rem;
-}
-.vcard-catalyst{
-  padding:12px 16px;
-  background:rgba(63,185,80,0.04);
-  border-top:1px solid rgba(63,185,80,0.15);
-}
-.vc-catalyst-header{
-  display:flex;align-items:center;gap:8px;
-  margin-bottom:8px;
-}
-.vc-catalyst-arrow{color:var(--green);font-size:.9rem}
-.vc-catalyst-label{
-  font-size:.68rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
-  color:var(--green);
-}
-.vc-catalyst-reason{font-size:.82rem;line-height:1.6;color:var(--primary)}
 
 .loading,.error{
   text-align:center;padding:56px 20px;
@@ -1044,35 +1097,43 @@ footer span{color:var(--blue)}
 </style>
 </head>
 <body>
+
+<!-- ── Floating status bar ── -->
+<div id="status-bar">
+  <div class="sb-left">
+    <span id="sb-regime" class="sb-regime-badge regime-unknown">LOADING</span>
+  </div>
+  <div class="sb-center">
+    <span id="sb-activity" class="sb-activity act-gray">IDLE</span>
+    <div id="sb-prog-wrap" style="display:none">
+      <div class="sb-progress">
+        <div class="sb-progress-fill col-gray" id="sb-prog-fill" style="width:0%"></div>
+      </div>
+    </div>
+  </div>
+  <div class="sb-right">
+    <span class="sb-spy" id="sb-spy"></span>
+    <span class="sb-rankdate" id="sb-rankdate"></span>
+  </div>
+</div>
+
+<!-- ── Action row (not sticky, scrolls away) ── -->
+<div class="action-row">
+  <button class="btn-start" id="rank-start" onclick="startJob('rank')" style="font-size:.7rem;padding:6px 14px">&#9654; START RANK</button>
+  <button class="btn" id="uni-start" onclick="startJob('universe')" title="Refresh the equity universe (rarely needed)" style="font-size:.7rem">&#x21BA; FETCH UNIVERSE</button>
+</div>
+
 <div class="wrap">
 
-<header>
-  <div>
-    <div class="logo">S<em>T</em>OCKER</div>
-    <div class="sub">Quantitative equity research system</div>
-  </div>
-</header>
-
-<div id="regime-bar">
-  <span class="rb-label">MARKET REGIME</span>
-  <span class="rb-sep">//</span>
-  <span id="rb-regime" class="rb-val rb-badge">LOADING</span>
-  <span class="rb-sep">//</span>
-  <span class="rb-metric">SPY <span id="rb-spy">&#8212;</span></span>
-  <span class="rb-metric">vs SMA200 <span id="rb-sma">&#8212;</span></span>
-  <span class="rb-metric">RVOL20 <span id="rb-vol">&#8212;</span></span>
-  <span style="margin-left:auto;font-size:.68rem;color:var(--secondary)" id="rb-ts">&#8212;</span>
-</div>
-
 <div class="tabs">
-  <button class="tab active" id="tab-rank" onclick="switchTab('rank',this)">Rankings</button>
-  <button class="tab" id="tab-vet" onclick="switchTab('vet',this)">Vetter</button>
-  <button class="tab" id="tab-portfolio" onclick="switchTab('portfolio',this)">Trade Proposal</button>
-  <button class="tab" id="tab-live" onclick="switchTab('live',this)">Portfolio</button>
+  <button class="tab active" id="tab-rank"      onclick="switchTab('rank',this)">Rank</button>
+  <button class="tab"        id="tab-portfolio"  onclick="switchTab('portfolio',this)">Trades</button>
+  <button class="tab"        id="tab-live"       onclick="switchTab('live',this)">Portfolio</button>
 </div>
 
-<!-- ── Rankings pane (top 100 with vetter + holdings overlays) ── -->
+<!-- ── Rankings pane ── -->
 <div id="pane-rank" class="pane active">
+  <!-- Job control panel (kept, shows sub-step progress) -->
   <div class="job-panel" id="jp-rank">
     <div class="job-meta">
       <span class="job-lbl">LAST RUN</span>
@@ -1085,24 +1146,9 @@ footer span{color:var(--blue)}
         <div class="progress-track"><div class="progress-fill" id="rank-fill"></div></div>
         <span class="progress-pct" id="rank-pct">0%</span>
       </div>
-      <button class="btn-start" id="rank-start" onclick="startJob('rank')">&#9654; START RANK</button>
-      <button class="btn" id="uni-start" onclick="startJob('universe')" title="Refresh the equity universe (rarely needed)">&#x21BA; FETCH UNIVERSE</button>
     </div>
   </div>
-  <div class="stats">
-    <div class="stat"><div class="lbl">Top Ranked</div><div class="val" id="r-total">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Held</div><div class="val pos" id="r-held">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Excluded</div><div class="val neg" id="r-excluded">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Positive Catalyst</div><div class="val orange" id="r-positive">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Regime</div><div class="val" id="r-regime">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Rank Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="r-date">&#8212;</div></div>
-  </div>
-  <div class="fresh-strip">
-    <span class="fresh-item"><span class="fresh-lbl">Prices</span><span class="fresh-val" id="fresh-prices">—</span></span>
-    <span class="fresh-item"><span class="fresh-lbl">Fundamentals</span><span class="fresh-val" id="fresh-funds">—</span></span>
-    <span class="fresh-item"><span class="fresh-lbl">Factors</span><span class="fresh-val" id="fresh-factors">—</span></span>
-    <span class="fresh-item"><span class="fresh-lbl">Rankings</span><span class="fresh-val" id="fresh-rankings">—</span></span>
-  </div>
+  <!-- Toolbar -->
   <div class="toolbar">
     <input type="search" id="r-search" placeholder="Filter ticker" oninput="renderRankings()">
     <label style="color:var(--secondary);font-size:.72rem"><input type="checkbox" id="r-only-held" onchange="renderRankings()"> Held only</label>
@@ -1135,64 +1181,7 @@ footer span{color:var(--blue)}
   </div>
 </div>
 
-<!-- ── Vetter pane ── -->
-<div id="pane-vet" class="pane">
-  <div class="job-panel" id="jp-vet">
-    <div class="job-meta">
-      <span class="job-lbl">LAST RUN</span>
-      <span class="job-date" id="vet-last-date">—</span>
-      <span class="job-status-badge badge-notrun" id="vet-badge">NOT RUN</span>
-    </div>
-    <div class="job-warning" id="vet-warning">Newer ranking data available — re-run vetter to stay current</div>
-    <div class="job-controls">
-      <div class="progress-wrap" id="vet-prog-wrap">
-        <div class="progress-track"><div class="progress-fill" id="vet-fill"></div></div>
-        <span class="progress-pct" id="vet-pct">0%</span>
-      </div>
-      <button class="btn-start" id="vet-start" onclick="startJob('vet')">&#9654; START VETTER</button>
-    </div>
-  </div>
-  <div class="stats">
-    <div class="stat"><div class="lbl">Candidates Reviewed</div><div class="val" id="v-candidates">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Flagged for Exclusion</div><div class="val orange" id="v-flagged">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Run Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="v-date">&#8212;</div></div>
-  </div>
-  <!-- Live per-ticker analysis feed (card layout) -->
-  <div id="v-ticker-analysis" style="display:none;margin-top:8px">
-    <div class="toolbar" style="margin-bottom:12px">
-      <span style="color:var(--secondary);font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;font-weight:600">Ticker Analysis</span>
-      <span id="v-live-badge" class="v-live-label" style="display:none">● LIVE</span>
-      <span class="badge-count" id="v-ticker-count"></span>
-    </div>
-    <div id="v-ticker-body" class="vetter-cards">
-      <div class="loading">Waiting for analysis</div>
-    </div>
-  </div>
-
-  <div id="v-exclusions-wrap" style="display:none;margin-top:20px">
-    <div class="toolbar" style="margin-bottom:10px">
-      <span style="color:var(--secondary);font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;font-weight:600">Exclusion Recommendations</span>
-      <span class="badge-count" id="v-exc-count"></span>
-    </div>
-    <div class="tbl-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>TICKER</th>
-            <th>CONFIDENCE</th>
-            <th>RISK TYPE</th>
-            <th>REASON</th>
-          </tr>
-        </thead>
-        <tbody id="v-body">
-          <tr><td colspan="4" class="loading">Loading exclusions</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<!-- ── Trade Proposal pane ── -->
+<!-- ── Trades pane (formerly Trade Proposal) ── -->
 <div id="pane-portfolio" class="pane">
   <div class="stats">
     <div class="stat"><div class="lbl">Buy (Entry)</div><div class="val pos" id="delta-entries">&#8212;</div></div>
@@ -1228,11 +1217,11 @@ footer span{color:var(--blue)}
   </div>
 </div>
 
-<!-- ── Live Portfolio pane ── -->
+<!-- ── Portfolio pane (Live) ── -->
 <div id="pane-live" class="pane">
   <div class="live-conn-bar">
-    <span class="live-dot disconnected" id="live-dot">●</span>
-    <span class="live-conn-label disconnected" id="live-conn-label">Checking…</span>
+    <span class="live-dot disconnected" id="live-dot">&#9679;</span>
+    <span class="live-conn-label disconnected" id="live-conn-label">Checking&#8230;</span>
     <span class="live-sync-time" id="live-sync-time"></span>
   </div>
 
@@ -1294,8 +1283,8 @@ let deltaSort={col:'rank',dir:1};
 // Per-intent approval state: intent_id → {status, msg}
 let _approvalState = {};
 
-// Current vetter run id (for approve/reject)
-let _currentVetterRunId = null;
+// Currently expanded rank row ticker (null = none expanded)
+let _expandedTicker = null;
 
 // ── Tabs ─────────────────────────────────────────────────────────────────────
 function switchTab(name, btn){
@@ -1303,11 +1292,6 @@ function switchTab(name, btn){
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   btn.classList.add('active');
   $('pane-'+name).classList.add('active');
-  // Load tab data on switch for tabs not pre-loaded at boot.
-  if (name === 'vet') {
-    const s = _prevJobState.vet || {};
-    if (s.run_id) { loadVetterExclusions(s.run_id); _loadVetterTickers(s.run_id, false); }
-  }
   if (name === 'live') loadLivePortfolio();
   if (name === 'portfolio') loadDelta();
 }
@@ -1332,13 +1316,14 @@ function barW(comp,max){
 function clearSort(pfx){
   document.querySelectorAll('[id^="'+pfx+'"]').forEach(el=>el.classList.remove('asc','desc'));
 }
+function esc(s){
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
 
 // ── Job control ───────────────────────────────────────────────────────────────
-// Map tab name → DOM id prefixes
 const TAB_IDS = {
   universe: {wrap:'uni-prog-wrap', fill:'uni-fill', pct:'uni-pct', badge:'uni-badge', start:'uni-start'},
   rank:     {wrap:'rank-prog-wrap',fill:'rank-fill',pct:'rank-pct',badge:'rank-badge',start:'rank-start'},
-  vet:      {wrap:'vet-prog-wrap', fill:'vet-fill', pct:'vet-pct', badge:'vet-badge', start:'vet-start'},
   portfolio:{wrap:'portfolio-prog-wrap',fill:'portfolio-fill',pct:'portfolio-pct',badge:'port-badge',start:'portfolio-start'},
 };
 
@@ -1368,364 +1353,124 @@ function _setBadge(tab, text, cls){
 function _setJobPanel(tab, cls){
   const panel = $('jp-'+tab);
   if(panel) panel.className = 'job-panel ' + (cls||'');
-  // Keep the start button in sync with the running state across all browsers.
   const ids = TAB_IDS[tab];
   const btn = ids ? $(ids.start) : null;
   if(btn) btn.disabled = (cls === 'running');
 }
 
 async function startJob(tab) {
-  const ids = {
+  const cfg = {
     universe:  {url: '/api/jobs/universe',   start: 'uni-start'},
     rank:      {url: '/api/jobs/rank-chain', start: 'rank-start'},
-    vet:       {url: '/api/jobs/vet',        start: 'vet-start'},
     portfolio: {url: '/api/jobs/portfolio',  start: 'portfolio-start'},
-  };
-  const cfg = ids[tab];
+  }[tab];
   if (!cfg) return;
   const btn = $(cfg.start);
   if (btn) btn.disabled = true;
   try {
     await fetch(cfg.url, {method: 'POST'});
-    // refresh() will detect the running job within 2 seconds automatically
   } catch(e) {
     if (btn) btn.disabled = false;
   }
 }
 
-// ── Vetter-specific ───────────────────────────────────────────────────────────
+// ── Status bar ────────────────────────────────────────────────────────────────
+// Maps pipeline-status data to the thin sticky status bar.
+function updateStatusBar(d) {
+  const rank     = d.rank     || {};
+  const vetter   = d.vetter   || {};
+  const portfolio= d.portfolio|| {};
+  const universe = d.universe || {};
 
-async function loadVetterExclusions(runId){
-  if(!runId) return;
-  $('v-exclusions-wrap').style.display = 'block';
-  $('v-body').innerHTML = '<tr><td colspan="4" class="loading">Loading exclusions</td></tr>';
-  try{
-    const r = await fetch('/api/vetter/exclusions/'+runId);
-    const d = await r.json();
-    const excs = d.exclusions || [];
-    $('v-exc-count').textContent = excs.length + ' FLAGGED';
-    $('v-candidates').textContent = d.candidate_count ?? '—';
-    $('v-flagged').textContent    = d.flagged_count   ?? excs.length;
+  // Determine activity label + color
+  let label = 'IDLE';
+  let colorCls = 'act-gray';
+  let showProg = false;
+  let progPct  = null;  // null = indeterminate
+  let progColCls = 'col-gray';
 
-    if(!excs.length){
-      $('v-body').innerHTML = '<tr><td colspan="4" style="padding:20px 14px;color:var(--green)">No exclusions recommended</td></tr>';
+  if (vetter.status === 'running') {
+    label = 'LLM ANALYSIS'; colorCls = 'act-purple'; progColCls = 'col-purple'; showProg = true;
+  } else if (portfolio.status === 'running') {
+    label = 'BUILDING PORTFOLIO'; colorCls = 'act-blue'; progColCls = 'col-blue'; showProg = true;
+  } else if (rank.status === 'running') {
+    const sl = rank.step_label || '';
+    if (sl === 'Fetching Data') {
+      label = rank.pct != null ? 'FETCHING DATA  ' + rank.pct + '%' : 'FETCHING DATA';
+      colorCls = 'act-amber'; progColCls = 'col-amber'; showProg = true;
+      progPct = rank.pct;
+    } else if (sl === 'Calculating Factors') {
+      label = 'CALCULATING FACTORS'; colorCls = 'act-amber'; progColCls = 'col-amber'; showProg = true; progPct = rank.pct;
+    } else if (sl === 'Ranking') {
+      label = 'RANKING STOCKS'; colorCls = 'act-amber'; progColCls = 'col-amber'; showProg = true; progPct = rank.pct;
+    } else if (sl && sl.indexOf('Delta') !== -1) {
+      label = 'EVALUATING SIGNALS'; colorCls = 'act-amber'; progColCls = 'col-amber'; showProg = true; progPct = rank.pct;
     } else {
-      $('v-body').innerHTML = excs.map(e=>{
-        const confCls = 'conf-' + (e.confidence||'low');
-        return '<tr>'
-          +'<td><span class="t-ticker">'+e.ticker+'</span></td>'
-          +'<td><span class="pct-pill '+confCls+'">'+e.confidence.toUpperCase()+'</span></td>'
-          +'<td><span class="t-sector">'+(e.risk_type||'—')+'</span></td>'
-          +'<td style="color:var(--secondary);font-size:.78rem;max-width:400px;white-space:normal">'+esc(e.reason)+'</td>'
-          +'</tr>';
-      }).join('');
+      label = 'PROCESSING'; colorCls = 'act-amber'; progColCls = 'col-amber'; showProg = true;
     }
-
-  }catch(e){
-    $('v-body').innerHTML = '<tr><td colspan="4" class="error">Failed to load exclusions</td></tr>';
+  } else if (universe.status === 'running') {
+    label = 'FETCHING UNIVERSE'; colorCls = 'act-blue'; progColCls = 'col-blue'; showProg = true;
+  } else if (rank.status === 'failed') {
+    label = 'PIPELINE FAILED'; colorCls = 'act-red'; showProg = false;
+  } else if (rank.status === 'success' || rank.date) {
+    label = 'READY'; colorCls = 'act-green'; showProg = false;
+  } else {
+    label = 'IDLE'; colorCls = 'act-gray'; showProg = false;
   }
-}
 
-function esc(s){
-  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
+  const actEl = $('sb-activity');
+  actEl.textContent = label;
+  actEl.className = 'sb-activity ' + colorCls;
 
-// ── Live ticker analysis ──────────────────────────────────────────────────────
-
-let _vetterTickersInFlight = false;
-async function _loadVetterTickers(runId, live){
-  if (_vetterTickersInFlight) return;
-  _vetterTickersInFlight = true;
-  try{
-    const r = await fetch('/api/vetter/ticker-results/'+runId);
-    const d = await r.json();
-    const results = d.ticker_results || [];
-    const status  = d.status;
-    const prog    = d.progress || {};
-    const running = status === 'running';
-
-    $('v-ticker-analysis').style.display = results.length ? 'block' : 'none';
-    $('v-live-badge').style.display = (running && live) ? 'inline-block' : 'none';
-
-    if(results.length){
-      const completed = prog.completed ?? results.length;
-      const total     = prog.total     ?? completed;
-      $('v-ticker-count').textContent = completed+' / '+total+(running ? ' — analyzing…' : ' complete');
-
-      // Drive the real progress bar from actual ticker completion, not fake animation
-      if(total > 0) _setProgress('vet', Math.round((completed / total) * 100));
-
-      // EXCLUDE first, then by confidence desc, then alphabetical
-      const confRank = {high:0,medium:1,low:2};
-      const sorted = [...results].sort((a,b)=>{
-        if(!!a.exclude !== !!b.exclude) return a.exclude ? -1 : 1;
-        const cr = (confRank[a.confidence]??2)-(confRank[b.confidence]??2);
-        if(cr!==0) return cr;
-        return (a.ticker||'').localeCompare(b.ticker||'');
-      });
-
-      $('v-ticker-body').innerHTML = sorted.map(r=>{
-        const verdict   = r.crashed ? 'CRASHED' : r.exclude ? 'EXCLUDE' : 'KEEP';
-        const conf      = r.confidence || 'low';
-        const searches  = r.agent_searches || [];
-        const flags     = r.hallucination_flags || [];
-        const latMs     = r.latency_ms ? (r.latency_ms/1000).toFixed(1)+'s' : '—';
-        const newsTitles= r.news_titles || [];
-        const riskType  = (r.risk_type && r.risk_type!=='none') ? r.risk_type.replace(/_/g,' ') : null;
-        const posCatalyst   = !!r.positive_catalyst;
-        const posReason     = r.positive_reason || '';
-
-        // Card top-border class
-        const cardCls = r.crashed ? 'vc-crashed' : r.exclude ? 'vc-exclude' : (posCatalyst ? 'vc-catalyst' : '');
-
-        // Verdict badge
-        const vBadgeCls = r.crashed ? 'vc-badge-crashed' : r.exclude ? 'vc-badge-exclude' : 'vc-badge-keep';
-
-        // Risk confidence badge — only shown when there is an actual risk signal.
-        // conf = LLM confidence in its verdict, not the risk level itself.
-        // Showing "HIGH RISK" on a KEEP with no risk type is misleading.
-        const hasRisk = r.exclude || (r.risk_type && r.risk_type !== 'none');
-        const riskBadgeCls = 'vc-badge-risk-'+(conf);
-        const riskBadge = hasRisk
-          ? '<span class="vc-badge '+riskBadgeCls+'">'+conf.toUpperCase()+' RISK</span>'
-          : '';
-
-        // Header
-        const header = '<div class="vcard-header">'
-          +'<span class="vc-ticker">'+esc(r.ticker||'')+'</span>'
-          +'<span class="vc-name"></span>'
-          +'<div class="vc-badges">'
-          +'<span class="vc-badge '+vBadgeCls+'">'+verdict+'</span>'
-          +riskBadge
-          +(riskType ? '<span class="vc-badge" style="color:var(--secondary);border-color:var(--border)">'+esc(riskType.toUpperCase())+'</span>' : '')
-          +'</div>'
-          +'</div>';
-
-        // Meta row
-        const srcAV    = '<span class="vc-src"><span class="'+(r.had_av_news?'vc-src-ok':'vc-src-no')+'">●</span> AV News</span>';
-        const srcTav   = '<span class="vc-src"><span class="'+(r.had_tavily?'vc-src-ok':'vc-src-no')+'">●</span> Tavily</span>';
-        const srcEarn  = '<span class="vc-src"><span class="'+(r.had_earnings?'vc-src-ok':'vc-src-no')+'">●</span> Earnings</span>';
-        const srcAgent = searches.length ? '<span class="vc-src" style="color:var(--blue)">Agent searches: '+searches.length+'</span>' : '';
-        const latBadge = '<span class="vc-latency">'+latMs+'</span>';
-        const meta = '<div class="vcard-meta">'+srcAV+srcTav+srcEarn+srcAgent+latBadge+'</div>';
-
-        // Sources section (news titles + search queries)
-        let sourcesHtml = '';
-        const hasNews    = newsTitles.length > 0;
-        const hasSearches= searches.length > 0;
-        if(hasNews || hasSearches){
-          let items = '';
-          newsTitles.forEach(t=>{ items += '<li>'+esc(t)+'</li>'; });
-          searches.forEach(s=>{
-            items += '<li class="vc-search-item">'
-              +'<span class="vc-search-query">"'+esc(s.query||'')+'"</span>'
-              +(s.result_count!=null ? '<span class="vc-search-count">→ '+s.result_count+' result'+(s.result_count!==1?'s':'')+'</span>' : '')
-              +'</li>';
-          });
-          sourcesHtml = '<div class="vcard-section">'
-            +'<div class="vc-section-label">Sources</div>'
-            +'<ul class="vc-sources-list">'+items+'</ul>'
-            +'</div>';
-        }
-
-        // Reason section — handle AUTO-OVERRIDE prefix (Python writes "[AUTO-OVERRIDE: ...")
-        let reasonText = esc(r.reason || '');
-        const autoOverrideMatch = reasonText.match(/^\[?(AUTO-OVERRIDE)[:\s–—-]*/i);
-        if(autoOverrideMatch){
-          const rest = reasonText.slice(autoOverrideMatch[0].length).replace(/\]?\s*/,'');
-          reasonText = '<span class="vc-auto-override">AUTO-OVERRIDE</span> '+rest;
-        }
-        const flagsHtml = flags.length
-          ? '<div class="vc-flags">'+flags.map(f=>'<span class="vc-flag">⚠ '+esc(f)+'</span>').join('')+'</div>'
-          : '';
-        const reasonSection = '<div class="vcard-section">'
-          +'<div class="vc-section-label">Risk Assessment</div>'
-          +'<div class="vc-reason">'+reasonText+'</div>'
-          +flagsHtml
-          +'</div>';
-
-        // Positive catalyst section
-        const catalystSection = (posCatalyst && posReason)
-          ? '<div class="vcard-catalyst">'
-            +'<div class="vc-catalyst-header">'
-            +'<span class="vc-catalyst-arrow">⬆</span>'
-            +'<span class="vc-catalyst-label">Positive Catalyst</span>'
-            +'</div>'
-            +'<div class="vc-catalyst-reason">'+esc(posReason)+'</div>'
-            +'</div>'
-          : '';
-
-        return '<div class="vcard '+cardCls+'">'
-          +header
-          +meta
-          +sourcesHtml
-          +reasonSection
-          +catalystSection
-          +'</div>';
-      }).join('');
-    }
-    return !running;
-  }catch(e){
-    console.warn('ticker-results error', e);
-    return false;
-  } finally {
-    _vetterTickersInFlight = false;
-  }
-}
-
-// ── Server-driven render loop ──────────────────────────────────────────────
-
-let _prevJobState = {universe:{}, rank:{}, vet:{}, portfolio:{}};
-
-async function refresh() {
-  try {
-    const d = await fetch('/api/pipeline-status').then(r => r.json());
-    renderJob('universe', d.universe || {}, _prevJobState.universe || {});
-    renderJob('rank',     d.rank     || {}, _prevJobState.rank     || {});
-    renderJob('vet',      d.vetter   || {}, _prevJobState.vet      || {});
-    renderJob('portfolio',d.portfolio|| {}, _prevJobState.portfolio|| {});
-    // Warnings
-    if (d.warnings) {
-      $('rank-warning').style.display    = d.warnings.rank      ? 'block' : 'none';
-      _setTabWarn('tab-rank',   d.warnings.rank);
-      $('vet-warning').style.display     = d.warnings.vet       ? 'block' : 'none';
-      _setTabWarn('tab-vet',    d.warnings.vet);
-      const portWarnEl=$('port-warning'); if(portWarnEl)portWarnEl.style.display=d.warnings.portfolio?'block':'none';
-      _setTabWarn('tab-portfolio', d.warnings.portfolio);
-    }
-    // Live vetter ticker cards when running
-    if (d.vetter && d.vetter.status === 'running' && d.vetter.run_id) {
-      _loadVetterTickers(d.vetter.run_id, true);
-    }
-    _prevJobState = {
-      universe:  d.universe  || {},
-      rank:      d.rank      || {},
-      vet:       d.vetter    || {},
-      portfolio: d.portfolio || {},
-    };
-  } catch(e) { /* service may be temporarily down */ }
-}
-
-function renderJob(tab, state, prev) {
-  const status   = state.status || 'none';
-  const running  = status === 'running';
-  const done     = status === 'success' || status === 'partial_success';
-  const failed   = status === 'failed';
-  const label    = running ? (state.step_label || 'RUNNING')
-                 : done    ? 'DONE'
-                 : failed  ? 'FAILED'
-                 : 'NOT RUN';
-  // cls names must match CSS: .badge-running, .badge-success, .badge-failed, .badge-notrun
-  const badgeCls = running ? 'running' : done ? 'success' : failed ? 'failed' : 'notrun';
-
-  // Badge + panel — always update so badge resets to NOT RUN if service disappears
-  _setBadge(tab, label, badgeCls);
-  // Pass '' (not 'idle') for the inactive state — .job-panel.idle has no CSS rule;
-  // the base .job-panel border-left var(--secondary) applies correctly without it.
-  _setJobPanel(tab, running ? 'running' : done ? 'success' : failed ? 'failed' : '');
-
-  // Progress bar — for vet tab, _loadVetterTickers drives the bar from real counts;
-  // skip the indeterminate override here to avoid jitter between the two writers.
-  const fillId = {universe:'uni-fill', rank:'rank-fill', vet:'vet-fill', portfolio:'portfolio-fill'}[tab];
-  const wrapId = {universe:'uni-prog-wrap', rank:'rank-prog-wrap', vet:'vet-prog-wrap', portfolio:'portfolio-prog-wrap'}[tab];
-  const pctId  = {universe:'uni-pct', rank:'rank-pct', vet:'vet-pct', portfolio:'portfolio-pct'}[tab];
-  const fillEl = $(fillId), wrapEl = $(wrapId), pctEl = $(pctId);
-  if (fillEl) {
-    fillEl.classList.remove('indeterminate', 'pulsing', 'error');
-    if (running) {
-      wrapEl && (wrapEl.style.display = 'flex');
-      const pct = (state.pct != null) ? state.pct : null;
-      if (pct != null) {
-        fillEl.style.width = pct + '%';
-        fillEl.classList.add('pulsing');
-        if (pctEl) pctEl.textContent = pct + '%';
-      } else if (tab !== 'vet') {
-        // vet progress bar is driven by _loadVetterTickers; don't overwrite with indeterminate
-        fillEl.classList.add('indeterminate');
-        if (pctEl) pctEl.textContent = '';
-      }
-    } else if (done) {
-      fillEl.style.width = '100%';
-      if (pctEl) pctEl.textContent = '100%';
-      wrapEl && (wrapEl.style.display = 'flex');
-    } else if (failed) {
-      fillEl.style.width = '100%';
-      fillEl.classList.add('error');
-      if (pctEl) pctEl.textContent = '';
-      wrapEl && (wrapEl.style.display = 'flex');
+  const progWrap = $('sb-prog-wrap');
+  const progFill = $('sb-prog-fill');
+  progFill.classList.remove('indeterminate', 'col-green','col-amber','col-blue','col-purple','col-red','col-gray');
+  progFill.classList.add(progColCls);
+  if (showProg) {
+    progWrap.style.display = 'block';
+    if (progPct != null) {
+      progFill.style.width = progPct + '%';
     } else {
-      fillEl.style.width = '0%';
-      if (pctEl) pctEl.textContent = '0%';
-      wrapEl && (wrapEl.style.display = 'none');
+      progFill.classList.add('indeterminate');
     }
+  } else {
+    progWrap.style.display = 'none';
   }
 
-  // Date
-  const dateEl = {universe:'uni-last-date', rank:'rank-last-date', vet:'vet-last-date', portfolio:'port-last-date'}[tab];
-  if (dateEl && state.date) $(dateEl) && ($(dateEl).textContent = state.date);
+  // Regime badge
+  // (updated separately by loadRegime; here we don't override it)
 
-  // Reload tab data when: (a) transition running→done, or (b) done but prev was unknown.
-  // (b) handles mobile waking up after missing the transition while backgrounded.
-  const wasRunning = (prev.status === 'running');
-  const prevUnknown = (prev.status == null || prev.status === 'none' || prev.status === undefined);
-  if ((wasRunning && done) || (prevUnknown && done)) {
-    if (tab === 'universe')  loadRankings();  // universe panel was folded into rankings
-    if (tab === 'rank')      { loadRankings(); loadRegime(); }
-    if (tab === 'vet') {
-      if (state.run_id) {
-        loadVetterExclusions(state.run_id);
-        _loadVetterTickers(state.run_id, false);
-      }
-    }
-    if (tab === 'portfolio') loadDelta();
-  }
-}
-
-function _setTabWarn(tabId, show){
-  const btn = $(tabId);
-  if(!btn) return;
-  const existing = btn.querySelector('.tab-warn');
-  if(show && !existing){
-    const dot = document.createElement('span');
-    dot.className = 'tab-warn';
-    btn.appendChild(dot);
-  } else if(!show && existing){
-    existing.remove();
+  // Rank date (right side)
+  const rdEl = $('sb-rankdate');
+  if (rank.date) {
+    rdEl.textContent = rank.date;
+  } else {
+    rdEl.textContent = '';
   }
 }
 
 // ── Regime ────────────────────────────────────────────────────────────────────
-// Apply regime name + consistent color to any element.
-// Uses the same CSS classes as the regime bar (.regime-bull_calm etc.)
-function _setRegimeEl(id, regime){
-  const el=$(id);
-  if(!el) return;
-  el.textContent = regime ? regime.toUpperCase().replace('_',' ') : '—';
-  el.className = el.className.replace(/\bregime-\S+/g, '').trim();
-  if(regime && regime !== 'unknown') el.className += ' regime-' + regime;
-}
-
 async function loadRegime(){
   try{
     const d=await fetch('/api/regime').then(r=>r.json());
     const regime=d.regime||'unknown';
-    const el=$('rb-regime');
-    el.textContent=regime.toUpperCase().replace('_',' ');
-    el.className='rb-val rb-badge regime-'+regime;
-    $('rb-spy').textContent=d.spy_price?'$'+parseFloat(d.spy_price).toFixed(2):'—';
-    const sv=d.spy_vs_sma;
-    const smaStr=sv!=null?(parseFloat(sv)*100).toFixed(1)+'%':'—';
-    const smaCls=sv!=null?(parseFloat(sv)>=0?'pos':'neg'):'';
-    $('rb-sma').innerHTML='<span class="'+smaCls+'">'+smaStr+'</span>';
-    $('rb-vol').textContent=d.realized_vol?(parseFloat(d.realized_vol)*100).toFixed(1)+'%':'—';
-    if(d.calculated_at)$('rb-ts').textContent=new Date(d.calculated_at).toLocaleString();
-    _setRegimeEl('r-regime', regime);
+
+    // Status bar regime badge
+    const sbReg = $('sb-regime');
+    sbReg.textContent = regime.toUpperCase().replace(/_/g,' ');
+    sbReg.className = 'sb-regime-badge regime-' + regime;
+
+    // Status bar SPY price
+    const spyEl = $('sb-spy');
+    if(d.spy_price) spyEl.textContent = '$'+parseFloat(d.spy_price).toFixed(2);
+    else spyEl.textContent = '';
   }catch(e){
-    $('rb-regime').textContent='UNAVAILABLE';
+    const sbReg=$('sb-regime');
+    sbReg.textContent='UNAVAILABLE';
+    sbReg.className='sb-regime-badge regime-unknown';
   }
 }
 
-// ── Universe ──────────────────────────────────────────────────────────────────
 // ── Rankings ──────────────────────────────────────────────────────────────────
 async function loadRankings(){
   $('r-body').innerHTML='<tr><td colspan="12" class="loading">Loading rankings</td></tr>';
@@ -1738,6 +1483,7 @@ async function loadRankings(){
       const fs=r.factor_scores||{};
       return{
         rank:r.rank, ticker:r.ticker,
+        name: r.name || null,
         composite_score:r.composite_score, percentile:r.percentile,
         momentum:fs.momentum, quality:fs.quality, value:fs.value,
         growth:fs.growth, low_volatility:fs.low_volatility, liquidity:fs.liquidity,
@@ -1754,11 +1500,7 @@ async function loadRankings(){
         positive_reason: r.positive_reason,
       };
     });
-    $('r-total').textContent=rankData.length;
-    $('r-held').textContent     = rankData.filter(r=>r.held).length;
-    $('r-excluded').textContent = rankData.filter(r=>r.vetter_excluded).length;
-    $('r-positive').textContent = rankData.filter(r=>r.positive_catalyst).length;
-    if(rankData.length) $('r-date').textContent = rankData[0].rank_date || '—';
+    _expandedTicker = null;
     renderRankings();
   }catch(e){
     $('r-body').innerHTML='<tr><td colspan="12" class="error">No ranking data</td></tr>';
@@ -1768,10 +1510,143 @@ async function loadRankings(){
 function sortRankings(col){
   if(rankSort.col===col)rankSort.dir*=-1;
   else{rankSort.col=col;rankSort.dir=col==='rank'?1:-1;}
+  _expandedTicker = null;
   clearSort('rh-');
   const th=$('rh-'+col);
   if(th)th.classList.add(rankSort.dir===1?'asc':'desc');
   renderRankings();
+}
+
+// Build the detail row HTML for a given rank data record.
+function _buildDetailHtml(r) {
+  // Top line
+  const nameHtml = r.name ? '<span class="detail-name">'+esc(r.name)+'</span>' : '<span class="detail-name"></span>';
+  const yfLink = '<a class="detail-yf-link" href="https://finance.yahoo.com/quote/'+esc(r.ticker)+'" target="_blank" rel="noopener">&#8599; Yahoo Finance</a>';
+  const head = '<div class="detail-head">'
+    +'<span class="detail-ticker">'+esc(r.ticker)+'</span>'
+    +nameHtml
+    +yfLink
+    +'</div>';
+
+  // Rank / Score / Percentile grid
+  const pctVal = r.percentile!=null ? (+(r.percentile)*100).toFixed(1)+'%' : '—';
+  const scoreVal = r.composite_score!=null ? fmtScore(r.composite_score) : '—';
+  const grid = '<div class="detail-grid">'
+    +'<div class="detail-cell"><div class="dc-lbl">Rank</div><div class="dc-val">'+r.rank+'</div></div>'
+    +'<div class="detail-cell"><div class="dc-lbl">Score</div><div class="dc-val">'+scoreVal+'</div></div>'
+    +'<div class="detail-cell"><div class="dc-lbl">Percentile</div><div class="dc-val">'+pctVal+'</div></div>'
+    +'</div>';
+
+  // Factor z-score chips
+  const FACTORS = [
+    {key:'momentum',      lbl:'Momentum'},
+    {key:'quality',       lbl:'Quality'},
+    {key:'value',         lbl:'Value'},
+    {key:'growth',        lbl:'Growth'},
+    {key:'low_volatility',lbl:'Low Vol'},
+    {key:'liquidity',     lbl:'Liquidity'},
+  ];
+  const chips = FACTORS.map(f=>{
+    const v = r[f.key];
+    const cls = v==null ? 'fc-neu' : +v>0.5 ? 'fc-pos' : +v<-0.5 ? 'fc-neg' : 'fc-neu';
+    const valStr = v!=null ? (+v).toFixed(3) : '—';
+    return '<span class="factor-chip"><span class="fc-lbl">'+f.lbl+'</span><span class="fc-val '+cls+'">'+valStr+'</span></span>';
+  }).join('');
+  const factorSection = '<div class="detail-section-label">Factor Z-Scores</div>'
+    +'<div class="factor-chips">'+chips+'</div>';
+
+  // Vetter / LLM section
+  let llmHtml = '';
+  const hasVetter = r.vetter_excluded || r.vetter_confidence || r.vetter_reason;
+  if (hasVetter) {
+    // Verdict
+    const crashed = (r.vetter_reason||'').toUpperCase().indexOf('CRASHED') !== -1;
+    const verdict = crashed ? 'CRASHED' : r.vetter_excluded ? 'EXCLUDE' : 'KEEP';
+    const vbCls = crashed ? 'vb-crashed' : r.vetter_excluded ? 'vb-exclude' : 'vb-keep';
+    const conf = (r.vetter_confidence||'low').toLowerCase();
+    const cbCls = 'cb-' + conf;
+    const riskType = (r.vetter_risk_type && r.vetter_risk_type !== 'none')
+      ? '<span class="llm-risk-type">'+esc(r.vetter_risk_type.replace(/_/g,' ').toUpperCase())+'</span>'
+      : '';
+    const llmHeader = '<div class="llm-header">'
+      +'<span class="llm-label">LLM ANALYSIS</span>'
+      +'<span class="llm-verdict-badge '+vbCls+'">'+verdict+'</span>'
+      +'<span class="llm-conf-badge '+cbCls+'">'+conf.toUpperCase()+'</span>'
+      +riskType
+      +'</div>';
+    const reasonHtml = r.vetter_reason
+      ? '<div class="llm-reason">'+esc(r.vetter_reason)+'</div>'
+      : '';
+    const exclHtml = r.vetter_excluded && r.vetter_reason
+      ? '<div class="llm-excl-reason">Excluded: '+esc(r.vetter_reason)+'</div>'
+      : '';
+    const catalystHtml = (r.positive_catalyst && r.positive_reason)
+      ? '<div class="llm-catalyst">'
+        +'<div class="llm-catalyst-label">&#8679; Positive Catalyst</div>'
+        +'<div class="llm-catalyst-reason">'+esc(r.positive_reason)+'</div>'
+        +'</div>'
+      : '';
+    llmHtml = '<div class="detail-llm">'+llmHeader+reasonHtml+exclHtml+catalystHtml+'</div>';
+  } else if (r.positive_catalyst && r.positive_reason) {
+    // Has catalyst but no exclusion info
+    llmHtml = '<div class="detail-llm">'
+      +'<div class="llm-header"><span class="llm-label">LLM ANALYSIS</span></div>'
+      +'<div class="llm-catalyst">'
+      +'<div class="llm-catalyst-label">&#8679; Positive Catalyst</div>'
+      +'<div class="llm-catalyst-reason">'+esc(r.positive_reason)+'</div>'
+      +'</div></div>';
+  }
+
+  // Held note
+  const heldHtml = r.held
+    ? '<div class="detail-held-note">HELD &#8212; '+(r.qty!=null ? r.qty+' shares' : 'position')+'</div>'
+    : '';
+
+  // Border class for detail-inner
+  const borderCls = r.held ? 'dl-held' : r.vetter_excluded ? 'dl-excl' : 'dl-default';
+
+  return '<div class="detail-inner '+borderCls+'">'
+    +head+grid+factorSection+llmHtml+heldHtml
+    +'</div>';
+}
+
+// Toggle a detail row open/closed beneath the clicked rank row.
+function toggleDetail(ticker, rowEl) {
+  // If clicking the currently expanded row, collapse it.
+  if (_expandedTicker === ticker) {
+    _expandedTicker = null;
+    const existing = rowEl.nextSibling;
+    if (existing && existing.classList && existing.classList.contains('detail-row')) {
+      existing.remove();
+    }
+    rowEl.classList.remove('expanded');
+    return;
+  }
+
+  // Collapse any previously open detail row.
+  if (_expandedTicker !== null) {
+    const prevRow = document.getElementById('detail-row-'+_expandedTicker);
+    if (prevRow) prevRow.remove();
+    const prevMain = document.getElementById('rank-row-'+_expandedTicker);
+    if (prevMain) prevMain.classList.remove('expanded');
+  }
+
+  _expandedTicker = ticker;
+  rowEl.classList.add('expanded');
+
+  // Find the data record
+  const rec = rankData.find(r => r.ticker === ticker);
+  if (!rec) return;
+
+  // Insert detail row immediately after the clicked row
+  const detailTr = document.createElement('tr');
+  detailTr.className = 'detail-row';
+  detailTr.id = 'detail-row-' + ticker;
+  const td = document.createElement('td');
+  td.colSpan = 12;
+  td.innerHTML = _buildDetailHtml(rec);
+  detailTr.appendChild(td);
+  rowEl.parentNode.insertBefore(detailTr, rowEl.nextSibling);
 }
 
 function renderRankings(){
@@ -1793,10 +1668,16 @@ function renderRankings(){
   });
   const maxComp=Math.max(...rows.map(r=>+(r.composite_score)||0));
   $('r-count').textContent=rows.length+' / '+rankData.length+' SHOWN';
-  if(!rows.length){$('r-body').innerHTML='<tr><td colspan="12" class="loading">No results</td></tr>';return;}
+  if(!rows.length){
+    _expandedTicker=null;
+    $('r-body').innerHTML='<tr><td colspan="12" class="loading">No results</td></tr>';
+    return;
+  }
   const FACTORS=['momentum','quality','value','growth','low_volatility','liquidity'];
   const FLABELS=['MOM','QLTY','VAL','GRTH','LOVOL','LIQ'];
-  $('r-body').innerHTML=rows.map(r=>{
+
+  // Build HTML rows; detail rows are re-inserted after if previously expanded
+  const html = rows.map(r=>{
     const bars=FACTORS.map((f,i)=>{
       const v=r[f];const h=barH(v);
       const tip=FLABELS[i]+': '+(v!=null?(+v).toFixed(3):'n/a');
@@ -1808,10 +1689,10 @@ function renderRankings(){
     const pctVal=r.percentile!=null?(+r.percentile*100).toFixed(0)+'%':'—';
     const compCls=r.composite_score!=null?(+r.composite_score>0?'pos':'neg'):'neu';
 
-    // Rank movement arrow: prior_rank delta first (exact), fall back to slope (smoothed)
+    // Rank movement
     let arrow='';
     if(r.prior_rank!=null){
-      const delta=r.prior_rank - r.rank;  // positive = improved (lower number)
+      const delta=r.prior_rank - r.rank;
       if(delta >= 2)      arrow='<span class="rank-up" title="up '+delta+' from prior run">&#9650;'+delta+'</span>';
       else if(delta <= -2)arrow='<span class="rank-dn" title="down '+(-delta)+' from prior run">&#9660;'+(-delta)+'</span>';
       else if(delta !== 0)arrow='<span style="color:var(--secondary);font-size:.7rem" title="prior rank '+r.prior_rank+'">~</span>';
@@ -1826,17 +1707,19 @@ function renderRankings(){
     if(r.held) flags.push('<span class="overlay-badge held" title="Held: qty='+(r.qty||'?')+(r.market_value!=null?', $'+(+r.market_value).toFixed(0):'')+'">HELD</span>');
     if(r.vetter_excluded){
       const why=(r.vetter_reason||'').replace(/"/g,'&quot;');
-      flags.push('<span class="overlay-badge excl" title="'+why+'">⚠ '+(r.vetter_confidence||'').toUpperCase()+'</span>');
+      flags.push('<span class="overlay-badge excl" title="'+why+'">&#9888; '+(r.vetter_confidence||'').toUpperCase()+'</span>');
     }
     if(r.positive_catalyst){
       const why=(r.positive_reason||'').replace(/"/g,'&quot;');
-      flags.push('<span class="overlay-badge pos-cat" title="'+why+'">★ CATALYST</span>');
+      flags.push('<span class="overlay-badge pos-cat" title="'+why+'">&#9733; CATALYST</span>');
     }
     const flagsHtml = flags.length ? flags.join(' ') : '<span style="color:var(--secondary);font-size:.7rem">—</span>';
 
-    const rowCls = r.held ? ' class="row-held"' : (r.vetter_excluded ? ' class="row-excluded"' : '');
+    const heldCls  = r.held ? ' row-held' : '';
+    const exclCls  = r.vetter_excluded ? ' row-excluded' : '';
+    const expandedCls = (_expandedTicker === r.ticker) ? ' expanded' : '';
 
-    return '<tr'+rowCls+'>'
+    return '<tr class="rank-row'+heldCls+exclCls+expandedCls+'" id="rank-row-'+esc(r.ticker)+'" onclick="toggleDetail(\''+esc(r.ticker)+'\',this)">'
       +'<td><span class="t-rank">'+r.rank+'</span> '+arrow+'</td>'
       +'<td><span class="t-ticker">'+r.ticker+'</span></td>'
       +'<td>'+flagsHtml+'</td>'
@@ -1847,6 +1730,29 @@ function renderRankings(){
       +FACTORS.map(f=>'<td class="'+zColor(r[f])+'">'+(r[f]!=null?(+r[f]).toFixed(2):'—')+'</td>').join('')
       +'</tr>';
   }).join('');
+
+  $('r-body').innerHTML = html;
+
+  // Re-insert the detail row for the currently expanded ticker if it's still visible
+  if (_expandedTicker !== null) {
+    const mainRow = document.getElementById('rank-row-'+_expandedTicker);
+    if (mainRow) {
+      const rec = rankData.find(r => r.ticker === _expandedTicker);
+      if (rec) {
+        const detailTr = document.createElement('tr');
+        detailTr.className = 'detail-row';
+        detailTr.id = 'detail-row-' + _expandedTicker;
+        const td = document.createElement('td');
+        td.colSpan = 12;
+        td.innerHTML = _buildDetailHtml(rec);
+        detailTr.appendChild(td);
+        mainRow.parentNode.insertBefore(detailTr, mainRow.nextSibling);
+      }
+    } else {
+      // Row filtered out — collapse
+      _expandedTicker = null;
+    }
+  }
 }
 
 // ── Live Portfolio ────────────────────────────────────────────────────────────
@@ -1943,7 +1849,6 @@ async function loadLivePortfolio(){
     liveData=d.positions||[];
     renderLive();
     $('lh-market_value').classList.add('desc');
-    // Compute total day P&L from positions
     const totalDayPL=liveData.reduce((s,p)=>s+(p.day_pl||0),0);
     const dayPlEl=$('live-day-pl');
     if(dayPlEl){
@@ -1958,50 +1863,102 @@ async function loadLivePortfolio(){
   }
 }
 
-// ── Data freshness ───────────────────────────────────────────────────────────
-let _freshnessTimestamps = {};  // { prices, fundamentals, factors, rankings } → ISO strings
+// ── Server-driven render loop ──────────────────────────────────────────────
+let _prevJobState = {universe:{}, rank:{}, portfolio:{}};
 
-function _relativeAge(isoStr){
-  if(!isoStr) return '—';
-  const diffMs = Date.now() - new Date(isoStr).getTime();
-  if(diffMs < 0) return '—';
-  const mins  = Math.floor(diffMs / 60000);
-  const hours = Math.floor(mins  / 60);
-  const days  = Math.floor(hours / 24);
-  if(days >= 1)  return days  + (days  === 1 ? ' day ago'  : ' days ago');
-  if(hours >= 1) return hours + 'h ' + (mins % 60) + 'm ago';
-  return mins + 'm ago';
+async function refresh() {
+  try {
+    const d = await fetch('/api/pipeline-status').then(r => r.json());
+    renderJob('universe', d.universe || {}, _prevJobState.universe || {});
+    renderJob('rank',     d.rank     || {}, _prevJobState.rank     || {});
+    renderJob('portfolio',d.portfolio|| {}, _prevJobState.portfolio|| {});
+    updateStatusBar(d);
+    // Warnings
+    if (d.warnings) {
+      $('rank-warning').style.display = d.warnings.rank ? 'block' : 'none';
+      _setTabWarn('tab-rank', d.warnings.rank);
+      _setTabWarn('tab-portfolio', d.warnings.portfolio);
+    }
+    _prevJobState = {
+      universe:  d.universe  || {},
+      rank:      d.rank      || {},
+      portfolio: d.portfolio || {},
+    };
+  } catch(e) { /* service may be temporarily down */ }
 }
 
-function _updateFreshnessDisplay(){
-  const ts = _freshnessTimestamps;
-  const priceTs  = ts.prices?.last_fetched || null;
-  const fundTs   = ts.fundamentals?.last_fetched || null;
-  const factorTs = ts.factors?.completed_at || null;
-  const rankTs   = ts.rankings?.completed_at || null;
+function renderJob(tab, state, prev) {
+  const status   = state.status || 'none';
+  const running  = status === 'running';
+  const done     = status === 'success' || status === 'partial_success';
+  const failed   = status === 'failed';
+  const label    = running ? (state.step_label || 'RUNNING')
+                 : done    ? 'DONE'
+                 : failed  ? 'FAILED'
+                 : 'NOT RUN';
+  const badgeCls = running ? 'running' : done ? 'success' : failed ? 'failed' : 'notrun';
 
-  function _setEl(id, isoTs){
-    const el = $(id);
-    if(!el) return;
-    const label = _relativeAge(isoTs);
-    el.textContent = label;
-    // Stale = older than 25h (accounts for overnight gap on weekends)
-    const diffH = isoTs ? (Date.now() - new Date(isoTs).getTime()) / 3600000 : Infinity;
-    el.className = 'fresh-val ' + (diffH > 25 ? 'stale' : diffH < 2 ? 'fresh' : '');
+  _setBadge(tab, label, badgeCls);
+  _setJobPanel(tab, running ? 'running' : done ? 'success' : failed ? 'failed' : '');
+
+  const fillId = {universe:'uni-fill', rank:'rank-fill', portfolio:'portfolio-fill'}[tab];
+  const wrapId = {universe:'uni-prog-wrap', rank:'rank-prog-wrap', portfolio:'portfolio-prog-wrap'}[tab];
+  const pctId  = {universe:'uni-pct', rank:'rank-pct', portfolio:'portfolio-pct'}[tab];
+  const fillEl = $(fillId), wrapEl = $(wrapId), pctEl = $(pctId);
+  if (fillEl) {
+    fillEl.classList.remove('indeterminate', 'pulsing', 'error');
+    if (running) {
+      wrapEl && (wrapEl.style.display = 'flex');
+      const pct = (state.pct != null) ? state.pct : null;
+      if (pct != null) {
+        fillEl.style.width = pct + '%';
+        fillEl.classList.add('pulsing');
+        if (pctEl) pctEl.textContent = pct + '%';
+      } else {
+        fillEl.classList.add('indeterminate');
+        if (pctEl) pctEl.textContent = '';
+      }
+    } else if (done) {
+      fillEl.style.width = '100%';
+      if (pctEl) pctEl.textContent = '100%';
+      wrapEl && (wrapEl.style.display = 'flex');
+    } else if (failed) {
+      fillEl.style.width = '100%';
+      fillEl.classList.add('error');
+      if (pctEl) pctEl.textContent = '';
+      wrapEl && (wrapEl.style.display = 'flex');
+    } else {
+      fillEl.style.width = '0%';
+      if (pctEl) pctEl.textContent = '0%';
+      wrapEl && (wrapEl.style.display = 'none');
+    }
   }
 
-  _setEl('fresh-prices',   priceTs);
-  _setEl('fresh-funds',    fundTs);
-  _setEl('fresh-factors',  factorTs);
-  _setEl('fresh-rankings', rankTs);
+  // Date
+  const dateEl = {universe:'uni-last-date', rank:'rank-last-date', portfolio:'port-last-date'}[tab];
+  if (dateEl && state.date) $(dateEl) && ($(dateEl).textContent = state.date);
+
+  // Reload tab data on transition running→done or prevUnknown→done
+  const wasRunning  = (prev.status === 'running');
+  const prevUnknown = (prev.status == null || prev.status === 'none' || prev.status === undefined);
+  if ((wasRunning && done) || (prevUnknown && done)) {
+    if (tab === 'universe')  loadRankings();
+    if (tab === 'rank')      { loadRankings(); loadRegime(); }
+    if (tab === 'portfolio') loadDelta();
+  }
 }
 
-async function loadDataFreshness(){
-  try{
-    const d = await fetch('/api/data-freshness').then(r=>r.json());
-    _freshnessTimestamps = d;
-    _updateFreshnessDisplay();
-  }catch(e){ console.warn('data-freshness error', e); }
+function _setTabWarn(tabId, show){
+  const btn = $(tabId);
+  if(!btn) return;
+  const existing = btn.querySelector('.tab-warn');
+  if(show && !existing){
+    const dot = document.createElement('span');
+    dot.className = 'tab-warn';
+    btn.appendChild(dot);
+  } else if(!show && existing){
+    existing.remove();
+  }
 }
 
 // ── Trade Proposal (delta engine) ────────────────────────────────────────────
@@ -2035,12 +1992,12 @@ function renderDelta(){
   $('delta-body').innerHTML=rows.map(r=>{
     const tag=actionTag[r.action]||r.action;
     const wt=r.current_weight!=null?((r.current_weight)*100).toFixed(1)+'%':'—';
-    const reason=r.reason?esc(r.reason.substring(0,60))+(r.reason.length>60?'…':''):'—';
+    const reason=r.reason?esc(r.reason.substring(0,60))+(r.reason.length>60?'&#8230;':''):'—';
     let approveCells='<td></td>';
     if(r.action==='entry'||r.action==='exit'){
       const st=_approvalState[r.id]||{};
       if(st.status==='pending'){
-        approveCells='<td><span style="color:var(--secondary);font-size:.75rem">Submitting…</span></td>';
+        approveCells='<td><span style="color:var(--secondary);font-size:.75rem">Submitting&#8230;</span></td>';
       }else if(st.status==='ok'){
         approveCells='<td><span style="color:#4caf50;font-size:.75rem">'+esc(st.msg||'Submitted')+'</span></td>';
       }else if(st.status==='err'){
@@ -2096,10 +2053,6 @@ async function startDeltaRun(){
 }
 
 async function approveTrade(intentId, mode){
-  // Idempotency guard: if we've already started or finished a request for this
-  // intent in this browser tab, refuse to fire a second one. The API also
-  // enforces this at the DB layer, but checking here prevents a double-click
-  // from racing two HTTP requests at the network.
   if(_approvalState[intentId]) return;
   _approvalState[intentId]={status:'pending'};
   renderDelta();
@@ -2118,7 +2071,7 @@ async function approveTrade(intentId, mode){
       _approvalState[intentId]={status:'err',msg:'Risk rejected: '+(d.risk_reason||'')};
     }else{
       const modeLabel=mode==='scheduled'?'MOO scheduled':'Market order sent';
-      _approvalState[intentId]={status:'ok',msg:modeLabel+(d.alpaca_order_id?' ('+d.alpaca_order_id.substring(0,8)+'…)':'')};
+      _approvalState[intentId]={status:'ok',msg:modeLabel+(d.alpaca_order_id?' ('+d.alpaca_order_id.substring(0,8)+'&#8230;)':'')};
     }
   }catch(e){
     _approvalState[intentId]={status:'err',msg:String(e)};
@@ -2128,7 +2081,7 @@ async function approveTrade(intentId, mode){
 
 async function syncAlpaca(){
   const btn=$('alpaca-sync-btn');
-  if(btn){btn.disabled=true;btn.textContent='Syncing…';}
+  if(btn){btn.disabled=true;btn.textContent='Syncing&#8230;';}
   try{
     await fetch('/api/alpaca-sync',{method:'POST'});
     await new Promise(r=>setTimeout(r,3000));
@@ -2143,23 +2096,16 @@ async function syncAlpaca(){
   await loadRegime();
   loadRankings();
   loadLivePortfolio();
-  loadDataFreshness();
   $('rh-rank').classList.add('asc');
   const dhRank=$('dh-rank'); if(dhRank)dhRank.classList.add('asc');
 
-  // Server-driven render loop: poll every 2s so every browser sees the same state
+  // Server-driven render loop: poll every 2s
   setInterval(refresh, 2000);
   refresh();  // immediate first call
   // On mobile, browsers suspend setInterval when the tab is backgrounded.
-  // Trigger an immediate refresh when the user returns to the tab so they
-  // never see stale state after switching away during a long pipeline run.
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) refresh();
   });
-  // Tick the freshness display every minute so "44m ago" counts up live
-  setInterval(_updateFreshnessDisplay, 60000);
-  // Reload actual timestamps every 5 minutes
-  setInterval(loadDataFreshness, 300000);
 })();
 </script>
 </body>
