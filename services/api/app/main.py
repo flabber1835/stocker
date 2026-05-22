@@ -240,12 +240,17 @@ async def get_rankings_with_overlays(limit: int = 100):
                 "),"
                 "prior_ranks AS ("
                 "  SELECT ticker, rank AS prior_rank FROM rankings WHERE run_id = :prior_run_id"
+                "),"
+                "names AS ("
+                "  SELECT ticker, name, sector FROM universe_tickers"
+                "  WHERE snapshot_id = (SELECT MAX(id) FROM universe_snapshots)"
                 ")"
                 "SELECT r.ticker, r.rank, r.composite_score, r.percentile, r.regime, r.rank_date,"
-                "  r.factor_scores, ts.rank_slope, pr.prior_rank "
+                "  r.factor_scores, ts.rank_slope, pr.prior_rank, n.name, n.sector "
                 "FROM rankings r "
                 "LEFT JOIN ticker_slopes ts ON ts.ticker = r.ticker "
                 "LEFT JOIN prior_ranks pr ON pr.ticker = r.ticker "
+                "LEFT JOIN names n ON n.ticker = r.ticker "
                 "WHERE r.run_id = :run_id "
                 "ORDER BY r.rank ASC LIMIT :limit"
             ),
@@ -288,7 +293,7 @@ async def get_rankings_with_overlays(limit: int = 100):
                     "unrealized_plpc": float(p["unrealized_plpc"]) if p["unrealized_plpc"] is not None else None,
                 }
 
-        # Merge
+        # Merge — always set all vetter fields so schema is stable across every row
         for r in ranking_rows:
             t = r["ticker"]
             v = vetter_by_ticker.get(t)
@@ -301,7 +306,11 @@ async def get_rankings_with_overlays(limit: int = 100):
                 r["positive_reason"] = v["positive_reason"]
             else:
                 r["vetter_excluded"] = False
+                r["vetter_confidence"] = None
+                r["vetter_risk_type"] = None
+                r["vetter_reason"] = None
                 r["positive_catalyst"] = False
+                r["positive_reason"] = None
             r["held"] = t in holdings_by_ticker
             if r["held"]:
                 r.update({k: v for k, v in holdings_by_ticker[t].items()})

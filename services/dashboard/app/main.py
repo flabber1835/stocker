@@ -24,6 +24,7 @@ _JOB_SERVICES = {
     "data":      AV_INGESTOR_URL,
     "pipeline":  PIPELINE_URL,
     "rank":      PIPELINE_URL,
+    "delta":     PIPELINE_URL,   # delta is embedded in pipeline /jobs/run
     "vet":       VETTER_URL,
     "portfolio": PORTFOLIO_URL,
 }
@@ -32,6 +33,7 @@ _JOB_PATHS = {
     "data":      "/jobs/fetch-data",
     "pipeline":  "/jobs/run",
     "rank":      "/jobs/run",
+    "delta":     "/jobs/run",    # triggers full pipeline which includes delta step
     "vet":       "/jobs/vet",
     "portfolio": "/jobs/build",
 }
@@ -1327,9 +1329,8 @@ function esc(s){
 
 // ── Job control ───────────────────────────────────────────────────────────────
 const TAB_IDS = {
-  universe: {wrap:'uni-prog-wrap', fill:'uni-fill', pct:'uni-pct', badge:'uni-badge', start:'uni-start'},
-  rank:     {wrap:'rank-prog-wrap',fill:'rank-fill',pct:'rank-pct',badge:'rank-badge',start:'rank-start'},
-  portfolio:{wrap:'portfolio-prog-wrap',fill:'portfolio-fill',pct:'portfolio-pct',badge:'port-badge',start:'portfolio-start'},
+  rank: {wrap:'rank-prog-wrap',fill:'rank-fill',pct:'rank-pct',badge:'rank-badge',start:'rank-start'},
+  // universe and portfolio job panels are not in the HTML — renderJob() null-guards handle missing elements
 };
 
 function _setProgress(tab, pct, error){
