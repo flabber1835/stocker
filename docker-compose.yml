@@ -163,6 +163,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
 
   strategy-config-service:
     build:
@@ -208,7 +209,6 @@ services:
     environment:
       SERVICE_NAME: portfolio-builder
       DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
-      REDIS_URL: redis://redis:6379/0
       STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
       ARTIFACTS_PATH: /artifacts
     volumes:
@@ -305,7 +305,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 90s
 
   intraday-monitor:
     build:

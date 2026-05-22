@@ -1,5 +1,5 @@
-.PHONY: up down logs build test integration-test shell-api shell-db \
-        universe data prices fundamentals factors rank vet portfolio pipeline pull-model
+.PHONY: up down logs build test integration-test shell-api shell-db shell-pipeline \
+        universe data prices fundamentals run-pipeline vet portfolio pipeline pull-model
 
 # ── Compose lifecycle ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -28,11 +28,8 @@ shell-api:
 shell-ingestor:
 	docker compose exec av-ingestor bash
 
-shell-factors:
-	docker compose exec factor-engine bash
-
-shell-ranker:
-	docker compose exec ranker bash
+shell-pipeline:
+	docker compose exec pipeline bash
 
 # ── Tests ──────────────────────────────────────────────────────────────────────────────────────────────────
 # Unit tests: runs without Docker.
@@ -70,13 +67,9 @@ data:
 	@echo "Fetching prices + fundamentals in a single pass..."
 	$(call poll_job,http://localhost:8001/jobs/fetch-data,http://localhost:8001,5,partial_success)
 
-factors:
-	@echo "Calculating factor scores and detecting market regime..."
-	$(call poll_job,http://localhost:8002/jobs/calculate,http://localhost:8002,3,skipped)
-
-rank:
-	@echo "Ranking universe by regime-weighted factor scores..."
-	$(call poll_job,http://localhost:8003/jobs/rank,http://localhost:8003,2,skipped)
+run-pipeline:
+	@echo "Running factors → rank → delta (unified pipeline service)..."
+	$(call poll_job,http://localhost:8018/jobs/run,http://localhost:8018,3,skipped)
 
 # Targeted refreshes (use when you only need one dataset updated)
 prices:
@@ -129,7 +122,7 @@ print(f\"Flagged {len(excs)} tickers for exclusion:\"); \
 	fi
 
 # Run the full pipeline end-to-end (each step waits for completion before proceeding)
-pipeline: universe data factors rank portfolio
+pipeline: universe data run-pipeline portfolio
 	@echo ""
 	@echo "Pipeline complete. View results:"
 	@echo "  Rankings:  http://localhost:8000/rankings"

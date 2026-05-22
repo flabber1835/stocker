@@ -379,9 +379,14 @@ async def lifespan(app: FastAPI):
     _scheduler = AsyncIOScheduler(timezone="UTC")
 
     # Cron trigger: daily at market close (default 21:15 UTC = 4:15pm ET weekdays)
+    try:
+        cron_trigger = CronTrigger.from_crontab(RANK_SCHEDULE_CRON, timezone="UTC")
+    except Exception as exc:
+        _log(f"Invalid RANK_SCHEDULE_CRON {RANK_SCHEDULE_CRON!r}: {exc} — using default")
+        cron_trigger = CronTrigger.from_crontab("15 21 * * 1-5", timezone="UTC")
     _scheduler.add_job(
         _supervisor_tick,
-        CronTrigger.from_crontab(RANK_SCHEDULE_CRON, timezone="UTC"),
+        cron_trigger,
         id="daily_cron",
         replace_existing=True,
         misfire_grace_time=3600,

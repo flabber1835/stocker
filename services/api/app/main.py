@@ -12,6 +12,7 @@ from sqlalchemy import text
 import httpx
 
 from sqlalchemy.ext.asyncio import create_async_engine
+from stock_strategy_shared.db import wait_for_db
 from stock_strategy_shared.tracing import fmt_row
 
 DATABASE_URL       = os.getenv("DATABASE_URL", "")
@@ -24,6 +25,7 @@ engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_
 async def lifespan(app: FastAPI):
     if not DATABASE_URL:
         raise RuntimeError("Missing required environment variable: DATABASE_URL")
+    await wait_for_db(engine)
     yield
 
 

@@ -21,7 +21,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
 ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
 
-strategy: StrategyConfig
+strategy: StrategyConfig | None = None
 engine: AsyncEngine
 config_hash: str = ""
 
@@ -51,7 +51,7 @@ async def health():
     return {
         "status": "ok",
         "service": "backtester",
-        "strategy": strategy.strategy_id,
+        "strategy": strategy.strategy_id if strategy else None,
         "config_hash": config_hash,
     }
 

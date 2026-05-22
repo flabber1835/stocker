@@ -31,7 +31,7 @@ PIPELINE_STREAM = "stocker:pipeline_events"
 CONSUMER_GROUP = "pipeline-consumers"
 CONSUMER_NAME = "pipeline-worker-1"
 
-strategy: StrategyConfig
+strategy: StrategyConfig | None = None
 engine: AsyncEngine
 config_hash: str = ""
 redis_client: aioredis.Redis | None = None
@@ -1654,7 +1654,7 @@ async def _do_run_pipeline(triggered_by: str = "manual") -> dict:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "pipeline", "strategy": strategy.strategy_id}
+    return {"status": "ok", "service": "pipeline", "strategy": strategy.strategy_id if strategy else None}
 
 
 @app.post("/jobs/run")

@@ -52,6 +52,8 @@ async def _assert_no_running_job() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global engine, strategy, config_hash, _system_prompt_override
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL is required")
     strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5)
     await wait_for_db(engine)
