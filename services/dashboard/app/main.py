@@ -2075,6 +2075,8 @@ async function approveTrade(intentId, mode){
       _approvalState[intentId]={status:'ok',msg:'Already submitted'};
     }else if(!d.risk_approved){
       _approvalState[intentId]={status:'err',msg:'Risk rejected: '+(d.risk_reason||'')};
+    }else if(d.status==='failed'){
+      _approvalState[intentId]={status:'err',msg:d.reason||d.error_message||'Order failed'};
     }else{
       const modeLabel=mode==='scheduled'?'MOO scheduled':'Market order sent';
       _approvalState[intentId]={status:'ok',msg:modeLabel+(d.alpaca_order_id?' ('+d.alpaca_order_id.substring(0,8)+'&#8230;)':'')};

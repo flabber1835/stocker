@@ -26,13 +26,27 @@ except ValueError:
 PAPER_ONLY = os.getenv("PAPER_ONLY", "true").lower() == "true"
 
 
+_KILL_SWITCH_FILE = "/tmp/kill_switch"
+
 def _safety_env() -> dict:
-    """Re-read safety env vars on every decision so operators can flip the
-    kill switch (or any other gate) without restarting the container. Tests
-    should override via monkeypatch.setenv(...) — module-level constants are
-    kept as the startup snapshot for visibility but are not consulted here."""
+    """Re-read safety env vars on every /check call.
+
+    os.getenv() reads the process environment which is frozen at container
+    startup and cannot be changed by `docker exec -e`. To hot-flip the kill
+    switch without a restart, create or remove the control file:
+
+        docker exec stocker-risk-service-1 touch /tmp/kill_switch   # ON
+        docker exec stocker-risk-service-1 rm    /tmp/kill_switch   # OFF
+
+    The file takes precedence over the KILL_SWITCH env var when present.
+    Tests should override via monkeypatch.setenv/os.environ mutation —
+    module-level constants are kept as the startup snapshot for visibility
+    but are not consulted here.
+    """
+    kill_switch_env = os.getenv("KILL_SWITCH", "false").lower() == "true"
+    kill_switch = os.path.exists(_KILL_SWITCH_FILE) or kill_switch_env
     return {
-        "kill_switch": os.getenv("KILL_SWITCH", "false").lower() == "true",
+        "kill_switch": kill_switch,
         "live_trading_enabled":
             os.getenv("LIVE_TRADING_ENABLED", "false").lower() == "true",
         "paper_only": os.getenv("PAPER_ONLY", "true").lower() == "true",

@@ -891,7 +891,7 @@ async def approve_trade(req: TradeApproveRequest):
         async with engine.connect() as conn:
             existing = (await conn.execute(text(
                 "SELECT id, status FROM alpaca_orders "
-                "WHERE intent_id = :iid AND status IN ('pending','submitted') "
+                "WHERE intent_id = :iid AND status IN ('pending','submitted','risk_rejected') "
                 "LIMIT 1"
             ), {"iid": req.intent_id})).mappings().first()
             if existing:

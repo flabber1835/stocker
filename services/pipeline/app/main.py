@@ -1323,6 +1323,26 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             for h in holdings_rows.fetchall():
                 current_portfolio[h.ticker] = float(h.weight) if h.weight is not None else 0.0
 
+    # Add any live broker positions that aren't in portfolio_holdings.
+    # These are "orphan" positions — entered outside the system or before
+    # this system started managing the account. evaluate_all's
+    # missing_from_universe path will force-exit them.
+    orphan_tickers: list[str] = []
+    async with engine.connect() as conn:
+        sync_row = await conn.execute(text(
+            "SELECT run_id FROM alpaca_sync_runs WHERE status='success' "
+            "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+        ))
+        sync_run = sync_row.fetchone()
+        if sync_run:
+            pos_rows = await conn.execute(text(
+                "SELECT ticker FROM live_positions WHERE sync_run_id = :rid"
+            ), {"rid": str(sync_run.run_id)})
+            for p in pos_rows.fetchall():
+                if p.ticker not in current_portfolio:
+                    current_portfolio[p.ticker] = 0.0
+                    orphan_tickers.append(p.ticker)
+
     async with engine.begin() as conn:
         await conn.execute(
             text(
@@ -1335,10 +1355,11 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 "rid": run_id,
             },
         )
-        step_warnings = (
-            [f"Cold start: no portfolio run found — {max_positions} entries may be approved"]
-            if cold_start else None
-        )
+        step_warnings = []
+        if cold_start:
+            step_warnings.append(f"Cold start: no portfolio run found — {max_positions} entries may be approved")
+        if orphan_tickers:
+            step_warnings.append(f"Orphan broker positions added for force-exit: {orphan_tickers}")
         await _log_step_delta(
             conn, trace_id, "load_current_portfolio", "success",
             started_at=t0,
@@ -1346,8 +1367,9 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             output_summary={
                 "current_portfolio_size": len(current_portfolio),
                 "cold_start": cold_start,
+                "orphan_tickers": orphan_tickers,
             },
-            warnings=step_warnings,
+            warnings=step_warnings or None,
         )
 
     # ── Step 4: evaluate buffer zone ──────────────────────────────────────────
