@@ -40,7 +40,8 @@ async def lifespan(app: FastAPI):
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL environment variable is required")
     strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
-    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5)
+    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=2, max_overflow=3,
+                                 connect_args={"timeout": 60})
     await wait_for_db(engine)
     async with engine.begin() as conn:
         await mark_orphaned_runs_failed(conn, "portfolio_runs", trace_job_type="portfolio_run")

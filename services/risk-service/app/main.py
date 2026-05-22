@@ -136,7 +136,8 @@ async def _persist_decision(req: TradeCheckRequest, *, approved: bool, reason: s
 async def lifespan(app_: FastAPI):
     global engine
     if DATABASE_URL:
-        engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5)
+        engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=2, max_overflow=3,
+                                     connect_args={"timeout": 60})
         await wait_for_db(engine)
         print("[risk-service] DB connected; decisions will be persisted to risk_decisions")
     else:

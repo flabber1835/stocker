@@ -306,7 +306,8 @@ async def lifespan(app: FastAPI):
     global engine, SessionLocal
     if not DATABASE_URL:
         raise RuntimeError("Missing required environment variable: DATABASE_URL")
-    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10)
+    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=2, max_overflow=3,
+                                 connect_args={"timeout": 60})
     SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
     # Wait for DB with up to 60s (20 retries × 3s)

@@ -39,7 +39,8 @@ _TICKER_RE = re.compile(r"^[A-Z]{1,5}([.\-][A-Z0-9]{1,4})?$")
 # Polled by /runs/latest so the dashboard can show real progress.
 _fetch_data_progress: dict = {}  # {run_id, tickers_done, total_tickers}
 
-engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
+engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5,
+                             connect_args={"timeout": 60})
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 BENCHMARK_TICKERS = ("SPY", "QQQ", "IWM", "SOXX")

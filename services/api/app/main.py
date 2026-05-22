@@ -18,7 +18,8 @@ from stock_strategy_shared.tracing import fmt_row
 DATABASE_URL       = os.getenv("DATABASE_URL", "")
 TRADE_EXECUTOR_URL = os.getenv("TRADE_EXECUTOR_URL", "http://trade-executor:8000")
 ALPACA_SYNC_URL    = os.getenv("ALPACA_SYNC_URL",    "http://alpaca-sync:8000")
-engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=7) if DATABASE_URL else None
+engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=7,
+                             connect_args={"timeout": 60}) if DATABASE_URL else None
 
 
 @asynccontextmanager

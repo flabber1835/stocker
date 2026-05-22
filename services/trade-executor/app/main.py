@@ -58,7 +58,7 @@ async def lifespan(application: FastAPI):
     if not DATABASE_URL:
         raise RuntimeError("Missing required environment variable: DATABASE_URL")
     engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True,
-                                 pool_size=3, max_overflow=5)
+                                 pool_size=2, max_overflow=3, connect_args={"timeout": 60})
     await wait_for_db(engine)
     # Mark any orders that were recorded but never submitted (crashed mid-flow).
     # 'pending' means the DB row was written but the Alpaca POST never happened.
