@@ -136,14 +136,18 @@ async def _upsert_fundamentals(session, ticker: str, overview: dict, today: date
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await wait_for_db(engine)
-    async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "UPDATE ingest_runs SET status='failed', completed_at=NOW(), "
-                "error_message='Service restarted while run was active' "
-                "WHERE status='running'"
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "UPDATE ingest_runs SET status='failed', completed_at=NOW(), "
+                    "error_message='Service restarted while run was active' "
+                    "WHERE status='running'"
+                )
             )
-        )
+    except Exception as exc:
+        # Table may not exist yet on first boot while init.sql is still running.
+        print(f"[av-ingestor] WARN: orphan-cleanup skipped: {exc}")
     yield
     await engine.dispose()
 

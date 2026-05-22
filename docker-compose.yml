@@ -59,7 +59,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 60s
+      start_period: 120s
 
   av-ingestor:
     build:
@@ -90,7 +90,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 60s
+      start_period: 120s
 
   pipeline:
     build:
@@ -120,7 +120,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 60s
+      start_period: 120s
 
   dashboard:
     build:
@@ -153,7 +153,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 60s
+      start_period: 300s
 
   # ── Stubbed services (filled in later) ────────────────────────────────────────────────────────────────────────────
   # Each stub serves GET /health → {"status":"ok","service":"<name>"}
@@ -230,7 +230,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 60s
+      start_period: 120s
 
   ollama:
     image: ollama/ollama:latest
@@ -289,7 +289,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 60s
+      start_period: 120s
 
   alpaca-sync:
     build:
@@ -313,7 +313,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 90s
+      start_period: 120s
 
   intraday-monitor:
     build:
@@ -349,7 +349,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 120s
 
   trade-executor:
     build:
@@ -378,7 +378,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 60s
+      start_period: 240s
 
   backtester:
     build:
@@ -403,7 +403,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 60s
+      start_period: 120s
 
   evaluator:
     build:
@@ -448,7 +448,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 60s
+      start_period: 300s
 
 volumes:
   pgdata:

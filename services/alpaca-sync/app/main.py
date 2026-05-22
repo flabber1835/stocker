@@ -310,35 +310,38 @@ async def lifespan(app: FastAPI):
     SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
     # Wait for DB with up to 60s (20 retries × 3s)
-    await wait_for_db(engine, retries=20, delay=3.0)
+    await wait_for_db(engine)
 
     # Mark any orphaned 'running' runs as failed, including their execution_traces rows
-    async with SessionLocal() as db:
-        result = await db.execute(
-            text(
-                """
-                UPDATE alpaca_sync_runs
-                SET status = 'failed',
-                    error_message = 'orphaned on restart'
-                WHERE status = 'running'
-                """
+    try:
+        async with SessionLocal() as db:
+            result = await db.execute(
+                text(
+                    """
+                    UPDATE alpaca_sync_runs
+                    SET status = 'failed',
+                        error_message = 'orphaned on restart'
+                    WHERE status = 'running'
+                    """
+                )
             )
-        )
-        await db.execute(
-            text(
-                """
-                UPDATE execution_traces
-                SET status = 'failed',
-                    completed_at = NOW(),
-                    notes = 'orphaned on restart'
-                WHERE status = 'running' AND job_type = 'alpaca_sync'
-                """
+            await db.execute(
+                text(
+                    """
+                    UPDATE execution_traces
+                    SET status = 'failed',
+                        completed_at = NOW(),
+                        notes = 'orphaned on restart'
+                    WHERE status = 'running' AND job_type = 'alpaca_sync'
+                    """
+                )
             )
-        )
-        await db.commit()
-        orphaned = result.rowcount
-        if orphaned:
-            print(f"[alpaca-sync] Marked {orphaned} orphaned sync run(s) as failed")
+            await db.commit()
+            orphaned = result.rowcount
+            if orphaned:
+                print(f"[alpaca-sync] Marked {orphaned} orphaned sync run(s) as failed")
+    except Exception as exc:
+        print(f"[alpaca-sync] WARN: orphan-cleanup skipped: {exc}")
 
     # Log credential status
     if _has_credentials:

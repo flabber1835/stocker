@@ -7,13 +7,14 @@ import logging
 log = logging.getLogger(__name__)
 
 
-async def wait_for_db(engine, retries: int = 10, delay: float = 3.0) -> None:
+async def wait_for_db(engine, retries: int = 30, delay: float = 3.0) -> None:
     """
     Retry a lightweight DB ping until Postgres is ready to accept connections.
 
     pg_isready can return healthy before Postgres finishes initialising its
     data directory (especially on first boot on slow NAS hardware). This
     retry loop bridges that gap so services don't crash on startup.
+    Default: 30 retries × 3s = 90s max wait — sufficient for cold NAS boot.
     """
     from sqlalchemy import text
 
