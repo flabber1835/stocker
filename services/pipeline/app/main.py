@@ -50,6 +50,12 @@ async def lifespan(app: FastAPI):
                                  connect_args={"timeout": 60})
     await wait_for_db(engine)
     async with engine.begin() as conn:
+        # Ensure delta_runs.triggered_by column exists (migration 0003).
+        # Idempotent guard so the service starts cleanly even if alembic hasn't run.
+        await conn.execute(text(
+            "ALTER TABLE delta_runs ADD COLUMN IF NOT EXISTS "
+            "triggered_by TEXT NOT NULL DEFAULT 'pipeline'"
+        ))
         await mark_orphaned_runs_failed(conn, "pipeline_runs", trace_job_type="pipeline_run")
         # Also mark sub-run tables for any orphaned runs this pipeline manages
         await mark_orphaned_runs_failed(conn, "factor_runs", trace_job_type="factor_run")
