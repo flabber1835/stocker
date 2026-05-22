@@ -29,7 +29,7 @@ _MIN_EIGENVALUE = 1e-8  # numerical zero threshold for PSD matrix repair
 _fmt_row = fmt_row
 
 
-strategy: StrategyConfig
+strategy: Optional[StrategyConfig] = None
 engine: AsyncEngine
 config_hash: str = ""
 
@@ -66,7 +66,7 @@ async def health():
     return {
         "status": "ok",
         "service": "portfolio-builder",
-        "strategy": strategy.strategy_id,
+        "strategy": strategy.strategy_id if strategy else None,
         "config_hash": config_hash,
     }
 

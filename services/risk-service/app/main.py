@@ -19,7 +19,10 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 # operators can flip KILL_SWITCH without restarting the container.
 KILL_SWITCH = os.getenv("KILL_SWITCH", "false").lower() == "true"
 LIVE_TRADING_ENABLED = os.getenv("LIVE_TRADING_ENABLED", "false").lower() == "true"
-MAX_ORDER_NOTIONAL = float(os.getenv("MAX_ORDER_NOTIONAL", "50000.0"))
+try:
+    MAX_ORDER_NOTIONAL = float(os.getenv("MAX_ORDER_NOTIONAL", "50000.0"))
+except ValueError:
+    MAX_ORDER_NOTIONAL = 50000.0
 PAPER_ONLY = os.getenv("PAPER_ONLY", "true").lower() == "true"
 
 

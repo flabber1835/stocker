@@ -37,8 +37,14 @@ ALPACA_API_KEY = os.getenv("ALPACA_API_KEY", "")
 ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
 ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
 RISK_SERVICE_URL = os.getenv("RISK_SERVICE_URL", "http://risk-service:8000")
-EXIT_SYNC_MAX_AGE_HOURS = float(os.getenv("EXIT_SYNC_MAX_AGE_HOURS", "24"))
-DEFAULT_MAX_POSITIONS = int(os.getenv("DEFAULT_MAX_POSITIONS", "30"))
+try:
+    EXIT_SYNC_MAX_AGE_HOURS = float(os.getenv("EXIT_SYNC_MAX_AGE_HOURS", "24"))
+except ValueError:
+    EXIT_SYNC_MAX_AGE_HOURS = 24.0
+try:
+    DEFAULT_MAX_POSITIONS = int(os.getenv("DEFAULT_MAX_POSITIONS", "30"))
+except ValueError:
+    DEFAULT_MAX_POSITIONS = 30
 
 engine: Optional[AsyncEngine] = None
 
@@ -51,8 +57,17 @@ async def lifespan(application: FastAPI):
     global engine
     if not DATABASE_URL:
         raise RuntimeError("Missing required environment variable: DATABASE_URL")
-    engine = create_async_engine(DATABASE_URL, echo=False)
+    engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True,
+                                 pool_size=3, max_overflow=5)
     await wait_for_db(engine)
+    # Mark any orders that were recorded but never submitted (crashed mid-flow).
+    # 'pending' means the DB row was written but the Alpaca POST never happened.
+    async with engine.begin() as conn:
+        await conn.execute(text(
+            "UPDATE alpaca_orders SET status='failed', "
+            "error_message='service restarted before submission' "
+            "WHERE status='pending'"
+        ))
     has_creds = bool(ALPACA_API_KEY and ALPACA_SECRET_KEY)
     logger.info(
         "Alpaca credentials: %s", "present" if has_creds else "NOT SET — orders will be rejected"

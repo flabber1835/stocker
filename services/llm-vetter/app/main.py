@@ -29,8 +29,8 @@ TAVILY_API_KEY       = os.getenv("TAVILY_API_KEY", "")
 ARTIFACTS_PATH       = os.getenv("ARTIFACTS_PATH", "")
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
 
-engine: AsyncEngine
-strategy: StrategyConfig
+engine: Optional[AsyncEngine] = None
+strategy: Optional[StrategyConfig] = None
 config_hash: str = ""
 _system_prompt_override: str | None = None
 
@@ -569,7 +569,7 @@ async def health():
     gateway_ok = False
     gateway_info: dict = {}
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=2.0) as client:
             r = await client.get(f"{LLM_GATEWAY_URL}/health")
             r.raise_for_status()
             gateway_info = r.json()
@@ -584,7 +584,7 @@ async def health():
         "gateway_provider": gateway_info.get("default_provider"),
         "av_configured": bool(AV_API_KEY and AV_API_KEY != "demo"),
         "tavily_configured": bool(TAVILY_API_KEY),
-        "strategy_id": strategy.strategy_id,
+        "strategy_id": strategy.strategy_id if strategy else None,
         "config_hash": config_hash,
         "vetter_enabled": strategy.vetter.enabled,
         "risk_horizon_days": strategy.vetter.risk_horizon_days,

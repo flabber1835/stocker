@@ -1,9 +1,13 @@
-.PHONY: up down logs build test integration-test shell-api shell-db shell-pipeline \
+.PHONY: up down logs build test integration-test init shell-api shell-db shell-pipeline \
         universe data prices fundamentals run-pipeline vet portfolio pipeline pull-model
 
 # ── Compose lifecycle ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-up:
+init:
+	@mkdir -p artifacts
+	@echo "Directories ready."
+
+up: init
 	docker compose up -d
 
 down:

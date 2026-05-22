@@ -140,6 +140,14 @@ services:
     depends_on:
       api:
         condition: service_healthy
+      av-ingestor:
+        condition: service_healthy
+      pipeline:
+        condition: service_healthy
+      portfolio-builder:
+        condition: service_healthy
+      scheduler:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 10s
@@ -417,16 +425,12 @@ services:
     ports:
       - "8015:8000"
     environment:
-      AV_INGESTOR_URL:       http://av-ingestor:8000
-      PIPELINE_URL:          http://pipeline:8000
-      VETTER_URL:            http://llm-vetter:8000
-      PORTFOLIO_BUILDER_URL: http://portfolio-builder:8000
-      ALPACA_SYNC_URL:       http://alpaca-sync:8000
-      RANK_SCHEDULE_CRON:        ${RANK_SCHEDULE_CRON:-15 21 * * 1-5}
-      VETTER_TIMEOUT_SECS:       ${VETTER_TIMEOUT_SECS:-600}
-      VETTER_CANDIDATE_COUNT:    ${VETTER_CANDIDATE_COUNT:-50}
-      VETTER_BUFFER_MINUTES:     ${VETTER_BUFFER_MINUTES:-30}
-      DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
+      AV_INGESTOR_URL:          http://av-ingestor:8000
+      PIPELINE_URL:             http://pipeline:8000
+      VETTER_URL:               http://llm-vetter:8000
+      ALPACA_SYNC_URL:          http://alpaca-sync:8000
+      RANK_SCHEDULE_CRON:       ${RANK_SCHEDULE_CRON:-15 21 * * 1-5}
+      DATABASE_URL:             postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       SUPERVISOR_INTERVAL_SECS: ${SUPERVISOR_INTERVAL_SECS:-300}
     depends_on:
       postgres:

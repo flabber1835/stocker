@@ -23,7 +23,7 @@ from stock_strategy_shared.tracing import log_step, write_trace_file, mark_orpha
 from stock_strategy_shared.db import wait_for_db
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
 ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
 
