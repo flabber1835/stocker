@@ -213,38 +213,47 @@ Remaining in Phase 6:
 intraday-monitor service
 ```
 
-## Phase 7: Scheduler and Automation (partial ✅)
+## Phase 7: Scheduler, Pipeline Consolidation, Alembic ✅ DONE
 
 Built:
 
 ```text
 scheduler service (port 8015)
-daily chain: fetch-data → factor-calculate → rank → vetter fires at 4:15pm ET weekdays
-Same-day dedup guard on factor-engine and ranker (skips if already ran today)
-POST /jobs/run-now — manual trigger; GET /status — chain state and next scheduled run
-Fundamentals refresh cadence: weekly (7-day window) instead of daily —
-  AV OVERVIEW is quarterly data, daily re-fetch was wasteful
-RANK_SCHEDULE_CRON env var overrides the default schedule
+Non-blocking supervisor state machine — each tick reads /runs/latest from each
+service, triggers the first idle step, and returns. Chain advances on the next
+tick. After today's chain reaches terminal state (success/failed), further
+ticks are no-ops until the calendar date rolls over.
+Daily chain reduced to 3 steps: fetch-data → pipeline → vet (optional).
+RANK_SCHEDULE_CRON env var overrides the default schedule.
 
-Timeout handling:
-  fetch-data: 4 hour timeout (large ingest job)
-  factor-calculate: 30 min timeout
-  rank: 30 min timeout
-  vetter: computed as (OLLAMA_TIMEOUT_SECS × candidate_count + 600) seconds
-          i.e., per-ticker timeout × n tickers + 10 min buffer
-  
-Scheduler date safety:
-  factor-engine and ranker dedup use started_at (not completed_at) to avoid
-  cross-midnight race when a job starts before midnight and completes after.
-  Vetter dedup likewise uses started_at date field.
-```
+Pipeline consolidation:
+  factor-engine + ranker + delta-engine merged into a single `pipeline` service
+  (port 8018). Math modules copied verbatim into services/pipeline/app/
+  {factors,rank,engine,regime}.py — no behaviour change. Single _job_lock is
+  held end-to-end (acquired in _do_run_pipeline, released in
+  _run_pipeline_steps's finally block) so a duplicate trigger sees
+  {"status":"already_running"} for the entire duration of a run. chain_date
+  is written at row creation so the supervisor's _step_state sees a valid date.
 
-Built (continued):
+Redis Streams trigger:
+  av-ingestor publishes {event: "fetch_data.complete", run_date, run_id} to
+  stream `stocker:pipeline_events`. Pipeline consumer group
+  `pipeline-consumers` auto-triggers a run on receipt, so a manual fetch-data
+  fires factors→rank→delta without scheduler involvement. xack is always
+  called in finally so a failed run doesn't get re-delivered.
 
-```text
-delta-engine — compares today's rankings to live portfolio, produces add/exit proposals;
-  writes delta_runs and delta_intents (entry / exit / hold / watch) consumed by
-  /trade/approve and the dashboard "Trade Proposal" tab
+Alembic migrations:
+  db/migrations/versions/0001_initial_schema.py — all initial tables
+  db/migrations/versions/0002_pipeline_runs.py — pipeline_runs audit table
+  db-migrator service runs `alembic upgrade head` once before any app
+  service starts; every app service has
+  depends_on: db-migrator: service_completed_successfully.
+
+delta_intents persistence:
+  Only actionable rows are written — entry / exit / hold always, plus watches
+  whose confirmation_days_met >= confirmation_days (i.e. "would enter if
+  capacity opens"). Non-confirmed watches are skipped to keep the
+  trade-proposal UI focused on current holdings + proposed buys.
 ```
 
 Still to build:

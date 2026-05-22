@@ -52,16 +52,25 @@ Key behaviors:
   (in-memory counter, cleared on job completion or container restart)
 - Lifespan marks any `running` row as `failed` on startup to recover from crashes
 
-### factor-engine
+### pipeline
 
-Calculates deterministic factor scores from stored data. Performs SPY regime detection
-(trend × volatility, 4 buckets, 5-day confirmation smoothing). Writes factor scores and
-regime to Postgres. Lifespan marks orphaned runs as failed on startup.
+Unified factor + rank + delta service that replaced the previous three separate
+services (factor-engine, ranker, delta-engine). Single `_job_lock` is held end-
+to-end so concurrent HTTP /jobs/run or Redis events get
+`{"status":"already_running"}` for the full run.
 
-### ranker
+Sub-steps in order:
+- factor calculation (factor_scores, regime_snapshots)
+- ranking (ranking_runs, rankings)
+- buffer-zone delta evaluation (delta_runs, delta_intents — only actionable rows)
 
-Combines factor scores according to strategy config and produces a ranked universe.
-Runs after factor-engine completes. Lifespan marks orphaned runs as failed on startup.
+Triggers:
+- `POST /jobs/run` (scheduler, dashboard, manual curl)
+- Redis stream `stocker:pipeline_events` event `fetch_data.complete` from
+  av-ingestor (consumer group `pipeline-consumers`)
+
+Lifespan marks orphaned `pipeline_runs`, `factor_runs`, `ranking_runs`, and
+`delta_runs` as failed on startup so a restart never leaves stale `running` rows.
 
 ### portfolio-builder
 
