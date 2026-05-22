@@ -1339,6 +1339,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 target_portfolio[h.ticker] = float(h.weight) if h.weight is not None else 0.0
 
     # Load live positions from latest successful alpaca-sync
+    no_sync_data = False
     async with engine.connect() as conn:
         sync_row = await conn.execute(text(
             "SELECT run_id FROM alpaca_sync_runs WHERE status='success' "
@@ -1350,6 +1351,11 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 "SELECT ticker FROM live_positions WHERE sync_run_id = :rid"
             ), {"rid": str(sync_run.run_id)})
             live_positions_set = {p.ticker for p in pos_rows.fetchall()}
+        else:
+            # alpaca-sync has never successfully completed — treat broker state as unknown.
+            # Fall back to confirmation-days mode to avoid emitting entry intents for
+            # positions that may already be held at the broker.
+            no_sync_data = True
 
     # Compute orphan_tickers for logging (live positions not in target)
     orphan_tickers = [t for t in live_positions_set if t not in target_portfolio]
@@ -1371,8 +1377,13 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             step_warnings.append(
                 f"Cold start: no portfolio run found — using confirmation-days fallback mode"
             )
+        if no_sync_data:
+            step_warnings.append(
+                "No successful alpaca-sync run — broker state unknown; using confirmation-days fallback"
+            )
         if orphan_tickers:
             step_warnings.append(f"Orphan broker positions (not in target): {orphan_tickers}")
+        effective_mode = "confirmation_days_fallback" if (cold_start or no_sync_data) else "target_vs_live"
         await _log_step_delta(
             conn, trace_id, "load_portfolio_and_live", "success",
             started_at=t0,
@@ -1382,18 +1393,24 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 "live_positions": len(live_positions_set),
                 "orphan_tickers": orphan_tickers,
                 "cold_start": cold_start,
-                "mode": "confirmation_days_fallback" if cold_start else "target_vs_live",
+                "no_sync_data": no_sync_data,
+                "mode": effective_mode,
             },
             warnings=step_warnings or None,
         )
 
     # ── Step 4: evaluate delta ────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
-    if cold_start:
-        # No portfolio target yet — use legacy confirmation-days mode on empty portfolio
+    if cold_start or no_sync_data:
+        # cold_start: no portfolio target yet.
+        # no_sync_data: broker state unknown (alpaca-sync never completed).
+        # Use confirmation-days mode. Seed current_portfolio from live_positions_set
+        # (weight=0) so broker positions are not ignored: tickers outside the exit zone
+        # stay as "hold"; tickers missing from universe are force-exited.
+        cold_start_portfolio = {t: 0.0 for t in live_positions_set}
         decisions = evaluate_all(
             universe=universe,
-            current_portfolio={},
+            current_portfolio=cold_start_portfolio,
             entry_rank=entry_rank,
             exit_rank=exit_rank,
             confirmation_days=confirmation_days,
@@ -1753,7 +1770,12 @@ async def start_delta_only(background_tasks: BackgroundTasks):
             if _job_lock.locked():
                 _job_lock.release()
 
-    background_tasks.add_task(_run_standalone_delta)
+    try:
+        background_tasks.add_task(_run_standalone_delta)
+    except Exception:
+        if _job_lock.locked():
+            _job_lock.release()
+        raise
     return {"status": "started", "job": "delta"}
 
 

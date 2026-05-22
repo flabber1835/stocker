@@ -73,9 +73,9 @@ _STEPS: list[_StepDef] = [
              job_type="fetch-data", extra_ok=("partial_success",)),
     _StepDef("pipeline", PIPELINE_URL, "/jobs/run", "run_date",
              use_trading_day=True, also_accept_prev=True),
-    _StepDef("portfolio-builder", PORTFOLIO_BUILDER_URL, "/jobs/build", "portfolio_date",
+    _StepDef("portfolio-builder", PORTFOLIO_BUILDER_URL, "/jobs/build", "started_at",
              use_trading_day=True, also_accept_prev=False),
-    _StepDef("delta", PIPELINE_URL, "/jobs/delta", "run_date",
+    _StepDef("delta", PIPELINE_URL, "/jobs/delta", "started_at",
              status_path="/runs/delta-latest",
              use_trading_day=True, also_accept_prev=False),
     _StepDef("vet", VETTER_URL, "/jobs/vet", "started_at", optional=True),
@@ -151,10 +151,12 @@ async def _has_universe(client: httpx.AsyncClient) -> bool:
     return False
 
 
-async def _get_latest_run_id(client: httpx.AsyncClient, service_url: str) -> Optional[str]:
+async def _get_latest_run_id(
+    client: httpx.AsyncClient, service_url: str, status_path: str = "/runs/latest"
+) -> Optional[str]:
     """Return the run_id from the most recent run at this service, or None on failure."""
     try:
-        r = await client.get(f"{service_url}/runs/latest", timeout=10.0)
+        r = await client.get(f"{service_url}{status_path}", timeout=10.0)
         if r.status_code == 200:
             return r.json().get("run_id")
     except Exception:
@@ -278,9 +280,10 @@ async def _supervisor_tick() -> None:
         return
 
     async with _chain_lock:
-        # Reset per-day accounting when the calendar date rolls over
+        # Reset per-day accounting when the calendar date rolls over.
+        # "status" must also be cleared so a yesterday "failed" doesn't block today.
         if _chain_status.get("date") != today:
-            _chain_status.update({"date": today, "steps": {}, "run_ids": {}, "current_run_id": None})
+            _chain_status.update({"date": today, "status": None, "steps": {}, "run_ids": {}, "current_run_id": None})
 
         # If today's chain already completed (success/failed), skip — don't
         # re-open a redundant scheduler_runs row on every tick for the rest
@@ -314,7 +317,7 @@ async def _supervisor_tick() -> None:
                 _log(f"supervisor: {step.name} → {state}")
 
                 if state == "done":
-                    if svc_run_id := await _get_latest_run_id(client, step.url):
+                    if svc_run_id := await _get_latest_run_id(client, step.url, step.status_path):
                         _chain_status["run_ids"][step.name] = svc_run_id
                     continue
 

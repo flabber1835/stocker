@@ -523,3 +523,79 @@ class TestSupervisorTick:
         mock_db_open.assert_not_called()
         mock_db_close.assert_not_called()
         mock_trigger.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_date_rollover_clears_failed_status(self):
+        """Yesterday's 'failed' chain status must NOT block today's chain.
+
+        Regression test for a bug where _chain_status['status'] was not reset
+        on date rollover, causing the supervisor to return early on every tick
+        for the entire following day.
+        """
+        import datetime
+        chain_status = _supervisor_tick.__globals__["_chain_status"]
+        chain_status.update({
+            "status": "failed",     # yesterday ended in failure
+            "date": "2026-05-20",   # yesterday's date
+            "steps": {},
+            "run_ids": {},
+            "current_run_id": None,
+        })
+
+        mock_trigger = AsyncMock()
+        mock_db_open = AsyncMock(return_value="new-run-uuid")
+
+        with patch.dict(_supervisor_tick.__globals__, {
+            "_has_universe": AsyncMock(return_value=True),
+            "_step_state": AsyncMock(return_value="idle"),
+            "_trigger_step": mock_trigger,
+            "_get_latest_run_id": AsyncMock(return_value=None),
+            "_db_open_run": mock_db_open,
+            "_db_update_run": AsyncMock(),
+            "_db_close_run": AsyncMock(),
+        }):
+            await _supervisor_tick()
+
+        today = datetime.date.today().isoformat()
+        assert chain_status["date"] == today
+        assert chain_status["status"] != "failed", (
+            "status must be cleared on date rollover — yesterday's 'failed' "
+            "must not block today's chain"
+        )
+        # Supervisor should have triggered the first step
+        mock_trigger.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_date_rollover_clears_success_status(self):
+        """Yesterday's 'success' must not prevent today's chain from running."""
+        import datetime
+        chain_status = _supervisor_tick.__globals__["_chain_status"]
+        chain_status.update({
+            "status": "success",    # yesterday succeeded
+            "date": "2026-05-20",   # yesterday
+            "steps": {},
+            "run_ids": {},
+            "current_run_id": None,
+        })
+
+        mock_trigger = AsyncMock()
+        mock_db_open = AsyncMock(return_value="new-run-uuid")
+
+        with patch.dict(_supervisor_tick.__globals__, {
+            "_has_universe": AsyncMock(return_value=True),
+            "_step_state": AsyncMock(return_value="idle"),
+            "_trigger_step": mock_trigger,
+            "_get_latest_run_id": AsyncMock(return_value=None),
+            "_db_open_run": mock_db_open,
+            "_db_update_run": AsyncMock(),
+            "_db_close_run": AsyncMock(),
+        }):
+            await _supervisor_tick()
+
+        today = datetime.date.today().isoformat()
+        assert chain_status["date"] == today
+        assert chain_status["status"] != "success" or mock_trigger.call_count > 0, (
+            "Either status was cleared (allowing the chain to start) or "
+            "the chain already processed the first idle step"
+        )
+        mock_trigger.assert_called_once()
