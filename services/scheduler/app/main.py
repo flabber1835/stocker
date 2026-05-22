@@ -347,15 +347,29 @@ async def _supervisor_tick() -> None:
 # ── Startup catch-up ──────────────────────────────────────────────────────────
 
 async def _startup_catch_up() -> None:
-    """Fire the first supervisor tick at startup. docker-compose's depends_on
-    chain (service_healthy + db-migrator service_completed_successfully)
-    already guarantees upstream services are ready before our container
-    starts, so no extra sleep is needed."""
-    _log("startup: firing initial supervisor tick")
-    try:
-        await _supervisor_tick()
-    except Exception as exc:
-        _log("startup: supervisor tick raised exception", error=str(exc))
+    """Run the supervisor at 30-second cadence until today's chain completes.
+
+    Handles two scenarios without manual intervention:
+    - Cold boot (docker compose up -v): no universe → fetch-universe fires, then
+      fetch-data, then pipeline, each step picked up 30s after the previous finishes.
+    - Daily NAS restart: universe exists but today's data is stale → chain
+      starts immediately rather than waiting for the 5-minute interval tick.
+
+    The regular SUPERVISOR_INTERVAL_SECS interval trigger continues running
+    in parallel; _chain_lock ensures ticks never run concurrently.
+    """
+    _log("startup: beginning catch-up loop (30s cadence until chain completes)")
+    for i in range(720):  # up to 6 hours at 30s intervals
+        try:
+            await _supervisor_tick()
+        except Exception as exc:
+            _log("startup catch-up: tick raised exception", error=str(exc))
+        if _chain_status.get("status") in ("success", "failed"):
+            _log(f"startup catch-up: chain finished after {i + 1} ticks",
+                 status=_chain_status["status"])
+            return
+        await asyncio.sleep(30)
+    _log("startup catch-up: timed out after 6 hours — handing off to interval trigger")
 
 
 # ── Fast polling for manual run-now ──────────────────────────────────────────
