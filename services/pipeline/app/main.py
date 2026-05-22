@@ -1847,7 +1847,7 @@ async def get_delta_latest():
     async with engine.connect() as conn:
         row = await conn.execute(text(
             "SELECT run_id, status, run_date, started_at, completed_at, "
-            "  entries_count, exits_count, holds_count, watches_count "
+            "  entries_count, exits_count, holds_count, watches_count, triggered_by "
             "FROM delta_runs WHERE triggered_by = 'scheduler' "
             "ORDER BY started_at DESC LIMIT 1"
         ))
