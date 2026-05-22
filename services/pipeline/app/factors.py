@@ -262,8 +262,16 @@ def compute_all_factors(
     def _align(raw: pd.Series) -> pd.Series:
         return raw.reindex(result.index)
 
-    result["momentum"] = cross_section_zscore(_align(momentum_raw), clip=cfg.zscore_clip)
-    result["low_volatility"] = cross_section_zscore(_align(low_vol_raw), clip=cfg.zscore_clip)
+    # Winsorize raw momentum and low_volatility before cross-section z-scoring.
+    # Without this, a single outlier (e.g. a recent spinoff with 150%+ 12-month return)
+    # inflates the cross-sectional std, compressing every other ticker's z-score.
+    # quality/value/growth already winsorize their components; this makes momentum
+    # and low_volatility consistent.
+    momentum_w = _winsorize(momentum_raw.dropna()).reindex(momentum_raw.index) if not momentum_raw.empty else momentum_raw
+    low_vol_w  = _winsorize(low_vol_raw.dropna()).reindex(low_vol_raw.index)   if not low_vol_raw.empty else low_vol_raw
+
+    result["momentum"] = cross_section_zscore(_align(momentum_w), clip=cfg.zscore_clip)
+    result["low_volatility"] = cross_section_zscore(_align(low_vol_w), clip=cfg.zscore_clip)
     result["liquidity"] = cross_section_zscore(_align(liquidity_raw), clip=cfg.zscore_clip)
     result["quality"] = cross_section_zscore(_align(quality_raw), clip=cfg.zscore_clip)
     result["value"] = cross_section_zscore(_align(value_raw), clip=cfg.zscore_clip)

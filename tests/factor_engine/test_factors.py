@@ -595,3 +595,99 @@ class TestSingleComponentFactors:
         result = compute_growth(fund)
         assert pd.notna(result["FAST"]) and pd.notna(result["SLOW"])
         assert result["FAST"] > result["SLOW"]
+
+
+# ── Momentum winsorization: spinoff/outlier pollution guard ───────────────────
+
+def _make_prices_with_outlier(
+    normal_return: float, outlier_return: float,
+    n_normal: int = 50, normal_std: float = 0.08, seed: int = 42,
+) -> pd.DataFrame:
+    """
+    Build a price pivot with n_normal tickers whose 12-month returns are drawn
+    from N(normal_return, normal_std), plus one outlier ticker at outlier_return.
+
+    Prices are flat at 100 for the base period; only the terminal short-window
+    price varies so that compute_momentum sees the intended return cleanly.
+    """
+    rng = np.random.default_rng(seed)
+    n_days = 300
+    dates = pd.date_range("2023-01-01", periods=n_days, freq="B")
+    data = {}
+    for i in range(n_normal):
+        t = f"N{i:03d}"
+        ret = rng.normal(normal_return, normal_std)
+        prices = np.ones(n_days) * 100.0
+        prices[-21] = 100.0 * (1.0 + ret)
+        data[t] = prices
+    data["SNDK"] = np.ones(n_days) * 100.0
+    data["SNDK"][-21] = 100.0 * (1.0 + outlier_return)
+    return pd.DataFrame(data, index=dates)
+
+
+def test_momentum_outlier_inflates_std_without_winsorization():
+    """Without winsorization, a 200% outlier inflates cross-sectional std and
+    compresses z-scores for every other ticker. With winsorization, SNDK is
+    clipped to the 99th pctile of the raw return distribution so the normal
+    cohort retains meaningful spread.
+    """
+    pivot = _make_prices_with_outlier(normal_return=0.15, outlier_return=2.0, n_normal=50)
+    mom_raw = compute_momentum(pivot, short_window=21, long_window=252)
+    assert "SNDK" in mom_raw.index
+
+    # raw std without the outlier
+    std_excl_outlier = mom_raw.drop("SNDK").std()
+
+    # Without winsorization: SNDK pulls std up
+    z_no_w = cross_section_zscore(mom_raw, clip=2.5)
+    normal_spread_no_w = z_no_w.drop("SNDK").std()
+
+    # With winsorization: SNDK clipped to 99th pctile → std closer to normal cohort
+    mom_w = _winsorize(mom_raw.dropna()).reindex(mom_raw.index)
+    z_w = cross_section_zscore(mom_w, clip=2.5)
+    normal_spread_w = z_w.drop("SNDK").std()
+
+    # Winsorized spread must be strictly larger (outlier inflation is reduced)
+    assert normal_spread_w > normal_spread_no_w, (
+        f"winsorized spread {normal_spread_w:.3f} should exceed "
+        f"unwinsorized {normal_spread_no_w:.3f}"
+    )
+    # SNDK is still the top scorer after winsorization (signal preserved, just bounded)
+    assert z_w["SNDK"] == pytest.approx(2.5, abs=0.01)
+
+
+def test_momentum_winsorization_applied_in_compute_all_factors():
+    """compute_all_factors winsorizes momentum so outlier returns don't collapse the field.
+
+    With 50 normal tickers (N(15%, 8%) returns) plus SNDK at +200%, normal tickers
+    must retain meaningful cross-sectional spread in the final momentum z-scores.
+    """
+    pivot = _make_prices_with_outlier(normal_return=0.15, outlier_return=2.0, n_normal=50)
+    tickers = list(pivot.columns)
+
+    rows = []
+    for t in tickers:
+        for dt, p in pivot[t].items():
+            rows.append({"ticker": t, "date": dt.date(), "close": p, "adjusted_close": p, "volume": 1_000_000})
+    prices_long = pd.DataFrame(rows)
+
+    fund_rows = [
+        {"ticker": t, "as_of_date": "2024-01-01", "source": "av",
+         "pe_ratio": 20.0, "pb_ratio": 2.0, "roe": 0.15, "debt_to_equity": 0.5,
+         "revenue_growth": 0.10, "eps_growth": 0.10}
+        for t in tickers
+    ]
+    fundamentals = pd.DataFrame(fund_rows)
+
+    result = compute_all_factors(prices_long, fundamentals)
+    result = result.set_index("ticker")
+
+    # SNDK should be at the cap
+    assert result.loc["SNDK", "momentum"] == pytest.approx(2.5, abs=0.05)
+
+    # Normal tickers must retain meaningful spread — not all collapsed toward zero
+    normal_mom = result.drop("SNDK")["momentum"].dropna()
+    assert normal_mom.std() > 0.15, (
+        f"Normal tickers momentum std={normal_mom.std():.3f} after winsorization; "
+        "should be well above zero (outlier not polluting the distribution)"
+    )
