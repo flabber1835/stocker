@@ -22,7 +22,8 @@ services:
       test: ["CMD-SHELL", "pg_isready -U stocker"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
+      start_period: 120s
 
   redis:
     image: redis:7-alpine
@@ -36,6 +37,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+      start_period: 30s
 
   # ── Working services ──────────────────────────────────────────────────────────────────────────
 
