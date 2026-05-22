@@ -183,6 +183,138 @@ async def get_rankings(limit: int = 50, run_id: str | None = None):
     return {"count": len(results), "rankings": results}
 
 
+@app.get("/rankings/with-overlays")
+async def get_rankings_with_overlays(limit: int = 100):
+    """
+    Latest rank run, top `limit` tickers, plus per-ticker overlay flags:
+    - prior_rank: rank in the immediately-prior successful rank run (for arrows)
+    - rank_slope: REGR_SLOPE over the last 5 runs (existing momentum metric)
+    - vetter_excluded: bool, with reason/confidence/risk_type if true
+    - positive_catalyst: bool, with positive_reason if true
+    - held: bool, with qty and market_value if true
+
+    Single round-trip — assembled in one CTE-based query so the dashboard can
+    drop the separate /universe + /rankings calls. Powers the consolidated
+    Rankings panel.
+    """
+    async with engine.connect() as conn:
+        # Find the latest successful rank run + its prior peer
+        run_rows = (await conn.execute(text(
+            "SELECT run_id, rank_date FROM ranking_runs WHERE status='success' "
+            "ORDER BY rank_date DESC, completed_at DESC NULLS LAST LIMIT 2"
+        ))).fetchall()
+        if not run_rows:
+            return {"count": 0, "run": None, "prior_run": None, "rankings": []}
+        latest_run_id = str(run_rows[0].run_id)
+        prior_run_id = str(run_rows[1].run_id) if len(run_rows) > 1 else None
+
+        # Latest vetter run (any status — UI surfaces in-progress info too)
+        vetter_row = (await conn.execute(text(
+            "SELECT run_id FROM vetter_runs "
+            "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+        ))).fetchone()
+        vetter_run_id = str(vetter_row.run_id) if vetter_row else None
+
+        # Latest successful alpaca-sync (for live positions)
+        sync_row = (await conn.execute(text(
+            "SELECT run_id FROM alpaca_sync_runs WHERE status='success' "
+            "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+        ))).fetchone()
+        sync_run_id = str(sync_row.run_id) if sync_row else None
+
+        # Main rankings query
+        rows = await conn.execute(
+            text(
+                "WITH recent_runs AS ("
+                "  SELECT run_id, ROW_NUMBER() OVER (ORDER BY rank_date ASC) - 1 AS x_pos"
+                "  FROM ranking_runs WHERE status='success' ORDER BY rank_date DESC LIMIT 5"
+                "),"
+                "ticker_slopes AS ("
+                "  SELECT r.ticker,"
+                "    REGR_SLOPE(r.rank::double precision, rr.x_pos::double precision) AS rank_slope"
+                "  FROM rankings r JOIN recent_runs rr ON rr.run_id = r.run_id"
+                "  GROUP BY r.ticker"
+                "),"
+                "prior_ranks AS ("
+                "  SELECT ticker, rank AS prior_rank FROM rankings WHERE run_id = :prior_run_id"
+                ")"
+                "SELECT r.ticker, r.rank, r.composite_score, r.percentile, r.regime, r.rank_date,"
+                "  r.factor_scores, ts.rank_slope, pr.prior_rank "
+                "FROM rankings r "
+                "LEFT JOIN ticker_slopes ts ON ts.ticker = r.ticker "
+                "LEFT JOIN prior_ranks pr ON pr.ticker = r.ticker "
+                "WHERE r.run_id = :run_id "
+                "ORDER BY r.rank ASC LIMIT :limit"
+            ),
+            {"run_id": latest_run_id, "prior_run_id": prior_run_id or latest_run_id,
+             "limit": limit},
+        )
+        ranking_rows = [dict(r) for r in rows.mappings()]
+        tickers = [r["ticker"] for r in ranking_rows]
+        if not tickers:
+            return {"count": 0, "run": None, "prior_run": None, "rankings": []}
+
+        # Vetter overlay
+        vetter_by_ticker = {}
+        if vetter_run_id:
+            vd_rows = await conn.execute(
+                text(
+                    "SELECT ticker, exclude, confidence, risk_type, reason, "
+                    "  positive_catalyst, positive_reason "
+                    "FROM vetter_decisions WHERE run_id = :rid AND ticker = ANY(:tickers)"
+                ),
+                {"rid": vetter_run_id, "tickers": tickers},
+            )
+            for v in vd_rows.mappings():
+                vetter_by_ticker[v["ticker"]] = dict(v)
+
+        # Holdings overlay
+        holdings_by_ticker = {}
+        if sync_run_id:
+            pos_rows = await conn.execute(
+                text(
+                    "SELECT ticker, qty, market_value, unrealized_plpc "
+                    "FROM live_positions WHERE sync_run_id = :rid AND ticker = ANY(:tickers)"
+                ),
+                {"rid": sync_run_id, "tickers": tickers},
+            )
+            for p in pos_rows.mappings():
+                holdings_by_ticker[p["ticker"]] = {
+                    "qty": float(p["qty"]) if p["qty"] is not None else None,
+                    "market_value": float(p["market_value"]) if p["market_value"] is not None else None,
+                    "unrealized_plpc": float(p["unrealized_plpc"]) if p["unrealized_plpc"] is not None else None,
+                }
+
+        # Merge
+        for r in ranking_rows:
+            t = r["ticker"]
+            v = vetter_by_ticker.get(t)
+            if v:
+                r["vetter_excluded"] = bool(v["exclude"])
+                r["vetter_confidence"] = v["confidence"]
+                r["vetter_risk_type"] = v["risk_type"]
+                r["vetter_reason"] = v["reason"]
+                r["positive_catalyst"] = bool(v["positive_catalyst"])
+                r["positive_reason"] = v["positive_reason"]
+            else:
+                r["vetter_excluded"] = False
+                r["positive_catalyst"] = False
+            r["held"] = t in holdings_by_ticker
+            if r["held"]:
+                r.update({k: v for k, v in holdings_by_ticker[t].items()})
+
+    return {
+        "count": len(ranking_rows),
+        "run": {"run_id": latest_run_id, "rank_date":
+                ranking_rows[0]["rank_date"].isoformat() if hasattr(ranking_rows[0]["rank_date"], "isoformat")
+                else str(ranking_rows[0]["rank_date"])},
+        "prior_run": {"run_id": prior_run_id} if prior_run_id else None,
+        "vetter_run_id": vetter_run_id,
+        "sync_run_id": sync_run_id,
+        "rankings": ranking_rows,
+    }
+
+
 # ── Universe ───────────────────────────────────────────────────────────────────────────────────
 
 @app.get("/universe")

@@ -806,8 +806,18 @@ td{padding:9px 14px;white-space:nowrap}
   font-family:var(--font-mono);
   min-width:36px;display:inline-block;text-align:right;
 }
-.rank-up{color:#3fb950;font-size:.6rem;margin-left:3px;vertical-align:middle}
-.rank-dn{color:#f85149;font-size:.6rem;margin-left:3px;vertical-align:middle}
+.rank-up{color:#3fb950;font-size:.7rem;margin-left:3px;vertical-align:middle;font-weight:700}
+.rank-dn{color:#f85149;font-size:.7rem;margin-left:3px;vertical-align:middle;font-weight:700}
+.overlay-badge{
+  display:inline-block;padding:2px 6px;margin-right:3px;border-radius:3px;
+  font-size:.62rem;font-weight:700;letter-spacing:.05em;
+  font-family:var(--font-mono);vertical-align:middle;cursor:help;
+}
+.overlay-badge.held    {background:rgba(63,185,80,.18); color:#3fb950; border:1px solid rgba(63,185,80,.35)}
+.overlay-badge.excl    {background:rgba(248,81,73,.16); color:#f85149; border:1px solid rgba(248,81,73,.35)}
+.overlay-badge.pos-cat {background:rgba(255,165,0,.16); color:#ffa500; border:1px solid rgba(255,165,0,.35)}
+tr.row-held    td{background:rgba(63,185,80,.04)}
+tr.row-excluded td{opacity:.55}
 .t-name{color:var(--secondary);font-size:.78rem;max-width:180px;overflow:hidden;text-overflow:ellipsis}
 .t-sector{
   display:inline-block;padding:2px 7px;border-radius:3px;
@@ -1055,56 +1065,14 @@ footer span{color:var(--blue)}
 </div>
 
 <div class="tabs">
-  <button class="tab active" id="tab-universe" onclick="switchTab('universe',this)">Universe</button>
-  <button class="tab" id="tab-rank" onclick="switchTab('rank',this)">Rank</button>
+  <button class="tab active" id="tab-rank" onclick="switchTab('rank',this)">Rankings</button>
   <button class="tab" id="tab-vet" onclick="switchTab('vet',this)">Vetter</button>
   <button class="tab" id="tab-portfolio" onclick="switchTab('portfolio',this)">Trade Proposal</button>
   <button class="tab" id="tab-live" onclick="switchTab('live',this)">Portfolio</button>
 </div>
 
-<!-- ── Universe pane ── -->
-<div id="pane-universe" class="pane active">
-  <div class="job-panel" id="jp-universe">
-    <div class="job-meta">
-      <span class="job-lbl">LAST RUN</span>
-      <span class="job-date" id="uni-last-date">—</span>
-      <span class="job-status-badge badge-notrun" id="uni-badge">NOT RUN</span>
-    </div>
-    <div class="job-controls">
-      <div class="progress-wrap" id="uni-prog-wrap">
-        <div class="progress-track"><div class="progress-fill" id="uni-fill"></div></div>
-        <span class="progress-pct" id="uni-pct">0%</span>
-      </div>
-      <button class="btn-start" id="uni-start" onclick="startJob('universe')">&#9654; START FETCH</button>
-    </div>
-  </div>
-  <div class="stats">
-    <div class="stat"><div class="lbl">Investable Tickers</div><div class="val" id="u-total">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Universe Source</div><div class="val" style="font-size:1.1rem;padding-top:6px" id="u-etf">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Score Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="u-date">&#8212;</div></div>
-  </div>
-  <div class="toolbar">
-    <input type="search" id="u-search" placeholder="Filter ticker or name" oninput="renderUniverse()">
-    <button class="btn" onclick="loadUniverse()">&#x21BA; REFRESH</button>
-    <span class="badge-count" id="u-count"></span>
-  </div>
-  <div class="tbl-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th onclick="sortUniverse('ticker')" id="uh-ticker">TICKER</th>
-          <th onclick="sortUniverse('name')" id="uh-name">NAME</th>
-        </tr>
-      </thead>
-      <tbody id="u-body">
-        <tr><td colspan="2" class="loading">Loading universe</td></tr>
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<!-- ── Rank pane ── -->
-<div id="pane-rank" class="pane">
+<!-- ── Rankings pane (top 100 with vetter + holdings overlays) ── -->
+<div id="pane-rank" class="pane active">
   <div class="job-panel" id="jp-rank">
     <div class="job-meta">
       <span class="job-lbl">LAST RUN</span>
@@ -1118,11 +1086,14 @@ footer span{color:var(--blue)}
         <span class="progress-pct" id="rank-pct">0%</span>
       </div>
       <button class="btn-start" id="rank-start" onclick="startJob('rank')">&#9654; START RANK</button>
+      <button class="btn" id="uni-start" onclick="startJob('universe')" title="Refresh the equity universe (rarely needed)">&#x21BA; FETCH UNIVERSE</button>
     </div>
   </div>
   <div class="stats">
-    <div class="stat"><div class="lbl">Total Ranked</div><div class="val" id="r-total">&#8212;</div></div>
-    <div class="stat"><div class="lbl">Top Score</div><div class="val" id="r-top">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Top Ranked</div><div class="val" id="r-total">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Held</div><div class="val pos" id="r-held">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Excluded</div><div class="val neg" id="r-excluded">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Positive Catalyst</div><div class="val orange" id="r-positive">&#8212;</div></div>
     <div class="stat"><div class="lbl">Regime</div><div class="val" id="r-regime">&#8212;</div></div>
     <div class="stat"><div class="lbl">Rank Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="r-date">&#8212;</div></div>
   </div>
@@ -1134,6 +1105,8 @@ footer span{color:var(--blue)}
   </div>
   <div class="toolbar">
     <input type="search" id="r-search" placeholder="Filter ticker" oninput="renderRankings()">
+    <label style="color:var(--secondary);font-size:.72rem"><input type="checkbox" id="r-only-held" onchange="renderRankings()"> Held only</label>
+    <label style="color:var(--secondary);font-size:.72rem"><input type="checkbox" id="r-hide-excl" onchange="renderRankings()"> Hide excluded</label>
     <button class="btn" onclick="loadRankings()">&#x21BA; REFRESH</button>
     <span class="badge-count" id="r-count"></span>
   </div>
@@ -1143,6 +1116,7 @@ footer span{color:var(--blue)}
         <tr>
           <th onclick="sortRankings('rank')" id="rh-rank">RANK</th>
           <th onclick="sortRankings('ticker')" id="rh-ticker">TICKER</th>
+          <th>FLAGS</th>
           <th onclick="sortRankings('composite_score')" id="rh-composite_score">COMPOSITE</th>
           <th onclick="sortRankings('percentile')" id="rh-percentile">PCTILE</th>
           <th>FACTORS</th>
@@ -1155,7 +1129,7 @@ footer span{color:var(--blue)}
         </tr>
       </thead>
       <tbody id="r-body">
-        <tr><td colspan="11" class="loading">Loading rankings</td></tr>
+        <tr><td colspan="12" class="loading">Loading rankings</td></tr>
       </tbody>
     </table>
   </div>
@@ -1313,11 +1287,9 @@ const $=id=>document.getElementById(id);
 const fmtScore=v=>v==null?'—':(+v).toFixed(3);
 
 // ── Data stores ──────────────────────────────────────────────────────────────
-let rankData=[], uniData=[], deltaData=[];
+let rankData=[], deltaData=[];
 let rankSort={col:'rank',dir:1};
-let uniSort={col:'ticker',dir:1};
 let deltaSort={col:'rank',dir:1};
-let uniHideTiny=false;
 
 // Per-intent approval state: intent_id → {status, msg}
 let _approvalState = {};
@@ -1697,7 +1669,7 @@ function renderJob(tab, state, prev) {
   const wasRunning = (prev.status === 'running');
   const prevUnknown = (prev.status == null || prev.status === 'none' || prev.status === undefined);
   if ((wasRunning && done) || (prevUnknown && done)) {
-    if (tab === 'universe')  loadUniverse();
+    if (tab === 'universe')  loadRankings();  // universe panel was folded into rankings
     if (tab === 'rank')      { loadRankings(); loadRegime(); }
     if (tab === 'vet') {
       if (state.run_id) {
@@ -1754,100 +1726,42 @@ async function loadRegime(){
 }
 
 // ── Universe ──────────────────────────────────────────────────────────────────
-async function loadUniverse(){
-  $('u-body').innerHTML='<tr><td colspan="2" class="loading">Loading universe</td></tr>';
-  try{
-    // Prefer the investable universe (tickers that passed price/liquidity filters in
-    // the latest factor run — the real peer group for z-score comparison).
-    // Fall back to the raw snapshot if no factor run exists yet (cold start).
-    let investable=true;
-    let d;
-    const invResp=await fetch('/api/universe/investable');
-    if(invResp.status===404){
-      // Cold start: no factor run yet — fall back to raw snapshot.
-      investable=false;
-      const rawResp=await fetch('/api/universe');
-      if(!rawResp.ok)throw new Error(rawResp.status);
-      d=await rawResp.json();
-    }else if(!invResp.ok){
-      // Any non-404 error (500, network failure) should surface rather than
-      // silently falling back to the raw snapshot and masking the bug.
-      throw new Error(invResp.status);
-    }else{
-      d=await invResp.json();
-    }
-    if(investable){
-      uniData=d.tickers||[];
-      $('u-total').textContent=uniData.length;
-      $('u-etf').textContent='AV Listing (investable)';
-      $('u-date').textContent=d.score_date||'—';
-    }else{
-      uniData=(d.tickers||[]);
-      const snap=d.snapshot||{};
-      $('u-total').textContent=uniData.length+' (raw snapshot)';
-      $('u-etf').textContent=snap.etf_ticker||'—';
-      $('u-date').textContent=snap.snapshot_date||'—';
-    }
-    renderUniverse();
-  }catch(e){
-    $('u-body').innerHTML='<tr><td colspan="2" class="error">No universe data</td></tr>';
-  }
-}
-
-function sortUniverse(col){
-  if(uniSort.col===col)uniSort.dir*=-1;
-  else{uniSort.col=col;uniSort.dir=1;}
-  clearSort('uh-');
-  const th=$('uh-'+col);
-  if(th)th.classList.add(uniSort.dir===1?'asc':'desc');
-  renderUniverse();
-}
-
-function renderUniverse(){
-  const q=($('u-search').value||'').toUpperCase().trim();
-  let rows=uniData.filter(t=>
-    (!q||t.ticker.includes(q)||(t.name||'').toUpperCase().includes(q))
-  );
-  const col=uniSort.col,dir=uniSort.dir;
-  rows.sort((a,b)=>{
-    const av=a[col],bv=b[col];
-    if(av==null&&bv==null)return 0;
-    if(av==null)return 1;if(bv==null)return -1;
-    return(av<bv?-1:av>bv?1:0)*dir;
-  });
-  $('u-count').textContent=rows.length+' shown';
-  if(!rows.length){$('u-body').innerHTML='<tr><td colspan="2" class="loading">No results</td></tr>';return;}
-  $('u-body').innerHTML=rows.map(t=>'<tr>'
-    +'<td><span class="t-ticker">'+t.ticker+'</span></td>'
-    +'<td><span class="t-name">'+(t.name||'—')+'</span></td>'
-    +'</tr>').join('');
-}
-
 // ── Rankings ──────────────────────────────────────────────────────────────────
 async function loadRankings(){
-  $('r-body').innerHTML='<tr><td colspan="11" class="loading">Loading rankings</td></tr>';
+  $('r-body').innerHTML='<tr><td colspan="12" class="loading">Loading rankings</td></tr>';
   try{
-    const d=await fetch('/api/rankings?limit=500').then(r=>{
+    const d=await fetch('/api/rankings/with-overlays?limit=100').then(r=>{
       if(!r.ok)throw new Error(r.status);
       return r.json();
     });
     rankData=(d.rankings||[]).map(r=>{
       const fs=r.factor_scores||{};
-      return{rank:r.rank,ticker:r.ticker,composite_score:r.composite_score,
-        percentile:r.percentile,momentum:fs.momentum,quality:fs.quality,
-        value:fs.value,growth:fs.growth,low_volatility:fs.low_volatility,
-        liquidity:fs.liquidity,rank_date:r.rank_date,regime:r.regime,
-        rank_slope:r.rank_slope!=null?+r.rank_slope:null};
+      return{
+        rank:r.rank, ticker:r.ticker,
+        composite_score:r.composite_score, percentile:r.percentile,
+        momentum:fs.momentum, quality:fs.quality, value:fs.value,
+        growth:fs.growth, low_volatility:fs.low_volatility, liquidity:fs.liquidity,
+        rank_date:r.rank_date, regime:r.regime,
+        rank_slope: r.rank_slope!=null ? +r.rank_slope : null,
+        prior_rank: r.prior_rank!=null ? +r.prior_rank : null,
+        held: !!r.held, qty: r.qty, market_value: r.market_value,
+        unrealized_plpc: r.unrealized_plpc,
+        vetter_excluded: !!r.vetter_excluded,
+        vetter_confidence: r.vetter_confidence,
+        vetter_risk_type: r.vetter_risk_type,
+        vetter_reason: r.vetter_reason,
+        positive_catalyst: !!r.positive_catalyst,
+        positive_reason: r.positive_reason,
+      };
     });
     $('r-total').textContent=rankData.length;
-    if(rankData.length){
-      const best=rankData.reduce((a,b)=>(+(a.composite_score)||0)>(+(b.composite_score)||0)?a:b);
-      $('r-top').textContent=fmtScore(best.composite_score);
-      $('r-date').textContent=rankData[0].rank_date||'—';
-    }
+    $('r-held').textContent     = rankData.filter(r=>r.held).length;
+    $('r-excluded').textContent = rankData.filter(r=>r.vetter_excluded).length;
+    $('r-positive').textContent = rankData.filter(r=>r.positive_catalyst).length;
+    if(rankData.length) $('r-date').textContent = rankData[0].rank_date || '—';
     renderRankings();
   }catch(e){
-    $('r-body').innerHTML='<tr><td colspan="11" class="error">No ranking data</td></tr>';
+    $('r-body').innerHTML='<tr><td colspan="12" class="error">No ranking data</td></tr>';
   }
 }
 
@@ -1862,7 +1776,14 @@ function sortRankings(col){
 
 function renderRankings(){
   const q=($('r-search').value||'').toUpperCase().trim();
-  let rows=rankData.filter(r=>!q||r.ticker.includes(q));
+  const onlyHeld = $('r-only-held') && $('r-only-held').checked;
+  const hideExcl = $('r-hide-excl') && $('r-hide-excl').checked;
+  let rows=rankData.filter(r=>{
+    if(q && !r.ticker.includes(q)) return false;
+    if(onlyHeld && !r.held) return false;
+    if(hideExcl && r.vetter_excluded) return false;
+    return true;
+  });
   const col=rankSort.col,dir=rankSort.dir;
   rows.sort((a,b)=>{
     const av=a[col],bv=b[col];
@@ -1872,7 +1793,7 @@ function renderRankings(){
   });
   const maxComp=Math.max(...rows.map(r=>+(r.composite_score)||0));
   $('r-count').textContent=rows.length+' / '+rankData.length+' SHOWN';
-  if(!rows.length){$('r-body').innerHTML='<tr><td colspan="11" class="loading">No results</td></tr>';return;}
+  if(!rows.length){$('r-body').innerHTML='<tr><td colspan="12" class="loading">No results</td></tr>';return;}
   const FACTORS=['momentum','quality','value','growth','low_volatility','liquidity'];
   const FLABELS=['MOM','QLTY','VAL','GRTH','LOVOL','LIQ'];
   $('r-body').innerHTML=rows.map(r=>{
@@ -1886,13 +1807,39 @@ function renderRankings(){
     const pctCls=pctColor(r.percentile);
     const pctVal=r.percentile!=null?(+r.percentile*100).toFixed(0)+'%':'—';
     const compCls=r.composite_score!=null?(+r.composite_score>0?'pos':'neg'):'neu';
-    const slope=r.rank_slope;
-    const arrow=slope==null||Math.abs(slope)<1?'':slope<0
-      ?'<span class="rank-up">&#9650;</span>'
-      :'<span class="rank-dn">&#9660;</span>';
-    return '<tr>'
-      +'<td><span class="t-rank">'+r.rank+'</span>'+arrow+'</td>'
+
+    // Rank movement arrow: prior_rank delta first (exact), fall back to slope (smoothed)
+    let arrow='';
+    if(r.prior_rank!=null){
+      const delta=r.prior_rank - r.rank;  // positive = improved (lower number)
+      if(delta >= 2)      arrow='<span class="rank-up" title="up '+delta+' from prior run">&#9650;'+delta+'</span>';
+      else if(delta <= -2)arrow='<span class="rank-dn" title="down '+(-delta)+' from prior run">&#9660;'+(-delta)+'</span>';
+      else if(delta !== 0)arrow='<span style="color:var(--secondary);font-size:.7rem" title="prior rank '+r.prior_rank+'">~</span>';
+    } else if(r.rank_slope!=null && Math.abs(r.rank_slope)>=1){
+      arrow = r.rank_slope<0
+        ? '<span class="rank-up" title="trending up (slope='+r.rank_slope.toFixed(1)+')">&#9650;</span>'
+        : '<span class="rank-dn" title="trending down (slope='+r.rank_slope.toFixed(1)+')">&#9660;</span>';
+    }
+
+    // Overlay badges
+    const flags=[];
+    if(r.held) flags.push('<span class="overlay-badge held" title="Held: qty='+(r.qty||'?')+(r.market_value!=null?', $'+(+r.market_value).toFixed(0):'')+'">HELD</span>');
+    if(r.vetter_excluded){
+      const why=(r.vetter_reason||'').replace(/"/g,'&quot;');
+      flags.push('<span class="overlay-badge excl" title="'+why+'">⚠ '+(r.vetter_confidence||'').toUpperCase()+'</span>');
+    }
+    if(r.positive_catalyst){
+      const why=(r.positive_reason||'').replace(/"/g,'&quot;');
+      flags.push('<span class="overlay-badge pos-cat" title="'+why+'">★ CATALYST</span>');
+    }
+    const flagsHtml = flags.length ? flags.join(' ') : '<span style="color:var(--secondary);font-size:.7rem">—</span>';
+
+    const rowCls = r.held ? ' class="row-held"' : (r.vetter_excluded ? ' class="row-excluded"' : '');
+
+    return '<tr'+rowCls+'>'
+      +'<td><span class="t-rank">'+r.rank+'</span> '+arrow+'</td>'
       +'<td><span class="t-ticker">'+r.ticker+'</span></td>'
+      +'<td>'+flagsHtml+'</td>'
       +'<td><div class="score-wrap"><span class="score-num '+compCls+'">'+fmtScore(r.composite_score)+'</span>'
       +'<div class="score-track"><div class="score-fill" style="width:'+w+'%"></div></div></div></td>'
       +'<td><span class="pct-pill '+pctCls+'">'+pctVal+'</span></td>'
@@ -2194,12 +2141,10 @@ async function syncAlpaca(){
 // ── Boot ──────────────────────────────────────────────────────────────────────
 (async()=>{
   await loadRegime();
-  loadUniverse();
   loadRankings();
   loadLivePortfolio();
   loadDataFreshness();
   $('rh-rank').classList.add('asc');
-  $('uh-ticker').classList.add('asc');
   const dhRank=$('dh-rank'); if(dhRank)dhRank.classList.add('asc');
 
   // Server-driven render loop: poll every 2s so every browser sees the same state
