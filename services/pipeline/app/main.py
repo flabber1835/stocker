@@ -132,17 +132,18 @@ async def _trigger_from_event(chain_date: str, msg_id: str) -> None:
 async def _create_pipeline_run(conn, run_id: str, trace_id: str, triggered_by: str,
                                chain_date: date) -> None:
     now = datetime.now(timezone.utc)
+    # execution_traces must be inserted first — pipeline_runs.trace_id FK references it
+    await conn.execute(text(
+        "INSERT INTO execution_traces "
+        "(trace_id, job_type, status, root_run_id, strategy_id, config_hash, started_at) "
+        "VALUES (:tid, 'pipeline_run', 'running', :rid, :sid, :ch, :now)"
+    ), {"tid": trace_id, "rid": run_id, "sid": strategy.strategy_id, "ch": config_hash, "now": now})
     await conn.execute(text(
         "INSERT INTO pipeline_runs "
         "(run_id, trace_id, strategy_id, config_hash, status, triggered_by, started_at, chain_date) "
         "VALUES (:run_id, :trace_id, :sid, :ch, 'running', :by, :now, :cd)"
     ), {"run_id": run_id, "trace_id": trace_id, "sid": strategy.strategy_id,
         "ch": config_hash, "by": triggered_by, "now": now, "cd": chain_date})
-    await conn.execute(text(
-        "INSERT INTO execution_traces "
-        "(trace_id, job_type, status, root_run_id, strategy_id, config_hash, started_at) "
-        "VALUES (:tid, 'pipeline_run', 'running', :rid, :sid, :ch, :now)"
-    ), {"tid": trace_id, "rid": run_id, "sid": strategy.strategy_id, "ch": config_hash, "now": now})
 
 
 _PIPELINE_RUN_UPDATABLE = frozenset({
@@ -219,6 +220,7 @@ async def _do_factor_step(today: date) -> tuple[str, str, date]:
     started_at = datetime.now(timezone.utc)
 
     async with engine.begin() as conn:
+        await _create_sub_trace(conn, trace_id, "factor_run", factor_run_id)
         await conn.execute(
             text(
                 "INSERT INTO factor_runs "
@@ -229,7 +231,6 @@ async def _do_factor_step(today: date) -> tuple[str, str, date]:
              "strategy_id": strategy.strategy_id, "config_hash": config_hash,
              "started_at": started_at},
         )
-        await _create_sub_trace(conn, trace_id, "factor_run", factor_run_id)
 
     try:
         score_date = await _do_calculate(factor_run_id, trace_id, today, started_at)
@@ -768,6 +769,7 @@ async def _do_rank_step(source_factor_run_id: str, regime: str, rank_date: date)
     started_at = datetime.now(timezone.utc)
 
     async with engine.begin() as conn:
+        await _create_sub_trace(conn, trace_id, "rank_run", ranking_run_id)
         await conn.execute(
             text(
                 "INSERT INTO ranking_runs "
@@ -782,7 +784,6 @@ async def _do_rank_step(source_factor_run_id: str, regime: str, rank_date: date)
                 "now": started_at,
             },
         )
-        await _create_sub_trace(conn, trace_id, "rank_run", ranking_run_id)
 
     try:
         await _do_rank(ranking_run_id, trace_id, started_at, source_factor_run_id, regime, rank_date)
@@ -1139,6 +1140,7 @@ async def _do_delta_step() -> str:
     run_date_init = date.today()
 
     async with engine.begin() as conn:
+        await _create_sub_trace(conn, trace_id, "delta_run", delta_run_id)
         await conn.execute(
             text(
                 "INSERT INTO delta_runs "
@@ -1151,7 +1153,6 @@ async def _do_delta_step() -> str:
                 "rd": run_date_init, "now": started_at,
             },
         )
-        await _create_sub_trace(conn, trace_id, "delta_run", delta_run_id)
 
     de_cfg = strategy.delta_engine
     try:
@@ -1692,6 +1693,7 @@ async def start_calculate_only(background_tasks: BackgroundTasks):
         today = date.today()
 
         async with engine.begin() as conn:
+            await _create_sub_trace(conn, trace_id, "factor_run", run_id)
             await conn.execute(
                 text(
                     "INSERT INTO factor_runs "
@@ -1702,7 +1704,6 @@ async def start_calculate_only(background_tasks: BackgroundTasks):
                  "strategy_id": strategy.strategy_id, "config_hash": config_hash,
                  "started_at": now},
             )
-            await _create_sub_trace(conn, trace_id, "factor_run", run_id)
     except Exception:
         if _job_lock.locked():
             _job_lock.release()
