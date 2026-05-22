@@ -498,7 +498,7 @@ class TestSupervisorTick:
         chain_status.update({
             "status": "success",
             "date": today,
-            "steps": {"fetch-data": "done", "pipeline": "done", "vet": "done"},
+            "steps": {"fetch-data": "done", "pipeline": "done", "portfolio-builder": "done", "delta": "done", "vet": "done"},
             "run_ids": {},
             "current_run_id": None,
         })

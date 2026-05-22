@@ -74,10 +74,10 @@ _STEPS: list[_StepDef] = [
     _StepDef("pipeline", PIPELINE_URL, "/jobs/run", "run_date",
              use_trading_day=True, also_accept_prev=True),
     _StepDef("portfolio-builder", PORTFOLIO_BUILDER_URL, "/jobs/build", "portfolio_date",
-             use_trading_day=True, also_accept_prev=True),
+             use_trading_day=True, also_accept_prev=False),
     _StepDef("delta", PIPELINE_URL, "/jobs/delta", "run_date",
              status_path="/runs/delta-latest",
-             use_trading_day=True, also_accept_prev=True),
+             use_trading_day=True, also_accept_prev=False),
     _StepDef("vet", VETTER_URL, "/jobs/vet", "started_at", optional=True),
 ]
 

@@ -106,12 +106,16 @@ Alpaca real-time data
 Daily chain (scheduler):
 
 ```text
-1. av-ingestor fetch-data
-2. pipeline      (factor calc → rank → delta evaluation, single service)
-3. portfolio-builder  (target portfolio weights from ranked stocks)
-4. delta         (standalone delta: diffs portfolio_holdings vs live_positions)
-5. llm-vetter vet            (optional/advisory)
+1. av-ingestor fetch-data       (also_accept_prev=no  — must fetch today)
+2. pipeline                     (also_accept_prev=yes — accepts prev trading day)
+3. portfolio-builder            (also_accept_prev=no  — must rebuild with today's rankings)
+4. delta (standalone)           (also_accept_prev=no  — must diff today's target vs live)
+5. llm-vetter vet               (optional/advisory)
 ```
+
+Steps 3 and 4 have `also_accept_prev=False` so they are always re-triggered each day
+even if yesterday's run exists. This ensures portfolio-builder always builds from the
+latest rankings and the standalone delta always produces fresh entry/exit intents.
 
 The pipeline service also auto-triggers from av-ingestor via Redis Streams
 (stream `stocker:pipeline_events`, key `run_date`), so a manual fetch-data
