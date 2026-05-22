@@ -23,11 +23,12 @@ no trade if kill switch is active
 These are actually enforced in code today.
 
 ```text
-KILL_SWITCH env var      — if "true", risk-service rejects all checks
+KILL_SWITCH              — if active, risk-service rejects all checks (see hot-flip below)
 LIVE_TRADING_ENABLED     — must be "true" for trade_type=="live" to pass; default "false"
 PAPER_ONLY               — when "true", any live trade is rejected; default "true"
 MAX_ORDER_NOTIONAL       — default $50,000 per order
 qty > 0 validation       — enforced in risk-service /check
+notional > 0 validation  — enforced in risk-service /check
 
 Human approval required for every paper trade — every order today requires a
   manual button click on the dashboard Trade Proposal tab. The system does not
@@ -36,6 +37,26 @@ Human approval required for every paper trade — every order today requires a
 trade-executor short-circuits when Alpaca credentials are empty
 llm-vetter cannot place trades; vetter is informational only
 ```
+
+### KILL_SWITCH hot-flip (no restart required)
+
+All four safety env vars are re-read on every `/check` call, so changing the Docker
+environment variable alone would require restarting the container (because
+`os.getenv()` reads the frozen process environment). To hot-flip the kill switch
+at runtime without any restart, use the control file:
+
+```bash
+# Activate kill switch immediately (blocks all new trades):
+docker exec stocker-risk-service-1 touch /tmp/kill_switch
+
+# Deactivate:
+docker exec stocker-risk-service-1 rm /tmp/kill_switch
+```
+
+The file takes precedence over the `KILL_SWITCH` env var when present. The
+`KILL_SWITCH` env var still works as the startup default (read from process
+environment at container launch). If the file exists, all `/check` calls are
+rejected regardless of the env var value.
 
 ## Planned Safety Controls (future)
 

@@ -465,9 +465,16 @@ human approval (every paper trade requires a button click)
 ```
 
 All four safety env vars (KILL_SWITCH, PAPER_ONLY, LIVE_TRADING_ENABLED,
-MAX_ORDER_NOTIONAL) are re-read on every `/check` call, so an operator can
-flip the kill switch via `docker compose exec` or by editing `.env` and
-restarting the container is NOT required.
+MAX_ORDER_NOTIONAL) are re-read on every `/check` call. However, `os.getenv()`
+reads the frozen process environment, so changing an env var via `docker exec -e`
+does NOT take effect without a restart. To hot-flip the kill switch at runtime
+without restarting, use the control file instead:
+
+    docker exec stocker-risk-service-1 touch /tmp/kill_switch   # ON
+    docker exec stocker-risk-service-1 rm    /tmp/kill_switch   # OFF
+
+The file takes precedence over the KILL_SWITCH env var when present. The env var
+still sets the startup default.
 
 Persists every decision to `risk_decisions` with an env snapshot at decision
 time. `alpaca_orders.risk_check_id` is a FK into this table — answers

@@ -86,6 +86,8 @@ Alpha Vantage
   → av-ingestor
   → Postgres
   → pipeline (factors → rank → delta)
+    [delta step also reads live_positions to generate exit intents for
+     orphan broker positions not tracked in portfolio_holdings]
   → portfolio-builder
   → target portfolio
 
@@ -163,6 +165,11 @@ Risk-service writes one row to `risk_decisions` per `/check` call with the env
 snapshot (KILL_SWITCH, PAPER_ONLY, LIVE_TRADING_ENABLED, MAX_ORDER_NOTIONAL at
 the time of the decision) so historical decisions remain auditable even if the
 config later changes. `alpaca_orders.risk_check_id` is a FK into this table.
+
+All four safety env vars are re-read on every `/check` call. The KILL_SWITCH can
+be hot-flipped at runtime without restarting the container by touching or removing
+a control file: `docker exec stocker-risk-service-1 touch /tmp/kill_switch` (ON)
+/ `rm /tmp/kill_switch` (OFF). The file takes precedence over the env var.
 
 ### Audit chain
 

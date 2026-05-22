@@ -277,6 +277,57 @@ periodic alpaca-sync job
 
 This replaces the prior design of: pick top-30, hold exactly 30 days, repeat.
 
+## Phase 7.1: Infrastructure Hardening (Synology NAS deployment) ✅ DONE
+
+Bugs found and fixed during first real deployment on a Synology NAS:
+
+```text
+Docker startup tier chain:
+  postgres/redis (T1) → api (T2) → av-ingestor/risk-service (T3)
+    → pipeline/alpaca-sync/portfolio-builder/llm-vetter/backtester (T4)
+    → trade-executor/scheduler/dashboard (T5)
+  prevents TCP SYN stampede on cold NAS boot
+
+Healthcheck IPv6 fix:
+  Synology has IPv6 disabled; Python resolves "localhost" to ::1 → ENETUNREACH
+  Fixed: all healthchecks replaced "localhost" with "127.0.0.1"
+
+Postgres cold-boot timeout:
+  pg_isready passes before init.sql finishes — the default 10×5s=50s window was
+  too short on NAS storage. Fixed: start_period=120s, retries=20 added.
+
+Pipeline FK violation (every run crashed):
+  pipeline_runs and child tables (factor_runs, ranking_runs, delta_runs) were
+  inserted BEFORE execution_traces, violating FK constraints. Fixed: execution_traces
+  is now always inserted first in all five affected locations.
+
+Kill switch hot-flip:
+  os.getenv() reads the frozen process environment; docker exec -e cannot change it.
+  Fixed: /tmp/kill_switch control file. File takes precedence over env var.
+  docker exec stocker-risk-service-1 touch /tmp/kill_switch  (ON)
+  docker exec stocker-risk-service-1 rm    /tmp/kill_switch  (OFF)
+
+Orphan broker positions:
+  Positions in live_positions but not in portfolio_holdings were invisible to the
+  delta engine and would never receive an exit signal. Fixed: pipeline loads latest
+  live_positions before delta evaluation and adds unknown tickers to current_portfolio
+  with weight=0.0, causing the existing missing_from_universe force-exit path to
+  emit an exit intent.
+
+Dashboard /rankings/with-overlays route missing:
+  Dashboard JS fetched /api/rankings/with-overlays but no proxy route existed.
+  Fixed: added route to both api service and dashboard proxy layer. SQL also
+  updated to JOIN universe_tickers so company name and sector are returned.
+
+Trade idempotency includes risk_rejected:
+  Previously only pending/submitted were in the idempotency guard; a risk_rejected
+  order could be re-submitted indefinitely. Fixed: risk_rejected added to the list.
+
+Failed orders reported as success:
+  HTTP 200 body with status='failed' (no Alpaca credentials) bypassed all JS error
+  checks and displayed "Market order sent". Fixed: JS now checks body.status explicitly.
+```
+
 ## Phase 8: Live Trading Readiness
 
 Only after paper trading review:

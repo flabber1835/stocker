@@ -64,6 +64,17 @@ Sub-steps in order:
 - ranking (ranking_runs, rankings)
 - buffer-zone delta evaluation (delta_runs, delta_intents — only actionable rows)
 
+**Orphan broker position handling:** before delta evaluation, the pipeline loads
+the latest `live_positions` from alpaca-sync and adds any ticker that exists in
+`live_positions` but not in `portfolio_holdings` into the current-portfolio map
+with weight=0.0. This causes the existing `missing_from_universe` force-exit
+path to emit an exit intent for the orphan, ensuring positions that were bought
+outside the system (or that the portfolio-builder forgot) are cleanly exited.
+
+**DB insert ordering:** `execution_traces` is always inserted before any child
+table (`pipeline_runs`, `factor_runs`, `ranking_runs`, `delta_runs`) to satisfy
+FK constraints. Reversing this order caused FK violations that crashed every run.
+
 Triggers:
 - `POST /jobs/run` (scheduler, dashboard, manual curl)
 - Redis stream `stocker:pipeline_events` event `fetch_data.complete` from
@@ -194,7 +205,9 @@ Deterministic safety gate. Stateless logic; persists each decision for audit.
   `{approved, reason, check_id, rule_triggered}`
 
 **Checks (in order — first failure wins):**
-1. `KILL_SWITCH` env — if "true", reject all checks (`rule_triggered=kill_switch`)
+1. Kill switch — active if `/tmp/kill_switch` file exists OR `KILL_SWITCH` env is "true"
+   (`rule_triggered=kill_switch`). File takes precedence and enables hot-flip without restart:
+   `docker exec stocker-risk-service-1 touch /tmp/kill_switch` (ON) / `rm` (OFF).
 2. `LIVE_TRADING_ENABLED` + `trade_type=="live"` guard (`live_disabled`)
 3. `PAPER_ONLY` guard — any live trade rejected (`paper_only`)
 4. `qty > 0` (`qty`)
@@ -221,8 +234,9 @@ audit row, and submits to Alpaca.
 - `POST /jobs/submit {intent_id, mode}` → `TradeAttemptResponse`
 
 **Steps (each one writes an `execution_steps` row tied to a single trace):**
-1. `idempotency_check` — refuse if `alpaca_orders` already has an open or
-   submitted row for this `intent_id`
+1. `idempotency_check` — refuse if `alpaca_orders` already has a row for this
+   `intent_id` with status `pending`, `submitted`, or `risk_rejected`. This
+   prevents duplicate submissions after approval clicks and after risk rejections.
 2. `load_intent` — fetch `delta_intents` row
 3. `size_order` — entries: `floor(account_value × weight / last_price)`,
    refuses with HTTP 400 if `qty < 1` ("position too small");
@@ -270,8 +284,14 @@ Triggers recurring jobs.
 ### api
 
 Backend API for the dashboard and control layer. Exposes:
-`/universe`, `/rankings`, `/portfolio`, `/regime`, `/live-portfolio`,
-`/delta/latest`, `/trade/approve`, `/alpaca/sync`, `/traces`, `/data-freshness`.
+`/universe`, `/rankings`, `/rankings/with-overlays`, `/portfolio`, `/regime`,
+`/live-portfolio`, `/delta/latest`, `/trade/approve`, `/alpaca/sync`, `/traces`,
+`/data-freshness`.
+
+`/rankings/with-overlays` joins rankings with vetter decisions, universe_tickers
+(for company name and sector), and live_positions, returning a unified row per
+ticker for the dashboard rank tab. This is the canonical rankings endpoint used
+by the dashboard.
 
 `/trade/approve` is a thin proxy: it validates the intent_id UUID, runs an
 early idempotency check against `alpaca_orders`, then POSTs `{intent_id, mode}`
