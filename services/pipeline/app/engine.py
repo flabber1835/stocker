@@ -146,21 +146,56 @@ def evaluate_target_vs_live(
             reason=f"In target portfolio (weight={weight:.2%}) but not held at broker",
         )
 
-    # Exits: broker holds but target no longer includes
+    # Exits: broker holds but target no longer includes — only exit if rank has been
+    # outside the buffer zone for confirmation_days; otherwise hold (buffer-zone logic).
     for ticker in live_positions:
         if ticker in target_portfolio:
             continue  # handled in holds below
         obs = universe.get(ticker, [])
         latest = obs[0] if obs else None
-        decisions[ticker] = DeltaDecision(
-            ticker=ticker,
-            action="exit",
-            rank=latest.rank if latest else 9999,
-            composite_score=latest.composite_score if latest else 0.0,
-            confirmation_days_met=confirmation_days,
-            current_weight=0.0,
-            reason="Held at broker but not in target portfolio",
+        if not obs:
+            # Not in ranking universe (delisted or data gap) — force exit
+            decisions[ticker] = DeltaDecision(
+                ticker=ticker,
+                action="exit",
+                rank=9999,
+                composite_score=0.0,
+                confirmation_days_met=confirmation_days,
+                current_weight=0.0,
+                reason="Held at broker but absent from ranking universe — likely delisted",
+            )
+            continue
+        exit_days = _consecutive_in_zone(
+            obs, lambda o, xr=exit_rank: o.rank > xr, confirmation_days
         )
+        if exit_days >= confirmation_days:
+            decisions[ticker] = DeltaDecision(
+                ticker=ticker,
+                action="exit",
+                rank=latest.rank,
+                composite_score=latest.composite_score,
+                confirmation_days_met=exit_days,
+                current_weight=0.0,
+                reason=(
+                    f"Rank={latest.rank} > exit_rank={exit_rank} for {exit_days} consecutive days"
+                    f" (not in target portfolio)"
+                ),
+            )
+        else:
+            # Still in buffer zone — hold rather than force exit
+            zone = "entry zone" if latest.rank <= entry_rank else "buffer zone"
+            decisions[ticker] = DeltaDecision(
+                ticker=ticker,
+                action="hold",
+                rank=latest.rank,
+                composite_score=latest.composite_score,
+                confirmation_days_met=exit_days,
+                current_weight=0.0,
+                reason=(
+                    f"Held at broker, not in target portfolio, but rank={latest.rank} in {zone}"
+                    f" (exit needs {confirmation_days}d > {exit_rank}, have {exit_days}d)"
+                ),
+            )
 
     # Holds: in both target and broker positions
     for ticker in live_positions:
