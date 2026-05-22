@@ -329,17 +329,21 @@ def test_capacity_allows_entry_when_exit_creates_room():
     assert decisions["NEW1"].action == "entry"
 
 
-def test_missing_ticker_force_exit():
-    """Held ticker absent from universe → force-exit with delisted reason."""
+def test_missing_ticker_held_awaiting_data():
+    """Held ticker absent from universe → hold (await data), not force-exit.
+
+    A position missing from ranking universe could be a data gap rather than delisted.
+    Delisted positions are handled by Alpaca; we hold until ranking data is available.
+    """
     decisions = evaluate_all(
-        universe={},  # universe is empty — AAPL is missing
+        universe={},
         current_portfolio={"AAPL": 0.05},
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
     )
     assert "AAPL" in decisions
-    assert decisions["AAPL"].action == "exit"
-    assert "delisted" in decisions["AAPL"].reason.lower() or "missing" in decisions["AAPL"].reason.lower()
-
+    assert decisions["AAPL"].action == "hold"
+    assert decisions["AAPL"].rank == 9999
+    assert "awaiting" in decisions["AAPL"].reason.lower()
 
 def test_decisions_cover_all_universe_tickers():
     universe = {"AAPL": _history(20), "MSFT": _history(35), "GOOG": _history(50)}
@@ -352,17 +356,17 @@ def test_decisions_cover_all_universe_tickers():
 
 
 def test_decisions_cover_held_tickers_not_in_universe():
-    """Held tickers missing from universe must appear in result (force-exit)."""
+    """Held tickers missing from universe appear in result as hold (not force-exit)."""
     universe = {"AAPL": _history(20)}
-    portfolio = {"AAPL": 0.05, "DELIST": 0.05}
+    portfolio = {"AAPL": 0.05, "NODATA": 0.05}
     decisions = evaluate_all(
         universe=universe,
         current_portfolio=portfolio,
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
     )
-    assert "DELIST" in decisions
-    assert decisions["DELIST"].action == "exit"
-
+    assert "NODATA" in decisions
+    assert decisions["NODATA"].action == "hold"
+    assert decisions["NODATA"].rank == 9999
 
 # ── DeltaEngineConfig schema tests ────────────────────────────────────────────
 
@@ -494,18 +498,24 @@ def test_tvl_hold_when_above_exit_rank_but_insufficient_days():
     assert decisions["TSLA"].confirmation_days_met == 2
 
 
-def test_tvl_exit_when_live_not_in_universe():
-    """Ticker at broker, not in target, not in ranking universe (delisted) → forced exit."""
+def test_tvl_hold_when_live_not_in_universe():
+    """Ticker at broker, not in target, not in ranking universe → hold (await data, not force-exit).
+
+    A broker position absent from rankings could be a data gap (av-ingestor hasn't fetched
+    this ticker yet) rather than a true delisting. Delisted positions are handled by Alpaca;
+    we hold until ranking data is available.
+    """
     target = {}
-    live = {"DELIST"}
-    universe = {}  # DELIST absent from universe
+    live = {"COHR"}
+    universe = {}  # COHR absent from universe — no ranking data yet
 
     decisions = evaluate_target_vs_live(
         target_portfolio=target, live_positions=live, universe=universe,
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
     )
-    assert decisions["DELIST"].action == "exit"
-    assert "delisted" in decisions["DELIST"].reason.lower()
+    assert decisions["COHR"].action == "hold"
+    assert decisions["COHR"].rank == 9999
+    assert "awaiting" in decisions["COHR"].reason.lower()
 
 
 def test_tvl_watch_confirmed_not_in_target():

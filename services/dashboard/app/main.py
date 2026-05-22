@@ -1001,9 +1001,10 @@ tr.detail-row td{
   font-size:.62rem;font-weight:700;letter-spacing:.05em;
   font-family:var(--font-mono);vertical-align:middle;cursor:help;
 }
-.overlay-badge.held    {background:rgba(63,185,80,.18); color:#3fb950; border:1px solid rgba(63,185,80,.35)}
-.overlay-badge.excl    {background:rgba(248,81,73,.16); color:#f85149; border:1px solid rgba(248,81,73,.35)}
-.overlay-badge.pos-cat {background:rgba(255,165,0,.16); color:#ffa500; border:1px solid rgba(255,165,0,.35)}
+.overlay-badge.held      {background:rgba(63,185,80,.18); color:#3fb950; border:1px solid rgba(63,185,80,.35)}
+.overlay-badge.excl      {background:rgba(248,81,73,.16); color:#f85149; border:1px solid rgba(248,81,73,.35)}
+.overlay-badge.pos-cat   {background:rgba(255,165,0,.16); color:#ffa500; border:1px solid rgba(255,165,0,.35)}
+.overlay-badge.not-ranked{background:rgba(139,148,158,.15); color:#8b949e; border:1px solid rgba(139,148,158,.4)}
 tr.row-held    td{background:rgba(63,185,80,.04)}
 tr.row-excluded td{opacity:.55}
 .t-wt{color:var(--secondary);font-size:.78rem;font-family:var(--font-mono)}
@@ -1504,6 +1505,7 @@ async function loadRankings(){
         vetter_reason: r.vetter_reason,
         positive_catalyst: !!r.positive_catalyst,
         positive_reason: r.positive_reason,
+        not_in_universe: !!r.not_in_universe,
       };
     });
     _expandedTicker = null;
@@ -1608,11 +1610,22 @@ function _buildDetailHtml(r) {
     ? '<div class="detail-held-note">HELD &#8212; '+(r.qty!=null ? r.qty+' shares' : 'position')+'</div>'
     : '';
 
+  // Not-in-universe warning
+  const notRankedHtml = r.not_in_universe
+    ? '<div class="detail-held-note" style="border-color:var(--secondary);color:var(--secondary)">'
+      +'&#9888; NOT IN RANKING UNIVERSE &#8212; This position is held at the broker but was '
+      +'filtered out of the ranking pipeline. Possible reasons: missing price data in the '
+      +'database, below min_price or min_avg_dollar_volume threshold, or insufficient price '
+      +'history for momentum calculation (needs 253+ days). Run av-ingestor fetch-data to '
+      +'backfill data, then re-run the pipeline.'
+      +'</div>'
+    : '';
+
   // Border class for detail-inner
   const borderCls = r.held ? 'dl-held' : r.vetter_excluded ? 'dl-excl' : 'dl-default';
 
   return '<div class="detail-inner '+borderCls+'">'
-    +head+grid+factorSection+llmHtml+heldHtml
+    +head+grid+factorSection+llmHtml+heldHtml+notRankedHtml
     +'</div>';
 }
 
@@ -1711,6 +1724,7 @@ function renderRankings(){
     // Overlay badges
     const flags=[];
     if(r.held) flags.push('<span class="overlay-badge held" title="Held: qty='+(r.qty||'?')+(r.market_value!=null?', $'+(+r.market_value).toFixed(0):'')+'">HELD</span>');
+    if(r.not_in_universe) flags.push('<span class="overlay-badge not-ranked" title="This position is held at the broker but did not pass the ranking pipeline (missing price data, below liquidity threshold, or insufficient history). The pipeline will force-exit it.">NOT RANKED</span>');
     if(r.vetter_excluded){
       const why=(r.vetter_reason||'').replace(/"/g,'&quot;');
       flags.push('<span class="overlay-badge excl" title="'+why+'">&#9888; '+(r.vetter_confidence||'').toUpperCase()+'</span>');

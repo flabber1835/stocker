@@ -154,15 +154,21 @@ def evaluate_target_vs_live(
         obs = universe.get(ticker, [])
         latest = obs[0] if obs else None
         if not obs:
-            # Not in ranking universe (delisted or data gap) — force exit
+            # No ranking history for this broker position — hold rather than force-exit.
+            # Could be a data gap (av-ingestor hasn't fetched this ticker yet) or a new
+            # position added directly at the broker. Delisted positions are handled by
+            # Alpaca automatically; the next alpaca-sync will reflect their actual state.
             decisions[ticker] = DeltaDecision(
                 ticker=ticker,
-                action="exit",
+                action="hold",
                 rank=9999,
                 composite_score=0.0,
-                confirmation_days_met=confirmation_days,
+                confirmation_days_met=0,
                 current_weight=0.0,
-                reason="Held at broker but absent from ranking universe — likely delisted",
+                reason=(
+                    "Held at broker but absent from ranking universe — "
+                    "awaiting price/fundamentals data from av-ingestor"
+                ),
             )
             continue
         exit_days = _consecutive_in_zone(
@@ -254,7 +260,8 @@ def evaluate_all(
     max_positions: int,
 ) -> dict[str, DeltaDecision]:
     """
-    Evaluate all tickers. Portfolio tickers absent from universe are force-exited.
+    Evaluate all tickers. Portfolio tickers absent from universe are held (not exited) —
+    they await ranking data rather than being force-sold.
     Capacity is checked dynamically as entries are approved.
     """
     # Pre-compute exits so capacity projection is correct before iterating entries
@@ -265,9 +272,11 @@ def evaluate_all(
             obs, lambda o, xr=exit_rank: o.rank > xr, confirmation_days
         ) >= confirmation_days
     )
-    # Tickers held but missing from universe are force-exited (delisted)
+    # Tickers held but missing from universe → hold (not force-exit).
+    # Could be a data gap rather than a true delisting. Delisted positions are handled
+    # by Alpaca automatically; we hold until ranking data is available.
     missing_from_universe = [t for t in current_portfolio if t not in universe]
-    pending_exits += len(missing_from_universe)
+    # Do not add missing_from_universe to pending_exits — they stay in portfolio count
 
     projected_base = len(current_portfolio) - pending_exits
     decisions: dict[str, DeltaDecision] = {}
@@ -287,11 +296,14 @@ def evaluate_all(
 
     for ticker in missing_from_universe:
         decisions[ticker] = DeltaDecision(
-            ticker=ticker, action="exit",
+            ticker=ticker, action="hold",
             rank=9999, composite_score=0.0,
-            confirmation_days_met=confirmation_days,
+            confirmation_days_met=0,
             current_weight=current_portfolio[ticker],
-            reason="Ticker missing from ranking universe — likely delisted or removed",
+            reason=(
+                "Held in portfolio but absent from ranking universe — "
+                "awaiting price/fundamentals data from av-ingestor"
+            ),
         )
 
     return decisions

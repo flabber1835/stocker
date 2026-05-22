@@ -262,7 +262,7 @@ async def get_rankings_with_overlays(limit: int = 100):
         if not tickers:
             return {"count": 0, "run": None, "prior_run": None, "rankings": []}
 
-        # Vetter overlay
+        # Vetter overlay (only for ranked tickers — broker-injected rows get overlaid below)
         vetter_by_ticker = {}
         if vetter_run_id:
             vd_rows = await conn.execute(
@@ -276,24 +276,56 @@ async def get_rankings_with_overlays(limit: int = 100):
             for v in vd_rows.mappings():
                 vetter_by_ticker[v["ticker"]] = dict(v)
 
-        # Holdings overlay
-        holdings_by_ticker = {}
+        # Holdings overlay — load ALL live broker positions, not just those in rankings.
+        # Broker-held tickers that failed universe/ranking filters are injected below
+        # so the user can always see what they hold, even if the system can't rank it.
+        all_broker_positions: dict[str, dict] = {}
         if sync_run_id:
             pos_rows = await conn.execute(
                 text(
-                    "SELECT ticker, qty, market_value, unrealized_plpc "
-                    "FROM live_positions WHERE sync_run_id = :rid AND ticker = ANY(:tickers)"
+                    "SELECT lp.ticker, lp.qty, lp.market_value, lp.unrealized_plpc, "
+                    "  ut.name, ut.sector "
+                    "FROM live_positions lp "
+                    "LEFT JOIN universe_tickers ut ON ut.ticker = lp.ticker "
+                    "  AND ut.snapshot_id = (SELECT MAX(id) FROM universe_snapshots) "
+                    "WHERE lp.sync_run_id = :rid"
                 ),
-                {"rid": sync_run_id, "tickers": tickers},
+                {"rid": sync_run_id},
             )
             for p in pos_rows.mappings():
-                holdings_by_ticker[p["ticker"]] = {
+                all_broker_positions[p["ticker"]] = {
                     "qty": float(p["qty"]) if p["qty"] is not None else None,
                     "market_value": float(p["market_value"]) if p["market_value"] is not None else None,
                     "unrealized_plpc": float(p["unrealized_plpc"]) if p["unrealized_plpc"] is not None else None,
+                    "name": p["name"],
+                    "sector": p["sector"],
                 }
 
-        # Merge — always set all vetter fields so schema is stable across every row
+        # Inject broker-held tickers absent from rankings as rank=9999 rows.
+        # These are positions the pipeline filtered out (no data, below liquidity threshold,
+        # insufficient history, etc.). They must still appear so the user can see them.
+        ranked_set = set(tickers)
+        run_date_val = ranking_rows[0]["rank_date"] if ranking_rows else None
+        for broker_ticker, pos in all_broker_positions.items():
+            if broker_ticker in ranked_set:
+                continue
+            injected = {
+                "ticker": broker_ticker,
+                "rank": 9999,
+                "composite_score": None,
+                "percentile": None,
+                "regime": None,
+                "rank_date": run_date_val,
+                "factor_scores": None,
+                "rank_slope": None,
+                "prior_rank": None,
+                "name": pos.get("name"),
+                "sector": pos.get("sector"),
+                "not_in_universe": True,
+            }
+            ranking_rows.append(injected)
+
+        # Merge vetter + holdings overlays — always set all fields so schema is stable
         for r in ranking_rows:
             t = r["ticker"]
             v = vetter_by_ticker.get(t)
@@ -311,9 +343,14 @@ async def get_rankings_with_overlays(limit: int = 100):
                 r["vetter_reason"] = None
                 r["positive_catalyst"] = False
                 r["positive_reason"] = None
-            r["held"] = t in holdings_by_ticker
-            if r["held"]:
-                r.update({k: v for k, v in holdings_by_ticker[t].items()})
+            pos = all_broker_positions.get(t)
+            r["held"] = pos is not None
+            if pos:
+                r["qty"] = pos["qty"]
+                r["market_value"] = pos["market_value"]
+                r["unrealized_plpc"] = pos["unrealized_plpc"]
+            # Ensure not_in_universe is always present
+            r.setdefault("not_in_universe", False)
 
     return {
         "count": len(ranking_rows),
