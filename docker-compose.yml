@@ -62,8 +62,8 @@ services:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 120s
+      retries: 10
+      start_period: 180s
 
   av-ingestor:
     build:
