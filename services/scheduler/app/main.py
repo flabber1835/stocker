@@ -108,7 +108,8 @@ async def _db_open_run(chain_date: str) -> str | None:
         await conn.close()
 
 
-async def _db_update_run(run_id: str | None, status: str, steps: dict, run_ids: dict) -> None:
+async def _db_update_run(run_id: str | None, status: str, steps: dict, run_ids: dict,
+                         *, close: bool = False) -> None:
     if not run_id:
         return
     conn = await _db_connect()
@@ -116,8 +117,9 @@ async def _db_update_run(run_id: str | None, status: str, steps: dict, run_ids: 
         return
     try:
         import json as _json
+        completed_clause = ", completed_at=NOW()" if close else ""
         await conn.execute(
-            "UPDATE scheduler_runs SET updated_at=NOW(), status=$2, steps=$3, run_ids=$4 WHERE run_id=$1",
+            f"UPDATE scheduler_runs SET updated_at=NOW(){completed_clause}, status=$2, steps=$3, run_ids=$4 WHERE run_id=$1",
             run_id, status, _json.dumps(steps), _json.dumps(run_ids),
         )
     except Exception as exc:
@@ -126,38 +128,11 @@ async def _db_update_run(run_id: str | None, status: str, steps: dict, run_ids: 
         await conn.close()
 
 
-async def _db_close_run(run_id: str | None, status: str, steps: dict, run_ids: dict) -> None:
-    if not run_id:
-        return
-    conn = await _db_connect()
-    if not conn:
-        return
-    try:
-        import json as _json
-        await conn.execute(
-            "UPDATE scheduler_runs SET updated_at=NOW(), completed_at=NOW(), status=$2, steps=$3, run_ids=$4 WHERE run_id=$1",
-            run_id, status, _json.dumps(steps), _json.dumps(run_ids),
-        )
-    except Exception as exc:
-        _log("DB: close_run failed", error=str(exc))
-    finally:
-        await conn.close()
+def _db_close_run(run_id: str | None, status: str, steps: dict, run_ids: dict):
+    return _db_update_run(run_id, status, steps, run_ids, close=True)
 
 
 # ── Core helpers ──────────────────────────────────────────────────────────────
-
-async def _get_last_rank_date(client: httpx.AsyncClient) -> date | None:
-    """Return the date of the last successful pipeline run, or None."""
-    try:
-        r = await client.get(f"{PIPELINE_URL}/runs/latest", timeout=10.0)
-        if r.status_code == 200:
-            data = r.json()
-            if data.get("status") == "success" and data.get("run_date"):
-                return date.fromisoformat(data["run_date"][:10])
-    except Exception:
-        pass
-    return None
-
 
 async def _has_universe(client: httpx.AsyncClient) -> bool:
     """Return True if av-ingestor reports a non-empty universe snapshot."""
@@ -168,46 +143,6 @@ async def _has_universe(client: httpx.AsyncClient) -> bool:
     except Exception:
         pass
     return False
-
-
-async def _already_ran_today(
-    client: httpx.AsyncClient,
-    service_url: str,
-    date_field: str,
-    today: str,
-    job_type_filter: Optional[str] = None,
-    extra_ok_statuses: tuple = (),
-    also_accept_date: Optional[str] = None,
-) -> bool:
-    """Return True if the service has a successful run for today."""
-    try:
-        r = await client.get(f"{service_url}/runs/latest", timeout=10.0)
-        if r.status_code != 200:
-            _log(f"_already_ran_today: {service_url} returned HTTP {r.status_code} → False")
-            return False
-        data = r.json()
-        ok_statuses = ("success",) + extra_ok_statuses
-        run_status = data.get("status")
-        run_date = (data.get(date_field) or "")[:10]
-        run_job = data.get("job_type", "?")
-        ok_dates = {today}
-        if also_accept_date:
-            ok_dates.add(also_accept_date)
-        if run_status not in ok_statuses:
-            _log(f"_already_ran_today: {service_url} status={run_status!r} not in {ok_statuses} → False",
-                 run_date=run_date, job_type=run_job)
-            return False
-        if job_type_filter and data.get("job_type") != job_type_filter:
-            _log(f"_already_ran_today: {service_url} job_type={run_job!r} != {job_type_filter!r} → False",
-                 run_date=run_date)
-            return False
-        result = run_date in ok_dates
-        _log(f"_already_ran_today: {service_url} run_date={run_date!r} ok_dates={ok_dates} → {result}",
-             run_status=run_status, job_type=run_job)
-        return result
-    except Exception as exc:
-        _log(f"_already_ran_today: {service_url} raised exception → False", error=str(exc))
-        return False
 
 
 async def _get_latest_run_id(client: httpx.AsyncClient, service_url: str) -> Optional[str]:
@@ -224,8 +159,6 @@ async def _get_latest_run_id(client: httpx.AsyncClient, service_url: str) -> Opt
 async def _trigger_alpaca_sync(
     client: httpx.AsyncClient | None = None,
     context: str = "startup",
-    *,
-    client_url: str | None = None,
 ) -> None:
     """Trigger alpaca-sync and wait up to 60s for completion. Non-blocking on failure.
 
@@ -236,7 +169,7 @@ async def _trigger_alpaca_sync(
     own_client = client is None
     if own_client:
         client = httpx.AsyncClient()
-    url = client_url or ALPACA_SYNC_URL
+    url = ALPACA_SYNC_URL
     try:
         r = await client.post(f"{url}/jobs/sync", timeout=10.0)
         if r.status_code == 409:

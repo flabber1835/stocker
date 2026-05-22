@@ -249,7 +249,7 @@ async def _size_entry(conn, ticker: str, intent_weight: Optional[float]) -> tupl
         price_source = "daily_prices"
         price_row = (await conn.execute(text(
             "SELECT close FROM daily_prices "
-            "WHERE ticker = :t ORDER BY price_date DESC LIMIT 1"
+            "WHERE ticker = :t ORDER BY date DESC LIMIT 1"
         ), {"t": ticker})).mappings().first()
         last_price = _f(price_row["close"]) if price_row else None
 

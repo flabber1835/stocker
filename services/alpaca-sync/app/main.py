@@ -43,11 +43,11 @@ _job_lock = asyncio.Lock()
 
 
 def _f(v) -> Optional[float]:
-    """Convert Decimal/None to float/None."""
+    """Convert any numeric-ish value (Decimal, str, float) to float or None."""
     if v is None:
         return None
     try:
-        return float(v)
+        return float(str(v))
     except (TypeError, ValueError):
         return None
 
@@ -61,14 +61,7 @@ def _iso(v) -> Optional[str]:
     return str(v)
 
 
-def _parse_float(v) -> Optional[float]:
-    """Safely convert Alpaca string numeric values to float."""
-    if v is None:
-        return None
-    try:
-        return float(str(v))
-    except (TypeError, ValueError):
-        return None
+_parse_float = _f  # alias for Alpaca API string → float conversions
 
 
 async def _log_step(

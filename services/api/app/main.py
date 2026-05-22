@@ -30,8 +30,6 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="stocker-api", lifespan=lifespan)
 
 
-_fmt_row = fmt_row
-
 _TICKER_RE = re.compile(r'^[A-Z0-9.\-]{1,10}$')
 
 
@@ -128,7 +126,7 @@ async def get_regime():
         result = row.fetchone()
     if result is None:
         return {"regime": None}
-    return _fmt_row(result)
+    return fmt_row(result)
 
 
 # ── Rankings ─────────────────────────────────────────────────────────────────────────────────
@@ -420,7 +418,7 @@ async def get_trace(trace_id: str):
             )
             row = fr.mappings().first()
             if row:
-                linked_factor_run = _fmt_row(row)
+                linked_factor_run = fmt_row(row)
             # Find the ranking run that consumed this factor run as input
             rr = await conn.execute(
                 text(
@@ -432,7 +430,7 @@ async def get_trace(trace_id: str):
             )
             rr_row = rr.mappings().first()
             if rr_row:
-                linked_ranking_run = _fmt_row(rr_row)
+                linked_ranking_run = fmt_row(rr_row)
 
         if root_run_id and trace["job_type"] == "rank_run":
             rr = await conn.execute(
@@ -445,7 +443,7 @@ async def get_trace(trace_id: str):
             )
             row = rr.mappings().first()
             if row:
-                linked_ranking_run = _fmt_row(row)
+                linked_ranking_run = fmt_row(row)
 
         if root_run_id and trace["job_type"] == "portfolio_run":
             pr = await conn.execute(
@@ -458,7 +456,7 @@ async def get_trace(trace_id: str):
             )
             row = pr.mappings().first()
             if row:
-                linked_portfolio_run = _fmt_row(row)
+                linked_portfolio_run = fmt_row(row)
 
     def _fmt_step(s):
         return {

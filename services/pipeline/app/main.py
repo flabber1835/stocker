@@ -147,8 +147,8 @@ async def _update_pipeline_run(conn, run_id: str, **kwargs) -> None:
 
 async def _finish_trace(conn, trace_id: str, status: str, notes: str | None = None) -> None:
     await conn.execute(text(
-        "UPDATE execution_traces SET status=:s, completed_at=:now, notes=:n WHERE trace_id=:tid"
-    ), {"tid": trace_id, "s": status, "now": datetime.now(timezone.utc), "n": notes})
+        "UPDATE execution_traces SET status=:status, completed_at=:now, notes=:notes WHERE trace_id=:tid"
+    ), {"tid": trace_id, "status": status, "now": datetime.now(timezone.utc), "notes": notes})
 
 
 # ── Factor step helpers (mirrors factor-engine/app/main.py) ──────────────────
@@ -189,16 +189,7 @@ async def _create_sub_trace(conn, trace_id: str, job_type: str, root_run_id: str
     )
 
 
-async def _finish_sub_trace(conn, trace_id: str, status: str, notes: Optional[str] = None) -> None:
-    await conn.execute(
-        text(
-            "UPDATE execution_traces "
-            "SET status=:status, completed_at=:now, notes=:notes "
-            "WHERE trace_id=:tid"
-        ),
-        {"tid": trace_id, "status": status, "now": datetime.now(timezone.utc), "notes": notes},
-    )
-
+_finish_sub_trace = _finish_trace  # alias kept so existing call sites compile
 
 # ── Factor calculation (extracted from factor-engine/app/main.py) ─────────────
 
@@ -1492,7 +1483,7 @@ async def _run_pipeline_steps(
         async with engine.begin() as conn:
             await _update_pipeline_run(conn, run_id, factor_status="running")
 
-        factor_run_id, factor_trace_id, score_date = await _do_factor_step(today)
+        factor_run_id, _, score_date = await _do_factor_step(today)
 
         async with engine.begin() as conn:
             await _update_pipeline_run(conn, run_id,
@@ -1669,6 +1660,24 @@ async def start_calculate_only(background_tasks: BackgroundTasks):
     return {"status": "started", "job": "calculate", "run_id": run_id, "trace_id": trace_id}
 
 
+def _format_pipeline_run(d: dict) -> dict:
+    for k, v in list(d.items()):
+        if hasattr(v, 'isoformat'):
+            d[k] = v.isoformat()
+        elif hasattr(v, 'hex'):
+            d[k] = str(v)
+    if d.get("run_date") is None and d.get("chain_date"):
+        d["run_date"] = d["chain_date"]
+    return d
+
+
+_PIPELINE_RUN_COLS = (
+    "run_id, trace_id, status, run_date, chain_date, factor_run_id, "
+    "ranking_run_id, delta_run_id, factor_status, ranking_status, delta_status, "
+    "started_at, completed_at, error_message, triggered_by"
+)
+
+
 @app.get("/runs/latest")
 async def get_latest():
     """Return the most recent pipeline_run row."""
@@ -1682,16 +1691,7 @@ async def get_latest():
         r = row.fetchone()
     if r is None:
         return {"run_id": None, "status": "no_runs"}
-    d = dict(r._mapping)
-    for k, v in list(d.items()):
-        if hasattr(v, 'isoformat'):
-            d[k] = v.isoformat()
-        elif hasattr(v, 'hex'):
-            d[k] = str(v)
-    # run_date alias for scheduler compatibility
-    if d.get("run_date") is None and d.get("chain_date"):
-        d["run_date"] = d["chain_date"]
-    return d
+    return _format_pipeline_run(dict(r._mapping))
 
 
 @app.get("/runs/{run_id}")
@@ -1699,23 +1699,12 @@ async def get_run(run_id: str):
     """Return a specific pipeline_run row."""
     async with engine.connect() as conn:
         row = await conn.execute(text(
-            "SELECT run_id, trace_id, status, run_date, chain_date, factor_run_id, "
-            "ranking_run_id, delta_run_id, factor_status, ranking_status, delta_status, "
-            "started_at, completed_at, error_message, triggered_by "
-            "FROM pipeline_runs WHERE run_id=:rid"
+            f"SELECT {_PIPELINE_RUN_COLS} FROM pipeline_runs WHERE run_id=:rid"
         ), {"rid": run_id})
         r = row.fetchone()
     if r is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-    d = dict(r._mapping)
-    for k, v in list(d.items()):
-        if hasattr(v, 'isoformat'):
-            d[k] = v.isoformat()
-        elif hasattr(v, 'hex'):
-            d[k] = str(v)
-    if d.get("run_date") is None and d.get("chain_date"):
-        d["run_date"] = d["chain_date"]
-    return d
+    return _format_pipeline_run(dict(r._mapping))
 
 
 @app.get("/runs")
@@ -1723,21 +1712,7 @@ async def list_runs(limit: int = 10):
     """Return the most recent pipeline runs."""
     async with engine.connect() as conn:
         rows = await conn.execute(text(
-            "SELECT run_id, trace_id, status, run_date, chain_date, factor_run_id, "
-            "ranking_run_id, delta_run_id, factor_status, ranking_status, delta_status, "
-            "started_at, completed_at, error_message, triggered_by "
-            "FROM pipeline_runs ORDER BY started_at DESC LIMIT :lim"
+            f"SELECT {_PIPELINE_RUN_COLS} FROM pipeline_runs ORDER BY started_at DESC LIMIT :lim"
         ), {"lim": limit})
         results = rows.fetchall()
-    out = []
-    for r in results:
-        d = dict(r._mapping)
-        for k, v in list(d.items()):
-            if hasattr(v, 'isoformat'):
-                d[k] = v.isoformat()
-            elif hasattr(v, 'hex'):
-                d[k] = str(v)
-        if d.get("run_date") is None and d.get("chain_date"):
-            d["run_date"] = d["chain_date"]
-        out.append(d)
-    return out
+    return [_format_pipeline_run(dict(r._mapping)) for r in results]

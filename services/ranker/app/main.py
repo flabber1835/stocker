@@ -14,7 +14,7 @@ from sqlalchemy import text
 from app.rank import rank_universe, FACTORS
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
-from stock_strategy_shared.tracing import fmt_row, log_step, write_trace_file, mark_orphaned_runs_failed
+from stock_strategy_shared.tracing import log_step, write_trace_file, mark_orphaned_runs_failed
 from stock_strategy_shared.db import wait_for_db
 
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
