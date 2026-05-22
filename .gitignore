@@ -24,6 +24,7 @@ env/
 # Docker volumes / local data
 database/
 redis_data/
+.docker-build-certs/
 
 # Artifacts / reports
 artifacts/
