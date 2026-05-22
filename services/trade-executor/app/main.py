@@ -10,12 +10,10 @@ End-to-end responsibility for the approval click:
 Every approval click produces one execution_trace row with step-by-step audit so
 the dashboard's trace viewer shows exactly why a trade was approved/rejected.
 """
-import asyncio
 import json
 import logging
 import math
 import os
-import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -26,6 +24,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+
+from stock_strategy_shared.db import wait_for_db
 
 logger = logging.getLogger("trade-executor")
 logging.basicConfig(level=logging.INFO)
@@ -41,20 +41,6 @@ EXIT_SYNC_MAX_AGE_HOURS = float(os.getenv("EXIT_SYNC_MAX_AGE_HOURS", "24"))
 DEFAULT_MAX_POSITIONS = int(os.getenv("DEFAULT_MAX_POSITIONS", "30"))
 
 engine: Optional[AsyncEngine] = None
-
-
-async def wait_for_db(eng: AsyncEngine, timeout: int = 60) -> None:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            async with eng.connect() as conn:
-                await conn.execute(text("SELECT 1"))
-            logger.info("Database is ready.")
-            return
-        except Exception as exc:
-            logger.warning("DB not ready yet (%s), retrying in 2s…", exc)
-            await asyncio.sleep(2)
-    raise RuntimeError("DB not available after timeout")
 
 
 # ── Lifespan ─────────────────────────────────────────────────────────────────
@@ -225,16 +211,35 @@ async def _size_entry(conn, ticker: str, intent_weight: Optional[float]) -> tupl
         ), {"t": ticker})).mappings().first()
         if ph:
             weight = _f(ph["weight"])
-    weight_source = "intent" if intent_weight else ("portfolio_holdings" if weight else "default")
+    weight_source = (
+        "intent" if intent_weight is not None and intent_weight > 0
+        else ("portfolio_holdings" if weight else "default")
+    )
     if not weight or weight <= 0:
         weight = 1.0 / DEFAULT_MAX_POSITIONS
 
-    # Account value from latest successful sync.
+    # Account value from latest successful sync. Refuse if older than
+    # EXIT_SYNC_MAX_AGE_HOURS so a stale account_value can't size a wildly
+    # wrong order (same threshold as _size_exit's position-staleness check).
     acct = (await conn.execute(text(
-        "SELECT account_value FROM alpaca_sync_runs "
+        "SELECT account_value, completed_at FROM alpaca_sync_runs "
         "WHERE status='success' ORDER BY completed_at DESC NULLS LAST LIMIT 1"
     ))).mappings().first()
     account_value = _f(acct["account_value"]) if acct else None
+    sync_age_hours = None
+    if acct and acct["completed_at"] is not None:
+        sync_age_hours = (
+            datetime.now(timezone.utc) - acct["completed_at"]
+        ).total_seconds() / 3600.0
+        if sync_age_hours > EXIT_SYNC_MAX_AGE_HOURS:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Latest alpaca-sync is {sync_age_hours:.1f}h old "
+                    f"(> {EXIT_SYNC_MAX_AGE_HOURS}h); refusing to size entry. "
+                    "Re-sync before approving."
+                ),
+            )
 
     # Price: prefer intraday live_positions.current_price, fall back to daily close.
     price_source = "live_positions"
@@ -278,6 +283,7 @@ async def _size_entry(conn, ticker: str, intent_weight: Optional[float]) -> tupl
         "weight": weight,
         "weight_source": weight_source,
         "account_value": account_value,
+        "sync_age_hours": round(sync_age_hours, 2) if sync_age_hours is not None else None,
         "last_price": last_price,
         "price_source": price_source,
         "target_notional": target_notional,

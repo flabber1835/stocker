@@ -186,10 +186,11 @@ async def _do_delta(
     # the row with the most recent completed_at so that a single calendar date
     # never counts as two confirmation days.
     _dedup: dict[tuple[str, object], object] = {}
+    _EPOCH = datetime.min.replace(tzinfo=timezone.utc)
     for row in raw_rankings:
         key = (row.ticker, row.rank_date)
         existing = _dedup.get(key)
-        if existing is None or (row.completed_at or "") > (existing.completed_at or ""):
+        if existing is None or (row.completed_at or _EPOCH) > (existing.completed_at or _EPOCH):
             _dedup[key] = row
     deduped_rankings = list(_dedup.values())
 

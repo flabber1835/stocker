@@ -279,24 +279,28 @@ If a container is deleted and recreated, it should continue safely using Postgre
 Planned services:
 
 ```text
-av-ingestor          ← built (Phase 3)
-factor-engine        ← built (Phase 4)
-ranker               ← built (Phase 4)
+av-ingestor          ← built (Phase 3) — publishes fetch_data.complete on stocker:pipeline_events
+pipeline             ← built (Phase 7) — unified factor + rank + delta, consumes pipeline_events
 portfolio-builder    ← built (Phase 4)
 llm-vetter           ← built (Phase 4.5) — LLM-based stock vetting, informational only
-delta-engine         ← built (Phase 4.5) — buffer-zone entry/exit evaluation, produces delta_intents
 alpaca-sync          ← built (Phase 6) — broker position read sync, paper trading
-risk-service         ← built (Phase 6) — deterministic safety gate for trade approvals
-trade-executor       ← built (Phase 6) — submits paper orders to Alpaca
-scheduler            ← built (Phase 6) — daily chain + startup catch-up
+risk-service         ← built (Phase 6) — deterministic safety gate; env re-read every /check
+trade-executor       ← built (Phase 6) — submits paper orders to Alpaca; entry+exit staleness gated
+scheduler            ← built (Phase 6) — daily chain supervisor
 strategy-validator   ← built (Phase 2)
 api                  ← built (Phase 1)
 dashboard            ← built and extended (Phases 1, 4, 4.5, 6)
 backtester           ← built (Phase 5)
+db-migrator          ← built (Phase 7) — run-once alembic upgrade head
 llm-gateway          ← partially built (provider abstraction skeleton in services/llm-gateway/)
 intraday-monitor     ← not yet built
 strategy-config-service ← not yet built
 evaluator            ← not yet built
+
+Legacy: factor-engine, ranker, delta-engine were consolidated into `pipeline`
+in Phase 7. The original service folders still build and run but the
+docker-compose graph no longer launches them; their math modules were copied
+verbatim into services/pipeline/app/{factors,rank,engine,regime}.py.
 ```
 
 ---
@@ -320,40 +324,37 @@ record ingestion job status
 
 Should not calculate investment factors.
 
-## factor-engine
+## pipeline
 
-Reads stored market/fundamental data from Postgres.
+Single service combining the former factor-engine, ranker, and delta-engine
+into one orchestrator. Listens for `fetch_data.complete` events on the Redis
+stream `stocker:pipeline_events` (consumer group `pipeline-consumers`) and
+also exposes `POST /jobs/run` for scheduler-driven and manual runs.
 
-Calculates:
-
-```text
-quality
-value
-momentum
-growth
-low volatility
-beta
-liquidity
-drawdown
-```
-
-Writes factor scores back to Postgres.
-
-Should be deterministic.
-
-## ranker
-
-Combines factor scores according to a validated strategy config.
-
-Produces:
+Steps in order (all under one `_job_lock` that is held end-to-end so
+duplicate triggers see `{"status":"already_running"}` for the whole run):
 
 ```text
-ranked universe
-factor contribution breakdown
-final score
-rank percentile
-reason codes
+1. Factor calculation
+   inputs : universe_snapshots, daily_prices, fundamentals
+   output : factor_scores (quality, value, momentum, growth, low_vol, beta,
+            liquidity, drawdown) + regime_snapshots
+
+2. Ranking
+   inputs : factor_scores, regime_snapshots, strategy.factor_weights
+   output : ranking_runs + rankings (composite score, percentile, reason codes)
+
+3. Delta evaluation (buffer-zone)
+   inputs : rankings (current + N prior days), live_positions
+   output : delta_runs + delta_intents (entry/exit/hold decisions)
 ```
+
+`pipeline_runs` is the cross-step audit row; `factor_status`, `ranking_status`,
+and `delta_status` columns surface sub-step progress for the dashboard.
+`chain_date` is written at run start so the scheduler's supervisor sees a
+valid date during execution and does not classify the in-flight run as idle.
+
+Must be deterministic given the same inputs.
 
 ## portfolio-builder
 
@@ -369,13 +370,16 @@ cash reserve
 liquidity constraints
 minimum score thresholds
 do-not-buy list
+vetter exclusions (soft — does not block if vetter hasn't run)
 ```
 
 ## llm-vetter
 
-LLM-powered stock vetting layer, sits between ranker and portfolio-builder.
+LLM-powered stock vetting layer, sits between ranking and portfolio-builder.
 
-**Informational only — not a gate.** Portfolio-builder uses the vetter output to apply score boosts, but it does not require vetter approval to proceed.
+**Informational only — not a gate.** Portfolio-builder reads vetter_exclusions
+to drop excluded tickers but does NOT apply positive-conviction score boosts;
+the deterministic ranker owns the final score.
 
 Responsibilities:
 
@@ -383,8 +387,8 @@ Responsibilities:
 fetch news and earnings context for each ranked stock
 call Tavily for web search results
 use an LLM (Ollama or OpenAI) to assess each stock
-output: exclude flag, risk_type, risk_confidence, positive_catalyst, positive_conviction, reason
-store results in vetter_decisions table
+output: exclude flag, risk_type, confidence, positive_catalyst, positive_reason
+store results in vetter_decisions + vetter_exclusions tables
 ```
 
 Must not:
@@ -460,10 +464,16 @@ notional > 0
 human approval (every paper trade requires a button click)
 ```
 
-Persists every decision to `risk_decisions` with an env snapshot
-(KILL_SWITCH/PAPER_ONLY/LIVE_TRADING_ENABLED/MAX_ORDER_NOTIONAL at decision
-time). `alpaca_orders.risk_check_id` is a FK into this table — answers
-"which rule approved/rejected this trade?" auditably.
+All four safety env vars (KILL_SWITCH, PAPER_ONLY, LIVE_TRADING_ENABLED,
+MAX_ORDER_NOTIONAL) are re-read on every `/check` call, so an operator can
+flip the kill switch via `docker compose exec` or by editing `.env` and
+restarting the container is NOT required.
+
+Persists every decision to `risk_decisions` with an env snapshot at decision
+time. `alpaca_orders.risk_check_id` is a FK into this table — answers
+"which rule approved/rejected this trade?" auditably. The FK is the hard
+audit guarantee; if `_persist_decision` fails for an APPROVED decision, the
+service returns 503 so the trade-executor never proceeds without an audit row.
 
 Planned but not yet implemented: max daily turnover, max daily loss, max
 position size cap, max position count, factor-data staleness check, Alpaca
@@ -485,6 +495,8 @@ idempotency_check  — reject if intent already has an open/submitted order
 load_intent        — read delta_intents
 size_order         — entries: floor(account_value × weight / last_price)
                      refuse if qty < 1 (position too small)
+                     refuse if alpaca-sync > EXIT_SYNC_MAX_AGE_HOURS old
+                     (stale account_value would size wildly wrong orders)
                      exits: full position qty from latest live_positions
                      refuse if alpaca-sync > EXIT_SYNC_MAX_AGE_HOURS old
 risk_check         — call risk-service /check
@@ -604,16 +616,23 @@ Cannot deploy changes directly.
 
 ## scheduler
 
-Triggers scheduled workflows:
+Non-blocking supervisor state machine that advances a three-step daily chain:
 
 ```text
-daily Alpha Vantage refresh (fetch-data → factor-calculate → rank chain)
-delta engine run (buffer-zone entry/exit evaluation)
-backtests
-Alpaca sync jobs
-intraday monitor startup
-reports
+fetch-data  → av-ingestor /jobs/fetch-data
+pipeline    → pipeline   /jobs/run   (factors + rank + delta)
+vet         → llm-vetter /jobs/vet   (optional, advisory)
 ```
+
+Each tick (every SUPERVISOR_INTERVAL_SECS) reads each service's `/runs/latest`
+and triggers the first idle step, then returns. The chain advances on the next
+tick. After today's chain reaches a terminal state (success/failed), further
+ticks are no-ops for the rest of the calendar day — `_chain_status` resets on
+date rollover.
+
+The pipeline service also auto-triggers from av-ingestor via Redis Streams
+(`stocker:pipeline_events`), so a manual fetch-data fires the pipeline
+without scheduler involvement.
 
 ## api
 
@@ -753,7 +772,6 @@ portfolio_builder:
 
 vetter:
   candidate_count: 50
-  conviction_boosts: { high: 0.25, medium: 0.12, low: 0.05, none: 0.0 }
 ```
 
 Factor weights for each regime must sum to 1.0. All four regime conditions must be covered.
@@ -978,7 +996,7 @@ stocker/
     av-ingestor/         ← built: fetch-universe, fetch-data, incremental price ingestion
     factor-engine/       ← built: momentum, quality, value, growth, low_vol, beta, liquidity
     ranker/              ← built: regime detection, factor weighting, scoring, ranking runs
-    portfolio-builder/   ← built: greedy_score_per_port_vol, sector caps, conviction boosts
+    portfolio-builder/   ← built: greedy_score_per_port_vol, sector caps, vetter exclusions
     llm-vetter/          ← built: Tavily + Ollama/OpenAI vetting, informational only
     delta-engine/        ← built: buffer-zone entry/exit evaluation, produces delta_intents
     dashboard/           ← built: universe/rank/vetter/portfolio/live/trade-proposal tabs

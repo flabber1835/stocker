@@ -155,6 +155,35 @@ class TestStepState:
         assert result == "idle"
 
     @pytest.mark.asyncio
+    async def test_idle_on_empty_payload(self):
+        """Service returns {} (no status, no date) — must not raise and must
+        not classify as 'done' or 'running'. Defensive against an upstream
+        service that returns a malformed response during a deploy."""
+        today = "2026-05-21"
+        step = self._make_step()
+        client = _async_client_returning({})
+        result = await _step_state(client, step, today, today, "2026-05-20")
+        assert result == "idle"
+
+    @pytest.mark.asyncio
+    async def test_idle_on_status_none(self):
+        """status=None should be treated as idle, not done/running/failed."""
+        today = "2026-05-21"
+        step = self._make_step()
+        client = _async_client_returning({"status": None, "run_date": today})
+        result = await _step_state(client, step, today, today, "2026-05-20")
+        assert result == "idle"
+
+    @pytest.mark.asyncio
+    async def test_idle_on_unknown_status(self):
+        """An unexpected status string (e.g. 'cancelled') falls through to idle."""
+        today = "2026-05-21"
+        step = self._make_step()
+        client = _async_client_returning({"status": "cancelled", "run_date": today})
+        result = await _step_state(client, step, today, today, "2026-05-20")
+        assert result == "idle"
+
+    @pytest.mark.asyncio
     async def test_trading_day_flag(self):
         """use_trading_day=True: date comparison uses trading_day, not today."""
         today = "2026-05-21"           # Thursday
@@ -458,3 +487,39 @@ class TestSupervisorTick:
         assert chain_status["date"] == today
         # Old state from yesterday should be cleared (run_ids reset to {})
         assert chain_status.get("run_ids", {}).get("fetch-data") != "old-run"
+
+    @pytest.mark.asyncio
+    async def test_skips_after_success_same_day(self):
+        """If today's chain already succeeded, the next tick must return
+        without opening a new scheduler_runs row (no tick-spam after done)."""
+        import datetime
+        today = datetime.date.today().isoformat()
+        chain_status = _supervisor_tick.__globals__["_chain_status"]
+        chain_status.update({
+            "status": "success",
+            "date": today,
+            "steps": {"fetch-data": "done", "pipeline": "done", "vet": "done"},
+            "run_ids": {},
+            "current_run_id": None,
+        })
+
+        mock_db_open = AsyncMock()
+        mock_db_update = AsyncMock()
+        mock_db_close = AsyncMock()
+        mock_trigger = AsyncMock()
+
+        with patch.dict(_supervisor_tick.__globals__, {
+            "_has_universe": AsyncMock(return_value=True),
+            "_step_state": AsyncMock(return_value="done"),
+            "_trigger_step": mock_trigger,
+            "_get_latest_run_id": AsyncMock(return_value=None),
+            "_db_open_run": mock_db_open,
+            "_db_update_run": mock_db_update,
+            "_db_close_run": mock_db_close,
+        }):
+            await _supervisor_tick()
+
+        # Nothing should fire — no DB rows opened/closed, no step triggered
+        mock_db_open.assert_not_called()
+        mock_db_close.assert_not_called()
+        mock_trigger.assert_not_called()

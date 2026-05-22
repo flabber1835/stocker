@@ -276,6 +276,12 @@ async def _supervisor_tick() -> None:
         if _chain_status.get("date") != today:
             _chain_status.update({"date": today, "steps": {}, "run_ids": {}, "current_run_id": None})
 
+        # If today's chain already completed (success/failed), skip — don't
+        # re-open a redundant scheduler_runs row on every tick for the rest
+        # of the day. _chain_status resets when the calendar date rolls over.
+        if _chain_status.get("status") in ("success", "failed") and _chain_status.get("date") == today:
+            return
+
         async with httpx.AsyncClient() as client:
             # Cold-start guard: if no universe, trigger fetch-universe and wait
             if not await _has_universe(client):
@@ -341,9 +347,11 @@ async def _supervisor_tick() -> None:
 # ── Startup catch-up ──────────────────────────────────────────────────────────
 
 async def _startup_catch_up() -> None:
-    """Thin wrapper: wait for services to start, then fire the first supervisor tick."""
-    await asyncio.sleep(10)
-    _log("startup: services ready — firing initial supervisor tick")
+    """Fire the first supervisor tick at startup. docker-compose's depends_on
+    chain (service_healthy + db-migrator service_completed_successfully)
+    already guarantees upstream services are ready before our container
+    starts, so no extra sleep is needed."""
+    _log("startup: firing initial supervisor tick")
     try:
         await _supervisor_tick()
     except Exception as exc:
@@ -353,14 +361,14 @@ async def _startup_catch_up() -> None:
 # ── Fast polling for manual run-now ──────────────────────────────────────────
 
 async def _run_supervised_fast() -> None:
-    """Poll the supervisor every 10 seconds until the chain reaches a terminal state.
+    """Poll the supervisor every 3 seconds until the chain reaches a terminal state.
     Used by manual 'run-now' triggers so the UI updates promptly without waiting
-    for the 5-minute interval tick."""
-    for _ in range(3600):
+    for the SUPERVISOR_INTERVAL_SECS interval tick."""
+    for _ in range(12000):  # ~10 hours at 3s
         await _supervisor_tick()
         if _chain_status.get("status") in ("success", "failed"):
             break
-        await asyncio.sleep(10)
+        await asyncio.sleep(3)
 
 
 # ── App lifecycle ─────────────────────────────────────────────────────────────

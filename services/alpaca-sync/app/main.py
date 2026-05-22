@@ -312,7 +312,7 @@ async def lifespan(app: FastAPI):
     # Wait for DB with up to 60s (20 retries × 3s)
     await wait_for_db(engine, retries=20, delay=3.0)
 
-    # Mark any orphaned 'running' runs as failed
+    # Mark any orphaned 'running' runs as failed, including their execution_traces rows
     async with SessionLocal() as db:
         result = await db.execute(
             text(
@@ -321,6 +321,17 @@ async def lifespan(app: FastAPI):
                 SET status = 'failed',
                     error_message = 'orphaned on restart'
                 WHERE status = 'running'
+                """
+            )
+        )
+        await db.execute(
+            text(
+                """
+                UPDATE execution_traces
+                SET status = 'failed',
+                    completed_at = NOW(),
+                    notes = 'orphaned on restart'
+                WHERE status = 'running' AND job_type = 'alpaca_sync'
                 """
             )
         )

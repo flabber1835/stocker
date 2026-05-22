@@ -13,6 +13,11 @@ from fastapi import HTTPException
 from app.main import _size_entry, _size_exit
 
 
+def _now():
+    """Fresh-sync timestamp for entry-sizing mocks (within EXIT_SYNC_MAX_AGE_HOURS)."""
+    return datetime.now(timezone.utc)
+
+
 def _mock_conn_returning(rows_by_query):
     """Return a fake async connection whose conn.execute(...).mappings().first()
     yields rows from `rows_by_query` in order. `None` means "no row found"."""
@@ -41,7 +46,7 @@ async def test_size_entry_basic():
     # Order of queries in _size_entry when intent_weight is provided:
     # 1. account_value, 2. live_positions price
     conn = _mock_conn_returning([
-        {"account_value": 100_000.0},      # alpaca_sync_runs.account_value
+        {"account_value": 100_000.0, "completed_at": _now()},      # alpaca_sync_runs.account_value
         {"current_price": 50.0},           # live_positions.current_price
     ])
     qty, notional, summary = await _size_entry(conn, "AAPL", intent_weight=0.05)
@@ -57,7 +62,7 @@ async def test_size_entry_basic():
 @pytest.mark.asyncio
 async def test_size_entry_uses_intent_weight_first():
     conn = _mock_conn_returning([
-        {"account_value": 100_000.0},
+        {"account_value": 100_000.0, "completed_at": _now()},
         {"current_price": 50.0},
     ])
     _, _, summary = await _size_entry(conn, "AAPL", intent_weight=0.04)
@@ -70,7 +75,7 @@ async def test_size_entry_falls_back_to_portfolio_holdings():
     # intent_weight=None → query portfolio_holdings first, then account, then price
     conn = _mock_conn_returning([
         {"weight": 0.06},                   # portfolio_holdings.weight
-        {"account_value": 100_000.0},       # alpaca_sync_runs.account_value
+        {"account_value": 100_000.0, "completed_at": _now()},       # alpaca_sync_runs.account_value
         {"current_price": 50.0},            # live_positions.current_price
     ])
     qty, notional, summary = await _size_entry(conn, "AAPL", intent_weight=None)
@@ -84,7 +89,7 @@ async def test_size_entry_falls_back_to_portfolio_holdings():
 async def test_size_entry_falls_back_to_default_when_all_missing():
     conn = _mock_conn_returning([
         None,                               # no portfolio_holdings row
-        {"account_value": 100_000.0},
+        {"account_value": 100_000.0, "completed_at": _now()},
         {"current_price": 50.0},
     ])
     _, _, summary = await _size_entry(conn, "AAPL", intent_weight=None)
@@ -97,7 +102,7 @@ async def test_size_entry_falls_back_to_default_when_all_missing():
 async def test_size_entry_uses_live_price_when_available():
     # intent_weight provided → only 2 queries: account_value, live_price
     conn = _mock_conn_returning([
-        {"account_value": 100_000.0},
+        {"account_value": 100_000.0, "completed_at": _now()},
         {"current_price": 45.0},
     ])
     _, _, summary = await _size_entry(conn, "AAPL", intent_weight=0.05)
@@ -109,7 +114,7 @@ async def test_size_entry_uses_live_price_when_available():
 async def test_size_entry_falls_back_to_daily_close_when_no_live():
     # intent_weight provided. Queries: account_value, live_price(None), daily_prices.close
     conn = _mock_conn_returning([
-        {"account_value": 100_000.0},
+        {"account_value": 100_000.0, "completed_at": _now()},
         None,                               # no live_positions row
         {"close": 48.0},                    # daily_prices.close
     ])
@@ -122,7 +127,7 @@ async def test_size_entry_falls_back_to_daily_close_when_no_live():
 async def test_size_entry_aborts_when_qty_below_one():
     # account=$1000, weight=0.01 → notional $10, price $500 → qty_int = 0
     conn = _mock_conn_returning([
-        {"account_value": 1000.0},
+        {"account_value": 1000.0, "completed_at": _now()},
         {"current_price": 500.0},
     ])
     with pytest.raises(HTTPException) as exc_info:
@@ -146,7 +151,7 @@ async def test_size_entry_aborts_when_no_account_value():
 @pytest.mark.asyncio
 async def test_size_entry_aborts_when_no_price():
     conn = _mock_conn_returning([
-        {"account_value": 100_000.0},
+        {"account_value": 100_000.0, "completed_at": _now()},
         None,                               # no live_positions
         None,                               # no daily_prices
     ])

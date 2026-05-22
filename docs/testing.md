@@ -39,7 +39,6 @@ factor calculations are deterministic
 rankings are reproducible
 backtest output is reproducible
 hallucination flags correctly detect contradictions
-conviction boosts attenuated by flag count
 crash isolation: one ticker crash does not abort the vetter loop
 risk-service blocks unsafe trades          ✅ tested
 trade-executor sizing math is deterministic ✅ tested
@@ -49,7 +48,6 @@ trade-executor sizing math is deterministic ✅ tested
 
 ```text
 ranker: no unit tests for composite scoring or regime-weight application
-portfolio-builder: no test for conviction boost attenuation by hallucination_flag_count
 llm-vetter: no test for _format_ticker_message with quantitative context
 llm-vetter: no test for fetch_av_news concurrency / semaphore behaviour
 llm-vetter: no end-to-end agentic loop test (requires mock Ollama client)

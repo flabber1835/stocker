@@ -77,9 +77,9 @@ vetter_exclusions table for excluded tickers
 Dashboard vetter tab: KEEP/EXCLUDE/RISK badges, catalyst badges, news sources
 Informational only — no approval gate, no portfolio blocking
 
-Conviction boosts applied in portfolio-builder, attenuated by hallucination flag count:
-  high: +0.25, medium: +0.12, low: +0.05 (config-driven, capped by conviction_max_boost)
-  1 flag → 75% of boost, 2 flags → 50%, 3+ flags → boost skipped entirely
+Vetter output is informational only. portfolio-builder reads vetter_exclusions
+to drop excluded tickers but does NOT apply positive-conviction score boosts —
+the deterministic ranker owns the final score and the vetter only excludes.
 
 Hallucination detection:
   - Exclude with no supporting data
@@ -109,10 +109,9 @@ System prompt is strategy-configurable:
   falls back to built-in prompt on error. Custom prompts use:
   {entry_rank}, {exit_rank}, {confirmation_days}, {risk_horizon_days}, {exclude_clause}
 
-VetterConfig fields: enabled, candidate_count, conviction_max_boost,
-  conviction_boosts, risk_horizon_days, system_prompt_file, strictness,
-  max_searches_per_ticker, news_lookback_days, max_articles_per_ticker,
-  earnings_horizon_days
+VetterConfig fields: enabled, candidate_count, risk_horizon_days,
+  system_prompt_file, strictness, max_searches_per_ticker,
+  news_lookback_days, max_articles_per_ticker, earnings_horizon_days
 
 Crash isolation: per-ticker exception handling — one bad LLM call does not
   abort the full run. Crashed tickers default to exclude=False (safe keep).

@@ -41,13 +41,17 @@ artifacts volume
 
 ```text
 av-ingestor
-factor-engine
-ranker
-llm-vetter        ← advisory LLM vetting between ranker and portfolio-builder
+pipeline          ← unified factor + rank + delta (Phase 7)
+llm-vetter        ← advisory LLM vetting between ranking and portfolio-builder
 portfolio-builder
 backtester
 evaluator
 ```
+
+Note: `factor-engine`, `ranker`, and `delta-engine` were consolidated into the
+single `pipeline` service in Phase 7. Their math modules were copied verbatim
+into services/pipeline/app/{factors,rank,engine,regime}.py; the original
+service folders still build but docker-compose no longer launches them.
 
 ### Trading and Monitoring
 
@@ -81,8 +85,7 @@ scheduler
 Alpha Vantage
   → av-ingestor
   → Postgres
-  → factor-engine
-  → ranker
+  → pipeline (factors → rank → delta)
   → portfolio-builder
   → target portfolio
 
@@ -102,16 +105,18 @@ Daily chain (scheduler):
 
 ```text
 1. av-ingestor fetch-data
-2. factor-engine calculate
-3. ranker rank
-4. llm-vetter vet
-5. portfolio-builder build
-6. delta-engine evaluate
-7. alpaca-sync refresh
+2. pipeline   (factor calc → rank → delta evaluation, single service)
+3. llm-vetter vet                (optional/advisory)
 ```
 
-Startup catch-up: scheduler runs `alpaca-sync` first (non-blocking) so the live
-position view is current before any rank-chain work begins.
+The pipeline service also auto-triggers from av-ingestor via Redis Streams
+(stream `stocker:pipeline_events`, key `run_date`), so a manual fetch-data
+fires factors→rank→delta even without scheduler involvement. The pipeline
+holds a global `_job_lock` for the entire duration of a run, so a concurrent
+HTTP /jobs/run or Redis event sees `{"status":"already_running"}`.
+
+`portfolio-builder` and `alpaca-sync` are triggered manually or via dashboard
+controls, not by the scheduler's daily chain.
 
 ## Strategy Flow
 
@@ -178,32 +183,28 @@ This satisfies the audit requirements from CLAUDE.md:
 
 Two mechanisms are used, matched to path semantics.
 
-### Batch path: direct HTTP from dashboard orchestrator
+### Batch path: scheduler supervisor + Redis Streams
 
-The dashboard server orchestrates the rank chain via direct HTTP calls to the
-downstream services. This is initiated by `POST /api/jobs/rank-chain` and runs
-as a background task on the dashboard process.
+The scheduler is a non-blocking state-machine supervisor (see scheduler/app/main.py).
+Each tick reads each step's `/runs/latest`, triggers the first idle step, and
+returns. The chain advances on the next tick.
 
 ```text
-dashboard (rank-chain bg task)
-  → POST av-ingestor  /jobs/fetch-data   → poll /runs/latest until done
-  → POST factor-engine /jobs/calculate   → poll /runs/latest until done
-  → POST ranker        /jobs/rank        → poll /runs/latest until done
+scheduler supervisor (every SUPERVISOR_INTERVAL_SECS seconds)
+  → POST av-ingestor /jobs/fetch-data   → next tick checks status
+  → POST pipeline    /jobs/run          → next tick checks status
+  → POST llm-vetter  /jobs/vet          → next tick checks status (optional)
 ```
 
-Each service independently manages its own run state in Postgres (one row per
-run, status transitions: running → success/failed). The dashboard polls each
-service's `/runs/latest` endpoint every 5 seconds to detect completion before
-advancing to the next step.
+When av-ingestor finishes fetch-data successfully it also publishes
+`fetch_data.complete` to the Redis stream `stocker:pipeline_events`. The
+pipeline service's consumer (`pipeline-consumers` group) auto-triggers a
+pipeline run on receipt, so a manual fetch-data also fires factors→rank→delta
+without scheduler involvement.
 
-A `409 Conflict` response means a step is already running from a previous trigger.
-The orchestrator treats this as "wait for it" rather than aborting.
-
-Why direct HTTP (not a Postgres jobs table): the rank chain is triggered
-interactively from the dashboard and completes within an hour. Durability of the
-queue itself is not required — each service's run table already provides the audit
-log and recovery point. A scheduler service (Phase 7) can call the same HTTP
-endpoints.
+A `409 Conflict` or `{"status": "already_running"}` response means the target
+service is already running an earlier trigger. Both the scheduler and the
+pipeline's Redis consumer treat this as "wait for next tick" rather than aborting.
 
 ### Real-time path: synchronous HTTP
 

@@ -33,6 +33,18 @@ from app.main import app
 client = TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def _stub_persist(monkeypatch):
+    """Stub _persist_decision on the same risk_main instance the TestClient
+    uses, so /check returns approvals without a real Postgres. Tests that
+    verify the 'no DB' guard use monkeypatch.undo() to remove this stub
+    then set engine to None."""
+    async def _fake_persist(req, *, approved, reason, rule, env):
+        return str(uuid.uuid4())
+    monkeypatch.setattr(risk_main, "_persist_decision", _fake_persist)
+    yield
+
+
 def _valid_payload(**overrides):
     base = {
         "ticker": "AAPL",
@@ -151,7 +163,7 @@ def test_invalid_mode_rejected_by_pydantic():
 
 
 def test_kill_switch_rejects_all(monkeypatch):
-    monkeypatch.setattr(risk_main, "KILL_SWITCH", True)
+    monkeypatch.setenv("KILL_SWITCH", "true")
     resp = client.post("/check", json=_valid_payload())
     assert resp.status_code == 200
     body = resp.json()
@@ -160,8 +172,8 @@ def test_kill_switch_rejects_all(monkeypatch):
 
 
 def test_live_trading_enabled_allows_live(monkeypatch):
-    monkeypatch.setattr(risk_main, "LIVE_TRADING_ENABLED", True)
-    monkeypatch.setattr(risk_main, "PAPER_ONLY", False)
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "true")
+    monkeypatch.setenv("PAPER_ONLY", "false")
     resp = client.post("/check", json=_valid_payload(trade_type="live"))
     assert resp.status_code == 200
     body = resp.json()
@@ -192,30 +204,41 @@ def test_rule_triggered_notional_limit():
 
 
 def test_rule_triggered_kill_switch(monkeypatch):
-    monkeypatch.setattr(risk_main, "KILL_SWITCH", True)
+    monkeypatch.setenv("KILL_SWITCH", "true")
     body = client.post("/check", json=_valid_payload()).json()
     assert body["rule_triggered"] == "kill_switch"
 
 
 def test_rule_triggered_paper_only(monkeypatch):
     # Live enabled but paper-only still blocks
-    monkeypatch.setattr(risk_main, "LIVE_TRADING_ENABLED", True)
-    monkeypatch.setattr(risk_main, "PAPER_ONLY", True)
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "true")
+    monkeypatch.setenv("PAPER_ONLY", "true")
     body = client.post("/check", json=_valid_payload(trade_type="live")).json()
     assert body["rule_triggered"] == "paper_only"
 
 
 def test_rule_triggered_live_disabled(monkeypatch):
-    monkeypatch.setattr(risk_main, "LIVE_TRADING_ENABLED", False)
-    monkeypatch.setattr(risk_main, "PAPER_ONLY", False)
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
+    monkeypatch.setenv("PAPER_ONLY", "false")
     body = client.post("/check", json=_valid_payload(trade_type="live")).json()
     assert body["rule_triggered"] == "live_disabled"
 
 
-def test_degraded_mode_when_no_db(monkeypatch):
-    """When engine is None (DATABASE_URL unset in tests), /check still returns
-    a valid check_id (degraded mode — no audit persistence but service stays up)."""
+def test_no_db_refuses_to_approve(monkeypatch):
+    """When engine is None (DATABASE_URL unset / DB down), /check returns 503
+    for an approval — risk-service refuses to approve a trade without writing
+    an audit row. Rejections still return 200 because rejecting is safe."""
+    # Restore real _persist_decision so the engine=None guard fires
+    from importlib import reload
+    monkeypatch.undo()  # remove conftest's stub for this test
     monkeypatch.setattr(risk_main, "engine", None)
-    body = client.post("/check", json=_valid_payload()).json()
-    assert body["approved"] is True
-    uuid.UUID(body["check_id"])  # still a valid UUID
+    # Approval path → 503
+    resp = client.post("/check", json=_valid_payload())
+    assert resp.status_code == 503
+    # Rejection path → 200 (still safely rejects without persistence)
+    monkeypatch.setenv("KILL_SWITCH", "true")
+    resp = client.post("/check", json=_valid_payload())
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["approved"] is False
+    uuid.UUID(body["check_id"])

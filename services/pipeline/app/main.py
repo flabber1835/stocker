@@ -105,8 +105,10 @@ async def _redis_consumer_loop() -> None:
         except asyncio.CancelledError:
             break
         except Exception as exc:
+            # xreadgroup already does a 5s server-side block; a 1s back-off
+            # here is enough to avoid a tight loop on transient errors.
             print(f"[pipeline] consumer error: {exc}", flush=True)
-            await asyncio.sleep(5)
+            await asyncio.sleep(1)
 
 
 async def _trigger_from_event(chain_date: str, msg_id: str) -> None:
@@ -1252,10 +1254,11 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
         raw_rankings = ranking_rows.fetchall()
 
     _dedup: dict[tuple, object] = {}
+    _EPOCH = datetime.min.replace(tzinfo=timezone.utc)
     for row in raw_rankings:
         key = (row.ticker, row.rank_date)
         existing = _dedup.get(key)
-        if existing is None or (row.completed_at or "") > (existing.completed_at or ""):
+        if existing is None or (row.completed_at or _EPOCH) > (existing.completed_at or _EPOCH):
             _dedup[key] = row
     deduped_rankings = list(_dedup.values())
 
@@ -1384,11 +1387,28 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
         )
 
     # ── Step 5: write intents ─────────────────────────────────────────────────
+    # The engine produces a DeltaDecision for every ticker in the universe so
+    # capacity projection is correct. Most non-held tickers come back as
+    # action="watch" with confirmation_days_met < confirmation_days — pure
+    # noise on the trade-proposal UI. Persist only actionable rows:
+    #   - entry / exit / hold: always actionable
+    #   - watch: only if confirmation_days_met >= confirmation_days (meaning
+    #            "would enter now if portfolio had capacity")
     t0 = datetime.now(timezone.utc)
     completed_at = datetime.now(timezone.utc)
 
+    def _is_actionable(d) -> bool:
+        if d.action in ("entry", "exit", "hold"):
+            return True
+        if d.action == "watch" and d.confirmation_days_met >= confirmation_days:
+            return True
+        return False
+
+    actionable = [d for d in decisions.values() if _is_actionable(d)]
+    skipped_watch = len(decisions) - len(actionable)
+
     async with engine.begin() as conn:
-        for d in decisions.values():
+        for d in actionable:
             await conn.execute(
                 text(
                     "INSERT INTO delta_intents "
@@ -1445,7 +1465,8 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             conn, trace_id, "write_intents", "success",
             started_at=t0,
             output_summary={
-                "intents_written": len(decisions),
+                "intents_written": len(actionable),
+                "non_actionable_watches_skipped": skipped_watch,
                 "entries": len(entries),
                 "exits": len(exits),
                 "holds": len(holds),

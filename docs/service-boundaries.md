@@ -70,12 +70,11 @@ Converts ranked stocks into target portfolio weights.
 Steps:
 1. Load top N candidates from ranking run
 2. Apply LLM vetter exclusions (soft — does not block if vetter hasn't run)
-3. Apply conviction boosts from vetter (attenuated by hallucination_flag_count)
-4. Load price history for covariance matrix
-5. Apply universe filters (min_price, min_avg_dollar_volume_20d)
-6. Build covariance matrix (Ledoit-Wolf shrinkage)
-7. Greedy score-per-portfolio-vol selection with sector caps
-8. Write holdings to portfolio_holdings
+3. Load price history for covariance matrix
+4. Apply universe filters (min_price, min_avg_dollar_volume_20d)
+5. Build covariance matrix (Ledoit-Wolf shrinkage)
+6. Greedy score-per-portfolio-vol selection with sector caps
+7. Write holdings to portfolio_holdings
 
 Does not require vetter approval — vetter output is advisory only.
 
