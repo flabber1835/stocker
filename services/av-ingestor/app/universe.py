@@ -88,6 +88,11 @@ _NON_INVESTABLE_NAME_RE = re.compile(
     r"|\bLeveraged\b"
     r"|\bInverse\b"
     r"|\bFuture[s]?\b"
+    # Preferred shares, notes, and debt instruments that AV classifies as Stock
+    r"|\bpreferred\b"       # "Preferred Stock Series D", "Preferred Series A"
+    r"|\bnote[s]?\b"        # "Senior Notes Due 2028", "Fixed Rate Notes"
+    r"|\bdebenture[s]?\b"   # "Convertible Debentures"
+    r"|\bdepositary\b"      # "Depositary Shares" (ADR sub-shares, not common equity)
     , re.I
 )
 
@@ -107,7 +112,7 @@ async def download_av_listing(session: httpx.AsyncClient, api_key: str) -> tuple
     response = await session.get(url, follow_redirects=True, timeout=30.0)
     response.raise_for_status()
 
-    df = pd.read_csv(io.StringIO(response.text), dtype=str)
+    df = pd.read_csv(io.StringIO(response.text), dtype=str, keep_default_na=False)
     df.columns = [c.strip() for c in df.columns]
 
     rows = []
@@ -142,7 +147,7 @@ async def download_av_listing(session: httpx.AsyncClient, api_key: str) -> tuple
         rows.append(
             {
                 "ticker": ticker,
-                "name": av_row.get("name") or None,
+                "name": av_row.get("name") or None,  # keep_default_na=False prevents "nan" strings; this guard handles edge cases
                 "weight_pct": None,
                 "sector": None,
                 "asset_class": "Equity",
