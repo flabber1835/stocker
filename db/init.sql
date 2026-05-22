@@ -581,6 +581,32 @@ ALTER TABLE alpaca_orders
 ALTER TABLE live_positions ADD COLUMN IF NOT EXISTS lastday_price NUMERIC(14,4);
 ALTER TABLE live_positions ADD COLUMN IF NOT EXISTS change_today  NUMERIC(10,6);
 
+-- Pipeline consolidated run audit table (factor + rank + delta)
+CREATE TABLE IF NOT EXISTS pipeline_runs (
+    run_id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    trace_id        UUID         REFERENCES execution_traces(trace_id),
+    strategy_id     VARCHAR(100),
+    config_hash     VARCHAR(16),
+    status          VARCHAR(20)  NOT NULL DEFAULT 'running'
+                        CHECK (status IN ('running','success','failed')),
+    triggered_by    VARCHAR(50)  NOT NULL DEFAULT 'manual',
+    run_date        DATE,
+    chain_date      DATE,
+    factor_run_id   UUID         REFERENCES factor_runs(run_id),
+    ranking_run_id  UUID         REFERENCES ranking_runs(run_id),
+    delta_run_id    UUID         REFERENCES delta_runs(run_id),
+    factor_status   VARCHAR(20),
+    ranking_status  VARCHAR(20),
+    delta_status    VARCHAR(20),
+    error_message   TEXT,
+    started_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    completed_at    TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_pipeline_runs_date    ON pipeline_runs(run_date DESC);
+CREATE INDEX IF NOT EXISTS idx_pipeline_runs_status  ON pipeline_runs(status, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pipeline_runs_started ON pipeline_runs(started_at DESC);
+
 -- Scheduler chain run audit table
 CREATE TABLE IF NOT EXISTS scheduler_runs (
     run_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
