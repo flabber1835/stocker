@@ -97,7 +97,7 @@ async def _redis_consumer_loop() -> None:
                 for msg_id, fields in entries:
                     event = fields.get("event", "")
                     if event == "fetch_data.complete":
-                        chain_date = fields.get("chain_date", date.today().isoformat())
+                        chain_date = fields.get("run_date", date.today().isoformat())
                         print(f"[pipeline] received {event} for {chain_date} — triggering run", flush=True)
                         asyncio.create_task(_trigger_from_event(chain_date, msg_id))
                     else:
@@ -111,10 +111,12 @@ async def _redis_consumer_loop() -> None:
 
 async def _trigger_from_event(chain_date: str, msg_id: str) -> None:
     try:
-        if _job_lock.locked():
-            print("[pipeline] event trigger: job already running, skipping", flush=True)
+        result = await _do_run_pipeline(triggered_by="redis")
+        if result.get("status") == "started":
+            run_id, trace_id, today, now, tb = result.pop("_internal")
+            asyncio.create_task(_run_pipeline_steps(run_id, trace_id, today, now, tb))
         else:
-            await _do_run_pipeline(triggered_by="redis")
+            print(f"[pipeline] event trigger: {result.get('status')}", flush=True)
     finally:
         try:
             await redis_client.xack(PIPELINE_STREAM, CONSUMER_GROUP, msg_id)
@@ -124,14 +126,15 @@ async def _trigger_from_event(chain_date: str, msg_id: str) -> None:
 
 # ── DB trace helpers ──────────────────────────────────────────────────────────
 
-async def _create_pipeline_run(conn, run_id: str, trace_id: str, triggered_by: str) -> None:
+async def _create_pipeline_run(conn, run_id: str, trace_id: str, triggered_by: str,
+                               chain_date: date) -> None:
     now = datetime.now(timezone.utc)
     await conn.execute(text(
         "INSERT INTO pipeline_runs "
-        "(run_id, trace_id, strategy_id, config_hash, status, triggered_by, started_at) "
-        "VALUES (:run_id, :trace_id, :sid, :ch, 'running', :by, :now)"
+        "(run_id, trace_id, strategy_id, config_hash, status, triggered_by, started_at, chain_date) "
+        "VALUES (:run_id, :trace_id, :sid, :ch, 'running', :by, :now, :cd)"
     ), {"run_id": run_id, "trace_id": trace_id, "sid": strategy.strategy_id,
-        "ch": config_hash, "by": triggered_by, "now": now})
+        "ch": config_hash, "by": triggered_by, "now": now, "cd": chain_date})
     await conn.execute(text(
         "INSERT INTO execution_traces "
         "(trace_id, job_type, status, root_run_id, strategy_id, config_hash, started_at) "
@@ -139,7 +142,17 @@ async def _create_pipeline_run(conn, run_id: str, trace_id: str, triggered_by: s
     ), {"tid": trace_id, "rid": run_id, "sid": strategy.strategy_id, "ch": config_hash, "now": now})
 
 
+_PIPELINE_RUN_UPDATABLE = frozenset({
+    "status", "factor_status", "ranking_status", "delta_status",
+    "factor_run_id", "ranking_run_id", "delta_run_id",
+    "run_date", "chain_date", "completed_at", "error_message",
+})
+
+
 async def _update_pipeline_run(conn, run_id: str, **kwargs) -> None:
+    bad = set(kwargs) - _PIPELINE_RUN_UPDATABLE
+    if bad:
+        raise ValueError(f"_update_pipeline_run: unknown columns {sorted(bad)}")
     sets = ", ".join(f"{k}=:{k}" for k in kwargs)
     await conn.execute(text(f"UPDATE pipeline_runs SET {sets} WHERE run_id=:run_id"),
                        {"run_id": run_id, **kwargs})
@@ -1389,7 +1402,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                     "ticker": d.ticker,
                     "action": d.action,
                     "rank": d.rank if d.rank != 9999 else None,
-                    "score": round(d.composite_score, 6) if d.composite_score else None,
+                    "score": round(d.composite_score, 6) if d.composite_score is not None else None,
                     "conf_days": d.confirmation_days_met,
                     "weight": d.current_weight,
                     "reason": d.reason,
@@ -1559,13 +1572,28 @@ async def _run_pipeline_steps(
                                        completed_at=datetime.now(timezone.utc))
             await _finish_trace(conn, trace_id, "failed", notes=err)
         raise
+    finally:
+        if _job_lock.locked():
+            _job_lock.release()
 
 
 async def _do_run_pipeline(triggered_by: str = "manual") -> dict:
-    """Acquire lock and run the full pipeline. Returns run metadata dict."""
-    async with _job_lock:
+    """Reserve a pipeline run: acquire the global job lock, run the
+    already-ran-today guard, and insert the pipeline_runs / execution_traces
+    row with chain_date = today.
+
+    On success the lock is HELD when this returns; the caller MUST schedule
+    _run_pipeline_steps, which releases the lock in a finally block. This
+    keeps the lock continuously held from row creation through completion,
+    so the /jobs/run HTTP endpoint and the Redis trigger both see
+    already_running for the entire duration of an in-flight run.
+    """
+    if _job_lock.locked():
+        return {"status": "already_running"}
+
+    await _job_lock.acquire()
+    try:
         async with engine.connect() as conn:
-            # Already-ran-today guard based on score_date
             spy_row = await conn.execute(
                 text("SELECT MAX(date) FROM daily_prices WHERE ticker = 'SPY'")
             )
@@ -1578,6 +1606,7 @@ async def _do_run_pipeline(triggered_by: str = "manual") -> dict:
                     {"d": spy_max},
                 )
                 if existing.fetchone():
+                    _job_lock.release()
                     return {"status": "already_ran_today", "date": str(spy_max)}
 
         run_id = str(uuid.uuid4())
@@ -1586,7 +1615,7 @@ async def _do_run_pipeline(triggered_by: str = "manual") -> dict:
         today = date.today()
 
         async with engine.begin() as conn:
-            await _create_pipeline_run(conn, run_id, trace_id, triggered_by)
+            await _create_pipeline_run(conn, run_id, trace_id, triggered_by, today)
 
         return {
             "status": "started",
@@ -1594,6 +1623,10 @@ async def _do_run_pipeline(triggered_by: str = "manual") -> dict:
             "trace_id": trace_id,
             "_internal": (run_id, trace_id, today, now, triggered_by),
         }
+    except Exception:
+        if _job_lock.locked():
+            _job_lock.release()
+        raise
 
 
 # ── HTTP Endpoints ────────────────────────────────────────────────────────────
@@ -1605,10 +1638,12 @@ async def health():
 
 @app.post("/jobs/run")
 async def start_run(background_tasks: BackgroundTasks, triggered_by: str = "manual"):
-    """Run the full pipeline: factors → rank → delta."""
-    if _job_lock.locked():
-        return {"status": "already_running"}
+    """Run the full pipeline: factors → rank → delta.
 
+    _do_run_pipeline acquires _job_lock; _run_pipeline_steps releases it in
+    finally so a duplicate HTTP request gets {"status":"already_running"} for
+    the entire duration of an in-flight run.
+    """
     result = await _do_run_pipeline(triggered_by=triggered_by)
     if result.get("status") in ("already_ran_today", "already_running"):
         return result
@@ -1621,27 +1656,35 @@ async def start_run(background_tasks: BackgroundTasks, triggered_by: str = "manu
 
 @app.post("/jobs/calculate")
 async def start_calculate_only(background_tasks: BackgroundTasks):
-    """Run only factor calculation (for debugging/manual use)."""
+    """Run only factor calculation (for debugging/manual use). Holds _job_lock
+    for the full duration to block any concurrent /jobs/run that would race
+    on the same factor_runs / score_date."""
     if _job_lock.locked():
         return {"status": "already_running"}
+    await _job_lock.acquire()
 
-    run_id = str(uuid.uuid4())
-    trace_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc)
-    today = date.today()
+    try:
+        run_id = str(uuid.uuid4())
+        trace_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc)
+        today = date.today()
 
-    async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "INSERT INTO factor_runs "
-                "(run_id, trace_id, strategy_id, config_hash, status, started_at) "
-                "VALUES (:run_id, :trace_id, :strategy_id, :config_hash, 'running', :started_at)"
-            ),
-            {"run_id": run_id, "trace_id": trace_id,
-             "strategy_id": strategy.strategy_id, "config_hash": config_hash,
-             "started_at": now},
-        )
-        await _create_sub_trace(conn, trace_id, "factor_run", run_id)
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO factor_runs "
+                    "(run_id, trace_id, strategy_id, config_hash, status, started_at) "
+                    "VALUES (:run_id, :trace_id, :strategy_id, :config_hash, 'running', :started_at)"
+                ),
+                {"run_id": run_id, "trace_id": trace_id,
+                 "strategy_id": strategy.strategy_id, "config_hash": config_hash,
+                 "started_at": now},
+            )
+            await _create_sub_trace(conn, trace_id, "factor_run", run_id)
+    except Exception:
+        if _job_lock.locked():
+            _job_lock.release()
+        raise
 
     async def _run_calc():
         try:
@@ -1655,6 +1698,9 @@ async def start_calculate_only(background_tasks: BackgroundTasks):
                     {"rid": run_id, "now": datetime.now(timezone.utc), "err": err},
                 )
                 await _finish_sub_trace(conn, trace_id, "failed", notes=err)
+        finally:
+            if _job_lock.locked():
+                _job_lock.release()
 
     background_tasks.add_task(_run_calc)
     return {"status": "started", "job": "calculate", "run_id": run_id, "trace_id": trace_id}

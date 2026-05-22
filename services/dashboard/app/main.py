@@ -313,14 +313,12 @@ async def pipeline_status():
 
     scheduler_chain_running = False
     scheduler_step_label = None
-    # r7 = scheduler /status
+    # r7 = scheduler /status — response is flat: {status, steps, run_ids, ...}
     if not isinstance(r7, dict) and r7.status_code == 200:
         d7_sched = r7.json()
         if d7_sched.get("status") == "running":
             scheduler_chain_running = True
-            # Surface the active step name if available
-            last_run = d7_sched.get("last_run") or {}
-            steps = last_run.get("steps") or {}
+            steps = d7_sched.get("steps") or {}
             running_steps = [k for k, v in steps.items() if v == "running"]
             if running_steps:
                 scheduler_step_label = running_steps[-1].replace("_", " ").title()

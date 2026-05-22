@@ -128,8 +128,8 @@ async def _db_update_run(run_id: str | None, status: str, steps: dict, run_ids: 
         await conn.close()
 
 
-def _db_close_run(run_id: str | None, status: str, steps: dict, run_ids: dict):
-    return _db_update_run(run_id, status, steps, run_ids, close=True)
+async def _db_close_run(run_id: str | None, status: str, steps: dict, run_ids: dict) -> None:
+    await _db_update_run(run_id, status, steps, run_ids, close=True)
 
 
 # ── Core helpers ──────────────────────────────────────────────────────────────
