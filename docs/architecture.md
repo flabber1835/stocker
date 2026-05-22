@@ -107,8 +107,10 @@ Daily chain (scheduler):
 
 ```text
 1. av-ingestor fetch-data
-2. pipeline   (factor calc → rank → delta evaluation, single service)
-3. llm-vetter vet                (optional/advisory)
+2. pipeline      (factor calc → rank → delta evaluation, single service)
+3. portfolio-builder  (target portfolio weights from ranked stocks)
+4. delta         (standalone delta: diffs portfolio_holdings vs live_positions)
+5. llm-vetter vet            (optional/advisory)
 ```
 
 The pipeline service also auto-triggers from av-ingestor via Redis Streams
@@ -117,8 +119,25 @@ fires factors→rank→delta even without scheduler involvement. The pipeline
 holds a global `_job_lock` for the entire duration of a run, so a concurrent
 HTTP /jobs/run or Redis event sees `{"status":"already_running"}`.
 
-`portfolio-builder` and `alpaca-sync` are triggered manually or via dashboard
-controls, not by the scheduler's daily chain.
+`alpaca-sync` is triggered manually or fires automatically after the scheduler
+chain completes. Portfolio-builder is now part of the daily scheduler chain.
+
+**Option B: portfolio-builder in scheduler chain; delta uses target-vs-live diff mode**
+
+The standalone delta step (step 4) uses `evaluate_target_vs_live()` instead of
+`evaluate_all()` when portfolio_holdings exists:
+- Entry: ticker in portfolio_holdings (target) but not yet held at broker
+- Exit: ticker held at broker but removed from target portfolio
+- Hold: ticker in both target and live positions
+- Watch: confirmed in entry zone but not yet in target (pending portfolio-builder)
+
+This generates immediate entry intents on cold boot without waiting for
+confirmation_days. The pipeline's embedded delta step (step 2) still uses the
+same logic for backward compatibility with the "START RANK" button.
+
+Fallback: if no portfolio run exists yet (true cold start before first
+portfolio-builder run), the delta step falls back to `evaluate_all()` with
+confirmation_days mode.
 
 ## Strategy Flow
 

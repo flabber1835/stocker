@@ -15,7 +15,7 @@ from app.staleness import is_stale, last_trading_day
 AV_INGESTOR_URL       = os.getenv("AV_INGESTOR_URL",       "http://av-ingestor:8000")
 PIPELINE_URL          = os.getenv("PIPELINE_URL",           "http://pipeline:8000")
 VETTER_URL            = os.getenv("VETTER_URL",             "http://llm-vetter:8000")
-PORTFOLIO_BUILDER_URL = os.getenv("PORTFOLIO_BUILDER_URL",  "http://portfolio-builder:8000")  # manual/monthly use only
+PORTFOLIO_BUILDER_URL = os.getenv("PORTFOLIO_BUILDER_URL",  "http://portfolio-builder:8000")
 ALPACA_SYNC_URL       = os.getenv("ALPACA_SYNC_URL",        "http://alpaca-sync:8000")
 DATABASE_URL          = os.getenv("DATABASE_URL", "")
 
@@ -59,6 +59,7 @@ class _StepDef:
     url: str
     start_path: str
     date_field: str
+    status_path: str = "/runs/latest"  # path used for status polling
     use_trading_day: bool = False   # use last_trading_day() for date comparison
     also_accept_prev: bool = False  # also accept prev_trading_day
     job_type: str | None = None     # job_type filter on /runs/latest
@@ -71,6 +72,11 @@ _STEPS: list[_StepDef] = [
     _StepDef("fetch-data", AV_INGESTOR_URL, "/jobs/fetch-data", "started_at",
              job_type="fetch-data", extra_ok=("partial_success",)),
     _StepDef("pipeline", PIPELINE_URL, "/jobs/run", "run_date",
+             use_trading_day=True, also_accept_prev=True),
+    _StepDef("portfolio-builder", PORTFOLIO_BUILDER_URL, "/jobs/build", "portfolio_date",
+             use_trading_day=True, also_accept_prev=True),
+    _StepDef("delta", PIPELINE_URL, "/jobs/delta", "run_date",
+             status_path="/runs/delta-latest",
              use_trading_day=True, also_accept_prev=True),
     _StepDef("vet", VETTER_URL, "/jobs/vet", "started_at", optional=True),
 ]
@@ -213,7 +219,7 @@ async def _step_state(
     prev_trading_day: str,
 ) -> StepState:
     try:
-        r = await client.get(f"{step.url}/runs/latest", timeout=10.0)
+        r = await client.get(f"{step.url}{step.status_path}", timeout=10.0)
         if r.status_code != 200:
             return "idle"
         data = r.json()

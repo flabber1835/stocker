@@ -59,26 +59,45 @@ services (factor-engine, ranker, delta-engine). Single `_job_lock` is held end-
 to-end so concurrent HTTP /jobs/run or Redis events get
 `{"status":"already_running"}` for the full run.
 
-Sub-steps in order:
+Sub-steps in order (for `/jobs/run`):
 - factor calculation (factor_scores, regime_snapshots)
 - ranking (ranking_runs, rankings)
 - buffer-zone delta evaluation (delta_runs, delta_intents — only actionable rows)
+  triggered_by='pipeline' in delta_runs
 
-**Orphan broker position handling:** before delta evaluation, the pipeline loads
-the latest `live_positions` from alpaca-sync and adds any ticker that exists in
-`live_positions` but not in `portfolio_holdings` into the current-portfolio map
-with weight=0.0. This causes the existing `missing_from_universe` force-exit
-path to emit an exit intent for the orphan, ensuring positions that were bought
-outside the system (or that the portfolio-builder forgot) are cleanly exited.
+**Standalone delta endpoint (`POST /jobs/delta`):**
+
+Called by the scheduler after portfolio-builder updates the target portfolio.
+Runs only the delta evaluation step (no factor recalc or ranking).
+Uses `triggered_by='scheduler'` so `/runs/delta-latest` can distinguish it
+from the delta that runs as part of `/jobs/run`.
+
+Delta mode selection:
+- If portfolio_holdings exists (portfolio-builder has run): uses `evaluate_target_vs_live()`,
+  which diffs `portfolio_holdings` (target) against `live_positions` (actual broker state).
+  Generates immediate entry intents on cold boot — no confirmation_days wait needed.
+- If no portfolio run found (true cold start): falls back to `evaluate_all()` with
+  `confirmation_days` confirmation requirement.
+
+**`/runs/delta-latest`:** Returns the most recent delta_run with `triggered_by='scheduler'`.
+The scheduler polls this endpoint (not `/runs/latest`) to track standalone delta state
+independently from the pipeline's delta run.
+
+**Delta decision semantics (target_vs_live mode):**
+- `entry` — ticker in portfolio_holdings (target) but not yet held at broker; `current_weight` = target weight
+- `exit`  — ticker held at broker but removed from target portfolio
+- `hold`  — ticker in both target and broker positions
+- `watch` — confirmed in entry zone (confirmation_days) but not yet in target; informational
 
 **DB insert ordering:** `execution_traces` is always inserted before any child
 table (`pipeline_runs`, `factor_runs`, `ranking_runs`, `delta_runs`) to satisfy
 FK constraints. Reversing this order caused FK violations that crashed every run.
 
 Triggers:
-- `POST /jobs/run` (scheduler, dashboard, manual curl)
+- `POST /jobs/run` (scheduler, dashboard, manual curl) — full pipeline including delta
+- `POST /jobs/delta` (scheduler, after portfolio-builder) — standalone delta only
 - Redis stream `stocker:pipeline_events` event `fetch_data.complete` from
-  av-ingestor (consumer group `pipeline-consumers`)
+  av-ingestor (consumer group `pipeline-consumers`) — fires full pipeline
 
 Lifespan marks orphaned `pipeline_runs`, `factor_runs`, `ranking_runs`, and
 `delta_runs` as failed on startup so a restart never leaves stale `running` rows.
@@ -86,6 +105,9 @@ Lifespan marks orphaned `pipeline_runs`, `factor_runs`, `ranking_runs`, and
 ### portfolio-builder
 
 Converts ranked stocks into target portfolio weights.
+
+**Triggered by the scheduler daily chain** (after pipeline completes), not manually.
+The scheduler chain: fetch-data → pipeline → portfolio-builder → delta → vet.
 
 Steps:
 1. Load top N candidates from ranking run
@@ -97,6 +119,11 @@ Steps:
 7. Write holdings to portfolio_holdings
 
 Does not require vetter approval — vetter output is advisory only.
+
+The scheduler's delta step (after portfolio-builder) reads the updated portfolio_holdings
+as the target and diffs it against live_positions to generate trade intents. This means
+an immediate entry intent is generated for any ticker in portfolio_holdings that isn't
+yet held at the broker — no confirmation_days wait for the first portfolio build.
 
 **Rebalance model: continuous buffer-zone (not fixed monthly)**
 
@@ -279,7 +306,23 @@ deploy changes.
 
 ### scheduler
 
-Triggers recurring jobs.
+Non-blocking supervisor state machine that advances a five-step daily chain:
+
+```text
+1. fetch-data       → av-ingestor /jobs/fetch-data
+2. pipeline         → pipeline /jobs/run   (factors + rank + delta, triggered_by='pipeline')
+3. portfolio-builder → portfolio-builder /jobs/build   (target portfolio weights)
+4. delta            → pipeline /jobs/delta  (standalone delta, triggered_by='scheduler')
+                       status polled at /runs/delta-latest (filters triggered_by='scheduler')
+5. vet              → llm-vetter /jobs/vet   (optional, advisory)
+```
+
+`portfolio-builder` is NOT optional — the delta step after it needs a fresh target
+portfolio. If portfolio-builder fails, the chain halts.
+
+`status_path` on `_StepDef`: each step defines its own status polling path (default
+`/runs/latest`). The standalone delta step uses `/runs/delta-latest` so the scheduler
+tracks it independently from the pipeline's embedded delta run.
 
 ### api
 

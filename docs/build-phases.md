@@ -328,6 +328,60 @@ Failed orders reported as success:
   checks and displayed "Market order sent". Fixed: JS now checks body.status explicitly.
 ```
 
+## Phase 7.2: Option B — portfolio-builder in scheduler chain; delta uses target-vs-live diff mode ✅ DONE
+
+**Problem:** On cold boot with zero history, the delta engine required `confirmation_days`
+consecutive ranking days before generating entry intents. With an empty portfolio and a fresh
+ranking run, 0 entry intents were produced even after ranking 2000 tickers.
+
+**Solution (Option B):**
+
+```text
+Scheduler chain extended from 3 steps to 5:
+  fetch-data → pipeline → portfolio-builder → delta(standalone) → vet
+
+Delta now has two modes:
+  target_vs_live (default, when portfolio_holdings exists):
+    entry  — ticker in portfolio_holdings but not held at broker
+    exit   — ticker held at broker but not in portfolio_holdings
+    hold   — ticker in both
+    watch  — confirmed entry-zone but not yet in portfolio (pending portfolio-builder)
+  confirmation_days_fallback (cold start, before first portfolio-builder run):
+    same as legacy evaluate_all() mode
+
+New pipeline endpoints:
+  POST /jobs/delta      — standalone delta only (triggered_by='scheduler')
+  GET  /runs/delta-latest — most recent delta_run WHERE triggered_by='scheduler'
+    (so scheduler tracks standalone delta independently from pipeline's delta)
+
+New delta_runs column:
+  triggered_by TEXT NOT NULL DEFAULT 'pipeline'
+    migration: db/migrations/versions/0003_delta_triggered_by.py
+
+_StepDef.status_path field added to scheduler:
+  default: /runs/latest
+  delta step uses: /runs/delta-latest
+  prevents scheduler from reading the pipeline's delta run as "the standalone delta"
+
+portfolio-builder step is NOT optional — delta after it needs a fresh target portfolio.
+
+Entry intents carry current_weight = target weight from portfolio_holdings.
+trade-executor uses this for order sizing: floor(account_value × weight / price).
+```
+
+Changes:
+```text
+services/pipeline/app/engine.py   — evaluate_target_vs_live() function
+services/pipeline/app/main.py     — _do_delta_step(triggered_by), /jobs/delta, /runs/delta-latest
+services/scheduler/app/main.py    — status_path field on _StepDef; updated _STEPS (5 steps)
+services/dashboard/app/main.py    — delta job path updated to /jobs/delta
+db/migrations/versions/0003_delta_triggered_by.py  — triggered_by column
+tests/delta_engine/test_engine.py — 11 new tests for evaluate_target_vs_live
+docs/architecture.md              — 5-step daily chain
+docs/service-boundaries.md        — pipeline, portfolio-builder, scheduler sections updated
+docs/build-phases.md              — this entry
+```
+
 ## Phase 8: Live Trading Readiness
 
 Only after paper trading review:

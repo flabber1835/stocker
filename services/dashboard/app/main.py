@@ -24,7 +24,7 @@ _JOB_SERVICES = {
     "data":      AV_INGESTOR_URL,
     "pipeline":  PIPELINE_URL,
     "rank":      PIPELINE_URL,
-    "delta":     PIPELINE_URL,   # delta is embedded in pipeline /jobs/run
+    "delta":     PIPELINE_URL,     # standalone delta (post portfolio-builder)
     "vet":       VETTER_URL,
     "portfolio": PORTFOLIO_URL,
 }
@@ -33,7 +33,7 @@ _JOB_PATHS = {
     "data":      "/jobs/fetch-data",
     "pipeline":  "/jobs/run",
     "rank":      "/jobs/run",
-    "delta":     "/jobs/run",    # triggers full pipeline which includes delta step
+    "delta":     "/jobs/delta",    # standalone delta (uses target-vs-live mode)
     "vet":       "/jobs/vet",
     "portfolio": "/jobs/build",
 }

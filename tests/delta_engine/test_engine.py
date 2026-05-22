@@ -10,6 +10,7 @@ from app.engine import (
     DeltaDecision,
     evaluate_ticker,
     evaluate_all,
+    evaluate_target_vs_live,
     _consecutive_in_zone,
 )
 from stock_strategy_shared.schemas.strategy import DeltaEngineConfig
@@ -387,3 +388,175 @@ def test_exit_rank_greater_than_entry_rank_ok():
     cfg = DeltaEngineConfig(entry_rank=20, exit_rank=35)
     assert cfg.entry_rank == 20
     assert cfg.exit_rank == 35
+
+
+# ── evaluate_target_vs_live tests ─────────────────────────────────────────────
+
+def _universe_with_history(*tickers_and_ranks):
+    """Build universe dict from (ticker, [rank, rank, rank]) pairs."""
+    return {
+        ticker: _history(*ranks)
+        for ticker, ranks in tickers_and_ranks
+    }
+
+
+def test_tvl_cold_boot_no_live_positions():
+    """On cold boot: target has tickers, live is empty → all entry intents."""
+    target = {"AAPL": 0.05, "MSFT": 0.04, "NVDA": 0.06}
+    live = set()
+    universe = {t: _history(10, 10, 10) for t in target}
+
+    decisions = evaluate_target_vs_live(
+        target_portfolio=target,
+        live_positions=live,
+        universe=universe,
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+    )
+
+    assert all(decisions[t].action == "entry" for t in target)
+    assert len([d for d in decisions.values() if d.action == "entry"]) == 3
+
+
+def test_tvl_entry_carries_target_weight():
+    """Entry intents carry the target weight so trade-executor can size correctly."""
+    target = {"AAPL": 0.05}
+    live = set()
+    universe = {"AAPL": _history(10, 10, 10)}
+
+    decisions = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=live, universe=universe,
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+    )
+
+    assert decisions["AAPL"].current_weight == pytest.approx(0.05)
+
+
+def test_tvl_hold_when_in_both():
+    """Ticker in target AND live → hold."""
+    target = {"MSFT": 0.05}
+    live = {"MSFT"}
+    universe = {"MSFT": _history(15)}
+
+    decisions = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=live, universe=universe,
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+    )
+    assert decisions["MSFT"].action == "hold"
+    assert decisions["MSFT"].current_weight == pytest.approx(0.05)
+
+
+def test_tvl_exit_when_live_not_in_target():
+    """Ticker at broker but not in target → exit intent."""
+    target = {}
+    live = {"TSLA"}
+    universe = {"TSLA": _history(50)}
+
+    decisions = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=live, universe=universe,
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+    )
+    assert decisions["TSLA"].action == "exit"
+
+
+def test_tvl_watch_confirmed_not_in_target():
+    """Ticker confirmed in entry zone but not in target → watch (pending portfolio-builder)."""
+    target = {"AAPL": 0.05}
+    live = {"AAPL"}
+    universe = {
+        "AAPL": _history(10, 10, 10),   # in target + live → hold
+        "NVDA": _history(5, 5, 5),       # confirmed entry, not in target → watch
+    }
+
+    decisions = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=live, universe=universe,
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+    )
+    assert decisions["AAPL"].action == "hold"
+    assert decisions["NVDA"].action == "watch"
+    assert decisions["NVDA"].confirmation_days_met == 3
+    assert "pending portfolio-builder" in decisions["NVDA"].reason
+
+
+def test_tvl_no_watch_when_not_confirmed():
+    """Ticker in entry zone but < confirmation_days → not in decisions."""
+    target = {}
+    live = set()
+    universe = {"NVDA": _history(5, 5)}  # only 2 days, need 3
+
+    decisions = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=live, universe=universe,
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+    )
+    assert "NVDA" not in decisions
+
+
+def test_tvl_simultaneous_entry_exit_hold():
+    """Mixed scenario: some entries, exits, holds, and watches all at once."""
+    target = {"AAPL": 0.05, "MSFT": 0.04}
+    live = {"MSFT", "TSLA"}  # MSFT in both (hold), TSLA orphan (exit)
+    universe = {
+        "AAPL": _history(10, 10, 10),   # entry (in target, not live)
+        "MSFT": _history(20),            # hold (in target + live)
+        "TSLA": _history(50, 50, 50),   # exit (live, not in target)
+        "NVDA": _history(3, 3, 3),       # watch (confirmed, not in target)
+    }
+
+    decisions = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=live, universe=universe,
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+    )
+    assert decisions["AAPL"].action == "entry"
+    assert decisions["MSFT"].action == "hold"
+    assert decisions["TSLA"].action == "exit"
+    assert decisions["NVDA"].action == "watch"
+
+
+def test_tvl_entry_weight_none_when_not_in_universe():
+    """Entry ticker not in universe still gets an entry intent with rank=9999."""
+    target = {"OBSCURE": 0.03}
+    live = set()
+    universe = {}  # OBSCURE not in universe
+
+    decisions = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=live, universe=universe,
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+    )
+    assert decisions["OBSCURE"].action == "entry"
+    assert decisions["OBSCURE"].rank == 9999
+    assert decisions["OBSCURE"].current_weight == pytest.approx(0.03)
+
+
+def test_tvl_empty_target_and_live():
+    """Completely empty state → no decisions."""
+    decisions = evaluate_target_vs_live(
+        target_portfolio={}, live_positions=set(), universe={},
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+    )
+    assert len(decisions) == 0
+
+
+def test_tvl_weight_math_precision():
+    """Verify target weights are passed through with full float precision."""
+    weight = 1.0 / 30  # ~0.03333...
+    target = {"AAPL": weight}
+    live = set()
+    universe = {"AAPL": _history(10, 10, 10)}
+
+    decisions = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=live, universe=universe,
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+    )
+    assert decisions["AAPL"].current_weight == pytest.approx(weight, rel=1e-9)
+
+
+def test_tvl_hold_weight_equals_target_weight():
+    """Hold decisions carry the target weight (needed for position sizing)."""
+    target = {"MSFT": 0.08}
+    live = {"MSFT"}
+    universe = {"MSFT": _history(15)}
+
+    decisions = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=live, universe=universe,
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+    )
+    assert decisions["MSFT"].current_weight == pytest.approx(0.08)

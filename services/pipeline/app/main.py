@@ -16,7 +16,7 @@ import redis.asyncio as aioredis
 from app.factors import compute_all_factors
 from app.regime import detect_regime, resolve_confirmed_regime
 from app.rank import rank_universe, FACTORS
-from app.engine import evaluate_all, RankObservation
+from app.engine import evaluate_all, evaluate_target_vs_live, RankObservation
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.tracing import log_step, write_trace_file, mark_orphaned_runs_failed
@@ -1129,10 +1129,15 @@ async def _do_rank(
 
 # ── Delta step (extracted from delta-engine/app/main.py) ─────────────────────
 
-async def _do_delta_step() -> str:
+async def _do_delta_step(triggered_by: str = "pipeline") -> str:
     """
     Run delta evaluation step. Returns delta_run_id on success.
     Creates its own delta_runs + execution_traces rows.
+
+    triggered_by='pipeline' means it ran as part of /jobs/run.
+    triggered_by='scheduler' means it ran as a standalone /jobs/delta call.
+    /runs/delta-latest only returns 'scheduler'-triggered runs so the scheduler
+    can track the standalone delta step independently.
     """
     delta_run_id = str(uuid.uuid4())
     trace_id = str(uuid.uuid4())
@@ -1144,13 +1149,14 @@ async def _do_delta_step() -> str:
         await conn.execute(
             text(
                 "INSERT INTO delta_runs "
-                "(run_id, trace_id, strategy_id, config_hash, status, run_date, started_at) "
-                "VALUES (:rid, :tid, :sid, :ch, 'running', :rd, :now)"
+                "(run_id, trace_id, strategy_id, config_hash, status, run_date, started_at, triggered_by) "
+                "VALUES (:rid, :tid, :sid, :ch, 'running', :rd, :now, :tb)"
             ),
             {
                 "rid": delta_run_id, "tid": trace_id,
                 "sid": strategy.strategy_id, "ch": config_hash,
                 "rd": run_date_init, "now": started_at,
+                "tb": triggered_by,
             },
         )
 
@@ -1291,9 +1297,10 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             },
         )
 
-    # ── Step 3: load current portfolio ────────────────────────────────────────
+    # ── Step 3: load target portfolio and live positions ──────────────────────
     t0 = datetime.now(timezone.utc)
-    current_portfolio: dict[str, float] = {}
+    target_portfolio: dict[str, float] = {}      # from portfolio_holdings
+    live_positions_set: set[str] = set()          # from live_positions (broker)
     source_portfolio_run_id: Optional[str] = None
     cold_start = False
 
@@ -1308,8 +1315,10 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
 
     if port_run is None:
         cold_start = True
-        print(f"[delta-engine] WARNING: No portfolio run found — treating as cold start. "
-              f"All confirmed entries up to max_positions={max_positions} will be approved.")
+        print(
+            f"[delta-engine] WARNING: No portfolio run found — falling back to "
+            f"confirmation-days mode. Run portfolio-builder first for immediate entry intents."
+        )
     else:
         source_portfolio_run_id = str(port_run.run_id)
         async with engine.connect() as conn:
@@ -1321,13 +1330,9 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 {"rid": source_portfolio_run_id},
             )
             for h in holdings_rows.fetchall():
-                current_portfolio[h.ticker] = float(h.weight) if h.weight is not None else 0.0
+                target_portfolio[h.ticker] = float(h.weight) if h.weight is not None else 0.0
 
-    # Add any live broker positions that aren't in portfolio_holdings.
-    # These are "orphan" positions — entered outside the system or before
-    # this system started managing the account. evaluate_all's
-    # missing_from_universe path will force-exit them.
-    orphan_tickers: list[str] = []
+    # Load live positions from latest successful alpaca-sync
     async with engine.connect() as conn:
         sync_row = await conn.execute(text(
             "SELECT run_id FROM alpaca_sync_runs WHERE status='success' "
@@ -1338,10 +1343,10 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             pos_rows = await conn.execute(text(
                 "SELECT ticker FROM live_positions WHERE sync_run_id = :rid"
             ), {"rid": str(sync_run.run_id)})
-            for p in pos_rows.fetchall():
-                if p.ticker not in current_portfolio:
-                    current_portfolio[p.ticker] = 0.0
-                    orphan_tickers.append(p.ticker)
+            live_positions_set = {p.ticker for p in pos_rows.fetchall()}
+
+    # Compute orphan_tickers for logging (live positions not in target)
+    orphan_tickers = [t for t in live_positions_set if t not in target_portfolio]
 
     async with engine.begin() as conn:
         await conn.execute(
@@ -1351,37 +1356,56 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             ),
             {
                 "pid": source_portfolio_run_id,
-                "sz": len(current_portfolio),
+                "sz": len(target_portfolio),
                 "rid": run_id,
             },
         )
         step_warnings = []
         if cold_start:
-            step_warnings.append(f"Cold start: no portfolio run found — {max_positions} entries may be approved")
+            step_warnings.append(
+                f"Cold start: no portfolio run found — using confirmation-days fallback mode"
+            )
         if orphan_tickers:
-            step_warnings.append(f"Orphan broker positions added for force-exit: {orphan_tickers}")
+            step_warnings.append(f"Orphan broker positions (not in target): {orphan_tickers}")
         await _log_step_delta(
-            conn, trace_id, "load_current_portfolio", "success",
+            conn, trace_id, "load_portfolio_and_live", "success",
             started_at=t0,
             input_summary={"source_portfolio_run_id": source_portfolio_run_id},
             output_summary={
-                "current_portfolio_size": len(current_portfolio),
-                "cold_start": cold_start,
+                "target_size": len(target_portfolio),
+                "live_positions": len(live_positions_set),
                 "orphan_tickers": orphan_tickers,
+                "cold_start": cold_start,
+                "mode": "confirmation_days_fallback" if cold_start else "target_vs_live",
             },
             warnings=step_warnings or None,
         )
 
-    # ── Step 4: evaluate buffer zone ──────────────────────────────────────────
+    # ── Step 4: evaluate delta ────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
-    decisions = evaluate_all(
-        universe=universe,
-        current_portfolio=current_portfolio,
-        entry_rank=entry_rank,
-        exit_rank=exit_rank,
-        confirmation_days=confirmation_days,
-        max_positions=max_positions,
-    )
+    if cold_start:
+        # No portfolio target yet — use legacy confirmation-days mode on empty portfolio
+        decisions = evaluate_all(
+            universe=universe,
+            current_portfolio={},
+            entry_rank=entry_rank,
+            exit_rank=exit_rank,
+            confirmation_days=confirmation_days,
+            max_positions=max_positions,
+        )
+        mode_used = "confirmation_days_fallback"
+    else:
+        # Target-vs-live diff: portfolio_holdings is target, live_positions is actual
+        decisions = evaluate_target_vs_live(
+            target_portfolio=target_portfolio,
+            live_positions=live_positions_set,
+            universe=universe,
+            entry_rank=entry_rank,
+            exit_rank=exit_rank,
+            confirmation_days=confirmation_days,
+            max_positions=max_positions,
+        )
+        mode_used = "target_vs_live"
 
     entries = [d for d in decisions.values() if d.action == "entry"]
     exits   = [d for d in decisions.values() if d.action == "exit"]
@@ -1398,7 +1422,9 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 "confirmation_days": confirmation_days,
                 "max_positions": max_positions,
                 "universe_size": len(universe),
-                "current_portfolio_size": len(current_portfolio),
+                "target_portfolio_size": len(target_portfolio),
+                "live_positions_count": len(live_positions_set),
+                "mode": mode_used,
             },
             output_summary={
                 "entries": len(entries),
@@ -1699,6 +1725,32 @@ async def start_run(background_tasks: BackgroundTasks, triggered_by: str = "manu
     return result
 
 
+@app.post("/jobs/delta")
+async def start_delta_only(background_tasks: BackgroundTasks):
+    """Run only the delta evaluation step (standalone, not part of a full pipeline run).
+
+    Called by the scheduler after portfolio-builder updates the target portfolio.
+    Uses triggered_by='scheduler' so /runs/delta-latest can distinguish it from
+    the delta that runs as part of /jobs/run.
+    """
+    if _job_lock.locked():
+        return {"status": "already_running"}
+    await _job_lock.acquire()
+
+    async def _run_standalone_delta():
+        try:
+            delta_run_id = await _do_delta_step(triggered_by="scheduler")
+            print(f"[pipeline] standalone delta {delta_run_id} SUCCESS", flush=True)
+        except Exception as exc:
+            print(f"[pipeline] standalone delta FAILED: {exc}", flush=True)
+        finally:
+            if _job_lock.locked():
+                _job_lock.release()
+
+    background_tasks.add_task(_run_standalone_delta)
+    return {"status": "started", "job": "delta"}
+
+
 @app.post("/jobs/calculate")
 async def start_calculate_only(background_tasks: BackgroundTasks):
     """Run only factor calculation (for debugging/manual use). Holds _job_lock
@@ -1783,6 +1835,34 @@ async def get_latest():
     if r is None:
         return {"run_id": None, "status": "no_runs"}
     return _format_pipeline_run(dict(r._mapping))
+
+
+@app.get("/runs/delta-latest")
+async def get_delta_latest():
+    """Return the most recent scheduler-triggered delta_run (triggered_by='scheduler').
+
+    Used by the scheduler to track whether the standalone delta step has run today,
+    independently from the delta that runs as part of /jobs/run.
+    """
+    async with engine.connect() as conn:
+        row = await conn.execute(text(
+            "SELECT run_id, status, run_date, started_at, completed_at, "
+            "  entries_count, exits_count, holds_count, watches_count "
+            "FROM delta_runs WHERE triggered_by = 'scheduler' "
+            "ORDER BY started_at DESC LIMIT 1"
+        ))
+        r = row.fetchone()
+    if r is None:
+        return {"run_id": None, "status": "no_runs"}
+    result = {}
+    for k, v in r._mapping.items():
+        if hasattr(v, 'isoformat'):
+            result[k] = v.isoformat()
+        elif hasattr(v, 'hex'):
+            result[k] = str(v)
+        else:
+            result[k] = v
+    return result
 
 
 @app.get("/runs/{run_id}")

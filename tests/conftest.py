@@ -16,7 +16,7 @@ _SERVICE_MAP = {
     "av_ingestor":      "av-ingestor",
     "backtester":       "backtester",
     "dashboard":        "dashboard",
-    "delta_engine":     "delta-engine",
+    "delta_engine":     "pipeline",  # delta-engine consolidated into pipeline (Phase 7)
     "factor_engine":    "factor-engine",
     "llm_gateway":      "llm-gateway",
     "llm_vetter":       "llm-vetter",

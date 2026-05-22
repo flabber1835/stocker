@@ -110,6 +110,106 @@ def evaluate_ticker(
     )
 
 
+def evaluate_target_vs_live(
+    target_portfolio: dict[str, float],
+    live_positions: set[str],
+    universe: dict[str, list[RankObservation]],
+    entry_rank: int,
+    exit_rank: int,
+    confirmation_days: int,
+    max_positions: int,
+) -> dict[str, DeltaDecision]:
+    """Diff portfolio_holdings (target) against live_positions (actual broker state).
+
+    entry  — ticker in target but not yet held at broker; current_weight = target weight
+             (trade-executor uses this for order sizing — floor(account_value × weight / price))
+    exit   — ticker held at broker but removed from target portfolio
+    hold   — ticker in both target and broker positions
+    watch  — confirmed in entry zone (confirmation_days) but not yet in target;
+             informational — portfolio-builder will add on next build
+    """
+    decisions: dict[str, DeltaDecision] = {}
+
+    # Entries: target says hold but broker doesn't yet
+    for ticker, weight in target_portfolio.items():
+        if ticker in live_positions:
+            continue  # handled in holds below
+        obs = universe.get(ticker, [])
+        latest = obs[0] if obs else None
+        decisions[ticker] = DeltaDecision(
+            ticker=ticker,
+            action="entry",
+            rank=latest.rank if latest else 9999,
+            composite_score=latest.composite_score if latest else 0.0,
+            confirmation_days_met=confirmation_days,
+            current_weight=weight,  # target weight → trade-executor sizes from this
+            reason=f"In target portfolio (weight={weight:.2%}) but not held at broker",
+        )
+
+    # Exits: broker holds but target no longer includes
+    for ticker in live_positions:
+        if ticker in target_portfolio:
+            continue  # handled in holds below
+        obs = universe.get(ticker, [])
+        latest = obs[0] if obs else None
+        decisions[ticker] = DeltaDecision(
+            ticker=ticker,
+            action="exit",
+            rank=latest.rank if latest else 9999,
+            composite_score=latest.composite_score if latest else 0.0,
+            confirmation_days_met=confirmation_days,
+            current_weight=0.0,
+            reason="Held at broker but not in target portfolio",
+        )
+
+    # Holds: in both target and broker positions
+    for ticker in live_positions:
+        if ticker not in target_portfolio:
+            continue
+        weight = target_portfolio[ticker]
+        obs = universe.get(ticker, [])
+        latest = obs[0] if obs else None
+        decisions[ticker] = DeltaDecision(
+            ticker=ticker,
+            action="hold",
+            rank=latest.rank if latest else 9999,
+            composite_score=latest.composite_score if latest else 0.0,
+            confirmation_days_met=0,
+            current_weight=weight,
+            reason=f"Held at broker and in target portfolio (target weight={weight:.2%})",
+        )
+
+    # Watches: universe tickers confirmed in entry zone but not yet in target
+    in_target_or_live = set(target_portfolio.keys()) | live_positions
+    pending_entries = sum(1 for d in decisions.values() if d.action == "entry")
+    current_held = len(live_positions)
+
+    for ticker, obs in universe.items():
+        if ticker in in_target_or_live or not obs:
+            continue
+        entry_days = _consecutive_in_zone(
+            obs, lambda o, er=entry_rank: o.rank <= er, confirmation_days
+        )
+        if entry_days >= confirmation_days:
+            latest = obs[0]
+            at_capacity = (current_held + pending_entries) >= max_positions
+            decisions[ticker] = DeltaDecision(
+                ticker=ticker,
+                action="watch",
+                rank=latest.rank,
+                composite_score=latest.composite_score,
+                confirmation_days_met=entry_days,
+                current_weight=None,
+                reason=(
+                    f"Confirmed entry (rank={latest.rank} ≤ {entry_rank} for {entry_days}d)"
+                    f" — pending portfolio-builder to add to target"
+                    + (" [at capacity]" if at_capacity else "")
+                ),
+            )
+
+    return decisions
+
+
 def evaluate_all(
     universe: dict[str, list[RankObservation]],
     current_portfolio: dict[str, float],

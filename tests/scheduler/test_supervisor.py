@@ -342,7 +342,7 @@ class TestSupervisorTick:
         mock_db_close = AsyncMock()
 
         async def _fake_step_state(client, step, today, trading_day, prev_trading_day):
-            if step.name in ("fetch-data", "pipeline"):
+            if step.name in ("fetch-data", "pipeline", "portfolio-builder", "delta"):
                 return "done"
             if step.name == "vet":
                 return "failed"
