@@ -69,6 +69,11 @@ async def proxy_rankings(limit: int = 500):
     return await _proxy("/rankings", {"limit": limit})
 
 
+@app.get("/api/rankings/with-overlays")
+async def proxy_rankings_with_overlays(limit: int = 500):
+    return await _proxy("/rankings/with-overlays", {"limit": limit})
+
+
 @app.get("/api/universe")
 async def proxy_universe():
     return await _proxy("/universe")
