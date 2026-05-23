@@ -86,7 +86,16 @@ PER_TICKER_SCHEMA = {
         "confidence":           {"type": "string", "enum": ["high", "medium", "low"]},
         "risk_type":            {
             "type": "string",
-            "enum": ["earnings", "regulatory", "management", "legal", "sector", "none"],
+            "enum": [
+                "earnings",     # guidance cut, miss risk, estimate revision
+                "regulatory",   # SEC action, FDA, agency enforcement, trading halt
+                "management",   # exec departure, insider selling, board change
+                "legal",        # litigation, class action, DOJ/FTC investigation
+                "competitive",  # major customer loss, market share loss, contract cancellation
+                "operational",  # product recall, supply chain failure, facility issue
+                "sector",       # sector-wide event not captured by above types
+                "none",         # no material risk identified
+            ],
         },
         "positive_catalyst":    {"type": "boolean"},
         "positive_reason":      {"type": "string"},
@@ -99,26 +108,35 @@ PER_TICKER_SCHEMA = {
 
 _STRICTNESS_EXCLUDE_CLAUSE = {
     "strict": """\
-EXCLUDE the stock (exclude=true) when there is evidence of material concern, even if
-the timing or magnitude is uncertain. Err on the side of caution — the model can always
-find replacements. Reasons to exclude include:
-- Any significant negative news or regulatory attention, even if the outcome is unclear
-- Upcoming earnings with ANY deteriorating analyst signals (not just imminent guidance cuts)
-- Multiple analyst downgrades within the past 14 days
-- Material legal or regulatory proceedings with uncertain outcome
-- Management changes or insider selling patterns
-- Pending M&A where the stock is the TARGET (binary event risk)""",
+EXCLUDE the stock (exclude=true) when there is clear evidence of a material concern that
+is SPECIFIC to this company, occurred within the risk assessment window, and is NOT already
+reflected in the factor scores. Err on the side of caution — the quant model will find
+replacements. Reasons to exclude include:
+- Upcoming earnings with ANY deteriorating analyst signals within the past 14 days
+  (guidance cuts, estimate revisions, negative pre-announcements)
+- Any significant new regulatory attention, legal action, or enforcement activity
+- Key executive departure or insider selling pattern (reported within the assessment window)
+- Multiple analyst consensus downgrades within the past 14 days
+- Pending M&A where the stock is the TARGET (binary event risk — deal break or arb collapse)
+- Significant new competitive setback: major customer loss, contract cancellation,
+  market share data showing accelerating erosion
+
+Do NOT exclude for long-term secular headwinds, known valuation-visible distress, or any
+concern that predates the assessment window and is therefore already priced in.""",
 
     "moderate": """\
 EXCLUDE the stock (exclude=true) only when there is CLEAR and SPECIFIC evidence of:
 - Upcoming earnings with deteriorating analyst expectations, revenue warnings, or
   guidance cuts within the assessment window
-- Significant NEGATIVE news that is NEW and UNPRICED: regulatory action, fraud allegation,
-  product recall, key executive departure, major customer loss
+- Significant NEGATIVE news that is NEW and UNPRICED:
+    regulatory/legal: enforcement action, fraud allegation, SEC/FTC/DOJ investigation
+    operational:      product recall, facility shutdown, supply chain failure
+    competitive:      major customer loss, large contract cancellation, accelerating share loss
+    management:       key executive departure (CEO/CFO), significant insider selling
 - Pending binary legal or regulatory decision with material downside
 - Multiple analyst consensus downgrades within the past 7 days
-- Pending acquisition or merger where the stock is the TARGET and the deal has not
-  yet closed — binary event risk (deal break, arb spread collapse, regulatory block)
+- Pending acquisition where the stock is the TARGET and the deal has not yet closed
+  (binary event risk: deal break, arb spread collapse, regulatory block)
 
 Do NOT exclude based on:
 - General macro or market uncertainty (applies to all stocks equally)
@@ -149,6 +167,7 @@ def _build_system_prompt(
     exit_rank: int = 40,
     confirmation_days: int = 3,
     risk_horizon_days: int = 90,
+    news_lookback_days: int = 7,
     strictness: str = "moderate",
     system_prompt_override: str | None = None,
 ) -> str:
@@ -159,6 +178,7 @@ def _build_system_prompt(
             exit_rank=exit_rank,
             confirmation_days=confirmation_days,
             risk_horizon_days=risk_horizon_days,
+            news_lookback_days=news_lookback_days,
             exclude_clause=exclude_clause,
         )
     return f"""\
@@ -181,6 +201,12 @@ several months. No fixed sell date.
 
 RISK ASSESSMENT WINDOW: {risk_horizon_days} days. Events beyond this window are background
 noise unless they represent structural changes (fraud, going-concern, business model collapse).
+
+DATA WINDOWS: The pre-fetched news below covers the past {news_lookback_days} days.
+For events between day {news_lookback_days} and {risk_horizon_days} — such as an earnings
+date, a regulatory filing, or a major customer announcement — use the web_search tool.
+Do not speculate about events in that gap; if you cannot find them via search, treat it
+as silence (neutral).
 
 QUANTITATIVE CONTEXT: Rank, factor z-scores, sector, and active regime are in the user message.
 
@@ -229,9 +255,22 @@ CONFIDENCE:
   "medium" → credible concern but uncertain timing or magnitude
   "low"    → weak signal; not actionable alone
 
+RISK TYPE — choose the most specific type that fits the identified risk:
+  earnings     → guidance cut, estimate revision, miss risk, pre-announcement
+  regulatory   → SEC/FDA/FTC/agency enforcement, trading halt, regulatory shutdown
+  management   → CEO/CFO departure, insider selling, board change
+  legal        → litigation, class action, DOJ investigation, legal judgment
+  competitive  → major customer loss, contract cancellation, accelerating market share loss
+  operational  → product recall, supply chain failure, facility shutdown, safety issue
+  sector       → sector-wide event not captured by the above (last resort)
+  none         → no material risk identified (use when not excluding)
+
 If not excluding: set risk_type="none" and briefly explain why the stock is safe to hold.
 
-POSITIVE CATALYST — two fields that must be consistent:
+POSITIVE CATALYST — for display and audit purposes only; does NOT affect the stock's score
+or portfolio weight. The deterministic ranker owns the final score.
+
+  Two fields that must be consistent:
   positive_catalyst=true  → positive_reason must cite the specific source
   positive_catalyst=false → positive_reason MUST be "" (empty string)
                             No partial credit. No "mild tailwinds." Silence is neutral.
@@ -257,6 +296,7 @@ def _format_ticker_message(
     exit_rank: int = 40,
     confirmation_days: int = 3,
     risk_horizon_days: int = 90,
+    news_lookback_days: int = 7,
     rank: int | None = None,
     total_candidates: int | None = None,
     composite_score: float | None = None,
@@ -299,14 +339,14 @@ def _format_ticker_message(
 
     all_articles = news + tavily_articles
     if all_articles:
-        lines.append("RECENT NEWS:")
+        lines.append(f"RECENT NEWS (past {news_lookback_days} days — use web_search for older events within the risk window):")
         for a in all_articles:
             sentiment = f" [{a['sentiment']}]" if "sentiment" in a else ""
             lines.append(f"  - {a['title']}{sentiment}")
             if a.get("summary"):
                 lines.append(f"    {a['summary'][:250]}")
     else:
-        lines.append("RECENT NEWS: none retrieved")
+        lines.append(f"RECENT NEWS (past {news_lookback_days} days): none retrieved — use web_search to check for events within the risk window")
 
     return "\n".join(lines)
 
@@ -459,6 +499,7 @@ async def vet_single_ticker(
     exit_rank: int = 40,
     confirmation_days: int = 3,
     risk_horizon_days: int = 90,
+    news_lookback_days: int = 7,
     max_searches_per_ticker: int = 3,
     strictness: Literal["strict", "moderate", "permissive"] = "moderate",
     max_search_results: int = 5,
@@ -498,6 +539,7 @@ async def vet_single_ticker(
         exit_rank=exit_rank,
         confirmation_days=confirmation_days,
         risk_horizon_days=risk_horizon_days,
+        news_lookback_days=news_lookback_days,
         strictness=strictness,
         system_prompt_override=system_prompt_override,
     )
@@ -507,6 +549,7 @@ async def vet_single_ticker(
         exit_rank=exit_rank,
         confirmation_days=confirmation_days,
         risk_horizon_days=risk_horizon_days,
+        news_lookback_days=news_lookback_days,
         rank=rank,
         total_candidates=total_candidates,
         composite_score=composite_score,

@@ -378,6 +378,7 @@ async def _do_vet(
             exit_rank=de.exit_rank,
             confirmation_days=de.confirmation_days,
             risk_horizon_days=vcfg.risk_horizon_days,
+            news_lookback_days=vcfg.news_lookback_days,
             max_searches_per_ticker=vcfg.max_searches_per_ticker,
             strictness=vcfg.strictness,
             max_search_results=_prefetch_results,
