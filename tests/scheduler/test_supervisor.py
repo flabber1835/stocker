@@ -38,8 +38,11 @@ from app.main import (  # noqa: E402
     _StepDef,
     _STEPS,
     _chain_status,
+    _restore_force_pending,
+    _run_supervised_fast,
     _step_state,
     _supervisor_tick,
+    run_now,
 )
 
 
@@ -892,6 +895,63 @@ class TestForceRerunOverride:
         mock_trigger.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_failed_trigger_keeps_step_pending(self):
+        """Regression for review finding #10: if _trigger_step's POST fails (network
+        blip, service down), we must NOT discard the step from _force_pending —
+        otherwise the dashboard shows a fake 'running' state forever while no
+        new run has actually started. The next tick should retry the trigger."""
+        self._reset_chain_status()
+        self._reset_force_pending()
+
+        # _trigger_step returns False on failure
+        mock_trigger = AsyncMock(return_value=False)
+        _supervisor_tick.__globals__["_force_pending"].add("pipeline")
+
+        with patch.dict(_supervisor_tick.__globals__, {
+            "_has_universe": AsyncMock(return_value=True),
+            "_step_state": AsyncMock(return_value="done"),
+            "_trigger_step": mock_trigger,
+            "_get_latest_run_id": AsyncMock(return_value="fake-run-id"),
+            "_db_open_run": AsyncMock(return_value="run-uuid-1"),
+            "_db_update_run": AsyncMock(),
+            "_db_close_run": AsyncMock(),
+        }):
+            await _supervisor_tick()
+
+        # Pipeline must STAY in _force_pending so the next tick retries
+        assert "pipeline" in _supervisor_tick.__globals__["_force_pending"], (
+            "trigger failure must not drain _force_pending — otherwise the chain "
+            "is silently stuck"
+        )
+        # Step status must NOT be advertised as 'running' since nothing actually ran
+        assert _supervisor_tick.__globals__["_chain_status"]["steps"].get("pipeline") != "running"
+
+    @pytest.mark.asyncio
+    async def test_successful_trigger_drains_force_pending(self):
+        """Symmetric to the previous test: when _trigger_step succeeds, the step
+        IS discharged so the next tick observes the new running run rather than
+        firing twice."""
+        self._reset_chain_status()
+        self._reset_force_pending()
+
+        mock_trigger = AsyncMock(return_value=True)
+        _supervisor_tick.__globals__["_force_pending"].add("pipeline")
+
+        with patch.dict(_supervisor_tick.__globals__, {
+            "_has_universe": AsyncMock(return_value=True),
+            "_step_state": AsyncMock(return_value="done"),
+            "_trigger_step": mock_trigger,
+            "_get_latest_run_id": AsyncMock(return_value="fake-run-id"),
+            "_db_open_run": AsyncMock(return_value="run-uuid-1"),
+            "_db_update_run": AsyncMock(),
+            "_db_close_run": AsyncMock(),
+        }):
+            await _supervisor_tick()
+
+        assert "pipeline" not in _supervisor_tick.__globals__["_force_pending"]
+        assert _supervisor_tick.__globals__["_chain_status"]["steps"]["pipeline"] == "running"
+
+    @pytest.mark.asyncio
     async def test_force_pending_discharged_one_step_per_tick(self):
         """With multiple steps in _force_pending, the supervisor triggers the FIRST
         one and returns — preserving the existing one-step-per-tick contract."""
@@ -923,3 +983,142 @@ class TestForceRerunOverride:
         assert "fetch-data" not in pending
         # The other four are still pending for subsequent ticks
         assert pending == {"pipeline", "vet", "portfolio-builder", "delta"}
+
+
+class TestRunNowRaceCondition:
+    """Regression for review finding #2: clicking 'Run' twice while the first
+    supervised loop is still in flight must not reset _chain_status mid-cycle
+    or spawn a parallel _run_supervised_fast. _run_now_lock guarantees this."""
+
+    @pytest.mark.asyncio
+    async def test_second_run_now_returns_already_running(self):
+        """While _run_now_lock is held, a second /jobs/run-now returns
+        'already_running' instead of clobbering _chain_status."""
+        lock = run_now.__globals__["_run_now_lock"]
+        chain_status = run_now.__globals__["_chain_status"]
+        force_pending = run_now.__globals__["_force_pending"]
+
+        # Snapshot to verify they're untouched
+        snapshot_status = dict(chain_status)
+        snapshot_pending = set(force_pending)
+
+        await lock.acquire()
+        try:
+            bg = MagicMock()
+            bg.add_task = MagicMock()
+            result = await run_now(bg)
+            assert result == {"status": "already_running"}
+            bg.add_task.assert_not_called()
+            # _chain_status must NOT have been mutated by the rejected call
+            assert chain_status == snapshot_status
+            assert force_pending == snapshot_pending
+        finally:
+            lock.release()
+
+    @pytest.mark.asyncio
+    async def test_run_now_lock_released_after_run_supervised_fast(self):
+        """When _run_supervised_fast exits, _run_now_lock must be released so the
+        next Run click is accepted."""
+        lock = _run_supervised_fast.__globals__["_run_now_lock"]
+        chain_status = _run_supervised_fast.__globals__["_chain_status"]
+
+        async def _one_shot_tick():
+            chain_status["status"] = "success"
+
+        assert not lock.locked()
+        with patch.dict(_run_supervised_fast.__globals__, {"_supervisor_tick": _one_shot_tick}):
+            await _run_supervised_fast()
+        assert not lock.locked(), (
+            "lock must be released after the supervised loop completes — "
+            "otherwise the Run button is dead until the next process restart"
+        )
+
+
+class TestRestartResilience:
+    """Regression for review finding #6: _force_pending is module-level memory.
+    If the scheduler container restarts mid-force-rerun, the remaining pending
+    steps must be recovered from the DB or the chain silently truncates."""
+
+    @pytest.mark.asyncio
+    async def test_restore_force_pending_from_inflight_chain(self):
+        """_restore_force_pending reads scheduler_runs for today's in-flight row
+        and returns the force_pending set stashed inside the steps JSONB."""
+        import json as _json
+
+        synthetic_steps = {
+            "fetch-data": "done",
+            "pipeline": "running",
+            "__meta": {"force_pending": ["vet", "portfolio-builder", "delta"]},
+        }
+        fake_row = {"run_id": "restored-uuid", "steps": _json.dumps(synthetic_steps)}
+        fake_conn = MagicMock()
+        fake_conn.fetchrow = AsyncMock(return_value=fake_row)
+        fake_conn.close = AsyncMock()
+
+        with patch.dict(_restore_force_pending.__globals__, {
+            "_db_connect": AsyncMock(return_value=fake_conn),
+        }):
+            run_id, pending = await _restore_force_pending()
+
+        assert run_id == "restored-uuid"
+        assert pending == {"vet", "portfolio-builder", "delta"}
+
+    @pytest.mark.asyncio
+    async def test_restore_returns_empty_when_no_inflight_chain(self):
+        """No 'running' row for today → empty pending set, no run_id."""
+        fake_conn = MagicMock()
+        fake_conn.fetchrow = AsyncMock(return_value=None)
+        fake_conn.close = AsyncMock()
+        with patch.dict(_restore_force_pending.__globals__, {
+            "_db_connect": AsyncMock(return_value=fake_conn),
+        }):
+            run_id, pending = await _restore_force_pending()
+        assert run_id is None
+        assert pending == set()
+
+    @pytest.mark.asyncio
+    async def test_restore_handles_missing_meta_gracefully(self):
+        """An in-flight row without the __meta sentinel (e.g. cron-triggered chain
+        that was interrupted) returns empty pending — the supervisor will just
+        resume normal step evaluation on the next tick."""
+        import json as _json
+        fake_row = {"run_id": "abc", "steps": _json.dumps({"fetch-data": "running"})}
+        fake_conn = MagicMock()
+        fake_conn.fetchrow = AsyncMock(return_value=fake_row)
+        fake_conn.close = AsyncMock()
+        with patch.dict(_restore_force_pending.__globals__, {
+            "_db_connect": AsyncMock(return_value=fake_conn),
+        }):
+            run_id, pending = await _restore_force_pending()
+        assert run_id == "abc"
+        assert pending == set()
+
+
+class TestRunsLatestStripsMetaKey:
+    """The __meta sentinel inside steps JSONB must not leak through /runs/latest
+    or the dashboard would iterate it as a real step."""
+
+    @pytest.mark.asyncio
+    async def test_runs_latest_filters_meta(self):
+        from app.main import runs_latest as _runs_latest
+        import json as _json
+
+        steps_with_meta = {
+            "fetch-data": "done",
+            "pipeline": "running",
+            "__meta": {"force_pending": ["vet"]},
+        }
+        fake_row = {
+            "run_id": "abc", "started_at": None, "updated_at": None,
+            "completed_at": None, "status": "running", "chain_date": "2026-05-23",
+            "steps": _json.dumps(steps_with_meta), "run_ids": {},
+        }
+        fake_conn = MagicMock()
+        fake_conn.fetchrow = AsyncMock(return_value=fake_row)
+        fake_conn.close = AsyncMock()
+        with patch.dict(_runs_latest.__globals__, {
+            "_db_connect": AsyncMock(return_value=fake_conn),
+        }):
+            out = await _runs_latest()
+        assert "__meta" not in out["steps"]
+        assert out["steps"] == {"fetch-data": "done", "pipeline": "running"}

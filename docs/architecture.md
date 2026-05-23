@@ -144,6 +144,33 @@ Fallback: if no portfolio run exists yet (true cold start before first
 portfolio-builder run), the delta step falls back to `evaluate_all()` with
 confirmation_days mode.
 
+In `evaluate_all`'s cold-start mode, `current_portfolio` is seeded as
+`{ticker: 0.0 for ticker in live_positions}` so broker-held positions can still
+hit the exit branch when their rank deteriorates. The 0.0 sentinel is NOT a
+real target weight: both `evaluate_ticker` and `evaluate_target_vs_live` skip
+the drift-rebalance branch when `current_weight` (or `target_weight`) is None,
+0, negative, or NaN. Without that guard, every held position would surface as
+a `sell_trim` with `target=0.00%` until portfolio-builder completed its first
+run — the exact UX bug fixed in May 2026.
+
+## Force re-run (manual chain trigger)
+
+`POST scheduler/jobs/run-now` always re-executes today's chain, even when it
+already succeeded. This is what the dashboard "Run" button calls. Mechanics:
+
+- Scheduler resets `_chain_status` and populates an in-memory `_force_pending`
+  set with every step name.
+- For each step the supervisor sees as `done` whose name is in `_force_pending`,
+  it issues a forced trigger. Pipeline accepts `?force=true` to bypass its
+  daily SPY-date idempotency guard; other services have no daily guard and
+  naturally accept a fresh trigger.
+- `_run_now_lock` is held across the entire supervised loop (including the 3s
+  sleep between ticks), so a double-click returns `already_running` instead
+  of resetting mid-cycle and spawning a parallel loop.
+- The pending set is mirrored to `scheduler_runs.steps` under a `__meta`
+  sentinel. On container restart `_startup_catch_up` reads this back so a
+  rerun interrupted by a deploy or OOM resumes rather than silently truncating.
+
 ## Delta Action Types
 
 The delta engine emits one of seven action tags per ticker per run:

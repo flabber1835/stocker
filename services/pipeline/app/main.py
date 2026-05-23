@@ -1738,7 +1738,30 @@ async def _do_run_pipeline(triggered_by: str = "manual", force: bool = False) ->
         # force=True bypasses the once-per-day idempotency guard. Used by the manual
         # "Run" button in the dashboard so a user can re-run after a code fix
         # (e.g. validating the momentum winsorize change) without waiting for tomorrow.
-        if not force:
+        # Even when forced, we still inspect SPY's freshness and log a warning if the
+        # underlying daily_prices data is unchanged — running the pipeline twice on
+        # the same SPY date produces two "today" success rows; the caller should know
+        # they're re-running against the same input data.
+        if force:
+            async with engine.connect() as conn:
+                spy_row = await conn.execute(
+                    text("SELECT MAX(date) FROM daily_prices WHERE ticker = 'SPY'")
+                )
+                spy_max = spy_row.scalar()
+                if spy_max is not None:
+                    dup_count = (await conn.execute(
+                        text(
+                            "SELECT COUNT(*) FROM pipeline_runs WHERE status='success' AND run_date=:d"
+                        ),
+                        {"d": spy_max},
+                    )).scalar()
+                    if dup_count and dup_count > 0:
+                        print(
+                            f"[pipeline] force=true: bypassing idempotency guard — "
+                            f"this will create pipeline_run #{dup_count + 1} for SPY date {spy_max}",
+                            flush=True,
+                        )
+        else:
             async with engine.connect() as conn:
                 spy_row = await conn.execute(
                     text("SELECT MAX(date) FROM daily_prices WHERE ticker = 'SPY'")

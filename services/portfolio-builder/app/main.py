@@ -198,8 +198,24 @@ async def _do_build(
 
     # ── Step 2b: apply LLM vetter exclusions ─────────────────────────────────────────────────────────────────────────────────────────────
     vetter_excluded: list[str] = []
+    vetter_candidate_count: int | None = None
+    vetter_unvetted_remaining: list[str] = []
     if vetter_run_id:
         async with engine.connect() as conn:
+            vrun_row = (await conn.execute(
+                text("SELECT candidate_count FROM vetter_runs WHERE run_id=:rid"),
+                {"rid": vetter_run_id},
+            )).fetchone()
+            if vrun_row is not None:
+                vetter_candidate_count = (
+                    int(vrun_row.candidate_count) if vrun_row.candidate_count is not None else None
+                )
+            # Tickers the vetter actually evaluated (one decision row per ticker).
+            vetted_rows = await conn.execute(
+                text("SELECT ticker FROM vetter_decisions WHERE run_id = :rid"),
+                {"rid": vetter_run_id},
+            )
+            vetted_tickers = {r.ticker for r in vetted_rows.fetchall()}
             exc_rows = await conn.execute(
                 text(
                     "SELECT ticker, confidence, reason FROM vetter_exclusions "
@@ -215,20 +231,35 @@ async def _do_build(
             scores_map = {t: v for t, v in scores_map.items() if t not in excluded_set}
             rank_map = {t: v for t, v in rank_map.items() if t not in excluded_set}
 
+        # Tickers that survived exclusion filtering but the vetter never actually
+        # scanned — they could carry undisclosed risk. Surface in the log so an
+        # operator can widen the vetter's candidate_count if portfolio-builder is
+        # picking from beyond the vetter's coverage window.
+        if vetted_tickers:
+            vetter_unvetted_remaining = [t for t in candidate_tickers if t not in vetted_tickers]
+
         async with engine.begin() as conn:
+            warn_lines: list[str] = []
+            if vetter_excluded:
+                warn_lines.append(f"LLM vetter excluded {len(vetter_excluded)} tickers: {vetter_excluded}")
+            if vetter_unvetted_remaining:
+                warn_lines.append(
+                    f"{len(vetter_unvetted_remaining)} candidate tickers were not evaluated by the vetter "
+                    f"(vetter.candidate_count={vetter_candidate_count}); they will pass through unfiltered. "
+                    f"Increase vetter.candidate_count to cover the portfolio-builder selection horizon. "
+                    f"unvetted={vetter_unvetted_remaining[:10]}{'…' if len(vetter_unvetted_remaining) > 10 else ''}"
+                )
             await _log_step(
                 conn, trace_id, "apply_vetter_exclusions", "success",
                 started_at=t0,
-                input_summary={"vetter_run_id": vetter_run_id},
+                input_summary={"vetter_run_id": vetter_run_id, "vetter_candidate_count": vetter_candidate_count},
                 output_summary={
                     "excluded_count": len(vetter_excluded),
                     "excluded_tickers": vetter_excluded,
                     "remaining_candidates": len(candidate_tickers),
+                    "unvetted_candidates_count": len(vetter_unvetted_remaining),
                 },
-                warnings=(
-                    [f"LLM vetter excluded {len(vetter_excluded)} tickers: {vetter_excluded}"]
-                    if vetter_excluded else None
-                ),
+                warnings=warn_lines or None,
             )
 
     # ── Step 3: load price data for covariance ───────────────────────────────────────────────────────────────────────────────────────────

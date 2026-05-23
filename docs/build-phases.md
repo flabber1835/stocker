@@ -337,8 +337,13 @@ ranking run, 0 entry intents were produced even after ranking 2000 tickers.
 **Solution (Option B):**
 
 ```text
-Scheduler chain extended from 3 steps to 5:
-  fetch-data → pipeline → portfolio-builder → delta(standalone) → vet
+Scheduler chain extended from 3 steps to 5 (current ordering):
+  fetch-data → pipeline → vet → portfolio-builder → delta(standalone)
+
+vet runs BEFORE portfolio-builder so the same-cycle exclusions can feed the
+build via vetter_decisions/vetter_exclusions. portfolio-builder auto-selects
+the latest matching vetter_run by source_ranking_run_id; the scheduler does
+not pass vetter_run_id explicitly.
 
 Delta now has two modes:
   target_vs_live (default, when portfolio_holdings exists):

@@ -27,6 +27,11 @@ SUPERVISOR_INTERVAL_SECS = int(os.getenv("SUPERVISOR_INTERVAL_SECS", "300"))
 
 _scheduler: Optional[AsyncIOScheduler] = None
 _chain_lock = asyncio.Lock()
+# Separate lock that's held across an entire manual /jobs/run-now invocation,
+# including the 3s sleeps between ticks. _chain_lock alone is insufficient
+# because it's released between ticks, allowing a second click to race in and
+# reset _chain_status while the previous run is still in flight.
+_run_now_lock = asyncio.Lock()
 _chain_status: dict = {
     "status": "idle",      # idle | running | success | failed
     "date": None,          # chain_date (YYYY-MM-DD) for the current/last run
@@ -131,7 +136,15 @@ async def _db_open_run(chain_date: str) -> str | None:
 
 
 async def _db_update_run(run_id: str | None, status: str, steps: dict, run_ids: dict,
-                         *, close: bool = False) -> None:
+                         *, close: bool = False, force_pending: set[str] | None = None) -> None:
+    """Persist current chain state to scheduler_runs.
+
+    force_pending is stashed inside the steps JSONB under a reserved __meta key
+    so a container restart mid-force-rerun can recover the pending step set
+    rather than silently dropping it (the bug fixed by _restore_force_pending).
+    Using a sentinel key avoids a migration; step names will never collide
+    because they are normal identifiers like 'fetch-data' or 'pipeline'.
+    """
     if not run_id:
         return
     conn = await _db_connect()
@@ -140,9 +153,12 @@ async def _db_update_run(run_id: str | None, status: str, steps: dict, run_ids: 
     try:
         import json as _json
         completed_clause = ", completed_at=NOW()" if close else ""
+        steps_to_persist = dict(steps)
+        if force_pending is not None:
+            steps_to_persist["__meta"] = {"force_pending": sorted(force_pending)}
         await conn.execute(
             f"UPDATE scheduler_runs SET updated_at=NOW(){completed_clause}, status=$2, steps=$3, run_ids=$4 WHERE run_id=$1",
-            run_id, status, _json.dumps(steps), _json.dumps(run_ids),
+            run_id, status, _json.dumps(steps_to_persist), _json.dumps(run_ids),
         )
     except Exception as exc:
         _log("DB: update_run failed", error=str(exc))
@@ -152,6 +168,42 @@ async def _db_update_run(run_id: str | None, status: str, steps: dict, run_ids: 
 
 async def _db_close_run(run_id: str | None, status: str, steps: dict, run_ids: dict) -> None:
     await _db_update_run(run_id, status, steps, run_ids, close=True)
+
+
+async def _restore_force_pending() -> tuple[str | None, set[str]]:
+    """On startup, recover any in-flight chain for today and its pending force-rerun
+    steps from the DB. Returns (run_id, pending_set) — both empty if no in-flight run.
+
+    Without this, a container restart mid-force-rerun would silently lose the
+    remaining steps because _force_pending is module-level memory.
+    """
+    conn = await _db_connect()
+    if not conn:
+        return None, set()
+    try:
+        import json as _json
+        today = date.today().isoformat()
+        row = await conn.fetchrow(
+            "SELECT run_id::text, steps FROM scheduler_runs "
+            "WHERE chain_date=$1 AND status='running' "
+            "ORDER BY started_at DESC LIMIT 1",
+            today,
+        )
+        if not row:
+            return None, set()
+        steps_raw = row["steps"]
+        if isinstance(steps_raw, str):
+            steps = _json.loads(steps_raw)
+        else:
+            steps = steps_raw or {}
+        meta = steps.get("__meta") or {}
+        pending = set(meta.get("force_pending") or [])
+        return row["run_id"], pending
+    except Exception as exc:
+        _log("DB: restore_force_pending failed", error=str(exc))
+        return None, set()
+    finally:
+        await conn.close()
 
 
 # ── Core helpers ──────────────────────────────────────────────────────────────
@@ -292,7 +344,12 @@ async def _step_state(
         return "idle"
 
 
-async def _trigger_step(client: httpx.AsyncClient, step: _StepDef, force: bool = False) -> None:
+async def _trigger_step(client: httpx.AsyncClient, step: _StepDef, force: bool = False) -> bool:
+    """Trigger a step. Returns True if the service accepted the request (or reports
+    it's already running, which is also a successful outcome from the supervisor's
+    perspective). Returns False on network errors or unexpected HTTP responses so
+    callers (like the force-pending branch) can decide whether to retry next tick
+    instead of marking the trigger as 'done'."""
     try:
         params = dict(step.params or {})
         if force and step.name == "pipeline":
@@ -301,16 +358,20 @@ async def _trigger_step(client: httpx.AsyncClient, step: _StepDef, force: bool =
         r = await client.post(f"{step.url}{step.start_path}", timeout=15.0, params=params)
         if r.status_code == 409:
             _log(f"supervisor: {step.name}: already running (409) — will check next tick")
+            return True
         elif r.status_code in (200, 201, 202):
             resp = r.json()
             if resp.get("status") == "already_ran_today":
                 _log(f"supervisor: {step.name}: service reports already_ran_today")
             else:
                 _log(f"supervisor: {step.name}: triggered", **{k: v for k, v in resp.items() if k not in ("status",) and v not in (None, "")})
+            return True
         else:
             _log(f"supervisor: {step.name}: trigger HTTP {r.status_code}", body=r.text[:200])
+            return False
     except Exception as exc:
         _log(f"supervisor: {step.name}: trigger failed", error=str(exc))
+        return False
 
 
 async def _supervisor_tick() -> None:
@@ -390,14 +451,22 @@ async def _supervisor_tick() -> None:
 
                 # Force-trigger override: manual /jobs/run-now populates _force_pending
                 # so steps that already finished today (state == 'done') still re-run.
-                # Discharge each step's pending flag the moment we trigger it so we
-                # don't fire twice while the new run flips to 'running' on the next tick.
+                # Only drain the pending flag AFTER the trigger succeeds so a transient
+                # network error leaves the step pending for the next tick rather than
+                # silently advertising 'running' while no new run has actually started.
                 if state == "done" and step.name in _force_pending:
-                    _force_pending.discard(step.name)
-                    _chain_status["status"] = "running"
-                    _chain_status["steps"][step.name] = "running"
-                    await _trigger_step(client, step, force=True)
-                    await _db_update_run(run_id, "running", _chain_status["steps"], _chain_status["run_ids"])
+                    ok = await _trigger_step(client, step, force=True)
+                    if ok:
+                        _force_pending.discard(step.name)
+                        _chain_status["status"] = "running"
+                        _chain_status["steps"][step.name] = "running"
+                    else:
+                        # Keep the step pending and the chain status unchanged so the
+                        # dashboard does not show a fake 'running' state. Next tick retries.
+                        _log(f"supervisor: {step.name} force-trigger failed — will retry next tick")
+                    await _db_update_run(run_id, "running" if ok else (_chain_status.get("status") or "running"),
+                                          _chain_status["steps"], _chain_status["run_ids"],
+                                          force_pending=_force_pending)
                     return
 
                 if state == "done":
@@ -407,7 +476,8 @@ async def _supervisor_tick() -> None:
 
                 if state == "running":
                     _chain_status["status"] = "running"
-                    await _db_update_run(run_id, "running", _chain_status["steps"], _chain_status["run_ids"])
+                    await _db_update_run(run_id, "running", _chain_status["steps"], _chain_status["run_ids"],
+                                          force_pending=_force_pending)
                     return  # wait for next tick
 
                 if state == "failed":
@@ -448,9 +518,28 @@ async def _startup_catch_up() -> None:
     - Daily NAS restart: universe exists but today's data is stale → chain
       starts immediately rather than waiting for the 5-minute interval tick.
 
+    Also recovers from a mid-force-rerun restart: if a chain row in the DB shows
+    today's run as 'running' with force_pending steps stashed in its steps JSONB,
+    re-populate _force_pending in memory before the first tick so the supervisor
+    resumes the manual re-run instead of declaring the chain "already done today".
+
     The regular SUPERVISOR_INTERVAL_SECS interval trigger continues running
     in parallel; _chain_lock ensures ticks never run concurrently.
     """
+    # Restore any in-flight chain and pending force-rerun steps from the DB.
+    restored_run_id, restored_pending = await _restore_force_pending()
+    if restored_run_id:
+        today = date.today().isoformat()
+        _chain_status["date"] = today
+        _chain_status["current_run_id"] = restored_run_id
+        _chain_status["status"] = None  # let supervisor re-evaluate from /runs/latest
+        if restored_pending:
+            _force_pending.update(restored_pending)
+            _log(
+                "startup: restored in-flight force-rerun from DB",
+                run_id=restored_run_id, pending=sorted(restored_pending),
+            )
+
     _log("startup: beginning catch-up loop (30s cadence until chain completes)")
     for i in range(720):  # up to 6 hours at 30s intervals
         try:
@@ -470,12 +559,18 @@ async def _startup_catch_up() -> None:
 async def _run_supervised_fast() -> None:
     """Poll the supervisor every 3 seconds until the chain reaches a terminal state.
     Used by manual 'run-now' triggers so the UI updates promptly without waiting
-    for the SUPERVISOR_INTERVAL_SECS interval tick."""
-    for _ in range(12000):  # ~10 hours at 3s
-        await _supervisor_tick()
-        if _chain_status.get("status") in ("success", "failed"):
-            break
-        await asyncio.sleep(3)
+    for the SUPERVISOR_INTERVAL_SECS interval tick.
+
+    Held under _run_now_lock so a second concurrent run_now request observes the
+    in-flight rerun and returns 'already_running' rather than wiping
+    _chain_status mid-cycle and spawning a second supervised loop.
+    """
+    async with _run_now_lock:
+        for _ in range(12000):  # ~10 hours at 3s
+            await _supervisor_tick()
+            if _chain_status.get("status") in ("success", "failed"):
+                break
+            await asyncio.sleep(3)
 
 
 # ── App lifecycle ─────────────────────────────────────────────────────────────
@@ -552,13 +647,22 @@ async def run_now(background_tasks: BackgroundTasks):
     """Manual chain re-run. Unlike the cron-driven tick path, this always forces
     each step to re-execute even if today's chain has already completed —
     otherwise the dashboard "Run" button silently no-ops the second time it's
-    pressed in a day."""
-    if _chain_lock.locked():
+    pressed in a day.
+
+    Guarded by _run_now_lock (held across the full supervised loop, including
+    the 3s sleep between ticks) so a second click while the first is still
+    in flight returns 'already_running' instead of resetting chain state
+    mid-cycle and spawning a parallel supervised loop.
+    """
+    if _run_now_lock.locked():
         return {"status": "already_running"}
     today = date.today().isoformat()
-    # Clear the "today already succeeded" gate at line 320 so the supervisor
-    # actually advances. Reset steps so the UI does not display a half-stale chain
-    # while the new triggers fire.
+    # Clear the "today already succeeded" gate so the supervisor actually
+    # advances. Reset steps so the UI does not display a half-stale chain
+    # while the new triggers fire. Safe to mutate without locking here because
+    # _run_now_lock.locked() check above guarantees no concurrent run-now is
+    # in progress; the cron supervisor's regular ticks only mutate state
+    # under _chain_lock, which is acquired inside _supervisor_tick.
     _chain_status.update({
         "date": today, "status": None, "steps": {}, "run_ids": {}, "current_run_id": None,
     })
@@ -578,7 +682,17 @@ async def runs_latest():
                 "FROM scheduler_runs ORDER BY started_at DESC LIMIT 1"
             )
             if row:
-                return dict(row)
+                out = dict(row)
+                # steps may carry a __meta sentinel for restart-recovery; hide it from
+                # callers so the dashboard doesn't iterate it as a real step.
+                steps = out.get("steps")
+                if isinstance(steps, str):
+                    import json as _json
+                    try: steps = _json.loads(steps)
+                    except Exception: steps = {}
+                if isinstance(steps, dict):
+                    out["steps"] = {k: v for k, v in steps.items() if k != "__meta"}
+                return out
         except Exception:
             pass
         finally:

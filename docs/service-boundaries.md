@@ -313,20 +313,51 @@ deploy changes.
 Non-blocking supervisor state machine that advances a five-step daily chain:
 
 ```text
-1. fetch-data       → av-ingestor /jobs/fetch-data
-2. pipeline         → pipeline /jobs/run   (factors + rank + delta, triggered_by='pipeline')
-3. portfolio-builder → portfolio-builder /jobs/build   (target portfolio weights)
-4. delta            → pipeline /jobs/delta  (standalone delta, triggered_by='scheduler')
+1. fetch-data        → av-ingestor /jobs/fetch-data
+2. pipeline          → pipeline /jobs/run   (factors + rank + delta, triggered_by='pipeline')
+3. vet               → llm-vetter /jobs/vet         (optional, advisory)
+4. portfolio-builder → portfolio-builder /jobs/build (target portfolio weights;
+                       reads vetter_exclusions from step 3)
+5. delta             → pipeline /jobs/delta  (standalone delta, triggered_by='scheduler')
                        status polled at /runs/delta-latest (filters triggered_by='scheduler')
-5. vet              → llm-vetter /jobs/vet   (optional, advisory)
 ```
 
+`vet` runs BEFORE `portfolio-builder` so the same-cycle vetter exclusions can feed
+the build. `portfolio-builder` auto-selects the latest successful vetter_run that
+matches `source_ranking_run_id` when no `vetter_run_id` is supplied (the scheduler
+passes none) — without this the scheduler chain would silently skip exclusions and
+risky tickers would surface as BUY+EXCL in the trader UI.
+
 `portfolio-builder` is NOT optional — the delta step after it needs a fresh target
-portfolio. If portfolio-builder fails, the chain halts.
+portfolio. If portfolio-builder fails, the chain halts. `vet` IS optional: if Ollama
+or the Anthropic key are unavailable, the chain proceeds.
 
 `status_path` on `_StepDef`: each step defines its own status polling path (default
 `/runs/latest`). The standalone delta step uses `/runs/delta-latest` so the scheduler
 tracks it independently from the pipeline's embedded delta run.
+
+**Stuck-step timeout (`max_running_minutes`):** Each `_StepDef` may declare a maximum
+running age. `_step_state` checks this BEFORE its date-match early return so a job
+that started yesterday and is still "running" today (cross-midnight hang) is correctly
+classified as failed and the chain can advance. Currently set on `vet` (90 min); if
+Ollama crashes mid-run or the LLM provider stalls past this limit, the scheduler
+treats vet as failed and — because vet is optional — continues to portfolio-builder.
+
+**Manual force re-run (`POST /jobs/run-now`):** the dashboard "Run" button. Unlike
+the cron-driven tick, this always re-executes every step even when today's chain
+already shows `success`. Mechanism:
+- Resets `_chain_status` for today and populates an in-memory `_force_pending` set
+  with every step name.
+- Pipeline `/jobs/run?force=true` bypasses the daily idempotency guard. Other
+  services have no daily guard and naturally accept a fresh trigger.
+- Guarded by `_run_now_lock` (separate from `_chain_lock` — held across the full
+  supervised loop including the 3 s sleeps between ticks), so a second click
+  returns `already_running` instead of resetting state mid-cycle.
+- Persisted to DB inside `scheduler_runs.steps` under a `__meta` sentinel key.
+  On container restart the scheduler reads this in `_startup_catch_up` and
+  resumes the rerun rather than declaring the chain "already done today".
+- If `_trigger_step`'s POST fails, the step stays in `_force_pending` so the next
+  tick retries — never advertising a fake "running" state to the dashboard.
 
 ### api
 

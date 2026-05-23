@@ -115,7 +115,14 @@ def evaluate_ticker(
         # Only rebalance when there's a real positive target weight. current_weight=0.0
         # is the cold-start sentinel ("held at broker, no portfolio target yet") — drift
         # relative to 0 is meaningless and would generate spurious sell_trim actions.
-        if current_weight and drift is not None and abs(drift) > drift_threshold:
+        # Explicit None/0 check: a NaN target weight (data corruption) is truthy in
+        # Python; treat it as missing rather than letting the drift branch consume it.
+        has_real_target = (
+            current_weight is not None
+            and current_weight > 0  # excludes 0.0 sentinel and negatives
+            and current_weight == current_weight  # NaN != NaN, so NaN fails this
+        )
+        if has_real_target and drift is not None and abs(drift) > drift_threshold:
             if drift < 0:
                 action = "buy_add"
                 reason = (
@@ -305,8 +312,14 @@ def evaluate_target_vs_live(
             rank_action = "hold"
 
         # Layer drift on top only when rank-based action is "hold" and there is a real
-        # positive target weight (target_weight=0 is the cold-start sentinel).
-        if rank_action == "hold" and target_weight and drift is not None and abs(drift) > drift_threshold:
+        # positive target weight. Explicit None/positive check rejects 0.0 (cold-start
+        # sentinel), negatives, and NaN (which is truthy in Python but breaks drift math).
+        has_real_target = (
+            target_weight is not None
+            and target_weight > 0
+            and target_weight == target_weight  # NaN-safe
+        )
+        if rank_action == "hold" and has_real_target and drift is not None and abs(drift) > drift_threshold:
             if drift < 0:
                 action = "buy_add"
             else:

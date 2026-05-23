@@ -682,13 +682,36 @@ async def start_vet(
 
 async def _read_trace_progress(trace_id: str, started_at) -> dict | None:
     """Read just the {completed, total} progress field from the running run's trace file.
-    Returns None if anything is missing or unreadable so polling stays cheap on failures."""
+    Returns None if anything is missing or unreadable so polling stays cheap on failures.
+
+    Trace filenames are written using a UTC date prefix. Postgres may return
+    started_at as a naive datetime (timestamp without timezone) — if so, treat it
+    as UTC. As a safety net we also probe yesterday's and tomorrow's date prefixes
+    so a job that started near midnight UTC isn't silently invisible to the
+    dashboard progress bar (the very UX problem this code exists to solve)."""
     if not ARTIFACTS_PATH or trace_id is None or started_at is None:
         return None
     try:
-        fname = f"{started_at.strftime('%Y-%m-%d')}_vetter_run_{str(trace_id)[:8]}.json"
-        fpath = os.path.join(ARTIFACTS_PATH, "traces", fname)
-        if not os.path.exists(fpath):
+        from datetime import timezone as _tz, timedelta as _td
+        # Normalize to UTC for the date prefix calculation.
+        if hasattr(started_at, "tzinfo"):
+            if started_at.tzinfo is None:
+                started_at = started_at.replace(tzinfo=_tz.utc)
+            started_utc = started_at.astimezone(_tz.utc)
+        else:
+            return None
+        prefix_base = started_utc.strftime("%Y-%m-%d")
+        prefix_prev = (started_utc - _td(days=1)).strftime("%Y-%m-%d")
+        prefix_next = (started_utc + _td(days=1)).strftime("%Y-%m-%d")
+        tid8 = str(trace_id)[:8]
+        traces_dir = os.path.join(ARTIFACTS_PATH, "traces")
+        fpath = None
+        for prefix in (prefix_base, prefix_prev, prefix_next):
+            candidate = os.path.join(traces_dir, f"{prefix}_vetter_run_{tid8}.json")
+            if os.path.exists(candidate):
+                fpath = candidate
+                break
+        if fpath is None:
             return None
         def _read():
             with open(fpath) as f:

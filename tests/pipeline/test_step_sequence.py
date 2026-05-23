@@ -430,3 +430,43 @@ class TestColdStartTrimRegression:
                 f"{ticker}: cold-start portfolio produced '{action}' — "
                 f"expected 'hold' (no real target weight, must not rebalance)"
             )
+
+    def test_nan_target_weight_does_not_trigger_drift_branch(self):
+        """Regression for review finding #7: NaN is truthy in Python, so the
+        previous `if current_weight` check would let a corrupted NaN target enter
+        the drift comparison (abs(NaN) > threshold is False → falls to 'hold',
+        benign in the obvious case but the predicate diverges from the documented
+        cold-start sentinel intent and would silently mask data-corruption bugs).
+        With the explicit None/positive check, NaN is treated as 'no real target'
+        and the action is plain 'hold' regardless of the actual_weight delta."""
+        obs = _history(5, 5, 5)
+        d = evaluate_ticker(
+            "AAPL", obs,
+            current_weight=float("nan"),
+            actual_weight=0.10,  # would imply massive overweight vs NaN
+            entry_rank=25, exit_rank=40, confirmation_days=3,
+            portfolio_at_capacity=False,
+            drift_threshold=0.02,
+        )
+        # Without the NaN guard the action would be 'hold' anyway (abs(NaN) > threshold
+        # is False), but the test asserts the predicate's documented intent and
+        # protects against future regressions that treat NaN as a real weight.
+        assert d.action == "hold"
+
+    def test_tiny_positive_target_still_triggers_drift(self):
+        """The truthiness check excluded 0.0 but ALSO any falsy float. Verify that
+        a tiny but legitimate positive target weight (e.g. 0.5%) still triggers
+        rebalance when actual deviates beyond the threshold."""
+        obs = _history(5, 5, 5)
+        d = evaluate_ticker(
+            "AAPL", obs,
+            current_weight=0.005,   # 0.5% target — small but real
+            actual_weight=0.030,    # 3.0% actual — overweight by 2.5%
+            entry_rank=25, exit_rank=40, confirmation_days=3,
+            portfolio_at_capacity=False,
+            drift_threshold=0.02,
+        )
+        assert d.action == "sell_trim", (
+            f"tiny positive target weight should still trigger drift rebalance "
+            f"when actual exceeds threshold; got {d.action}"
+        )
