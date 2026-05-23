@@ -26,6 +26,21 @@ engine: AsyncEngine
 config_hash: str = ""
 
 
+async def _backtester_warm_up():
+    """Background DB warm-up so lifespan can yield immediately."""
+    try:
+        await wait_for_db(engine)
+    except Exception as exc:
+        print(f"[backtester] DB warm-up failed after retries: {exc}", flush=True)
+        return
+    try:
+        async with engine.begin() as conn:
+            await mark_orphaned_runs_failed(conn, "backtest_runs", trace_job_type="backtest_run")
+        print("[backtester] DB connected; persistence enabled", flush=True)
+    except Exception as exc:
+        print(f"[backtester] WARN: orphan-cleanup skipped: {exc}", flush=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global strategy, engine, config_hash
@@ -34,9 +49,7 @@ async def lifespan(app: FastAPI):
     strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=2, max_overflow=3,
                                  connect_args={"timeout": 60})
-    await wait_for_db(engine)
-    async with engine.begin() as conn:
-        await mark_orphaned_runs_failed(conn, "backtest_runs", trace_job_type="backtest_run")
+    asyncio.create_task(_backtester_warm_up())
     yield
     await engine.dispose()
 

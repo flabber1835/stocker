@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from stock_strategy_shared.db import wait_for_db
+from stock_strategy_shared.db import wait_for_db, warm_up_db_in_background  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -301,21 +301,17 @@ async def _sync_with_lock() -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global engine, SessionLocal
-    if not DATABASE_URL:
-        raise RuntimeError("Missing required environment variable: DATABASE_URL")
-    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=2, max_overflow=3,
-                                 connect_args={"timeout": 60})
-    SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-
-    # Wait for DB with up to 60s (20 retries × 3s)
-    await wait_for_db(engine)
-
-    # Mark any orphaned 'running' runs as failed, including their execution_traces rows
+async def _alpaca_sync_warm_up(engine_, session_factory):
+    """Background warm-up: wait for DB, then clean up orphaned runs and (if creds
+    are present) kick off the first sync. Runs as a task so lifespan can yield
+    immediately, keeping the docker healthcheck happy on slow NAS boots."""
     try:
-        async with SessionLocal() as db:
+        await wait_for_db(engine_)
+    except Exception as exc:
+        print(f"[alpaca-sync] DB warm-up failed after retries: {exc}", flush=True)
+        return
+    try:
+        async with session_factory() as db:
             result = await db.execute(
                 text(
                     """
@@ -340,17 +336,31 @@ async def lifespan(app: FastAPI):
             await db.commit()
             orphaned = result.rowcount
             if orphaned:
-                print(f"[alpaca-sync] Marked {orphaned} orphaned sync run(s) as failed")
+                print(f"[alpaca-sync] Marked {orphaned} orphaned sync run(s) as failed", flush=True)
     except Exception as exc:
-        print(f"[alpaca-sync] WARN: orphan-cleanup skipped: {exc}")
+        print(f"[alpaca-sync] WARN: orphan-cleanup skipped: {exc}", flush=True)
 
-    # Log credential status
     if _has_credentials:
-        print(f"[alpaca-sync] Alpaca credentials configured, base_url={ALPACA_BASE_URL}")
-        # Trigger background sync immediately
+        print(f"[alpaca-sync] Alpaca credentials configured, base_url={ALPACA_BASE_URL}", flush=True)
         asyncio.create_task(_sync_with_lock())
     else:
-        print("[alpaca-sync] WARNING: ALPACA_API_KEY is not set or is 'demo' — sync disabled on startup")
+        print("[alpaca-sync] WARNING: ALPACA_API_KEY is not set or is 'demo' — sync disabled on startup", flush=True)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global engine, SessionLocal
+    if not DATABASE_URL:
+        raise RuntimeError("Missing required environment variable: DATABASE_URL")
+    engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=2, max_overflow=3,
+                                 connect_args={"timeout": 60})
+    SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+    # Run wait_for_db + orphan cleanup + first-sync trigger in the background so
+    # lifespan can yield immediately. Blocking here causes the docker healthcheck
+    # (start_period 20s + 5×5s = 45s) to fail before wait_for_db's 90s max
+    # completes on slow NAS hardware, triggering a restart loop.
+    asyncio.create_task(_alpaca_sync_warm_up(engine, SessionLocal))
 
     yield
     await engine.dispose()

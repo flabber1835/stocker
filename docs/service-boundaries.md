@@ -336,6 +336,16 @@ or the Anthropic key are unavailable, the chain proceeds.
 `/runs/latest`). The standalone delta step uses `/runs/delta-latest` so the scheduler
 tracks it independently from the pipeline's embedded delta run.
 
+**FastAPI lifespan must not block on DB.** All persistence-using services schedule
+`wait_for_db` as a background task via `warm_up_db_in_background` (in
+`shared/stock_strategy_shared/db.py`) so the lifespan can yield immediately and
+uvicorn starts accepting `/health` requests right away. If the lifespan blocks
+on DB readiness (as it did prior to May 2026), the docker healthcheck
+(`start_period=20s` + `5 × 5s` = 45 s) can fail before `wait_for_db`'s 90 s max
+on slow NAS hardware, and `restart: unless-stopped` triggers a death loop the
+service can never escape. DB-dependent endpoints fail with 503/connection errors
+until the warm-up task succeeds; `/health` always responds.
+
 **Stuck-step timeout (`max_running_minutes`):** Each `_StepDef` may declare a maximum
 running age. `_step_state` checks this BEFORE its date-match early return so a job
 that started yesterday and is still "running" today (cross-midnight hang) is correctly

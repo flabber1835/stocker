@@ -10,6 +10,7 @@ End-to-end responsibility for the approval click:
 Every approval click produces one execution_trace row with step-by-step audit so
 the dashboard's trace viewer shows exactly why a trade was approved/rejected.
 """
+import asyncio
 import json
 import logging
 import math
@@ -52,6 +53,26 @@ engine: Optional[AsyncEngine] = None
 # ── Lifespan ─────────────────────────────────────────────────────────────────
 
 
+async def _trade_executor_warm_up():
+    """Background DB warm-up + orphan-order cleanup so lifespan can yield
+    immediately and the docker healthcheck succeeds on slow NAS boots."""
+    try:
+        await wait_for_db(engine)
+    except Exception as exc:
+        logger.warning("DB warm-up failed after retries: %s", exc)
+        return
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "UPDATE alpaca_orders SET status='failed', "
+                "error_message='service restarted before submission' "
+                "WHERE status='pending'"
+            ))
+        logger.info("DB connected; persistence enabled")
+    except Exception as exc:
+        logger.warning("orphan-order cleanup skipped: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     global engine
@@ -59,15 +80,7 @@ async def lifespan(application: FastAPI):
         raise RuntimeError("Missing required environment variable: DATABASE_URL")
     engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True,
                                  pool_size=2, max_overflow=3, connect_args={"timeout": 60})
-    await wait_for_db(engine)
-    # Mark any orders that were recorded but never submitted (crashed mid-flow).
-    # 'pending' means the DB row was written but the Alpaca POST never happened.
-    async with engine.begin() as conn:
-        await conn.execute(text(
-            "UPDATE alpaca_orders SET status='failed', "
-            "error_message='service restarted before submission' "
-            "WHERE status='pending'"
-        ))
+    asyncio.create_task(_trade_executor_warm_up())
     has_creds = bool(ALPACA_API_KEY and ALPACA_SECRET_KEY)
     logger.info(
         "Alpaca credentials: %s", "present" if has_creds else "NOT SET — orders will be rejected"

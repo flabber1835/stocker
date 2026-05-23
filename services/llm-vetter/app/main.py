@@ -49,6 +49,24 @@ async def _assert_no_running_job() -> None:
             )
 
 
+async def _llm_vetter_warm_up():
+    """Background DB warm-up + orphan-cleanup + gateway probe. Runs as a task so
+    lifespan can yield immediately and the docker healthcheck succeeds on slow
+    NAS boots."""
+    try:
+        await wait_for_db(engine)
+    except Exception as exc:
+        print(f"[llm-vetter] DB warm-up failed after retries: {exc}", flush=True)
+        return
+    try:
+        async with engine.begin() as conn:
+            await mark_orphaned_runs_failed(conn, "vetter_runs", trace_job_type="vetter_run")
+        print("[llm-vetter] DB connected; persistence enabled", flush=True)
+    except Exception as exc:
+        print(f"[llm-vetter] WARN: orphan-cleanup skipped: {exc}", flush=True)
+    await _check_gateway()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global engine, strategy, config_hash, _system_prompt_override
@@ -57,8 +75,8 @@ async def lifespan(app: FastAPI):
     strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=2, max_overflow=3,
                                  connect_args={"timeout": 60})
-    await wait_for_db(engine)
 
+    # Prompt file read is filesystem-only (no DB) — keep in the synchronous path.
     if strategy.vetter.system_prompt_file:
         try:
             with open(strategy.vetter.system_prompt_file) as f:
@@ -77,10 +95,7 @@ async def lifespan(app: FastAPI):
             print(f"[llm-vetter] WARNING: Could not load system_prompt_file "
                   f"'{strategy.vetter.system_prompt_file}': {e} — using built-in prompt")
 
-    async with engine.begin() as conn:
-        await mark_orphaned_runs_failed(conn, "vetter_runs", trace_job_type="vetter_run")
-
-    await _check_gateway()
+    asyncio.create_task(_llm_vetter_warm_up())
     yield
     await engine.dispose()
 

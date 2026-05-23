@@ -134,9 +134,14 @@ async def _upsert_fundamentals(session, ticker: str, overview: dict, today: date
         )
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await wait_for_db(engine)
+async def _av_ingestor_warm_up():
+    """Background DB warm-up + orphan-cleanup. Runs as a task so lifespan can
+    yield immediately and the docker healthcheck succeeds on slow NAS boots."""
+    try:
+        await wait_for_db(engine)
+    except Exception as exc:
+        print(f"[av-ingestor] DB warm-up failed after retries: {exc}", flush=True)
+        return
     try:
         async with engine.begin() as conn:
             await conn.execute(
@@ -146,9 +151,15 @@ async def lifespan(app: FastAPI):
                     "WHERE status='running'"
                 )
             )
+        print("[av-ingestor] DB connected; persistence enabled", flush=True)
     except Exception as exc:
         # Table may not exist yet on first boot while init.sql is still running.
-        print(f"[av-ingestor] WARN: orphan-cleanup skipped: {exc}")
+        print(f"[av-ingestor] WARN: orphan-cleanup skipped: {exc}", flush=True)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    asyncio.create_task(_av_ingestor_warm_up())
     yield
     await engine.dispose()
 

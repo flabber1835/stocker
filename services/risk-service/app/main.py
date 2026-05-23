@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
-from stock_strategy_shared.db import wait_for_db
+from stock_strategy_shared.db import wait_for_db, warm_up_db_in_background
 
 # ── Environment variables ────────────────────────────────────────────────────
 
@@ -152,8 +152,11 @@ async def lifespan(app_: FastAPI):
     if DATABASE_URL:
         engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=2, max_overflow=3,
                                      connect_args={"timeout": 60})
-        await wait_for_db(engine)
-        print("[risk-service] DB connected; decisions will be persisted to risk_decisions")
+        # Warm up the DB in the background — see warm_up_db_in_background docstring.
+        # Blocking here would mean uvicorn doesn't accept /health until the ping
+        # succeeds, causing the docker healthcheck (start_period=20s, ~45s total)
+        # to fail on slow NAS hardware and trigger a restart loop.
+        warm_up_db_in_background(engine, "risk-service")
     else:
         print("[risk-service] DATABASE_URL not set; decisions will NOT be persisted (degraded mode)")
     yield

@@ -40,6 +40,43 @@ _consumer_task: asyncio.Task | None = None
 _job_lock = asyncio.Lock()
 
 
+async def _pipeline_warm_up():
+    """Background DB warm-up + orphan cleanup + redis consumer launch. Runs as
+    a task so lifespan can yield immediately and the docker healthcheck succeeds
+    on slow NAS boots (blocking on wait_for_db's 90s max here would exceed the
+    healthcheck's ~45s window and trigger a restart loop)."""
+    global redis_client, _consumer_task
+    try:
+        await wait_for_db(engine)
+    except Exception as exc:
+        print(f"[pipeline] DB warm-up failed after retries: {exc}", flush=True)
+        return
+    try:
+        async with engine.begin() as conn:
+            # Ensure delta_runs.triggered_by column exists (migration 0003).
+            # Idempotent guard so the service starts cleanly even if alembic hasn't run.
+            await conn.execute(text(
+                "ALTER TABLE delta_runs ADD COLUMN IF NOT EXISTS "
+                "triggered_by TEXT NOT NULL DEFAULT 'pipeline'"
+            ))
+            await mark_orphaned_runs_failed(conn, "pipeline_runs", trace_job_type="pipeline_run")
+            await mark_orphaned_runs_failed(conn, "factor_runs", trace_job_type="factor_run")
+            await mark_orphaned_runs_failed(conn, "ranking_runs", trace_job_type="rank_run")
+            await mark_orphaned_runs_failed(conn, "delta_runs", trace_job_type="delta_run")
+        print("[pipeline] DB connected; persistence enabled", flush=True)
+    except Exception as exc:
+        print(f"[pipeline] WARN: schema-ensure/orphan-cleanup skipped: {exc}", flush=True)
+    # Redis consumer can only safely consume after DB is ready (each event triggers
+    # _do_run_pipeline which touches the DB). Start it inside the warm-up task to
+    # preserve that ordering.
+    try:
+        redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
+        await _ensure_consumer_group()
+        _consumer_task = asyncio.create_task(_redis_consumer_loop())
+    except Exception as exc:
+        print(f"[pipeline] WARN: Redis consumer setup failed: {exc}", flush=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global strategy, engine, config_hash, redis_client, _consumer_task
@@ -48,22 +85,7 @@ async def lifespan(app: FastAPI):
     strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10,
                                  connect_args={"timeout": 60})
-    await wait_for_db(engine)
-    async with engine.begin() as conn:
-        # Ensure delta_runs.triggered_by column exists (migration 0003).
-        # Idempotent guard so the service starts cleanly even if alembic hasn't run.
-        await conn.execute(text(
-            "ALTER TABLE delta_runs ADD COLUMN IF NOT EXISTS "
-            "triggered_by TEXT NOT NULL DEFAULT 'pipeline'"
-        ))
-        await mark_orphaned_runs_failed(conn, "pipeline_runs", trace_job_type="pipeline_run")
-        # Also mark sub-run tables for any orphaned runs this pipeline manages
-        await mark_orphaned_runs_failed(conn, "factor_runs", trace_job_type="factor_run")
-        await mark_orphaned_runs_failed(conn, "ranking_runs", trace_job_type="rank_run")
-        await mark_orphaned_runs_failed(conn, "delta_runs", trace_job_type="delta_run")
-    redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
-    await _ensure_consumer_group()
-    _consumer_task = asyncio.create_task(_redis_consumer_loop())
+    asyncio.create_task(_pipeline_warm_up())
     yield
     if _consumer_task:
         _consumer_task.cancel()
