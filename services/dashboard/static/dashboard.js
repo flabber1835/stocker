@@ -523,11 +523,13 @@ function _buildTradeCard(r) {
   const timerCls = remaining > 1800 ? 'time-plenty' : remaining > 600 ? 'time-warn' : 'time-urgent';
 
   const st = _approvalState[r.id] || {};
+  const alreadyOrdered = r.order_status === 'submitted' || r.order_status === 'pending';
   let actionsHtml;
   if (st.status === 'pending') {
     actionsHtml = '<div class="tc-submitting">Submitting&#8230;</div>';
-  } else if (st.status === 'ok') {
-    actionsHtml = '<div class="tc-submitted">&#10003; ' + esc(st.msg || 'Submitted') + '</div>';
+  } else if (st.status === 'ok' || alreadyOrdered) {
+    const label = alreadyOrdered && !st.status ? 'Order ' + r.order_status : (st.msg || 'Submitted');
+    actionsHtml = '<div class="tc-submitted">&#10003; ' + esc(label) + '</div>';
   } else if (st.status === 'err') {
     actionsHtml = '<div class="tc-error">&#x26A0; ' + esc(st.msg || 'Error') + '</div>';
   } else {

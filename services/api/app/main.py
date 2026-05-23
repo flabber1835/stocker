@@ -859,10 +859,18 @@ async def get_delta_latest():
 
             run_id = str(run_row["run_id"])
             intent_rows = (await conn.execute(text(
-                "SELECT id, ticker, action, rank, composite_score, "
-                "confirmation_days_met, current_weight, actual_weight, weight_drift, reason "
-                "FROM delta_intents WHERE run_id = :rid "
-                "ORDER BY action, rank ASC NULLS LAST, ticker"
+                "SELECT di.id, di.ticker, di.action, di.rank, di.composite_score, "
+                "di.confirmation_days_met, di.current_weight, di.actual_weight, "
+                "di.weight_drift, di.reason, "
+                "ao.status AS order_status "
+                "FROM delta_intents di "
+                "LEFT JOIN LATERAL ("
+                "  SELECT status FROM alpaca_orders "
+                "  WHERE intent_id = di.id "
+                "  ORDER BY created_at DESC LIMIT 1"
+                ") ao ON true "
+                "WHERE di.run_id = :rid "
+                "ORDER BY di.action, di.rank ASC NULLS LAST, di.ticker"
             ), {"rid": run_id})).mappings().fetchall()
 
             # Vetter overlay — join most recent successful vetter run onto each intent.
@@ -916,6 +924,7 @@ async def get_delta_latest():
                     "actual_weight":         _f(r["actual_weight"]),
                     "weight_drift":          _f(r["weight_drift"]),
                     "reason":                r["reason"],
+                    "order_status":          r["order_status"],
                     "vetter_excluded":       vetter_by_ticker.get(r["ticker"], {}).get("exclude"),
                     "vetter_confidence":     vetter_by_ticker.get(r["ticker"], {}).get("confidence"),
                     "vetter_risk_type":      vetter_by_ticker.get(r["ticker"], {}).get("risk_type"),
