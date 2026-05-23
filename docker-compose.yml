@@ -46,7 +46,7 @@ services:
       network: host
     restart: "no"
     environment:
-      DATABASE_URL: postgresql://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
+      DATABASE_URL: postgresql://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker?connect_timeout=30
     depends_on:
       postgres:
         condition: service_healthy

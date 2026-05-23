@@ -2,13 +2,15 @@
 set -e
 
 # Wait for postgres to accept connections before running alembic.
-# pg_isready (the docker healthcheck) returns 0 as soon as the postmaster
-# accepts connections, but psycopg2 occasionally hits "connection refused"
-# in the brief window between pg_isready succeeding and the backend being
-# fully ready on the docker bridge network.  Retry up to 5 times.
+# Root cause on Synology NAS: pg_isready uses -h 127.0.0.1 (localhost inside
+# the postgres container), so depends_on:service_healthy fires before the
+# docker bridge network IP is routable.  psycopg2 then gets "Connection timed
+# out" on the bridge IP.  We retry up to MAX_RETRIES times with a hard
+# connect_timeout so we fail fast per attempt and don't wait for the OS
+# TCP timeout (~120s).  Total budget: 10 x (10s timeout + 10s delay) = 200s.
 
-MAX_RETRIES=5
-DELAY=5
+MAX_RETRIES=10
+DELAY=10
 
 wait_for_db() {
     i=0
