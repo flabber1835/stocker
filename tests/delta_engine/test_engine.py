@@ -105,6 +105,7 @@ def test_exit_confirmed():
 
 
 def test_exit_not_enough_days():
+    # rank > exit_rank but insufficient days → at_risk (not hold, not exit)
     obs = _history(50, 50)
     d = evaluate_ticker(
         "AAPL", obs,
@@ -112,7 +113,7 @@ def test_exit_not_enough_days():
         entry_rank=25, exit_rank=40, confirmation_days=3,
         portfolio_at_capacity=False,
     )
-    assert d.action == "hold"
+    assert d.action == "at_risk"
 
 
 def test_exit_blocked_when_not_held():
@@ -484,7 +485,7 @@ def test_tvl_hold_when_live_not_in_target_but_in_buffer_zone():
 
 
 def test_tvl_hold_when_above_exit_rank_but_insufficient_days():
-    """Ticker at broker, not in target, rank > exit_rank but < confirmation_days → hold."""
+    """Ticker at broker, not in target, rank > exit_rank but < confirmation_days → at_risk."""
     target = {}
     live = {"TSLA"}
     # Rank 45 > exit_rank=40 but only 2 days, confirmation_days=3 → not yet confirmed exit
@@ -494,7 +495,7 @@ def test_tvl_hold_when_above_exit_rank_but_insufficient_days():
         target_portfolio=target, live_positions=live, universe=universe,
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
     )
-    assert decisions["TSLA"].action == "hold"
+    assert decisions["TSLA"].action == "at_risk"
     assert decisions["TSLA"].confirmation_days_met == 2
 
 
@@ -620,3 +621,140 @@ def test_tvl_hold_weight_equals_target_weight():
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
     )
     assert decisions["MSFT"].current_weight == pytest.approx(0.08)
+
+
+# ── New action tests: at_risk, buy_add, sell_trim ─────────────────────────────
+
+def test_at_risk_when_rank_above_exit_but_not_confirmed():
+    """Held ticker with rank > exit_rank for only 1 day → at_risk (not exit, not hold)."""
+    obs = _history(50)  # rank 50 > exit_rank=40, only 1 day
+    d = evaluate_ticker(
+        "AAPL", obs,
+        current_weight=0.05,
+        entry_rank=25, exit_rank=40, confirmation_days=3,
+        portfolio_at_capacity=False,
+    )
+    assert d.action == "at_risk"
+    assert "at_risk" not in d.action or d.action == "at_risk"  # sanity
+    assert d.rank == 50
+
+
+def test_hold_when_rank_below_exit_rank():
+    """Held ticker with rank ≤ exit_rank → hold (not at_risk)."""
+    obs = _history(35)  # rank 35 ≤ exit_rank=40
+    d = evaluate_ticker(
+        "AAPL", obs,
+        current_weight=0.05,
+        entry_rank=25, exit_rank=40, confirmation_days=3,
+        portfolio_at_capacity=False,
+    )
+    assert d.action == "hold"
+
+
+def test_buy_add_when_underweight():
+    """Held ticker with rank good, actual_weight < target - threshold → buy_add."""
+    obs = _history(20, 20, 20)  # rank 20 ≤ entry_rank=25, well in entry zone
+    d = evaluate_ticker(
+        "AAPL", obs,
+        current_weight=0.08,          # target weight
+        entry_rank=25, exit_rank=40, confirmation_days=3,
+        portfolio_at_capacity=False,
+        actual_weight=0.05,           # actual: 3pp below target → underweight (drift=-0.03)
+        drift_threshold=0.02,
+    )
+    assert d.action == "buy_add"
+    assert d.actual_weight == pytest.approx(0.05)
+    assert d.weight_drift == pytest.approx(0.05 - 0.08)  # negative (underweight)
+
+
+def test_sell_trim_when_overweight():
+    """Held ticker with rank good, actual_weight > target + threshold → sell_trim."""
+    obs = _history(20, 20, 20)  # rank 20 ≤ entry_rank=25
+    d = evaluate_ticker(
+        "AAPL", obs,
+        current_weight=0.05,          # target weight
+        entry_rank=25, exit_rank=40, confirmation_days=3,
+        portfolio_at_capacity=False,
+        actual_weight=0.09,           # actual: 4pp above target → overweight (drift=+0.04)
+        drift_threshold=0.02,
+    )
+    assert d.action == "sell_trim"
+    assert d.actual_weight == pytest.approx(0.09)
+    assert d.weight_drift == pytest.approx(0.09 - 0.05)  # positive (overweight)
+
+
+def test_at_risk_suppresses_drift():
+    """Held ticker with rank > exit_rank (not confirmed) and overweight → at_risk, NOT sell_trim."""
+    obs = _history(45)  # rank 45 > exit_rank=40, only 1 day (not confirmed)
+    d = evaluate_ticker(
+        "AAPL", obs,
+        current_weight=0.05,
+        entry_rank=25, exit_rank=40, confirmation_days=3,
+        portfolio_at_capacity=False,
+        actual_weight=0.10,           # overweight by 5pp (would normally be sell_trim)
+        drift_threshold=0.02,
+    )
+    # at_risk takes priority over sell_trim when rank > exit_rank (unconfirmed)
+    assert d.action == "at_risk"
+
+
+def test_exit_overrides_drift():
+    """Held ticker with confirmed exit and overweight → exit, NOT sell_trim."""
+    obs = _history(50, 50, 50)  # rank 50 > exit_rank=40 for 3 days (confirmed)
+    d = evaluate_ticker(
+        "AAPL", obs,
+        current_weight=0.05,
+        entry_rank=25, exit_rank=40, confirmation_days=3,
+        portfolio_at_capacity=False,
+        actual_weight=0.10,           # overweight (would be sell_trim if rank were good)
+        drift_threshold=0.02,
+    )
+    # Confirmed exit always wins
+    assert d.action == "exit"
+
+
+def test_tvl_at_risk_for_declining_held_ticker():
+    """evaluate_target_vs_live: ticker in both target and live, rank > exit_rank (1 day) → at_risk."""
+    target = {"AAPL": 0.05}
+    live = {"AAPL"}
+    # rank 45 > exit_rank=40 but only 1 day — not confirmed
+    universe = {"AAPL": _history(45)}
+
+    decisions = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=live, universe=universe,
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+    )
+    assert decisions["AAPL"].action == "at_risk"
+    assert decisions["AAPL"].confirmation_days_met == 1
+
+
+def test_tvl_buy_add_underweight_hold():
+    """evaluate_target_vs_live: ticker in both, rank good, underweight → buy_add."""
+    target = {"AAPL": 0.08}
+    live = {"AAPL"}
+    universe = {"AAPL": _history(20, 20, 20)}
+
+    decisions = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=live, universe=universe,
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        actual_weights={"AAPL": 0.05},   # 3pp below target → buy_add
+        drift_threshold=0.02,
+    )
+    assert decisions["AAPL"].action == "buy_add"
+    assert decisions["AAPL"].weight_drift == pytest.approx(0.05 - 0.08)
+
+
+def test_tvl_sell_trim_overweight_hold():
+    """evaluate_target_vs_live: ticker in both, rank good, overweight → sell_trim."""
+    target = {"AAPL": 0.05}
+    live = {"AAPL"}
+    universe = {"AAPL": _history(20, 20, 20)}
+
+    decisions = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=live, universe=universe,
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        actual_weights={"AAPL": 0.09},   # 4pp above target → sell_trim
+        drift_threshold=0.02,
+    )
+    assert decisions["AAPL"].action == "sell_trim"
+    assert decisions["AAPL"].weight_drift == pytest.approx(0.09 - 0.05)

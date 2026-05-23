@@ -1196,6 +1196,9 @@ footer span{color:var(--blue)}
     <div class="stat"><div class="lbl">Sell (Exit)</div><div class="val neg" id="delta-exits">&#8212;</div></div>
     <div class="stat"><div class="lbl">Hold</div><div class="val" id="delta-holds">&#8212;</div></div>
     <div class="stat"><div class="lbl">Watch</div><div class="val orange" id="delta-watches">&#8212;</div></div>
+    <div class="stat"><div class="lbl">At Risk</div><div class="val" style="color:#ff6d00" id="delta-at-risks">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Add</div><div class="val pos" id="delta-buy-adds">&#8212;</div></div>
+    <div class="stat"><div class="lbl">Trim</div><div class="val" style="color:#ffd54f" id="delta-sell-trims">&#8212;</div></div>
     <div class="stat"><div class="lbl">Run Date</div><div class="val" style="font-size:1rem;padding-top:4px" id="delta-run-date">&#8212;</div></div>
     <div class="stat"><div class="lbl">Entry/Exit Rank</div><div class="val" id="delta-ranks">&#8212;</div></div>
   </div>
@@ -1214,12 +1217,13 @@ footer span{color:var(--blue)}
           <th onclick="sortDelta('rank')" id="dh-rank">RANK</th>
           <th onclick="sortDelta('composite_score')" id="dh-composite_score">SCORE</th>
           <th onclick="sortDelta('current_weight')" id="dh-current_weight">WEIGHT</th>
+          <th id="dh-weight_drift">DRIFT</th>
           <th id="dh-reason">REASON</th>
           <th id="dh-approve">APPROVE</th>
         </tr>
       </thead>
       <tbody id="delta-body">
-        <tr><td colspan="7" class="loading">Loading trade proposals</td></tr>
+        <tr><td colspan="8" class="loading">Loading trade proposals</td></tr>
       </tbody>
     </table>
   </div>
@@ -2002,19 +2006,23 @@ function renderDelta(){
     return(av<bv?-1:av>bv?1:0)*dir;
   });
   $('delta-count-badge').textContent=rows.length+' INTENTS';
-  if(!rows.length){$('delta-body').innerHTML='<tr><td colspan="7" class="loading">No proposals</td></tr>';return;}
+  if(!rows.length){$('delta-body').innerHTML='<tr><td colspan="8" class="loading">No proposals</td></tr>';return;}
   const actionTag={
     entry:'<span style="background:#1a4a1a;color:#4caf50;padding:2px 6px;border-radius:3px;font-size:.7rem;font-weight:700">BUY</span>',
     exit:'<span style="background:#4a1a1a;color:#f44336;padding:2px 6px;border-radius:3px;font-size:.7rem;font-weight:700">SELL</span>',
     hold:'<span style="background:#1a2a4a;color:#42a5f5;padding:2px 6px;border-radius:3px;font-size:.7rem;font-weight:700">HOLD</span>',
     watch:'<span style="background:#3a2a0a;color:#ff9800;padding:2px 6px;border-radius:3px;font-size:.7rem;font-weight:700">WATCH</span>',
+    at_risk:'<span style="background:#3a1a00;color:#ff6d00;padding:2px 6px;border-radius:3px;font-size:.7rem;font-weight:700">AT RISK</span>',
+    buy_add:'<span style="background:#0a3a1a;color:#00e676;padding:2px 6px;border-radius:3px;font-size:.7rem;font-weight:700">BUY+</span>',
+    sell_trim:'<span style="background:#3a2a00;color:#ffd54f;padding:2px 6px;border-radius:3px;font-size:.7rem;font-weight:700">TRIM</span>',
   };
   $('delta-body').innerHTML=rows.map(r=>{
     const tag=actionTag[r.action]||r.action;
     const wt=r.current_weight!=null?((r.current_weight)*100).toFixed(1)+'%':'—';
+    const drift=r.weight_drift!=null?((r.weight_drift>=0?'+':'')+((r.weight_drift)*100).toFixed(1)+'%'):'—';
     const reason=r.reason?esc(r.reason.substring(0,60))+(r.reason.length>60?'&#8230;':''):'—';
     let approveCells='<td></td>';
-    if(r.action==='entry'||r.action==='exit'){
+    if(r.action==='entry'||r.action==='exit'||r.action==='buy_add'||r.action==='sell_trim'){
       const st=_approvalState[r.id]||{};
       if(st.status==='pending'){
         approveCells='<td><span style="color:var(--secondary);font-size:.75rem">Submitting&#8230;</span></td>';
@@ -2035,6 +2043,7 @@ function renderDelta(){
       +'<td class="t-wt">'+(r.rank??'—')+'</td>'
       +'<td class="t-wt">'+fmtScore(r.composite_score)+'</td>'
       +'<td class="t-wt">'+wt+'</td>'
+      +'<td class="t-wt">'+drift+'</td>'
       +'<td style="font-size:.75rem;color:var(--secondary);max-width:220px">'+reason+'</td>'
       +approveCells
       +'</tr>';
@@ -2042,7 +2051,7 @@ function renderDelta(){
 }
 
 async function loadDelta(){
-  $('delta-body').innerHTML='<tr><td colspan="7" class="loading">Loading proposals</td></tr>';
+  $('delta-body').innerHTML='<tr><td colspan="8" class="loading">Loading proposals</td></tr>';
   try{
     const d=await fetch('/api/delta/latest').then(r=>r.json());
     const run=d.run||{};
@@ -2051,12 +2060,15 @@ async function loadDelta(){
     $('delta-exits').textContent=run.exits_count??'—';
     $('delta-holds').textContent=run.holds_count??'—';
     $('delta-watches').textContent=run.watches_count??'—';
+    $('delta-at-risks').textContent=run.at_risk_count??'—';
+    $('delta-buy-adds').textContent=run.buy_add_count??'—';
+    $('delta-sell-trims').textContent=run.sell_trim_count??'—';
     $('delta-run-date').textContent=run.run_date||'—';
     $('delta-ranks').textContent=(run.entry_rank&&run.exit_rank)?(run.entry_rank+' / '+run.exit_rank):'—';
     _approvalState={};
     renderDelta();
   }catch(e){
-    $('delta-body').innerHTML='<tr><td colspan="7" class="error">No delta data — run delta engine first</td></tr>';
+    $('delta-body').innerHTML='<tr><td colspan="8" class="error">No delta data — run delta engine first</td></tr>';
   }
 }
 

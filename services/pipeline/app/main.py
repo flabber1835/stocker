@@ -1199,6 +1199,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     entry_rank = de_cfg.entry_rank
     exit_rank = de_cfg.exit_rank
     max_positions = de_cfg.max_positions
+    drift_threshold = de_cfg.rebalance_drift_threshold
 
     # ── Step 1: load ranking run ──────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
@@ -1357,6 +1358,26 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             # positions that may already be held at the broker.
             no_sync_data = True
 
+    # Load per-position actual weights for drift detection
+    live_weights: dict[str, float] = {}
+    account_value_for_drift: Optional[float] = None
+    if sync_run:
+        async with engine.connect() as conn:
+            acct_row = await conn.execute(text(
+                "SELECT account_value FROM alpaca_sync_runs WHERE run_id = :rid"
+            ), {"rid": str(sync_run.run_id)})
+            acct = acct_row.fetchone()
+            if acct and acct[0]:
+                account_value_for_drift = float(acct[0])
+        if account_value_for_drift and account_value_for_drift > 0:
+            async with engine.connect() as conn:
+                mktval_rows = await conn.execute(text(
+                    "SELECT ticker, market_value FROM live_positions WHERE sync_run_id = :rid"
+                ), {"rid": str(sync_run.run_id)})
+                for p in mktval_rows.fetchall():
+                    if p.market_value is not None:
+                        live_weights[p.ticker] = float(p.market_value) / account_value_for_drift
+
     # Compute orphan_tickers for logging (live positions not in target)
     orphan_tickers = [t for t in live_positions_set if t not in target_portfolio]
 
@@ -1415,6 +1436,8 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             exit_rank=exit_rank,
             confirmation_days=confirmation_days,
             max_positions=max_positions,
+            actual_weights=live_weights,
+            drift_threshold=drift_threshold,
         )
         mode_used = "confirmation_days_fallback"
     else:
@@ -1427,13 +1450,18 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             exit_rank=exit_rank,
             confirmation_days=confirmation_days,
             max_positions=max_positions,
+            actual_weights=live_weights,
+            drift_threshold=drift_threshold,
         )
         mode_used = "target_vs_live"
 
-    entries = [d for d in decisions.values() if d.action == "entry"]
-    exits   = [d for d in decisions.values() if d.action == "exit"]
-    holds   = [d for d in decisions.values() if d.action == "hold"]
-    watches = [d for d in decisions.values() if d.action == "watch"]
+    entries    = [d for d in decisions.values() if d.action == "entry"]
+    exits      = [d for d in decisions.values() if d.action == "exit"]
+    holds      = [d for d in decisions.values() if d.action == "hold"]
+    watches    = [d for d in decisions.values() if d.action == "watch"]
+    at_risks   = [d for d in decisions.values() if d.action == "at_risk"]
+    buy_adds   = [d for d in decisions.values() if d.action == "buy_add"]
+    sell_trims = [d for d in decisions.values() if d.action == "sell_trim"]
 
     async with engine.begin() as conn:
         await _log_step_delta(
@@ -1454,6 +1482,9 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 "exits": len(exits),
                 "holds": len(holds),
                 "watches": len(watches),
+                "at_risks": len(at_risks),
+                "buy_adds": len(buy_adds),
+                "sell_trims": len(sell_trims),
                 "entry_tickers": [d.ticker for d in entries],
                 "exit_tickers": [d.ticker for d in exits],
             },
@@ -1471,7 +1502,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     completed_at = datetime.now(timezone.utc)
 
     def _is_actionable(d) -> bool:
-        if d.action in ("entry", "exit", "hold"):
+        if d.action in ("entry", "exit", "hold", "at_risk", "buy_add", "sell_trim"):
             return True
         if d.action == "watch" and d.confirmation_days_met >= confirmation_days:
             return True
@@ -1486,9 +1517,9 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 text(
                     "INSERT INTO delta_intents "
                     "(run_id, ticker, action, rank, composite_score, "
-                    " confirmation_days_met, current_weight, reason) "
+                    " confirmation_days_met, current_weight, actual_weight, weight_drift, reason) "
                     "VALUES (:rid, :ticker, :action, :rank, :score, "
-                    "        :conf_days, :weight, :reason)"
+                    "        :conf_days, :weight, :actual_weight, :weight_drift, :reason)"
                 ),
                 {
                     "rid": run_id,
@@ -1498,6 +1529,8 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                     "score": round(d.composite_score, 6) if d.composite_score is not None else None,
                     "conf_days": d.confirmation_days_met,
                     "weight": d.current_weight,
+                    "actual_weight": round(d.actual_weight, 6) if d.actual_weight is not None else None,
+                    "weight_drift":  round(d.weight_drift, 6)  if d.weight_drift is not None else None,
                     "reason": d.reason,
                 },
             )
@@ -1509,7 +1542,8 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 "  entry_rank=:er, exit_rank=:xr, "
                 "  confirmation_days=:cd, max_positions=:mp, "
                 "  entries_count=:ec, exits_count=:xc, "
-                "  holds_count=:hc, watches_count=:wc "
+                "  holds_count=:hc, watches_count=:wc, "
+                "  at_risk_count=:arc, buy_add_count=:bac, sell_trim_count=:stc "
                 "WHERE run_id=:rid"
             ),
             {
@@ -1523,6 +1557,9 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 "xc": len(exits),
                 "hc": len(holds),
                 "wc": len(watches),
+                "arc": len(at_risks),
+                "bac": len(buy_adds),
+                "stc": len(sell_trims),
             },
         )
 
@@ -1544,12 +1581,16 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 "exits": len(exits),
                 "holds": len(holds),
                 "watches": len(watches),
+                "at_risks": len(at_risks),
+                "buy_adds": len(buy_adds),
+                "sell_trims": len(sell_trims),
             },
         )
 
     print(
         f"[delta-engine] run {run_id} SUCCESS: {len(entries)} entries, "
-        f"{len(exits)} exits, {len(holds)} holds"
+        f"{len(exits)} exits, {len(holds)} holds, {len(at_risks)} at_risk, "
+        f"{len(buy_adds)} buy_add, {len(sell_trims)} sell_trim"
     )
 
     if ARTIFACTS_PATH:

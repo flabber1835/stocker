@@ -206,6 +206,14 @@ class DeltaEngineConfig(BaseModel):
         description="Consecutive daily ranking runs required to confirm entry or exit.")
     max_positions: int = Field(default=30, ge=1, le=100,
         description="Maximum portfolio size. New entries blocked when at capacity unless a simultaneous exit creates room.")
+    rebalance_drift_threshold: float = Field(
+        default=0.02, gt=0, le=0.5,
+        description=(
+            "Absolute weight drift that triggers a BUY-ADD or SELL-TRIM intent. "
+            "E.g. 0.02 = propose a trim/add when actual weight deviates >2pp from target. "
+            "Drift rebalance is skipped when no successful alpaca-sync exists."
+        )
+    )
 
     @model_validator(mode="after")
     def exit_rank_exceeds_entry_rank(self) -> "DeltaEngineConfig":

@@ -227,6 +227,25 @@ async def _do_delta(
     t0 = datetime.now(timezone.utc)
     current_portfolio: dict[str, float] = {}
     source_portfolio_run_id: Optional[str] = None
+    live_weights: dict[str, float] = {}
+
+    # Load account_value and per-position market_value for drift detection
+    async with engine.connect() as conn:
+        sync_row = await conn.execute(text(
+            "SELECT run_id, account_value, completed_at FROM alpaca_sync_runs "
+            "WHERE status='success' ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+        ))
+        sync_run = sync_row.fetchone()
+    if sync_run and sync_run.account_value:
+        account_value = float(sync_run.account_value)
+        if account_value > 0:
+            async with engine.connect() as conn:
+                mktval_rows = await conn.execute(text(
+                    "SELECT ticker, market_value FROM live_positions WHERE sync_run_id = :rid"
+                ), {"rid": str(sync_run.run_id)})
+                for p in mktval_rows.fetchall():
+                    if p.market_value is not None:
+                        live_weights[p.ticker] = float(p.market_value) / account_value
     cold_start = False
 
     async with engine.connect() as conn:
@@ -284,6 +303,7 @@ async def _do_delta(
 
     # ── Step 4: evaluate buffer zone ─────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
+    drift_threshold = strategy.delta_engine.rebalance_drift_threshold
     decisions = evaluate_all(
         universe=universe,
         current_portfolio=current_portfolio,
@@ -291,12 +311,17 @@ async def _do_delta(
         exit_rank=exit_rank,
         confirmation_days=confirmation_days,
         max_positions=max_positions,
+        live_weights=live_weights if live_weights else None,
+        drift_threshold=drift_threshold,
     )
 
-    entries = [d for d in decisions.values() if d.action == "entry"]
-    exits   = [d for d in decisions.values() if d.action == "exit"]
-    holds   = [d for d in decisions.values() if d.action == "hold"]
-    watches = [d for d in decisions.values() if d.action == "watch"]
+    entries    = [d for d in decisions.values() if d.action == "entry"]
+    exits      = [d for d in decisions.values() if d.action == "exit"]
+    holds      = [d for d in decisions.values() if d.action == "hold"]
+    watches    = [d for d in decisions.values() if d.action == "watch"]
+    at_risks   = [d for d in decisions.values() if d.action == "at_risk"]
+    buy_adds   = [d for d in decisions.values() if d.action == "buy_add"]
+    sell_trims = [d for d in decisions.values() if d.action == "sell_trim"]
 
     async with engine.begin() as conn:
         await _log_step(
@@ -309,12 +334,17 @@ async def _do_delta(
                 "max_positions": max_positions,
                 "universe_size": len(universe),
                 "current_portfolio_size": len(current_portfolio),
+                "drift_threshold": drift_threshold,
+                "live_weights_loaded": len(live_weights),
             },
             output_summary={
                 "entries": len(entries),
                 "exits": len(exits),
                 "holds": len(holds),
                 "watches": len(watches),
+                "at_risks": len(at_risks),
+                "buy_adds": len(buy_adds),
+                "sell_trims": len(sell_trims),
                 "entry_tickers": [d.ticker for d in entries],
                 "exit_tickers": [d.ticker for d in exits],
             },
@@ -330,9 +360,11 @@ async def _do_delta(
                 text(
                     "INSERT INTO delta_intents "
                     "(run_id, ticker, action, rank, composite_score, "
-                    " confirmation_days_met, current_weight, reason) "
+                    " confirmation_days_met, current_weight, reason, "
+                    " actual_weight, weight_drift) "
                     "VALUES (:rid, :ticker, :action, :rank, :score, "
-                    "        :conf_days, :weight, :reason)"
+                    "        :conf_days, :weight, :reason, "
+                    "        :actual_weight, :weight_drift)"
                 ),
                 {
                     "rid": run_id,
@@ -343,6 +375,8 @@ async def _do_delta(
                     "conf_days": d.confirmation_days_met,
                     "weight": d.current_weight,
                     "reason": d.reason,
+                    "actual_weight": round(d.actual_weight, 6) if d.actual_weight is not None else None,
+                    "weight_drift": round(d.weight_drift, 6) if d.weight_drift is not None else None,
                 },
             )
 
@@ -353,7 +387,8 @@ async def _do_delta(
                 "  entry_rank=:er, exit_rank=:xr, "
                 "  confirmation_days=:cd, max_positions=:mp, "
                 "  entries_count=:ec, exits_count=:xc, "
-                "  holds_count=:hc, watches_count=:wc "
+                "  holds_count=:hc, watches_count=:wc, "
+                "  at_risk_count=:arc, buy_add_count=:bac, sell_trim_count=:stc "
                 "WHERE run_id=:rid"
             ),
             {
@@ -367,6 +402,9 @@ async def _do_delta(
                 "xc": len(exits),
                 "hc": len(holds),
                 "wc": len(watches),
+                "arc": len(at_risks),
+                "bac": len(buy_adds),
+                "stc": len(sell_trims),
             },
         )
 
@@ -533,8 +571,8 @@ async def get_latest_run():
         row = await conn.execute(
             text(
                 "SELECT run_id, status, run_date, entries_count, exits_count, "
-                "       holds_count, watches_count, current_portfolio_size, "
-                "       started_at, completed_at "
+                "       holds_count, watches_count, at_risk_count, buy_add_count, sell_trim_count, "
+                "       current_portfolio_size, started_at, completed_at "
                 "FROM delta_runs ORDER BY started_at DESC LIMIT 1"
             )
         )
@@ -553,7 +591,8 @@ async def get_run(run_id: str):
                 "       run_date, source_ranking_run_id, source_portfolio_run_id, "
                 "       entry_rank, exit_rank, confirmation_days, max_positions, "
                 "       current_portfolio_size, entries_count, exits_count, "
-                "       holds_count, watches_count, started_at, completed_at, error_message "
+                "       holds_count, watches_count, at_risk_count, buy_add_count, sell_trim_count, "
+                "       started_at, completed_at, error_message "
                 "FROM delta_runs WHERE run_id = :rid"
             ),
             {"rid": run_id},
@@ -567,9 +606,9 @@ async def get_run(run_id: str):
 @app.get("/runs/{run_id}/intents")
 async def get_run_intents(
     run_id: str,
-    action: Optional[str] = Query(default=None, description="Filter by action: entry|exit|hold|watch"),
+    action: Optional[str] = Query(default=None, description="Filter by action: entry|exit|hold|watch|at_risk|buy_add|sell_trim"),
 ):
-    if action and action not in ("entry", "exit", "hold", "watch"):
+    if action and action not in ("entry", "exit", "hold", "watch", "at_risk", "buy_add", "sell_trim"):
         raise HTTPException(status_code=400, detail="action must be one of: entry, exit, hold, watch")
 
     async with engine.connect() as conn:
@@ -585,7 +624,7 @@ async def get_run_intents(
             rows = await conn.execute(
                 text(
                     "SELECT id, run_id, ticker, action, rank, composite_score, "
-                    "       confirmation_days_met, current_weight, reason, created_at "
+                    "       confirmation_days_met, current_weight, actual_weight, weight_drift, reason, created_at "
                     "FROM delta_intents WHERE run_id=:rid AND action=:action "
                     "ORDER BY rank ASC NULLS LAST, ticker ASC"
                 ),
@@ -595,7 +634,7 @@ async def get_run_intents(
             rows = await conn.execute(
                 text(
                     "SELECT id, run_id, ticker, action, rank, composite_score, "
-                    "       confirmation_days_met, current_weight, reason, created_at "
+                    "       confirmation_days_met, current_weight, actual_weight, weight_drift, reason, created_at "
                     "FROM delta_intents WHERE run_id=:rid "
                     "ORDER BY action, rank ASC NULLS LAST, ticker ASC"
                 ),

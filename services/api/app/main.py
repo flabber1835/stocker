@@ -839,6 +839,7 @@ async def get_delta_latest():
                 "SELECT run_id, status, run_date, entry_rank, exit_rank, "
                 "confirmation_days, max_positions, current_portfolio_size, "
                 "entries_count, exits_count, holds_count, watches_count, "
+                "at_risk_count, buy_add_count, sell_trim_count, "
                 "started_at, completed_at, error_message "
                 "FROM delta_runs ORDER BY started_at DESC LIMIT 1"
             ))).mappings().first()
@@ -849,7 +850,7 @@ async def get_delta_latest():
             run_id = str(run_row["run_id"])
             intent_rows = (await conn.execute(text(
                 "SELECT id, ticker, action, rank, composite_score, "
-                "confirmation_days_met, current_weight, reason "
+                "confirmation_days_met, current_weight, actual_weight, weight_drift, reason "
                 "FROM delta_intents WHERE run_id = :rid "
                 "ORDER BY action, rank ASC NULLS LAST, ticker"
             ), {"rid": run_id})).mappings().fetchall()
@@ -868,6 +869,9 @@ async def get_delta_latest():
                 "exits_count":           run_row["exits_count"],
                 "holds_count":           run_row["holds_count"],
                 "watches_count":         run_row["watches_count"],
+                "at_risk_count":         run_row["at_risk_count"],
+                "buy_add_count":         run_row["buy_add_count"],
+                "sell_trim_count":       run_row["sell_trim_count"],
                 "started_at":            _iso(run_row["started_at"]),
                 "completed_at":          _iso(run_row["completed_at"]),
                 "error_message":         run_row["error_message"],
@@ -881,6 +885,8 @@ async def get_delta_latest():
                     "composite_score":      _f(r["composite_score"]),
                     "confirmation_days_met": r["confirmation_days_met"],
                     "current_weight":       _f(r["current_weight"]),
+                    "actual_weight":        _f(r["actual_weight"]),
+                    "weight_drift":         _f(r["weight_drift"]),
                     "reason":               r["reason"],
                 }
                 for r in intent_rows

@@ -153,12 +153,13 @@ class TradeAttemptResponse(BaseModel):
 
 async def _load_intent(conn, intent_id: str) -> dict:
     row = (await conn.execute(text(
-        "SELECT id, ticker, action, rank, composite_score, current_weight "
+        "SELECT id, ticker, action, rank, composite_score, current_weight, actual_weight, weight_drift "
         "FROM delta_intents WHERE id = :iid"
     ), {"iid": intent_id})).mappings().first()
     if row is None:
         raise HTTPException(status_code=404, detail=f"Intent {intent_id} not found")
-    if row["action"] not in ("entry", "exit"):
+    TRADEABLE_ACTIONS = {"entry", "exit", "buy_add", "sell_trim"}
+    if row["action"] not in TRADEABLE_ACTIONS:
         raise HTTPException(
             status_code=400,
             detail=f"Intent action '{row['action']}' is not tradeable",
@@ -305,6 +306,90 @@ async def _size_entry(conn, ticker: str, intent_weight: Optional[float]) -> tupl
     }
 
 
+async def _size_partial(conn, ticker: str, intent: dict) -> tuple[float, float, dict]:
+    """Size a buy_add or sell_trim order (partial rebalance).
+
+    buy_add:   buy  (target_weight - actual_weight) * account_value / price shares
+    sell_trim: sell (actual_weight - target_weight) * account_value / price shares
+
+    Floored to whole shares. Refuses if the drift rounds to < 1 share.
+    """
+    action = intent["action"]
+    target_weight = _f(intent["current_weight"])
+    actual_weight = _f(intent.get("actual_weight"))
+
+    if target_weight is None or actual_weight is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Cannot size {action} for {ticker}: "
+                "missing target_weight or actual_weight in intent. "
+                "Re-run the pipeline to refresh drift data."
+            ),
+        )
+
+    # Account value + staleness check (reuse EXIT_SYNC_MAX_AGE_HOURS)
+    acct = (await conn.execute(text(
+        "SELECT account_value, completed_at FROM alpaca_sync_runs "
+        "WHERE status='success' ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+    ))).mappings().first()
+    if acct is None or _f(acct["account_value"]) is None:
+        raise HTTPException(status_code=400, detail=f"No account data available to size {action} for {ticker}")
+    account_value = _f(acct["account_value"])
+    if acct["completed_at"] is not None:
+        sync_age_hours = (datetime.now(timezone.utc) - acct["completed_at"]).total_seconds() / 3600.0
+        if sync_age_hours > EXIT_SYNC_MAX_AGE_HOURS:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Latest alpaca-sync is {sync_age_hours:.1f}h old "
+                    f"(> {EXIT_SYNC_MAX_AGE_HOURS}h); refusing to size {action}. "
+                    "Re-sync before approving."
+                ),
+            )
+
+    # Current price — prefer live_positions, fall back to daily_prices
+    live_px = (await conn.execute(text(
+        "SELECT lp.current_price FROM live_positions lp "
+        "JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
+        "WHERE lp.ticker = :t AND sr.status = 'success' "
+        "ORDER BY sr.completed_at DESC NULLS LAST LIMIT 1"
+    ), {"t": ticker})).mappings().first()
+    last_price = _f(live_px["current_price"]) if live_px else None
+    price_source = "live_positions"
+    if last_price is None or last_price <= 0:
+        price_row = (await conn.execute(text(
+            "SELECT close FROM daily_prices WHERE ticker = :t ORDER BY date DESC LIMIT 1"
+        ), {"t": ticker})).mappings().first()
+        last_price = _f(price_row["close"]) if price_row else None
+        price_source = "daily_prices"
+    if last_price is None or last_price <= 0:
+        raise HTTPException(status_code=400, detail=f"No price found for {ticker}")
+
+    drift_weight = (target_weight - actual_weight) if action == "buy_add" else (actual_weight - target_weight)
+    target_notional = drift_weight * account_value
+    qty_int = math.floor(target_notional / last_price)
+    if qty_int < 1:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Drift notional ${target_notional:.2f} is below the price of one share (${last_price:.2f}). "
+                f"Drift too small to trade ({drift_weight:.2%} × ${account_value:,.0f})."
+            ),
+        )
+    qty = float(qty_int)
+    notional = qty * last_price
+    return qty, notional, {
+        "target_weight": target_weight,
+        "actual_weight": actual_weight,
+        "drift_weight": drift_weight,
+        "account_value": account_value,
+        "last_price": last_price,
+        "price_source": price_source,
+        "target_notional": target_notional,
+    }
+
+
 # ── Risk-service call ────────────────────────────────────────────────────────
 
 
@@ -420,14 +505,16 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
 
         ticker = intent["ticker"]
         action = intent["action"]
-        side = "buy" if action == "entry" else "sell"
+        side = "buy" if action in ("entry", "buy_add") else "sell"
 
         # ── Step 3: size order ────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
         async with engine.connect() as conn:
             if action == "exit":
                 qty, notional, sizing_summary = await _size_exit(conn, ticker)
-            else:
+            elif action in ("buy_add", "sell_trim"):
+                qty, notional, sizing_summary = await _size_partial(conn, ticker, intent)
+            else:  # entry
                 qty, notional, sizing_summary = await _size_entry(
                     conn, ticker, _f(intent["current_weight"])
                 )
