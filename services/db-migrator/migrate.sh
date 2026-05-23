@@ -1,14 +1,8 @@
 #!/bin/sh
 set -e
 
-# Wait for postgres to accept connections before running alembic.
-# Root cause on Synology NAS: pg_isready uses -h 127.0.0.1 (localhost inside
-# the postgres container), so depends_on:service_healthy fires before the
-# docker bridge network IP is routable.  psycopg2 then gets "Connection timed
-# out" on the bridge IP.  We retry up to MAX_RETRIES times with a hard
-# connect_timeout so we fail fast per attempt and don't wait for the OS
-# TCP timeout (~120s).  Total budget: 10 x (10s timeout + 10s delay) = 200s.
-
+# Retry the DB connection: postgres pg_isready passes before its bridge-IP
+# is routable on NAS, so the first psycopg2.connect can time out.
 MAX_RETRIES=10
 DELAY=10
 

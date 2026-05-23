@@ -19,12 +19,8 @@ services:
     ports:
       - "5433:5432"
     healthcheck:
-      # IMPORTANT: -h 127.0.0.1 tests localhost INSIDE the postgres container.
-      # This passes before the docker bridge network IP is routable by other
-      # containers.  Any service that connects via the bridge (all app services)
-      # must use its own retry logic — never assume bridge reachability from
-      # this healthcheck alone.  See services/db-migrator/migrate.sh for the
-      # canonical retry pattern.
+      # -h 127.0.0.1 tests localhost inside the container; bridge-IP reachability
+      # is not guaranteed when this passes.  See migrate.sh for the retry pattern.
       test: ["CMD-SHELL", "pg_isready -U stocker -h 127.0.0.1"]
       interval: 5s
       timeout: 5s
@@ -58,24 +54,11 @@ services:
         condition: service_healthy
 
   # ── App services ─────────────────────────────────────────────────────────────
-  #
-  # Dependency philosophy:
-  #   • depends_on is used ONLY for hard structural prerequisites:
-  #       - postgres/redis: service must exist before the app can start at all
-  #       - db-migrator:service_completed_successfully: schema must be current
-  #         before API / scheduler touch the DB (api, scheduler only)
-  #       - risk-service:service_healthy: trade-executor must never run without
-  #         its safety gate available
-  #   • Services do NOT depend on each other's service_healthy unless the
-  #     dependency is load-bearing at process start time.
-  #   • Inter-service HTTP calls happen at request time; every service handles
-  #     peer unavailability gracefully (warm_up_db_in_background pattern for DB;
-  #     built-in retry/supervisor ticks for the scheduler).
-  #   • Adding service_healthy deps to the scheduler creates a long mandatory
-  #     serial chain that blocks startup for 5-7 minutes on a cold NAS and makes
-  #     the scheduler hostage to optional services (llm-gateway, llm-vetter).
-  #     The scheduler's _trigger_step already catches all HTTP errors and retries
-  #     on the next supervisor tick — Docker deps must not duplicate that logic.
+  # depends_on rules are enforced by tests/test_compose.py:
+  #   - service_healthy only for load-bearing prerequisites (postgres, redis,
+  #     risk-service for trade-executor)
+  #   - service_completed_successfully only for db-migrator (api, scheduler)
+  #   - peer services use built-in retry, not Docker deps
   # ─────────────────────────────────────────────────────────────────────────────
 
   api:
@@ -452,11 +435,6 @@ services:
         condition: service_healthy
       db-migrator:
         condition: service_completed_successfully
-      # av-ingestor, pipeline, portfolio-builder, llm-vetter intentionally NOT
-      # listed here.  The scheduler's _trigger_step catches all HTTP errors and
-      # retries every SUPERVISOR_INTERVAL_SECS tick; requiring those services to
-      # be healthy first creates a ~5-7 min mandatory chain on a cold NAS start
-      # and makes the scheduler hostage to optional services like llm-vetter.
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
       interval: 5s
@@ -479,10 +457,6 @@ services:
       VETTER_URL: http://llm-vetter:8000
       PORTFOLIO_URL: http://portfolio-builder:8000
       SCHEDULER_URL: http://scheduler:8000
-    # No depends_on: dashboard is a static-file server; the JS calls the API
-    # from the browser.  Blocking dashboard startup on api:service_healthy adds
-    # a full extra chain (postgres→db-migrator→api→dashboard) with no benefit —
-    # the browser shows errors when API calls fail, which is the right UX.
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
       interval: 5s
