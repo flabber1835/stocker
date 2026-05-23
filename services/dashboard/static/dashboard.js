@@ -752,13 +752,35 @@ async function refresh() {
 setInterval(() => {
   updateClock();
   updateAutoApproveCountdowns();
-  // Update status bar countdown text in real-time
-  if (_aaStatus.pending.length > 0) {
+  // Keep status bar text in sync with cached pipeline data when something is active
+  const _rank = (_pipelineData || {}).rank || {};
+  if (_aaStatus.pending.length > 0 || _rank.status === 'running') {
     updateStatusBar(_pipelineData || {});
   }
 }, 1000);
 
-/* ── 30-second refresh ───────────────────────────────────────────────── */
+/* ── 5-second lightweight status poll ───────────────────────────────── */
+// Only refreshes the status bar and pipeline bar (not rankings/delta/portfolio).
+// Catches running→idle transitions quickly without reloading all data.
+setInterval(async () => {
+  if (document.hidden) return;
+  try {
+    const r = await fetch('/api/pipeline-status').then(res => res.json()).catch(() => null);
+    if (r) {
+      const prevRank = (_pipelineData.rank || {}).status;
+      _pipelineData = r;
+      updateStatusBar(r);
+      updatePipelineBar(r.rank || {});
+      // On running→done transition, trigger a full refresh so rankings/delta reload
+      const nowRank = (r.rank || {}).status;
+      if (prevRank === 'running' && (nowRank === 'success' || nowRank === 'partial_success')) {
+        refresh();
+      }
+    }
+  } catch (_e) { /* ignore */ }
+}, 5000);
+
+/* ── 30-second full refresh ──────────────────────────────────────────── */
 setInterval(refresh, REFRESH_SECS * 1000);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) refresh();

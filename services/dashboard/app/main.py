@@ -298,11 +298,14 @@ def _compute_pipeline_warnings(uni_fetched_at, rank_completed_at, vet_completed_
 @app.get("/api/pipeline-status")
 async def pipeline_status():
     async with httpx.AsyncClient(timeout=6.0) as client:
-        r0, r1, r3, sys_status_resp = await asyncio.gather(
-            _safe_fetch(client.get(f"{API_URL}/universe"),       {"error": "timeout"}),
-            _safe_fetch(client.get(f"{API_URL}/rankings"),       {"error": "timeout"}),
-            _safe_fetch(client.get(f"{API_URL}/portfolio"),      {"error": "timeout"}),
-            _safe_fetch(client.get(f"{API_URL}/system/status"),  {"error": "timeout"}),
+        r0, r1, r3, sys_status_resp, r4_direct, r5_direct, r7_direct = await asyncio.gather(
+            _safe_fetch(client.get(f"{API_URL}/universe"),              {"error": "timeout"}),
+            _safe_fetch(client.get(f"{API_URL}/rankings"),              {"error": "timeout"}),
+            _safe_fetch(client.get(f"{API_URL}/portfolio"),             {"error": "timeout"}),
+            _safe_fetch(client.get(f"{API_URL}/system/status"),         {"error": "timeout"}),
+            _safe_fetch(client.get(f"{PIPELINE_URL}/runs/latest"),      {"error": "timeout"}),
+            _safe_fetch(client.get(f"{AV_INGESTOR_URL}/runs/latest"),   {"error": "timeout"}),
+            _safe_fetch(client.get(f"{SCHEDULER_URL}/status"),          {"error": "timeout"}),
         )
 
     sys_data = {}
@@ -319,11 +322,17 @@ async def pipeline_status():
         val = sys_data.get(key, {"error": "unavailable"})
         return _FakeResponse(val if isinstance(val, dict) else {"error": "unavailable"})
 
+    def _best(direct, fallback_key):
+        """Use the direct service response when available; fall back to sys/status-derived data."""
+        if not isinstance(direct, dict) and direct.status_code == 200:
+            return direct
+        return _wrap(fallback_key)
+
     r2 = _wrap("vetter")
-    r4 = _wrap("pipeline")
-    r5 = _wrap("ingestor")
+    r4 = _best(r4_direct, "pipeline")       # pipeline service /runs/latest
+    r5 = _best(r5_direct, "ingestor")       # av-ingestor /runs/latest
     r6 = _wrap("portfolio_builder")
-    r7 = _wrap("scheduler")
+    r7 = _best(r7_direct, "scheduler")      # scheduler /status
 
     uni_date = port_date = rank_date = None
     uni_fetched_at = rank_completed_at = vet_completed_at = port_completed_at = None
