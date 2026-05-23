@@ -179,6 +179,19 @@ class TestCriticalServices:
     def test_postgres_has_healthcheck(self, services):
         assert _has_healthcheck(services["postgres"])
 
+    def test_postgres_healthcheck_uses_tcp_not_unix_socket(self, services):
+        """pg_isready without -h uses the Unix socket, which is available during
+        postgres's init phase while it is still running init.sql.  Docker marks
+        postgres as healthy too early, db-migrator starts, connects via TCP and
+        gets 'Connection refused'.  The -h 127.0.0.1 flag forces a TCP probe,
+        which only succeeds after the init phase is complete and TCP is open."""
+        cmd = _probe_cmd(services["postgres"])
+        assert "-h 127.0.0.1" in cmd or "-h localhost" in cmd, (
+            "postgres healthcheck must use -h 127.0.0.1 (TCP probe). "
+            "Without -h, pg_isready uses the Unix socket which passes during init.sql "
+            "execution, causing db-migrator to start before TCP is ready."
+        )
+
     def test_redis_has_healthcheck(self, services):
         assert _has_healthcheck(services["redis"])
 
