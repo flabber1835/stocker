@@ -481,7 +481,24 @@ function renderTrader() {
   if (actionable.length === 0) {
     $('trade-cards').innerHTML = '<div class="no-trades">No pending trades — <strong>all clear</strong></div>';
   } else {
-    $('trade-cards').innerHTML = actionable.map(r => _buildTradeCard(r)).join('');
+    const isSettled = r => {
+      const st = _approvalState[r.id];
+      if (st && (st.status === 'ok' || st.status === 'err')) return true;
+      if (r.order_status === 'submitted' || r.order_status === 'pending') return true;
+      const isBuyAction = r.action === 'entry' || r.action === 'buy_add';
+      if (isBuyAction && r.vetter_excluded) return true;
+      return false;
+    };
+    const pending   = actionable.filter(r => !isSettled(r));
+    const settled   = actionable.filter(r =>  isSettled(r));
+    let html = pending.map(r => _buildTradeCard(r)).join('');
+    if (settled.length > 0) {
+      html += '<div class="tc-divider">'
+        + settled.length + ' order' + (settled.length > 1 ? 's' : '') + ' already submitted or blocked'
+        + '</div>';
+      html += settled.map(r => _buildTradeCard(r)).join('');
+    }
+    $('trade-cards').innerHTML = html;
   }
 
   if (others.length > 0) {
@@ -565,7 +582,14 @@ function _buildTradeCard(r) {
 }
 
 function updateTraderBadge() {
-  const cnt = deltaData.filter(r => ['entry', 'exit'].includes(r.action)).length;
+  const cnt = deltaData.filter(r => {
+    if (!['entry', 'exit', 'buy_add', 'sell_trim'].includes(r.action)) return false;
+    const st = _approvalState[r.id];
+    if (st && (st.status === 'ok' || st.status === 'err')) return false;
+    if (r.order_status === 'submitted' || r.order_status === 'pending') return false;
+    if ((r.action === 'entry' || r.action === 'buy_add') && r.vetter_excluded) return false;
+    return true;
+  }).length;
   const badge = $('nav-trade-badge');
   if (!badge) return;
   if (cnt > 0) {
