@@ -101,6 +101,9 @@ function updateStatusBar(d) {
     else                               { text = 'PROCESSING'; textCls = 'sb-amber'; }
   } else if (universe.status === 'running') {
     text = 'FETCHING UNIVERSE'; textCls = 'sb-blue';
+  } else if (universe.status === 'failed') {
+    text = 'UNIVERSE FETCH FAILED'; textCls = 'sb-red';
+    sub = 'Set AV_API_KEY or MOCK_DATA=true and restart';
   } else if (rank.status === 'failed') {
     text = 'PIPELINE FAILED'; textCls = 'sb-red';
   } else if (rank.status === 'success' || rank.date) {

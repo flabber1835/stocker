@@ -404,17 +404,19 @@ class TestSupervisorTick:
 
     @pytest.mark.asyncio
     async def test_triggers_fetch_universe_when_no_universe(self):
-        """has_universe=False → triggers fetch-universe and returns early."""
+        """has_universe=False and no prior run → triggers fetch-universe and returns early."""
         self._reset_chain_status()
         mock_trigger = AsyncMock()
         mock_db_open = AsyncMock(return_value=None)
 
-        # Build a fake httpx async context manager
+        # Build a fake httpx async context manager; GET /runs/latest returns 404
+        # (no prior run), POST /jobs/fetch-universe returns 200.
         fake_client = MagicMock()
         fake_client.__aenter__ = AsyncMock(return_value=fake_client)
         fake_client.__aexit__ = AsyncMock(return_value=False)
         fetch_universe_resp = _mock_response(200, {"status": "started"})
         fake_client.post = AsyncMock(return_value=fetch_universe_resp)
+        fake_client.get = AsyncMock(return_value=_mock_response(404, {}))
 
         with (
             patch.dict(_supervisor_tick.__globals__, {
@@ -436,6 +438,111 @@ class TestSupervisorTick:
         post_url = fake_client.post.call_args[0][0]
         assert "fetch-universe" in post_url
         assert _chain_status["status"] == "running"
+
+    @pytest.mark.asyncio
+    async def test_marks_chain_failed_when_fetch_universe_failed(self):
+        """has_universe=False and last fetch-universe run failed → chain marked failed,
+        no new trigger fired.
+
+        Regression test: previously the supervisor had no failure detection in the
+        cold-start guard and would re-trigger fetch-universe on every tick forever,
+        producing an infinite retry loop when AV_API_KEY is missing.
+        """
+        self._reset_chain_status()
+        mock_trigger = AsyncMock()
+        mock_db_open = AsyncMock(return_value=None)
+
+        fake_client = MagicMock()
+        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+        fake_client.__aexit__ = AsyncMock(return_value=False)
+        # GET /runs/latest returns a failed fetch-universe run
+        failed_run_resp = _mock_response(200, {"job_type": "fetch-universe", "status": "failed"})
+        fake_client.get = AsyncMock(return_value=failed_run_resp)
+        fake_client.post = AsyncMock()
+
+        with (
+            patch.dict(_supervisor_tick.__globals__, {
+                "_has_universe": AsyncMock(return_value=False),
+                "_step_state": AsyncMock(return_value="idle"),
+                "_trigger_step": mock_trigger,
+                "_db_open_run": mock_db_open,
+                "_db_update_run": AsyncMock(),
+                "_db_close_run": AsyncMock(),
+            }),
+            patch("httpx.AsyncClient", return_value=fake_client),
+        ):
+            await _supervisor_tick()
+
+        # Chain must be marked failed — no re-trigger allowed
+        assert _chain_status["status"] == "failed", (
+            "fetch-universe failure must mark the chain as failed and stop the infinite "
+            "retry loop — check AV_API_KEY / MOCK_DATA=true message should be logged"
+        )
+        mock_trigger.assert_not_called()
+        fake_client.post.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_waits_when_fetch_universe_already_running(self):
+        """has_universe=False and fetch-universe is currently running → waits, no new trigger."""
+        self._reset_chain_status()
+        mock_trigger = AsyncMock()
+
+        fake_client = MagicMock()
+        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+        fake_client.__aexit__ = AsyncMock(return_value=False)
+        running_resp = _mock_response(200, {"job_type": "fetch-universe", "status": "running"})
+        fake_client.get = AsyncMock(return_value=running_resp)
+        fake_client.post = AsyncMock()
+
+        with (
+            patch.dict(_supervisor_tick.__globals__, {
+                "_has_universe": AsyncMock(return_value=False),
+                "_step_state": AsyncMock(return_value="idle"),
+                "_trigger_step": mock_trigger,
+                "_db_open_run": AsyncMock(return_value=None),
+                "_db_update_run": AsyncMock(),
+                "_db_close_run": AsyncMock(),
+            }),
+            patch("httpx.AsyncClient", return_value=fake_client),
+        ):
+            await _supervisor_tick()
+
+        assert _chain_status["status"] == "running"
+        mock_trigger.assert_not_called()
+        fake_client.post.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_failed_chain_blocks_subsequent_ticks_same_day(self):
+        """Once chain is marked failed today, further ticks return immediately.
+
+        This verifies the retry-loop fix: after fetch-universe fails and the chain
+        is set to 'failed', every subsequent supervisor tick for the same calendar
+        day must return early without firing any new triggers.
+        """
+        import datetime
+        today = datetime.date.today().isoformat()
+        chain_status = _supervisor_tick.__globals__["_chain_status"]
+        chain_status.update({
+            "status": "failed",
+            "date": today,
+            "steps": {},
+            "run_ids": {},
+            "current_run_id": None,
+        })
+
+        mock_has_universe = AsyncMock(return_value=False)
+        mock_trigger = AsyncMock()
+
+        with patch.dict(_supervisor_tick.__globals__, {
+            "_has_universe": mock_has_universe,
+            "_trigger_step": mock_trigger,
+        }):
+            await _supervisor_tick()
+
+        # has_universe and trigger_step must not be called — early exit on failed
+        mock_has_universe.assert_not_called()
+        mock_trigger.assert_not_called()
+        assert chain_status["status"] == "failed"
 
     @pytest.mark.asyncio
     async def test_skips_tick_when_lock_held(self):

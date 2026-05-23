@@ -298,8 +298,28 @@ async def _supervisor_tick() -> None:
             return
 
         async with httpx.AsyncClient() as client:
-            # Cold-start guard: if no universe, trigger fetch-universe and wait
+            # Cold-start guard: if no universe, check previous fetch-universe outcome
+            # before deciding whether to trigger a new one.
             if not await _has_universe(client):
+                try:
+                    lr = await client.get(f"{AV_INGESTOR_URL}/runs/latest", timeout=10.0)
+                    if lr.status_code == 200:
+                        last = lr.json()
+                        if last.get("job_type") == "fetch-universe":
+                            if last.get("status") == "running":
+                                _log("supervisor: fetch-universe already running — waiting for next tick")
+                                _chain_status["status"] = "running"
+                                return
+                            if last.get("status") == "failed":
+                                _log(
+                                    "supervisor: fetch-universe FAILED — cannot proceed without universe; "
+                                    "set AV_API_KEY or MOCK_DATA=true and restart"
+                                )
+                                _chain_status["status"] = "failed"
+                                return
+                except Exception as exc:
+                    _log("supervisor: cold-start status check failed", error=str(exc))
+
                 _log("supervisor: no universe — triggering fetch-universe")
                 try:
                     r = await client.post(f"{AV_INGESTOR_URL}/jobs/fetch-universe", timeout=15.0)
