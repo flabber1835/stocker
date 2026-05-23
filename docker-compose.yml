@@ -1,6 +1,6 @@
 services:
 
-  # ── Infrastructure ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+  # ── Infrastructure ────────────────────────────────────────────────────────────
 
   postgres:
     image: postgres:16
@@ -23,7 +23,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-      start_period: 120s
+      start_period: 60s   # cold NAS spinning-disk init can take 30-60s
 
   redis:
     image: redis:7-alpine
@@ -37,9 +37,12 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-      start_period: 30s
+      start_period: 15s
 
-  # ── Working services ──────────────────────────────────────────────────────────────────────────
+  # ── App services — all depend only on the infrastructure they directly use.
+  #    Inter-service HTTP calls happen at request time; services handle peer
+  #    unavailability gracefully so startup ordering is not required.
+  # ─────────────────────────────────────────────────────────────────────────────
 
   api:
     build:
@@ -65,18 +68,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      pipeline:
-        condition: service_healthy
-      llm-vetter:
-        condition: service_healthy
-      portfolio-builder:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 10
-      start_period: 180s
+      start_period: 30s
 
   av-ingestor:
     build:
@@ -98,16 +95,16 @@ services:
     volumes:
       - ./artifacts:/artifacts
     depends_on:
-      api:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 5
-      start_period: 120s
+      start_period: 20s
 
   pipeline:
     build:
@@ -128,52 +125,16 @@ services:
       - ./strategies:/strategies:ro
       - ./artifacts:/artifacts
     depends_on:
-      av-ingestor:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 5
-      start_period: 120s
-
-  dashboard:
-    build:
-      context: .
-      dockerfile: services/dashboard/Dockerfile
-      network: host
-    restart: unless-stopped
-    ports:
-      - "8004:8000"
-    environment:
-      API_URL: http://api:8000
-      AV_INGESTOR_URL: http://av-ingestor:8000
-      PIPELINE_URL: http://pipeline:8000
-      VETTER_URL: http://llm-vetter:8000
-      PORTFOLIO_URL: http://portfolio-builder:8000
-      SCHEDULER_URL: http://scheduler:8000
-    depends_on:
-      api:
-        condition: service_healthy
-      av-ingestor:
-        condition: service_healthy
-      pipeline:
-        condition: service_healthy
-      portfolio-builder:
-        condition: service_healthy
-      scheduler:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 300s
-
-  # ── Stubbed services (filled in later) ────────────────────────────────────────────────────────────────────────────
-  # Each stub serves GET /health → {"status":"ok","service":"<name>"}
+      start_period: 20s
 
   strategy-validator:
     build:
@@ -185,10 +146,10 @@ services:
       - "8005:8000"
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 15s
 
   strategy-config-service:
     build:
@@ -218,10 +179,10 @@ services:
       OLLAMA_TIMEOUT_SECS: ${OLLAMA_TIMEOUT_SECS:-600}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 5
-      start_period: 60s
+      start_period: 20s
 
   portfolio-builder:
     build:
@@ -240,14 +201,14 @@ services:
       - ./artifacts:/artifacts
       - ./strategies:/strategies:ro
     depends_on:
-      av-ingestor:
+      postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 5
-      start_period: 120s
+      start_period: 20s
 
   ollama:
     image: ollama/ollama:latest
@@ -297,16 +258,16 @@ services:
       - ./artifacts:/artifacts
       - ./strategies:/strategies:ro
     depends_on:
-      av-ingestor:
+      postgres:
         condition: service_healthy
       llm-gateway:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 5
-      start_period: 120s
+      start_period: 20s
 
   alpaca-sync:
     build:
@@ -323,14 +284,14 @@ services:
       ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
       PYTHONUNBUFFERED: "1"
     depends_on:
-      av-ingestor:
+      postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 5
-      start_period: 120s
+      start_period: 20s
 
   intraday-monitor:
     build:
@@ -359,14 +320,14 @@ services:
       PAPER_ONLY: ${PAPER_ONLY:-true}
       PYTHONUNBUFFERED: "1"
     depends_on:
-      api:
+      postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 5
-      start_period: 120s
+      start_period: 20s
 
   trade-executor:
     build:
@@ -386,14 +347,16 @@ services:
       DEFAULT_MAX_POSITIONS: ${DEFAULT_MAX_POSITIONS:-30}
       PYTHONUNBUFFERED: "1"
     depends_on:
+      postgres:
+        condition: service_healthy
       risk-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 5
-      start_period: 240s
+      start_period: 20s
 
   backtester:
     build:
@@ -411,14 +374,14 @@ services:
       - ./artifacts:/artifacts
       - ./strategies:/strategies:ro
     depends_on:
-      av-ingestor:
+      postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 5
-      start_period: 120s
+      start_period: 20s
 
   evaluator:
     build:
@@ -449,22 +412,39 @@ services:
       DATABASE_URL:             postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       SUPERVISOR_INTERVAL_SECS: ${SUPERVISOR_INTERVAL_SECS:-300}
     depends_on:
-      av-ingestor:
-        condition: service_healthy
-      pipeline:
-        condition: service_healthy
-      llm-vetter:
-        condition: service_healthy
-      portfolio-builder:
-        condition: service_healthy
-      alpaca-sync:
+      postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 5
-      start_period: 300s
+      start_period: 30s
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: services/dashboard/Dockerfile
+      network: host
+    restart: unless-stopped
+    ports:
+      - "8004:8000"
+    environment:
+      API_URL: http://api:8000
+      AV_INGESTOR_URL: http://av-ingestor:8000
+      PIPELINE_URL: http://pipeline:8000
+      VETTER_URL: http://llm-vetter:8000
+      PORTFOLIO_URL: http://portfolio-builder:8000
+      SCHEDULER_URL: http://scheduler:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
 volumes:
   pgdata:
