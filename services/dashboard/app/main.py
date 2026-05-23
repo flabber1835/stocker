@@ -1164,6 +1164,7 @@ footer span{color:var(--blue)}
     <button class="btn" onclick="loadRankings()">&#x21BA; REFRESH</button>
     <span class="badge-count" id="r-count"></span>
   </div>
+  <div id="r-vetter-notice" style="display:none;padding:.3rem .6rem;font-size:.72rem;color:var(--amber);background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:4px;margin-bottom:.4rem"></div>
   <div class="tbl-wrap">
     <table>
       <thead>
@@ -1208,6 +1209,7 @@ footer span{color:var(--blue)}
     <button class="btn" onclick="startDeltaRun()" id="delta-run-btn">&#9654; RUN DELTA</button>
     <span class="badge-count" id="delta-count-badge"></span>
   </div>
+  <div id="delta-source-notice" style="display:none;padding:.3rem .6rem;font-size:.72rem;color:var(--amber);background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:4px;margin-bottom:.4rem"></div>
   <div class="tbl-wrap">
     <table>
       <thead>
@@ -1512,6 +1514,16 @@ async function loadRankings(){
         not_in_universe: !!r.not_in_universe,
       };
     });
+    // Show vetter-pending notice when the LLM vetter hasn't run yet
+    const vetterNotice = $('r-vetter-notice');
+    if (vetterNotice) {
+      if (d.vetter_run_id) {
+        vetterNotice.style.display = 'none';
+      } else {
+        vetterNotice.style.display = '';
+        vetterNotice.textContent = 'LLM vetter has not run yet — vetter columns will be empty until step 5 of the daily chain completes.';
+      }
+    }
     _expandedTicker = null;
     renderRankings();
   }catch(e){
@@ -2065,6 +2077,18 @@ async function loadDelta(){
     $('delta-sell-trims').textContent=run.sell_trim_count??'—';
     $('delta-run-date').textContent=run.run_date||'—';
     $('delta-ranks').textContent=(run.entry_rank&&run.exit_rank)?(run.entry_rank+' / '+run.exit_rank):'—';
+    // Show a notice when displaying the intermediate embedded-pipeline delta
+    // (triggered before portfolio-builder runs) rather than the authoritative
+    // scheduler-triggered delta (triggered after portfolio-builder).
+    const notice = $('delta-source-notice');
+    if (notice) {
+      const isEmbedded = run.status && (d.run?.triggered_by === 'pipeline');
+      notice.style.display = isEmbedded ? '' : 'none';
+      if (isEmbedded) {
+        notice.textContent = 'Showing intermediate delta (before portfolio-builder ran). '
+          + 'Entry proposals will appear after the full daily chain completes (scheduler step 4).';
+      }
+    }
     _approvalState={};
     renderDelta();
   }catch(e){

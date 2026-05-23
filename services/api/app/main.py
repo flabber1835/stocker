@@ -840,8 +840,10 @@ async def get_delta_latest():
                 "confirmation_days, max_positions, current_portfolio_size, "
                 "entries_count, exits_count, holds_count, watches_count, "
                 "at_risk_count, buy_add_count, sell_trim_count, "
-                "started_at, completed_at, error_message "
-                "FROM delta_runs ORDER BY started_at DESC LIMIT 1"
+                "triggered_by, started_at, completed_at, error_message "
+                "FROM delta_runs "
+                "ORDER BY CASE WHEN triggered_by = 'scheduler' THEN 0 ELSE 1 END, "
+                "  started_at DESC LIMIT 1"
             ))).mappings().first()
 
             if run_row is None:
@@ -872,6 +874,7 @@ async def get_delta_latest():
                 "at_risk_count":         run_row["at_risk_count"],
                 "buy_add_count":         run_row["buy_add_count"],
                 "sell_trim_count":       run_row["sell_trim_count"],
+                "triggered_by":          run_row["triggered_by"],
                 "started_at":            _iso(run_row["started_at"]),
                 "completed_at":          _iso(run_row["completed_at"]),
                 "error_message":         run_row["error_message"],

@@ -1404,6 +1404,13 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             )
         if orphan_tickers:
             step_warnings.append(f"Orphan broker positions (not in target): {orphan_tickers}")
+        if not cold_start and not target_portfolio:
+            step_warnings.append(
+                "portfolio_holdings is empty for this portfolio run — "
+                "portfolio-builder may have filtered all candidates (check min_score_percentile, "
+                "min_non_null_factors, or portfolio-builder logs). "
+                "All live positions will be treated as orphans and tagged 'hold'."
+            )
         effective_mode = "confirmation_days_fallback" if (cold_start or no_sync_data) else "target_vs_live"
         await _log_step_delta(
             conn, trace_id, "load_portfolio_and_live", "success",
