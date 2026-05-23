@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import os
 import re
 import traceback
@@ -15,9 +16,14 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from stock_strategy_shared.db import wait_for_db
 from stock_strategy_shared.tracing import fmt_row
 
-DATABASE_URL       = os.getenv("DATABASE_URL", "")
-TRADE_EXECUTOR_URL = os.getenv("TRADE_EXECUTOR_URL", "http://trade-executor:8000")
-ALPACA_SYNC_URL    = os.getenv("ALPACA_SYNC_URL",    "http://alpaca-sync:8000")
+DATABASE_URL          = os.getenv("DATABASE_URL", "")
+TRADE_EXECUTOR_URL    = os.getenv("TRADE_EXECUTOR_URL",    "http://trade-executor:8000")
+ALPACA_SYNC_URL       = os.getenv("ALPACA_SYNC_URL",       "http://alpaca-sync:8000")
+PIPELINE_URL          = os.getenv("PIPELINE_URL",          "http://pipeline:8000")
+VETTER_URL            = os.getenv("VETTER_URL",            "http://llm-vetter:8000")
+AV_INGESTOR_URL       = os.getenv("AV_INGESTOR_URL",       "http://av-ingestor:8000")
+PORTFOLIO_BUILDER_URL = os.getenv("PORTFOLIO_BUILDER_URL", "http://portfolio-builder:8000")
+SCHEDULER_URL         = os.getenv("SCHEDULER_URL",         "http://scheduler:8000")
 engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=7,
                              connect_args={"timeout": 60}) if DATABASE_URL else None
 
@@ -921,6 +927,45 @@ async def get_delta_latest():
     except Exception:
         print(f"[api] get_delta_latest error: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Failed to fetch delta data")
+
+
+# ── System status aggregation ─────────────────────────────────────────────────
+
+@app.get("/system/status")
+async def system_status():
+    """Aggregate status from pipeline, vetter, av-ingestor, portfolio-builder, and scheduler.
+
+    Each sub-call is independent: one failure does not affect the others.
+    Returns a dict with keys: pipeline, vetter, ingestor, portfolio_builder, scheduler.
+    Each value is the parsed JSON from the service's status endpoint, or
+    {"error": "unavailable"} on any exception or non-200 response.
+    """
+    async def _fetch(url: str) -> dict:
+        try:
+            async with httpx.AsyncClient(timeout=6.0) as client:
+                r = await client.get(url)
+                if r.status_code == 200:
+                    return r.json()
+                return {"error": "unavailable"}
+        except Exception:
+            return {"error": "unavailable"}
+
+    pipeline_result, vetter_result, ingestor_result, portfolio_builder_result, scheduler_result = \
+        await asyncio.gather(
+            _fetch(f"{PIPELINE_URL}/runs/latest"),
+            _fetch(f"{VETTER_URL}/runs/latest"),
+            _fetch(f"{AV_INGESTOR_URL}/runs/latest"),
+            _fetch(f"{PORTFOLIO_BUILDER_URL}/runs/latest"),
+            _fetch(f"{SCHEDULER_URL}/status"),
+        )
+
+    return {
+        "pipeline":         pipeline_result,
+        "vetter":           vetter_result,
+        "ingestor":         ingestor_result,
+        "portfolio_builder": portfolio_builder_result,
+        "scheduler":        scheduler_result,
+    }
 
 
 # ── Alpaca sync proxy ──────────────────────────────────────────────────────────

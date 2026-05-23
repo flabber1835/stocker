@@ -19,7 +19,7 @@ import os
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../services/pipeline/app"))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../services/delta-engine/app"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../_archive/delta-engine/app"))
 
 from engine import evaluate_target_vs_live, evaluate_all, RankObservation
 

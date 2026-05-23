@@ -53,12 +53,23 @@ services:
       DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       REDIS_URL: redis://redis:6379
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      TRADE_EXECUTOR_URL: http://trade-executor:8000
-      ALPACA_SYNC_URL:    http://alpaca-sync:8000
+      TRADE_EXECUTOR_URL:    http://trade-executor:8000
+      ALPACA_SYNC_URL:       http://alpaca-sync:8000
+      PIPELINE_URL:          http://pipeline:8000
+      VETTER_URL:            http://llm-vetter:8000
+      AV_INGESTOR_URL:       http://av-ingestor:8000
+      PORTFOLIO_BUILDER_URL: http://portfolio-builder:8000
+      SCHEDULER_URL:         http://scheduler:8000
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      pipeline:
+        condition: service_healthy
+      llm-vetter:
+        condition: service_healthy
+      portfolio-builder:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
@@ -432,6 +443,7 @@ services:
       AV_INGESTOR_URL:          http://av-ingestor:8000
       PIPELINE_URL:             http://pipeline:8000
       VETTER_URL:               http://llm-vetter:8000
+      PORTFOLIO_BUILDER_URL:    http://portfolio-builder:8000
       ALPACA_SYNC_URL:          http://alpaca-sync:8000
       RANK_SCHEDULE_CRON:       ${RANK_SCHEDULE_CRON:-15 21 * * 1-5}
       DATABASE_URL:             postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
@@ -442,6 +454,8 @@ services:
       pipeline:
         condition: service_healthy
       llm-vetter:
+        condition: service_healthy
+      portfolio-builder:
         condition: service_healthy
       alpaca-sync:
         condition: service_healthy

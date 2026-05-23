@@ -8,4 +8,4 @@ for key in list(sys.modules.keys()):
         del sys.modules[key]
 
 sys.path.insert(0, os.path.join(ROOT, "shared"))
-sys.path.insert(0, os.path.join(ROOT, "services", "factor-engine"))
+sys.path.insert(0, os.path.join(ROOT, "_archive", "factor-engine"))

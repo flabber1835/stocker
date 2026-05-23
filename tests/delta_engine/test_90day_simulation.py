@@ -27,7 +27,7 @@ from typing import Optional
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../services/pipeline/app"))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../services/delta-engine/app"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../_archive/delta-engine/app"))
 
 from engine import evaluate_all, RankObservation, DeltaDecision
 

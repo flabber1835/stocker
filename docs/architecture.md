@@ -108,12 +108,13 @@ Daily chain (scheduler):
 ```text
 1. av-ingestor fetch-data       (also_accept_prev=no  — must fetch today)
 2. pipeline                     (also_accept_prev=yes — accepts prev trading day)
-3. portfolio-builder            (also_accept_prev=no  — must rebuild with today's rankings)
-4. delta (standalone)           (also_accept_prev=no  — must diff today's target vs live)
-5. llm-vetter vet               (optional/advisory)
+3. llm-vetter vet               (optional/advisory — runs before portfolio-builder so
+                                 exclusions feed the same-cycle build)
+4. portfolio-builder            (also_accept_prev=no  — must rebuild with today's rankings)
+5. delta (standalone)           (also_accept_prev=no  — must diff today's target vs live)
 ```
 
-Steps 3 and 4 have `also_accept_prev=False` so they are always re-triggered each day
+Steps 4 and 5 have `also_accept_prev=False` so they are always re-triggered each day
 even if yesterday's run exists. This ensures portfolio-builder always builds from the
 latest rankings and the standalone delta always produces fresh entry/exit intents.
 
