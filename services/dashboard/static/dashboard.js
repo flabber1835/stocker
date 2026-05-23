@@ -89,7 +89,14 @@ function updateStatusBar(d) {
   let sub = '', subCls = '';
 
   if (vetter.status === 'running') {
-    text = 'LLM ANALYSIS'; textCls = 'sb-purple';
+    const p = vetter.progress;
+    if (p && p.total > 0) {
+      const pct = Math.min(100, Math.round((p.completed / p.total) * 100));
+      text = 'LLM ANALYSIS ' + p.completed + '/' + p.total + ' · ' + pct + '%';
+    } else {
+      text = 'LLM ANALYSIS';
+    }
+    textCls = 'sb-purple';
   } else if (portfolio.status === 'running') {
     text = 'BUILDING PORTFOLIO'; textCls = 'sb-blue';
   } else if (rank.status === 'running') {
@@ -143,10 +150,12 @@ function updateStatusBar(d) {
 }
 
 /* ── Screener pipeline bar ───────────────────────────────────────────── */
-function updatePipelineBar(rank) {
+function updatePipelineBar(rank, vetter) {
+  vetter = vetter || {};
   const running = rank.status === 'running';
   const success = rank.status === 'success' || rank.status === 'partial_success';
   const failed  = rank.status === 'failed';
+  const vetRunning = vetter.status === 'running';
 
   const dot   = $('pb-dot');
   const label = $('pb-label');
@@ -155,19 +164,42 @@ function updatePipelineBar(rank) {
   const pct   = $('pb-pct');
   const btn   = $('run-btn');
 
-  dot.className   = 'pb-dot' + (running ? ' running' : success ? ' success' : failed ? ' failed' : '');
-  label.className = 'pb-label' + (running ? ' running' : success ? ' success' : failed ? ' failed' : '');
-  label.textContent = running ? (rank.step_label || 'RUNNING')
-                    : success ? ('READY' + (rank.date ? ' — ' + rank.date : ''))
-                    : failed  ? 'FAILED'
-                    : 'IDLE';
+  // Show "running"-style indicator if pipeline OR vetter is in flight, so the user
+  // sees forward progress through the whole chain rather than the bar disappearing
+  // the moment pipeline finishes and the vetter takes over for the next ~20 minutes.
+  const showAsRunning = running || (vetRunning && !success && !failed);
+  dot.className   = 'pb-dot'   + (showAsRunning ? ' running' : success ? ' success' : failed ? ' failed' : '');
+  label.className = 'pb-label' + (showAsRunning ? ' running' : success ? ' success' : failed ? ' failed' : '');
 
+  let labelText, barPct;
   if (running) {
+    labelText = rank.step_label || 'RUNNING';
+    barPct = rank.pct;
+  } else if (vetRunning) {
+    const vp = vetter.progress;
+    if (vp && vp.total > 0) {
+      const vpct = Math.min(100, Math.round((vp.completed / vp.total) * 100));
+      labelText = 'LLM ANALYSIS ' + vp.completed + '/' + vp.total;
+      barPct = vpct;
+    } else {
+      labelText = 'LLM ANALYSIS';
+      barPct = null;
+    }
+  } else if (success) {
+    labelText = 'READY' + (rank.date ? ' — ' + rank.date : '');
+  } else if (failed) {
+    labelText = 'FAILED';
+  } else {
+    labelText = 'IDLE';
+  }
+  label.textContent = labelText;
+
+  if (showAsRunning) {
     progWrap.style.display = 'flex';
     fill.classList.remove('indeterminate');
-    if (rank.pct != null) {
-      fill.style.width = rank.pct + '%';
-      pct.textContent  = rank.pct + '%';
+    if (barPct != null) {
+      fill.style.width = barPct + '%';
+      pct.textContent  = barPct + '%';
     } else {
       fill.style.width = '30%';
       fill.classList.add('indeterminate');
@@ -176,7 +208,7 @@ function updatePipelineBar(rank) {
   } else {
     progWrap.style.display = 'none';
   }
-  if (btn) btn.disabled = running;
+  if (btn) btn.disabled = showAsRunning;
 
   // Update summary strip last-run
   if (rank.date) $('ss-last-run').textContent = rank.date;
@@ -726,7 +758,7 @@ async function refresh() {
       const prev = _pipelineData;
       _pipelineData = pipelineRes;
       updateStatusBar(pipelineRes);
-      updatePipelineBar(pipelineRes.rank || {});
+      updatePipelineBar(pipelineRes.rank || {}, pipelineRes.vetter || {});
 
       // On rank done transition, reload rankings
       const wasRunning = prev.rank && prev.rank.status === 'running';
@@ -773,7 +805,7 @@ setInterval(async () => {
       const prevRank = (_pipelineData.rank || {}).status;
       _pipelineData = r;
       updateStatusBar(r);
-      updatePipelineBar(r.rank || {});
+      updatePipelineBar(r.rank || {}, r.vetter || {});
       // On running→done transition, trigger a full refresh so rankings/delta reload
       const nowRank = (r.rank || {}).status;
       if (prevRank === 'running' && (nowRank === 'success' || nowRank === 'partial_success')) {

@@ -680,12 +680,34 @@ async def start_vet(
     }
 
 
+async def _read_trace_progress(trace_id: str, started_at) -> dict | None:
+    """Read just the {completed, total} progress field from the running run's trace file.
+    Returns None if anything is missing or unreadable so polling stays cheap on failures."""
+    if not ARTIFACTS_PATH or trace_id is None or started_at is None:
+        return None
+    try:
+        fname = f"{started_at.strftime('%Y-%m-%d')}_vetter_run_{str(trace_id)[:8]}.json"
+        fpath = os.path.join(ARTIFACTS_PATH, "traces", fname)
+        if not os.path.exists(fpath):
+            return None
+        def _read():
+            with open(fpath) as f:
+                return json.load(f)
+        data = await asyncio.to_thread(_read)
+        prog = data.get("progress")
+        if not isinstance(prog, dict):
+            return None
+        return {"completed": int(prog.get("completed", 0)), "total": int(prog.get("total", 0))}
+    except Exception:
+        return None
+
+
 @app.get("/runs/latest")
 async def get_latest_run():
     async with engine.connect() as conn:
         row = await conn.execute(
             text(
-                "SELECT run_id, status, candidate_count, flagged_count, "
+                "SELECT run_id, trace_id, status, candidate_count, flagged_count, "
                 "       started_at, completed_at "
                 "FROM vetter_runs ORDER BY started_at DESC LIMIT 1"
             )
@@ -693,7 +715,15 @@ async def get_latest_run():
         result = row.fetchone()
     if result is None:
         raise HTTPException(status_code=404, detail="No vetter runs yet")
-    return _fmt_row(result)
+    out = _fmt_row(result)
+    # Surface live progress so the dashboard can render "LLM ANALYSIS 24/50" with a bar
+    # rather than just a static label that looks identical whether the job is healthy
+    # or stuck.
+    if result.status == "running":
+        progress = await _read_trace_progress(result.trace_id, result.started_at)
+        if progress:
+            out["progress"] = progress
+    return out
 
 
 @app.get("/runs/{run_id}")

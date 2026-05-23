@@ -349,10 +349,12 @@ async def pipeline_status():
             rank_date = rankings[0].get("rank_date")
 
     d2 = r2.json() if (not isinstance(r2, dict) and r2.status_code == 200) else {}
+    vetter_progress = None
     if d2:
         vet_completed_at = d2.get("completed_at")
         vetter_run_id    = d2.get("run_id")
         vetter_status_raw = d2.get("status")
+        vetter_progress  = d2.get("progress")  # {completed, total} when running
 
     if not isinstance(r3, dict) and r3.status_code == 200:
         run = r3.json().get("run") or {}
@@ -466,7 +468,8 @@ async def pipeline_status():
     return {
         "universe":  {"status": universe_status, "date": uni_date},
         "rank":      {"status": rank_status, "step": rank_step, "step_label": rank_step_label, "pct": rank_pct, "date": rank_date},
-        "vetter":    {"status": vetter_status, "run_id": vetter_run_id, "date": vetter_date},
+        "vetter":    {"status": vetter_status, "run_id": vetter_run_id, "date": vetter_date,
+                      "progress": vetter_progress},
         "portfolio": {"status": portfolio_status, "date": port_date},
         "warnings":  {"rank": rank_warning, "vet": vet_warning, "portfolio": port_warning},
     }
