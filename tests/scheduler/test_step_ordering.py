@@ -1,0 +1,86 @@
+"""
+Tests that the scheduler _STEPS chain has vetter positioned before portfolio-builder.
+
+The ordering matters because portfolio-builder reads vetter_exclusions to drop
+flagged tickers. If vetter runs after portfolio-builder it cannot feed the same
+cycle's build.
+"""
+import sys
+import types
+from unittest.mock import MagicMock
+
+
+def _make_apscheduler_stubs():
+    schedulers_pkg = types.ModuleType("apscheduler.schedulers")
+    asyncio_mod = types.ModuleType("apscheduler.schedulers.asyncio")
+    asyncio_mod.AsyncIOScheduler = MagicMock()
+    sys.modules.setdefault("apscheduler", types.ModuleType("apscheduler"))
+    sys.modules.setdefault("apscheduler.schedulers", schedulers_pkg)
+    sys.modules.setdefault("apscheduler.schedulers.asyncio", asyncio_mod)
+    triggers_pkg = types.ModuleType("apscheduler.triggers")
+    cron_mod = types.ModuleType("apscheduler.triggers.cron")
+    cron_mod.CronTrigger = MagicMock()
+    interval_mod = types.ModuleType("apscheduler.triggers.interval")
+    interval_mod.IntervalTrigger = MagicMock()
+    sys.modules.setdefault("apscheduler.triggers", triggers_pkg)
+    sys.modules.setdefault("apscheduler.triggers.cron", cron_mod)
+    sys.modules.setdefault("apscheduler.triggers.interval", interval_mod)
+
+
+_make_apscheduler_stubs()
+
+from app.main import _STEPS  # noqa: E402
+
+
+def _step_names() -> list[str]:
+    return [s.name for s in _STEPS]
+
+
+class TestStepOrdering:
+    """Verify the critical ordering constraints in the daily chain."""
+
+    def test_vetter_before_portfolio_builder(self):
+        """Vetter must run before portfolio-builder so exclusions feed the same cycle."""
+        names = _step_names()
+        assert "vet" in names, "vet step must exist in _STEPS"
+        assert "portfolio-builder" in names, "portfolio-builder step must exist in _STEPS"
+        assert names.index("vet") < names.index("portfolio-builder"), (
+            "vet must come before portfolio-builder — "
+            "got ordering: " + str(names)
+        )
+
+    def test_portfolio_builder_before_delta(self):
+        """portfolio-builder must run before delta so target weights are available."""
+        names = _step_names()
+        assert names.index("portfolio-builder") < names.index("delta"), (
+            "portfolio-builder must come before delta"
+        )
+
+    def test_pipeline_before_vetter(self):
+        """pipeline (rank) must run before vetter so vetter has rankings to query."""
+        names = _step_names()
+        assert names.index("pipeline") < names.index("vet"), (
+            "pipeline must come before vet"
+        )
+
+    def test_fetch_data_first(self):
+        """fetch-data must be the first step."""
+        assert _step_names()[0] == "fetch-data"
+
+    def test_delta_last(self):
+        """delta must be the final step."""
+        assert _step_names()[-1] == "delta"
+
+    def test_full_order(self):
+        """Full chain: fetch-data → pipeline → vet → portfolio-builder → delta."""
+        names = _step_names()
+        assert names == ["fetch-data", "pipeline", "vet", "portfolio-builder", "delta"], (
+            "Unexpected chain order: " + str(names)
+        )
+
+    def test_vet_is_optional(self):
+        """Vetter step must be optional so the chain continues if vetter is down."""
+        vet_step = next(s for s in _STEPS if s.name == "vet")
+        assert vet_step.optional is True, (
+            "vet step must be optional=True — vetter failure must not block portfolio-builder"
+        )

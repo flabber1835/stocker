@@ -857,6 +857,23 @@ async def get_delta_latest():
                 "ORDER BY action, rank ASC NULLS LAST, ticker"
             ), {"rid": run_id})).mappings().fetchall()
 
+            # Vetter overlay — join most recent successful vetter run onto each intent.
+            vetter_by_ticker: dict[str, dict] = {}
+            tickers = [r["ticker"] for r in intent_rows]
+            if tickers:
+                vr = (await conn.execute(text(
+                    "SELECT run_id FROM vetter_runs WHERE status='success' "
+                    "ORDER BY started_at DESC LIMIT 1"
+                ))).mappings().first()
+                if vr:
+                    vd_rows = (await conn.execute(text(
+                        "SELECT ticker, exclude, confidence, risk_type, reason, "
+                        "  positive_catalyst, positive_reason "
+                        "FROM vetter_decisions WHERE run_id = :rid AND ticker = ANY(:tickers)"
+                    ), {"rid": str(vr["run_id"]), "tickers": tickers})).mappings().fetchall()
+                    for v in vd_rows:
+                        vetter_by_ticker[v["ticker"]] = dict(v)
+
         return {
             "run": {
                 "run_id":                str(run_row["run_id"]),
@@ -881,16 +898,22 @@ async def get_delta_latest():
             },
             "intents": [
                 {
-                    "id":                   str(r["id"]),
-                    "ticker":               r["ticker"],
-                    "action":               r["action"],
-                    "rank":                 r["rank"],
-                    "composite_score":      _f(r["composite_score"]),
+                    "id":                    str(r["id"]),
+                    "ticker":                r["ticker"],
+                    "action":                r["action"],
+                    "rank":                  r["rank"],
+                    "composite_score":       _f(r["composite_score"]),
                     "confirmation_days_met": r["confirmation_days_met"],
-                    "current_weight":       _f(r["current_weight"]),
-                    "actual_weight":        _f(r["actual_weight"]),
-                    "weight_drift":         _f(r["weight_drift"]),
-                    "reason":               r["reason"],
+                    "current_weight":        _f(r["current_weight"]),
+                    "actual_weight":         _f(r["actual_weight"]),
+                    "weight_drift":          _f(r["weight_drift"]),
+                    "reason":                r["reason"],
+                    "vetter_excluded":       vetter_by_ticker.get(r["ticker"], {}).get("exclude"),
+                    "vetter_confidence":     vetter_by_ticker.get(r["ticker"], {}).get("confidence"),
+                    "vetter_risk_type":      vetter_by_ticker.get(r["ticker"], {}).get("risk_type"),
+                    "vetter_reason":         vetter_by_ticker.get(r["ticker"], {}).get("reason"),
+                    "vetter_positive_catalyst": vetter_by_ticker.get(r["ticker"], {}).get("positive_catalyst"),
+                    "vetter_positive_reason":   vetter_by_ticker.get(r["ticker"], {}).get("positive_reason"),
                 }
                 for r in intent_rows
             ],

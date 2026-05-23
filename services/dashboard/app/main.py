@@ -1221,11 +1221,12 @@ footer span{color:var(--blue)}
           <th onclick="sortDelta('current_weight')" id="dh-current_weight">WEIGHT</th>
           <th id="dh-weight_drift">DRIFT</th>
           <th id="dh-reason">REASON</th>
+          <th id="dh-vetter">VETTER</th>
           <th id="dh-approve">APPROVE</th>
         </tr>
       </thead>
       <tbody id="delta-body">
-        <tr><td colspan="8" class="loading">Loading trade proposals</td></tr>
+        <tr><td colspan="9" class="loading">Loading trade proposals</td></tr>
       </tbody>
     </table>
   </div>
@@ -2018,7 +2019,7 @@ function renderDelta(){
     return(av<bv?-1:av>bv?1:0)*dir;
   });
   $('delta-count-badge').textContent=rows.length+' INTENTS';
-  if(!rows.length){$('delta-body').innerHTML='<tr><td colspan="8" class="loading">No proposals</td></tr>';return;}
+  if(!rows.length){$('delta-body').innerHTML='<tr><td colspan="9" class="loading">No proposals</td></tr>';return;}
   const actionTag={
     entry:'<span style="background:#1a4a1a;color:#4caf50;padding:2px 6px;border-radius:3px;font-size:.7rem;font-weight:700">BUY</span>',
     exit:'<span style="background:#4a1a1a;color:#f44336;padding:2px 6px;border-radius:3px;font-size:.7rem;font-weight:700">SELL</span>',
@@ -2033,6 +2034,25 @@ function renderDelta(){
     const wt=r.current_weight!=null?((r.current_weight)*100).toFixed(1)+'%':'—';
     const drift=r.weight_drift!=null?((r.weight_drift>=0?'+':'')+((r.weight_drift)*100).toFixed(1)+'%'):'—';
     const reason=r.reason?esc(r.reason.substring(0,60))+(r.reason.length>60?'&#8230;':''):'—';
+
+    // Vetter cell — show for entry and at_risk intents where vetter data exists
+    let vetterCell='<td></td>';
+    const showVetter=(r.action==='entry'||r.action==='at_risk')&&r.vetter_confidence!=null;
+    if(showVetter){
+      const excl=r.vetter_excluded;
+      const verdict=excl?'EXCL':'KEEP';
+      const vColor=excl?'#f44336':'#4caf50';
+      const vBg=excl?'rgba(244,67,54,.12)':'rgba(76,175,80,.12)';
+      const conf=(r.vetter_confidence||'').toLowerCase();
+      const tip=r.vetter_reason?esc(r.vetter_reason.substring(0,120)):'';
+      vetterCell='<td style="font-size:.72rem">'
+        +'<span style="background:'+vBg+';color:'+vColor+';padding:1px 5px;border-radius:3px;font-weight:700" title="'+tip+'">'+verdict+'</span>'
+        +(conf?' <span style="color:var(--secondary)">'+conf+'</span>':'')
+        +'</td>';
+    }else if(r.action==='entry'||r.action==='at_risk'){
+      vetterCell='<td style="font-size:.72rem;color:var(--secondary)">—</td>';
+    }
+
     let approveCells='<td></td>';
     if(r.action==='entry'||r.action==='exit'||r.action==='buy_add'||r.action==='sell_trim'){
       const st=_approvalState[r.id]||{};
@@ -2056,14 +2076,15 @@ function renderDelta(){
       +'<td class="t-wt">'+fmtScore(r.composite_score)+'</td>'
       +'<td class="t-wt">'+wt+'</td>'
       +'<td class="t-wt">'+drift+'</td>'
-      +'<td style="font-size:.75rem;color:var(--secondary);max-width:220px">'+reason+'</td>'
+      +'<td style="font-size:.75rem;color:var(--secondary);max-width:200px">'+reason+'</td>'
+      +vetterCell
       +approveCells
       +'</tr>';
   }).join('');
 }
 
 async function loadDelta(){
-  $('delta-body').innerHTML='<tr><td colspan="8" class="loading">Loading proposals</td></tr>';
+  $('delta-body').innerHTML='<tr><td colspan="9" class="loading">Loading proposals</td></tr>';
   try{
     const d=await fetch('/api/delta/latest').then(r=>r.json());
     const run=d.run||{};
@@ -2092,7 +2113,7 @@ async function loadDelta(){
     _approvalState={};
     renderDelta();
   }catch(e){
-    $('delta-body').innerHTML='<tr><td colspan="8" class="error">No delta data — run delta engine first</td></tr>';
+    $('delta-body').innerHTML='<tr><td colspan="9" class="error">No delta data — run delta engine first</td></tr>';
   }
 }
 

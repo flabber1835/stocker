@@ -73,12 +73,14 @@ _STEPS: list[_StepDef] = [
              job_type="fetch-data", extra_ok=("partial_success",)),
     _StepDef("pipeline", PIPELINE_URL, "/jobs/run", "run_date",
              use_trading_day=True, also_accept_prev=True),
+    # Vetter runs before portfolio-builder so exclusions feed the same-cycle build.
+    # optional=True: if Ollama/OpenAI is not configured the chain continues without it.
+    _StepDef("vet", VETTER_URL, "/jobs/vet", "started_at", optional=True),
     _StepDef("portfolio-builder", PORTFOLIO_BUILDER_URL, "/jobs/build", "started_at",
              use_trading_day=True, also_accept_prev=False),
     _StepDef("delta", PIPELINE_URL, "/jobs/delta", "started_at",
              status_path="/runs/delta-latest",
              use_trading_day=True, also_accept_prev=False),
-    _StepDef("vet", VETTER_URL, "/jobs/vet", "started_at", optional=True),
 ]
 
 
