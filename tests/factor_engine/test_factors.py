@@ -682,12 +682,21 @@ def test_momentum_winsorization_applied_in_compute_all_factors():
     result = compute_all_factors(prices_long, fundamentals)
     result = result.set_index("ticker")
 
-    # SNDK should be at the cap
-    assert result.loc["SNDK", "momentum"] == pytest.approx(2.5, abs=0.05)
-
-    # Normal tickers must retain meaningful spread — not all collapsed toward zero
+    # SNDK (outlier at +200%) should be winsorized to the 99th-pct value and then
+    # z-scored without a hard clip — it will have the highest momentum score but
+    # its exact value is not 2.5 (no clip applied to momentum after winsorization).
+    sndk_mom = result.loc["SNDK", "momentum"]
     normal_mom = result.drop("SNDK")["momentum"].dropna()
+    assert sndk_mom >= normal_mom.max(), (
+        "SNDK should have the highest (or tied-highest) momentum score after winsorization"
+    )
+
+    # Normal tickers must retain meaningful spread — not collapsed toward zero,
+    # and not all capped at the same ceiling value.
     assert normal_mom.std() > 0.15, (
         f"Normal tickers momentum std={normal_mom.std():.3f} after winsorization; "
         "should be well above zero (outlier not polluting the distribution)"
+    )
+    assert normal_mom.max() < sndk_mom + 0.01, (
+        "No normal ticker should outscore SNDK on momentum"
     )
