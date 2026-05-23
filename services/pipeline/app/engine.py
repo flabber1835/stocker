@@ -112,7 +112,10 @@ def evaluate_ticker(
     elif held:
         # Priority 3: rank is good (≤ exit_rank) — check drift
         zone = "entry zone" if latest.rank <= entry_rank else "buffer zone"
-        if drift is not None and abs(drift) > drift_threshold:
+        # Only rebalance when there's a real positive target weight. current_weight=0.0
+        # is the cold-start sentinel ("held at broker, no portfolio target yet") — drift
+        # relative to 0 is meaningless and would generate spurious sell_trim actions.
+        if current_weight and drift is not None and abs(drift) > drift_threshold:
             if drift < 0:
                 action = "buy_add"
                 reason = (
@@ -301,8 +304,9 @@ def evaluate_target_vs_live(
             current_rank = 9999
             rank_action = "hold"
 
-        # Layer drift on top only when rank-based action is "hold"
-        if rank_action == "hold" and drift is not None and abs(drift) > drift_threshold:
+        # Layer drift on top only when rank-based action is "hold" and there is a real
+        # positive target weight (target_weight=0 is the cold-start sentinel).
+        if rank_action == "hold" and target_weight and drift is not None and abs(drift) > drift_threshold:
             if drift < 0:
                 action = "buy_add"
             else:

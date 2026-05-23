@@ -66,6 +66,7 @@ class _StepDef:
     extra_ok: tuple = ()            # extra ok statuses beyond "success"
     optional: bool = False          # if True, failure does not abort chain
     params: dict | None = None      # extra POST query params
+    max_running_minutes: int | None = None  # treat "running" as "failed" after this many minutes
 
 
 _STEPS: list[_StepDef] = [
@@ -75,7 +76,11 @@ _STEPS: list[_StepDef] = [
              use_trading_day=True, also_accept_prev=True),
     # Vetter runs before portfolio-builder so exclusions feed the same-cycle build.
     # optional=True: if Ollama/OpenAI is not configured the chain continues without it.
-    _StepDef("vet", VETTER_URL, "/jobs/vet", "started_at", optional=True),
+    # max_running_minutes: Ollama vetting 150 tickers takes at most 30-45 min;
+    # after 90 min the job is stale (Ollama crashed mid-run, model not loaded, etc.)
+    # and the chain would be permanently blocked without this guard.
+    _StepDef("vet", VETTER_URL, "/jobs/vet", "started_at", optional=True,
+             max_running_minutes=90),
     # portfolio_date is the trading-day date of the underlying ranking data, not the
     # wall-clock run time. Using started_at fails on weekends because the job runs on
     # Saturday but use_trading_day=True expects Friday's date.
@@ -242,6 +247,24 @@ async def _step_state(
         if run_status in ("success",) + step.extra_ok:
             return "done"
         if run_status == "running":
+            if step.max_running_minutes is not None:
+                started_raw = data.get("started_at") or data.get(step.date_field)
+                if started_raw:
+                    try:
+                        from datetime import timezone as _tz
+                        started_dt = datetime.fromisoformat(str(started_raw).replace("Z", "+00:00"))
+                        if started_dt.tzinfo is None:
+                            started_dt = started_dt.replace(tzinfo=_tz.utc)
+                        age_minutes = (datetime.now(_tz.utc) - started_dt).total_seconds() / 60
+                        if age_minutes > step.max_running_minutes:
+                            _log(
+                                f"supervisor: {step.name} has been running "
+                                f"{age_minutes:.0f}m > limit {step.max_running_minutes}m — treating as failed",
+                                started_at=str(started_raw),
+                            )
+                            return "failed"
+                    except Exception:
+                        pass
             return "running"
         if run_status in ("failed",):
             return "failed"

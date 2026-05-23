@@ -350,3 +350,83 @@ class TestStepOrdering:
         # All should be entries (current_portfolio empty, all within entry_rank)
         for ticker, d in decisions.items():
             assert d.action == "entry", f"{ticker} expected entry, got {d.action}"
+
+
+# ── Cold-start TRIM regression ─────────────────────────────────────────────────
+
+class TestColdStartTrimRegression:
+    """
+    Regression: when the pipeline delta runs before portfolio-builder exists, it uses
+    cold_start mode which seeds live positions as {ticker: 0.0}.  With current_weight=0.0
+    and actual_weight=2.73%, drift = +2.73% > threshold → spurious sell_trim.
+
+    The fix: drift rebalancing is skipped when current_weight is 0 or None
+    (no real portfolio target exists yet).
+    """
+
+    def test_cold_start_held_position_is_not_trimmed(self):
+        """Held position with current_weight=0.0 (cold-start sentinel) must be HOLD, not TRIM."""
+        obs = _history(5, 5, 5)  # rank=5, well inside entry zone
+        d = evaluate_ticker(
+            "SNDK", obs,
+            current_weight=0.0,       # cold-start sentinel: held but no target weight
+            actual_weight=0.0273,     # 2.73% at broker
+            entry_rank=25, exit_rank=40, confirmation_days=3,
+            portfolio_at_capacity=False,
+            drift_threshold=0.02,
+        )
+        assert d.action == "hold", (
+            f"Expected hold (cold-start, no real target weight), got {d.action}. "
+            f"current_weight=0.0 is the sentinel for 'held at broker, no portfolio target yet' — "
+            f"drift vs. 0% target must not generate a sell_trim."
+        )
+
+    def test_cold_start_held_below_exit_zone_is_not_trimmed(self):
+        """Rank #7 with current_weight=0.0 must be HOLD even with actual_weight > drift threshold."""
+        obs = _history(7, 7, 7)
+        d = evaluate_ticker(
+            "WDC", obs,
+            current_weight=0.0,
+            actual_weight=0.0255,
+            entry_rank=25, exit_rank=40, confirmation_days=3,
+            portfolio_at_capacity=False,
+            drift_threshold=0.02,
+        )
+        assert d.action == "hold"
+
+    def test_real_target_weight_does_trigger_trim(self):
+        """A genuine positive target weight with overweight actual SHOULD still generate sell_trim."""
+        obs = _history(5, 5, 5)
+        d = evaluate_ticker(
+            "AAPL", obs,
+            current_weight=0.03,   # real target: 3%
+            actual_weight=0.06,    # overweight: 6%
+            entry_rank=25, exit_rank=40, confirmation_days=3,
+            portfolio_at_capacity=False,
+            drift_threshold=0.02,
+        )
+        assert d.action == "sell_trim"
+
+    def test_evaluate_all_cold_start_portfolio_no_trim(self):
+        """evaluate_all in cold-start mode must not produce sell_trim for held positions."""
+        universe = {
+            "SNDK": _history(1, 1, 1),
+            "WDC":  _history(2, 2, 2),
+            "MU":   _history(7, 7, 7),
+        }
+        cold_start_portfolio = {"SNDK": 0.0, "WDC": 0.0, "MU": 0.0}
+        live_weights = {"SNDK": 0.0273, "WDC": 0.0255, "MU": 0.018}
+        decisions = evaluate_all(
+            universe=universe,
+            current_portfolio=cold_start_portfolio,
+            entry_rank=25, exit_rank=40, confirmation_days=3,
+            max_positions=30,
+            actual_weights=live_weights,
+            drift_threshold=0.02,
+        )
+        for ticker in cold_start_portfolio:
+            action = decisions[ticker].action
+            assert action == "hold", (
+                f"{ticker}: cold-start portfolio produced '{action}' — "
+                f"expected 'hold' (no real target weight, must not rebalance)"
+            )
