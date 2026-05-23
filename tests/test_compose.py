@@ -213,3 +213,36 @@ class TestCriticalServices:
             f"api depends_on non-infrastructure services {bad} — this causes cycles. "
             f"api should only depend on postgres, redis, and db-migrator."
         )
+
+    def test_scheduler_waits_for_services_it_triggers(self, services):
+        """The scheduler fires _startup_catch_up() immediately on boot and POSTs to
+        av-ingestor, pipeline, portfolio-builder, llm-vetter. If those services are
+        not yet accepting connections, the trigger calls fail silently and the cold-
+        boot chain is delayed by 30-60 seconds per missed tick.
+
+        Regression test: scheduler must wait for the services it directly triggers
+        to be healthy before starting. db-migrator must also have completed so the
+        scheduler's DB writes (scheduler_runs INSERT) don't fail.
+        """
+        scheduler = services.get("scheduler", {})
+        raw = scheduler.get("depends_on", {})
+        assert isinstance(raw, dict), (
+            "scheduler.depends_on must use the long-form dict with conditions, "
+            "not the short-form list — service_healthy conditions are required."
+        )
+        # Services the scheduler POSTs to during _startup_catch_up
+        required_healthy = {"av-ingestor", "pipeline", "portfolio-builder", "llm-vetter"}
+        for svc in required_healthy:
+            assert svc in raw, (
+                f"scheduler must depend_on {svc} (service_healthy) — without it, the "
+                f"first supervisor tick fires before {svc} is up and the POST fails, "
+                f"adding 30-60s to cold-boot time per missed tick"
+            )
+            assert raw[svc].get("condition") == "service_healthy", (
+                f"scheduler depends on {svc} but condition is "
+                f"{raw[svc].get('condition')!r}, must be 'service_healthy'"
+            )
+        assert raw.get("db-migrator", {}).get("condition") == "service_completed_successfully", (
+            "scheduler must wait for db-migrator to complete — otherwise the very "
+            "first scheduler_runs INSERT can hit a missing table"
+        )
