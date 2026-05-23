@@ -468,6 +468,10 @@ CREATE TABLE IF NOT EXISTS delta_runs (
     exits_count              INTEGER      NOT NULL DEFAULT 0,
     holds_count              INTEGER      NOT NULL DEFAULT 0,
     watches_count            INTEGER      NOT NULL DEFAULT 0,
+    at_risk_count            INTEGER      NOT NULL DEFAULT 0,
+    buy_add_count            INTEGER      NOT NULL DEFAULT 0,
+    sell_trim_count          INTEGER      NOT NULL DEFAULT 0,
+    triggered_by             TEXT         NOT NULL DEFAULT 'pipeline',
     started_at               TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     completed_at             TIMESTAMPTZ,
     error_message            TEXT
@@ -479,11 +483,13 @@ CREATE TABLE IF NOT EXISTS delta_intents (
     id                    UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     run_id                UUID         NOT NULL REFERENCES delta_runs(run_id) ON DELETE CASCADE,
     ticker                VARCHAR(20)  NOT NULL,
-    action                VARCHAR(10)  NOT NULL CHECK (action IN ('entry','exit','hold','watch')),
+    action                VARCHAR(10)  NOT NULL CHECK (action IN ('entry','exit','hold','watch','at_risk','buy_add','sell_trim')),
     rank                  INTEGER,
     composite_score       NUMERIC(12,6),
     confirmation_days_met INTEGER,
     current_weight        NUMERIC(10,6),
+    actual_weight         NUMERIC(10,6),
+    weight_drift          NUMERIC(10,6),
     reason                TEXT,
     created_at            TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
