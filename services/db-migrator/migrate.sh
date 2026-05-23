@@ -1,15 +1,17 @@
 #!/bin/sh
 set -e
 
-# Retry the DB connection: postgres pg_isready passes before its bridge-IP
-# is routable on NAS, so the first psycopg2.connect can time out.
-MAX_RETRIES=10
+# pg_isready passes on 127.0.0.1 inside the postgres container before the
+# bridge IP (e.g. 192.168.64.2) is routable from other containers on NAS.
+# The `if python` form is used deliberately: `set -e` would abort the script
+# on a bare `python; rc=$?` when python exits 1, bypassing the retry loop.
+MAX_RETRIES=20
 DELAY=10
 
 wait_for_db() {
     i=0
     while [ $i -lt $MAX_RETRIES ]; do
-        python - <<'EOF'
+        if python - <<'EOF'
 import os, sys, psycopg2
 url = os.environ.get("DATABASE_URL", "")
 try:
@@ -20,8 +22,7 @@ except Exception as e:
     print(f"[db-migrator] DB not ready: {e}", flush=True)
     sys.exit(1)
 EOF
-        rc=$?
-        if [ $rc -eq 0 ]; then
+        then
             echo "[db-migrator] DB connection OK" >&2
             return 0
         fi
