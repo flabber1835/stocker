@@ -262,19 +262,17 @@ def compute_all_factors(
     def _align(raw: pd.Series) -> pd.Series:
         return raw.reindex(result.index)
 
-    # Winsorize raw momentum and low_volatility before cross-section z-scoring.
-    # Without this, a single outlier (e.g. a recent spinoff with 150%+ 12-month return)
-    # inflates the cross-sectional std, compressing every other ticker's z-score.
-    # quality/value/growth already winsorize their components; this makes momentum
-    # and low_volatility consistent.
-    momentum_w = _winsorize(momentum_raw.dropna()).reindex(momentum_raw.index) if not momentum_raw.empty else momentum_raw
-    low_vol_w  = _winsorize(low_vol_raw.dropna()).reindex(low_vol_raw.index)   if not low_vol_raw.empty else low_vol_raw
+    # Winsorize raw momentum and low_volatility using 0.1%/99.9% tails before z-scoring.
+    # The 1%/99% band was a bug: with a 2000-ticker universe it clips the top 20 tickers
+    # to the same value, giving them all identical z-scores and destroying rank
+    # differentiation among top performers. The 0.1%/99.9% band clips at most 2 tickers
+    # per 1000 — enough to suppress genuine extreme outliers (spinoff repricing, data
+    # errors) without collapsing a cluster of legitimate top-momentum stocks.
+    momentum_w = _winsorize(momentum_raw.dropna(), lo_pct=0.001, hi_pct=0.999).reindex(momentum_raw.index) if not momentum_raw.empty else momentum_raw
+    low_vol_w  = _winsorize(low_vol_raw.dropna(), lo_pct=0.001, hi_pct=0.999).reindex(low_vol_raw.index)   if not low_vol_raw.empty else low_vol_raw
 
-    # Winsorization already contains the tails for momentum and low_vol, so no
-    # additional hard clip is applied — clipping after winsorizing would flatten
-    # the top ~95 stocks to the same score and destroy rank differentiation.
-    # quality/value/growth/liquidity clip normally because their outlier handling
-    # is inside sub-component z-scores rather than at the raw return level.
+    # No additional clip — the 0.1%/99.9% winsorize handles extremes without
+    # flattening the top tier to a single score.
     result["momentum"] = cross_section_zscore(_align(momentum_w), clip=float("inf"))
     result["low_volatility"] = cross_section_zscore(_align(low_vol_w), clip=float("inf"))
     result["liquidity"] = cross_section_zscore(_align(liquidity_raw), clip=cfg.zscore_clip)
