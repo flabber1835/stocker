@@ -123,6 +123,36 @@ class TestStepState:
         assert result == "idle"
 
     @pytest.mark.asyncio
+    async def test_stale_running_across_midnight_marked_failed(self):
+        """Regression: a job that started yesterday and is still 'running' today must be
+        treated as failed by the max_running_minutes guard, even though its run_date
+        does not match today. Without this, _step_state used to early-return 'idle'
+        and the supervisor would attempt to re-trigger the step forever while the
+        original stuck job kept its lock — silently neutralising the timeout."""
+        from datetime import datetime, timedelta, timezone
+        yesterday_late = (datetime.now(timezone.utc) - timedelta(hours=20)).isoformat()
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+        step = self._make_step(max_running_minutes=90, date_field="started_at")
+        client = _async_client_returning({"status": "running", "started_at": yesterday_late})
+        result = await _step_state(client, step, today, today, yesterday)
+        assert result == "failed", (
+            "stale running job spanning midnight must be marked failed so the chain "
+            "can advance, regardless of run_date mismatch"
+        )
+
+    @pytest.mark.asyncio
+    async def test_recent_running_within_limit_stays_running(self):
+        """Sanity check: a job that started 30 min ago with a 90-min limit stays 'running'."""
+        from datetime import datetime, timedelta, timezone
+        recent = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        step = self._make_step(max_running_minutes=90, date_field="started_at")
+        client = _async_client_returning({"status": "running", "started_at": recent})
+        result = await _step_state(client, step, today, today, today)
+        assert result == "running"
+
+    @pytest.mark.asyncio
     async def test_idle_wrong_job_type(self):
         """Status ok, date ok, but job_type doesn't match → 'idle'."""
         today = "2026-05-21"
