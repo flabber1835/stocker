@@ -214,35 +214,58 @@ class TestCriticalServices:
             f"api should only depend on postgres, redis, and db-migrator."
         )
 
-    def test_scheduler_waits_for_services_it_triggers(self, services):
-        """The scheduler fires _startup_catch_up() immediately on boot and POSTs to
-        av-ingestor, pipeline, portfolio-builder, llm-vetter. If those services are
-        not yet accepting connections, the trigger calls fail silently and the cold-
-        boot chain is delayed by 30-60 seconds per missed tick.
+    def test_scheduler_depends_only_on_infrastructure(self, services):
+        """The scheduler must depend ONLY on postgres and db-migrator, not on
+        av-ingestor / pipeline / portfolio-builder / llm-vetter.
 
-        Regression test: scheduler must wait for the services it directly triggers
-        to be healthy before starting. db-migrator must also have completed so the
-        scheduler's DB writes (scheduler_runs INSERT) don't fail.
+        Design rationale:
+          _trigger_step() catches every HTTP error and returns False; the
+          supervisor retries on the next tick (SUPERVISOR_INTERVAL_SECS).
+          Adding service_healthy deps for those four services creates a
+          mandatory serial chain (~5-7 min on a cold NAS) and makes the
+          scheduler hostage to optional services like llm-vetter/llm-gateway
+          — if the LLM provider is unreachable, the entire scheduler never
+          starts.  The scheduler's built-in retry logic is the correct
+          resilience mechanism; Docker deps must not duplicate it.
+
+        Regression: this test replaces the previous
+        test_scheduler_waits_for_services_it_triggers which required
+        service_healthy on all four triggered services.  That design caused
+        the 5-7 min cold-boot delay on the Synology NAS.
         """
         scheduler = services.get("scheduler", {})
         raw = scheduler.get("depends_on", {})
-        assert isinstance(raw, dict), (
-            "scheduler.depends_on must use the long-form dict with conditions, "
-            "not the short-form list — service_healthy conditions are required."
-        )
-        # Services the scheduler POSTs to during _startup_catch_up
-        required_healthy = {"av-ingestor", "pipeline", "portfolio-builder", "llm-vetter"}
-        for svc in required_healthy:
-            assert svc in raw, (
-                f"scheduler must depend_on {svc} (service_healthy) — without it, the "
-                f"first supervisor tick fires before {svc} is up and the POST fails, "
-                f"adding 30-60s to cold-boot time per missed tick"
-            )
-            assert raw[svc].get("condition") == "service_healthy", (
-                f"scheduler depends on {svc} but condition is "
-                f"{raw[svc].get('condition')!r}, must be 'service_healthy'"
-            )
+        assert isinstance(raw, dict), \
+            "scheduler.depends_on must use the long-form dict with conditions"
+
+        # db-migrator must be complete — scheduler writes to scheduler_runs on start
         assert raw.get("db-migrator", {}).get("condition") == "service_completed_successfully", (
-            "scheduler must wait for db-migrator to complete — otherwise the very "
-            "first scheduler_runs INSERT can hit a missing table"
+            "scheduler must wait for db-migrator to complete — the very first "
+            "scheduler_runs INSERT would fail against a schema that isn't current"
+        )
+
+        # postgres is a hard infra dep
+        assert "postgres" in raw, "scheduler must depend on postgres"
+
+        # The triggered services must NOT be hard deps — they use built-in retry
+        forbidden = {"av-ingestor", "pipeline", "portfolio-builder", "llm-vetter"}
+        present = forbidden & set(raw.keys())
+        assert not present, (
+            f"scheduler must NOT depend_on {present} — the scheduler's "
+            f"_trigger_step already handles HTTP errors and retries on the "
+            f"next supervisor tick.  Docker service_healthy deps for these "
+            f"services create a ~5-7 min mandatory chain on a cold NAS start "
+            f"and make the scheduler hostage to optional services like llm-vetter."
+        )
+
+    def test_dashboard_does_not_depend_on_api(self, services):
+        """Dashboard is a static-file server; JS makes API calls from the browser.
+        Requiring api:service_healthy before dashboard starts adds a full extra
+        chain (postgres → db-migrator → api → dashboard) with no benefit — the
+        browser shows errors when API calls fail, which is the correct UX."""
+        dashboard_deps = set(_deps(services.get("dashboard", {})))
+        assert "api" not in dashboard_deps, (
+            "dashboard must not depend_on api — it is a static-file server and "
+            "the JS handles API unavailability in the browser.  Adding api as a "
+            "dep creates postgres→db-migrator→api→dashboard serial chain."
         )
