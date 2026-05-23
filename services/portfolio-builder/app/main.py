@@ -690,6 +690,22 @@ async def start_build(
                     status_code=400,
                     detail=f"Vetter run status is '{vrow.status}', must be 'success'",
                 )
+        else:
+            # Auto-select the latest successful vetter run for this same ranking, so the
+            # scheduler chain (which posts to /jobs/build with no params) still applies
+            # exclusions. Falling back to None silently included tickers the vetter flagged
+            # as risky, surfacing them as BUYs with an EXCL badge in the trader UI.
+            vauto = await conn.execute(
+                text(
+                    "SELECT run_id FROM vetter_runs "
+                    "WHERE status='success' AND source_ranking_run_id=:src "
+                    "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+                ),
+                {"src": source_ranking_run_id},
+            )
+            vauto_row = vauto.fetchone()
+            if vauto_row is not None:
+                vetter_run_id = str(vauto_row.run_id)
 
     async with _job_lock:
         async with engine.connect() as inner_conn:
