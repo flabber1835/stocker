@@ -55,7 +55,12 @@ async def _auto_approve_bg():
                         iid = str(intent.get("intent_id") or intent.get("id") or "")
                         if not iid:
                             continue
-                        if intent.get("action") not in ("entry", "exit"):
+                        action = intent.get("action")
+                        if action not in ("entry", "exit"):
+                            continue
+                        # Skip vetter-excluded BUYs — the API will reject them anyway,
+                        # but skipping avoids 409 noise in the logs. Exits always proceed.
+                        if action == "entry" and intent.get("vetter_excluded"):
                             continue
                         current_ids.add(iid)
                         if iid in _intent_approved:

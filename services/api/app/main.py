@@ -1025,6 +1025,30 @@ async def approve_trade(req: TradeApproveRequest):
                     detail=f"Intent {req.intent_id} already has an open order ({existing['status']})",
                 )
 
+            # Vetter exclusion gate — for entry/buy_add actions, refuse if the
+            # ticker was excluded by the most recent successful vetter run.
+            # delta_intents is created by the pipeline before the vetter speaks,
+            # so an excluded ticker can still appear with action='entry'.
+            # Exits/sells are never blocked — closing a position must always be allowed.
+            excluded = (await conn.execute(text(
+                "SELECT di.ticker, ve.reason "
+                "FROM delta_intents di "
+                "JOIN vetter_exclusions ve ON ve.ticker = di.ticker "
+                "JOIN vetter_runs vr ON vr.run_id = ve.run_id "
+                "WHERE di.id = :iid "
+                "  AND di.action IN ('entry', 'buy_add') "
+                "  AND vr.status = 'success' "
+                "  AND vr.started_at = ("
+                "    SELECT MAX(started_at) FROM vetter_runs WHERE status='success'"
+                "  ) "
+                "LIMIT 1"
+            ), {"iid": req.intent_id})).mappings().first()
+            if excluded:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"{excluded['ticker']} excluded by LLM vetter: {excluded['reason'] or 'no reason'}",
+                )
+
         async with httpx.AsyncClient(timeout=60.0) as client:
             r = await client.post(
                 f"{TRADE_EXECUTOR_URL}/jobs/submit",
