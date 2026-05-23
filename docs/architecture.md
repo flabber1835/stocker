@@ -132,7 +132,7 @@ The standalone delta step (step 4) uses `evaluate_target_vs_live()` instead of
 `evaluate_all()` when portfolio_holdings exists:
 - Entry: ticker in portfolio_holdings (target) but not yet held at broker
 - Exit: ticker held at broker but removed from target portfolio
-- Hold: ticker in both target and live positions
+- Hold: ticker in both target and live positions, weight on target
 - Watch: confirmed in entry zone but not yet in target (pending portfolio-builder)
 
 This generates immediate entry intents on cold boot without waiting for
@@ -142,6 +142,35 @@ same logic for backward compatibility with the "START RANK" button.
 Fallback: if no portfolio run exists yet (true cold start before first
 portfolio-builder run), the delta step falls back to `evaluate_all()` with
 confirmation_days mode.
+
+## Delta Action Types
+
+The delta engine emits one of seven action tags per ticker per run:
+
+```text
+entry     — not held at broker, rank confirmed for confirmation_days, capacity available
+watch     — not held, rank confirmed, but portfolio already at max_positions
+hold      — held, rank within buffer zone, actual weight within drift_threshold of target
+buy_add   — held, rank good, actual_weight < target_weight - drift_threshold (underweight)
+sell_trim — held, rank good, actual_weight > target_weight + drift_threshold (overweight)
+at_risk   — held, rank > exit_rank but exit not yet confirmed for confirmation_days
+exit      — held, rank > exit_rank for confirmation_days in a row (confirmed exit)
+```
+
+Priority when multiple conditions apply: exit > at_risk > buy_add/sell_trim > hold.
+`at_risk` suppresses drift actions — a position being evaluated for exit is not
+simultaneously sized for add or trim.
+
+Tradeable actions (require human approval): `entry`, `exit`, `buy_add`, `sell_trim`.
+Informational only (no trade button): `hold`, `at_risk`, `watch`.
+
+The drift threshold (`rebalance_drift_threshold`, default 2%) is set in the strategy
+config under `delta_engine`. Drift = `actual_weight − target_weight`; actual_weight
+comes from the latest alpaca_sync run's `market_value / account_value`.
+
+Fields written to `delta_intents` for drift actions:
+- `actual_weight` — current broker weight (market_value / account_value)
+- `weight_drift`  — actual_weight − target_weight (positive = overweight)
 
 ## Strategy Flow
 
@@ -164,15 +193,17 @@ even after the delta engine fires — the delta_intents row is just a proposal u
 a human approves it on the dashboard.
 
 ```text
-delta-engine → delta_intents (entry / exit / hold / watch)
+delta-engine → delta_intents (entry / exit / hold / watch / at_risk / buy_add / sell_trim)
   → dashboard "Trade Proposal" tab (human review)
   → human clicks "Execute Now" (mode=immediate) or "Schedule for Open" (mode=scheduled)
   → dashboard POST /api/trade/approve
   → api POST /trade/approve  [thin proxy: UUID + idempotency check, then forward]
   → trade-executor POST /jobs/submit  [the orchestrator]
     1. load_intent       — read delta_intents row
-    2. size_order        — entries: floor(account_value × weight / last_price)
-                          exits:   full position qty from latest live_positions
+    2. size_order        — entry:    floor(account_value × weight / last_price)
+                          exit:     full position qty from latest live_positions
+                          buy_add:  floor(account_value × abs(weight_drift) / last_price)
+                          sell_trim:floor(account_value × abs(weight_drift) / last_price)
     3. risk_check        — call risk-service POST /check
     4. record_order      — INSERT alpaca_orders (pending or risk_rejected)
     5. submit_alpaca     — POST /v2/orders if approved + credentials present

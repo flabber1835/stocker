@@ -265,11 +265,15 @@ audit row, and submits to Alpaca.
    `intent_id` with status `pending`, `submitted`, or `risk_rejected`. This
    prevents duplicate submissions after approval clicks and after risk rejections.
 2. `load_intent` — fetch `delta_intents` row
-3. `size_order` — entries: `floor(account_value × weight / last_price)`,
-   refuses with HTTP 400 if `qty < 1` ("position too small");
-   exits: full position qty from latest `live_positions`, refuses with HTTP 409
-   if sync is older than `EXIT_SYNC_MAX_AGE_HOURS`. Price source prefers
-   intraday `live_positions.current_price` over `daily_prices.close`.
+3. `size_order` — routing by action:
+   - `entry`:     `floor(account_value × weight / last_price)`; refuses if qty < 1
+   - `exit`:      full position qty from latest `live_positions`; refuses if sync
+                  older than `EXIT_SYNC_MAX_AGE_HOURS`
+   - `buy_add`:   `floor(account_value × abs(weight_drift) / last_price)`;
+                  BUY to close the underweight gap; refuses if qty < 1
+   - `sell_trim`: `floor(account_value × abs(weight_drift) / last_price)`;
+                  SELL to close the overweight gap; refuses if qty < 1
+   Price source prefers intraday `live_positions.current_price` over `daily_prices.close`.
 4. `risk_check` — POST risk-service `/check`; on 502 the audit row is still
    written with `status='failed'`.
 5. `record_order` — INSERT `alpaca_orders` with the final status
@@ -346,11 +350,20 @@ Alpaca submission live in `trade-executor`.
 Displays strategy, rankings, portfolio, vetter output, live positions, and progress.
 Does not directly trade.
 
-**Trade Proposal tab:** renders delta_intents with hold/warn/sell/buy tags. Each
-tradeable intent (entry or exit) shows two approve buttons — "Execute Now"
-(`mode=immediate`, time_in_force="day") and "Schedule for Open"
-(`mode=scheduled`, time_in_force="opg"). Both POST to `/api/trade/approve`, which
-proxies to the api service. Hold/watch intents are informational only.
+**Trade Proposal tab:** renders delta_intents with action tags:
+- `entry` (green), `exit` (red), `hold` (blue), `watch` (purple)
+- `at_risk` (amber-orange) — held but rank deteriorating; exit not yet confirmed
+- `buy_add` (bright green) — held but underweight; add shares to close drift
+- `sell_trim` (golden yellow) — held but overweight; trim shares to close drift
+
+Tradeable intents (`entry`, `exit`, `buy_add`, `sell_trim`) show two approve
+buttons — "Execute Now" (`mode=immediate`, time_in_force="day") and "Schedule
+for Open" (`mode=scheduled`, time_in_force="opg"). Both POST to
+`/api/trade/approve`, which proxies to the api service. `hold`, `at_risk`, and
+`watch` intents are informational only (no approve button).
+
+A DRIFT column shows `weight_drift` (actual − target) for held positions that
+have live alpaca_sync data available.
 
 Cloud-native render architecture: all job state lives on the server. Browsers poll
 `GET /api/pipeline-status` every 2 seconds and render identically regardless of
