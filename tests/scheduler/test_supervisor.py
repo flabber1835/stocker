@@ -785,3 +785,111 @@ class TestWeekendDateFields:
                                           "started_at": "2026-05-23T10:00:00+00:00"})
         result = await _step_state(client, step, saturday, friday, thursday)
         assert result == "idle"
+
+
+class TestForceRerunOverride:
+    """Manual /jobs/run-now must re-execute steps that already finished today.
+
+    Regression: with today's chain already at status='success', clicking the
+    dashboard 'Run' button silently no-op'd because _supervisor_tick treats
+    state=='done' as 'skip'. The fix populates _force_pending so the supervisor
+    triggers a fresh run for each pending step on the next pass.
+    """
+
+    def _reset_chain_status(self, status="idle", chain_date=None):
+        _supervisor_tick.__globals__["_chain_status"].update({
+            "status": status,
+            "date": chain_date or "2026-05-21",
+            "steps": {},
+            "run_ids": {},
+            "last_completed": None,
+            "current_run_id": None,
+            "next_run": None,
+        })
+
+    def _reset_force_pending(self):
+        _supervisor_tick.__globals__["_force_pending"].clear()
+
+    @pytest.mark.asyncio
+    async def test_force_pending_triggers_done_step(self):
+        """A 'done' step listed in _force_pending must be re-triggered with force=True."""
+        self._reset_chain_status()
+        self._reset_force_pending()
+
+        mock_trigger = AsyncMock()
+        _supervisor_tick.__globals__["_force_pending"].add("pipeline")
+
+        with patch.dict(_supervisor_tick.__globals__, {
+            "_has_universe": AsyncMock(return_value=True),
+            "_step_state": AsyncMock(return_value="done"),
+            "_trigger_step": mock_trigger,
+            "_get_latest_run_id": AsyncMock(return_value="fake-run-id"),
+            "_db_open_run": AsyncMock(return_value="run-uuid-1"),
+            "_db_update_run": AsyncMock(),
+            "_db_close_run": AsyncMock(),
+        }):
+            await _supervisor_tick()
+
+        # _trigger_step called once for pipeline with force=True
+        mock_trigger.assert_called_once()
+        _, kwargs = mock_trigger.call_args
+        assert kwargs.get("force") is True, "force=True must be propagated to the step trigger"
+        called_step = mock_trigger.call_args.args[1]
+        assert called_step.name == "pipeline"
+        # Drained from pending so next tick sees the new 'running' state, not double-trigger
+        assert "pipeline" not in _supervisor_tick.__globals__["_force_pending"]
+
+    @pytest.mark.asyncio
+    async def test_done_step_not_in_force_pending_is_skipped(self):
+        """Without _force_pending, a 'done' step must continue to skip (no regression
+        for cron-driven ticks)."""
+        self._reset_chain_status()
+        self._reset_force_pending()
+
+        mock_trigger = AsyncMock()
+        with patch.dict(_supervisor_tick.__globals__, {
+            "_has_universe": AsyncMock(return_value=True),
+            "_step_state": AsyncMock(return_value="done"),
+            "_trigger_step": mock_trigger,
+            "_get_latest_run_id": AsyncMock(return_value="fake-run-id"),
+            "_db_open_run": AsyncMock(return_value="run-uuid-1"),
+            "_db_update_run": AsyncMock(),
+            "_db_close_run": AsyncMock(),
+            "asyncio": type("FA", (), {"create_task": staticmethod(lambda c: (c.close() if hasattr(c,'close') else None))})(),
+        }):
+            await _supervisor_tick()
+
+        mock_trigger.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_force_pending_discharged_one_step_per_tick(self):
+        """With multiple steps in _force_pending, the supervisor triggers the FIRST
+        one and returns — preserving the existing one-step-per-tick contract."""
+        self._reset_chain_status()
+        self._reset_force_pending()
+
+        mock_trigger = AsyncMock()
+        pending = _supervisor_tick.__globals__["_force_pending"]
+        # Populate with the same names the real /jobs/run-now sets
+        pending.update({"fetch-data", "pipeline", "vet", "portfolio-builder", "delta"})
+
+        with patch.dict(_supervisor_tick.__globals__, {
+            "_has_universe": AsyncMock(return_value=True),
+            "_step_state": AsyncMock(return_value="done"),
+            "_trigger_step": mock_trigger,
+            "_get_latest_run_id": AsyncMock(return_value="fake-run-id"),
+            "_db_open_run": AsyncMock(return_value="run-uuid-1"),
+            "_db_update_run": AsyncMock(),
+            "_db_close_run": AsyncMock(),
+        }):
+            await _supervisor_tick()
+
+        assert mock_trigger.call_count == 1, (
+            "supervisor must trigger only one step per tick, even with multiple pending"
+        )
+        # The first step in _STEPS order is fetch-data
+        triggered_step = mock_trigger.call_args.args[1]
+        assert triggered_step.name == "fetch-data"
+        assert "fetch-data" not in pending
+        # The other four are still pending for subsequent ticks
+        assert pending == {"pipeline", "vet", "portfolio-builder", "delta"}

@@ -37,6 +37,11 @@ _chain_status: dict = {
     "next_run": None,
 }
 
+# Set of step names that the next supervisor tick must force-trigger even when
+# /runs/latest shows status='done' today. Populated by manual /jobs/run-now and
+# drained as each step is re-triggered. Cron-driven ticks ignore it.
+_force_pending: set[str] = set()
+
 # Ring buffer of startup and chain events for /debug/log — survives until next restart.
 _MAX_LOG = 500
 _event_log: list[dict] = []
@@ -273,9 +278,13 @@ async def _step_state(
         return "idle"
 
 
-async def _trigger_step(client: httpx.AsyncClient, step: _StepDef) -> None:
+async def _trigger_step(client: httpx.AsyncClient, step: _StepDef, force: bool = False) -> None:
     try:
-        r = await client.post(f"{step.url}{step.start_path}", timeout=15.0, params=step.params or {})
+        params = dict(step.params or {})
+        if force and step.name == "pipeline":
+            # Only pipeline has an already_ran_today guard; passing force=true bypasses it.
+            params["force"] = "true"
+        r = await client.post(f"{step.url}{step.start_path}", timeout=15.0, params=params)
         if r.status_code == 409:
             _log(f"supervisor: {step.name}: already running (409) — will check next tick")
         elif r.status_code in (200, 201, 202):
@@ -364,6 +373,18 @@ async def _supervisor_tick() -> None:
                 state = await _step_state(client, step, today, trading_day, prev_trading_day)
                 _chain_status["steps"][step.name] = state
                 _log(f"supervisor: {step.name} → {state}")
+
+                # Force-trigger override: manual /jobs/run-now populates _force_pending
+                # so steps that already finished today (state == 'done') still re-run.
+                # Discharge each step's pending flag the moment we trigger it so we
+                # don't fire twice while the new run flips to 'running' on the next tick.
+                if state == "done" and step.name in _force_pending:
+                    _force_pending.discard(step.name)
+                    _chain_status["status"] = "running"
+                    _chain_status["steps"][step.name] = "running"
+                    await _trigger_step(client, step, force=True)
+                    await _db_update_run(run_id, "running", _chain_status["steps"], _chain_status["run_ids"])
+                    return
 
                 if state == "done":
                     if svc_run_id := await _get_latest_run_id(client, step.url, step.status_path):
@@ -514,10 +535,22 @@ async def debug_log():
 
 @app.post("/jobs/run-now")
 async def run_now(background_tasks: BackgroundTasks):
+    """Manual chain re-run. Unlike the cron-driven tick path, this always forces
+    each step to re-execute even if today's chain has already completed —
+    otherwise the dashboard "Run" button silently no-ops the second time it's
+    pressed in a day."""
     if _chain_lock.locked():
         return {"status": "already_running"}
+    today = date.today().isoformat()
+    # Clear the "today already succeeded" gate at line 320 so the supervisor
+    # actually advances. Reset steps so the UI does not display a half-stale chain
+    # while the new triggers fire.
+    _chain_status.update({
+        "date": today, "status": None, "steps": {}, "run_ids": {}, "current_run_id": None,
+    })
+    _force_pending.update(s.name for s in _STEPS)
     background_tasks.add_task(_run_supervised_fast)
-    return {"status": "started"}
+    return {"status": "started", "forced_steps": sorted(_force_pending)}
 
 
 @app.get("/runs/latest")

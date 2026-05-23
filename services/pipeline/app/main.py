@@ -1719,7 +1719,7 @@ async def _run_pipeline_steps(
             _job_lock.release()
 
 
-async def _do_run_pipeline(triggered_by: str = "manual") -> dict:
+async def _do_run_pipeline(triggered_by: str = "manual", force: bool = False) -> dict:
     """Reserve a pipeline run: acquire the global job lock, run the
     already-ran-today guard, and insert the pipeline_runs / execution_traces
     row with chain_date = today.
@@ -1735,21 +1735,25 @@ async def _do_run_pipeline(triggered_by: str = "manual") -> dict:
 
     await _job_lock.acquire()
     try:
-        async with engine.connect() as conn:
-            spy_row = await conn.execute(
-                text("SELECT MAX(date) FROM daily_prices WHERE ticker = 'SPY'")
-            )
-            spy_max = spy_row.scalar()
-            if spy_max is not None:
-                existing = await conn.execute(
-                    text(
-                        "SELECT run_id FROM pipeline_runs WHERE status='success' AND run_date=:d LIMIT 1"
-                    ),
-                    {"d": spy_max},
+        # force=True bypasses the once-per-day idempotency guard. Used by the manual
+        # "Run" button in the dashboard so a user can re-run after a code fix
+        # (e.g. validating the momentum winsorize change) without waiting for tomorrow.
+        if not force:
+            async with engine.connect() as conn:
+                spy_row = await conn.execute(
+                    text("SELECT MAX(date) FROM daily_prices WHERE ticker = 'SPY'")
                 )
-                if existing.fetchone():
-                    _job_lock.release()
-                    return {"status": "already_ran_today", "date": str(spy_max)}
+                spy_max = spy_row.scalar()
+                if spy_max is not None:
+                    existing = await conn.execute(
+                        text(
+                            "SELECT run_id FROM pipeline_runs WHERE status='success' AND run_date=:d LIMIT 1"
+                        ),
+                        {"d": spy_max},
+                    )
+                    if existing.fetchone():
+                        _job_lock.release()
+                        return {"status": "already_ran_today", "date": str(spy_max)}
 
         run_id = str(uuid.uuid4())
         trace_id = str(uuid.uuid4())
@@ -1779,14 +1783,16 @@ async def health():
 
 
 @app.post("/jobs/run")
-async def start_run(background_tasks: BackgroundTasks, triggered_by: str = "manual"):
+async def start_run(background_tasks: BackgroundTasks, triggered_by: str = "manual", force: bool = False):
     """Run the full pipeline: factors → rank → delta.
 
     _do_run_pipeline acquires _job_lock; _run_pipeline_steps releases it in
     finally so a duplicate HTTP request gets {"status":"already_running"} for
     the entire duration of an in-flight run.
+
+    force=true bypasses the once-per-day guard so manual UI re-runs work.
     """
-    result = await _do_run_pipeline(triggered_by=triggered_by)
+    result = await _do_run_pipeline(triggered_by=triggered_by, force=force)
     if result.get("status") in ("already_ran_today", "already_running"):
         return result
 
