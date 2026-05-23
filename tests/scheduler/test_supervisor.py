@@ -599,3 +599,82 @@ class TestSupervisorTick:
             "the chain already processed the first idle step"
         )
         mock_trigger.assert_called_once()
+
+
+# ── TestWeekendDateFields ─────────────────────────────────────────────────────
+
+class TestWeekendDateFields:
+    """
+    Regression tests for the weekend cold-boot bug.
+
+    On a Saturday, use_trading_day=True makes target = last Friday.  Steps that
+    used started_at as date_field would compare Saturday's run timestamp against
+    Friday's target and perpetually return 'idle', causing infinite re-triggering.
+
+    portfolio-builder must use portfolio_date (the trading-day of the underlying
+    data) and delta must use run_date.  Both are set to the last trading day by
+    the respective services regardless of what calendar day they execute on.
+    """
+
+    def _make_step(self, **kwargs) -> _StepDef:
+        defaults = dict(name="test-step", url="http://fake", start_path="/jobs/run",
+                        date_field="run_date")
+        defaults.update(kwargs)
+        return _StepDef(**defaults)
+
+    @pytest.mark.asyncio
+    async def test_portfolio_builder_done_when_portfolio_date_matches_trading_day(self):
+        """portfolio-builder ran on a Saturday but portfolio_date = last Friday → done."""
+        saturday = "2026-05-23"
+        friday   = "2026-05-22"
+        thursday = "2026-05-21"
+        step = self._make_step(date_field="portfolio_date", use_trading_day=True)
+        client = _async_client_returning({"status": "success", "portfolio_date": friday})
+        result = await _step_state(client, step, saturday, friday, thursday)
+        assert result == "done", (
+            "portfolio-builder must be 'done' when portfolio_date equals last trading day, "
+            "even if the job ran on a weekend"
+        )
+
+    @pytest.mark.asyncio
+    async def test_portfolio_builder_started_at_fails_on_weekend(self):
+        """Demonstrates the old bug: started_at on Saturday != Friday target → 'idle'."""
+        saturday = "2026-05-23"
+        friday   = "2026-05-22"
+        thursday = "2026-05-21"
+        step = self._make_step(date_field="started_at", use_trading_day=True)
+        # Service ran on Saturday — started_at[:10] = Saturday
+        client = _async_client_returning({"status": "success",
+                                          "started_at": "2026-05-23T10:00:00+00:00"})
+        result = await _step_state(client, step, saturday, friday, thursday)
+        assert result == "idle", (
+            "This test reproduces the old bug: started_at on a Saturday does not match "
+            "Friday's trading-day target → 'idle'.  portfolio-builder and delta must "
+            "not use started_at as their date_field."
+        )
+
+    @pytest.mark.asyncio
+    async def test_delta_done_when_run_date_matches_trading_day(self):
+        """delta ran on Saturday but run_date = last Friday → done."""
+        saturday = "2026-05-23"
+        friday   = "2026-05-22"
+        thursday = "2026-05-21"
+        step = self._make_step(date_field="run_date", use_trading_day=True)
+        client = _async_client_returning({"status": "success", "run_date": friday})
+        result = await _step_state(client, step, saturday, friday, thursday)
+        assert result == "done", (
+            "delta must be 'done' when run_date equals last trading day, "
+            "even if the job ran on a weekend"
+        )
+
+    @pytest.mark.asyncio
+    async def test_delta_started_at_fails_on_weekend(self):
+        """Demonstrates the old bug: started_at on Saturday != Friday target → 'idle'."""
+        saturday = "2026-05-23"
+        friday   = "2026-05-22"
+        thursday = "2026-05-21"
+        step = self._make_step(date_field="started_at", use_trading_day=True)
+        client = _async_client_returning({"status": "success",
+                                          "started_at": "2026-05-23T10:00:00+00:00"})
+        result = await _step_state(client, step, saturday, friday, thursday)
+        assert result == "idle"

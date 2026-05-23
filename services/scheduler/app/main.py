@@ -76,9 +76,13 @@ _STEPS: list[_StepDef] = [
     # Vetter runs before portfolio-builder so exclusions feed the same-cycle build.
     # optional=True: if Ollama/OpenAI is not configured the chain continues without it.
     _StepDef("vet", VETTER_URL, "/jobs/vet", "started_at", optional=True),
-    _StepDef("portfolio-builder", PORTFOLIO_BUILDER_URL, "/jobs/build", "started_at",
+    # portfolio_date is the trading-day date of the underlying ranking data, not the
+    # wall-clock run time. Using started_at fails on weekends because the job runs on
+    # Saturday but use_trading_day=True expects Friday's date.
+    _StepDef("portfolio-builder", PORTFOLIO_BUILDER_URL, "/jobs/build", "portfolio_date",
              use_trading_day=True, also_accept_prev=False),
-    _StepDef("delta", PIPELINE_URL, "/jobs/delta", "started_at",
+    # run_date is set to the trading day being processed, not the wall-clock run time.
+    _StepDef("delta", PIPELINE_URL, "/jobs/delta", "run_date",
              status_path="/runs/delta-latest",
              use_trading_day=True, also_accept_prev=False),
 ]

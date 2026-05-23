@@ -84,3 +84,43 @@ class TestStepOrdering:
         assert vet_step.optional is True, (
             "vet step must be optional=True — vetter failure must not block portfolio-builder"
         )
+
+    def test_no_use_trading_day_step_uses_started_at(self):
+        """
+        Any step with use_trading_day=True must NOT use 'started_at' as its date_field.
+
+        When a step runs on a weekend, started_at[:10] is the weekend date (e.g.
+        Saturday 2026-05-23), but use_trading_day=True targets the last trading day
+        (Friday 2026-05-22).  Saturday != Friday → the step is perpetually 'idle'
+        and the supervisor re-triggers it in an infinite loop on every weekend cold boot.
+
+        Use a data-date field instead (portfolio_date, run_date, score_date) which the
+        service sets to the trading day of the data being processed, not the wall-clock
+        run time.
+        """
+        for step in _STEPS:
+            if step.use_trading_day:
+                assert step.date_field != "started_at", (
+                    f"Step '{step.name}' has use_trading_day=True but date_field='started_at'. "
+                    f"On weekends started_at is the weekend date, not the trading day, so the "
+                    f"step will be 'idle' forever.  Use a data-date field (portfolio_date, "
+                    f"run_date, score_date) that the service sets to the trading day."
+                )
+
+    def test_portfolio_builder_uses_portfolio_date(self):
+        """portfolio-builder must use portfolio_date, not started_at."""
+        pb = next(s for s in _STEPS if s.name == "portfolio-builder")
+        assert pb.date_field == "portfolio_date", (
+            f"portfolio-builder.date_field must be 'portfolio_date', got {pb.date_field!r}. "
+            "portfolio_date is set to the trading day of the underlying ranking data; "
+            "started_at is the wall-clock time and breaks on weekend cold boots."
+        )
+
+    def test_delta_uses_run_date(self):
+        """delta step must use run_date, not started_at."""
+        delta = next(s for s in _STEPS if s.name == "delta")
+        assert delta.date_field == "run_date", (
+            f"delta.date_field must be 'run_date', got {delta.date_field!r}. "
+            "run_date is set to the trading day being processed; "
+            "started_at is the wall-clock time and breaks on weekend cold boots."
+        )
