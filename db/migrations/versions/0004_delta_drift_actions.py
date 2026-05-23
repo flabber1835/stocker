@@ -14,11 +14,24 @@ depends_on = None
 
 def upgrade() -> None:
     # 1. Widen the action CHECK constraint on delta_intents to allow new action values.
-    #    The constraint is dropped by name then re-added; the IF EXISTS guard makes this
-    #    safe to re-run.
+    #    We find and drop any check constraint on the action column by querying pg_constraint
+    #    rather than relying on the auto-generated name — the auto-name is predictable on
+    #    postgres:16 but may differ on older installs or manually-created schemas.
     op.execute("""
-        ALTER TABLE delta_intents
-        DROP CONSTRAINT IF EXISTS delta_intents_action_check
+        DO $$
+        DECLARE r record;
+        BEGIN
+            FOR r IN
+                SELECT c.conname
+                FROM   pg_constraint c
+                JOIN   pg_class t ON t.oid = c.conrelid
+                WHERE  t.relname = 'delta_intents'
+                  AND  c.contype = 'c'
+                  AND  pg_get_constraintdef(c.oid) LIKE '%action%'
+            LOOP
+                EXECUTE 'ALTER TABLE delta_intents DROP CONSTRAINT ' || quote_ident(r.conname);
+            END LOOP;
+        END $$
     """)
     op.execute("""
         ALTER TABLE delta_intents

@@ -1,4 +1,4 @@
-.PHONY: up down logs build test integration-test init shell-api shell-db shell-pipeline \
+.PHONY: up down logs build test integration-test migrate-fresh-test init shell-api shell-db shell-pipeline \
         universe data prices fundamentals run-pipeline vet portfolio pipeline pull-model
 
 # ── Compose lifecycle ──────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -46,6 +46,37 @@ test:
 # verifies results, then tears down. Requires Docker.
 integration-test:
 	bash scripts/integration_test.sh
+
+# Verify migrations work from a completely blank postgres (no existing schema).
+# Run this after every new migration file before pushing.
+# Requires Docker.  Tears down the test volume on exit.
+migrate-fresh-test:
+	@echo "=== Fresh-install migration test ==="
+	@docker volume rm stocker_pgdata_migrate_test 2>/dev/null || true
+	@docker run -d --name stocker_pg_migrate_test \
+	    -e POSTGRES_USER=stocker \
+	    -e POSTGRES_PASSWORD=stocker \
+	    -e POSTGRES_DB=stocker \
+	    -v stocker_pgdata_migrate_test:/var/lib/postgresql/data \
+	    postgres:16 >/dev/null
+	@echo "Waiting for postgres to be ready..."
+	@until docker exec stocker_pg_migrate_test pg_isready -U stocker -h 127.0.0.1 -q; do sleep 1; done
+	@sleep 2
+	@echo "Running all migrations from scratch..."
+	@docker run --rm \
+	    --network container:stocker_pg_migrate_test \
+	    -e DATABASE_URL=postgresql://stocker:stocker@127.0.0.1:5432/stocker \
+	    $(shell docker build -q -f services/db-migrator/Dockerfile .) \
+	    /app/migrate.sh && \
+	    echo "=== Migration test PASSED ===" || \
+	    (echo "=== Migration test FAILED ===" && \
+	     docker stop stocker_pg_migrate_test >/dev/null && \
+	     docker rm stocker_pg_migrate_test >/dev/null && \
+	     docker volume rm stocker_pgdata_migrate_test >/dev/null || true && \
+	     exit 1)
+	@docker stop stocker_pg_migrate_test >/dev/null
+	@docker rm stocker_pg_migrate_test >/dev/null
+	@docker volume rm stocker_pgdata_migrate_test >/dev/null || true
 
 # ── Pipeline helpers ───────────────────────────────────────────────────────────────────────────────────────
 # $(1)=POST URL  $(2)=runs base URL  $(3)=sleep secs  $(4)=extra terminal status (optional)
