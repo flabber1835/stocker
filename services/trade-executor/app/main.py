@@ -826,6 +826,134 @@ async def _record_order(
     )
 
 
+class CancelAllResponse(BaseModel):
+    status: str
+    alpaca_cancel_count: int
+    alpaca_errors: list[dict[str, Any]]
+    local_orders_updated: int
+    trace_id: Optional[str] = None
+    reason: Optional[str] = None
+
+
+@app.post("/jobs/cancel-all-orders", response_model=CancelAllResponse)
+async def cancel_all_orders(confirm: str = "") -> CancelAllResponse:
+    """Cancel every open order at Alpaca and mark local rows as canceled.
+
+    Operational tool for freeing up buying_power that's reserved by queued
+    or pending MOO orders. Calls Alpaca's `DELETE /v2/orders` (multi-status)
+    and updates local `alpaca_orders` rows whose status is in
+    ('pending','submitted','accepted','new','partially_filled') to 'canceled'.
+
+    Safety:
+      - Requires `?confirm=yes` query param to avoid accidental wipes
+      - Short-circuits with `no_credentials` if ALPACA_API_KEY is unset
+      - Records one execution_traces row + one execution_steps audit
+
+    Returns 207-style summary: how many Alpaca cancels, how many local rows
+    updated, plus any per-order errors from Alpaca's response.
+    """
+    if confirm != "yes":
+        raise HTTPException(
+            status_code=400,
+            detail="Refusing to cancel-all without ?confirm=yes — this would "
+                   "delete every queued/pending order at Alpaca.",
+        )
+
+    trace_id = str(uuid.uuid4())
+    t0 = datetime.now(timezone.utc)
+
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("INSERT INTO execution_traces (trace_id, job_type, status, started_at) "
+                 "VALUES (:tid, 'cancel_all_orders', 'running', :now)"),
+            {"tid": trace_id, "now": t0},
+        )
+
+    # Short-circuit when credentials are missing (test / paper-trade-only setups)
+    if not (ALPACA_API_KEY and ALPACA_SECRET_KEY):
+        async with engine.begin() as conn:
+            await _log_step(
+                conn, trace_id, "alpaca_cancel_all", "skipped", t0,
+                error_message="Alpaca credentials not configured",
+            )
+            await conn.execute(
+                text("UPDATE execution_traces SET status='failed', completed_at=:now, "
+                     "notes='no_credentials' WHERE trace_id=:tid"),
+                {"tid": trace_id, "now": datetime.now(timezone.utc)},
+            )
+        return CancelAllResponse(
+            status="no_credentials", alpaca_cancel_count=0,
+            alpaca_errors=[], local_orders_updated=0,
+            trace_id=trace_id, reason="Alpaca credentials not configured",
+        )
+
+    # ── Call Alpaca DELETE /v2/orders ────────────────────────────────────────
+    alpaca_results: list[dict[str, Any]] = []
+    alpaca_errors: list[dict[str, Any]] = []
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.delete(
+                f"{ALPACA_BASE_URL}/v2/orders",
+                headers={
+                    "APCA-API-KEY-ID": ALPACA_API_KEY,
+                    "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY,
+                },
+            )
+        # Alpaca returns 207 multi-status with a list of {id, status} items
+        if resp.status_code in (200, 207):
+            try:
+                alpaca_results = resp.json()
+                if not isinstance(alpaca_results, list):
+                    alpaca_results = []
+            except Exception:
+                alpaca_results = []
+            for r in alpaca_results:
+                code = r.get("status") if isinstance(r, dict) else None
+                # 2xx → success, anything else → record as error
+                if code is None or not (200 <= int(code) < 300):
+                    alpaca_errors.append({"id": r.get("id"), "status": code, "body": r.get("body")})
+            cancel_count = len(alpaca_results) - len(alpaca_errors)
+        else:
+            cancel_count = 0
+            alpaca_errors.append({"http_status": resp.status_code, "body": resp.text[:500]})
+    except Exception as exc:
+        cancel_count = 0
+        alpaca_errors.append({"error": str(exc)[:500]})
+
+    # ── Update local rows ────────────────────────────────────────────────────
+    open_statuses = ("pending", "submitted", "accepted", "new", "partially_filled")
+    async with engine.begin() as conn:
+        result = await conn.execute(
+            text("UPDATE alpaca_orders SET status='canceled', "
+                 "error_message=COALESCE(error_message, '') || ' [canceled by /jobs/cancel-all-orders]' "
+                 "WHERE status = ANY(:open)"),
+            {"open": list(open_statuses)},
+        )
+        local_updated = result.rowcount or 0
+        await _log_step(
+            conn, trace_id, "alpaca_cancel_all", "success", t0,
+            input_summary={"open_statuses": list(open_statuses)},
+            output_summary={
+                "alpaca_cancel_count": cancel_count,
+                "alpaca_errors": alpaca_errors[:10],   # cap audit row size
+                "local_orders_updated": local_updated,
+            },
+        )
+        await conn.execute(
+            text("UPDATE execution_traces SET status='success', completed_at=:now "
+                 "WHERE trace_id=:tid"),
+            {"tid": trace_id, "now": datetime.now(timezone.utc)},
+        )
+
+    return CancelAllResponse(
+        status="ok" if not alpaca_errors else "partial",
+        alpaca_cancel_count=cancel_count,
+        alpaca_errors=alpaca_errors[:20],
+        local_orders_updated=local_updated,
+        trace_id=trace_id,
+    )
+
+
 @app.get("/orders/recent")
 async def recent_orders() -> list[dict[str, Any]]:
     """Return the 20 most recently created orders."""
