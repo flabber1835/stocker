@@ -96,12 +96,23 @@ async def _log_step(
 # Sync logic
 # ---------------------------------------------------------------------------
 
+# Map Alpaca terminal statuses to our DB statuses
+_ALPACA_TO_STATUS = {
+    "filled":           "filled",
+    "partially_filled": "partial_fill",
+    "canceled":         "cancelled",
+    "done_for_day":     "cancelled",
+    "expired":          "cancelled",
+    "replaced":         "cancelled",
+    "rejected":         "failed",
+}
+
 
 async def _do_sync() -> str:
     """Run a full Alpaca sync. Returns the run_id (str UUID).
 
     Each sync gets its own execution_trace with steps:
-      fetch_account → fetch_positions → write_positions
+      fetch_account → fetch_positions → write_positions → sync_orders
     """
     run_id = str(uuid.uuid4())
     trace_id = str(uuid.uuid4())
@@ -214,9 +225,97 @@ async def _do_sync() -> str:
                 db, trace_id, "write_positions", "success", t0,
                 output_summary={"inserted": inserted, "skipped": skipped},
             )
+            await db.commit()
 
-            # Update sync run + trace to success
-            completed_at = datetime.now(timezone.utc)
+        # Step: sync_orders — update alpaca_orders rows from Alpaca's live order list (non-fatal)
+        t0 = datetime.now(timezone.utc)
+        orders_updated = 0
+        orders_skipped = 0
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                # Fetch all orders (open + closed) up to 500; covers typical paper account
+                ord_resp = await client.get(
+                    f"{ALPACA_BASE_URL}/v2/orders",
+                    headers=headers,
+                    params={"status": "all", "limit": 500, "direction": "desc"},
+                )
+                ord_resp.raise_for_status()
+                alpaca_orders = ord_resp.json()
+
+            # Build lookup: alpaca_order_id → Alpaca order object
+            alpaca_map = {o["id"]: o for o in alpaca_orders if isinstance(o, dict)}
+
+            # Load our submitted orders that have an Alpaca order ID
+            async with SessionLocal() as db2:
+                rows = (await db2.execute(text(
+                    "SELECT id, alpaca_order_id FROM alpaca_orders "
+                    "WHERE status = 'submitted' AND alpaca_order_id IS NOT NULL"
+                ))).fetchall()
+
+            for row in rows:
+                ao = alpaca_map.get(str(row.alpaca_order_id))
+                if ao is None:
+                    orders_skipped += 1
+                    continue
+                alpaca_status = ao.get("status", "")
+                new_status = _ALPACA_TO_STATUS.get(alpaca_status)
+                if new_status is None:
+                    orders_skipped += 1
+                    continue  # still open (new, pending_new, accepted, held…)
+
+                filled_qty = _parse_float(ao.get("filled_qty"))
+                avg_fill = _parse_float(ao.get("filled_avg_price"))
+                filled_at_raw = ao.get("filled_at")
+                filled_at = None
+                if filled_at_raw:
+                    try:
+                        filled_at = datetime.fromisoformat(filled_at_raw.replace("Z", "+00:00"))
+                    except Exception:
+                        pass
+
+                async with SessionLocal() as db2:
+                    await db2.execute(
+                        text(
+                            "UPDATE alpaca_orders "
+                            "SET status=:status, alpaca_status=:astatus, "
+                            "    filled_qty=:fqty, avg_fill_price=:afill, filled_at=:fat "
+                            "WHERE id=:id"
+                        ),
+                        {
+                            "id": str(row.id),
+                            "status": new_status,
+                            "astatus": alpaca_status,
+                            "fqty": filled_qty,
+                            "afill": avg_fill,
+                            "fat": filled_at,
+                        },
+                    )
+                    await db2.commit()
+                orders_updated += 1
+
+            async with SessionLocal() as db2:
+                await _log_step(
+                    db2, trace_id, "sync_orders", "success", t0,
+                    output_summary={
+                        "alpaca_orders_fetched": len(alpaca_orders),
+                        "local_submitted": len(rows),
+                        "updated": orders_updated,
+                        "skipped": orders_skipped,
+                    },
+                )
+                await db2.commit()
+        except Exception as ord_exc:
+            print(f"[alpaca-sync] WARN: order status sync failed (non-fatal): {ord_exc}", flush=True)
+            async with SessionLocal() as db2:
+                await _log_step(
+                    db2, trace_id, "sync_orders", "failed", t0,
+                    error_message=str(ord_exc)[:500],
+                )
+                await db2.commit()
+
+        # Update sync run + trace to success
+        completed_at = datetime.now(timezone.utc)
+        async with SessionLocal() as db:
             await db.execute(
                 text(
                     """
@@ -248,7 +347,7 @@ async def _do_sync() -> str:
             )
             await db.commit()
 
-        print(f"[alpaca-sync] Sync completed: run_id={run_id}, positions={inserted}")
+        print(f"[alpaca-sync] Sync completed: run_id={run_id}, positions={inserted}, orders_updated={orders_updated}")
 
     except Exception as exc:
         # Mark sync run + trace as failed
