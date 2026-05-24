@@ -39,7 +39,7 @@ shell-pipeline:
 # Unit tests: runs without Docker.
 
 test:
-	pip install --quiet -e shared pytest pandas numpy pydantic pyyaml
+	pip install --quiet -e shared pytest pandas numpy pydantic pyyaml hypothesis
 	pytest tests/ -v
 
 # Integration test: spins up Docker Compose with MOCK_DATA=true, runs full pipeline,
