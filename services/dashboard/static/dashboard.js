@@ -19,6 +19,7 @@ let _lastRefreshAt   = Date.now();
 let _rankChainRunning= false;
 let _runRequestedAt  = 0;      // ms timestamp of last Run click; button stays locked for RUN_LOCK_MS
 let _initialLoadDone = false;  // prevents refresh() from double-loading on boot
+let _rankingsLoadState = 'pending';  // 'pending' | 'ok' | 'empty' — drives status badge / table message
 
 const RUN_LOCK_MS = 30000;     // keep button disabled for 30 s after clicking Run
 let _selectedIntents = new Set();
@@ -131,8 +132,16 @@ function updateStatusBar(d) {
   } else if (rank.status === 'failed') {
     text = 'PIPELINE FAILED'; textCls = 'sb-red';
   } else if (rank.status === 'success' || rank.date) {
-    text = 'READY'; textCls = 'sb-green';
-    if (rank.date) sub = 'Ranked ' + rank.date;
+    // Don't say READY when the rankings table is empty — the user complaint:
+    // "READY" + "No ranking data" is a contradiction. If rankings haven't
+    // loaded successfully, show that state explicitly.
+    if (_rankingsLoadState === 'empty') {
+      text = 'NO DATA'; textCls = 'sb-amber';
+      sub = 'Click ▶ RUN to populate';
+    } else {
+      text = 'READY'; textCls = 'sb-green';
+      if (rank.date) sub = 'Ranked ' + rank.date;
+    }
   }
 
   // Override with auto-approve countdown when trades are pending and pipeline idle
@@ -268,6 +277,17 @@ async function loadRankings() {
       if (!r.ok) throw new Error(r.status);
       return r.json();
     });
+    if (!d.rankings || d.rankings.length === 0) {
+      _rankingsLoadState = 'empty';
+      rankData = [];
+      $('r-body').innerHTML = '<tr><td colspan="10" class="tbl-empty">'
+        + 'No ranking data &mdash; click <strong>&#9654; RUN</strong> to populate'
+        + '</td></tr>';
+      // Refresh status bar so READY badge is downgraded if data missing
+      if (_pipelineData && _pipelineData.rank) updateStatusBar(_pipelineData);
+      return;
+    }
+    _rankingsLoadState = 'ok';
     rankData = (d.rankings || []).map(r => {
       const fs = r.factor_scores || {};
       return {
@@ -293,7 +313,12 @@ async function loadRankings() {
     renderRankings();
     updateSummaryStrip();
   } catch (e) {
-    $('r-body').innerHTML = '<tr><td colspan="10" class="tbl-empty">No ranking data</td></tr>';
+    _rankingsLoadState = 'empty';
+    rankData = [];
+    $('r-body').innerHTML = '<tr><td colspan="10" class="tbl-empty">'
+      + 'No ranking data &mdash; click <strong>&#9654; RUN</strong> to populate'
+      + '</td></tr>';
+    if (_pipelineData && _pipelineData.rank) updateStatusBar(_pipelineData);
   }
 }
 
