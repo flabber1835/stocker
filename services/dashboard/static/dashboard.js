@@ -530,10 +530,9 @@ function renderTrader() {
   });
 
   const toolbar = $('trader-toolbar');
-  // Show toolbar whenever any actionable intents exist (not just approvable ones)
-  // so the "Purge & Reset" button is always reachable when there are signals.
-  const hasActionable = sorted.some(r => ['entry','exit','buy_add','sell_trim'].includes(r.action));
-  if (toolbar) toolbar.style.display = hasActionable ? '' : 'none';
+  // Show toolbar whenever there are any signals — the Purge & Reset button must be
+  // reachable even when all signals are hold/watch (open orders may still need canceling).
+  if (toolbar) toolbar.style.display = sorted.length > 0 ? '' : 'none';
 
   const tbody = $('trader-body');
   if (!tbody) return;

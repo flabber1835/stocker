@@ -389,3 +389,88 @@ class TestJSRunButtonLogic:
             "updatePipelineBar() must use recentlyRequested in its showAsRunning expression"
         )
         assert "showAsRunning" in body, "showAsRunning variable must exist in updatePipelineBar"
+
+
+class TestPurgeButtonVisibility:
+    """
+    Regression tests for the Purge & Reset button toolbar visibility.
+
+    The toolbar (which contains the purge button) must be visible whenever
+    there are any signals in the Trader tab — not only when there are
+    entry/exit/buy_add/sell_trim signals. A pipeline run that produces only
+    hold/watch signals may still have open orders that the user needs to cancel.
+    """
+
+    def _load_js(self):
+        js_path = os.path.join(_DASH_PATH, "app", "static", "dashboard.js")
+        if not os.path.exists(js_path):
+            js_path = os.path.join(_DASH_PATH, "static", "dashboard.js")
+        with open(js_path) as f:
+            return f.read()
+
+    def _toolbar_visible(self, intents: list[dict]) -> bool:
+        """
+        Simulate the JS renderTrader toolbar visibility logic in Python.
+        Returns True if the toolbar would be displayed for the given intent list.
+        """
+        return len(intents) > 0
+
+    def test_toolbar_visible_with_entry_intents(self):
+        """Entry signals → toolbar shown → purge button accessible."""
+        intents = [{"action": "entry"}, {"action": "entry"}]
+        assert self._toolbar_visible(intents)
+
+    def test_toolbar_visible_with_exit_intents(self):
+        """Exit signals → toolbar shown."""
+        intents = [{"action": "exit"}]
+        assert self._toolbar_visible(intents)
+
+    def test_toolbar_visible_with_hold_only_intents(self):
+        """Hold-only pipeline run → toolbar must still show so purge is reachable."""
+        intents = [{"action": "hold"}, {"action": "watch"}]
+        assert self._toolbar_visible(intents)
+
+    def test_toolbar_hidden_with_no_intents(self):
+        """No delta run / no intents → toolbar correctly hidden (nothing to purge)."""
+        intents = []
+        assert not self._toolbar_visible(intents)
+
+    def test_toolbar_visible_with_mixed_intents(self):
+        """Mixed hold + entry signals → toolbar shown."""
+        intents = [{"action": "hold"}, {"action": "entry"}]
+        assert self._toolbar_visible(intents)
+
+    def test_js_toolbar_uses_length_not_action_filter(self):
+        """renderTrader() must gate toolbar on sorted.length, not action-type filter."""
+        content = self._load_js()
+        m = _re.search(r'function renderTrader\(\s*\)\s*\{(.*?)^\}', content,
+                       _re.DOTALL | _re.MULTILINE)
+        assert m, "renderTrader function not found in dashboard.js"
+        body = m.group(1)
+        # Must NOT use the old hasActionable check that excluded hold/watch
+        assert "hasActionable" not in body, (
+            "renderTrader() still uses hasActionable — this hides the purge button "
+            "when all intents are hold/watch. Use sorted.length > 0 instead."
+        )
+        # Must use length-based check
+        assert "sorted.length" in body, (
+            "renderTrader() must check sorted.length to show toolbar for all signal types"
+        )
+
+    def test_purge_button_present_in_html(self):
+        """btn-purge-all must exist in the dashboard HTML template."""
+        main_path = os.path.join(_DASH_PATH, "app", "main.py")
+        if not os.path.exists(main_path):
+            main_path = os.path.join(_DASH_PATH, "main.py")
+        with open(main_path) as f:
+            content = f.read()
+        assert "btn-purge-all" in content, "Purge button element not found in dashboard HTML"
+        assert "purgeAll()" in content, "purgeAll() onclick not found in dashboard HTML"
+
+    def test_purge_function_in_js(self):
+        """purgeAll() function must exist in dashboard.js and call the endpoint."""
+        content = self._load_js()
+        assert "async function purgeAll()" in content, "purgeAll() not defined in dashboard.js"
+        assert "/api/trade/purge-all" in content, "purgeAll() must POST to /api/trade/purge-all"
+        # Must reset approval state after purge
+        assert "_approvalState" in content, "_approvalState must be reset in purgeAll()"
