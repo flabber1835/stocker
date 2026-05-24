@@ -1088,3 +1088,56 @@ async def reject_trade(req: TradeRejectRequest):
             raise HTTPException(status_code=404, detail="intent not found or already rejected")
         print(f"[api] rejected intent {req.intent_id} ({row['ticker']} {row['action']})", flush=True)
         return {"status": "rejected", "intent_id": req.intent_id, "ticker": row["ticker"]}
+
+
+# ── Recent orders ─────────────────────────────────────────────────────────────
+
+@app.get("/orders/recent")
+async def get_recent_orders():
+    """Return orders from the last 48 hours (at most 100 rows).
+
+    Includes:
+    - pending / submitted / risk_rejected / failed orders (regardless of age)
+    - filled orders only if filled_at > NOW() - INTERVAL '2 hours' (so fills fade naturally)
+    """
+    def _iso(v):
+        return v.isoformat() if v and hasattr(v, "isoformat") else (str(v) if v else None)
+
+    def _f(v):
+        return float(v) if v is not None else None
+
+    async with engine.connect() as conn:
+        rows = (await conn.execute(text(
+            "SELECT id, intent_id, ticker, action, side, qty, notional, status, "
+            "  alpaca_status, submitted_at, filled_at, avg_fill_price, filled_qty, "
+            "  error_message, created_at "
+            "FROM alpaca_orders "
+            "WHERE created_at > NOW() - INTERVAL '48 hours' "
+            "  AND ( "
+            "    status IN ('pending','submitted','risk_rejected','failed') "
+            "    OR (status = 'filled' AND filled_at > NOW() - INTERVAL '2 hours') "
+            "  ) "
+            "ORDER BY created_at DESC "
+            "LIMIT 100"
+        ))).mappings().fetchall()
+
+    return [
+        {
+            "id":             str(r["id"]),
+            "intent_id":      str(r["intent_id"]) if r["intent_id"] else None,
+            "ticker":         r["ticker"],
+            "action":         r["action"],
+            "side":           r["side"],
+            "qty":            _f(r["qty"]),
+            "notional":       _f(r["notional"]),
+            "status":         r["status"],
+            "alpaca_status":  r["alpaca_status"],
+            "submitted_at":   _iso(r["submitted_at"]),
+            "filled_at":      _iso(r["filled_at"]),
+            "avg_fill_price": _f(r["avg_fill_price"]),
+            "filled_qty":     _f(r["filled_qty"]),
+            "error_message":  r["error_message"],
+            "created_at":     _iso(r["created_at"]),
+        }
+        for r in rows
+    ]

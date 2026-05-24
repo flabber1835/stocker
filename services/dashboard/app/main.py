@@ -247,6 +247,11 @@ async def proxy_data_freshness():
     return await _proxy("/data-freshness")
 
 
+@app.get("/api/orders/recent")
+async def proxy_orders_recent():
+    return await _proxy("/orders/recent")
+
+
 @app.get("/api/vetter/exclusions/{run_id}")
 async def vetter_exclusions(run_id: str):
     try:
@@ -670,6 +675,17 @@ _HTML = r"""<!DOCTYPE html>
           </tr></thead>
           <tbody id="live-body"><tr><td colspan="8" class="tbl-empty">Loading&#8230;</td></tr></tbody>
         </table>
+      </div>
+      <div id="orders-section" style="display:none">
+        <div class="section-label orders-label">Pending Orders</div>
+        <div class="tbl-scroll">
+          <table id="orders-table">
+            <thead><tr>
+              <th>TICKER</th><th>SIDE</th><th>QTY</th><th>STATUS</th><th>TIME</th><th>FILL PRICE</th>
+            </tr></thead>
+            <tbody id="orders-body"><tr><td colspan="6" class="tbl-empty">Loading&#8230;</td></tr></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </section>

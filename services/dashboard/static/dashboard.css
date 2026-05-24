@@ -626,6 +626,14 @@ tr.cash-row .t-ticker { color: var(--text2); }
   padding: 0 4px;
 }
 
+/* ── Pending Orders ──────────────────────────────────────────────────── */
+.orders-label { margin-top: 20px; }
+#orders-table th, #orders-table td { font-size: 12px; }
+.od-dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; vertical-align:middle; }
+.od-green  { background:#34D399; }
+.od-amber  { background:#FCD34D; }
+.od-red    { background:#FC8181; }
+
 /* ── Animations ──────────────────────────────────────────────────────── */
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
 @keyframes indeterminate {

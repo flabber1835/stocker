@@ -5,6 +5,7 @@ let rankData      = [];
 let deltaData     = [];
 let liveData      = [];
 let liveSyncData  = {};
+let ordersData    = [];
 
 let rankSort  = { col: 'rank', dir: 1 };
 let liveSort  = { col: 'market_value', dir: -1 };
@@ -67,7 +68,7 @@ function showScreen(name, btnEl) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('screen-' + name).classList.add('active');
   if (btnEl) btnEl.classList.add('active');
-  if (name === 'portfolio') loadLivePortfolio();
+  if (name === 'portfolio') { loadLivePortfolio(); fetchOrders(); }
   if (name === 'trader')    renderTrader();
 }
 
@@ -769,6 +770,73 @@ async function syncAlpaca() {
   }
 }
 
+async function fetchOrders() {
+  try {
+    const d = await fetch('/api/orders/recent').then(r => r.json());
+    ordersData = Array.isArray(d) ? d : [];
+  } catch (e) {
+    ordersData = [];
+  }
+  renderOrders();
+}
+
+function renderOrders() {
+  const section = $('orders-section');
+  const tbody   = $('orders-body');
+  if (!section || !tbody) return;
+
+  if (ordersData.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+
+  const statusLabel = {
+    pending:       'Pending',
+    submitted:     'Submitted',
+    risk_rejected: 'Risk Rejected',
+    failed:        'Failed',
+    filled:        'Filled',
+  };
+
+  function dotClass(status) {
+    if (status === 'submitted' || status === 'filled') return 'od-green';
+    if (status === 'pending')                          return 'od-amber';
+    return 'od-red'; // risk_rejected, failed
+  }
+
+  function fmtTime(submitted_at, created_at) {
+    const ts = submitted_at || created_at;
+    if (!ts) return '—';
+    const d = new Date(ts);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return hh + ':' + mm;
+  }
+
+  function fmtQty(qty, notional) {
+    if (qty != null) return (+qty).toFixed(0);
+    if (notional != null) return '$' + (+notional).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    return '—';
+  }
+
+  const html = ordersData.map(o => {
+    const dot   = '<span class="od-dot ' + dotClass(o.status) + '"></span>';
+    const label = statusLabel[o.status] || o.status;
+    const fill  = o.avg_fill_price != null ? '$' + (+o.avg_fill_price).toFixed(2) : '—';
+    return '<tr>'
+      + '<td><span class="t-ticker">' + esc(o.ticker) + '</span></td>'
+      + '<td>' + esc(o.side) + '</td>'
+      + '<td>' + fmtQty(o.qty, o.notional) + '</td>'
+      + '<td>' + dot + label + '</td>'
+      + '<td>' + fmtTime(o.submitted_at, o.created_at) + '</td>'
+      + '<td>' + fill + '</td>'
+      + '</tr>';
+  }).join('');
+
+  tbody.innerHTML = html || '<tr><td colspan="6" class="tbl-empty">No recent orders</td></tr>';
+}
+
 /* ── Auto-approve countdown ticker ───────────────────────────────────── */
 function updateAutoApproveCountdowns() {
   const fetchedAt = _aaStatus.fetchedAt || Date.now();
@@ -843,6 +911,7 @@ async function refresh() {
   } catch (e) { /* ignore */ }
 
   loadDelta();
+  fetchOrders();
 }
 
 /* ── 1-second ticker ─────────────────────────────────────────────────── */
