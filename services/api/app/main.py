@@ -850,8 +850,7 @@ async def get_delta_latest():
                 "at_risk_count, buy_add_count, sell_trim_count, "
                 "triggered_by, started_at, completed_at, error_message "
                 "FROM delta_runs "
-                "ORDER BY CASE WHEN triggered_by = 'scheduler' THEN 0 ELSE 1 END, "
-                "  started_at DESC LIMIT 1"
+                "ORDER BY started_at DESC LIMIT 1"
             ))).mappings().first()
 
             if run_row is None:

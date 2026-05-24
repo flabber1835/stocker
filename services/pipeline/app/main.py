@@ -1592,6 +1592,23 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             },
         )
 
+        # Discard unsubmitted intents from all previous delta runs so the
+        # trader tab shows only this run's fresh decisions.  Intents that
+        # already have an alpaca_orders row are kept (audit trail).
+        purge_result = await conn.execute(
+            text(
+                "DELETE FROM delta_intents "
+                "WHERE run_id != :new_run_id "
+                "  AND NOT EXISTS ("
+                "    SELECT 1 FROM alpaca_orders ao WHERE ao.intent_id = id"
+                "  )"
+            ),
+            {"new_run_id": run_id},
+        )
+        purged = purge_result.rowcount if purge_result.rowcount is not None else 0
+        if purged:
+            print(f"[delta-engine] purged {purged} unsubmitted intent(s) from prior runs", flush=True)
+
         await conn.execute(
             text(
                 "UPDATE execution_traces SET status='success', completed_at=:now "
