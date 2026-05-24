@@ -304,10 +304,19 @@ def _format_ticker_message(
     sector: str | None = None,
     regime: str | None = None,
     in_portfolio: bool = False,
+    related_tickers: list[str] | None = None,
 ) -> str:
     lines = [
         f"Today: {today}",
         f"Ticker: {ticker}",
+    ]
+    if related_tickers:
+        lines.append(
+            f"Share class siblings: {', '.join(related_tickers)} — "
+            f"news and risk events for these tickers apply to {ticker} equally. "
+            f"News from sibling tickers has been merged into the feed below."
+        )
+    lines += [
         f"Portfolio model: enter at rank ≤ {entry_rank} (×{confirmation_days} days), "
         f"exit at rank > {exit_rank} (×{confirmation_days} days). "
         f"Risk horizon: {risk_horizon_days} days.",
@@ -356,6 +365,7 @@ async def fetch_ticker_data(
     av_api_key: str,
     tavily_api_key: str,
     *,
+    related_tickers_map: dict[str, list[str]] | None = None,
     news_lookback_days: int = 7,
     max_articles_per_ticker: int = 4,
     earnings_horizon_days: int = 90,
@@ -364,34 +374,82 @@ async def fetch_ticker_data(
     """
     Pre-fetch all external data for the candidate list concurrently.
 
+    related_tickers_map maps each canonical ticker to its share-class siblings
+    (e.g. {"GOOG": ["GOOGL"]}). When provided, sibling news is fetched and
+    merged into the canonical ticker's feed so the LLM sees the full picture.
+
     Returns (av_news, earnings_calendar, tavily_results, data_source_counts).
     """
-    av_news, earnings_calendar = await asyncio.gather(
-        fetch_av_news(tickers, av_api_key, lookback_days=news_lookback_days, max_articles_per_ticker=max_articles_per_ticker),
+    # Expand fetch list to include sibling tickers so their news is retrieved.
+    sibling_set: set[str] = set()
+    if related_tickers_map:
+        for siblings in related_tickers_map.values():
+            sibling_set.update(siblings)
+    all_fetch_tickers = tickers + [s for s in sibling_set if s not in tickers]
+
+    av_news_raw, earnings_calendar = await asyncio.gather(
+        fetch_av_news(all_fetch_tickers, av_api_key, lookback_days=news_lookback_days,
+                      max_articles_per_ticker=max_articles_per_ticker),
         fetch_av_earnings_calendar(tickers, av_api_key, earnings_horizon_days=earnings_horizon_days),
     )
 
+    # Merge sibling news back into the canonical ticker's feed (dedup by title).
+    if related_tickers_map:
+        for canonical, siblings in related_tickers_map.items():
+            merged = list(av_news_raw.get(canonical, []))
+            seen_titles = {a.get("title", "") for a in merged}
+            for sib in siblings:
+                for article in av_news_raw.get(sib, []):
+                    title = article.get("title", "")
+                    if title not in seen_titles:
+                        merged.append(article)
+                        seen_titles.add(title)
+            if merged:
+                av_news_raw[canonical] = merged
+
+    # Only expose canonical tickers in the returned av_news dict.
+    av_news: dict[str, list[dict]] = {t: av_news_raw.get(t, []) for t in tickers}
+
     tavily_results: dict[str, list[dict]] = {}
     if tavily_api_key:
-        # Fetch Tavily for all tickers unconditionally so recent events (earnings
-        # surprises, SEC actions, analyst downgrades from the past week) are always
-        # captured regardless of AV news coverage.
-        log.info("Fetching Tavily for all %d tickers", len(tickers))
+        # Fetch Tavily for canonical tickers and siblings so recent events
+        # (earnings surprises, SEC actions, analyst downgrades) are captured
+        # regardless of which share class the news is filed under.
+        log.info("Fetching Tavily for %d tickers (%d siblings)", len(tickers), len(sibling_set))
         fetched = await asyncio.gather(
-            *[fetch_tavily_news(t, tavily_api_key, max_results=max_search_results) for t in tickers]
+            *[fetch_tavily_news(t, tavily_api_key, max_results=max_search_results)
+              for t in all_fetch_tickers]
         )
-        tavily_results = dict(zip(tickers, fetched))
+        all_tavily: dict[str, list[dict]] = dict(zip(all_fetch_tickers, fetched))
+
+        # Merge sibling Tavily results into canonical ticker (dedup by title).
+        if related_tickers_map:
+            for canonical, siblings in related_tickers_map.items():
+                merged_tv = list(all_tavily.get(canonical, []))
+                seen_tv = {a.get("title", "") for a in merged_tv}
+                for sib in siblings:
+                    for article in all_tavily.get(sib, []):
+                        title = article.get("title", "")
+                        if title not in seen_tv:
+                            merged_tv.append(article)
+                            seen_tv.add(title)
+                if merged_tv:
+                    all_tavily[canonical] = merged_tv
+
+        tavily_results = {t: all_tavily.get(t, []) for t in tickers}
 
     data_sources = {
-        "av_news_tickers":          sum(1 for t in tickers if av_news.get(t)),
+        "av_news_tickers":           sum(1 for t in tickers if av_news.get(t)),
         "earnings_calendar_tickers": sum(1 for t in tickers if earnings_calendar.get(t)),
-        "tavily_tickers":           sum(1 for t in tickers if tavily_results.get(t)),
+        "tavily_tickers":            sum(1 for t in tickers if tavily_results.get(t)),
+        "sibling_tickers_fetched":   len(sibling_set),
     }
     log.info(
-        "Data fetch complete: AV news=%d, earnings=%d, Tavily=%d",
+        "Data fetch complete: AV news=%d, earnings=%d, Tavily=%d, siblings=%d",
         data_sources["av_news_tickers"],
         data_sources["earnings_calendar_tickers"],
         data_sources["tavily_tickers"],
+        data_sources["sibling_tickers_fetched"],
     )
     return av_news, earnings_calendar, tavily_results, data_sources
 
@@ -511,6 +569,7 @@ async def vet_single_ticker(
     sector: str | None = None,
     regime: str | None = None,
     in_portfolio: bool = False,
+    related_tickers: list[str] | None = None,
 ) -> dict:
     """
     Ask the LLM to make a single exclude/keep decision for one ticker.
@@ -518,6 +577,10 @@ async def vet_single_ticker(
     When tavily_api_key is provided the model runs as an agent: it can call
     web_search up to max_searches_per_ticker times before giving its final decision.
     Without a Tavily key it falls back to a single structured call.
+
+    related_tickers: sibling share-class tickers for the same company (e.g. ["GOOGL"]
+    for GOOG). Their news has already been merged into the `news` / `tavily_articles`
+    feeds by fetch_ticker_data; this param just tells the LLM about the siblings.
 
     Returns a dict with the decision plus full execution trace fields.
     """
@@ -533,6 +596,7 @@ async def vet_single_ticker(
         "sector": sector,
         "regime": regime,
         "in_portfolio": in_portfolio,
+        "related_tickers": related_tickers or [],
     }
     system_prompt = _build_system_prompt(
         entry_rank=entry_rank,
@@ -557,6 +621,7 @@ async def vet_single_ticker(
         sector=sector,
         regime=regime,
         in_portfolio=in_portfolio,
+        related_tickers=related_tickers,
     )
     # Use a set to deduplicate titles; list preserves insertion order via dict.fromkeys.
     _seen_titles: set[str] = set()

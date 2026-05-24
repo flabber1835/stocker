@@ -309,7 +309,7 @@ async def _do_vet(
     tickers = [c["ticker"] for c in candidates]
     state.candidates_total = len(candidates)
 
-    # Fetch sector per ticker from universe_tickers (most recent snapshot)
+    # Fetch sector and related share-class siblings per ticker from universe_tickers.
     ticker_set_pg = tickers  # already a list
     async with engine.connect() as conn:
         sector_rows = await conn.execute(
@@ -323,6 +323,27 @@ async def _do_vet(
             {"tickers": ticker_set_pg},
         )
         sector_map: dict[str, str | None] = {r.ticker: r.sector for r in sector_rows.fetchall()}
+
+        # Build a map of sibling share classes: for each candidate ticker, find other
+        # tickers with the same company name in the universe (same snapshot).
+        # We use the most recent snapshot for name lookups.
+        sibling_rows = await conn.execute(
+            text(
+                "SELECT ut1.ticker AS canonical, ut2.ticker AS sibling "
+                "FROM universe_tickers ut1 "
+                "JOIN universe_tickers ut2 "
+                "  ON  ut2.name = ut1.name "
+                "  AND ut2.ticker != ut1.ticker "
+                "  AND ut1.snapshot_id = (SELECT MAX(id) FROM universe_snapshots) "
+                "  AND ut2.snapshot_id = ut1.snapshot_id "
+                "WHERE ut1.ticker = ANY(:tickers) "
+                "  AND ut1.name IS NOT NULL AND ut1.name != '' "
+            ),
+            {"tickers": ticker_set_pg},
+        )
+        related_tickers_map: dict[str, list[str]] = {}
+        for r in sibling_rows.fetchall():
+            related_tickers_map.setdefault(r.canonical, []).append(r.sibling)
 
     # Fetch holdings from the most recent successful portfolio run only.
     # Using all historical runs would mark long-dropped tickers as "held",
@@ -356,6 +377,7 @@ async def _do_vet(
     t0 = datetime.now(timezone.utc)
     av_news, earnings_calendar, tavily_results, data_sources = await fetch_ticker_data(
         tickers, AV_API_KEY, TAVILY_API_KEY,
+        related_tickers_map=related_tickers_map or None,
         news_lookback_days=vcfg.news_lookback_days,
         max_articles_per_ticker=vcfg.max_articles_per_ticker,
         earnings_horizon_days=vcfg.earnings_horizon_days,
@@ -405,6 +427,7 @@ async def _do_vet(
             sector=sector_map.get(t),
             regime=_c.get("regime"),
             in_portfolio=t in held_tickers,
+            related_tickers=related_tickers_map.get(t) or None,
         )
 
     for i, c in enumerate(candidates):

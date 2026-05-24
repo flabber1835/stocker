@@ -1061,6 +1061,71 @@ async def _do_rank(
             ),
         )
 
+    # ── Step 3b: deduplicate share classes (group by company name, keep best rank) ──
+    dedup_removed: list[dict] = []
+    if strategy.deduplicate_share_classes and ranked_count > 0:
+        t0_dedup = datetime.now(timezone.utc)
+        ranked_ticker_list = ranked_df["ticker"].tolist()
+        async with engine.connect() as conn:
+            name_rows = await conn.execute(
+                text(
+                    "SELECT DISTINCT ON (ut.ticker) ut.ticker, ut.name "
+                    "FROM universe_tickers ut "
+                    "JOIN universe_snapshots us ON ut.snapshot_id = us.id "
+                    "WHERE ut.ticker = ANY(:tickers) "
+                    "  AND ut.name IS NOT NULL AND ut.name != '' "
+                    "ORDER BY ut.ticker, us.snapshot_date DESC"
+                ),
+                {"tickers": ranked_ticker_list},
+            )
+            name_map: dict[str, str] = {r.ticker: r.name for r in name_rows.fetchall()}
+
+        before_dedup = len(ranked_df)
+        # Group key: known company name, or unique sentinel so tickers without a
+        # name are never merged with each other.
+        ranked_df["_group_key"] = ranked_df["ticker"].map(
+            lambda t: name_map.get(t) or f"__solo_{t}"
+        )
+        # ranked_df is already sorted ascending by rank (1 = best): first of each
+        # name group IS the best-ranked ticker — keep it, drop the rest.
+        dup_mask = ranked_df["_group_key"].duplicated(keep="first")
+        removed_rows = ranked_df[dup_mask][["ticker", "rank", "_group_key"]].copy()
+        ranked_df = ranked_df[~dup_mask].drop(columns=["_group_key"]).reset_index(drop=True)
+
+        # Re-assign sequential ranks and recompute percentiles after dedup.
+        ranked_df["rank"] = range(1, len(ranked_df) + 1)
+        n_after = len(ranked_df)
+        ranked_df["percentile"] = (
+            1.0 - (ranked_df["rank"] - 1) / (n_after - 1)
+            if n_after > 1 else 1.0
+        )
+        ranked_count = n_after
+
+        for _, rm in removed_rows.iterrows():
+            gk = rm["_group_key"]
+            dedup_removed.append({
+                "removed_ticker": rm["ticker"],
+                "original_rank":  int(rm["rank"]),
+                "company_name":   gk if not gk.startswith("__solo_") else None,
+            })
+
+        if before_dedup != ranked_count:
+            async with engine.begin() as conn:
+                await _log_step_ranker(
+                    conn, trace_id, "deduplicate_share_classes", "success",
+                    started_at=t0_dedup,
+                    input_summary={"ranked_before_dedup": before_dedup},
+                    output_summary={
+                        "ranked_after_dedup": ranked_count,
+                        "removed_count": len(dedup_removed),
+                        "removed": dedup_removed,
+                    },
+                    warnings=[
+                        f"{len(dedup_removed)} duplicate share-class ticker(s) removed: "
+                        + ", ".join(d["removed_ticker"] for d in dedup_removed)
+                    ],
+                )
+
     ranked_at = datetime.now(timezone.utc)
 
     # ── Step 4: write rankings ────────────────────────────────────────────────
@@ -1086,25 +1151,26 @@ async def _do_rank(
         for _, row in ranked_df.iterrows()
     ]
     async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                """
-                INSERT INTO rankings
-                    (run_id, source_factor_run_id, strategy_id, regime, rank_date, ticker, rank,
-                     composite_score, percentile, factor_scores, ranked_at)
-                VALUES
-                    (:run_id, :source_factor_run_id, :strategy_id, :regime, :rank_date, :ticker, :rank,
-                     :composite_score, :percentile, CAST(:factor_scores AS jsonb), :ranked_at)
-                ON CONFLICT (run_id, ticker) DO UPDATE SET
-                    rank                 = EXCLUDED.rank,
-                    composite_score      = EXCLUDED.composite_score,
-                    percentile           = EXCLUDED.percentile,
-                    factor_scores        = EXCLUDED.factor_scores,
-                    ranked_at            = EXCLUDED.ranked_at
-                """
-            ),
-            ranking_rows,
-        )
+        if ranking_rows:
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO rankings
+                        (run_id, source_factor_run_id, strategy_id, regime, rank_date, ticker, rank,
+                         composite_score, percentile, factor_scores, ranked_at)
+                    VALUES
+                        (:run_id, :source_factor_run_id, :strategy_id, :regime, :rank_date, :ticker, :rank,
+                         :composite_score, :percentile, CAST(:factor_scores AS jsonb), :ranked_at)
+                    ON CONFLICT (run_id, ticker) DO UPDATE SET
+                        rank                 = EXCLUDED.rank,
+                        composite_score      = EXCLUDED.composite_score,
+                        percentile           = EXCLUDED.percentile,
+                        factor_scores        = EXCLUDED.factor_scores,
+                        ranked_at            = EXCLUDED.ranked_at
+                    """
+                ),
+                ranking_rows,
+            )
 
         await _log_step_ranker(
             conn, trace_id, "write_rankings", "success",

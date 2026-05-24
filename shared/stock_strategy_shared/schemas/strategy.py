@@ -238,6 +238,11 @@ class StrategyConfig(BaseModel):
     min_score_percentile: float = Field(default=0.0, ge=0, le=1)
     min_non_null_factors: int = Field(default=3, ge=1, le=6)
     required_factors: list[str] = Field(default_factory=list)
+    deduplicate_share_classes: bool = Field(
+        default=True,
+        description="When True, keep only the highest-ranked ticker per company name, "
+                    "removing duplicate share classes (e.g. GOOG vs GOOGL) from rankings.",
+    )
     portfolio_builder: PortfolioBuilderConfig = Field(default_factory=PortfolioBuilderConfig)
     vetter: VetterConfig = Field(default_factory=VetterConfig)
     intraday: IntradayConfig = Field(default_factory=IntradayConfig)
