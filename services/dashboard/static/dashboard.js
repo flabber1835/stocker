@@ -841,16 +841,21 @@ function renderOrders() {
   const failedOrders = ordersData.filter(o => o.status === 'failed');
   const banner = $('orders-error-banner');
   if (banner) {
-    if (failedOrders.length > 0 && failedOrders.length === ordersData.length) {
-      const firstErr = _parseAlpacaError(failedOrders[0].error_message);
+    if (failedOrders.length > 0) {
+      const firstErr = failedOrders[0].error_message || '';
+      const parsed   = _parseAlpacaError(firstErr);
+      let msg;
+      if (firstErr.toLowerCase().includes('credentials not configured')) {
+        msg = '&#x26A0; Trade-executor does not have Alpaca credentials. '
+            + 'Fix: run <code>docker compose up -d trade-executor</code> on your server '
+            + 'after confirming ALPACA_API_KEY and ALPACA_SECRET_KEY are in your .env file.';
+      } else {
+        msg = '&#x26A0; ' + failedOrders.length + ' order(s) failed'
+            + (failedOrders.length === ordersData.length ? ' (all)' : '') + ': '
+            + esc(parsed);
+      }
       banner.style.display = 'block';
-      banner.innerHTML = '&#x26A0; All orders failed: ' + esc(firstErr)
-        + '. Check that ALPACA_API_KEY and ALPACA_SECRET_KEY are set in your .env file.';
-      banner.className = 'orders-error-banner';
-    } else if (failedOrders.length > 0) {
-      const firstErr = _parseAlpacaError(failedOrders[0].error_message);
-      banner.style.display = 'block';
-      banner.innerHTML = '&#x26A0; ' + failedOrders.length + ' order(s) failed: ' + esc(firstErr);
+      banner.innerHTML = msg;
       banner.className = 'orders-error-banner';
     } else {
       banner.style.display = 'none';
