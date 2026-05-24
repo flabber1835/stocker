@@ -51,8 +51,10 @@ function esc(s) {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 function zColor(v) {
+  // Factor values are cross-sectional percentile ranks in (0, 1].
+  // Top 30% → green, bottom 40% → red, middle → neutral.
   if (v == null) return 'neu';
-  return +v > 0.5 ? 'pos' : +v < -0.5 ? 'neg' : 'neu';
+  return +v > 0.70 ? 'pos' : +v <= 0.40 ? 'neg' : 'neu';
 }
 function pctColor(v) {
   if (v == null) return 'neu';
@@ -315,7 +317,7 @@ function renderRankings() {
     const w = maxComp ? Math.max(0, Math.min(100, (+r.composite_score || 0) / maxComp * 100)) : 0;
     const pctCls = pctColor(r.percentile);
     const pctVal = r.percentile != null ? (+r.percentile * 100).toFixed(0) + '%' : '—';
-    const compCls = r.composite_score != null ? (+r.composite_score > 0 ? 'pos' : 'neg') : 'neu';
+    const compCls = r.composite_score != null ? (+r.composite_score > 0.5 ? 'pos' : 'neg') : 'neu';
 
     let arrow = '';
     if (r.prior_rank != null) {

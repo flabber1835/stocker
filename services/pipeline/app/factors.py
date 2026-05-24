@@ -6,6 +6,19 @@ import pandas as pd
 from stock_strategy_shared.schemas.strategy import FactorEngineConfig
 
 
+def cross_section_percentile(series: pd.Series) -> pd.Series:
+    """Cross-sectional percentile rank in (0, 1].
+    Highest value → 1.0, lowest → 1/N.
+    Ties receive average rank. NaN excluded and remain NaN.
+    """
+    result = pd.Series(np.nan, index=series.index, dtype=float)
+    valid = series.dropna()
+    if len(valid) < 2:
+        return result
+    result.loc[valid.index] = valid.rank(method="average", pct=True)
+    return result
+
+
 def cross_section_zscore(series: pd.Series, clip: float = 2.5) -> pd.Series:
     valid = series.dropna()
     result = pd.Series(float("nan"), index=series.index)
@@ -33,11 +46,11 @@ def _component_zscore(s: pd.Series) -> pd.Series:
     Must be called with a pre-filtered series that contains only non-NaN values (e.g. roe[has_roe]).
     Callers that filter to different-sized valid subsets before calling (e.g. ROE on 800 tickers,
     D/E on 400 tickers) produce component z-scores relative to their own sub-population.
-    This is an accepted approximation: the subsequent cross_section_zscore in compute_all_factors
-    re-normalises the composite across the full universe, so the within-composite scale difference
-    is absorbed at that stage. The remaining effect — tickers with only one component contributing
-    a full N(0,1) while tickers with both contribute a mean of two N(0,1)s (σ≈0.71) — is minor
-    relative to the ranking signal.
+    This is an accepted approximation: the subsequent cross_section_percentile in compute_all_factors
+    re-normalises the composite across the full universe via percentile ranking, so the within-composite
+    scale difference is absorbed at that stage. The remaining effect — tickers with only one component
+    contributing a full N(0,1) while tickers with both contribute a mean of two N(0,1)s (σ≈0.71) — is
+    minor relative to the ranking signal.
     """
     std = s.std()
     if std == 0 or pd.isna(std):
@@ -262,23 +275,16 @@ def compute_all_factors(
     def _align(raw: pd.Series) -> pd.Series:
         return raw.reindex(result.index)
 
-    # Winsorize raw momentum and low_volatility using 0.1%/99.9% tails before z-scoring.
-    # The 1%/99% band was a bug: with a 2000-ticker universe it clips the top 20 tickers
-    # to the same value, giving them all identical z-scores and destroying rank
-    # differentiation among top performers. The 0.1%/99.9% band clips at most 2 tickers
-    # per 1000 — enough to suppress genuine extreme outliers (spinoff repricing, data
-    # errors) without collapsing a cluster of legitimate top-momentum stocks.
-    momentum_w = _winsorize(momentum_raw.dropna(), lo_pct=0.001, hi_pct=0.999).reindex(momentum_raw.index) if not momentum_raw.empty else momentum_raw
-    low_vol_w  = _winsorize(low_vol_raw.dropna(), lo_pct=0.001, hi_pct=0.999).reindex(low_vol_raw.index)   if not low_vol_raw.empty else low_vol_raw
-
-    # No additional clip — the 0.1%/99.9% winsorize handles extremes without
-    # flattening the top tier to a single score.
-    result["momentum"] = cross_section_zscore(_align(momentum_w), clip=float("inf"))
-    result["low_volatility"] = cross_section_zscore(_align(low_vol_w), clip=float("inf"))
-    result["liquidity"] = cross_section_zscore(_align(liquidity_raw), clip=cfg.zscore_clip)
-    result["quality"] = cross_section_zscore(_align(quality_raw), clip=cfg.zscore_clip)
-    result["value"] = cross_section_zscore(_align(value_raw), clip=cfg.zscore_clip)
-    result["growth"] = cross_section_zscore(_align(growth_raw), clip=cfg.zscore_clip)
+    # Percentile-rank each factor cross-sectionally to [0, 1].
+    # Winsorization before percentile ranking is unnecessary — percentile ranking is
+    # already outlier-robust by construction (a z=6 outlier gets percentile=1.0,
+    # same ceiling as any other top-ranked ticker).
+    result["momentum"]      = cross_section_percentile(_align(momentum_raw))
+    result["low_volatility"]= cross_section_percentile(_align(low_vol_raw))
+    result["liquidity"]     = cross_section_percentile(_align(liquidity_raw))
+    result["quality"]       = cross_section_percentile(_align(quality_raw))
+    result["value"]         = cross_section_percentile(_align(value_raw))
+    result["growth"]        = cross_section_percentile(_align(growth_raw))
 
     result = result.reset_index()
     return result

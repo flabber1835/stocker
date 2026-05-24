@@ -21,7 +21,6 @@ universe:
   min_avg_dollar_volume_20d: 20000000
 
 factor_engine:
-  zscore_clip: 2.5           # hard clip after cross-sectional z-scoring (±2.5σ)
   momentum_short_window: 21  # recent-price reference: skip last ~1 month
   momentum_long_window: 252  # base-price reference: ~12-month lookback
   volatility_window: 252     # trading days for realized-vol (low_volatility factor)
