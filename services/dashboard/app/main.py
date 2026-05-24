@@ -623,23 +623,32 @@ _HTML = r"""<!DOCTYPE html>
   <section id="screen-trader" class="screen">
     <div class="screen-inner">
       <div class="delta-stats" id="delta-stats">
-        <div class="ds-chip"><div class="ds-lbl">BUY</div><div class="ds-val buy" id="ds-entries">—</div></div>
         <div class="ds-chip"><div class="ds-lbl">SELL</div><div class="ds-val sell" id="ds-exits">—</div></div>
+        <div class="ds-chip"><div class="ds-lbl">BUY</div><div class="ds-val buy" id="ds-entries">—</div></div>
         <div class="ds-chip"><div class="ds-lbl">HOLD</div><div class="ds-val" id="ds-holds">—</div></div>
         <div class="ds-chip"><div class="ds-lbl">WATCH</div><div class="ds-val warn" id="ds-watches">—</div></div>
         <div class="ds-chip"><div class="ds-lbl">DATE</div><div class="ds-val sm" id="ds-date">—</div></div>
       </div>
-      <div id="trade-cards"></div>
-      <div id="other-intents" style="display:none">
-        <div class="section-label">Other Signals</div>
-        <div class="tbl-scroll">
-          <table>
-            <thead><tr>
-              <th>TICKER</th><th>ACTION</th><th>RANK</th><th>SCORE</th><th>WEIGHT</th><th>REASON</th>
-            </tr></thead>
-            <tbody id="other-body"></tbody>
-          </table>
-        </div>
+      <div class="trader-toolbar" id="trader-toolbar" style="display:none">
+        <label class="trader-sel-all"><input type="checkbox" id="select-all-trades" onchange="toggleSelectAll()"> Select all</label>
+        <button class="btn-approve-sel" id="btn-approve-sel" onclick="approveSelected()" disabled>&#9654; Approve Selected (MOO)</button>
+        <span class="sel-count" id="sel-count"></span>
+      </div>
+      <div class="tbl-scroll">
+        <table id="trader-table">
+          <thead><tr>
+            <th class="col-chk"></th>
+            <th>ACTION</th>
+            <th>TICKER</th>
+            <th>RANK</th>
+            <th>SCORE</th>
+            <th>QTY</th>
+            <th>FLAGS</th>
+            <th>STATUS</th>
+            <th>ACTIONS</th>
+          </tr></thead>
+          <tbody id="trader-body"><tr><td colspan="9" class="tbl-empty">Loading&#8230;</td></tr></tbody>
+        </table>
       </div>
     </div>
   </section>

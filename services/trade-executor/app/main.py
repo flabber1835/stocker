@@ -585,7 +585,7 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
         # ── Step 5: persist alpaca_orders row ─────────────────────────────────
         t0 = datetime.now(timezone.utc)
         order_type = "market"
-        time_in_force = "opg" if req.mode == "scheduled" else "day"
+        time_in_force = "opg"  # market-on-open for all modes; works pre/post-market
         initial_status = "pending" if approved else "risk_rejected"
         async with engine.begin() as conn:
             await _record_order(

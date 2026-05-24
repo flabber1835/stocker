@@ -526,10 +526,84 @@ tr.detail-row td { padding: 0; white-space: normal; }
   color: var(--text2); margin: 16px 0 8px;
 }
 
-/* action tags for other-intents table */
+/* action tags */
 .act-hold    { background: var(--blue-lt); color: var(--blue); padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; }
 .act-watch   { background: var(--amber-lt); color: var(--amber); padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; }
 .act-at-risk { background: rgba(220,38,38,.08); color: var(--red); padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; }
+
+/* ── Trader table (new table layout) ────────────────────────────────── */
+.trader-toolbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 0 10px; margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.trader-sel-all {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; cursor: pointer; user-select: none;
+}
+.trader-sel-all input { cursor: pointer; }
+.btn-approve-sel {
+  background: var(--navy); color: white;
+  border: none; border-radius: 8px;
+  padding: 8px 16px;
+  font-family: var(--font); font-size: 13px; font-weight: 600;
+  letter-spacing: .04em; cursor: pointer; transition: background .15s;
+}
+.btn-approve-sel:hover:not(:disabled) { background: var(--navy-light); }
+.btn-approve-sel:disabled { opacity: .4; cursor: not-allowed; }
+.sel-count { font-size: 12px; color: var(--text2); }
+
+.col-chk { width: 32px; text-align: center; padding: 0 4px !important; }
+.col-chk input[type=checkbox] { cursor: pointer; }
+
+#trader-table tr.tr-sell > td.col-chk { box-shadow: inset 3px 0 0 var(--red); }
+#trader-table tr.tr-buy  > td.col-chk { box-shadow: inset 3px 0 0 var(--green); }
+#trader-table tr.tr-sell { background: rgba(220,38,38,.025); }
+#trader-table tr.tr-buy  { background: rgba(5,150,105,.025); }
+#trader-table tr.tr-hold { color: var(--text2); }
+#trader-table tr.tr-hold .t-ticker { color: var(--text2); }
+
+.tr-section-divider td {
+  background: var(--border2); color: var(--text2);
+  font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  padding: 5px 10px !important;
+}
+
+/* Extended action pills */
+.pill-sell-exit  { background: rgba(220,38,38,.12); color: var(--red); }
+.pill-sell-trim  { background: rgba(220,38,38,.07); color: var(--red); }
+.pill-buy-enter  { background: rgba(5,150,105,.12); color: var(--green); }
+.pill-buy-add    { background: rgba(5,150,105,.07); color: var(--green); }
+.pill-hold       { background: var(--blue-lt);      color: var(--blue); }
+.pill-watch      { background: var(--amber-lt);     color: var(--amber); }
+.pill-at-risk    { background: rgba(220,38,38,.08); color: var(--red); }
+
+.t-name { font-size: 11px; color: var(--text2); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+
+.tc-timer-mini {
+  display: inline-block; margin-top: 3px;
+  font-size: 11px; font-family: var(--mono); font-weight: 600;
+  padding: 1px 5px; border-radius: 3px;
+}
+.tc-timer-mini.time-plenty { color: var(--green); background: rgba(5,150,105,.1); }
+.tc-timer-mini.time-warn   { color: var(--amber); background: rgba(217,119,6,.1); }
+.tc-timer-mini.time-urgent { color: var(--red);   background: rgba(220,38,38,.1); }
+
+.btn-sm-approve {
+  background: var(--navy); color: white;
+  border: none; border-radius: 5px;
+  padding: 4px 10px; font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: background .15s;
+}
+.btn-sm-approve:hover { background: var(--navy-light); }
+.btn-sm-reject {
+  background: transparent; color: var(--red);
+  border: 1.5px solid var(--red); border-radius: 5px;
+  padding: 3px 9px; font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: background .15s, color .15s;
+}
+.btn-sm-reject:hover { background: var(--red); color: white; }
+.tc-actions-cell { white-space: nowrap; }
 
 /* ── Portfolio screen ────────────────────────────────────────────────── */
 .conn-bar {

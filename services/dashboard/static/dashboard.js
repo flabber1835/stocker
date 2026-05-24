@@ -18,6 +18,7 @@ let _aaStatus        = { auto_approve_minutes: 60, pending: [], fetchedAt: Date.
 let _lastRefreshAt   = Date.now();
 let _rankChainRunning= false;
 let _initialLoadDone = false;  // prevents refresh() from double-loading on boot
+let _selectedIntents = new Set();
 
 const REFRESH_SECS = 30;
 
@@ -479,6 +480,7 @@ async function loadDelta() {
     $('ds-watches').textContent = run.watches_count  ?? '—';
     $('ds-date').textContent    = run.run_date       || '—';
     _approvalState = {};
+    _selectedIntents.clear();
     renderTrader();
     updateTraderBadge();
   } catch (e) {
@@ -487,124 +489,156 @@ async function loadDelta() {
   }
 }
 
+/* ── Action metadata maps ────────────────────────────────────────────── */
+const ACTION_ORDER  = { exit: 0, sell_trim: 1, entry: 2, buy_add: 3, hold: 4, watch: 5, at_risk: 6 };
+const ACTION_LABELS = {
+  exit: 'SELL TO EXIT', sell_trim: 'SELL TO TRIM',
+  entry: 'BUY TO ENTER', buy_add: 'BUY TO ADD',
+  hold: 'HOLD', watch: 'WATCH', at_risk: 'AT RISK',
+};
+const ACTION_PILL = {
+  exit: 'pill-sell-exit', sell_trim: 'pill-sell-trim',
+  entry: 'pill-buy-enter', buy_add: 'pill-buy-add',
+  hold: 'pill-hold', watch: 'pill-watch', at_risk: 'pill-at-risk',
+};
+
+function _isApprovable(r) {
+  if (!['entry', 'exit', 'buy_add', 'sell_trim'].includes(r.action)) return false;
+  if (_approvalState[r.id]) return false;
+  const os = r.order_status;
+  if (os === 'submitted' || os === 'pending' || os === 'failed' || os === 'risk_rejected') return false;
+  if (r.rejected_at) return false;
+  if ((r.action === 'entry' || r.action === 'buy_add') && r.vetter_excluded) return false;
+  return true;
+}
+
 function renderTrader() {
-  const actionable = deltaData.filter(r => ['entry', 'exit', 'buy_add', 'sell_trim'].includes(r.action));
-  const others     = deltaData.filter(r => !['entry', 'exit', 'buy_add', 'sell_trim'].includes(r.action));
+  const sorted = [...deltaData].sort((a, b) => {
+    const ao = ACTION_ORDER[a.action] ?? 99;
+    const bo = ACTION_ORDER[b.action] ?? 99;
+    return ao - bo || (a.rank ?? 999) - (b.rank ?? 999);
+  });
 
-  if (actionable.length === 0) {
-    $('trade-cards').innerHTML = '<div class="no-trades">No pending trades — <strong>all clear</strong></div>';
-  } else {
-    const isSettled = r => {
-      const st = _approvalState[r.id];
-      if (st && (st.status === 'ok' || st.status === 'err' || st.status === 'rejected')) return true;
-      const os = r.order_status;
-      if (os === 'submitted' || os === 'pending' || os === 'failed' || os === 'risk_rejected') return true;
-      if (r.rejected_at) return true;
-      const isBuyAction = r.action === 'entry' || r.action === 'buy_add';
-      if (isBuyAction && r.vetter_excluded) return true;
-      return false;
-    };
-    const pending   = actionable.filter(r => !isSettled(r));
-    const settled   = actionable.filter(r =>  isSettled(r));
-    let html = pending.map(r => _buildTradeCard(r)).join('');
-    if (settled.length > 0) {
-      html += '<div class="tc-divider">'
-        + settled.length + ' order' + (settled.length > 1 ? 's' : '') + ' submitted, failed, or blocked'
-        + '</div>';
-      html += settled.map(r => _buildTradeCard(r)).join('');
+  const toolbar = $('trader-toolbar');
+  if (toolbar) toolbar.style.display = sorted.some(_isApprovable) ? '' : 'none';
+
+  const tbody = $('trader-body');
+  if (!tbody) return;
+
+  if (sorted.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" class="tbl-empty">No signals — <strong>all clear</strong></td></tr>';
+    _syncSelectAllState();
+    updateTraderBadge();
+    return;
+  }
+
+  let lastSection = null;
+  const rows = [];
+  for (const r of sorted) {
+    const section = (r.action === 'exit' || r.action === 'sell_trim') ? 'sell'
+                  : (r.action === 'entry' || r.action === 'buy_add')  ? 'buy'
+                  : 'hold';
+    if (section !== lastSection) {
+      const label = section === 'sell' ? 'Sell Orders'
+                  : section === 'buy'  ? 'Buy Orders'
+                  : 'Hold &amp; Watch';
+      rows.push('<tr class="tr-section-divider"><td colspan="9">' + label + '</td></tr>');
+      lastSection = section;
     }
-    $('trade-cards').innerHTML = html;
+    rows.push(_buildTradeRow(r));
   }
-
-  if (others.length > 0) {
-    $('other-intents').style.display = '';
-    $('other-body').innerHTML = others.map(r => {
-      const wt = r.current_weight != null ? (r.current_weight * 100).toFixed(1) + '%' : '—';
-      const actCls = r.action === 'hold' ? 'act-hold' : r.action === 'watch' ? 'act-watch' : 'act-at-risk';
-      const actLabel = r.action === 'at_risk' ? 'AT RISK' : r.action.toUpperCase();
-      const reason = r.reason ? esc(r.reason.substring(0, 80)) + (r.reason.length > 80 ? '&hellip;' : '') : '—';
-      return '<tr>'
-        + '<td><span class="t-ticker">' + esc(r.ticker) + '</span></td>'
-        + '<td><span class="' + actCls + '">' + actLabel + '</span></td>'
-        + '<td class="t-wt">' + (r.rank ?? '—') + '</td>'
-        + '<td class="t-wt">' + fmtScore(r.composite_score) + '</td>'
-        + '<td class="t-wt">' + wt + '</td>'
-        + '<td style="font-size:12px;color:var(--text2);max-width:240px;white-space:normal">' + reason + '</td>'
-        + '</tr>';
-    }).join('');
-  } else {
-    $('other-intents').style.display = 'none';
-  }
+  tbody.innerHTML = rows.join('');
+  _syncSelectAllState();
   updateTraderBadge();
 }
 
-function _buildTradeCard(r) {
-  const isBuy = r.action === 'entry' || r.action === 'buy_add';
-  const cardCls = isBuy ? 'tc-buy' : 'tc-sell';
-  const pillCls = r.action === 'entry' ? 'pill-buy' : r.action === 'exit' ? 'pill-sell' : r.action === 'buy_add' ? 'pill-buy2' : 'pill-sell2';
-  const pillText = { entry: 'BUY', exit: 'SELL', buy_add: 'BUY+', sell_trim: 'TRIM' }[r.action] || r.action.toUpperCase();
+function _buildTradeRow(r) {
+  const isActionable = ['entry', 'exit', 'buy_add', 'sell_trim'].includes(r.action);
+  const approvable   = _isApprovable(r);
+  const isSell = r.action === 'exit' || r.action === 'sell_trim';
+  const isBuy  = r.action === 'entry' || r.action === 'buy_add';
+  const rowCls = isSell ? 'tr-sell' : isBuy ? 'tr-buy' : 'tr-hold';
 
-  const fetchedAt = _aaStatus.fetchedAt || Date.now();
-  const totalSecs = _aaStatus.auto_approve_minutes * 60;
-  const aaItem = _aaStatus.pending.find(p => p.intent_id === String(r.id));
-  let remaining = totalSecs;
-  if (aaItem) {
-    remaining = Math.max(0, aaItem.remaining_seconds - (Date.now() - fetchedAt) / 1000);
+  const isSelected = _selectedIntents.has(String(r.id));
+  const chkCell = approvable
+    ? '<td class="col-chk"><input type="checkbox" class="trade-chk"'
+      + (isSelected ? ' checked' : '')
+      + ' onchange="toggleSelectIntent(\'' + r.id + '\',this.checked)"></td>'
+    : '<td class="col-chk"></td>';
+
+  const pillCls  = ACTION_PILL[r.action]   || 'pill-hold';
+  const pillText = ACTION_LABELS[r.action] || r.action.toUpperCase();
+  const actionCell = '<td><span class="tc-pill ' + pillCls + '" style="white-space:nowrap">' + pillText + '</span></td>';
+
+  const tickerCell = '<td>'
+    + '<span class="t-ticker">' + esc(r.ticker) + '</span>'
+    + (r.name ? '<div class="t-name">' + esc(r.name) + '</div>' : '')
+    + '</td>';
+
+  const rankCell  = '<td class="t-num">' + (r.rank != null ? '#' + r.rank : '—') + '</td>';
+  const scoreCell = '<td class="t-num">' + fmtScore(r.composite_score) + '</td>';
+  const qty = (r.order_qty != null && r.order_qty > 0) ? r.order_qty : '—';
+  const qtyCell   = '<td class="t-num">' + qty + '</td>';
+
+  const vetterBadge = (r.vetter_excluded && isBuy)
+    ? '<span class="overlay-badge excl" title="' + esc(r.vetter_reason || '') + '">&#9888; '
+      + (r.vetter_risk_type || '').toUpperCase().replace(/_/g, ' ') + '</span>'
+    : '';
+  let timerHtml = '';
+  if (approvable) {
+    const aaItem = _aaStatus.pending.find(p => p.intent_id === String(r.id));
+    if (aaItem) {
+      const fetchedAt = _aaStatus.fetchedAt || Date.now();
+      const totalSecs = _aaStatus.auto_approve_minutes * 60;
+      const remaining = Math.max(0, aaItem.remaining_seconds - (Date.now() - fetchedAt) / 1000);
+      const timerCls  = remaining > 1800 ? 'time-plenty' : remaining > 600 ? 'time-warn' : 'time-urgent';
+      timerHtml = '<div class="tc-timer-mini ' + timerCls + '" id="tct-' + r.id + '">'
+                + fmtCountdown(remaining) + '</div>';
+    }
   }
-  const fillPct = Math.min(100, Math.max(0, (remaining / totalSecs) * 100));
-  const timerCls = remaining > 1800 ? 'time-plenty' : remaining > 600 ? 'time-warn' : 'time-urgent';
+  const flagsCell = '<td>' + vetterBadge + timerHtml + '</td>';
 
   const st = _approvalState[r.id] || {};
-  const alreadyOrdered = r.order_status === 'submitted' || r.order_status === 'pending';
-  const dbFailed = !st.status && (r.order_status === 'failed' || r.order_status === 'risk_rejected');
-  const isBuyAction = r.action === 'entry' || r.action === 'buy_add';
-  const blockedByVetter = isBuyAction && r.vetter_excluded;
-  const isRejected = r.rejected_at || st.status === 'rejected';
-  let actionsHtml;
+  let statusHtml;
   if (st.status === 'pending') {
-    actionsHtml = '<div class="tc-submitting">Submitting&#8230;</div>';
+    statusHtml = '<span class="tc-submitting">Submitting&#8230;</span>';
   } else if (st.status === 'rejecting') {
-    actionsHtml = '<div class="tc-submitting">Rejecting&#8230;</div>';
-  } else if (isRejected) {
-    actionsHtml = '<div class="tc-rejected">&#10007; Rejected</div>';
-  } else if (st.status === 'ok' || alreadyOrdered) {
-    const label = alreadyOrdered && !st.status ? 'Order ' + r.order_status : (st.msg || 'Submitted');
-    actionsHtml = '<div class="tc-submitted">&#10003; ' + esc(label) + '</div>';
-  } else if (dbFailed) {
+    statusHtml = '<span class="tc-submitting">Rejecting&#8230;</span>';
+  } else if (st.status === 'rejected' || r.rejected_at) {
+    statusHtml = '<span class="tc-rejected">&#10007; Rejected</span>';
+  } else if (st.status === 'ok') {
+    statusHtml = '<span class="tc-submitted">&#10003; ' + esc(st.msg || 'Submitted') + '</span>';
+  } else if (r.order_status === 'submitted' || r.order_status === 'pending') {
+    statusHtml = '<span class="tc-submitted">&#10003; ' + r.order_status + '</span>';
+  } else if (st.status === 'err') {
+    statusHtml = '<span class="tc-error">&#x26A0; ' + esc(st.msg || 'Error') + '</span>';
+  } else if (r.order_status === 'failed' || r.order_status === 'risk_rejected') {
     const dbMsg = r.order_status === 'risk_rejected'
       ? 'Risk rejected'
       : _parseAlpacaError(r.order_error_message);
-    actionsHtml = '<div class="tc-error">&#x26A0; ' + esc(dbMsg) + '</div>';
-  } else if (blockedByVetter) {
-    actionsHtml = '<div class="tc-error">&#x26A0; Blocked by LLM vetter</div>';
-  } else if (st.status === 'err') {
-    actionsHtml = '<div class="tc-error">&#x26A0; ' + esc(st.msg || 'Error') + '</div>';
+    statusHtml = '<span class="tc-error">&#x26A0; ' + esc(dbMsg) + '</span>';
+  } else if (r.vetter_excluded && isBuy) {
+    statusHtml = '<span class="tc-error">&#x26A0; Vetter blocked</span>';
+  } else if (!isActionable) {
+    statusHtml = '<span class="act-hold">' + (ACTION_LABELS[r.action] || r.action.toUpperCase()) + '</span>';
   } else {
-    actionsHtml = '<div class="tc-actions">'
-      + '<button class="btn-approve-now" onclick="approveTrade(\'' + r.id + '\',\'immediate\')">&#9654; APPROVE NOW</button>'
-      + '<button class="btn-reject" onclick="rejectTrade(\'' + r.id + '\')">&#10005; REJECT</button>'
-      + '</div>';
+    statusHtml = '<span style="color:var(--text3)">—</span>';
+  }
+  const statusCell = '<td>' + statusHtml + '</td>';
+
+  let actionsCell;
+  if (approvable) {
+    actionsCell = '<td class="tc-actions-cell">'
+      + '<button class="btn-sm-approve" onclick="approveTrade(\'' + r.id + '\',\'immediate\')" title="Approve (MOO)">&#9654;</button>'
+      + ' <button class="btn-sm-reject" onclick="rejectTrade(\'' + r.id + '\')" title="Reject">&#10005;</button>'
+      + '</td>';
+  } else {
+    actionsCell = '<td></td>';
   }
 
-  const wt = r.current_weight != null ? (r.current_weight * 100).toFixed(1) + '%' : '—';
-  const vetterBadge = (r.vetter_excluded && (r.action === 'entry' || r.action === 'buy_add'))
-    ? '<span class="overlay-badge excl" title="' + esc(r.vetter_reason || '') + '">&#9888; EXCL</span>'
-    : '';
-
-  return '<div class="trade-card ' + cardCls + '" id="tc-' + r.id + '">'
-    + '<div class="tc-header">'
-    + '<span class="tc-ticker">' + esc(r.ticker) + '</span>'
-    + '<span class="tc-pill ' + pillCls + '">' + pillText + '</span>'
-    + vetterBadge
-    + '<div class="tc-meta">Rank #' + (r.rank ?? '—') + ' &nbsp;&middot;&nbsp; Score ' + fmtScore(r.composite_score) + ' &nbsp;&middot;&nbsp; ' + wt + '</div>'
-    + '</div>'
-    + (r.reason ? '<div class="tc-reason">' + esc(r.reason) + '</div>' : '')
-    + (aaItem ? '<div class="tc-timer">'
-      + '<div class="tc-timer-track"><div class="tc-timer-fill ' + timerCls + '" id="tcf-' + r.id + '" style="width:' + fillPct + '%"></div></div>'
-      + '<div class="tc-timer-label">Auto-approve in <strong id="tct-' + r.id + '">' + fmtCountdown(remaining) + '</strong></div>'
-      + '</div>' : '')
-    + actionsHtml
-    + '</div>';
+  return '<tr class="' + rowCls + '" id="tc-' + r.id + '">'
+    + chkCell + actionCell + tickerCell + rankCell + scoreCell + qtyCell + flagsCell + statusCell + actionsCell
+    + '</tr>';
 }
 
 function updateTraderBadge() {
@@ -626,6 +660,45 @@ function updateTraderBadge() {
   } else {
     badge.style.display = 'none';
   }
+}
+
+/* ── Multi-select helpers ────────────────────────────────────────────── */
+function toggleSelectAll() {
+  const checked = $('select-all-trades').checked;
+  deltaData.filter(_isApprovable).forEach(r => {
+    if (checked) _selectedIntents.add(String(r.id));
+    else         _selectedIntents.delete(String(r.id));
+  });
+  renderTrader();
+}
+
+function toggleSelectIntent(id, checked) {
+  if (checked) _selectedIntents.add(String(id));
+  else         _selectedIntents.delete(String(id));
+  _syncSelectAllState();
+}
+
+function _syncSelectAllState() {
+  const approvable = deltaData.filter(_isApprovable);
+  const n = approvable.filter(r => _selectedIntents.has(String(r.id))).length;
+  const allChk = $('select-all-trades');
+  if (allChk) {
+    allChk.checked       = n > 0 && n === approvable.length;
+    allChk.indeterminate = n > 0 && n < approvable.length;
+  }
+  const btn = $('btn-approve-sel');
+  const cnt = $('sel-count');
+  if (btn) btn.disabled = n === 0;
+  if (cnt) cnt.textContent = n > 0 ? n + ' selected' : '';
+}
+
+async function approveSelected() {
+  const toApprove = [..._selectedIntents].filter(id =>
+    deltaData.some(r => String(r.id) === id && _isApprovable(r))
+  );
+  if (!toApprove.length) return;
+  _selectedIntents.clear();
+  await Promise.all(toApprove.map(id => approveTrade(id, 'immediate')));
 }
 
 async function approveTrade(intentId, mode) {
@@ -890,18 +963,14 @@ function updateAutoApproveCountdowns() {
   const totalSecs = _aaStatus.auto_approve_minutes * 60;
 
   for (const aa of _aaStatus.pending) {
-    const elapsed    = (Date.now() - fetchedAt) / 1000;
-    const remaining  = Math.max(0, aa.remaining_seconds - elapsed);
-    const fillPct    = Math.min(100, Math.max(0, (remaining / totalSecs) * 100));
-    const timerCls   = remaining > 1800 ? 'time-plenty' : remaining > 600 ? 'time-warn' : 'time-urgent';
-
-    const fillEl = document.getElementById('tcf-' + aa.intent_id);
-    if (fillEl) {
-      fillEl.style.width = fillPct + '%';
-      fillEl.className = 'tc-timer-fill ' + timerCls;
-    }
+    const elapsed   = (Date.now() - fetchedAt) / 1000;
+    const remaining = Math.max(0, aa.remaining_seconds - elapsed);
+    const timerCls  = remaining > 1800 ? 'time-plenty' : remaining > 600 ? 'time-warn' : 'time-urgent';
     const textEl = document.getElementById('tct-' + aa.intent_id);
-    if (textEl) textEl.textContent = fmtCountdown(remaining);
+    if (textEl) {
+      textEl.textContent = fmtCountdown(remaining);
+      textEl.className   = 'tc-timer-mini ' + timerCls;
+    }
   }
 }
 
