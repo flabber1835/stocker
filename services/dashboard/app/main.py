@@ -226,6 +226,17 @@ async def proxy_trade_approve(request: Request):
         return JSONResponse(content={"error": str(exc)}, status_code=502)
 
 
+@app.post("/api/trade/reject")
+async def proxy_trade_reject(request: Request):
+    try:
+        body = await request.json()
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(f"{API_URL}/trade/reject", json=body)
+            return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=502)
+
+
 @app.post("/api/alpaca-sync")
 async def trigger_alpaca_sync():
     return await _proxy_post(f"{API_URL}/alpaca/sync")
