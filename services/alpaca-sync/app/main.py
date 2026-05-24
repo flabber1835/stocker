@@ -442,8 +442,26 @@ async def _alpaca_sync_warm_up(engine_, session_factory):
     if _has_credentials:
         print(f"[alpaca-sync] Alpaca credentials configured, base_url={ALPACA_BASE_URL}", flush=True)
         asyncio.create_task(_sync_with_lock())
+        asyncio.create_task(_periodic_sync_loop())
     else:
         print("[alpaca-sync] WARNING: ALPACA_API_KEY is not set or is 'demo' — sync disabled on startup", flush=True)
+
+
+SYNC_INTERVAL_SECS = int(os.getenv("ALPACA_SYNC_INTERVAL_SECS", "300"))  # default 5 minutes
+
+
+async def _periodic_sync_loop():
+    """Re-sync Alpaca state every SYNC_INTERVAL_SECS so fills/cancels are picked up
+    without requiring a service restart."""
+    while True:
+        try:
+            await asyncio.sleep(SYNC_INTERVAL_SECS)
+        except asyncio.CancelledError:
+            return
+        try:
+            await _sync_with_lock()
+        except Exception as exc:
+            print(f"[alpaca-sync] periodic sync error: {exc}", flush=True)
 
 
 @asynccontextmanager
