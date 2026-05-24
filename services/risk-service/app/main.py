@@ -61,7 +61,7 @@ engine: Optional[AsyncEngine] = None
 
 class TradeCheckRequest(BaseModel):
     ticker: str
-    action: Literal["entry", "exit"]
+    action: Literal["entry", "exit", "buy_add", "sell_trim"]
     side: Literal["buy", "sell"]
     qty: float
     notional: float
