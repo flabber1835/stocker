@@ -17,7 +17,10 @@ let _prevPipelineData= {};
 let _aaStatus        = { auto_approve_minutes: 60, pending: [], fetchedAt: Date.now() };
 let _lastRefreshAt   = Date.now();
 let _rankChainRunning= false;
+let _runRequestedAt  = 0;      // ms timestamp of last Run click; button stays locked for RUN_LOCK_MS
 let _initialLoadDone = false;  // prevents refresh() from double-loading on boot
+
+const RUN_LOCK_MS = 30000;     // keep button disabled for 30 s after clicking Run
 let _selectedIntents = new Set();
 
 const REFRESH_SECS = 30;
@@ -181,7 +184,11 @@ function updatePipelineBar(rank, vetter) {
   // Show "running"-style indicator if pipeline OR vetter is in flight, so the user
   // sees forward progress through the whole chain rather than the bar disappearing
   // the moment pipeline finishes and the vetter takes over for the next ~20 minutes.
-  const showAsRunning = running || (vetRunning && !success && !failed);
+  // Also keep it locked for RUN_LOCK_MS after the user clicked Run — the backend
+  // needs a moment to start the new run; without this guard the first status poll
+  // (which still sees the previous run's "success") would re-enable the button.
+  const recentlyRequested = (Date.now() - _runRequestedAt) < RUN_LOCK_MS;
+  const showAsRunning = running || (vetRunning && !success && !failed) || recentlyRequested;
   dot.className   = 'pb-dot'   + (showAsRunning ? ' running' : success ? ' success' : failed ? ' failed' : '');
   label.className = 'pb-label' + (showAsRunning ? ' running' : success ? ' success' : failed ? ' failed' : '');
 
@@ -189,6 +196,9 @@ function updatePipelineBar(rank, vetter) {
   if (running) {
     labelText = rank.step_label || 'RUNNING';
     barPct = rank.pct;
+  } else if (recentlyRequested) {
+    labelText = 'QUEUED…';
+    barPct = null;
   } else if (vetRunning) {
     const vp = vetter.progress;
     if (vp && vp.total > 0) {
@@ -984,6 +994,7 @@ async function startJob(tab) {
   if (!urls[tab]) return;
   const btn   = $('run-btn');
   const label = $('pb-label');
+  _runRequestedAt = Date.now();
   if (btn)   btn.disabled = true;
   if (label) { label.textContent = 'QUEUED…'; label.className = 'pb-label running'; }
   try {
@@ -991,6 +1002,7 @@ async function startJob(tab) {
     // Trigger an immediate status poll so the bar updates within seconds
     setTimeout(refresh, 1500);
   } catch (e) {
+    _runRequestedAt = 0;  // release lock on hard failure
     if (btn)   btn.disabled = false;
     if (label) { label.textContent = 'FAILED TO START'; label.className = 'pb-label failed'; }
   }

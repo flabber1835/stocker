@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import re
 import traceback
 import uuid
 from contextlib import asynccontextmanager
@@ -38,6 +39,30 @@ redis_client: aioredis.Redis | None = None
 _consumer_task: asyncio.Task | None = None
 
 _job_lock = asyncio.Lock()
+
+# Compiled once — used by share-class dedup to normalize company names.
+_SHARE_CLASS_RE = re.compile(
+    r"\s*[\-,]?\s*\b(class\s+[a-z]\d*|series\s+[a-z]\d*|ordinary\s+shares?\b.*|"
+    r"[a-z]\s+shares?\b|common\s+stock\b.*)\s*$",
+    re.IGNORECASE,
+)
+_LEGAL_SUFFIX_RE = re.compile(
+    r"\s*,?\s*(inc\.?|corp\.?|incorporated|corporation|limited|ltd\.?|llc|"
+    r"l\.l\.c\.?|plc|n\.v\.?|s\.a\.?|co\.?)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _normalize_company_name(name: str) -> str:
+    """Strip share-class identifiers and legal suffixes for dedup grouping.
+
+    GOOG/"Alphabet Inc." and GOOGL/"Alphabet Inc Class A" both normalise to
+    "alphabet" so they collide into the same dedup bucket and only the
+    better-ranked share class survives.
+    """
+    name = _SHARE_CLASS_RE.sub("", name)
+    name = _LEGAL_SUFFIX_RE.sub("", name)
+    return name.strip().lower()
 
 
 async def _pipeline_warm_up():
@@ -1081,10 +1106,14 @@ async def _do_rank(
             name_map: dict[str, str] = {r.ticker: r.name for r in name_rows.fetchall()}
 
         before_dedup = len(ranked_df)
-        # Group key: known company name, or unique sentinel so tickers without a
-        # name are never merged with each other.
+        # Group key: normalised company name, or unique sentinel so tickers
+        # without a name are never merged with each other.
+        # Normalisation strips share-class suffixes ("Class A", "Series B",
+        # etc.) and legal-entity suffixes ("Inc.", "Corp.", …) so that
+        # GOOG/"Alphabet Inc." and GOOGL/"Alphabet Inc Class A" both map to
+        # "alphabet" and are treated as the same company.
         ranked_df["_group_key"] = ranked_df["ticker"].map(
-            lambda t: name_map.get(t) or f"__solo_{t}"
+            lambda t: _normalize_company_name(name_map[t]) if name_map.get(t) else f"__solo_{t}"
         )
         # ranked_df is already sorted ascending by rank (1 = best): first of each
         # name group IS the best-ranked ticker — keep it, drop the rest.

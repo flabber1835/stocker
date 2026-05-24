@@ -424,7 +424,14 @@ async def pipeline_status():
 
     rank_status = "none"
     rank_step = rank_step_label = rank_pct = None
-    confirmed_terminal = pipeline_status_raw in ("success", "partial_success", "skipped", "failed")
+    # Only treat the previous run's terminal status as authoritative when no new
+    # run has been requested.  If _rank_chain_running is True the dashboard
+    # background task is actively supervising a freshly-started chain, so
+    # "success" from the *last* run must not mask the new run as already-done.
+    confirmed_terminal = (
+        pipeline_status_raw in ("success", "partial_success", "skipped", "failed")
+        and not _rank_chain_running
+    )
 
     if not confirmed_terminal and d5 and d5.get("status") == "running" and d5.get("job_type") == "fetch-data":
         rank_status = "running"
