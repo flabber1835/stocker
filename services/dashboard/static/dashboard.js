@@ -17,6 +17,7 @@ let _prevPipelineData= {};
 let _aaStatus        = { auto_approve_minutes: 60, pending: [], fetchedAt: Date.now() };
 let _lastRefreshAt   = Date.now();
 let _rankChainRunning= false;
+let _initialLoadDone = false;  // prevents refresh() from double-loading on boot
 
 const REFRESH_SECS = 30;
 
@@ -343,7 +344,7 @@ function renderRankings() {
     const flags = [];
     if (r.held)           flags.push('<span class="overlay-badge held">HELD</span>');
     if (r.not_in_universe) flags.push('<span class="overlay-badge not-ranked" title="Held but not in ranking universe">NOT RANKED</span>');
-    if (r.vetter_excluded) flags.push('<span class="overlay-badge excl" title="' + esc(r.vetter_reason || '') + '">&#9888; ' + (r.vetter_confidence || '').toUpperCase() + '</span>');
+    if (r.vetter_excluded) flags.push('<span class="overlay-badge excl" title="' + esc(r.vetter_reason || '') + '">&#9888; ' + (r.vetter_risk_type || '').toUpperCase().replace(/_/g,' ') + '</span>');
     if (r.positive_catalyst) flags.push('<span class="overlay-badge pos-cat" title="' + esc(r.positive_reason || '') + '">&#9733;</span>');
     const flagsHtml = flags.length ? flags.join('') : '<span style="color:var(--text3)">—</span>';
 
@@ -912,12 +913,17 @@ async function startJob(tab) {
     portfolio:'/api/jobs/portfolio',
   };
   if (!urls[tab]) return;
-  const btn = $('run-btn');
-  if (btn) btn.disabled = true;
+  const btn   = $('run-btn');
+  const label = $('pb-label');
+  if (btn)   btn.disabled = true;
+  if (label) { label.textContent = 'QUEUED…'; label.className = 'pb-label running'; }
   try {
     await fetch(urls[tab], { method: 'POST' });
+    // Trigger an immediate status poll so the bar updates within seconds
+    setTimeout(refresh, 1500);
   } catch (e) {
-    if (btn) btn.disabled = false;
+    if (btn)   btn.disabled = false;
+    if (label) { label.textContent = 'FAILED TO START'; label.className = 'pb-label failed'; }
   }
 }
 
@@ -940,10 +946,12 @@ async function refresh() {
       const wasRunning = prev.rank && prev.rank.status === 'running';
       const nowDone    = pipelineRes.rank && (pipelineRes.rank.status === 'success' || pipelineRes.rank.status === 'partial_success');
       const prevNone   = !prev.rank || prev.rank.status === 'none' || prev.rank.status == null;
-      if ((wasRunning && nowDone) || (prevNone && nowDone)) {
+      if (wasRunning && nowDone) {
         loadRankings();
         loadRegime();
         loadDelta();
+      } else if (prevNone && nowDone && !_initialLoadDone) {
+        // On first boot, boot sequence already called loadRankings()/loadDelta() — skip
       }
     }
 
@@ -1004,6 +1012,7 @@ document.addEventListener('visibilitychange', () => {
   await loadRegime();
   loadRankings();
   loadDelta();
+  _initialLoadDone = true;
   $('rh-rank').classList.add('asc');
   refresh();
 })();
