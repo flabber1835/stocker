@@ -530,7 +530,10 @@ function renderTrader() {
   });
 
   const toolbar = $('trader-toolbar');
-  if (toolbar) toolbar.style.display = sorted.some(_isApprovable) ? '' : 'none';
+  // Show toolbar whenever any actionable intents exist (not just approvable ones)
+  // so the "Purge & Reset" button is always reachable when there are signals.
+  const hasActionable = sorted.some(r => ['entry','exit','buy_add','sell_trim'].includes(r.action));
+  if (toolbar) toolbar.style.display = hasActionable ? '' : 'none';
 
   const tbody = $('trader-body');
   if (!tbody) return;
@@ -761,6 +764,37 @@ async function rejectTrade(intentId) {
   }
   renderTrader();
   updateTraderBadge();
+}
+
+async function purgeAll() {
+  if (!confirm(
+    'Reject all pending signals and cancel all open orders?\n\n' +
+    'This will purge the entire current pipeline run. Run the pipeline again after this to generate fresh signals.'
+  )) return;
+  const btn = $('btn-purge-all');
+  const statusEl = $('purge-status');
+  if (btn) btn.disabled = true;
+  if (statusEl) { statusEl.textContent = 'Purging…'; statusEl.style.display = ''; }
+  try {
+    const r = await fetch('/api/trade/purge-all', { method: 'POST' });
+    const d = await r.json();
+    if (r.ok) {
+      const alpacaNote = d.alpaca_status && d.alpaca_status !== 'ok'
+        ? ` (Alpaca: ${d.alpaca_status})`
+        : '';
+      if (statusEl) statusEl.textContent =
+        `Purged: ${d.intents_rejected || 0} signals rejected, ${d.orders_canceled_locally || 0} orders canceled locally${alpacaNote}`;
+      _approvalState = {};
+      await loadDelta();
+      await fetchOrders();
+    } else {
+      if (statusEl) statusEl.textContent = 'Purge failed: ' + (d.error || d.detail || 'unknown error');
+    }
+  } catch (e) {
+    if (statusEl) statusEl.textContent = 'Purge failed: ' + String(e);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 /* ── Live portfolio ───────────────────────────────────────────────────── */
