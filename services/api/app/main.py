@@ -144,6 +144,8 @@ async def get_regime():
 
 @app.get("/rankings")
 async def get_rankings(limit: int = 50, run_id: str | None = None):
+    if limit < 0:
+        raise HTTPException(status_code=422, detail="limit must be >= 0")
     async with engine.connect() as conn:
         if run_id:
             rows = await conn.execute(
@@ -196,6 +198,8 @@ async def get_rankings(limit: int = 50, run_id: str | None = None):
 
 @app.get("/rankings/with-overlays")
 async def get_rankings_with_overlays(limit: int = 100):
+    if limit < 0:
+        raise HTTPException(status_code=422, detail="limit must be >= 0")
     """
     Latest rank run, top `limit` tickers, plus per-ticker overlay flags:
     - prior_rank: rank in the immediately-prior successful rank run (for arrows)

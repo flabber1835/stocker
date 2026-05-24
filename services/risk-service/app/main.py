@@ -1,10 +1,11 @@
 import os
+import re
 import uuid
 from contextlib import asynccontextmanager
 from typing import Literal, Optional
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
@@ -59,6 +60,9 @@ engine: Optional[AsyncEngine] = None
 # ── Pydantic models ──────────────────────────────────────────────────────────
 
 
+_TICKER_RE = re.compile(r"^[A-Z0-9.\-/]{1,20}$")
+
+
 class TradeCheckRequest(BaseModel):
     ticker: str
     action: Literal["entry", "exit", "buy_add", "sell_trim"]
@@ -67,6 +71,16 @@ class TradeCheckRequest(BaseModel):
     notional: float
     mode: Literal["immediate", "scheduled"]
     trade_type: Literal["paper", "live"] = "paper"
+
+    @field_validator("ticker")
+    @classmethod
+    def validate_ticker(cls, v: str) -> str:
+        v = v.upper().strip()
+        if not _TICKER_RE.match(v):
+            raise ValueError(
+                "ticker must be 1-20 uppercase alphanumeric characters (dots and hyphens allowed)"
+            )
+        return v
 
 
 class TradeCheckResponse(BaseModel):

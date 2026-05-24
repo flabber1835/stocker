@@ -373,6 +373,10 @@ async def get_latest_run():
 
 @app.get("/runs/{run_id}")
 async def get_run(run_id: str):
+    try:
+        uuid.UUID(run_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="run_id must be a valid UUID")
     async with engine.connect() as conn:
         row = await conn.execute(
             text(

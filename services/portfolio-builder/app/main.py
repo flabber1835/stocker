@@ -702,6 +702,18 @@ async def start_build(
     ranking_run_id: Optional[str] = None,
     vetter_run_id: Optional[str] = None,
 ):
+    # Pre-validate UUIDs before touching the DB.
+    if ranking_run_id:
+        try:
+            uuid.UUID(ranking_run_id)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="ranking_run_id must be a valid UUID")
+    if vetter_run_id:
+        try:
+            uuid.UUID(vetter_run_id)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="vetter_run_id must be a valid UUID")
+
     # Pre-validate ranking + vetter runs outside the lock so errors return fast.
     async with engine.connect() as conn:
         if ranking_run_id:
@@ -819,6 +831,10 @@ async def get_latest_run():
 
 @app.get("/runs/{run_id}")
 async def get_run(run_id: str):
+    try:
+        uuid.UUID(run_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="run_id must be a valid UUID")
     async with engine.connect() as conn:
         row = await conn.execute(
             text(

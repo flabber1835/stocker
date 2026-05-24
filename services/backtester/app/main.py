@@ -91,8 +91,8 @@ async def _log_step(conn, trace_id, step_name, status, *, started_at=None,
 async def _run_backtest_bg(
     run_id: str,
     trace_id: str,
-    date_from: str,
-    date_to: str,
+    date_from: date,
+    date_to: date,
     tx_cost_bps: int,
     started_at: datetime,
 ) -> None:
@@ -369,11 +369,21 @@ async def start_backtest_job(
     tx_cost_bps: int = 0,
 ):
     # Default date range: last 3 years to today
-    today = date.today().isoformat()
+    today = date.today()
     if date_from is None:
-        date_from = f"{date.today().year - 3}-01-01"
+        date_from = f"{today.year - 3}-01-01"
     if date_to is None:
-        date_to = today
+        date_to = today.isoformat()
+
+    # Validate date strings before touching the DB.
+    try:
+        date_from_parsed = date.fromisoformat(date_from)
+        date_to_parsed = date.fromisoformat(date_to)
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail="date_from and date_to must be valid ISO dates (YYYY-MM-DD)",
+        )
 
     async with _job_lock:
         async with engine.connect() as conn:
@@ -383,6 +393,16 @@ async def start_backtest_job(
         trace_id = str(uuid.uuid4())
         run_id = str(uuid.uuid4())
         async with engine.begin() as conn:
+            # execution_traces must be inserted before backtest_runs (FK constraint)
+            await conn.execute(
+                text(
+                    "INSERT INTO execution_traces "
+                    "(trace_id, job_type, status, root_run_id, strategy_id, config_hash, started_at) "
+                    "VALUES (:tid, 'backtest_run', 'running', :rid, :sid, :ch, :now)"
+                ),
+                {"tid": trace_id, "rid": run_id, "sid": strategy.strategy_id,
+                 "ch": config_hash, "now": started_at},
+            )
             await conn.execute(
                 text(
                     "INSERT INTO backtest_runs "
@@ -394,24 +414,15 @@ async def start_backtest_job(
                     "tid": trace_id,
                     "sid": strategy.strategy_id,
                     "ch": config_hash,
-                    "date_from": date_from,
-                    "date_to": date_to,
+                    "date_from": date_from_parsed,
+                    "date_to": date_to_parsed,
                     "tx": tx_cost_bps,
                     "now": started_at,
                 },
             )
-            await conn.execute(
-                text(
-                    "INSERT INTO execution_traces "
-                    "(trace_id, job_type, status, root_run_id, strategy_id, config_hash, started_at) "
-                    "VALUES (:tid, 'backtest_run', 'running', :rid, :sid, :ch, :now)"
-                ),
-                {"tid": trace_id, "rid": run_id, "sid": strategy.strategy_id,
-                 "ch": config_hash, "now": started_at},
-            )
 
         background_tasks.add_task(
-            _run_backtest_bg, run_id, trace_id, date_from, date_to, tx_cost_bps, started_at
+            _run_backtest_bg, run_id, trace_id, date_from_parsed, date_to_parsed, tx_cost_bps, started_at
         )
 
     return {"status": "started", "run_id": run_id, "trace_id": trace_id}
