@@ -2,10 +2,12 @@
 
 End-to-end responsibility for the approval click:
   1. Load delta intent (intent_id → ticker, action, weight)
-  2. Size the order (entries: account_value × weight ÷ price; exits: full position)
+  2. Size the order (entries/buy_adds: buying_power × weight ÷ price;
+     sell_trims: account_value × weight ÷ price; exits: full position)
   3. Call risk-service /check
   4. Persist alpaca_orders + execution_steps audit
   5. If risk-approved and credentials present: POST to Alpaca /v2/orders
+     (time_in_force="opg" — market-on-open — for all order types)
 
 Every approval click produces one execution_trace row with step-by-step audit so
 the dashboard's trace viewer shows exactly why a trade was approved/rejected.
@@ -225,9 +227,14 @@ async def _size_exit(conn, ticker: str) -> tuple[float, float, dict]:
 async def _size_entry(conn, ticker: str, intent_weight: Optional[float]) -> tuple[float, float, dict]:
     """Return (qty, notional, summary) for an entry.
 
-    qty = floor(account_value × target_weight ÷ last_price). Refuses with 400
-    when the target notional is less than the price of one share — silently
-    rounding up to 1 share would massively overweight the position.
+    qty = floor(buying_power × target_weight ÷ last_price). Sizing uses
+    buying_power rather than account_value so that cash already reserved
+    for previously-submitted (but unfilled) orders is automatically
+    excluded — preventing the executor from over-committing the account
+    when a batch of entries is approved while prior MOO orders are still
+    pending. Refuses with 400 when the target notional is less than the
+    price of one share — silently rounding up to 1 share would massively
+    overweight the position.
     """
     # Target weight: intent.current_weight (preferred) → portfolio_holdings → 1/DEFAULT_MAX_POSITIONS
     weight = intent_weight
@@ -247,14 +254,19 @@ async def _size_entry(conn, ticker: str, intent_weight: Optional[float]) -> tupl
     if not weight or weight <= 0:
         weight = 1.0 / DEFAULT_MAX_POSITIONS
 
-    # Account value from latest successful sync. Refuse if older than
-    # EXIT_SYNC_MAX_AGE_HOURS so a stale account_value can't size a wildly
+    # Account funds from latest successful sync. Refuse if older than
+    # EXIT_SYNC_MAX_AGE_HOURS so a stale snapshot can't size a wildly
     # wrong order (same threshold as _size_exit's position-staleness check).
+    # buying_power is used for entry sizing (Alpaca already deducts cash
+    # reserved for pending orders); account_value is kept in the summary
+    # for audit/observability.
     acct = (await conn.execute(text(
-        "SELECT account_value, completed_at FROM alpaca_sync_runs "
+        "SELECT account_value, buying_power, completed_at FROM alpaca_sync_runs "
         "WHERE status='success' ORDER BY completed_at DESC NULLS LAST LIMIT 1"
     ))).mappings().first()
     account_value = _f(acct["account_value"]) if acct else None
+    buying_power = _f(acct["buying_power"]) if acct else None
+    sizing_basis = buying_power if buying_power is not None else account_value
     sync_age_hours = None
     if acct and acct["completed_at"] is not None:
         sync_age_hours = (
@@ -287,16 +299,17 @@ async def _size_entry(conn, ticker: str, intent_weight: Optional[float]) -> tupl
         ), {"t": ticker})).mappings().first()
         last_price = _f(price_row["close"]) if price_row else None
 
-    if account_value is None or last_price is None or last_price <= 0:
+    if sizing_basis is None or last_price is None or last_price <= 0:
         raise HTTPException(
             status_code=400,
             detail=(
                 f"Cannot compute qty for {ticker}: "
-                f"account_value={account_value}, last_price={last_price}"
+                f"buying_power={buying_power}, account_value={account_value}, "
+                f"last_price={last_price}"
             ),
         )
 
-    target_notional = account_value * weight
+    target_notional = sizing_basis * weight
     qty_int = math.floor(target_notional / last_price)
     if qty_int < 1:
         raise HTTPException(
@@ -312,6 +325,8 @@ async def _size_entry(conn, ticker: str, intent_weight: Optional[float]) -> tupl
         "weight": weight,
         "weight_source": weight_source,
         "account_value": account_value,
+        "buying_power": buying_power,
+        "sizing_basis": "buying_power" if buying_power is not None else "account_value",
         "sync_age_hours": round(sync_age_hours, 2) if sync_age_hours is not None else None,
         "last_price": last_price,
         "price_source": price_source,
@@ -341,14 +356,24 @@ async def _size_partial(conn, ticker: str, intent: dict) -> tuple[float, float, 
             ),
         )
 
-    # Account value + staleness check (reuse EXIT_SYNC_MAX_AGE_HOURS)
+    # Account funds + staleness check (reuse EXIT_SYNC_MAX_AGE_HOURS).
+    # buy_add consumes cash → size against buying_power (excludes cash already
+    # reserved for pending orders). sell_trim generates cash → account_value
+    # is fine (sells don't consume buying power).
     acct = (await conn.execute(text(
-        "SELECT account_value, completed_at FROM alpaca_sync_runs "
+        "SELECT account_value, buying_power, completed_at FROM alpaca_sync_runs "
         "WHERE status='success' ORDER BY completed_at DESC NULLS LAST LIMIT 1"
     ))).mappings().first()
     if acct is None or _f(acct["account_value"]) is None:
         raise HTTPException(status_code=400, detail=f"No account data available to size {action} for {ticker}")
     account_value = _f(acct["account_value"])
+    buying_power = _f(acct["buying_power"])
+    if action == "buy_add" and buying_power is not None:
+        sizing_basis = buying_power
+        sizing_basis_name = "buying_power"
+    else:
+        sizing_basis = account_value
+        sizing_basis_name = "account_value"
     if acct["completed_at"] is not None:
         sync_age_hours = (datetime.now(timezone.utc) - acct["completed_at"]).total_seconds() / 3600.0
         if sync_age_hours > EXIT_SYNC_MAX_AGE_HOURS:
@@ -380,14 +405,14 @@ async def _size_partial(conn, ticker: str, intent: dict) -> tuple[float, float, 
         raise HTTPException(status_code=400, detail=f"No price found for {ticker}")
 
     drift_weight = (target_weight - actual_weight) if action == "buy_add" else (actual_weight - target_weight)
-    target_notional = drift_weight * account_value
+    target_notional = drift_weight * sizing_basis
     qty_int = math.floor(target_notional / last_price)
     if qty_int < 1:
         raise HTTPException(
             status_code=400,
             detail=(
                 f"Drift notional ${target_notional:.2f} is below the price of one share (${last_price:.2f}). "
-                f"Drift too small to trade ({drift_weight:.2%} × ${account_value:,.0f})."
+                f"Drift too small to trade ({drift_weight:.2%} × ${sizing_basis:,.0f})."
             ),
         )
     qty = float(qty_int)
@@ -397,6 +422,8 @@ async def _size_partial(conn, ticker: str, intent: dict) -> tuple[float, float, 
         "actual_weight": actual_weight,
         "drift_weight": drift_weight,
         "account_value": account_value,
+        "buying_power": buying_power,
+        "sizing_basis": sizing_basis_name,
         "last_price": last_price,
         "price_source": price_source,
         "target_notional": target_notional,
@@ -764,8 +791,13 @@ async def _record_order(
     error_message: Optional[str] = None,
 ) -> None:
     """Insert (or audit) an alpaca_orders row."""
+    # All entries/buy_adds/sell_trims/exits route through market-on-open
+    # (time_in_force="opg") regardless of the request's mode field. MOO orders
+    # settle at the next market open; running the daily pipeline post-close
+    # guarantees no pending day orders are still reserving cash when the next
+    # batch is submitted.
     if time_in_force is None:
-        time_in_force = "opg" if mode == "scheduled" else "day"
+        time_in_force = "opg"
     await conn.execute(
         text(
             """

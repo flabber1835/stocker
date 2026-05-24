@@ -86,12 +86,17 @@ def seed_delta_intent(
     return intent_id
 
 
-def seed_sync_run(account_value: float = 100_000.0, age_hours: float = 0.0) -> str:
+def seed_sync_run(
+    account_value: float = 100_000.0,
+    age_hours: float = 0.0,
+    buying_power: float | None = None,
+) -> str:
     run_id = new_id()
     completed_at = (datetime.now(timezone.utc) - timedelta(hours=age_hours)).isoformat()
+    bp = buying_power if buying_power is not None else account_value
     psql(
-        f"INSERT INTO alpaca_sync_runs (run_id, status, account_value, completed_at) "
-        f"VALUES ('{run_id}', 'success', {account_value}, '{completed_at}')"
+        f"INSERT INTO alpaca_sync_runs (run_id, status, account_value, buying_power, completed_at) "
+        f"VALUES ('{run_id}', 'success', {account_value}, {bp}, '{completed_at}')"
     )
     return run_id
 
@@ -731,8 +736,11 @@ class TestScheduledMode:
             cleanup_sync_run(sync_id)
             cleanup_daily_price(self.TICKER)
 
-    def test_immediate_mode_creates_day_order(self):
-        """mode='immediate' produces time_in_force='day' in alpaca_orders."""
+    def test_immediate_mode_also_creates_moo_order(self):
+        """Both modes route through time_in_force='opg' (market-on-open).
+        The mode field is preserved in alpaca_orders.mode for audit, but
+        all orders execute at the next open so post-close batches can't
+        collide with still-pending day orders."""
         sync_id = seed_sync_run(100_000.0)
         seed_daily_price(self.TICKER, 50.0)
         run_id = seed_delta_run()
@@ -744,7 +752,7 @@ class TestScheduledMode:
                 f"SELECT time_in_force FROM alpaca_orders "
                 f"WHERE intent_id = '{intent_id}' ORDER BY created_at DESC LIMIT 1"
             )
-            assert tif == "day", f"Expected day, got '{tif}'"
+            assert tif == "opg", f"Expected opg, got '{tif}'"
         finally:
             cleanup_run(run_id)
             cleanup_sync_run(sync_id)

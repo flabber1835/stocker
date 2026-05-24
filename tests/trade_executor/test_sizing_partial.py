@@ -52,7 +52,7 @@ async def test_buy_add_basic():
     # target=10%, actual=8%, account=$100k, price=$50
     # drift=2% × $100k = $2k, qty=floor($2k/$50)=40 shares
     conn = _mock_conn([
-        {"account_value": 100_000.0, "completed_at": _now()},  # alpaca_sync_runs
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},  # alpaca_sync_runs
         {"current_price": 50.0},                               # live_positions
     ])
     intent = _intent("buy_add", current_weight=0.10, actual_weight=0.08)
@@ -67,7 +67,7 @@ async def test_buy_add_basic():
 async def test_buy_add_uses_daily_price_when_no_live():
     """buy_add falls back to daily_prices.close when no live_positions row."""
     conn = _mock_conn([
-        {"account_value": 100_000.0, "completed_at": _now()},
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
         None,             # no live_positions
         {"close": 40.0},  # daily_prices
     ])
@@ -83,7 +83,7 @@ async def test_buy_add_drift_too_small_raises_400():
     """buy_add aborted when drift rounds to zero shares."""
     # drift=0.1%×$100k=$100, price=$50k → qty=0
     conn = _mock_conn([
-        {"account_value": 100_000.0, "completed_at": _now()},
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
         {"current_price": 50_000.0},
     ])
     intent = _intent("buy_add", current_weight=0.10, actual_weight=0.099)
@@ -91,6 +91,39 @@ async def test_buy_add_drift_too_small_raises_400():
         await _size_partial(conn, "AAPL", intent)
     assert exc_info.value.status_code == 400
     assert "drift too small" in exc_info.value.detail.lower()
+
+
+@pytest.mark.asyncio
+async def test_buy_add_uses_buying_power_when_lower():
+    """buy_add sizes against buying_power so cash reserved for pending orders
+    isn't double-spent. With buying_power=$20k, drift=2% → notional=$400 →
+    floor($400/$50)=8 shares (vs 40 with account_value)."""
+    conn = _mock_conn([
+        {"account_value": 100_000.0, "buying_power": 20_000.0, "completed_at": _now()},
+        {"current_price": 50.0},
+    ])
+    intent = _intent("buy_add", current_weight=0.10, actual_weight=0.08)
+    qty, notional, summary = await _size_partial(conn, "AAPL", intent)
+    assert qty == 8.0
+    assert notional == pytest.approx(400.0)
+    assert summary["sizing_basis"] == "buying_power"
+    assert summary["buying_power"] == 20_000.0
+
+
+@pytest.mark.asyncio
+async def test_sell_trim_uses_account_value_not_buying_power():
+    """sell_trim doesn't consume cash — it generates cash. So buying_power
+    drained by pending orders shouldn't shrink a sell_trim's size."""
+    conn = _mock_conn([
+        {"account_value": 100_000.0, "buying_power": 20_000.0, "completed_at": _now()},
+        {"current_price": 100.0},
+    ])
+    intent = _intent("sell_trim", current_weight=0.10, actual_weight=0.12)
+    qty, notional, summary = await _size_partial(conn, "AAPL", intent)
+    # drift=0.02 × $100k = $2000 → 20 shares (using account_value, not buying_power)
+    assert qty == 19.0  # floating-point: 0.12-0.10 = 0.01999... → 19 floored
+    assert summary["sizing_basis"] == "account_value"
+    assert summary["account_value"] == 100_000.0
 
 
 @pytest.mark.asyncio
@@ -109,7 +142,7 @@ async def test_buy_add_stale_sync_raises_409():
     """buy_add aborted when alpaca-sync is older than EXIT_SYNC_MAX_AGE_HOURS."""
     stale = _now() - timedelta(hours=48)
     conn = _mock_conn([
-        {"account_value": 100_000.0, "completed_at": stale},
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": stale},
         {"current_price": 50.0},
     ])
     intent = _intent("buy_add", current_weight=0.10, actual_weight=0.08)
@@ -140,7 +173,7 @@ async def test_sell_trim_basic():
     notional = 0.01999... × $100k = $1999.99... → floor($1999.99/$100) = 19 shares.
     """
     conn = _mock_conn([
-        {"account_value": 100_000.0, "completed_at": _now()},
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
         {"current_price": 100.0},
     ])
     intent = _intent("sell_trim", current_weight=0.10, actual_weight=0.12)
@@ -155,7 +188,7 @@ async def test_sell_trim_drift_too_small_raises_400():
     """sell_trim aborted when drift rounds to zero shares."""
     # drift=0.1%×$100k=$100, price=$10k → qty=0
     conn = _mock_conn([
-        {"account_value": 100_000.0, "completed_at": _now()},
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
         {"current_price": 10_000.0},
     ])
     intent = _intent("sell_trim", current_weight=0.10, actual_weight=0.101)
@@ -168,7 +201,7 @@ async def test_sell_trim_drift_too_small_raises_400():
 async def test_sell_trim_no_price_raises_400():
     """sell_trim aborted when neither live_positions nor daily_prices has a price."""
     conn = _mock_conn([
-        {"account_value": 100_000.0, "completed_at": _now()},
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
         None,   # no live_positions
         None,   # no daily_prices
     ])

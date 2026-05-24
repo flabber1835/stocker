@@ -46,7 +46,7 @@ async def test_size_entry_basic():
     # Order of queries in _size_entry when intent_weight is provided:
     # 1. account_value, 2. live_positions price
     conn = _mock_conn_returning([
-        {"account_value": 100_000.0, "completed_at": _now()},      # alpaca_sync_runs.account_value
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},      # alpaca_sync_runs.account_value
         {"current_price": 50.0},           # live_positions.current_price
     ])
     qty, notional, summary = await _size_entry(conn, "AAPL", intent_weight=0.05)
@@ -62,7 +62,7 @@ async def test_size_entry_basic():
 @pytest.mark.asyncio
 async def test_size_entry_uses_intent_weight_first():
     conn = _mock_conn_returning([
-        {"account_value": 100_000.0, "completed_at": _now()},
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
         {"current_price": 50.0},
     ])
     _, _, summary = await _size_entry(conn, "AAPL", intent_weight=0.04)
@@ -75,7 +75,7 @@ async def test_size_entry_falls_back_to_portfolio_holdings():
     # intent_weight=None → query portfolio_holdings first, then account, then price
     conn = _mock_conn_returning([
         {"weight": 0.06},                   # portfolio_holdings.weight
-        {"account_value": 100_000.0, "completed_at": _now()},       # alpaca_sync_runs.account_value
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},       # alpaca_sync_runs.account_value
         {"current_price": 50.0},            # live_positions.current_price
     ])
     qty, notional, summary = await _size_entry(conn, "AAPL", intent_weight=None)
@@ -89,7 +89,7 @@ async def test_size_entry_falls_back_to_portfolio_holdings():
 async def test_size_entry_falls_back_to_default_when_all_missing():
     conn = _mock_conn_returning([
         None,                               # no portfolio_holdings row
-        {"account_value": 100_000.0, "completed_at": _now()},
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
         {"current_price": 50.0},
     ])
     _, _, summary = await _size_entry(conn, "AAPL", intent_weight=None)
@@ -102,7 +102,7 @@ async def test_size_entry_falls_back_to_default_when_all_missing():
 async def test_size_entry_uses_live_price_when_available():
     # intent_weight provided → only 2 queries: account_value, live_price
     conn = _mock_conn_returning([
-        {"account_value": 100_000.0, "completed_at": _now()},
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
         {"current_price": 45.0},
     ])
     _, _, summary = await _size_entry(conn, "AAPL", intent_weight=0.05)
@@ -114,7 +114,7 @@ async def test_size_entry_uses_live_price_when_available():
 async def test_size_entry_falls_back_to_daily_close_when_no_live():
     # intent_weight provided. Queries: account_value, live_price(None), daily_prices.close
     conn = _mock_conn_returning([
-        {"account_value": 100_000.0, "completed_at": _now()},
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
         None,                               # no live_positions row
         {"close": 48.0},                    # daily_prices.close
     ])
@@ -127,13 +127,43 @@ async def test_size_entry_falls_back_to_daily_close_when_no_live():
 async def test_size_entry_aborts_when_qty_below_one():
     # account=$1000, weight=0.01 → notional $10, price $500 → qty_int = 0
     conn = _mock_conn_returning([
-        {"account_value": 1000.0, "completed_at": _now()},
+        {"account_value": 1000.0, "buying_power": 1000.0, "completed_at": _now()},
         {"current_price": 500.0},
     ])
     with pytest.raises(HTTPException) as exc_info:
         await _size_entry(conn, "AAPL", intent_weight=0.01)
     assert exc_info.value.status_code == 400
     assert "Position too small" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_size_entry_uses_buying_power_when_lower_than_account_value():
+    # buying_power=$30k < account_value=$100k → entry sized against buying_power
+    # so cash already reserved for prior MOO orders isn't double-spent.
+    # weight=0.10 × buying_power=$30k = $3000 notional ÷ $50 price = 60 shares
+    conn = _mock_conn_returning([
+        {"account_value": 100_000.0, "buying_power": 30_000.0, "completed_at": _now()},
+        {"current_price": 50.0},
+    ])
+    qty, notional, summary = await _size_entry(conn, "AAPL", intent_weight=0.10)
+    assert qty == 60.0
+    assert notional == 3000.0
+    assert summary["buying_power"] == 30_000.0
+    assert summary["account_value"] == 100_000.0
+    assert summary["sizing_basis"] == "buying_power"
+
+
+@pytest.mark.asyncio
+async def test_size_entry_falls_back_to_account_value_when_no_buying_power():
+    # Pre-migration alpaca_sync_runs rows may have buying_power=NULL.
+    conn = _mock_conn_returning([
+        {"account_value": 100_000.0, "buying_power": None, "completed_at": _now()},
+        {"current_price": 50.0},
+    ])
+    qty, notional, summary = await _size_entry(conn, "AAPL", intent_weight=0.05)
+    assert qty == 100.0
+    assert notional == 5000.0
+    assert summary["sizing_basis"] == "account_value"
 
 
 @pytest.mark.asyncio
@@ -145,13 +175,14 @@ async def test_size_entry_aborts_when_no_account_value():
     with pytest.raises(HTTPException) as exc_info:
         await _size_entry(conn, "AAPL", intent_weight=0.05)
     assert exc_info.value.status_code == 400
+    assert "buying_power=None" in exc_info.value.detail
     assert "account_value=None" in exc_info.value.detail
 
 
 @pytest.mark.asyncio
 async def test_size_entry_aborts_when_no_price():
     conn = _mock_conn_returning([
-        {"account_value": 100_000.0, "completed_at": _now()},
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
         None,                               # no live_positions
         None,                               # no daily_prices
     ])

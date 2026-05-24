@@ -500,12 +500,17 @@ Per-click steps (each logged to execution_steps under one trace_id):
 ```text
 idempotency_check  — reject if intent already has an open/submitted order
 load_intent        — read delta_intents
-size_order         — entries: floor(account_value × weight / last_price)
+size_order         — entries / buy_adds: floor(buying_power × weight / last_price)
+                     sell_trims: floor(account_value × drift / last_price)
+                     exits: full position qty from latest live_positions
+                     Entries and buy_adds size against buying_power (cash
+                     minus what Alpaca has reserved for pending orders) so
+                     a batch of approvals can't over-commit when prior MOO
+                     orders are still pending. Sell_trims and exits use
+                     account_value since sells generate cash.
                      refuse if qty < 1 (position too small)
                      refuse if alpaca-sync > EXIT_SYNC_MAX_AGE_HOURS old
-                     (stale account_value would size wildly wrong orders)
-                     exits: full position qty from latest live_positions
-                     refuse if alpaca-sync > EXIT_SYNC_MAX_AGE_HOURS old
+                     (stale balances would size wildly wrong orders)
 risk_check         — call risk-service /check
 record_order       — INSERT alpaca_orders (status = pending | risk_rejected)
 submit_alpaca      — POST /v2/orders if approved + credentials present
@@ -518,7 +523,12 @@ Persists:
 
 Order params:
 - type = "market"
-- time_in_force = "day" for mode=immediate, "opg" for mode=scheduled (MOO)
+- time_in_force = "opg" (market-on-open) for ALL orders regardless of mode.
+  All approvals execute at the next market open. Running the daily pipeline
+  post-close guarantees no pending day orders are still reserving cash when
+  the next batch is submitted. The `mode` field in alpaca_orders is kept
+  for audit (records whether the click was immediate vs scheduled) but
+  does not change the Alpaca order type.
 
 Short-circuits when ALPACA_API_KEY is empty (records a failed row, no HTTP call).
 
