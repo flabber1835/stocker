@@ -1,5 +1,6 @@
 FROM python:3.12-slim
 WORKDIR /app
+ENV PIP_TRUSTED_HOST="pypi.org files.pythonhosted.org pypi.python.org"
 COPY shared/ /shared/
 RUN pip install --no-cache-dir /shared/
 COPY services/llm-vetter/requirements.txt .
