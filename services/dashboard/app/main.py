@@ -683,7 +683,7 @@ _HTML = r"""<!DOCTYPE html>
         </table>
       </div>
       <div id="orders-section" style="display:none">
-        <div class="section-label orders-label">Pending Orders</div>
+        <div class="section-label orders-label" id="orders-section-label">Recent Orders</div>
         <div class="tbl-scroll">
           <table id="orders-table">
             <thead><tr>
@@ -692,6 +692,7 @@ _HTML = r"""<!DOCTYPE html>
             <tbody id="orders-body"><tr><td colspan="6" class="tbl-empty">Loading&#8230;</td></tr></tbody>
           </table>
         </div>
+        <div id="orders-error-banner" style="display:none"></div>
       </div>
     </div>
   </section>

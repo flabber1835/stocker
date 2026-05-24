@@ -837,15 +837,39 @@ function renderOrders() {
     return '—';
   }
 
+  // Check if ALL recent orders are failed — likely a credentials problem
+  const failedOrders = ordersData.filter(o => o.status === 'failed');
+  const banner = $('orders-error-banner');
+  if (banner) {
+    if (failedOrders.length > 0 && failedOrders.length === ordersData.length) {
+      const firstErr = _parseAlpacaError(failedOrders[0].error_message);
+      banner.style.display = 'block';
+      banner.innerHTML = '&#x26A0; All orders failed: ' + esc(firstErr)
+        + '. Check that ALPACA_API_KEY and ALPACA_SECRET_KEY are set in your .env file.';
+      banner.className = 'orders-error-banner';
+    } else if (failedOrders.length > 0) {
+      const firstErr = _parseAlpacaError(failedOrders[0].error_message);
+      banner.style.display = 'block';
+      banner.innerHTML = '&#x26A0; ' + failedOrders.length + ' order(s) failed: ' + esc(firstErr);
+      banner.className = 'orders-error-banner';
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+
   const html = ordersData.map(o => {
     const dot   = '<span class="od-dot ' + dotClass(o.status) + '"></span>';
     const label = statusLabel[o.status] || o.status;
     const fill  = o.avg_fill_price != null ? '$' + (+o.avg_fill_price).toFixed(2) : '—';
+    // Show error reason inline for failed orders
+    const errHtml = (o.status === 'failed' || o.status === 'risk_rejected') && o.error_message
+      ? '<br><span class="od-err">' + esc(_parseAlpacaError(o.error_message)) + '</span>'
+      : '';
     return '<tr>'
       + '<td><span class="t-ticker">' + esc(o.ticker) + '</span></td>'
       + '<td>' + esc(o.side) + '</td>'
       + '<td>' + fmtQty(o.qty, o.notional) + '</td>'
-      + '<td>' + dot + label + '</td>'
+      + '<td>' + dot + label + errHtml + '</td>'
       + '<td>' + fmtTime(o.submitted_at, o.created_at) + '</td>'
       + '<td>' + fill + '</td>'
       + '</tr>';
