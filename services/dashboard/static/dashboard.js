@@ -485,8 +485,9 @@ function renderTrader() {
   } else {
     const isSettled = r => {
       const st = _approvalState[r.id];
-      if (st && (st.status === 'ok' || st.status === 'err')) return true;
+      if (st && (st.status === 'ok' || st.status === 'err' || st.status === 'rejected')) return true;
       if (r.order_status === 'submitted' || r.order_status === 'pending') return true;
+      if (r.rejected_at) return true;
       const isBuyAction = r.action === 'entry' || r.action === 'buy_add';
       if (isBuyAction && r.vetter_excluded) return true;
       return false;
@@ -545,9 +546,14 @@ function _buildTradeCard(r) {
   const alreadyOrdered = r.order_status === 'submitted' || r.order_status === 'pending';
   const isBuyAction = r.action === 'entry' || r.action === 'buy_add';
   const blockedByVetter = isBuyAction && r.vetter_excluded;
+  const isRejected = r.rejected_at || st.status === 'rejected';
   let actionsHtml;
   if (st.status === 'pending') {
     actionsHtml = '<div class="tc-submitting">Submitting&#8230;</div>';
+  } else if (st.status === 'rejecting') {
+    actionsHtml = '<div class="tc-submitting">Rejecting&#8230;</div>';
+  } else if (isRejected) {
+    actionsHtml = '<div class="tc-rejected">&#10007; Rejected</div>';
   } else if (st.status === 'ok' || alreadyOrdered) {
     const label = alreadyOrdered && !st.status ? 'Order ' + r.order_status : (st.msg || 'Submitted');
     actionsHtml = '<div class="tc-submitted">&#10003; ' + esc(label) + '</div>';
@@ -558,7 +564,7 @@ function _buildTradeCard(r) {
   } else {
     actionsHtml = '<div class="tc-actions">'
       + '<button class="btn-approve-now" onclick="approveTrade(\'' + r.id + '\',\'immediate\')">&#9654; APPROVE NOW</button>'
-      + '<button class="btn-approve-moo" onclick="approveTrade(\'' + r.id + '\',\'scheduled\')">&#9711; OPEN MOO</button>'
+      + '<button class="btn-reject" onclick="rejectTrade(\'' + r.id + '\')">&#10005; REJECT</button>'
       + '</div>';
   }
 
@@ -587,8 +593,9 @@ function updateTraderBadge() {
   const cnt = deltaData.filter(r => {
     if (!['entry', 'exit', 'buy_add', 'sell_trim'].includes(r.action)) return false;
     const st = _approvalState[r.id];
-    if (st && (st.status === 'ok' || st.status === 'err')) return false;
+    if (st && (st.status === 'ok' || st.status === 'err' || st.status === 'rejected')) return false;
     if (r.order_status === 'submitted' || r.order_status === 'pending') return false;
+    if (r.rejected_at) return false;
     if ((r.action === 'entry' || r.action === 'buy_add') && r.vetter_excluded) return false;
     return true;
   }).length;
@@ -629,6 +636,29 @@ async function approveTrade(intentId, mode) {
     _approvalState[intentId] = { status: 'err', msg: String(e) };
   }
   renderTrader();
+}
+
+async function rejectTrade(intentId) {
+  if (_approvalState[intentId]) return;
+  _approvalState[intentId] = { status: 'rejecting' };
+  renderTrader();
+  try {
+    const r = await fetch('/api/trade/reject', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ intent_id: intentId }),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      _approvalState[intentId] = { status: 'err', msg: d.detail || 'Reject failed' };
+    } else {
+      _approvalState[intentId] = { status: 'rejected' };
+    }
+  } catch (e) {
+    _approvalState[intentId] = { status: 'err', msg: String(e) };
+  }
+  renderTrader();
+  updateTraderBadge();
 }
 
 /* ── Live portfolio ───────────────────────────────────────────────────── */

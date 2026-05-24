@@ -860,7 +860,7 @@ async def get_delta_latest():
             intent_rows = (await conn.execute(text(
                 "SELECT di.id, di.ticker, di.action, di.rank, di.composite_score, "
                 "di.confirmation_days_met, di.current_weight, di.actual_weight, "
-                "di.weight_drift, di.reason, "
+                "di.weight_drift, di.reason, di.rejected_at, "
                 "ao.status AS order_status "
                 "FROM delta_intents di "
                 "LEFT JOIN LATERAL ("
@@ -924,6 +924,7 @@ async def get_delta_latest():
                     "weight_drift":          _f(r["weight_drift"]),
                     "reason":                r["reason"],
                     "order_status":          r["order_status"],
+                    "rejected_at":           _iso(r["rejected_at"]) if r["rejected_at"] else None,
                     "vetter_excluded":       vetter_by_ticker.get(r["ticker"], {}).get("exclude"),
                     "vetter_confidence":     vetter_by_ticker.get(r["ticker"], {}).get("confidence"),
                     "vetter_risk_type":      vetter_by_ticker.get(r["ticker"], {}).get("risk_type"),
@@ -1060,3 +1061,30 @@ async def approve_trade(req: TradeApproveRequest):
     except Exception:
         print(f"[api] approve_trade error: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Trade approval failed")
+
+
+class TradeRejectRequest(BaseModel):
+    intent_id: str
+
+
+@app.post("/trade/reject")
+async def reject_trade(req: TradeRejectRequest):
+    try:
+        uuid.UUID(req.intent_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid intent_id")
+
+    async with engine.begin() as conn:
+        result = await conn.execute(
+            text(
+                "UPDATE delta_intents SET rejected_at = NOW() "
+                "WHERE id = :iid AND rejected_at IS NULL "
+                "RETURNING id, ticker, action"
+            ),
+            {"iid": req.intent_id},
+        )
+        row = result.mappings().first()
+        if row is None:
+            raise HTTPException(status_code=404, detail="intent not found or already rejected")
+        print(f"[api] rejected intent {req.intent_id} ({row['ticker']} {row['action']})", flush=True)
+        return {"status": "rejected", "intent_id": req.intent_id, "ticker": row["ticker"]}

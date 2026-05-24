@@ -59,6 +59,9 @@ async def _pipeline_warm_up():
                 "ALTER TABLE delta_runs ADD COLUMN IF NOT EXISTS "
                 "triggered_by TEXT NOT NULL DEFAULT 'pipeline'"
             ))
+            await conn.execute(text(
+                "ALTER TABLE delta_intents ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ"
+            ))
             await mark_orphaned_runs_failed(conn, "pipeline_runs", trace_job_type="pipeline_run")
             await mark_orphaned_runs_failed(conn, "factor_runs", trace_job_type="factor_run")
             await mark_orphaned_runs_failed(conn, "ranking_runs", trace_job_type="rank_run")
