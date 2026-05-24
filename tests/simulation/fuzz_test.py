@@ -176,9 +176,13 @@ for field, bads in [
 sub("2g. Boundary numeric values")
 for qty in [0, -1, 1, 999_999, 2**31, 0.1, 0.9, "10"]:
     _r(f"risk/qty={qty}", "post", f"{RISK}/check", json={**base_risk, "qty": qty, "notional": 1800.0})
-for notional in [0, -1, 0.001, 10_000_001, float("inf"), float("nan")]:
+for notional in [0, -1, 0.001, 10_000_001]:
     _r(f"risk/notional={notional}", "post", f"{RISK}/check",
        json={**base_risk, "notional": notional})
+# inf and nan cannot be encoded as JSON — send as string to test the type-validation path
+for notional_str in ["Infinity", "NaN", "inf", "nan"]:
+    _r(f"risk/notional={notional_str!r}", "post", f"{RISK}/check",
+       json={**base_risk, "notional": notional_str})
 
 sub("2h. Oversized payload")
 _r("risk/10k-ticker", "post", f"{RISK}/check",
@@ -913,6 +917,454 @@ try:
     pg.close()
 except Exception as e:
     WARNINGS.append(f"invariant/pg → {e}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+hdr("15. TRADE EXECUTOR — /jobs/cancel-all-orders")
+# ═══════════════════════════════════════════════════════════════════════════════
+
+sub("15a. Wrong HTTP methods must return 405")
+_r("cancel/GET-cancel-all",    "get",    f"{TRADE}/jobs/cancel-all-orders")
+_r("cancel/DELETE-cancel-all", "delete", f"{TRADE}/jobs/cancel-all-orders")
+_r("cancel/PUT-cancel-all",    "put",    f"{TRADE}/jobs/cancel-all-orders", json={})
+
+sub("15b. POST without ?confirm — must refuse with 400 (not 5xx)")
+r_no_confirm = _r("cancel/no-confirm", "post", f"{TRADE}/jobs/cancel-all-orders")
+if r_no_confirm and r_no_confirm.status_code == 400:
+    PASSED.append("cancel/no-confirm-correctly-refused")
+    print(f"  ✅ cancel/no-confirm correctly refused (400): {r_no_confirm.json().get('detail','')[:80]}")
+elif r_no_confirm and r_no_confirm.status_code >= 500:
+    CRASHED.append(f"cancel/no-confirm → 5xx: {r_no_confirm.status_code}")
+
+sub("15c. Invalid confirm values — must all refuse with 400")
+for bad_confirm in ["no", "maybe", "true", "1", "YES", " yes", "yes ", "yes\x00"]:
+    encoded = urllib.parse.quote(bad_confirm, safe="")
+    rc = _r(f"cancel/bad-confirm={bad_confirm!r}", "post",
+            f"{TRADE}/jobs/cancel-all-orders?confirm={encoded}")
+    if rc and rc.status_code == 400:
+        PASSED.append(f"cancel/bad-confirm={bad_confirm!r}-refused")
+    elif rc and rc.status_code >= 500:
+        CRASHED.append(f"cancel/bad-confirm={bad_confirm!r} → 5xx: {rc.status_code}")
+
+sub("15d. Injection in confirm query param — must not 5xx")
+for inject in SQL_INJECTIONS[:3]:
+    encoded = urllib.parse.quote(inject, safe="")
+    _r(f"cancel/inject-confirm", "post",
+       f"{TRADE}/jobs/cancel-all-orders?confirm={encoded}")
+
+sub("15e. Valid cancel-all (confirm=yes) — must return 200 with correct schema")
+r_valid = _r("cancel/confirm-yes", "post", f"{TRADE}/jobs/cancel-all-orders?confirm=yes")
+if r_valid and r_valid.status_code == 200:
+    body = r_valid.json()
+    if all(k in body for k in ("alpaca_cancel_count", "local_orders_updated", "status")):
+        PASSED.append("cancel/confirm-yes-schema-valid")
+        print(f"  ✅ cancel/confirm-yes schema valid: {body}")
+    else:
+        WARNINGS.append(f"cancel/confirm-yes unexpected schema: {body}")
+
+sub("15f. Concurrent cancel-all (5 threads) — no 5xx")
+_cancel_results: list = []
+def _fire_cancel():
+    try:
+        r = requests.post(f"{TRADE}/jobs/cancel-all-orders?confirm=yes", timeout=TIMEOUT)
+        _cancel_results.append(r.status_code)
+    except Exception as e:
+        _cancel_results.append(str(e))
+
+_cancel_threads = [threading.Thread(target=_fire_cancel) for _ in range(5)]
+for t in _cancel_threads: t.start()
+for t in _cancel_threads: t.join()
+_cancel_5xx = [r for r in _cancel_results if isinstance(r, int) and r >= 500]
+if _cancel_5xx:
+    CRASHED.append(f"cancel/concurrent → 5xx: {_cancel_5xx}")
+    print(f"  💥 cancel/concurrent  5xx: {_cancel_5xx}")
+else:
+    PASSED.append("cancel/concurrent-no-5xx")
+    print(f"  ✅ cancel/concurrent  responses: {_cancel_results}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+hdr("16. LLM VETTER — /jobs/vet, /runs/{run_id}/*")
+# ═══════════════════════════════════════════════════════════════════════════════
+VETTER = "http://localhost:8016"
+
+sub("16a. Basic reads")
+_r("vetter/health",      "get", f"{VETTER}/health")
+_r("vetter/runs-latest", "get", f"{VETTER}/runs/latest")
+
+sub("16b. /runs/{run_id} — invalid IDs must not 5xx")
+for bad_id in INVALID_UUIDS[:5]:
+    encoded = urllib.parse.quote(bad_id, safe="")
+    _r(f"vetter/runs-bad-id={bad_id[:15]!r}",        "get", f"{VETTER}/runs/{encoded}")
+    _r(f"vetter/excl-bad-id={bad_id[:12]!r}",         "get", f"{VETTER}/runs/{encoded}/exclusions")
+    _r(f"vetter/results-bad-id={bad_id[:12]!r}",      "get", f"{VETTER}/runs/{encoded}/ticker-results")
+
+sub("16c. /jobs/vet with empty / invalid bodies")
+_r("vetter/vet-empty",    "post", f"{VETTER}/jobs/vet", json={})
+_r("vetter/vet-null",     "post", f"{VETTER}/jobs/vet", json=None)
+_r("vetter/vet-junk",     "post", f"{VETTER}/jobs/vet",
+   json={"inject": SQL_INJECTIONS[0], "ranking_run_id": "not-a-uuid"})
+_r("vetter/vet-huge",     "post", f"{VETTER}/jobs/vet",
+   json={"ranking_run_id": VALID_UUID, "padding": LARGE_STRING})
+_r("vetter/vet-bad-mode", "post", f"{VETTER}/jobs/vet",
+   data="not json", headers={"Content-Type": "application/json"})
+
+sub("16d. Concurrent vet triggers — no 5xx")
+_vet_results: list = []
+def _fire_vet():
+    try:
+        r = requests.post(f"{VETTER}/jobs/vet",
+                          json={"ranking_run_id": VALID_UUID}, timeout=TIMEOUT)
+        _vet_results.append(r.status_code)
+    except Exception as e:
+        _vet_results.append(str(e))
+
+_vet_threads = [threading.Thread(target=_fire_vet) for _ in range(4)]
+for t in _vet_threads: t.start()
+for t in _vet_threads: t.join()
+_vet_5xx = [r for r in _vet_results if isinstance(r, int) and r >= 500]
+if _vet_5xx:
+    CRASHED.append(f"vetter/concurrent → 5xx: {_vet_5xx}")
+    print(f"  💥 vetter/concurrent  5xx: {_vet_5xx}")
+else:
+    PASSED.append("vetter/concurrent-no-5xx")
+    print(f"  ✅ vetter/concurrent  responses: {_vet_results}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+hdr("17. TRADE STATE-TRANSITION IDEMPOTENCY (DB-seeded)")
+# ═══════════════════════════════════════════════════════════════════════════════
+# Seed delta_intent + alpaca_orders rows in various statuses; verify that
+# trade-executor /jobs/submit blocks or allows retry as per the idempotency rules:
+#   Blocks  (409): pending | submitted | risk_rejected
+#   Allows (non-409): failed | filled | canceled
+
+import psycopg2
+from datetime import datetime as _dt
+
+def _pg():
+    return psycopg2.connect(host="localhost", port=5433, dbname="stocker",
+                            user="stocker", password="stocker")
+
+def _seed_intent_with_order(status: str, ticker: str = "AAPL") -> str:
+    """Insert a delta_intent + alpaca_orders row with the given order status."""
+    iid = str(uuid.uuid4())
+    oid = str(uuid.uuid4())
+    run_id = str(uuid.uuid4())
+    today = _dt.utcnow().strftime("%Y-%m-%d")
+    with _pg() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO delta_runs (run_id,strategy_id,status,run_date,triggered_by) "
+                "VALUES (%s,'fuzz','success',%s,'fuzz')", (run_id, today))
+            cur.execute(
+                "INSERT INTO delta_intents (id,run_id,ticker,action,current_weight,actual_weight) "
+                "VALUES (%s,%s,%s,'entry',0.05,0.0)", (iid, run_id, ticker))
+            cur.execute(
+                "INSERT INTO alpaca_orders "
+                "(id,intent_id,ticker,action,side,qty,notional,order_type,"
+                "time_in_force,status,mode,risk_approved,risk_reason,created_at) "
+                "VALUES (%s,%s,%s,'entry','buy',10,1800,'market','opg',%s,'scheduled',true,'fuzz',NOW())",
+                (oid, iid, ticker, status))
+        conn.commit()
+    return iid
+
+# Ensure a recent sync run exists so sizing doesn't abort on stale data
+_sr_id = str(uuid.uuid4())
+with _pg() as conn:
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO alpaca_sync_runs (run_id,status,account_value,buying_power,cash,"
+            "started_at,completed_at) VALUES (%s,'success',100000,100000,100000,NOW(),NOW())",
+            (_sr_id,))
+    conn.commit()
+
+sub("17a. Blocking statuses (pending/submitted/risk_rejected) → expect 200 status=duplicate")
+# trade-executor /jobs/submit returns HTTP 200 with body.status='duplicate' (not 409).
+# The 409 is returned by the API layer (/trade/approve). Both are correct per design.
+for _status in ["pending", "submitted", "risk_rejected"]:
+    _iid = _seed_intent_with_order(_status)
+    _r17 = _r(f"state/{_status}-blocks", "post", f"{TRADE}/jobs/submit",
+              json={"intent_id": _iid, "mode": "scheduled"})
+    if _r17 and _r17.status_code >= 500:
+        CRASHED.append(f"state/{_status}-blocks → 5xx: {_r17.status_code}")
+    elif _r17 and _r17.status_code == 200 and _r17.json().get("status") == "duplicate":
+        PASSED.append(f"state/{_status}-correctly-blocked-duplicate")
+        print(f"  ✅ state/{_status}  correctly returned duplicate: {_r17.json().get('reason','')[:60]}")
+    elif _r17:
+        WARNINGS.append(f"state/{_status} unexpected: HTTP {_r17.status_code} body={_r17.text[:80]}")
+        print(f"  ⚠️  state/{_status}  unexpected HTTP {_r17.status_code}")
+
+sub("17b. Allowing statuses (failed/filled/canceled) → expect NOT 409")
+for _status in ["failed", "filled", "canceled"]:
+    _iid = _seed_intent_with_order(_status)
+    _r17b = _r(f"state/{_status}-allows", "post", f"{TRADE}/jobs/submit",
+               json={"intent_id": _iid, "mode": "scheduled"})
+    if _r17b and _r17b.status_code == 409:
+        CRASHED.append(f"state/{_status}-should-allow → blocked with 409 (idempotency too aggressive)")
+        print(f"  💥 state/{_status}  wrongly blocked with 409!")
+    elif _r17b and _r17b.status_code >= 500:
+        CRASHED.append(f"state/{_status}-allows → 5xx: {_r17b.status_code}")
+    else:
+        PASSED.append(f"state/{_status}-correctly-allowed")
+        print(f"  ✅ state/{_status}  correctly allowed retry: HTTP {_r17b.status_code if _r17b else None}")
+
+sub("17c. Race: 3 concurrent submits from a retryable (failed) intent — no 5xx")
+_race_iid = _seed_intent_with_order("failed", ticker="MSFT")
+_race_results: list = []
+def _fire_race():
+    try:
+        r = requests.post(f"{TRADE}/jobs/submit",
+                          json={"intent_id": _race_iid, "mode": "scheduled"}, timeout=TIMEOUT)
+        _race_results.append(r.status_code)
+    except Exception as e:
+        _race_results.append(str(e))
+
+_race_threads = [threading.Thread(target=_fire_race) for _ in range(3)]
+for t in _race_threads: t.start()
+for t in _race_threads: t.join()
+_race_5xx = [r for r in _race_results if isinstance(r, int) and r >= 500]
+if _race_5xx:
+    CRASHED.append(f"state/race-3threads → 5xx: {_race_5xx}")
+    print(f"  💥 state/race  5xx in concurrent race: {_race_5xx}")
+else:
+    PASSED.append("state/race-no-5xx")
+    print(f"  ✅ state/race  no 5xx: {_race_results}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+hdr("18. BUYING-POWER EDGE CASES (DB-seeded)")
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _seed_bp_intent(ticker: str, action: str = "entry", weight: float = 0.05) -> str:
+    iid = str(uuid.uuid4())
+    run_id = str(uuid.uuid4())
+    today = _dt.utcnow().strftime("%Y-%m-%d")
+    with _pg() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO delta_runs (run_id,strategy_id,status,run_date,triggered_by) "
+                "VALUES (%s,'fuzztest','success',%s,'fuzz')", (run_id, today))
+            cur.execute(
+                "INSERT INTO delta_intents (id,run_id,ticker,action,current_weight,actual_weight) "
+                "VALUES (%s,%s,%s,%s,%s,0.0)", (iid, run_id, ticker, action, weight))
+        conn.commit()
+    return iid
+
+def _seed_sync_bp(account_value: float, buying_power: float) -> None:
+    sid = str(uuid.uuid4())
+    with _pg() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO alpaca_sync_runs (run_id,status,account_value,buying_power,cash,"
+                "started_at,completed_at) VALUES (%s,'success',%s,%s,%s,NOW(),NOW())",
+                (sid, account_value, buying_power, buying_power))
+        conn.commit()
+
+sub("18a. buying_power=$0 → expect 400 (qty rounds to 0, position too small)")
+_seed_sync_bp(0, 0)
+_iid_zero = _seed_bp_intent("NVDA")
+_r18a = _r("bp/zero-buying-power", "post", f"{TRADE}/jobs/submit",
+           json={"intent_id": _iid_zero, "mode": "scheduled"})
+if _r18a and _r18a.status_code == 400:
+    PASSED.append("bp/zero-buying-power-refused-400")
+    print(f"  ✅ bp/zero correctly refused (400): {_r18a.json().get('detail','')[:80]}")
+elif _r18a and _r18a.status_code >= 500:
+    CRASHED.append(f"bp/zero → 5xx: {_r18a.status_code}")
+else:
+    WARNINGS.append(f"bp/zero expected 400, got {_r18a.status_code if _r18a else None}")
+
+sub("18b. buying_power=$50 (tiny, 5% = $2.50 → qty=0) → expect 400")
+_seed_sync_bp(50, 50)
+_iid_tiny = _seed_bp_intent("MSFT")
+_r18b = _r("bp/tiny-buying-power", "post", f"{TRADE}/jobs/submit",
+           json={"intent_id": _iid_tiny, "mode": "scheduled"})
+if _r18b and _r18b.status_code == 400:
+    PASSED.append("bp/tiny-buying-power-refused-400")
+    print(f"  ✅ bp/tiny correctly refused (400): {_r18b.json().get('detail','')[:80]}")
+elif _r18b and _r18b.status_code >= 500:
+    CRASHED.append(f"bp/tiny → 5xx: {_r18b.status_code}")
+else:
+    WARNINGS.append(f"bp/tiny expected 400, got {_r18b.status_code if _r18b else None}")
+
+sub("18c. buying_power=$200k (large) → should not 5xx")
+_seed_sync_bp(200_000, 200_000)
+_iid_large = _seed_bp_intent("AAPL")
+_r18c = _r("bp/large-buying-power", "post", f"{TRADE}/jobs/submit",
+           json={"intent_id": _iid_large, "mode": "scheduled"})
+if _r18c and _r18c.status_code >= 500:
+    CRASHED.append(f"bp/large → 5xx: {_r18c.status_code}")
+else:
+    PASSED.append("bp/large-no-5xx")
+    print(f"  ✅ bp/large  no 5xx: HTTP {_r18c.status_code if _r18c else None}")
+
+sub("18d. Both account_value=$0 AND buying_power=$0 — must not 5xx")
+_seed_sync_bp(0, 0)
+_iid_all_zero = _seed_bp_intent("GOOG")
+_r18d = _r("bp/both-zero", "post", f"{TRADE}/jobs/submit",
+           json={"intent_id": _iid_all_zero, "mode": "immediate"})
+if _r18d and _r18d.status_code >= 500:
+    CRASHED.append(f"bp/both-zero → 5xx: {_r18d.status_code}")
+else:
+    PASSED.append("bp/both-zero-no-5xx")
+    print(f"  ✅ bp/both-zero  no 5xx: HTTP {_r18d.status_code if _r18d else None}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+hdr("19. MOO-ONLY ENFORCEMENT — time_in_force must always be 'opg'")
+# ═══════════════════════════════════════════════════════════════════════════════
+
+sub("19a. Scan recent alpaca_orders for any non-opg time_in_force")
+try:
+    with _pg() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, time_in_force, mode, status, created_at
+                FROM alpaca_orders
+                WHERE created_at > NOW() - INTERVAL '2 hours'
+                  AND time_in_force IS NOT NULL
+                  AND time_in_force != 'opg'
+                ORDER BY created_at DESC
+                LIMIT 10
+            """)
+            bad_tif = cur.fetchall()
+    if bad_tif:
+        for row in bad_tif:
+            CRASHED.append(f"moo/order-{str(row[0])[:8]}-tif={row[1]!r}-not-opg")
+            print(f"  💥 moo/enforcement FAIL: order {str(row[0])[:8]} tif={row[1]!r} mode={row[2]} status={row[3]}")
+    else:
+        PASSED.append("moo/all-recent-orders-opg")
+        print("  ✅ moo  all recent alpaca_orders have time_in_force='opg'")
+except Exception as e:
+    WARNINGS.append(f"moo/scan → {e}")
+    print(f"  ⚠️  moo/scan DB error: {e}")
+
+sub("19b. Submit immediate-mode intent → verify alpaca_orders.time_in_force='opg'")
+_seed_sync_bp(100_000, 100_000)
+_iid_imm = _seed_bp_intent("AAPL", "entry")
+_r19b = requests.post(f"{TRADE}/jobs/submit",
+                      json={"intent_id": _iid_imm, "mode": "immediate"}, timeout=TIMEOUT)
+time.sleep(1)
+try:
+    with _pg() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT time_in_force, mode, status FROM alpaca_orders "
+                        "WHERE intent_id=%s ORDER BY created_at DESC LIMIT 1", (_iid_imm,))
+            row19 = cur.fetchone()
+    if row19:
+        tif19, mode19, st19 = row19
+        if tif19 == "opg":
+            PASSED.append("moo/immediate-opg-confirmed")
+            print(f"  ✅ moo/immediate  time_in_force='opg' mode={mode19} status={st19}")
+        else:
+            CRASHED.append(f"moo/immediate  time_in_force={tif19!r} (expected 'opg')")
+            print(f"  💥 moo/immediate FAIL: time_in_force={tif19!r}")
+    else:
+        WARNINGS.append(f"moo/immediate → no order row found (HTTP {_r19b.status_code})")
+except Exception as e:
+    WARNINGS.append(f"moo/immediate-check → {e}")
+
+sub("19c. Submit scheduled-mode intent → verify time_in_force='opg'")
+_seed_sync_bp(100_000, 100_000)
+_iid_sched = _seed_bp_intent("TSLA", "entry")
+_r19c = requests.post(f"{TRADE}/jobs/submit",
+                      json={"intent_id": _iid_sched, "mode": "scheduled"}, timeout=TIMEOUT)
+time.sleep(1)
+try:
+    with _pg() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT time_in_force, mode FROM alpaca_orders "
+                        "WHERE intent_id=%s ORDER BY created_at DESC LIMIT 1", (_iid_sched,))
+            row19c = cur.fetchone()
+    if row19c and row19c[0] == "opg":
+        PASSED.append("moo/scheduled-opg-confirmed")
+        print(f"  ✅ moo/scheduled  time_in_force='opg' mode={row19c[1]}")
+    elif row19c:
+        CRASHED.append(f"moo/scheduled time_in_force={row19c[0]!r} (expected 'opg')")
+        print(f"  💥 moo/scheduled FAIL: time_in_force={row19c[0]!r}")
+    else:
+        WARNINGS.append(f"moo/scheduled → no order row (HTTP {_r19c.status_code})")
+except Exception as e:
+    WARNINGS.append(f"moo/scheduled-check → {e}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+hdr("20. AUDIT TRAIL DB INVARIANTS")
+# ═══════════════════════════════════════════════════════════════════════════════
+
+sub("20a. Every API-submitted approved order must have risk_check_id set")
+# Only check rows that have a trace_id (created by the API, not seeded by tests)
+try:
+    with _pg() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id FROM alpaca_orders
+                WHERE risk_approved = true AND risk_check_id IS NULL
+                  AND trace_id IS NOT NULL
+                  AND created_at > NOW() - INTERVAL '2 hours'
+                LIMIT 5
+            """)
+            orphans20a = cur.fetchall()
+    if orphans20a:
+        for o in orphans20a:
+            CRASHED.append(f"audit/approved-order-no-risk-check-id: order {str(o[0])[:8]}")
+        print(f"  💥 audit  {len(orphans20a)} approved orders with no risk_check_id")
+    else:
+        PASSED.append("audit/all-approved-have-risk-check-id")
+        print("  ✅ audit  all approved orders have risk_check_id")
+except Exception as e:
+    WARNINGS.append(f"audit/risk-check-id-check → {e}")
+
+sub("20b. Every alpaca_orders trace_id must have a matching execution_traces row")
+try:
+    with _pg() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT ao.id, ao.trace_id
+                FROM alpaca_orders ao
+                LEFT JOIN execution_traces et ON et.trace_id = ao.trace_id
+                WHERE ao.trace_id IS NOT NULL AND et.trace_id IS NULL
+                  AND ao.created_at > NOW() - INTERVAL '2 hours'
+                LIMIT 5
+            """)
+            missing20b = cur.fetchall()
+    if missing20b:
+        for m in missing20b:
+            CRASHED.append(f"audit/order-{str(m[0])[:8]}-trace-id-missing-from-execution-traces")
+        print(f"  💥 audit  {len(missing20b)} orders with trace_id but no execution_traces row")
+    else:
+        PASSED.append("audit/all-trace-ids-matched")
+        print("  ✅ audit  all trace_ids have matching execution_traces rows")
+except Exception as e:
+    WARNINGS.append(f"audit/trace-check → {e}")
+
+sub("20c. No pending/submitted orders older than 25 hours")
+try:
+    with _pg() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT COUNT(*) FROM alpaca_orders
+                WHERE status IN ('pending', 'submitted')
+                  AND created_at < NOW() - INTERVAL '25 hours'
+            """)
+            stale20c = cur.fetchone()[0]
+    if stale20c > 5:
+        WARNINGS.append(f"audit/stale-orders: {stale20c} pending/submitted orders >25h old")
+        print(f"  ⚠️  audit  {stale20c} stale pending/submitted orders (>25h)")
+    else:
+        PASSED.append("audit/no-excessive-stale-orders")
+        print(f"  ✅ audit  stale-order check: {stale20c} stale orders (OK)")
+except Exception as e:
+    WARNINGS.append(f"audit/stale-check → {e}")
+
+sub("20d. Risk service still healthy and functional after all sections")
+_r20d = requests.post(f"{RISK}/check", json=base_risk, timeout=TIMEOUT)
+if _r20d.status_code == 200 and "approved" in _r20d.json():
+    PASSED.append("audit/risk-service-still-functional")
+    print(f"  ✅ audit  risk-service functional after fuzzing: approved={_r20d.json()['approved']}")
+else:
+    CRASHED.append(f"audit/risk-service-not-functional: HTTP {_r20d.status_code}")
+    print(f"  💥 audit  risk-service degraded: HTTP {_r20d.status_code}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

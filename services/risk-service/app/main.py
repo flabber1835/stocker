@@ -60,7 +60,7 @@ engine: Optional[AsyncEngine] = None
 # ── Pydantic models ──────────────────────────────────────────────────────────
 
 
-_TICKER_RE = re.compile(r"^[A-Z0-9.\-/]{1,20}$")
+_TICKER_RE = re.compile(r"^[A-Z0-9.\-]{1,20}$")
 
 
 class TradeCheckRequest(BaseModel):

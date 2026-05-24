@@ -789,6 +789,10 @@ async def get_latest_run():
 
 @app.get("/runs/{run_id}")
 async def get_run(run_id: str):
+    try:
+        uuid.UUID(run_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=422, detail="run_id must be a valid UUID")
     async with engine.connect() as conn:
         row = await conn.execute(
             text(
@@ -807,6 +811,10 @@ async def get_run(run_id: str):
 
 @app.get("/runs/{run_id}/exclusions")
 async def get_exclusions(run_id: str):
+    try:
+        uuid.UUID(run_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=422, detail="run_id must be a valid UUID")
     async with engine.connect() as conn:
         run_row = await conn.execute(
             text("SELECT status, candidate_count, flagged_count FROM vetter_runs WHERE run_id=:rid"),
@@ -837,6 +845,10 @@ async def get_exclusions(run_id: str):
 @app.get("/runs/{run_id}/ticker-results")
 async def get_ticker_results(run_id: str):
     """Return per-ticker results from the trace file for live UI updates."""
+    try:
+        uuid.UUID(run_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=422, detail="run_id must be a valid UUID")
     async with engine.connect() as conn:
         row = await conn.execute(
             text(

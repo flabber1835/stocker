@@ -26,6 +26,7 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from stock_strategy_shared.db import wait_for_db
@@ -614,18 +615,35 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
         order_type = "market"
         time_in_force = "opg"  # market-on-open for all modes; works pre/post-market
         initial_status = "pending" if approved else "risk_rejected"
-        async with engine.begin() as conn:
-            await _record_order(
-                conn, order_id=order_id, intent_id=req.intent_id,
-                ticker=ticker, action=action, side=side, qty=qty,
-                notional=notional, mode=req.mode, trace_id=trace_id,
-                risk_approved=approved, risk_reason=reason,
-                risk_check_id=check_id, status=initial_status,
-                order_type=order_type, time_in_force=time_in_force,
-            )
-            await _log_step(
-                conn, trace_id, "record_order", "success", t0,
-                input_summary={"order_id": order_id, "initial_status": initial_status},
+        try:
+            async with engine.begin() as conn:
+                await _record_order(
+                    conn, order_id=order_id, intent_id=req.intent_id,
+                    ticker=ticker, action=action, side=side, qty=qty,
+                    notional=notional, mode=req.mode, trace_id=trace_id,
+                    risk_approved=approved, risk_reason=reason,
+                    risk_check_id=check_id, status=initial_status,
+                    order_type=order_type, time_in_force=time_in_force,
+                )
+                await _log_step(
+                    conn, trace_id, "record_order", "success", t0,
+                    input_summary={"order_id": order_id, "initial_status": initial_status},
+                )
+        except IntegrityError:
+            # A concurrent submit raced and won the DB unique constraint
+            # idx_alpaca_orders_intent_open. Treat as duplicate — same as the
+            # idempotency check above, just caught at the DB layer.
+            async with engine.connect() as conn:
+                dupe = (await conn.execute(text(
+                    "SELECT id, status FROM alpaca_orders "
+                    "WHERE intent_id=:iid AND status IN ('pending','submitted','risk_rejected') "
+                    "LIMIT 1"
+                ), {"iid": req.intent_id})).mappings().first()
+            return TradeAttemptResponse(
+                status="duplicate",
+                order_id=str(dupe["id"]) if dupe else order_id,
+                trace_id=trace_id,
+                reason=f"Concurrent submit: intent {req.intent_id} already has an open order",
             )
 
         if not approved:
