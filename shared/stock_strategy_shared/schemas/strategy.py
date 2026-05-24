@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Literal, Optional
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class FactorWeights(BaseModel):
@@ -225,6 +225,8 @@ class DeltaEngineConfig(BaseModel):
 
 
 class StrategyConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     strategy_id: str
     description: str = ""
     universe: UniverseConfig = Field(default_factory=UniverseConfig)
@@ -254,8 +256,14 @@ class StrategyConfig(BaseModel):
         regime_names = set(self.regime_detection.regimes.keys())
         weight_names = set(self.factor_weights.keys())
         missing = regime_names - weight_names
+        extra = weight_names - regime_names
+        errors = []
         if missing:
-            raise ValueError(f"factor_weights missing entries for regimes: {missing}")
+            errors.append(f"factor_weights missing entries for regimes: {missing}")
+        if extra:
+            errors.append(f"factor_weights has entries for unknown regimes: {extra}")
+        if errors:
+            raise ValueError("; ".join(errors))
         return self
 
     @model_validator(mode="after")

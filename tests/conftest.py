@@ -11,25 +11,28 @@ import os
 from pathlib import Path
 
 _SERVICE_MAP = {
-    "alpaca_sync":      "alpaca-sync",
-    "api":              "api",
-    "av_ingestor":      "av-ingestor",
-    "backtester":       "backtester",
-    "dashboard":        "dashboard",
-    "delta_engine":     "pipeline",  # delta-engine consolidated into pipeline (Phase 7)
-    "factor_engine":    "factor-engine",
-    "llm_gateway":      "llm-gateway",
-    "llm_vetter":       "llm-vetter",
-    "pipeline":         "pipeline",
-    "portfolio_builder":"portfolio-builder",
-    "ranker":           "ranker",
-    "risk_service":     "risk-service",
-    "scheduler":        "scheduler",
-    "trade_executor":   "trade-executor",
+    "alpaca_sync":        "alpaca-sync",
+    "api":                "api",
+    "av_ingestor":        "av-ingestor",
+    "backtester":         "backtester",
+    "dashboard":          "dashboard",
+    "delta_engine":       "pipeline",  # delta-engine consolidated into pipeline (Phase 7)
+    "factor_engine":      "factor-engine",
+    "llm_gateway":        "llm-gateway",
+    "llm_vetter":         "llm-vetter",
+    "pipeline":           "pipeline",
+    "portfolio_builder":  "portfolio-builder",
+    "ranker":             "ranker",
+    "risk_service":       "risk-service",
+    "scheduler":          "scheduler",
+    "strategy_validator": "strategy-validator",
+    "trade_executor":     "trade-executor",
 }
 
 _ROOT = Path(__file__).parent.parent
 
+
+_NEEDS_SHARED = {"strategy-validator"}
 
 def _activate_service(test_dir_name: str) -> None:
     """Clear cached app modules and move the right service path to sys.path[0]."""
@@ -37,12 +40,15 @@ def _activate_service(test_dir_name: str) -> None:
     if service is None:
         return
     service_path = str(_ROOT / "services" / service)
+    shared_path = str(_ROOT / "shared")
     for key in list(sys.modules.keys()):
         if key == "app" or key.startswith("app."):
             del sys.modules[key]
     if service_path in sys.path:
         sys.path.remove(service_path)
     sys.path.insert(0, service_path)
+    if service in _NEEDS_SHARED and shared_path not in sys.path:
+        sys.path.insert(1, shared_path)
 
 
 def pytest_pycollect_makemodule(module_path: Path, parent):
