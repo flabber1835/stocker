@@ -861,10 +861,10 @@ async def get_delta_latest():
                 "SELECT di.id, di.ticker, di.action, di.rank, di.composite_score, "
                 "di.confirmation_days_met, di.current_weight, di.actual_weight, "
                 "di.weight_drift, di.reason, di.rejected_at, "
-                "ao.status AS order_status "
+                "ao.status AS order_status, ao.error_message AS order_error_message "
                 "FROM delta_intents di "
                 "LEFT JOIN LATERAL ("
-                "  SELECT status FROM alpaca_orders "
+                "  SELECT status, error_message FROM alpaca_orders "
                 "  WHERE intent_id = di.id "
                 "  ORDER BY created_at DESC LIMIT 1"
                 ") ao ON true "
@@ -924,6 +924,7 @@ async def get_delta_latest():
                     "weight_drift":          _f(r["weight_drift"]),
                     "reason":                r["reason"],
                     "order_status":          r["order_status"],
+                    "order_error_message":   r["order_error_message"],
                     "rejected_at":           _iso(r["rejected_at"]) if r["rejected_at"] else None,
                     "vetter_excluded":       vetter_by_ticker.get(r["ticker"], {}).get("exclude"),
                     "vetter_confidence":     vetter_by_ticker.get(r["ticker"], {}).get("confidence"),

@@ -63,6 +63,12 @@ async def _auto_approve_bg():
                             continue
                         if intent.get("rejected_at"):
                             continue
+                        # Skip intents already handled (submitted, failed, or risk-rejected).
+                        # Marking them as approved prevents auto-approve from retrying on restart.
+                        order_status = intent.get("order_status")
+                        if order_status in ("failed", "risk_rejected", "submitted", "pending"):
+                            _intent_approved.add(iid)
+                            continue
                         current_ids.add(iid)
                         if iid in _intent_approved:
                             continue
