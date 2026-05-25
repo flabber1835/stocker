@@ -1,0 +1,106 @@
+{
+  "ts": "2026-05-25T21:04:41.137848",
+  "passed": 16,
+  "failed": 0,
+  "results": [
+    {
+      "ok": true,
+      "msg": "Dashboard loaded",
+      "ts": "2026-05-25T21:04:39.271198"
+    },
+    {
+      "ok": true,
+      "msg": "Status bar text: 'READY'",
+      "ts": "2026-05-25T21:04:39.325867"
+    },
+    {
+      "ok": true,
+      "msg": "Tab 'Screener' found",
+      "ts": "2026-05-25T21:04:39.354721"
+    },
+    {
+      "ok": true,
+      "msg": "Tab 'Trader' found",
+      "ts": "2026-05-25T21:04:39.367856"
+    },
+    {
+      "ok": true,
+      "msg": "Tab 'Portfolio' found",
+      "ts": "2026-05-25T21:04:39.395942"
+    },
+    {
+      "ok": true,
+      "msg": "Rankings table has 73 rows",
+      "ts": "2026-05-25T21:04:39.402265"
+    },
+    {
+      "ok": true,
+      "msg": "Screener tab clicked via 'Screener'",
+      "ts": "2026-05-25T21:04:39.526156"
+    },
+    {
+      "ok": true,
+      "msg": "Trader tab clicked via 'Trader'",
+      "ts": "2026-05-25T21:04:39.679285"
+    },
+    {
+      "ok": true,
+      "msg": "Trader view has TARGET/weight column: True",
+      "ts": "2026-05-25T21:04:39.782403"
+    },
+    {
+      "ok": true,
+      "msg": "Trader view has ACTION column: True",
+      "ts": "2026-05-25T21:04:39.782419"
+    },
+    {
+      "ok": true,
+      "msg": "Trader view has quantity column: True",
+      "ts": "2026-05-25T21:04:39.782424"
+    },
+    {
+      "ok": true,
+      "msg": "Portfolio tab clicked via 'Portfolio'",
+      "ts": "2026-05-25T21:04:39.836177"
+    },
+    {
+      "ok": true,
+      "msg": "Portfolio tab has holdings/positions content: True",
+      "ts": "2026-05-25T21:04:39.929802"
+    },
+    {
+      "ok": true,
+      "msg": "Found status bar text: '14 TRADES PENDING'",
+      "ts": "2026-05-25T21:04:39.941081"
+    },
+    {
+      "ok": true,
+      "msg": "Page title: 'Stocker'",
+      "ts": "2026-05-25T21:04:40.047237"
+    },
+    {
+      "ok": true,
+      "msg": "No JS errors on reload",
+      "ts": "2026-05-25T21:04:40.873096"
+    }
+  ],
+  "screenshots": [
+    "/home/user/stocker/screenshots/00_initial.png",
+    "/home/user/stocker/screenshots/01_before_click.png",
+    "/home/user/stocker/screenshots/01_initial_load.png",
+    "/home/user/stocker/screenshots/02_CALCULATING_FACTORS.png",
+    "/home/user/stocker/screenshots/02_PROCESSING.png",
+    "/home/user/stocker/screenshots/03_CALCULATING_FACTORS.png",
+    "/home/user/stocker/screenshots/03_final.png",
+    "/home/user/stocker/screenshots/04_LLM_ANALYSIS.png",
+    "/home/user/stocker/screenshots/04_rankings_view.png",
+    "/home/user/stocker/screenshots/05_screener_tab.png",
+    "/home/user/stocker/screenshots/06_PROCESSING.png",
+    "/home/user/stocker/screenshots/06_trader_tab.png",
+    "/home/user/stocker/screenshots/07_READY.png",
+    "/home/user/stocker/screenshots/08_final.png",
+    "/home/user/stocker/screenshots/08_portfolio_tab.png",
+    "/home/user/stocker/screenshots/10_final_state.png",
+    "/home/user/stocker/screenshots/11_after_reload.png"
+  ]
+}

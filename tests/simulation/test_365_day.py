@@ -1205,13 +1205,132 @@ def main() -> int:
     #   Eras 0+1+2 were seeded with small caps rank 41–100 (all > exit_rank=40).
     #   Era 3 ran live (only 33 core stocks ranked; small caps filtered by liquidity).
     #   All 60 small caps have 3 consecutive runs at rank > exit_rank → EXIT signals.
+    #
+    # The scheduler and Redis-stream auto-trigger may have fired additional live
+    # pipeline runs (ranked_count=33) between Phases 1–3 and now.  Those extra
+    # runs push the 93-ticker seeded Eras out of the confirmation window.
+    # Fix: keep only the single most-recent live Era 3 run and re-seed Eras 0–2
+    # with completed_at values that place them just before the live run.
     # ─────────────────────────────────────────────────────────────────────────
     hdr("PHASE 4 — Delta Evaluation (3-era confirmation window)")
+
+    # ── Ensure the confirmation window contains the right 4 ranking runs ─────
+    #
+    # The scheduler and Redis-stream auto-trigger may have fired additional live
+    # pipeline runs (ranked_count=33, no small caps) between Phase 3 and now.
+    # Those extra runs push the 93-ticker seeded Eras out of the confirmation
+    # window (delta only reads confirmation_days+1 = 4 most-recent runs).
+    #
+    # Strategy (minimal-disruption — avoids FK cascade complexity):
+    # 1. Identify the most-recent live Era 3 ranking run (keep it).
+    # 2. DELETE the duplicated live Era 3 runs that have no portfolio/vetter
+    #    dependencies (scheduler noise — they only created rankings rows).
+    # 3. UPDATE the completed_at of the existing seeded Era 0/1/2 ranking_runs
+    #    to be just before the live Era 3 run — no inserts or deletes needed.
+    #    This guarantees window = [live Era3, Era2, Era1, Era0].
+
+    _live_run = _fetchone(
+        "SELECT run_id, completed_at FROM ranking_runs "
+        "WHERE status='success' AND rank_date=%s "
+        "ORDER BY completed_at DESC NULLS LAST LIMIT 1",
+        (ERA3_DATE.isoformat(),),
+    )
+    if _live_run:
+        _live_rank_id   = str(_live_run["run_id"])
+        _live_completed = _live_run["completed_at"]  # tz-aware datetime
+
+        # Delete scheduler-duplicate live Era 3 runs that have no downstream
+        # dependencies (portfolio_runs, vetter_runs, pipeline_runs referencing them).
+        # The live pipeline run we triggered is the one we keep (_live_rank_id).
+        with _conn() as conn, conn.cursor() as cur:
+            # Find Era3 duplicate run IDs (not the keeper)
+            cur.execute(
+                "SELECT run_id FROM ranking_runs "
+                "WHERE run_id != %s AND rank_date = %s",
+                (_live_rank_id, ERA3_DATE.isoformat()),
+            )
+            _dup_ids = [str(r["run_id"]) for r in cur.fetchall()]
+
+        for _dup_id in _dup_ids:
+            # Only delete if no portfolio/vetter/pipeline rows reference this run
+            _ref_port = _fetchone(
+                "SELECT 1 FROM portfolio_runs WHERE source_ranking_run_id=%s LIMIT 1",
+                (_dup_id,),
+            )
+            if _ref_port:
+                continue   # has downstream dependency; skip
+            _ref_vet = _fetchone(
+                "SELECT 1 FROM vetter_runs WHERE source_ranking_run_id=%s LIMIT 1",
+                (_dup_id,),
+            )
+            if _ref_vet:
+                continue
+            _ref_pipe = _fetchone(
+                "SELECT 1 FROM pipeline_runs WHERE ranking_run_id=%s LIMIT 1",
+                (_dup_id,),
+            )
+            if _ref_pipe:
+                # Null out the FK in pipeline_runs rather than skipping deletion
+                _exec(
+                    "UPDATE pipeline_runs SET ranking_run_id=NULL WHERE ranking_run_id=%s",
+                    (_dup_id,),
+                )
+            # Safe to delete
+            _exec("DELETE FROM rankings WHERE run_id=%s", (_dup_id,))
+            _exec("DELETE FROM ranking_runs WHERE run_id=%s", (_dup_id,))
+
+        # Update completed_at of Era 0/1/2 seeded runs to be just before the live Era 3.
+        # No FK concerns — we're only changing timestamps, not deleting rows.
+        _era2_ts = _live_completed - timedelta(seconds=100)
+        _era1_ts = _live_completed - timedelta(seconds=200)
+        _era0_ts = _live_completed - timedelta(seconds=300)
+
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE ranking_runs SET completed_at=%s "
+                "WHERE rank_date=%s AND status='success'",
+                (_era2_ts, ERA2_DATE.isoformat()),
+            )
+            cur.execute(
+                "UPDATE factor_runs SET completed_at=%s "
+                "WHERE score_date=%s AND status='success'",
+                (_era2_ts, ERA2_DATE.isoformat()),
+            )
+            cur.execute(
+                "UPDATE ranking_runs SET completed_at=%s "
+                "WHERE rank_date=%s AND status='success'",
+                (_era1_ts, ERA1_DATE.isoformat()),
+            )
+            cur.execute(
+                "UPDATE factor_runs SET completed_at=%s "
+                "WHERE score_date=%s AND status='success'",
+                (_era1_ts, ERA1_DATE.isoformat()),
+            )
+            cur.execute(
+                "UPDATE ranking_runs SET completed_at=%s "
+                "WHERE rank_date=%s AND status='success'",
+                (_era0_ts, ERA0_DATE.isoformat()),
+            )
+            cur.execute(
+                "UPDATE factor_runs SET completed_at=%s "
+                "WHERE score_date=%s AND status='success'",
+                (_era0_ts, ERA0_DATE.isoformat()),
+            )
+            conn.commit()
+
+        print(
+            f"  ℹ  Confirmation window fixed: Era3(live)→Era2→Era1→Era0 "
+            f"(live completed_at={_live_completed.isoformat()[:19]})"
+        )
+    else:
+        warn("Phase 4 cleanup: no live Era 3 ranking run found — proceeding without cleanup")
 
     print("  ↻  Running delta evaluation …")
     delta_result = run_delta("delta_era3")
 
-    intents = get_latest_intents()
+    intents = get_latest_intents(
+        delta_run_id=delta_result.get("run_id") if delta_result else None
+    )
     check(len(intents) > 0, "delta: intents produced", f"{len(intents)} intents")
 
     verify_small_cap_exits(intents)
@@ -1258,8 +1377,10 @@ def main() -> int:
 
     # Re-run delta to pick up new account state
     print("  ↻  Re-running delta after asset transfer …")
-    run_delta("delta_post_transfer")
-    intents_post = get_latest_intents()
+    _delta_transfer = run_delta("delta_post_transfer")
+    intents_post = get_latest_intents(
+        delta_run_id=_delta_transfer.get("run_id") if _delta_transfer else None
+    )
     sell_trim_post = [i for i in intents_post if i["action"] == "sell_trim"]
 
     ok("asset_transfer_seeded",
@@ -1512,7 +1633,9 @@ def main() -> int:
     print("  ↻  Running delta on empty account …")
     _delta_empty = run_delta("delta_empty_account")
 
-    _intents_empty = get_latest_intents()
+    _intents_empty = get_latest_intents(
+        delta_run_id=_delta_empty.get("run_id") if _delta_empty else None
+    )
     _exits_empty     = [i for i in _intents_empty if i["action"] == "exit"]
     _trims_empty     = [i for i in _intents_empty if i["action"] == "sell_trim"]
     _entries_empty   = [i for i in _intents_empty if i["action"] in ("entry", "buy_add")]
@@ -1551,7 +1674,9 @@ def main() -> int:
     # Run delta: should produce entry intents for the remaining core stocks
     print("  ↻  Running delta with zero buying power …")
     _delta_zerobp = run_delta("delta_zero_buying_power")
-    _intents_zerobp = get_latest_intents()
+    _intents_zerobp = get_latest_intents(
+        delta_run_id=_delta_zerobp.get("run_id") if _delta_zerobp else None
+    )
     _entries_zerobp = [i for i in _intents_zerobp if i["action"] == "entry"]
 
     check(len(_entries_zerobp) >= 0,
@@ -1591,7 +1716,9 @@ def main() -> int:
     )
     print("  ↻  Running delta after buying power restored …")
     _delta_restored = run_delta("delta_bp_restored")
-    _intents_restored = get_latest_intents()
+    _intents_restored = get_latest_intents(
+        delta_run_id=_delta_restored.get("run_id") if _delta_restored else None
+    )
     _entries_restored = [i for i in _intents_restored if i["action"] == "entry"]
 
     check(len(_entries_restored) >= 0,
