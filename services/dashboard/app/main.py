@@ -480,7 +480,7 @@ async def pipeline_status():
     if rank_status != "running" and orchestrator_running and not confirmed_terminal:
         rank_status = "running"
         rank_step = rank_step or "starting"
-        rank_step_label = rank_step_label or scheduler_step_label or "Calculating Factors"
+        rank_step_label = rank_step_label or scheduler_step_label or "Fetching Data"
 
     if rank_status != "running":
         if pipeline_status_raw in ("success", "partial_success", "skipped"):
