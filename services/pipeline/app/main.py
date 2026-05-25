@@ -208,8 +208,8 @@ async def _create_pipeline_run(conn, run_id: str, trace_id: str, triggered_by: s
     ), {"tid": trace_id, "rid": run_id, "sid": strategy.strategy_id, "ch": config_hash, "now": now})
     await conn.execute(text(
         "INSERT INTO pipeline_runs "
-        "(run_id, trace_id, strategy_id, config_hash, status, triggered_by, started_at, chain_date) "
-        "VALUES (:run_id, :trace_id, :sid, :ch, 'running', :by, :now, :cd)"
+        "(run_id, trace_id, strategy_id, config_hash, status, factor_status, triggered_by, started_at, chain_date) "
+        "VALUES (:run_id, :trace_id, :sid, :ch, 'running', 'running', :by, :now, :cd)"
     ), {"run_id": run_id, "trace_id": trace_id, "sid": strategy.strategy_id,
         "ch": config_hash, "by": triggered_by, "now": now, "cd": chain_date})
 
@@ -1785,9 +1785,10 @@ async def _run_pipeline_steps(
 
     try:
         # ── Step 1: factor calculation ────────────────────────────────────────
+        # factor_status="running" is already set in the INSERT above, so no
+        # separate UPDATE is needed here — Gap 1 (pipeline started but no
+        # sub-status visible) is eliminated.
         print(f"[pipeline] run {run_id}: starting factor calculation", flush=True)
-        async with engine.begin() as conn:
-            await _update_pipeline_run(conn, run_id, factor_status="running")
 
         factor_run_id, _, score_date = await _do_factor_step(today)
 
