@@ -549,9 +549,9 @@ function renderTrader() {
     });
 
   const toolbar = $('trader-toolbar');
-  // Show toolbar whenever there are any signals — the Purge & Reset button must be
-  // reachable even when all signals are hold/watch (open orders may still need canceling).
-  if (toolbar) toolbar.style.display = sorted.length > 0 ? '' : 'none';
+  // Show toolbar whenever there are any signals (including rejected) — the Purge & Reset
+  // button must be reachable even when all signals are rejected/hold/watch.
+  if (toolbar) toolbar.style.display = deltaData.length > 0 ? '' : 'none';
 
   const tbody = $('trader-body');
   if (!tbody) return;

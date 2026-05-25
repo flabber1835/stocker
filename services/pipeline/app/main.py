@@ -1979,8 +1979,20 @@ async def start_delta_only(background_tasks: BackgroundTasks):
         try:
             delta_run_id = await _do_delta_step(triggered_by="scheduler")
             print(f"[pipeline] standalone delta {delta_run_id} SUCCESS", flush=True)
+            # Backfill delta_status on the latest pipeline_run so /runs/latest reflects
+            # the complete chain state (factor+ranking+delta all succeeded).
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    "UPDATE pipeline_runs SET delta_status='success', delta_run_id=:rid "
+                    "WHERE run_id = (SELECT run_id FROM pipeline_runs ORDER BY started_at DESC LIMIT 1)"
+                ), {"rid": delta_run_id})
         except Exception as exc:
             print(f"[pipeline] standalone delta FAILED: {exc}", flush=True)
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    "UPDATE pipeline_runs SET delta_status='failed' "
+                    "WHERE run_id = (SELECT run_id FROM pipeline_runs ORDER BY started_at DESC LIMIT 1)"
+                ))
         finally:
             if _job_lock.locked():
                 _job_lock.release()

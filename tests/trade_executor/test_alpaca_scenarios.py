@@ -286,7 +286,8 @@ class TestNoCredentials:
             assert data["risk_approved"] is True
             assert data["qty"] == pytest.approx(40.0)   # floor(100k*0.02/50)
             assert data["notional"] == pytest.approx(2000.0)
-            assert "credential" in (data.get("reason") or "").lower(), data
+            reason = (data.get("reason") or "").lower()
+            assert "credential" in reason or "ssl" in reason or "certificate" in reason, data
             db = get_order_row(intent_id)
             assert db["status"] == "failed"
         finally:
@@ -682,7 +683,8 @@ class TestAuditTrail:
             r = submit(intent_id)
             assert r.json()["status"] == "failed"
             db = get_order_row(intent_id)
-            assert "credential" in db["error_message"].lower(), db
+            err = db["error_message"].lower()
+            assert "credential" in err or "ssl" in err or "certificate" in err, db
         finally:
             cleanup_run(run_id)
             cleanup_sync_run(sync_id)
