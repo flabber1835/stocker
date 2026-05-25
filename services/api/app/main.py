@@ -196,6 +196,78 @@ async def get_rankings(limit: int = 50, run_id: str | None = None):
     return {"count": len(results), "rankings": results}
 
 
+def _match_ticker_prefix(ticker: str, query: str) -> bool:
+    """Case-insensitive prefix match — mirrors SQL UPPER(ticker) LIKE UPPER(:q) || '%'."""
+    return ticker.upper().startswith(query.upper())
+
+
+def _apply_overlays(
+    ranking_rows: list[dict],
+    vetter_by_ticker: dict[str, dict],
+    all_broker_positions: dict[str, dict],
+    *,
+    inject_unranked: bool = True,
+    query_prefix: str | None = None,
+) -> list[dict]:
+    """Decorate ranking rows with vetter and holdings overlays.
+
+    inject_unranked: when True (default), broker-held tickers absent from rankings
+        are appended as rank=9999 NOT_IN_UNIVERSE rows.
+    query_prefix: when inject_unranked is True and a query is active, only inject
+        positions whose ticker matches the prefix so search results stay on-topic.
+    """
+    ranked_set = {r["ticker"] for r in ranking_rows}
+    run_date_val = ranking_rows[0]["rank_date"] if ranking_rows else None
+
+    if inject_unranked:
+        for broker_ticker, pos in all_broker_positions.items():
+            if broker_ticker in ranked_set:
+                continue
+            if query_prefix and not _match_ticker_prefix(broker_ticker, query_prefix):
+                continue
+            ranking_rows.append({
+                "ticker": broker_ticker,
+                "rank": 9999,
+                "composite_score": None,
+                "percentile": None,
+                "regime": None,
+                "rank_date": run_date_val,
+                "factor_scores": None,
+                "rank_slope": None,
+                "prior_rank": None,
+                "name": pos.get("name"),
+                "sector": pos.get("sector"),
+                "not_in_universe": True,
+            })
+
+    for r in ranking_rows:
+        t = r["ticker"]
+        v = vetter_by_ticker.get(t)
+        if v:
+            r["vetter_excluded"] = bool(v["exclude"])
+            r["vetter_confidence"] = v["confidence"]
+            r["vetter_risk_type"] = v["risk_type"]
+            r["vetter_reason"] = v["reason"]
+            r["positive_catalyst"] = bool(v["positive_catalyst"])
+            r["positive_reason"] = v["positive_reason"]
+        else:
+            r["vetter_excluded"] = False
+            r["vetter_confidence"] = None
+            r["vetter_risk_type"] = None
+            r["vetter_reason"] = None
+            r["positive_catalyst"] = False
+            r["positive_reason"] = None
+        pos = all_broker_positions.get(t)
+        r["held"] = pos is not None
+        if pos:
+            r["qty"] = pos["qty"]
+            r["market_value"] = pos["market_value"]
+            r["unrealized_plpc"] = pos["unrealized_plpc"]
+        r.setdefault("not_in_universe", False)
+
+    return ranking_rows
+
+
 @app.get("/rankings/with-overlays")
 async def get_rankings_with_overlays(limit: int = 100):
     if limit < 0:
@@ -313,62 +385,144 @@ async def get_rankings_with_overlays(limit: int = 100):
                     "sector": p["sector"],
                 }
 
-        # Inject broker-held tickers absent from rankings as rank=9999 rows.
-        # These are positions the pipeline filtered out (no data, below liquidity threshold,
-        # insufficient history, etc.). They must still appear so the user can see them.
-        ranked_set = set(tickers)
-        run_date_val = ranking_rows[0]["rank_date"] if ranking_rows else None
-        for broker_ticker, pos in all_broker_positions.items():
-            if broker_ticker in ranked_set:
-                continue
-            injected = {
-                "ticker": broker_ticker,
-                "rank": 9999,
-                "composite_score": None,
-                "percentile": None,
-                "regime": None,
-                "rank_date": run_date_val,
-                "factor_scores": None,
-                "rank_slope": None,
-                "prior_rank": None,
-                "name": pos.get("name"),
-                "sector": pos.get("sector"),
-                "not_in_universe": True,
-            }
-            ranking_rows.append(injected)
-
-        # Merge vetter + holdings overlays — always set all fields so schema is stable
-        for r in ranking_rows:
-            t = r["ticker"]
-            v = vetter_by_ticker.get(t)
-            if v:
-                r["vetter_excluded"] = bool(v["exclude"])
-                r["vetter_confidence"] = v["confidence"]
-                r["vetter_risk_type"] = v["risk_type"]
-                r["vetter_reason"] = v["reason"]
-                r["positive_catalyst"] = bool(v["positive_catalyst"])
-                r["positive_reason"] = v["positive_reason"]
-            else:
-                r["vetter_excluded"] = False
-                r["vetter_confidence"] = None
-                r["vetter_risk_type"] = None
-                r["vetter_reason"] = None
-                r["positive_catalyst"] = False
-                r["positive_reason"] = None
-            pos = all_broker_positions.get(t)
-            r["held"] = pos is not None
-            if pos:
-                r["qty"] = pos["qty"]
-                r["market_value"] = pos["market_value"]
-                r["unrealized_plpc"] = pos["unrealized_plpc"]
-            # Ensure not_in_universe is always present
-            r.setdefault("not_in_universe", False)
+        ranking_rows = _apply_overlays(ranking_rows, vetter_by_ticker, all_broker_positions)
 
     return {
         "count": len(ranking_rows),
         "run": {"run_id": latest_run_id, "rank_date":
                 ranking_rows[0]["rank_date"].isoformat() if hasattr(ranking_rows[0]["rank_date"], "isoformat")
                 else str(ranking_rows[0]["rank_date"])},
+        "prior_run": {"run_id": prior_run_id} if prior_run_id else None,
+        "vetter_run_id": vetter_run_id,
+        "sync_run_id": sync_run_id,
+        "rankings": ranking_rows,
+    }
+
+
+@app.get("/rankings/search")
+async def search_rankings(q: str = ""):
+    """Search all rankings for tickers matching the given prefix (case-insensitive).
+
+    Unlike /rankings/with-overlays, there is no row limit — every ranked ticker
+    whose symbol starts with `q` is returned. This lets the dashboard surface
+    tickers ranked below the display window (e.g. rank 151+).
+
+    Also injects broker-held positions that match `q` but are absent from rankings
+    (rank=9999, not_in_universe=True), so held-but-unranked tickers are always findable.
+
+    Returns the same overlay schema as /rankings/with-overlays.
+    """
+    q = q.upper().strip()
+    if not q:
+        return {"count": 0, "run": None, "prior_run": None, "rankings": []}
+    if not re.match(r'^[A-Z0-9.\-]{1,10}$', q):
+        raise HTTPException(status_code=400, detail=f"Invalid ticker query: {q!r}")
+
+    async with engine.connect() as conn:
+        run_rows = (await conn.execute(text(
+            "SELECT run_id, rank_date FROM ranking_runs WHERE status='success' "
+            "ORDER BY rank_date DESC, completed_at DESC NULLS LAST LIMIT 2"
+        ))).fetchall()
+        if not run_rows:
+            return {"count": 0, "run": None, "prior_run": None, "rankings": []}
+        latest_run_id = str(run_rows[0].run_id)
+        prior_run_id = str(run_rows[1].run_id) if len(run_rows) > 1 else None
+
+        vetter_row = (await conn.execute(text(
+            "SELECT run_id FROM vetter_runs "
+            "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+        ))).fetchone()
+        vetter_run_id = str(vetter_row.run_id) if vetter_row else None
+
+        sync_row = (await conn.execute(text(
+            "SELECT run_id FROM alpaca_sync_runs WHERE status='success' "
+            "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+        ))).fetchone()
+        sync_run_id = str(sync_row.run_id) if sync_row else None
+
+        rows = await conn.execute(
+            text(
+                "WITH recent_runs AS ("
+                "  SELECT run_id, ROW_NUMBER() OVER (ORDER BY rank_date ASC) - 1 AS x_pos"
+                "  FROM ranking_runs WHERE status='success' ORDER BY rank_date DESC LIMIT 5"
+                "),"
+                "ticker_slopes AS ("
+                "  SELECT r.ticker,"
+                "    REGR_SLOPE(r.rank::double precision, rr.x_pos::double precision) AS rank_slope"
+                "  FROM rankings r JOIN recent_runs rr ON rr.run_id = r.run_id"
+                "  GROUP BY r.ticker"
+                "),"
+                "prior_ranks AS ("
+                "  SELECT ticker, rank AS prior_rank FROM rankings WHERE run_id = :prior_run_id"
+                "),"
+                "names AS ("
+                "  SELECT ticker, name, sector FROM universe_tickers"
+                "  WHERE snapshot_id = (SELECT MAX(id) FROM universe_snapshots)"
+                ")"
+                "SELECT r.ticker, r.rank, r.composite_score, r.percentile, r.regime, r.rank_date,"
+                "  r.factor_scores, ts.rank_slope, pr.prior_rank, n.name, n.sector "
+                "FROM rankings r "
+                "LEFT JOIN ticker_slopes ts ON ts.ticker = r.ticker "
+                "LEFT JOIN prior_ranks pr ON pr.ticker = r.ticker "
+                "LEFT JOIN names n ON n.ticker = r.ticker "
+                "WHERE r.run_id = :run_id AND UPPER(r.ticker) LIKE :pattern "
+                "ORDER BY r.rank ASC"
+            ),
+            {"run_id": latest_run_id, "prior_run_id": prior_run_id or latest_run_id,
+             "pattern": q + "%"},
+        )
+        ranking_rows = [dict(r) for r in rows.mappings()]
+        tickers = [r["ticker"] for r in ranking_rows]
+
+        vetter_by_ticker: dict[str, dict] = {}
+        if vetter_run_id and tickers:
+            vd_rows = await conn.execute(
+                text(
+                    "SELECT ticker, exclude, confidence, risk_type, reason, "
+                    "  positive_catalyst, positive_reason "
+                    "FROM vetter_decisions WHERE run_id = :rid AND ticker = ANY(:tickers)"
+                ),
+                {"rid": vetter_run_id, "tickers": tickers},
+            )
+            for v in vd_rows.mappings():
+                vetter_by_ticker[v["ticker"]] = dict(v)
+
+        all_broker_positions: dict[str, dict] = {}
+        if sync_run_id:
+            pos_rows = await conn.execute(
+                text(
+                    "SELECT lp.ticker, lp.qty, lp.market_value, lp.unrealized_plpc, "
+                    "  ut.name, ut.sector "
+                    "FROM live_positions lp "
+                    "LEFT JOIN universe_tickers ut ON ut.ticker = lp.ticker "
+                    "  AND ut.snapshot_id = (SELECT MAX(id) FROM universe_snapshots) "
+                    "WHERE lp.sync_run_id = :rid"
+                ),
+                {"rid": sync_run_id},
+            )
+            for p in pos_rows.mappings():
+                all_broker_positions[p["ticker"]] = {
+                    "qty": float(p["qty"]) if p["qty"] is not None else None,
+                    "market_value": float(p["market_value"]) if p["market_value"] is not None else None,
+                    "unrealized_plpc": float(p["unrealized_plpc"]) if p["unrealized_plpc"] is not None else None,
+                    "name": p["name"],
+                    "sector": p["sector"],
+                }
+
+        ranking_rows = _apply_overlays(
+            ranking_rows, vetter_by_ticker, all_broker_positions,
+            inject_unranked=True, query_prefix=q,
+        )
+
+    run_meta = None
+    if ranking_rows:
+        rd = ranking_rows[0]["rank_date"]
+        run_meta = {"run_id": latest_run_id,
+                    "rank_date": rd.isoformat() if hasattr(rd, "isoformat") else str(rd)}
+    return {
+        "count": len(ranking_rows),
+        "query": q,
+        "run": run_meta,
         "prior_run": {"run_id": prior_run_id} if prior_run_id else None,
         "vetter_run_id": vetter_run_id,
         "sync_run_id": sync_run_id,

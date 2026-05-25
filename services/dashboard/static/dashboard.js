@@ -10,6 +10,10 @@ let ordersData    = [];
 let rankSort  = { col: 'rank', dir: 1 };
 let liveSort  = { col: 'market_value', dir: -1 };
 
+let _searchMode    = false;   // true when showing API search results instead of top-N
+let _searchData    = [];      // rows returned by /rankings/search
+let _searchDebounce = null;   // setTimeout handle for debouncing keystrokes
+
 let _approvalState   = {};   // intent_id → { status, msg }
 let _expandedTicker  = null;
 let _pipelineData    = {};
@@ -266,6 +270,60 @@ async function loadRegime() {
   }
 }
 
+/* ── Rankings search ─────────────────────────────────────────────────── */
+function _mapRankRow(r) {
+  const fs = r.factor_scores || {};
+  return {
+    rank: r.rank, ticker: r.ticker, name: r.name || null,
+    composite_score: r.composite_score, percentile: r.percentile,
+    momentum: fs.momentum, quality: fs.quality, value: fs.value,
+    growth: fs.growth, low_volatility: fs.low_volatility, liquidity: fs.liquidity,
+    rank_date: r.rank_date, regime: r.regime,
+    rank_slope: r.rank_slope != null ? +r.rank_slope : null,
+    prior_rank: r.prior_rank != null ? +r.prior_rank : null,
+    held: !!r.held, qty: r.qty, market_value: r.market_value,
+    unrealized_plpc: r.unrealized_plpc,
+    vetter_excluded: !!r.vetter_excluded,
+    vetter_confidence: r.vetter_confidence,
+    vetter_risk_type: r.vetter_risk_type,
+    vetter_reason: r.vetter_reason,
+    positive_catalyst: !!r.positive_catalyst,
+    positive_reason: r.positive_reason,
+    not_in_universe: !!r.not_in_universe,
+  };
+}
+
+function onSearchInput() {
+  clearTimeout(_searchDebounce);
+  const q = ($('r-search').value || '').trim().toUpperCase();
+  if (!q) {
+    _searchMode = false;
+    _searchData = [];
+    renderRankings();
+    return;
+  }
+  // Show "searching…" immediately so the user gets feedback
+  $('r-count').textContent = 'searching…';
+  _searchDebounce = setTimeout(() => _doApiSearch(q), 300);
+}
+
+async function _doApiSearch(q) {
+  try {
+    const d = await fetch('/api/rankings/search?q=' + encodeURIComponent(q)).then(r => {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    });
+    _searchMode = true;
+    _searchData = (d.rankings || []).map(_mapRankRow);
+    renderRankings();
+  } catch (_) {
+    // On error fall back to client-side filter from loaded data
+    _searchMode = false;
+    _searchData = [];
+    renderRankings();
+  }
+}
+
 /* ── Rankings ────────────────────────────────────────────────────────── */
 async function loadRankings() {
   $('r-body').innerHTML = '<tr><td colspan="10" class="tbl-empty">Loading rankings&#8230;</td></tr>';
@@ -285,27 +343,10 @@ async function loadRankings() {
       return;
     }
     _rankingsLoadState = 'ok';
-    rankData = (d.rankings || []).map(r => {
-      const fs = r.factor_scores || {};
-      return {
-        rank: r.rank, ticker: r.ticker, name: r.name || null,
-        composite_score: r.composite_score, percentile: r.percentile,
-        momentum: fs.momentum, quality: fs.quality, value: fs.value,
-        growth: fs.growth, low_volatility: fs.low_volatility, liquidity: fs.liquidity,
-        rank_date: r.rank_date, regime: r.regime,
-        rank_slope: r.rank_slope != null ? +r.rank_slope : null,
-        prior_rank: r.prior_rank != null ? +r.prior_rank : null,
-        held: !!r.held, qty: r.qty, market_value: r.market_value,
-        unrealized_plpc: r.unrealized_plpc,
-        vetter_excluded: !!r.vetter_excluded,
-        vetter_confidence: r.vetter_confidence,
-        vetter_risk_type: r.vetter_risk_type,
-        vetter_reason: r.vetter_reason,
-        positive_catalyst: !!r.positive_catalyst,
-        positive_reason: r.positive_reason,
-        not_in_universe: !!r.not_in_universe,
-      };
-    });
+    rankData = (d.rankings || []).map(_mapRankRow);
+    // Clear any stale search state so the fresh top-N is shown
+    _searchMode = false;
+    _searchData = [];
     _expandedTicker = null;
     renderRankings();
   } catch (e) {
@@ -336,8 +377,14 @@ function renderRankings() {
   const q = ($('r-search').value || '').toUpperCase().trim();
   const onlyHeld = $('r-only-held') && $('r-only-held').checked;
   const hideExcl = $('r-hide-excl') && $('r-hide-excl').checked;
-  let rows = rankData.filter(r => {
-    if (q && !r.ticker.includes(q)) return false;
+
+  // In search mode the API already filtered by ticker prefix — only apply the
+  // held/excl toggles locally. Otherwise filter client-side from the top-N set.
+  const base = _searchMode ? _searchData : rankData.filter(r => {
+    if (q && !r.ticker.startsWith(q)) return false;
+    return true;
+  });
+  let rows = base.filter(r => {
     if (onlyHeld && !r.held) return false;
     if (hideExcl && r.vetter_excluded) return false;
     return true;
@@ -350,7 +397,9 @@ function renderRankings() {
     return (av < bv ? -1 : av > bv ? 1 : 0) * dir;
   });
   const maxComp = Math.max(...rows.map(r => +(r.composite_score) || 0));
-  $('r-count').textContent = rows.length + ' / ' + rankData.length;
+  $('r-count').textContent = _searchMode
+    ? rows.length + ' result' + (rows.length !== 1 ? 's' : '') + ' for ‘' + q + '’'
+    : rows.length + ' / ' + rankData.length;
   if (!rows.length) {
     _expandedTicker = null;
     $('r-body').innerHTML = '<tr><td colspan="10" class="tbl-empty">No results</td></tr>';

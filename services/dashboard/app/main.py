@@ -651,7 +651,7 @@ _HTML = r"""<!DOCTYPE html>
       </div>
 
       <div class="filter-bar sticky-bar">
-        <input type="search" id="r-search" placeholder="Search ticker&#8230;" oninput="renderRankings()">
+        <input type="search" id="r-search" placeholder="Search ticker&#8230;" oninput="onSearchInput()" onsearch="onSearchInput()">
         <label class="chk"><input type="checkbox" id="r-only-held" onchange="renderRankings()"> Held</label>
         <label class="chk"><input type="checkbox" id="r-hide-excl" onchange="renderRankings()"> Hide &#9888;</label>
         <span class="count-badge" id="r-count"></span>
