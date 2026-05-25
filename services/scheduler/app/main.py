@@ -208,15 +208,23 @@ async def _restore_force_pending() -> tuple[str | None, set[str]]:
 
 # ── Core helpers ──────────────────────────────────────────────────────────────
 
-async def _has_universe(client: httpx.AsyncClient) -> bool:
-    """Return True if av-ingestor reports a non-empty universe snapshot."""
+async def _has_universe(client: httpx.AsyncClient) -> Optional[bool]:
+    """Return True if universe is populated, False if definitively empty, None if unknown.
+
+    None means av-ingestor was unreachable or returned a non-200 response — the
+    caller must NOT treat this as "no universe" and trigger fetch-universe, because
+    doing so during av-ingestor's startup window causes a runaway trigger loop that
+    burns Alpha Vantage quota on redundant full-universe downloads.
+    """
     try:
         r = await client.get(f"{AV_INGESTOR_URL}/status", timeout=10.0)
         if r.status_code == 200:
             return (r.json().get("universe_tickers") or 0) > 0
+        # Non-200 (e.g. 500 during boot, 503, etc.) — service is up but not ready.
+        return None
     except Exception:
-        pass
-    return False
+        # Connection refused, timeout — service not reachable yet.
+        return None
 
 
 async def _get_latest_run_id(
@@ -405,9 +413,17 @@ async def _supervisor_tick() -> None:
             return
 
         async with httpx.AsyncClient() as client:
-            # Cold-start guard: if no universe, check previous fetch-universe outcome
-            # before deciding whether to trigger a new one.
-            if not await _has_universe(client):
+            # Cold-start guard: only trigger fetch-universe when the universe is
+            # DEFINITIVELY empty (HTTP 200, count=0). If av-ingestor is unreachable
+            # or returns a non-200 (still booting), wait for the next tick — treating
+            # "can't reach it" as "no universe" caused a runaway trigger loop that
+            # burned AV quota with redundant full-universe downloads on every restart.
+            has_univ = await _has_universe(client)
+            if has_univ is None:
+                _log("supervisor: av-ingestor unreachable or not ready — waiting for next tick")
+                return
+
+            if not has_univ:
                 try:
                     lr = await client.get(f"{AV_INGESTOR_URL}/runs/latest", timeout=10.0)
                     if lr.status_code == 200:
