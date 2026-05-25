@@ -418,9 +418,18 @@ async def pipeline_status():
             scheduler_chain_running = True
             _scheduler_running_steps = [k for k, v in (d7.get("steps") or {}).items() if v == "running"]
             if _scheduler_running_steps:
-                # Replace both hyphens and underscores so step names like
-                # "portfolio-builder" title-case correctly as "Portfolio Builder".
-                scheduler_step_label = _scheduler_running_steps[-1].replace("-", " ").replace("_", " ").title()
+                _sched_label_map = {
+                    "fetch-data":        "Fetching Data",
+                    "pipeline":          "Calculating Factors",
+                    "vet":               "Vetting",
+                    "portfolio-builder": "Building Portfolio",
+                    "delta":             "Evaluating Signals",
+                }
+                _sname = _scheduler_running_steps[-1]
+                scheduler_step_label = _sched_label_map.get(
+                    _sname,
+                    _sname.replace("-", " ").replace("_", " ").title(),
+                )
 
     universe_status = "none"
     d5 = r5.json() if (not isinstance(r5, dict) and r5.status_code == 200) else {}
@@ -465,13 +474,13 @@ async def pipeline_status():
         elif _pipeline_delta_status == "running":
             rank_step, rank_step_label, rank_pct = "delta", "Delta Engine", 95
         else:
-            rank_step, rank_step_label, rank_pct = "pipeline", "Starting", 30
+            rank_step, rank_step_label, rank_pct = "calc_factors", "Calculating Factors", 30
 
     orchestrator_running = scheduler_chain_running or _rank_chain_running
     if rank_status != "running" and orchestrator_running and not confirmed_terminal:
         rank_status = "running"
         rank_step = rank_step or "starting"
-        rank_step_label = rank_step_label or scheduler_step_label or "Starting"
+        rank_step_label = rank_step_label or scheduler_step_label or "Calculating Factors"
 
     if rank_status != "running":
         if pipeline_status_raw in ("success", "partial_success", "skipped"):

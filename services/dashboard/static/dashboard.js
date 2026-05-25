@@ -122,8 +122,10 @@ function updateStatusBar(d) {
     if (sl === 'Fetching Data')       { text = rank.pct != null ? 'FETCHING DATA  ' + rank.pct + '%' : 'FETCHING DATA'; textCls = 'sb-amber'; }
     else if (sl === 'Calculating Factors') { text = 'CALCULATING FACTORS'; textCls = 'sb-amber'; }
     else if (sl === 'Ranking')        { text = 'RANKING STOCKS'; textCls = 'sb-amber'; }
-    else if (sl.indexOf('Delta') !== -1) { text = 'EVALUATING SIGNALS'; textCls = 'sb-amber'; }
-    else                               { text = 'PROCESSING'; textCls = 'sb-amber'; }
+    else if (sl.indexOf('Delta') !== -1 || sl === 'Evaluating Signals') { text = 'EVALUATING SIGNALS'; textCls = 'sb-amber'; }
+    else if (sl === 'Building Portfolio') { text = 'BUILDING PORTFOLIO'; textCls = 'sb-blue'; }
+    else if (sl === 'Vetting')        { text = 'LLM ANALYSIS'; textCls = 'sb-purple'; }
+    else                               { text = 'PIPELINE RUNNING'; textCls = 'sb-amber'; }
   } else if (universe.status === 'running') {
     text = 'FETCHING UNIVERSE'; textCls = 'sb-blue';
   } else if (universe.status === 'failed') {
