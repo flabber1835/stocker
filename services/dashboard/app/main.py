@@ -465,7 +465,7 @@ async def pipeline_status():
         elif _pipeline_delta_status == "running":
             rank_step, rank_step_label, rank_pct = "delta", "Delta Engine", 95
         else:
-            rank_step, rank_step_label, rank_pct = "pipeline", "Pipeline Running", 60
+            rank_step, rank_step_label, rank_pct = "pipeline", "Starting", 30
 
     orchestrator_running = scheduler_chain_running or _rank_chain_running
     if rank_status != "running" and orchestrator_running and not confirmed_terminal:

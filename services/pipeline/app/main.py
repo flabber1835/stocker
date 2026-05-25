@@ -1794,12 +1794,11 @@ async def _run_pipeline_steps(
         async with engine.begin() as conn:
             await _update_pipeline_run(conn, run_id,
                                        factor_run_id=factor_run_id,
-                                       factor_status="success")
+                                       factor_status="success",
+                                       ranking_status="running")
 
         # ── Step 2: ranking ───────────────────────────────────────────────────
         print(f"[pipeline] run {run_id}: starting ranking", flush=True)
-        async with engine.begin() as conn:
-            await _update_pipeline_run(conn, run_id, ranking_status="running")
 
         # Get regime from the factor run we just completed
         async with engine.connect() as conn:
