@@ -492,7 +492,15 @@ async def _supervisor_tick() -> None:
                 # state == "idle" — trigger this step and wait for the next tick
                 _chain_status["status"] = "running"
                 await _trigger_step(client, step)
-                await _db_update_run(run_id, "running", _chain_status["steps"], _chain_status["run_ids"])
+                # Discard from _force_pending: triggering an "idle" step IS the
+                # re-run for that step, so when it eventually becomes "done" the
+                # supervisor must not force-trigger it a second time.  Without this,
+                # fetch-data would run twice on first-of-day manual runs (once from
+                # "idle", once from the done+force_pending branch), causing "Fetching
+                # Data" to reappear after trading proposals had already loaded.
+                _force_pending.discard(step.name)
+                await _db_update_run(run_id, "running", _chain_status["steps"], _chain_status["run_ids"],
+                                     force_pending=_force_pending)
                 return
 
             # All steps done

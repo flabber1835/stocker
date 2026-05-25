@@ -411,13 +411,16 @@ async def pipeline_status():
 
     scheduler_chain_running = False
     scheduler_step_label = None
+    _scheduler_running_steps: list[str] = []
     if not isinstance(r7, dict) and r7.status_code == 200:
         d7 = r7.json()
         if d7.get("status") == "running":
             scheduler_chain_running = True
-            running_steps = [k for k, v in (d7.get("steps") or {}).items() if v == "running"]
-            if running_steps:
-                scheduler_step_label = running_steps[-1].replace("_", " ").title()
+            _scheduler_running_steps = [k for k, v in (d7.get("steps") or {}).items() if v == "running"]
+            if _scheduler_running_steps:
+                # Replace both hyphens and underscores so step names like
+                # "portfolio-builder" title-case correctly as "Portfolio Builder".
+                scheduler_step_label = _scheduler_running_steps[-1].replace("-", " ").replace("_", " ").title()
 
     universe_status = "none"
     d5 = r5.json() if (not isinstance(r5, dict) and r5.status_code == 200) else {}
@@ -506,6 +509,13 @@ async def pipeline_status():
             portfolio_status = "success"
     elif port_date:
         portfolio_status = "success"
+
+    # The portfolio-builder's /runs/latest orders by completed_at DESC NULLS LAST,
+    # so a newly-started in-progress run sorts AFTER the previous completed run.
+    # That means portfolio_status stays "success" even while a new build is running.
+    # Override it to "running" when the scheduler confirms portfolio-builder is active.
+    if scheduler_chain_running and "portfolio-builder" in _scheduler_running_steps:
+        portfolio_status = "running"
 
     rank_warning, vet_warning, port_warning = _compute_pipeline_warnings(
         uni_fetched_at, rank_completed_at, vet_completed_at, port_completed_at
