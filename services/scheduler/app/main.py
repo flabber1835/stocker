@@ -421,6 +421,7 @@ async def _supervisor_tick() -> None:
             has_univ = await _has_universe(client)
             if has_univ is None:
                 _log("supervisor: av-ingestor unreachable or not ready — waiting for next tick")
+                _chain_status["status"] = "running"
                 return
 
             if not has_univ:

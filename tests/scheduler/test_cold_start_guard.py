@@ -68,6 +68,15 @@ from app.main import _supervisor_tick, _chain_status, _force_pending  # noqa: E4
 
 # (has_universe, last_job_type, last_status, expected_action, label)
 COLD_START_DECISION_TABLE = [
+    # has_universe=None → av-ingestor unreachable / still booting → WAIT silently.
+    # REGRESSION: before the fix, None was impossible (_has_universe returned False
+    # on all errors), so the supervisor fell into the cold-start branch and triggered
+    # fetch-universe on every tick until av-ingestor booted — burning AV quota.
+    (None,  "fetch-universe",     "success",  "WAIT",    "REGRESSION: wait when av-ingestor unreachable (last=fetch-universe success)"),
+    (None,  "fetch-universe",     "running",  "WAIT",    "REGRESSION: wait when av-ingestor unreachable (last=fetch-universe running)"),
+    (None,  "fetch-data",         "success",  "WAIT",    "REGRESSION: wait when av-ingestor unreachable (last=fetch-data)"),
+    (None,  None,                 None,       "WAIT",    "REGRESSION: wait when av-ingestor unreachable (no prior runs)"),
+
     # has_universe=True → guard does not fire, chain advances normally (SKIP)
     (True,  "fetch-universe",     "success",  "SKIP",    "skip when universe exists, last=fetch-universe success"),
     (True,  "fetch-universe",     "running",  "SKIP",    "skip when universe exists, last=fetch-universe running"),
