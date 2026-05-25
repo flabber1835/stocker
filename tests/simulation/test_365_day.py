@@ -456,17 +456,24 @@ def seed_era_rankings(
     small_caps_rank_start: int = 35,
     nvda_flag: bool = False,
     completed_at_offset_secs: int = 0,
+    completed_at: Optional[datetime] = None,
 ) -> tuple[str, str]:
     """
     Manually seed factor_runs + factor_scores + ranking_runs + rankings
     for a given era (used for Eras 1 and 2 which don't run the live pipeline).
+
+    Pass completed_at explicitly to ensure correct ordering relative to the
+    live pipeline run — the delta engine selects history by completed_at DESC.
 
     Returns (factor_run_id, ranking_run_id).
     """
     factor_run_id  = str(uuid.uuid4())
     ranking_run_id = str(uuid.uuid4())
     era_iso        = era_date.isoformat()
-    completed      = datetime.now(timezone.utc) - timedelta(seconds=completed_at_offset_secs)
+    if completed_at is not None:
+        completed = completed_at
+    else:
+        completed = datetime.now(timezone.utc) - timedelta(seconds=completed_at_offset_secs)
 
     # Bear-stress re-ranking: quality stocks move up, momentum stocks fall
     _BEAR_BOOST = {  # rank adjustment for bear_stress (neg = moves up)
@@ -726,28 +733,57 @@ def run_portfolio_builder(label: str = "portfolio-builder") -> Optional[dict]:
 
 
 def run_delta(label: str = "delta") -> Optional[dict]:
+    """Trigger a standalone delta run and wait for it to complete.
+
+    Returns a dict with 'status' and 'run_id' (the delta_runs.run_id so the
+    caller can fetch the right intents even if the scheduler fires a competing
+    run concurrently).
+    """
+    # Record the wall-clock time just before we fire so we can identify OUR run
+    triggered_at = datetime.now(timezone.utc)
+
     r = requests.post(f"{PIPELINE_URL}/jobs/delta", timeout=30)
     if r.status_code not in (200, 201, 202):
         fail(f"{label}: trigger HTTP {r.status_code}")
         return None
-    time.sleep(8)   # delta is fast, give it time
-    result = _wait_for_run(PIPELINE_URL, label, timeout=60)
-    if result and result.get("status") == "success":
-        ok(label)
-    elif result:
-        fail(label, f"status={result.get('status')}")
-    return result
+
+    # Poll delta_runs directly (not /runs/latest which can reflect a competing
+    # pipeline_run's delta) until a run started_at >= triggered_at reaches a
+    # terminal state.
+    deadline = time.time() + 90
+    result_run_id = None
+    while time.time() < deadline:
+        time.sleep(2)
+        row = _fetchone(
+            "SELECT run_id, status, entries_count, exits_count FROM delta_runs "
+            "WHERE started_at >= %s "
+            "  AND status != 'running' "
+            "ORDER BY started_at DESC LIMIT 1",
+            (triggered_at,),
+        )
+        if row:
+            result_run_id = str(row["run_id"])
+            if row["status"] == "success":
+                ok(label, f"run_id={result_run_id[:8]}")
+                return {"status": "success", "run_id": result_run_id}
+            else:
+                fail(label, f"status={row['status']}")
+                return {"status": row["status"], "run_id": result_run_id}
+
+    fail(f"{label}: timed out waiting for delta_run after trigger")
+    return None
 
 
-def get_latest_intents() -> List[dict]:
-    """Fetch delta_intents from the most recent delta_run."""
-    rows = _fetchone(
-        "SELECT run_id FROM delta_runs WHERE status='success' "
-        "ORDER BY started_at DESC LIMIT 1"
-    )
-    if not rows:
-        return []
-    delta_run_id = rows["run_id"]
+def get_latest_intents(delta_run_id: Optional[str] = None) -> List[dict]:
+    """Fetch delta_intents from the given delta_run (or the most recent one)."""
+    if delta_run_id is None:
+        rows = _fetchone(
+            "SELECT run_id FROM delta_runs WHERE status='success' "
+            "ORDER BY started_at DESC LIMIT 1"
+        )
+        if not rows:
+            return []
+        delta_run_id = str(rows["run_id"])
     with _conn() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT id, ticker, action, rank, current_weight, actual_weight, weight_drift, reason "
@@ -938,6 +974,30 @@ def get_portfolio_holdings(run_id: Optional[str] = None) -> List[dict]:
 
 # ── Main simulation ───────────────────────────────────────────────────────────
 
+def _clean_test_data() -> None:
+    """Truncate all tables that accumulate across test runs so each run is isolated."""
+    tables = [
+        "execution_steps", "execution_traces",
+        "alpaca_orders", "risk_decisions",
+        "delta_intents", "delta_runs",
+        "live_positions", "alpaca_sync_runs",
+        "portfolio_holdings", "portfolio_runs",
+        "vetter_exclusions", "vetter_decisions", "vetter_runs",
+        "rankings", "ranking_runs",
+        "factor_scores", "factor_runs", "regime_snapshots",
+        "pipeline_runs",
+        "fundamentals",
+        "daily_prices",
+        "universe_tickers", "universe_snapshots",
+        "scheduler_runs",
+    ]
+    with _conn() as conn, conn.cursor() as cur:
+        for tbl in tables:
+            cur.execute(f"TRUNCATE TABLE {tbl} CASCADE")
+        conn.commit()
+    print("  ♻  Database cleaned for fresh simulation run")
+
+
 def main() -> int:
     print("""
 ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -947,6 +1007,7 @@ def main() -> int:
 ║      Consecutive risk · Random risk · Empty account · Zero buying power      ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """)
+    _clean_test_data()
 
     # ─────────────────────────────────────────────────────────────────────────
     # PHASE 0: Data seeding
