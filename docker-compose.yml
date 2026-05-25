@@ -464,6 +464,30 @@ services:
       retries: 5
       start_period: 20s
 
+  # ── Playwright status monitor ─────────────────────────────────────────────────
+  # Optional service: monitors the dashboard status bar after triggering a manual
+  # run. Screenshots and a JSON event log are written to ./artifacts/monitor/.
+  # Start with: docker compose run --rm playwright-monitor
+  # Or keep running: set PLAYWRIGHT_MONITOR=true in .env before `docker compose up`
+  playwright-monitor:
+    profiles:
+      - monitor
+    build:
+      context: .
+      dockerfile: services/playwright-monitor/Dockerfile
+      network: host
+    environment:
+      DASHBOARD_URL:          http://dashboard:8000
+      MONITOR_TIMEOUT_MINS:   ${MONITOR_TIMEOUT_MINS:-90}
+      POLL_SECS:              ${MONITOR_POLL_SECS:-2.0}
+      ARTIFACTS_DIR:          /artifacts/monitor
+    volumes:
+      - ./artifacts:/artifacts
+    depends_on:
+      dashboard:
+        condition: service_healthy
+    restart: "no"
+
 volumes:
   pgdata:
   redis_data:

@@ -896,3 +896,146 @@ class TestPipelineAlsoAcceptPrev:
             f"On holiday {monday_holiday!r}, pipeline run_date={friday!r} "
             f"(=trading_day) should be 'done'; got {result!r}"
         )
+
+
+# ── TestPipelinePriorityOverAvIngestor ────────────────────────────────────────
+
+class TestPipelinePriorityOverAvIngestor:
+    """
+    Regression: pipeline status must take priority over av-ingestor status.
+
+    Bug: when av-ingestor fetch-data is still being polled as "running" AND
+    the pipeline has already started (auto-triggered by the Redis stream), the
+    av-ingestor check ran first and locked rank_step_label to "Fetching Data".
+    The pipeline check was guarded by `rank_status != "running"`, which was
+    already False, so it never fired.
+
+    Fix: check pipeline FIRST; only fall back to av-ingestor when pipeline
+    hasn't started yet.
+    """
+
+    def test_pipeline_running_beats_av_ingestor_running(self):
+        """
+        When BOTH av-ingestor fetch-data AND pipeline are running simultaneously,
+        the label must be 'Calculating Factors', not 'Fetching Data'.
+        """
+        result = _call_pipeline_status(
+            pipeline_status_raw="running",
+            pipeline_factor_status="running",
+            av_ingestor_data={"status": "running", "job_type": "fetch-data",
+                              "tickers_done": 50, "total_tickers": 100},
+            rank_chain_running=True,
+        )
+        rank = result.get("rank", {})
+        assert rank.get("status") == "running"
+        assert rank.get("step_label") == "Calculating Factors", (
+            "When pipeline is running, it must take priority over av-ingestor; "
+            f"got step_label={rank.get('step_label')!r}"
+        )
+
+    def test_fetching_data_only_when_pipeline_not_started(self):
+        """
+        When av-ingestor is running fetch-data but pipeline has NOT started,
+        'Fetching Data' is the correct label.
+        """
+        result = _call_pipeline_status(
+            pipeline_status_raw=None,    # pipeline not started
+            av_ingestor_data={"status": "running", "job_type": "fetch-data",
+                              "tickers_done": 10, "total_tickers": 100},
+            rank_chain_running=True,
+        )
+        rank = result.get("rank", {})
+        assert rank.get("status") == "running"
+        assert rank.get("step_label") == "Fetching Data", (
+            "When only av-ingestor is running, label must be 'Fetching Data'; "
+            f"got {rank.get('step_label')!r}"
+        )
+
+    def test_pipeline_done_av_ingestor_done_not_fetching(self):
+        """
+        After both complete, must NOT show 'Fetching Data'.
+        """
+        result = _call_pipeline_status(
+            pipeline_status_raw="success",
+            av_ingestor_data={"status": "success", "job_type": "fetch-data"},
+            rank_chain_running=False,
+        )
+        rank = result.get("rank", {})
+        assert rank.get("step_label") != "Fetching Data", (
+            f"After completion, step_label should not be 'Fetching Data'; "
+            f"got {rank.get('step_label')!r}"
+        )
+
+
+# ── TestBetweenStepNullInference ──────────────────────────────────────────────
+
+class TestBetweenStepNullInference:
+    """
+    Regression: between-step inference must show the NEXT step even when the
+    scheduler hasn't polled it yet (state is null/None in the dict).
+
+    Before the fix, the between-step logic skipped null states (treating them
+    like "done"), falling through to "Running" when fetch-data was "done" but
+    pipeline was null — the label would show 'PIPELINE RUNNING' instead of
+    'Calculating Factors' for up to 5 minutes (one scheduler tick interval).
+
+    After the fix: find the last "done" step and show the NEXT step in the
+    chain regardless of its current state.
+    """
+
+    def test_pipeline_null_after_fetch_data_done_shows_calculating(self):
+        """
+        fetch-data='done', pipeline=null → inferred label must be 'Calculating Factors'.
+        """
+        result = _call_pipeline_status(
+            pipeline_status_raw=None,
+            scheduler_data={
+                "status": "running",
+                "steps": {"fetch-data": "done"},   # pipeline not in dict yet
+            },
+            rank_chain_running=True,
+        )
+        rank = result.get("rank", {})
+        label = rank.get("step_label")
+        assert label == "Calculating Factors", (
+            "When fetch-data is 'done' and pipeline is null, the inferred label "
+            f"must be 'Calculating Factors'; got {label!r}"
+        )
+
+    def test_vet_null_after_pipeline_done_shows_vetting(self):
+        """
+        pipeline='done', vet=null → inferred label must be 'Vetting'.
+        """
+        result = _call_pipeline_status(
+            pipeline_status_raw="success",
+            scheduler_data={
+                "status": "running",
+                "steps": {"fetch-data": "done", "pipeline": "done"},
+            },
+            rank_chain_running=True,
+        )
+        rank = result.get("rank", {})
+        label = rank.get("step_label")
+        assert label == "Vetting", (
+            "When pipeline is 'done' and vet is null, the inferred label "
+            f"must be 'Vetting'; got {label!r}"
+        )
+
+    def test_portfolio_null_after_vet_done_shows_building(self):
+        """
+        vet='done', portfolio-builder=null → inferred label must be 'Building Portfolio'.
+        """
+        result = _call_pipeline_status(
+            pipeline_status_raw="success",
+            scheduler_data={
+                "status": "running",
+                "steps": {"fetch-data": "done", "pipeline": "done", "vet": "done"},
+            },
+            rank_chain_running=True,
+        )
+        rank = result.get("rank", {})
+        label = rank.get("step_label")
+        assert label == "Building Portfolio", (
+            "When vet is 'done' and portfolio-builder is null, the inferred label "
+            f"must be 'Building Portfolio'; got {label!r}"
+        )

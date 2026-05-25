@@ -433,13 +433,24 @@ async def pipeline_status():
                     _sname.replace("-", " ").replace("_", " ").title(),
                 )
             else:
-                # Between steps: infer from the first non-done step
+                # Between steps: find the step after the last "done" step.
+                # This handles the gap where fetch-data is "done" but pipeline
+                # hasn't been polled yet (its state is null in the dict).
                 _step_order = ["fetch-data", "pipeline", "vet", "portfolio-builder", "delta"]
-                for _sname in _step_order:
-                    _sstate = step_states.get(_sname)
-                    if _sstate not in ("done", None):
-                        scheduler_step_label = _sched_label_map.get(_sname, "Running")
-                        break
+                _last_done = -1
+                for _idx, _sname in enumerate(_step_order):
+                    if step_states.get(_sname) == "done":
+                        _last_done = _idx
+                if _last_done >= 0 and _last_done < len(_step_order) - 1:
+                    _next = _step_order[_last_done + 1]
+                    scheduler_step_label = _sched_label_map.get(_next, "Running")
+                else:
+                    # No "done" steps yet — check for any non-null/non-done state
+                    for _sname in _step_order:
+                        _sstate = step_states.get(_sname)
+                        if _sstate not in ("done", None):
+                            scheduler_step_label = _sched_label_map.get(_sname, "Running")
+                            break
                 if scheduler_step_label is None:
                     scheduler_step_label = "Running"
 
@@ -468,16 +479,11 @@ async def pipeline_status():
         and not _rank_chain_running
     )
 
-    if not confirmed_terminal and d5 and d5.get("status") == "running" and d5.get("job_type") == "fetch-data":
-        rank_status = "running"
-        rank_step = "fetch_data"
-        rank_step_label = "Fetching Data"
-        done = d5.get("tickers_done", 0)
-        total = d5.get("total_tickers") or 0
-        if total > 0:
-            rank_pct = round(done / total * 80)
-
-    if not confirmed_terminal and rank_status != "running" and pipeline_status_raw == "running":
+    # Pipeline check runs FIRST: when the pipeline auto-triggers from the Redis
+    # stream, it can overlap with av-ingestor still being polled as "running".
+    # Checking pipeline first prevents "Fetching Data" from overriding "Calculating
+    # Factors" during that overlap window.
+    if not confirmed_terminal and pipeline_status_raw == "running":
         rank_status = "running"
         if _pipeline_factor_status == "running":
             rank_step, rank_step_label, rank_pct = "calc_factors", "Calculating Factors", 50
@@ -487,6 +493,16 @@ async def pipeline_status():
             rank_step, rank_step_label, rank_pct = "delta", "Delta Engine", 95
         else:
             rank_step, rank_step_label, rank_pct = "calc_factors", "Calculating Factors", 30
+
+    # Only show "Fetching Data" if the pipeline hasn't started yet.
+    if not confirmed_terminal and rank_status != "running" and d5 and d5.get("status") == "running" and d5.get("job_type") == "fetch-data":
+        rank_status = "running"
+        rank_step = "fetch_data"
+        rank_step_label = "Fetching Data"
+        done = d5.get("tickers_done", 0)
+        total = d5.get("total_tickers") or 0
+        if total > 0:
+            rank_pct = round(done / total * 80)
 
     orchestrator_running = scheduler_chain_running or _rank_chain_running
     if rank_status != "running" and orchestrator_running and not confirmed_terminal:

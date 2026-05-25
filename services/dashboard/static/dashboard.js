@@ -199,7 +199,10 @@ function updatePipelineBar(rank, vetter) {
   // needs a moment to start the new run; without this guard the first status poll
   // (which still sees the previous run's "success") would re-enable the button.
   const recentlyRequested = (Date.now() - _runRequestedAt) < RUN_LOCK_MS;
-  const showAsRunning = running || (vetRunning && !success && !failed) || recentlyRequested;
+  // Don't let recentlyRequested keep the bar "running" if the pipeline already
+  // reached a terminal state — a fast run that completes within 30 s would
+  // otherwise show "QUEUED…" instead of "READY".
+  const showAsRunning = running || (vetRunning && !success && !failed) || (recentlyRequested && !success && !failed);
   dot.className   = 'pb-dot'   + (showAsRunning ? ' running' : success ? ' success' : failed ? ' failed' : '');
   label.className = 'pb-label' + (showAsRunning ? ' running' : success ? ' success' : failed ? ' failed' : '');
 
