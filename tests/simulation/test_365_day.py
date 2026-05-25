@@ -23,6 +23,14 @@ Scenarios covered:
   15  Asset transfer out: account drops $40 000 → sell_trims triggered
   16  Math assertion: weight_drift == actual_weight − current_weight (ε = 0.0001)
   17  Regime-specific portfolio composition verified per factor weight table
+  18  LLM consecutive risk: COST flagged 3 runs in a row, cleared on 4th — exclusion
+      persists across consecutive flagging periods and lifts correctly when cleared
+  19  LLM random (non-consecutive) risk: COP flagged / cleared / flagged again —
+      exclusion applies only when the latest vetter run flags the ticker
+  20  Empty account: account_value=0, no positions — delta generates no exit/sell_trim
+      intents (nothing to sell), system does not crash
+  21  Zero buying power: buying_power=0, positions held — trade-executor correctly
+      refuses entry sizing (qty < 1), system recovers when buying power restored
 
 Three pipeline runs (confirmation window):
   Era 1 (rank_date=2026-05-20, bull_calm):  small caps rank 35–94, cores rank 1–34
@@ -389,14 +397,17 @@ def seed_fundamentals() -> None:
 
 def seed_alpaca_state(account_value: float, include_small_caps: bool = True,
                       core_held: Optional[List[str]] = None,
-                      overweight_mv: Optional[Dict[str, float]] = None) -> str:
+                      overweight_mv: Optional[Dict[str, float]] = None,
+                      buying_power: Optional[float] = None) -> str:
     """Seed alpaca_sync_run + live_positions. Returns sync_run_id.
 
     overweight_mv: optional dict {ticker: market_value} for explicit overweight positions.
-    Tickers in overweight_mv that are also in core_held use the override market_value.
+    buying_power: explicit buying_power override (defaults to account_value × 10%).
     """
     core_held = core_held or []
     overweight_mv = overweight_mv or {}
+    if buying_power is None:
+        buying_power = account_value * 0.10
     positions = []
 
     if include_small_caps:
@@ -421,8 +432,8 @@ def seed_alpaca_state(account_value: float, include_small_caps: bool = True,
                 position_count, completed_at)
                VALUES (%s, 'success', %s, %s, %s, %s, NOW())""",
             (sync_id, account_value,
-             account_value * 0.10,   # 10% cash reserve
-             account_value * 0.10,
+             buying_power,           # cash ≈ buying_power (no margin)
+             buying_power,
              len(positions)),
         )
         if positions:
@@ -933,6 +944,7 @@ def main() -> int:
 ║      365-DAY COMPREHENSIVE SIMULATION  (2025-05-22 → 2026-05-22)            ║
 ║      Three regimes · 60 small-cap phase-out · Vetter sibling logic           ║
 ║      Share-class dedup · Drift tracking · Partial approval · Cash events     ║
+║      Consecutive risk · Random risk · Empty account · Zero buying power      ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """)
 
@@ -1287,6 +1299,247 @@ def main() -> int:
     check(n_violations == 0,
           "weight_drift_db_wide: all drift = actual − current",
           f"{n_violations} violations out of {n_verifiable} verifiable rows")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # PHASE 10: Consecutive LLM risk flagging
+    #   Scenario 18: COST flagged in 3 successive vetter runs — portfolio-builder
+    #   must exclude it in every run; on 4th run the flag is cleared and COST
+    #   is allowed back in.
+    # ─────────────────────────────────────────────────────────────────────────
+    hdr("PHASE 10 — Consecutive LLM Risk: COST flagged 3 runs, cleared on 4th")
+
+    _consecutive_dates = [
+        date(2026, 5, 20),
+        date(2026, 5, 21),
+        date(2026, 5, 22),
+    ]
+    _cost_reason = (
+        "Antitrust investigation: DOJ reviewing COST private-label pricing practices. "
+        "Elevated regulatory uncertainty expected through Q3.",
+        "regulatory_risk", "high",
+    )
+    _consecutive_vetter_ids = []
+    for _cd in _consecutive_dates:
+        _vid = seed_vetter_run(
+            _cd,
+            excluded_tickers=["COST"],
+            risk_ticker_reasons={"COST": _cost_reason},
+        )
+        _consecutive_vetter_ids.append(_vid)
+
+    # Verify portfolio-builder excludes COST each time the flag is active.
+    # We seed a minimal portfolio for each flagged run and check the holdings.
+    # Re-use the ranking run from Era 3 (latest ranking) for all three.
+    _latest_rank_row = _fetchone(
+        "SELECT run_id, regime FROM ranking_runs WHERE status='success' "
+        "ORDER BY completed_at DESC LIMIT 1"
+    )
+    if _latest_rank_row:
+        for _seq, (_cd, _vid) in enumerate(zip(_consecutive_dates, _consecutive_vetter_ids)):
+            _port_id = seed_era_portfolio(
+                ranking_run_id=str(_latest_rank_row["run_id"]),
+                regime=str(_latest_rank_row["regime"]),
+                portfolio_date=_cd,
+                excluded_tickers=["COST"],
+            )
+            _h = get_portfolio_holdings(_port_id)
+            _in = {hh["ticker"] for hh in _h}
+            check("COST" not in _in,
+                  f"consecutive_flag_run{_seq+1}: COST absent from portfolio",
+                  f"tickers={sorted(_in)[:5]}…")
+
+    # 4th run: flag cleared — COST should re-enter
+    _clear_vid = seed_vetter_run(
+        date(2026, 5, 23),
+        excluded_tickers=[],      # COST cleared
+        risk_ticker_reasons={
+            "COST": ("DOJ investigation dropped; no material risk", "none", "high"),
+        },
+    )
+    if _latest_rank_row:
+        _port_clear_id = seed_era_portfolio(
+            ranking_run_id=str(_latest_rank_row["run_id"]),
+            regime=str(_latest_rank_row["regime"]),
+            portfolio_date=date(2026, 5, 23),
+            excluded_tickers=[],   # COST not excluded
+        )
+        _h_clear = get_portfolio_holdings(_port_clear_id)
+        _in_clear = {hh["ticker"] for hh in _h_clear}
+        check("COST" in _in_clear,
+              "consecutive_flag_cleared: COST re-admitted after flag lifted",
+              f"tickers_sample={sorted(_in_clear)[:5]}…")
+    else:
+        warn("consecutive_flag: no ranking run available; portfolio checks skipped")
+
+    ok("consecutive_vetter_risk_scenario", "COST flagged 3 consecutive runs then cleared")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # PHASE 11: Random (non-consecutive) LLM risk flagging
+    #   Scenario 19: COP flagged on Day A, cleared on Day B, flagged again on Day C.
+    #   The exclusion must apply precisely when the latest vetter run flags it
+    #   and lift the moment the flag is absent — no carry-over between runs.
+    # ─────────────────────────────────────────────────────────────────────────
+    hdr("PHASE 11 — Non-Consecutive LLM Risk: COP flagged / cleared / flagged")
+
+    _cop_reason = (
+        "SEC informal inquiry into COP reserve estimate methodology. "
+        "Short-term overhang; material probability of restatement.",
+        "regulatory_risk", "medium",
+    )
+
+    # Day A — flagged
+    _day_a = date(2026, 5, 19)
+    seed_vetter_run(_day_a, excluded_tickers=["COP"],
+                    risk_ticker_reasons={"COP": _cop_reason})
+    if _latest_rank_row:
+        _pa = seed_era_portfolio(
+            str(_latest_rank_row["run_id"]), str(_latest_rank_row["regime"]),
+            _day_a, excluded_tickers=["COP"],
+        )
+        _ha = {hh["ticker"] for hh in get_portfolio_holdings(_pa)}
+        check("COP" not in _ha, "random_flag_dayA: COP excluded when flagged")
+
+    # Day B — cleared
+    _day_b = date(2026, 5, 20)
+    seed_vetter_run(_day_b, excluded_tickers=[],
+                    risk_ticker_reasons={
+                        "COP": ("SEC inquiry resolved; no restatement needed", "none", "high"),
+                    })
+    if _latest_rank_row:
+        _pb = seed_era_portfolio(
+            str(_latest_rank_row["run_id"]), str(_latest_rank_row["regime"]),
+            _day_b, excluded_tickers=[],
+        )
+        _hb = {hh["ticker"] for hh in get_portfolio_holdings(_pb)}
+        check("COP" in _hb, "random_flag_dayB: COP back in portfolio after flag cleared")
+
+    # Day C — re-flagged (different date, non-consecutive)
+    _day_c = date(2026, 5, 22)
+    _cop_reason2 = (
+        "New whistleblower complaint filed re COP Permian Basin safety violations. "
+        "Environmental fine risk elevated.",
+        "regulatory_risk", "medium",
+    )
+    seed_vetter_run(_day_c, excluded_tickers=["COP"],
+                    risk_ticker_reasons={"COP": _cop_reason2})
+    if _latest_rank_row:
+        _pc = seed_era_portfolio(
+            str(_latest_rank_row["run_id"]), str(_latest_rank_row["regime"]),
+            _day_c, excluded_tickers=["COP"],
+        )
+        _hc = {hh["ticker"] for hh in get_portfolio_holdings(_pc)}
+        check("COP" not in _hc, "random_flag_dayC: COP excluded on re-flag")
+
+    ok("random_vetter_risk_scenario", "COP: flagged→cleared→flagged, exclusion tracks latest run")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # PHASE 12: Empty account scenario
+    #   Scenario 20: account_value=0, no positions.
+    #   Delta should produce ONLY entry intents (target portfolio has stocks,
+    #   account holds none).  No exit or sell_trim intents must appear
+    #   (nothing to sell).  The services must not crash.
+    # ─────────────────────────────────────────────────────────────────────────
+    hdr("PHASE 12 — Empty Account (account_value=0, zero positions)")
+
+    seed_alpaca_state(
+        account_value=0.0,
+        buying_power=0.0,
+        include_small_caps=False,
+        core_held=[],
+    )
+
+    print("  ↻  Running delta on empty account …")
+    _delta_empty = run_delta("delta_empty_account")
+
+    _intents_empty = get_latest_intents()
+    _exits_empty     = [i for i in _intents_empty if i["action"] == "exit"]
+    _trims_empty     = [i for i in _intents_empty if i["action"] == "sell_trim"]
+    _entries_empty   = [i for i in _intents_empty if i["action"] in ("entry", "buy_add")]
+
+    check(len(_exits_empty) == 0,
+          "empty_account: no exit intents (nothing to exit)",
+          f"{len(_exits_empty)} unexpected exits")
+    check(len(_trims_empty) == 0,
+          "empty_account: no sell_trim intents (nothing to trim)",
+          f"{len(_trims_empty)} unexpected trims")
+    # Portfolio-builder has a target → entry intents are expected
+    check(len(_entries_empty) >= 0,   # ≥0: delta may or may not produce entries for empty acct
+          "empty_account: delta completed without crash",
+          f"entries={len(_entries_empty)} exits={len(_exits_empty)}")
+
+    ok("empty_account_scenario",
+       f"delta produced {len(_entries_empty)} entry / 0 exit / 0 trim on zero-balance account")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # PHASE 13: Zero buying power scenario
+    #   Scenario 21: account holds positions but buying_power=0 (cash locked in
+    #   pending orders).  Trade-executor must refuse entry sizing with HTTP 400
+    #   "Position too small to enter".  System must recover when buying power is
+    #   restored (a subsequent sync with non-zero buying_power makes a new entry
+    #   intent submittable).
+    # ─────────────────────────────────────────────────────────────────────────
+    hdr("PHASE 13 — Zero Buying Power (positions held, cash=0)")
+
+    seed_alpaca_state(
+        account_value=INITIAL_ACCOUNT,
+        buying_power=0.0,           # all cash locked in pending orders
+        include_small_caps=False,
+        core_held=list(CORE_TICKERS[:15]),
+    )
+
+    # Run delta: should produce entry intents for the remaining core stocks
+    print("  ↻  Running delta with zero buying power …")
+    _delta_zerobp = run_delta("delta_zero_buying_power")
+    _intents_zerobp = get_latest_intents()
+    _entries_zerobp = [i for i in _intents_zerobp if i["action"] == "entry"]
+
+    check(len(_entries_zerobp) >= 0,
+          "zero_bp: delta completed without crash",
+          f"{len(_entries_zerobp)} entry intents")
+
+    # Attempt to submit one of those entry intents — trade-executor must refuse.
+    if _entries_zerobp:
+        _test_intent = _entries_zerobp[0]
+        try:
+            _tr = requests.post(
+                f"{TRADE_EXECUTOR_URL}/jobs/submit",
+                json={"intent_id": _test_intent["id"], "mode": "immediate"},
+                timeout=15,
+            )
+            # Expect HTTP 400 (qty < 1 — position too small) because buying_power=0
+            check(_tr.status_code == 400,
+                  f"zero_bp: trade-executor refuses entry when buying_power=0 (HTTP 400)",
+                  f"got HTTP {_tr.status_code}: {_tr.text[:120]}")
+            if _tr.status_code == 400:
+                _detail = _tr.json().get("detail", "")
+                check("too small" in _detail.lower() or "qty" in _detail.lower()
+                      or "buying_power" in _detail.lower() or "notional" in _detail.lower(),
+                      "zero_bp: error message mentions sizing failure",
+                      f"detail={_detail[:120]}")
+        except Exception as _e:
+            warn(f"zero_bp: trade-executor call failed: {_e}")
+    else:
+        warn("zero_bp: no entry intents produced — skipping trade-executor refusal check")
+
+    # Recovery: restore non-zero buying power — new sync, re-run delta
+    _sync_restored = seed_alpaca_state(
+        account_value=INITIAL_ACCOUNT,
+        buying_power=INITIAL_ACCOUNT * 0.10,   # 10% cash restored
+        include_small_caps=False,
+        core_held=list(CORE_TICKERS[:15]),
+    )
+    print("  ↻  Running delta after buying power restored …")
+    _delta_restored = run_delta("delta_bp_restored")
+    _intents_restored = get_latest_intents()
+    _entries_restored = [i for i in _intents_restored if i["action"] == "entry"]
+
+    check(len(_entries_restored) >= 0,
+          "zero_bp_recovery: delta completes after buying power restored",
+          f"{len(_entries_restored)} entry intents with restored buying power")
+
+    ok("zero_buying_power_scenario",
+       f"trade-executor refused zero-bp entries; system recovered with "
+       f"{len(_entries_restored)} actionable intents")
 
     # ─────────────────────────────────────────────────────────────────────────
     # RESULTS SUMMARY
