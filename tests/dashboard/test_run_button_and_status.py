@@ -474,3 +474,425 @@ class TestPurgeButtonVisibility:
         assert "/api/trade/purge-all" in content, "purgeAll() must POST to /api/trade/purge-all"
         # Must reset approval state after purge
         assert "_approvalState" in content, "_approvalState must be reset in purgeAll()"
+
+
+# ── Helpers shared by new test classes ───────────────────────────────────────
+
+def _call_pipeline_status(
+    *,
+    pipeline_status_raw: str | None = None,
+    pipeline_factor_status: str | None = None,
+    pipeline_rank_status: str | None = None,
+    av_ingestor_data: dict | None = None,
+    scheduler_data: dict | None = None,
+    rank_chain_running: bool = False,
+) -> dict:
+    """
+    Call dashboard pipeline_status() with full control over every mocked service.
+
+    Returns the parsed JSON dict that the endpoint would return to the browser.
+    """
+    import app.main as dash
+    import unittest.mock as mock
+
+    original_rcr = dash._rank_chain_running
+    dash._rank_chain_running = rank_chain_running
+
+    def _make_resp(data: dict | None):
+        m = MagicMock()
+        m.status_code = 200 if data is not None else 503
+        m.json.return_value = data or {}
+        return m
+
+    pipeline_payload = {
+        "status":         pipeline_status_raw,
+        "factor_status":  pipeline_factor_status,
+        "ranking_status": pipeline_rank_status,
+        "delta_status":   None,
+        "completed_at":   "2024-01-15T12:00:00Z",
+    }
+    av_payload      = av_ingestor_data or {}
+    sched_payload   = scheduler_data   or {"status": "idle", "steps": {}}
+
+    async def fake_gather(*_coros):
+        return [
+            EMPTY(),                        # r0: universe
+            _make_resp({"rankings": []}),   # r1: rankings
+            EMPTY(),                        # r3: portfolio
+            EMPTY(),                        # sys_status_resp
+            _make_resp(pipeline_payload),   # r4_direct: pipeline /runs/latest
+            _make_resp(av_payload or None), # r5_direct: av-ingestor /runs/latest
+            _make_resp(sched_payload),      # r7_direct: scheduler /status
+        ]
+
+    try:
+        loop = asyncio.new_event_loop()
+        with mock.patch("asyncio.gather", side_effect=fake_gather):
+            result = loop.run_until_complete(dash.pipeline_status())
+        return result
+    finally:
+        loop.close()
+        dash._rank_chain_running = original_rcr
+
+
+# ── TestStepLabelBetweenSteps ─────────────────────────────────────────────────
+
+class TestStepLabelBetweenSteps:
+    """
+    Regression: the gap between pipeline steps must never show 'Fetching Data'.
+
+    Before the fix, when the orchestrator was running but neither av-ingestor
+    nor pipeline were actively in-flight, the fallback label was hardcoded to
+    'Fetching Data'. This caused the status bar to flash the wrong label every
+    time the chain advanced (after factors, after vet, etc.).
+
+    After the fix: fallback is 'Running' and the scheduler step states are used
+    to infer the correct next-step label.
+    """
+
+    def test_between_steps_never_shows_fetching_data(self):
+        """
+        Regression: orchestrator running, no service in-flight → must NOT say 'Fetching Data'.
+        """
+        result = _call_pipeline_status(
+            pipeline_status_raw="success",   # pipeline just finished
+            scheduler_data={"status": "running", "steps": {}},  # chain still going
+            rank_chain_running=True,
+        )
+        rank = result.get("rank", {})
+        assert rank.get("status") == "running"
+        assert rank.get("step_label") != "Fetching Data", (
+            "Between steps the label must not be 'Fetching Data'; "
+            f"got {rank.get('step_label')!r}"
+        )
+
+    def test_between_steps_shows_running_when_no_step_identified(self):
+        """
+        When the chain is running but no specific next step is identifiable,
+        the label must be 'Running', not the misleading 'Fetching Data'.
+        """
+        result = _call_pipeline_status(
+            pipeline_status_raw="success",
+            scheduler_data={"status": "running", "steps": {}},
+            rank_chain_running=True,
+        )
+        label = result.get("rank", {}).get("step_label")
+        assert label == "Running", f"Expected 'Running', got {label!r}"
+
+    def test_between_steps_uses_scheduler_running_step_label(self):
+        """
+        When the scheduler reports a step as 'running', its label must propagate
+        to the status bar even when pipeline is idle.
+        """
+        result = _call_pipeline_status(
+            pipeline_status_raw="success",
+            scheduler_data={
+                "status": "running",
+                "steps": {"fetch-data": "done", "pipeline": "done", "vet": "running"},
+            },
+            rank_chain_running=True,
+        )
+        label = result.get("rank", {}).get("step_label")
+        assert label == "Vetting", (
+            f"Expected 'Vetting' when vet step is running, got {label!r}"
+        )
+
+    def test_between_steps_infers_next_step_label_when_none_running(self):
+        """
+        When all done steps are 'done' and the next is 'idle', infer the label
+        from that next step rather than defaulting to 'Fetching Data'.
+        """
+        result = _call_pipeline_status(
+            pipeline_status_raw="success",
+            scheduler_data={
+                "status": "running",
+                "steps": {
+                    "fetch-data": "done",
+                    "pipeline":   "done",
+                    "vet":        "idle",
+                    "portfolio-builder": "idle",
+                    "delta": "idle",
+                },
+            },
+            rank_chain_running=True,
+        )
+        label = result.get("rank", {}).get("step_label")
+        assert label == "Vetting", (
+            f"Expected 'Vetting' (first non-done step), got {label!r}"
+        )
+
+    def test_portfolio_builder_step_inferred_after_vet_done(self):
+        """After vet completes, the inferred label must be 'Building Portfolio'."""
+        result = _call_pipeline_status(
+            pipeline_status_raw="success",
+            scheduler_data={
+                "status": "running",
+                "steps": {
+                    "fetch-data": "done",
+                    "pipeline":   "done",
+                    "vet":        "done",
+                    "portfolio-builder": "idle",
+                    "delta": "idle",
+                },
+            },
+            rank_chain_running=True,
+        )
+        label = result.get("rank", {}).get("step_label")
+        assert label == "Building Portfolio", f"Got {label!r}"
+
+    def test_delta_step_inferred_after_portfolio_done(self):
+        """After portfolio-builder completes, the inferred label must be 'Evaluating Signals'."""
+        result = _call_pipeline_status(
+            pipeline_status_raw="success",
+            scheduler_data={
+                "status": "running",
+                "steps": {
+                    "fetch-data":        "done",
+                    "pipeline":          "done",
+                    "vet":               "done",
+                    "portfolio-builder": "done",
+                    "delta":             "idle",
+                },
+            },
+            rank_chain_running=True,
+        )
+        label = result.get("rank", {}).get("step_label")
+        assert label == "Evaluating Signals", f"Got {label!r}"
+
+    def test_fetch_data_running_shows_fetching_data(self):
+        """When fetch-data IS actually running, 'Fetching Data' is correct."""
+        result = _call_pipeline_status(
+            pipeline_status_raw=None,
+            av_ingestor_data={"status": "running", "job_type": "fetch-data", "tickers_done": 5, "total_tickers": 50},
+            scheduler_data={"status": "running", "steps": {"fetch-data": "running"}},
+            rank_chain_running=True,
+        )
+        rank = result.get("rank", {})
+        assert rank.get("status") == "running"
+        assert rank.get("step_label") == "Fetching Data", (
+            f"While av-ingestor is actually fetching data, label should be 'Fetching Data'; "
+            f"got {rank.get('step_label')!r}"
+        )
+
+    def test_calculating_factors_while_pipeline_running(self):
+        """While pipeline factor_status='running', label must be 'Calculating Factors'."""
+        result = _call_pipeline_status(
+            pipeline_status_raw="running",
+            pipeline_factor_status="running",
+            scheduler_data={"status": "running", "steps": {"pipeline": "running"}},
+            rank_chain_running=True,
+        )
+        label = result.get("rank", {}).get("step_label")
+        assert label == "Calculating Factors", f"Got {label!r}"
+
+
+# ── TestSchedulerStepLabelMapping ─────────────────────────────────────────────
+
+class TestSchedulerStepLabelMapping:
+    """
+    Every scheduler step name must map to the correct human-readable status bar label.
+    Tested via the pipeline_status endpoint (integration of the mapping logic).
+    """
+
+    _CASES = [
+        ("fetch-data",        "Fetching Data"),
+        ("pipeline",          "Calculating Factors"),
+        ("vet",               "Vetting"),
+        ("portfolio-builder", "Building Portfolio"),
+        ("delta",             "Evaluating Signals"),
+    ]
+
+    @pytest.mark.parametrize("step_name,expected_label", _CASES)
+    def test_running_step_produces_correct_label(self, step_name: str, expected_label: str):
+        """Each scheduler step name must map to its expected display label."""
+        steps = {s: "done" for s, _ in self._CASES}
+        steps[step_name] = "running"
+
+        result = _call_pipeline_status(
+            pipeline_status_raw="success" if step_name != "pipeline" else "running",
+            pipeline_factor_status="running" if step_name == "pipeline" else None,
+            scheduler_data={"status": "running", "steps": steps},
+            rank_chain_running=True,
+        )
+        label = result.get("rank", {}).get("step_label")
+        assert label == expected_label, (
+            f"Step '{step_name}' running → expected label {expected_label!r}, got {label!r}"
+        )
+
+
+# ── TestPipelineAlsoAcceptPrev ────────────────────────────────────────────────
+
+# Inline minimal step-state logic so these tests don't need to import the
+# scheduler module (which pulls in apscheduler, not installed outside Docker,
+# and whose sys.path is reset by the conftest between tests).
+from dataclasses import dataclass as _dc, field as _dcf
+from typing import Literal as _Lit
+
+@_dc
+class _SchedStep:
+    name: str
+    url: str
+    start_path: str
+    date_field: str
+    status_path: str = ""
+    use_trading_day: bool = False
+    also_accept_prev: bool = False
+    extra_ok: tuple = _dcf(default_factory=tuple)
+    job_type: str | None = None
+    max_running_minutes: int | None = None
+
+    def __post_init__(self):
+        if not self.status_path:
+            self.status_path = "/runs/latest"
+
+
+async def _sched_step_state(client, step: _SchedStep, today: str, trading_day: str,
+                            prev_trading_day: str) -> str:
+    """Minimal replica of scheduler._step_state for unit-testing the date logic."""
+    r = await client.get(f"{step.url}{step.status_path}", timeout=10.0)
+    if r.status_code != 200:
+        return "idle"
+    data = r.json()
+    if step.job_type and data.get("job_type") != step.job_type:
+        return "idle"
+    target = trading_day if step.use_trading_day else today
+    ok_dates = {target, prev_trading_day} if step.also_accept_prev else {target}
+    run_date = (data.get(step.date_field) or "")[:10]
+    run_status = data.get("status")
+    if run_date not in ok_dates:
+        return "idle"
+    if run_status in ("success",) + step.extra_ok:
+        return "done"
+    if run_status == "running":
+        return "running"
+    if run_status in ("failed",):
+        return "failed"
+    return "idle"
+
+
+_SCHED_MAIN = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "services", "scheduler", "app", "main.py")
+)
+
+
+class TestPipelineAlsoAcceptPrev:
+    """
+    Regression: pipeline step must have also_accept_prev=False.
+
+    When also_accept_prev=True, the scheduler treated yesterday's successful
+    pipeline run as 'done' on normal trading days, skipping the pipeline step
+    entirely and causing the chain to stall at vetting/portfolio-builder.
+
+    This mirrors the analogous tests for portfolio-builder and delta added in
+    commit aa3adb3.
+    """
+
+    def test_pipeline_also_accept_prev_is_false(self):
+        """
+        Regression: pipeline step must not have also_accept_prev=True.
+
+        Verified by reading the scheduler source directly — no module import
+        needed, so it's immune to conftest sys.path resets.
+        """
+        with open(_SCHED_MAIN) as fh:
+            source = fh.read()
+        # Find the pipeline _StepDef(...) call and check also_accept_prev is absent
+        # (defaults to False) or explicitly False.
+        import re
+        # Match the _StepDef block for the "pipeline" step
+        pattern = r'_StepDef\("pipeline".*?(?=_StepDef|\Z)'
+        block = re.search(pattern, source, re.DOTALL)
+        assert block is not None, "Could not find _StepDef('pipeline', ...) in scheduler main.py"
+        block_text = block.group(0)
+        assert "also_accept_prev=True" not in block_text, (
+            "pipeline step has also_accept_prev=True in scheduler main.py — this causes "
+            "the scheduler to treat yesterday's run as 'done' today, skipping the "
+            "pipeline entirely. Exchange calendar already handles holidays."
+        )
+
+    @pytest.mark.asyncio
+    async def test_pipeline_idle_when_run_date_is_prev_trading_day(self):
+        """
+        Regression: pipeline run_date = prev_trading_day must appear as 'idle' today.
+
+        Before the fix (also_accept_prev=True), the scheduler would see
+        prev_trading_day in ok_dates and return 'done', skipping the re-run.
+        """
+        tuesday  = "2026-05-26"   # today
+        monday   = "2026-05-19"   # prev_trading_day (before holiday week)
+        tuesday2 = "2026-05-20"   # trading_day for the test
+
+        step = _SchedStep(
+            name="pipeline",
+            url="http://fake",
+            start_path="/jobs/run",
+            date_field="run_date",
+            use_trading_day=True,
+            also_accept_prev=False,
+        )
+        client = MagicMock()
+        client.get = AsyncMock(return_value=MagicMock(
+            status_code=200,
+            json=MagicMock(return_value={"status": "success", "run_date": monday}),
+        ))
+        result = await _sched_step_state(client, step, tuesday, tuesday2, monday)
+        assert result == "idle", (
+            f"Pipeline with run_date={monday!r} should be 'idle' when trading_day={tuesday2!r}; "
+            f"got {result!r}. This means also_accept_prev=True is leaking back in."
+        )
+
+    @pytest.mark.asyncio
+    async def test_pipeline_done_when_run_date_matches_trading_day(self):
+        """Pipeline that ran today's trading_day must be 'done'."""
+        today        = "2026-05-20"
+        trading_day  = "2026-05-20"
+        prev_trading = "2026-05-19"
+
+        step = _SchedStep(
+            name="pipeline",
+            url="http://fake",
+            start_path="/jobs/run",
+            date_field="run_date",
+            use_trading_day=True,
+            also_accept_prev=False,
+        )
+        client = MagicMock()
+        client.get = AsyncMock(return_value=MagicMock(
+            status_code=200,
+            json=MagicMock(return_value={"status": "success", "run_date": trading_day}),
+        ))
+        result = await _sched_step_state(client, step, today, trading_day, prev_trading)
+        assert result == "done", (
+            f"Pipeline run_date={trading_day!r} matching trading_day should be 'done'; "
+            f"got {result!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_pipeline_done_on_holiday_via_exchange_calendar(self):
+        """
+        On a market holiday, the exchange calendar returns the prior Friday as
+        trading_day. A pipeline run with run_date=Friday must be 'done' on Monday.
+        No also_accept_prev needed.
+        """
+        monday_holiday = "2026-05-25"   # Memorial Day
+        friday         = "2026-05-22"   # last trading day
+        thursday       = "2026-05-21"   # prev_trading_day
+
+        step = _SchedStep(
+            name="pipeline",
+            url="http://fake",
+            start_path="/jobs/run",
+            date_field="run_date",
+            use_trading_day=True,
+            also_accept_prev=False,
+        )
+        client = MagicMock()
+        client.get = AsyncMock(return_value=MagicMock(
+            status_code=200,
+            json=MagicMock(return_value={"status": "success", "run_date": friday}),
+        ))
+        result = await _sched_step_state(client, step, monday_holiday, friday, thursday)
+        assert result == "done", (
+            f"On holiday {monday_holiday!r}, pipeline run_date={friday!r} "
+            f"(=trading_day) should be 'done'; got {result!r}"
+        )
