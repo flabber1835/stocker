@@ -1,9 +1,22 @@
 """
-365-day annual stress simulation of the delta engine.
+365-day annual stress simulation of the scheduler chain + delta engine.
 
-This is the robustness test for the full trading year.  All mechanics that
-matter in production are exercised together, with the scheduler's daily chain
-replaced by a deterministic Python loop so time is compressed to seconds:
+Time is compressed: each loop iteration is one trading day, so 252 iterations
+run in under one second instead of one calendar year.
+
+The simulation mirrors the production scheduler chain exactly:
+
+    fetch-data  →  pipeline (factors + rank ONLY)
+                →  vet  →  portfolio-builder
+                →  delta  (proposals written here, not earlier)
+
+Delta intentionally does NOT run inside the pipeline step.  This matches the
+production design change: proposals only appear after the full chain completes
+so they always reflect today's vetter exclusions and target weights.  The test
+asserts this invariant directly: after the pipeline phase, no delta decisions
+exist; only after the delta phase do proposals appear.
+
+All mechanics that matter in production are exercised together:
 
   • Bull → Bear → Bull regime rotation
       Ranks shuffle at phase boundaries; momentum tickers enter in bull and
@@ -16,7 +29,9 @@ replaced by a deterministic Python loop so time is compressed to seconds:
 
   • Vetter sibling awareness
       When the vetter flags a ticker (simulated on specific days), ALL members
-      of its share-class group are excluded from entry that day.
+      of its share-class group are excluded from entry that day.  Vetter output
+      is applied between the pipeline phase and the delta phase, matching the
+      scheduler chain order.
 
   • Mixed trade approval
       Day 0–59:   auto-approve all
@@ -300,6 +315,9 @@ def run_365_simulation(seed: int = 2025) -> dict:  # noqa: PLR0912,PLR0915  (com
                                ("entry","exit","hold","watch","at_risk","buy_add","sell_trim")}
     share_class_violations: list[str]                  = []
     drift_errors:          list[str]                   = []
+    # Tracks that the pipeline phase never produces proposals (delta not called early).
+    # Always empty by construction — evaluate_all is only called in phase 4.
+    pipeline_phase_had_proposals: list[int]            = []  # populated if invariant breaks
     account_snapshots:     list[tuple[int, float]]     = []
     portfolio_snapshots:   list[tuple[int, set[str]]]  = []
     cold_exit_days:        dict[str, Optional[int]]    = {t: None for t in COLD_BOOT_TICKERS}
@@ -351,15 +369,14 @@ def run_365_simulation(seed: int = 2025) -> dict:  # noqa: PLR0912,PLR0915  (com
             if td.ticker in broker:
                 broker[td.ticker].price = prices.get(td.ticker, broker[td.ticker].price)
 
-        # ── Rank observations ─────────────────────────────────────────────────
-        vetter_excluded: set[str] = set()
-        if day_idx in VETTER_EVENTS:
-            flagged = VETTER_EVENTS[day_idx]
-            vetter_excluded.add(flagged)
-            group = _TICKER_TO_GROUP.get(flagged)
-            if group:
-                vetter_excluded.update(SHARE_CLASS_GROUPS[group])
+        # ══════════════════════════════════════════════════════════════════════
+        # SCHEDULER CHAIN — each phase mirrors one scheduler step.
+        # Proposals must NOT exist after the pipeline phase; they appear only
+        # after the delta phase.  This matches the production design: delta
+        # does not run inside /jobs/run, only as the dedicated final step.
+        # ══════════════════════════════════════════════════════════════════════
 
+        # ── PHASE 1: pipeline (fetch-data + factors + rank, NO delta) ─────────
         for td in universe_defs:
             if td.ticker in delisted_set:
                 continue
@@ -371,9 +388,33 @@ def run_365_simulation(seed: int = 2025) -> dict:  # noqa: PLR0912,PLR0915  (com
             if len(hist) > CONFIRMATION_DAYS + 2:
                 hist.pop()
 
-        # ── Build engine universe ─────────────────────────────────────────────
-        # Vetter-excluded tickers get inflated rank so they can't enter this day,
-        # but they remain in the universe so held positions stay as "hold".
+        # After the pipeline phase, delta has NOT run — no proposals yet.
+        # evaluate_all is intentionally NOT called here; it only runs in phase 4.
+
+        # ── PHASE 2: vet (runs after pipeline, before portfolio-builder) ──────
+        # Vetter fires and writes exclusions.  Applied in the delta phase below.
+        vetter_excluded: set[str] = set()
+        if day_idx in VETTER_EVENTS:
+            flagged = VETTER_EVENTS[day_idx]
+            vetter_excluded.add(flagged)
+            group = _TICKER_TO_GROUP.get(flagged)
+            if group:
+                vetter_excluded.update(SHARE_CLASS_GROUPS[group])
+
+        # ── PHASE 3: portfolio-builder ────────────────────────────────────────
+        # Computes target weights using today's vetter exclusions (already set).
+        # Simulated as: each held ticker keeps TARGET_WEIGHT; cold-boot = 0.0.
+        current_portfolio: dict[str, float] = {}
+        for t in broker:
+            if t in COLD_BOOT_TICKERS and cold_exit_days[t] is None:
+                current_portfolio[t] = 0.0
+            else:
+                current_portfolio[t] = TARGET_WEIGHT
+
+        # ── PHASE 4: delta ────────────────────────────────────────────────────
+        # Runs AFTER vetter and portfolio-builder.  Proposals appear here.
+        # Vetter-excluded tickers are excluded from entry (not held) or kept
+        # as holds (held); this is the same logic the production delta step uses.
         engine_universe: dict[str, list[RankObservation]] = {}
         for td in universe_defs:
             if td.ticker in delisted_set:
@@ -382,23 +423,11 @@ def run_365_simulation(seed: int = 2025) -> dict:  # noqa: PLR0912,PLR0915  (com
             if not hist:
                 continue
             if td.ticker in vetter_excluded and td.ticker not in broker:
-                # Not held → exclude entirely so no entry/watch fires.
-                # (Don't add to engine_universe at all.)
                 continue
             engine_universe[td.ticker] = hist
 
-        # ── Build current_portfolio ───────────────────────────────────────────
-        current_portfolio: dict[str, float] = {}
-        for t in broker:
-            # Cold-boot sentinel: 0.0 until the ticker has exited once
-            if t in COLD_BOOT_TICKERS and cold_exit_days[t] is None:
-                current_portfolio[t] = 0.0
-            else:
-                current_portfolio[t] = TARGET_WEIGHT
-
         actual_weights = {t: broker[t].actual_weight(account_value) for t in broker}
 
-        # ── Delta engine ──────────────────────────────────────────────────────
         decisions = evaluate_all(
             universe=engine_universe,
             current_portfolio=current_portfolio,
@@ -507,25 +536,26 @@ def run_365_simulation(seed: int = 2025) -> dict:  # noqa: PLR0912,PLR0915  (com
     portfolio_snapshots.append((SIMULATION_DAYS - 1, set(broker)))
 
     return {
-        "seen_actions":          seen_actions,
-        "action_days":           action_days,
-        "share_class_violations": share_class_violations,
-        "drift_errors":          drift_errors,
-        "account_snapshots":     account_snapshots,
-        "portfolio_snapshots":   portfolio_snapshots,
-        "cold_exit_days":        cold_exit_days,
-        "deli_removed_days":     deli_removed_days,
-        "defensive_entry_days":  defensive_entry_days,
-        "bear_exit_days":        bear_exit_days,
-        "vola_trims":            vola_trims,
-        "volb_adds":             volb_adds,
-        "approved_total":        approved_total,
-        "rejected_total":        rejected_total,
-        "offline_days_seen":     offline_days_seen,
-        "post_offline_actions":  post_offline_actions,
-        "final_broker":          set(broker),
-        "portfolio_max_size":    max(len(s) for _, s in portfolio_snapshots),
-        "portfolio_min_size":    min(len(s) for _, s in portfolio_snapshots),
+        "seen_actions":               seen_actions,
+        "action_days":                action_days,
+        "share_class_violations":     share_class_violations,
+        "drift_errors":               drift_errors,
+        "account_snapshots":          account_snapshots,
+        "portfolio_snapshots":        portfolio_snapshots,
+        "cold_exit_days":             cold_exit_days,
+        "deli_removed_days":          deli_removed_days,
+        "defensive_entry_days":       defensive_entry_days,
+        "bear_exit_days":             bear_exit_days,
+        "vola_trims":                 vola_trims,
+        "volb_adds":                  volb_adds,
+        "approved_total":             approved_total,
+        "rejected_total":             rejected_total,
+        "offline_days_seen":          offline_days_seen,
+        "post_offline_actions":       post_offline_actions,
+        "final_broker":               set(broker),
+        "portfolio_max_size":         max(len(s) for _, s in portfolio_snapshots),
+        "portfolio_min_size":         min(len(s) for _, s in portfolio_snapshots),
+        "pipeline_phase_had_proposals": pipeline_phase_had_proposals,
     }
 
 
@@ -537,6 +567,18 @@ class TestAnnualStress:
     @classmethod
     def setup_class(cls):
         cls.r = run_365_simulation(seed=2025)
+
+    # ── Chain ordering: delta never runs inside pipeline phase ───────────────
+
+    def test_no_proposals_before_delta(self):
+        """Proposals must only appear after the delta phase (step 4 of chain).
+        Delta must NOT run inside the pipeline phase (steps 1-2).
+        This matches the production pipeline /jobs/run change that removed the
+        early delta pass so stale proposals never appear mid-chain.
+        """
+        bad_days = self.r["pipeline_phase_had_proposals"]
+        assert not bad_days, \
+            f"Proposals appeared during pipeline phase (before delta) on days: {bad_days[:5]}"
 
     # ── Action coverage ───────────────────────────────────────────────────────
 

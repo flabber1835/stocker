@@ -54,23 +54,24 @@ Key behaviors:
 
 ### pipeline
 
-Unified factor + rank + delta service that replaced the previous three separate
-services (factor-engine, ranker, delta-engine). Single `_job_lock` is held end-
-to-end so concurrent HTTP /jobs/run or Redis events get
-`{"status":"already_running"}` for the full run.
+Unified factor + rank service (delta removed from this step — see below).
+Single `_job_lock` is held end-to-end so concurrent HTTP /jobs/run or Redis
+events get `{"status":"already_running"}` for the full run.
 
 Sub-steps in order (for `/jobs/run`):
 - factor calculation (factor_scores, regime_snapshots)
 - ranking (ranking_runs, rankings)
-- buffer-zone delta evaluation (delta_runs, delta_intents — only actionable rows)
-  triggered_by='pipeline' in delta_runs
+
+Delta is intentionally NOT run inside `/jobs/run`. It runs as a dedicated
+scheduler step after the vetter and portfolio-builder have completed, so
+proposals always reflect today's vetter exclusions and target weights.
+Running it early would show stale proposals based on yesterday's vetter data.
 
 **Standalone delta endpoint (`POST /jobs/delta`):**
 
-Called by the scheduler after portfolio-builder updates the target portfolio.
+Called by the scheduler as step 5 of the daily chain, after portfolio-builder.
 Runs only the delta evaluation step (no factor recalc or ranking).
-Uses `triggered_by='scheduler'` so `/runs/delta-latest` can distinguish it
-from the delta that runs as part of `/jobs/run`.
+Uses `triggered_by='scheduler'` in delta_runs.
 
 Delta mode selection:
 - If portfolio_holdings exists (portfolio-builder has run): uses `evaluate_target_vs_live()`,

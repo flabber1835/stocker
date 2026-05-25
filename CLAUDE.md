@@ -326,8 +326,8 @@ Should not calculate investment factors.
 
 ## pipeline
 
-Single service combining the former factor-engine, ranker, and delta-engine
-into one orchestrator. Listens for `fetch_data.complete` events on the Redis
+Single service combining the former factor-engine and ranker into one
+orchestrator. Listens for `fetch_data.complete` events on the Redis
 stream `stocker:pipeline_events` (consumer group `pipeline-consumers`) and
 also exposes `POST /jobs/run` for scheduler-driven and manual runs.
 
@@ -343,14 +343,15 @@ duplicate triggers see `{"status":"already_running"}` for the whole run):
 2. Ranking
    inputs : factor_scores, regime_snapshots, strategy.factor_weights
    output : ranking_runs + rankings (composite score, percentile, reason codes)
-
-3. Delta evaluation (buffer-zone)
-   inputs : rankings (current + N prior days), live_positions
-   output : delta_runs + delta_intents (entry/exit/hold decisions)
 ```
 
-`pipeline_runs` is the cross-step audit row; `factor_status`, `ranking_status`,
-and `delta_status` columns surface sub-step progress for the dashboard.
+Delta evaluation does NOT run inside `/jobs/run`. It runs as a dedicated
+scheduler step (`POST /jobs/delta`) after the vetter and portfolio-builder
+have completed. This ensures proposals always reflect today's vetter
+exclusions and target weights rather than the stale values from a prior run.
+
+`pipeline_runs` is the cross-step audit row; `factor_status` and
+`ranking_status` columns surface sub-step progress for the dashboard.
 `chain_date` is written at run start so the scheduler's supervisor sees a
 valid date during execution and does not classify the in-flight run as idle.
 
@@ -637,7 +638,7 @@ Non-blocking supervisor state machine that advances a three-step daily chain:
 
 ```text
 fetch-data  → av-ingestor /jobs/fetch-data
-pipeline    → pipeline   /jobs/run   (factors + rank + delta)
+pipeline    → pipeline   /jobs/run   (factors + rank only — delta runs as step 5)
 vet         → llm-vetter /jobs/vet   (optional, advisory)
 ```
 

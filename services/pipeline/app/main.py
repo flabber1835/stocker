@@ -1773,12 +1773,14 @@ async def _run_pipeline_steps(
     triggered_by: str = "manual",
 ) -> None:
     """
-    Run the 3 pipeline steps: factors → rank → delta.
+    Run the 2 pipeline steps: factors → rank.
+    Delta is intentionally excluded — it runs as a dedicated scheduler step
+    (/jobs/delta) after the vetter and portfolio-builder have completed, so
+    proposals always reflect today's vetter exclusions and target weights.
     Each step creates its own sub-run rows. Updates pipeline_runs with step IDs.
     """
     factor_run_id: Optional[str] = None
     ranking_run_id: Optional[str] = None
-    delta_run_id: Optional[str] = None
     score_date: Optional[date] = None
 
     try:
@@ -1816,18 +1818,6 @@ async def _run_pipeline_steps(
                                        ranking_run_id=ranking_run_id,
                                        ranking_status="success")
 
-        # ── Step 3: delta ─────────────────────────────────────────────────────
-        print(f"[pipeline] run {run_id}: starting delta", flush=True)
-        async with engine.begin() as conn:
-            await _update_pipeline_run(conn, run_id, delta_status="running")
-
-        delta_run_id = await _do_delta_step()
-
-        async with engine.begin() as conn:
-            await _update_pipeline_run(conn, run_id,
-                                       delta_run_id=delta_run_id,
-                                       delta_status="success")
-
         # ── All steps done ────────────────────────────────────────────────────
         completed_at = datetime.now(timezone.utc)
         async with engine.begin() as conn:
@@ -1848,7 +1838,6 @@ async def _run_pipeline_steps(
                 score_date=str(score_date) if score_date else None,
                 factor_run_id=factor_run_id,
                 ranking_run_id=ranking_run_id,
-                delta_run_id=delta_run_id,
                 triggered_by=triggered_by,
             )
 

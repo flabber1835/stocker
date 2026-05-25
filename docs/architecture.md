@@ -85,11 +85,11 @@ scheduler
 Alpha Vantage
   → av-ingestor
   → Postgres
-  → pipeline (factors → rank → delta)
-    [delta step also reads live_positions to generate exit intents for
-     orphan broker positions not tracked in portfolio_holdings]
-  → portfolio-builder
-  → target portfolio
+  → pipeline (factors → rank only; delta is NOT run here)
+  → llm-vetter  (advisory exclusions)
+  → portfolio-builder  (target weights, reads today's vetter exclusions)
+  → delta  (proposals written here — always reflect today's vetter + target)
+  → delta_intents (entry / exit / hold proposals visible on dashboard)
 
 Alpaca
   → alpaca-sync
@@ -120,25 +120,28 @@ latest rankings and the standalone delta always produces fresh entry/exit intent
 
 The pipeline service also auto-triggers from av-ingestor via Redis Streams
 (stream `stocker:pipeline_events`, key `run_date`), so a manual fetch-data
-fires factors→rank→delta even without scheduler involvement. The pipeline
+fires factors→rank even without scheduler involvement. The pipeline
 holds a global `_job_lock` for the entire duration of a run, so a concurrent
 HTTP /jobs/run or Redis event sees `{"status":"already_running"}`.
+
+**Why delta does not run inside the pipeline step:**
+Running delta inside `/jobs/run` would produce proposals immediately after
+ranking, before the vetter and portfolio-builder have run for today.  Those
+early proposals would reflect yesterday's vetter exclusions and target weights.
+Removing delta from the pipeline step ensures proposals only appear once the
+full chain completes (after step 5), and they always reflect today's inputs.
 
 `alpaca-sync` is triggered manually or fires automatically after the scheduler
 chain completes. Portfolio-builder is now part of the daily scheduler chain.
 
-**Option B: portfolio-builder in scheduler chain; delta uses target-vs-live diff mode**
+**Delta step (step 5) modes:**
 
-The standalone delta step (step 4) uses `evaluate_target_vs_live()` instead of
+The standalone delta step uses `evaluate_target_vs_live()` instead of
 `evaluate_all()` when portfolio_holdings exists:
 - Entry: ticker in portfolio_holdings (target) but not yet held at broker
 - Exit: ticker held at broker but removed from target portfolio
 - Hold: ticker in both target and live positions, weight on target
 - Watch: confirmed in entry zone but not yet in target (pending portfolio-builder)
-
-This generates immediate entry intents on cold boot without waiting for
-confirmation_days. The pipeline's embedded delta step (step 2) still uses the
-same logic for backward compatibility with the "START RANK" button.
 
 Fallback: if no portfolio run exists yet (true cold start before first
 portfolio-builder run), the delta step falls back to `evaluate_all()` with
