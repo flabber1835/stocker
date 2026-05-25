@@ -41,9 +41,20 @@ _consumer_task: asyncio.Task | None = None
 _job_lock = asyncio.Lock()
 
 # Compiled once — used by share-class dedup to normalize company names.
+# Strips share-class suffixes first, then legal-entity suffixes, so that
+# e.g. GOOG/"Alphabet Inc." and GOOGL/"Alphabet Inc Cl A" both collapse to
+# "alphabet".  AV uses both full ("Class A") and abbreviated ("Cl A") forms.
 _SHARE_CLASS_RE = re.compile(
-    r"\s*[\-,]?\s*\b(class\s+[a-z]\d*|series\s+[a-z]\d*|ordinary\s+shares?\b.*|"
-    r"[a-z]\s+shares?\b|common\s+stock\b.*)\s*$",
+    r"\s*[\-,\(]?\s*\b("
+    r"class\s+[a-z]\d*"          # "Class A", "Class C", "Class B2"
+    r"|cl\s+[a-z]\d*"            # "Cl A", "Cl C"  (AV abbreviated form)
+    r"|series\s+[a-z]\d*"        # "Series B"
+    r"|ordinary\s+shares?\b.*"   # "Ordinary Shares"
+    r"|[a-z]\s+shares?\b"        # "A Shares"
+    r"|common\s+stock\b.*"       # "Common Stock"
+    r"|capital\s+stock\b.*"      # "Capital Stock"  (GOOG on AV)
+    r"|depositary\s+shares?\b.*" # "Depositary Shares"
+    r")\s*\)?\s*$",
     re.IGNORECASE,
 )
 _LEGAL_SUFFIX_RE = re.compile(
@@ -56,9 +67,10 @@ _LEGAL_SUFFIX_RE = re.compile(
 def _normalize_company_name(name: str) -> str:
     """Strip share-class identifiers and legal suffixes for dedup grouping.
 
-    GOOG/"Alphabet Inc." and GOOGL/"Alphabet Inc Class A" both normalise to
+    GOOG/"Alphabet Inc." and GOOGL/"Alphabet Inc Cl A" both normalise to
     "alphabet" so they collide into the same dedup bucket and only the
-    better-ranked share class survives.
+    better-ranked share class survives.  AV uses both full ("Class A") and
+    abbreviated ("Cl A" / "Cl C") forms — both are handled.
     """
     name = _SHARE_CLASS_RE.sub("", name)
     name = _LEGAL_SUFFIX_RE.sub("", name)
