@@ -39,5 +39,7 @@ EOF
 wait_for_db
 
 echo "[db-migrator] Running: alembic upgrade head" >&2
-alembic -c /app/alembic.ini upgrade head
+# -v makes alembic print each migration step as it runs, so failures are
+# immediately visible in `docker logs stocker-db-migrator-1`.
+alembic -c /app/alembic.ini -v upgrade head
 echo "[db-migrator] Migration complete" >&2

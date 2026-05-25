@@ -19,13 +19,15 @@ depends_on = None
 
 def upgrade() -> None:
     # Remove any existing duplicates within each snapshot, keeping the row with
-    # the lower id (first inserted = first seen in AV CSV = preferred exchange).
+    # the lowest id (first inserted = first seen in AV CSV = preferred exchange).
+    # Uses a subquery rather than a self-join alias to avoid dialect quirks.
     op.execute("""
-        DELETE FROM universe_tickers a
-        USING universe_tickers b
-        WHERE a.snapshot_id = b.snapshot_id
-          AND a.ticker = b.ticker
-          AND a.id > b.id
+        DELETE FROM universe_tickers
+        WHERE id NOT IN (
+            SELECT MIN(id)
+            FROM universe_tickers
+            GROUP BY snapshot_id, ticker
+        )
     """)
     op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS idx_universe_tickers_snapshot_ticker
