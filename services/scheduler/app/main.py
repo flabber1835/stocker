@@ -424,6 +424,20 @@ async def _supervisor_tick() -> None:
                                 )
                                 _chain_status["status"] = "failed"
                                 return
+                            if last.get("status") == "success":
+                                # Visibility race: fetch-universe just succeeded but the
+                                # ticker rows haven't shown up in _has_universe()'s count
+                                # query yet (snapshot row committed before child rows are
+                                # visible to a fresh connection). Re-triggering here would
+                                # spin in a tight loop: success → ready → trigger → success.
+                                # Wait one tick instead — the next _has_universe() call
+                                # will see the rows and the chain will advance normally.
+                                _log(
+                                    "supervisor: fetch-universe just succeeded but _has_universe "
+                                    "returned False — transient visibility race, waiting for next tick"
+                                )
+                                _chain_status["status"] = "running"
+                                return
                 except Exception as exc:
                     _log("supervisor: cold-start status check failed", error=str(exc))
 
