@@ -398,6 +398,141 @@ class TestSearchScenarios:
         assert nflx["held"] is True
 
 
+# ── held_rank_lookup: small-cap outside display window ────────────────────────
+
+class TestApplyOverlaysHeldRankLookup:
+    """
+    Regression suite for the COHR/small-cap bug:
+
+    A broker-held ticker ranked outside the top-N display window was injected
+    with rank=9999 and not_in_universe=True, even though it had a valid rank
+    (e.g. #489).  The fix: pass held_rank_lookup so _apply_overlays can use
+    the real rank instead of the sentinel.
+    """
+
+    def _make_rank_row(self, ticker: str, rank: int, composite_score: float = 0.60,
+                       percentile: float = 0.40) -> dict:
+        return {
+            "ticker": ticker,
+            "rank": rank,
+            "composite_score": composite_score,
+            "percentile": percentile,
+            "regime": "bull_calm",
+            "factor_scores": None,
+            "prior_rank": None,
+        }
+
+    def test_held_outside_window_gets_real_rank(self):
+        """COHR held at rank 489; top-150 loaded → screener must show 489 not 9999."""
+        rows = [_make_row("AAPL")]           # top-150 only contains AAPL
+        positions = {"COHR": _make_position("COHR", market_value=3000.0)}
+        lookup = {"COHR": self._make_rank_row("COHR", rank=489)}
+        result = _apply_overlays(rows, {}, positions, inject_unranked=True,
+                                 held_rank_lookup=lookup)
+        cohr = next(r for r in result if r["ticker"] == "COHR")
+        assert cohr["rank"] == 489, f"Expected rank 489, got {cohr['rank']}"
+
+    def test_held_outside_window_not_in_universe_false(self):
+        """A ranked-but-outside-window ticker must have not_in_universe=False."""
+        rows = [_make_row("AAPL")]
+        positions = {"COHR": _make_position("COHR")}
+        lookup = {"COHR": self._make_rank_row("COHR", rank=489)}
+        result = _apply_overlays(rows, {}, positions, inject_unranked=True,
+                                 held_rank_lookup=lookup)
+        cohr = next(r for r in result if r["ticker"] == "COHR")
+        assert cohr["not_in_universe"] is False
+
+    def test_held_outside_window_score_populated(self):
+        """Composite score and percentile should be populated from the lookup."""
+        rows = [_make_row("AAPL")]
+        positions = {"COHR": _make_position("COHR")}
+        lookup = {"COHR": self._make_rank_row("COHR", rank=489,
+                                               composite_score=0.60, percentile=0.42)}
+        result = _apply_overlays(rows, {}, positions, inject_unranked=True,
+                                 held_rank_lookup=lookup)
+        cohr = next(r for r in result if r["ticker"] == "COHR")
+        assert cohr["composite_score"] == pytest.approx(0.60)
+        assert cohr["percentile"] == pytest.approx(0.42)
+
+    def test_truly_unranked_held_still_gets_9999(self):
+        """A ticker not in the rankings at all → rank=9999, not_in_universe=True."""
+        rows = [_make_row("AAPL")]
+        positions = {"EXOTIC": _make_position("EXOTIC")}
+        # No entry in held_rank_lookup → truly not in universe
+        result = _apply_overlays(rows, {}, positions, inject_unranked=True,
+                                 held_rank_lookup={})
+        exotic = next(r for r in result if r["ticker"] == "EXOTIC")
+        assert exotic["rank"] == 9999
+        assert exotic["not_in_universe"] is True
+
+    def test_no_lookup_falls_back_to_9999(self):
+        """Without held_rank_lookup kwarg, behaviour unchanged (backward compat)."""
+        rows = [_make_row("AAPL")]
+        positions = {"TSLA": _make_position("TSLA")}
+        result = _apply_overlays(rows, {}, positions, inject_unranked=True)
+        tsla = next(r for r in result if r["ticker"] == "TSLA")
+        assert tsla["rank"] == 9999
+        assert tsla["not_in_universe"] is True
+
+    def test_held_ticker_in_ranked_set_not_affected_by_lookup(self):
+        """If a ticker IS in the displayed rankings, the lookup is irrelevant."""
+        rows = [_make_row("AAPL", rank=1)]
+        positions = {"AAPL": _make_position("AAPL")}
+        lookup = {"AAPL": self._make_rank_row("AAPL", rank=999)}  # different rank in lookup
+        result = _apply_overlays(rows, {}, positions, inject_unranked=True,
+                                 held_rank_lookup=lookup)
+        aapl_rows = [r for r in result if r["ticker"] == "AAPL"]
+        assert len(aapl_rows) == 1     # not duplicated
+        assert aapl_rows[0]["rank"] == 1  # uses the row's rank, not lookup
+
+    def test_multiple_held_outside_window_each_get_real_rank(self):
+        """Two small-caps held at different ranks both appear correctly."""
+        rows = [_make_row("AAPL")]
+        positions = {
+            "COHR": _make_position("COHR"),
+            "MFG":  _make_position("MFG"),
+        }
+        lookup = {
+            "COHR": self._make_rank_row("COHR", rank=489),
+            "MFG":  self._make_rank_row("MFG",  rank=143),
+        }
+        result = _apply_overlays(rows, {}, positions, inject_unranked=True,
+                                 held_rank_lookup=lookup)
+        by_ticker = {r["ticker"]: r for r in result}
+        assert by_ticker["COHR"]["rank"] == 489
+        assert by_ticker["MFG"]["rank"] == 143
+        assert by_ticker["COHR"]["not_in_universe"] is False
+        assert by_ticker["MFG"]["not_in_universe"] is False
+
+    def test_mix_of_ranked_and_unranked_held(self):
+        """One held ticker has a real rank, another is genuinely unranked."""
+        rows = [_make_row("AAPL")]
+        positions = {
+            "COHR":   _make_position("COHR"),   # ranked at 489
+            "EXOTIC": _make_position("EXOTIC"),  # genuinely not in universe
+        }
+        lookup = {"COHR": self._make_rank_row("COHR", rank=489)}
+        result = _apply_overlays(rows, {}, positions, inject_unranked=True,
+                                 held_rank_lookup=lookup)
+        by_ticker = {r["ticker"]: r for r in result}
+        assert by_ticker["COHR"]["rank"] == 489
+        assert by_ticker["COHR"]["not_in_universe"] is False
+        assert by_ticker["EXOTIC"]["rank"] == 9999
+        assert by_ticker["EXOTIC"]["not_in_universe"] is True
+
+    def test_held_outside_window_is_still_marked_held(self):
+        """The held/qty/market_value fields must still come from broker position."""
+        rows = [_make_row("AAPL")]
+        positions = {"COHR": _make_position("COHR", qty=50.0, market_value=2500.0)}
+        lookup = {"COHR": self._make_rank_row("COHR", rank=489)}
+        result = _apply_overlays(rows, {}, positions, inject_unranked=True,
+                                 held_rank_lookup=lookup)
+        cohr = next(r for r in result if r["ticker"] == "COHR")
+        assert cohr["held"] is True
+        assert cohr["qty"] == 50.0
+        assert cohr["market_value"] == 2500.0
+
+
 # ── _validate_ticker (reused in search endpoint) ──────────────────────────────
 
 class TestQueryValidation:

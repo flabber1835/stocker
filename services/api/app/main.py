@@ -208,11 +208,16 @@ def _apply_overlays(
     *,
     inject_unranked: bool = True,
     query_prefix: str | None = None,
+    held_rank_lookup: dict[str, dict] | None = None,
 ) -> list[dict]:
     """Decorate ranking rows with vetter and holdings overlays.
 
     inject_unranked: when True (default), broker-held tickers absent from rankings
-        are appended as rank=9999 NOT_IN_UNIVERSE rows.
+        are appended. Tickers present in held_rank_lookup get their real rank/score;
+        tickers absent from held_rank_lookup get rank=9999 / not_in_universe=True.
+    held_rank_lookup: real DB rank rows for held tickers that fall outside the
+        display window but ARE ranked (e.g. a small-cap at rank 489 when only the
+        top 150 are shown). Keyed by ticker.
     query_prefix: when inject_unranked is True and a query is active, only inject
         positions whose ticker matches the prefix so search results stay on-topic.
     """
@@ -225,19 +230,24 @@ def _apply_overlays(
                 continue
             if query_prefix and not _match_ticker_prefix(broker_ticker, query_prefix):
                 continue
+            # Use the real rank if this ticker is ranked but simply outside the
+            # current display window (e.g. a small-cap at rank 489 when top-150
+            # is loaded). Fall back to 9999 only if the ticker has no ranking at
+            # all (genuinely not in universe or never ranked).
+            real = (held_rank_lookup or {}).get(broker_ticker)
             ranking_rows.append({
                 "ticker": broker_ticker,
-                "rank": 9999,
-                "composite_score": None,
-                "percentile": None,
-                "regime": None,
+                "rank": real["rank"] if real else 9999,
+                "composite_score": real.get("composite_score") if real else None,
+                "percentile": real.get("percentile") if real else None,
+                "regime": real.get("regime") if real else None,
                 "rank_date": run_date_val,
-                "factor_scores": None,
+                "factor_scores": real.get("factor_scores") if real else None,
                 "rank_slope": None,
-                "prior_rank": None,
+                "prior_rank": real.get("prior_rank") if real else None,
                 "name": pos.get("name"),
                 "sector": pos.get("sector"),
-                "not_in_universe": True,
+                "not_in_universe": real is None,
             })
 
     for r in ranking_rows:
@@ -386,7 +396,29 @@ async def get_rankings_with_overlays(limit: int = 100):
                     "sector": p["sector"],
                 }
 
-        ranking_rows = _apply_overlays(ranking_rows, vetter_by_ticker, all_broker_positions)
+        # For held tickers outside the display window, fetch their real rank so
+        # the screener shows rank 489 instead of the sentinel 9999.
+        ranked_tickers = {r["ticker"] for r in ranking_rows}
+        missing_held = [t for t in all_broker_positions if t not in ranked_tickers]
+        held_rank_lookup: dict[str, dict] = {}
+        if missing_held:
+            hr_rows = await conn.execute(
+                text(
+                    "SELECT r.ticker, r.rank, r.composite_score, r.percentile, r.regime, "
+                    "  r.factor_scores, pr.prior_rank "
+                    "FROM rankings r "
+                    "LEFT JOIN (SELECT ticker, rank AS prior_rank FROM rankings "
+                    "           WHERE run_id = :prior_run_id) pr ON pr.ticker = r.ticker "
+                    "WHERE r.run_id = :run_id AND r.ticker = ANY(:tickers)"
+                ),
+                {"run_id": latest_run_id, "prior_run_id": prior_run_id or latest_run_id,
+                 "tickers": missing_held},
+            )
+            for hr in hr_rows.mappings():
+                held_rank_lookup[hr["ticker"]] = dict(hr)
+
+        ranking_rows = _apply_overlays(ranking_rows, vetter_by_ticker, all_broker_positions,
+                                       held_rank_lookup=held_rank_lookup)
 
     return {
         "count": len(ranking_rows),
@@ -511,9 +543,35 @@ async def search_rankings(q: str = ""):
                     "sector": p["sector"],
                 }
 
+        # Fetch real ranks for held tickers that are outside the search result set
+        # (e.g. held but their ticker doesn't match the search prefix, so they'd be
+        # injected as 9999 even though they're ranked).
+        ranked_tickers_search = {r["ticker"] for r in ranking_rows}
+        missing_held_search = [
+            t for t in all_broker_positions
+            if t not in ranked_tickers_search and _match_ticker_prefix(t, q)
+        ]
+        held_rank_lookup_search: dict[str, dict] = {}
+        if missing_held_search:
+            hr_rows2 = await conn.execute(
+                text(
+                    "SELECT r.ticker, r.rank, r.composite_score, r.percentile, r.regime, "
+                    "  r.factor_scores, pr.prior_rank "
+                    "FROM rankings r "
+                    "LEFT JOIN (SELECT ticker, rank AS prior_rank FROM rankings "
+                    "           WHERE run_id = :prior_run_id) pr ON pr.ticker = r.ticker "
+                    "WHERE r.run_id = :run_id AND r.ticker = ANY(:tickers)"
+                ),
+                {"run_id": latest_run_id, "prior_run_id": prior_run_id or latest_run_id,
+                 "tickers": missing_held_search},
+            )
+            for hr in hr_rows2.mappings():
+                held_rank_lookup_search[hr["ticker"]] = dict(hr)
+
         ranking_rows = _apply_overlays(
             ranking_rows, vetter_by_ticker, all_broker_positions,
             inject_unranked=True, query_prefix=q,
+            held_rank_lookup=held_rank_lookup_search,
         )
 
     run_meta = None
