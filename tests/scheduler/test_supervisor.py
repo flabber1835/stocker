@@ -819,6 +819,57 @@ class TestWeekendDateFields:
         result = await _step_state(client, step, saturday, friday, thursday)
         assert result == "idle"
 
+    @pytest.mark.asyncio
+    async def test_portfolio_builder_idle_when_portfolio_date_is_prev_trading_day(self):
+        """Regression: also_accept_prev=False must make yesterday's run appear idle today.
+
+        With also_accept_prev=True, a run from prev_trading_day would be accepted as
+        'done', causing the scheduler to skip portfolio-builder on every non-holiday
+        trading day and never re-run it with today's fresh vetter exclusions.
+
+        Exchange calendar correctly returns last_trading_day(holiday) = last session,
+        so also_accept_prev is NOT needed for the holiday case.
+        """
+        tuesday  = "2026-05-26"  # today (new trading day after Memorial Day)
+        friday   = "2026-05-22"  # trading_day = last_trading_day(Tuesday)
+        # prev_trading_day on a normal week would be Monday (here Friday due to holiday)
+        # But on a REGULAR week tuesday/trading_day=Tuesday, prev=Monday:
+        monday   = "2026-05-19"
+        tuesday2 = "2026-05-20"  # trading_day
+        # Simulate regular Tuesday: yesterday's pb run has portfolio_date=Monday
+        step = self._make_step(date_field="portfolio_date", use_trading_day=True,
+                               also_accept_prev=False)
+        client = _async_client_returning({"status": "success",
+                                          "portfolio_date": monday})
+        result = await _step_state(client, step, tuesday, tuesday2, monday)
+        assert result == "idle", (
+            "portfolio-builder must be 'idle' when portfolio_date = prev_trading_day "
+            "and also_accept_prev=False, so it re-runs with today's fresh vetter exclusions. "
+            "Regression: fc4366e added also_accept_prev=True which broke this."
+        )
+
+    @pytest.mark.asyncio
+    async def test_portfolio_builder_done_on_holiday_via_exchange_calendar(self):
+        """On a market holiday, last_trading_day(holiday) returns the prior session.
+
+        Memorial Day 2026-05-25: last_trading_day(May25) = May22 = trading_day.
+        portfolio_date from Friday's run = May22 matches trading_day = May22 exactly.
+        also_accept_prev=False is sufficient — no need for prev_trading_day acceptance.
+        """
+        monday_holiday = "2026-05-25"  # Memorial Day (today)
+        friday         = "2026-05-22"  # both trading_day AND prev_trading_day point here
+        step = self._make_step(date_field="portfolio_date", use_trading_day=True,
+                               also_accept_prev=False)
+        client = _async_client_returning({"status": "success",
+                                          "portfolio_date": friday})
+        # On the holiday: trading_day = May22, prev_trading_day = May22 (same)
+        result = await _step_state(client, step, monday_holiday, friday, friday)
+        assert result == "done", (
+            "portfolio-builder must be 'done' on a market holiday when portfolio_date "
+            "matches trading_day (= last_trading_day(holiday)), without needing "
+            "also_accept_prev=True."
+        )
+
 
 class TestForceRerunOverride:
     """Manual /jobs/run-now must re-execute steps that already finished today.

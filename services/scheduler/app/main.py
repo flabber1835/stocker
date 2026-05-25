@@ -91,17 +91,21 @@ _STEPS: list[_StepDef] = [
     # and the chain would be permanently blocked without this guard.
     _StepDef("vet", VETTER_URL, "/jobs/vet", "started_at", optional=True,
              max_running_minutes=90),
-    # portfolio_date is the trading-day date of the underlying ranking data, not the
-    # wall-clock run time. also_accept_prev=True handles market holidays and the
-    # window before new data is ingested on a new trading day, where portfolio_date
-    # still reflects the previous trading day's rankings.
+    # portfolio_date is the trading-day date of the underlying ranking data.
+    # also_accept_prev=False: last_trading_day() already returns the correct
+    # session (Fri May 22) on market holidays (Mon May 25 Memorial Day), so
+    # portfolio_date from Friday's run matches trading_day exactly — no need to
+    # also accept prev_trading_day. Keeping also_accept_prev=False prevents the
+    # scheduler from skipping portfolio-builder on normal trading days when
+    # yesterday's run (portfolio_date = prev_trading_day) would otherwise be
+    # treated as "done" and the step would be bypassed.
     _StepDef("portfolio-builder", PORTFOLIO_BUILDER_URL, "/jobs/build", "portfolio_date",
-             use_trading_day=True, also_accept_prev=True),
+             use_trading_day=True, also_accept_prev=False),
     # run_date is set to the trading day being processed, not the wall-clock run time.
-    # also_accept_prev=True for the same reason as portfolio-builder above.
+    # Same rationale as portfolio-builder: exchange calendar handles holidays correctly.
     _StepDef("delta", PIPELINE_URL, "/jobs/delta", "run_date",
              status_path="/runs/delta-latest",
-             use_trading_day=True, also_accept_prev=True),
+             use_trading_day=True, also_accept_prev=False),
 ]
 
 
