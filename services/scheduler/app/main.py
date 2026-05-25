@@ -82,8 +82,13 @@ class _StepDef:
 _STEPS: list[_StepDef] = [
     _StepDef("fetch-data", AV_INGESTOR_URL, "/jobs/fetch-data", "started_at",
              job_type="fetch-data", extra_ok=("partial_success",)),
+    # run_date uses trading_day (exchange-calendar date). also_accept_prev=False for the same
+    # reason as portfolio-builder and delta: the exchange calendar already maps holidays to
+    # the correct prior session, so yesterday's run_date never equals today's trading_day
+    # on a normal trading day. Keeping also_accept_prev=True caused the scheduler to treat
+    # yesterday's completed run as "done" all day and skip re-running on normal trading days.
     _StepDef("pipeline", PIPELINE_URL, "/jobs/run", "run_date",
-             use_trading_day=True, also_accept_prev=True),
+             use_trading_day=True, also_accept_prev=False),
     # Vetter runs before portfolio-builder so exclusions feed the same-cycle build.
     # optional=True: if Ollama/OpenAI is not configured the chain continues without it.
     # max_running_minutes: Ollama vetting 150 tickers takes at most 30-45 min;

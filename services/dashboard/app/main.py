@@ -412,24 +412,36 @@ async def pipeline_status():
     scheduler_chain_running = False
     scheduler_step_label = None
     _scheduler_running_steps: list[str] = []
+    _sched_label_map = {
+        "fetch-data":        "Fetching Data",
+        "pipeline":          "Calculating Factors",
+        "vet":               "Vetting",
+        "portfolio-builder": "Building Portfolio",
+        "delta":             "Evaluating Signals",
+    }
     if not isinstance(r7, dict) and r7.status_code == 200:
         d7 = r7.json()
         if d7.get("status") == "running":
             scheduler_chain_running = True
-            _scheduler_running_steps = [k for k, v in (d7.get("steps") or {}).items() if v == "running"]
+            step_states = d7.get("steps") or {}
+            _scheduler_running_steps = [k for k, v in step_states.items() if v == "running"]
             if _scheduler_running_steps:
-                _sched_label_map = {
-                    "fetch-data":        "Fetching Data",
-                    "pipeline":          "Calculating Factors",
-                    "vet":               "Vetting",
-                    "portfolio-builder": "Building Portfolio",
-                    "delta":             "Evaluating Signals",
-                }
+                # A step is actively running — use its label
                 _sname = _scheduler_running_steps[-1]
                 scheduler_step_label = _sched_label_map.get(
                     _sname,
                     _sname.replace("-", " ").replace("_", " ").title(),
                 )
+            else:
+                # Between steps: infer from the first non-done step
+                _step_order = ["fetch-data", "pipeline", "vet", "portfolio-builder", "delta"]
+                for _sname in _step_order:
+                    _sstate = step_states.get(_sname)
+                    if _sstate not in ("done", None):
+                        scheduler_step_label = _sched_label_map.get(_sname, "Running")
+                        break
+                if scheduler_step_label is None:
+                    scheduler_step_label = "Running"
 
     universe_status = "none"
     d5 = r5.json() if (not isinstance(r5, dict) and r5.status_code == 200) else {}
@@ -480,7 +492,7 @@ async def pipeline_status():
     if rank_status != "running" and orchestrator_running and not confirmed_terminal:
         rank_status = "running"
         rank_step = rank_step or "starting"
-        rank_step_label = rank_step_label or scheduler_step_label or "Fetching Data"
+        rank_step_label = rank_step_label or scheduler_step_label or "Running"
 
     if rank_status != "running":
         if pipeline_status_raw in ("success", "partial_success", "skipped"):
