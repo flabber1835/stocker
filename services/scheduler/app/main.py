@@ -92,14 +92,16 @@ _STEPS: list[_StepDef] = [
     _StepDef("vet", VETTER_URL, "/jobs/vet", "started_at", optional=True,
              max_running_minutes=90),
     # portfolio_date is the trading-day date of the underlying ranking data, not the
-    # wall-clock run time. Using started_at fails on weekends because the job runs on
-    # Saturday but use_trading_day=True expects Friday's date.
+    # wall-clock run time. also_accept_prev=True handles market holidays and the
+    # window before new data is ingested on a new trading day, where portfolio_date
+    # still reflects the previous trading day's rankings.
     _StepDef("portfolio-builder", PORTFOLIO_BUILDER_URL, "/jobs/build", "portfolio_date",
-             use_trading_day=True, also_accept_prev=False),
+             use_trading_day=True, also_accept_prev=True),
     # run_date is set to the trading day being processed, not the wall-clock run time.
+    # also_accept_prev=True for the same reason as portfolio-builder above.
     _StepDef("delta", PIPELINE_URL, "/jobs/delta", "run_date",
              status_path="/runs/delta-latest",
-             use_trading_day=True, also_accept_prev=False),
+             use_trading_day=True, also_accept_prev=True),
 ]
 
 
