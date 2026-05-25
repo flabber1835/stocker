@@ -5,6 +5,10 @@ def annualized_return(total_return: float, n_days: int) -> float:
     """(1 + total_return)^(365.25/n_days) - 1  — n_days is calendar days."""
     if n_days <= 0:
         return 0.0
+    if total_return <= -1.0:
+        # Complete loss (or corrupt data with total_return < -1): negative base
+        # raised to a fractional power is undefined — clamp to -100%.
+        return -1.0
     return (1.0 + total_return) ** (365.25 / n_days) - 1.0
 
 

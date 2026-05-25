@@ -220,3 +220,53 @@ async def test_sell_trim_actual_weight_missing_raises_400():
         await _size_partial(conn, "AAPL", intent)
     assert exc_info.value.status_code == 400
     assert "missing" in exc_info.value.detail.lower()
+
+
+# ── Negative / non-finite weight guard ───────────────────────────────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_actual", [-0.05, -1.0, float("nan"), float("inf")])
+async def test_buy_add_rejects_invalid_actual_weight(bad_actual):
+    """buy_add with negative or non-finite actual_weight must return 400.
+
+    Before the fix: negative actual_weight silently doubled the drift
+    (target - (-actual) = target + actual), producing an over-sized order
+    with no error.  NaN/Inf propagated into math.floor, raising an unhandled
+    ValueError (500).
+    """
+    conn = _mock_conn([])  # guards fire before any DB queries
+    intent = {"action": "buy_add", "current_weight": 0.05, "actual_weight": bad_actual}
+    with pytest.raises(HTTPException) as exc_info:
+        await _size_partial(conn, "AAPL", intent)
+    assert exc_info.value.status_code == 400
+    assert "invalid" in exc_info.value.detail.lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_actual", [-0.05, -1.0, float("nan"), float("inf")])
+async def test_sell_trim_rejects_invalid_actual_weight(bad_actual):
+    """sell_trim with negative or non-finite actual_weight must return 400.
+
+    Before the fix: negative actual_weight produced a negative drift
+    (negative - target < 0) which caused qty < 1 and a misleading 'drift
+    too small' error rather than a clear 'invalid weights' error.
+    """
+    conn = _mock_conn([])
+    intent = {"action": "sell_trim", "current_weight": 0.05, "actual_weight": bad_actual}
+    with pytest.raises(HTTPException) as exc_info:
+        await _size_partial(conn, "AAPL", intent)
+    assert exc_info.value.status_code == 400
+    assert "invalid" in exc_info.value.detail.lower()
+
+
+@pytest.mark.asyncio
+async def test_buy_add_negative_actual_weight_would_have_over_bought():
+    """Regression: actual_weight=-0.05 with target=0.05 previously gave
+    drift=0.10 instead of 0.05, silently doubling the order size."""
+    # This test documents the pre-fix behaviour by showing the guard now fires.
+    conn = _mock_conn([])
+    intent = {"action": "buy_add", "current_weight": 0.05, "actual_weight": -0.05}
+    with pytest.raises(HTTPException) as exc_info:
+        await _size_partial(conn, "AAPL", intent)
+    assert exc_info.value.status_code == 400

@@ -239,7 +239,7 @@ async def _size_entry(conn, ticker: str, intent_weight: Optional[float]) -> tupl
     """
     # Target weight: intent.current_weight (preferred) → portfolio_holdings → 1/DEFAULT_MAX_POSITIONS
     weight = intent_weight
-    if weight is None or weight <= 0:
+    if weight is None or not math.isfinite(weight) or weight <= 0:
         ph = (await conn.execute(text(
             "SELECT ph.weight FROM portfolio_holdings ph "
             "JOIN portfolio_runs pr ON pr.run_id = ph.run_id "
@@ -249,10 +249,10 @@ async def _size_entry(conn, ticker: str, intent_weight: Optional[float]) -> tupl
         if ph:
             weight = _f(ph["weight"])
     weight_source = (
-        "intent" if intent_weight is not None and intent_weight > 0
-        else ("portfolio_holdings" if weight else "default")
+        "intent" if intent_weight is not None and math.isfinite(intent_weight) and intent_weight > 0
+        else ("portfolio_holdings" if weight and math.isfinite(weight) and weight > 0 else "default")
     )
-    if not weight or weight <= 0:
+    if weight is None or not math.isfinite(weight) or weight <= 0:
         weight = 1.0 / DEFAULT_MAX_POSITIONS
 
     # Account funds from latest successful sync. Refuse if older than
@@ -353,6 +353,15 @@ async def _size_partial(conn, ticker: str, intent: dict) -> tuple[float, float, 
             detail=(
                 f"Cannot size {action} for {ticker}: "
                 "missing target_weight or actual_weight in intent. "
+                "Re-run the pipeline to refresh drift data."
+            ),
+        )
+    if not math.isfinite(target_weight) or not math.isfinite(actual_weight) or actual_weight < 0 or target_weight < 0:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Cannot size {action} for {ticker}: "
+                f"invalid weights target={target_weight} actual={actual_weight}. "
                 "Re-run the pipeline to refresh drift data."
             ),
         )

@@ -168,3 +168,41 @@ class TestBacktestSummaryCompleteness:
         for key, value in result["summary"].items():
             if isinstance(value, float):
                 assert np.isfinite(value), f"summary[{key!r}] = {value} is not finite"
+
+
+# ── annualized_return edge cases ─────────────────────────────────────────────
+
+class TestAnnualizedReturnEdgeCases:
+    def test_n_days_zero_returns_zero(self):
+        assert annualized_return(0.10, 0) == 0.0
+
+    def test_n_days_negative_returns_zero(self):
+        assert annualized_return(0.10, -5) == 0.0
+
+    def test_complete_loss_returns_minus_one(self):
+        """total_return == -1.0 (complete wipeout) must return -1.0, not ValueError.
+
+        Before the fix: (-1.0 + 1.0) = 0.0, 0.0 ** fractional = 0.0, result = -1.0.
+        This actually worked, but total_return < -1.0 (corrupt data) raised ValueError
+        because a negative base ** fractional exponent is undefined for real numbers.
+        """
+        assert annualized_return(-1.0, 365) == -1.0
+
+    def test_worse_than_complete_loss_clamped_to_minus_one(self):
+        """total_return < -1.0 (data corruption) must return -1.0 instead of raising.
+
+        Before the fix: (1 + (-1.5)) = -0.5; (-0.5) ** 1.00068 raises ValueError
+        (negative base, non-integer exponent) — an unhandled 500 in the API.
+        """
+        result = annualized_return(-1.5, 365)
+        assert result == -1.0
+
+    def test_normal_positive_return_computes_correctly(self):
+        # 10% over 365 days → approximately 10% annualised
+        result = annualized_return(0.10, 365)
+        assert abs(result - 0.10) < 0.001
+
+    def test_sub_year_return_annualises_up(self):
+        # 5% in 182 days → more than 10% annualised
+        result = annualized_return(0.05, 182)
+        assert result > 0.10

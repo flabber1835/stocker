@@ -235,3 +235,47 @@ async def test_size_exit_returns_abs_qty_for_short():
     qty, notional, _ = await _size_exit(conn, "AAPL")
     assert qty == 25.0
     assert notional == 1500.0
+
+
+# ── NaN weight guard ──────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_weight", [float("nan"), float("inf"), float("-inf")])
+async def test_size_entry_nan_weight_falls_back_to_default(bad_weight):
+    """NaN/Inf intent_weight must not reach the sizing formula.
+
+    Before the fix: nan <= 0 is False in Python, so both guards silently passed
+    and math.floor(buying_power * nan / price) raised ValueError (unhandled 500).
+    After the fix: math.isfinite() catches it and the default weight is used instead,
+    producing a valid order.
+    """
+    conn = _mock_conn_returning([
+        # idempotency check skipped — this goes straight to _size_entry
+        # query 0: portfolio_holdings fallback (NaN triggered the fallback)
+        None,
+        # query 1: alpaca_sync_runs account
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
+        # query 2: live_positions price
+        {"current_price": 150.0},
+    ])
+    qty, notional, summary = await _size_entry(conn, "AAPL", bad_weight)
+    assert qty >= 1.0, f"Expected valid qty, got {qty}"
+    assert summary["weight_source"] == "default"
+    assert summary["weight"] > 0
+
+
+@pytest.mark.asyncio
+async def test_size_entry_nan_from_portfolio_holdings_uses_default():
+    """NaN returned by the portfolio_holdings fallback query is also caught."""
+    conn = _mock_conn_returning([
+        # query 0: portfolio_holdings returns a NaN weight (corrupt DB row)
+        {"weight": float("nan")},
+        # query 1: alpaca_sync_runs
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
+        # query 2: live_positions price
+        {"current_price": 150.0},
+    ])
+    qty, notional, summary = await _size_entry(conn, "AAPL", None)
+    assert qty >= 1.0
+    assert summary["weight_source"] == "default"

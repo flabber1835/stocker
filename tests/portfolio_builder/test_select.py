@@ -434,3 +434,38 @@ def test_sector_cap_no_limit_when_disabled():
 
     result = greedy_select(scores, cov, target=30, sector_map=None, max_sector_weight=0.30)
     assert len(result) == 30
+
+
+def test_sector_cap_all_candidates_blocked_returns_empty():
+    """When every candidate is sector-blocked, greedy_select returns [] without crashing.
+
+    Scenario: 3 tickers all in 'TECH', sector cap = 0.10, target = 30.
+    At equal weight 1/30 ≈ 3.3%, the cap of 10% allows floor(0.10 * 30) = 3 picks.
+    But cap is checked as new_count / target <= max_sector_weight, so:
+      pick 1: 1/30 = 3.3% ≤ 10% → OK
+      pick 2: 2/30 = 6.7% ≤ 10% → OK
+      pick 3: 3/30 = 10%  ≤ 10% → OK
+    All three are selected fine here. To truly block the first pick, use cap=0.
+    """
+    tickers = ["AAPL", "MSFT", "GOOG"]
+    scores = pd.Series({"AAPL": 0.9, "MSFT": 0.8, "GOOG": 0.7})
+    cov = _simple_cov(tickers)
+    sector_map = {t: "TECH" for t in tickers}
+
+    # max_sector_weight=0 means 0/30 = 0% required — no stock can pass.
+    result = greedy_select(scores, cov, target=30, sector_map=sector_map, max_sector_weight=0.0)
+    assert result == [], (
+        "All candidates sector-blocked should return empty list, not crash"
+    )
+
+
+def test_sector_cap_tighter_than_one_stock_returns_empty():
+    """Cap so tight not even one stock can be added: result must be [] not a crash."""
+    tickers = ["AAPL"]
+    scores = pd.Series({"AAPL": 1.0})
+    cov = _simple_cov(tickers)
+    sector_map = {"AAPL": "TECH"}
+
+    # 1/30 ≈ 3.3%; a cap of 0.03 means 0.03 < 1/30, so the first pick is blocked.
+    result = greedy_select(scores, cov, target=30, sector_map=sector_map, max_sector_weight=0.03)
+    assert result == []
