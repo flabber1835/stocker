@@ -601,13 +601,6 @@ _HTML = r"""<!DOCTYPE html>
   <!-- SCREENER -->
   <section id="screen-screener" class="screen active">
     <div class="screen-inner">
-      <div class="summary-strip">
-        <div class="ss-cell"><div class="ss-lbl">RANKED</div><div class="ss-val" id="ss-ranked">—</div></div>
-        <div class="ss-cell"><div class="ss-lbl">LAST RUN</div><div class="ss-val" id="ss-last-run">—</div></div>
-        <div class="ss-cell"><div class="ss-lbl">HOLDINGS</div><div class="ss-val" id="ss-holdings">—</div></div>
-        <div class="ss-cell"><div class="ss-lbl">SPY</div><div class="ss-val" id="ss-spy">—</div></div>
-      </div>
-
       <div class="pipeline-bar" id="pipeline-bar">
         <div class="pb-state">
           <span class="pb-dot" id="pb-dot"></span>

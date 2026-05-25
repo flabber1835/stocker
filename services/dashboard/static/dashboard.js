@@ -243,14 +243,6 @@ function updatePipelineBar(rank, vetter) {
   }
   if (btn) btn.disabled = showAsRunning;
 
-  // Update summary strip last-run
-  if (rank.date) $('ss-last-run').textContent = rank.date;
-}
-
-/* ── Screener summary strip ──────────────────────────────────────────── */
-function updateSummaryStrip() {
-  $('ss-ranked').textContent   = rankData.length || '—';
-  $('ss-holdings').textContent = rankData.filter(r => r.held).length || '—';
 }
 
 /* ── Regime ───────────────────────────────────────────────────────────── */
@@ -261,7 +253,7 @@ async function loadRegime() {
     const sbReg = $('sb-regime');
     sbReg.textContent = regime.toUpperCase().replace(/_/g, ' ');
     sbReg.className = 'regime-pill regime-' + regime;
-    if (d.spy_price) $('ss-spy').textContent = fmtMoney(d.spy_price);
+    // spy_price available but stat boxes removed from screener
   } catch (e) {
     const sbReg = $('sb-regime');
     sbReg.textContent = '—';
@@ -311,7 +303,6 @@ async function loadRankings() {
     });
     _expandedTicker = null;
     renderRankings();
-    updateSummaryStrip();
   } catch (e) {
     _rankingsLoadState = 'empty';
     rankData = [];
@@ -378,10 +369,9 @@ function renderRankings() {
     }
 
     const flags = [];
-    if (r.held)           flags.push('<span class="overlay-badge held">HELD</span>');
+    if (r.held)           flags.push('<span class="overlay-badge held">HOLDINGS</span>');
     if (r.not_in_universe) flags.push('<span class="overlay-badge not-ranked" title="Held but not in ranking universe">NOT RANKED</span>');
     if (r.vetter_excluded) flags.push('<span class="overlay-badge excl" title="' + esc(r.vetter_reason || '') + '">&#9888; ' + (r.vetter_risk_type || '').toUpperCase().replace(/_/g,' ') + '</span>');
-    if (r.positive_catalyst) flags.push('<span class="overlay-badge pos-cat" title="' + esc(r.positive_reason || '') + '">&#9733;</span>');
     const flagsHtml = flags.length ? flags.join('') : '<span style="color:var(--text3)">—</span>';
 
     const FACTORS = ['momentum', 'quality', 'value', 'growth', 'low_volatility', 'liquidity'];
@@ -494,7 +484,7 @@ function _buildDetailHtml(r) {
       + '<div class="llm-catalyst-reason">' + esc(r.positive_reason) + '</div></div></div>';
   }
 
-  const heldHtml = r.held ? '<div class="detail-held-note">HELD — ' + (r.qty != null ? r.qty + ' shares' : 'position') + '</div>' : '';
+  const heldHtml = r.held ? '<div class="detail-held-note">HOLDINGS — ' + (r.qty != null ? r.qty + ' shares' : 'position') + '</div>' : '';
   const notRankedHtml = r.not_in_universe
     ? '<div class="detail-held-note" style="color:var(--text2)">&#9888; NOT IN RANKING UNIVERSE — missing price data, below liquidity threshold, or insufficient history.</div>'
     : '';
@@ -527,9 +517,9 @@ async function loadDelta() {
 /* ── Action metadata maps ────────────────────────────────────────────── */
 const ACTION_ORDER  = { exit: 0, sell_trim: 1, entry: 2, buy_add: 3, hold: 4, watch: 5, at_risk: 6 };
 const ACTION_LABELS = {
-  exit: 'SELL TO EXIT', sell_trim: 'SELL TO TRIM',
-  entry: 'BUY TO ENTER', buy_add: 'BUY TO ADD',
-  hold: 'HOLD', watch: 'WATCH', at_risk: 'AT RISK',
+  exit: 'Sell to Close', sell_trim: 'Sell to Trim',
+  entry: 'Buy to Open', buy_add: 'Buy to Add',
+  hold: 'Hold', watch: 'Hold - Watch', at_risk: 'AT RISK',
 };
 const ACTION_PILL = {
   exit: 'pill-sell-exit', sell_trim: 'pill-sell-trim',
@@ -548,11 +538,13 @@ function _isApprovable(r) {
 }
 
 function renderTrader() {
-  const sorted = [...deltaData].sort((a, b) => {
-    const ao = ACTION_ORDER[a.action] ?? 99;
-    const bo = ACTION_ORDER[b.action] ?? 99;
-    return ao - bo || (a.rank ?? 999) - (b.rank ?? 999);
-  });
+  const sorted = [...deltaData]
+    .filter(r => !r.rejected_at)
+    .sort((a, b) => {
+      const ao = ACTION_ORDER[a.action] ?? 99;
+      const bo = ACTION_ORDER[b.action] ?? 99;
+      return ao - bo || (a.rank ?? 999) - (b.rank ?? 999);
+    });
 
   const toolbar = $('trader-toolbar');
   // Show toolbar whenever there are any signals — the Purge & Reset button must be
