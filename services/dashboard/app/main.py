@@ -701,8 +701,7 @@ _HTML = r"""<!DOCTYPE html>
             <th>ACTION</th>
             <th>TICKER</th>
             <th>RANK</th>
-            <th>SCORE</th>
-            <th>QTY</th>
+            <th>TARGET</th>
             <th>FLAGS</th>
             <th>STATUS</th>
             <th>ACTIONS</th>

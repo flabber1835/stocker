@@ -609,7 +609,7 @@ function renderTrader() {
   if (!tbody) return;
 
   if (sorted.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" class="tbl-empty">No signals — <strong>all clear</strong></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="tbl-empty">No signals — <strong>all clear</strong></td></tr>';
     _syncSelectAllState();
     updateTraderBadge();
     return;
@@ -625,7 +625,7 @@ function renderTrader() {
       const label = section === 'sell' ? 'Sell Orders'
                   : section === 'buy'  ? 'Buy Orders'
                   : 'Hold &amp; Watch';
-      rows.push('<tr class="tr-section-divider"><td colspan="9">' + label + '</td></tr>');
+      rows.push('<tr class="tr-section-divider"><td colspan="8">' + label + '</td></tr>');
       lastSection = section;
     }
     rows.push(_buildTradeRow(r));
@@ -659,9 +659,10 @@ function _buildTradeRow(r) {
     + '</td>';
 
   const rankCell  = '<td class="t-num">' + (r.rank != null ? '#' + r.rank : '—') + '</td>';
-  const scoreCell = '<td class="t-num">' + fmtScore(r.composite_score) + '</td>';
-  const qty = (r.order_qty != null && r.order_qty > 0) ? r.order_qty : '—';
-  const qtyCell   = '<td class="t-num">' + qty + '</td>';
+  const targetPct = r.current_weight != null
+    ? (r.current_weight * 100).toFixed(1) + '%'
+    : '—';
+  const targetCell = '<td class="t-num">' + targetPct + '</td>';
 
   const vetterBadge = (r.vetter_excluded && isBuy)
     ? '<span class="overlay-badge excl" title="' + esc(r.vetter_reason || '') + '">&#9888; '
@@ -720,7 +721,7 @@ function _buildTradeRow(r) {
   }
 
   return '<tr class="' + rowCls + '" id="tc-' + r.id + '">'
-    + chkCell + actionCell + tickerCell + rankCell + scoreCell + qtyCell + flagsCell + statusCell + actionsCell
+    + chkCell + actionCell + tickerCell + rankCell + targetCell + flagsCell + statusCell + actionsCell
     + '</tr>';
 }
 
