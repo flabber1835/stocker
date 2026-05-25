@@ -48,37 +48,44 @@ regime_detection:
       vol_above_threshold: false
 
 factor_weights:
-  bull_calm:               # Bull / Low-Volatility — research midpoints
-    momentum:       0.27
-    growth:         0.21
-    quality:        0.15
-    low_volatility: 0.14
-    value:          0.13
-    liquidity:      0.10
+  # Weights calibrated to academic literature on regime-conditional factor premiums.
+  # Primary sources: Cooper, Gutierrez & Hameed (JF 2004) for momentum market-state
+  # dependency; Daniel & Moskowitz (JFE 2016) for momentum crash risk; Frazzini &
+  # Pedersen (JFE 2014) for BAB / low-vol premium scaling; Ang, Hodrick, Xing & Zhang
+  # (JF 2006 / JFE 2009) for low-vol anomaly; Asness, Frazzini & Pedersen (RoF 2019)
+  # for QMJ quality premium; Fama & French (JF 1996) and LSV (JF 1994) for value timing.
 
-  bull_stress:             # Bull / High-Volatility — research midpoints
-    momentum:       0.21
-    low_volatility: 0.19
-    quality:        0.18
-    value:          0.17
-    growth:         0.12
-    liquidity:      0.13
+  bull_calm:               # Bull / Low-Volatility — momentum dominates (Cooper et al. JF 2004)
+    momentum:       0.30   # only factor with statistically significant premium in UP market states
+    growth:         0.20   # risk-on environment rewards earnings momentum; short-term persistence valid
+    quality:        0.17   # stable anchor; always earns premium but less incremental in calm bull
+    value:          0.12   # underperforms in growth-led expansions (Fama-French 1996; LSV 1994)
+    liquidity:      0.11   # execution floor + institutional quality filter
+    low_volatility: 0.10   # smallest premium in calm bull (Blitz & van Vliet JPM 2007)
 
-  bear_stress:             # Bear / High-Volatility — research midpoints
-    low_volatility: 0.34
-    quality:        0.25
-    liquidity:      0.18
-    momentum:       0.10
-    value:          0.08
-    growth:         0.05
+  bull_stress:             # Bull / High-Volatility — quality and low-vol absorb momentum crash risk
+    low_volatility: 0.24   # BAB premium approximately doubles above vol=20% (Frazzini & Pedersen 2014)
+    quality:        0.23   # premium scales with VIX (Ang et al. 2009; Asness et al. RoF 2019)
+    value:          0.17   # selective market rewards value; moderate support
+    momentum:       0.16   # Sharpe drops ~40% when vol rises even in uptrend (Daniel & Moskowitz 2016)
+    liquidity:      0.10   # execution quality maintained
+    growth:         0.10   # high-multiple growth penalized by volatility; long-duration effect
 
-  bear_calm:               # Recovery / Low-Volatility — research midpoints
-    value:          0.28
-    momentum:       0.22
-    quality:        0.17
-    low_volatility: 0.15
-    growth:         0.10
-    liquidity:      0.08
+  bear_stress:             # Bear / High-Volatility — maximum defense
+    low_volatility: 0.35   # BAB at maximum premium; anomaly largest in bad states (Ang et al. JF 2006)
+    quality:        0.27   # QMJ earns ~8% in credit crises (Asness, Frazzini & Pedersen RoF 2019)
+    liquidity:      0.14   # flight-to-liquidity premium (Amihud JFM 2002; Pastor & Stambaugh JPE 2003)
+    value:          0.10   # quality filter limits value traps (Piotroski JAR 2000)
+    growth:         0.07   # earnings growth as quality signal; minimum contribution
+    momentum:       0.07   # highest crash risk state (Daniel & Moskowitz JFE 2016)
+
+  bear_calm:               # Bear / Low-Volatility — value+quality; momentum cut (Cooper et al. 2004)
+    value:          0.30   # premium peaks post-distress; contrarian payoff window (Fama-French 1996)
+    quality:        0.26   # Graham-Dodd combination: value WITH quality prevents value traps
+    low_volatility: 0.18   # market still declining; downside protection still warranted
+    momentum:       0.12   # Cooper et al. JF 2004: momentum −0.37%/month in DOWN market states
+    growth:         0.07   # growth still compressed in orderly bear
+    liquidity:      0.07   # reduced vs bear_stress; less acute flight-to-liquidity effect
 
 portfolio_builder:
   method: greedy_score_per_port_vol  # score / hypothetical equal-weight portfolio vol (total, not marginal delta)

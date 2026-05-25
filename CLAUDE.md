@@ -772,10 +772,12 @@ regime_detection:
     bear_calm:   { spy_above_slow_sma: false, vol_above_threshold: false }
 
 factor_weights:
-  bull_calm:   { momentum: 0.35, quality: 0.25, value: 0.15, growth: 0.15, low_volatility: 0.10 }
-  bull_stress: { momentum: 0.20, quality: 0.35, value: 0.15, growth: 0.10, low_volatility: 0.20 }
-  bear_stress: { momentum: 0.10, quality: 0.40, value: 0.15, growth: 0.05, low_volatility: 0.30 }
-  bear_calm:   { momentum: 0.20, quality: 0.30, value: 0.30, growth: 0.10, low_volatility: 0.10 }
+  # Calibrated to academic literature — see docs/architecture.md for citation rationale.
+  # All regimes include a liquidity factor not shown in this abbreviated example.
+  bull_calm:   { momentum: 0.30, growth: 0.20, quality: 0.17, value: 0.12, liquidity: 0.11, low_volatility: 0.10 }
+  bull_stress: { low_volatility: 0.24, quality: 0.23, value: 0.17, momentum: 0.16, liquidity: 0.10, growth: 0.10 }
+  bear_stress: { low_volatility: 0.35, quality: 0.27, liquidity: 0.14, value: 0.10, growth: 0.07, momentum: 0.07 }
+  bear_calm:   { value: 0.30, quality: 0.26, low_volatility: 0.18, momentum: 0.12, growth: 0.07, liquidity: 0.07 }
 
 max_positions: 30
 min_score_percentile: 0.0

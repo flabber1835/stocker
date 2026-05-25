@@ -345,10 +345,28 @@ Volatility: SPY 20-day annualized realized vol vs a threshold (default 20%)
 This produces four regimes:
 
 ```text
-bull_calm   — SPY above SMA, vol below threshold — ride winners (momentum-heavy)
-bull_stress — SPY above SMA, vol above threshold — choppy bull (rotate to quality)
-bear_stress — SPY below SMA, vol above threshold — crisis mode (max defense)
-bear_calm   — SPY below SMA, vol below threshold — orderly bear (value works)
+bull_calm   — SPY above SMA, vol below threshold — momentum dominates; low-vol weight minimized
+bull_stress — SPY above SMA, vol above threshold — low-vol and quality absorb momentum crash risk
+bear_stress — SPY below SMA, vol above threshold — maximum defense: low-vol + quality lead
+bear_calm   — SPY below SMA, vol below threshold — value + quality combination; momentum cut sharply
+```
+
+Factor weight rationale by regime (see `strategies/quality_core_v1.yaml` for exact values):
+
+```text
+bull_calm:   momentum leads — statistically significant only in UP market states (Cooper et al. JF 2004)
+             low_vol at minimum — Blitz & van Vliet show smallest premium in calm bull markets
+
+bull_stress: low_vol and quality elevated — BAB premium doubles above vol=20% (Frazzini & Pedersen 2014)
+             momentum reduced — Sharpe drops ~40% when vol rises (Daniel & Moskowitz JFE 2016)
+
+bear_stress: low_vol dominant — largest anomaly in bad market states (Ang et al. JF 2006)
+             quality second — QMJ earns ~8% in credit crises (Asness, Frazzini & Pedersen 2019)
+             momentum at minimum — highest crash risk state (Daniel & Moskowitz 2016)
+
+bear_calm:   value leads — premium peaks post-distress (Fama & French JF 1996; LSV JF 1994)
+             quality raised — Graham-Dodd combination: value WITH quality prevents value traps
+             momentum cut sharply — Cooper et al. 2004: momentum −0.37%/month in DOWN market states
 ```
 
 Why 4 instead of 3: three buckets only capture trend. Volatility is an independent
