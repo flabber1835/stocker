@@ -1,10 +1,6 @@
 #!/bin/sh
 set -e
 
-# pg_isready passes on 127.0.0.1 inside the postgres container before the
-# bridge IP (e.g. 192.168.64.2) is routable from other containers on NAS.
-# The `if python` form is used deliberately: `set -e` would abort the script
-# on a bare `python; rc=$?` when python exits 1, bypassing the retry loop.
 MAX_RETRIES=20
 DELAY=10
 
@@ -38,8 +34,14 @@ EOF
 
 wait_for_db
 
+# Show current alembic state before upgrading
+echo "[db-migrator] Current alembic state:" >&2
+alembic -c /app/alembic.ini current 2>&1 || true
+
 echo "[db-migrator] Running: alembic upgrade head" >&2
-# -v makes alembic print each migration step as it runs, so failures are
-# immediately visible in `docker logs stocker-db-migrator-1`.
-alembic -c /app/alembic.ini -v upgrade head
+alembic -c /app/alembic.ini upgrade head
 echo "[db-migrator] Migration complete" >&2
+
+# Show final state
+echo "[db-migrator] Final alembic state:" >&2
+alembic -c /app/alembic.ini current 2>&1 || true

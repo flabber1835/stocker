@@ -626,3 +626,22 @@ CREATE TABLE IF NOT EXISTS scheduler_runs (
     run_ids      JSONB NOT NULL DEFAULT '{}'
 );
 
+-- ── Alembic version stamp ──────────────────────────────────────────────────
+-- When Postgres initialises a fresh volume it runs this file via
+-- docker-entrypoint-initdb.d.  Stamping alembic_version here tells the
+-- db-migrator "all migrations are already applied" so it runs `upgrade head`
+-- (which is a no-op) rather than re-executing every CREATE TABLE / ADD COLUMN
+-- statement against the schema that init.sql just built.
+--
+-- IMPORTANT: update the version_num value every time a new migration file is
+-- added to db/migrations/versions/.  The value must match the `revision`
+-- field of the LATEST migration file.
+CREATE TABLE IF NOT EXISTS alembic_version (
+    version_num VARCHAR(32) NOT NULL,
+    CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
+);
+
+INSERT INTO alembic_version (version_num)
+VALUES ('0005')
+ON CONFLICT DO NOTHING;
+
