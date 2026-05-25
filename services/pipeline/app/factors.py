@@ -126,10 +126,13 @@ def compute_quality(fundamentals: pd.DataFrame) -> pd.Series:
     """
     Composite of ROE and inverse D/E.
 
-    Each component is winsorized at 1st/99th percentile then individually z-scored
-    before averaging. This replaces the prior min-max approach, which compressed the
-    upside to ~0.5σ because profitable companies clustered in the top of [0, 1].
-    Winsorize + component z-score preserves full cross-sectional spread.
+    Each component is winsorized then ranked via cross_section_percentile so both
+    land on [0, 1] relative to the full universe. Using sub-population z-scores
+    instead inflated scores for tickers with only one component: a ticker with
+    ROE data but no D/E data would receive a full unbounded z-score as its quality,
+    while a ticker with both components received a dampened mean of two z-scores.
+    With percentile ranking the scale is identical whether a ticker has one or two
+    components, so sparse-fundamental stocks no longer rank artificially high.
     """
     fund = fundamentals.set_index("ticker")
 
@@ -139,20 +142,27 @@ def compute_quality(fundamentals: pd.DataFrame) -> pd.Series:
     has_roe = roe.notna()
     has_dte = dte.notna()
 
-    roe_z = _component_zscore(_winsorize(roe[has_roe])) if has_roe.any() else pd.Series(dtype=float)
-    neg_dte_z = _component_zscore(_winsorize(-dte[has_dte])) if has_dte.any() else pd.Series(dtype=float)
-
     all_tickers = fund.index
     components = pd.DataFrame(index=all_tickers)
-    if not roe_z.empty:
-        components["roe"] = roe_z.reindex(all_tickers)
-    if not neg_dte_z.empty:
-        components["neg_dte"] = neg_dte_z.reindex(all_tickers)
+    if has_roe.any():
+        components["roe"] = cross_section_percentile(_winsorize(roe[has_roe]).reindex(all_tickers))
+    if has_dte.any():
+        components["neg_dte"] = cross_section_percentile(_winsorize(-dte[has_dte]).reindex(all_tickers))
 
     if components.empty:
         result = pd.Series(np.nan, index=all_tickers)
     else:
-        result = components.mean(axis=1, skipna=True)
+        # Fill missing components with 0.5 (neutral percentile) for tickers
+        # that have at least one valid component.  Without this, a ticker with
+        # only one component gets mean = that component's score; a ticker with
+        # two components gets the average of both — so the one-component ticker
+        # can outscore the two-component ticker just by having the best single
+        # metric, which is unfair.  Neutral fill says "we don't know this metric,
+        # assume average" rather than silently ignoring the missing dimension.
+        has_any = components.notna().any(axis=1)
+        filled = components.where(components.notna(), other=0.5)
+        result = filled.mean(axis=1)
+        result[~has_any] = np.nan
 
     result.name = "quality"
     return result
@@ -163,7 +173,10 @@ def compute_value(fundamentals: pd.DataFrame, pe_pb_cap: float = 50.0) -> pd.Ser
     Mean of earnings yield (1/PE) and book yield (1/PB).
 
     PE/PB are capped at pe_pb_cap — beyond that the yield signal is economically flat.
-    Yields are additionally winsorized at 1st/99th percentile before averaging.
+    Components are winsorized then ranked via cross_section_percentile so both yields
+    land on [0, 1] despite their different raw scales (earnings yield ~0.07,
+    book yield ~0.67). This replaces component z-scoring which had the same sparse-data
+    inflation problem as quality.
     """
     fund = fundamentals.set_index("ticker")
 
@@ -181,23 +194,23 @@ def compute_value(fundamentals: pd.DataFrame, pe_pb_cap: float = 50.0) -> pd.Ser
     ey_w = _winsorize(ey_valid) if not ey_valid.empty else ey_valid
     by_w = _winsorize(by_valid) if not by_valid.empty else by_valid
 
-    # Component z-score each yield before averaging so earnings_yield (~0.07)
-    # and book_yield (~0.67) contribute equal weight instead of book_yield
-    # dominating at ~10x the raw scale.
-    ey_z = _component_zscore(ey_w) if not ey_w.empty else ey_w
-    by_z = _component_zscore(by_w) if not by_w.empty else by_w
-
     all_tickers = fund.index
     components = pd.DataFrame(index=all_tickers)
-    if not ey_z.empty:
-        components["earnings_yield"] = ey_z.reindex(all_tickers)
-    if not by_z.empty:
-        components["book_yield"] = by_z.reindex(all_tickers)
+    if not ey_w.empty:
+        components["earnings_yield"] = cross_section_percentile(ey_w.reindex(all_tickers))
+    if not by_w.empty:
+        components["book_yield"] = cross_section_percentile(by_w.reindex(all_tickers))
 
     if components.empty:
         result = pd.Series(np.nan, index=all_tickers)
     else:
-        result = components.mean(axis=1, skipna=True)
+        # Same neutral-fill logic as compute_quality: missing components
+        # become 0.5 (percentile midpoint) so a PE-only ticker cannot
+        # outscore a ticker with both good PE and good PB.
+        has_any = components.notna().any(axis=1)
+        filled = components.where(components.notna(), other=0.5)
+        result = filled.mean(axis=1)
+        result[~has_any] = np.nan
     result.name = "value"
     return result
 

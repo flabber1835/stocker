@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS universe_tickers (
 
 CREATE INDEX IF NOT EXISTS idx_universe_tickers_snapshot ON universe_tickers(snapshot_id);
 CREATE INDEX IF NOT EXISTS idx_universe_tickers_ticker   ON universe_tickers(ticker);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_universe_tickers_snapshot_ticker ON universe_tickers(snapshot_id, ticker);
 
 -- ── Prices ──────────────────────────────────────────────────────────────────────────────────────────
 

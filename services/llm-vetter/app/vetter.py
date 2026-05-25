@@ -326,9 +326,13 @@ def _format_ticker_message(
     # Quantitative standing section — always shown (portfolio status is always meaningful)
     lines.append("QUANTITATIVE STANDING (why the model selected this stock):")
     if rank is not None:
-        # Avoid misleading "top 100%" for the lowest-ranked candidate
-        pct = f" (top {round(rank / total_candidates * 100):.0f}%)" if total_candidates and rank < total_candidates else ""
-        lines.append(f"  Rank: {rank}{f' of {total_candidates}' if total_candidates else ''}{pct}")
+        # Show universe rank and vetter-batch size separately.
+        # "Rank: 2 of 50" was ambiguous — LLMs read it as "position 2 in a 50-stock
+        # portfolio" and concluded the stock was already held. Universe rank and the
+        # number of candidates being vetted today are independent quantities.
+        lines.append(f"  Universe rank: #{rank} (out of all ranked stocks in the investable universe)")
+        if total_candidates:
+            lines.append(f"  Vetter batch: {total_candidates} top-ranked candidates reviewed today")
     if composite_score is not None:
         lines.append(f"  Composite score: {composite_score:.4f}")
     if factor_scores:
@@ -545,6 +549,135 @@ def _detect_hallucination_flags(
     return flags
 
 
+def _parse_llm_response(
+    raw: str,
+    ticker: str,
+    news: list[dict],
+    earnings_date: str | None,
+    tavily_articles: list[dict],
+    today: str,
+    agent_searches: list[dict],
+    latency_ms: int,
+    user_message: str,
+    system_prompt: str,
+    vetter_config: dict,
+    news_titles: list[str] | None = None,
+    regime: str | None = None,
+) -> dict:
+    """Parse the raw LLM response string into a structured vetter result dict.
+
+    Handles JSON extraction from code fences and bare prose, returns exclude=True
+    on parse failure so unvetted stocks are held for manual review rather than
+    silently passed through.
+    """
+    if news_titles is None:
+        news_titles = []
+
+    # Extract JSON from whatever format the model chose:
+    #   Case 1: leading code fence  ```json {...} ```
+    #   Case 2: JSON embedded in prose  "Here is my assessment:\n```json\n{...}\n```"
+    #   Case 3: bare prose with a JSON object somewhere  "Analysis...\n{...}"
+    clean = raw
+    if clean.startswith("```"):
+        clean = re.sub(r"^```(?:json)?\s*", "", clean)
+        clean = re.sub(r"\s*```$", "", clean.strip()).strip()
+    elif "```json" in clean:
+        m = re.search(r"```json\s*(.*?)\s*```", clean, re.DOTALL)
+        if m:
+            clean = m.group(1).strip()
+    else:
+        brace = clean.find("{")
+        if brace > 0:
+            clean = clean[brace:]
+
+    try:
+        # raw_decode stops after the first complete JSON value, ignoring any
+        # trailing content (closing fences, commentary) the model appends.
+        parsed, _ = json.JSONDecoder().raw_decode(clean)
+    except json.JSONDecodeError as exc:
+        log.error("Invalid JSON for ticker %s: %s | raw: %s", ticker, exc, clean[:300])
+        return {
+            "ticker":      ticker,
+            "exclude":     True,
+            "reason":      f"LLM response could not be parsed — excluded pending manual review. Raw: {raw[:100]}",
+            "confidence":  "low",
+            "risk_type":   "none",
+            "positive_catalyst":   False,
+            "positive_reason":     "",
+            "had_av_news":    bool(news),
+            "had_earnings":   earnings_date is not None,
+            "had_tavily":     bool(tavily_articles),
+            "parse_error":    True,
+            "agent_searches": agent_searches,
+            "latency_ms":     latency_ms,
+            "prompt":         user_message,
+            "system_prompt":  system_prompt,
+            "raw_response":   raw,
+            "news_titles":    news_titles,
+            "earnings_date":  earnings_date,
+            "vetter_config":  vetter_config,
+            "hallucination_flags": [f"JSON parse error: {exc}"],
+        }
+
+    hallucination_flags = _detect_hallucination_flags(
+        ticker, parsed, news, earnings_date, raw, today=today,
+        tavily_articles=tavily_articles, agent_searches=agent_searches,
+        regime=regime,
+    )
+    if hallucination_flags:
+        for flag in hallucination_flags:
+            log.warning("[llm-vetter] %s hallucination flag: %s", ticker, flag)
+
+    # Hard override: reverse exclusions that have no data support at high/medium confidence.
+    # Checks all sources: AV news, Tavily pre-fetch, agent web searches, earnings calendar.
+    all_sources = news + tavily_articles
+    agent_found_data = any(s.get("result_count", 0) > 0 for s in agent_searches)
+    has_any_supporting_data = bool(all_sources) or earnings_date is not None or agent_found_data
+
+    if (
+        parsed.get("exclude", False)
+        and not has_any_supporting_data
+        and parsed.get("confidence", "low") in ("high", "medium")
+    ):
+        original_confidence = parsed["confidence"]
+        log.warning(
+            "[llm-vetter] %s: AUTO-OVERRIDE — exclude=True with %s confidence but no data found; reversing to KEEP",
+            ticker, original_confidence,
+        )
+        parsed["exclude"] = False
+        parsed["confidence"] = "low"
+        parsed["reason"] = (
+            f"[AUTO-OVERRIDE: exclusion reversed — no news, no earnings, no search results found. "
+            f"Original model decision was exclude=True with {original_confidence} confidence.] "
+            + parsed.get("reason", "")
+        )
+        hallucination_flags.append(
+            f"AUTO-OVERRIDDEN: exclude=True ({original_confidence} confidence) with no supporting data → forced to KEEP"
+        )
+
+    return {
+        "ticker":      ticker,
+        "exclude":     bool(parsed.get("exclude", False)),
+        "reason":      parsed.get("reason", ""),
+        "confidence":  parsed.get("confidence", "low"),
+        "risk_type":   parsed.get("risk_type", "none"),
+        "positive_catalyst":   bool(parsed.get("positive_catalyst", False)),
+        "positive_reason":     parsed.get("positive_reason", ""),
+        "had_av_news":    bool(news),
+        "had_earnings":   earnings_date is not None,
+        "had_tavily":     bool(tavily_articles),
+        "agent_searches": agent_searches,
+        "latency_ms":     latency_ms,
+        "prompt":         user_message,
+        "system_prompt":  system_prompt,
+        "raw_response":   raw,
+        "news_titles":    news_titles,
+        "earnings_date":  earnings_date,
+        "vetter_config":  vetter_config,
+        "hallucination_flags": hallucination_flags,
+    }
+
+
 async def vet_single_ticker(
     ticker: str,
     news: list[dict],
@@ -759,106 +892,18 @@ async def vet_single_ticker(
     latency_ms = round((time.monotonic() - t0) * 1000)
     raw = (final_resp_data.get("content") or "").strip()
 
-    # Extract JSON from whatever format the model chose:
-    #   Case 1: leading code fence  ```json {...} ```
-    #   Case 2: JSON embedded in prose  "Here is my assessment:\n```json\n{...}\n```"
-    #   Case 3: bare prose with a JSON object somewhere  "Analysis...\n{...}"
-    clean = raw
-    if clean.startswith("```"):
-        clean = re.sub(r"^```(?:json)?\s*", "", clean)
-        clean = re.sub(r"\s*```$", "", clean.strip()).strip()
-    elif "```json" in clean:
-        m = re.search(r"```json\s*(.*?)\s*```", clean, re.DOTALL)
-        if m:
-            clean = m.group(1).strip()
-    else:
-        brace = clean.find("{")
-        if brace > 0:
-            clean = clean[brace:]
-
-    try:
-        # raw_decode stops after the first complete JSON value, ignoring any
-        # trailing content (closing fences, commentary) the model appends.
-        parsed, _ = json.JSONDecoder().raw_decode(clean)
-    except json.JSONDecodeError as exc:
-        log.error("Invalid JSON for ticker %s: %s | raw: %s", ticker, exc, clean[:300])
-        return {
-            "ticker":      ticker,
-            "exclude":     False,
-            "reason":      f"LLM response could not be parsed — defaulting to keep. Raw: {raw[:100]}",
-            "confidence":  "low",
-            "risk_type":   "none",
-            "positive_catalyst":   False,
-            "positive_reason":     "",
-            "had_av_news":    bool(news),
-            "had_earnings":   earnings_date is not None,
-            "had_tavily":     bool(tavily_articles),
-            "parse_error":    True,
-            "agent_searches": agent_searches,
-            "latency_ms":     latency_ms,
-            "prompt":         user_message,
-            "system_prompt":  system_prompt,
-            "raw_response":   raw,
-            "news_titles":    news_titles,
-            "earnings_date":  earnings_date,
-            "vetter_config": vetter_config,
-            "hallucination_flags": [f"JSON parse error: {exc}"],
-        }
-
-    hallucination_flags = _detect_hallucination_flags(
-        ticker, parsed, news, earnings_date, raw, today=today,
-        tavily_articles=tavily_articles, agent_searches=agent_searches,
+    return _parse_llm_response(
+        raw=raw,
+        ticker=ticker,
+        news=news,
+        earnings_date=earnings_date,
+        tavily_articles=tavily_articles,
+        today=today,
+        agent_searches=agent_searches,
+        latency_ms=latency_ms,
+        user_message=user_message,
+        system_prompt=system_prompt,
+        vetter_config=vetter_config,
+        news_titles=news_titles,
         regime=regime,
     )
-    if hallucination_flags:
-        for flag in hallucination_flags:
-            log.warning("[llm-vetter] %s hallucination flag: %s", ticker, flag)
-
-    # Hard override: reverse exclusions that have no data support at high/medium confidence.
-    # Checks all sources: AV news, Tavily pre-fetch, agent web searches, earnings calendar.
-    all_sources = news + tavily_articles
-    agent_found_data = any(s.get("result_count", 0) > 0 for s in agent_searches)
-    has_any_supporting_data = bool(all_sources) or earnings_date is not None or agent_found_data
-
-    if (
-        parsed.get("exclude", False)
-        and not has_any_supporting_data
-        and parsed.get("confidence", "low") in ("high", "medium")
-    ):
-        original_confidence = parsed["confidence"]
-        log.warning(
-            "[llm-vetter] %s: AUTO-OVERRIDE — exclude=True with %s confidence but no data found; reversing to KEEP",
-            ticker, original_confidence,
-        )
-        parsed["exclude"] = False
-        parsed["confidence"] = "low"
-        parsed["reason"] = (
-            f"[AUTO-OVERRIDE: exclusion reversed — no news, no earnings, no search results found. "
-            f"Original model decision was exclude=True with {original_confidence} confidence.] "
-            + parsed.get("reason", "")
-        )
-        hallucination_flags.append(
-            f"AUTO-OVERRIDDEN: exclude=True ({original_confidence} confidence) with no supporting data → forced to KEEP"
-        )
-
-    return {
-        "ticker":      ticker,
-        "exclude":     bool(parsed.get("exclude", False)),
-        "reason":      parsed.get("reason", ""),
-        "confidence":  parsed.get("confidence", "low"),
-        "risk_type":   parsed.get("risk_type", "none"),
-        "positive_catalyst":   bool(parsed.get("positive_catalyst", False)),
-        "positive_reason":     parsed.get("positive_reason", ""),
-        "had_av_news":    bool(news),
-        "had_earnings":   earnings_date is not None,
-        "had_tavily":     bool(tavily_articles),
-        "agent_searches": agent_searches,
-        "latency_ms":     latency_ms,
-        "prompt":         user_message,
-        "system_prompt":  system_prompt,
-        "raw_response":   raw,
-        "news_titles":    news_titles,
-        "earnings_date":  earnings_date,
-        "vetter_config": vetter_config,
-        "hallucination_flags": hallucination_flags,
-    }

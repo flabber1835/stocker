@@ -118,6 +118,7 @@ async def download_av_listing(session: httpx.AsyncClient, api_key: str) -> tuple
     rows = []
     raw_rows = []       # every row AV returned, as-is
     filtered_rows = []  # rows dropped, with reason attached
+    seen_tickers: set[str] = set()
     for _, row in df.iterrows():
         av_row = {k: str(v).strip() for k, v in row.items()}
         raw_rows.append(av_row)
@@ -144,6 +145,14 @@ async def download_av_listing(session: httpx.AsyncClient, api_key: str) -> tuple
         if av_row.get("exchange", "") not in _US_EXCHANGES:
             filtered_rows.append({**av_row, "_filter_reason": "wrong_exchange"})
             continue
+        if ticker in seen_tickers:
+            # AV sometimes lists the same ticker on multiple exchanges (e.g. NYSE + OTC).
+            # Keep the first occurrence (NYSE/NASDAQ preferred since they sort earlier in
+            # the CSV); subsequent listings get a different company name which would
+            # produce a non-deterministic name mapping in the database.
+            filtered_rows.append({**av_row, "_filter_reason": "duplicate_ticker"})
+            continue
+        seen_tickers.add(ticker)
         rows.append(
             {
                 "ticker": ticker,
