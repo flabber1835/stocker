@@ -421,6 +421,11 @@ liquidity constraints
 minimum score thresholds
 do-not-buy list
 vetter exclusions (soft — does not block if vetter hasn't run)
+turnover penalty (default 5%) — score discount applied to candidates NOT in
+  the current portfolio_holdings, giving continuity holdings a slight
+  preference. Reduces unnecessary churn on regime transitions where new and
+  old top-ranked tickers have similar adjusted scores. Set
+  PortfolioBuilderConfig.turnover_penalty=0 to disable.
 ```
 
 ## llm-vetter
@@ -509,16 +514,21 @@ KILL_SWITCH                 — rejects all checks
 LIVE_TRADING_ENABLED        — gate for trade_type="live"
 PAPER_ONLY                  — rejects any live trade
 MAX_ORDER_NOTIONAL          — per-order dollar cap
+MAX_DAILY_TURNOVER_PCT      — default 0.50; sell-side cumulative cap per
+                              simulation day (delta_runs.run_date when
+                              trade-executor passes sim_date, else CURRENT_DATE).
+                              Only exits + sell_trims count; entries are not
+                              portfolio churn. Set to 1.0 to disable.
 qty > 0
 notional > 0
 human approval (every paper trade requires a button click)
 ```
 
-All four safety env vars (KILL_SWITCH, PAPER_ONLY, LIVE_TRADING_ENABLED,
-MAX_ORDER_NOTIONAL) are re-read on every `/check` call. However, `os.getenv()`
-reads the frozen process environment, so changing an env var via `docker exec -e`
-does NOT take effect without a restart. To hot-flip the kill switch at runtime
-without restarting, use the control file instead:
+All five safety env vars (KILL_SWITCH, PAPER_ONLY, LIVE_TRADING_ENABLED,
+MAX_ORDER_NOTIONAL, MAX_DAILY_TURNOVER_PCT) are re-read on every `/check` call.
+However, `os.getenv()` reads the frozen process environment, so changing an env
+var via `docker exec -e` does NOT take effect without a restart. To hot-flip
+the kill switch at runtime without restarting, use the control file instead:
 
     docker exec stocker-risk-service-1 touch /tmp/kill_switch   # ON
     docker exec stocker-risk-service-1 rm    /tmp/kill_switch   # OFF
@@ -532,9 +542,9 @@ time. `alpaca_orders.risk_check_id` is a FK into this table — answers
 audit guarantee; if `_persist_decision` fails for an APPROVED decision, the
 service returns 503 so the trade-executor never proceeds without an audit row.
 
-Planned but not yet implemented: max daily turnover, max daily loss, max
-position size cap, max position count, factor-data staleness check, Alpaca
-availability check. See `docs/risk-safety-rules.md`.
+Planned but not yet implemented: max daily loss, max position size cap, max
+position count, factor-data staleness check, Alpaca availability check. See
+`docs/risk-safety-rules.md`.
 
 Risk service is deterministic and heavily tested.
 
@@ -549,19 +559,20 @@ Per-click steps (each logged to execution_steps under one trace_id):
 
 ```text
 idempotency_check  — reject if intent already has an open/submitted order
-load_intent        — read delta_intents
-size_order         — entries / buy_adds: floor(buying_power × weight / last_price)
+load_intent        — read delta_intents (joined with delta_runs to get the
+                     run's sim_date, passed to risk-service for turnover scoping)
+size_order         — entries / buy_adds: floor(account_value × weight / last_price)
                      sell_trims: floor(account_value × drift / last_price)
                      exits: full position qty from latest live_positions
-                     Entries and buy_adds size against buying_power (cash
-                     minus what Alpaca has reserved for pending orders) so
-                     a batch of approvals can't over-commit when prior MOO
-                     orders are still pending. Sell_trims and exits use
-                     account_value since sells generate cash.
+                     All actions size against account_value (total equity) so a
+                     fully-invested portfolio replacing one exited position gets
+                     a correctly-sized entry. With MOO orders, exits and entries
+                     fire at the same open, so cash flow nets out without
+                     requiring a buying_power-based sizing constraint.
                      refuse if qty < 1 (position too small)
                      refuse if alpaca-sync > EXIT_SYNC_MAX_AGE_HOURS old
                      (stale balances would size wildly wrong orders)
-risk_check         — call risk-service /check
+risk_check         — call risk-service /check, with sim_date for turnover scoping
 record_order       — INSERT alpaca_orders (status = pending | risk_rejected)
 submit_alpaca      — POST /v2/orders if approved + credentials present
 ```

@@ -27,6 +27,7 @@ KILL_SWITCH              — if active, risk-service rejects all checks (see hot
 LIVE_TRADING_ENABLED     — must be "true" for trade_type=="live" to pass; default "false"
 PAPER_ONLY               — when "true", any live trade is rejected; default "true"
 MAX_ORDER_NOTIONAL       — default $50,000 per order
+MAX_ORDER_DAILY_TURNOVER_PCT — default 0.50 (50%); per-day sell-side cap (see below)
 qty > 0 validation       — enforced in risk-service /check
 notional > 0 validation  — enforced in risk-service /check
 
@@ -37,6 +38,25 @@ Human approval required for every paper trade — every order today requires a
 trade-executor short-circuits when Alpaca credentials are empty
 llm-vetter cannot place trades; vetter is informational only
 ```
+
+### MAX_DAILY_TURNOVER_PCT — sell-side daily turnover cap
+
+Rejects an `exit` or `sell_trim` once today's cumulative sell notional plus
+this order would exceed `account_value × MAX_DAILY_TURNOVER_PCT`. Default is
+0.50 (50% of portfolio). Entries and buy_adds are NOT counted — they deploy
+idle cash, not portfolio churn. The cap is designed to prevent flipping
+half the portfolio in a single day on a regime change (15 exits × $3.3K
+= $49.5K ≈ 50% of $100K), while leaving cold-boot capital deployment
+unconstrained.
+
+Scoping uses the simulation date when available (trade-executor passes
+`sim_date` derived from `delta_runs.run_date` for the intent's run), and
+falls back to wall-clock `CURRENT_DATE` otherwise. This makes the cap
+behave correctly in both production (each calendar day is its own scope)
+and harness simulations (each simulated day is its own scope, even though
+all submissions happen on one wall-clock day).
+
+Set `MAX_DAILY_TURNOVER_PCT=1.0` to effectively disable the cap.
 
 ### KILL_SWITCH hot-flip (no restart required)
 
@@ -63,7 +83,6 @@ rejected regardless of the env var value.
 Not yet implemented. Tracked here so they don't get forgotten.
 
 ```text
-max daily turnover cap
 max daily loss cap
 max position size cap (per-ticker weight)
 max position count
@@ -98,6 +117,10 @@ risk_decisions.decision_id
 The `risk_decisions` table captures the env snapshot at decision time
 (`KILL_SWITCH`, `PAPER_ONLY`, `LIVE_TRADING_ENABLED`, `MAX_ORDER_NOTIONAL`)
 so a later config change cannot rewrite the rationale of historical decisions.
+`MAX_DAILY_TURNOVER_PCT` is read on every `/check` call but is not yet
+persisted in the env snapshot — when the cap rejects, the rule_triggered
+column is `daily_turnover_limit` and the reason text records the actual
+limit and today's running total.
 
 ## Trade Intent Flow
 
