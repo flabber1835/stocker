@@ -519,6 +519,23 @@ MAX_DAILY_TURNOVER_PCT      — default 0.50; sell-side cumulative cap per
                               trade-executor passes sim_date, else CURRENT_DATE).
                               Only exits + sell_trims count; entries are not
                               portfolio churn. Set to 1.0 to disable.
+MAX_DAILY_LOSS_PCT          — default 0.10 (10%); halts ALL trades when the
+                              account is down > X% vs the day's first sync.
+                              Automated complement to KILL_SWITCH.
+MAX_POSITION_PCT            — default 0.15 (15%); refuses entries/buy_adds
+                              that would push a ticker above X% of account_value.
+                              Backstop to portfolio-builder's max_position_weight
+                              for the price-drift case.
+MAX_POSITIONS               — default 35; refuses entry when broker already
+                              holds X distinct tickers and this entry is for
+                              a new (not-yet-held) ticker.
+MAX_DATA_AGE_HOURS          — default 96 (4 days, weekend-safe); refuses
+                              entries/buy_adds when the latest successful
+                              pipeline run is older than threshold. Sells
+                              not affected (exiting on stale data is safe).
+MAX_SYNC_AGE_HOURS          — default 24; refuses ALL trades when the latest
+                              successful alpaca-sync is older than threshold —
+                              broker state unreliable, sizing would be wrong.
 qty > 0
 notional > 0
 human approval window with auto-approve fallback
@@ -533,8 +550,7 @@ chain liveness — scheduler /health/chain returns 503 if no successful
   at /health/chain for external monitors.
 ```
 
-All five safety env vars (KILL_SWITCH, PAPER_ONLY, LIVE_TRADING_ENABLED,
-MAX_ORDER_NOTIONAL, MAX_DAILY_TURNOVER_PCT) are re-read on every `/check` call.
+All safety env vars are re-read on every `/check` call.
 However, `os.getenv()` reads the frozen process environment, so changing an env
 var via `docker exec -e` does NOT take effect without a restart. To hot-flip
 the kill switch at runtime without restarting, use the control file instead:
@@ -551,9 +567,12 @@ time. `alpaca_orders.risk_check_id` is a FK into this table — answers
 audit guarantee; if `_persist_decision` fails for an APPROVED decision, the
 service returns 503 so the trade-executor never proceeds without an audit row.
 
-Planned but not yet implemented: max daily loss, max position size cap, max
-position count, factor-data staleness check, Alpaca availability check. See
-`docs/risk-safety-rules.md`.
+Defense-in-depth pairings: trade-executor's `EXIT_SYNC_MAX_AGE_HOURS` and
+risk-service's `MAX_SYNC_AGE_HOURS` both guard against stale alpaca-sync
+(executor refuses to size, risk-service refuses to approve). Portfolio-
+builder's `max_position_weight` caps at construction; risk-service's
+`MAX_POSITION_PCT` catches price-drift over-concentration on subsequent
+buy_adds. See `docs/risk-safety-rules.md` for the full table.
 
 Risk service is deterministic and heavily tested.
 

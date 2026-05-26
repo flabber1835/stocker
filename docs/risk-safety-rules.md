@@ -27,7 +27,12 @@ KILL_SWITCH              — if active, risk-service rejects all checks (see hot
 LIVE_TRADING_ENABLED     — must be "true" for trade_type=="live" to pass; default "false"
 PAPER_ONLY               — when "true", any live trade is rejected; default "true"
 MAX_ORDER_NOTIONAL       — default $50,000 per order
-MAX_ORDER_DAILY_TURNOVER_PCT — default 0.50 (50%); per-day sell-side cap (see below)
+MAX_DAILY_TURNOVER_PCT   — default 0.50 (50%); per-day sell-side cap (see below)
+MAX_DAILY_LOSS_PCT       — default 0.10 (10%); halts ALL trades after a daily drawdown
+MAX_POSITION_PCT         — default 0.15 (15%); per-ticker concentration cap on buys
+MAX_POSITIONS            — default 35; refuses new entries when live_positions reaches cap
+MAX_DATA_AGE_HOURS       — default 96; refuses buys when pipeline rankings are too stale
+MAX_SYNC_AGE_HOURS       — default 24; refuses ALL trades when alpaca-sync is too stale
 qty > 0 validation       — enforced in risk-service /check
 notional > 0 validation  — enforced in risk-service /check
 
@@ -83,6 +88,77 @@ all submissions happen on one wall-clock day).
 
 Set `MAX_DAILY_TURNOVER_PCT=1.0` to effectively disable the cap.
 
+### MAX_SYNC_AGE_HOURS — Alpaca availability gate
+
+Refuses ALL actions (entries, exits, buy_adds, sell_trims) when the most
+recent successful `alpaca_sync_runs` row is older than the threshold (default
+24h) or when no successful sync exists. A stale broker view means qty,
+buying_power, and live_positions are unreliable; sizing decisions made
+against them could double-spend cash or sell positions we no longer hold.
+
+This is the broad version of trade-executor's existing
+`EXIT_SYNC_MAX_AGE_HOURS` check — trade-executor refuses to size exits from
+a stale sync (because qty is uncertain), risk-service refuses to approve any
+trade because the entire broker picture is suspect.
+
+Set `MAX_SYNC_AGE_HOURS=0` (or any value `≤ 0`) to disable.
+
+### MAX_DATA_AGE_HOURS — factor data staleness gate
+
+Refuses `entry` and `buy_add` when the most recent successful `pipeline_runs`
+row completed more than `MAX_DATA_AGE_HOURS` ago (default 96h ≈ 4 days,
+generous enough to cover a long weekend without spurious rejections).
+
+Sells (`exit`, `sell_trim`) are NOT gated by this rule — closing a position
+on stale data is conservative; opening a new one is not. The rule guards
+against the scenario where the daily pipeline has stopped running but the
+delta engine fired stale `entry` intents that someone clicks Approve on.
+
+Set `MAX_DATA_AGE_HOURS=0` to disable.
+
+### MAX_DAILY_LOSS_PCT — automated trading halt on drawdown
+
+Compares the latest `alpaca_sync_runs.account_value` against the earliest
+successful sync from "today" (sim_date when provided, else `CURRENT_DATE`).
+If the day's drawdown exceeds `MAX_DAILY_LOSS_PCT` (default 10%), refuses
+ALL trades — both buys and sells. The rationale for halting sells too: in a
+fast drawdown the system should freeze and let an operator decide manually,
+rather than executing potentially panic-driven exits.
+
+This is the automated complement to `KILL_SWITCH`, which is operator-flipped.
+
+Set `MAX_DAILY_LOSS_PCT=1.0` (or higher) to disable.
+
+### MAX_POSITIONS — portfolio count cap
+
+Refuses `entry` when the broker already holds `MAX_POSITIONS` distinct
+tickers (default 35) AND this entry is for a ticker not currently held.
+`buy_add`, `exit`, and `sell_trim` are not affected (none of them grow the
+distinct-ticker count). Acts as defense in depth alongside the portfolio-
+builder's `max_positions` config — if a misconfigured strategy or bug ever
+generated entries past the cap, this gate blocks them.
+
+Set `MAX_POSITIONS=0` to disable.
+
+### MAX_POSITION_PCT — per-ticker concentration cap
+
+Refuses `entry` and `buy_add` when filling the order would push the ticker
+above `MAX_POSITION_PCT` of `account_value` (default 15%). Computed as:
+
+```text
+(current_market_value + order_notional) / account_value > MAX_POSITION_PCT
+```
+
+The portfolio-builder caps targets at `max_position_weight` (default 10%) at
+construction time, but price appreciation can drift an existing position
+above that cap. Without this gate a delta-engine `buy_add` could compound
+the over-concentration; with it, buy_adds for already-bloated positions are
+blocked at the risk-service layer.
+
+Sells are not gated (they reduce concentration).
+
+Set `MAX_POSITION_PCT=1.0` to disable.
+
 ### KILL_SWITCH hot-flip (no restart required)
 
 All four safety env vars are re-read on every `/check` call, so changing the Docker
@@ -103,22 +179,17 @@ The file takes precedence over the `KILL_SWITCH` env var when present. The
 environment at container launch). If the file exists, all `/check` calls are
 rejected regardless of the env var value.
 
-## Planned Safety Controls (future)
+## Defense-in-depth pairings
 
-Not yet implemented. Tracked here so they don't get forgotten.
+Several safety controls are intentionally checked in two places. If one
+layer is bypassed (config error, code regression, or a new caller skipping
+a path), the other still catches it:
 
-```text
-max daily loss cap
-max position size cap (per-ticker weight)
-max position count
-staleness check on factor data (reject if market data > N hours old)
-Alpaca availability check (reject if last alpaca-sync failed or stale)
-```
-
-Note: exit-sizing staleness IS enforced (`EXIT_SYNC_MAX_AGE_HOURS`, default 24h)
-inside trade-executor — refuses to size an exit from a stale alpaca-sync. The
-"staleness check" above refers to a broader rule that would also reject entries
-when underlying factor data is too old.
+| Concern | Early-rejection point | Risk-service backstop |
+|---|---|---|
+| Exit-sizing on stale sync | trade-executor `EXIT_SYNC_MAX_AGE_HOURS` (refuses to size) | `MAX_SYNC_AGE_HOURS` (refuses to approve) |
+| Per-ticker concentration | portfolio-builder `max_position_weight` (construction) | `MAX_POSITION_PCT` (post-drift, at check) |
+| Portfolio size | portfolio-builder `max_positions` + delta engine capacity | `MAX_POSITIONS` (broker-state-based) |
 
 ## Audit Trail
 

@@ -2,6 +2,7 @@ import os
 import re
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Literal, Optional
 
 from fastapi import FastAPI, HTTPException
@@ -25,10 +26,31 @@ try:
 except ValueError:
     MAX_ORDER_NOTIONAL = 50000.0
 PAPER_ONLY = os.getenv("PAPER_ONLY", "true").lower() == "true"
-try:
-    MAX_DAILY_TURNOVER_PCT = float(os.getenv("MAX_DAILY_TURNOVER_PCT", "0.50"))
-except ValueError:
-    MAX_DAILY_TURNOVER_PCT = 0.50
+
+
+def _safe_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+def _safe_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+# Planned controls — all default to permissive sentinel values so existing
+# deployments don't see new rejections without an explicit opt-in by setting
+# a stricter env var.
+MAX_DAILY_TURNOVER_PCT = _safe_float("MAX_DAILY_TURNOVER_PCT", 0.50)
+MAX_DAILY_LOSS_PCT     = _safe_float("MAX_DAILY_LOSS_PCT",     0.10)
+MAX_POSITION_PCT       = _safe_float("MAX_POSITION_PCT",       0.15)
+MAX_POSITIONS          = _safe_int(  "MAX_POSITIONS",          35)
+MAX_DATA_AGE_HOURS     = _safe_float("MAX_DATA_AGE_HOURS",     96.0)
+MAX_SYNC_AGE_HOURS     = _safe_float("MAX_SYNC_AGE_HOURS",     24.0)
 
 
 _KILL_SWITCH_FILE = "/tmp/kill_switch"
@@ -55,8 +77,13 @@ def _safety_env() -> dict:
         "live_trading_enabled":
             os.getenv("LIVE_TRADING_ENABLED", "false").lower() == "true",
         "paper_only": os.getenv("PAPER_ONLY", "true").lower() == "true",
-        "max_order_notional": float(os.getenv("MAX_ORDER_NOTIONAL", "50000.0")),
-        "max_daily_turnover_pct": float(os.getenv("MAX_DAILY_TURNOVER_PCT", "0.50")),
+        "max_order_notional":     _safe_float("MAX_ORDER_NOTIONAL", 50000.0),
+        "max_daily_turnover_pct": _safe_float("MAX_DAILY_TURNOVER_PCT", 0.50),
+        "max_daily_loss_pct":     _safe_float("MAX_DAILY_LOSS_PCT",  0.10),
+        "max_position_pct":       _safe_float("MAX_POSITION_PCT",    0.15),
+        "max_positions":          _safe_int(  "MAX_POSITIONS",       35),
+        "max_data_age_hours":     _safe_float("MAX_DATA_AGE_HOURS",  96.0),
+        "max_sync_age_hours":     _safe_float("MAX_SYNC_AGE_HOURS",  24.0),
     }
 
 
@@ -93,7 +120,10 @@ class TradeCheckResponse(BaseModel):
     approved: bool
     reason: str
     check_id: str           # also the risk_decisions.decision_id
-    rule_triggered: str     # 'kill_switch'|'live_disabled'|'paper_only'|'qty'|'notional_zero'|'notional_limit'|'daily_turnover_limit'|'ok'
+    rule_triggered: str     # 'kill_switch'|'live_disabled'|'paper_only'|'qty'|
+                            # 'notional_zero'|'notional_limit'|'daily_turnover_limit'|
+                            # 'daily_loss_limit'|'max_positions_limit'|'max_position_pct_limit'|
+                            # 'data_staleness'|'sync_staleness'|'ok'
 
 
 # ── Database helpers ─────────────────────────────────────────────────────────
@@ -217,6 +247,195 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
             "notional_limit",
             env,
         )
+
+    # ── Planned safety controls (Phase 6+): DB-dependent, defense-in-depth ─────
+    # All these queries are wrapped in a single try/except so a transient DB
+    # error degrades safely (skip the check, log a warning) rather than blocking
+    # legitimate trades. The earlier in-memory checks (kill_switch, qty, etc.)
+    # always run regardless of DB health.
+    if engine is not None:
+        try:
+            # Alpaca-availability: refuse ALL actions if the last successful sync
+            # is too old. A stale broker view means qty / buying_power / live
+            # positions are wrong; sizing decisions made against them could
+            # double-spend cash or sell positions we no longer hold.
+            max_sync_age = env["max_sync_age_hours"]
+            if max_sync_age > 0:
+                async with engine.connect() as conn:
+                    sync_row = (await conn.execute(text(
+                        "SELECT completed_at FROM alpaca_sync_runs "
+                        "WHERE status='success' "
+                        "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+                    ))).first()
+                if sync_row is None or sync_row[0] is None:
+                    return (
+                        False,
+                        "No successful alpaca-sync on record — broker state unknown",
+                        "sync_staleness",
+                        env,
+                    )
+                age_h = (datetime.now(timezone.utc) - sync_row[0]).total_seconds() / 3600.0
+                if age_h > max_sync_age:
+                    return (
+                        False,
+                        (
+                            f"Latest alpaca-sync is {age_h:.1f}h old "
+                            f"(> {max_sync_age:.0f}h threshold) — broker state stale"
+                        ),
+                        "sync_staleness",
+                        env,
+                    )
+
+            # Factor-data staleness: refuse buys (entry, buy_add) when the
+            # rankings driving the decision are too old. Sells are not gated —
+            # an exit signal on stale data is conservative (close a position we
+            # may no longer want); a buy on stale data could be wildly wrong.
+            max_data_age = env["max_data_age_hours"]
+            if req.action in ("entry", "buy_add") and max_data_age > 0:
+                async with engine.connect() as conn:
+                    pl_row = (await conn.execute(text(
+                        "SELECT completed_at FROM pipeline_runs "
+                        "WHERE status='success' "
+                        "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+                    ))).first()
+                if pl_row is None or pl_row[0] is None:
+                    return (
+                        False,
+                        "No successful pipeline run on record — rankings unavailable",
+                        "data_staleness",
+                        env,
+                    )
+                age_h = (datetime.now(timezone.utc) - pl_row[0]).total_seconds() / 3600.0
+                if age_h > max_data_age:
+                    return (
+                        False,
+                        (
+                            f"Latest successful pipeline run completed {age_h:.1f}h ago "
+                            f"(> {max_data_age:.0f}h threshold) — rankings stale"
+                        ),
+                        "data_staleness",
+                        env,
+                    )
+
+            # Daily-loss cap: refuse ALL actions if today's account value is
+            # down more than MAX_DAILY_LOSS_PCT vs the day's opening baseline.
+            # Baseline: earliest successful sync from "today" (sim_date when the
+            # caller is in a compressed simulation, else CURRENT_DATE).
+            max_loss_pct = env["max_daily_loss_pct"]
+            if max_loss_pct > 0 and max_loss_pct < 1.0:
+                async with engine.connect() as conn:
+                    if req.sim_date:
+                        baseline_row = (await conn.execute(text(
+                            "SELECT account_value FROM alpaca_sync_runs "
+                            "WHERE status='success' "
+                            "AND DATE(completed_at AT TIME ZONE 'UTC') = :sim_date::date "
+                            "ORDER BY completed_at ASC LIMIT 1"
+                        ), {"sim_date": req.sim_date})).first()
+                    else:
+                        baseline_row = (await conn.execute(text(
+                            "SELECT account_value FROM alpaca_sync_runs "
+                            "WHERE status='success' "
+                            "AND DATE(completed_at AT TIME ZONE 'UTC') = CURRENT_DATE "
+                            "ORDER BY completed_at ASC LIMIT 1"
+                        ))).first()
+                    current_row = (await conn.execute(text(
+                        "SELECT account_value FROM alpaca_sync_runs "
+                        "WHERE status='success' "
+                        "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+                    ))).first()
+                baseline = float(baseline_row[0]) if baseline_row and baseline_row[0] else None
+                current = float(current_row[0]) if current_row and current_row[0] else None
+                if baseline and baseline > 0 and current is not None:
+                    loss_pct = (baseline - current) / baseline
+                    if loss_pct > max_loss_pct:
+                        return (
+                            False,
+                            (
+                                f"Daily loss limit: account ${current:.0f} vs baseline "
+                                f"${baseline:.0f} = {loss_pct:.1%} loss (> {max_loss_pct:.0%})"
+                            ),
+                            "daily_loss_limit",
+                            env,
+                        )
+
+            # Max-positions count: refuse entries when live_positions has
+            # already reached MAX_POSITIONS and this ticker isn't already held
+            # (a buy_add on an existing position keeps the count unchanged, so
+            # entries are the only action that can grow the portfolio).
+            max_positions = env["max_positions"]
+            if req.action == "entry" and max_positions > 0:
+                async with engine.connect() as conn:
+                    pos_row = (await conn.execute(text(
+                        "SELECT COUNT(DISTINCT lp.ticker) FROM live_positions lp "
+                        "JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
+                        "WHERE sr.status='success' "
+                        "AND sr.completed_at = ("
+                        "  SELECT MAX(completed_at) FROM alpaca_sync_runs WHERE status='success'"
+                        ")"
+                    ))).first()
+                    held = (await conn.execute(text(
+                        "SELECT 1 FROM live_positions lp "
+                        "JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
+                        "WHERE lp.ticker = :t AND sr.status='success' "
+                        "AND sr.completed_at = ("
+                        "  SELECT MAX(completed_at) FROM alpaca_sync_runs WHERE status='success'"
+                        ") LIMIT 1"
+                    ), {"t": req.ticker})).first()
+                current_positions = int(pos_row[0]) if pos_row else 0
+                already_held = held is not None
+                if not already_held and current_positions >= max_positions:
+                    return (
+                        False,
+                        (
+                            f"Portfolio at capacity: {current_positions} live positions "
+                            f"(limit {max_positions}); entry for {req.ticker} blocked. "
+                            f"Exit a position before adding a new one."
+                        ),
+                        "max_positions_limit",
+                        env,
+                    )
+
+            # Per-position size cap: refuse entry / buy_add if filling would
+            # push the ticker above MAX_POSITION_PCT of account_value. Catches
+            # the price-drift case where an existing position has appreciated
+            # past portfolio-builder's max_position_weight; without this gate
+            # a buy_add would compound the over-concentration.
+            max_pos_pct = env["max_position_pct"]
+            if req.action in ("entry", "buy_add") and max_pos_pct > 0 and max_pos_pct < 1.0:
+                async with engine.connect() as conn:
+                    acct_row = (await conn.execute(text(
+                        "SELECT account_value FROM alpaca_sync_runs "
+                        "WHERE status='success' "
+                        "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+                    ))).first()
+                    held_row = (await conn.execute(text(
+                        "SELECT lp.market_value FROM live_positions lp "
+                        "JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
+                        "WHERE lp.ticker = :t AND sr.status='success' "
+                        "AND sr.completed_at = ("
+                        "  SELECT MAX(completed_at) FROM alpaca_sync_runs WHERE status='success'"
+                        ") LIMIT 1"
+                    ), {"t": req.ticker})).first()
+                account_value = float(acct_row[0]) if acct_row and acct_row[0] else None
+                current_mv = float(held_row[0]) if held_row and held_row[0] else 0.0
+                if account_value and account_value > 0:
+                    new_mv = current_mv + req.notional
+                    new_pct = new_mv / account_value
+                    if new_pct > max_pos_pct:
+                        return (
+                            False,
+                            (
+                                f"Position size limit: {req.ticker} would be "
+                                f"{new_pct:.1%} of portfolio after this {req.action} "
+                                f"(${new_mv:.0f} / ${account_value:.0f}), "
+                                f"exceeds {max_pos_pct:.0%} cap"
+                            ),
+                            "max_position_pct_limit",
+                            env,
+                        )
+        except Exception as exc:
+            print(f"[risk-service] WARN: planned-control check failed (skipped): {exc}")
+
     # Daily sell-side turnover cap: reject exits/sell_trims once today's sell
     # notional exceeds max_daily_turnover_pct of portfolio value. Only sells
     # (exits + sell_trims) count — buys deploying idle cash are not portfolio
@@ -309,5 +528,10 @@ async def health() -> dict:
         "live_trading_enabled": LIVE_TRADING_ENABLED,
         "max_order_notional": MAX_ORDER_NOTIONAL,
         "max_daily_turnover_pct": MAX_DAILY_TURNOVER_PCT,
+        "max_daily_loss_pct": MAX_DAILY_LOSS_PCT,
+        "max_position_pct": MAX_POSITION_PCT,
+        "max_positions": MAX_POSITIONS,
+        "max_data_age_hours": MAX_DATA_AGE_HOURS,
+        "max_sync_age_hours": MAX_SYNC_AGE_HOURS,
         "persistence": engine is not None,
     }
