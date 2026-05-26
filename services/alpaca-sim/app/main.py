@@ -13,6 +13,7 @@ Admin endpoints (not present on real Alpaca, used for test seeding):
   POST /admin/seed                       — set cash + initial positions
   POST /admin/set-as-of-date             — pin the "now" date used for prices
   GET  /admin/state                      — dump full internal state
+  POST /admin/restore-state              — restore state from a prior snapshot
 
 State lives in-process (single instance only — fine for a simulator).
 Prices come from the shared Postgres daily_prices table.
@@ -458,3 +459,27 @@ async def admin_state() -> dict[str, Any]:
         },
         "orders": STATE.orders,
     }
+
+
+class _RestoreIn(BaseModel):
+    cash: float
+    as_of_date: Optional[str] = None
+    positions: dict[str, dict[str, float]] = Field(default_factory=dict)
+
+
+@app.post("/admin/restore-state")
+async def admin_restore_state(req: _RestoreIn) -> dict[str, Any]:
+    """Restore full simulator state from a prior snapshot (from GET /admin/state).
+
+    Used by the test harness to preserve broker state across simulated internet
+    outages: snapshot before stopping, restore after restarting.
+    """
+    STATE.cash = req.cash
+    STATE.as_of_date = date.fromisoformat(req.as_of_date) if req.as_of_date else None
+    STATE.positions.clear()
+    for ticker, pd in req.positions.items():
+        pos = _Position(ticker, pd["qty"], pd["avg_entry_price"])
+        pos.cost_basis = pd.get("cost_basis", pos.cost_basis)
+        STATE.positions[ticker] = pos
+    log.info("state restored: cash=$%.2f positions=%d", STATE.cash, len(STATE.positions))
+    return {"status": "restored", "cash": STATE.cash, "positions": len(STATE.positions)}

@@ -289,6 +289,9 @@ class SimulationDriver:
     ) -> None:
         self.dsn = dsn
         self.urls = {**DEFAULT_SERVICE_URLS, **(service_urls or {})}
+        self._alpaca_state_snapshot: Optional[Dict[str, Any]] = None
+        self._current_scenario: Optional[Scenario] = None
+        self._current_trading_day: Optional[date] = None
 
     # ------------------------------------------------------------------
     # Top-level entry point
@@ -325,6 +328,7 @@ class SimulationDriver:
                 for d in range(iv.on_day_index, iv.on_day_index + iv.duration_days):
                     outage_by_day[d] = kind
 
+        self._current_scenario = scenario
         timeout = aiohttp.ClientTimeout(total=300)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             # ── Pre-simulation setup ──────────────────────────────────
@@ -335,11 +339,12 @@ class SimulationDriver:
             # ── Day-by-day loop ──────────────────────────────────────
             prev_outage: Optional[str] = None
             for day_index, trading_day in enumerate(trading_days):
+                self._current_trading_day = trading_day
                 current_outage = outage_by_day.get(day_index)
 
                 # Transition into an outage at its first day
                 if current_outage and prev_outage != current_outage:
-                    await self._begin_outage(current_outage)
+                    await self._begin_outage(current_outage, session)
 
                 # Transition out of an outage (we just left a window)
                 if prev_outage and not current_outage:
@@ -445,9 +450,27 @@ class SimulationDriver:
         log.info("[intervention]   → withdrew $%.2f, cash now=$%.2f",
                  wd.get("amount", 0), wd.get("cash_after", 0))
 
-    async def _begin_outage(self, kind: str) -> None:
+    async def _begin_outage(self, kind: str, session: aiohttp.ClientSession) -> None:
         services = _CORE_SERVICES if kind == "stack" else _INTERNET_SERVICES
         log.info("[intervention] BEGIN %s OUTAGE: stopping %s", kind, " ".join(services))
+        # For internet outages, snapshot alpaca-sim state before it's stopped.
+        # The in-memory sim loses state on restart; we restore it afterwards so
+        # the simulation accurately models "internet is down" (broker state persists
+        # on their servers, we just can't reach them).
+        if kind == "internet":
+            try:
+                async with session.get(
+                    f"{self.urls['alpaca_sim']}/admin/state",
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as r:
+                    if r.status == 200:
+                        self._alpaca_state_snapshot = await r.json()
+                        log.info("[intervention] alpaca-sim state snapshot: cash=%.2f positions=%d",
+                                 self._alpaca_state_snapshot.get("cash", 0),
+                                 len(self._alpaca_state_snapshot.get("positions", {})))
+            except Exception as exc:
+                log.warning("[intervention] could not snapshot alpaca-sim state: %s", exc)
+                self._alpaca_state_snapshot = None
         subprocess.run(
             ["docker", "compose", "stop", "-t", "5"] + services,
             check=False, capture_output=True, timeout=120,
@@ -463,6 +486,40 @@ class SimulationDriver:
         # Wait for services to become healthy before resuming
         await asyncio.sleep(10)
         await self._wait_for_health(session, kind)
+        # For internet outages, restore the alpaca-sim state that was snapshotted
+        # before the outage began so broker positions survive the restart.
+        if kind == "internet":
+            if self._alpaca_state_snapshot:
+                try:
+                    async with session.post(
+                        f"{self.urls['alpaca_sim']}/admin/restore-state",
+                        json=self._alpaca_state_snapshot,
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    ) as r:
+                        if r.status == 200:
+                            result = await r.json()
+                            log.info("[intervention] alpaca-sim state restored: cash=%.2f positions=%d",
+                                     self._alpaca_state_snapshot.get("cash", 0),
+                                     result.get("positions", 0))
+                        else:
+                            log.warning("[intervention] restore-state returned %d", r.status)
+                except Exception as exc:
+                    log.warning("[intervention] could not restore alpaca-sim state: %s", exc)
+                self._alpaca_state_snapshot = None
+            # av-sim also loses all in-memory state on restart (prices, tickers,
+            # as_of_date). Reload the scenario so the ingestor can fetch fresh data.
+            # Without this, spy_max stays at pre-outage date and every pipeline run
+            # returns already_ran_today, timing out the harness for every post-outage day.
+            if self._current_scenario is not None:
+                log.info("[intervention] reloading av-sim scenario after internet outage")
+                await load_scenario_to_av_sim(
+                    self._current_scenario, self.urls["av_sim"], session,
+                )
+                # Set as_of_date to the current simulation day so the ingestor
+                # can fetch prices through today.
+                if self._current_trading_day is not None:
+                    await _post(session, f"{self.urls['av_sim']}/admin/set-as-of-date",
+                                {"as_of_date": self._current_trading_day.isoformat()})
 
     async def _wait_for_health(
         self, session: aiohttp.ClientSession, kind: str,
