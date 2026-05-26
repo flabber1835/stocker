@@ -407,24 +407,20 @@ class SimulationDriver:
                 errors.append(str(exc))
 
         # ── Step 3: pipeline (factors + rank) ───────────────────────
+        # Capture prev_run_id BEFORE the POST so poll_until_new_run can detect
+        # when the NEW run completes, not the previous day's still-cached success.
         log.debug("Step 3: pipeline run")
+        try:
+            _prev_pipe = await _get(session, f"{pipeline}/runs/latest")
+            _prev_pipe_id = _prev_pipe.get("run_id", "") or ""
+        except Exception:
+            _prev_pipe_id = ""
         start_r = await _post(session, f"{pipeline}/jobs/run")
-        if start_r.get("status") in ("already_running",):
-            # Wait for the in-flight run to finish
+        if start_r.get("status") in ("already_running",) or "error" not in start_r:
             try:
-                final = await poll_until_done(
+                final = await poll_until_new_run(
                     session, f"{pipeline}/runs/latest",
-                    max_wait=120, interval=0.5,
-                )
-                pipeline_status = final.get("status", "")
-            except TimeoutError as exc:
-                errors.append(str(exc))
-                pipeline_status = "timeout"
-        elif "error" not in start_r:
-            try:
-                final = await poll_until_done(
-                    session, f"{pipeline}/runs/latest",
-                    max_wait=120, interval=0.5,
+                    prev_run_id=_prev_pipe_id, max_wait=120, interval=0.5,
                 )
                 pipeline_status = final.get("status", "")
             except TimeoutError as exc:
@@ -453,33 +449,47 @@ class SimulationDriver:
 
         # ── Step 5: portfolio builder ────────────────────────────────
         log.debug("Step 5: portfolio-builder")
+        try:
+            _prev_pb = await _get(session, f"{pb}/runs/latest")
+            _prev_pb_id = _prev_pb.get("run_id", "") or ""
+        except Exception:
+            _prev_pb_id = ""
         start_r = await _post(session, f"{pb}/jobs/build")
-        if "error" not in start_r and start_r.get("status") != "already_running":
+        if "error" in start_r:
+            errors.append(f"portfolio-builder start: {start_r.get('error')}")
+        else:
             try:
-                await poll_until_done(
+                await poll_until_new_run(
                     session, f"{pb}/runs/latest",
-                    max_wait=60, interval=0.5,
+                    prev_run_id=_prev_pb_id, max_wait=60, interval=0.5,
                 )
             except TimeoutError as exc:
                 errors.append(str(exc))
-        elif "error" in start_r:
-            errors.append(f"portfolio-builder start: {start_r.get('error')}")
 
         # ── Step 6: pipeline delta ───────────────────────────────────
+        # Critical: must wait for the NEW delta run (not the prior day's still-
+        # cached success) before reading intents — otherwise step 7 reads
+        # delta_{N-1}'s intent IDs and step 8 hits 404 once delta_N's purge
+        # deletes them.
         log.debug("Step 6: pipeline delta")
         delta_run_id: Optional[str] = None
+        try:
+            _prev_dl = await _get(session, f"{pipeline}/runs/delta-latest")
+            _prev_dl_id = _prev_dl.get("run_id", "") or ""
+        except Exception:
+            _prev_dl_id = ""
         start_r = await _post(session, f"{pipeline}/jobs/delta")
-        if "error" not in start_r and start_r.get("status") != "already_running":
+        if "error" in start_r:
+            errors.append(f"delta start: {start_r.get('error')}")
+        else:
             try:
-                final = await poll_until_done(
+                final = await poll_until_new_run(
                     session, f"{pipeline}/runs/delta-latest",
-                    max_wait=60, interval=0.5,
+                    prev_run_id=_prev_dl_id, max_wait=60, interval=0.5,
                 )
                 delta_run_id = final.get("run_id")
             except TimeoutError as exc:
                 errors.append(str(exc))
-        elif "error" in start_r:
-            errors.append(f"delta start: {start_r.get('error')}")
 
         # ── Step 7: get pending intents ──────────────────────────────
         _TRADEABLE = {"entry", "exit", "buy_add", "sell_trim"}
