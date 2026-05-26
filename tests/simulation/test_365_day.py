@@ -1050,22 +1050,18 @@ def verify_weight_drift_math(intents: List[dict]) -> None:
 
 
 def verify_non_trading_day_skipped(skip_date: date, era3_date: date) -> None:
-    """Verify that skip_date is a Saturday (non-trading day) and is after era3_date."""
-    # Primary check: TODAY must be a Saturday (isoweekday=6), so it is a non-trading day
-    check(skip_date.isoweekday() == 6,
-          "scheduler: TODAY is a Saturday (non-trading day)",
-          f"{skip_date} isoweekday={skip_date.isoweekday()}")
-    # Primary check: era3_date is before skip_date (it's in the past)
-    check(era3_date < skip_date,
-          f"scheduler: ERA3_DATE ({era3_date}) is before non-trading TODAY ({skip_date})",
-          f"ERA3={era3_date}  TODAY={skip_date}")
-    # Best-effort: query live scheduler status (may not report simulated date)
+    """Verify that skip_date is a Saturday (non-trading day) before which ERA3_DATE fell."""
+    # Primary check: TODAY is a Saturday AND ERA3_DATE is before it.
+    # The scheduler runs on the real clock; we verify the simulation dates are consistent.
+    check(skip_date.isoweekday() == 6 and era3_date < skip_date,
+          "scheduler: TODAY is Saturday (non-trading) and ERA3_DATE is before it",
+          f"{skip_date} isoweekday={skip_date.isoweekday()}  ERA3={era3_date}")
+    # Informational: query live scheduler status (uses real clock, not simulated date)
     try:
         r = requests.get("http://localhost:8015/status", timeout=5)
         if r.status_code == 200:
             d = r.json()
             chain_date = d.get("date", "")
-            # Informational only — scheduler uses the real clock date, not the simulated date
             print(f"  ℹ  Scheduler chain_date={chain_date} (real clock; simulated TODAY={skip_date})")
     except Exception:
         warn("scheduler unreachable; skipping live scheduler check")
