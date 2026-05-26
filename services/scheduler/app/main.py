@@ -432,6 +432,30 @@ async def _supervisor_tick() -> None:
         # Reset per-day accounting when the calendar date rolls over.
         # "status" must also be cleared so a yesterday "failed" doesn't block today.
         if _chain_status.get("date") != today:
+            # Close any still-open scheduler_runs row from yesterday before resetting
+            # in-memory state. Without this, a long-running chain that spans midnight
+            # leaves an orphaned status='running' row in scheduler_runs forever.
+            prev_run_id = _chain_status.get("current_run_id")
+            if prev_run_id:
+                prev_status = _chain_status.get("status") or "failed"
+                if prev_status not in ("success", "failed"):
+                    prev_status = "failed"
+                try:
+                    await _db_close_run(
+                        prev_run_id, prev_status,
+                        _chain_status.get("steps") or {},
+                        _chain_status.get("run_ids") or {},
+                    )
+                    _log(
+                        "supervisor: closed previous-day chain run on date rollover",
+                        db_run_id=prev_run_id, status=prev_status,
+                        previous_date=_chain_status.get("date"),
+                    )
+                except Exception as exc:
+                    _log(
+                        "supervisor: failed to close previous-day chain run on rollover",
+                        db_run_id=prev_run_id, error=str(exc),
+                    )
             _chain_status.update({"date": today, "status": None, "steps": {}, "run_ids": {}, "current_run_id": None})
 
         # If today's chain already completed (success/failed), skip — don't
@@ -463,12 +487,25 @@ async def _supervisor_tick() -> None:
                                 _chain_status["status"] = "running"
                                 return
                             if last.get("status") == "failed":
+                                # Restart-aborted fetch-universe (RESTART_ABORT_MARKER prefix)
+                                # is recoverable — fall through to the trigger below to re-run.
+                                # A real failure (no marker) means the universe download itself
+                                # broke (bad API key, AV down) and re-triggering would just burn
+                                # quota in a tight loop, so suspend the chain.
+                                from stock_strategy_shared.tracing import RESTART_ABORT_MARKER
+                                err = last.get("error_message") or ""
+                                if RESTART_ABORT_MARKER not in err:
+                                    _log(
+                                        "supervisor: fetch-universe FAILED — cannot proceed without universe; "
+                                        "set AV_API_KEY or MOCK_DATA=true and restart",
+                                        error_message=err,
+                                    )
+                                    _chain_status["status"] = "failed"
+                                    return
                                 _log(
-                                    "supervisor: fetch-universe FAILED — cannot proceed without universe; "
-                                    "set AV_API_KEY or MOCK_DATA=true and restart"
+                                    "supervisor: fetch-universe was restart-aborted — re-triggering",
+                                    error_message=err,
                                 )
-                                _chain_status["status"] = "failed"
-                                return
                             if last.get("status") == "success":
                                 # Visibility race: fetch-universe just succeeded but the
                                 # ticker rows haven't shown up in _has_universe()'s count
@@ -608,6 +645,13 @@ async def _startup_catch_up() -> None:
             )
 
     _log("startup: beginning catch-up loop (30s cadence until chain completes)")
+    # Track consecutive ticks where the same optional step stayed "idle" — if an
+    # optional service (e.g. llm-vetter) is permanently unreachable the supervisor
+    # will see "idle" forever, leaving the chain hung for the full 6 hours.  After
+    # MAX_IDLE_RETRIES we mark it failed so the chain advances; the step remains
+    # optional so a real failure still doesn't block the chain.
+    MAX_IDLE_RETRIES = 10  # 10 × 30s = 5 minutes of unreachability before skipping
+    idle_streaks: dict[str, int] = {}
     for i in range(720):  # up to 6 hours at 30s intervals
         try:
             await _supervisor_tick()
@@ -617,6 +661,25 @@ async def _startup_catch_up() -> None:
             _log(f"startup catch-up: chain finished after {i + 1} ticks",
                  status=_chain_status["status"])
             return
+
+        # Detect a "stuck idle" optional step and skip it after MAX_IDLE_RETRIES.
+        for step in _STEPS:
+            if not step.optional:
+                idle_streaks.pop(step.name, None)
+                continue
+            current = _chain_status.get("steps", {}).get(step.name)
+            if current == "idle":
+                idle_streaks[step.name] = idle_streaks.get(step.name, 0) + 1
+                if idle_streaks[step.name] >= MAX_IDLE_RETRIES:
+                    _log(
+                        f"startup catch-up: optional step '{step.name}' stuck idle "
+                        f"for {MAX_IDLE_RETRIES} ticks — marking failed and advancing",
+                    )
+                    _chain_status["steps"][step.name] = "failed"
+                    idle_streaks.pop(step.name, None)
+            else:
+                idle_streaks.pop(step.name, None)
+
         await asyncio.sleep(30)
     _log("startup catch-up: timed out after 6 hours — handing off to interval trigger")
 

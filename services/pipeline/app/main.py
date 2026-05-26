@@ -155,15 +155,29 @@ async def _ensure_consumer_group() -> None:
 
 async def _redis_consumer_loop() -> None:
     print("[pipeline] redis consumer started", flush=True)
+    # Drain the Pending Entries List first: messages this consumer claimed before
+    # a crash but never xack'd are stuck in the PEL and would never be redelivered
+    # by `>` reads (which only return new entries). On a fresh group there's nothing
+    # to drain; on a restart this recovers fetch_data.complete events that would
+    # otherwise be silently lost. Read with id="0" until the PEL is empty.
+    pel_cursor = "0"
+    draining_pel = True
     while True:
         try:
             msgs = await redis_client.xreadgroup(
                 CONSUMER_GROUP, CONSUMER_NAME,
-                {PIPELINE_STREAM: ">"},
-                count=1, block=5000,
+                {PIPELINE_STREAM: pel_cursor if draining_pel else ">"},
+                count=10 if draining_pel else 1,
+                block=0 if draining_pel else 5000,
             )
+            if draining_pel and not msgs:
+                print("[pipeline] PEL drain complete; switching to new-message reads", flush=True)
+                draining_pel = False
+                continue
             for stream_name, entries in (msgs or []):
                 for msg_id, fields in entries:
+                    if draining_pel:
+                        pel_cursor = msg_id
                     event = fields.get("event", "")
                     if event == "fetch_data.complete":
                         chain_date = fields.get("run_date", date.today().isoformat())
@@ -1909,7 +1923,7 @@ async def _do_run_pipeline(triggered_by: str = "manual", force: bool = False) ->
                             flush=True,
                         )
         else:
-            async with engine.connect() as conn:
+            async with engine.begin() as conn:
                 spy_row = await conn.execute(
                     text("SELECT MAX(date) FROM daily_prices WHERE ticker = 'SPY'")
                 )
@@ -1921,7 +1935,20 @@ async def _do_run_pipeline(triggered_by: str = "manual", force: bool = False) ->
                         ),
                         {"d": spy_max},
                     )
-                    if existing.fetchone():
+                    row = existing.fetchone()
+                    if row:
+                        # Stamp chain_date=today on the blocking row so the scheduler's
+                        # chain_date comparison classifies the step as "done" today.
+                        # Without this the scheduler sees chain_date=yesterday (from when
+                        # this run was originally created), reports the step as "idle",
+                        # triggers /jobs/run, hits this guard again, and loops every tick.
+                        await conn.execute(
+                            text(
+                                "UPDATE pipeline_runs SET chain_date=:today "
+                                "WHERE run_id=:rid AND chain_date IS DISTINCT FROM :today"
+                            ),
+                            {"today": date.today(), "rid": row[0]},
+                        )
                         _job_lock.release()
                         return {"status": "already_ran_today", "date": str(spy_max)}
 
@@ -2111,7 +2138,8 @@ async def get_delta_latest():
     async with engine.connect() as conn:
         row = await conn.execute(text(
             "SELECT run_id, status, run_date, started_at, completed_at, "
-            "  entries_count, exits_count, holds_count, watches_count, triggered_by "
+            "  entries_count, exits_count, holds_count, watches_count, triggered_by, "
+            "  error_message "
             "FROM delta_runs WHERE triggered_by = 'scheduler' "
             "ORDER BY started_at DESC LIMIT 1"
         ))

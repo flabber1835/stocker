@@ -549,6 +549,56 @@ class TestSupervisorTick:
         fake_client.post.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_fetch_universe_restart_aborted_retriggers_not_fails(self):
+        """has_universe=False, last fetch-universe failed with RESTART_ABORT_MARKER →
+        re-trigger (not chain-suspend).
+
+        Regression test: a service crash during the first universe fetch leaves
+        ingest_runs.status='failed' with RESTART_ABORTED: prefix. Without the
+        marker check the supervisor would treat that as a real failure and
+        suspend the chain until midnight, blocking the very first cold-boot.
+        """
+        from stock_strategy_shared.tracing import RESTART_ABORT_MARKER
+        self._reset_chain_status()
+        mock_trigger = AsyncMock()
+        mock_db_open = AsyncMock(return_value=None)
+
+        fake_client = MagicMock()
+        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+        fake_client.__aexit__ = AsyncMock(return_value=False)
+        # GET /runs/latest returns a failed fetch-universe with the marker
+        aborted_resp = _mock_response(200, {
+            "job_type": "fetch-universe",
+            "status": "failed",
+            "error_message": f"{RESTART_ABORT_MARKER} service restarted while run was active",
+        })
+        fake_client.get = AsyncMock(return_value=aborted_resp)
+        fake_client.post = AsyncMock(return_value=_mock_response(200, {"run_id": "new"}))
+
+        with (
+            patch.dict(_supervisor_tick.__globals__, {
+                "_has_universe": AsyncMock(return_value=False),
+                "_step_state": AsyncMock(return_value="idle"),
+                "_trigger_step": mock_trigger,
+                "_db_open_run": mock_db_open,
+                "_db_update_run": AsyncMock(),
+                "_db_close_run": AsyncMock(),
+            }),
+            patch("httpx.AsyncClient", return_value=fake_client),
+        ):
+            await _supervisor_tick()
+
+        # Chain must NOT be failed; fetch-universe must be re-triggered via POST
+        assert _chain_status["status"] != "failed", (
+            "restart-aborted fetch-universe must be re-triggered, not chain-failed"
+        )
+        assert _chain_status["status"] == "running"
+        # POST to /jobs/fetch-universe should have been called
+        fake_client.post.assert_called_once()
+        post_url = fake_client.post.call_args[0][0]
+        assert "fetch-universe" in post_url
+
+    @pytest.mark.asyncio
     async def test_waits_when_fetch_universe_already_running(self):
         """has_universe=False and fetch-universe is currently running → waits, no new trigger."""
         self._reset_chain_status()
@@ -738,6 +788,49 @@ class TestSupervisorTick:
         )
         # Supervisor should have triggered the first step
         mock_trigger.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_date_rollover_closes_open_scheduler_run(self):
+        """A chain that spans midnight while status='running' must have its
+        scheduler_runs row closed when the date rolls over.
+
+        Regression test: previously the rollover reset _chain_status["current_run_id"]
+        to None without calling _db_close_run, leaving an orphaned status='running'
+        row in scheduler_runs forever.
+        """
+        import datetime
+        chain_status = _supervisor_tick.__globals__["_chain_status"]
+        chain_status.update({
+            "status": "running",          # yesterday's chain is still mid-run
+            "date": "2026-05-20",         # yesterday's date
+            "steps": {"fetch-data": "running"},
+            "run_ids": {},
+            "current_run_id": "yesterday-run-uuid",
+        })
+
+        mock_db_close = AsyncMock()
+        mock_db_open = AsyncMock(return_value="today-run-uuid")
+
+        with patch.dict(_supervisor_tick.__globals__, {
+            "_has_universe": AsyncMock(return_value=True),
+            "_step_state": AsyncMock(return_value="idle"),
+            "_trigger_step": AsyncMock(),
+            "_get_latest_run_id": AsyncMock(return_value=None),
+            "_db_open_run": mock_db_open,
+            "_db_update_run": AsyncMock(),
+            "_db_close_run": mock_db_close,
+        }):
+            await _supervisor_tick()
+
+        # The yesterday run-id must have been closed before opening today's.
+        mock_db_close.assert_called_once()
+        closed_run_id, closed_status, *_ = mock_db_close.call_args.args
+        assert closed_run_id == "yesterday-run-uuid"
+        # 'running' is not a terminal state — must coerce to failed on rollover
+        assert closed_status == "failed", (
+            "open scheduler_runs row from yesterday must close as 'failed' "
+            "(not 'running') on midnight rollover"
+        )
 
     @pytest.mark.asyncio
     async def test_date_rollover_clears_success_status(self):

@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from .alpha_vantage import AVClient
 from .universe import download_av_universe, get_benchmark_tickers, save_universe_snapshot
 from stock_strategy_shared.db import wait_for_db
+from stock_strategy_shared.tracing import mark_orphaned_runs_failed
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 if not DATABASE_URL:
@@ -144,13 +145,7 @@ async def _av_ingestor_warm_up():
         return
     try:
         async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "UPDATE ingest_runs SET status='failed', completed_at=NOW(), "
-                    "error_message='Service restarted while run was active' "
-                    "WHERE status='running'"
-                )
-            )
+            await mark_orphaned_runs_failed(conn, "ingest_runs", trace_job_type="fetch-data")
         print("[av-ingestor] DB connected; persistence enabled", flush=True)
     except Exception as exc:
         # Table may not exist yet on first boot while init.sql is still running.
