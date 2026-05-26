@@ -129,7 +129,7 @@ def _build_text_report(
     lines.append("")
 
     # ── Restart recovery summary (only if any restarts were performed) ─────
-    restart_obs = [o for o in observations if "recovered_in_" in o.label or "missed_window" in o.label]
+    restart_obs = [o for o in observations if ":recovered" in o.label or ":missed_window" in o.label or ":restarted" in o.label]
     if restart_obs:
         lines.append("RESTART RECOVERY SUMMARY:")
         for obs in restart_obs:

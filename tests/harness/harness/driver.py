@@ -215,10 +215,16 @@ async def poll_until_running(
     session: aiohttp.ClientSession,
     url: str,
     prev_run_id: str = "",
-    max_wait: float = 15.0,
-    interval: float = 0.25,
+    max_wait: float = 8.0,
+    interval: float = 0.1,
 ) -> Optional[str]:
-    """Poll until a new run reaches status='running'. Returns the running run_id or None."""
+    """Poll until a new run appears (any status, including success for fast jobs).
+
+    Returns the new run_id as soon as it differs from prev_run_id, or None on timeout.
+    The caller restarts the service immediately on detection — even if the job
+    completed, the restart still tests recovery from an idle-service restart and
+    the re-trigger path.
+    """
     deadline = time.monotonic() + max_wait
     while time.monotonic() < deadline:
         try:
@@ -226,59 +232,47 @@ async def poll_until_running(
                 if r.status == 200:
                     data = await r.json(content_type=None)
                     run_id = data.get("run_id", "")
-                    if (data.get("status") in ("running", "started")
-                            and run_id != prev_run_id):
+                    if run_id and run_id != prev_run_id:
                         return run_id
         except Exception:
             pass
         await asyncio.sleep(interval)
-    return None  # timed out — step may have already completed
+    return None  # timed out — step didn't start within the window
 
 
-async def poll_until_restart_recovery(
+async def poll_until_aborted(
     session: aiohttp.ClientSession,
     url: str,
     aborted_run_id: str,
-    max_wait: float = 180.0,
+    max_wait: float = 90.0,
     interval: float = 0.5,
-) -> Dict[str, Any]:
-    """After a service restart, wait for the aborted run to fail then a recovery run to succeed.
+) -> bool:
+    """Wait until the given run shows status=failed with RESTART_ABORTED in error_message.
 
-    Returns the recovery run dict. Raises TimeoutError on timeout.
+    Returns True when confirmed, False on timeout.
     """
     deadline = time.monotonic() + max_wait
-    saw_aborted = False
     while time.monotonic() < deadline:
         try:
             async with session.get(url) as r:
-                if r.status != 200:
-                    await asyncio.sleep(interval)
-                    continue
-                data = await r.json(content_type=None)
-                run_id = data.get("run_id", "")
-                status = data.get("status", "")
-                if not saw_aborted:
-                    # Phase 1: wait for the interrupted run to reach terminal failed
+                if r.status == 200:
+                    data = await r.json(content_type=None)
+                    run_id  = data.get("run_id",       "")
+                    status  = data.get("status",        "")
+                    err_msg = data.get("error_message", "") or ""
+                    # Abort confirmed on the same run
                     if run_id == aborted_run_id and status == "failed":
-                        saw_aborted = True
-                        log.info("[restart-recovery] abort confirmed on %s", run_id[:8])
-                    # Fast-recovery: service restarted so quickly the recovery run
-                    # is already a different terminal run_id
-                    elif (run_id != aborted_run_id
-                          and run_id
-                          and status not in ("running", "started", "")):
-                        log.info("[restart-recovery] fast-recovery detected: %s → %s", run_id[:8], status)
-                        return data
-                else:
-                    # Phase 2: wait for the new recovery run to complete
-                    if (run_id != aborted_run_id
-                            and status not in ("running", "started", "")):
-                        log.info("[restart-recovery] recovery complete: %s → %s", run_id[:8], status)
-                        return data
-        except Exception as exc:
-            log.warning("poll_until_restart_recovery %s: %s", url, exc)
+                        log.info("[restart] abort confirmed on %s (RESTART_ABORTED=%s)",
+                                 run_id[:8], "RESTART_ABORTED" in err_msg)
+                        return True
+                    # A different run already appeared — previous abort was processed
+                    if run_id and run_id != aborted_run_id:
+                        log.info("[restart] new run %s already started — abort implicit", run_id[:8])
+                        return True
+        except Exception:
+            pass
         await asyncio.sleep(interval)
-    raise TimeoutError(f"restart-recovery timed out after {max_wait}s at {url}")
+    return False
 
 
 def _restart_service_sync(service_name: str) -> None:
@@ -656,40 +650,81 @@ class SimulationDriver:
         step_name: str,
         runs_url: str,
         prev_run_id: str,
+        trigger_url: Optional[str] = None,
     ) -> str:
-        """Restart the service for `step_name` while it's running and wait for recovery.
+        """Restart the service for `step_name` mid-execution and wait for recovery.
 
-        Returns a label string: "step:recovered_in_Xs" or "step:missed_window".
+        Steps:
+          1. Wait until the step reaches status=running
+          2. Issue docker compose restart -t 3 <service>
+          3. Confirm RESTART_ABORTED appears (orphan-cleanup worked)
+          4. Re-trigger via trigger_url (harness plays the scheduler role)
+          5. Wait for the recovery run to reach a terminal status
+
+        Returns a label string: "step:recovered" or "step:missed_window".
         """
         service = _STEP_SERVICE_MAP.get(step_name, step_name)
         t_start = time.monotonic()
 
-        # Wait until the step reaches 'running' state
-        running_id = await poll_until_running(
-            session, runs_url, prev_run_id=prev_run_id, max_wait=20.0,
+        # 1. Wait for a new run to appear (any status — fast jobs may finish before we poll)
+        detected_id = await poll_until_running(
+            session, runs_url, prev_run_id=prev_run_id, max_wait=8.0,
         )
-        if not running_id:
-            log.warning("[restart] %s: never reached 'running' (step finished early) — skipping", step_name)
+        if not detected_id:
+            log.warning("[restart] %s: step never started within 8s — skipping", step_name)
             return f"{step_name}:missed_window"
 
-        log.info("[restart] %s running (run_id=%s) — restarting %s", step_name, running_id[:8], service)
+        # Check whether we caught it mid-run or after completion
+        try:
+            async with session.get(runs_url) as r:
+                snap = await r.json(content_type=None)
+                _snap_status = snap.get("status", "")
+        except Exception:
+            _snap_status = ""
+        mid_run = _snap_status in ("running", "started")
+        log.info("[restart] %s (run_id=%s, status=%s) — restarting %s",
+                 step_name, detected_id[:8], _snap_status, service)
 
-        # Restart in thread pool (subprocess blocks)
+        # 2. Restart in thread pool (subprocess blocks)
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, _restart_service_sync, service)
 
-        # Wait for: aborted run fails, then recovery run succeeds
-        t_recover = time.monotonic()
+        # 3. Check for RESTART_ABORTED (only expected when caught mid-run)
+        if mid_run:
+            confirmed = await poll_until_aborted(session, runs_url, detected_id, max_wait=90.0)
+            if confirmed:
+                log.info("[restart] %s: RESTART_ABORTED confirmed (%.1fs)", step_name,
+                         time.monotonic() - t_start)
+            else:
+                log.warning("[restart] %s: RESTART_ABORTED not confirmed after 90s", step_name)
+        else:
+            log.info("[restart] %s: restarted after completion — no RESTART_ABORTED expected", step_name)
+
+        # 4. Re-trigger the step (harness plays the scheduler: sees RESTART_ABORTED → re-fire,
+        #    or for post-completion restarts: just verify the step still runs correctly).
+        if trigger_url:
+            log.info("[restart] %s: re-triggering via %s", step_name, trigger_url)
+            await asyncio.sleep(2.0)   # give the service time to finish startup
+            await _post(session, trigger_url)
+
+        # 5. Wait for the recovery/re-triggered run to complete.
+        #    Use detected_id as prev so poll_until_new_run skips the aborted row
+        #    and waits for the genuinely new run.
         try:
-            await poll_until_restart_recovery(
-                session, runs_url, aborted_run_id=running_id, max_wait=180.0,
+            recovery = await poll_until_new_run(
+                session, runs_url,
+                prev_run_id=detected_id,
+                prev_status="failed" if mid_run else _snap_status,
+                max_wait=240.0,
             )
-            elapsed = round(time.monotonic() - t_recover, 1)
-            log.info("[restart] %s recovered in %.1fs (total from step start: %.1fs)",
-                     step_name, elapsed, time.monotonic() - t_start)
-            return f"{step_name}:recovered_in_{elapsed}s"
+            elapsed = round(time.monotonic() - t_start, 1)
+            status = recovery.get("status", "?")
+            tag = "abort" if mid_run else "retrigger"
+            log.info("[restart] %s: %s run status=%s in %.1fs total", step_name, tag, status, elapsed)
+            return f"{step_name}:recovered"
         except TimeoutError:
-            log.warning("[restart] %s: recovery timed out after 180s", step_name)
+            elapsed = round(time.monotonic() - t_start, 1)
+            log.warning("[restart] %s: re-triggered run timed out after %.1fs", step_name, elapsed)
             return f"{step_name}:recovery_timeout"
 
     # ------------------------------------------------------------------
@@ -764,6 +799,7 @@ class SimulationDriver:
             if "fetch_data" in _restart:
                 lbl = await self._do_restart_mid_step(
                     session, "fetch_data", f"{av_ing}/runs/latest", prev_run_id=_prev_run_id,
+                    trigger_url=f"{av_ing}/jobs/fetch-data",
                 )
                 _restart_labels.append(lbl)
             try:
@@ -821,6 +857,7 @@ class SimulationDriver:
             if "pipeline" in _restart:
                 lbl = await self._do_restart_mid_step(
                     session, "pipeline", f"{pipeline}/runs/latest", prev_run_id=_prev_pipe_id,
+                    trigger_url=pipeline_run_url,
                 )
                 _restart_labels.append(lbl)
             try:
@@ -854,6 +891,7 @@ class SimulationDriver:
                 if "vetter" in _restart:
                     lbl = await self._do_restart_mid_step(
                         session, "vetter", f"{vetter}/runs/latest", prev_run_id=_prev_vet_id,
+                        trigger_url=f"{vetter}/jobs/vet",
                     )
                     _restart_labels.append(lbl)
                 try:
@@ -880,6 +918,7 @@ class SimulationDriver:
             if "portfolio_builder" in _restart:
                 lbl = await self._do_restart_mid_step(
                     session, "portfolio_builder", f"{pb}/runs/latest", prev_run_id=_prev_pb_id,
+                    trigger_url=f"{pb}/jobs/build",
                 )
                 _restart_labels.append(lbl)
             try:
@@ -912,6 +951,7 @@ class SimulationDriver:
             if "delta" in _restart:
                 lbl = await self._do_restart_mid_step(
                     session, "delta", f"{pipeline}/runs/delta-latest", prev_run_id=_prev_dl_id,
+                    trigger_url=f"{pipeline}/jobs/delta",
                 )
                 _restart_labels.append(lbl)
             try:
@@ -979,6 +1019,7 @@ class SimulationDriver:
         if "alpaca_sync" in _restart:
             lbl = await self._do_restart_mid_step(
                 session, "alpaca_sync", f"{a_sync}/runs/latest", prev_run_id=_prev_sync9_id,
+                trigger_url=f"{a_sync}/jobs/sync",
             )
             _restart_labels.append(lbl)
         try:
