@@ -521,7 +521,16 @@ MAX_DAILY_TURNOVER_PCT      — default 0.50; sell-side cumulative cap per
                               portfolio churn. Set to 1.0 to disable.
 qty > 0
 notional > 0
-human approval (every paper trade requires a button click)
+human approval window with auto-approve fallback
+  — dashboard polls /delta/latest every 30s; after
+    TRADE_AUTO_APPROVE_MINUTES (default 60) a human hasn't approved
+    or rejected an entry/exit/buy_add/sell_trim intent, the dashboard
+    posts /trade/approve automatically. Vetter-excluded BUY-side intents
+    (entry/buy_add) require a human; sells (exit/sell_trim) auto-approve
+    regardless of vetter (closing must always be allowed).
+chain liveness — scheduler /health/chain returns 503 if no successful
+  chain in CHAIN_HEALTH_MAX_AGE_HOURS (default 36h); api proxies it
+  at /health/chain for external monitors.
 ```
 
 All five safety env vars (KILL_SWITCH, PAPER_ONLY, LIVE_TRADING_ENABLED,

@@ -31,13 +31,38 @@ MAX_ORDER_DAILY_TURNOVER_PCT — default 0.50 (50%); per-day sell-side cap (see 
 qty > 0 validation       — enforced in risk-service /check
 notional > 0 validation  — enforced in risk-service /check
 
-Human approval required for every paper trade — every order today requires a
-  manual button click on the dashboard Trade Proposal tab. The system does not
-  auto-submit, even after the delta engine fires.
+Human approval window with auto-approve fallback — the dashboard's auto-approve
+  background task gives a human TRADE_AUTO_APPROVE_MINUTES (default 60) to
+  manually approve or reject each pending intent. After that timeout the
+  dashboard automatically POSTs /trade/approve. This applies to all four
+  tradeable actions (entry, exit, buy_add, sell_trim). Vetter-excluded BUY-side
+  intents (entry, buy_add) are NOT auto-approved — a human must intervene.
+  Manually-rejected intents (rejected_at set) are never auto-approved.
+  Set TRADE_AUTO_APPROVE_MINUTES to a very large number to keep approval fully
+  manual.
 
 trade-executor short-circuits when Alpaca credentials are empty
 llm-vetter cannot place trades; vetter is informational only
 ```
+
+### Chain liveness heartbeat
+
+The scheduler exposes `GET /health/chain` (also proxied as `GET /health/chain`
+on the api). It returns:
+
+```text
+200 healthy   — latest successful scheduler_runs row completed within
+                CHAIN_HEALTH_MAX_AGE_HOURS (default 36h)
+503 unhealthy — no successful chain on record, OR latest success is older than
+                the threshold, OR the database is unreachable
+```
+
+The response body includes `age_hours`, `last_success_chain_date`,
+`latest_run_status`, and a human-readable `reason`. Point an external monitor
+(Pingdom / GitHub Actions / k8s liveness probe / cron + curl) at this endpoint
+to alert when the daily pipeline stops running. 36h is the default so a normal
+weekend gap (~67h from Friday close to Monday close) will trip the alert by
+Sunday — adjust via `CHAIN_HEALTH_MAX_AGE_HOURS` if you want a wider tolerance.
 
 ### MAX_DAILY_TURNOVER_PCT — sell-side daily turnover cap
 
