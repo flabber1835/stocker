@@ -361,6 +361,7 @@ async def get_latest_run():
         "run_id": run_id,
         "job_type": result["job_type"],
         "status": result["status"],
+        "error_message": result["error_message"],
         "started_at": result["started_at"].isoformat() if result["started_at"] else None,
         "completed_at": result["completed_at"].isoformat() if result["completed_at"] else None,
     }

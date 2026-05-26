@@ -769,7 +769,7 @@ async def get_latest_run():
         row = await conn.execute(
             text(
                 "SELECT run_id, trace_id, status, candidate_count, flagged_count, "
-                "       started_at, completed_at "
+                "       error_message, started_at, completed_at "
                 "FROM vetter_runs ORDER BY started_at DESC LIMIT 1"
             )
         )

@@ -122,6 +122,9 @@ async def write_trace_file(
         traceback.print_exc()
 
 
+RESTART_ABORT_MARKER = "RESTART_ABORTED:"  # prefix in error_message for restart-orphan cleanup
+
+
 async def mark_orphaned_runs_failed(
     conn,
     run_table: str,
@@ -129,18 +132,26 @@ async def mark_orphaned_runs_failed(
 ) -> None:
     """Mark any 'running' rows as 'failed' in run_table on service startup (crash recovery).
 
+    The status column has a CHECK constraint allowing only ('running','success','failed'),
+    so we can't introduce a new 'aborted' status without a migration. Instead we mark the
+    row 'failed' and prefix error_message with RESTART_ABORT_MARKER so the scheduler can
+    distinguish a restart-aborted run (recoverable — re-trigger) from a real failure
+    (chain-suspend until tomorrow).
+
     run_table must be a trusted internal constant — never accept from user input.
     If trace_job_type is given, also marks matching execution_traces rows as failed.
     """
     from sqlalchemy import text
     from sqlalchemy.exc import ProgrammingError
+    msg = f"{RESTART_ABORT_MARKER} service restarted while run was active"
     try:
         await conn.execute(
             text(
                 f"UPDATE {run_table} SET status='failed', completed_at=NOW(), "  # noqa: S608
-                "error_message='Service restarted while run was active' "
+                "error_message=:msg "
                 "WHERE status='running'"
-            )
+            ),
+            {"msg": msg},
         )
     except ProgrammingError as exc:
         if "UndefinedTableError" in type(exc.orig).__name__ or "does not exist" in str(exc):
@@ -151,8 +162,8 @@ async def mark_orphaned_runs_failed(
         await conn.execute(
             text(
                 "UPDATE execution_traces SET status='failed', completed_at=NOW(), "
-                "notes='Service restarted while trace was active' "
+                "notes=:notes "
                 "WHERE status='running' AND job_type=:jt"
             ),
-            {"jt": trace_job_type},
+            {"jt": trace_job_type, "notes": msg},
         )

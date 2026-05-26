@@ -813,7 +813,7 @@ async def get_latest_run():
     async with engine.connect() as conn:
         row = await conn.execute(
             text(
-                "SELECT run_id, status, portfolio_date, started_at, completed_at "
+                "SELECT run_id, status, portfolio_date, error_message, started_at, completed_at "
                 "FROM portfolio_runs ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
             )
         )
@@ -824,6 +824,7 @@ async def get_latest_run():
         "run_id": str(result.run_id),
         "status": result.status,
         "portfolio_date": str(result.portfolio_date) if result.portfolio_date else None,
+        "error_message": result.error_message,
         "started_at": result.started_at.isoformat() if result.started_at else None,
         "completed_at": result.completed_at.isoformat() if result.completed_at else None,
     }

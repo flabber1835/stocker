@@ -117,6 +117,40 @@ class TestStepState:
         assert result == "failed"
 
     @pytest.mark.asyncio
+    async def test_restart_aborted_failed_treated_as_idle(self):
+        """Regression: when a service was killed mid-run (e.g. user `docker compose down`),
+        its startup orphan cleanup marks the row 'failed' with RESTART_ABORT_MARKER in
+        error_message. The scheduler must treat this as recoverable ('idle' → re-trigger)
+        rather than as a real failure (chain suspended until tomorrow)."""
+        from stock_strategy_shared.tracing import RESTART_ABORT_MARKER
+        today = "2026-05-21"
+        step = self._make_step()
+        client = _async_client_returning({
+            "status": "failed",
+            "run_date": today,
+            "error_message": f"{RESTART_ABORT_MARKER} service restarted while run was active",
+        })
+        result = await _step_state(client, step, today, today, "2026-05-20")
+        assert result == "idle", (
+            "restart-aborted runs must be treated as idle so the supervisor re-triggers "
+            "instead of suspending the chain until midnight"
+        )
+
+    @pytest.mark.asyncio
+    async def test_real_failure_still_blocks_chain(self):
+        """Sanity: a 'failed' row WITHOUT the restart-abort marker is still treated as
+        a real failure — the chain should suspend, not silently re-trigger every tick."""
+        today = "2026-05-21"
+        step = self._make_step()
+        client = _async_client_returning({
+            "status": "failed",
+            "run_date": today,
+            "error_message": "Connection refused by Alpha Vantage API",
+        })
+        result = await _step_state(client, step, today, today, "2026-05-20")
+        assert result == "failed"
+
+    @pytest.mark.asyncio
     async def test_idle_wrong_date(self):
         """Status is success but date is yesterday → 'idle'."""
         today = "2026-05-21"

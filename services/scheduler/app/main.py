@@ -357,6 +357,18 @@ async def _step_state(
         if run_status == "running":
             return "running"
         if run_status in ("failed",):
+            # Restart-aborted runs are recoverable — when a service crashes mid-run
+            # its startup cleanup marks the orphan 'failed' with the RESTART_ABORT_MARKER
+            # in error_message. Treating that as a real failure suspends the chain
+            # until midnight, even though the right behaviour is to re-trigger.
+            from stock_strategy_shared.tracing import RESTART_ABORT_MARKER
+            err = data.get("error_message") or ""
+            if RESTART_ABORT_MARKER in err:
+                _log(
+                    f"supervisor: {step.name} run was restart-aborted — re-triggering",
+                    error_message=err,
+                )
+                return "idle"
             return "failed"
         return "idle"
     except Exception:
