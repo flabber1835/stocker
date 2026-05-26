@@ -216,32 +216,37 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
             "notional_limit",
             env,
         )
-    # Daily turnover cap: reject if today's submitted order notional would exceed
-    # max_daily_turnover_pct of portfolio value. Skipped when DB is unavailable.
+    # Daily sell-side turnover cap: reject exits/sell_trims once today's sell
+    # notional exceeds max_daily_turnover_pct of portfolio value. Only sells
+    # (exits + sell_trims) count — buys deploying idle cash are not portfolio
+    # churn. This prevents flipping half the portfolio in one day on a regime
+    # change while allowing unconstrained initial capital deployment.
+    # Skipped when DB is unavailable.
     max_daily_pct = env["max_daily_turnover_pct"]
-    if engine is not None and max_daily_pct < 1.0:
+    if req.action in ("exit", "sell_trim") and engine is not None and max_daily_pct < 1.0:
         try:
             async with engine.connect() as conn:
                 today_row = (await conn.execute(text(
                     "SELECT COALESCE(SUM(notional), 0) FROM alpaca_orders "
                     "WHERE DATE(submitted_at AT TIME ZONE 'UTC') = CURRENT_DATE "
+                    "AND action IN ('exit', 'sell_trim') "
                     "AND status NOT IN ('cancelled', 'rejected', 'risk_rejected')"
                 ))).first()
                 acct_row = (await conn.execute(text(
                     "SELECT account_value FROM alpaca_sync_runs "
                     "WHERE status='success' ORDER BY completed_at DESC NULLS LAST LIMIT 1"
                 ))).first()
-            today_notional = float(today_row[0]) if today_row else 0.0
+            today_sell_notional = float(today_row[0]) if today_row else 0.0
             account_value = float(acct_row[0]) if acct_row and acct_row[0] else None
             if account_value and account_value > 0:
                 limit = account_value * max_daily_pct
-                if today_notional + req.notional > limit:
+                if today_sell_notional + req.notional > limit:
                     return (
                         False,
                         (
-                            f"Daily turnover limit: today's submitted notional "
-                            f"${today_notional:.0f} + this order ${req.notional:.0f} "
-                            f"= ${today_notional + req.notional:.0f} "
+                            f"Daily sell-side turnover limit: today's sell notional "
+                            f"${today_sell_notional:.0f} + this order ${req.notional:.0f} "
+                            f"= ${today_sell_notional + req.notional:.0f} "
                             f"exceeds {max_daily_pct:.0%} of portfolio "
                             f"(${account_value:.0f} × {max_daily_pct:.0%} = ${limit:.0f})"
                         ),
