@@ -93,9 +93,9 @@ async def _get_pending_intents_from_db(
     conn = await asyncpg.connect(dsn)
     try:
         rows = await conn.fetch(
-            "SELECT id::text, ticker, action, target_weight "
+            "SELECT id::text, ticker, action, actual_weight "
             "FROM delta_intents "
-            "WHERE run_id = $1 AND status = 'pending' AND rejected_at IS NULL",
+            "WHERE run_id = $1 AND rejected_at IS NULL",
             run_id,
         )
         return [dict(r) for r in rows]

@@ -20,6 +20,9 @@ services:
       AV_LISTING_URL: "http://av-sim:8000/query?function=LISTING_STATUS&apikey={api_key}"
       AV_RATE_LIMIT_RPM: "10000"
       AV_API_KEY: "harness-key"
+      # Override MOCK_DATA so the ingestor uses the av-sim universe instead of
+      # the hardcoded 30-ticker mock list.
+      MOCK_DATA: "false"
     depends_on:
       av-sim:
         condition: service_healthy
