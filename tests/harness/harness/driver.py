@@ -134,6 +134,38 @@ async def poll_until_done(
     raise TimeoutError(f"Timed out after {max_wait}s waiting for {url}")
 
 
+async def poll_until_new_run(
+    session: aiohttp.ClientSession,
+    url: str,
+    prev_run_id: str = "",
+    max_wait: float = 120.0,
+    interval: float = 0.5,
+) -> Dict[str, Any]:
+    """Poll GET *url* until a run with a *different* run_id from prev_run_id
+    appears and has a non-running status.
+
+    This avoids the race condition where /runs/latest still returns the
+    previous run's 'success' status before the newly-triggered run has been
+    created in the database.
+    """
+    deadline = time.monotonic() + max_wait
+    while time.monotonic() < deadline:
+        try:
+            async with session.get(url) as r:
+                if r.status == 404:
+                    await asyncio.sleep(interval)
+                    continue
+                data = await r.json(content_type=None)
+                run_id = data.get("run_id", "")
+                status = data.get("status", "")
+                if run_id != prev_run_id and status not in ("running", "started", ""):
+                    return data
+        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+            log.warning("poll_until_new_run %s: %s", url, exc)
+        await asyncio.sleep(interval)
+    raise TimeoutError(f"Timed out after {max_wait}s waiting for new run at {url}")
+
+
 async def _post(
     session: aiohttp.ClientSession,
     url: str,
@@ -324,11 +356,20 @@ class SimulationDriver:
 
         # ── Step 2: fetch data ───────────────────────────────────────
         log.debug("Step 2: fetch-data")
+        # Capture the current run_id so we can detect when a NEW fetch-data
+        # run completes (avoids the race where poll_until_done returns the
+        # previous universe-fetch run's "success" before fetch-data starts).
+        try:
+            _prev = await _get(session, f"{av_ing}/runs/latest")
+            _prev_run_id = _prev.get("run_id", "")
+        except Exception:
+            _prev_run_id = ""
         start_r = await _post(session, f"{av_ing}/jobs/fetch-data")
         if "error" not in start_r:
             try:
-                await poll_until_done(
+                await poll_until_new_run(
                     session, f"{av_ing}/runs/latest",
+                    prev_run_id=_prev_run_id,
                     max_wait=120, interval=0.5,
                 )
             except TimeoutError as exc:
