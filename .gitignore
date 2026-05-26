@@ -29,6 +29,7 @@ redis_data/
 # Artifacts / reports
 artifacts/
 backtests/*.json
+tests/harness/reports/
 
 # IDE
 .vscode/
