@@ -50,9 +50,13 @@ def _load_scenario(name: str) -> Scenario:
     if name == "year_with_interventions":
         from tests.harness.scenarios.year_with_interventions import YEAR_WITH_INTERVENTIONS
         return YEAR_WITH_INTERVENTIONS
+    if name == "restart_recovery":
+        from tests.harness.scenarios.restart_recovery import RESTART_RECOVERY
+        return RESTART_RECOVERY
     raise ValueError(
         f"Unknown scenario '{name}'.  "
-        "Available: quick_smoke, year_bull_bear, year_initial_positions, year_with_interventions"
+        "Available: quick_smoke, year_bull_bear, year_initial_positions, "
+        "year_with_interventions, restart_recovery"
     )
 
 
@@ -69,7 +73,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "scenario",
         choices=["quick_smoke", "year_bull_bear", "year_initial_positions",
-                 "year_with_interventions"],
+                 "year_with_interventions", "restart_recovery"],
         help="Name of the scenario to run.",
     )
     parser.add_argument(

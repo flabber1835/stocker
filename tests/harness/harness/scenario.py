@@ -79,6 +79,30 @@ class Scenario:
     extra_tickers: Optional[List[Dict[str, Any]]] = None
     # Manual interventions applied between trading days.
     interventions: List[Intervention] = field(default_factory=list)
+    # Per-day restart specs: restart the named service mid-step to test recovery.
+    restart_recovery_days: List["RestartRecoveryDay"] = field(default_factory=list)
+    # Day indices on which the pipeline POST should use force=True (manual run).
+    force_pipeline_days: List[int] = field(default_factory=list)
+
+
+@dataclass
+class RestartRecoveryDay:
+    """Specifies which pipeline steps to crash-restart mid-execution on a given day.
+
+    For each step name in `steps`, the driver: triggers the step, waits until
+    status='running', issues `docker compose restart` on the relevant service,
+    then waits for the RESTART_ABORTED recovery run to complete.
+
+    Step names → service:
+      fetch_data        → av-ingestor
+      pipeline          → pipeline
+      vetter            → llm-vetter
+      portfolio_builder → portfolio-builder
+      delta             → pipeline  (same service, /jobs/delta endpoint)
+      alpaca_sync       → alpaca-sync
+    """
+    day_index: int       # zero-based trading-day index
+    steps: List[str]     # ordered list of step names to restart mid-execution
 
 
 @dataclass

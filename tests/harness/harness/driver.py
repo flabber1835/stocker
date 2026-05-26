@@ -15,7 +15,9 @@ from typing import Any, Dict, List, Optional
 import aiohttp
 import asyncpg
 
-from .scenario import DayObservation, Intervention, Scenario, list_trading_days
+from .scenario import (
+    DayObservation, Intervention, RestartRecoveryDay, Scenario, list_trading_days,
+)
 
 
 # Container groups for outage simulations. These map to docker-compose service
@@ -28,6 +30,16 @@ _CORE_SERVICES = [
 _INTERNET_SERVICES = [
     "av-sim", "alpaca-sim", "anthropic-sim", "tavily-sim",
 ]
+
+# Maps harness step name → docker-compose service to restart for recovery tests.
+_STEP_SERVICE_MAP: Dict[str, str] = {
+    "fetch_data":         "av-ingestor",
+    "pipeline":           "pipeline",
+    "vetter":             "llm-vetter",
+    "portfolio_builder":  "portfolio-builder",
+    "delta":              "pipeline",   # same service, different endpoint
+    "alpaca_sync":        "alpaca-sync",
+}
 
 log = logging.getLogger("harness.driver")
 
@@ -199,6 +211,86 @@ async def poll_until_new_run(
     raise TimeoutError(f"Timed out after {max_wait}s waiting for new run at {url}")
 
 
+async def poll_until_running(
+    session: aiohttp.ClientSession,
+    url: str,
+    prev_run_id: str = "",
+    max_wait: float = 15.0,
+    interval: float = 0.25,
+) -> Optional[str]:
+    """Poll until a new run reaches status='running'. Returns the running run_id or None."""
+    deadline = time.monotonic() + max_wait
+    while time.monotonic() < deadline:
+        try:
+            async with session.get(url) as r:
+                if r.status == 200:
+                    data = await r.json(content_type=None)
+                    run_id = data.get("run_id", "")
+                    if (data.get("status") in ("running", "started")
+                            and run_id != prev_run_id):
+                        return run_id
+        except Exception:
+            pass
+        await asyncio.sleep(interval)
+    return None  # timed out — step may have already completed
+
+
+async def poll_until_restart_recovery(
+    session: aiohttp.ClientSession,
+    url: str,
+    aborted_run_id: str,
+    max_wait: float = 180.0,
+    interval: float = 0.5,
+) -> Dict[str, Any]:
+    """After a service restart, wait for the aborted run to fail then a recovery run to succeed.
+
+    Returns the recovery run dict. Raises TimeoutError on timeout.
+    """
+    deadline = time.monotonic() + max_wait
+    saw_aborted = False
+    while time.monotonic() < deadline:
+        try:
+            async with session.get(url) as r:
+                if r.status != 200:
+                    await asyncio.sleep(interval)
+                    continue
+                data = await r.json(content_type=None)
+                run_id = data.get("run_id", "")
+                status = data.get("status", "")
+                if not saw_aborted:
+                    # Phase 1: wait for the interrupted run to reach terminal failed
+                    if run_id == aborted_run_id and status == "failed":
+                        saw_aborted = True
+                        log.info("[restart-recovery] abort confirmed on %s", run_id[:8])
+                    # Fast-recovery: service restarted so quickly the recovery run
+                    # is already a different terminal run_id
+                    elif (run_id != aborted_run_id
+                          and run_id
+                          and status not in ("running", "started", "")):
+                        log.info("[restart-recovery] fast-recovery detected: %s → %s", run_id[:8], status)
+                        return data
+                else:
+                    # Phase 2: wait for the new recovery run to complete
+                    if (run_id != aborted_run_id
+                            and status not in ("running", "started", "")):
+                        log.info("[restart-recovery] recovery complete: %s → %s", run_id[:8], status)
+                        return data
+        except Exception as exc:
+            log.warning("poll_until_restart_recovery %s: %s", url, exc)
+        await asyncio.sleep(interval)
+    raise TimeoutError(f"restart-recovery timed out after {max_wait}s at {url}")
+
+
+def _restart_service_sync(service_name: str) -> None:
+    """Blocking docker compose restart (runs in executor to avoid blocking event loop)."""
+    log.info("[restart] docker compose restart -t 3 %s", service_name)
+    subprocess.run(
+        ["docker", "compose", "restart", "-t", "3", service_name],
+        check=False, capture_output=True, timeout=30,
+    )
+    log.info("[restart] %s restarted", service_name)
+
+
 async def _post(
     session: aiohttp.ClientSession,
     url: str,
@@ -328,6 +420,11 @@ class SimulationDriver:
                 for d in range(iv.on_day_index, iv.on_day_index + iv.duration_days):
                     outage_by_day[d] = kind
 
+        restart_by_day: Dict[int, List[str]] = {
+            rrd.day_index: rrd.steps for rrd in scenario.restart_recovery_days
+        }
+        force_days: set = set(scenario.force_pipeline_days)
+
         self._current_scenario = scenario
         timeout = aiohttp.ClientTimeout(total=300)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -370,6 +467,8 @@ class SimulationDriver:
                         scenario=scenario,
                         trading_day=trading_day,
                         day_index=day_index,
+                        force_pipeline=(day_index in force_days),
+                        restart_steps=restart_by_day.get(day_index),
                     )
                     log.info(
                         "Day %d/%d %s: %d positions, $%.0f, regime=%s [%s]",
@@ -548,6 +647,52 @@ class SimulationDriver:
                 await asyncio.sleep(1.0)
 
     # ------------------------------------------------------------------
+    # Mid-step restart helper (crash-recovery testing)
+    # ------------------------------------------------------------------
+
+    async def _do_restart_mid_step(
+        self,
+        session: aiohttp.ClientSession,
+        step_name: str,
+        runs_url: str,
+        prev_run_id: str,
+    ) -> str:
+        """Restart the service for `step_name` while it's running and wait for recovery.
+
+        Returns a label string: "step:recovered_in_Xs" or "step:missed_window".
+        """
+        service = _STEP_SERVICE_MAP.get(step_name, step_name)
+        t_start = time.monotonic()
+
+        # Wait until the step reaches 'running' state
+        running_id = await poll_until_running(
+            session, runs_url, prev_run_id=prev_run_id, max_wait=20.0,
+        )
+        if not running_id:
+            log.warning("[restart] %s: never reached 'running' (step finished early) — skipping", step_name)
+            return f"{step_name}:missed_window"
+
+        log.info("[restart] %s running (run_id=%s) — restarting %s", step_name, running_id[:8], service)
+
+        # Restart in thread pool (subprocess blocks)
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _restart_service_sync, service)
+
+        # Wait for: aborted run fails, then recovery run succeeds
+        t_recover = time.monotonic()
+        try:
+            await poll_until_restart_recovery(
+                session, runs_url, aborted_run_id=running_id, max_wait=180.0,
+            )
+            elapsed = round(time.monotonic() - t_recover, 1)
+            log.info("[restart] %s recovered in %.1fs (total from step start: %.1fs)",
+                     step_name, elapsed, time.monotonic() - t_start)
+            return f"{step_name}:recovered_in_{elapsed}s"
+        except TimeoutError:
+            log.warning("[restart] %s: recovery timed out after 180s", step_name)
+            return f"{step_name}:recovery_timeout"
+
+    # ------------------------------------------------------------------
     # Single-day execution
     # ------------------------------------------------------------------
 
@@ -558,11 +703,14 @@ class SimulationDriver:
         trading_day: date,
         day_index: int,
         force_pipeline: bool = False,
+        restart_steps: Optional[List[str]] = None,
     ) -> DayObservation:
         errors: List[str] = []
         pipeline_status = ""
         intents_submitted = 0
         intents_accepted = 0
+        _restart = set(restart_steps or [])
+        _restart_labels: List[str] = []
 
         av_sim    = self.urls["av_sim"]
         av_ing    = self.urls["av_ingestor"]
@@ -613,12 +761,17 @@ class SimulationDriver:
             _prev_status = ""
         start_r = await _post(session, f"{av_ing}/jobs/fetch-data")
         if "error" not in start_r:
+            if "fetch_data" in _restart:
+                lbl = await self._do_restart_mid_step(
+                    session, "fetch_data", f"{av_ing}/runs/latest", prev_run_id=_prev_run_id,
+                )
+                _restart_labels.append(lbl)
             try:
                 await poll_until_new_run(
                     session, f"{av_ing}/runs/latest",
                     prev_run_id=_prev_run_id,
                     prev_status=_prev_status,
-                    max_wait=120, interval=0.5,
+                    max_wait=180, interval=0.5,
                 )
             except TimeoutError as exc:
                 errors.append(str(exc))
@@ -665,11 +818,16 @@ class SimulationDriver:
         pipeline_run_url = f"{pipeline}/jobs/run{'?force=true' if force_pipeline else ''}"
         start_r = await _post(session, pipeline_run_url)
         if start_r.get("status") in ("already_running",) or "error" not in start_r:
+            if "pipeline" in _restart:
+                lbl = await self._do_restart_mid_step(
+                    session, "pipeline", f"{pipeline}/runs/latest", prev_run_id=_prev_pipe_id,
+                )
+                _restart_labels.append(lbl)
             try:
                 final = await poll_until_new_run(
                     session, f"{pipeline}/runs/latest",
                     prev_run_id=_prev_pipe_id, prev_status=_prev_pipe_status,
-                    max_wait=120, interval=0.5,
+                    max_wait=180, interval=0.5,
                 )
                 pipeline_status = final.get("status", "")
             except TimeoutError as exc:
@@ -686,8 +844,18 @@ class SimulationDriver:
         )
         if run_vetter_today:
             log.debug("Step 4: vetter")
+            try:
+                _prev_vet = await _get(session, f"{vetter}/runs/latest")
+                _prev_vet_id = _prev_vet.get("run_id", "") or ""
+            except Exception:
+                _prev_vet_id = ""
             start_r = await _post(session, f"{vetter}/jobs/vet")
             if start_r.get("status") not in ("already_running", "error") and "error" not in start_r:
+                if "vetter" in _restart:
+                    lbl = await self._do_restart_mid_step(
+                        session, "vetter", f"{vetter}/runs/latest", prev_run_id=_prev_vet_id,
+                    )
+                    _restart_labels.append(lbl)
                 try:
                     await poll_until_done(
                         session, f"{vetter}/runs/latest",
@@ -709,11 +877,16 @@ class SimulationDriver:
         if "error" in start_r:
             errors.append(f"portfolio-builder start: {start_r.get('error')}")
         else:
+            if "portfolio_builder" in _restart:
+                lbl = await self._do_restart_mid_step(
+                    session, "portfolio_builder", f"{pb}/runs/latest", prev_run_id=_prev_pb_id,
+                )
+                _restart_labels.append(lbl)
             try:
                 await poll_until_new_run(
                     session, f"{pb}/runs/latest",
                     prev_run_id=_prev_pb_id, prev_status=_prev_pb_status,
-                    max_wait=60, interval=0.5,
+                    max_wait=120, interval=0.5,
                 )
             except TimeoutError as exc:
                 errors.append(str(exc))
@@ -736,11 +909,16 @@ class SimulationDriver:
         if "error" in start_r:
             errors.append(f"delta start: {start_r.get('error')}")
         else:
+            if "delta" in _restart:
+                lbl = await self._do_restart_mid_step(
+                    session, "delta", f"{pipeline}/runs/delta-latest", prev_run_id=_prev_dl_id,
+                )
+                _restart_labels.append(lbl)
             try:
                 final = await poll_until_new_run(
                     session, f"{pipeline}/runs/delta-latest",
                     prev_run_id=_prev_dl_id, prev_status=_prev_dl_status,
-                    max_wait=60, interval=0.5,
+                    max_wait=120, interval=0.5,
                 )
                 delta_run_id = final.get("run_id")
             except TimeoutError as exc:
@@ -798,11 +976,16 @@ class SimulationDriver:
             _prev_sync9_id = ""
             _prev_sync9_status = ""
         await _post(session, f"{a_sync}/jobs/sync")
+        if "alpaca_sync" in _restart:
+            lbl = await self._do_restart_mid_step(
+                session, "alpaca_sync", f"{a_sync}/runs/latest", prev_run_id=_prev_sync9_id,
+            )
+            _restart_labels.append(lbl)
         try:
             await poll_until_new_run(
                 session, f"{a_sync}/runs/latest",
                 prev_run_id=_prev_sync9_id, prev_status=_prev_sync9_status,
-                max_wait=30, interval=0.5,
+                max_wait=60, interval=0.5,
             )
         except TimeoutError as exc:
             log.warning("alpaca-sync step 9 timed out: %s", exc)
@@ -811,7 +994,8 @@ class SimulationDriver:
         position_count, account_value, cash = await self._read_alpaca_state(session)
         regime = await self._read_regime(session, api_svc)
 
-        label = "; ".join(errors) if errors else ""
+        parts = _restart_labels + (errors if errors else [])
+        label = "; ".join(parts)
 
         return DayObservation(
             date=trading_day,
