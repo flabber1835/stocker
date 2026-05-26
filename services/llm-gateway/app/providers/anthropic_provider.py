@@ -16,7 +16,8 @@ from app.schemas import ChatRequest, ChatResponse, ToolCall
 
 class AnthropicProvider(BaseProvider):
     def __init__(self, api_key: str, model: str) -> None:
-        self._client = anthropic.AsyncAnthropic(api_key=api_key)
+        base_url = os.getenv("ANTHROPIC_BASE_URL") or None
+        self._client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
         self._api_key = api_key
         self._model = model
 

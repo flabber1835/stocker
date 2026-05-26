@@ -1,0 +1,54 @@
+# Test-harness overlay — apply on top of the main docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f tests/harness/docker-compose.yml up -d
+#
+# What this overlay does:
+#   1. Routes av-ingestor and llm-vetter AV traffic to the local av-sim (port 8021).
+#   2. Routes llm-gateway to anthropic-sim instead of real Anthropic API.
+#   3. Routes llm-vetter Tavily calls to tavily-sim.
+#   4. Removes av-ingestor rate limiting (10 000 RPM ≈ no throttle) so the
+#      harness can simulate a full year in minutes.
+#   5. Slows the scheduler to 24-hour ticks so it doesn't interfere while
+#      the harness drives the pipeline directly.
+
+services:
+
+  # ── av-ingestor: redirect AV calls to local simulator ────────────────────────
+  av-ingestor:
+    environment:
+      AV_BASE_URL: http://av-sim:8000/query
+      AV_LISTING_URL: "http://av-sim:8000/query?function=LISTING_STATUS&apikey={api_key}"
+      AV_RATE_LIMIT_RPM: "10000"
+      AV_API_KEY: "harness-key"
+    depends_on:
+      av-sim:
+        condition: service_healthy
+
+  # ── llm-gateway: use fake Anthropic instead of real API ───────────────────────
+  llm-gateway:
+    environment:
+      LLM_PROVIDER: anthropic
+      ANTHROPIC_API_KEY: "harness-test-key"
+      ANTHROPIC_BASE_URL: http://anthropic-sim:8000
+    depends_on:
+      anthropic-sim:
+        condition: service_healthy
+
+  # ── llm-vetter: redirect AV news + Tavily calls to simulators ────────────────
+  llm-vetter:
+    environment:
+      AV_BASE_URL: http://av-sim:8000/query
+      AV_API_KEY: "harness-key"
+      TAVILY_API_KEY: "harness-tavily-key"
+      TAVILY_BASE_URL: http://tavily-sim:8000/search
+    depends_on:
+      av-sim:
+        condition: service_healthy
+      tavily-sim:
+        condition: service_healthy
+
+  # ── scheduler: 24-hour tick so harness drives pipeline without interference ───
+  scheduler:
+    environment:
+      SUPERVISOR_INTERVAL_SECS: "86400"
+      RANK_SCHEDULE_CRON: "0 0 29 2 *"   # never fires (Feb 29, minute 0, hour 0)

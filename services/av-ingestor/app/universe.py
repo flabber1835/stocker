@@ -96,7 +96,7 @@ _NON_INVESTABLE_NAME_RE = re.compile(
     , re.I
 )
 
-_AV_LISTING_URL = "https://www.alphavantage.co/query?function=LISTING_STATUS&apikey={api_key}"
+_AV_LISTING_URL = os.getenv("AV_LISTING_URL", "https://www.alphavantage.co/query?function=LISTING_STATUS&apikey={api_key}")
 
 # Exchanges considered part of the broad US equity universe.
 _US_EXCHANGES = {"NYSE", "NASDAQ", "NYSE MKT", "NYSE ARCA", "NYSE American", "BATS", "OTC"}

@@ -7,7 +7,7 @@ from datetime import date, timedelta
 
 import httpx
 
-AV_BASE_URL = "https://www.alphavantage.co/query"
+AV_BASE_URL = os.getenv("AV_BASE_URL", "https://www.alphavantage.co/query")
 
 
 class AVError(Exception):

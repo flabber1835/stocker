@@ -13,14 +13,15 @@ import asyncio
 import csv
 import io
 import logging
+import os
 from datetime import date, timedelta
 
 import httpx
 
 log = logging.getLogger("llm-vetter.tools")
 
-AV_BASE = "https://www.alphavantage.co/query"
-TAVILY_BASE = "https://api.tavily.com/search"
+AV_BASE = os.getenv("AV_BASE_URL", "https://www.alphavantage.co/query")
+TAVILY_BASE = os.getenv("TAVILY_BASE_URL", "https://api.tavily.com/search")
 
 _FINANCIAL_DOMAINS = [
     "reuters.com", "bloomberg.com", "ft.com",
