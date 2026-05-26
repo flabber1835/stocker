@@ -89,13 +89,18 @@ async def _get_pending_intents_from_db(
     dsn: str,
     run_id: str,
 ) -> List[Dict[str, Any]]:
-    """Fetch pending delta_intents for a given delta run_id directly from Postgres."""
+    """Fetch tradeable pending delta_intents for a given delta run_id from Postgres.
+
+    Only returns entry/exit/buy_add/sell_trim actions — hold, at_risk, and watch
+    are informational and are not submitted to the trade-executor.
+    """
     conn = await asyncpg.connect(dsn)
     try:
         rows = await conn.fetch(
             "SELECT id::text, ticker, action, actual_weight "
             "FROM delta_intents "
-            "WHERE run_id = $1 AND rejected_at IS NULL",
+            "WHERE run_id = $1 AND rejected_at IS NULL "
+            "  AND action IN ('entry', 'exit', 'buy_add', 'sell_trim')",
             run_id,
         )
         return [dict(r) for r in rows]
@@ -382,10 +387,24 @@ class SimulationDriver:
         # Prices are now in daily_prices so alpaca-sim can look them up.
         if day_index == 0 and scenario.initial_positions:
             await self._seed_initial_positions(session, scenario, trading_day)
-            # Sync so live_positions reflects the seeded holdings
+            # Sync so live_positions reflects the seeded holdings.
+            # Poll until the new sync run completes so the delta step on day 0
+            # finds live_positions populated (not just a 2-second guess).
+            try:
+                _prev_sync = await _get(session, f"{a_sync}/runs/latest")
+                _prev_sync_id = _prev_sync.get("run_id", "")
+            except Exception:
+                _prev_sync_id = ""
             await _post(session, f"{a_sync}/jobs/sync")
-            await asyncio.sleep(2.0)
-            log.info("Initial positions synced to live_positions.")
+            try:
+                await poll_until_new_run(
+                    session, f"{a_sync}/runs/latest",
+                    prev_run_id=_prev_sync_id, max_wait=30, interval=0.5,
+                )
+                log.info("Initial positions synced to live_positions.")
+            except TimeoutError as exc:
+                log.warning("alpaca-sync timed out on day-0 seed: %s", exc)
+                errors.append(str(exc))
 
         # ── Step 3: pipeline (factors + rank) ───────────────────────
         log.debug("Step 3: pipeline run")
@@ -463,14 +482,18 @@ class SimulationDriver:
             errors.append(f"delta start: {start_r.get('error')}")
 
         # ── Step 7: get pending intents ──────────────────────────────
+        _TRADEABLE = {"entry", "exit", "buy_add", "sell_trim"}
         pending_intents: List[Dict[str, Any]] = []
         if delta_run_id:
-            # Prefer the API endpoint; fall back to direct DB
+            # Prefer the API endpoint; fall back to direct DB.
+            # Only submit tradeable actions — hold/at_risk/watch are informational.
             api_delta = await _get(session, f"{api_svc}/delta/latest")
             if "error" not in api_delta and api_delta.get("intents"):
                 pending_intents = [
                     i for i in api_delta["intents"]
-                    if i.get("order_status") is None and i.get("rejected_at") is None
+                    if i.get("order_status") is None
+                    and i.get("rejected_at") is None
+                    and i.get("action") in _TRADEABLE
                 ]
             else:
                 # Fallback: query DB directly
@@ -502,9 +525,19 @@ class SimulationDriver:
 
         # ── Step 9: alpaca sync ──────────────────────────────────────
         log.debug("Step 9: alpaca-sync")
+        try:
+            _prev_sync9 = await _get(session, f"{a_sync}/runs/latest")
+            _prev_sync9_id = _prev_sync9.get("run_id", "")
+        except Exception:
+            _prev_sync9_id = ""
         await _post(session, f"{a_sync}/jobs/sync")
-        # Brief wait for sync to complete; it's fast
-        await asyncio.sleep(1.0)
+        try:
+            await poll_until_new_run(
+                session, f"{a_sync}/runs/latest",
+                prev_run_id=_prev_sync9_id, max_wait=30, interval=0.5,
+            )
+        except TimeoutError as exc:
+            log.warning("alpaca-sync step 9 timed out: %s", exc)
 
         # ── Step 10: record observations ─────────────────────────────
         position_count, account_value, cash = await self._read_alpaca_state(session)

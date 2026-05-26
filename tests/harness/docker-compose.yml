@@ -54,6 +54,26 @@ services:
       tavily-sim:
         condition: service_healthy
 
+  # ── alpaca-sync: redirect all broker calls to the local alpaca-sim ──────────
+  alpaca-sync:
+    environment:
+      ALPACA_API_KEY: "harness-test-key"
+      ALPACA_SECRET_KEY: "harness-test-secret"
+      ALPACA_BASE_URL: "http://alpaca-sim:8000"
+    depends_on:
+      alpaca-sim:
+        condition: service_healthy
+
+  # ── trade-executor: redirect all order submission to the local alpaca-sim ───
+  trade-executor:
+    environment:
+      ALPACA_API_KEY: "harness-test-key"
+      ALPACA_SECRET_KEY: "harness-test-secret"
+      ALPACA_BASE_URL: "http://alpaca-sim:8000"
+    depends_on:
+      alpaca-sim:
+        condition: service_healthy
+
   # ── scheduler: 24-hour tick so harness drives pipeline without interference ───
   scheduler:
     environment:

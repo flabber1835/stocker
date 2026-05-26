@@ -347,6 +347,23 @@ async def _size_partial(conn, ticker: str, intent: dict) -> tuple[float, float, 
     target_weight = _f(intent["current_weight"])
     actual_weight = _f(intent.get("actual_weight"))
 
+    # Fallback: if actual_weight was not stored in the intent (e.g. because
+    # live_positions.market_value was unavailable when the delta ran), compute
+    # it directly from the current live position at submit time.
+    if actual_weight is None:
+        live_pos = (await conn.execute(text(
+            "SELECT lp.market_value, sr.account_value "
+            "FROM live_positions lp "
+            "JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
+            "WHERE lp.ticker = :t AND sr.status = 'success' "
+            "ORDER BY sr.completed_at DESC NULLS LAST LIMIT 1"
+        ), {"t": ticker})).mappings().first()
+        if live_pos:
+            mv = _f(live_pos["market_value"])
+            av = _f(live_pos["account_value"])
+            if mv is not None and av and av > 0:
+                actual_weight = mv / av
+
     if target_weight is None or actual_weight is None:
         raise HTTPException(
             status_code=400,
