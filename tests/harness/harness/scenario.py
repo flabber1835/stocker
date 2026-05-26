@@ -45,10 +45,11 @@ class Intervention:
         submission fails.
 
       - "manual_run": after the day's normal pipeline cycle completes,
-        re-run the cycle on the same sim trading day. Simulates a user
-        clicking the dashboard "Run" button to force a fresh chain
-        execution. Tests idempotency, intent-purge correctness, and that
-        risk-service / trade-executor handle back-to-back runs cleanly.
+        re-run the cycle on the same sim trading day with force=True (same
+        as the dashboard "Run" button). Bypasses the already_ran_today
+        guard so a second full pipeline run is created, producing fresh
+        rankings and a new trading proposal. Tests intent-purge correctness
+        and that risk-service / trade-executor handle back-to-back runs.
     """
     on_day_index: int                     # zero-based trading-day index when the intervention fires
     action: str                           # "liquidate_and_withdraw" | "stack_off" | "internet_off"

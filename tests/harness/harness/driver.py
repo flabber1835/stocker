@@ -397,6 +397,7 @@ class SimulationDriver:
                         obs_rerun = await self._run_day(
                             session=session, scenario=scenario,
                             trading_day=trading_day, day_index=day_index,
+                            force_pipeline=True,
                         )
                         log.info("[intervention] manual_run result: %d positions, $%.0f [%s]",
                                  obs_rerun.position_count, obs_rerun.account_value,
@@ -556,6 +557,7 @@ class SimulationDriver:
         scenario: Scenario,
         trading_day: date,
         day_index: int,
+        force_pipeline: bool = False,
     ) -> DayObservation:
         errors: List[str] = []
         pipeline_status = ""
@@ -660,7 +662,8 @@ class SimulationDriver:
         except Exception:
             _prev_pipe_id = ""
             _prev_pipe_status = ""
-        start_r = await _post(session, f"{pipeline}/jobs/run")
+        pipeline_run_url = f"{pipeline}/jobs/run{'?force=true' if force_pipeline else ''}"
+        start_r = await _post(session, pipeline_run_url)
         if start_r.get("status") in ("already_running",) or "error" not in start_r:
             try:
                 final = await poll_until_new_run(
