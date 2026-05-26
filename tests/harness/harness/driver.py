@@ -669,12 +669,19 @@ class SimulationDriver:
         service = _STEP_SERVICE_MAP.get(step_name, step_name)
         t_start = time.monotonic()
 
-        # 1. Wait for a new run to appear (any status — fast jobs may finish before we poll)
+        # 1. Wait for a new run to appear (any status — fast jobs may finish before we poll).
+        #    Some services (e.g. llm-vetter) create their DB row asynchronously; extend
+        #    the detection window to 38s before giving up, so slow starters aren't skipped.
         detected_id = await poll_until_running(
             session, runs_url, prev_run_id=prev_run_id, max_wait=8.0,
         )
+        if not detected_id and trigger_url:
+            log.info("[restart] %s: not detected within 8s — extending detection to 38s total", step_name)
+            detected_id = await poll_until_running(
+                session, runs_url, prev_run_id=prev_run_id, max_wait=30.0,
+            )
         if not detected_id:
-            log.warning("[restart] %s: step never started within 8s — skipping", step_name)
+            log.warning("[restart] %s: step never started within detection window — skipping", step_name)
             return f"{step_name}:missed_window"
 
         log.info("[restart] %s (run_id=%s) detected — restarting %s", step_name, detected_id[:8], service)
