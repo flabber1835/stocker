@@ -375,8 +375,13 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         spy_lookback = fe.spy_price_lookback_days
         spy_rows = await conn.execute(
             text(
+                # Anchor lookback to MAX(date) in daily_prices, not NOW(), so
+                # back-test and harness runs (which use historical dates) work
+                # correctly when the wallclock is ahead of the data dates.
                 "SELECT date, adjusted_close FROM daily_prices "
-                "WHERE ticker = 'SPY' AND date >= NOW() - (:lookback * INTERVAL '1 day') "
+                "WHERE ticker = 'SPY' "
+                "  AND date >= (SELECT MAX(date) FROM daily_prices WHERE ticker = 'SPY') "
+                "              - (:lookback * INTERVAL '1 day') "
                 "ORDER BY date ASC"
             ),
             {"lookback": spy_lookback},
@@ -456,8 +461,12 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         price_lookback = max(fe.momentum_long_window, fe.volatility_window) + 150
         price_rows = await conn.execute(
             text(
+                # Anchor lookback to MAX(date) across all price data, not
+                # CURRENT_DATE, so harness runs with historical dates work.
                 "SELECT ticker, date, adjusted_close, close, volume FROM daily_prices "
-                "WHERE ticker = ANY(:tickers) AND date >= CURRENT_DATE - (:lookback * INTERVAL '1 day') "
+                "WHERE ticker = ANY(:tickers) "
+                "  AND date >= (SELECT MAX(date) FROM daily_prices) "
+                "              - (:lookback * INTERVAL '1 day') "
                 "ORDER BY ticker, date ASC"
             ),
             {"tickers": universe_tickers, "lookback": price_lookback},
