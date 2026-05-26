@@ -70,6 +70,12 @@ PORTBUILD_URL = "http://localhost:8008"
 VETTER_URL    = "http://localhost:8016"
 RISK_URL      = "http://localhost:8011"
 API_URL       = "http://localhost:8000"
+ALPACA_SIM_URL = "http://localhost:8020"
+ALPACA_SYNC_URL = "http://localhost:8009"
+TRADE_EXEC_URL = "http://localhost:8012"
+
+# ── Position-count tracking (for time-weighted average) ───────────────────────
+POSITION_OBSERVATIONS: List[tuple] = []   # (date, count, label)
 
 STRATEGY_ID = "quality_core_v1"
 CONFIG_HASH = "sim365test1"
@@ -545,15 +551,17 @@ def seed_alpaca_state(account_value: float, include_small_caps: bool = True,
             # Use DB price when available; fallback to original formula
             price = _db_prices.get(sc) or (16.0 - 0.02 * i)
             mv    = 4_000.0
-            qty   = mv / price if price > 0 else 250.0
-            positions.append((sc, qty, price, mv))
+            # Integer share qty — matches what trade-executor will submit (int(qty))
+            # so a sell of full qty actually empties the position in the simulator.
+            qty   = float(int(mv / price)) if price > 0 else 250.0
+            positions.append((sc, qty, price, qty * price))
 
     for ticker in core_held:
         # Use DB price when available; fallback to $75 stub
         price = _db_prices.get(ticker) or 75.0
         mv    = overweight_mv.get(ticker, account_value * (1 / 30))
-        qty   = mv / price if price > 0 else 1.0
-        positions.append((ticker, qty, price, mv))
+        qty   = float(int(mv / price)) if price > 0 else 1.0
+        positions.append((ticker, qty, price, qty * price))
 
     sync_id = str(uuid.uuid4())
     with _conn() as conn, conn.cursor() as cur:
@@ -577,7 +585,89 @@ def seed_alpaca_state(account_value: float, include_small_caps: bool = True,
                 [(sync_id, t, q, p, mv, 0.0, 0.0) for (t, q, p, mv) in positions],
             )
         conn.commit()
+
+    # Mirror state into the alpaca-sim so the trade-executor sees the same world.
+    try:
+        if era_date is not None:
+            sim_set_as_of(era_date)
+        sim_seed_state(buying_power, {t: q for (t, q, _p, _mv) in positions})
+    except Exception as exc:
+        warn(f"sim mirror failed (continuing): {exc}")
+
     return sync_id
+
+
+# ── Alpaca simulator helpers ──────────────────────────────────────────────────
+
+def sim_reset() -> None:
+    requests.post(f"{ALPACA_SIM_URL}/admin/reset", timeout=10)
+
+
+def sim_set_as_of(d: Optional[date]) -> None:
+    requests.post(f"{ALPACA_SIM_URL}/admin/set-as-of-date",
+                  json={"as_of_date": d.isoformat() if d else None},
+                  timeout=10)
+
+
+def sim_seed_state(cash: float, positions: Dict[str, float]) -> dict:
+    """Push cash + positions to the simulator and return the response."""
+    r = requests.post(
+        f"{ALPACA_SIM_URL}/admin/seed",
+        json={"cash": cash, "positions": positions},
+        timeout=30,
+    )
+    return r.json() if r.ok else {}
+
+
+def sim_get_state() -> dict:
+    r = requests.get(f"{ALPACA_SIM_URL}/admin/state", timeout=10)
+    return r.json() if r.ok else {}
+
+
+def sim_position_count() -> int:
+    return len(sim_get_state().get("positions", {}))
+
+
+def sim_sync_now(label: str = "sync") -> Optional[dict]:
+    """Trigger alpaca-sync to read state from the simulator into live_positions.
+    Returns the resulting sync run dict (or None on failure)."""
+    try:
+        requests.post(f"{ALPACA_SYNC_URL}/jobs/sync", timeout=15)
+    except Exception as exc:
+        warn(f"sim_sync_now[{label}]: {exc}")
+        return None
+    return _wait_for_run(ALPACA_SYNC_URL, label, timeout=30)
+
+
+def record_positions(when: date, label: str) -> int:
+    """Capture the current simulator position count for the time-weighted average."""
+    n = sim_position_count()
+    POSITION_OBSERVATIONS.append((when, n, label))
+    return n
+
+
+def execute_intents_via_sim(intents: List[dict]) -> Dict[str, int]:
+    """Submit each intent through the trade-executor.
+
+    With ALPACA_BASE_URL pointed at alpaca-sim, the executor will fill the order
+    on the simulator, naturally updating cash and positions. Returns counts of
+    accepted/rejected outcomes.
+    """
+    accepted = rejected = 0
+    for intent in intents:
+        try:
+            r = requests.post(
+                f"{TRADE_EXEC_URL}/jobs/submit",
+                json={"intent_id": intent["id"], "mode": "immediate"},
+                timeout=20,
+            )
+            if r.ok:
+                accepted += 1
+            else:
+                rejected += 1
+        except Exception:
+            rejected += 1
+    return {"accepted": accepted, "rejected": rejected}
 
 
 def seed_era_rankings(
@@ -1276,6 +1366,14 @@ def main() -> int:
     print(f"  📅  TODAY (non-trading)={TODAY}\n")
 
     _clean_test_data()
+    POSITION_OBSERVATIONS.clear()
+
+    # Reset the alpaca simulator so it starts from a clean slate every run.
+    try:
+        sim_reset()
+        print("  ♻  alpaca-sim reset to empty state")
+    except Exception as exc:
+        warn(f"alpaca-sim reset failed (continuing): {exc}")
 
     # ─────────────────────────────────────────────────────────────────────────
     # PHASE 0: Data seeding
@@ -1321,7 +1419,10 @@ def main() -> int:
         account_value=INITIAL_ACCOUNT,
         include_small_caps=True,
         core_held=[],   # no core stocks held yet
+        era_date=ERA1_DATE,
     )
+    record_positions(ERA1_DATE, "Era1 (inherited small caps)")
+    print(f"  📊  Era1 sim positions: {sim_position_count()}")
 
     port1_holdings = get_portfolio_holdings(port1_id)
     check(len(port1_holdings) >= 28, "era1_portfolio: ≥28 holdings",
@@ -1398,7 +1499,10 @@ def main() -> int:
         account_value=account_era2,
         include_small_caps=True,   # still holding 60 small caps
         core_held=list(CORE_TICKERS[:20]),   # user approved 20 entries in Era 1
+        era_date=ERA2_DATE,
     )
+    record_positions(ERA2_DATE, "Era2 (bear, still holds small caps + 20 core)")
+    print(f"  📊  Era2 sim positions: {sim_position_count()}")
 
     port2_id = seed_era_portfolio(
         ranking_run_id=rank2_id, regime="bear_stress",
@@ -1642,6 +1746,23 @@ def main() -> int:
     check(len(exits) > 0, "delta: exit signals generated (small caps phasing out)",
           f"{len(exits)} exits")
     check(len(exits) <= 90, "delta: exit count ≤ 90 (sanity)", f"{len(exits)}")
+
+    # ── Execute exits through the alpaca-sim (the natural production path) ────
+    # The trade-executor will size each order, call risk-service, then POST to
+    # the simulator. The simulator removes the positions and credits cash.
+    # We then re-run alpaca-sync to refresh live_positions from the sim.
+    sim_set_as_of(ERA3_DATE)
+    positions_before_exec = sim_position_count()
+    print(f"  ↻  Executing {len(exits)} exits via trade-executor → alpaca-sim …")
+    exec_result = execute_intents_via_sim(exits)
+    sim_sync_now("post_phase4_exits")
+    positions_after_exec = sim_position_count()
+    print(f"  📊  Sim positions: {positions_before_exec} → {positions_after_exec} "
+          f"(accepted={exec_result['accepted']} rejected={exec_result['rejected']})")
+    check(positions_after_exec < positions_before_exec,
+          "exits_executed: simulator position count dropped after trade-executor flow",
+          f"{positions_before_exec} → {positions_after_exec}")
+    record_positions(ERA3_DATE, "Era3 (post-execution, small caps cleared)")
 
     # ── Ledger: record small-cap exits at Era3 prices ─────────────────────────
     sc_prices_era3 = prices_on_date(SMALL_CAPS, ERA3_DATE)
@@ -2153,6 +2274,30 @@ def main() -> int:
     ok("financial_reconciliation",
        f"total=${expected_total:,.2f} cash=${expected_cash:,.2f} mktv={expected_mktv:,.2f} "
        f"drawdown={max_drawdown_pct:.1f}% SPY_regime=Era1:{spy_era1:.0f}→Era2:{spy_era2:.0f}→Era3:{spy_era3:.0f}")
+
+    # ── Time-weighted average position count ─────────────────────────────────
+    # Snapshot the final state too so the trailing segment is included.
+    record_positions(FINAL_DATE, "FINAL (end of simulation)")
+
+    print(f"\n  📊  Position observations through the simulation year:")
+    for d, n, label in POSITION_OBSERVATIONS:
+        print(f"     {d}  {n:>3} positions  — {label}")
+
+    if len(POSITION_OBSERVATIONS) >= 2:
+        total_pos_days = 0.0
+        for i in range(len(POSITION_OBSERVATIONS) - 1):
+            d_curr, n_curr, _ = POSITION_OBSERVATIONS[i]
+            d_next, _, _ = POSITION_OBSERVATIONS[i + 1]
+            span_days = max((d_next - d_curr).days, 0)
+            total_pos_days += span_days * n_curr
+        first_d = POSITION_OBSERVATIONS[0][0]
+        last_d  = POSITION_OBSERVATIONS[-1][0]
+        total_days = max((last_d - first_d).days, 1)
+        tw_avg = total_pos_days / total_days
+        print(f"\n  📊  Simulation span: {first_d} → {last_d}  ({total_days} days)")
+        print(f"  📊  Time-weighted average positions: {tw_avg:.1f}")
+        ok("time_weighted_avg_positions",
+           f"{tw_avg:.1f} positions/day over {total_days} days")
 
     # ── Account value chart ────────────────────────────────────────────────────
     _print_account_chart(era_values)
