@@ -168,7 +168,11 @@ def test_scheduler_reports_chain_steps():
 
 def test_scheduler_chain_status_is_terminal_or_pending():
     d = requests.get(f"{SERVICES['scheduler']}/status").json()
-    valid = {"done", "pending", "failed", "running", "skipped", None}
+    # "idle" is the scheduler's internal name for "not yet triggered today";
+    # see StepState = Literal["done", "running", "failed", "idle"] in
+    # services/scheduler/app/main.py. "pending"/"skipped" are accepted as
+    # synonyms in case the vocabulary changes again.
+    valid = {"done", "pending", "failed", "running", "skipped", "idle", None}
     for step, status in d.get("steps", {}).items():
         assert status in valid, f"Step {step} has invalid status: {status}"
 

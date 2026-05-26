@@ -49,7 +49,11 @@ def test_chain_steps_are_valid_set():
 
 def test_chain_step_statuses_are_valid():
     d = requests.get(f"{BASE}/status").json()
-    valid = {"done", "pending", "failed", "running", "skipped"}
+    # "idle" is the scheduler's internal name for "not yet triggered today";
+    # see StepState = Literal["done", "running", "failed", "idle"] in
+    # services/scheduler/app/main.py. "pending"/"skipped" are accepted as
+    # synonyms in case the vocabulary changes again.
+    valid = {"done", "pending", "failed", "running", "skipped", "idle"}
     for step, status in d["steps"].items():
         assert status in valid, f"Step {step} has invalid status: {status!r}"
 
