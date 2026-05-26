@@ -391,6 +391,13 @@ class ScenarioRegime(BaseModel):
     type: str
 
 
+class ExtraTicker(BaseModel):
+    ticker: str
+    name: str
+    sector: str
+    exchange: str = "NYSE"
+
+
 class LoadScenarioRequest(BaseModel):
     name: str
     seed: int = 42
@@ -398,6 +405,7 @@ class LoadScenarioRequest(BaseModel):
     start_date: str
     end_date: str
     regimes: list[ScenarioRegime]
+    extra_tickers: list[ExtraTicker] = []
 
 
 class LoadScenarioResponse(BaseModel):
@@ -463,8 +471,29 @@ async def admin_load_scenario(req: LoadScenarioRequest) -> LoadScenarioResponse:
     if not regimes:
         raise HTTPException(status_code=422, detail="At least one regime is required")
 
-    # 1. Generate universe tickers
-    universe_rows = generate_universe_tickers(req.universe_size, req.seed)
+    # 1a. Build extra-ticker rows from the request (pinned tickers, sibling pairs, etc.)
+    extra_symbols: set[str] = set()
+    extra_rows: list[dict[str, Any]] = []
+    for et in req.extra_tickers:
+        sym = et.ticker.upper().strip()
+        extra_symbols.add(sym)
+        extra_rows.append({
+            "ticker": sym,
+            "name": et.name,
+            "sector": et.sector,
+            "exchange": et.exchange,
+        })
+
+    # 1b. Fill remaining slots with generated tickers (excluding extra_symbols)
+    remaining = max(0, req.universe_size - len(extra_rows))
+    if remaining > 0:
+        # Generate extra candidates so we have enough after filtering collisions
+        candidates = generate_universe_tickers(remaining * 2 + 50, req.seed)
+        filtered = [r for r in candidates if r["ticker"] not in extra_symbols][:remaining]
+    else:
+        filtered = []
+
+    universe_rows = extra_rows + filtered
     universe_tickers = [r["ticker"] for r in universe_rows]
 
     # 2. All tickers (universe + benchmarks)
@@ -571,6 +600,32 @@ async def admin_state() -> StateResponse:
         universe_size=len(_universe),
         benchmark_count=len(BENCHMARK_TICKERS),
     )
+
+
+@app.get("/admin/price")
+async def admin_get_price(
+    ticker: str = Query(..., description="Ticker symbol"),
+    price_date: str | None = Query(None, alias="date", description="Date (YYYY-MM-DD), defaults to as_of_date"),
+) -> dict[str, Any]:
+    """Return the close price for a ticker on a given date (or as_of_date)."""
+    sym = ticker.upper().strip()
+    target = price_date or _effective_as_of()
+
+    ticker_prices = _prices.get(sym)
+    if not ticker_prices:
+        raise HTTPException(status_code=404, detail=f"No price data for {sym!r}")
+
+    # Find the last price on or before target date
+    dates_up_to = sorted(d for d in ticker_prices if d <= target)
+    if not dates_up_to:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No price for {sym!r} on or before {target!r}",
+        )
+
+    d_str = dates_up_to[-1]
+    close = ticker_prices[d_str]["close"]
+    return {"ticker": sym, "price": close, "date": d_str}
 
 
 # ---------------------------------------------------------------------------

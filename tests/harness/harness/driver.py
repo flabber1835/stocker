@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from datetime import date
 from typing import Any, Dict, List, Optional
@@ -170,7 +171,7 @@ async def load_scenario_to_av_sim(
     session: aiohttp.ClientSession,
 ) -> Dict[str, Any]:
     """POST scenario metadata to the av-sim /admin/load-scenario endpoint."""
-    payload = {
+    payload: Dict[str, Any] = {
         "name":          scenario.name,
         "seed":          scenario.seed,
         "universe_size": scenario.universe_size,
@@ -181,8 +182,14 @@ async def load_scenario_to_av_sim(
             for rc in scenario.regimes
         ],
     }
+    if scenario.extra_tickers:
+        payload["extra_tickers"] = scenario.extra_tickers
     url = f"{av_sim_url}/admin/load-scenario"
-    log.info("Loading scenario '%s' into av-sim …", scenario.name)
+    log.info(
+        "Loading scenario '%s' into av-sim (extra_tickers=%d) …",
+        scenario.name,
+        len(scenario.extra_tickers) if scenario.extra_tickers else 0,
+    )
     result = await _post(session, url, payload)
     if "error" in result:
         log.error("load-scenario failed: %s", result["error"])
@@ -238,7 +245,7 @@ class SimulationDriver:
         async with aiohttp.ClientSession(timeout=timeout) as session:
             # ── Pre-simulation setup ──────────────────────────────────
             await reset_database(self.dsn)
-            await self._reset_alpaca_sim(session)
+            await self._reset_alpaca_sim(session, scenario)
             await load_scenario_to_av_sim(scenario, self.urls["av_sim"], session)
 
             # ── Day-by-day loop ──────────────────────────────────────
@@ -328,6 +335,15 @@ class SimulationDriver:
                 errors.append(str(exc))
         else:
             errors.append(f"fetch-data start: {start_r.get('error')}")
+
+        # ── Step 2c (day 0 only): seed initial positions ─────────────
+        # Prices are now in daily_prices so alpaca-sim can look them up.
+        if day_index == 0 and scenario.initial_positions:
+            await self._seed_initial_positions(session, scenario, trading_day)
+            # Sync so live_positions reflects the seeded holdings
+            await _post(session, f"{a_sync}/jobs/sync")
+            await asyncio.sleep(2.0)
+            log.info("Initial positions synced to live_positions.")
 
         # ── Step 3: pipeline (factors + rank) ───────────────────────
         log.debug("Step 3: pipeline run")
@@ -497,9 +513,74 @@ class SimulationDriver:
         r = await _get(session, f"{api_url}/regime")
         return r.get("regime") or "unknown"
 
-    async def _reset_alpaca_sim(self, session: aiohttp.ClientSession) -> None:
-        """Reset the alpaca-sim and seed it with $300,000 starting cash."""
+    async def _reset_alpaca_sim(
+        self,
+        session: aiohttp.ClientSession,
+        scenario: Scenario,
+    ) -> None:
+        """Reset the alpaca-sim to starting cash (no positions yet).
+
+        If the scenario has initial_positions they are seeded later, on day 0,
+        after fetch-data has populated daily_prices in Postgres.
+        """
         alpaca_sim = self.urls["alpaca_sim"]
         await _post(session, f"{alpaca_sim}/admin/reset")
-        await _post(session, f"{alpaca_sim}/admin/seed", {"cash": 300_000.0, "positions": {}})
-        log.info("Alpaca simulator reset to $300,000 cash.")
+        cash = scenario.initial_cash if scenario.initial_positions else 100_000.0
+        await _post(session, f"{alpaca_sim}/admin/seed", {"cash": cash, "positions": {}})
+        log.info("Alpaca simulator reset (cash=$%.0f, positions will be seeded on day 0).", cash)
+
+    async def _seed_initial_positions(
+        self,
+        session: aiohttp.ClientSession,
+        scenario: Scenario,
+        start_date: date,
+    ) -> None:
+        """Seed the alpaca-sim with initial positions using day-0 DB prices."""
+        if not scenario.initial_positions:
+            return
+
+        # Query Postgres for the most recent price per ticker at start_date
+        tickers = [ip.ticker for ip in scenario.initial_positions]
+        conn = await asyncpg.connect(self.dsn)
+        try:
+            rows = await conn.fetch(
+                "SELECT DISTINCT ON (ticker) ticker, adjusted_close "
+                "FROM daily_prices "
+                "WHERE ticker = ANY($1) AND date <= $2 "
+                "ORDER BY ticker, date DESC",
+                tickers,
+                start_date,
+            )
+            db_prices: Dict[str, float] = {r["ticker"]: float(r["adjusted_close"]) for r in rows}
+        finally:
+            await conn.close()
+
+        # Compute positions dict (ticker → share qty)
+        positions: Dict[str, float] = {}
+        for ip in scenario.initial_positions:
+            price = db_prices.get(ip.ticker)
+            if price and price > 0:
+                qty = math.floor(ip.value_usd / price)
+                if qty > 0:
+                    positions[ip.ticker] = float(qty)
+                    log.info(
+                        "Initial position: %s qty=%d @ $%.2f (value=$%.0f)",
+                        ip.ticker, qty, price, qty * price,
+                    )
+            else:
+                log.warning(
+                    "No DB price for %s at %s — skipping initial position",
+                    ip.ticker, start_date,
+                )
+
+        # Seed alpaca-sim (reset + seed preserves the correct starting state)
+        alpaca_sim = self.urls["alpaca_sim"]
+        result = await _post(session, f"{alpaca_sim}/admin/seed", {
+            "cash": scenario.initial_cash,
+            "positions": positions,
+        })
+        log.info(
+            "Alpaca-sim seeded: cash=$%.0f, %d positions",
+            scenario.initial_cash,
+            len(result.get("positions", positions)),
+        )

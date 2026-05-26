@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, timedelta
-from typing import List
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -13,6 +13,13 @@ class RegimeChange:
     """Marks the start of a new market regime."""
     start_date: date
     regime_type: str  # "bull_calm" | "bull_stress" | "bear_stress" | "bear_calm"
+
+
+@dataclass
+class InitialPosition:
+    """One holding to seed into the Alpaca simulator at simulation start."""
+    ticker: str
+    value_usd: float  # approximate dollar value; qty is computed from start-date DB price
 
 
 @dataclass
@@ -27,6 +34,13 @@ class Scenario:
     run_vetter: bool = False
     vetter_every_n_days: int = 5  # run vetter every N trading days
     description: str = ""
+    # Starting cash and positions seeded into alpaca-sim (after day-0 fetch-data)
+    initial_cash: float = 100_000.0
+    initial_positions: Optional[List[InitialPosition]] = None
+    # Extra (pinned) tickers to include in the av-sim universe.
+    # Each entry is a dict with keys: ticker, name, sector, exchange.
+    # Sibling pairs should share the same `name` value so analysis can identify them.
+    extra_tickers: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass
