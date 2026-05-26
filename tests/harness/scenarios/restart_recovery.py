@@ -46,7 +46,7 @@ RESTART_RECOVERY = Scenario(
         RestartRecoveryDay(day_index=1, steps=_ALL_STEPS),  # warm run
         RestartRecoveryDay(day_index=2, steps=_ALL_STEPS),  # forced re-run
     ],
-    force_pipeline_days=[2],    # day 2 triggers pipeline with force=True
+    force_pipeline_days=[1, 2],  # harness runs all days on same wall-clock date; force bypasses already_ran_today
     description=(
         "3-day crash/restart recovery: each pipeline step is interrupted "
         "mid-execution by a docker compose restart and verified to recover "
