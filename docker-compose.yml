@@ -288,6 +288,27 @@ services:
       retries: 5
       start_period: 20s
 
+  alpaca-sim:
+    build:
+      context: .
+      dockerfile: services/alpaca-sim/Dockerfile
+      network: host
+    restart: unless-stopped
+    ports:
+      - "8020:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
   alpaca-sync:
     build:
       context: .
@@ -298,12 +319,14 @@ services:
       - "8009:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
-      ALPACA_API_KEY: ${ALPACA_API_KEY:-}
-      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
-      ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+      ALPACA_API_KEY: ${ALPACA_API_KEY:-sim-key}
+      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-sim-secret}
+      ALPACA_BASE_URL: ${ALPACA_BASE_URL:-http://alpaca-sim:8000}
       PYTHONUNBUFFERED: "1"
     depends_on:
       postgres:
+        condition: service_healthy
+      alpaca-sim:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
@@ -358,9 +381,9 @@ services:
       - "8012:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
-      ALPACA_API_KEY: ${ALPACA_API_KEY:-}
-      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
-      ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+      ALPACA_API_KEY: ${ALPACA_API_KEY:-sim-key}
+      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-sim-secret}
+      ALPACA_BASE_URL: ${ALPACA_BASE_URL:-http://alpaca-sim:8000}
       RISK_SERVICE_URL: http://risk-service:8000
       EXIT_SYNC_MAX_AGE_HOURS: ${EXIT_SYNC_MAX_AGE_HOURS:-24}
       DEFAULT_MAX_POSITIONS: ${DEFAULT_MAX_POSITIONS:-30}
@@ -369,6 +392,8 @@ services:
       postgres:
         condition: service_healthy
       risk-service:
+        condition: service_healthy
+      alpaca-sim:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
