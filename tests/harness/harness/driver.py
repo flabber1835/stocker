@@ -143,17 +143,30 @@ async def poll_until_new_run(
     session: aiohttp.ClientSession,
     url: str,
     prev_run_id: str = "",
+    prev_status: str = "",
     max_wait: float = 120.0,
     interval: float = 0.5,
 ) -> Dict[str, Any]:
-    """Poll GET *url* until a run with a *different* run_id from prev_run_id
-    appears and has a non-running status.
+    """Poll GET *url* until a fresh run reaches a terminal status.
 
-    This avoids the race condition where /runs/latest still returns the
-    previous run's 'success' status before the newly-triggered run has been
-    created in the database.
+    Two cases the caller may be in:
+
+    1. prev_status was terminal (success/failed/skipped/no_runs/empty) — the
+       previous /runs/latest snapshot showed yesterday's completed run. We
+       need a NEW run_id with a terminal status to return.
+
+    2. prev_status was 'running' or 'started' — a new run was already in
+       progress when we captured the snapshot (e.g. Redis-triggered pipeline
+       runs that beat the harness's POST to the lock). The run_id we captured
+       IS the run we should wait on; just wait for it (or any successor) to
+       reach a terminal status.
+
+    Returning on `run_id != prev_run_id AND terminal` alone breaks case 2 —
+    the running row we already saw will eventually become terminal, but its
+    run_id never changes, so the original guard waits forever.
     """
     deadline = time.monotonic() + max_wait
+    prev_was_running = prev_status in ("running", "started")
     while time.monotonic() < deadline:
         try:
             async with session.get(url) as r:
@@ -163,7 +176,9 @@ async def poll_until_new_run(
                 data = await r.json(content_type=None)
                 run_id = data.get("run_id", "")
                 status = data.get("status", "")
-                if run_id != prev_run_id and status not in ("running", "started", ""):
+                if status in ("running", "started", ""):
+                    pass  # keep polling
+                elif prev_was_running or run_id != prev_run_id:
                     return data
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
             log.warning("poll_until_new_run %s: %s", url, exc)
@@ -368,14 +383,17 @@ class SimulationDriver:
         try:
             _prev = await _get(session, f"{av_ing}/runs/latest")
             _prev_run_id = _prev.get("run_id", "")
+            _prev_status = _prev.get("status", "")
         except Exception:
             _prev_run_id = ""
+            _prev_status = ""
         start_r = await _post(session, f"{av_ing}/jobs/fetch-data")
         if "error" not in start_r:
             try:
                 await poll_until_new_run(
                     session, f"{av_ing}/runs/latest",
                     prev_run_id=_prev_run_id,
+                    prev_status=_prev_status,
                     max_wait=120, interval=0.5,
                 )
             except TimeoutError as exc:
@@ -393,13 +411,16 @@ class SimulationDriver:
             try:
                 _prev_sync = await _get(session, f"{a_sync}/runs/latest")
                 _prev_sync_id = _prev_sync.get("run_id", "")
+                _prev_sync_status = _prev_sync.get("status", "")
             except Exception:
                 _prev_sync_id = ""
+                _prev_sync_status = ""
             await _post(session, f"{a_sync}/jobs/sync")
             try:
                 await poll_until_new_run(
                     session, f"{a_sync}/runs/latest",
-                    prev_run_id=_prev_sync_id, max_wait=30, interval=0.5,
+                    prev_run_id=_prev_sync_id, prev_status=_prev_sync_status,
+                    max_wait=30, interval=0.5,
                 )
                 log.info("Initial positions synced to live_positions.")
             except TimeoutError as exc:
@@ -413,14 +434,17 @@ class SimulationDriver:
         try:
             _prev_pipe = await _get(session, f"{pipeline}/runs/latest")
             _prev_pipe_id = _prev_pipe.get("run_id", "") or ""
+            _prev_pipe_status = _prev_pipe.get("status", "") or ""
         except Exception:
             _prev_pipe_id = ""
+            _prev_pipe_status = ""
         start_r = await _post(session, f"{pipeline}/jobs/run")
         if start_r.get("status") in ("already_running",) or "error" not in start_r:
             try:
                 final = await poll_until_new_run(
                     session, f"{pipeline}/runs/latest",
-                    prev_run_id=_prev_pipe_id, max_wait=120, interval=0.5,
+                    prev_run_id=_prev_pipe_id, prev_status=_prev_pipe_status,
+                    max_wait=120, interval=0.5,
                 )
                 pipeline_status = final.get("status", "")
             except TimeoutError as exc:
@@ -452,8 +476,10 @@ class SimulationDriver:
         try:
             _prev_pb = await _get(session, f"{pb}/runs/latest")
             _prev_pb_id = _prev_pb.get("run_id", "") or ""
+            _prev_pb_status = _prev_pb.get("status", "") or ""
         except Exception:
             _prev_pb_id = ""
+            _prev_pb_status = ""
         start_r = await _post(session, f"{pb}/jobs/build")
         if "error" in start_r:
             errors.append(f"portfolio-builder start: {start_r.get('error')}")
@@ -461,7 +487,8 @@ class SimulationDriver:
             try:
                 await poll_until_new_run(
                     session, f"{pb}/runs/latest",
-                    prev_run_id=_prev_pb_id, max_wait=60, interval=0.5,
+                    prev_run_id=_prev_pb_id, prev_status=_prev_pb_status,
+                    max_wait=60, interval=0.5,
                 )
             except TimeoutError as exc:
                 errors.append(str(exc))
@@ -476,8 +503,10 @@ class SimulationDriver:
         try:
             _prev_dl = await _get(session, f"{pipeline}/runs/delta-latest")
             _prev_dl_id = _prev_dl.get("run_id", "") or ""
+            _prev_dl_status = _prev_dl.get("status", "") or ""
         except Exception:
             _prev_dl_id = ""
+            _prev_dl_status = ""
         start_r = await _post(session, f"{pipeline}/jobs/delta")
         if "error" in start_r:
             errors.append(f"delta start: {start_r.get('error')}")
@@ -485,7 +514,8 @@ class SimulationDriver:
             try:
                 final = await poll_until_new_run(
                     session, f"{pipeline}/runs/delta-latest",
-                    prev_run_id=_prev_dl_id, max_wait=60, interval=0.5,
+                    prev_run_id=_prev_dl_id, prev_status=_prev_dl_status,
+                    max_wait=60, interval=0.5,
                 )
                 delta_run_id = final.get("run_id")
             except TimeoutError as exc:
@@ -538,13 +568,16 @@ class SimulationDriver:
         try:
             _prev_sync9 = await _get(session, f"{a_sync}/runs/latest")
             _prev_sync9_id = _prev_sync9.get("run_id", "")
+            _prev_sync9_status = _prev_sync9.get("status", "")
         except Exception:
             _prev_sync9_id = ""
+            _prev_sync9_status = ""
         await _post(session, f"{a_sync}/jobs/sync")
         try:
             await poll_until_new_run(
                 session, f"{a_sync}/runs/latest",
-                prev_run_id=_prev_sync9_id, max_wait=30, interval=0.5,
+                prev_run_id=_prev_sync9_id, prev_status=_prev_sync9_status,
+                max_wait=30, interval=0.5,
             )
         except TimeoutError as exc:
             log.warning("alpaca-sync step 9 timed out: %s", exc)
