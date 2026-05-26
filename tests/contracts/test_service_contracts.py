@@ -317,6 +317,7 @@ def test_portfolio_builder_runs_latest_contract():
         "run_id": uuid.UUID(run_id),
         "status": "success",
         "portfolio_date": "2026-05-25",
+        "error_message": None,
         "started_at": _now(),
         "completed_at": _now(),
     }

@@ -40,6 +40,20 @@ def new_id() -> str:
     return str(uuid.uuid4())
 
 
+def seed_daily_price(ticker: str, close: float = 100.0) -> None:
+    """Ensure ticker has a daily price row so _size_entry can compute qty."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    with pg() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO daily_prices (ticker, date, close) "
+                "VALUES (%s, %s, %s) "
+                "ON CONFLICT (ticker, date) DO UPDATE SET close = EXCLUDED.close",
+                (ticker, today, close),
+            )
+        conn.commit()
+
+
 def seed_delta_run(strategy_id: str = "inttest") -> str:
     run_id = new_id()
     today = datetime.now().strftime("%Y-%m-%d")
@@ -234,6 +248,7 @@ class TestMOOEnforcement:
 
     def test_immediate_mode_creates_opg_order(self):
         seed_sync_run()
+        seed_daily_price("AAPL", 100.0)
         run_id = seed_delta_run()
         iid = seed_delta_intent(run_id, "AAPL")
 
@@ -248,6 +263,7 @@ class TestMOOEnforcement:
 
     def test_scheduled_mode_creates_opg_order(self):
         seed_sync_run()
+        seed_daily_price("MSFT", 100.0)
         run_id = seed_delta_run()
         iid = seed_delta_intent(run_id, "MSFT")
 

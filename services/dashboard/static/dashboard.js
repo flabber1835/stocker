@@ -592,8 +592,11 @@ function _isApprovable(r) {
 }
 
 function renderTrader() {
+  // Rejected intents stay visible with a 'Rejected' status badge — the audit
+  // trail of "we saw this signal and the user/system rejected it" is part of
+  // the trader's view. The status cell rendering (further down) shows the
+  // Rejected text; _isApprovable() prevents an approve button from appearing.
   const sorted = [...deltaData]
-    .filter(r => !r.rejected_at)
     .sort((a, b) => {
       const ao = ACTION_ORDER[a.action] ?? 99;
       const bo = ACTION_ORDER[b.action] ?? 99;

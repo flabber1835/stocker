@@ -40,6 +40,10 @@ _JOB_PATHS = {
 }
 
 
+_TRADEABLE_ACTIONS = {"entry", "exit", "buy_add", "sell_trim"}
+_BUY_ACTIONS = {"entry", "buy_add"}
+
+
 async def _auto_approve_bg():
     await asyncio.sleep(5)
     while True:
@@ -56,10 +60,12 @@ async def _auto_approve_bg():
                         if not iid:
                             continue
                         action = intent.get("action")
-                        if action not in ("entry", "exit"):
+                        if action not in _TRADEABLE_ACTIONS:
                             continue
-                        # Skip vetter-excluded BUYs and manually rejected intents.
-                        if action == "entry" and intent.get("vetter_excluded"):
+                        # Skip vetter-excluded BUYs (entry + buy_add) and manually rejected intents.
+                        # Sells (exit, sell_trim) are not subject to vetter exclusion because the
+                        # vetter informs which stocks to AVOID buying, not which to keep holding.
+                        if action in _BUY_ACTIONS and intent.get("vetter_excluded"):
                             continue
                         if intent.get("rejected_at"):
                             continue

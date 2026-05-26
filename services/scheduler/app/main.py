@@ -25,6 +25,11 @@ RANK_SCHEDULE_CRON = os.getenv("RANK_SCHEDULE_CRON", "15 21 * * 1-5")
 
 SUPERVISOR_INTERVAL_SECS = int(os.getenv("SUPERVISOR_INTERVAL_SECS", "300"))
 
+# Heartbeat: how stale the last successful chain may be before /health/chain
+# returns 503. Default 36h covers a normal weekend gap (Fri close → Mon close
+# = ~67h, so 72h would also be reasonable; 36h catches "missed a weekday").
+CHAIN_HEALTH_MAX_AGE_HOURS = float(os.getenv("CHAIN_HEALTH_MAX_AGE_HOURS", "36"))
+
 _scheduler: Optional[AsyncIOScheduler] = None
 _chain_lock = asyncio.Lock()
 # Separate lock that's held across an entire manual /jobs/run-now invocation,
@@ -758,6 +763,75 @@ def _refresh_next_run():
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "scheduler"}
+
+
+@app.get("/health/chain")
+async def health_chain():
+    """Liveness check for autonomous operation.
+
+    Returns 200 if the most recent successful scheduler chain completed within
+    CHAIN_HEALTH_MAX_AGE_HOURS (default 36h). Otherwise returns 503 with the
+    age and last status so an external monitor can alert.
+
+    Use this for an `gh action` ping, a Slack/Pingdom check, or a kubernetes
+    liveness probe — anything that needs to know "is the daily pipeline still
+    running on schedule?". A 503 here means a chain failed, or the supervisor
+    is wedged, or the database is unreachable — investigate immediately.
+    """
+    from datetime import datetime, timezone
+    from fastapi import Response
+
+    body: dict = {
+        "service": "scheduler",
+        "max_age_hours": CHAIN_HEALTH_MAX_AGE_HOURS,
+    }
+    conn = await _db_connect()
+    if conn is None:
+        body["status"] = "unhealthy"
+        body["reason"] = "database unreachable"
+        return Response(content=__import__("json").dumps(body), status_code=503,
+                        media_type="application/json")
+    try:
+        row = await conn.fetchrow(
+            "SELECT completed_at, status, chain_date FROM scheduler_runs "
+            "WHERE status='success' ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+        )
+        latest_any = await conn.fetchrow(
+            "SELECT completed_at, status, chain_date FROM scheduler_runs "
+            "ORDER BY started_at DESC LIMIT 1"
+        )
+    finally:
+        await conn.close()
+
+    if row is None or row["completed_at"] is None:
+        body["status"] = "unhealthy"
+        body["reason"] = "no successful chain on record"
+        if latest_any:
+            body["latest_run"] = {
+                "status": latest_any["status"],
+                "chain_date": str(latest_any["chain_date"]) if latest_any["chain_date"] else None,
+            }
+        return Response(content=__import__("json").dumps(body), status_code=503,
+                        media_type="application/json")
+
+    age_h = (datetime.now(timezone.utc) - row["completed_at"]).total_seconds() / 3600.0
+    body["last_success_chain_date"] = str(row["chain_date"]) if row["chain_date"] else None
+    body["last_success_completed_at"] = row["completed_at"].isoformat()
+    body["age_hours"] = round(age_h, 2)
+    if latest_any:
+        body["latest_run_status"] = latest_any["status"]
+
+    if age_h > CHAIN_HEALTH_MAX_AGE_HOURS:
+        body["status"] = "unhealthy"
+        body["reason"] = (
+            f"last successful chain was {age_h:.1f}h ago "
+            f"(> {CHAIN_HEALTH_MAX_AGE_HOURS}h threshold)"
+        )
+        return Response(content=__import__("json").dumps(body), status_code=503,
+                        media_type="application/json")
+
+    body["status"] = "healthy"
+    return body
 
 
 @app.get("/status")

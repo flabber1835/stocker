@@ -1198,6 +1198,31 @@ async def system_status():
     }
 
 
+@app.get("/health/chain")
+async def health_chain():
+    """Proxy the scheduler's chain-liveness check.
+
+    External monitors (Pingdom, GitHub Actions, k8s liveness probes) hit this
+    endpoint on the api service to know whether the daily pipeline is still
+    running on schedule. Returns 200 healthy or 503 with details from the
+    scheduler. The body is the scheduler's response verbatim; status code is
+    passed through.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=6.0) as client:
+            r = await client.get(f"{SCHEDULER_URL}/health/chain")
+            return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as exc:
+        return JSONResponse(
+            content={
+                "status": "unhealthy",
+                "service": "scheduler",
+                "reason": f"scheduler unreachable: {exc}",
+            },
+            status_code=503,
+        )
+
+
 # ── Alpaca sync proxy ──────────────────────────────────────────────────────────
 # Routes the dashboard's sync request through the API so the dashboard doesn't
 # need its own ALPACA_SYNC_URL env var. Internal services still call alpaca-sync

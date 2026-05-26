@@ -32,8 +32,33 @@ def _stack_up() -> bool:
         return False
 
 
+def _trade_executor_has_credentials() -> bool:
+    """Return True if the live trade-executor was launched with Alpaca creds.
+
+    The harness overlay (tests/harness/docker-compose.yml) wires
+    ALPACA_API_KEY=harness-test-key into trade-executor so it can submit to
+    alpaca-sim. In that mode, the no-credentials tests in this module cannot
+    pass: the trade-executor will actually attempt an HTTP POST to alpaca-sim
+    instead of short-circuiting with a credential error.
+    """
+    try:
+        r = requests.get(f"{TE_URL}/health", timeout=3)
+        return bool(r.json().get("has_credentials"))
+    except Exception:
+        return False
+
+
 pytestmark = pytest.mark.skipif(
     not _stack_up(), reason="Docker stack not reachable on :8012"
+)
+
+_NO_CRED_SKIP = pytest.mark.skipif(
+    _trade_executor_has_credentials(),
+    reason=(
+        "trade-executor has Alpaca credentials (running under harness overlay) — "
+        "skip the no-credentials path tests; alpaca-sim returns 500 for unknown "
+        "tickers instead of a clean 'credential' error"
+    ),
 )
 
 
@@ -268,6 +293,7 @@ class TestNotionalLimit:
 
 # ── Test: no Alpaca credentials ───────────────────────────────────────────────
 
+@_NO_CRED_SKIP
 class TestNoCredentials:
     TICKER_ENTRY = "TNCR1"
     TICKER_EXIT = "TNCR2"
@@ -673,6 +699,7 @@ class TestAuditTrail:
             cleanup_sync_run(sync_id)
             cleanup_daily_price(self.TICKER)
 
+    @_NO_CRED_SKIP
     def test_failed_order_has_error_message_in_db(self):
         """Failed order (no Alpaca creds) has a meaningful error_message column."""
         sync_id = seed_sync_run(100_000.0)
