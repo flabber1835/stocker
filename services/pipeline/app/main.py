@@ -1733,7 +1733,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 "DELETE FROM delta_intents "
                 "WHERE run_id != :new_run_id "
                 "  AND NOT EXISTS ("
-                "    SELECT 1 FROM alpaca_orders ao WHERE ao.intent_id = id"
+                "    SELECT 1 FROM alpaca_orders ao WHERE ao.intent_id = delta_intents.id"
                 "  )"
             ),
             {"new_run_id": run_id},

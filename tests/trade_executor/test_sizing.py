@@ -137,20 +137,22 @@ async def test_size_entry_aborts_when_qty_below_one():
 
 
 @pytest.mark.asyncio
-async def test_size_entry_uses_buying_power_when_lower_than_account_value():
-    # buying_power=$30k < account_value=$100k → entry sized against buying_power
-    # so cash already reserved for prior MOO orders isn't double-spent.
-    # weight=0.10 × buying_power=$30k = $3000 notional ÷ $50 price = 60 shares
+async def test_size_entry_uses_account_value_not_buying_power():
+    # account_value=$100k, buying_power=$30k (partially invested portfolio)
+    # Entry must size against account_value so we target the correct equity weight.
+    # Using buying_power would produce an undersized order when the portfolio is
+    # fully invested and exits haven't cleared yet ($30k << $100k / 10 = $10k).
+    # weight=0.10 × account_value=$100k = $10000 notional ÷ $50 price = 200 shares
     conn = _mock_conn_returning([
         {"account_value": 100_000.0, "buying_power": 30_000.0, "completed_at": _now()},
         {"current_price": 50.0},
     ])
     qty, notional, summary = await _size_entry(conn, "AAPL", intent_weight=0.10)
-    assert qty == 60.0
-    assert notional == 3000.0
+    assert qty == 200.0
+    assert notional == 10_000.0
     assert summary["buying_power"] == 30_000.0
     assert summary["account_value"] == 100_000.0
-    assert summary["sizing_basis"] == "buying_power"
+    assert summary["sizing_basis"] == "account_value"
 
 
 @pytest.mark.asyncio
@@ -175,8 +177,8 @@ async def test_size_entry_aborts_when_no_account_value():
     with pytest.raises(HTTPException) as exc_info:
         await _size_entry(conn, "AAPL", intent_weight=0.05)
     assert exc_info.value.status_code == 400
-    assert "buying_power=None" in exc_info.value.detail
     assert "account_value=None" in exc_info.value.detail
+    assert "buying_power=None" in exc_info.value.detail
 
 
 @pytest.mark.asyncio

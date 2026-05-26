@@ -25,6 +25,10 @@ try:
 except ValueError:
     MAX_ORDER_NOTIONAL = 50000.0
 PAPER_ONLY = os.getenv("PAPER_ONLY", "true").lower() == "true"
+try:
+    MAX_DAILY_TURNOVER_PCT = float(os.getenv("MAX_DAILY_TURNOVER_PCT", "0.50"))
+except ValueError:
+    MAX_DAILY_TURNOVER_PCT = 0.50
 
 
 _KILL_SWITCH_FILE = "/tmp/kill_switch"
@@ -52,6 +56,7 @@ def _safety_env() -> dict:
             os.getenv("LIVE_TRADING_ENABLED", "false").lower() == "true",
         "paper_only": os.getenv("PAPER_ONLY", "true").lower() == "true",
         "max_order_notional": float(os.getenv("MAX_ORDER_NOTIONAL", "50000.0")),
+        "max_daily_turnover_pct": float(os.getenv("MAX_DAILY_TURNOVER_PCT", "0.50")),
     }
 
 
@@ -87,7 +92,7 @@ class TradeCheckResponse(BaseModel):
     approved: bool
     reason: str
     check_id: str           # also the risk_decisions.decision_id
-    rule_triggered: str     # 'kill_switch' | 'live_disabled' | 'paper_only' | 'qty' | 'notional_zero' | 'notional_limit' | 'ok'
+    rule_triggered: str     # 'kill_switch'|'live_disabled'|'paper_only'|'qty'|'notional_zero'|'notional_limit'|'daily_turnover_limit'|'ok'
 
 
 # ── Database helpers ─────────────────────────────────────────────────────────
@@ -211,6 +216,40 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
             "notional_limit",
             env,
         )
+    # Daily turnover cap: reject if today's submitted order notional would exceed
+    # max_daily_turnover_pct of portfolio value. Skipped when DB is unavailable.
+    max_daily_pct = env["max_daily_turnover_pct"]
+    if engine is not None and max_daily_pct < 1.0:
+        try:
+            async with engine.connect() as conn:
+                today_row = (await conn.execute(text(
+                    "SELECT COALESCE(SUM(notional), 0) FROM alpaca_orders "
+                    "WHERE DATE(submitted_at AT TIME ZONE 'UTC') = CURRENT_DATE "
+                    "AND status NOT IN ('cancelled', 'rejected', 'risk_rejected')"
+                ))).first()
+                acct_row = (await conn.execute(text(
+                    "SELECT account_value FROM alpaca_sync_runs "
+                    "WHERE status='success' ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+                ))).first()
+            today_notional = float(today_row[0]) if today_row else 0.0
+            account_value = float(acct_row[0]) if acct_row and acct_row[0] else None
+            if account_value and account_value > 0:
+                limit = account_value * max_daily_pct
+                if today_notional + req.notional > limit:
+                    return (
+                        False,
+                        (
+                            f"Daily turnover limit: today's submitted notional "
+                            f"${today_notional:.0f} + this order ${req.notional:.0f} "
+                            f"= ${today_notional + req.notional:.0f} "
+                            f"exceeds {max_daily_pct:.0%} of portfolio "
+                            f"(${account_value:.0f} × {max_daily_pct:.0%} = ${limit:.0f})"
+                        ),
+                        "daily_turnover_limit",
+                        env,
+                    )
+        except Exception as exc:
+            print(f"[risk-service] WARN: daily turnover check failed (skipped): {exc}")
     return True, "All risk checks passed", "ok", env
 
 
@@ -240,5 +279,6 @@ async def health() -> dict:
         "paper_only": PAPER_ONLY,
         "live_trading_enabled": LIVE_TRADING_ENABLED,
         "max_order_notional": MAX_ORDER_NOTIONAL,
+        "max_daily_turnover_pct": MAX_DAILY_TURNOVER_PCT,
         "persistence": engine is not None,
     }

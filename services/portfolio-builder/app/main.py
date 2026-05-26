@@ -448,6 +448,18 @@ async def _do_build(
         )
         sector_map = {r.ticker: r.sector for r in sector_rows.fetchall() if r.sector}
 
+    # ── Step 4d: load current portfolio holdings for turnover penalty ─────────────────────────────────────────────────
+    current_holdings: set[str] = set()
+    if pb_cfg.turnover_penalty > 0.0:
+        async with engine.connect() as conn:
+            hold_rows = await conn.execute(text(
+                "SELECT ph.ticker FROM portfolio_holdings ph "
+                "JOIN portfolio_runs pr ON pr.run_id = ph.run_id "
+                "WHERE pr.status = 'success' "
+                "ORDER BY pr.completed_at DESC NULLS LAST LIMIT 1"
+            ))
+            current_holdings = {r.ticker for r in hold_rows.fetchall()}
+
     # ── Step 5: greedy selection ────────────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
 
@@ -465,6 +477,8 @@ async def _do_build(
         target=pb_cfg.max_positions,
         sector_map=sector_map,
         max_sector_weight=pb_cfg.max_sector_weight,
+        current_holdings=current_holdings if pb_cfg.turnover_penalty > 0.0 else None,
+        turnover_penalty=pb_cfg.turnover_penalty,
     )
     selected_tickers = [s["ticker"] for s in selected]
     selected_negative_score_count = sum(1 for s in selected if s["composite_score"] < 0)
@@ -560,6 +574,8 @@ async def _do_build(
                 "max_position_weight": pb_cfg.max_position_weight,
                 "max_sector_weight": pb_cfg.max_sector_weight,
                 "sector_map_size": len(sector_map),
+                "turnover_penalty": pb_cfg.turnover_penalty,
+                "current_holdings_count": len(current_holdings),
             },
             output_summary={
                 "selected_count": len(selected),

@@ -2,7 +2,7 @@
 
 End-to-end responsibility for the approval click:
   1. Load delta intent (intent_id → ticker, action, weight)
-  2. Size the order (entries/buy_adds: buying_power × weight ÷ price;
+  2. Size the order (entries/buy_adds: account_value × weight ÷ price;
      sell_trims: account_value × weight ÷ price; exits: full position)
   3. Call risk-service /check
   4. Persist alpaca_orders + execution_steps audit
@@ -228,14 +228,15 @@ async def _size_exit(conn, ticker: str) -> tuple[float, float, dict]:
 async def _size_entry(conn, ticker: str, intent_weight: Optional[float]) -> tuple[float, float, dict]:
     """Return (qty, notional, summary) for an entry.
 
-    qty = floor(buying_power × target_weight ÷ last_price). Sizing uses
-    buying_power rather than account_value so that cash already reserved
-    for previously-submitted (but unfilled) orders is automatically
-    excluded — preventing the executor from over-committing the account
-    when a batch of entries is approved while prior MOO orders are still
-    pending. Refuses with 400 when the target notional is less than the
-    price of one share — silently rounding up to 1 share would massively
-    overweight the position.
+    qty = floor(account_value × target_weight ÷ last_price). Sizing uses
+    account_value (total equity) so that a fully-invested portfolio replacing
+    one exited position gets an entry sized to the correct equity weight —
+    buying_power is ~0 in that state and would produce a tiny under-sized order.
+    With MOO orders, exits and entries fire at the same open so cash flow
+    nets out correctly without an explicit buying_power cap.
+    Refuses with 400 when the target notional is less than the price of one
+    share — silently rounding up to 1 share would massively overweight the
+    position.
     """
     # Target weight: intent.current_weight (preferred) → portfolio_holdings → 1/DEFAULT_MAX_POSITIONS
     weight = intent_weight
@@ -267,7 +268,7 @@ async def _size_entry(conn, ticker: str, intent_weight: Optional[float]) -> tupl
     ))).mappings().first()
     account_value = _f(acct["account_value"]) if acct else None
     buying_power = _f(acct["buying_power"]) if acct else None
-    sizing_basis = buying_power if buying_power is not None else account_value
+    sizing_basis = account_value if account_value is not None else buying_power
     sync_age_hours = None
     if acct and acct["completed_at"] is not None:
         sync_age_hours = (
@@ -305,7 +306,7 @@ async def _size_entry(conn, ticker: str, intent_weight: Optional[float]) -> tupl
             status_code=400,
             detail=(
                 f"Cannot compute qty for {ticker}: "
-                f"buying_power={buying_power}, account_value={account_value}, "
+                f"account_value={account_value}, buying_power={buying_power}, "
                 f"last_price={last_price}"
             ),
         )
@@ -327,7 +328,7 @@ async def _size_entry(conn, ticker: str, intent_weight: Optional[float]) -> tupl
         "weight_source": weight_source,
         "account_value": account_value,
         "buying_power": buying_power,
-        "sizing_basis": "buying_power" if buying_power is not None else "account_value",
+        "sizing_basis": "account_value" if account_value is not None else "buying_power",
         "sync_age_hours": round(sync_age_hours, 2) if sync_age_hours is not None else None,
         "last_price": last_price,
         "price_source": price_source,

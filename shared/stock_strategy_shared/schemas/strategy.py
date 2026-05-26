@@ -195,6 +195,14 @@ class PortfolioBuilderConfig(BaseModel):
     max_position_weight: float = Field(default=0.10, gt=0, le=1.0)
     max_sector_weight: float = Field(default=0.30, gt=0, le=1.0)
     do_not_buy: list[str] = Field(default_factory=list)
+    turnover_penalty: float = Field(
+        default=0.05, ge=0.0, le=0.50,
+        description=(
+            "Fractional score discount applied to candidates NOT in the current portfolio. "
+            "E.g. 0.05 = new positions score 5% lower than continuity holdings, all else equal. "
+            "Reduces unnecessary churn on regime transitions. Set 0 to disable."
+        ),
+    )
 
 
 class DeltaEngineConfig(BaseModel):

@@ -8,6 +8,8 @@ def greedy_select(
     target: int = 30,
     sector_map: dict[str, str] | None = None,
     max_sector_weight: float = 1.0,
+    current_holdings: set[str] | None = None,
+    turnover_penalty: float = 0.0,
 ) -> list[dict]:
     """
     Greedy portfolio construction: pick tickers that maximise
@@ -16,6 +18,11 @@ def greedy_select(
     Sector cap: when sector_map and max_sector_weight are provided, any candidate
     that would push a sector past the cap under equal-weight assumptions is skipped.
     The cap is enforced as a hard constraint during selection, not post-hoc.
+
+    Turnover penalty: when current_holdings and turnover_penalty > 0, candidates
+    NOT in current_holdings have their adjusted score reduced by turnover_penalty
+    fraction before the greedy selection loop. This gives continuity holdings a
+    slight preference to reduce unnecessary churn on regime transitions.
 
     Two traps handled:
       1. Negative z-scores: shift all scores to be strictly positive before
@@ -26,6 +33,13 @@ def greedy_select(
     """
     min_s = float(scores.min())
     base = (scores - min_s + 1.0) if min_s <= 0 else scores.copy()
+
+    # Apply turnover penalty: discount new positions to prefer continuity holdings
+    if current_holdings is not None and turnover_penalty > 0.0:
+        base = base * pd.Series(
+            {t: (1.0 if t in current_holdings else 1.0 - turnover_penalty)
+             for t in base.index}
+        )
 
     portfolio: list[str] = []
     sector_counts: dict[str, int] = {}
