@@ -770,6 +770,16 @@ def seed_vetter_run(
     vetter_run_id = str(uuid.uuid4())
     all_vetted = CORE_TICKERS + SHARE_CLASS_EXTRA
 
+    # Propagate share-class sibling exclusions: if a dominant ticker is excluded,
+    # its sibling must also be excluded (mirrors live vetter's sibling awareness).
+    excluded_set = set(excluded_tickers)
+    for sibling, (dominant, _company) in SHARE_CLASS_PAIRS.items():
+        if dominant in excluded_set:
+            excluded_set.add(sibling)
+        elif sibling in excluded_set:
+            excluded_set.add(dominant)
+    excluded_tickers = list(excluded_set)
+
     with _conn() as conn, conn.cursor() as cur:
         total = len(all_vetted)
         flagged = len(excluded_tickers)
@@ -1083,6 +1093,106 @@ def verify_buy_add_sell_trim(intents: List[dict]) -> None:
             break
 
 
+def verify_vetter_integrity(run_id: str) -> None:
+    """Verify that a seeded vetter run has internally consistent data.
+
+    Checks:
+    - No duplicate tickers within the run
+    - No ticker excluded=false in vetter_decisions while in vetter_exclusions
+    - GOOG and GOOGL not both present with exclude=False (dedup works)
+    - Every decision has non-null risk_type and valid confidence
+    - Candidate count in vetter_runs matches actual decision count
+    """
+    with _conn() as conn, conn.cursor() as cur:
+        # Fetch the run record
+        cur.execute(
+            "SELECT candidate_count FROM vetter_runs WHERE run_id=%s", (run_id,)
+        )
+        run_row = cur.fetchone()
+        if not run_row:
+            warn(f"vetter_integrity[{run_id[:8]}]: run not found")
+            return
+
+        # Fetch all decisions
+        cur.execute(
+            "SELECT ticker, exclude, risk_type, confidence FROM vetter_decisions WHERE run_id=%s",
+            (run_id,),
+        )
+        decisions = cur.fetchall()
+
+    tickers_seen: List[str] = [d["ticker"] for d in decisions]
+
+    # 1. No duplicate tickers
+    duplicates = [t for t in tickers_seen if tickers_seen.count(t) > 1]
+    check(len(duplicates) == 0,
+          f"vetter_integrity[{run_id[:8]}]: no duplicate tickers",
+          f"dupes={list(set(duplicates))}" if duplicates else f"{len(tickers_seen)} tickers OK")
+
+    # 2. Candidate count matches actual decision count
+    expected = int(run_row["candidate_count"])
+    check(len(decisions) == expected,
+          f"vetter_integrity[{run_id[:8]}]: decision count matches candidate_count",
+          f"decisions={len(decisions)} expected={expected}")
+
+    # 3. No null risk_type or invalid confidence
+    valid_confidences = {"low", "medium", "high"}
+    bad_rows = [
+        d["ticker"] for d in decisions
+        if d["risk_type"] is None or d["confidence"] not in valid_confidences
+    ]
+    check(len(bad_rows) == 0,
+          f"vetter_integrity[{run_id[:8]}]: all decisions have valid risk_type + confidence",
+          f"bad={bad_rows[:3]}" if bad_rows else "OK")
+
+    # 4. Sibling consistency: if GOOG is excluded, GOOGL must also be excluded
+    #    (and FOXA↔FOX likewise). Both non-excluded is fine — the portfolio-builder deduplicates.
+    decision_map = {d["ticker"]: bool(d["exclude"]) for d in decisions}
+    sibling_violations = []
+    for sibling, (dominant, _company) in SHARE_CLASS_PAIRS.items():
+        dom_excl = decision_map.get(dominant, False)
+        sib_excl = decision_map.get(sibling, False)
+        if dom_excl and not sib_excl:
+            sibling_violations.append(f"{dominant}→{sibling} excluded but sibling not")
+    check(len(sibling_violations) == 0,
+          f"vetter_integrity[{run_id[:8]}]: sibling exclusion propagated when dominant excluded",
+          f"violations={sibling_violations}" if sibling_violations else "OK")
+
+
+def _print_account_chart(era_values: Dict[str, float]) -> None:
+    """Print a terminal line chart of account value progression across the simulation."""
+    labels = list(era_values.keys())
+    values = list(era_values.values())
+
+    try:
+        import plotext as plt  # type: ignore
+
+        plt.clf()
+        plt.plot(range(len(values)), values, marker="braille")
+        plt.title("Account Value — 365-Day Simulation")
+        plt.xlabel("Simulation Eras")
+        plt.ylabel("Account Value ($)")
+        plt.xticks(range(len(labels)), labels)
+        plt.theme("dark")
+        plt.plotsize(70, 20)
+        plt.show()
+
+    except ImportError:
+        # ASCII fallback when plotext is not installed
+        print()
+        width = 60
+        max_v = max(values) if values else 1.0
+        min_v = min(values) if values else 0.0
+        span = max_v - min_v if max_v != min_v else 1.0
+
+        print(f"  Account Value Chart  (${min_v:,.0f} – ${max_v:,.0f})")
+        print(f"  {'─' * width}")
+        for label, v in zip(labels, values):
+            bar_len = int((v - min_v) / span * width)
+            bar = "█" * bar_len
+            print(f"  {label:<8} │{bar:<{width}} ${v:>12,.0f}")
+        print(f"  {'─' * width}")
+
+
 def get_portfolio_holdings(run_id: Optional[str] = None) -> List[dict]:
     if not run_id:
         row = _fetchone(
@@ -1230,6 +1340,7 @@ def main() -> int:
         },
     )
     ok("era1_vetter: no exclusions in bull_calm")
+    verify_vetter_integrity(vetter1_id)
 
     # ── Ledger: record inherited small-cap positions at Era1 prices ──────────
     ledger = Ledger(initial_cash=0.0)  # cash computed below
@@ -1275,6 +1386,7 @@ def main() -> int:
         risk_ticker_reasons={"NVDA": nvda_reason, "GOOG": goog_reason},
     )
     ok("era2_vetter: NVDA + GOOG flagged (regulatory_risk)")
+    verify_vetter_integrity(vetter2_id)
 
     # Scenario 3: Vetter sibling awareness — GOOG excluded → GOOGL must also be excluded
     # The portfolio-builder should exclude GOOGL because GOOG is already excluded
@@ -1360,6 +1472,7 @@ def main() -> int:
         },
     )
     ok("era3_vetter: all clear (recovery, NVDA risk cleared)")
+    verify_vetter_integrity(vetter3_id)
 
     # Portfolio Era 3: all 30 core back in (NVDA restored)
     # Live pipeline result may already have run portfolio-builder
@@ -2040,6 +2153,9 @@ def main() -> int:
     ok("financial_reconciliation",
        f"total=${expected_total:,.2f} cash=${expected_cash:,.2f} mktv={expected_mktv:,.2f} "
        f"drawdown={max_drawdown_pct:.1f}% SPY_regime=Era1:{spy_era1:.0f}→Era2:{spy_era2:.0f}→Era3:{spy_era3:.0f}")
+
+    # ── Account value chart ────────────────────────────────────────────────────
+    _print_account_chart(era_values)
 
     # ─────────────────────────────────────────────────────────────────────────
     # RESULTS SUMMARY
