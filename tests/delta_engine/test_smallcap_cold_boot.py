@@ -1224,29 +1224,38 @@ class TestTargetVsLiveOrphanPositions:
                 f"{t}: in target AND broker — expected hold/drift, got {d[t].action}"
             )
 
-    def test_orphan_smallcaps_at_risk_on_day1(self):
-        """Orphan broker positions outside exit zone → at_risk on day 1."""
+    def test_orphan_smallcaps_exit_on_day1(self):
+        """Orphan broker positions exit immediately under Option A (non-empty target).
+
+        Previously these were 'at_risk' on day 1 and 'exit' after confirmation_days.
+        Option A: not-in-target = exit immediately, regardless of rank or duration.
+        """
         d = self._run(smcp_days=1)
         for t in self.ORPHAN_SMCPS:
-            assert d[t].action == "at_risk", (
-                f"{t}: orphan with bad rank on day 1 should be at_risk, got {d[t].action}"
+            assert d[t].action == "exit", (
+                f"{t}: orphan with bad rank on day 1 → exit, got {d[t].action}"
             )
 
     def test_orphan_smallcaps_exit_on_day3(self):
-        """Orphan positions confirmed outside exit zone for 3 days → exit."""
+        """Orphan positions exit (still expected after 3 days of bad rank)."""
         d = self._run(smcp_days=3)
         for t in self.ORPHAN_SMCPS:
             assert d[t].action == "exit", (
                 f"{t}: orphan confirmed bad for 3 days — expected exit, got {d[t].action}"
             )
 
-    def test_orphan_in_buffer_zone_gets_hold(self):
-        """Orphan with rank ≤ exit_rank stays as hold (buffer-zone safety net)."""
+    def test_orphan_in_buffer_zone_exits_under_option_a(self):
+        """Orphan with rank ≤ exit_rank still exits when target is non-empty.
+
+        The buffer zone protects in-target positions only; an orphan with a good
+        rank but no target slot is still excluded by portfolio-builder and gets
+        an immediate exit.
+        """
         buffer_rank = EXIT_RANK - 5   # within buffer zone
         d = self._run(smcp_days=3, smcp_rank=buffer_rank)
         for t in self.ORPHAN_SMCPS:
-            assert d[t].action == "hold", (
-                f"{t}: orphan rank ≤ EXIT_RANK — buffer-zone hold, got {d[t].action}"
+            assert d[t].action == "exit", (
+                f"{t}: orphan not in target → exit (buffer zone irrelevant), got {d[t].action}"
             )
 
     def test_orphan_without_ranking_data_gets_hold(self):

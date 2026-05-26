@@ -202,18 +202,32 @@ def evaluate_target_vs_live(
             weight_drift=None,
         )
 
-    # Exits: broker holds but target no longer includes — only exit if rank has been
-    # outside the buffer zone for confirmation_days; otherwise hold (buffer-zone logic).
+    # Exits: broker holds but target no longer includes. The portfolio-builder
+    # has already made the deliberate judgment that this ticker is not part of
+    # today's strategy (it's not in the top max_positions, or was filtered by
+    # sector caps, vetter, or other constraints). Exit immediately rather than
+    # waiting for buffer-zone confirmation. The buffer zone exists to prevent
+    # whipsawing on positions the strategy DID choose — for not-in-target
+    # holdings (especially arbitrary initial seeds), there is no asymmetric
+    # loss from selling, and lingering positions keep cash tied up and prevent
+    # the portfolio from converging on the target.
+    #
+    # Safeguard for the degraded case: if target_portfolio is completely
+    # empty, portfolio-builder may have failed transiently or filtered all
+    # candidates. Fall back to the original buffer-zone confirmation logic
+    # so a single bad build doesn't flush the entire portfolio. Only the
+    # confirmed-bad-rank branch exits in that mode.
+    target_is_empty = not target_portfolio
     for ticker in live_positions:
         if ticker in target_portfolio:
             continue  # handled in holds below
         obs = universe.get(ticker, [])
         latest = obs[0] if obs else None
         if not obs:
-            # No ranking history for this broker position — hold rather than force-exit.
-            # Could be a data gap (av-ingestor hasn't fetched this ticker yet) or a new
-            # position added directly at the broker. Delisted positions are handled by
-            # Alpaca automatically; the next alpaca-sync will reflect their actual state.
+            # No ranking history — could be a data gap (av-ingestor hasn't
+            # fetched yet) or a position added directly at the broker. Hold
+            # rather than force-exit; the next pipeline run will reconsider
+            # once ranking data is available.
             decisions[ticker] = DeltaDecision(
                 ticker=ticker,
                 action="hold",
@@ -229,57 +243,61 @@ def evaluate_target_vs_live(
                 weight_drift=None,
             )
             continue
-        exit_days = _consecutive_in_zone(
-            obs, lambda o, xr=exit_rank: o.rank > xr, confirmation_days
+
+        if target_is_empty:
+            # Degraded mode — use the original buffer-zone logic so a single
+            # empty portfolio build doesn't trigger a wholesale liquidation.
+            exit_days_empty = _consecutive_in_zone(
+                obs, lambda o, xr=exit_rank: o.rank > xr, confirmation_days
+            )
+            if exit_days_empty >= confirmation_days:
+                action_empty = "exit"
+                reason_empty = (
+                    f"Rank={latest.rank} > exit_rank={exit_rank} for {exit_days_empty} "
+                    f"consecutive days (target portfolio is empty — degraded mode)"
+                )
+            elif latest.rank > exit_rank:
+                action_empty = "at_risk"
+                reason_empty = (
+                    f"Held at broker, target portfolio empty, rank={latest.rank} > "
+                    f"exit_rank={exit_rank} "
+                    f"({exit_days_empty}/{confirmation_days}d toward exit confirmation)"
+                )
+            else:
+                zone = "entry zone" if latest.rank <= entry_rank else "buffer zone"
+                action_empty = "hold"
+                reason_empty = (
+                    f"Held at broker, target portfolio empty, but rank={latest.rank} "
+                    f"in {zone} — holding pending non-empty target"
+                )
+            decisions[ticker] = DeltaDecision(
+                ticker=ticker,
+                action=action_empty,
+                rank=latest.rank,
+                composite_score=latest.composite_score,
+                confirmation_days_met=exit_days_empty,
+                current_weight=0.0,
+                reason=reason_empty,
+                actual_weight=actual_weights.get(ticker) if actual_weights else None,
+                weight_drift=None,
+            )
+            continue
+
+        # Has ranking data, non-empty target, ticker not in target → exit now.
+        decisions[ticker] = DeltaDecision(
+            ticker=ticker,
+            action="exit",
+            rank=latest.rank,
+            composite_score=latest.composite_score,
+            confirmation_days_met=0,
+            current_weight=0.0,
+            reason=(
+                f"Held at broker but not in target portfolio (rank={latest.rank}) — "
+                "portfolio-builder excluded; exiting to converge on target"
+            ),
+            actual_weight=actual_weights.get(ticker) if actual_weights else None,
+            weight_drift=None,
         )
-        if exit_days >= confirmation_days:
-            decisions[ticker] = DeltaDecision(
-                ticker=ticker,
-                action="exit",
-                rank=latest.rank,
-                composite_score=latest.composite_score,
-                confirmation_days_met=exit_days,
-                current_weight=0.0,
-                reason=(
-                    f"Rank={latest.rank} > exit_rank={exit_rank} for {exit_days} consecutive days"
-                    f" (not in target portfolio)"
-                ),
-                actual_weight=actual_weights.get(ticker) if actual_weights else None,
-                weight_drift=None,
-            )
-        elif latest.rank > exit_rank:
-            # Rank above exit_rank but not confirmed — at_risk
-            decisions[ticker] = DeltaDecision(
-                ticker=ticker,
-                action="at_risk",
-                rank=latest.rank,
-                composite_score=latest.composite_score,
-                confirmation_days_met=exit_days,
-                current_weight=0.0,
-                reason=(
-                    f"Held at broker, not in target portfolio, rank={latest.rank} > exit_rank={exit_rank}"
-                    f" ({exit_days}/{confirmation_days}d toward exit confirmation)"
-                ),
-                actual_weight=actual_weights.get(ticker) if actual_weights else None,
-                weight_drift=None,
-            )
-        else:
-            # Still in buffer zone (rank ≤ exit_rank) — hold rather than force exit
-            zone = "entry zone" if latest.rank <= entry_rank else "buffer zone"
-            decisions[ticker] = DeltaDecision(
-                ticker=ticker,
-                action="hold",
-                rank=latest.rank,
-                composite_score=latest.composite_score,
-                confirmation_days_met=exit_days,
-                current_weight=0.0,
-                reason=(
-                    f"Held at broker, not in target portfolio, but rank={latest.rank} in {zone}"
-                    f" (exit needs {confirmation_days}d > {exit_rank}, have {exit_days}d)"
-                ),
-                actual_weight=actual_weights.get(ticker) if actual_weights else None,
-                weight_drift=None,
-            )
 
     # Holds: in both target and broker positions
     for ticker in live_positions:

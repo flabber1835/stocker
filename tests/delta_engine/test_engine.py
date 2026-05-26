@@ -450,53 +450,68 @@ def test_tvl_hold_when_in_both():
     assert decisions["MSFT"].current_weight == pytest.approx(0.05)
 
 
-def test_tvl_exit_when_confirmed_outside_buffer():
-    """Ticker at broker but not in target, rank above exit_rank for full confirmation_days → exit."""
-    target = {}
+def test_tvl_exit_when_live_outside_buffer():
+    """Ticker at broker but not in target with rank well above exit_rank → exit.
+
+    With Option A, exit is triggered by "not in target," not by confirmation_days.
+    """
+    # Non-empty target so the Option A path (not the empty-target safeguard) runs.
+    target = {"AAPL": 0.05}
     live = {"TSLA"}
-    # 3 consecutive days above exit_rank=40 → confirmed exit
-    universe = {"TSLA": _history(50, 50, 50)}
+    universe = {
+        "AAPL": _history(10),
+        "TSLA": _history(50, 50, 50),
+    }
 
     decisions = evaluate_target_vs_live(
         target_portfolio=target, live_positions=live, universe=universe,
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
     )
     assert decisions["TSLA"].action == "exit"
-    assert decisions["TSLA"].confirmation_days_met == 3
+    assert decisions["TSLA"].rank == 50
 
 
-def test_tvl_hold_when_live_not_in_target_but_in_buffer_zone():
-    """WDC scenario: ticker at broker, not in target portfolio, but rank is inside buffer zone.
+def test_tvl_exit_when_live_not_in_target_even_in_buffer_zone():
+    """Ticker at broker but absent from target portfolio → exit immediately.
 
-    portfolio-builder's greedy selector picked other stocks, but WDC's rank is still good
-    (rank ≤ exit_rank). The buffer-zone logic should hold rather than emit a spurious exit.
+    The portfolio-builder has made the deliberate decision that this ticker is
+    not part of today's strategy. Buffer-zone protection is reserved for
+    in-target positions (where the strategy DID choose to hold); positions the
+    strategy excluded are exited so the portfolio can converge to the target.
     """
-    target = {}
+    # Non-empty target so Option A applies (not the empty-target safeguard).
+    target = {"AAPL": 0.05}
     live = {"WDC"}
-    # WDC rank=28, exit_rank=40 — inside buffer zone, only 1 day
-    universe = {"WDC": _history(28)}
+    # WDC rank=28, exit_rank=40 — inside buffer zone, only 1 day.
+    # Pre-Option-A this returned "hold"; now it returns "exit" because
+    # portfolio-builder excluded WDC from the target.
+    universe = {"AAPL": _history(10), "WDC": _history(28)}
 
     decisions = evaluate_target_vs_live(
         target_portfolio=target, live_positions=live, universe=universe,
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
     )
-    assert decisions["WDC"].action == "hold"
-    assert "buffer zone" in decisions["WDC"].reason
+    assert decisions["WDC"].action == "exit"
+    assert "not in target portfolio" in decisions["WDC"].reason
 
 
-def test_tvl_hold_when_above_exit_rank_but_insufficient_days():
-    """Ticker at broker, not in target, rank > exit_rank but < confirmation_days → at_risk."""
-    target = {}
+def test_tvl_exit_when_above_exit_rank_no_confirmation_needed():
+    """Ticker at broker, not in target, rank > exit_rank → exit immediately.
+
+    Pre-Option-A this returned "at_risk" until confirmation_days had passed;
+    now any not-in-target holding exits on the first observation.
+    """
+    target = {"AAPL": 0.05}
     live = {"TSLA"}
-    # Rank 45 > exit_rank=40 but only 2 days, confirmation_days=3 → not yet confirmed exit
-    universe = {"TSLA": _history(45, 45)}
+    # Rank 45 > exit_rank=40, only 2 days of history (would have been at_risk before).
+    universe = {"AAPL": _history(10), "TSLA": _history(45, 45)}
 
     decisions = evaluate_target_vs_live(
         target_portfolio=target, live_positions=live, universe=universe,
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
     )
-    assert decisions["TSLA"].action == "at_risk"
-    assert decisions["TSLA"].confirmation_days_met == 2
+    assert decisions["TSLA"].action == "exit"
+    assert decisions["TSLA"].rank == 45
 
 
 def test_tvl_hold_when_live_not_in_universe():

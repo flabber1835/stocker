@@ -113,10 +113,10 @@ class TestEmptyTargetPortfolio:
         assert decisions["AAPL"].action == "hold", \
             "Orphan ticker absent from universe should be held (awaiting data), not force-exited"
 
-    def test_non_empty_target_but_portfolio_builder_skipped_one_live_ticker(self):
+    def test_non_empty_target_skipped_live_ticker_exits_under_option_a(self):
         """
         portfolio-builder built a partial target (3 of 4 live tickers).
-        The 4th live ticker is an orphan → hold if rank is good.
+        The 4th live ticker is an orphan → exit under Option A, regardless of rank.
         The 3 target tickers are in both target and live → hold (already held).
         """
         target = {"AAPL": 0.10, "MSFT": 0.10, "NVDA": 0.10}
@@ -134,8 +134,8 @@ class TestEmptyTargetPortfolio:
             entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
             confirmation_days=CONF, max_positions=MAX_POS,
         )
-        assert decisions["GOOGL"].action in ("hold", "at_risk"), \
-            "GOOGL is live but not in target (orphan) — should be hold, not entry or exit"
+        assert decisions["GOOGL"].action == "exit", \
+            "GOOGL is live but not in target (orphan) — must exit immediately"
         assert decisions["AAPL"].action == "hold"
         assert decisions["MSFT"].action == "hold"
         assert decisions["NVDA"].action == "hold"

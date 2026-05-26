@@ -532,11 +532,15 @@ class TestCrossScenarioEdgeCases:
         assert all(d.action == "entry" for d in decisions.values()), \
             "Tickers in target but not at broker should get entry intent"
 
-    def test_broker_position_not_in_target_gives_hold_not_exit(self):
+    def test_broker_position_not_in_target_exits_immediately(self):
         """
-        Broker has a position that the target portfolio no longer includes,
-        but the ticker is still in the universe with a decent rank.
-        Safe behaviour: hold (awaiting data/confirmation), not force-exit.
+        Broker has a position that the target portfolio no longer includes.
+
+        Under Option A: the portfolio-builder has deliberately excluded this
+        ticker from the target (e.g. it was bumped out by higher-ranked names,
+        a sector cap, or a vetter exclusion). Buffer-zone protection only
+        applies to in-target positions; not-in-target holdings exit
+        immediately so the portfolio converges to the target.
         """
         from engine import evaluate_target_vs_live
 
@@ -545,7 +549,7 @@ class TestCrossScenarioEdgeCases:
 
         universe = {
             "AAPL": _obs(rank=1),
-            "MSFT": _obs(rank=5),  # still ranks fine
+            "MSFT": _obs(rank=5),  # still ranks fine but excluded from target
         }
         decisions = evaluate_target_vs_live(
             target_portfolio=target,
@@ -556,6 +560,6 @@ class TestCrossScenarioEdgeCases:
             confirmation_days=CONFIRMATION_DAYS,
             max_positions=MAX_POSITIONS,
         )
-        # MSFT in live but not target, but rank still good → hold (buffer-zone check)
-        assert decisions["MSFT"].action in ("hold", "at_risk"), \
-            f"MSFT removed from target but ranks 5 — expected hold/at_risk, got {decisions['MSFT'].action}"
+        assert decisions["MSFT"].action == "exit", \
+            f"MSFT held but not in target → exit, got {decisions['MSFT'].action}"
+        assert "not in target portfolio" in decisions["MSFT"].reason
