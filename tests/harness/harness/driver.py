@@ -676,7 +676,7 @@ class SimulationDriver:
             session, runs_url, prev_run_id=prev_run_id, max_wait=8.0,
         )
         if not detected_id and trigger_url:
-            log.info("[restart] %s: not detected within 8s — extending detection to 38s total", step_name)
+            log.info("[restart] %s: not detected within 8s — extending to 38s total", step_name)
             detected_id = await poll_until_running(
                 session, runs_url, prev_run_id=prev_run_id, max_wait=30.0,
             )
