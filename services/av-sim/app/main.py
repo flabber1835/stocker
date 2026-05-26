@@ -406,6 +406,9 @@ class LoadScenarioRequest(BaseModel):
     end_date: str
     regimes: list[ScenarioRegime]
     extra_tickers: list[ExtraTicker] = []
+    # Number of extra trading-day rows to generate BEFORE start_date so the
+    # pipeline's 200-day SMA can run on day 0 of the simulation.
+    pre_history_days: int = 0
 
 
 class LoadScenarioResponse(BaseModel):
@@ -502,14 +505,27 @@ async def admin_load_scenario(req: LoadScenarioRequest) -> LoadScenarioResponse:
     # Build sector map for fundamentals generation
     sector_map: dict[str, str] = {r["ticker"]: r["sector"] for r in universe_rows}
 
-    # 3. Generate prices for all tickers
+    # 3. Generate prices for all tickers.
+    #    When pre_history_days > 0, extend the price generation back in time so
+    #    that fetch-data on simulation day 0 already has enough history for
+    #    the pipeline's 200-day SMA (needs ≥200 trading days before start_date).
+    if req.pre_history_days > 0:
+        # 1.5× multiplier converts trading days → calendar days with margin.
+        pre_start = (
+            date.fromisoformat(req.start_date)
+            - timedelta(days=int(req.pre_history_days * 1.5))
+        )
+        price_start = pre_start.isoformat()
+    else:
+        price_start = req.start_date
+
     log.info(
-        "Generating prices for %d tickers [%s → %s] ...",
-        len(all_tickers), req.start_date, req.end_date,
+        "Generating prices for %d tickers [%s → %s] (pre_history=%d) ...",
+        len(all_tickers), price_start, req.end_date, req.pre_history_days,
     )
     price_data = generate_prices(
         tickers=all_tickers,
-        start_date=req.start_date,
+        start_date=price_start,
         end_date=req.end_date,
         regimes=regimes,
         seed=req.seed,

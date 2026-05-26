@@ -204,11 +204,12 @@ async def load_scenario_to_av_sim(
 ) -> Dict[str, Any]:
     """POST scenario metadata to the av-sim /admin/load-scenario endpoint."""
     payload: Dict[str, Any] = {
-        "name":          scenario.name,
-        "seed":          scenario.seed,
-        "universe_size": scenario.universe_size,
-        "start_date":    scenario.start_date.isoformat(),
-        "end_date":      scenario.end_date.isoformat(),
+        "name":             scenario.name,
+        "seed":             scenario.seed,
+        "universe_size":    scenario.universe_size,
+        "start_date":       scenario.start_date.isoformat(),
+        "end_date":         scenario.end_date.isoformat(),
+        "pre_history_days": 300,  # enough for pipeline's 200-day SMA on day 0
         "regimes": [
             {"start_date": rc.start_date.isoformat(), "type": rc.regime_type}
             for rc in scenario.regimes
