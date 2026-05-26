@@ -85,7 +85,27 @@ pytest                          # all tests
 pytest shared/ -v               # schema tests only
 pytest llm_vetter/ -v           # vetter tests only
 pytest backtester/ -v           # backtester tests only
+pytest scheduler/ -v            # supervisor state machine + restart recovery
 ```
+
+## Black-box harness (full-system simulation)
+
+`tests/harness/` runs the system against simulated AV / Anthropic / Tavily
+APIs (services `av-sim`, `anthropic-sim`, `tavily-sim`) plus `alpaca-sim`
+for broker calls. All four simulators are gated behind the `[test]` profile
+so plain `docker compose up` does NOT start them.
+
+Activate the harness with the profile plus the overlay file:
+
+```bash
+docker compose --profile test \
+  -f docker-compose.yml -f tests/harness/docker-compose.yml up -d --build
+python tests/harness/run.py            # drive the harness
+```
+
+The overlay redirects `av-ingestor`, `llm-gateway`, `llm-vetter`, and
+`trade-executor`/`alpaca-sync` traffic to the local simulators and slows
+the scheduler tick so the harness drives the pipeline directly.
 
 ## Testing Philosophy
 

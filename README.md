@@ -50,9 +50,37 @@ No real Alpha Vantage or Alpaca calls should be implemented in the first phase.
 ## Planned Commands
 
 ```bash
-docker compose up
+docker compose up           # core stocker only (excludes test harness + stubs)
 make test
 ```
+
+### Docker compose profiles
+
+Services are grouped behind profiles so `docker compose up` starts only the
+operational core. Add `--profile <name>` to include extras:
+
+```text
+(default)   core: postgres, redis, db-migrator, api, av-ingestor, pipeline,
+            strategy-validator, llm-gateway, llm-vetter, portfolio-builder,
+            alpaca-sync, risk-service, trade-executor, backtester, scheduler,
+            dashboard
+--profile test      adds alpaca-sim, av-sim, anthropic-sim, tavily-sim
+                    (mock APIs for tests/harness/)
+--profile optional  adds strategy-config-service, intraday-monitor, evaluator
+                    (currently stubs)
+--profile ollama    adds ollama + ollama-init (local LLM)
+--profile monitor   adds playwright-monitor (dashboard screenshot service)
+```
+
+Run the black-box test harness with the simulator profile + overlay:
+
+```bash
+docker compose --profile test -f docker-compose.yml -f tests/harness/docker-compose.yml up -d
+```
+
+When pulling a new compose file, run `docker compose down --remove-orphans`
+once to evict containers from old service definitions that the current file
+no longer declares.
 
 ## Documentation
 

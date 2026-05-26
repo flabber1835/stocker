@@ -298,6 +298,26 @@ A `409 Conflict` or `{"status": "already_running"}` response means the target
 service is already running an earlier trigger. Both the scheduler and the
 pipeline's Redis consumer treat this as "wait for next tick" rather than aborting.
 
+### Restart recovery
+
+`docker compose down` (or any crash) mid-chain must not wedge the chain until
+midnight. Every persistence-using service calls the shared
+`mark_orphaned_runs_failed()` helper on startup, which marks orphaned
+`status='running'` rows as `failed` with a `RESTART_ABORTED:` prefix in
+`error_message`. The scheduler's `_step_state` and cold-start branch
+distinguish this prefix from a real failure:
+
+```text
+marker present → state="idle"   → re-trigger on next tick
+marker absent  → state="failed" → suspend chain until tomorrow
+```
+
+The pipeline's Redis consumer also drains the Pending Entries List with
+`id="0"` on startup before switching to `>` reads, so `fetch_data.complete`
+events claimed-but-not-xack'd by a crashed previous instance are still
+processed.  See `docs/service-boundaries.md` § "Restart Recovery" for the
+full mechanism and step coverage.
+
 ### Real-time path: synchronous HTTP
 
 The intraday signal-to-order path uses direct synchronous HTTP calls between services.

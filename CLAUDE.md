@@ -216,6 +216,40 @@ versioned config files
 local artifacts/reports volume
 ```
 
+## Docker Compose Profiles
+
+Plain `docker compose up` starts only the operational core. Test harness
+simulators and stub services are gated behind profiles so a normal deploy
+doesn't drag in mock APIs or unbuilt placeholders.
+
+```text
+(no flag)           core: postgres, redis, db-migrator, api, av-ingestor,
+                    pipeline, strategy-validator, llm-gateway, llm-vetter,
+                    portfolio-builder, alpaca-sync, risk-service,
+                    trade-executor, backtester, scheduler, dashboard
+--profile test      alpaca-sim, av-sim, anthropic-sim, tavily-sim
+                    (mock APIs used by tests/harness/)
+--profile optional  strategy-config-service, intraday-monitor, evaluator
+                    (currently unbuilt stubs)
+--profile ollama    ollama, ollama-init (local LLM)
+--profile monitor   playwright-monitor (dashboard screenshot service)
+```
+
+Run the black-box test harness with the simulator profile plus overlay:
+
+```bash
+docker compose --profile test \
+  -f docker-compose.yml -f tests/harness/docker-compose.yml up -d
+```
+
+Run `docker compose down --remove-orphans` once after pulling a new compose
+file to evict containers whose service definitions were removed/renamed —
+without this they stick around as ghost containers in `docker compose ps`.
+
+`alpaca-sync` and `trade-executor` default `ALPACA_BASE_URL` to
+`https://paper-api.alpaca.markets`; without `ALPACA_API_KEY` set, both
+services short-circuit to no-op (no credentials in repo).
+
 ---
 
 # Stateful Infrastructure
@@ -324,6 +358,10 @@ record ingestion job status
 
 Should not calculate investment factors.
 
+Lifespan calls the shared `mark_orphaned_runs_failed("ingest_runs", ...)` on
+startup so any `running` row from a prior crash is marked `failed` with the
+`RESTART_ABORTED:` prefix in `error_message` (see Restart Recovery section).
+
 ## pipeline
 
 Single service combining the former factor-engine and ranker into one
@@ -354,6 +392,17 @@ exclusions and target weights rather than the stale values from a prior run.
 `ranking_status` columns surface sub-step progress for the dashboard.
 `chain_date` is written at run start so the scheduler's supervisor sees a
 valid date during execution and does not classify the in-flight run as idle.
+
+The scheduler compares `chain_date` (not `run_date`) when polling step
+status, because `run_date` is set to `MAX(SPY date)` which may lag the
+wall-clock date by 1+ days. The `already_ran_today` guard updates
+`chain_date = date.today()` on the existing success row before returning
+so the scheduler classifies the step as `done` without re-triggering.
+
+`_redis_consumer_loop` drains the Pending Entries List on startup
+(`id="0"` until empty) before switching to `>` reads — recovers
+`fetch_data.complete` events that a previous crashed instance had claimed
+but never xack'd.
 
 Must be deterministic given the same inputs.
 
@@ -648,9 +697,39 @@ tick. After today's chain reaches a terminal state (success/failed), further
 ticks are no-ops for the rest of the calendar day — `_chain_status` resets on
 date rollover.
 
+On midnight date rollover the supervisor first calls `_db_close_run` on any
+still-open `current_run_id` (coercing a non-terminal `running` status to
+`failed`) before resetting in-memory state — without this, a chain that
+spans midnight leaves orphaned `status='running'` rows in `scheduler_runs`.
+
 The pipeline service also auto-triggers from av-ingestor via Redis Streams
 (`stocker:pipeline_events`), so a manual fetch-data fires the pipeline
 without scheduler involvement.
+
+**Restart recovery via RESTART_ABORT_MARKER:**
+
+`docker compose down` mid-chain must not wedge the chain until midnight.
+Each persistence-using service (av-ingestor, pipeline, llm-vetter,
+portfolio-builder) calls `mark_orphaned_runs_failed()` from
+`shared.tracing` on startup. That helper marks orphaned `running` rows as
+`failed` with `error_message` prefixed by `RESTART_ABORTED:`.
+
+The scheduler's `_step_state` and the cold-start fetch-universe branch
+both check for this prefix:
+
+```text
+status=failed, RESTART_ABORTED in error_message → return "idle"   (re-trigger)
+status=failed, prefix absent                    → return "failed" (suspend chain)
+```
+
+`/runs/delta-latest` includes `error_message` in its SELECT so the
+scheduler can apply the marker check to the standalone delta step too.
+
+`_startup_catch_up` also tracks consecutive "idle" returns from optional
+steps: after 10 ticks (~5 min) of an unreachable optional step it marks
+the step `failed` and advances the chain. Without this, a permanently
+unreachable llm-vetter could leave the catch-up loop spinning for its
+full 6-hour budget.
 
 ## api
 

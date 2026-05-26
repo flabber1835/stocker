@@ -50,7 +50,11 @@ Key behaviors:
 - `fetch-data` job: incremental price + fundamentals per ticker; skips tickers already current
 - `/runs/latest` exposes `tickers_done` and `total_tickers` for real-time progress tracking
   (in-memory counter, cleared on job completion or container restart)
-- Lifespan marks any `running` row as `failed` on startup to recover from crashes
+- Lifespan calls the shared `mark_orphaned_runs_failed("ingest_runs", ...)` on
+  startup so any `running` row left by a crash is marked `failed` with the
+  `RESTART_ABORTED:` prefix in `error_message`. The scheduler detects this prefix
+  in `_step_state` and treats the run as recoverable (`idle` → re-trigger) rather
+  than a real failure (which would suspend the chain until midnight).
 
 ### pipeline
 
@@ -100,8 +104,25 @@ Triggers:
 - Redis stream `stocker:pipeline_events` event `fetch_data.complete` from
   av-ingestor (consumer group `pipeline-consumers`) — fires full pipeline
 
-Lifespan marks orphaned `pipeline_runs`, `factor_runs`, `ranking_runs`, and
-`delta_runs` as failed on startup so a restart never leaves stale `running` rows.
+Lifespan calls the shared `mark_orphaned_runs_failed()` for `pipeline_runs`,
+`factor_runs`, `ranking_runs`, and `delta_runs` so a restart leaves no stale
+`running` rows. The helper prefixes `error_message` with `RESTART_ABORTED:`
+so the scheduler can distinguish a recoverable restart-orphan from a real
+failure (see Restart Recovery below).
+
+**Already-ran-today guard:** When `pipeline /jobs/run` sees an existing
+`pipeline_runs` row with `status='success'` and `run_date = MAX(SPY date)`,
+it returns `{"status": "already_ran_today"}` without creating a new row.
+Before returning it stamps `chain_date = today` on that blocking row so the
+scheduler's `chain_date` comparison classifies the step as `done`.  Without
+this stamp the scheduler would see `chain_date=yesterday`, report the step
+as `idle`, re-trigger, hit the guard again, and loop every supervisor tick.
+
+**Redis consumer PEL drain:** On startup `_redis_consumer_loop` first reads
+the Pending Entries List with `id="0"` until empty, then switches to `>` reads
+for new messages.  Without this, `fetch_data.complete` events claimed by a
+prior consumer instance but never xack'd (because the service crashed mid-handle)
+would be stuck in the PEL forever — they are NOT redelivered by `>` reads.
 
 ### portfolio-builder
 
@@ -353,6 +374,50 @@ that started yesterday and is still "running" today (cross-midnight hang) is cor
 classified as failed and the chain can advance. Currently set on `vet` (90 min); if
 Ollama crashes mid-run or the LLM provider stalls past this limit, the scheduler
 treats vet as failed and — because vet is optional — continues to portfolio-builder.
+
+**Restart Recovery (`RESTART_ABORTED:` marker):**
+Every persistence-using service calls the shared
+`mark_orphaned_runs_failed()` on startup. The helper marks any
+`status='running'` rows from a previous crashed run as `failed` and prefixes
+`error_message` with `RESTART_ABORTED:`. In the scheduler, `_step_state`
+checks for this prefix on every `failed` row:
+
+```text
+data["status"] == "failed":
+  RESTART_ABORT_MARKER in error_message → return "idle"   # re-trigger
+  no marker                              → return "failed" # suspend chain
+```
+
+This distinction matters for **every** step in the chain — fetch-universe,
+fetch-data, pipeline (and its inner factor/ranking/delta sub-runs),
+llm-vetter, portfolio-builder, and the standalone delta step.  Without it,
+a `docker compose down` mid-fetch leaves the chain wedged until midnight.
+Coverage:
+- `av-ingestor → ingest_runs` (used by both fetch-universe and fetch-data)
+- `pipeline   → pipeline_runs / factor_runs / ranking_runs / delta_runs`
+- `llm-vetter → vetter_runs`
+- `portfolio-builder → portfolio_runs`
+
+The scheduler's cold-start branch (when no universe exists yet) also runs
+the marker check on the latest fetch-universe row so a crash during the
+very first universe download re-triggers on the next tick instead of
+halting with "cannot proceed without universe".
+
+`/runs/delta-latest` includes `error_message` in its SELECT so the
+scheduler's delta `_step_state` can detect the marker for that step too.
+
+**Stuck-idle skip for optional steps:** `_startup_catch_up` tracks
+consecutive ticks where an optional step (e.g. llm-vetter) returned `idle`.
+After 10 consecutive idle ticks (~5 min) it marks the step `failed` and
+advances the chain.  Without this, a permanently unreachable optional
+service made the catch-up loop spin for its full 6-hour budget.
+Optional steps that fail still leave the chain `success` overall.
+
+**Midnight rollover closes open runs:** When `_chain_status["date"]` no
+longer matches `date.today()`, the supervisor first calls `_db_close_run`
+on `current_run_id` (coercing a non-terminal `running` status to `failed`)
+before clearing in-memory state.  Without this, a chain that spans midnight
+left orphaned `status='running'` rows in `scheduler_runs` forever.
 
 **Manual force re-run (`POST /jobs/run-now`):** the dashboard "Run" button. Unlike
 the cron-driven tick, this always re-executes every step even when today's chain
