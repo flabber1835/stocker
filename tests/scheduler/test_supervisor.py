@@ -854,6 +854,57 @@ class TestWeekendDateFields:
         assert result == "idle"
 
     @pytest.mark.asyncio
+    async def test_pipeline_done_when_chain_date_matches_trading_day_even_if_score_date_lags(self):
+        """Regression: cold-start loop when pipeline score_date (data date) lags trading_day.
+
+        When the system boots in the morning of a trading day, the latest price data
+        may only be from yesterday (AV hasn't published today's data yet, or it's a
+        mock environment).  The pipeline sets run_date=score_date=yesterday but
+        chain_date=today.  Using run_date (old behaviour) caused:
+          scheduler sees run_date=yesterday != trading_day=today → "idle"
+          → triggers pipeline → "already_ran_today" → loops forever
+        Using chain_date fixes this: chain_date=today == trading_day=today → "done".
+        """
+        tuesday  = "2026-05-26"   # today (a normal trading day)
+        monday   = "2026-05-25"   # Memorial Day — non-trading; latest mock data goes here
+        friday   = "2026-05-22"   # prev_trading_day (last session before holiday)
+        # Pipeline ran today; run_date=score_date=Monday (latest data), chain_date=Tuesday
+        step = self._make_step(date_field="chain_date", use_trading_day=True,
+                               also_accept_prev=False)
+        client = _async_client_returning({
+            "status": "success",
+            "run_date": monday,     # score date (data from yesterday)
+            "chain_date": tuesday,  # wall-clock date of the run (today)
+        })
+        result = await _step_state(client, step, tuesday, tuesday, friday)
+        assert result == "done", (
+            "pipeline must be 'done' when chain_date=today==trading_day, even when "
+            "run_date (score_date) lags behind trading_day. Regression: using run_date "
+            "caused an infinite idle→trigger→already_ran_today loop on cold start."
+        )
+
+    @pytest.mark.asyncio
+    async def test_pipeline_run_date_mismatch_causes_old_idle_loop(self):
+        """Documents the OLD bug: run_date=yesterday != trading_day=today → 'idle'."""
+        tuesday = "2026-05-26"
+        monday  = "2026-05-25"  # score_date from mock data
+        friday  = "2026-05-22"
+        # Old step definition used run_date — this reproduces the loop
+        step = self._make_step(date_field="run_date", use_trading_day=True,
+                               also_accept_prev=False)
+        client = _async_client_returning({
+            "status": "success",
+            "run_date": monday,
+            "chain_date": tuesday,
+        })
+        result = await _step_state(client, step, tuesday, tuesday, friday)
+        assert result == "idle", (
+            "This test reproduces the old cold-start bug: run_date=yesterday does not "
+            "match trading_day=today, so _step_state returns 'idle' and the scheduler "
+            "re-triggers the pipeline indefinitely."
+        )
+
+    @pytest.mark.asyncio
     async def test_portfolio_builder_idle_when_portfolio_date_is_prev_trading_day(self):
         """Regression: also_accept_prev=False must make yesterday's run appear idle today.
 

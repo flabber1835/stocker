@@ -82,12 +82,17 @@ class _StepDef:
 _STEPS: list[_StepDef] = [
     _StepDef("fetch-data", AV_INGESTOR_URL, "/jobs/fetch-data", "started_at",
              job_type="fetch-data", extra_ok=("partial_success",)),
-    # run_date uses trading_day (exchange-calendar date). also_accept_prev=False for the same
-    # reason as portfolio-builder and delta: the exchange calendar already maps holidays to
-    # the correct prior session, so yesterday's run_date never equals today's trading_day
-    # on a normal trading day. Keeping also_accept_prev=True caused the scheduler to treat
-    # yesterday's completed run as "done" all day and skip re-running on normal trading days.
-    _StepDef("pipeline", PIPELINE_URL, "/jobs/run", "run_date",
+    # chain_date is the wall-clock date the pipeline run was started on (set to
+    # date.today() at pipeline startup regardless of what data was available).
+    # We compare chain_date — not run_date — because run_date is set to score_date
+    # (the latest data date in daily_prices), which may lag behind today's trading_day
+    # when the system boots before new data arrives or when mock data only extends to
+    # yesterday.  Using run_date caused an infinite retry loop: scheduler sees
+    # run_date=yesterday != trading_day=today → "idle" → triggers → "already_ran_today"
+    # → loops. chain_date=today matches trading_day=today correctly in all cases.
+    # also_accept_prev=False: yesterday's chain_date never equals today's trading_day
+    # on a normal trading day, so there's no risk of treating yesterday's run as done.
+    _StepDef("pipeline", PIPELINE_URL, "/jobs/run", "chain_date",
              use_trading_day=True, also_accept_prev=False),
     # Vetter runs before portfolio-builder so exclusions feed the same-cycle build.
     # optional=True: if Ollama/OpenAI is not configured the chain continues without it.
