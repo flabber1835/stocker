@@ -1,6 +1,10 @@
-# Test-harness overlay — apply on top of the main docker-compose.yml:
+# Test-harness overlay — apply on top of the main docker-compose.yml.
 #
-#   docker compose -f docker-compose.yml -f tests/harness/docker-compose.yml up -d
+# The sim services (av-sim, anthropic-sim, tavily-sim, alpaca-sim) live behind
+# the [test] profile in the main compose file so they do NOT start on plain
+# `docker compose up`. Activate them explicitly when running the harness:
+#
+#   docker compose --profile test -f docker-compose.yml -f tests/harness/docker-compose.yml up -d
 #
 # What this overlay does:
 #   1. Routes av-ingestor and llm-vetter AV traffic to the local av-sim (port 8021).

@@ -490,11 +490,11 @@ services:
       start_period: 20s
 
   # ── Test-harness simulators ───────────────────────────────────────────────────
-  # These services are always built but only receive traffic when the harness
-  # overlay (tests/harness/docker-compose.yml) redirects service URLs to them.
-  # In normal production runs they sit idle.
+  # Behind the [test] profile so plain `docker compose up` does NOT start them.
+  # Activate together with the harness overlay (see tests/harness/docker-compose.yml).
 
   av-sim:
+    profiles: [test]
     build:
       context: .
       dockerfile: services/av-sim/Dockerfile
@@ -510,6 +510,7 @@ services:
       start_period: 15s
 
   anthropic-sim:
+    profiles: [test]
     build:
       context: .
       dockerfile: services/anthropic-sim/Dockerfile
@@ -525,6 +526,7 @@ services:
       start_period: 15s
 
   tavily-sim:
+    profiles: [test]
     build:
       context: .
       dockerfile: services/tavily-sim/Dockerfile
