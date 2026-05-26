@@ -387,6 +387,66 @@ async def admin_set_as_of(req: _AsOfIn) -> dict[str, Any]:
     return {"as_of_date": STATE.as_of_date.isoformat() if STATE.as_of_date else None}
 
 
+class _LiquidateIn(BaseModel):
+    ticker: str
+
+
+@app.post("/admin/liquidate-position")
+async def admin_liquidate_position(req: _LiquidateIn) -> dict[str, Any]:
+    """Sell the entire position at the most-recent price, add proceeds to cash.
+
+    Simulates a manual liquidation outside the pipeline (e.g. operator clicks
+    "sell all" at the broker directly). The system's next alpaca-sync run will
+    observe the position is gone.
+    """
+    pos = STATE.positions.get(req.ticker)
+    if pos is None:
+        return {"status": "no_position", "ticker": req.ticker}
+    price = await _last_price(req.ticker)
+    if price is None or price <= 0:
+        return {"status": "no_price", "ticker": req.ticker}
+    qty = pos.qty
+    proceeds = qty * price
+    STATE.cash += proceeds
+    del STATE.positions[req.ticker]
+    log.info("liquidated %s qty=%.2f @ $%.4f → proceeds=$%.2f, cash=$%.2f",
+             req.ticker, qty, price, proceeds, STATE.cash)
+    return {
+        "status": "liquidated",
+        "ticker": req.ticker,
+        "qty": qty,
+        "price": price,
+        "proceeds": proceeds,
+        "cash_after": STATE.cash,
+    }
+
+
+class _WithdrawIn(BaseModel):
+    amount: Optional[float] = None  # if None or > cash, withdraws all
+
+
+@app.post("/admin/withdraw-cash")
+async def admin_withdraw_cash(req: _WithdrawIn) -> dict[str, Any]:
+    """Withdraw cash from the simulator (operator moves money out of brokerage).
+
+    Subtracts `amount` (clamped to current cash) from STATE.cash. Pass
+    amount=None or any amount >= cash to drain to exactly $0.
+    """
+    cash_before = STATE.cash
+    amount = req.amount if req.amount is not None else cash_before
+    amount = min(max(amount, 0.0), cash_before)
+    STATE.cash -= amount
+    if STATE.cash < 1e-6:
+        STATE.cash = 0.0
+    log.info("withdraw cash=$%.2f → remaining=$%.2f", amount, STATE.cash)
+    return {
+        "status": "withdrawn",
+        "amount": amount,
+        "cash_before": cash_before,
+        "cash_after": STATE.cash,
+    }
+
+
 @app.get("/admin/state")
 async def admin_state() -> dict[str, Any]:
     return {

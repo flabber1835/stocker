@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import subprocess
 import time
 from datetime import date
 from typing import Any, Dict, List, Optional
@@ -14,7 +15,19 @@ from typing import Any, Dict, List, Optional
 import aiohttp
 import asyncpg
 
-from .scenario import DayObservation, Scenario, list_trading_days
+from .scenario import DayObservation, Intervention, Scenario, list_trading_days
+
+
+# Container groups for outage simulations. These map to docker-compose service
+# names; the harness uses `docker compose stop/start` to toggle them.
+_CORE_SERVICES = [
+    "pipeline", "scheduler", "portfolio-builder", "llm-vetter",
+    "alpaca-sync", "trade-executor", "api", "dashboard", "risk-service",
+    "av-ingestor", "llm-gateway",
+]
+_INTERNET_SERVICES = [
+    "av-sim", "alpaca-sim", "anthropic-sim", "tavily-sim",
+]
 
 log = logging.getLogger("harness.driver")
 
@@ -293,6 +306,24 @@ class SimulationDriver:
             scenario.start_date,
             scenario.end_date,
         )
+        if scenario.interventions:
+            log.info("Scheduled interventions: %d", len(scenario.interventions))
+            for iv in scenario.interventions:
+                log.info("  day %d (%s): %s%s",
+                         iv.on_day_index,
+                         trading_days[iv.on_day_index] if iv.on_day_index < len(trading_days) else "?",
+                         iv.action,
+                         f" duration={iv.duration_days}d" if iv.duration_days else "")
+
+        # Build per-day outage map: day_index → outage kind ("stack"|"internet")
+        # An intervention with action="stack_off" or "internet_off" creates an
+        # outage spanning [on_day_index, on_day_index + duration_days - 1].
+        outage_by_day: Dict[int, str] = {}
+        for iv in scenario.interventions:
+            if iv.action in ("stack_off", "internet_off"):
+                kind = "stack" if iv.action == "stack_off" else "internet"
+                for d in range(iv.on_day_index, iv.on_day_index + iv.duration_days):
+                    outage_by_day[d] = kind
 
         timeout = aiohttp.ClientTimeout(total=300)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -302,27 +333,161 @@ class SimulationDriver:
             await load_scenario_to_av_sim(scenario, self.urls["av_sim"], session)
 
             # ── Day-by-day loop ──────────────────────────────────────
+            prev_outage: Optional[str] = None
             for day_index, trading_day in enumerate(trading_days):
-                obs = await self._run_day(
-                    session=session,
-                    scenario=scenario,
-                    trading_day=trading_day,
-                    day_index=day_index,
-                )
+                current_outage = outage_by_day.get(day_index)
+
+                # Transition into an outage at its first day
+                if current_outage and prev_outage != current_outage:
+                    await self._begin_outage(current_outage)
+
+                # Transition out of an outage (we just left a window)
+                if prev_outage and not current_outage:
+                    await self._end_outage(prev_outage, session)
+
+                if current_outage:
+                    # Skip normal day processing while services are down
+                    obs = DayObservation(
+                        date=trading_day,
+                        position_count=0,
+                        account_value=0.0,
+                        cash=0.0,
+                        regime="unknown",
+                        label=f"outage:{current_outage}",
+                    )
+                    log.info(
+                        "Day %d/%d %s: OUTAGE (%s) — skipping",
+                        day_index + 1, len(trading_days), trading_day, current_outage,
+                    )
+                else:
+                    obs = await self._run_day(
+                        session=session,
+                        scenario=scenario,
+                        trading_day=trading_day,
+                        day_index=day_index,
+                    )
+                    log.info(
+                        "Day %d/%d %s: %d positions, $%.0f, regime=%s [%s]",
+                        day_index + 1,
+                        len(trading_days),
+                        trading_day,
+                        obs.position_count,
+                        obs.account_value,
+                        obs.regime,
+                        obs.label or "ok",
+                    )
+
                 observations.append(obs)
-                log.info(
-                    "Day %d/%d %s: %d positions, $%.0f, regime=%s [%s]",
-                    day_index + 1,
-                    len(trading_days),
-                    trading_day,
-                    obs.position_count,
-                    obs.account_value,
-                    obs.regime,
-                    obs.label or "ok",
-                )
+                prev_outage = current_outage
+
+                # Fire any one-shot interventions scheduled for this day,
+                # AFTER the day's processing completes
+                for iv in scenario.interventions:
+                    if iv.on_day_index != day_index:
+                        continue
+                    if iv.action == "liquidate_and_withdraw":
+                        await self._apply_liquidate_and_withdraw(session, iv)
+                    elif iv.action == "manual_run":
+                        log.info("[intervention] manual_run on day %d (%s)", day_index + 1, trading_day)
+                        obs_rerun = await self._run_day(
+                            session=session, scenario=scenario,
+                            trading_day=trading_day, day_index=day_index,
+                        )
+                        log.info("[intervention] manual_run result: %d positions, $%.0f [%s]",
+                                 obs_rerun.position_count, obs_rerun.account_value,
+                                 obs_rerun.label or "ok")
+                        obs_rerun.label = (obs_rerun.label + " manual_rerun").strip()
+                        observations.append(obs_rerun)
+
+            # End any outage that ran through the final day
+            if prev_outage:
+                await self._end_outage(prev_outage, session)
 
         log.info("Simulation '%s' complete.", scenario.name)
         return observations
+
+    # ------------------------------------------------------------------
+    # Intervention handlers
+    # ------------------------------------------------------------------
+
+    async def _apply_liquidate_and_withdraw(
+        self, session: aiohttp.ClientSession, iv: Intervention,
+    ) -> None:
+        """Liquidate one position via alpaca-sim admin, then drain cash to $0."""
+        alpaca_sim = self.urls["alpaca_sim"]
+        # Find the ticker to liquidate
+        async with session.get(f"{alpaca_sim}/admin/state") as r:
+            state = await r.json()
+        positions = state.get("positions", {})
+        if not positions:
+            log.warning("[intervention] liquidate: no positions to liquidate")
+            return
+        if iv.ticker and iv.ticker in positions:
+            ticker = iv.ticker
+        else:
+            # Pick the largest position by qty × avg_entry_price (cost basis)
+            ticker = max(positions.items(), key=lambda kv: float(kv[1]["cost_basis"]))[0]
+
+        log.info("[intervention] liquidating position %s (note=%s)", ticker, iv.note)
+        async with session.post(
+            f"{alpaca_sim}/admin/liquidate-position", json={"ticker": ticker}
+        ) as r:
+            liq = await r.json()
+        log.info("[intervention]   → sold qty=%.2f @ $%.2f, proceeds=$%.2f, cash now=$%.2f",
+                 liq.get("qty", 0), liq.get("price", 0),
+                 liq.get("proceeds", 0), liq.get("cash_after", 0))
+
+        # Drain remaining cash to zero
+        async with session.post(
+            f"{alpaca_sim}/admin/withdraw-cash", json={"amount": None}
+        ) as r:
+            wd = await r.json()
+        log.info("[intervention]   → withdrew $%.2f, cash now=$%.2f",
+                 wd.get("amount", 0), wd.get("cash_after", 0))
+
+    async def _begin_outage(self, kind: str) -> None:
+        services = _CORE_SERVICES if kind == "stack" else _INTERNET_SERVICES
+        log.info("[intervention] BEGIN %s OUTAGE: stopping %s", kind, " ".join(services))
+        subprocess.run(
+            ["docker", "compose", "stop", "-t", "5"] + services,
+            check=False, capture_output=True, timeout=120,
+        )
+
+    async def _end_outage(self, kind: str, session: aiohttp.ClientSession) -> None:
+        services = _CORE_SERVICES if kind == "stack" else _INTERNET_SERVICES
+        log.info("[intervention] END %s OUTAGE: starting %s", kind, " ".join(services))
+        subprocess.run(
+            ["docker", "compose", "start"] + services,
+            check=False, capture_output=True, timeout=120,
+        )
+        # Wait for services to become healthy before resuming
+        await asyncio.sleep(10)
+        await self._wait_for_health(session, kind)
+
+    async def _wait_for_health(
+        self, session: aiohttp.ClientSession, kind: str,
+    ) -> None:
+        """Poll service health endpoints up to ~60s after an outage ends."""
+        if kind == "stack":
+            urls_to_check = [
+                self.urls["pipeline"], self.urls["portfolio_builder"],
+                self.urls["alpaca_sync"], self.urls["trade_executor"],
+                self.urls["api"], self.urls["risk_service"],
+            ]
+        else:
+            urls_to_check = [
+                self.urls["av_sim"], self.urls["alpaca_sim"],
+            ]
+        deadline = time.monotonic() + 60.0
+        for url in urls_to_check:
+            while time.monotonic() < deadline:
+                try:
+                    async with session.get(f"{url}/health", timeout=aiohttp.ClientTimeout(total=3)) as r:
+                        if r.status == 200:
+                            break
+                except Exception:
+                    pass
+                await asyncio.sleep(1.0)
 
     # ------------------------------------------------------------------
     # Single-day execution

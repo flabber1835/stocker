@@ -23,6 +23,41 @@ class InitialPosition:
 
 
 @dataclass
+class Intervention:
+    """A manual event applied between trading days.
+
+    Supported actions:
+      - "liquidate_and_withdraw": pick the largest current position, sell it at
+        the most-recent price (proceeds → cash), then withdraw all cash so the
+        sim ends the day with $0 cash and one fewer position. `ticker` lets the
+        scenario pin a specific position; otherwise the largest is chosen.
+
+      - "stack_off": stop the core stocker services (pipeline, scheduler,
+        portfolio-builder, llm-vetter, alpaca-sync, trade-executor, api,
+        dashboard, risk-service) for `duration_days` trading days, then start
+        them back up. Simulates "the operator's computer is off for a few days"
+        — postgres and redis stay up so state persists.
+
+      - "internet_off": stop the simulator containers (av-sim, alpaca-sim,
+        anthropic-sim, tavily-sim) for `duration_days` trading days, then
+        start them back up. Simulates "the internet is down" — core stocker
+        services remain running but every external data fetch / order
+        submission fails.
+
+      - "manual_run": after the day's normal pipeline cycle completes,
+        re-run the cycle on the same sim trading day. Simulates a user
+        clicking the dashboard "Run" button to force a fresh chain
+        execution. Tests idempotency, intent-purge correctness, and that
+        risk-service / trade-executor handle back-to-back runs cleanly.
+    """
+    on_day_index: int                     # zero-based trading-day index when the intervention fires
+    action: str                           # "liquidate_and_withdraw" | "stack_off" | "internet_off"
+    ticker: Optional[str] = None          # liquidate_and_withdraw: pin a position; None = largest
+    duration_days: int = 0                # stack_off / internet_off: number of trading days
+    note: str = ""
+
+
+@dataclass
 class Scenario:
     """Full description of a multi-day simulation run."""
     name: str
@@ -41,6 +76,8 @@ class Scenario:
     # Each entry is a dict with keys: ticker, name, sector, exchange.
     # Sibling pairs should share the same `name` value so analysis can identify them.
     extra_tickers: Optional[List[Dict[str, Any]]] = None
+    # Manual interventions applied between trading days.
+    interventions: List[Intervention] = field(default_factory=list)
 
 
 @dataclass
