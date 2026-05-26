@@ -654,37 +654,44 @@ class SimulationDriver:
         runs_url: str,
         prev_run_id: str,
         trigger_url: Optional[str] = None,
+        new_run_id: Optional[str] = None,
     ) -> str:
         """Restart the service for `step_name` mid-execution and wait for recovery.
 
         Steps:
-          1. Wait until the step reaches status=running
+          1. Obtain the run_id for the in-flight run (from POST response or polling)
           2. Issue docker compose restart -t 3 <service>
-          3. Confirm RESTART_ABORTED appears (orphan-cleanup worked)
+          3. Confirm the interrupted run reaches a terminal state
           4. Re-trigger via trigger_url (harness plays the scheduler role)
           5. Wait for the recovery run to reach a terminal status
+
+        new_run_id — run_id returned by the trigger POST.  When provided the
+        harness uses it directly (the DB row was committed before the response was
+        sent), eliminating the polling detection window entirely.
 
         Returns a label string: "step:recovered" or "step:missed_window".
         """
         service = _STEP_SERVICE_MAP.get(step_name, step_name)
         t_start = time.monotonic()
 
-        # 1. Wait for a new run to appear (any status — fast jobs may finish before we poll).
-        #    Some services (e.g. llm-vetter) create their DB row asynchronously; extend
-        #    the detection window to 38s before giving up, so slow starters aren't skipped.
-        detected_id = await poll_until_running(
-            session, runs_url, prev_run_id=prev_run_id, max_wait=8.0,
-        )
-        if not detected_id and trigger_url:
-            log.info("[restart] %s: not detected within 8s — extending to 38s total", step_name)
+        # 1. Obtain the in-flight run_id.
+        #    Prefer the run_id from the trigger POST response — it is guaranteed
+        #    to exist in the DB when the response is returned (INSERT committed
+        #    synchronously before response).  Fall back to polling only when the
+        #    endpoint did not return a run_id (legacy or error path).
+        if new_run_id:
+            detected_id = new_run_id
+            log.info("[restart] %s (run_id=%s) detected via POST response — restarting %s",
+                     step_name, detected_id[:8], service)
+        else:
             detected_id = await poll_until_running(
-                session, runs_url, prev_run_id=prev_run_id, max_wait=30.0,
+                session, runs_url, prev_run_id=prev_run_id, max_wait=8.0,
             )
-        if not detected_id:
-            log.warning("[restart] %s: step never started within detection window — skipping", step_name)
-            return f"{step_name}:missed_window"
-
-        log.info("[restart] %s (run_id=%s) detected — restarting %s", step_name, detected_id[:8], service)
+            if not detected_id:
+                log.warning("[restart] %s: step never started within 8s — skipping", step_name)
+                return f"{step_name}:missed_window"
+            log.info("[restart] %s (run_id=%s) detected — restarting %s",
+                     step_name, detected_id[:8], service)
 
         # 2. Restart in thread pool (subprocess blocks)
         loop = asyncio.get_event_loop()
@@ -794,6 +801,7 @@ class SimulationDriver:
                 lbl = await self._do_restart_mid_step(
                     session, "fetch_data", f"{av_ing}/runs/latest", prev_run_id=_prev_run_id,
                     trigger_url=f"{av_ing}/jobs/fetch-data",
+                    new_run_id=start_r.get("run_id"),
                 )
                 _restart_labels.append(lbl)
             try:
@@ -852,6 +860,7 @@ class SimulationDriver:
                 lbl = await self._do_restart_mid_step(
                     session, "pipeline", f"{pipeline}/runs/latest", prev_run_id=_prev_pipe_id,
                     trigger_url=pipeline_run_url,
+                    new_run_id=start_r.get("run_id"),
                 )
                 _restart_labels.append(lbl)
             try:
@@ -886,6 +895,7 @@ class SimulationDriver:
                     lbl = await self._do_restart_mid_step(
                         session, "vetter", f"{vetter}/runs/latest", prev_run_id=_prev_vet_id,
                         trigger_url=f"{vetter}/jobs/vet",
+                        new_run_id=start_r.get("run_id"),
                     )
                     _restart_labels.append(lbl)
                 try:
@@ -913,6 +923,7 @@ class SimulationDriver:
                 lbl = await self._do_restart_mid_step(
                     session, "portfolio_builder", f"{pb}/runs/latest", prev_run_id=_prev_pb_id,
                     trigger_url=f"{pb}/jobs/build",
+                    new_run_id=start_r.get("run_id"),
                 )
                 _restart_labels.append(lbl)
             try:
@@ -946,6 +957,7 @@ class SimulationDriver:
                 lbl = await self._do_restart_mid_step(
                     session, "delta", f"{pipeline}/runs/delta-latest", prev_run_id=_prev_dl_id,
                     trigger_url=f"{pipeline}/jobs/delta",
+                    new_run_id=start_r.get("run_id"),
                 )
                 _restart_labels.append(lbl)
             try:
@@ -1009,11 +1021,12 @@ class SimulationDriver:
         except Exception:
             _prev_sync9_id = ""
             _prev_sync9_status = ""
-        await _post(session, f"{a_sync}/jobs/sync")
+        sync_start_r = await _post(session, f"{a_sync}/jobs/sync")
         if "alpaca_sync" in _restart:
             lbl = await self._do_restart_mid_step(
                 session, "alpaca_sync", f"{a_sync}/runs/latest", prev_run_id=_prev_sync9_id,
                 trigger_url=f"{a_sync}/jobs/sync",
+                new_run_id=sync_start_r.get("run_id"),
             )
             _restart_labels.append(lbl)
         try:

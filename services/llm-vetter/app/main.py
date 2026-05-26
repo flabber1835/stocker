@@ -49,24 +49,6 @@ async def _assert_no_running_job() -> None:
             )
 
 
-async def _llm_vetter_warm_up():
-    """Background DB warm-up + orphan-cleanup + gateway probe. Runs as a task so
-    lifespan can yield immediately and the docker healthcheck succeeds on slow
-    NAS boots."""
-    try:
-        await wait_for_db(engine)
-    except Exception as exc:
-        print(f"[llm-vetter] DB warm-up failed after retries: {exc}", flush=True)
-        return
-    try:
-        async with engine.begin() as conn:
-            await mark_orphaned_runs_failed(conn, "vetter_runs", trace_job_type="vetter_run")
-        print("[llm-vetter] DB connected; persistence enabled", flush=True)
-    except Exception as exc:
-        print(f"[llm-vetter] WARN: orphan-cleanup skipped: {exc}", flush=True)
-    await _check_gateway()
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global engine, strategy, config_hash, _system_prompt_override
@@ -95,7 +77,19 @@ async def lifespan(app: FastAPI):
             print(f"[llm-vetter] WARNING: Could not load system_prompt_file "
                   f"'{strategy.vetter.system_prompt_file}': {e} — using built-in prompt")
 
-    asyncio.create_task(_llm_vetter_warm_up())
+    # Synchronous: block until orphan cleanup done. DB is up in restart scenario,
+    # so this completes quickly and prevents re-triggers from racing the cleanup.
+    try:
+        await wait_for_db(engine)
+        async with engine.begin() as conn:
+            await mark_orphaned_runs_failed(conn, "vetter_runs", trace_job_type="vetter_run")
+        print("[llm-vetter] DB connected; orphan cleanup done", flush=True)
+    except Exception as exc:
+        print(f"[llm-vetter] WARN: orphan cleanup skipped: {exc}", flush=True)
+
+    # Background: gateway probe is non-critical
+    asyncio.create_task(_check_gateway())
+
     yield
     await engine.dispose()
 

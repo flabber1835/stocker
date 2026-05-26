@@ -77,38 +77,12 @@ def _normalize_company_name(name: str) -> str:
     return name.strip().lower()
 
 
-async def _pipeline_warm_up():
-    """Background DB warm-up + orphan cleanup + redis consumer launch. Runs as
-    a task so lifespan can yield immediately and the docker healthcheck succeeds
-    on slow NAS boots (blocking on wait_for_db's 90s max here would exceed the
-    healthcheck's ~45s window and trigger a restart loop)."""
+async def _pipeline_redis_setup():
+    """Background task: set up Redis consumer group and launch the consumer loop.
+    Redis consumer can only safely consume after DB is ready (each event triggers
+    _do_run_pipeline which touches the DB), so this is launched as a background
+    task after the synchronous DB/orphan-cleanup block in lifespan completes."""
     global redis_client, _consumer_task
-    try:
-        await wait_for_db(engine)
-    except Exception as exc:
-        print(f"[pipeline] DB warm-up failed after retries: {exc}", flush=True)
-        return
-    try:
-        async with engine.begin() as conn:
-            # Ensure delta_runs.triggered_by column exists (migration 0003).
-            # Idempotent guard so the service starts cleanly even if alembic hasn't run.
-            await conn.execute(text(
-                "ALTER TABLE delta_runs ADD COLUMN IF NOT EXISTS "
-                "triggered_by TEXT NOT NULL DEFAULT 'pipeline'"
-            ))
-            await conn.execute(text(
-                "ALTER TABLE delta_intents ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ"
-            ))
-            await mark_orphaned_runs_failed(conn, "pipeline_runs", trace_job_type="pipeline_run")
-            await mark_orphaned_runs_failed(conn, "factor_runs", trace_job_type="factor_run")
-            await mark_orphaned_runs_failed(conn, "ranking_runs", trace_job_type="rank_run")
-            await mark_orphaned_runs_failed(conn, "delta_runs", trace_job_type="delta_run")
-        print("[pipeline] DB connected; persistence enabled", flush=True)
-    except Exception as exc:
-        print(f"[pipeline] WARN: schema-ensure/orphan-cleanup skipped: {exc}", flush=True)
-    # Redis consumer can only safely consume after DB is ready (each event triggers
-    # _do_run_pipeline which touches the DB). Start it inside the warm-up task to
-    # preserve that ordering.
     try:
         redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
         await _ensure_consumer_group()
@@ -125,7 +99,32 @@ async def lifespan(app: FastAPI):
     strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10,
                                  connect_args={"timeout": 60})
-    asyncio.create_task(_pipeline_warm_up())
+
+    # Synchronous: block until orphan cleanup done. DB is up in restart scenario,
+    # so this completes quickly and prevents re-triggers from racing the cleanup.
+    try:
+        await wait_for_db(engine)
+        async with engine.begin() as conn:
+            # Ensure delta_runs.triggered_by column exists (migration 0003).
+            # Idempotent guard so the service starts cleanly even if alembic hasn't run.
+            await conn.execute(text(
+                "ALTER TABLE delta_runs ADD COLUMN IF NOT EXISTS "
+                "triggered_by TEXT NOT NULL DEFAULT 'pipeline'"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE delta_intents ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ"
+            ))
+            await mark_orphaned_runs_failed(conn, "pipeline_runs", trace_job_type="pipeline_run")
+            await mark_orphaned_runs_failed(conn, "factor_runs", trace_job_type="factor_run")
+            await mark_orphaned_runs_failed(conn, "ranking_runs", trace_job_type="rank_run")
+            await mark_orphaned_runs_failed(conn, "delta_runs", trace_job_type="delta_run")
+        print("[pipeline] DB connected; orphan cleanup done", flush=True)
+    except Exception as exc:
+        print(f"[pipeline] WARN: schema-ensure/orphan-cleanup skipped: {exc}", flush=True)
+
+    # Background: Redis consumer (non-blocking, long-running loop)
+    asyncio.create_task(_pipeline_redis_setup())
+
     yield
     if _consumer_task:
         _consumer_task.cancel()
@@ -1290,36 +1289,50 @@ async def _do_rank(
 
 # ── Delta step (extracted from delta-engine/app/main.py) ─────────────────────
 
-async def _do_delta_step(triggered_by: str = "pipeline") -> str:
+async def _do_delta_step(
+    triggered_by: str = "pipeline",
+    run_id: str | None = None,
+    trace_id: str | None = None,
+    started_at: datetime | None = None,
+) -> str:
     """
     Run delta evaluation step. Returns delta_run_id on success.
-    Creates its own delta_runs + execution_traces rows.
+    Creates its own delta_runs + execution_traces rows unless run_id/trace_id
+    are provided (pre-created by the endpoint to guarantee the row exists before
+    the HTTP response is sent).
 
     triggered_by='pipeline' means it ran as part of /jobs/run.
     triggered_by='scheduler' means it ran as a standalone /jobs/delta call.
     /runs/delta-latest only returns 'scheduler'-triggered runs so the scheduler
     can track the standalone delta step independently.
     """
-    delta_run_id = str(uuid.uuid4())
-    trace_id = str(uuid.uuid4())
-    started_at = datetime.now(timezone.utc)
+    if run_id is None:
+        delta_run_id = str(uuid.uuid4())
+    else:
+        delta_run_id = run_id
+    if trace_id is None:
+        trace_id = str(uuid.uuid4())
+    if started_at is None:
+        started_at = datetime.now(timezone.utc)
     run_date_init = date.today()
 
-    async with engine.begin() as conn:
-        await _create_sub_trace(conn, trace_id, "delta_run", delta_run_id)
-        await conn.execute(
-            text(
-                "INSERT INTO delta_runs "
-                "(run_id, trace_id, strategy_id, config_hash, status, run_date, started_at, triggered_by) "
-                "VALUES (:rid, :tid, :sid, :ch, 'running', :rd, :now, :tb)"
-            ),
-            {
-                "rid": delta_run_id, "tid": trace_id,
-                "sid": strategy.strategy_id, "ch": config_hash,
-                "rd": run_date_init, "now": started_at,
-                "tb": triggered_by,
-            },
-        )
+    if run_id is None:
+        # Row not pre-created by caller — insert it now (original behaviour).
+        async with engine.begin() as conn:
+            await _create_sub_trace(conn, trace_id, "delta_run", delta_run_id)
+            await conn.execute(
+                text(
+                    "INSERT INTO delta_runs "
+                    "(run_id, trace_id, strategy_id, config_hash, status, run_date, started_at, triggered_by) "
+                    "VALUES (:rid, :tid, :sid, :ch, 'running', :rd, :now, :tb)"
+                ),
+                {
+                    "rid": delta_run_id, "tid": trace_id,
+                    "sid": strategy.strategy_id, "ch": config_hash,
+                    "rd": run_date_init, "now": started_at,
+                    "tb": triggered_by,
+                },
+            )
 
     de_cfg = strategy.delta_engine
     try:
@@ -2006,22 +2019,58 @@ async def start_delta_only(background_tasks: BackgroundTasks):
     Called by the scheduler after portfolio-builder updates the target portfolio.
     Uses triggered_by='scheduler' so /runs/delta-latest can distinguish it from
     the delta that runs as part of /jobs/run.
+
+    Pre-creates the delta_runs row synchronously so the run_id is committed before
+    the HTTP response is sent — the caller can query the row immediately.
     """
     if _job_lock.locked():
         return {"status": "already_running"}
     await _job_lock.acquire()
 
+    # Pre-generate IDs and insert the delta_runs row synchronously so the row
+    # exists in the DB before the response is returned to the caller.
+    delta_run_id = str(uuid.uuid4())
+    delta_trace_id = str(uuid.uuid4())
+    delta_started_at = datetime.now(timezone.utc)
+    run_date_init = date.today()
+    try:
+        async with engine.begin() as conn:
+            await _create_sub_trace(conn, delta_trace_id, "delta_run", delta_run_id)
+            await conn.execute(
+                text(
+                    "INSERT INTO delta_runs "
+                    "(run_id, trace_id, strategy_id, config_hash, status, run_date, started_at, triggered_by) "
+                    "VALUES (:rid, :tid, :sid, :ch, 'running', :rd, :now, :tb)"
+                ),
+                {
+                    "rid": delta_run_id, "tid": delta_trace_id,
+                    "sid": strategy.strategy_id, "ch": config_hash,
+                    "rd": run_date_init, "now": delta_started_at,
+                    "tb": "scheduler",
+                },
+            )
+    except Exception:
+        if _job_lock.locked():
+            _job_lock.release()
+        raise
+
     async def _run_standalone_delta():
         try:
-            delta_run_id = await _do_delta_step(triggered_by="scheduler")
-            print(f"[pipeline] standalone delta {delta_run_id} SUCCESS", flush=True)
+            # Pass pre-created IDs so _do_delta_step skips the duplicate INSERT.
+            delta_run_id_result = await _do_delta_step(
+                triggered_by="scheduler",
+                run_id=delta_run_id,
+                trace_id=delta_trace_id,
+                started_at=delta_started_at,
+            )
+            print(f"[pipeline] standalone delta {delta_run_id_result} SUCCESS", flush=True)
             # Backfill delta_status on the latest pipeline_run so /runs/latest reflects
             # the complete chain state (factor+ranking+delta all succeeded).
             async with engine.begin() as conn:
                 await conn.execute(text(
                     "UPDATE pipeline_runs SET delta_status='success', delta_run_id=:rid "
                     "WHERE run_id = (SELECT run_id FROM pipeline_runs ORDER BY started_at DESC LIMIT 1)"
-                ), {"rid": delta_run_id})
+                ), {"rid": delta_run_id_result})
         except Exception as exc:
             print(f"[pipeline] standalone delta FAILED: {exc}", flush=True)
             async with engine.begin() as conn:
@@ -2039,7 +2088,7 @@ async def start_delta_only(background_tasks: BackgroundTasks):
         if _job_lock.locked():
             _job_lock.release()
         raise
-    return {"status": "started", "job": "delta"}
+    return {"status": "started", "job": "delta", "run_id": delta_run_id}
 
 
 @app.post("/jobs/calculate")

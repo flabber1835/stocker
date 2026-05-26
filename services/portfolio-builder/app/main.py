@@ -34,23 +34,6 @@ engine: AsyncEngine
 config_hash: str = ""
 
 
-async def _portfolio_builder_warm_up():
-    """Background task: wait for DB, then mark orphaned runs. Runs as a task
-    so lifespan can yield immediately — see warm_up_db_in_background docstring
-    for the slow-NAS healthcheck rationale."""
-    try:
-        await wait_for_db(engine)
-    except Exception as exc:
-        print(f"[portfolio-builder] DB warm-up failed after retries: {exc}", flush=True)
-        return
-    try:
-        async with engine.begin() as conn:
-            await mark_orphaned_runs_failed(conn, "portfolio_runs", trace_job_type="portfolio_run")
-        print("[portfolio-builder] DB connected; persistence enabled", flush=True)
-    except Exception as exc:
-        print(f"[portfolio-builder] WARN: orphan-cleanup skipped: {exc}", flush=True)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global strategy, engine, config_hash
@@ -59,7 +42,17 @@ async def lifespan(app: FastAPI):
     strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
     engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=2, max_overflow=3,
                                  connect_args={"timeout": 60})
-    asyncio.create_task(_portfolio_builder_warm_up())
+
+    # Synchronous: block until orphan cleanup done. DB is up in restart scenario,
+    # so this completes quickly and prevents re-triggers from racing the cleanup.
+    try:
+        await wait_for_db(engine)
+        async with engine.begin() as conn:
+            await mark_orphaned_runs_failed(conn, "portfolio_runs", trace_job_type="portfolio_run")
+        print("[portfolio-builder] DB connected; orphan cleanup done", flush=True)
+    except Exception as exc:
+        print(f"[portfolio-builder] WARN: orphan cleanup skipped: {exc}", flush=True)
+
     yield
     await engine.dispose()
 

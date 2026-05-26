@@ -108,36 +108,49 @@ _ALPACA_TO_STATUS = {
 }
 
 
-async def _do_sync() -> str:
+async def _do_sync(
+    run_id: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    started_at: Optional[datetime] = None,
+) -> str:
     """Run a full Alpaca sync. Returns the run_id (str UUID).
 
     Each sync gets its own execution_trace with steps:
       fetch_account → fetch_positions → write_positions → sync_orders
-    """
-    run_id = str(uuid.uuid4())
-    trace_id = str(uuid.uuid4())
-    started_at = datetime.now(timezone.utc)
 
-    async with SessionLocal() as db:
-        # Open trace + sync run together so every branch is auditable.
-        await db.execute(
-            text(
-                "INSERT INTO execution_traces "
-                "(trace_id, job_type, status, root_run_id, started_at) "
-                "VALUES (:tid, 'alpaca_sync', 'running', :rid, :now)"
-            ),
-            {"tid": trace_id, "rid": run_id, "now": started_at},
-        )
-        await db.execute(
-            text(
-                """
-                INSERT INTO alpaca_sync_runs (run_id, status, started_at, trace_id)
-                VALUES (:run_id, 'running', :started_at, :trace_id)
-                """
-            ),
-            {"run_id": run_id, "started_at": started_at, "trace_id": trace_id},
-        )
-        await db.commit()
+    When run_id/trace_id/started_at are provided the caller has already inserted
+    the rows (so they are committed before the HTTP response is sent); skip the
+    INSERT in that case to avoid a duplicate-key error.
+    """
+    rows_preinserted = run_id is not None
+    if run_id is None:
+        run_id = str(uuid.uuid4())
+    if trace_id is None:
+        trace_id = str(uuid.uuid4())
+    if started_at is None:
+        started_at = datetime.now(timezone.utc)
+
+    if not rows_preinserted:
+        async with SessionLocal() as db:
+            # Open trace + sync run together so every branch is auditable.
+            await db.execute(
+                text(
+                    "INSERT INTO execution_traces "
+                    "(trace_id, job_type, status, root_run_id, started_at) "
+                    "VALUES (:tid, 'alpaca_sync', 'running', :rid, :now)"
+                ),
+                {"tid": trace_id, "rid": run_id, "now": started_at},
+            )
+            await db.execute(
+                text(
+                    """
+                    INSERT INTO alpaca_sync_runs (run_id, status, started_at, trace_id)
+                    VALUES (:run_id, 'running', :started_at, :trace_id)
+                    """
+                ),
+                {"run_id": run_id, "started_at": started_at, "trace_id": trace_id},
+            )
+            await db.commit()
 
     try:
         headers = {
@@ -386,12 +399,20 @@ async def _do_sync() -> str:
     return run_id
 
 
-async def _sync_with_lock() -> tuple[str, str]:
-    """Acquire the lock and run a sync. Returns (status, run_id)."""
+async def _sync_with_lock(
+    run_id: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    started_at: Optional[datetime] = None,
+) -> tuple[str, str]:
+    """Acquire the lock and run a sync. Returns (status, run_id).
+
+    When run_id/trace_id/started_at are provided they are forwarded to _do_sync
+    so the pre-inserted row is reused rather than creating a duplicate.
+    """
     if _job_lock.locked():
         return "already_running", ""
     async with _job_lock:
-        run_id = await _do_sync()
+        run_id = await _do_sync(run_id=run_id, trace_id=trace_id, started_at=started_at)
     return "started", run_id
 
 
@@ -501,11 +522,36 @@ async def health():
 
 @app.post("/jobs/sync")
 async def trigger_sync():
-    """Trigger a sync. Respects the concurrency lock."""
+    """Trigger a sync. Respects the concurrency lock.
+
+    Pre-creates the alpaca_sync_runs row synchronously so the run_id is
+    committed before the HTTP response is sent — the caller can query the row
+    immediately without polling for it.
+    """
     if _job_lock.locked():
         return {"status": "already_running"}
-    asyncio.create_task(_sync_with_lock())
-    return {"status": "started"}
+    run_id = str(uuid.uuid4())
+    trace_id = str(uuid.uuid4())
+    started_at = datetime.now(timezone.utc)
+    async with SessionLocal() as db:
+        await db.execute(
+            text(
+                "INSERT INTO execution_traces "
+                "(trace_id, job_type, status, root_run_id, started_at) "
+                "VALUES (:tid, 'alpaca_sync', 'running', :rid, :now)"
+            ),
+            {"tid": trace_id, "rid": run_id, "now": started_at},
+        )
+        await db.execute(
+            text(
+                "INSERT INTO alpaca_sync_runs (run_id, status, started_at, trace_id) "
+                "VALUES (:run_id, 'running', :started_at, :trace_id)"
+            ),
+            {"run_id": run_id, "started_at": started_at, "trace_id": trace_id},
+        )
+        await db.commit()
+    asyncio.create_task(_sync_with_lock(run_id=run_id, trace_id=trace_id, started_at=started_at))
+    return {"status": "started", "run_id": run_id}
 
 
 @app.get("/runs/latest")
