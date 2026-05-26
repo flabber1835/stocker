@@ -76,6 +76,7 @@ class TradeCheckRequest(BaseModel):
     notional: float
     mode: Literal["immediate", "scheduled"]
     trade_type: Literal["paper", "live"] = "paper"
+    sim_date: Optional[str] = None  # ISO date; if provided, used for turnover cap scoping
 
     @field_validator("ticker")
     @classmethod
@@ -221,17 +222,38 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
     # (exits + sell_trims) count — buys deploying idle cash are not portfolio
     # churn. This prevents flipping half the portfolio in one day on a regime
     # change while allowing unconstrained initial capital deployment.
+    #
+    # sim_date: when provided (e.g. from a compressed harness simulation where
+    # multiple pipeline dates are processed on the same wall-clock day), scope
+    # the count to orders that share the same sim_date rather than today's
+    # wall-clock date. Orders carry the sim_date via risk_decisions.created_at
+    # binned by the sim_date stored in their linked pipeline run's chain_date
+    # (looked up through alpaca_orders.intent_id → delta_intents.run_id →
+    # pipeline_runs.chain_date). Falls back to wall-clock date if sim_date absent.
+    #
     # Skipped when DB is unavailable.
     max_daily_pct = env["max_daily_turnover_pct"]
     if req.action in ("exit", "sell_trim") and engine is not None and max_daily_pct < 1.0:
         try:
             async with engine.connect() as conn:
-                today_row = (await conn.execute(text(
-                    "SELECT COALESCE(SUM(notional), 0) FROM alpaca_orders "
-                    "WHERE DATE(submitted_at AT TIME ZONE 'UTC') = CURRENT_DATE "
-                    "AND action IN ('exit', 'sell_trim') "
-                    "AND status NOT IN ('cancelled', 'rejected', 'risk_rejected')"
-                ))).first()
+                if req.sim_date:
+                    # Use delta_runs.run_date to scope per simulation day
+                    today_row = (await conn.execute(text(
+                        "SELECT COALESCE(SUM(ao.notional), 0) "
+                        "FROM alpaca_orders ao "
+                        "JOIN delta_intents di ON di.id = ao.intent_id "
+                        "JOIN delta_runs dr ON dr.run_id = di.run_id "
+                        "WHERE dr.run_date = :sim_date "
+                        "AND ao.action IN ('exit', 'sell_trim') "
+                        "AND ao.status NOT IN ('cancelled', 'rejected', 'risk_rejected')"
+                    ), {"sim_date": req.sim_date})).first()
+                else:
+                    today_row = (await conn.execute(text(
+                        "SELECT COALESCE(SUM(notional), 0) FROM alpaca_orders "
+                        "WHERE DATE(submitted_at AT TIME ZONE 'UTC') = CURRENT_DATE "
+                        "AND action IN ('exit', 'sell_trim') "
+                        "AND status NOT IN ('cancelled', 'rejected', 'risk_rejected')"
+                    ))).first()
                 acct_row = (await conn.execute(text(
                     "SELECT account_value FROM alpaca_sync_runs "
                     "WHERE status='success' ORDER BY completed_at DESC NULLS LAST LIMIT 1"
@@ -241,11 +263,13 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
             if account_value and account_value > 0:
                 limit = account_value * max_daily_pct
                 if today_sell_notional + req.notional > limit:
+                    date_ref = req.sim_date or "today (wall clock)"
                     return (
                         False,
                         (
-                            f"Daily sell-side turnover limit: today's sell notional "
-                            f"${today_sell_notional:.0f} + this order ${req.notional:.0f} "
+                            f"Daily sell-side turnover limit [{date_ref}]: "
+                            f"sell notional so far ${today_sell_notional:.0f} "
+                            f"+ this order ${req.notional:.0f} "
                             f"= ${today_sell_notional + req.notional:.0f} "
                             f"exceeds {max_daily_pct:.0%} of portfolio "
                             f"(${account_value:.0f} × {max_daily_pct:.0%} = ${limit:.0f})"

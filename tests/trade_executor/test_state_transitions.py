@@ -348,8 +348,14 @@ class TestBuyingPowerEdgeCases:
             f"Large buying_power caused 5xx: {r.status_code}: {r.text[:200]}"
         )
 
-    def test_buying_power_lower_than_account_value_is_respected(self):
-        """When account_value=$100k but buying_power=$10k, sizing uses buying_power."""
+    def test_account_value_used_as_sizing_basis(self):
+        """Entries always size against account_value regardless of buying_power level.
+
+        With buying_power=$10k < account_value=$100k, we should size against
+        account_value so a fully-invested portfolio replacing one exited position
+        gets a correctly-sized entry (buying_power≈0 in that state would produce
+        a nearly-zero order with the old logic).
+        """
         seed_sync_run(account_value=100_000, buying_power=10_000)
         run_id = seed_delta_run()
         iid = seed_delta_intent(run_id, "AAPL", weight=0.05)
@@ -371,10 +377,9 @@ class TestBuyingPowerEdgeCases:
             import json
             summary = row[0] if isinstance(row[0], dict) else json.loads(row[0])
             basis = summary.get("sizing_basis")
-            bp_used = summary.get("buying_power") or summary.get("sizing_basis_value")
             if basis:
-                assert basis == "buying_power", (
-                    f"Expected sizing_basis='buying_power', got {basis!r}"
+                assert basis == "account_value", (
+                    f"Expected sizing_basis='account_value', got {basis!r}"
                 )
 
 

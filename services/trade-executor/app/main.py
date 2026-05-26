@@ -169,8 +169,12 @@ class TradeAttemptResponse(BaseModel):
 
 async def _load_intent(conn, intent_id: str) -> dict:
     row = (await conn.execute(text(
-        "SELECT id, ticker, action, rank, composite_score, current_weight, actual_weight, weight_drift "
-        "FROM delta_intents WHERE id = :iid"
+        "SELECT di.id, di.ticker, di.action, di.rank, di.composite_score, "
+        "       di.current_weight, di.actual_weight, di.weight_drift, di.run_id, "
+        "       dr.run_date AS sim_date "
+        "FROM delta_intents di "
+        "LEFT JOIN delta_runs dr ON dr.run_id = di.run_id "
+        "WHERE di.id = :iid"
     ), {"iid": intent_id})).mappings().first()
     if row is None:
         raise HTTPException(status_code=404, detail=f"Intent {intent_id} not found")
@@ -595,10 +599,12 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
 
         # ── Step 4: risk check ────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
+        sim_date = intent.get("sim_date")
         risk_payload = {
             "ticker": ticker, "action": action, "side": side,
             "qty": qty, "notional": notional,
             "mode": req.mode, "trade_type": "paper",
+            **({"sim_date": str(sim_date)} if sim_date else {}),
         }
         try:
             approved, reason, check_id, rule = await _call_risk(risk_payload)
