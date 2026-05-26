@@ -247,9 +247,11 @@ async def poll_until_aborted(
     max_wait: float = 90.0,
     interval: float = 0.5,
 ) -> bool:
-    """Wait until the given run shows status=failed with RESTART_ABORTED in error_message.
+    """Wait for the interrupted run to reach a terminal state (failed or success).
 
-    Returns True when confirmed, False on timeout.
+    Returns True when a terminal state is found. False on timeout.
+    A 'success' result means the job completed before the restart killed it;
+    'failed' with RESTART_ABORTED means it was killed mid-run (the interesting case).
     """
     deadline = time.monotonic() + max_wait
     while time.monotonic() < deadline:
@@ -260,14 +262,15 @@ async def poll_until_aborted(
                     run_id  = data.get("run_id",       "")
                     status  = data.get("status",        "")
                     err_msg = data.get("error_message", "") or ""
-                    # Abort confirmed on the same run
-                    if run_id == aborted_run_id and status == "failed":
-                        log.info("[restart] abort confirmed on %s (RESTART_ABORTED=%s)",
-                                 run_id[:8], "RESTART_ABORTED" in err_msg)
+                    # Terminal state on the same run (success OR failed)
+                    if run_id == aborted_run_id and status not in ("running", "started", ""):
+                        aborted = status == "failed" and "RESTART_ABORTED" in err_msg
+                        log.info("[restart] run %s terminal: status=%s aborted=%s",
+                                 run_id[:8], status, aborted)
                         return True
                     # A different run already appeared — previous abort was processed
                     if run_id and run_id != aborted_run_id:
-                        log.info("[restart] new run %s already started — abort implicit", run_id[:8])
+                        log.info("[restart] new run %s already started — prior run terminal implicit", run_id[:8])
                         return True
         except Exception:
             pass
@@ -674,57 +677,41 @@ class SimulationDriver:
             log.warning("[restart] %s: step never started within 8s — skipping", step_name)
             return f"{step_name}:missed_window"
 
-        # Check whether we caught it mid-run or after completion
-        try:
-            async with session.get(runs_url) as r:
-                snap = await r.json(content_type=None)
-                _snap_status = snap.get("status", "")
-        except Exception:
-            _snap_status = ""
-        mid_run = _snap_status in ("running", "started")
-        log.info("[restart] %s (run_id=%s, status=%s) — restarting %s",
-                 step_name, detected_id[:8], _snap_status, service)
+        log.info("[restart] %s (run_id=%s) detected — restarting %s", step_name, detected_id[:8], service)
 
         # 2. Restart in thread pool (subprocess blocks)
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, _restart_service_sync, service)
 
-        # 3. Check for RESTART_ABORTED (only expected when caught mid-run)
-        if mid_run:
-            confirmed = await poll_until_aborted(session, runs_url, detected_id, max_wait=90.0)
-            if confirmed:
-                log.info("[restart] %s: RESTART_ABORTED confirmed (%.1fs)", step_name,
-                         time.monotonic() - t_start)
-            else:
-                log.warning("[restart] %s: RESTART_ABORTED not confirmed after 90s", step_name)
-        else:
-            log.info("[restart] %s: restarted after completion — no RESTART_ABORTED expected", step_name)
+        # 3. Wait for the detected run to reach a terminal state (success = completed before
+        #    the kill; failed+RESTART_ABORTED = killed mid-run; both are valid).
+        reached_terminal = await poll_until_aborted(session, runs_url, detected_id, max_wait=90.0)
+        if not reached_terminal:
+            log.warning("[restart] %s: run %s never reached terminal state after 90s",
+                        step_name, detected_id[:8])
 
-        # 4. Re-trigger the step (harness plays the scheduler: sees RESTART_ABORTED → re-fire,
-        #    or for post-completion restarts: just verify the step still runs correctly).
+        # 4. Re-trigger the step (harness plays the scheduler: sees terminal → re-fire)
         if trigger_url:
             log.info("[restart] %s: re-triggering via %s", step_name, trigger_url)
             await asyncio.sleep(2.0)   # give the service time to finish startup
             await _post(session, trigger_url)
 
         # 5. Wait for the recovery/re-triggered run to complete.
-        #    Use detected_id as prev so poll_until_new_run skips the aborted row
-        #    and waits for the genuinely new run.
+        #    prev_run_id=detected_id skips the detected row and waits for the new run.
         try:
             recovery = await poll_until_new_run(
                 session, runs_url,
                 prev_run_id=detected_id,
-                prev_status="failed" if mid_run else _snap_status,
+                prev_status="failed",   # treat detected row as non-running → wait for new run_id
                 max_wait=240.0,
             )
             elapsed = round(time.monotonic() - t_start, 1)
             status = recovery.get("status", "?")
-            tag = "abort" if mid_run else "retrigger"
-            log.info("[restart] %s: %s run status=%s in %.1fs total", step_name, tag, status, elapsed)
+            log.info("[restart] %s: recovery run status=%s in %.1fs total", step_name, status, elapsed)
             return f"{step_name}:recovered"
         except TimeoutError:
             elapsed = round(time.monotonic() - t_start, 1)
-            log.warning("[restart] %s: re-triggered run timed out after %.1fs", step_name, elapsed)
+            log.warning("[restart] %s: recovery run timed out after %.1fs", step_name, elapsed)
             return f"{step_name}:recovery_timeout"
 
     # ------------------------------------------------------------------
