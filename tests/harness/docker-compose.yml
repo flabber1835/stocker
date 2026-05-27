@@ -27,6 +27,8 @@ services:
       # Override MOCK_DATA so the ingestor uses the av-sim universe instead of
       # the hardcoded 30-ticker mock list.
       MOCK_DATA: "false"
+      # Allow small harness universes (quick_smoke uses 60 tickers, below prod default of 100).
+      AV_MIN_UNIVERSE_SIZE: "50"
     depends_on:
       av-sim:
         condition: service_healthy

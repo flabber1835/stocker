@@ -72,6 +72,7 @@ _TRUNCATE_TABLES = (
     "execution_steps",
     "execution_traces",
     "delta_intents",
+    "delta_runs",
     "vetter_exclusions",
     "vetter_decisions",
     "vetter_runs",

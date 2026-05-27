@@ -163,9 +163,10 @@ async def download_av_listing(session: httpx.AsyncClient, api_key: str) -> tuple
             }
         )
 
-    if len(rows) < 100:
+    _min_universe = int(os.getenv("AV_MIN_UNIVERSE_SIZE", "100"))
+    if len(rows) < _min_universe:
         raise ValueError(
-            f"AV LISTING_STATUS returned only {len(rows)} active US stocks — expected 3000+."
+            f"AV LISTING_STATUS returned only {len(rows)} active US stocks — expected {_min_universe}+."
         )
 
     stats = {

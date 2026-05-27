@@ -231,7 +231,10 @@ async def _trigger_delta_from_event(msg_id: str) -> None:
         delta_run_id = str(uuid.uuid4())
         delta_trace_id = str(uuid.uuid4())
         delta_started_at = datetime.now(timezone.utc)
-        run_date_init = date.today()
+        # Sentinel date: updated to the actual ranking date once a ranking is found.
+        # Using 1970-01-01 prevents a failed pre-data run from masking real runs in
+        # ORDER BY run_date DESC queries.
+        run_date_init = date(1970, 1, 1)
         async with engine.begin() as conn:
             await _create_sub_trace(conn, delta_trace_id, "delta_run", delta_run_id)
             await conn.execute(
@@ -1396,7 +1399,9 @@ async def _do_delta_step(
         trace_id = str(uuid.uuid4())
     if started_at is None:
         started_at = datetime.now(timezone.utc)
-    run_date_init = date.today()
+    # Sentinel: updated to the actual ranking date once a ranking is found.
+    # 1970-01-01 prevents a failed pre-data run from masking real runs in run_date DESC sort.
+    run_date_init = date(1970, 1, 1)
 
     if run_id is None:
         # Row not pre-created by caller — insert it now (original behaviour).
@@ -2114,7 +2119,8 @@ async def start_delta_only(background_tasks: BackgroundTasks):
     delta_run_id = str(uuid.uuid4())
     delta_trace_id = str(uuid.uuid4())
     delta_started_at = datetime.now(timezone.utc)
-    run_date_init = date.today()
+    # Sentinel: updated to the actual ranking date once a ranking is found.
+    run_date_init = date(1970, 1, 1)
     try:
         async with engine.begin() as conn:
             await _create_sub_trace(conn, delta_trace_id, "delta_run", delta_run_id)
