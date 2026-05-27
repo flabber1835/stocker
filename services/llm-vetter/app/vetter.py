@@ -305,10 +305,12 @@ def _format_ticker_message(
     regime: str | None = None,
     in_portfolio: bool = False,
     related_tickers: list[str] | None = None,
+    company_name: str | None = None,
 ) -> str:
+    ticker_display = f"{ticker} — {company_name}" if company_name else ticker
     lines = [
         f"Today: {today}",
-        f"Ticker: {ticker}",
+        f"Ticker: {ticker_display}",
     ]
     if related_tickers:
         lines.append(
@@ -370,6 +372,7 @@ async def fetch_ticker_data(
     tavily_api_key: str,
     *,
     related_tickers_map: dict[str, list[str]] | None = None,
+    company_name_map: dict[str, str] | None = None,
     news_lookback_days: int = 7,
     max_articles_per_ticker: int = 4,
     earnings_horizon_days: int = 90,
@@ -421,7 +424,11 @@ async def fetch_ticker_data(
         # regardless of which share class the news is filed under.
         log.info("Fetching Tavily for %d tickers (%d siblings)", len(tickers), len(sibling_set))
         fetched = await asyncio.gather(
-            *[fetch_tavily_news(t, tavily_api_key, max_results=max_search_results)
+            *[fetch_tavily_news(
+                t, tavily_api_key,
+                max_results=max_search_results,
+                company_name=(company_name_map or {}).get(t),
+              )
               for t in all_fetch_tickers]
         )
         all_tavily: dict[str, list[dict]] = dict(zip(all_fetch_tickers, fetched))
@@ -598,8 +605,8 @@ def _parse_llm_response(
         log.error("Invalid JSON for ticker %s: %s | raw: %s", ticker, exc, clean[:300])
         return {
             "ticker":      ticker,
-            "exclude":     True,
-            "reason":      f"LLM response could not be parsed — excluded pending manual review. Raw: {raw[:100]}",
+            "exclude":     False,
+            "reason":      f"LLM response could not be parsed — defaulting to KEEP (informational only). Raw: {raw[:100]}",
             "confidence":  "low",
             "risk_type":   "none",
             "positive_catalyst":   False,
@@ -703,6 +710,7 @@ async def vet_single_ticker(
     regime: str | None = None,
     in_portfolio: bool = False,
     related_tickers: list[str] | None = None,
+    company_name: str | None = None,
 ) -> dict:
     """
     Ask the LLM to make a single exclude/keep decision for one ticker.
@@ -755,6 +763,7 @@ async def vet_single_ticker(
         regime=regime,
         in_portfolio=in_portfolio,
         related_tickers=related_tickers,
+        company_name=company_name,
     )
     # Use a set to deduplicate titles; list preserves insertion order via dict.fromkeys.
     _seen_titles: set[str] = set()
@@ -791,7 +800,7 @@ async def vet_single_ticker(
                 "messages": messages,
                 "tools": [web_search_tool],
                 "temperature": 0.1,
-                "max_tokens": 512,
+                "max_tokens": 2048,
             }
             resp_data = await _gateway_chat(gateway_url, payload)
 
@@ -873,7 +882,7 @@ async def vet_single_ticker(
             "system": system_prompt,
             "messages": messages,
             "temperature": 0.1,
-            "max_tokens": 512,
+            "max_tokens": 2048,
             "response_schema": PER_TICKER_SCHEMA,
         }
         final_resp_data = await _gateway_chat(gateway_url, final_payload)
@@ -884,7 +893,7 @@ async def vet_single_ticker(
             "system": system_prompt,
             "messages": [{"role": "user", "content": user_message}],
             "temperature": 0.1,
-            "max_tokens": 512,
+            "max_tokens": 2048,
             "response_schema": PER_TICKER_SCHEMA,
         }
         final_resp_data = await _gateway_chat(gateway_url, final_payload)
@@ -892,8 +901,7 @@ async def vet_single_ticker(
     latency_ms = round((time.monotonic() - t0) * 1000)
     raw = (final_resp_data.get("content") or "").strip()
 
-    return _parse_llm_response(
-        raw=raw,
+    _parse_kwargs = dict(
         ticker=ticker,
         news=news,
         earnings_date=earnings_date,
@@ -907,3 +915,24 @@ async def vet_single_ticker(
         news_titles=news_titles,
         regime=regime,
     )
+    result = _parse_llm_response(raw=raw, **_parse_kwargs)
+
+    # Retry once with doubled max_tokens on parse failure.
+    # A truncated response means the model ran out of budget mid-JSON; giving
+    # it more room usually produces a complete, parseable response on the retry.
+    # On second failure fall through to the fixed exclude=False fallback result.
+    if result.get("parse_error"):
+        log.warning("[llm-vetter] %s: parse error on first attempt — retrying with doubled max_tokens", ticker)
+        retry_payload = {**final_payload, "max_tokens": final_payload.get("max_tokens", 2048) * 2}
+        try:
+            retry_resp = await _gateway_chat(gateway_url, retry_payload)
+            retry_raw = (retry_resp.get("content") or "").strip()
+            retry_result = _parse_llm_response(raw=retry_raw, **_parse_kwargs)
+            if not retry_result.get("parse_error"):
+                log.info("[llm-vetter] %s: parse retry succeeded", ticker)
+                return retry_result
+            log.error("[llm-vetter] %s: parse retry also failed — defaulting to exclude=False", ticker)
+        except Exception as exc:
+            log.error("[llm-vetter] %s: parse retry failed with exception: %s", ticker, exc)
+
+    return result

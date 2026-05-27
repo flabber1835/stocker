@@ -222,15 +222,23 @@ async def fetch_tavily_news(
     api_key: str,
     *,
     max_results: int = 5,
+    company_name: str | None = None,
 ) -> list[dict]:
     """
     Search Tavily for recent news about a ticker. Used for tickers where AV
     returned little or no news. Returns [] if TAVILY_API_KEY is not set.
+
+    When company_name is provided the query anchors on the full name so
+    single-letter tickers (e.g. "B" for Barrick Gold) don't pull in noise
+    from unrelated companies whose ticker starts with the same letter.
     """
     if not api_key:
         return []
 
-    query = f"{ticker} stock news risks outlook"
+    if company_name:
+        query = f'"{company_name}" ({ticker}) stock news risks outlook'
+    else:
+        query = f"{ticker} stock news risks outlook"
     try:
         async with httpx.AsyncClient(timeout=45) as client:
             resp = await client.post(

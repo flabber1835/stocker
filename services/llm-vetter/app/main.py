@@ -308,7 +308,7 @@ async def _do_vet(
     async with engine.connect() as conn:
         sector_rows = await conn.execute(
             text(
-                "SELECT DISTINCT ON (ut.ticker) ut.ticker, ut.sector "
+                "SELECT DISTINCT ON (ut.ticker) ut.ticker, ut.sector, ut.name "
                 "FROM universe_tickers ut "
                 "JOIN universe_snapshots us ON ut.snapshot_id = us.id "
                 "WHERE ut.ticker = ANY(:tickers) "
@@ -316,7 +316,9 @@ async def _do_vet(
             ),
             {"tickers": ticker_set_pg},
         )
-        sector_map: dict[str, str | None] = {r.ticker: r.sector for r in sector_rows.fetchall()}
+        sector_rows_all = sector_rows.fetchall()
+        sector_map: dict[str, str | None] = {r.ticker: r.sector for r in sector_rows_all}
+        company_name_map: dict[str, str] = {r.ticker: r.name for r in sector_rows_all if r.name}
 
         # Build a map of sibling share classes: for each candidate ticker, find other
         # tickers with the same company name in the universe (same snapshot).
@@ -372,6 +374,7 @@ async def _do_vet(
     av_news, earnings_calendar, tavily_results, data_sources = await fetch_ticker_data(
         tickers, AV_API_KEY, TAVILY_API_KEY,
         related_tickers_map=related_tickers_map or None,
+        company_name_map=company_name_map or None,
         news_lookback_days=vcfg.news_lookback_days,
         max_articles_per_ticker=vcfg.max_articles_per_ticker,
         earnings_horizon_days=vcfg.earnings_horizon_days,
@@ -422,6 +425,7 @@ async def _do_vet(
             regime=_c.get("regime"),
             in_portfolio=t in held_tickers,
             related_tickers=related_tickers_map.get(t) or None,
+            company_name=company_name_map.get(t),
         )
 
     for i, c in enumerate(candidates):
