@@ -484,6 +484,8 @@ async def _do_build(
         selected, cov,
         method=pb_cfg.weighting,
         max_position_weight=pb_cfg.max_position_weight,
+        sector_map=sector_map,
+        max_sector_weight=pb_cfg.max_sector_weight,
     )
 
     # H4: Re-normalize after cap clipping so weights always sum to 1.0.

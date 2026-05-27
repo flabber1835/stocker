@@ -198,6 +198,8 @@ def compute_weights(
     cov: pd.DataFrame,
     method: str,
     max_position_weight: float = 1.0,
+    sector_map: dict[str, str] | None = None,
+    max_sector_weight: float = 1.0,
 ) -> dict[str, float]:
     """
     Compute portfolio weights for the selected tickers.
@@ -211,6 +213,12 @@ def compute_weights(
 
     max_position_weight is enforced via iterative capping: excess weight from capped
     positions is redistributed proportionally to uncapped positions until stable.
+
+    max_sector_weight is enforced after the position cap: over-cap sectors are scaled
+    down proportionally, excess is redistributed to tickers in under-cap sectors, then
+    the position cap is re-applied. The sector cap and position cap are iterated until
+    both constraints are simultaneously satisfied (typically 2-3 rounds).
+
     Returns weights that sum to 1.0.
     """
     tickers = [s["ticker"] for s in selected]
@@ -245,25 +253,80 @@ def compute_weights(
     else:
         raise ValueError(f"Unknown weighting method: {method!r}")
 
-    # Iterative cap: redistribute excess from capped positions to uncapped ones.
-    # Track ever-capped tickers across iterations so they never receive redistributed
-    # weight and exceed the cap again in a later round.
-    weights = dict(raw)
-    ever_capped: set[str] = set()
-    for _ in range(n):
-        over = {t: w for t, w in weights.items() if w > max_position_weight + 1e-9 and t not in ever_capped}
-        if not over:
-            break
-        ever_capped.update(over.keys())
-        excess = sum(w - max_position_weight for w in over.values())
-        for t in over:
-            weights[t] = max_position_weight
-        under = {t: w for t, w in weights.items() if t not in ever_capped}
-        total_under = sum(under.values())
-        if total_under < 1e-12:
-            break
-        for t in under:
-            weights[t] += excess * (weights[t] / total_under)
+    def _apply_position_cap(w: dict[str, float]) -> dict[str, float]:
+        """Redistribute excess from over-cap positions to under-cap ones (iterative)."""
+        w = dict(w)
+        ever_capped: set[str] = set()
+        for _ in range(n):
+            over = {t: v for t, v in w.items() if v > max_position_weight + 1e-9 and t not in ever_capped}
+            if not over:
+                break
+            ever_capped.update(over.keys())
+            excess = sum(v - max_position_weight for v in over.values())
+            for t in over:
+                w[t] = max_position_weight
+            under = {t: v for t, v in w.items() if t not in ever_capped}
+            total_under = sum(under.values())
+            if total_under < 1e-12:
+                break
+            for t in under:
+                w[t] += excess * (w[t] / total_under)
+        return w
+
+    weights = _apply_position_cap(raw)
+
+    # Sector cap: redistribute weight away from over-cap sectors.
+    # The greedy_select count cap prevents too many picks from one sector but doesn't
+    # bound the combined weight when adj_score_proportional gives high-conviction
+    # names in the same sector much larger weights. This loop is the hard weight gate.
+    #
+    # Uses the same ever_capped tracking as the position cap: once a sector has been
+    # brought to max_sector_weight it never receives redistributed weight again. This
+    # prevents oscillation when two sectors take turns pushing each other over the cap.
+    # If the constraint is infeasible (n_sectors * max_sector_weight < 1.0) the loop
+    # breaks when no uncapped receiving sectors remain; the final normalization restores
+    # the sum-to-1 invariant.
+    enforce_sector = sector_map is not None and max_sector_weight < 1.0
+    if enforce_sector:
+        ever_sector_capped: set[str] = set()
+        for _round in range(n * 2):
+            sector_totals: dict[str, float] = {}
+            for t, w in weights.items():
+                s = sector_map.get(t, "")  # type: ignore[union-attr]
+                if s:
+                    sector_totals[s] = sector_totals.get(s, 0.0) + w
+
+            over_sectors = {s for s, total in sector_totals.items()
+                            if total > max_sector_weight + 1e-9
+                            and s not in ever_sector_capped}
+            if not over_sectors:
+                break
+            ever_sector_capped.update(over_sectors)
+
+            # Scale down each ticker in an over-cap sector proportionally so
+            # the sector lands exactly at max_sector_weight.
+            total_excess = 0.0
+            for t in list(weights.keys()):
+                s = sector_map.get(t, "")  # type: ignore[union-attr]
+                if s in over_sectors:
+                    sector_total = sector_totals[s]
+                    scale = max_sector_weight / sector_total
+                    total_excess += weights[t] * (1.0 - scale)
+                    weights[t] *= scale
+
+            # Redistribute freed weight to tickers NOT in any previously capped sector.
+            under_tickers = {t: w for t, w in weights.items()
+                             if sector_map.get(t, "") not in ever_sector_capped}  # type: ignore[union-attr]
+            total_under = sum(under_tickers.values())
+            if total_under < 1e-12:
+                break  # Nowhere to redistribute — infeasible constraint, exit loop
+            for t in under_tickers:
+                weights[t] += total_excess * (weights[t] / total_under)
+
+            # Sector redistribution can push individual positions above max_position_weight;
+            # re-apply the position cap before the next sector check.
+            if max_position_weight < 1.0:
+                weights = _apply_position_cap(weights)
 
     # Normalise to exactly 1.0 (guard against floating-point drift)
     total = sum(weights.values())

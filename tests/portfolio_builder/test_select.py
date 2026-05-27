@@ -289,6 +289,127 @@ def test_compute_weights_unknown_method_raises():
         compute_weights(selected, cov, "magic_weights")
 
 
+# ── compute_weights sector cap ────────────────────────────────────────────────
+
+def test_sector_cap_enforced_with_unequal_weights():
+    """adj_score_proportional can exceed the sector weight cap — must be corrected.
+
+    4 sectors so the constraint is feasible (4 × 0.30 = 1.20 ≥ 1.0).
+    Energy has 1 high-conviction ticker; 3 other sectors are distributed.
+    """
+    tickers = ["E1", "T1", "T2", "T3", "F1", "F2", "F3", "H1", "H2", "H3"]
+    adj = [10.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]  # Energy adj >> others
+    selected = _make_selected(tickers, scores=[1.0] * len(tickers), adj_scores=adj)
+    cov = _simple_cov(tickers)
+    sector_map = {
+        "E1": "Energy",
+        "T1": "Tech", "T2": "Tech", "T3": "Tech",
+        "F1": "Finance", "F2": "Finance", "F3": "Finance",
+        "H1": "Health", "H2": "Health", "H3": "Health",
+    }
+
+    w = compute_weights(selected, cov, "adj_score_proportional",
+                        sector_map=sector_map, max_sector_weight=0.30)
+
+    energy_total = w["E1"]
+    assert abs(sum(w.values()) - 1.0) < 1e-5, f"weights sum {sum(w.values())} ≠ 1.0"
+    assert energy_total <= 0.30 + 1e-6, f"Energy weight {energy_total:.4f} exceeds 30% cap"
+
+
+def test_sector_cap_not_applied_when_at_one():
+    """max_sector_weight = 1.0 means no sector cap — unconstrained weights allowed."""
+    tickers = ["E1", "E2", "T1"]
+    selected = _make_selected(tickers, scores=[1.0] * 3, adj_scores=[10.0, 9.0, 1.0])
+    cov = _simple_cov(tickers)
+    sector_map = {"E1": "Energy", "E2": "Energy", "T1": "Tech"}
+
+    w_uncapped = compute_weights(selected, cov, "adj_score_proportional",
+                                 sector_map=sector_map, max_sector_weight=1.0)
+    energy_uncapped = w_uncapped["E1"] + w_uncapped["E2"]
+    # With no sector cap Energy should dominate
+    assert energy_uncapped > 0.60, "Without sector cap Energy should exceed 60%"
+    assert abs(sum(w_uncapped.values()) - 1.0) < 1e-6
+
+
+def test_sector_cap_equal_weight_already_satisfied():
+    """Equal-weight allocation already within cap → no redistribution, weights unchanged."""
+    # 3 Energy (30%) / 4 Tech (40%) / 3 Finance (30%); cap=0.40 → all satisfied already
+    tickers = [f"E{i}" for i in range(3)] + [f"T{i}" for i in range(4)] + [f"F{i}" for i in range(3)]
+    selected = _make_selected(tickers, [1.0] * 10)
+    cov = _simple_cov(tickers)
+    sector_map = {t: ("Energy" if t.startswith("E") else ("Tech" if t.startswith("T") else "Finance"))
+                  for t in tickers}
+
+    w = compute_weights(selected, cov, "equal_weight",
+                        sector_map=sector_map, max_sector_weight=0.40)
+    # No redistribution needed → each ticker keeps its 1/10 equal weight
+    for t in tickers:
+        assert abs(w[t] - 0.10) <= 1e-5, f"{t}: expected 0.10, got {w[t]}"
+    assert abs(sum(w.values()) - 1.0) < 1e-5, f"weights sum {sum(w.values())} ≠ 1.0"
+
+
+def test_sector_cap_redistributes_to_under_cap_sectors():
+    """Excess from capped sector flows to under-cap sectors.
+
+    3 sectors so constraint is feasible (3 × 0.50 = 1.50 ≥ 1.0).
+    Energy dominates; after capping at 50% the excess goes to Tech and Utilities.
+    """
+    tickers = ["E1", "T1", "T2", "U1", "U2"]
+    selected = _make_selected(tickers, [1.0] * 5, adj_scores=[10.0, 1.0, 1.0, 1.0, 1.0])
+    cov = _simple_cov(tickers)
+    sector_map = {"E1": "Energy", "T1": "Tech", "T2": "Tech", "U1": "Util", "U2": "Util"}
+
+    w_no_cap = compute_weights(selected, cov, "adj_score_proportional", sector_map=sector_map)
+    w_capped = compute_weights(selected, cov, "adj_score_proportional",
+                               sector_map=sector_map, max_sector_weight=0.50)
+
+    energy_no_cap = w_no_cap["E1"]
+    assert energy_no_cap > 0.50, f"Energy {energy_no_cap:.3f} should dominate without cap"
+
+    energy_capped = w_capped["E1"]
+    assert energy_capped <= 0.50 + 1e-6, f"Energy {energy_capped:.4f} exceeds 50% cap"
+
+    # Tech and Utilities must each be ≤ 50%
+    tech_capped = w_capped["T1"] + w_capped["T2"]
+    util_capped = w_capped["U1"] + w_capped["U2"]
+    assert tech_capped <= 0.50 + 1e-6, f"Tech {tech_capped:.4f} exceeds 50% cap"
+    assert util_capped <= 0.50 + 1e-6, f"Util {util_capped:.4f} exceeds 50% cap"
+    assert abs(sum(w_capped.values()) - 1.0) < 1e-5
+
+
+def test_sector_cap_plus_position_cap_both_satisfied():
+    """Sector cap redistribution may push positions above max_position_weight;
+    both constraints must be satisfied simultaneously."""
+    # 4 sectors with 1 ticker each (sector weight = position weight).
+    # A dominates; both caps should clamp A to 0.30.
+    tickers = ["A", "B", "C", "D"]
+    selected = _make_selected(tickers, [1.0] * 4, adj_scores=[90.0, 3.0, 3.0, 4.0])
+    cov = _simple_cov(tickers)
+    sector_map = {"A": "S1", "B": "S2", "C": "S3", "D": "S4"}
+
+    w = compute_weights(selected, cov, "adj_score_proportional",
+                        max_position_weight=0.30, sector_map=sector_map, max_sector_weight=0.30)
+
+    assert abs(sum(w.values()) - 1.0) < 1e-5
+    for t, wt in w.items():
+        assert wt <= 0.30 + 1e-6, f"{t}: position weight {wt:.4f} exceeds 0.30 cap"
+    for s in ["S1", "S2", "S3", "S4"]:
+        sw = sum(w[t] for t in tickers if sector_map[t] == s)
+        assert sw <= 0.30 + 1e-6, f"Sector {s}: weight {sw:.4f} exceeds 0.30 cap"
+
+
+def test_sector_cap_no_sector_map_is_no_op():
+    """When sector_map=None sector cap has no effect."""
+    tickers = ["A", "B"]
+    selected = _make_selected(tickers, [1.0, 1.0], adj_scores=[3.0, 1.0])
+    cov = _simple_cov(tickers)
+    w = compute_weights(selected, cov, "adj_score_proportional",
+                        sector_map=None, max_sector_weight=0.10)
+    # Without a sector map the cap cannot be enforced — A should still dominate
+    assert w["A"] > w["B"]
+    assert abs(sum(w.values()) - 1.0) < 1e-6
+
+
 # ── Covariance edge cases ─────────────────────────────────────────────────────
 
 def test_build_covariance_empty_raises_runtime_error():
