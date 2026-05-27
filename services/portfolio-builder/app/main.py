@@ -508,6 +508,15 @@ async def _do_build(
         if not any(w > max_pw + 1e-9 for w in weights.values()):
             break
 
+    # Apply cash_reserve: scale weights so total notional = (1 - cash_reserve) × account_value.
+    # This leaves a cash buffer so broker buying-power reservations (e.g. for pending OPG orders)
+    # don't exhaust capacity before the last order in a batch is submitted.
+    cash_reserve = getattr(pb_cfg, "cash_reserve", 0.0)
+    if cash_reserve > 0.0:
+        scale = 1.0 - cash_reserve
+        weights = {t: w * scale for t, w in weights.items()}
+        print(f"[portfolio-builder] cash_reserve={cash_reserve:.3f}: weights scaled to sum={sum(weights.values()):.4f}")
+
     # M5: Compute and log per-sector weights post-build.
     # sector_map is loaded in step 4c and is in scope here.
     sector_weights: dict[str, float] = {}

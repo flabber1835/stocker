@@ -203,6 +203,14 @@ class PortfolioBuilderConfig(BaseModel):
             "Reduces unnecessary churn on regime transitions. Set 0 to disable."
         ),
     )
+    cash_reserve: float = Field(
+        default=0.0, ge=0.0, lt=1.0,
+        description=(
+            "Fraction of account value to keep uninvested. "
+            "E.g. 0.05 = weights scaled so total notional = 95% of account value. "
+            "Prevents buying-power exhaustion when broker reserves exceed 100% for pending OPG orders."
+        ),
+    )
 
 
 class DeltaEngineConfig(BaseModel):

@@ -99,6 +99,7 @@ portfolio_builder:
   max_position_weight: 0.10          # hard cap per position; excess redistributed to others
   max_sector_weight: 0.30            # no single GICS sector may exceed 30% of the portfolio
   do_not_buy: []                     # hard-exclude list: ESG screens, legal holds, insider restrictions
+  cash_reserve: 0.05                 # keep 5% uninvested — prevents buying-power exhaustion when 20–30 OPG orders batch-reserve capacity
 
 vetter:
   enabled: true
