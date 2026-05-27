@@ -315,7 +315,7 @@ Planned services:
 ```text
 av-ingestor          ← built (Phase 3) — publishes fetch_data.complete on stocker:pipeline_events
 pipeline             ← built (Phase 7) — unified factor + rank + delta, consumes pipeline_events
-portfolio-builder    ← built (Phase 4)
+portfolio-builder    ← built (Phase 4) — publishes portfolio_builder.complete on stocker:pipeline_events
 llm-vetter           ← built (Phase 4.5) — LLM-based stock vetting, informational only
 alpaca-sync          ← built (Phase 6) — broker position read sync, paper trading
 risk-service         ← built (Phase 6) — deterministic safety gate; env re-read every /check
@@ -383,15 +383,26 @@ duplicate triggers see `{"status":"already_running"}` for the whole run):
    output : ranking_runs + rankings (composite score, percentile, reason codes)
 ```
 
-Delta evaluation does NOT run inside `/jobs/run`. It runs as a dedicated
-scheduler step (`POST /jobs/delta`) after the vetter and portfolio-builder
-have completed. This ensures proposals always reflect today's vetter
-exclusions and target weights rather than the stale values from a prior run.
+Delta evaluation (`/jobs/delta`) runs as a dedicated step after the vetter
+and portfolio-builder have completed. This ensures proposals always reflect
+today's vetter exclusions and target weights rather than the stale values
+from a prior run.
 
-`pipeline_runs` is the cross-step audit row; `factor_status` and
-`ranking_status` columns surface sub-step progress for the dashboard.
-`chain_date` is written at run start so the scheduler's supervisor sees a
-valid date during execution and does not classify the in-flight run as idle.
+**Delta is always triggered automatically as part of the pipeline chain.**
+Portfolio-builder publishes a `portfolio_builder.complete` event to the
+`stocker:pipeline_events` Redis stream at the end of every successful run.
+The pipeline service's `_redis_consumer_loop` handles this event and
+triggers delta — exactly the same logic as `/jobs/delta`. Delta therefore
+fires automatically after portfolio-builder regardless of whether the
+scheduler is running or the trigger was manual. The scheduler's
+`/jobs/delta` endpoint and `/runs/delta-latest` polling remain as a
+fallback and for audit visibility.
+
+`pipeline_runs` is the cross-step audit row; `factor_status`,
+`ranking_status`, and `delta_status` columns surface sub-step progress
+for the dashboard. `chain_date` is written at run start so the
+scheduler's supervisor sees a valid date during execution and does not
+classify the in-flight run as idle.
 
 The scheduler compares `chain_date` (not `run_date`) when polling step
 status, because `run_date` is set to `MAX(SPY date)` which may lag the
@@ -401,8 +412,8 @@ so the scheduler classifies the step as `done` without re-triggering.
 
 `_redis_consumer_loop` drains the Pending Entries List on startup
 (`id="0"` until empty) before switching to `>` reads — recovers
-`fetch_data.complete` events that a previous crashed instance had claimed
-but never xack'd.
+`fetch_data.complete` and `portfolio_builder.complete` events that a
+previous crashed instance had claimed but never xack'd.
 
 Must be deterministic given the same inputs.
 
@@ -722,12 +733,15 @@ Cannot deploy changes directly.
 
 ## scheduler
 
-Non-blocking supervisor state machine that advances a three-step daily chain:
+Non-blocking supervisor state machine that advances a daily chain:
 
 ```text
-fetch-data  → av-ingestor /jobs/fetch-data
-pipeline    → pipeline   /jobs/run   (factors + rank only — delta runs as step 5)
-vet         → llm-vetter /jobs/vet   (optional, advisory)
+fetch-data        → av-ingestor    /jobs/fetch-data
+pipeline          → pipeline       /jobs/run   (factors + rank)
+vet               → llm-vetter     /jobs/vet   (optional, advisory)
+portfolio-builder → portfolio-builder /jobs/build
+delta             → pipeline       /jobs/delta (fallback; normally auto-triggered
+                                               via portfolio_builder.complete Redis event)
 ```
 
 Each tick (every SUPERVISOR_INTERVAL_SECS) reads each service's `/runs/latest`
@@ -741,9 +755,14 @@ still-open `current_run_id` (coercing a non-terminal `running` status to
 `failed`) before resetting in-memory state — without this, a chain that
 spans midnight leaves orphaned `status='running'` rows in `scheduler_runs`.
 
-The pipeline service also auto-triggers from av-ingestor via Redis Streams
-(`stocker:pipeline_events`), so a manual fetch-data fires the pipeline
-without scheduler involvement.
+The pipeline service auto-triggers from two Redis Stream events on
+`stocker:pipeline_events`:
+- `fetch_data.complete` (published by av-ingestor) → triggers factors + rank
+- `portfolio_builder.complete` (published by portfolio-builder) → triggers delta
+
+This means a manual fetch-data fires the full chain through to trade proposals
+without scheduler involvement, and a manual portfolio-builder run always
+produces delta intents.
 
 **Restart recovery via RESTART_ABORT_MARKER:**
 

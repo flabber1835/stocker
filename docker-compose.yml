@@ -215,6 +215,7 @@ services:
     environment:
       SERVICE_NAME: portfolio-builder
       DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
+      REDIS_URL: redis://redis:6379
       STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
       ARTIFACTS_PATH: /artifacts
     volumes:
@@ -222,6 +223,8 @@ services:
       - ./strategies:/strategies:ro
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]

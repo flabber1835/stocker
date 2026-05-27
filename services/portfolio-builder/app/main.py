@@ -9,6 +9,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+import redis.asyncio as aioredis
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy import text
@@ -22,6 +23,8 @@ from stock_strategy_shared.db import wait_for_db
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
+REDIS_URL = os.getenv("REDIS_URL", "")
+PIPELINE_STREAM = "stocker:pipeline_events"
 
 _MIN_EIGENVALUE = 1e-8  # numerical zero threshold for PSD matrix repair
 
@@ -701,6 +704,36 @@ async def _do_build(
         },
         holdings=holdings_detail,
     )
+
+    await _publish_portfolio_complete(run_id, str(portfolio_date))
+
+
+async def _publish_portfolio_complete(run_id: str, portfolio_date: str) -> None:
+    """Publish portfolio_builder.complete to the pipeline Redis stream.
+
+    Non-blocking: failures are logged and swallowed so they never affect
+    the portfolio run's own success/failure status.
+    """
+    if not REDIS_URL:
+        print("[portfolio-builder] REDIS_URL not set — skipping pipeline event publish")
+        return
+    try:
+        r = aioredis.from_url(REDIS_URL, decode_responses=True)
+        try:
+            await r.xadd(
+                PIPELINE_STREAM,
+                {
+                    "event": "portfolio_builder.complete",
+                    "run_id": run_id,
+                    "portfolio_date": portfolio_date,
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            print(f"[portfolio-builder] published portfolio_builder.complete (run_id={run_id})", flush=True)
+        finally:
+            await r.aclose()
+    except Exception as exc:
+        print(f"[portfolio-builder] WARNING: failed to publish pipeline event: {exc}", flush=True)
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────────────────────────
