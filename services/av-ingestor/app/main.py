@@ -34,16 +34,14 @@ ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
 
 CHECKPOINT_EVERY = 100
 
-# Stuck-ticker quarantine — see migration 0006 and ticker_fetch_state schema.
-# After QUARANTINE_THRESHOLD_DAYS consecutive empty AV responses, the ticker is
-# quarantined for QUARANTINE_DURATION_DAYS so warm runs don't burn the 75 rpm
-# budget on names AV doesn't have today's bar for (delisted-in-progress,
-# very thin volume, ADR session lag, etc.). Once consecutive_empty_days
-# crosses UNIVERSE_DROP_THRESHOLD_DAYS, fetch-universe drops the ticker from
-# universe_tickers entirely.
-QUARANTINE_THRESHOLD_DAYS = int(os.getenv("QUARANTINE_THRESHOLD_DAYS", "3"))
-QUARANTINE_DURATION_DAYS = int(os.getenv("QUARANTINE_DURATION_DAYS", "7"))
-UNIVERSE_DROP_THRESHOLD_DAYS = int(os.getenv("UNIVERSE_DROP_THRESHOLD_DAYS", "30"))
+# Universe staleness filter — see migration 0007 and ticker_fetch_state.
+# fetch-universe drops every ticker whose `MAX(date) IN daily_prices < spy_max`
+# (i.e. AV had no row for today last time we asked), then re-probes a small
+# rotating slice each run so halt-then-resume tickers eventually rejoin.
+# PROBATION_ROTATION_DAYS — number of days the dropped pool is spread across.
+# At default 30, each fetch-universe re-tries ~1/30th of stale tickers, so
+# every excluded ticker gets one AV call ~once a month.
+PROBATION_ROTATION_DAYS = int(os.getenv("PROBATION_ROTATION_DAYS", "30"))
 
 _TICKER_RE = re.compile(r"^[A-Z]{1,5}([.\-][A-Z0-9]{1,4})?$")
 
@@ -78,40 +76,71 @@ def _should_skip_fundamentals(ticker: str, fund_latest: dict, today: date, max_a
     return (today - last).days < max_age_days
 
 
-def _is_quarantined(ticker: str, fetch_state: dict, today: date) -> bool:
-    """Return True if the ticker is currently in quarantine (skip AV call)."""
-    state = fetch_state.get(ticker)
-    if not state:
-        return False
-    quarantined_until = state.get("quarantined_until")
-    return bool(quarantined_until and quarantined_until > today)
+def _filter_stale_max_date(
+    tickers: list,
+    ticker_latest: dict,
+    spy_max,
+) -> tuple[list, list[str]]:
+    """Drop tickers whose latest price date is behind `spy_max`.
 
+    Returns (kept, dropped_tickers). `kept` preserves the input row shape
+    (dict or str). Cold-start safety: if `spy_max` is None (no SPY data
+    yet) or `ticker_latest` is empty, no filtering happens — every ticker
+    is kept so the first ingestion can populate `daily_prices`.
 
-def _filter_chronic_stuck(
-    tickers: list[dict],
-    fetch_state: dict,
-    threshold_days: int,
-) -> tuple[list[dict], list[str]]:
-    """Drop tickers whose `consecutive_empty_days` is at or above threshold.
-
-    Returns (kept_rows, dropped_tickers). The dropped tickers are still in the
-    AV LISTING_STATUS active set but have been silent for so long that we
-    treat them as effectively delisted for universe construction. They can
-    re-enter automatically: once AV returns a fresh price row the streak
-    resets (see _record_fetch_outcome), and the next fetch-universe run
-    will keep them.
+    Why drop on this signal: it is the same empirical condition the per-
+    ticker skip check uses (`ticker_latest[t] == spy_max`). If `MAX(date)`
+    for a ticker is strictly less than SPY's `MAX(date)`, AV had no row
+    for today the last time we asked. Keeping such tickers in the universe
+    burns API throttle on every warm run for no new data. Re-probing
+    happens via the rotation cohort (see _pick_probation_cohort).
     """
-    kept: list[dict] = []
+    if spy_max is None or not ticker_latest:
+        return list(tickers), []
+    kept: list = []
     dropped: list[str] = []
     for row in tickers:
         t = row.get("ticker") if isinstance(row, dict) else row
-        state = fetch_state.get(t) if t else None
-        streak = state.get("consecutive_empty_days") if state else 0
-        if streak and streak >= threshold_days:
+        if not t:
+            kept.append(row)
+            continue
+        latest = ticker_latest.get(t)
+        if latest is None or latest < spy_max:
             dropped.append(t)
         else:
             kept.append(row)
     return kept, dropped
+
+
+def _pick_probation_cohort(
+    dropped_tickers: list[str],
+    fetch_state: dict,
+    today: date,
+    rotation_days: int,
+) -> list[str]:
+    """Return the slice of dropped tickers to re-probe in this run.
+
+    Picks `ceil(len(dropped) / rotation_days)` tickers, prioritising those
+    whose `last_consulted_date` is oldest (or absent — never consulted).
+    With `rotation_days=30` and 3000 stale names, ~100 are probed per
+    fetch-universe run, so every stuck ticker gets one AV consultation
+    roughly once a month. A halted-then-resumed ticker rejoins the
+    universe on the run after AV first returns fresh data for it.
+    """
+    if not dropped_tickers or rotation_days <= 0:
+        return []
+    cohort_size = -(-len(dropped_tickers) // rotation_days)  # ceil div
+    EPOCH = date(1900, 1, 1)
+
+    def _last_consulted(t: str):
+        state = fetch_state.get(t)
+        if not state:
+            return EPOCH
+        return state.get("last_consulted_date") or EPOCH
+
+    # Sort by (oldest-consulted-first, then ticker for determinism).
+    ordered = sorted(dropped_tickers, key=lambda t: (_last_consulted(t), t))
+    return ordered[:cohort_size]
 
 
 def _build_benchmarks_first(universe_tickers: list[str]) -> list[str]:
@@ -494,15 +523,31 @@ async def _run_fetch_universe(run_id: str) -> None:
     try:
         async with httpx.AsyncClient() as http:
             tickers, listing_stats = await download_av_universe(http, av_api_key=AV_API_KEY)
-        # Drop tickers whose AV daily-price endpoint has been silent for
-        # UNIVERSE_DROP_THRESHOLD_DAYS+ consecutive fetch attempts. These are
-        # almost always delisted-in-progress and just burn the rate-limit
-        # budget when kept in the universe. They auto-rejoin when AV resumes
-        # returning data (the streak resets in _record_fetch_outcome).
+        # Drop tickers whose latest price date in daily_prices is behind
+        # spy_max — AV had no row for today the last time we asked. They
+        # are re-admitted via the probation cohort below: a 1/N slice
+        # (default 1/30) of dropped tickers is injected into the new
+        # snapshot so a halted-then-resumed ticker rejoins after one
+        # successful fetch.
+        ticker_latest, spy_max = await _load_price_staleness()
         fetch_state = await _load_ticker_fetch_state()
-        tickers, dropped_stuck = _filter_chronic_stuck(
-            tickers, fetch_state, UNIVERSE_DROP_THRESHOLD_DAYS,
+        today = datetime.now(timezone.utc).date()
+        tickers, dropped_stale = _filter_stale_max_date(
+            tickers, ticker_latest, spy_max,
         )
+        probation = _pick_probation_cohort(
+            dropped_stale, fetch_state, today, PROBATION_ROTATION_DAYS,
+        )
+        if probation:
+            # Re-admit by ticker. The probation cohort is just tickers; the
+            # downstream save_universe_snapshot only needs the ticker symbol.
+            probation_set = set(probation)
+            tickers = tickers + [{"ticker": t} for t in probation]
+            print(
+                f"[fetch-universe] probation cohort: re-admitting "
+                f"{len(probation)}/{len(dropped_stale)} stale tickers for re-probe "
+                f"(rotation_days={PROBATION_ROTATION_DAYS})"
+            )
         benchmarks = await get_benchmark_tickers()
         all_tickers = tickers + benchmarks
         print(
@@ -510,13 +555,14 @@ async def _run_fetch_universe(run_id: str) -> None:
             f"(filtered: {listing_stats.get('filtered_warrant_unit', 0)} warrants/units, "
             f"{listing_stats.get('filtered_non_stock', 0)} non-stock, "
             f"{listing_stats.get('filtered_exchange', 0)} wrong-exchange, "
-            f"{len(dropped_stuck)} chronic-stuck "
-            f">={UNIVERSE_DROP_THRESHOLD_DAYS}d)"
+            f"{len(dropped_stale)} stale max_date<spy_max, "
+            f"{len(probation)} re-admitted for probation)"
         )
-        if dropped_stuck:
-            sample = ",".join(dropped_stuck[:10])
-            more = f" (+{len(dropped_stuck) - 10} more)" if len(dropped_stuck) > 10 else ""
-            print(f"[fetch-universe] chronic-stuck sample: {sample}{more}")
+        if dropped_stale:
+            never_returning = [t for t in dropped_stale if t not in (set(probation) if probation else set())]
+            sample = ",".join(never_returning[:10])
+            more = f" (+{len(never_returning) - 10} more)" if len(never_returning) > 10 else ""
+            print(f"[fetch-universe] stale-skipped sample: {sample}{more}")
         await _checkpoint(run_id, "fetch-universe", started_at,
                           step="save", ticker_count=len(all_tickers))
 
@@ -528,7 +574,8 @@ async def _run_fetch_universe(run_id: str) -> None:
         # BUG 10: strip large row arrays (10k+ rows each) before writing to trace to
         # avoid bloating the artifact with multi-MB JSON files.
         trace_stats = {k: v for k, v in listing_stats.items() if k not in ("raw_listing", "filtered_rows", "accepted_tickers")}
-        trace_stats["filtered_chronic_stuck"] = len(dropped_stuck)
+        trace_stats["filtered_stale_max_date"] = len(dropped_stale)
+        trace_stats["probation_readmitted"] = len(probation)
         await _write_trace_file(run_id, "fetch-universe", "success", started_at,
                                 ticker_count=len(all_tickers), snapshot_id=snapshot_id,
                                 listing_stats=trace_stats)
@@ -570,67 +617,32 @@ async def _load_fund_staleness() -> dict[str, date]:
 
 
 async def _load_ticker_fetch_state() -> dict[str, dict]:
-    """Return ticker→{last_consulted_date, consecutive_empty_days, quarantined_until}."""
+    """Return ticker→{last_consulted_date}."""
     async with engine.connect() as conn:
         rows = await conn.execute(text(
-            "SELECT ticker, last_consulted_date, consecutive_empty_days, quarantined_until "
-            "FROM ticker_fetch_state"
+            "SELECT ticker, last_consulted_date FROM ticker_fetch_state"
         ))
         return {
-            r.ticker: {
-                "last_consulted_date": r.last_consulted_date,
-                "consecutive_empty_days": r.consecutive_empty_days,
-                "quarantined_until": r.quarantined_until,
-            }
+            r.ticker: {"last_consulted_date": r.last_consulted_date}
             for r in rows.fetchall()
         }
 
 
-async def _record_fetch_outcome(ticker: str, new_rows_count: int, today: date) -> None:
-    """Upsert ticker_fetch_state after a fetch attempt.
+async def _mark_consulted(ticker: str, today: date) -> None:
+    """Record that AV was asked about this ticker today.
 
-    new_rows_count > 0 → reset streak, clear quarantine.
-    new_rows_count == 0 → increment streak; quarantine once >= threshold.
+    Used by the probation-rotation logic in fetch-universe to pick
+    "oldest-consulted-first" candidates for re-probing.
     """
-    if new_rows_count > 0:
-        async with SessionLocal() as session:
-            async with session.begin():
-                await session.execute(text(
-                    "INSERT INTO ticker_fetch_state "
-                    "  (ticker, last_consulted_date, consecutive_empty_days, quarantined_until) "
-                    "VALUES (:t, :d, 0, NULL) "
-                    "ON CONFLICT (ticker) DO UPDATE SET "
-                    "  last_consulted_date=EXCLUDED.last_consulted_date, "
-                    "  consecutive_empty_days=0, "
-                    "  quarantined_until=NULL, "
-                    "  updated_at=NOW()"
-                ), {"t": ticker, "d": today})
-        return
-
     async with SessionLocal() as session:
         async with session.begin():
-            # Increment by 1; quarantine kicks in once streak reaches the threshold.
-            # `:qd * INTERVAL '1 day'` keeps the bind parameter as int — earlier
-            # form `(:qd || ' days')::interval` fails on asyncpg because || expects
-            # both sides to be text.
             await session.execute(text(
-                "INSERT INTO ticker_fetch_state "
-                "  (ticker, last_consulted_date, consecutive_empty_days, quarantined_until) "
-                "VALUES (:t, :d, 1, NULL) "
+                "INSERT INTO ticker_fetch_state (ticker, last_consulted_date) "
+                "VALUES (:t, :d) "
                 "ON CONFLICT (ticker) DO UPDATE SET "
                 "  last_consulted_date=EXCLUDED.last_consulted_date, "
-                "  consecutive_empty_days=ticker_fetch_state.consecutive_empty_days + 1, "
-                "  quarantined_until = CASE "
-                "    WHEN ticker_fetch_state.consecutive_empty_days + 1 >= :qt "
-                "      THEN EXCLUDED.last_consulted_date + (:qd * INTERVAL '1 day') "
-                "    ELSE ticker_fetch_state.quarantined_until "
-                "  END, "
                 "  updated_at=NOW()"
-            ), {
-                "t": ticker, "d": today,
-                "qt": QUARANTINE_THRESHOLD_DAYS,
-                "qd": QUARANTINE_DURATION_DAYS,
-            })
+            ), {"t": ticker, "d": today})
 
 
 async def _load_investable_tickers() -> frozenset[str] | None:
@@ -674,17 +686,10 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
     ticker_latest, spy_max = await _load_price_staleness()
     fund_latest = await _load_fund_staleness()
     investable_tickers = await _load_investable_tickers()
-    fetch_state = await _load_ticker_fetch_state()
 
     price_skip = sum(
         1 for t in price_tickers
         if t not in benchmark_set and spy_max and ticker_latest.get(t) == spy_max
-    )
-    quarantine_skip = sum(
-        1 for t in price_tickers
-        if t not in benchmark_set
-        and not (spy_max and ticker_latest.get(t) == spy_max)
-        and _is_quarantined(t, fetch_state, today)
     )
     fund_skip = sum(
         1 for t in fundamental_tickers
@@ -697,14 +702,14 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
         non_inv = sum(1 for t in fundamental_tickers if t not in investable_tickers)
         print(
             f"[fetch-data] starting: {len(price_tickers)} price tickers "
-            f"({price_skip} already current, {quarantine_skip} quarantined, spy_max={spy_max}), "
+            f"({price_skip} already current, spy_max={spy_max}), "
             f"{len(fundamental_tickers)} fundamental tickers ({fund_skip} already current, "
             f"{non_inv} non-investable on 30d window)"
         )
     else:
         print(
             f"[fetch-data] starting: {len(price_tickers)} price tickers "
-            f"({price_skip} already current, {quarantine_skip} quarantined, spy_max={spy_max}), "
+            f"({price_skip} already current, spy_max={spy_max}), "
             f"{len(fundamental_tickers)} fundamental tickers ({fund_skip} already current today) "
             f"[cold start — fetching all]"
         )
@@ -750,21 +755,16 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                     spy_max = None
 
             # Benchmarks are never skipped — they must be fetched to establish the
-            # current trading date. Universe tickers skip only when already current
-            # or quarantined (consecutive empty AV responses, see Option B notes).
+            # current trading date. Universe tickers skip only when already current.
             if not is_benchmark and spy_max and ticker_latest.get(ticker) == spy_max:
                 price_ok += 1
                 price_skipped += 1
                 # avg_dv will be read from DB if this ticker needs a fundamentals update
-            elif not is_benchmark and _is_quarantined(ticker, fetch_state, today):
-                price_ok += 1
-                price_skipped += 1
             else:
                 try:
                     # Use compact (last 100 days) if we already have a price history; full otherwise.
                     use_compact = ticker_latest.get(ticker) is not None
                     rows = await client.get_daily_prices(ticker, compact=use_compact)
-                    new_rows: list[dict] = []
                     if rows:
                         # Filter to only rows newer than what's already in the DB.
                         # Compact fetches 100 days but we typically only need the last 1-2;
@@ -793,11 +793,12 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                         print(f"[fetch-data] {ticker} prices: {len(new_rows)}/{len(rows)} new rows [{mode}] {label}")
                     else:
                         print(f"[fetch-data] {ticker} prices: no data {label}")
-                    # Track fetch outcome so chronic empty-response tickers get
-                    # quarantined. Benchmarks are exempt — we always re-fetch them.
+                    # Record the consultation regardless of whether AV returned
+                    # data — used by fetch-universe to pick oldest-consulted
+                    # tickers for probation re-probing.
                     if not is_benchmark:
                         try:
-                            await _record_fetch_outcome(ticker, len(new_rows), today)
+                            await _mark_consulted(ticker, today)
                         except Exception as fs_exc:
                             print(f"[fetch-data] {ticker} fetch_state update failed: {fs_exc}")
                 except Exception as e:
@@ -806,13 +807,9 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                     if is_benchmark and ticker == "SPY":
                         _spy_fetch_failed = True
                     print(f"[fetch-data] {ticker} prices: error - {e}")
-                    # AVClient.get_daily_prices raises AVError when AV returns an
-                    # empty "Time Series (Daily)" map — treat that the same as
-                    # "0 new rows" for streak tracking so chronic empty tickers
-                    # still hit the quarantine threshold.
                     if not is_benchmark:
                         try:
-                            await _record_fetch_outcome(ticker, 0, today)
+                            await _mark_consulted(ticker, today)
                         except Exception as fs_exc:
                             print(f"[fetch-data] {ticker} fetch_state update failed: {fs_exc}")
 
