@@ -70,6 +70,19 @@ function _parseAlpacaError(msg) {
   } catch (e) { /* not JSON */ }
   return msg.length > 140 ? msg.substring(0, 140) + '…' : msg;
 }
+function _fmtDeferred(isoTs) {
+  // Render an OPG-deferred order's wakeup time as "Queued — fires HH:MM ET"
+  // so the operator can see the trade is parked, not lost.
+  if (!isoTs) return 'Queued for OPG window';
+  try {
+    const d = new Date(isoTs);
+    const hhmm = d.toLocaleTimeString('en-US', {
+      timeZone: 'America/New_York',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+    return 'Queued — fires ' + hhmm + ' ET';
+  } catch (e) { return 'Queued for OPG window'; }
+}
 function zColor(v) {
   // Factor values are cross-sectional percentile ranks in (0, 1].
   // Top 30% → green, bottom 40% → red, middle → neutral.
@@ -585,7 +598,7 @@ function _isApprovable(r) {
   if (!['entry', 'exit', 'buy_add', 'sell_trim'].includes(r.action)) return false;
   if (_approvalState[r.id]) return false;
   const os = r.order_status;
-  if (os === 'submitted' || os === 'pending' || os === 'failed' || os === 'risk_rejected') return false;
+  if (os === 'submitted' || os === 'pending' || os === 'deferred' || os === 'failed' || os === 'risk_rejected') return false;
   if (r.rejected_at) return false;
   if ((r.action === 'entry' || r.action === 'buy_add') && r.vetter_excluded) return false;
   return true;
@@ -695,8 +708,14 @@ function _buildTradeRow(r) {
     statusHtml = '<span class="tc-rejected">&#10007; Rejected</span>';
   } else if (st.status === 'ok') {
     statusHtml = '<span class="tc-submitted">&#10003; ' + esc(st.msg || 'Submitted') + '</span>';
-  } else if (r.order_status === 'submitted' || r.order_status === 'pending') {
-    statusHtml = '<span class="tc-submitted">&#10003; ' + r.order_status + '</span>';
+  } else if (st.status === 'queued') {
+    statusHtml = '<span class="tc-queued">&#9203; ' + esc(st.msg || 'Queued') + '</span>';
+  } else if (r.order_status === 'submitted') {
+    statusHtml = '<span class="tc-submitted">&#10003; Submitted</span>';
+  } else if (r.order_status === 'pending') {
+    statusHtml = '<span class="tc-submitted">&#10003; Submitting&#8230;</span>';
+  } else if (r.order_status === 'deferred') {
+    statusHtml = '<span class="tc-queued">&#9203; ' + esc(_fmtDeferred(r.order_deferred_until)) + '</span>';
   } else if (st.status === 'err') {
     statusHtml = '<span class="tc-error">&#x26A0; ' + esc(st.msg || 'Error') + '</span>';
   } else if (r.order_status === 'failed' || r.order_status === 'risk_rejected') {
@@ -734,7 +753,7 @@ function updateTraderBadge() {
     const st = _approvalState[r.id];
     if (st && (st.status === 'ok' || st.status === 'err' || st.status === 'rejected')) return false;
     const os = r.order_status;
-    if (os === 'submitted' || os === 'pending' || os === 'failed' || os === 'risk_rejected') return false;
+    if (os === 'submitted' || os === 'pending' || os === 'deferred' || os === 'failed' || os === 'risk_rejected') return false;
     if (r.rejected_at) return false;
     if ((r.action === 'entry' || r.action === 'buy_add') && r.vetter_excluded) return false;
     return true;
@@ -805,11 +824,12 @@ async function approveTrade(intentId, mode) {
       _approvalState[intentId] = { status: 'ok', msg: 'Already submitted' };
     } else if (!d.risk_approved) {
       _approvalState[intentId] = { status: 'err', msg: 'Risk rejected: ' + (d.risk_reason || '') };
+    } else if (d.status === 'deferred') {
+      _approvalState[intentId] = { status: 'queued', msg: _fmtDeferred(d.deferred_until) };
     } else if (d.status === 'failed') {
       _approvalState[intentId] = { status: 'err', msg: _parseAlpacaError(d.reason || d.error_message || 'Order failed') };
     } else {
-      const modeLabel = mode === 'scheduled' ? 'MOO scheduled' : 'Market order sent';
-      _approvalState[intentId] = { status: 'ok', msg: modeLabel + (d.alpaca_order_id ? ' (' + d.alpaca_order_id.substring(0, 8) + '…)' : '') };
+      _approvalState[intentId] = { status: 'ok', msg: 'Submitted' + (d.alpaca_order_id ? ' (' + d.alpaca_order_id.substring(0, 8) + '…)' : '') };
     }
   } catch (e) {
     _approvalState[intentId] = { status: 'err', msg: String(e) };

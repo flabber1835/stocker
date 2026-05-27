@@ -69,11 +69,13 @@ def _full_rankings():
 
 
 def _intent(id_: str, ticker: str, action: str, *, order_status=None,
-            rejected_at=None, vetter_excluded=False, rank=1, score=0.9):
+            order_deferred_until=None, rejected_at=None, vetter_excluded=False,
+            rank=1, score=0.9):
     return {
         "id": id_, "ticker": ticker, "action": action, "rank": rank,
         "composite_score": score, "rejected_at": rejected_at,
         "order_status": order_status, "order_error_message": None,
+        "order_deferred_until": order_deferred_until,
         "vetter_excluded": vetter_excluded, "vetter_confidence": None,
         "vetter_risk_type": None, "vetter_reason": None,
         "reason": "test", "confirmation_days_met": True,
@@ -141,6 +143,27 @@ SCENARIOS = {
             "intents": [
                 _intent("s1", "B",    "entry", rank=1, score=0.799, order_status="submitted"),
                 _intent("s2", "AGNC", "entry", rank=2, score=0.797, order_status="submitted"),
+            ],
+        },
+        "/api/live-portfolio": {"connected": False, "sync": {}},
+        "/api/orders/recent": [],
+    },
+
+    # ── OPG-window deferred: auto-approval landed in the 16:00–19:00 ET dead
+    #    zone, orders are parked until the worker resubmits at 19:00 ET. The
+    #    trader UI must show that they're queued, not failed.
+    "all_deferred": {
+        "/api/pipeline-status": _pipeline_status(),
+        "/api/rankings/with-overlays": _full_rankings(),
+        "/api/delta/latest": {
+            "run": _delta_run(entries=2),
+            "intents": [
+                _intent("d1", "B",    "entry", rank=1, score=0.799,
+                        order_status="deferred",
+                        order_deferred_until="2026-05-27T23:00:00+00:00"),
+                _intent("d2", "AGNC", "entry", rank=2, score=0.797,
+                        order_status="deferred",
+                        order_deferred_until="2026-05-27T23:00:00+00:00"),
             ],
         },
         "/api/live-portfolio": {"connected": False, "sync": {}},
@@ -433,8 +456,30 @@ INTENTS: list[Intent] = [
         name="submitted_trader_status_says_submitted",
         scenario="all_submitted",
         panel="trader",
-        description="Submitted rows show '✓ submitted' status.",
-        must_contain_text=["submitted"],
+        description="Submitted rows show '✓ Submitted' status (capitalised for clarity).",
+        must_contain_text=["Submitted"],
+    ),
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # OPG-WINDOW DEFERRED — orders parked for the worker to retry at 19:00 ET
+    # ──────────────────────────────────────────────────────────────────────────
+
+    Intent(
+        name="deferred_trader_status_says_queued",
+        scenario="all_deferred",
+        panel="trader",
+        description="Deferred rows show 'Queued' (not 'Submitted' and not an error).",
+        must_contain_text=["Queued"],
+        must_not_contain_text=["Submitted", "Failed", "Error"],
+    ),
+
+    Intent(
+        name="deferred_trader_no_approve_button",
+        scenario="all_deferred",
+        panel="trader",
+        description="A deferred order is already in-flight — no approve button "
+                    "(no duplicate submission while the worker holds the row).",
+        must_be_disabled=["#btn-approve-sel"],
     ),
 
     # ──────────────────────────────────────────────────────────────────────────

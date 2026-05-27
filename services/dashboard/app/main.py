@@ -69,10 +69,12 @@ async def _auto_approve_bg():
                             continue
                         if intent.get("rejected_at"):
                             continue
-                        # Skip intents already handled (submitted, failed, or risk-rejected).
-                        # Marking them as approved prevents auto-approve from retrying on restart.
+                        # Skip intents already handled (submitted, queued, failed, or risk-rejected).
+                        # Marking them as approved prevents auto-approve from retrying on restart
+                        # or, for 'deferred' orders, re-firing into the OPG deferral path while
+                        # the worker is already managing the wakeup.
                         order_status = intent.get("order_status")
-                        if order_status in ("failed", "risk_rejected", "submitted", "pending"):
+                        if order_status in ("failed", "risk_rejected", "submitted", "pending", "deferred"):
                             _intent_approved.add(iid)
                             continue
                         current_ids.add(iid)
