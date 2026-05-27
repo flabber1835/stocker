@@ -273,6 +273,50 @@ class TestStepState:
         result = await _step_state(client, step, today, trading_day, prev_trading_day)
         assert result == "done"
 
+    @pytest.mark.asyncio
+    async def test_upstream_rank_date_done_on_match(self):
+        """use_upstream_rank_date=True: 'done' when step's date matches latest rank_date
+        even though it lags trading_day. Stops the post-close pre-AV-publish retrigger loop.
+        """
+        today = "2026-05-27"
+        trading_day = "2026-05-27"
+        prev_trading_day = "2026-05-26"
+        latest_rank_date = "2026-05-26"  # SPY data still at yesterday
+        step = self._make_step(date_field="portfolio_date", use_upstream_rank_date=True)
+        client = _async_client_returning({"status": "success", "portfolio_date": latest_rank_date})
+        result = await _step_state(client, step, today, trading_day, prev_trading_day,
+                                   latest_rank_date=latest_rank_date)
+        assert result == "done"
+
+    @pytest.mark.asyncio
+    async def test_upstream_rank_date_idle_on_stale(self):
+        """use_upstream_rank_date=True: 'idle' when step lags the latest rank_date.
+        New ranking has landed; step needs to re-run against it.
+        """
+        today = "2026-05-27"
+        trading_day = "2026-05-27"
+        prev_trading_day = "2026-05-26"
+        latest_rank_date = "2026-05-27"
+        step = self._make_step(date_field="portfolio_date", use_upstream_rank_date=True)
+        # Step's last run was against yesterday's ranking
+        client = _async_client_returning({"status": "success", "portfolio_date": "2026-05-26"})
+        result = await _step_state(client, step, today, trading_day, prev_trading_day,
+                                   latest_rank_date=latest_rank_date)
+        assert result == "idle"
+
+    @pytest.mark.asyncio
+    async def test_upstream_rank_date_fallback_when_no_ranking(self):
+        """use_upstream_rank_date=True but latest_rank_date=None (no ranking yet): falls
+        back to trading_day so the chain still triggers ranking via the earlier steps.
+        """
+        today = "2026-05-27"
+        trading_day = "2026-05-27"
+        step = self._make_step(date_field="portfolio_date", use_upstream_rank_date=True)
+        client = _async_client_returning({"status": "success", "portfolio_date": "2026-05-27"})
+        result = await _step_state(client, step, today, trading_day, "2026-05-26",
+                                   latest_rank_date=None)
+        assert result == "done"
+
 
 # ── TestSupervisorTick ────────────────────────────────────────────────────────
 
@@ -351,7 +395,7 @@ class TestSupervisorTick:
 
         call_count = [0]
 
-        async def _fake_step_state(client, step, today, trading_day, prev_trading_day):
+        async def _fake_step_state(client, step, today, trading_day, prev_trading_day, latest_rank_date=None):
             call_count[0] += 1
             if step.name == "fetch-data":
                 return "done"
@@ -381,7 +425,7 @@ class TestSupervisorTick:
         mock_trigger = AsyncMock()
         mock_db_close = AsyncMock()
 
-        async def _fake_step_state(client, step, today, trading_day, prev_trading_day):
+        async def _fake_step_state(client, step, today, trading_day, prev_trading_day, latest_rank_date=None):
             if step.name == "fetch-data":
                 return "failed"
             return "idle"
@@ -408,7 +452,7 @@ class TestSupervisorTick:
         mock_trigger = AsyncMock()
         mock_db_close = AsyncMock()
 
-        async def _fake_step_state(client, step, today, trading_day, prev_trading_day):
+        async def _fake_step_state(client, step, today, trading_day, prev_trading_day, latest_rank_date=None):
             if step.name in ("fetch-data", "pipeline", "portfolio-builder", "delta"):
                 return "done"
             if step.name == "vet":

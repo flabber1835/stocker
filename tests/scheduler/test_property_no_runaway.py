@@ -160,7 +160,7 @@ async def test_no_step_triggered_more_than_chain_bound(tick_sequence, seed_force
         client.__aenter__ = AsyncMock(return_value=client)
         client.__aexit__ = AsyncMock(return_value=False)
 
-        async def _fake_step_state(c, step, today, trading_day, prev_trading_day):
+        async def _fake_step_state(c, step, today, trading_day, prev_trading_day, latest_rank_date=None):
             return scenario["step_states"][step.name]
 
         async def _track_trigger_step(c, step, force=False):

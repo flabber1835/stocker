@@ -77,6 +77,15 @@ class _StepDef:
     status_path: str = "/runs/latest"  # path used for status polling
     use_trading_day: bool = False   # use last_trading_day() for date comparison
     also_accept_prev: bool = False  # also accept prev_trading_day
+    # For downstream-of-ranking steps (portfolio-builder, delta) compare the
+    # step's date_field to the latest successful ranking_runs.rank_date rather
+    # than wall-clock trading_day. portfolio_date and delta run_date inherit
+    # rank_date (the MAX SPY date in daily_prices), which lags trading_day
+    # whenever today's bar isn't ingested yet — every weekday from market open
+    # until ~1–2h after close. Comparing against trading_day caused an
+    # infinite retrigger loop (idle → trigger → success → idle → …). Treat
+    # the step as "done" when its date matches the freshest ranking's date.
+    use_upstream_rank_date: bool = False
     job_type: str | None = None     # job_type filter on /runs/latest
     extra_ok: tuple = ()            # extra ok statuses beyond "success"
     optional: bool = False          # if True, failure does not abort chain
@@ -106,21 +115,22 @@ _STEPS: list[_StepDef] = [
     # and the chain would be permanently blocked without this guard.
     _StepDef("vet", VETTER_URL, "/jobs/vet", "started_at", optional=True,
              max_running_minutes=90),
-    # portfolio_date is the trading-day date of the underlying ranking data.
-    # also_accept_prev=False: last_trading_day() already returns the correct
-    # session (Fri May 22) on market holidays (Mon May 25 Memorial Day), so
-    # portfolio_date from Friday's run matches trading_day exactly — no need to
-    # also accept prev_trading_day. Keeping also_accept_prev=False prevents the
-    # scheduler from skipping portfolio-builder on normal trading days when
-    # yesterday's run (portfolio_date = prev_trading_day) would otherwise be
-    # treated as "done" and the step would be bypassed.
+    # portfolio_date == ranking_runs.rank_date (the source ranking's data date).
+    # Compare to the latest rank_date, not trading_day: portfolio-builder is
+    # downstream of ranking and inherits whatever data date the pipeline produced.
+    # If today's SPY bar isn't ingested yet (every weekday until ~1–2h post-close)
+    # rank_date trails trading_day, and comparing against trading_day causes the
+    # infinite retrigger loop the comment block above describes for the pipeline
+    # step. Once a fresher ranking lands, portfolio_date != latest rank_date again
+    # and the step correctly re-runs.
     _StepDef("portfolio-builder", PORTFOLIO_BUILDER_URL, "/jobs/build", "portfolio_date",
-             use_trading_day=True, also_accept_prev=False),
-    # run_date is set to the trading day being processed, not the wall-clock run time.
-    # Same rationale as portfolio-builder: exchange calendar handles holidays correctly.
+             use_upstream_rank_date=True),
+    # delta_runs.run_date is set from ranking_runs.rank_date in _do_delta_step
+    # (see services/pipeline/app/main.py: `run_date = latest_rank.rank_date`).
+    # Same data-date semantics as portfolio_date, same fix.
     _StepDef("delta", PIPELINE_URL, "/jobs/delta", "run_date",
              status_path="/runs/delta-latest",
-             use_trading_day=True, also_accept_prev=False),
+             use_upstream_rank_date=True),
 ]
 
 
@@ -189,6 +199,32 @@ async def _db_update_run(run_id: str | None, status: str, steps: dict, run_ids: 
 
 async def _db_close_run(run_id: str | None, status: str, steps: dict, run_ids: dict) -> None:
     await _db_update_run(run_id, status, steps, run_ids, close=True)
+
+
+async def _latest_rank_date() -> str | None:
+    """Return the freshest successful ranking_runs.rank_date as ISO string, or None.
+
+    Used by _step_state for steps with use_upstream_rank_date=True so downstream
+    steps (portfolio-builder, delta) are compared against the actual data date
+    produced by ranking rather than wall-clock trading_day. Returns None on any
+    DB issue; callers fall back to trading_day in that case.
+    """
+    conn = await _db_connect()
+    if not conn:
+        return None
+    try:
+        row = await conn.fetchrow(
+            "SELECT rank_date FROM ranking_runs WHERE status='success' "
+            "ORDER BY rank_date DESC, completed_at DESC NULLS LAST LIMIT 1"
+        )
+        if not row or row["rank_date"] is None:
+            return None
+        return row["rank_date"].isoformat()
+    except Exception as exc:
+        _log("DB: latest_rank_date failed", error=str(exc))
+        return None
+    finally:
+        await conn.close()
 
 
 async def _restore_force_pending() -> tuple[str | None, set[str]]:
@@ -316,6 +352,7 @@ async def _step_state(
     today: str,
     trading_day: str,
     prev_trading_day: str,
+    latest_rank_date: str | None = None,
 ) -> StepState:
     try:
         r = await client.get(f"{step.url}{step.status_path}", timeout=10.0)
@@ -324,8 +361,12 @@ async def _step_state(
         data = r.json()
         if step.job_type and data.get("job_type") != step.job_type:
             return "idle"
-        target = trading_day if step.use_trading_day else today
-        ok_dates = {target, prev_trading_day} if step.also_accept_prev else {target}
+        if step.use_upstream_rank_date and latest_rank_date:
+            target = latest_rank_date
+            ok_dates = {target}
+        else:
+            target = trading_day if step.use_trading_day else today
+            ok_dates = {target, prev_trading_day} if step.also_accept_prev else {target}
         run_date = (data.get(step.date_field) or "")[:10]
         run_status = data.get("status")
 
@@ -545,8 +586,14 @@ async def _supervisor_tick() -> None:
 
             run_id = _chain_status.get("current_run_id")
 
+            # Fetch the freshest ranking date once per tick so downstream steps
+            # (portfolio-builder, delta) compare their data-dates against actual
+            # ranking output rather than wall-clock trading_day. See _StepDef docs.
+            latest_rank_date = await _latest_rank_date()
+
             for step in _STEPS:
-                state = await _step_state(client, step, today, trading_day, prev_trading_day)
+                state = await _step_state(client, step, today, trading_day, prev_trading_day,
+                                          latest_rank_date=latest_rank_date)
                 _chain_status["steps"][step.name] = state
                 _log(f"supervisor: {step.name} → {state}")
 
