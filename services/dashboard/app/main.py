@@ -513,7 +513,7 @@ async def pipeline_status():
         done = d5.get("tickers_done", 0)
         total = d5.get("total_tickers") or 0
         if total > 0:
-            rank_pct = round(done / total * 80)
+            rank_pct = round(done / total * 100)
 
     orchestrator_running = scheduler_chain_running or _rank_chain_running
     if rank_status != "running" and orchestrator_running and not confirmed_terminal:
