@@ -5,3 +5,5 @@ asyncpg
 pandas
 numpy
 pyyaml
+redis[asyncio]
+
