@@ -186,8 +186,9 @@ async def _run_vet(
     candidate_count: int,
     started_at: datetime,
 ) -> None:
-    # DB rows (vetter_runs + execution_traces) were inserted by the handler inside
-    # _job_lock before add_task was called — no INSERT needed here.
+    # DB rows (vetter_runs + execution_traces) are inserted by the handler before
+    # add_task is called. _do_vet also inserts them defensively (ON CONFLICT DO NOTHING)
+    # to handle the rare case where the handler's commit was lost due to a transient error.
 
     # Shared mutable state so the exception handler can access partial results and
     # the total candidate count even when _do_vet raises before returning.
@@ -274,6 +275,32 @@ async def _do_vet(
     source_strategy_id: str = "unknown",
 ) -> None:
     today = date.today().isoformat()
+
+    # Defensive: the handler inserts vetter_runs + execution_traces before scheduling
+    # this background task. If the handler's commit was lost (transient DB error,
+    # connection pool recycle) the FK on execution_steps.trace_id would fire and
+    # crash this task with 0 tickers processed. ON CONFLICT DO NOTHING is a no-op
+    # for the normal path and a lifeline for the rare rollback case.
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO vetter_runs "
+                "(run_id, trace_id, source_ranking_run_id, strategy_id, model, status, started_at) "
+                "VALUES (:rid, :tid, :src, :sid, :model, 'running', :now) "
+                "ON CONFLICT (run_id) DO NOTHING"
+            ),
+            {"rid": run_id, "tid": trace_id, "src": source_ranking_run_id,
+             "sid": source_strategy_id, "model": f"gateway:{LLM_GATEWAY_URL}", "now": started_at},
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO execution_traces "
+                "(trace_id, job_type, status, root_run_id, started_at) "
+                "VALUES (:tid, 'vetter_run', 'running', :rid, :now) "
+                "ON CONFLICT (trace_id) DO NOTHING"
+            ),
+            {"tid": trace_id, "rid": run_id, "now": started_at},
+        )
 
     # ── Step 1: load candidates ───────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)

@@ -92,12 +92,12 @@ async def data_freshness():
 
         factors_row = (await conn.execute(text(
             "SELECT score_date, completed_at FROM factor_runs "
-            "WHERE status='success' ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+            "WHERE status='success' ORDER BY score_date DESC, completed_at DESC NULLS LAST LIMIT 1"
         ))).mappings().first()
 
         rankings_row = (await conn.execute(text(
             "SELECT rank_date, completed_at FROM ranking_runs "
-            "WHERE status='success' ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+            "WHERE status='success' ORDER BY rank_date DESC, completed_at DESC NULLS LAST LIMIT 1"
         ))).mappings().first()
 
     def _iso(v):
@@ -185,7 +185,7 @@ async def get_rankings(limit: int = 50, run_id: str | None = None):
                     "FROM rankings r LEFT JOIN ticker_slopes ts ON ts.ticker = r.ticker "
                     "WHERE r.run_id = ("
                     "  SELECT run_id FROM ranking_runs WHERE status='success'"
-                    "  ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+                    "  ORDER BY rank_date DESC, completed_at DESC NULLS LAST LIMIT 1"
                     ") ORDER BY r.rank ASC LIMIT :limit"
                 ),
                 {"limit": limit},
@@ -626,7 +626,7 @@ async def get_investable_universe():
             text(
                 "SELECT run_id, score_date, ticker_count, regime "
                 "FROM factor_runs WHERE status='success' "
-                "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+                "ORDER BY score_date DESC, completed_at DESC NULLS LAST LIMIT 1"
             )
         )
         run = run_row.mappings().first()
@@ -920,7 +920,7 @@ async def get_portfolio(run_id: str | None = None):
                     "       covariance_window_days, avg_pairwise_correlation, portfolio_estimated_vol, "
                     "       error_message, started_at, completed_at "
                     "FROM portfolio_runs WHERE status = 'success' "
-                    "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+                    "ORDER BY portfolio_date DESC, completed_at DESC NULLS LAST LIMIT 1"
                 )
             )
         run = run_row.mappings().first()
