@@ -680,7 +680,7 @@ async def start_vet(
             )
         else:
             chk = await conn.execute(
-                text("SELECT run_id, strategy_id FROM ranking_runs WHERE status='success' ORDER BY completed_at DESC LIMIT 1")
+                text("SELECT run_id, strategy_id FROM ranking_runs WHERE status='success' ORDER BY rank_date DESC, completed_at DESC LIMIT 1")
             )
         row = chk.fetchone()
         if row is None:

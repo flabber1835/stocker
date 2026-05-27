@@ -1068,7 +1068,7 @@ async def get_delta_latest():
                 "at_risk_count, buy_add_count, sell_trim_count, "
                 "triggered_by, started_at, completed_at, error_message "
                 "FROM delta_runs "
-                "ORDER BY started_at DESC LIMIT 1"
+                "ORDER BY run_date DESC, started_at DESC LIMIT 1"
             ))).mappings().first()
 
             if run_row is None:

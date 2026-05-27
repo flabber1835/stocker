@@ -2251,7 +2251,7 @@ async def get_latest():
             "SELECT run_id, trace_id, status, run_date, chain_date, factor_run_id, "
             "ranking_run_id, delta_run_id, factor_status, ranking_status, delta_status, "
             "started_at, completed_at, error_message, triggered_by "
-            "FROM pipeline_runs ORDER BY started_at DESC LIMIT 1"
+            "FROM pipeline_runs ORDER BY chain_date DESC, started_at DESC LIMIT 1"
         ))
         r = row.fetchone()
     if r is None:
@@ -2272,7 +2272,7 @@ async def get_delta_latest():
             "  entries_count, exits_count, holds_count, watches_count, triggered_by, "
             "  error_message "
             "FROM delta_runs WHERE triggered_by = 'scheduler' "
-            "ORDER BY started_at DESC LIMIT 1"
+            "ORDER BY run_date DESC, started_at DESC LIMIT 1"
         ))
         r = row.fetchone()
     if r is None:

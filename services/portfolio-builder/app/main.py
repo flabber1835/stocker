@@ -858,7 +858,7 @@ async def get_latest_run():
         row = await conn.execute(
             text(
                 "SELECT run_id, status, portfolio_date, error_message, started_at, completed_at "
-                "FROM portfolio_runs ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+                "FROM portfolio_runs ORDER BY portfolio_date DESC, completed_at DESC NULLS LAST LIMIT 1"
             )
         )
         result = row.fetchone()
