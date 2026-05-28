@@ -560,9 +560,9 @@ async def _do_vet(
                 text(
                     "INSERT INTO vetter_decisions "
                     "(run_id, ticker, exclude, reason, confidence, risk_type, "
-                    " positive_catalyst, positive_reason, hallucination_flag_count) "
+                    " positive_catalyst, positive_reason, hallucination_flag_count, crashed) "
                     "VALUES (:rid, :ticker, :excl, :reason, :conf, :rtype, "
-                    "        :pc, :preason, :hfc) "
+                    "        :pc, :preason, :hfc, :crashed) "
                     "ON CONFLICT (run_id, ticker) DO NOTHING"
                 ),
                 {
@@ -575,6 +575,7 @@ async def _do_vet(
                     "pc":      r.get("positive_catalyst", False),
                     "preason": r.get("positive_reason", ""),
                     "hfc":     len(r.get("hallucination_flags", [])),
+                    "crashed": r.get("crashed", False),
                 },
             )
 
