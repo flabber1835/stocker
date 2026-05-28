@@ -692,7 +692,7 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
         async with engine.connect() as conn:
             existing = (await conn.execute(text(
                 "SELECT id, status FROM alpaca_orders "
-                "WHERE intent_id = :iid AND status IN ('pending','submitted','deferred','risk_rejected') "
+                "WHERE intent_id = :iid AND status IN ('pending','submitted','deferred') "
                 "LIMIT 1"
             ), {"iid": req.intent_id})).mappings().first()
         if existing:
@@ -825,7 +825,7 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
             async with engine.connect() as conn:
                 dupe = (await conn.execute(text(
                     "SELECT id, status FROM alpaca_orders "
-                    "WHERE intent_id=:iid AND status IN ('pending','submitted','deferred','risk_rejected') "
+                    "WHERE intent_id=:iid AND status IN ('pending','submitted','deferred') "
                     "LIMIT 1"
                 ), {"iid": req.intent_id})).mappings().first()
             return TradeAttemptResponse(

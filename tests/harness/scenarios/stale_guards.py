@@ -82,16 +82,23 @@ class _StaleGuardHook:
             log.info("[stale_guards] Test 1 restore PASS: %s", r0b.get("status"))
 
         # ── Test 2: stale alpaca-sync → MAX_SYNC_AGE_HOURS (default 24h) ──
+        # trade-executor catches stale sync during sizing (before risk-service) and raises
+        # HTTPException(409) → {"detail": "..."}. Risk-service has its own MAX_SYNC_AGE_HOURS
+        # guard too. Either format counts as a valid stale-sync rejection.
         log.info("[stale_guards] Test 2: alpaca-sync stale by 30h (threshold=24h)")
         await driver._make_sync_stale(hours=30.0)
         r1 = await driver._submit_single_intent(session, i1["id"])
-        if r1.get("status") != "risk_rejected":
+        stale_sync_blocked = (
+            r1.get("status") == "risk_rejected"
+            or ("detail" in r1 and "alpaca-sync" in r1.get("detail", ""))
+        )
+        if not stale_sync_blocked:
             errors.append(
                 f"stale_guards[sync_age]: expected risk_rejected, got '{r1.get('status')}' "
                 f"(response={r1})"
             )
         else:
-            log.info("[stale_guards] Test 2 PASS: risk_rejected as expected")
+            log.info("[stale_guards] Test 2 PASS: stale sync blocked as expected")
 
         # Restore freshness and resubmit.
         await driver._restore_sync_freshness()

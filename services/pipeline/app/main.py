@@ -169,7 +169,11 @@ async def _redis_consumer_loop() -> None:
                 count=10 if draining_pel else 1,
                 block=0 if draining_pel else 5000,
             )
-            if draining_pel and not msgs:
+            # redis-py returns [[stream, entries]] even when the PEL is empty,
+            # so `not msgs` is always False. Check whether any entries were
+            # actually returned to detect an empty PEL correctly.
+            total_entries = sum(len(e) for _, e in (msgs or []))
+            if draining_pel and total_entries == 0:
                 print("[pipeline] PEL drain complete; switching to new-message reads", flush=True)
                 draining_pel = False
                 continue

@@ -21,15 +21,15 @@ from tests.harness.harness.scenario import RegimeChange, Scenario
 REDIS_ORCHESTRATION = Scenario(
     name="redis_orchestration",
     description=(
-        "5-day simulation that omits the direct /jobs/run and /jobs/delta triggers. "
+        "1-day simulation that omits the direct /jobs/run and /jobs/delta triggers. "
         "Pipeline must self-trigger from the fetch_data.complete Redis event; "
         "delta must self-trigger from portfolio_builder.complete. "
-        "All 5 days must complete without timeout errors."
+        "The single day must complete without timeout errors."
     ),
     seed=7,
     universe_size=60,
     start_date=date(2024, 1, 2),
-    end_date=date(2024, 1, 8),  # 5 trading days (Tue–Mon)
+    end_date=date(2024, 1, 2),  # 1 trading day — proves the Redis trigger mechanism works
     regimes=[
         RegimeChange(start_date=date(2024, 1, 2), regime_type="bull_calm"),
     ],

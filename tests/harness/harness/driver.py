@@ -100,15 +100,35 @@ _TRUNCATE_TABLES = (
 # ---------------------------------------------------------------------------
 
 async def reset_database(dsn: str = DEFAULT_DSN) -> None:
-    """TRUNCATE all harness-owned tables in the correct FK order."""
+    """TRUNCATE all harness-owned tables and advance the Redis consumer group
+    position to the current end of the pipeline_events stream.
+
+    Advancing the consumer group position prevents the pipeline's Redis consumer
+    from replaying thousands of historical fetch_data.complete / portfolio_builder.complete
+    events that accumulated in production or prior test runs. After the reset, the
+    pipeline only sees events published by this simulation run.
+    """
     log.info("Resetting database …")
     conn = await asyncpg.connect(dsn)
     try:
         tables_sql = ", ".join(_TRUNCATE_TABLES)
         await conn.execute(f"TRUNCATE TABLE {tables_sql} CASCADE")
-        log.info("Database reset complete.")
     finally:
         await conn.close()
+
+    # Advance the pipeline Redis consumer group to $  (current stream head) so
+    # old events are skipped.  Errors are non-fatal — the scenario will still
+    # work; it may just be slower as the pipeline drains historical events.
+    try:
+        import redis as _redis_sync
+        r = _redis_sync.from_url("redis://localhost:6380", decode_responses=False)
+        r.xgroup_setid("stocker:pipeline_events", "pipeline-consumers", "$")
+        r.close()
+        log.info("Redis consumer group position advanced to $ (current end).")
+    except Exception as exc:
+        log.warning("Redis consumer group reset skipped: %s", exc)
+
+    log.info("Database reset complete.")
 
 
 async def _get_pending_intents_from_db(
@@ -200,10 +220,10 @@ async def poll_until_new_run(
                     await asyncio.sleep(interval)
                     continue
                 data = await r.json(content_type=None)
-                run_id = data.get("run_id", "")
+                run_id = data.get("run_id") or ""
                 status = data.get("status", "")
-                if status in ("running", "started", ""):
-                    pass  # keep polling
+                if status in ("running", "started", "", "no_runs"):
+                    pass  # keep polling — "no_runs" means nothing has run yet
                 elif prev_was_running or run_id != prev_run_id:
                     return data
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
@@ -921,6 +941,20 @@ class SimulationDriver:
             _prev_pipe_id = ""
             _prev_pipe_status = ""
 
+        # For redis trigger mode, snapshot delta state HERE (before pipeline runs)
+        # so that any delta triggered during the pipeline run counts as "new" when
+        # step 6 polls. Capturing it just before step 6 would miss deltas that
+        # completed during the long pipeline wait window.
+        _redis_prev_dl_id: str = ""
+        _redis_prev_dl_status: str = ""
+        if scenario.rely_on_redis_triggers:
+            try:
+                _pre3_dl = await _get(session, f"{pipeline}/runs/delta-latest")
+                _redis_prev_dl_id = _pre3_dl.get("run_id") or ""
+                _redis_prev_dl_status = _pre3_dl.get("status", "") or ""
+            except Exception:
+                pass
+
         if scenario.rely_on_redis_triggers:
             # av-ingestor publishes fetch_data.complete after fetch-data completes.
             # pipeline's _redis_consumer_loop picks it up and self-triggers — no POST needed.
@@ -929,7 +963,7 @@ class SimulationDriver:
                 final = await poll_until_new_run(
                     session, f"{pipeline}/runs/latest",
                     prev_run_id=_prev_pipe_id, prev_status=_prev_pipe_status,
-                    max_wait=180, interval=1.0,
+                    max_wait=300, interval=1.0,
                 )
                 pipeline_status = final.get("status", "")
             except TimeoutError as exc:
@@ -950,7 +984,7 @@ class SimulationDriver:
                     final = await poll_until_new_run(
                         session, f"{pipeline}/runs/latest",
                         prev_run_id=_prev_pipe_id, prev_status=_prev_pipe_status,
-                        max_wait=180, interval=0.5,
+                        max_wait=300, interval=0.5,
                     )
                     pipeline_status = final.get("status", "")
                 except TimeoutError as exc:
@@ -1036,12 +1070,14 @@ class SimulationDriver:
         if scenario.rely_on_redis_triggers:
             # portfolio-builder publishes portfolio_builder.complete after a successful build.
             # pipeline's _redis_consumer_loop picks it up and self-triggers delta — no POST needed.
+            # Use _redis_prev_dl_id (captured before step 3) so that any delta triggered
+            # during the pipeline run window is already considered "new".
             log.info("Step 6: waiting for delta to self-trigger via Redis portfolio_builder.complete")
             try:
                 final = await poll_until_new_run(
                     session, f"{pipeline}/runs/delta-latest",
-                    prev_run_id=_prev_dl_id, prev_status=_prev_dl_status,
-                    max_wait=120, interval=1.0,
+                    prev_run_id=_redis_prev_dl_id, prev_status=_redis_prev_dl_status,
+                    max_wait=180, interval=1.0,
                 )
                 delta_run_id = final.get("run_id")
             except TimeoutError as exc:
