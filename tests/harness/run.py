@@ -53,10 +53,20 @@ def _load_scenario(name: str) -> Scenario:
     if name == "restart_recovery":
         from tests.harness.scenarios.restart_recovery import RESTART_RECOVERY
         return RESTART_RECOVERY
+    if name == "redis_orchestration":
+        from tests.harness.scenarios.redis_orchestration import REDIS_ORCHESTRATION
+        return REDIS_ORCHESTRATION
+    if name == "stale_guards":
+        from tests.harness.scenarios.stale_guards import STALE_GUARDS
+        return STALE_GUARDS
+    if name == "auto_approve":
+        from tests.harness.scenarios.auto_approve import AUTO_APPROVE
+        return AUTO_APPROVE
     raise ValueError(
         f"Unknown scenario '{name}'.  "
         "Available: quick_smoke, year_bull_bear, year_initial_positions, "
-        "year_with_interventions, restart_recovery"
+        "year_with_interventions, restart_recovery, "
+        "redis_orchestration, stale_guards, auto_approve"
     )
 
 
@@ -73,7 +83,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "scenario",
         choices=["quick_smoke", "year_bull_bear", "year_initial_positions",
-                 "year_with_interventions", "restart_recovery"],
+                 "year_with_interventions", "restart_recovery",
+                 "redis_orchestration", "stale_guards", "auto_approve"],
         help="Name of the scenario to run.",
     )
     parser.add_argument(

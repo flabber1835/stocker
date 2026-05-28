@@ -76,6 +76,11 @@ services:
       alpaca-sim:
         condition: service_healthy
 
+  # ── dashboard: set auto-approve timeout to 1 minute for auto_approve scenario ──
+  dashboard:
+    environment:
+      TRADE_AUTO_APPROVE_MINUTES: "1"
+
   # ── scheduler: 24-hour tick so harness drives pipeline without interference ───
   scheduler:
     environment:
