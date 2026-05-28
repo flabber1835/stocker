@@ -19,9 +19,10 @@ PORTFOLIO_BUILDER_URL = os.getenv("PORTFOLIO_BUILDER_URL",  "http://portfolio-bu
 ALPACA_SYNC_URL       = os.getenv("ALPACA_SYNC_URL",        "http://alpaca-sync:8000")
 DATABASE_URL          = os.getenv("DATABASE_URL", "")
 
-# Default: 21:15 UTC = 4:15 pm ET, weekdays only (market close + 15 min buffer).
-# Override via env var using standard cron syntax, e.g. "0 22 * * 1-5"
-RANK_SCHEDULE_CRON = os.getenv("RANK_SCHEDULE_CRON", "15 21 * * 1-5")
+# Default: 4:15 pm ET weekdays (market close + 15 min buffer).
+# Cron is interpreted in America/New_York so DST shifts are handled automatically.
+# Override via env var using standard cron syntax, e.g. "0 17 * * 1-5"
+RANK_SCHEDULE_CRON = os.getenv("RANK_SCHEDULE_CRON", "15 16 * * 1-5")
 
 SUPERVISOR_INTERVAL_SECS = int(os.getenv("SUPERVISOR_INTERVAL_SECS", "300"))
 
@@ -456,6 +457,23 @@ async def _trigger_step(client: httpx.AsyncClient, step: _StepDef, force: bool =
         return False
 
 
+def _is_after_scheduled_time() -> bool:
+    """Return True if local time (ET when TZ=America/New_York) is at or past
+    the scheduled chain start time parsed from RANK_SCHEDULE_CRON.
+    Prevents the 5-minute interval ticker from firing the chain before market
+    close — without this guard it would trigger at midnight ET on prior-day data.
+    Falls back to True (don't block) if the cron string can't be parsed.
+    """
+    try:
+        parts = RANK_SCHEDULE_CRON.split()
+        gate_minute = int(parts[0])
+        gate_hour   = int(parts[1])
+    except (IndexError, ValueError):
+        return True
+    now = datetime.now()  # local time = ET because TZ=America/New_York on container
+    return now.hour > gate_hour or (now.hour == gate_hour and now.minute >= gate_minute)
+
+
 async def _supervisor_tick() -> None:
     """
     Non-blocking state-machine supervisor. Reads each step's status from its
@@ -509,6 +527,9 @@ async def _supervisor_tick() -> None:
         # of the day. _chain_status resets when the calendar date rolls over.
         if _chain_status.get("status") in ("success", "failed") and _chain_status.get("date") == today:
             return
+
+        if not _is_after_scheduled_time():
+            return  # too early — wait for market close before starting chain
 
         async with httpx.AsyncClient() as client:
             # Cold-start guard: only trigger fetch-universe when the universe is
@@ -762,12 +783,12 @@ async def lifespan(app: FastAPI):
     global _scheduler
     _scheduler = AsyncIOScheduler(timezone="UTC")
 
-    # Cron trigger: daily at market close (default 21:15 UTC = 4:15pm ET weekdays)
+    # Cron trigger: daily at market close (default 4:15pm ET weekdays, DST-aware)
     try:
-        cron_trigger = CronTrigger.from_crontab(RANK_SCHEDULE_CRON, timezone="UTC")
+        cron_trigger = CronTrigger.from_crontab(RANK_SCHEDULE_CRON, timezone="America/New_York")
     except Exception as exc:
         _log(f"Invalid RANK_SCHEDULE_CRON {RANK_SCHEDULE_CRON!r}: {exc} — using default")
-        cron_trigger = CronTrigger.from_crontab("15 21 * * 1-5", timezone="UTC")
+        cron_trigger = CronTrigger.from_crontab("15 16 * * 1-5", timezone="America/New_York")
     _scheduler.add_job(
         _supervisor_tick,
         cron_trigger,
