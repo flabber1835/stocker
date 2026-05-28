@@ -70,17 +70,18 @@ def _full_rankings():
 
 def _intent(id_: str, ticker: str, action: str, *, order_status=None,
             order_deferred_until=None, rejected_at=None, vetter_excluded=False,
-            rank=1, score=0.9):
+            order_error_message=None, rank=1, score=0.9):
     return {
         "id": id_, "ticker": ticker, "action": action, "rank": rank,
         "composite_score": score, "rejected_at": rejected_at,
-        "order_status": order_status, "order_error_message": None,
+        "order_status": order_status, "order_error_message": order_error_message,
         "order_deferred_until": order_deferred_until,
         "vetter_excluded": vetter_excluded, "vetter_confidence": None,
         "vetter_risk_type": None, "vetter_reason": None,
         "reason": "test", "confirmation_days_met": True,
         "current_weight": 0, "actual_weight": None, "weight_drift": None,
         "positive_catalyst": False, "positive_reason": None,
+        "name": None,
     }
 
 
@@ -287,6 +288,105 @@ SCENARIOS = {
             "intents": [
                 _intent("v1", "PARR", "entry", vetter_excluded=True, rank=1),
                 _intent("v2", "AAPL", "entry", rank=2),
+            ],
+        },
+        "/api/live-portfolio": {"connected": False, "sync": {}},
+        "/api/orders/recent": [],
+    },
+
+    # ── All orders filled — no action needed, completed section auto-expands ─
+    "all_filled": {
+        "/api/pipeline-status": _pipeline_status(),
+        "/api/rankings/with-overlays": _full_rankings(),
+        "/api/delta/latest": {
+            "run": _delta_run(entries=2, exits=1),
+            "intents": [
+                _intent("f1", "AAPL", "entry", rank=1, order_status="filled"),
+                _intent("f2", "MSFT", "entry", rank=2, order_status="filled"),
+                _intent("f3", "NVDA", "exit",  rank=15, order_status="filled"),
+            ],
+        },
+        "/api/live-portfolio": {"connected": False, "sync": {}},
+        "/api/orders/recent": [],
+    },
+
+    # ── Partial fill — partially completed ──────────────────────────────────
+    "partial_fill": {
+        "/api/pipeline-status": _pipeline_status(),
+        "/api/rankings/with-overlays": _full_rankings(),
+        "/api/delta/latest": {
+            "run": _delta_run(entries=2),
+            "intents": [
+                _intent("pf1", "AAPL", "entry", rank=1, order_status="partial_fill"),
+                _intent("pf2", "MSFT", "entry", rank=2),  # still pending approval
+            ],
+        },
+        "/api/live-portfolio": {"connected": False, "sync": {}},
+        "/api/orders/recent": [],
+    },
+
+    # ── Failed orders — unexpected failures go to Needs Attention ────────────
+    "failed_orders": {
+        "/api/pipeline-status": _pipeline_status(),
+        "/api/rankings/with-overlays": _full_rankings(),
+        "/api/delta/latest": {
+            "run": _delta_run(entries=2, exits=1),
+            "intents": [
+                _intent("fail1", "AAPL", "entry", rank=1, order_status="failed",
+                        order_error_message='{"message": "insufficient buying power"}'),
+                _intent("fail2", "MSFT", "entry", rank=2),  # still pending approval
+                _intent("fail3", "NVDA", "exit",  rank=15, order_status="filled"),
+            ],
+        },
+        "/api/live-portfolio": {"connected": False, "sync": {}},
+        "/api/orders/recent": [],
+    },
+
+    # ── Risk-rejected order ───────────────────────────────────────────────────
+    "risk_rejected": {
+        "/api/pipeline-status": _pipeline_status(),
+        "/api/rankings/with-overlays": _full_rankings(),
+        "/api/delta/latest": {
+            "run": _delta_run(exits=1),
+            "intents": [
+                _intent("rr1", "NVDA", "exit", rank=15, order_status="risk_rejected"),
+                _intent("rr2", "AAPL", "entry", rank=1),  # still pending
+            ],
+        },
+        "/api/live-portfolio": {"connected": False, "sync": {}},
+        "/api/orders/recent": [],
+    },
+
+    # ── Mixed all three sections ─────────────────────────────────────────────
+    "mixed_all_sections": {
+        "/api/pipeline-status": _pipeline_status(),
+        "/api/rankings/with-overlays": _full_rankings(),
+        "/api/delta/latest": {
+            "run": _delta_run(entries=3, exits=1, holds=1),
+            "intents": [
+                _intent("ma1", "AAPL", "entry", rank=1),               # attention: awaiting approval
+                _intent("ma2", "MSFT", "entry", rank=2,
+                        order_status="submitted"),                       # progress
+                _intent("ma3", "NVDA", "entry", rank=3,
+                        order_status="filled"),                          # completed
+                _intent("ma4", "GOOG", "exit",  rank=10),               # attention: awaiting approval
+                _intent("ma5", "TSLA", "hold",  rank=5),                # completed
+            ],
+        },
+        "/api/live-portfolio": {"connected": False, "sync": {}},
+        "/api/orders/recent": [],
+    },
+
+    # ── Already-held blocked ─────────────────────────────────────────────────
+    "already_held_blocked": {
+        "/api/pipeline-status": _pipeline_status(),
+        "/api/rankings/with-overlays": _full_rankings(),
+        "/api/delta/latest": {
+            "run": _delta_run(entries=2),
+            "intents": [
+                _intent("ahb1", "NEM", "entry", rank=1, order_status="failed",
+                        order_error_message="Duplicate entry blocked: NEM already held (qty=7)"),
+                _intent("ahb2", "AAPL", "entry", rank=2),  # still pending approval
             ],
         },
         "/api/live-portfolio": {"connected": False, "sync": {}},
@@ -671,6 +771,240 @@ INTENTS: list[Intent] = [
         description="Vetter-excluded entry shows a 'Vetter blocked' warning.",
         must_contain_text=["Vetter blocked"],
     ),
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # ALL FILLED — completed section auto-expands, badge hidden
+    # ──────────────────────────────────────────────────────────────────────────
+
+    Intent(
+        name="all_filled_no_badge",
+        scenario="all_filled",
+        panel="trader",
+        description="When all orders are filled, the nav badge must be hidden "
+                    "(nothing needs the operator's attention).",
+        must_hide=["#nav-trade-badge"],
+    ),
+
+    Intent(
+        name="all_filled_no_approve_buttons",
+        scenario="all_filled",
+        panel="trader",
+        description="Filled orders have no approve/reject buttons.",
+        custom_check=lambda page: _check_count(
+            page, ".btn-sm-approve", expected=0,
+            why="filled orders cannot be re-approved"
+        ),
+    ),
+
+    Intent(
+        name="all_filled_completed_section_visible",
+        scenario="all_filled",
+        panel="trader",
+        description="When all intents are filled (nothing in attention/progress), "
+                    "the completed section auto-expands so the operator can see "
+                    "what happened — no 'No signals' empty state.",
+        must_contain_text=["AAPL", "MSFT", "NVDA"],
+    ),
+
+    Intent(
+        name="all_filled_done_chip_shows_count",
+        scenario="all_filled",
+        panel="trader",
+        description="DONE chip shows count of completed items.",
+        custom_check=lambda page: _check_chip(page, "#ds-done", "3"),
+    ),
+
+    Intent(
+        name="all_filled_pending_chip_shows_zero",
+        scenario="all_filled",
+        panel="trader",
+        description="PENDING chip shows 0 when nothing needs attention.",
+        custom_check=lambda page: _check_chip(page, "#ds-pending", "0"),
+    ),
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # PARTIAL FILL — one filled (completed), one pending (attention)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    Intent(
+        name="partial_fill_pending_still_in_attention",
+        scenario="partial_fill",
+        panel="trader",
+        description="The pending intent is in the Needs Attention section with an approve button.",
+        custom_check=lambda page: _check_count(
+            page, ".btn-sm-approve", expected=1,
+            why="only MSFT (pending) should have an approve button; AAPL is partial_fill"
+        ),
+    ),
+
+    Intent(
+        name="partial_fill_no_badge_for_filled",
+        scenario="partial_fill",
+        panel="trader",
+        description="Partial-fill goes to completed section — badge counts only the pending intent.",
+        custom_check=lambda page: _check_chip(page, "#ds-pending", "1"),
+    ),
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # FAILED ORDERS — unexpected failures in Needs Attention section
+    # ──────────────────────────────────────────────────────────────────────────
+
+    Intent(
+        name="failed_order_in_attention_section",
+        scenario="failed_orders",
+        panel="trader",
+        description="A failed order must appear in the Needs Attention section "
+                    "so the operator can investigate.",
+        must_contain_text=["Needs Attention"],
+    ),
+
+    Intent(
+        name="failed_order_shows_error_message",
+        scenario="failed_orders",
+        panel="trader",
+        description="The failed order shows the Alpaca error message.",
+        must_contain_text=["insufficient buying power"],
+    ),
+
+    Intent(
+        name="failed_order_pending_chip_counts_failed",
+        scenario="failed_orders",
+        panel="trader",
+        description="PENDING chip includes failed orders (they need attention).",
+        custom_check=lambda page: _check_chip(page, "#ds-pending", "2"),
+    ),
+
+    Intent(
+        name="filled_order_in_completed_section",
+        scenario="failed_orders",
+        panel="trader",
+        description="The filled order (NVDA) goes to completed section, not attention.",
+        custom_check=lambda page: _check_chip(page, "#ds-done", "1"),
+    ),
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # RISK REJECTED — risk-rejected orders in Needs Attention
+    # ──────────────────────────────────────────────────────────────────────────
+
+    Intent(
+        name="risk_rejected_in_attention_section",
+        scenario="risk_rejected",
+        panel="trader",
+        description="A risk-rejected order must appear in Needs Attention so the "
+                    "operator knows the risk service blocked the trade.",
+        must_contain_text=["Risk rejected"],
+    ),
+
+    Intent(
+        name="risk_rejected_pending_entry_still_approvable",
+        scenario="risk_rejected",
+        panel="trader",
+        description="The non-rejected entry (AAPL) still has its approve button.",
+        custom_check=lambda page: _check_count(
+            page, ".btn-sm-approve", expected=1,
+            why="only AAPL (pending entry) should have an approve button"
+        ),
+    ),
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # MIXED ALL THREE SECTIONS
+    # ──────────────────────────────────────────────────────────────────────────
+
+    Intent(
+        name="mixed_attention_section_shown",
+        scenario="mixed_all_sections",
+        panel="trader",
+        description="Needs Attention section header is visible when approvable items exist.",
+        must_contain_text=["Needs Attention"],
+    ),
+
+    Intent(
+        name="mixed_progress_section_shown",
+        scenario="mixed_all_sections",
+        panel="trader",
+        description="In Progress section header is visible when submitted items exist.",
+        must_contain_text=["In Progress"],
+    ),
+
+    Intent(
+        name="mixed_completed_section_collapsed_by_default",
+        scenario="mixed_all_sections",
+        panel="trader",
+        description="Completed section is collapsed by default when attention/progress "
+                    "sections are non-empty — filled NVDA and hold TSLA are not shown "
+                    "until user expands the section.",
+        must_contain_text=["Completed"],
+        must_not_contain_text=["TSLA"],  # hold/completed item not shown while collapsed
+    ),
+
+    Intent(
+        name="mixed_badge_counts_attention_only",
+        scenario="mixed_all_sections",
+        panel="trader",
+        description="Badge counts only Needs Attention items (2 approvable), "
+                    "not the submitted MSFT or filled NVDA.",
+        custom_check=lambda page: _check_chip(page, "#ds-pending", "2"),
+    ),
+
+    Intent(
+        name="mixed_submitted_chip_correct",
+        scenario="mixed_all_sections",
+        panel="trader",
+        description="SUBMITTED chip shows 1 (MSFT submitted to broker).",
+        custom_check=lambda page: _check_chip(page, "#ds-inflight", "1"),
+    ),
+
+    Intent(
+        name="mixed_done_chip_correct",
+        scenario="mixed_all_sections",
+        panel="trader",
+        description="DONE chip shows 2 (NVDA filled + TSLA hold).",
+        custom_check=lambda page: _check_chip(page, "#ds-done", "2"),
+    ),
+
+    Intent(
+        name="mixed_only_attention_rows_have_approve_buttons",
+        scenario="mixed_all_sections",
+        panel="trader",
+        description="Only the 2 attention-section rows (AAPL entry, GOOG exit) "
+                    "have approve buttons. Submitted MSFT does not.",
+        custom_check=lambda page: _check_count(
+            page, ".btn-sm-approve", expected=2,
+            why="AAPL and GOOG are approvable; MSFT is submitted; NVDA/TSLA in completed"
+        ),
+    ),
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # ALREADY-HELD BLOCKED — failed with informational message
+    # ──────────────────────────────────────────────────────────────────────────
+
+    Intent(
+        name="already_held_blocked_shows_in_attention",
+        scenario="already_held_blocked",
+        panel="trader",
+        description="An already-held-blocked order (status=failed) appears in the "
+                    "Needs Attention section so the operator can see it.",
+        must_contain_text=["Needs Attention"],
+    ),
+
+    Intent(
+        name="already_held_blocked_shows_error_text",
+        scenario="already_held_blocked",
+        panel="trader",
+        description="The blocked NEM entry shows the 'already held' error message.",
+        must_contain_text=["Duplicate entry blocked"],
+    ),
+
+    Intent(
+        name="already_held_pending_entry_still_approvable",
+        scenario="already_held_blocked",
+        panel="trader",
+        description="The pending AAPL entry is still approvable alongside the blocked NEM.",
+        custom_check=lambda page: _check_count(
+            page, ".btn-sm-approve", expected=1,
+            why="only AAPL is approvable; NEM is blocked (failed order)"
+        ),
+    ),
 ]
 
 
@@ -682,6 +1016,17 @@ def _check_count(page, selector: str, expected: int, why: str) -> tuple[bool, st
     if actual == expected:
         return True, f"  ✓ {selector}: {actual} (expected {expected})"
     return False, f"  ✗ {selector}: got {actual}, expected {expected} — {why}"
+
+
+def _check_chip(page, selector: str, expected_text: str) -> tuple[bool, str]:
+    """Return (ok, message) — ok if the chip element shows `expected_text`."""
+    try:
+        actual = page.locator(selector).inner_text(timeout=3000).strip()
+    except Exception as e:
+        return False, f"  ✗ {selector}: could not read text — {e}"
+    if actual == expected_text:
+        return True, f"  ✓ {selector}: {actual!r}"
+    return False, f"  ✗ {selector}: got {actual!r}, expected {expected_text!r}"
 
 
 def _check_status_indicates_running(page) -> tuple[bool, str]:

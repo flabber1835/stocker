@@ -27,6 +27,7 @@ let _rankingsLoadState = 'pending';  // 'pending' | 'ok' | 'empty' — drives st
 
 const RUN_LOCK_MS = 30000;     // keep button disabled for 30 s after clicking Run
 let _selectedIntents = new Set();
+let _completedExpanded = false; // trader tab: whether the Completed section is open
 
 const REFRESH_SECS = 30;
 
@@ -566,11 +567,8 @@ async function loadDelta() {
     const d = await fetch('/api/delta/latest').then(r => r.json());
     const run = d.run || {};
     deltaData = d.intents || [];
-    $('ds-entries').textContent = run.entries_count ?? '—';
-    $('ds-exits').textContent   = run.exits_count   ?? '—';
-    $('ds-holds').textContent   = run.holds_count   ?? '—';
-    $('ds-watches').textContent = run.watches_count  ?? '—';
-    $('ds-date').textContent    = run.run_date       || '—';
+    const dateEl = $('ds-date');
+    if (dateEl) dateEl.textContent = run.run_date || '—';
     _approvalState = {};
     _selectedIntents.clear();
     renderTrader();
@@ -594,6 +592,39 @@ const ACTION_PILL = {
   hold: 'pill-hold', watch: 'pill-watch', at_risk: 'pill-at-risk',
 };
 
+/* Classify an intent into one of three display sections:
+ *   'attention'  — needs operator action: awaiting approval, failed, or vetter-blocked buy
+ *   'progress'   — submitted to broker and in-flight; no action needed yet
+ *   'completed'  — filled, rejected, hold/watch; no action possible
+ */
+function _sectionFor(r) {
+  const os = r.order_status;
+  const st = _approvalState[r.id] || {};
+
+  // Local approval-state takes priority over DB state (UI is ahead of next refresh)
+  if (st.status === 'pending' || st.status === 'rejecting') return 'progress';
+  if (st.status === 'queued') return 'progress';
+  if (st.status === 'ok') return 'progress';
+  if (st.status === 'rejected') return 'completed';
+  if (st.status === 'err') return 'attention';
+
+  // DB order status
+  if (os === 'submitted' || os === 'pending' || os === 'deferred') return 'progress';
+  if (os === 'filled' || os === 'partial_fill') return 'completed';
+  if (os === 'failed' || os === 'risk_rejected') return 'attention';
+  if (r.rejected_at) return 'completed';
+
+  // No order yet — check if approvable
+  if (_isApprovable(r)) return 'attention';
+
+  // Vetter-excluded buy with no order: show in attention so operator can investigate
+  const isBuy = r.action === 'entry' || r.action === 'buy_add';
+  if (isBuy && r.vetter_excluded) return 'attention';
+
+  // Hold, watch, at_risk, and any other non-actionable state
+  return 'completed';
+}
+
 function _isApprovable(r) {
   if (!['entry', 'exit', 'buy_add', 'sell_trim'].includes(r.action)) return false;
   if (_approvalState[r.id]) return false;
@@ -604,11 +635,12 @@ function _isApprovable(r) {
   return true;
 }
 
+function toggleCompleted() {
+  _completedExpanded = !_completedExpanded;
+  renderTrader();
+}
+
 function renderTrader() {
-  // Rejected intents stay visible with a 'Rejected' status badge — the audit
-  // trail of "we saw this signal and the user/system rejected it" is part of
-  // the trader's view. The status cell rendering (further down) shows the
-  // Rejected text; _isApprovable() prevents an approve button from appearing.
   const sorted = [...deltaData]
     .sort((a, b) => {
       const ao = ACTION_ORDER[a.action] ?? 99;
@@ -616,10 +648,26 @@ function renderTrader() {
       return ao - bo || (a.rank ?? 999) - (b.rank ?? 999);
     });
 
+  // Split intents into three sections
+  const attentionItems = [];
+  const progressItems  = [];
+  const completedItems = [];
+  for (const r of sorted) {
+    const s = _sectionFor(r);
+    if      (s === 'attention') attentionItems.push(r);
+    else if (s === 'progress')  progressItems.push(r);
+    else                        completedItems.push(r);
+  }
+
+  // Update live-count chips
+  const hasData = deltaData.length > 0;
+  const pendEl = $('ds-pending');  if (pendEl)  pendEl.textContent  = hasData ? attentionItems.length : '—';
+  const flEl   = $('ds-inflight'); if (flEl)    flEl.textContent    = hasData ? progressItems.length  : '—';
+  const doneEl = $('ds-done');     if (doneEl)  doneEl.textContent  = hasData ? completedItems.length : '—';
+
+  // Toolbar: visible whenever any signals exist
   const toolbar = $('trader-toolbar');
-  // Show toolbar whenever there are any signals (including rejected) — the Purge & Reset
-  // button must be reachable even when all signals are rejected/hold/watch.
-  if (toolbar) toolbar.style.display = deltaData.length > 0 ? '' : 'none';
+  if (toolbar) toolbar.style.display = hasData ? '' : 'none';
 
   const tbody = $('trader-body');
   if (!tbody) return;
@@ -631,21 +679,45 @@ function renderTrader() {
     return;
   }
 
-  let lastSection = null;
+  // Auto-expand completed section when there is nothing actionable
+  const autoExpand = attentionItems.length === 0 && progressItems.length === 0;
+  const showCompleted = _completedExpanded || autoExpand;
+
   const rows = [];
-  for (const r of sorted) {
-    const section = (r.action === 'exit' || r.action === 'sell_trim') ? 'sell'
-                  : (r.action === 'entry' || r.action === 'buy_add')  ? 'buy'
-                  : 'hold';
-    if (section !== lastSection) {
-      const label = section === 'sell' ? 'Sell Orders'
-                  : section === 'buy'  ? 'Buy Orders'
-                  : 'Hold &amp; Watch';
-      rows.push('<tr class="tr-section-divider"><td colspan="8">' + label + '</td></tr>');
-      lastSection = section;
-    }
-    rows.push(_buildTradeRow(r));
+
+  // ── Section 1: Needs Attention ───────────────────────────────────────────
+  if (attentionItems.length > 0) {
+    const approvableCount = attentionItems.filter(_isApprovable).length;
+    const hdrDetail = approvableCount > 0
+      ? ' — ' + approvableCount + ' awaiting approval'
+      : '';
+    rows.push('<tr class="tr-section-attention"><td colspan="8">'
+      + '&#9888; Needs Attention' + hdrDetail
+      + '</td></tr>');
+    for (const r of attentionItems) rows.push(_buildTradeRow(r));
   }
+
+  // ── Section 2: In Progress ───────────────────────────────────────────────
+  if (progressItems.length > 0) {
+    const n = progressItems.length;
+    rows.push('<tr class="tr-section-progress"><td colspan="8">'
+      + 'In Progress — ' + n + ' order' + (n === 1 ? '' : 's') + ' submitted to broker'
+      + '</td></tr>');
+    for (const r of progressItems) rows.push(_buildTradeRow(r));
+  }
+
+  // ── Section 3: Completed (collapsible) ──────────────────────────────────
+  if (completedItems.length > 0) {
+    const arrow = showCompleted ? '▼' : '▶';
+    rows.push('<tr class="tr-section-completed" onclick="toggleCompleted()"><td colspan="8">'
+      + '<span class="completed-toggle" aria-hidden="true">' + arrow + '</span>'
+      + ' Completed &amp; Holds — ' + completedItems.length
+      + '</td></tr>');
+    if (showCompleted) {
+      for (const r of completedItems) rows.push(_buildTradeRow(r));
+    }
+  }
+
   tbody.innerHTML = rows.join('');
   _syncSelectAllState();
   updateTraderBadge();
@@ -748,16 +820,10 @@ function _buildTradeRow(r) {
 }
 
 function updateTraderBadge() {
-  const cnt = deltaData.filter(r => {
-    if (!['entry', 'exit', 'buy_add', 'sell_trim'].includes(r.action)) return false;
-    const st = _approvalState[r.id];
-    if (st && (st.status === 'ok' || st.status === 'err' || st.status === 'rejected')) return false;
-    const os = r.order_status;
-    if (os === 'submitted' || os === 'pending' || os === 'deferred' || os === 'failed' || os === 'risk_rejected') return false;
-    if (r.rejected_at) return false;
-    if ((r.action === 'entry' || r.action === 'buy_add') && r.vetter_excluded) return false;
-    return true;
-  }).length;
+  // Badge = all items in the "Needs Attention" section:
+  //   approvable intents + failed/risk_rejected orders + vetter-blocked buys
+  // Submitted/filled/hold items do NOT inflate the badge.
+  const cnt = deltaData.filter(r => _sectionFor(r) === 'attention').length;
   const badge = $('nav-trade-badge');
   if (!badge) return;
   if (cnt > 0) {

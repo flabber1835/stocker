@@ -435,10 +435,12 @@ tr.detail-row td { padding: 0; white-space: normal; }
 }
 .ds-lbl { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--text2); margin-bottom: 3px; }
 .ds-val { font-size: 22px; font-weight: 700; color: var(--text); font-family: var(--mono); }
-.ds-val.buy  { color: var(--green); }
-.ds-val.sell { color: var(--red); }
-.ds-val.warn { color: var(--amber); }
-.ds-val.sm   { font-size: 13px; font-weight: 600; padding-top: 4px; }
+.ds-val.buy   { color: var(--green); }
+.ds-val.sell  { color: var(--red); }
+.ds-val.warn  { color: var(--amber); }
+.ds-val.blue  { color: var(--blue); }
+.ds-val.muted { color: var(--text2); }
+.ds-val.sm    { font-size: 13px; font-weight: 600; padding-top: 4px; }
 
 .trade-card {
   background: var(--card);
@@ -586,6 +588,24 @@ tr.detail-row td { padding: 0; white-space: normal; }
   font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
   padding: 5px 10px !important;
 }
+.tr-section-attention td {
+  background: rgba(217,119,6,.10); color: var(--amber);
+  font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  padding: 6px 10px !important;
+}
+.tr-section-progress td {
+  background: rgba(59,130,246,.07); color: var(--blue);
+  font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  padding: 6px 10px !important;
+}
+.tr-section-completed td {
+  background: var(--border2); color: var(--text2);
+  font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  padding: 6px 10px !important;
+  cursor: pointer; user-select: none;
+}
+.tr-section-completed td:hover { background: var(--border); }
+.completed-toggle { display: inline-block; font-size: 9px; margin-right: 4px; vertical-align: middle; }
 
 /* Extended action pills */
 .pill-sell-exit  { background: rgba(220,38,38,.12); color: var(--red); }

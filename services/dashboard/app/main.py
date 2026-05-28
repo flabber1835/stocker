@@ -694,10 +694,9 @@ _HTML = r"""<!DOCTYPE html>
   <section id="screen-trader" class="screen">
     <div class="screen-inner">
       <div class="delta-stats" id="delta-stats">
-        <div class="ds-chip"><div class="ds-lbl">SELL</div><div class="ds-val sell" id="ds-exits">—</div></div>
-        <div class="ds-chip"><div class="ds-lbl">BUY</div><div class="ds-val buy" id="ds-entries">—</div></div>
-        <div class="ds-chip"><div class="ds-lbl">HOLD</div><div class="ds-val" id="ds-holds">—</div></div>
-        <div class="ds-chip"><div class="ds-lbl">WATCH</div><div class="ds-val warn" id="ds-watches">—</div></div>
+        <div class="ds-chip" title="Intents awaiting approval or showing failures"><div class="ds-lbl">PENDING</div><div class="ds-val warn" id="ds-pending">—</div></div>
+        <div class="ds-chip" title="Orders submitted to broker, awaiting fill"><div class="ds-lbl">SUBMITTED</div><div class="ds-val blue" id="ds-inflight">—</div></div>
+        <div class="ds-chip" title="Filled, rejected, or hold/watch — no action needed"><div class="ds-lbl">DONE</div><div class="ds-val muted" id="ds-done">—</div></div>
         <div class="ds-chip"><div class="ds-lbl">DATE</div><div class="ds-val sm" id="ds-date">—</div></div>
       </div>
       <div class="trader-toolbar" id="trader-toolbar" style="display:none">
