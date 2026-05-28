@@ -48,6 +48,7 @@ def _merge_intents(
             "vetter_confidence":        v.get("confidence"),
             "vetter_risk_type":         v.get("risk_type"),
             "vetter_reason":            v.get("reason"),
+            "vetter_crashed":           bool(v.get("crashed", False)),
             "vetter_positive_catalyst": v.get("positive_catalyst"),
             "vetter_positive_reason":   v.get("positive_reason"),
         })
@@ -71,11 +72,13 @@ VETTER_RUNS = [
 
 VETTER_DECISIONS = [
     # run-a decisions
-    {"run_id": "run-a", "ticker": "AAPL",  "exclude": False, "confidence": "high",   "risk_type": "none",  "reason": "Strong earnings", "positive_catalyst": True, "positive_reason": "AI demand"},
-    {"run_id": "run-a", "ticker": "MSFT",  "exclude": True,  "confidence": "medium", "risk_type": "legal", "reason": "Antitrust risk",  "positive_catalyst": None, "positive_reason": None},
+    {"run_id": "run-a", "ticker": "AAPL",  "exclude": False, "confidence": "high",   "risk_type": "none",  "reason": "Strong earnings", "positive_catalyst": True,  "positive_reason": "AI demand",    "crashed": False},
+    {"run_id": "run-a", "ticker": "MSFT",  "exclude": True,  "confidence": "medium", "risk_type": "legal", "reason": "Antitrust risk",  "positive_catalyst": None,  "positive_reason": None,           "crashed": False},
     # run-c decisions (this is actually the most recent successful run)
-    {"run_id": "run-c", "ticker": "AAPL",  "exclude": False, "confidence": "high",   "risk_type": "none",  "reason": "Upgraded",        "positive_catalyst": True, "positive_reason": "Cloud growth"},
-    {"run_id": "run-c", "ticker": "NVDA",  "exclude": False, "confidence": "high",   "risk_type": "none",  "reason": "GPU demand",      "positive_catalyst": True, "positive_reason": "AI chips"},
+    {"run_id": "run-c", "ticker": "AAPL",  "exclude": False, "confidence": "high",   "risk_type": "none",  "reason": "Upgraded",        "positive_catalyst": True,  "positive_reason": "Cloud growth", "crashed": False},
+    {"run_id": "run-c", "ticker": "NVDA",  "exclude": False, "confidence": "high",   "risk_type": "none",  "reason": "GPU demand",      "positive_catalyst": True,  "positive_reason": "AI chips",     "crashed": False},
+    # crashed decision — LLM call failed for GOOGL
+    {"run_id": "run-c", "ticker": "GOOGL", "exclude": False, "confidence": "low",    "risk_type": "none",  "reason": "Ticker vetting crashed: timeout", "positive_catalyst": False, "positive_reason": None, "crashed": True},
 ]
 
 
@@ -114,12 +117,13 @@ class TestVetterByTickerBuild:
         assert vbt["AAPL"]["reason"] == "Upgraded"
 
     def test_tickers_not_in_decisions_are_absent(self):
-        """GOOGL and MSFT are not in run-c decisions → absent from vbt."""
+        """MSFT is only in run-a, not run-c → absent from vbt. GOOGL is in run-c as a crash."""
         vr = _select_vetter_run(VETTER_RUNS)
         tickers = ["AAPL", "MSFT", "NVDA", "GOOGL"]
         vbt = _build_vetter_by_ticker(vr, VETTER_DECISIONS, tickers)
-        assert "GOOGL" not in vbt
         assert "MSFT" not in vbt   # MSFT only in run-a, not in run-c
+        assert "GOOGL" in vbt      # GOOGL is in run-c as a crashed decision
+        assert vbt["GOOGL"]["crashed"] is True
 
     def test_tickers_filter_restricts_to_requested(self):
         """Only tickers in the requested list are returned even if more exist in decisions."""
@@ -158,13 +162,12 @@ class TestIntentMerge:
         assert aapl["vetter_reason"] == "Upgraded"
         assert aapl["vetter_positive_catalyst"] is True
 
-    def test_googl_gets_null_vetter_data(self):
-        """GOOGL not in any vetter decision → all vetter fields null."""
+    def test_googl_gets_crashed_vetter_data(self):
+        """GOOGL has a crashed decision in run-c — vetter_crashed=True, exclude=False (KEEP)."""
         merged = self._merged()
         googl = next(r for r in merged if r["ticker"] == "GOOGL")
-        assert googl["vetter_excluded"] is None
-        assert googl["vetter_confidence"] is None
-        assert googl["vetter_reason"] is None
+        assert googl["vetter_crashed"] is True
+        assert googl["vetter_excluded"] is False   # crash → KEEP
 
     def test_nvda_hold_still_gets_vetter_data(self):
         """Even hold intents get vetter overlay — vetting is per-ticker, not per-action."""
@@ -211,3 +214,81 @@ class TestVetterExclusionInDeltaContext:
         assert msft["action"] == "watch"
         assert msft["vetter_excluded"] is True
         assert msft["vetter_reason"] == "Antitrust probe"
+
+
+class TestVetterCrashedField:
+    """
+    vetter_crashed must be a boolean sourced from the DB crashed column,
+    not inferred by scanning vetter_reason for the word 'CRASHED'.
+
+    The dashboard previously did:
+        const crashed = vetter_reason.toUpperCase().indexOf('CRASHED') !== -1
+    which fires falsely when the LLM writes 'the stock has crashed' in a
+    legitimate EXCLUDE reason. The fix: API exposes crashed as vetter_crashed;
+    dashboard reads r.vetter_crashed directly.
+    """
+
+    def _merged(self) -> list[dict]:
+        vr = _select_vetter_run(VETTER_RUNS)
+        tickers = [r["ticker"] for r in INTENTS]
+        vbt = _build_vetter_by_ticker(vr, VETTER_DECISIONS, tickers)
+        return _merge_intents(INTENTS, vbt)
+
+    def test_vetter_crashed_field_present_on_all_intents(self):
+        merged = self._merged()
+        for r in merged:
+            assert "vetter_crashed" in r
+
+    def test_non_crashed_decision_gives_false(self):
+        merged = self._merged()
+        aapl = next(r for r in merged if r["ticker"] == "AAPL")
+        assert aapl["vetter_crashed"] is False
+
+    def test_crashed_decision_gives_true(self):
+        merged = self._merged()
+        googl = next(r for r in merged if r["ticker"] == "GOOGL")
+        assert googl["vetter_crashed"] is True
+
+    def test_no_vetter_data_gives_false(self):
+        """Ticker with no vetter decision → vetter_crashed defaults to False."""
+        intents = [{"ticker": "ZZZ", "action": "entry", "rank": 99}]
+        merged = _merge_intents(intents, {})
+        assert merged[0]["vetter_crashed"] is False
+
+    def test_exclude_with_crashed_word_in_reason_not_misclassified(self):
+        """
+        A legitimate EXCLUDE whose reason text contains 'crashed' must not
+        be misidentified as a technical crash. vetter_crashed=False means
+        the LLM ran successfully and returned a real verdict.
+        """
+        decisions = [{
+            "run_id": "r1", "ticker": "FUTU",
+            "exclude": True, "confidence": "high",
+            "risk_type": "regulatory",
+            "reason": "Regulatory crackdown has crashed mainland China revenue; high litigation risk.",
+            "positive_catalyst": False, "positive_reason": None,
+            "crashed": False,  # LLM ran fine — this is a real EXCLUDE verdict
+        }]
+        vr = {"run_id": "r1", "status": "success", "started_at": 1}
+        vbt = _build_vetter_by_ticker(vr, decisions, ["FUTU"])
+        merged = _merge_intents([{"ticker": "FUTU", "action": "entry", "rank": 35}], vbt)
+        futu = merged[0]
+        assert futu["vetter_excluded"] is True
+        assert futu["vetter_crashed"] is False  # NOT a crash — real EXCLUDE
+
+    def test_actual_crash_does_not_exclude(self):
+        """Technical crash → exclude=False (default KEEP), crashed=True."""
+        decisions = [{
+            "run_id": "r1", "ticker": "FUTU",
+            "exclude": False, "confidence": "low",
+            "risk_type": "none",
+            "reason": "Ticker vetting crashed: ReadTimeout",
+            "positive_catalyst": False, "positive_reason": None,
+            "crashed": True,
+        }]
+        vr = {"run_id": "r1", "status": "success", "started_at": 1}
+        vbt = _build_vetter_by_ticker(vr, decisions, ["FUTU"])
+        merged = _merge_intents([{"ticker": "FUTU", "action": "entry", "rank": 35}], vbt)
+        futu = merged[0]
+        assert futu["vetter_excluded"] is False   # crash → KEEP
+        assert futu["vetter_crashed"] is True     # but flagged for the user
