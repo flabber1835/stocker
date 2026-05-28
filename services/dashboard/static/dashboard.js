@@ -342,7 +342,7 @@ async function _doApiSearch(q) {
 async function loadRankings() {
   $('r-body').innerHTML = '<tr><td colspan="10" class="tbl-empty">Loading rankings&#8230;</td></tr>';
   try {
-    const d = await fetch('/api/rankings/with-overlays?limit=150').then(r => {
+    const d = await fetch('/api/rankings/with-overlays?limit=100').then(r => {
       if (!r.ok) throw new Error(r.status);
       return r.json();
     });
