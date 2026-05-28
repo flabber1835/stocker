@@ -382,6 +382,7 @@ class SimulationDriver:
         self._alpaca_state_snapshot: Optional[Dict[str, Any]] = None
         self._current_scenario: Optional[Scenario] = None
         self._current_trading_day: Optional[date] = None
+        self._current_delta_run_id: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Top-level entry point
@@ -730,6 +731,71 @@ class SimulationDriver:
             return f"{step_name}:recovery_timeout"
 
     # ------------------------------------------------------------------
+    # DB staleness helpers (for stale_guards scenario)
+    # ------------------------------------------------------------------
+
+    async def _make_pipeline_stale(self, hours: float = 200.0) -> None:
+        """Set all successful pipeline_runs.completed_at to `hours` ago."""
+        conn = await asyncpg.connect(self.dsn)
+        try:
+            await conn.execute(
+                "UPDATE pipeline_runs SET completed_at = NOW() - $1 * INTERVAL '1 hour' "
+                "WHERE status = 'success'",
+                hours,
+            )
+            log.info("[stale_guards] pipeline_runs made stale (-%dh)", int(hours))
+        finally:
+            await conn.close()
+
+    async def _restore_pipeline_freshness(self) -> None:
+        """Reset all successful pipeline_runs.completed_at to NOW()."""
+        conn = await asyncpg.connect(self.dsn)
+        try:
+            await conn.execute(
+                "UPDATE pipeline_runs SET completed_at = NOW() WHERE status = 'success'"
+            )
+            log.info("[stale_guards] pipeline_runs freshness restored")
+        finally:
+            await conn.close()
+
+    async def _make_sync_stale(self, hours: float = 30.0) -> None:
+        """Set all successful alpaca_sync_runs.completed_at to `hours` ago."""
+        conn = await asyncpg.connect(self.dsn)
+        try:
+            await conn.execute(
+                "UPDATE alpaca_sync_runs SET completed_at = NOW() - $1 * INTERVAL '1 hour' "
+                "WHERE status = 'success'",
+                hours,
+            )
+            log.info("[stale_guards] alpaca_sync_runs made stale (-%dh)", int(hours))
+        finally:
+            await conn.close()
+
+    async def _restore_sync_freshness(self) -> None:
+        """Reset all successful alpaca_sync_runs.completed_at to NOW()."""
+        conn = await asyncpg.connect(self.dsn)
+        try:
+            await conn.execute(
+                "UPDATE alpaca_sync_runs SET completed_at = NOW() WHERE status = 'success'"
+            )
+            log.info("[stale_guards] alpaca_sync_runs freshness restored")
+        finally:
+            await conn.close()
+
+    async def _submit_single_intent(
+        self,
+        session: aiohttp.ClientSession,
+        intent_id: str,
+    ) -> Dict[str, Any]:
+        """Submit one intent to trade-executor and return the response dict."""
+        executor = self.urls["trade_executor"]
+        return await _post(
+            session,
+            f"{executor}/jobs/submit",
+            {"intent_id": intent_id, "mode": "immediate"},
+        )
+
+    # ------------------------------------------------------------------
     # Single-day execution
     # ------------------------------------------------------------------
 
@@ -854,29 +920,45 @@ class SimulationDriver:
         except Exception:
             _prev_pipe_id = ""
             _prev_pipe_status = ""
-        pipeline_run_url = f"{pipeline}/jobs/run{'?force=true' if force_pipeline else ''}"
-        start_r = await _post(session, pipeline_run_url)
-        if start_r.get("status") in ("already_running",) or "error" not in start_r:
-            if "pipeline" in _restart:
-                lbl = await self._do_restart_mid_step(
-                    session, "pipeline", f"{pipeline}/runs/latest", prev_run_id=_prev_pipe_id,
-                    trigger_url=pipeline_run_url,
-                    new_run_id=start_r.get("run_id"),
-                )
-                _restart_labels.append(lbl)
+
+        if scenario.rely_on_redis_triggers:
+            # av-ingestor publishes fetch_data.complete after fetch-data completes.
+            # pipeline's _redis_consumer_loop picks it up and self-triggers — no POST needed.
+            log.info("Step 3: waiting for pipeline to self-trigger via Redis fetch_data.complete")
             try:
                 final = await poll_until_new_run(
                     session, f"{pipeline}/runs/latest",
                     prev_run_id=_prev_pipe_id, prev_status=_prev_pipe_status,
-                    max_wait=180, interval=0.5,
+                    max_wait=180, interval=1.0,
                 )
                 pipeline_status = final.get("status", "")
             except TimeoutError as exc:
-                errors.append(str(exc))
+                errors.append(f"pipeline self-trigger timeout: {exc}")
                 pipeline_status = "timeout"
         else:
-            errors.append(f"pipeline start: {start_r.get('error')}")
-            pipeline_status = "error"
+            pipeline_run_url = f"{pipeline}/jobs/run{'?force=true' if force_pipeline else ''}"
+            start_r = await _post(session, pipeline_run_url)
+            if start_r.get("status") in ("already_running",) or "error" not in start_r:
+                if "pipeline" in _restart:
+                    lbl = await self._do_restart_mid_step(
+                        session, "pipeline", f"{pipeline}/runs/latest", prev_run_id=_prev_pipe_id,
+                        trigger_url=pipeline_run_url,
+                        new_run_id=start_r.get("run_id"),
+                    )
+                    _restart_labels.append(lbl)
+                try:
+                    final = await poll_until_new_run(
+                        session, f"{pipeline}/runs/latest",
+                        prev_run_id=_prev_pipe_id, prev_status=_prev_pipe_status,
+                        max_wait=180, interval=0.5,
+                    )
+                    pipeline_status = final.get("status", "")
+                except TimeoutError as exc:
+                    errors.append(str(exc))
+                    pipeline_status = "timeout"
+            else:
+                errors.append(f"pipeline start: {start_r.get('error')}")
+                pipeline_status = "error"
 
         # ── Step 4 (optional): vetter ────────────────────────────────
         run_vetter_today = (
@@ -950,26 +1032,46 @@ class SimulationDriver:
         except Exception:
             _prev_dl_id = ""
             _prev_dl_status = ""
-        start_r = await _post(session, f"{pipeline}/jobs/delta")
-        if "error" in start_r:
-            errors.append(f"delta start: {start_r.get('error')}")
-        else:
-            if "delta" in _restart:
-                lbl = await self._do_restart_mid_step(
-                    session, "delta", f"{pipeline}/runs/delta-latest", prev_run_id=_prev_dl_id,
-                    trigger_url=f"{pipeline}/jobs/delta",
-                    new_run_id=start_r.get("run_id"),
-                )
-                _restart_labels.append(lbl)
+
+        if scenario.rely_on_redis_triggers:
+            # portfolio-builder publishes portfolio_builder.complete after a successful build.
+            # pipeline's _redis_consumer_loop picks it up and self-triggers delta — no POST needed.
+            log.info("Step 6: waiting for delta to self-trigger via Redis portfolio_builder.complete")
             try:
                 final = await poll_until_new_run(
                     session, f"{pipeline}/runs/delta-latest",
                     prev_run_id=_prev_dl_id, prev_status=_prev_dl_status,
-                    max_wait=120, interval=0.5,
+                    max_wait=120, interval=1.0,
                 )
                 delta_run_id = final.get("run_id")
             except TimeoutError as exc:
-                errors.append(str(exc))
+                errors.append(f"delta self-trigger timeout: {exc}")
+        else:
+            start_r = await _post(session, f"{pipeline}/jobs/delta")
+            if "error" in start_r:
+                errors.append(f"delta start: {start_r.get('error')}")
+            else:
+                if "delta" in _restart:
+                    lbl = await self._do_restart_mid_step(
+                        session, "delta", f"{pipeline}/runs/delta-latest", prev_run_id=_prev_dl_id,
+                        trigger_url=f"{pipeline}/jobs/delta",
+                        new_run_id=start_r.get("run_id"),
+                    )
+                    _restart_labels.append(lbl)
+                try:
+                    final = await poll_until_new_run(
+                        session, f"{pipeline}/runs/delta-latest",
+                        prev_run_id=_prev_dl_id, prev_status=_prev_dl_status,
+                        max_wait=120, interval=0.5,
+                    )
+                    delta_run_id = final.get("run_id")
+                except TimeoutError as exc:
+                    errors.append(str(exc))
+
+        # ── Post-delta hook ──────────────────────────────────────────
+        self._current_delta_run_id = delta_run_id
+        if scenario.post_delta_hook is not None and delta_run_id:
+            await scenario.post_delta_hook(self, session, errors)
 
         # ── Step 7: get pending intents ──────────────────────────────
         _TRADEABLE = {"entry", "exit", "buy_add", "sell_trim"}
@@ -996,22 +1098,53 @@ class SimulationDriver:
                     errors.append(f"get-intents-db: {exc}")
 
         # ── Step 8: submit intents ───────────────────────────────────
-        for intent in pending_intents:
-            intent_id = intent.get("id") or intent.get("intent_id")
-            if not intent_id:
-                continue
-            intents_submitted += 1
-            log.debug("Submitting intent %s", intent_id)
-            submit_r = await _post(
-                session,
-                f"{executor}/jobs/submit",
-                {"intent_id": intent_id, "mode": "immediate"},
+        if scenario.skip_manual_approve and scenario.auto_approve_wait_secs > 0:
+            # Let dashboard auto-approve fire; just wait, then check outcomes.
+            log.info(
+                "Step 8: waiting %ds for dashboard auto-approve to submit %d intents",
+                scenario.auto_approve_wait_secs,
+                len(pending_intents),
             )
-            outcome = submit_r.get("status", "")
-            if outcome in ("submitted", "filled", "approved", "risk_approved"):
-                intents_accepted += 1
-            elif "error" in submit_r:
-                log.warning("submit intent %s: %s", intent_id, submit_r.get("error"))
+            await asyncio.sleep(scenario.auto_approve_wait_secs)
+            api_check = await _get(session, f"{api_svc}/delta/latest")
+            if "error" not in api_check and api_check.get("intents"):
+                for intent_data in api_check["intents"]:
+                    if intent_data.get("action") not in _TRADEABLE:
+                        continue
+                    if intent_data.get("rejected_at") is not None:
+                        continue
+                    iid = intent_data.get("intent_id") or intent_data.get("id")
+                    if not iid:
+                        continue
+                    os_ = intent_data.get("order_status")
+                    intents_submitted += 1
+                    if os_ in ("submitted", "deferred", "pending", "filled"):
+                        intents_accepted += 1
+                    else:
+                        errors.append(
+                            f"auto_approve: intent {iid} ({intent_data.get('ticker')}) "
+                            f"not submitted after {scenario.auto_approve_wait_secs}s "
+                            f"(order_status={os_})"
+                        )
+        elif not scenario.skip_manual_approve:
+            for intent in pending_intents:
+                intent_id = intent.get("id") or intent.get("intent_id")
+                if not intent_id:
+                    continue
+                intents_submitted += 1
+                log.debug("Submitting intent %s", intent_id)
+                submit_r = await _post(
+                    session,
+                    f"{executor}/jobs/submit",
+                    {"intent_id": intent_id, "mode": "immediate"},
+                )
+                outcome = submit_r.get("status", "")
+                if outcome in ("submitted", "filled", "approved", "risk_approved"):
+                    intents_accepted += 1
+                elif "error" in submit_r:
+                    log.warning("submit intent %s: %s", intent_id, submit_r.get("error"))
+        else:
+            log.info("Step 8: skip_manual_approve=True (no auto_approve_wait), skipping submission")
 
         # ── Step 9: alpaca sync ──────────────────────────────────────
         log.debug("Step 9: alpaca-sync")

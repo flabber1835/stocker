@@ -83,6 +83,22 @@ class Scenario:
     restart_recovery_days: List["RestartRecoveryDay"] = field(default_factory=list)
     # Day indices on which the pipeline POST should use force=True (manual run).
     force_pipeline_days: List[int] = field(default_factory=list)
+    # When True, skip manual POST /jobs/run and POST /jobs/delta — let the Redis
+    # event chain self-trigger them (fetch_data.complete → pipeline;
+    # portfolio_builder.complete → delta). Tests the production orchestration path.
+    rely_on_redis_triggers: bool = False
+    # When True, skip Step 8 (manual intent submission). Use with auto_approve_wait_secs
+    # to test dashboard auto-approve, or with post_delta_hook to handle submission there.
+    skip_manual_approve: bool = False
+    # Seconds to wait after delta for dashboard auto-approve to fire.
+    # Only used when skip_manual_approve=True. Checks all tradeable intents
+    # are submitted/deferred/pending after the wait; adds errors for any that aren't.
+    auto_approve_wait_secs: int = 0
+    # Async callable: (driver, session, errors) -> None.
+    # Called after Step 6 (delta) completes, before Step 7 (read intents).
+    # Receives the SimulationDriver instance, the aiohttp ClientSession, and the
+    # mutable errors list. May read driver._current_delta_run_id for the delta run id.
+    post_delta_hook: Optional[Any] = None
 
 
 @dataclass
