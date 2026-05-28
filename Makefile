@@ -1,4 +1,4 @@
-.PHONY: up down logs build test integration-test migrate-fresh-test init shell-api shell-db shell-pipeline \
+.PHONY: up down logs build build-base test integration-test migrate-fresh-test init shell-api shell-db shell-pipeline \
         universe data prices fundamentals run-pipeline vet portfolio pipeline pull-model
 
 # ── Compose lifecycle ──────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -13,7 +13,10 @@ up: init
 down:
 	docker compose down
 
-build:
+build-base:
+	docker build --network host -t stocker-base:latest -f Dockerfile.base .
+
+build: build-base
 	docker compose build
 
 logs:

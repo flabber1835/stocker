@@ -1,0 +1,28 @@
+# Version control
+.git
+.gitignore
+
+# Tests and development
+tests/
+screenshots/
+_archive/
+dynamic_test_cold_boot.py
+dynamic_test_month.py
+verify_run_button.py
+
+# Documentation
+docs/
+
+# Runtime artifacts (written at runtime, not part of any build)
+artifacts/
+
+# Python cache
+**/__pycache__
+**/*.pyc
+**/*.pyo
+.pytest_cache
+**/.pytest_cache
+
+# Editor
+.vscode
+.idea
