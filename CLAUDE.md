@@ -605,9 +605,9 @@ size_order         — entries / buy_adds: floor(account_value × weight / last_
                      exits: full position qty from latest live_positions
                      All actions size against account_value (total equity) so a
                      fully-invested portfolio replacing one exited position gets
-                     a correctly-sized entry. With MOO orders, exits and entries
-                     fire at the same open, so cash flow nets out without
-                     requiring a buying_power-based sizing constraint.
+                     a correctly-sized entry. With day orders submitted post-close,
+                     exits and entries queue for the same open so cash flow nets
+                     out without requiring a buying_power-based sizing constraint.
                      refuse if qty < 1 (position too small)
                      refuse if alpaca-sync > EXIT_SYNC_MAX_AGE_HOURS old
                      (stale balances would size wildly wrong orders)
@@ -623,12 +623,12 @@ Persists:
 
 Order params:
 - type = "market"
-- time_in_force = "opg" (market-on-open) for ALL orders regardless of mode.
-  All approvals execute at the next market open. Running the daily pipeline
-  post-close guarantees no pending day orders are still reserving cash when
-  the next batch is submitted. The `mode` field in alpaca_orders is kept
-  for audit (records whether the click was immediate vs scheduled) but
-  does not change the Alpaca order type.
+- time_in_force = "day" for ALL orders regardless of mode. Day orders are
+  accepted by Alpaca 24/7 and queue for the next market session when submitted
+  outside market hours. They stay open all day, avoiding the OPG expiry
+  problem where orders expire if the stock has no opening auction print.
+  The `mode` field in alpaca_orders is kept for audit (records whether the
+  click was immediate vs scheduled) but does not change the Alpaca order type.
 
 Short-circuits when ALPACA_API_KEY is empty (records a failed row, no HTTP call).
 

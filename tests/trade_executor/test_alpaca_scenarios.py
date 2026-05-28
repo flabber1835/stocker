@@ -738,13 +738,13 @@ class TestAuditTrail:
             cleanup_daily_price(self.TICKER)
 
 
-# ── Test: scheduled mode (opg) ────────────────────────────────────────────────
+# ── Test: order time_in_force ─────────────────────────────────────────────────
 
 class TestScheduledMode:
     TICKER = "TSCH1"
 
-    def test_scheduled_mode_creates_opg_order(self):
-        """mode='scheduled' produces time_in_force='opg' in alpaca_orders."""
+    def test_scheduled_mode_creates_day_order(self):
+        """mode='scheduled' produces time_in_force='day' in alpaca_orders."""
         sync_id = seed_sync_run(100_000.0)
         seed_daily_price(self.TICKER, 50.0)
         run_id = seed_delta_run()
@@ -759,17 +759,15 @@ class TestScheduledMode:
                 f"SELECT time_in_force FROM alpaca_orders "
                 f"WHERE intent_id = '{intent_id}' ORDER BY created_at DESC LIMIT 1"
             )
-            assert tif == "opg", f"Expected opg, got '{tif}'"
+            assert tif == "day", f"Expected day, got '{tif}'"
         finally:
             cleanup_run(run_id)
             cleanup_sync_run(sync_id)
             cleanup_daily_price(self.TICKER)
 
-    def test_immediate_mode_also_creates_moo_order(self):
-        """Both modes route through time_in_force='opg' (market-on-open).
-        The mode field is preserved in alpaca_orders.mode for audit, but
-        all orders execute at the next open so post-close batches can't
-        collide with still-pending day orders."""
+    def test_immediate_mode_also_creates_day_order(self):
+        """Both modes route through time_in_force='day'. The mode field is
+        preserved in alpaca_orders.mode for audit."""
         sync_id = seed_sync_run(100_000.0)
         seed_daily_price(self.TICKER, 50.0)
         run_id = seed_delta_run()
@@ -781,7 +779,7 @@ class TestScheduledMode:
                 f"SELECT time_in_force FROM alpaca_orders "
                 f"WHERE intent_id = '{intent_id}' ORDER BY created_at DESC LIMIT 1"
             )
-            assert tif == "opg", f"Expected opg, got '{tif}'"
+            assert tif == "day", f"Expected day, got '{tif}'"
         finally:
             cleanup_run(run_id)
             cleanup_sync_run(sync_id)

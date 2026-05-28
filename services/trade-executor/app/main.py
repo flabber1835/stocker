@@ -7,7 +7,8 @@ End-to-end responsibility for the approval click:
   3. Call risk-service /check
   4. Persist alpaca_orders + execution_steps audit
   5. If risk-approved and credentials present: POST to Alpaca /v2/orders
-     (time_in_force="opg" — market-on-open — for all order types)
+     (time_in_force="day" — regular market order, accepted 24/7, queues for
+     the next session when submitted outside market hours)
 
 Every approval click produces one execution_trace row with step-by-step audit so
 the dashboard's trace viewer shows exactly why a trade was approved/rejected.
@@ -18,7 +19,6 @@ import logging
 import math
 import os
 import uuid
-import zoneinfo
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Optional
@@ -51,53 +51,9 @@ try:
 except ValueError:
     DEFAULT_MAX_POSITIONS = 30
 try:
-    OPG_WORKER_INTERVAL_SECS = int(os.getenv("OPG_WORKER_INTERVAL_SECS", "60"))
+    DEFERRED_WORKER_INTERVAL_SECS = int(os.getenv("DEFERRED_WORKER_INTERVAL_SECS", "60"))
 except ValueError:
-    OPG_WORKER_INTERVAL_SECS = 60
-
-# Alpaca's MOO submission window: [19:00 ET, 09:28 ET). Outside this range
-# (i.e. weekdays 09:28–19:00 ET) /v2/orders rejects time_in_force='opg' with
-# "opg orders must be submitted after 7:00pm and before 9:28am". The default
-# RANK_SCHEDULE_CRON fires at 21:15 UTC (16:15 ET) and TRADE_AUTO_APPROVE_MINUTES
-# defaults to 60, so auto-approve lands at ~17:15 ET — inside the dead zone.
-_ET_TZ = zoneinfo.ZoneInfo("America/New_York")
-_OPG_DEAD_START_MIN = 9 * 60 + 28   # 09:28 ET — Alpaca cuts off OPG just before the open
-_OPG_DEAD_END_MIN = 19 * 60         # 19:00 ET — window reopens for the next session
-
-
-def is_opg_window_open(now_utc: Optional[datetime] = None) -> bool:
-    """Return True when Alpaca currently accepts time_in_force='opg' orders."""
-    if now_utc is None:
-        now_utc = datetime.now(timezone.utc)
-    now_et = now_utc.astimezone(_ET_TZ)
-    minutes = now_et.hour * 60 + now_et.minute
-    return not (_OPG_DEAD_START_MIN <= minutes < _OPG_DEAD_END_MIN)
-
-
-def next_opg_window_open(now_utc: Optional[datetime] = None) -> datetime:
-    """Return the next UTC time at which the OPG submission window will be open.
-
-    If the window is already open, returns now_utc. Otherwise returns 19:00 ET
-    of the same ET day. Weekend handling is implicit: Saturday at 19:00 ET is
-    inside the window (Alpaca accepts; the OPG order queues for Monday's open).
-    """
-    if now_utc is None:
-        now_utc = datetime.now(timezone.utc)
-    if is_opg_window_open(now_utc):
-        return now_utc
-    now_et = now_utc.astimezone(_ET_TZ)
-    window_open_et = now_et.replace(hour=19, minute=0, second=0, microsecond=0)
-    return window_open_et.astimezone(timezone.utc)
-
-
-_OPG_ERROR_MARKER = "opg orders must be submitted"
-
-
-def _is_opg_window_error(err: Optional[str]) -> bool:
-    """Match Alpaca's OPG-window rejection text. Used as a defence-in-depth fallback:
-    if our local clock disagrees with Alpaca's (DST edge, container drift) and we
-    submit anyway, treat the bounced response as deferral, not failure."""
-    return bool(err) and _OPG_ERROR_MARKER in err.lower()
+    DEFERRED_WORKER_INTERVAL_SECS = 60
 
 
 engine: Optional[AsyncEngine] = None
@@ -139,7 +95,7 @@ async def _submit_deferred_order(row: dict) -> tuple[str, Optional[str]]:
         "qty": str(int(row["qty"])) if float(row["qty"]) >= 1 else str(row["qty"]),
         "side": row["side"],
         "type": row.get("order_type") or "market",
-        "time_in_force": row.get("time_in_force") or "opg",
+        "time_in_force": row.get("time_in_force") or "day",
     }
     if not (ALPACA_API_KEY and ALPACA_SECRET_KEY):
         return "failed", "Alpaca credentials not configured"
@@ -148,9 +104,6 @@ async def _submit_deferred_order(row: dict) -> tuple[str, Optional[str]]:
     except Exception as exc:
         return "failed", f"Alpaca request failed: {exc}"[:1000]
     if alpaca_err is not None:
-        # OPG window still closed — re-defer rather than failing permanently.
-        if _is_opg_window_error(alpaca_err):
-            return "deferred", alpaca_err
         return "failed", alpaca_err
     # Success
     async with engine.begin() as conn:
@@ -166,63 +119,43 @@ async def _submit_deferred_order(row: dict) -> tuple[str, Optional[str]]:
     return "submitted", None
 
 
-async def _opg_deferral_worker() -> None:
-    """Background worker: submits 'deferred' alpaca_orders rows when the OPG
-    window is open and their deferred_until has elapsed.
-
-    Sleeps OPG_WORKER_INTERVAL_SECS (default 60s) between passes. Survives
-    container restarts because state lives in the DB: a deferred row persists
-    until either submission succeeds, Alpaca returns a non-OPG error (→ failed),
-    or an operator manually cancels.
-    """
-    # Brief delay so warm-up + DB connect finishes first.
+async def _deferred_order_worker() -> None:
+    """Background worker: submits 'deferred' alpaca_orders rows whose
+    deferred_until has elapsed. Sleeps DEFERRED_WORKER_INTERVAL_SECS (default 60s)
+    between passes. Survives restarts because state lives in the DB."""
     await asyncio.sleep(5)
     while True:
         try:
-            now = datetime.now(timezone.utc)
-            if engine is None or not is_opg_window_open(now):
-                await asyncio.sleep(OPG_WORKER_INTERVAL_SECS)
-                continue
-            async with engine.connect() as conn:
-                rows = (await conn.execute(text(
-                    "SELECT id, intent_id, ticker, side, qty, notional, "
-                    "       order_type, time_in_force, mode, trace_id "
-                    "FROM alpaca_orders "
-                    "WHERE status='deferred' "
-                    "  AND (deferred_until IS NULL OR deferred_until <= NOW()) "
-                    "ORDER BY created_at ASC"
-                ))).mappings().fetchall()
-            for row in rows:
-                row_dict = dict(row)
-                new_status, err = await _submit_deferred_order(row_dict)
-                if new_status == "submitted":
-                    logger.info("OPG worker submitted order %s (%s %s)",
-                                row_dict["id"], row_dict["side"], row_dict["ticker"])
-                elif new_status == "deferred":
-                    # Alpaca still rejected with OPG window error — push retry out
-                    # by 5 minutes to avoid hammering the API.
-                    retry_at = datetime.now(timezone.utc) + timedelta(minutes=5)
-                    async with engine.begin() as conn:
-                        await conn.execute(
-                            text("UPDATE alpaca_orders SET deferred_until=:du WHERE id=:id"),
-                            {"id": str(row_dict["id"]), "du": retry_at},
-                        )
-                    logger.info("OPG worker: Alpaca still rejected order %s, retry at %s",
-                                row_dict["id"], retry_at.isoformat())
-                else:  # failed
-                    async with engine.begin() as conn:
-                        await conn.execute(
-                            text("UPDATE alpaca_orders SET status='failed', "
-                                 "error_message=:err WHERE id=:id"),
-                            {"id": str(row_dict["id"]), "err": err},
-                        )
-                    logger.warning("OPG worker: order %s failed: %s",
-                                   row_dict["id"], err)
+            if engine is not None:
+                async with engine.connect() as conn:
+                    rows = (await conn.execute(text(
+                        "SELECT id, intent_id, ticker, side, qty, notional, "
+                        "       order_type, time_in_force, mode, trace_id "
+                        "FROM alpaca_orders "
+                        "WHERE status='deferred' "
+                        "  AND (deferred_until IS NULL OR deferred_until <= NOW()) "
+                        "ORDER BY created_at ASC"
+                    ))).mappings().fetchall()
+                for row in rows:
+                    row_dict = dict(row)
+                    new_status, err = await _submit_deferred_order(row_dict)
+                    if new_status == "submitted":
+                        logger.info("Deferred worker submitted order %s (%s %s)",
+                                    row_dict["id"], row_dict["side"], row_dict["ticker"])
+                    else:  # failed
+                        async with engine.begin() as conn:
+                            await conn.execute(
+                                text("UPDATE alpaca_orders SET status='failed', "
+                                     "error_message=:err WHERE id=:id"),
+                                {"id": str(row_dict["id"]), "err": err},
+                            )
+                        logger.warning("Deferred worker: order %s failed: %s",
+                                       row_dict["id"], err)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            logger.exception("OPG deferral worker error: %s", exc)
-        await asyncio.sleep(OPG_WORKER_INTERVAL_SECS)
+            logger.exception("Deferred order worker error: %s", exc)
+        await asyncio.sleep(DEFERRED_WORKER_INTERVAL_SECS)
 
 
 @asynccontextmanager
@@ -233,7 +166,7 @@ async def lifespan(application: FastAPI):
     engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True,
                                  pool_size=2, max_overflow=3, connect_args={"timeout": 60})
     asyncio.create_task(_trade_executor_warm_up())
-    worker_task = asyncio.create_task(_opg_deferral_worker())
+    worker_task = asyncio.create_task(_deferred_order_worker())
     has_creds = bool(ALPACA_API_KEY and ALPACA_SECRET_KEY)
     logger.info(
         "Alpaca credentials: %s", "present" if has_creds else "NOT SET — orders will be rejected"
@@ -802,7 +735,7 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
         # ── Step 5: persist alpaca_orders row ─────────────────────────────────
         t0 = datetime.now(timezone.utc)
         order_type = "market"
-        time_in_force = "opg"  # market-on-open for all modes; works pre/post-market
+        time_in_force = "day"
         initial_status = "pending" if approved else "risk_rejected"
         try:
             async with engine.begin() as conn:
@@ -880,37 +813,6 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
             "symbol": ticker, "qty": qty_str, "side": side,
             "type": "market", "time_in_force": time_in_force,
         }
-        # OPG-window pre-check: if Alpaca won't accept the submission right now,
-        # park the order as 'deferred' instead of POSTing. The background worker
-        # (_opg_deferral_worker) submits it once the window opens. Avoids the
-        # default-schedule scenario where every weekday's auto-approval lands in
-        # the 16:00–19:00 ET dead zone and 30 orders fail in lockstep.
-        if not is_opg_window_open():
-            window_open_at = next_opg_window_open()
-            async with engine.begin() as conn:
-                await conn.execute(
-                    text("UPDATE alpaca_orders SET status='deferred', deferred_until=:du "
-                         "WHERE id=:id"),
-                    {"id": order_id, "du": window_open_at},
-                )
-                await _log_step(
-                    conn, trace_id, "submit_alpaca", "deferred", t0,
-                    input_summary=alpaca_payload,
-                    output_summary={"deferred_until": window_open_at.isoformat(),
-                                    "reason": "opg_window_closed"},
-                )
-                await conn.execute(
-                    text("UPDATE execution_traces SET status='success', completed_at=:now, "
-                         "notes='deferred_opg_window' WHERE trace_id=:tid"),
-                    {"tid": trace_id, "now": datetime.now(timezone.utc)},
-                )
-            return TradeAttemptResponse(
-                status="deferred", order_id=order_id, trace_id=trace_id,
-                ticker=ticker, action=action, side=side, qty=qty, notional=notional,
-                risk_approved=True, risk_reason=reason, risk_check_id=check_id,
-                deferred_until=window_open_at.isoformat(),
-                reason=f"OPG submission window closed; queued for {window_open_at.isoformat()}",
-            )
         try:
             alpaca_order_id, alpaca_status, alpaca_err = await _submit_to_alpaca(alpaca_payload)
         except Exception as exc:
@@ -937,43 +839,6 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
             )
 
         if alpaca_err is not None:
-            # Defence-in-depth for the OPG window: if our pre-check said the window
-            # was open but Alpaca disagrees (clock drift, DST edge), park the order
-            # as deferred so the worker retries instead of marking it permanently failed.
-            if _is_opg_window_error(alpaca_err):
-                window_open_at = next_opg_window_open()
-                # next_opg_window_open returns "now" when is_opg_window_open is True,
-                # which would re-fire the worker instantly into the same error. Push
-                # at least 5 minutes out to break the loop while we wait for Alpaca's
-                # view of the clock to align.
-                min_retry = datetime.now(timezone.utc) + timedelta(minutes=5)
-                if window_open_at < min_retry:
-                    window_open_at = min_retry
-                async with engine.begin() as conn:
-                    await conn.execute(
-                        text("UPDATE alpaca_orders SET status='deferred', deferred_until=:du, "
-                             "error_message=NULL WHERE id=:id"),
-                        {"id": order_id, "du": window_open_at},
-                    )
-                    await _log_step(
-                        conn, trace_id, "submit_alpaca", "deferred", t0,
-                        input_summary=alpaca_payload,
-                        output_summary={"deferred_until": window_open_at.isoformat(),
-                                        "reason": "alpaca_opg_window_rejected"},
-                        error_message=alpaca_err,
-                    )
-                    await conn.execute(
-                        text("UPDATE execution_traces SET status='success', completed_at=:now, "
-                             "notes='deferred_opg_window' WHERE trace_id=:tid"),
-                        {"tid": trace_id, "now": datetime.now(timezone.utc)},
-                    )
-                return TradeAttemptResponse(
-                    status="deferred", order_id=order_id, trace_id=trace_id,
-                    ticker=ticker, action=action, side=side, qty=qty, notional=notional,
-                    risk_approved=True, risk_reason=reason, risk_check_id=check_id,
-                    deferred_until=window_open_at.isoformat(),
-                    reason=f"OPG window rejection from Alpaca; queued for {window_open_at.isoformat()}",
-                )
             async with engine.begin() as conn:
                 await conn.execute(
                     text("UPDATE alpaca_orders SET status='failed', error_message=:err "
@@ -1066,13 +931,8 @@ async def _record_order(
     error_message: Optional[str] = None,
 ) -> None:
     """Insert (or audit) an alpaca_orders row."""
-    # All entries/buy_adds/sell_trims/exits route through market-on-open
-    # (time_in_force="opg") regardless of the request's mode field. MOO orders
-    # settle at the next market open; running the daily pipeline post-close
-    # guarantees no pending day orders are still reserving cash when the next
-    # batch is submitted.
     if time_in_force is None:
-        time_in_force = "opg"
+        time_in_force = "day"
     await conn.execute(
         text(
             """

@@ -149,9 +149,8 @@ SCENARIOS = {
         "/api/orders/recent": [],
     },
 
-    # ── OPG-window deferred: auto-approval landed in the 16:00–19:00 ET dead
-    #    zone, orders are parked until the worker resubmits at 19:00 ET. The
-    #    trader UI must show that they're queued, not failed.
+    # ── Deferred: orders parked (e.g. transient Alpaca error) until the
+    #    background worker retries. The trader UI must show queued, not failed.
     "all_deferred": {
         "/api/pipeline-status": _pipeline_status(),
         "/api/rankings/with-overlays": _full_rankings(),
@@ -461,7 +460,7 @@ INTENTS: list[Intent] = [
     ),
 
     # ──────────────────────────────────────────────────────────────────────────
-    # OPG-WINDOW DEFERRED — orders parked for the worker to retry at 19:00 ET
+    # DEFERRED — orders parked for the background worker to retry
     # ──────────────────────────────────────────────────────────────────────────
 
     Intent(

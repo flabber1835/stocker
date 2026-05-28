@@ -101,7 +101,7 @@ def seed_sync_run(account_value: float = 100_000.0,
 
 
 def seed_alpaca_order(intent_id: str, ticker: str,
-                      status: str, time_in_force: str = "opg") -> str:
+                      status: str, time_in_force: str = "day") -> str:
     oid = new_id()
     with pg() as conn:
         with conn.cursor() as cur:
