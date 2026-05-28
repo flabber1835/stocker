@@ -392,6 +392,27 @@ SCENARIOS = {
         "/api/live-portfolio": {"connected": False, "sync": {}},
         "/api/orders/recent": [],
     },
+
+    # ── All entries already held — only failures, nothing approvable ──────────
+    # Mirrors the user's production state: delta re-ran before sync captured
+    # fills; all entries now blocked, no new items to approve.
+    "all_already_held": {
+        "/api/pipeline-status": _pipeline_status(),
+        "/api/rankings/with-overlays": _full_rankings(),
+        "/api/delta/latest": {
+            "run": _delta_run(entries=3),
+            "intents": [
+                _intent("aah1", "NEM",  "entry", rank=5,  order_status="failed",
+                        order_error_message="Duplicate entry blocked: NEM already held (qty=7)"),
+                _intent("aah2", "TIGO", "entry", rank=11, order_status="failed",
+                        order_error_message="Duplicate entry blocked: TIGO already held (qty=5)"),
+                _intent("aah3", "SU",   "entry", rank=50, order_status="failed",
+                        order_error_message="Duplicate entry blocked: SU already held (qty=3)"),
+            ],
+        },
+        "/api/live-portfolio": {"connected": False, "sync": {}},
+        "/api/orders/recent": [],
+    },
 }
 
 
@@ -1004,6 +1025,59 @@ INTENTS: list[Intent] = [
             page, ".btn-sm-approve", expected=1,
             why="only AAPL is approvable; NEM is blocked (failed order)"
         ),
+    ),
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # ALL ALREADY HELD — production state: all entries blocked, none approvable
+    # Badge must be 0; section header says "Order Failures" not "Needs Attention"
+    # ──────────────────────────────────────────────────────────────────────────
+
+    Intent(
+        name="all_already_held_badge_hidden",
+        scenario="all_already_held",
+        panel="trader",
+        description="When all intents are already-held-blocked (failed, no approvable item), "
+                    "the badge must be hidden — there is nothing for the operator to decide.",
+        must_hide=["#nav-trade-badge"],
+    ),
+
+    Intent(
+        name="all_already_held_no_approve_buttons",
+        scenario="all_already_held",
+        panel="trader",
+        description="Already-held failures have no approve/reject buttons.",
+        custom_check=lambda page: _check_count(
+            page, ".btn-sm-approve", expected=0,
+            why="all entries are already blocked — no approvable action"
+        ),
+    ),
+
+    Intent(
+        name="all_already_held_section_label_says_failures",
+        scenario="all_already_held",
+        panel="trader",
+        description="When there are no approvable items (only failures), the section "
+                    "header says 'Order Failures', NOT 'Needs Attention' — the operator "
+                    "is informed, not alarmed.",
+        must_contain_text=["Order Failures"],
+        must_not_contain_text=["awaiting approval"],
+    ),
+
+    Intent(
+        name="all_already_held_failures_visible",
+        scenario="all_already_held",
+        panel="trader",
+        description="All three blocked entries are visible so the operator can see "
+                    "which tickers were blocked and why.",
+        must_contain_text=["NEM", "TIGO", "SU", "Duplicate entry blocked"],
+    ),
+
+    Intent(
+        name="all_already_held_pending_chip_zero",
+        scenario="all_already_held",
+        panel="trader",
+        description="PENDING chip shows 0 — no human action required.",
+        custom_check=lambda page: _check_chip(page, "#ds-pending", "0"),
     ),
 ]
 

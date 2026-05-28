@@ -100,7 +100,10 @@ def _run_one_tick(module, intents, *, advance_seconds_after_first_seen=99999.0):
                     if intent.get("rejected_at"):
                         continue
                     order_status = intent.get("order_status")
-                    if order_status in ("failed", "risk_rejected", "submitted", "pending"):
+                    if order_status in (
+                        "failed", "risk_rejected", "submitted", "pending",
+                        "deferred", "filled", "partial_fill",
+                    ):
                         module._intent_approved.add(iid)
                         continue
                     current_ids.add(iid)
@@ -197,9 +200,13 @@ def test_manually_rejected_intent_skipped(dashboard):
     assert posted == []
 
 
-@pytest.mark.parametrize("order_status", ["submitted", "pending", "failed", "risk_rejected"])
+@pytest.mark.parametrize("order_status", [
+    "submitted", "pending", "failed", "risk_rejected",
+    "filled", "partial_fill",  # terminal fill states must also stop the counter
+])
 def test_already_handled_intent_skipped(dashboard, order_status):
-    """An intent with a non-null order_status is not re-submitted."""
+    """An intent with a terminal order_status is not re-submitted and is removed
+    from the pending counter so the status bar doesn't show stale 'N TRADES PENDING'."""
     posted = _run_one_tick(dashboard, [_intent("e1", "entry", order_status=order_status)])
     assert posted == []
     # And it's remembered so we don't retry later

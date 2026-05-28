@@ -688,11 +688,17 @@ function renderTrader() {
   // ── Section 1: Needs Attention ───────────────────────────────────────────
   if (attentionItems.length > 0) {
     const approvableCount = attentionItems.filter(_isApprovable).length;
-    const hdrDetail = approvableCount > 0
-      ? ' — ' + approvableCount + ' awaiting approval'
-      : '';
+    let hdrLabel, hdrDetail;
+    if (approvableCount > 0) {
+      hdrLabel = '&#9888; Needs Attention';
+      hdrDetail = ' — ' + approvableCount + ' awaiting approval';
+    } else {
+      // Only failures / vetter-blocks visible — no action to take
+      hdrLabel = '&#9888; Order Failures';
+      hdrDetail = '';
+    }
     rows.push('<tr class="tr-section-attention"><td colspan="8">'
-      + '&#9888; Needs Attention' + hdrDetail
+      + hdrLabel + hdrDetail
       + '</td></tr>');
     for (const r of attentionItems) rows.push(_buildTradeRow(r));
   }
@@ -820,10 +826,10 @@ function _buildTradeRow(r) {
 }
 
 function updateTraderBadge() {
-  // Badge = all items in the "Needs Attention" section:
-  //   approvable intents + failed/risk_rejected orders + vetter-blocked buys
-  // Submitted/filled/hold items do NOT inflate the badge.
-  const cnt = deltaData.filter(r => _sectionFor(r) === 'attention').length;
+  // Badge = only items requiring a human DECISION (approve or reject).
+  // Failed orders and vetter-blocked buys appear in the Needs Attention section
+  // for visibility, but don't inflate the badge — there's nothing to click on them.
+  const cnt = deltaData.filter(_isApprovable).length;
   const badge = $('nav-trade-badge');
   if (!badge) return;
   if (cnt > 0) {

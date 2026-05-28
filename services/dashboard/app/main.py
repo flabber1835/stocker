@@ -73,8 +73,12 @@ async def _auto_approve_bg():
                         # Marking them as approved prevents auto-approve from retrying on restart
                         # or, for 'deferred' orders, re-firing into the OPG deferral path while
                         # the worker is already managing the wakeup.
+                        # filled / partial_fill are also terminal — no re-submission needed.
                         order_status = intent.get("order_status")
-                        if order_status in ("failed", "risk_rejected", "submitted", "pending", "deferred"):
+                        if order_status in (
+                            "failed", "risk_rejected", "submitted", "pending",
+                            "deferred", "filled", "partial_fill",
+                        ):
                             _intent_approved.add(iid)
                             continue
                         current_ids.add(iid)
