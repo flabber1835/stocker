@@ -425,15 +425,22 @@ function renderRankings() {
     const pctVal = r.percentile != null ? (+r.percentile * 100).toFixed(0) + '%' : '—';
     const compCls = r.composite_score != null ? (+r.composite_score > 0.5 ? 'pos' : 'neg') : 'neu';
 
+    // Trend arrow shows the rank's direction over the last 5 runs (REGR_SLOPE).
+    // Negative slope = rank number falling = stock improving. The slope smooths
+    // single-day jitter, matching the system's 5-day-confirmation philosophy.
+    // Before 5 runs of history exist the slope is computed over however many
+    // runs are available (e.g. on day 2 it equals the 1-day diff). The prior_rank
+    // 1-day diff is only a fallback for tickers too new to have any slope at all.
     let arrow = '';
-    if (r.prior_rank != null) {
-      const delta = r.prior_rank - r.rank;
-      if (delta >= 2)       arrow = '<span class="rank-up" title="up ' + delta + '">&#9650;' + delta + '</span>';
-      else if (delta <= -2) arrow = '<span class="rank-dn" title="down ' + (-delta) + '">&#9660;' + (-delta) + '</span>';
-    } else if (r.rank_slope != null && Math.abs(r.rank_slope) >= 1) {
+    if (r.rank_slope != null && Math.abs(r.rank_slope) >= 1) {
+      const mag = Math.round(Math.abs(r.rank_slope));
       arrow = r.rank_slope < 0
-        ? '<span class="rank-up">&#9650;</span>'
-        : '<span class="rank-dn">&#9660;</span>';
+        ? '<span class="rank-up" title="trending up ~' + mag + '/run (5-run slope)">&#9650;' + mag + '</span>'
+        : '<span class="rank-dn" title="trending down ~' + mag + '/run (5-run slope)">&#9660;' + mag + '</span>';
+    } else if (r.prior_rank != null) {
+      const delta = r.prior_rank - r.rank;
+      if (delta >= 2)       arrow = '<span class="rank-up" title="up ' + delta + ' since last run">&#9650;' + delta + '</span>';
+      else if (delta <= -2) arrow = '<span class="rank-dn" title="down ' + (-delta) + ' since last run">&#9660;' + (-delta) + '</span>';
     }
 
     const flags = [];
