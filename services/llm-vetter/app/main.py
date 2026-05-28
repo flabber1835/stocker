@@ -4,7 +4,7 @@ import os
 import traceback as _traceback
 import uuid
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Optional
 
@@ -385,6 +385,50 @@ async def _do_vet(
         )
         held_tickers: set[str] = {r.ticker for r in held_rows.fetchall()}
 
+    # Augment candidates with held tickers ranked outside top-N.
+    # Without this, a held stock approaching the exit zone escapes vetter
+    # scrutiny if its rank > candidate_count.  All held stocks must be vetted.
+    extra_held = [t for t in held_tickers if t not in {c["ticker"] for c in candidates}]
+    if extra_held:
+        async with engine.connect() as conn:
+            ex_rank_rows = await conn.execute(
+                text(
+                    "SELECT ticker, rank, composite_score, percentile, factor_scores, regime "
+                    "FROM rankings WHERE run_id = :rid AND ticker = ANY(:tickers)"
+                ),
+                {"rid": source_ranking_run_id, "tickers": extra_held},
+            )
+            ranked_extra_map = {r.ticker: r for r in ex_rank_rows.fetchall()}
+
+            ex_sector_rows = await conn.execute(
+                text(
+                    "SELECT DISTINCT ON (ut.ticker) ut.ticker, ut.sector, ut.name "
+                    "FROM universe_tickers ut "
+                    "JOIN universe_snapshots us ON ut.snapshot_id = us.id "
+                    "WHERE ut.ticker = ANY(:tickers) "
+                    "ORDER BY ut.ticker, us.snapshot_date DESC"
+                ),
+                {"tickers": extra_held},
+            )
+            for sr in ex_sector_rows.fetchall():
+                sector_map.setdefault(sr.ticker, sr.sector)
+                if sr.name:
+                    company_name_map.setdefault(sr.ticker, sr.name)
+
+        for t in extra_held:
+            r = ranked_extra_map.get(t)
+            candidates.append({
+                "ticker": t,
+                "rank": r.rank if r else 9999,
+                "composite_score": float(r.composite_score) if r and r.composite_score is not None else None,
+                "percentile": float(r.percentile) if r and r.percentile is not None else None,
+                "factor_scores": dict(r.factor_scores) if r and r.factor_scores else {},
+                "regime": r.regime if r else None,
+            })
+        tickers = [c["ticker"] for c in candidates]
+        state.candidates_total = len(candidates)
+        print(f"[llm-vetter] augmented with {len(extra_held)} held tickers outside top-N: {extra_held}")
+
     async with engine.begin() as conn:
         await _log_step(
             conn, trace_id, "load_candidates", "success",
@@ -551,6 +595,35 @@ async def _do_vet(
                     "rtype":  exc["risk_type"],
                 },
             )
+
+        # Penalty box: excluded tickers serve 30 calendar days.
+        # Re-flagging within the window resets the clock (flagged_count increments).
+        if exclusions:
+            today_date = date.today()
+            penalty_until = today_date + timedelta(days=30)
+            for exc in exclusions:
+                await conn.execute(
+                    text(
+                        "INSERT INTO vetter_penalty_box "
+                        "(ticker, first_flagged_date, last_flagged_date, penalty_box_until, "
+                        " flagged_count, reason, risk_type) "
+                        "VALUES (:ticker, :today, :today, :until, 1, :reason, :risk_type) "
+                        "ON CONFLICT (ticker) DO UPDATE SET "
+                        "  last_flagged_date = :today, "
+                        "  penalty_box_until = :until, "
+                        "  flagged_count = vetter_penalty_box.flagged_count + 1, "
+                        "  reason = EXCLUDED.reason, "
+                        "  risk_type = EXCLUDED.risk_type, "
+                        "  updated_at = NOW()"
+                    ),
+                    {
+                        "ticker": exc["ticker"],
+                        "today": today_date.isoformat(),
+                        "until": penalty_until.isoformat(),
+                        "reason": exc["reason"],
+                        "risk_type": exc["risk_type"],
+                    },
+                )
 
         # Write ALL ticker decisions (not just exclusions) for full audit trail.
         for r in ticker_results:

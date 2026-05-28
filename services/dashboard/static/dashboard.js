@@ -304,6 +304,8 @@ function _mapRankRow(r) {
     positive_catalyst: !!r.positive_catalyst,
     positive_reason: r.positive_reason,
     not_in_universe: !!r.not_in_universe,
+    penalty_box_until: r.penalty_box_until || null,
+    penalty_box_days_remaining: r.penalty_box_days_remaining != null ? +r.penalty_box_days_remaining : null,
   };
 }
 
@@ -349,7 +351,7 @@ async function loadRankings() {
     if (!d.rankings || d.rankings.length === 0) {
       _rankingsLoadState = 'empty';
       rankData = [];
-      $('r-body').innerHTML = '<tr><td colspan="10" class="tbl-empty">'
+      $('r-body').innerHTML = '<tr><td colspan="11" class="tbl-empty">'
         + 'No ranking data &mdash; click <strong>&#9654; RUN</strong> to populate'
         + '</td></tr>';
       // Refresh status bar so READY badge is downgraded if data missing
@@ -366,7 +368,7 @@ async function loadRankings() {
   } catch (e) {
     _rankingsLoadState = 'empty';
     rankData = [];
-    $('r-body').innerHTML = '<tr><td colspan="10" class="tbl-empty">'
+    $('r-body').innerHTML = '<tr><td colspan="11" class="tbl-empty">'
       + 'No ranking data &mdash; click <strong>&#9654; RUN</strong> to populate'
       + '</td></tr>';
     if (_pipelineData && _pipelineData.rank) updateStatusBar(_pipelineData);
@@ -416,9 +418,28 @@ function renderRankings() {
     : rows.length + ' / ' + rankData.length;
   if (!rows.length) {
     _expandedTicker = null;
-    $('r-body').innerHTML = '<tr><td colspan="10" class="tbl-empty">No results</td></tr>';
+    $('r-body').innerHTML = '<tr><td colspan="11" class="tbl-empty">No results</td></tr>';
     return;
   }
+
+  // Penalty warning banner for held stocks in the penalty box
+  const warnEl = $('r-penalty-warn');
+  if (warnEl) {
+    const heldInPenalty = rows.filter(r => r.held && r.penalty_box_days_remaining != null);
+    if (heldInPenalty.length) {
+      warnEl.style.display = 'block';
+      warnEl.innerHTML = '<div class="penalty-warn-banner">&#9888; '
+        + heldInPenalty.length + ' held stock' + (heldInPenalty.length !== 1 ? 's are' : ' is')
+        + ' in the penalty box: '
+        + heldInPenalty.map(r => '<strong>' + esc(r.ticker) + '</strong> ('
+            + (r.penalty_box_days_remaining === 0 ? 'expires today' : r.penalty_box_days_remaining + 'd left')
+            + ')').join(', ')
+        + '</div>';
+    } else {
+      warnEl.style.display = 'none';
+    }
+  }
+
   const html = rows.map(r => {
     const w = maxComp ? Math.max(0, Math.min(100, (+r.composite_score || 0) / maxComp * 100)) : 0;
     const pctCls = pctColor(r.percentile);
@@ -449,19 +470,34 @@ function renderRankings() {
     if (r.vetter_excluded) flags.push('<span class="overlay-badge excl" title="' + esc(r.vetter_reason || '') + '">&#9888; ' + (r.vetter_risk_type || '').toUpperCase().replace(/_/g,' ') + '</span>');
     const flagsHtml = flags.length ? flags.join('') : '<span style="color:var(--text3)">—</span>';
 
+    // Penalty box countdown cell
+    let penaltyHtml = '<span style="color:var(--text3)">—</span>';
+    if (r.penalty_box_days_remaining != null) {
+      if (r.penalty_box_days_remaining === 0) {
+        const cls = r.held ? 'pb-held' : 'pb-active';
+        penaltyHtml = '<span class="penalty-badge ' + cls + '" title="Penalty expires today (until ' + esc(r.penalty_box_until || '') + ')">&#9203; today</span>';
+      } else {
+        const cls = r.held ? 'pb-held' : 'pb-active';
+        penaltyHtml = '<span class="penalty-badge ' + cls + '" title="Penalty box until ' + esc(r.penalty_box_until || '') + '">'
+          + '&#9203; ' + r.penalty_box_days_remaining + 'd</span>';
+      }
+    }
+
     const FACTORS = ['momentum', 'quality', 'value', 'growth', 'low_volatility', 'liquidity'];
     const factorCells = FACTORS.map(f => '<td class="' + zColor(r[f]) + '">' + (r[f] != null ? (+r[f]).toFixed(2) : '—') + '</td>').join('');
 
     const heldCls     = r.held ? ' row-held' : '';
     const exclCls     = r.vetter_excluded ? ' row-excluded' : '';
+    const penaltyCls  = (r.penalty_box_days_remaining != null && r.held) ? ' row-penalty-held' : '';
     const expandedCls = _expandedTicker === r.ticker ? ' expanded' : '';
 
-    return '<tr class="rank-row' + heldCls + exclCls + expandedCls + '" id="rank-row-' + esc(r.ticker) + '" onclick="toggleDetail(\'' + esc(r.ticker) + '\',this)">'
+    return '<tr class="rank-row' + heldCls + exclCls + penaltyCls + expandedCls + '" id="rank-row-' + esc(r.ticker) + '" onclick="toggleDetail(\'' + esc(r.ticker) + '\',this)">'
       + '<td><span class="t-rank">' + r.rank + '</span>' + arrow + '</td>'
       + '<td><span class="t-ticker">' + r.ticker + '</span></td>'
       + '<td><div class="score-wrap"><span class="score-num ' + compCls + '">' + fmtScore(r.composite_score) + '</span>'
       + '<div class="score-track"><div class="score-fill" style="width:' + w + '%"></div></div></div></td>'
       + '<td>' + flagsHtml + '</td>'
+      + '<td>' + penaltyHtml + '</td>'
       + factorCells
       + '</tr>';
   }).join('');
@@ -504,7 +540,7 @@ function _insertDetailRow(rowEl, rec) {
   tr.className = 'detail-row';
   tr.id = 'detail-row-' + rec.ticker;
   const td = document.createElement('td');
-  td.colSpan = 10;
+  td.colSpan = 11;
   td.innerHTML = _buildDetailHtml(rec);
   tr.appendChild(td);
   rowEl.parentNode.insertBefore(tr, rowEl.nextSibling);

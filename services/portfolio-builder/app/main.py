@@ -207,10 +207,11 @@ async def _do_build(
                     warnings=[f"do-not-buy list excluded {len(dnb_excluded)} tickers: {dnb_excluded}"],
                 )
 
-    # ── Step 2b: apply LLM vetter exclusions ─────────────────────────────────────────────────────────────────────────────────────────────
+    # ── Step 2b: apply LLM vetter exclusions + penalty box ───────────────────────────────────────────────────────────────────────────────
     vetter_excluded: list[str] = []
     vetter_candidate_count: int | None = None
     vetter_unvetted_remaining: list[str] = []
+    penalty_box_excluded: list[str] = []
     if vetter_run_id:
         async with engine.connect() as conn:
             vrun_row = (await conn.execute(
@@ -236,12 +237,6 @@ async def _do_build(
             )
             vetter_excluded = [r.ticker for r in exc_rows.fetchall()]
 
-        if vetter_excluded:
-            excluded_set = set(vetter_excluded)
-            candidate_tickers = [t for t in candidate_tickers if t not in excluded_set]
-            scores_map = {t: v for t, v in scores_map.items() if t not in excluded_set}
-            rank_map = {t: v for t, v in rank_map.items() if t not in excluded_set}
-
         # Tickers that survived exclusion filtering but the vetter never actually
         # scanned — they could carry undisclosed risk. Surface in the log so an
         # operator can widen the vetter's candidate_count if portfolio-builder is
@@ -249,29 +244,58 @@ async def _do_build(
         if vetted_tickers:
             vetter_unvetted_remaining = [t for t in candidate_tickers if t not in vetted_tickers]
 
-        async with engine.begin() as conn:
-            warn_lines: list[str] = []
-            if vetter_excluded:
-                warn_lines.append(f"LLM vetter excluded {len(vetter_excluded)} tickers: {vetter_excluded}")
-            if vetter_unvetted_remaining:
-                warn_lines.append(
-                    f"{len(vetter_unvetted_remaining)} candidate tickers were not evaluated by the vetter "
-                    f"(vetter.candidate_count={vetter_candidate_count}); they will pass through unfiltered. "
-                    f"Increase vetter.candidate_count to cover the portfolio-builder selection horizon. "
-                    f"unvetted={vetter_unvetted_remaining[:10]}{'…' if len(vetter_unvetted_remaining) > 10 else ''}"
-                )
-            await _log_step(
-                conn, trace_id, "apply_vetter_exclusions", "success",
-                started_at=t0,
-                input_summary={"vetter_run_id": vetter_run_id, "vetter_candidate_count": vetter_candidate_count},
-                output_summary={
-                    "excluded_count": len(vetter_excluded),
-                    "excluded_tickers": vetter_excluded,
-                    "remaining_candidates": len(candidate_tickers),
-                    "unvetted_candidates_count": len(vetter_unvetted_remaining),
-                },
-                warnings=warn_lines or None,
+    # Penalty box: tickers excluded by a prior vetter run that haven't served
+    # their 30-day sentence yet, regardless of today's vetter result.
+    from datetime import date as _date
+    async with engine.connect() as conn:
+        pb_rows = await conn.execute(
+            text(
+                "SELECT ticker FROM vetter_penalty_box "
+                "WHERE penalty_box_until >= :today"
+            ),
+            {"today": _date.today().isoformat()},
+        )
+        penalty_box_set = {r.ticker for r in pb_rows.fetchall()}
+
+    # Tickers in penalty box that were not already flagged today
+    penalty_box_excluded = [
+        t for t in candidate_tickers
+        if t in penalty_box_set and t not in set(vetter_excluded)
+    ]
+
+    all_excluded_set = set(vetter_excluded) | penalty_box_set
+    if all_excluded_set:
+        candidate_tickers = [t for t in candidate_tickers if t not in all_excluded_set]
+        scores_map = {t: v for t, v in scores_map.items() if t not in all_excluded_set}
+        rank_map = {t: v for t, v in rank_map.items() if t not in all_excluded_set}
+
+    async with engine.begin() as conn:
+        warn_lines: list[str] = []
+        if vetter_excluded:
+            warn_lines.append(f"LLM vetter excluded {len(vetter_excluded)} tickers: {vetter_excluded}")
+        if penalty_box_excluded:
+            warn_lines.append(f"Penalty box excluded {len(penalty_box_excluded)} additional tickers: {penalty_box_excluded}")
+        if vetter_unvetted_remaining:
+            warn_lines.append(
+                f"{len(vetter_unvetted_remaining)} candidate tickers were not evaluated by the vetter "
+                f"(vetter.candidate_count={vetter_candidate_count}); they will pass through unfiltered. "
+                f"Increase vetter.candidate_count to cover the portfolio-builder selection horizon. "
+                f"unvetted={vetter_unvetted_remaining[:10]}{'…' if len(vetter_unvetted_remaining) > 10 else ''}"
             )
+        await _log_step(
+            conn, trace_id, "apply_vetter_exclusions", "success",
+            started_at=t0,
+            input_summary={"vetter_run_id": vetter_run_id, "vetter_candidate_count": vetter_candidate_count},
+            output_summary={
+                "excluded_count": len(vetter_excluded),
+                "excluded_tickers": vetter_excluded,
+                "penalty_box_count": len(penalty_box_excluded),
+                "penalty_box_tickers": penalty_box_excluded,
+                "remaining_candidates": len(candidate_tickers),
+                "unvetted_candidates_count": len(vetter_unvetted_remaining),
+            },
+            warnings=warn_lines or None,
+        )
 
     # ── Step 3: load price data for covariance ───────────────────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)

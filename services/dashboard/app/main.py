@@ -673,6 +673,7 @@ _HTML = r"""<!DOCTYPE html>
         <label class="chk"><input type="checkbox" id="r-hide-excl" onchange="renderRankings()"> Hide &#9888;</label>
         <span class="count-badge" id="r-count"></span>
       </div>
+      <div id="r-penalty-warn" style="display:none"></div>
 
       <div class="tbl-scroll">
         <table>
@@ -681,6 +682,7 @@ _HTML = r"""<!DOCTYPE html>
             <th onclick="sortRankings('ticker')" id="rh-ticker">TICKER</th>
             <th onclick="sortRankings('composite_score')" id="rh-composite_score">SCORE</th>
             <th>FLAGS</th>
+            <th onclick="sortRankings('penalty_box_days_remaining')" id="rh-penalty_box_days_remaining" title="Days remaining in 30-day vetter penalty box">PENALTY</th>
             <th onclick="sortRankings('momentum')" id="rh-momentum">MOM</th>
             <th onclick="sortRankings('quality')" id="rh-quality">QLTY</th>
             <th onclick="sortRankings('value')" id="rh-value">VAL</th>
@@ -688,7 +690,7 @@ _HTML = r"""<!DOCTYPE html>
             <th onclick="sortRankings('low_volatility')" id="rh-low_volatility">LOVOL</th>
             <th onclick="sortRankings('liquidity')" id="rh-liquidity">LIQ</th>
           </tr></thead>
-          <tbody id="r-body"><tr><td colspan="10" class="tbl-empty">Loading&#8230;</td></tr></tbody>
+          <tbody id="r-body"><tr><td colspan="11" class="tbl-empty">Loading&#8230;</td></tr></tbody>
         </table>
       </div>
     </div>

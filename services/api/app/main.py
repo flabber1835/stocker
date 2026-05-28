@@ -5,6 +5,7 @@ import re
 import traceback
 import uuid
 from contextlib import asynccontextmanager
+from datetime import date
 from typing import Literal
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
@@ -209,6 +210,7 @@ def _apply_overlays(
     inject_unranked: bool = True,
     query_prefix: str | None = None,
     held_rank_lookup: dict[str, dict] | None = None,
+    penalty_box_by_ticker: dict[str, date] | None = None,
 ) -> list[dict]:
     """Decorate ranking rows with vetter and holdings overlays.
 
@@ -277,7 +279,37 @@ def _apply_overlays(
             r["unrealized_plpc"] = pos["unrealized_plpc"]
         r.setdefault("not_in_universe", False)
 
+        # Penalty box overlay
+        pbuntil = (penalty_box_by_ticker or {}).get(t)
+        if pbuntil is not None:
+            if isinstance(pbuntil, str):
+                pbuntil = date.fromisoformat(pbuntil)
+            days_remaining = (pbuntil - date.today()).days
+            r["penalty_box_until"] = pbuntil.isoformat()
+            r["penalty_box_days_remaining"] = max(0, days_remaining)
+        else:
+            r["penalty_box_until"] = None
+            r["penalty_box_days_remaining"] = None
+
     return ranking_rows
+
+
+async def _load_penalty_box(conn) -> dict[str, date]:
+    """Return {ticker: penalty_box_until} for all tickers currently in the penalty box."""
+    rows = await conn.execute(
+        text(
+            "SELECT ticker, penalty_box_until FROM vetter_penalty_box "
+            "WHERE penalty_box_until >= :today"
+        ),
+        {"today": date.today().isoformat()},
+    )
+    result: dict[str, date] = {}
+    for r in rows.mappings():
+        pbu = r["penalty_box_until"]
+        if isinstance(pbu, str):
+            pbu = date.fromisoformat(pbu)
+        result[r["ticker"]] = pbu
+    return result
 
 
 @app.get("/rankings/with-overlays")
@@ -419,8 +451,10 @@ async def get_rankings_with_overlays(limit: int = 100):
             for hr in hr_rows.mappings():
                 held_rank_lookup[hr["ticker"]] = dict(hr)
 
+        penalty_box_by_ticker = await _load_penalty_box(conn)
         ranking_rows = _apply_overlays(ranking_rows, vetter_by_ticker, all_broker_positions,
-                                       held_rank_lookup=held_rank_lookup)
+                                       held_rank_lookup=held_rank_lookup,
+                                       penalty_box_by_ticker=penalty_box_by_ticker)
 
     return {
         "count": len(ranking_rows),
@@ -570,10 +604,12 @@ async def search_rankings(q: str = ""):
             for hr in hr_rows2.mappings():
                 held_rank_lookup_search[hr["ticker"]] = dict(hr)
 
+        penalty_box_by_ticker_search = await _load_penalty_box(conn)
         ranking_rows = _apply_overlays(
             ranking_rows, vetter_by_ticker, all_broker_positions,
             inject_unranked=True, query_prefix=q,
             held_rank_lookup=held_rank_lookup_search,
+            penalty_box_by_ticker=penalty_box_by_ticker_search,
         )
 
     run_meta = None
