@@ -368,20 +368,20 @@ async def _do_vet(
         for r in sibling_rows.fetchall():
             related_tickers_map.setdefault(r.canonical, []).append(r.sibling)
 
-    # Fetch holdings from the most recent successful portfolio run only.
-    # Using all historical runs would mark long-dropped tickers as "held",
-    # causing the LLM to apply the lenient exit standard instead of entry standard.
+    # Fetch actually-held tickers from the most recent alpaca-sync.
+    # live_positions reflects what the broker actually holds, not portfolio-builder's
+    # target. Using portfolio_holdings would mark tickers as held even when the
+    # corresponding trade was never submitted, risk-rejected, or not yet filled.
     async with engine.connect() as conn:
         held_rows = await conn.execute(
             text(
-                "SELECT ph.ticker FROM portfolio_holdings ph "
-                "WHERE ph.run_id = ("
-                "  SELECT run_id FROM portfolio_runs "
-                "  WHERE strategy_id = :sid AND status = 'success' "
+                "SELECT ticker FROM live_positions "
+                "WHERE sync_run_id = ("
+                "  SELECT id FROM alpaca_sync_runs "
+                "  WHERE status = 'success' "
                 "  ORDER BY completed_at DESC LIMIT 1"
-                ")"
+                ") AND qty > 0"
             ),
-            {"sid": source_strategy_id},
         )
         held_tickers: set[str] = {r.ticker for r in held_rows.fetchall()}
 

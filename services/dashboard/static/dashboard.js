@@ -528,7 +528,7 @@ function _buildDetailHtml(r) {
 
   let llmHtml = '';
   if (r.vetter_excluded || r.vetter_confidence || r.vetter_reason) {
-    const crashed = (r.vetter_reason || '').toUpperCase().indexOf('CRASHED') !== -1;
+    const crashed = !!r.vetter_crashed;
     const verdict = crashed ? 'CRASHED' : r.vetter_excluded ? 'EXCLUDE' : 'KEEP';
     const vbCls = crashed ? 'vb-crashed' : r.vetter_excluded ? 'vb-exclude' : 'vb-keep';
     const conf = (r.vetter_confidence || 'low').toLowerCase();

@@ -258,6 +258,7 @@ def _apply_overlays(
             r["vetter_confidence"] = v["confidence"]
             r["vetter_risk_type"] = v["risk_type"]
             r["vetter_reason"] = v["reason"]
+            r["vetter_crashed"] = bool(v.get("crashed", False))
             r["positive_catalyst"] = bool(v["positive_catalyst"])
             r["positive_reason"] = v["positive_reason"]
         else:
@@ -265,6 +266,7 @@ def _apply_overlays(
             r["vetter_confidence"] = None
             r["vetter_risk_type"] = None
             r["vetter_reason"] = None
+            r["vetter_crashed"] = False
             r["positive_catalyst"] = False
             r["positive_reason"] = None
         pos = all_broker_positions.get(t)
@@ -363,7 +365,7 @@ async def get_rankings_with_overlays(limit: int = 100):
             vd_rows = await conn.execute(
                 text(
                     "SELECT ticker, exclude, confidence, risk_type, reason, "
-                    "  positive_catalyst, positive_reason "
+                    "  positive_catalyst, positive_reason, crashed "
                     "FROM vetter_decisions WHERE run_id = :rid AND ticker = ANY(:tickers)"
                 ),
                 {"rid": vetter_run_id, "tickers": tickers},
@@ -513,7 +515,7 @@ async def search_rankings(q: str = ""):
             vd_rows = await conn.execute(
                 text(
                     "SELECT ticker, exclude, confidence, risk_type, reason, "
-                    "  positive_catalyst, positive_reason "
+                    "  positive_catalyst, positive_reason, crashed "
                     "FROM vetter_decisions WHERE run_id = :rid AND ticker = ANY(:tickers)"
                 ),
                 {"rid": vetter_run_id, "tickers": tickers},
@@ -1102,7 +1104,7 @@ async def get_delta_latest():
                 if vr:
                     vd_rows = (await conn.execute(text(
                         "SELECT ticker, exclude, confidence, risk_type, reason, "
-                        "  positive_catalyst, positive_reason "
+                        "  positive_catalyst, positive_reason, crashed "
                         "FROM vetter_decisions WHERE run_id = :rid AND ticker = ANY(:tickers)"
                     ), {"rid": str(vr["run_id"]), "tickers": tickers})).mappings().fetchall()
                     for v in vd_rows:
@@ -1150,6 +1152,7 @@ async def get_delta_latest():
                     "vetter_confidence":     vetter_by_ticker.get(r["ticker"], {}).get("confidence"),
                     "vetter_risk_type":      vetter_by_ticker.get(r["ticker"], {}).get("risk_type"),
                     "vetter_reason":         vetter_by_ticker.get(r["ticker"], {}).get("reason"),
+                    "vetter_crashed":        bool(vetter_by_ticker.get(r["ticker"], {}).get("crashed", False)),
                     "vetter_positive_catalyst": vetter_by_ticker.get(r["ticker"], {}).get("positive_catalyst"),
                     "vetter_positive_reason":   vetter_by_ticker.get(r["ticker"], {}).get("positive_reason"),
                 }
