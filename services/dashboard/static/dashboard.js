@@ -598,7 +598,7 @@ function _isApprovable(r) {
   if (!['entry', 'exit', 'buy_add', 'sell_trim'].includes(r.action)) return false;
   if (_approvalState[r.id]) return false;
   const os = r.order_status;
-  if (os === 'submitted' || os === 'pending' || os === 'deferred' || os === 'failed' || os === 'risk_rejected') return false;
+  if (os === 'submitted' || os === 'pending' || os === 'deferred' || os === 'failed' || os === 'risk_rejected' || os === 'filled' || os === 'partial_fill') return false;
   if (r.rejected_at) return false;
   if ((r.action === 'entry' || r.action === 'buy_add') && r.vetter_excluded) return false;
   return true;

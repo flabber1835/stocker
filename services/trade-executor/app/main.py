@@ -591,12 +591,48 @@ async def _submit_to_alpaca(payload: dict) -> tuple[Optional[str], Optional[str]
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 
+async def _is_already_held(conn, ticker: str) -> tuple[bool, Optional[float]]:
+    """Return (True, qty) if ticker is held at the broker in the LATEST successful
+    sync (qty > 0), else (False, None).
+
+    Deliberately scopes to the latest sync run — not the most recent sync that
+    included this ticker — so a position closed in the latest sync is correctly
+    reported as not held.
+
+    Returns (False, None) when:
+    - no successful sync exists yet
+    - the latest sync is stale (> EXIT_SYNC_MAX_AGE_HOURS); lets _size_entry's
+      dedicated stale-sync guard surface the clearer "sync too old" error instead.
+    """
+    row = (await conn.execute(text(
+        "SELECT lp.qty, sr.completed_at "
+        "FROM live_positions lp "
+        "JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
+        "WHERE sr.run_id = ("
+        "  SELECT run_id FROM alpaca_sync_runs WHERE status='success' "
+        "  ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+        ") AND lp.ticker = :t AND lp.qty > 0"
+    ), {"t": ticker})).mappings().first()
+    if row is None:
+        return False, None
+    if row["completed_at"] is not None:
+        age_hours = (
+            datetime.now(timezone.utc) - row["completed_at"]
+        ).total_seconds() / 3600.0
+        if age_hours > EXIT_SYNC_MAX_AGE_HOURS:
+            return False, None
+    qty = _f(row["qty"])
+    if qty is None or qty <= 0:
+        return False, None
+    return True, qty
+
+
 @app.post("/jobs/submit", response_model=TradeAttemptResponse)
 async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
     """Orchestrate the full approval flow for one delta intent.
 
     Steps (each persisted to execution_steps):
-      load_intent → size_order → risk_check → submit_alpaca
+      load_intent → already_held_check (entry only) → size_order → risk_check → submit_alpaca
     """
     # Validate intent_id as UUID up front
     try:
@@ -667,6 +703,51 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
         ticker = intent["ticker"]
         action = intent["action"]
         side = "buy" if action in ("entry", "buy_add") else "sell"
+
+        # ── Step 2b: already-held guard (entry only) ──────────────────────────
+        # A new delta run can fire before alpaca-sync captures a fill, producing
+        # a stale entry intent for a ticker the broker already holds.  Blocking
+        # here prevents a duplicate buy order that would double the position.
+        # buy_add / exit / sell_trim are intentionally for held tickers — exempt.
+        if action == "entry":
+            t0 = datetime.now(timezone.utc)
+            async with engine.connect() as conn:
+                is_held, held_qty = await _is_already_held(conn, ticker)
+            if is_held:
+                err = (
+                    f"{ticker} is already held at the broker (qty={held_qty:.4g}). "
+                    "Duplicate entry blocked — a new delta run saw this ticker as "
+                    "un-held before alpaca-sync captured the fill. "
+                    "Use buy_add if the position is underweight."
+                )
+                async with engine.begin() as conn:
+                    await _log_step(
+                        conn, trace_id, "already_held_check", "failed", t0,
+                        input_summary={"ticker": ticker, "action": "entry"},
+                        output_summary={"qty_held": held_qty},
+                        error_message=err,
+                    )
+                    await _record_order(
+                        conn, order_id=order_id, intent_id=req.intent_id,
+                        ticker=ticker, action=action, side=side,
+                        qty=0.0, notional=0.0, mode=req.mode, trace_id=trace_id,
+                        risk_approved=False, risk_reason=err,
+                        risk_check_id=None, status="failed",
+                        error_message=err,
+                    )
+                    await conn.execute(
+                        text("UPDATE execution_traces SET status='failed', "
+                             "completed_at=:now, notes='already_held' "
+                             "WHERE trace_id=:tid"),
+                        {"tid": trace_id, "now": datetime.now(timezone.utc)},
+                    )
+                return TradeAttemptResponse(
+                    status="failed", order_id=order_id, trace_id=trace_id,
+                    ticker=ticker, action=action, side=side,
+                    qty=0.0, notional=0.0,
+                    risk_approved=False, risk_reason=err,
+                    risk_check_id=None, reason=err,
+                )
 
         # ── Step 3: size order ────────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)

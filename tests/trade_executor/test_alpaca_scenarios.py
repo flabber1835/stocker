@@ -826,3 +826,299 @@ class TestEntryPriceFallback:
             cleanup_run(run_id)
             cleanup_sync_run(sync_id)
             cleanup_daily_price(self.TICKER_DAILY)
+
+
+# ── Test: already-held guard ──────────────────────────────────────────────────
+
+try:
+    from app.main import EXIT_SYNC_MAX_AGE_HOURS as _EXIT_SYNC_MAX_AGE_HOURS
+except ImportError:
+    _EXIT_SYNC_MAX_AGE_HOURS = 24
+
+
+class TestAlreadyHeldGuard:
+    """Integration tests for the already-held guard in the trade-executor.
+
+    The guard blocks entry intents when the broker already holds the ticker,
+    preventing duplicate buy orders caused by a delta run firing before
+    alpaca-sync captures the fill.
+    """
+
+    def test_entry_blocked_when_ticker_already_held(self):
+        """Entry blocked when ticker is held at the broker (qty > 0 in latest sync)."""
+        ticker = "AHG1"
+        sync_id = seed_sync_run(100_000.0, age_hours=0.0)
+        seed_live_position(sync_id, ticker, qty=100.0, price=50.0)
+        seed_daily_price(ticker, 50.0)
+        run_id = seed_delta_run()
+        intent_id = seed_delta_intent(run_id, ticker, "entry", weight=0.05)
+        try:
+            r = submit(intent_id)
+            assert r.status_code == 200
+            data = r.json()
+            assert data["status"] == "failed", data
+            reason = (data.get("reason") or data.get("risk_reason") or "").lower()
+            assert "already held" in reason, f"Expected 'already held' in reason: {reason}"
+            # alpaca_orders row
+            db = get_order_row(intent_id)
+            assert db["status"] == "failed", db
+            # execution_steps row for already_held_check
+            trace_id = data["trace_id"]
+            step_status = psql_val(
+                f"SELECT status FROM execution_steps "
+                f"WHERE trace_id = '{trace_id}' AND step_name = 'already_held_check' LIMIT 1"
+            )
+            assert step_status == "failed", f"Expected step status=failed, got: {step_status!r}"
+        finally:
+            cleanup_run(run_id)
+            cleanup_sync_run(sync_id)
+            cleanup_daily_price(ticker)
+            cleanup_orders_by_ticker(ticker)
+
+    def test_entry_proceeds_when_ticker_not_held(self):
+        """Entry not blocked when ticker is absent from the latest sync's positions."""
+        ticker = "AHG2"
+        sync_id = seed_sync_run(100_000.0, age_hours=0.0)
+        # No live_position seeded for AHG2
+        seed_daily_price(ticker, 50.0)
+        run_id = seed_delta_run()
+        intent_id = seed_delta_intent(run_id, ticker, "entry", weight=0.02)
+        try:
+            r = submit(intent_id)
+            assert r.status_code == 200
+            data = r.json()
+            reason = (data.get("reason") or data.get("risk_reason") or "").lower()
+            assert "already held" not in reason, f"Got unexpected 'already held': {reason}"
+            trace_id = data["trace_id"]
+            step_status = psql_val(
+                f"SELECT status FROM execution_steps "
+                f"WHERE trace_id = '{trace_id}' AND step_name = 'already_held_check' AND status = 'failed' LIMIT 1"
+            )
+            assert step_status == "", f"Expected no failed already_held_check step, got: {step_status!r}"
+        finally:
+            cleanup_run(run_id)
+            cleanup_sync_run(sync_id)
+            cleanup_daily_price(ticker)
+            cleanup_orders_by_ticker(ticker)
+
+    def test_entry_proceeds_when_no_sync_data_at_all(self):
+        """Entry not blocked when no successful sync exists yet."""
+        ticker = "AHG3"
+        purge_successful_sync_runs()
+        seed_daily_price(ticker, 50.0)
+        run_id = seed_delta_run()
+        intent_id = seed_delta_intent(run_id, ticker, "entry", weight=0.02)
+        try:
+            r = submit(intent_id)
+            assert r.status_code in (200, 409)  # 409 = stale sync; guard must not fire
+            data = r.json()
+            reason = (data.get("reason") or data.get("risk_reason") or data.get("detail") or "").lower()
+            assert "already held" not in reason, f"Got unexpected 'already held': {reason}"
+        finally:
+            cleanup_run(run_id)
+            cleanup_daily_price(ticker)
+            cleanup_orders_by_ticker(ticker)
+
+    def test_entry_with_qty_zero_in_live_positions_is_not_blocked(self):
+        """Defensive: a 0-qty row in live_positions does not trigger the guard.
+
+        The SQL has `lp.qty > 0` so a 0-qty row would return no match.
+        We seed it explicitly to verify the guard still passes.
+        """
+        ticker = "AHG4"
+        sync_id = seed_sync_run(100_000.0, age_hours=0.0)
+        # Seed a 0-qty position (closed) — the SQL guard filters these out
+        psql(
+            f"INSERT INTO live_positions (sync_run_id, ticker, qty, current_price) "
+            f"VALUES ('{sync_id}', '{ticker}', 0, 50.0)"
+        )
+        seed_daily_price(ticker, 50.0)
+        run_id = seed_delta_run()
+        intent_id = seed_delta_intent(run_id, ticker, "entry", weight=0.02)
+        try:
+            r = submit(intent_id)
+            assert r.status_code == 200
+            data = r.json()
+            reason = (data.get("reason") or data.get("risk_reason") or "").lower()
+            assert "already held" not in reason, f"Got unexpected 'already held': {reason}"
+        finally:
+            cleanup_run(run_id)
+            cleanup_sync_run(sync_id)
+            cleanup_daily_price(ticker)
+            cleanup_orders_by_ticker(ticker)
+
+    def test_buy_add_not_blocked_when_ticker_held(self):
+        """buy_add is exempt from the already-held guard (it's explicitly for held tickers)."""
+        ticker = "AHG5"
+        sync_id = seed_sync_run(100_000.0, age_hours=0.0)
+        seed_live_position(sync_id, ticker, qty=50.0, price=50.0)
+        psql(
+            f"INSERT INTO live_positions (sync_run_id, ticker, qty, current_price, market_value) "
+            f"SELECT '{sync_id}', '{ticker}', 50, 50.0, 2500.0 "
+            f"WHERE NOT EXISTS (SELECT 1 FROM live_positions WHERE sync_run_id='{sync_id}' AND ticker='{ticker}')"
+        )
+        seed_daily_price(ticker, 50.0)
+        run_id = seed_delta_run()
+        # buy_add: actual_weight=0.02 (underweight vs target 0.05)
+        intent_id = seed_delta_intent(run_id, ticker, "buy_add", weight=0.05, actual_weight=0.02)
+        try:
+            r = submit(intent_id)
+            assert r.status_code in (200, 400)
+            data = r.json() if r.status_code == 200 else r.json()
+            reason = (data.get("reason") or data.get("risk_reason") or data.get("detail") or "").lower()
+            assert "already held" not in reason, f"Guard fired on buy_add: {reason}"
+        finally:
+            cleanup_run(run_id)
+            cleanup_sync_run(sync_id)
+            cleanup_daily_price(ticker)
+            cleanup_orders_by_ticker(ticker)
+
+    def test_exit_not_blocked_when_ticker_held(self):
+        """exit is exempt from the already-held guard."""
+        ticker = "AHG6"
+        sync_id = seed_sync_run(100_000.0, age_hours=0.0)
+        seed_live_position(sync_id, ticker, qty=50.0, price=50.0)
+        run_id = seed_delta_run()
+        intent_id = seed_delta_intent(run_id, ticker, "exit")
+        try:
+            r = submit(intent_id)
+            assert r.status_code in (200, 400)
+            data = r.json()
+            reason = (data.get("reason") or data.get("risk_reason") or data.get("detail") or "").lower()
+            assert "already held" not in reason, f"Guard fired on exit: {reason}"
+        finally:
+            cleanup_run(run_id)
+            cleanup_sync_run(sync_id)
+            cleanup_orders_by_ticker(ticker)
+
+    def test_sell_trim_not_blocked_when_ticker_held(self):
+        """sell_trim is exempt from the already-held guard."""
+        ticker = "AHG7"
+        sync_id = seed_sync_run(100_000.0, age_hours=0.0)
+        seed_live_position(sync_id, ticker, qty=50.0, price=50.0)
+        run_id = seed_delta_run()
+        # sell_trim: actual_weight=0.06 > target 0.03
+        intent_id = seed_delta_intent(run_id, ticker, "sell_trim", weight=0.03, actual_weight=0.06)
+        try:
+            r = submit(intent_id)
+            assert r.status_code in (200, 400)
+            data = r.json()
+            reason = (data.get("reason") or data.get("risk_reason") or data.get("detail") or "").lower()
+            assert "already held" not in reason, f"Guard fired on sell_trim: {reason}"
+        finally:
+            cleanup_run(run_id)
+            cleanup_sync_run(sync_id)
+            cleanup_orders_by_ticker(ticker)
+
+    def test_partial_fill_blocks_new_entry(self):
+        """Partial fill: ticker already held (partial qty > 0) → entry blocked."""
+        ticker = "AHG8"
+        sync_id = seed_sync_run(100_000.0, age_hours=0.0)
+        # Only 50 of 200 shares filled — partial fill, but broker holds qty=50
+        seed_live_position(sync_id, ticker, qty=50.0, price=50.0)
+        seed_daily_price(ticker, 50.0)
+        run_id = seed_delta_run()
+        intent_id = seed_delta_intent(run_id, ticker, "entry", weight=0.05)
+        try:
+            r = submit(intent_id)
+            assert r.status_code == 200
+            data = r.json()
+            assert data["status"] == "failed", data
+            reason = (data.get("reason") or data.get("risk_reason") or "").lower()
+            assert "already held" in reason, f"Expected 'already held' in reason: {reason}"
+        finally:
+            cleanup_run(run_id)
+            cleanup_sync_run(sync_id)
+            cleanup_daily_price(ticker)
+            cleanup_orders_by_ticker(ticker)
+
+    def test_stale_sync_entry_not_blocked_by_already_held_check(self):
+        """Stale sync: _is_already_held returns False (defers to size_entry's guard).
+
+        The already-held guard silently defers when the sync is too old,
+        so the sizing step surfaces the clearer 'sync too old' error.
+        """
+        ticker = "AHG9"
+        purge_successful_sync_runs()
+        stale_hours = _EXIT_SYNC_MAX_AGE_HOURS + 1
+        sync_id = seed_sync_run(100_000.0, age_hours=stale_hours)
+        seed_live_position(sync_id, ticker, qty=100.0, price=50.0)
+        seed_daily_price(ticker, 50.0)
+        run_id = seed_delta_run()
+        intent_id = seed_delta_intent(run_id, ticker, "entry", weight=0.05)
+        try:
+            r = submit(intent_id)
+            data = r.json() if r.status_code == 200 else r.json()
+            reason = (data.get("reason") or data.get("risk_reason") or data.get("detail") or "").lower()
+            assert "already held" not in reason, (
+                f"already_held guard fired on stale sync — should defer to size_entry: {reason}"
+            )
+        finally:
+            cleanup_run(run_id)
+            cleanup_sync_run(sync_id)
+            cleanup_daily_price(ticker)
+            cleanup_orders_by_ticker(ticker)
+
+    def test_already_held_audit_trail(self):
+        """Verify full audit trail: execution_traces, alpaca_orders, execution_steps."""
+        ticker = "AHG10"
+        sync_id = seed_sync_run(100_000.0, age_hours=0.0)
+        seed_live_position(sync_id, ticker, qty=100.0, price=50.0)
+        seed_daily_price(ticker, 50.0)
+        run_id = seed_delta_run()
+        intent_id = seed_delta_intent(run_id, ticker, "entry", weight=0.05)
+        try:
+            r = submit(intent_id)
+            assert r.status_code == 200
+            data = r.json()
+            assert data["status"] == "failed"
+            trace_id = data["trace_id"]
+            # execution_traces row
+            trace_status = psql_val(
+                f"SELECT status || '|' || COALESCE(notes, '') "
+                f"FROM execution_traces WHERE trace_id = '{trace_id}'"
+            )
+            assert "failed" in trace_status, f"Expected trace status=failed: {trace_status!r}"
+            assert "already_held" in trace_status, f"Expected notes=already_held: {trace_status!r}"
+            # alpaca_orders row
+            db = get_order_row(intent_id)
+            assert db["status"] == "failed", db
+            assert db["risk_approved"] == "false", db
+            # execution_steps row
+            step_status = psql_val(
+                f"SELECT status FROM execution_steps "
+                f"WHERE trace_id = '{trace_id}' AND step_name = 'already_held_check' LIMIT 1"
+            )
+            assert step_status == "failed", f"Expected step=failed, got: {step_status!r}"
+        finally:
+            cleanup_run(run_id)
+            cleanup_sync_run(sync_id)
+            cleanup_daily_price(ticker)
+            cleanup_orders_by_ticker(ticker)
+
+    def test_position_closed_since_older_sync_does_not_block(self):
+        """Position was held in an old sync but closed in the latest sync — not blocked."""
+        ticker = "AHG11"
+        # Old sync: ticker was held
+        old_sync_id = seed_sync_run(100_000.0, age_hours=10.0)
+        seed_live_position(old_sync_id, ticker, qty=100.0, price=50.0)
+        # New sync: ticker NOT in positions (position closed)
+        new_sync_id = seed_sync_run(100_000.0, age_hours=0.0)
+        # No live_position for new_sync_id and ticker
+        seed_daily_price(ticker, 50.0)
+        run_id = seed_delta_run()
+        intent_id = seed_delta_intent(run_id, ticker, "entry", weight=0.02)
+        try:
+            r = submit(intent_id)
+            assert r.status_code == 200
+            data = r.json()
+            reason = (data.get("reason") or data.get("risk_reason") or "").lower()
+            assert "already held" not in reason, (
+                f"Guard fired even though latest sync shows no position: {reason}"
+            )
+        finally:
+            cleanup_run(run_id)
+            cleanup_sync_run(old_sync_id)
+            cleanup_sync_run(new_sync_id)
+            cleanup_daily_price(ticker)
+            cleanup_orders_by_ticker(ticker)
