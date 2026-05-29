@@ -16,8 +16,8 @@ Intents are organized by panel and by state, derived from the system design:
   • Trader panel
       INTENT: Show pending signals with approve/reject controls.
       INTENT: Submitted signals must NOT show checkboxes or approve buttons.
-              Their state is "done"; only Purge & Reset is offered.
-      INTENT: The toolbar (Purge & Reset) must always be reachable whenever
+              Their state is "done"; only Clear approved trades is offered.
+      INTENT: The toolbar (Clear approved trades) must always be reachable whenever
               any signals exist — even all-submitted, all-hold, etc.
 
   • Portfolio panel
@@ -232,7 +232,7 @@ SCENARIOS = {
         "/api/orders/recent": [],
     },
 
-    # ── All intents rejected (after Purge & Reset) ───────────────────────────
+    # ── All intents rejected (after Clear approved trades) ───────────────────────────
     "all_rejected": {
         "/api/pipeline-status": _pipeline_status(),
         "/api/rankings/with-overlays": _full_rankings(),
@@ -465,7 +465,7 @@ INTENTS: list[Intent] = [
         panel="trader",
         description="Trader with no intents shows clear empty state.",
         must_contain_text=["No signals"],
-        must_hide=["#trader-toolbar"],  # nothing to purge
+        must_hide=["#trader-toolbar"],  # nothing to show
     ),
 
     Intent(
@@ -502,7 +502,7 @@ INTENTS: list[Intent] = [
         scenario="ready_with_data",
         panel="trader",
         description="Trader toolbar (with Purge button) is visible when signals exist.",
-        must_show=["#trader-toolbar", "#btn-purge-all", "#btn-approve-sel"],
+        must_show=["#trader-toolbar", "#btn-clear-approved", "#btn-approve-sel"],
         must_contain_text=["AAPL", "MSFT", "NVDA"],
     ),
 
@@ -556,12 +556,12 @@ INTENTS: list[Intent] = [
     ),
 
     Intent(
-        name="submitted_trader_toolbar_visible_with_purge",
+        name="submitted_trader_toolbar_visible_with_clear",
         scenario="all_submitted",
         panel="trader",
-        description="Toolbar with Purge & Reset MUST be visible even when all "
+        description="Toolbar with Clear approved trades MUST be visible even when all "
                     "signals are submitted (user needs to cancel + restart).",
-        must_show=["#trader-toolbar", "#btn-purge-all"],
+        must_show=["#trader-toolbar", "#btn-clear-approved"],
     ),
 
     Intent(
@@ -612,7 +612,7 @@ INTENTS: list[Intent] = [
         panel="trader",
         description="Even when all signals are hold/watch, the Purge button "
                     "must be reachable (open orders from previous run may exist).",
-        must_show=["#trader-toolbar", "#btn-purge-all"],
+        must_show=["#trader-toolbar", "#btn-clear-approved"],
     ),
 
     Intent(
@@ -727,7 +727,7 @@ INTENTS: list[Intent] = [
     ),
 
     # ──────────────────────────────────────────────────────────────────────────
-    # ALL REJECTED — after Purge & Reset
+    # ALL REJECTED — after Clear approved trades
     # ──────────────────────────────────────────────────────────────────────────
 
     Intent(

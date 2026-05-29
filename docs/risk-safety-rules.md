@@ -116,6 +116,37 @@ delta engine fired stale `entry` intents that someone clicks Approve on.
 
 Set `MAX_DATA_AGE_HOURS=0` to disable.
 
+### DELTA_SYNC_MAX_AGE_HOURS — delta broker-state reliability guard (proposal-time)
+
+A deterministic guard inside the **delta step** (not the risk-service), applied
+*before* any trade intents are written. The delta's `target_vs_live` mode emits
+an `entry` for every target ticker not present in `live_positions`; if the
+broker snapshot is unreliable this floods buy-to-open intents that exceed
+buying power and bounce at Alpaca for insufficient funds.
+
+The delta suppresses buy-side intents (`entry`, `buy_add`) — keeping
+`exit`/`hold`/`watch`/`sell_trim`, since closing is always safe — when the
+latest successful `alpaca_sync_runs` snapshot is unreliable, defined as any of:
+
+```text
+- no successful alpaca-sync run exists (broker holdings unknown); or
+- the latest successful sync is older than DELTA_SYNC_MAX_AGE_HOURS (default 12h); or
+- the account is funded with capital clearly deployed (cash < 50% of
+  account_value, or cash unrecorded) yet zero live positions were captured —
+  an internally inconsistent snapshot.
+```
+
+A genuine all-cash account (cash ≈ account_value, no positions) is NOT flagged,
+so the first buy of a fresh account still works. The decision is implemented by
+the pure function `_broker_state_unreliable()` in `services/pipeline/app/main.py`
+(unit-tested in `tests/pipeline/test_broker_state_guard.py`).
+
+This is defense-in-depth with the risk-service: `MAX_SYNC_AGE_HOURS` rejects at
+trade time on an *old* sync, but cannot catch a *recent-but-empty* snapshot
+(which still looks fresh); the delta guard refuses to *propose* the buys in the
+first place. Set `DELTA_SYNC_MAX_AGE_HOURS` very high to relax the age component
+(the inconsistency and no-sync components always apply).
+
 ### MAX_DAILY_LOSS_PCT — automated trading halt on drawdown
 
 Compares the latest `alpaca_sync_runs.account_value` against the earliest

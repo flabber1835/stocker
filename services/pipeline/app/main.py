@@ -1399,6 +1399,50 @@ async def _do_delta_step(
     return delta_run_id
 
 
+def _broker_state_unreliable(
+    *,
+    no_sync_data: bool,
+    sync_completed_at,            # datetime | None
+    account_value,                # float | None
+    cash,                         # float | None
+    live_positions_empty: bool,
+    max_age_hours: float,
+    now=None,
+) -> tuple[bool, str]:
+    """Decide whether the latest broker snapshot is too unreliable to emit buy-side
+    intents from. Pure/deterministic so it can be unit-tested.
+
+    Unreliable when any of:
+      - no successful alpaca-sync has ever run (broker holdings unknown);
+      - the latest successful sync is older than ``max_age_hours``;
+      - the account is funded with capital clearly deployed (cash < 50% of
+        account_value, or cash unknown) yet no live positions were captured —
+        an internally inconsistent snapshot that would make every target ticker
+        look un-held and flood entries that bounce for insufficient funds.
+
+    A genuine all-cash account (cash ≈ account_value, no positions) is reliable —
+    it is safe to invest from — so it is NOT flagged.
+    """
+    if no_sync_data:
+        return True, "no successful alpaca-sync run — broker holdings unknown"
+    if sync_completed_at is not None:
+        sc = sync_completed_at
+        if sc.tzinfo is None:
+            sc = sc.replace(tzinfo=timezone.utc)
+        _now = now or datetime.now(timezone.utc)
+        age_h = (_now - sc).total_seconds() / 3600.0
+        if age_h > max_age_hours:
+            return True, f"latest alpaca-sync is {age_h:.1f}h old (> {max_age_hours}h threshold)"
+    if live_positions_empty and account_value and account_value > 0:
+        if cash is None or cash < account_value * 0.5:
+            cash_s = "unknown" if cash is None else f"{cash:.2f}"
+            return True, (
+                f"account_value={account_value:.2f} but no live positions and "
+                f"cash={cash_s} (< 50% of account value) — broker snapshot inconsistent"
+            )
+    return False, ""
+
+
 async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) -> None:
     """The complete delta logic from delta-engine/app/main.py _do_delta."""
     _set_pct("delta", 3)
@@ -1552,7 +1596,8 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     no_sync_data = False
     async with engine.connect() as conn:
         sync_row = await conn.execute(text(
-            "SELECT run_id FROM alpaca_sync_runs WHERE status='success' "
+            "SELECT run_id, account_value, cash, position_count, completed_at "
+            "FROM alpaca_sync_runs WHERE status='success' "
             "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
         ))
         sync_run = sync_row.fetchone()
@@ -1586,6 +1631,25 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 for p in mktval_rows.fetchall():
                     if p.market_value is not None:
                         live_weights[p.ticker] = float(p.market_value) / account_value_for_drift
+
+    # ── Broker-state reliability guard ────────────────────────────────────────
+    # evaluate_target_vs_live emits an `entry` for every target ticker not present
+    # in live_positions. If the broker snapshot is stale or empty while the account
+    # is actually funded and invested, that yields a flood of buy-to-open intents
+    # that exceed buying power and bounce at Alpaca ("insufficient funds"). Detect
+    # an unreliable snapshot and (below) suppress buy-side intents; exits/holds stay
+    # allowed because closing a position is always safe.
+    DELTA_SYNC_MAX_AGE_HOURS = float(os.getenv("DELTA_SYNC_MAX_AGE_HOURS", "12"))
+    broker_unreliable, broker_unreliable_reason = _broker_state_unreliable(
+        no_sync_data=no_sync_data,
+        sync_completed_at=(sync_run.completed_at if sync_run is not None else None),
+        account_value=(float(sync_run.account_value)
+                       if sync_run is not None and sync_run.account_value is not None else None),
+        cash=(float(sync_run.cash)
+              if sync_run is not None and sync_run.cash is not None else None),
+        live_positions_empty=(not live_positions_set),
+        max_age_hours=DELTA_SYNC_MAX_AGE_HOURS,
+    )
 
     # Compute orphan_tickers for logging (live positions not in target)
     orphan_tickers = [t for t in live_positions_set if t not in target_portfolio]
@@ -1688,6 +1752,22 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
         )
         mode_used = "target_vs_live"
 
+    # Suppress buy-side intents when the broker snapshot is unreliable (see guard
+    # above). Done before the split below so all counts reflect the suppression.
+    suppressed_buyside_count = 0
+    if broker_unreliable:
+        suppressed = [t for t, d in decisions.items() if d.action in ("entry", "buy_add")]
+        suppressed_buyside_count = len(suppressed)
+        if suppressed:
+            decisions = {t: d for t, d in decisions.items()
+                         if d.action not in ("entry", "buy_add")}
+            print(
+                f"[delta] broker state unreliable ({broker_unreliable_reason}); "
+                f"suppressed {suppressed_buyside_count} buy-side intent(s): {suppressed[:20]}"
+                + (" …" if suppressed_buyside_count > 20 else ""),
+                flush=True,
+            )
+
     entries    = [d for d in decisions.values() if d.action == "entry"]
     exits      = [d for d in decisions.values() if d.action == "exit"]
     holds      = [d for d in decisions.values() if d.action == "hold"]
@@ -1720,7 +1800,15 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 "sell_trims": len(sell_trims),
                 "entry_tickers": [d.ticker for d in entries],
                 "exit_tickers": [d.ticker for d in exits],
+                "broker_unreliable": broker_unreliable,
+                "suppressed_buyside": suppressed_buyside_count,
             },
+            warnings=(
+                [f"Broker state unreliable ({broker_unreliable_reason}); "
+                 f"suppressed {suppressed_buyside_count} buy-side intent(s) — "
+                 f"only exits/holds proposed this run"]
+                if broker_unreliable else None
+            ),
         )
 
     # ── Step 5: write intents ─────────────────────────────────────────────────

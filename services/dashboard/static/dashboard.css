@@ -572,22 +572,22 @@ tr.detail-row td { padding: 0; white-space: normal; }
 .btn-approve-sel:hover:not(:disabled) { background: var(--navy-light); }
 .btn-approve-sel:disabled { opacity: .4; cursor: not-allowed; }
 .sel-count { font-size: 12px; color: var(--text2); }
-.btn-purge-all {
+.btn-clear-approved {
   margin-left: auto;
-  background: transparent; color: var(--red);
-  border: 1px solid var(--red); border-radius: 8px;
+  background: transparent; color: var(--text3);
+  border: 1px solid var(--border); border-radius: 8px;
   padding: 7px 14px;
   font-family: var(--font); font-size: 12px; font-weight: 600;
   letter-spacing: .04em; cursor: pointer; transition: background .15s, color .15s;
   white-space: nowrap;
 }
-.btn-purge-all:hover:not(:disabled) { background: var(--red); color: white; }
-.btn-purge-all:disabled { opacity: .4; cursor: not-allowed; }
+.btn-clear-approved:hover:not(:disabled) { background: var(--navy-light); color: var(--text); }
+.btn-clear-approved:disabled { opacity: .4; cursor: not-allowed; }
 
 @media (max-width: 600px) {
   .trader-toolbar { gap: 8px; }
   .btn-approve-sel { font-size: 12px; padding: 7px 12px; }
-  .btn-purge-all { margin-left: 0; width: 100%; text-align: center; }
+  .btn-clear-approved { margin-left: 0; width: 100%; text-align: center; }
 }
 
 .col-chk { width: 32px; text-align: center; padding: 0 4px !important; }

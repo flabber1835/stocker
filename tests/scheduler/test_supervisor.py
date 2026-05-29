@@ -335,6 +335,10 @@ class TestSupervisorTick:
             "current_run_id": None,
             "next_run": None,
         })
+        # _force_pending is module-level mutable state shared across the supervisor.
+        # Clear it so a prior run-now test can't leak forced steps into this one —
+        # the failed-step self-heal branch now keys on _force_pending membership.
+        _supervisor_tick.__globals__["_force_pending"].clear()
 
     @pytest.mark.asyncio
     async def test_triggers_first_step_when_idle(self):

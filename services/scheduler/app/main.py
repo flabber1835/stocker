@@ -139,9 +139,16 @@ _STEPS: list[_StepDef] = [
     # delta_runs.run_date is set from ranking_runs.rank_date in _do_delta_step
     # (see services/pipeline/app/main.py: `run_date = latest_rank.rank_date`).
     # Same data-date semantics as portfolio_date, same fix.
+    # max_running_minutes: a standalone delta normally finishes in seconds to a
+    # couple of minutes. If it is interrupted (container churn, OOM) it can leave
+    # a delta_runs row stuck at status='running'; with no watchdog the supervisor
+    # reports the step "running" forever and the dashboard rank screen wedges on
+    # "EVALUATING SIGNALS". After 30 min treat it as failed so the chain advances
+    # (and self-heal/run-now can re-trigger it).
     _StepDef("delta", PIPELINE_URL, "/jobs/delta", "run_date",
              status_path="/runs/delta-latest",
-             use_upstream_rank_date=True),
+             use_upstream_rank_date=True,
+             max_running_minutes=30),
 ]
 
 

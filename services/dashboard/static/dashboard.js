@@ -14,6 +14,8 @@ let _searchMode    = false;   // true when showing API search results instead of
 let _searchData    = [];      // rows returned by /rankings/search
 let _searchDebounce = null;   // setTimeout handle for debouncing keystrokes
 
+let _clearedTrades   = new Set();  // intent ids dismissed from the trader UI (cosmetic only)
+let _clearedRunId    = null;       // delta run_id the dismissals belong to
 let _approvalState   = {};   // intent_id → { status, msg }
 let _expandedTicker  = null;
 let _pipelineData    = {};
@@ -611,6 +613,7 @@ async function loadDelta() {
     const d = await fetch('/api/delta/latest').then(r => r.json());
     const run = d.run || {};
     deltaData = d.intents || [];
+    _loadClearedTrades(run.run_id || run.run_date || null);
     const dateEl = $('ds-date');
     if (dateEl) dateEl.textContent = run.run_date || '—';
     _approvalState = {};
@@ -685,7 +688,11 @@ function toggleCompleted() {
 }
 
 function renderTrader() {
-  const sorted = [...deltaData]
+  // Hide trades the user has cleared from the view (cosmetic only — the intents
+  // and any orders are untouched; clearing survives the polling refresh and
+  // resets automatically when a new delta run appears).
+  const visible = deltaData.filter(r => !_clearedTrades.has(String(r.id)));
+  const sorted = [...visible]
     .sort((a, b) => {
       const ao = ACTION_ORDER[a.action] ?? 99;
       const bo = ACTION_ORDER[b.action] ?? 99;
@@ -703,8 +710,8 @@ function renderTrader() {
     else                        completedItems.push(r);
   }
 
-  // Update live-count chips
-  const hasData = deltaData.length > 0;
+  // Update live-count chips (reflect the cleared view)
+  const hasData = visible.length > 0;
   const pendEl = $('ds-pending');  if (pendEl)  pendEl.textContent  = hasData ? attentionItems.length : '—';
   const flEl   = $('ds-inflight'); if (flEl)    flEl.textContent    = hasData ? progressItems.length  : '—';
   const doneEl = $('ds-done');     if (doneEl)  doneEl.textContent  = hasData ? completedItems.length : '—';
@@ -976,35 +983,42 @@ async function rejectTrade(intentId) {
   updateTraderBadge();
 }
 
-async function purgeAll() {
-  if (!confirm(
-    'Reject all pending signals and cancel all open orders?\n\n' +
-    'This will purge the entire current pipeline run. Run the pipeline again after this to generate fresh signals.'
-  )) return;
-  const btn = $('btn-purge-all');
-  const statusEl = $('purge-status');
-  if (btn) btn.disabled = true;
-  if (statusEl) { statusEl.textContent = 'Purging…'; statusEl.style.display = ''; }
+// ── Clear approved trades (cosmetic UI-only) ─────────────────────────────────
+// Hides already-actioned rows (anything not awaiting a human decision) from the
+// trader view. No orders are canceled and no intents are rejected — the dismissal
+// is stored client-side, keyed by the current delta run_id, so it survives the
+// polling refresh and auto-resets when a new delta run produces a fresh proposal.
+
+function _clearedKey(runId) { return 'clearedTrades:' + (runId || 'none'); }
+
+function _loadClearedTrades(runId) {
+  if (runId === _clearedRunId) return;   // same run — keep current dismissals
+  _clearedRunId = runId;
   try {
-    const r = await fetch('/api/trade/purge-all', { method: 'POST' });
-    const d = await r.json();
-    if (r.ok) {
-      const alpacaNote = d.alpaca_status && d.alpaca_status !== 'ok'
-        ? ` (Alpaca: ${d.alpaca_status})`
-        : '';
-      if (statusEl) statusEl.textContent =
-        `Purged: ${d.intents_rejected || 0} signals rejected, ${d.orders_canceled_locally || 0} orders canceled locally${alpacaNote}`;
-      _approvalState = {};
-      await loadDelta();
-      await fetchOrders();
-    } else {
-      if (statusEl) statusEl.textContent = 'Purge failed: ' + (d.error || d.detail || 'unknown error');
-    }
+    // Drop dismissal sets for any older run so localStorage doesn't grow.
+    Object.keys(localStorage).forEach(k => {
+      if (k.startsWith('clearedTrades:') && k !== _clearedKey(runId)) localStorage.removeItem(k);
+    });
+    const raw = localStorage.getItem(_clearedKey(runId));
+    _clearedTrades = new Set(raw ? JSON.parse(raw) : []);
   } catch (e) {
-    if (statusEl) statusEl.textContent = 'Purge failed: ' + String(e);
-  } finally {
-    if (btn) btn.disabled = false;
+    _clearedTrades = new Set();
   }
+}
+
+function _persistClearedTrades() {
+  try {
+    localStorage.setItem(_clearedKey(_clearedRunId), JSON.stringify([..._clearedTrades]));
+  } catch (e) { /* localStorage unavailable — dismissals are session-only */ }
+}
+
+function clearApprovedTrades() {
+  // Dismiss every row that is NOT awaiting a human approval decision, i.e. the
+  // approved/submitted/filled/rejected/failed and hold/watch rows.
+  deltaData.forEach(r => { if (!_isApprovable(r)) _clearedTrades.add(String(r.id)); });
+  _persistClearedTrades();
+  renderTrader();
+  updateTraderBadge();
 }
 
 /* ── Live portfolio ───────────────────────────────────────────────────── */

@@ -1375,68 +1375,6 @@ async def reject_trade(req: TradeRejectRequest):
         return {"status": "rejected", "intent_id": req.intent_id, "ticker": row["ticker"]}
 
 
-@app.post("/trade/purge-all")
-async def purge_all_trades():
-    """Reject every non-rejected intent from the latest delta run and cancel all
-    open alpaca_orders rows locally.  Also calls the trade-executor's
-    cancel-all-orders endpoint to cancel queued MOO orders at Alpaca.
-
-    This is the "fresh start" reset for when a run produces stale approvals
-    that the user wants to discard before running the pipeline again.
-    """
-    results: dict[str, object] = {}
-
-    async with engine.begin() as conn:
-        # 1. Reject all pending intents from the latest delta run
-        r1 = await conn.execute(
-            text(
-                "UPDATE delta_intents SET rejected_at = NOW() "
-                "WHERE rejected_at IS NULL "
-                "AND run_id = (SELECT run_id FROM delta_runs ORDER BY started_at DESC LIMIT 1) "
-                "RETURNING id, ticker, action"
-            )
-        )
-        rejected_intents = r1.mappings().fetchall()
-        results["intents_rejected"] = len(rejected_intents)
-        results["intents"] = [
-            {"id": str(r["id"]), "ticker": r["ticker"], "action": r["action"]}
-            for r in rejected_intents
-        ]
-
-        # 2. Cancel all open local order rows
-        r2 = await conn.execute(
-            text(
-                "UPDATE alpaca_orders SET status='canceled', "
-                "error_message = COALESCE(error_message,'') || ' [purged via /trade/purge-all]' "
-                "WHERE status IN ('pending','submitted','accepted','new','partially_filled')"
-            )
-        )
-        results["orders_canceled_locally"] = r2.rowcount or 0
-
-    # 3. Tell trade-executor to cancel at Alpaca (no-op if no credentials)
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.post(
-                f"{TRADE_EXECUTOR_URL}/jobs/cancel-all-orders?confirm=yes"
-            )
-            if r.status_code == 200:
-                data = r.json()
-                results["alpaca_cancel_count"] = data.get("alpaca_cancel_count", 0)
-                results["alpaca_status"] = data.get("status", "ok")
-            else:
-                results["alpaca_status"] = f"http_{r.status_code}"
-    except Exception as exc:
-        results["alpaca_status"] = f"error: {exc}"
-
-    print(
-        f"[api] purge-all: rejected {results['intents_rejected']} intents, "
-        f"canceled {results['orders_canceled_locally']} local orders, "
-        f"alpaca_status={results.get('alpaca_status')}",
-        flush=True,
-    )
-    return results
-
-
 # ── Recent orders ─────────────────────────────────────────────────────────────
 
 @app.get("/orders/recent")

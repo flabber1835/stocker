@@ -154,11 +154,6 @@ async def trade_reject(req: Request):
     return {"status": "ok"}
 
 
-@app.post("/api/trade/purge-all")
-async def trade_purge():
-    return {"intents_rejected": 0, "orders_canceled_locally": 0, "alpaca_status": "ok"}
-
-
 @app.post("/api/alpaca-sync")
 async def alpaca_sync():
     return {"status": "ok"}

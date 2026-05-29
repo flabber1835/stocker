@@ -260,17 +260,6 @@ async def proxy_trade_reject(request: Request):
         return JSONResponse(content={"error": str(exc)}, status_code=502)
 
 
-@app.post("/api/trade/purge-all")
-async def proxy_purge_all():
-    """Reject all pending intents and cancel all open orders — fresh start."""
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.post(f"{API_URL}/trade/purge-all")
-            return JSONResponse(content=r.json(), status_code=r.status_code)
-    except Exception as exc:
-        return JSONResponse(content={"error": str(exc)}, status_code=502)
-
-
 @app.post("/api/alpaca-sync")
 async def trigger_alpaca_sync():
     return await _proxy_post(f"{API_URL}/alpaca/sync")
@@ -721,9 +710,8 @@ _HTML = r"""<!DOCTYPE html>
         <label class="trader-sel-all"><input type="checkbox" id="select-all-trades" onchange="toggleSelectAll()"> Select all</label>
         <button class="btn-approve-sel" id="btn-approve-sel" onclick="approveSelected()" disabled>&#9654; Approve Selected (MOO)</button>
         <span class="sel-count" id="sel-count"></span>
-        <button class="btn-purge-all" id="btn-purge-all" onclick="purgeAll()" title="Reject all pending signals and cancel all open orders — use before re-running the pipeline">&#128465; Purge &amp; Reset</button>
+        <button class="btn-clear-approved" id="btn-clear-approved" onclick="clearApprovedTrades()" title="Hide already-actioned trades from this view — does not cancel orders or reject signals">&#128465; Clear approved trades</button>
       </div>
-      <div id="purge-status" style="display:none;padding:6px 12px;font-size:12px;color:var(--text3)"></div>
       <div class="tbl-scroll">
         <table id="trader-table">
           <thead><tr>

@@ -392,14 +392,15 @@ class TestJSRunButtonLogic:
         assert "showAsRunning" in body, "showAsRunning variable must exist in updatePipelineBar"
 
 
-class TestPurgeButtonVisibility:
+class TestTraderToolbarVisibility:
     """
-    Regression tests for the Purge & Reset button toolbar visibility.
+    Regression tests for the trader toolbar visibility (it contains the
+    'Clear approved trades' button).
 
-    The toolbar (which contains the purge button) must be visible whenever
-    there are any signals in the Trader tab — not only when there are
-    entry/exit/buy_add/sell_trim signals. A pipeline run that produces only
-    hold/watch signals may still have open orders that the user needs to cancel.
+    The toolbar must be visible whenever there are any signals in the Trader
+    tab — not only when there are entry/exit/buy_add/sell_trim signals. A
+    pipeline run that produces only hold/watch signals should still show the
+    toolbar so the view can be tidied.
     """
 
     def _load_js(self):
@@ -417,7 +418,7 @@ class TestPurgeButtonVisibility:
         return len(intents) > 0
 
     def test_toolbar_visible_with_entry_intents(self):
-        """Entry signals → toolbar shown → purge button accessible."""
+        """Entry signals → toolbar shown → clear-approved button accessible."""
         intents = [{"action": "entry"}, {"action": "entry"}]
         assert self._toolbar_visible(intents)
 
@@ -427,12 +428,12 @@ class TestPurgeButtonVisibility:
         assert self._toolbar_visible(intents)
 
     def test_toolbar_visible_with_hold_only_intents(self):
-        """Hold-only pipeline run → toolbar must still show so purge is reachable."""
+        """Hold-only pipeline run → toolbar must still show so it can be tidied."""
         intents = [{"action": "hold"}, {"action": "watch"}]
         assert self._toolbar_visible(intents)
 
     def test_toolbar_hidden_with_no_intents(self):
-        """No delta run / no intents → toolbar correctly hidden (nothing to purge)."""
+        """No delta run / no intents → toolbar correctly hidden (nothing to show)."""
         intents = []
         assert not self._toolbar_visible(intents)
 
@@ -450,31 +451,41 @@ class TestPurgeButtonVisibility:
         body = m.group(1)
         # Must NOT use the old hasActionable check that excluded hold/watch
         assert "hasActionable" not in body, (
-            "renderTrader() still uses hasActionable — this hides the purge button "
-            "when all intents are hold/watch. Use sorted.length > 0 instead."
+            "renderTrader() still uses hasActionable — this hides the toolbar "
+            "when all intents are hold/watch. Use a length check instead."
         )
-        # Must use length-based check
-        assert "sorted.length" in body, (
-            "renderTrader() must check sorted.length to show toolbar for all signal types"
+        # Must use a length-based check (toolbar gates on the visible signal count)
+        assert "visible.length" in body or "sorted.length" in body, (
+            "renderTrader() must check the signal count to show the toolbar for all types"
         )
 
-    def test_purge_button_present_in_html(self):
-        """btn-purge-all must exist in the dashboard HTML template."""
+    def test_clear_approved_button_present_in_html(self):
+        """btn-clear-approved must exist in the dashboard HTML template; the old
+        purge button must be gone."""
         main_path = os.path.join(_DASH_PATH, "app", "main.py")
         if not os.path.exists(main_path):
             main_path = os.path.join(_DASH_PATH, "main.py")
         with open(main_path) as f:
             content = f.read()
-        assert "btn-purge-all" in content, "Purge button element not found in dashboard HTML"
-        assert "purgeAll()" in content, "purgeAll() onclick not found in dashboard HTML"
+        assert "btn-clear-approved" in content, "Clear-approved button not found in dashboard HTML"
+        assert "clearApprovedTrades()" in content, "clearApprovedTrades() onclick not found"
+        assert "btn-purge-all" not in content, "stale Purge & Reset button still present"
+        assert "purgeAll()" not in content, "stale purgeAll() handler still present"
 
-    def test_purge_function_in_js(self):
-        """purgeAll() function must exist in dashboard.js and call the endpoint."""
+    def test_clear_approved_function_in_js(self):
+        """clearApprovedTrades() must exist in dashboard.js, be cosmetic-only
+        (no backend call), and the old purge function/endpoint must be gone."""
         content = self._load_js()
-        assert "async function purgeAll()" in content, "purgeAll() not defined in dashboard.js"
-        assert "/api/trade/purge-all" in content, "purgeAll() must POST to /api/trade/purge-all"
-        # Must reset approval state after purge
-        assert "_approvalState" in content, "_approvalState must be reset in purgeAll()"
+        assert "function clearApprovedTrades()" in content, (
+            "clearApprovedTrades() not defined in dashboard.js"
+        )
+        # Cosmetic only — must NOT hit any purge/cancel endpoint.
+        assert "function purgeAll()" not in content, "stale purgeAll() still present"
+        assert "/api/trade/purge-all" not in content, (
+            "clear-approved must not call the (removed) purge endpoint"
+        )
+        # Dismissals are persisted client-side and keyed by run so they survive polling.
+        assert "_clearedTrades" in content, "clearApprovedTrades() must track dismissed intents"
 
 
 # ── Helpers shared by new test classes ───────────────────────────────────────
