@@ -557,111 +557,64 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         )
 
     async with engine.connect() as conn:
-        # ── Step 4: load price history ────────────────────────────────────────
+        # ── Step 4a: pre-filter using recent prices ───────────────────────────
+        # Load only the last 30 days to cheaply determine the investable set
+        # before loading a full year of history for the entire universe.
+        # This avoids a 1M+ row fetchall() for tickers that will be filtered out.
         t0 = datetime.now(timezone.utc)
         fe = strategy.factor_engine
         price_lookback = max(fe.momentum_long_window, fe.volatility_window) + 150
-        price_rows = await conn.execute(
+        prefilter_rows = await conn.execute(
             text(
-                # Anchor lookback to MAX(date) across all price data, not
-                # CURRENT_DATE, so harness runs with historical dates work.
                 "SELECT ticker, date, adjusted_close, close, volume FROM daily_prices "
                 "WHERE ticker = ANY(:tickers) "
-                "  AND date >= (SELECT MAX(date) FROM daily_prices) "
-                "              - (:lookback * INTERVAL '1 day') "
+                "  AND date >= (SELECT MAX(date) FROM daily_prices) - INTERVAL '30 days' "
                 "ORDER BY ticker, date ASC"
             ),
-            {"tickers": universe_tickers, "lookback": price_lookback},
+            {"tickers": universe_tickers},
         )
-        prices_df = pd.DataFrame(
-            price_rows.fetchall(),
+        prefilter_df = pd.DataFrame(
+            prefilter_rows.fetchall(),
             columns=["ticker", "date", "adjusted_close", "close", "volume"],
         )
 
-    tickers_with_prices: set[str] = set()
-    no_price_tickers: list[str] = []
-    coverage_by_ticker: dict[str, dict] = {}
-    price_max_date = None
-    price_min_date = None
-
-    if not prices_df.empty:
-        prices_df["date"] = pd.to_datetime(prices_df["date"])
-        tickers_with_prices = set(prices_df["ticker"].unique())
-        no_price_tickers = sorted(t for t in universe_tickers if t not in tickers_with_prices)
-        price_max_date = prices_df["date"].max().date()
-        price_min_date = prices_df["date"].min().date()
-        cov = (
-            prices_df.groupby("ticker")["date"]
-            .agg(date_min="min", date_max="max", row_count="count")
-            .reset_index()
-        )
-        coverage_by_ticker = {
-            str(r["ticker"]): {
-                "date_min": str(r["date_min"].date()),
-                "date_max": str(r["date_max"].date()),
-                "row_count": int(r["row_count"]),
-            }
-            for _, r in cov.iterrows()
-        }
-    else:
-        no_price_tickers = list(universe_tickers)
-
-    async with engine.begin() as conn:
-        await _log_step_factor(
-            conn, trace_id, "load_price_history",
-            "success" if not prices_df.empty else "skipped",
-            started_at=t0,
-            input_summary={"ticker_count": len(universe_tickers)},
-            output_summary={
-                "row_count": len(prices_df),
-                "ticker_count": len(tickers_with_prices),
-                "date_min": str(price_min_date) if price_min_date else None,
-                "date_max": str(price_max_date) if price_max_date else None,
-                "no_price_data_count": len(no_price_tickers),
-                "no_price_data_tickers": no_price_tickers,
-            },
-            error_message="no price data found" if prices_df.empty else None,
-        )
-
-    if prices_df.empty:
+    if prefilter_df.empty:
         raise RuntimeError("no price data found for universe tickers")
 
-    print(f"[calculate] loaded {len(prices_df)} price rows for {prices_df['ticker'].nunique()} tickers")
+    prefilter_df["date"] = pd.to_datetime(prefilter_df["date"])
+    tickers_with_recent: set[str] = set(prefilter_df["ticker"].unique())
+    no_price_tickers: list[str] = sorted(t for t in universe_tickers if t not in tickers_with_recent)
+    price_max_date = prefilter_df["date"].max().date()
 
-    # ── Step 4b: apply universe price/liquidity filters ───────────────────────
-    t0 = datetime.now(timezone.utc)
     uni_cfg = strategy.universe
     min_price_filter = uni_cfg.min_price
     min_avg_dv_filter = uni_cfg.min_avg_dollar_volume_20d
 
-    prices_df_sorted = prices_df.sort_values("date")
-    latest_price = prices_df_sorted.groupby("ticker")["adjusted_close"].last().fillna(0.0)
-    last20 = prices_df_sorted.groupby("ticker").tail(20).copy()
+    pf_sorted = prefilter_df.sort_values("date")
+    latest_price = pf_sorted.groupby("ticker")["adjusted_close"].last().fillna(0.0)
+    last20 = pf_sorted.groupby("ticker").tail(20).copy()
     last20["dv"] = last20["close"].astype(float) * last20["volume"].astype(float)
     avg_dv_20d = last20.groupby("ticker")["dv"].mean()
-    _ref_date = prices_df_sorted["date"].max()
+    _ref_date = pf_sorted["date"].max()
     _latest_by_ticker = last20.groupby("ticker")["date"].max()
     _stale = _latest_by_ticker[_latest_by_ticker < (_ref_date - pd.Timedelta(days=7))].index
     avg_dv_20d.loc[_stale] = 0.0
     avg_dv_20d = avg_dv_20d.fillna(0.0)
 
     no_price_data_count = len(no_price_tickers)
-    below_price_list = [
-        t for t in tickers_with_prices if latest_price.get(t, 0.0) < min_price_filter
-    ]
+    below_price_list = [t for t in tickers_with_recent if latest_price.get(t, 0.0) < min_price_filter]
     below_price_set = set(below_price_list)
     below_dv_list = [
-        t for t in tickers_with_prices
+        t for t in tickers_with_recent
         if t not in below_price_set and avg_dv_20d.get(t, 0.0) < min_avg_dv_filter
     ]
-    investable_set = tickers_with_prices - below_price_set - set(below_dv_list)
+    investable_set = tickers_with_recent - below_price_set - set(below_dv_list)
 
     pre_filter_count = len(universe_tickers)
     universe_tickers = [t for t in universe_tickers if t in investable_set]
-    prices_df = prices_df[prices_df["ticker"].isin(investable_set)].copy()
-    tickers_with_prices = investable_set
-    coverage_by_ticker = {t: v for t, v in coverage_by_ticker.items() if t in investable_set}
-    no_price_tickers = []
+
+    # Free pre-filter data before the full-history load
+    del prefilter_df, pf_sorted, last20
 
     print(
         f"[calculate] universe filter: {pre_filter_count} → {len(universe_tickers)} tickers "
@@ -689,6 +642,72 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
     if not universe_tickers:
         raise RuntimeError("no investable tickers after universe filters — check min_price and min_avg_dollar_volume_20d")
+
+    async with engine.connect() as conn:
+        # ── Step 4b: load full price history for investable tickers only ──────
+        # Universe is already filtered — only load tickers that passed the
+        # price/liquidity gate above, cutting the fetch roughly in half.
+        t0 = datetime.now(timezone.utc)
+        price_rows = await conn.execute(
+            text(
+                # Anchor lookback to MAX(date) across all price data, not
+                # CURRENT_DATE, so harness runs with historical dates work.
+                "SELECT ticker, date, adjusted_close, close, volume FROM daily_prices "
+                "WHERE ticker = ANY(:tickers) "
+                "  AND date >= (SELECT MAX(date) FROM daily_prices) "
+                "              - (:lookback * INTERVAL '1 day') "
+                "ORDER BY ticker, date ASC"
+            ),
+            {"tickers": universe_tickers, "lookback": price_lookback},
+        )
+        prices_df = pd.DataFrame(
+            price_rows.fetchall(),
+            columns=["ticker", "date", "adjusted_close", "close", "volume"],
+        )
+
+    tickers_with_prices: set[str] = set()
+    coverage_by_ticker: dict[str, dict] = {}
+    price_min_date = None
+
+    if not prices_df.empty:
+        prices_df["date"] = pd.to_datetime(prices_df["date"])
+        tickers_with_prices = set(prices_df["ticker"].unique())
+        price_min_date = prices_df["date"].min().date()
+        cov = (
+            prices_df.groupby("ticker")["date"]
+            .agg(date_min="min", date_max="max", row_count="count")
+            .reset_index()
+        )
+        coverage_by_ticker = {
+            str(r["ticker"]): {
+                "date_min": str(r["date_min"].date()),
+                "date_max": str(r["date_max"].date()),
+                "row_count": int(r["row_count"]),
+            }
+            for _, r in cov.iterrows()
+        }
+
+    async with engine.begin() as conn:
+        await _log_step_factor(
+            conn, trace_id, "load_price_history",
+            "success" if not prices_df.empty else "skipped",
+            started_at=t0,
+            input_summary={"ticker_count": len(universe_tickers)},
+            output_summary={
+                "row_count": len(prices_df),
+                "ticker_count": len(tickers_with_prices),
+                "date_min": str(price_min_date) if price_min_date else None,
+                "date_max": str(price_max_date) if price_max_date else None,
+                "no_price_data_count": no_price_data_count,
+                "no_price_data_tickers": no_price_tickers[:100],
+            },
+            error_message="no price data found" if prices_df.empty else None,
+        )
+
+    if prices_df.empty:
+        raise RuntimeError("no price data found for investable tickers")
+
+    print(f"[calculate] loaded {len(prices_df)} price rows for {prices_df['ticker'].nunique()} tickers")
 
     async with engine.connect() as conn:
         # ── Step 5: load fundamentals ─────────────────────────────────────────
@@ -866,26 +885,26 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             output_summary={"snapshot_date": str(score_date), "regime": confirmed_regime},
         )
 
-        # ── Step 8: write factor scores ────────────────────────────────────────
+        # ── Step 8: write factor scores (batched to avoid large single tx) ────
         t0 = datetime.now(timezone.utc)
-        await conn.execute(
-            text(
-                "INSERT INTO factor_scores "
-                "(run_id, ticker, score_date, momentum, quality, value, growth, "
-                " low_volatility, liquidity, calculated_at) "
-                "VALUES (:run_id, :ticker, :score_date, :momentum, :quality, :value, "
-                "        :growth, :low_volatility, :liquidity, :calculated_at) "
-                "ON CONFLICT (run_id, ticker) DO UPDATE SET "
-                "  momentum      = EXCLUDED.momentum, "
-                "  quality       = EXCLUDED.quality, "
-                "  value         = EXCLUDED.value, "
-                "  growth        = EXCLUDED.growth, "
-                "  low_volatility = EXCLUDED.low_volatility, "
-                "  liquidity     = EXCLUDED.liquidity, "
-                "  calculated_at = EXCLUDED.calculated_at"
-            ),
-            factor_score_rows,
+        _FACTOR_BATCH = 500
+        _factor_sql = text(
+            "INSERT INTO factor_scores "
+            "(run_id, ticker, score_date, momentum, quality, value, growth, "
+            " low_volatility, liquidity, calculated_at) "
+            "VALUES (:run_id, :ticker, :score_date, :momentum, :quality, :value, "
+            "        :growth, :low_volatility, :liquidity, :calculated_at) "
+            "ON CONFLICT (run_id, ticker) DO UPDATE SET "
+            "  momentum      = EXCLUDED.momentum, "
+            "  quality       = EXCLUDED.quality, "
+            "  value         = EXCLUDED.value, "
+            "  growth        = EXCLUDED.growth, "
+            "  low_volatility = EXCLUDED.low_volatility, "
+            "  liquidity     = EXCLUDED.liquidity, "
+            "  calculated_at = EXCLUDED.calculated_at"
         )
+        for _i in range(0, len(factor_score_rows), _FACTOR_BATCH):
+            await conn.execute(_factor_sql, factor_score_rows[_i:_i + _FACTOR_BATCH])
         await _log_step_factor(
             conn, trace_id, "write_factor_scores", "success",
             started_at=t0,
@@ -1196,7 +1215,8 @@ async def _do_rank(
                 "weight_drift_count": len(weight_drift_tickers),
                 "top10": top10,
                 "spot_checks": spot_checks,
-                "dropped_tickers": dropped_detail,
+                "dropped_tickers": dropped_detail[:200],
+                "dropped_tickers_truncated": len(dropped_detail) > 200,
             },
             warnings=(
                 (
@@ -1302,27 +1322,26 @@ async def _do_rank(
         }
         for _, row in ranked_df.iterrows()
     ]
+    _RANK_BATCH = 500
+    _rank_sql = text(
+        """
+        INSERT INTO rankings
+            (run_id, source_factor_run_id, strategy_id, regime, rank_date, ticker, rank,
+             composite_score, percentile, factor_scores, ranked_at)
+        VALUES
+            (:run_id, :source_factor_run_id, :strategy_id, :regime, :rank_date, :ticker, :rank,
+             :composite_score, :percentile, CAST(:factor_scores AS jsonb), :ranked_at)
+        ON CONFLICT (run_id, ticker) DO UPDATE SET
+            rank                 = EXCLUDED.rank,
+            composite_score      = EXCLUDED.composite_score,
+            percentile           = EXCLUDED.percentile,
+            factor_scores        = EXCLUDED.factor_scores,
+            ranked_at            = EXCLUDED.ranked_at
+        """
+    )
     async with engine.begin() as conn:
-        if ranking_rows:
-            await conn.execute(
-                text(
-                    """
-                    INSERT INTO rankings
-                        (run_id, source_factor_run_id, strategy_id, regime, rank_date, ticker, rank,
-                         composite_score, percentile, factor_scores, ranked_at)
-                    VALUES
-                        (:run_id, :source_factor_run_id, :strategy_id, :regime, :rank_date, :ticker, :rank,
-                         :composite_score, :percentile, CAST(:factor_scores AS jsonb), :ranked_at)
-                    ON CONFLICT (run_id, ticker) DO UPDATE SET
-                        rank                 = EXCLUDED.rank,
-                        composite_score      = EXCLUDED.composite_score,
-                        percentile           = EXCLUDED.percentile,
-                        factor_scores        = EXCLUDED.factor_scores,
-                        ranked_at            = EXCLUDED.ranked_at
-                    """
-                ),
-                ranking_rows,
-            )
+        for _i in range(0, len(ranking_rows), _RANK_BATCH):
+            await conn.execute(_rank_sql, ranking_rows[_i:_i + _RANK_BATCH])
 
         await _log_step_ranker(
             conn, trace_id, "write_rankings", "success",
@@ -1909,6 +1928,7 @@ async def _run_pipeline_steps(
     factor_run_id: Optional[str] = None
     ranking_run_id: Optional[str] = None
     score_date: Optional[date] = None
+    _ranking_started = False  # track whether ranking_status="running" was written
 
     try:
         # ── Step 1: factor calculation ────────────────────────────────────────
@@ -1924,6 +1944,7 @@ async def _run_pipeline_steps(
                                        factor_run_id=factor_run_id,
                                        factor_status="success",
                                        ranking_status="running")
+        _ranking_started = True
 
         # ── Step 2: ranking ───────────────────────────────────────────────────
         print(f"[pipeline] run {run_id}: starting ranking", flush=True)
@@ -1973,10 +1994,12 @@ async def _run_pipeline_steps(
         traceback.print_exc()
         print(f"[pipeline] run {run_id} FAILED: {err}", flush=True)
         async with engine.begin() as conn:
+            extra = {"ranking_status": "failed"} if _ranking_started else {}
             await _update_pipeline_run(conn, run_id,
                                        status="failed",
                                        error_message=err,
-                                       completed_at=datetime.now(timezone.utc))
+                                       completed_at=datetime.now(timezone.utc),
+                                       **extra)
             await _finish_trace(conn, trace_id, "failed", notes=err)
         raise
     finally:
