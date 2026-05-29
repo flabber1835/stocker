@@ -1596,7 +1596,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     no_sync_data = False
     async with engine.connect() as conn:
         sync_row = await conn.execute(text(
-            "SELECT run_id, account_value, cash, position_count, completed_at "
+            "SELECT run_id, account_value, cash, buying_power, position_count, completed_at "
             "FROM alpaca_sync_runs WHERE status='success' "
             "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
         ))
@@ -1611,6 +1611,13 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             # Fall back to confirmation-days mode to avoid emitting entry intents for
             # positions that may already be held at the broker.
             no_sync_data = True
+
+    # Buying power for the delta entry-cap gate (None when no sync / not recorded).
+    buying_power_for_cap: Optional[float] = (
+        float(sync_run.buying_power)
+        if sync_run is not None and sync_run.buying_power is not None
+        else None
+    )
 
     # Load per-position actual weights for drift detection
     live_weights: dict[str, float] = {}
@@ -1749,6 +1756,8 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             max_positions=max_positions,
             actual_weights=live_weights,
             drift_threshold=drift_threshold,
+            account_value=account_value_for_drift,
+            buying_power=buying_power_for_cap,
         )
         mode_used = "target_vs_live"
 

@@ -5,7 +5,7 @@ Evaluates which tickers should enter or exit the portfolio based on
 consecutive-day confirmation in the entry/exit rank zones.
 All functions are stateless and fully deterministic.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Optional
 
@@ -169,6 +169,8 @@ def evaluate_target_vs_live(
     max_positions: int,
     actual_weights: dict[str, float] | None = None,
     drift_threshold: float = 0.02,
+    account_value: float | None = None,
+    buying_power: float | None = None,
 ) -> dict[str, DeltaDecision]:
     """Diff portfolio_holdings (target) against live_positions (actual broker state).
 
@@ -440,7 +442,98 @@ def evaluate_target_vs_live(
                 weight_drift=None,
             )
 
+    # Gate entries by capacity and buying power, demoting overflow to "watch".
+    _cap_entries(
+        decisions, live_positions, max_positions,
+        actual_weights=actual_weights,
+        account_value=account_value, buying_power=buying_power,
+    )
+
     return decisions
+
+
+def _cap_entries(
+    decisions: dict[str, DeltaDecision],
+    live_positions: set[str],
+    max_positions: int,
+    *,
+    actual_weights: dict[str, float] | None = None,
+    account_value: float | None = None,
+    buying_power: float | None = None,
+) -> None:
+    """Demote `entry` decisions to `watch` when they would breach the portfolio's
+    position cap or available buying power. Mutates ``decisions`` in place.
+
+    Why this exists
+    ---------------
+    `evaluate_target_vs_live` emits an `entry` for every target ticker not held,
+    with no cap. Combined with the buffer-zone logic that *retains* held names not
+    in the new target (orphan holds, never exited unless rank>exit_rank is confirmed),
+    a rotation produced (a) >max_positions realized positions and (b) a wall of buys
+    with no offsetting sells that blew past buying power. Both were confirmed live.
+
+    Two caps, best-ranked entries kept first:
+      - capacity:     retained_held + kept_entries <= max_positions, where
+                      retained_held = len(live_positions) - confirmed_exits.
+      - buying power: cumulative kept-entry weight <= buying_power/account_value
+                      + proceeds freed by confirmed exits (in weight space). Only
+                      enforced when account_value (>0) and buying_power are supplied;
+                      otherwise the executor/risk-service remain the cash backstop.
+
+    Exit proceeds are credited so a normal matched rotation (one name exits, one
+    enters) still funds the entry even at ~0 buying power — only naked, unfunded
+    buys are deferred.
+    """
+    entries = sorted(
+        (d for d in decisions.values() if d.action == "entry"),
+        key=lambda d: d.rank,
+    )
+    if not entries:
+        return
+
+    num_exits = sum(1 for d in decisions.values() if d.action == "exit")
+    retained = len(live_positions) - num_exits
+    slots = max_positions - retained
+
+    cap_cash = account_value is not None and account_value > 0 and buying_power is not None
+    avail_w = 0.0
+    if cap_cash:
+        exit_proceeds_w = 0.0
+        if actual_weights:
+            exit_proceeds_w = sum(
+                (actual_weights.get(d.ticker) or 0.0)
+                for d in decisions.values()
+                if d.action == "exit"
+            )
+        avail_w = max(0.0, buying_power) / account_value + exit_proceeds_w
+
+    cum_w = 0.0
+    kept = 0
+    EPS = 1e-9
+    for d in entries:
+        # NaN-safe weight (a corrupt target weight should not silently pass the gate).
+        w = d.current_weight if (d.current_weight is not None and d.current_weight == d.current_weight) else 0.0
+        fits_count = kept < slots
+        fits_cash = (not cap_cash) or (cum_w + w <= avail_w + EPS)
+        if fits_count and fits_cash:
+            kept += 1
+            cum_w += w
+            continue
+
+        reasons = []
+        if not fits_count:
+            reasons.append(
+                f"deferred — portfolio at capacity ({retained} retained + {kept} "
+                f"entries ≥ max_positions={max_positions})"
+            )
+        if cap_cash and not fits_cash:
+            reasons.append(
+                f"deferred — insufficient buying power (this {w:.2%} entry would take "
+                f"cumulative entries to {cum_w + w:.2%} > available {avail_w:.2%} of equity)"
+            )
+        decisions[d.ticker] = replace(
+            d, action="watch", current_weight=None, reason="; ".join(reasons),
+        )
 
 
 def evaluate_all(
