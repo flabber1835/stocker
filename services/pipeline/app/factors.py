@@ -10,6 +10,7 @@ def cross_section_percentile(series: pd.Series) -> pd.Series:
     """Cross-sectional percentile rank in (0, 1].
     Highest value → 1.0, lowest → 1/N.
     Ties receive average rank. NaN excluded and remain NaN.
+    Fewer than 2 valid entries returns all-NaN (can't rank against yourself).
     """
     result = pd.Series(np.nan, index=series.index, dtype=float)
     valid = series.dropna()

@@ -458,10 +458,13 @@ class TestNoDataSentinelExclusion:
         assert pd.isna(growth["SENTINEL"]),  "growth must be NaN for all-null sentinel"
 
     def test_sentinel_mixed_with_real_data(self):
-        """Sentinel ticker must not distort real tickers' scores.
+        """Sentinel ticker (all-null fundamentals) must not distort real tickers' scores.
 
-        If a sentinel's all-null row were treated as a valid data point (zeros),
-        it would corrupt the cross-sectional mean and std used in z-scoring.
+        With percentile ranking, a 1-ticker universe cannot produce a meaningful
+        cross-sectional rank (can't rank against yourself), so both q_clean and
+        q_with return NaN for REAL.  The key invariant is that the sentinel row
+        does NOT change REAL's scoring status — adding a null sentinel must produce
+        the exact same result as computing without it.
         """
         real = pd.DataFrame([
             {"ticker": "REAL", "pe_ratio": 20.0, "pb_ratio": 2.0,
@@ -478,9 +481,9 @@ class TestNoDataSentinelExclusion:
         ])
         q_clean = compute_quality(real)
         q_with  = compute_quality(with_sentinel)
-        # REAL's score should be the same (NaN rows don't affect _component_zscore)
-        # With only one valid ticker, both produce the same rank (zero z-score).
-        assert pd.notna(q_with["REAL"]), "REAL must still score when sentinel is present"
+        # Sentinel must not change REAL's NaN/non-NaN status
+        assert pd.isna(q_with["REAL"]) == pd.isna(q_clean["REAL"]), \
+            "sentinel must not alter whether REAL gets a quality score"
         assert pd.isna(q_with["SENTINEL"]), "SENTINEL must remain NaN"
 
     def test_no_data_row_with_source_field_not_confused_with_valid(self):
