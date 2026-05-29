@@ -1256,7 +1256,10 @@ async def _do_rank(
         # GOOG/"Alphabet Inc." and GOOGL/"Alphabet Inc Class A" both map to
         # "alphabet" and are treated as the same company.
         ranked_df["_group_key"] = ranked_df["ticker"].map(
-            lambda t: _normalize_company_name(name_map[t]) if name_map.get(t) else f"__solo_{t}"
+            lambda t: (
+                (_normalize_company_name(name_map[t]) or f"__solo_{t}")
+                if name_map.get(t) else f"__solo_{t}"
+            )
         )
         # ranked_df is already sorted ascending by rank (1 = best): first of each
         # name group IS the best-ranked ticker — keep it, drop the rest.

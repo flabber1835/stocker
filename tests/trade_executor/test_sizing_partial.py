@@ -94,20 +94,37 @@ async def test_buy_add_drift_too_small_raises_400():
 
 
 @pytest.mark.asyncio
-async def test_buy_add_uses_buying_power_when_lower():
-    """buy_add sizes against buying_power so cash reserved for pending orders
-    isn't double-spent. With buying_power=$20k, drift=2% → notional=$400 →
-    floor($400/$50)=8 shares (vs 40 with account_value)."""
+async def test_buy_add_always_uses_account_value():
+    """buy_add sizes against account_value (not buying_power) per spec:
+    floor(account_value × drift / price).
+    With account_value=$100k, drift=2% → notional=$2000 → floor($2000/$50)=40 shares.
+    A separate buying_power guard is checked after sizing (tested below)."""
     conn = _mock_conn([
         {"account_value": 100_000.0, "buying_power": 20_000.0, "completed_at": _now()},
         {"current_price": 50.0},
     ])
     intent = _intent("buy_add", current_weight=0.10, actual_weight=0.08)
     qty, notional, summary = await _size_partial(conn, "AAPL", intent)
-    assert qty == 8.0
-    assert notional == pytest.approx(400.0)
-    assert summary["sizing_basis"] == "buying_power"
+    assert qty == 40.0
+    assert notional == pytest.approx(2000.0)
+    assert summary["sizing_basis"] == "account_value"
     assert summary["buying_power"] == 20_000.0
+
+
+@pytest.mark.asyncio
+async def test_buy_add_raises_400_when_notional_exceeds_buying_power():
+    """buy_add raises 400 if the target notional exceeds buying_power by >5%.
+    This guards against submitting a buy when all cash is committed to pending sells."""
+    conn = _mock_conn([
+        # buying_power=$500 — much less than the $2000 notional for 2% drift on $100k
+        {"account_value": 100_000.0, "buying_power": 500.0, "completed_at": _now()},
+        {"current_price": 50.0},
+    ])
+    intent = _intent("buy_add", current_weight=0.10, actual_weight=0.08)
+    with pytest.raises(HTTPException) as exc_info:
+        await _size_partial(conn, "AAPL", intent)
+    assert exc_info.value.status_code == 400
+    assert "buying power" in exc_info.value.detail.lower()
 
 
 @pytest.mark.asyncio

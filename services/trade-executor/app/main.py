@@ -99,6 +99,17 @@ async def _submit_deferred_order(row: dict) -> tuple[str, Optional[str]]:
     }
     if not (ALPACA_API_KEY and ALPACA_SECRET_KEY):
         return "failed", "Alpaca credentials not configured"
+    # Re-check the kill switch before submitting a deferred order — the kill
+    # switch may have been activated after this order entered deferred state.
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as _ks_client:
+            _ks_resp = await _ks_client.get(f"{RISK_SERVICE_URL}/health")
+            if _ks_resp.status_code == 200:
+                _ks_data = _ks_resp.json()
+                if _ks_data.get("kill_switch"):
+                    return "failed", "Kill switch active — deferred order blocked"
+    except Exception:
+        pass  # Risk service unreachable — allow order (fail-open, consistent with main path)
     try:
         alpaca_order_id, alpaca_status, alpaca_err = await _submit_to_alpaca(payload)
     except Exception as exc:
@@ -478,9 +489,12 @@ async def _size_partial(conn, ticker: str, intent: dict) -> tuple[float, float, 
         )
 
     # Account funds + staleness check (reuse EXIT_SYNC_MAX_AGE_HOURS).
-    # buy_add consumes cash → size against buying_power (excludes cash already
-    # reserved for pending orders). sell_trim generates cash → account_value
-    # is fine (sells don't consume buying power).
+    # All buy-side actions (entry, buy_add) size against account_value per spec:
+    #   floor(account_value × weight / last_price)
+    # A fully-invested portfolio has buying_power ≈ $0, so sizing against
+    # buying_power would make every rebalancing buy_add fail. We use
+    # account_value (total equity) instead; a separate buying_power guard
+    # below refuses the trade if the notional clearly exceeds available cash.
     acct = (await conn.execute(text(
         "SELECT account_value, buying_power, completed_at FROM alpaca_sync_runs "
         "WHERE status='success' ORDER BY completed_at DESC NULLS LAST LIMIT 1"
@@ -489,12 +503,8 @@ async def _size_partial(conn, ticker: str, intent: dict) -> tuple[float, float, 
         raise HTTPException(status_code=400, detail=f"No account data available to size {action} for {ticker}")
     account_value = _f(acct["account_value"])
     buying_power = _f(acct["buying_power"])
-    if action == "buy_add" and buying_power is not None:
-        sizing_basis = buying_power
-        sizing_basis_name = "buying_power"
-    else:
-        sizing_basis = account_value
-        sizing_basis_name = "account_value"
+    sizing_basis = account_value
+    sizing_basis_name = "account_value"
     if acct["completed_at"] is not None:
         sync_age_hours = (datetime.now(timezone.utc) - acct["completed_at"]).total_seconds() / 3600.0
         if sync_age_hours > EXIT_SYNC_MAX_AGE_HOURS:
@@ -537,6 +547,21 @@ async def _size_partial(conn, ticker: str, intent: dict) -> tuple[float, float, 
             ),
         )
     qty = float(qty_int)
+    # Cash sufficiency guard for buy-side actions: if the target notional
+    # clearly exceeds buying_power (with 5% tolerance for rounding), refuse
+    # early rather than letting the risk-service or Alpaca reject it with a
+    # cryptic error.  Exits and sell_trims are not affected (they free cash).
+    if action in ("entry", "buy_add") and buying_power is not None:
+        target_notional_check = drift_weight * account_value
+        if target_notional_check > buying_power * 1.05:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Insufficient buying power for {action} {ticker}: "
+                    f"notional ${target_notional_check:.0f} > buying_power ${buying_power:.0f}. "
+                    "Wait for pending sells to settle or reduce position size."
+                ),
+            )
     notional = qty * last_price
     return qty, notional, {
         "target_weight": target_weight,

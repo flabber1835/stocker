@@ -53,6 +53,15 @@ _chain_status: dict = {
 # drained as each step is re-triggered. Cron-driven ticks ignore it.
 _force_pending: set[str] = set()
 
+# Set of optional step names permanently skipped by _startup_catch_up after
+# MAX_IDLE_RETRIES consecutive idle ticks (i.e. the service is unreachable).
+# _supervisor_tick checks this set BEFORE calling _step_state so it treats
+# these steps as "done" without re-querying the unreachable service.  Without
+# this, _supervisor_tick's live _step_state call would return "idle" on every
+# tick, overwriting the "failed" marker set by _startup_catch_up and resetting
+# the 10-tick counter, preventing the chain from ever advancing past the step.
+_permanently_skipped_steps: set[str] = set()
+
 # Ring buffer of startup and chain events for /debug/log — survives until next restart.
 _MAX_LOG = 500
 _event_log: list[dict] = []
@@ -415,7 +424,7 @@ async def _step_state(
             # until midnight, even though the right behaviour is to re-trigger.
             from stock_strategy_shared.tracing import RESTART_ABORT_MARKER
             err = data.get("error_message") or ""
-            if RESTART_ABORT_MARKER in err:
+            if err.startswith(RESTART_ABORT_MARKER):
                 _log(
                     f"supervisor: {step.name} run was restart-aborted — re-triggering",
                     error_message=err,
@@ -561,7 +570,7 @@ async def _supervisor_tick() -> None:
                                 # quota in a tight loop, so suspend the chain.
                                 from stock_strategy_shared.tracing import RESTART_ABORT_MARKER
                                 err = last.get("error_message") or ""
-                                if RESTART_ABORT_MARKER not in err:
+                                if not err.startswith(RESTART_ABORT_MARKER):
                                     _log(
                                         "supervisor: fetch-universe FAILED — cannot proceed without universe; "
                                         "set AV_API_KEY or MOCK_DATA=true and restart",
@@ -613,8 +622,14 @@ async def _supervisor_tick() -> None:
             latest_rank_date = await _latest_rank_date()
 
             for step in _STEPS:
-                state = await _step_state(client, step, today, trading_day, prev_trading_day,
-                                          latest_rank_date=latest_rank_date)
+                if step.name in _permanently_skipped_steps:
+                    # This optional step was declared permanently unreachable by
+                    # _startup_catch_up — treat as done so the chain advances past it
+                    # without re-querying the unreachable service.
+                    state = "done"
+                else:
+                    state = await _step_state(client, step, today, trading_day, prev_trading_day,
+                                              latest_rank_date=latest_rank_date)
                 _chain_status["steps"][step.name] = state
                 _log(f"supervisor: {step.name} → {state}")
 
@@ -748,6 +763,7 @@ async def _startup_catch_up() -> None:
                         f"startup catch-up: optional step '{step.name}' stuck idle "
                         f"for {MAX_IDLE_RETRIES} ticks — marking failed and advancing",
                     )
+                    _permanently_skipped_steps.add(step.name)
                     _chain_status["steps"][step.name] = "failed"
                     idle_streaks.pop(step.name, None)
             else:
