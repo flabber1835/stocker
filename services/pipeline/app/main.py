@@ -737,7 +737,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     stale_fund_count = 0
     if not fund_df.empty and "as_of_date" in fund_df.columns:
         fund_df["as_of_date"] = pd.to_datetime(fund_df["as_of_date"]).dt.date
-        stale_fund_count = int((fund_df["as_of_date"].apply(lambda d: (today - d).days) > 90).sum())
+        stale_fund_count = int((fund_df["as_of_date"].apply(lambda d: (score_date - d).days) > 90).sum())
         if stale_fund_count > 0:
             fund_warnings.append(f"{stale_fund_count} tickers have fundamentals older than 90 days")
 
@@ -794,7 +794,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         {"ticker": t, "row_count": info["row_count"], "date_max": info["date_max"]}
         for t, info in coverage_by_ticker.items()
         if info["row_count"] < min_price_rows
-        or (today - date.fromisoformat(info["date_max"])).days > 7
+        or (score_date - date.fromisoformat(info["date_max"])).days > 7
     ]
 
     step_warnings = []
@@ -1523,7 +1523,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
 
     # ── Step 2: load ranking history ──────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
-    history_limit = confirmation_days + 1
+    history_limit = confirmation_days
     async with engine.connect() as conn:
         runs_row = await conn.execute(
             text(
@@ -1710,6 +1710,19 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
 
     # ── Step 4: evaluate delta ────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
+
+    # Load active vetter exclusions so cold-start doesn't propose vetoed tickers
+    vetter_excluded: set[str] = set()
+    try:
+        async with engine.connect() as conn:
+            excl_rows = await conn.execute(text(
+                "SELECT DISTINCT ticker FROM vetter_exclusions "
+                "WHERE excluded_until IS NULL OR excluded_until > NOW()"
+            ))
+            vetter_excluded = {r[0] for r in excl_rows.fetchall()}
+    except Exception as ve_exc:
+        print(f"[delta] warning: could not load vetter exclusions: {ve_exc}")
+
     if cold_start or no_sync_data:
         # cold_start: no portfolio target yet.
         # no_sync_data: broker state unknown (alpaca-sync never completed).
@@ -1727,6 +1740,9 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             actual_weights=live_weights,
             drift_threshold=drift_threshold,
         )
+        # Remove entry intents for vetter-excluded tickers
+        decisions = {k: v for k, v in decisions.items()
+                     if not (v.action == "entry" and v.ticker in vetter_excluded)}
         mode_used = "confirmation_days_fallback"
     else:
         # Target-vs-live diff: portfolio_holdings is target, live_positions is actual

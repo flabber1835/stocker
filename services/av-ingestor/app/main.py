@@ -105,7 +105,7 @@ def _filter_stale_max_date(
             kept.append(row)
             continue
         latest = ticker_latest.get(t)
-        if latest is None or latest < spy_max:
+        if latest is not None and latest < spy_max:
             dropped.append(t)
         else:
             kept.append(row)
@@ -781,11 +781,11 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                             price_rows_written += len(new_rows)
                         price_ok += 1
                         last_20 = sorted(rows, key=lambda r: r["date"])[-20:]
-                        # BUG 5: skip rows with NULL adjusted_close to avoid diluting avg_dv with zeros
+                        # BUG 5: skip rows with NULL close to avoid diluting avg_dv with zeros
                         dv_vals = [
-                            r["adjusted_close"] * (r["volume"] or 0)
+                            r["close"] * (r["volume"] or 0)
                             for r in last_20
-                            if r.get("adjusted_close")
+                            if r.get("close")
                         ]
                         if dv_vals:
                             _ticker_avg_dv[ticker] = sum(dv_vals) / len(dv_vals)
@@ -1005,8 +1005,22 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
     today = datetime.now(timezone.utc).date()
 
     fund_latest = await _load_fund_staleness()
-    skip_count = sum(1 for t in investable if _should_skip_fundamentals(t, fund_latest, today))
-    print(f"[fetch-fundamentals] starting for {len(investable)} investable tickers ({skip_count} already current)")
+    investable_tickers = await _load_investable_tickers()
+    skip_count = sum(
+        1 for t in investable
+        if _should_skip_fundamentals(
+            t, fund_latest, today,
+            max_age_days=7 if (investable_tickers is None or t in investable_tickers) else 30,
+        )
+    )
+    if investable_tickers is not None:
+        non_inv = sum(1 for t in investable if t not in investable_tickers)
+        print(
+            f"[fetch-fundamentals] starting for {len(investable)} tickers "
+            f"({skip_count} already current, {non_inv} non-investable on 30d window)"
+        )
+    else:
+        print(f"[fetch-fundamentals] starting for {len(investable)} investable tickers ({skip_count} already current)")
     await _checkpoint(run_id, "fetch-fundamentals", started_at,
                       tickers_done=0, total_tickers=len(investable),
                       fund_rows=0, error_count=0, skipped=skip_count)
@@ -1019,7 +1033,8 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
             if not _TICKER_RE.match(ticker):
                 print(f"[fetch-fundamentals] skipping invalid ticker: {ticker!r}")
                 continue
-            if _should_skip_fundamentals(ticker, fund_latest, today):
+            fund_max_age = 7 if (investable_tickers is None or ticker in investable_tickers) else 30
+            if _should_skip_fundamentals(ticker, fund_latest, today, max_age_days=fund_max_age):
                 fund_ok += 1
                 skipped += 1
                 continue

@@ -73,16 +73,16 @@ class TestFilterStaleMaxDate:
         assert kept == []
         assert dropped == ["DEAD"]
 
-    def test_unknown_ticker_dropped(self):
+    def test_unknown_ticker_kept(self):
         """A ticker with no daily_prices entry at all (latest is None)
-        is treated as stale — it has never produced data, so the
-        universe filter excludes it for now. The probation cohort
-        will pick it up later if AV starts returning data."""
+        is treated as current — it is a brand-new listing with no history yet.
+        The universe filter keeps it so the pipeline's investable filter
+        handles it rather than delaying it by ~30 days via the probation cohort."""
         rows = [_row("NEWLY")]
         latest = {"AAPL": TODAY}  # NEWLY absent
         kept, dropped = _filter_stale_max_date(rows, latest, TODAY)
-        assert kept == []
-        assert dropped == ["NEWLY"]
+        assert kept == [_row("NEWLY")]
+        assert dropped == []
 
     def test_mixed_partitions_correctly(self):
         rows = [_row("CURRENT"), _row("STALE"), _row("ALSO_CURRENT"), _row("VERY_STALE")]

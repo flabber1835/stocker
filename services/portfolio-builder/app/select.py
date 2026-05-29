@@ -63,7 +63,7 @@ def greedy_select(
         return (new_count / target) <= max_sector_weight
 
     # First pick: highest standalone score — no covariance context yet
-    first_candidates = [t for t in [str(base.idxmax())] + list(base.sort_values(ascending=False).index)
+    first_candidates = [t for t in base.sort_values(ascending=False).index
                         if _sector_ok(t)]
     if not first_candidates:
         return result

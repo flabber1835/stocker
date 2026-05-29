@@ -22,12 +22,18 @@ def _check_safety(cfg: StrategyConfig) -> list[str]:
     """Return a list of safety violations. Empty list means safe."""
     violations: list[str] = []
 
-    if cfg.max_positions > _SAFETY_LIMITS["max_positions"]:
+    pb = cfg.portfolio_builder
+    if pb.max_positions > _SAFETY_LIMITS["max_positions"]:
         violations.append(
-            f"max_positions={cfg.max_positions} exceeds safety limit of {_SAFETY_LIMITS['max_positions']}"
+            f"portfolio_builder.max_positions={pb.max_positions} exceeds safety limit of {_SAFETY_LIMITS['max_positions']}"
         )
 
-    pb = cfg.portfolio_builder
+    de = cfg.delta_engine
+    if de.max_positions > _SAFETY_LIMITS["max_positions"]:
+        violations.append(
+            f"delta_engine.max_positions={de.max_positions} exceeds safety limit of {_SAFETY_LIMITS['max_positions']}"
+        )
+
     if pb.max_position_weight > _SAFETY_LIMITS["max_position_weight"]:
         violations.append(
             f"portfolio_builder.max_position_weight={pb.max_position_weight} "

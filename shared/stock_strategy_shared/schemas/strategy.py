@@ -23,12 +23,16 @@ class FactorWeights(BaseModel):
 
 
 class RegimeCondition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     """Conditions that define when a regime is active."""
     spy_above_slow_sma: bool
     vol_above_threshold: bool
 
 
 class RegimeDetectionConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     """How to detect the current market regime from SPY data.
 
     Regime is determined by two independent dimensions:
@@ -59,12 +63,16 @@ class RegimeDetectionConfig(BaseModel):
 
 
 class UniverseConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     source: str = "av_listing"
     min_price: float = 5.0
     min_avg_dollar_volume_20d: float = 20_000_000
 
 
 class FactorEngineConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     """Parameters governing how factor scores are computed.
 
     Changing these values produces a different set of factor scores and therefore
@@ -104,6 +112,8 @@ class FactorEngineConfig(BaseModel):
 
 
 class VetterConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = Field(
         default=True,
         description="Set false to skip LLM vetting entirely for this strategy."
@@ -146,6 +156,8 @@ class VetterConfig(BaseModel):
     )
 
 class IntradayConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     """Intraday monitoring behaviour.
 
     The intraday-monitor service is not yet built. This section is here so
@@ -179,6 +191,8 @@ class IntradayConfig(BaseModel):
 
 
 class PortfolioBuilderConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     method: Literal["greedy_score_per_port_vol"] = "greedy_score_per_port_vol"
     candidate_count: int = Field(default=100, ge=10, le=500)
     max_positions: int = Field(default=30, ge=1, le=100)
@@ -212,8 +226,22 @@ class PortfolioBuilderConfig(BaseModel):
         ),
     )
 
+    @model_validator(mode="after")
+    def position_weight_consistent_with_count(self) -> "PortfolioBuilderConfig":
+        if self.max_positions > 0 and self.max_position_weight > 0:
+            floor_weight = 1.0 / self.max_positions
+            if self.max_position_weight > min(1.0, floor_weight * 3):
+                raise ValueError(
+                    f"max_position_weight {self.max_position_weight:.0%} is too high "
+                    f"for max_positions={self.max_positions} "
+                    f"(expected <= {floor_weight * 3:.0%})"
+                )
+        return self
+
 
 class DeltaEngineConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     entry_rank: int = Field(default=25, ge=1, le=500,
         description="Stocks ranked ≤ this for confirmation_days consecutive runs enter the portfolio.")
     exit_rank: int = Field(default=40, ge=1, le=500,

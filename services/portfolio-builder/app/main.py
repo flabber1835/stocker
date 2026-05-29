@@ -366,7 +366,8 @@ async def _do_build(
         avg_dv_map = {r.ticker: float(r.avg_volume) for r in avg_dv_rows.fetchall() if r.avg_volume is not None}
 
     price_filtered = [t for t in rankable_tickers if latest_prices.get(t, 0) < min_price]
-    dv_filtered = [t for t in rankable_tickers if t not in avg_dv_map or avg_dv_map[t] < min_avg_dv]
+    _price_filtered_set = set(price_filtered)
+    dv_filtered = [t for t in rankable_tickers if t not in _price_filtered_set and (t not in avg_dv_map or avg_dv_map[t] < min_avg_dv)]
     universe_filtered = set(price_filtered) | set(dv_filtered)
     filtered_tickers = [t for t in rankable_tickers if t not in universe_filtered]
 

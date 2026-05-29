@@ -437,6 +437,7 @@ async def _alpaca_sync_warm_up(engine_, session_factory):
                     """
                     UPDATE alpaca_sync_runs
                     SET status = 'failed',
+                        completed_at = NOW(),
                         error_message = 'orphaned on restart'
                     WHERE status = 'running'
                     """
