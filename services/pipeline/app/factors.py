@@ -218,14 +218,13 @@ def compute_value(fundamentals: pd.DataFrame, pe_pb_cap: float = 50.0) -> pd.Ser
 
 def compute_growth(fundamentals: pd.DataFrame) -> pd.Series:
     """
-    Mean of revenue_growth and eps_growth, each individually winsorized
-    then component-z-scored before averaging.
+    Mean of revenue_growth and eps_growth percentile ranks.
 
-    Without component z-scoring, a single ticker with explosive growth (e.g.
-    10x revenue) compresses the entire cross-section to near-zero z-scores
-    even after winsorization, because the raw-value gap remains enormous.
-    Component z-scoring at 1%/99% bounds mirrors the quality/value pattern
-    and eliminates this collapse regardless of outlier magnitude.
+    Each component is winsorized then ranked via cross_section_percentile so
+    both land on [0, 1] relative to the full universe. Missing components are
+    filled with 0.5 (neutral percentile) so a ticker with only one growth
+    metric cannot outscore a ticker that is good on both — same pattern as
+    compute_quality and compute_value.
     """
     fund = fundamentals.set_index("ticker")
 
@@ -238,20 +237,20 @@ def compute_growth(fundamentals: pd.DataFrame) -> pd.Series:
     rev_g_w = _winsorize(rev_g_valid, lo_pct=0.01, hi_pct=0.99) if not rev_g_valid.empty else rev_g_valid
     eps_g_w = _winsorize(eps_g_valid, lo_pct=0.01, hi_pct=0.99) if not eps_g_valid.empty else eps_g_valid
 
-    rev_g_z = _component_zscore(rev_g_w) if not rev_g_w.empty else rev_g_w
-    eps_g_z = _component_zscore(eps_g_w) if not eps_g_w.empty else eps_g_w
-
     all_tickers = fund.index
     components = pd.DataFrame(index=all_tickers)
-    if not rev_g_z.empty:
-        components["rev_g"] = rev_g_z.reindex(all_tickers)
-    if not eps_g_z.empty:
-        components["eps_g"] = eps_g_z.reindex(all_tickers)
+    if not rev_g_w.empty:
+        components["rev_g"] = cross_section_percentile(rev_g_w.reindex(all_tickers))
+    if not eps_g_w.empty:
+        components["eps_g"] = cross_section_percentile(eps_g_w.reindex(all_tickers))
 
     if components.empty:
         result = pd.Series(np.nan, index=all_tickers)
     else:
-        result = components.mean(axis=1, skipna=True)
+        has_any = components.notna().any(axis=1)
+        filled = components.where(components.notna(), other=0.5)
+        result = filled.mean(axis=1)
+        result[~has_any] = np.nan
 
     result.name = "growth"
     return result

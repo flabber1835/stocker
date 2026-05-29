@@ -45,6 +45,11 @@ def rank_universe(
     if min_pct > 0:
         df_ranked = df_ranked[df_ranked["percentile"] >= min_pct].reset_index(drop=True)
         df_ranked["rank"] = range(1, len(df_ranked) + 1)
+        n_filtered = len(df_ranked)
+        if n_filtered > 1:
+            df_ranked["percentile"] = 1.0 - (df_ranked["rank"] - 1) / (n_filtered - 1)
+        elif n_filtered == 1:
+            df_ranked["percentile"] = 1.0
 
     cols = ["ticker", "rank", "composite_score", "percentile"] + FACTORS
     return df_ranked[[c for c in cols if c in df_ranked.columns]]

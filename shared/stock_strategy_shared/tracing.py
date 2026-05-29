@@ -57,9 +57,9 @@ async def log_step(
             "status": status,
             "started": started_at or now,
             "now": now,
-            "inp": json.dumps(input_summary) if input_summary else None,
-            "out": json.dumps(output_summary) if output_summary else None,
-            "warn": json.dumps(warnings) if warnings else None,
+            "inp": json.dumps(input_summary, default=str) if input_summary else None,
+            "out": json.dumps(output_summary, default=str) if output_summary else None,
+            "warn": json.dumps(warnings, default=str) if warnings else None,
             "err": error_message,
         },
     )
@@ -124,6 +124,11 @@ async def write_trace_file(
 
 RESTART_ABORT_MARKER = "RESTART_ABORTED:"  # prefix in error_message for restart-orphan cleanup
 
+_ALLOWED_RUN_TABLES = frozenset({
+    "ingest_runs", "pipeline_runs", "portfolio_runs", "ranking_runs",
+    "factor_runs", "delta_runs", "scheduler_runs",
+})
+
 
 async def mark_orphaned_runs_failed(
     conn,
@@ -141,6 +146,8 @@ async def mark_orphaned_runs_failed(
     run_table must be a trusted internal constant — never accept from user input.
     If trace_job_type is given, also marks matching execution_traces rows as failed.
     """
+    if run_table not in _ALLOWED_RUN_TABLES:
+        raise ValueError(f"mark_orphaned_runs_failed: unknown table {run_table!r}")
     from sqlalchemy import text
     from sqlalchemy.exc import ProgrammingError
     msg = f"{RESTART_ABORT_MARKER} service restarted while run was active"
