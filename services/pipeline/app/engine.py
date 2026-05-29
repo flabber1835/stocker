@@ -475,10 +475,10 @@ def evaluate_all(
     projected_base = len(current_portfolio) - pending_exits
     decisions: dict[str, DeltaDecision] = {}
 
+    confirmed_entries_so_far = 0
     for ticker, obs in universe.items():
-        confirmed_entries_so_far = sum(1 for d in decisions.values() if d.action == "entry")
         at_capacity = (projected_base + confirmed_entries_so_far) >= max_positions
-        decisions[ticker] = evaluate_ticker(
+        dec = evaluate_ticker(
             ticker=ticker,
             observations=obs,
             current_weight=current_portfolio.get(ticker),
@@ -489,6 +489,9 @@ def evaluate_all(
             actual_weight=actual_weights.get(ticker) if actual_weights else None,
             drift_threshold=drift_threshold,
         )
+        decisions[ticker] = dec
+        if dec.action == "entry":
+            confirmed_entries_so_far += 1
 
     for ticker in missing_from_universe:
         decisions[ticker] = DeltaDecision(

@@ -67,11 +67,14 @@ def compute_momentum(
     # prices must contain only trading-day rows (no weekend/holiday NaN rows);
     # iloc[-long_window] and iloc[-short_window] are positional, so calendar rows would shorten the look-back.
     prices = prices.dropna(how="all")
-    if len(prices) < long_window + 1:
+    # Jegadeesh-Titman 12-1 momentum: skip the most recent month (T-1 to T-21) to avoid
+    # short-term reversal contamination. price_long = T-252, price_short = T-21.
+    # iloc is 0-indexed from the end, so iloc[-(N+1)] gives the Nth row from the end.
+    if len(prices) < long_window + 2:
         return pd.Series(dtype=float)
 
-    price_long = prices.iloc[-long_window]
-    price_short = prices.iloc[-short_window]
+    price_long = prices.iloc[-(long_window + 1)]
+    price_short = prices.iloc[-(short_window + 1)]
 
     # Guard: price_long <= 0 means corrupt/missing data (e.g. AV returned 0.0 for adjusted_close),
     # not a real price. Replace with NaN so division produces NaN rather than inf.
@@ -92,6 +95,7 @@ def compute_low_volatility(prices: pd.DataFrame, window: int = 252) -> pd.Series
 
     hist = prices.iloc[-window:] if len(prices) >= window else prices
     log_returns = np.log(hist / hist.shift(1))
+    log_returns = log_returns.replace([float("inf"), float("-inf")], float("nan"))
     vol = log_returns.std(skipna=True) * np.sqrt(252)  # per-ticker std, ignores missing days
     score = -vol
     score.name = "low_volatility"
