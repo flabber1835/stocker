@@ -377,7 +377,7 @@ async def _do_vet(
             text(
                 "SELECT ticker FROM live_positions "
                 "WHERE sync_run_id = ("
-                "  SELECT id FROM alpaca_sync_runs "
+                "  SELECT run_id FROM alpaca_sync_runs "
                 "  WHERE status = 'success' "
                 "  ORDER BY completed_at DESC LIMIT 1"
                 ") AND qty > 0"

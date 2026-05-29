@@ -23,7 +23,7 @@ def _held_from_live_positions(live_positions: list[dict]) -> set[str]:
     Simulate:
         SELECT ticker FROM live_positions
         WHERE sync_run_id = (
-          SELECT id FROM alpaca_sync_runs WHERE status='success'
+          SELECT run_id FROM alpaca_sync_runs WHERE status='success'
           ORDER BY completed_at DESC LIMIT 1
         ) AND qty > 0
     """
@@ -107,6 +107,46 @@ class TestOldBehaviourVsNew:
         new_held = _held_from_live_positions(positions_with_closed)
         assert "TSLA" in old_held   # old: stale target still says held
         assert "TSLA" not in new_held  # new: correctly not held
+
+
+class TestHeldQuerySQLColumn:
+    """Regression: the held-tickers subquery must select run_id (UUID), not id.
+
+    live_positions.sync_run_id is a UUID FK to alpaca_sync_runs.run_id.
+    A previous version selected `id`, which 500'd the entire vetter run with:
+        asyncpg.exceptions.UndefinedFunctionError:
+        operator does not exist: uuid = integer
+
+    The vetter crashed before ever calling the LLM, so the chain showed a brief
+    "LLM ANALYSIS" then "READY" with no analysis performed. The other six call
+    sites across the codebase all correctly use run_id; this was the lone outlier.
+
+    The pure-Python simulations above never caught it because they don't exercise
+    the real SQL, so this test inspects the source string directly.
+    """
+
+    def _vetter_source(self) -> str:
+        import os
+        path = os.path.join(
+            os.path.dirname(__file__), "..", "..",
+            "services", "llm-vetter", "app", "main.py",
+        )
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_held_subquery_selects_run_id_not_id(self):
+        src = self._vetter_source()
+        assert "SELECT run_id FROM alpaca_sync_runs" in src, (
+            "held-tickers subquery must select run_id (UUID) to match "
+            "live_positions.sync_run_id"
+        )
+
+    def test_held_subquery_does_not_select_integer_id(self):
+        src = self._vetter_source()
+        assert "SELECT id FROM alpaca_sync_runs" not in src, (
+            "selecting `id` from alpaca_sync_runs compares integer to UUID "
+            "(sync_run_id) and crashes the vetter run"
+        )
 
 
 class TestInPortfolioFlagEffect:
