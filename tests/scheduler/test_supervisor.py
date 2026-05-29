@@ -1476,6 +1476,91 @@ class TestCrossMidnightRunningStep:
         )
 
 
+class TestTimeGateBypass:
+    """Regression: the time gate must NOT block manual run-now requests.
+
+    Before the fix, _supervisor_tick returned early if _is_after_scheduled_time()
+    was False even when _force_pending was set. Clicking the dashboard Run button
+    before 4:15 PM ET produced no chain advancement — the user saw empty rankings
+    all day unless they happened to trigger it after the scheduled time.
+    """
+
+    def _reset(self):
+        _supervisor_tick.__globals__["_chain_status"].update({
+            "status": "idle", "date": "2026-05-29", "steps": {}, "run_ids": {},
+            "last_completed": None, "current_run_id": None, "next_run": None,
+        })
+        _supervisor_tick.__globals__["_force_pending"].clear()
+
+    @pytest.mark.asyncio
+    async def test_run_now_before_scheduled_time_advances_chain(self):
+        """With _force_pending set, the chain must advance even before 4:15 PM ET."""
+        self._reset()
+        _supervisor_tick.__globals__["_force_pending"].add("fetch-data")
+
+        mock_trigger = AsyncMock(return_value=True)
+        with patch.dict(_supervisor_tick.__globals__, {
+            "_has_universe": AsyncMock(return_value=True),
+            "_step_state": AsyncMock(return_value="done"),
+            "_trigger_step": mock_trigger,
+            "_get_latest_run_id": AsyncMock(return_value="run-id"),
+            "_db_open_run": AsyncMock(return_value="run-uuid"),
+            "_db_update_run": AsyncMock(),
+            "_db_close_run": AsyncMock(),
+            # Time gate returns False — it's before scheduled time
+            "_is_after_scheduled_time": MagicMock(return_value=False),
+            "_latest_rank_date": AsyncMock(return_value=None),
+        }):
+            await _supervisor_tick()
+
+        # The step should have been triggered despite the time gate
+        mock_trigger.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_automatic_tick_before_scheduled_time_is_blocked(self):
+        """Without _force_pending, the time gate must still block automatic ticks."""
+        self._reset()
+        # _force_pending is empty — no manual run requested
+
+        mock_trigger = AsyncMock(return_value=True)
+        with patch.dict(_supervisor_tick.__globals__, {
+            "_has_universe": AsyncMock(return_value=True),
+            "_step_state": AsyncMock(return_value="idle"),
+            "_trigger_step": mock_trigger,
+            "_get_latest_run_id": AsyncMock(return_value=None),
+            "_db_open_run": AsyncMock(return_value="run-uuid"),
+            "_db_update_run": AsyncMock(),
+            "_db_close_run": AsyncMock(),
+            "_is_after_scheduled_time": MagicMock(return_value=False),
+            "_latest_rank_date": AsyncMock(return_value=None),
+        }):
+            await _supervisor_tick()
+
+        # No trigger — blocked by time gate
+        mock_trigger.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_force_pending_cleared_when_step_triggers_before_market(self):
+        """After force-triggering a step outside market hours, _force_pending is drained."""
+        self._reset()
+        _supervisor_tick.__globals__["_force_pending"].add("pipeline")
+
+        with patch.dict(_supervisor_tick.__globals__, {
+            "_has_universe": AsyncMock(return_value=True),
+            "_step_state": AsyncMock(return_value="done"),
+            "_trigger_step": AsyncMock(return_value=True),
+            "_get_latest_run_id": AsyncMock(return_value="run-id"),
+            "_db_open_run": AsyncMock(return_value="run-uuid"),
+            "_db_update_run": AsyncMock(),
+            "_db_close_run": AsyncMock(),
+            "_is_after_scheduled_time": MagicMock(return_value=False),
+            "_latest_rank_date": AsyncMock(return_value=None),
+        }):
+            await _supervisor_tick()
+
+        assert "pipeline" not in _supervisor_tick.__globals__["_force_pending"]
+
+
 class TestRunsLatestStripsMetaKey:
     """The __meta sentinel inside steps JSONB must not leak through /runs/latest
     or the dashboard would iterate it as a real step."""

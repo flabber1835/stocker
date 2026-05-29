@@ -534,8 +534,8 @@ async def _supervisor_tick() -> None:
         if _chain_status.get("status") in ("success", "failed") and _chain_status.get("date") == today:
             return
 
-        if not _is_after_scheduled_time():
-            return  # too early — wait for market close before starting chain
+        if not _is_after_scheduled_time() and not _force_pending:
+            return  # too early — wait for market close (manual run-now bypasses via _force_pending)
 
         async with httpx.AsyncClient() as client:
             # Cold-start guard: only trigger fetch-universe when the universe is
