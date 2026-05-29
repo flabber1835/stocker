@@ -187,6 +187,8 @@ async def test_cold_start_guard_decision_table(
     # Patch httpx.AsyncClient so the supervisor uses our mock
     with patch.object(scheduler_main, "httpx") as httpx_mock, \
          patch.object(scheduler_main, "_has_universe", new=AsyncMock(return_value=has_universe)), \
+         patch.object(scheduler_main, "_is_after_scheduled_time", new=MagicMock(return_value=True)), \
+         patch.object(scheduler_main, "_latest_rank_date", new=AsyncMock(return_value=None)), \
          patch.object(scheduler_main, "_db_open_run", new=AsyncMock(return_value="fake-run-id")), \
          patch.object(scheduler_main, "_db_update_run", new=AsyncMock()), \
          patch.object(scheduler_main, "_db_close_run", new=AsyncMock()), \
@@ -259,6 +261,8 @@ async def test_regression_no_loop_when_fetch_universe_succeeded_but_visibility_r
 
     with patch.object(scheduler_main, "httpx") as httpx_mock, \
          patch.object(scheduler_main, "_has_universe", new=AsyncMock(return_value=False)), \
+         patch.object(scheduler_main, "_is_after_scheduled_time", new=MagicMock(return_value=True)), \
+         patch.object(scheduler_main, "_latest_rank_date", new=AsyncMock(return_value=None)), \
          patch.object(scheduler_main, "_db_open_run", new=AsyncMock(return_value="fake-run-id")), \
          patch.object(scheduler_main, "_db_update_run", new=AsyncMock()), \
          patch.object(scheduler_main, "_db_close_run", new=AsyncMock()), \

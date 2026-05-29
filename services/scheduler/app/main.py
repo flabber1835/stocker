@@ -380,43 +380,40 @@ async def _step_state(
         run_date = (data.get(step.date_field) or "")[:10]
         run_status = data.get("status")
 
-        # Staleness check must run BEFORE the date-match early return: a job that
-        # started yesterday and is still "running" today has run_date=yesterday and
-        # would otherwise be classified "idle" — leaving the original stuck run alive
-        # while the supervisor re-triggers, hitting the "another job is already
-        # running" 409 forever. Cross-midnight hangs are exactly what max_running_minutes
-        # exists to break.
-        if run_status == "running" and step.max_running_minutes is not None:
-            started_raw = data.get("started_at") or data.get(step.date_field)
-            if started_raw:
-                try:
-                    from datetime import timezone as _tz
-                    started_dt = datetime.fromisoformat(str(started_raw).replace("Z", "+00:00"))
-                    if started_dt.tzinfo is None:
-                        started_dt = started_dt.replace(tzinfo=_tz.utc)
-                    age_minutes = (datetime.now(_tz.utc) - started_dt).total_seconds() / 60
-                    if age_minutes > step.max_running_minutes:
+        # A running job always returns "running" regardless of date — prevents
+        # the idle→409 trigger loop when a job spans midnight or its started_at
+        # date doesn't match today (cross-midnight hang).
+        # When max_running_minutes is set, first check if the job has timed out
+        # (treat as failed so the chain can advance).
+        if run_status == "running":
+            if step.max_running_minutes is not None:
+                started_raw = data.get("started_at") or data.get(step.date_field)
+                if started_raw:
+                    try:
+                        from datetime import timezone as _tz
+                        started_dt = datetime.fromisoformat(str(started_raw).replace("Z", "+00:00"))
+                        if started_dt.tzinfo is None:
+                            started_dt = started_dt.replace(tzinfo=_tz.utc)
+                        age_minutes = (datetime.now(_tz.utc) - started_dt).total_seconds() / 60
+                        if age_minutes > step.max_running_minutes:
+                            _log(
+                                f"supervisor: {step.name} has been running "
+                                f"{age_minutes:.0f}m > limit {step.max_running_minutes}m — treating as failed",
+                                started_at=str(started_raw),
+                            )
+                            return "failed"
+                    except Exception as exc:
                         _log(
-                            f"supervisor: {step.name} has been running "
-                            f"{age_minutes:.0f}m > limit {step.max_running_minutes}m — treating as failed",
-                            started_at=str(started_raw),
+                            f"supervisor: {step.name} max_running_minutes parse failed — "
+                            f"timestamp will be ignored",
+                            started_at=str(started_raw), error=str(exc),
                         )
-                        return "failed"
-                except Exception as exc:
-                    # Log parse failures so a malformed timestamp can't silently
-                    # neutralise the staleness guard.
-                    _log(
-                        f"supervisor: {step.name} max_running_minutes parse failed — "
-                        f"timestamp will be ignored",
-                        started_at=str(started_raw), error=str(exc),
-                    )
+            return "running"
 
         if run_date not in ok_dates:
             return "idle"
         if run_status in ("success",) + step.extra_ok:
             return "done"
-        if run_status == "running":
-            return "running"
         if run_status in ("failed",):
             # Restart-aborted runs are recoverable — when a service crashes mid-run
             # its startup cleanup marks the orphan 'failed' with the RESTART_ABORT_MARKER

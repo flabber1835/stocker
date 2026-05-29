@@ -1399,6 +1399,83 @@ class TestRestartResilience:
         assert pending == set()
 
 
+class TestCrossMidnightRunningStep:
+    """Regression: a step that started yesterday and is still 'running' today
+    must return 'running' from _step_state, not 'idle'.
+
+    Before the fix, _step_state hit the date-match check (run_date not in ok_dates)
+    before checking run_status, so a cross-midnight job returned "idle". This caused
+    an infinite trigger loop: scheduler saw "idle", triggered, got 409 (already
+    running), saw "idle" again on the next tick — forever.
+    """
+
+    def _make_step(self, **kwargs) -> _StepDef:
+        defaults = dict(name="fetch-data", url="http://fake", start_path="/jobs/fetch-data",
+                        date_field="started_at", job_type="fetch-data")
+        defaults.update(kwargs)
+        return _StepDef(**defaults)
+
+    @pytest.mark.asyncio
+    async def test_running_step_from_yesterday_returns_running_not_idle(self):
+        """A job that started yesterday and is still running today must return
+        'running', not 'idle' — prevents the idle→409 trigger loop.
+
+        Regression: _step_state used to check run_date against today BEFORE
+        checking run_status, so a cross-midnight job with started_at=yesterday
+        got classified as 'idle' instead of 'running'.
+        """
+        today = "2026-05-29"
+        trading_day = "2026-05-29"
+        yesterday = "2026-05-28"
+
+        step = self._make_step()
+        # Job started yesterday — still running today (cross-midnight hang)
+        client = _async_client_returning({
+            "job_type": "fetch-data",
+            "status": "running",
+            "started_at": f"{yesterday}T23:45:00+00:00",
+        })
+        result = await _step_state(client, step, today, trading_day, yesterday)
+        assert result == "running", (
+            "A cross-midnight running job must return 'running', not 'idle' — "
+            "the 'idle' classification caused an infinite idle→409 trigger loop. "
+            f"Got: {result!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_running_step_from_today_returns_running(self):
+        """Normal case: job started today, still running — must return 'running'."""
+        today = "2026-05-29"
+        step = self._make_step()
+        client = _async_client_returning({
+            "job_type": "fetch-data",
+            "status": "running",
+            "started_at": f"{today}T16:30:00+00:00",
+        })
+        result = await _step_state(client, step, today, today, "2026-05-28")
+        assert result == "running"
+
+    @pytest.mark.asyncio
+    async def test_running_step_exceeding_max_minutes_returns_failed(self):
+        """A running job that exceeds max_running_minutes must return 'failed'
+        so the chain can advance past a permanently stuck step."""
+        today = "2026-05-29"
+        step = self._make_step(max_running_minutes=1)  # 1 minute timeout
+        # Job started 2 hours ago — timed out
+        from datetime import datetime as _dt, timezone, timedelta
+        two_hours_ago = (_dt.now(timezone.utc) - timedelta(hours=2)).isoformat()
+        client = _async_client_returning({
+            "job_type": "fetch-data",
+            "status": "running",
+            "started_at": two_hours_ago,
+        })
+        result = await _step_state(client, step, today, today, "2026-05-28")
+        assert result == "failed", (
+            "A running step that exceeds max_running_minutes must return 'failed' "
+            f"so the chain can advance. Got: {result!r}"
+        )
+
+
 class TestRunsLatestStripsMetaKey:
     """The __meta sentinel inside steps JSONB must not leak through /runs/latest
     or the dashboard would iterate it as a real step."""
