@@ -139,14 +139,14 @@ def main():
                     sys.exit(1)
                 time.sleep(5)
 
-        print(f"[{_ts()}] Dashboard loaded — waiting for initial render …", flush=True)
-        page.wait_for_timeout(4000)  # let the boot sequence finish
+        print(f"[{_ts()}] Dashboard loaded — waiting for run button …", flush=True)
+        run_btn = page.locator("#run-btn")
+        run_btn.wait_for(state="visible", timeout=10000)
 
         snap = _snapshot(page)
         record(page, snap, "initial_state")
 
         # ── Click Run ─────────────────────────────────────────────────────
-        run_btn = page.locator("#run-btn")
         if run_btn.count() == 0:
             print("ERROR: #run-btn not found on page")
             sys.exit(1)
@@ -157,7 +157,7 @@ def main():
 
         print(f"[{_ts()}] Clicking Run button …", flush=True)
         run_btn.click()
-        page.wait_for_timeout(1500)
+        run_btn.wait_for(state="disabled", timeout=5000)
 
         snap = _snapshot(page)
         record(page, snap, "after_run_click")
