@@ -355,6 +355,8 @@ class TestSupervisorTick:
                 "_db_open_run": mock_db_open,
                 "_db_update_run": mock_db_update,
                 "_db_close_run": mock_db_close,
+                "_is_after_scheduled_time": MagicMock(return_value=True),
+                "_latest_rank_date": AsyncMock(return_value=None),
             }),
         ):
             await _supervisor_tick()
@@ -382,6 +384,8 @@ class TestSupervisorTick:
             "_db_open_run": mock_db_open,
             "_db_update_run": mock_db_update,
             "_db_close_run": AsyncMock(),
+            "_is_after_scheduled_time": MagicMock(return_value=True),
+            "_latest_rank_date": AsyncMock(return_value=None),
         }):
             await _supervisor_tick()
 
@@ -411,6 +415,8 @@ class TestSupervisorTick:
             "_db_open_run": AsyncMock(return_value="run-uuid-1"),
             "_db_update_run": AsyncMock(),
             "_db_close_run": AsyncMock(),
+            "_is_after_scheduled_time": MagicMock(return_value=True),
+            "_latest_rank_date": AsyncMock(return_value=None),
         }):
             await _supervisor_tick()
 
@@ -438,6 +444,8 @@ class TestSupervisorTick:
             "_db_open_run": AsyncMock(return_value="run-uuid-1"),
             "_db_update_run": AsyncMock(),
             "_db_close_run": mock_db_close,
+            "_is_after_scheduled_time": MagicMock(return_value=True),
+            "_latest_rank_date": AsyncMock(return_value=None),
         }):
             await _supervisor_tick()
 
@@ -470,6 +478,8 @@ class TestSupervisorTick:
             "asyncio": type("_FakeAsyncio", (), {
                 "create_task": staticmethod(lambda coro: (coro.close() if hasattr(coro, "close") else None) or MagicMock()),
             })(),
+            "_is_after_scheduled_time": MagicMock(return_value=True),
+            "_latest_rank_date": AsyncMock(return_value=None),
         }):
             await _supervisor_tick()
 
@@ -505,6 +515,8 @@ class TestSupervisorTick:
             "_db_update_run": AsyncMock(),
             "_db_close_run": mock_db_close,
             "asyncio": _FakeAsyncio,
+            "_is_after_scheduled_time": MagicMock(return_value=True),
+            "_latest_rank_date": AsyncMock(return_value=None),
         }):
             await _supervisor_tick()
 
@@ -537,6 +549,8 @@ class TestSupervisorTick:
                 "_db_open_run": mock_db_open,
                 "_db_update_run": AsyncMock(),
                 "_db_close_run": AsyncMock(),
+                "_is_after_scheduled_time": MagicMock(return_value=True),
+                "_latest_rank_date": AsyncMock(return_value=None),
             }),
             patch("httpx.AsyncClient", return_value=fake_client),
         ):
@@ -579,6 +593,8 @@ class TestSupervisorTick:
                 "_db_open_run": mock_db_open,
                 "_db_update_run": AsyncMock(),
                 "_db_close_run": AsyncMock(),
+                "_is_after_scheduled_time": MagicMock(return_value=True),
+                "_latest_rank_date": AsyncMock(return_value=None),
             }),
             patch("httpx.AsyncClient", return_value=fake_client),
         ):
@@ -627,6 +643,8 @@ class TestSupervisorTick:
                 "_db_open_run": mock_db_open,
                 "_db_update_run": AsyncMock(),
                 "_db_close_run": AsyncMock(),
+                "_is_after_scheduled_time": MagicMock(return_value=True),
+                "_latest_rank_date": AsyncMock(return_value=None),
             }),
             patch("httpx.AsyncClient", return_value=fake_client),
         ):
@@ -663,6 +681,8 @@ class TestSupervisorTick:
                 "_db_open_run": AsyncMock(return_value=None),
                 "_db_update_run": AsyncMock(),
                 "_db_close_run": AsyncMock(),
+                "_is_after_scheduled_time": MagicMock(return_value=True),
+                "_latest_rank_date": AsyncMock(return_value=None),
             }),
             patch("httpx.AsyncClient", return_value=fake_client),
         ):
@@ -821,6 +841,8 @@ class TestSupervisorTick:
             "_db_open_run": mock_db_open,
             "_db_update_run": AsyncMock(),
             "_db_close_run": AsyncMock(),
+            "_is_after_scheduled_time": MagicMock(return_value=True),
+            "_latest_rank_date": AsyncMock(return_value=None),
         }):
             await _supervisor_tick()
 
@@ -900,6 +922,8 @@ class TestSupervisorTick:
             "_db_open_run": mock_db_open,
             "_db_update_run": AsyncMock(),
             "_db_close_run": AsyncMock(),
+            "_is_after_scheduled_time": MagicMock(return_value=True),
+            "_latest_rank_date": AsyncMock(return_value=None),
         }):
             await _supervisor_tick()
 
@@ -1133,6 +1157,8 @@ class TestForceRerunOverride:
             "_db_open_run": AsyncMock(return_value="run-uuid-1"),
             "_db_update_run": AsyncMock(),
             "_db_close_run": AsyncMock(),
+            "_is_after_scheduled_time": MagicMock(return_value=True),
+            "_latest_rank_date": AsyncMock(return_value=None),
         }):
             await _supervisor_tick()
 
@@ -1188,6 +1214,8 @@ class TestForceRerunOverride:
             "_db_open_run": AsyncMock(return_value="run-uuid-1"),
             "_db_update_run": AsyncMock(),
             "_db_close_run": AsyncMock(),
+            "_is_after_scheduled_time": MagicMock(return_value=True),
+            "_latest_rank_date": AsyncMock(return_value=None),
         }):
             await _supervisor_tick()
 
@@ -1218,6 +1246,8 @@ class TestForceRerunOverride:
             "_db_open_run": AsyncMock(return_value="run-uuid-1"),
             "_db_update_run": AsyncMock(),
             "_db_close_run": AsyncMock(),
+            "_is_after_scheduled_time": MagicMock(return_value=True),
+            "_latest_rank_date": AsyncMock(return_value=None),
         }):
             await _supervisor_tick()
 
@@ -1244,6 +1274,8 @@ class TestForceRerunOverride:
             "_db_open_run": AsyncMock(return_value="run-uuid-1"),
             "_db_update_run": AsyncMock(),
             "_db_close_run": AsyncMock(),
+            "_is_after_scheduled_time": MagicMock(return_value=True),
+            "_latest_rank_date": AsyncMock(return_value=None),
         }):
             await _supervisor_tick()
 

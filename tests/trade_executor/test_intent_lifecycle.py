@@ -201,17 +201,18 @@ async def test_concurrent_submit_handled_by_integrity_error():
             "current_weight": 0.05, "actual_weight": 0.05, "weight_drift": 0.0,
         },
         None,                                 # 3: log_step load_intent
-        {                                     # 4: _size_entry: alpaca_sync_runs
+        None,                                 # 4: _is_already_held: ticker not in live_positions
+        {                                     # 5: _size_entry: alpaca_sync_runs
             "account_value": 100_000.0, "buying_power": 100_000.0,
             "completed_at": datetime.now(timezone.utc),
         },
-        {"current_price": 150.0},             # 5: _size_entry: live_positions price
-        None,                                 # 6: log_step size_order
-        None,                                 # 7: log_step risk_check
-        # 8: INSERT alpaca_orders → IntegrityError raised (call_idx still consumed)
-        # 9: fallback SELECT finds the winning order (after the raise)
-        None,                                 # 8: placeholder for the INSERT that raises
-        {"id": winning_order_id, "status": "pending"},  # 9: fallback SELECT
+        {"current_price": 150.0},             # 6: _size_entry: live_positions price
+        None,                                 # 7: log_step size_order
+        None,                                 # 8: log_step risk_check
+        # 9: INSERT alpaca_orders → IntegrityError raised (call_idx still consumed)
+        # 10: fallback SELECT finds the winning order (after the raise)
+        None,                                 # 9: placeholder for the INSERT that raises
+        {"id": winning_order_id, "status": "pending"},  # 10: fallback SELECT
     ]
 
     call_idx = [0]

@@ -105,7 +105,7 @@ def _make_engine(rows: list):
 
 def _intent_rows(ticker="AAPL", action="entry", weight=0.05):
     """Minimal row sequence to drive submit_order through steps 1-6 (pre risk_check)."""
-    return [
+    rows = [
         None,                               # execute_traces INSERT (begin 1)
         None,                               # idempotency check → no existing order (connect 1)
         {                                   # load_intent SELECT (connect 2)
@@ -119,6 +119,10 @@ def _intent_rows(ticker="AAPL", action="entry", weight=0.05):
             "weight_drift": 0.0,
         },
         None,                               # log_step load_intent (begin 2)
+    ]
+    if action == "entry":
+        rows.append(None)                   # _is_already_held: ticker not in live_positions
+    rows += [
         {                                   # _size_entry: alpaca_sync_runs
             "account_value": 100_000.0,
             "buying_power": 100_000.0,
@@ -128,6 +132,7 @@ def _intent_rows(ticker="AAPL", action="entry", weight=0.05):
         None,                               # log_step size_order (begin 3)
         # beyond here: error handling writes → all fall through to None
     ]
+    return rows
 
 
 # ── 1. _call_risk error propagation ──────────────────────────────────────────
