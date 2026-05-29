@@ -147,9 +147,9 @@ class TestStatusWhenRankChainRunning:
             # Replace all the gather calls by patching asyncio.gather
             import unittest.mock as mock
 
-            # Build the 7-item tuple returned by asyncio.gather in pipeline_status
+            # Build the 8-item tuple returned by asyncio.gather in pipeline_status
             async def fake_gather(*coros):
-                # Returns: r0 (uni), r1 (rankings), r3 (portfolio), sys_status, r4 (pipeline), r5 (av-ingestor), r7 (scheduler)
+                # r0 (uni), r1 (rankings), r3 (portfolio), sys_status, r4 (pipeline), r5 (av-ingestor), r7 (scheduler), r8 (progress)
                 return [
                     EMPTY(),          # r0: universe
                     rankings_resp,    # r1: rankings
@@ -158,6 +158,7 @@ class TestStatusWhenRankChainRunning:
                     pipeline_resp,    # r4_direct: pipeline /runs/latest
                     EMPTY(),          # r5_direct: av-ingestor /runs/latest
                     sched_resp,       # r7_direct: scheduler /status
+                    EMPTY(),          # r8_direct: pipeline /runs/progress
                 ]
 
             with mock.patch("asyncio.gather", side_effect=fake_gather):
@@ -523,6 +524,7 @@ def _call_pipeline_status(
             _make_resp(pipeline_payload),   # r4_direct: pipeline /runs/latest
             _make_resp(av_payload or None), # r5_direct: av-ingestor /runs/latest
             _make_resp(sched_payload),      # r7_direct: scheduler /status
+            EMPTY(),                        # r8_direct: pipeline /runs/progress
         ]
 
     try:

@@ -354,7 +354,7 @@ def _compute_pipeline_warnings(uni_fetched_at, rank_completed_at, vet_completed_
 @app.get("/api/pipeline-status")
 async def pipeline_status():
     async with httpx.AsyncClient(timeout=6.0) as client:
-        r0, r1, r3, sys_status_resp, r4_direct, r5_direct, r7_direct = await asyncio.gather(
+        r0, r1, r3, sys_status_resp, r4_direct, r5_direct, r7_direct, r8_direct = await asyncio.gather(
             _safe_fetch(client.get(f"{API_URL}/universe"),              {"error": "timeout"}),
             _safe_fetch(client.get(f"{API_URL}/rankings"),              {"error": "timeout"}),
             _safe_fetch(client.get(f"{API_URL}/portfolio"),             {"error": "timeout"}),
@@ -362,6 +362,7 @@ async def pipeline_status():
             _safe_fetch(client.get(f"{PIPELINE_URL}/runs/latest"),      {"error": "timeout"}),
             _safe_fetch(client.get(f"{AV_INGESTOR_URL}/runs/latest"),   {"error": "timeout"}),
             _safe_fetch(client.get(f"{SCHEDULER_URL}/status"),          {"error": "timeout"}),
+            _safe_fetch(client.get(f"{PIPELINE_URL}/runs/progress"),    {"error": "timeout"}),
         )
 
     sys_data = {}
@@ -425,6 +426,14 @@ async def pipeline_status():
         _pipeline_factor_status = d4.get("factor_status")
         _pipeline_rank_status   = d4.get("ranking_status")
         _pipeline_delta_status  = d4.get("delta_status")
+
+    # Real-time sub-step progress from the pipeline service.
+    _pipeline_live_step = None
+    _pipeline_live_pct = None
+    if not isinstance(r8_direct, dict) and r8_direct.status_code == 200:
+        _prog = r8_direct.json()
+        _pipeline_live_step = _prog.get("step")
+        _pipeline_live_pct  = _prog.get("pct")
 
     scheduler_chain_running = False
     scheduler_step_label = None
@@ -503,13 +512,16 @@ async def pipeline_status():
     if not confirmed_terminal and pipeline_status_raw == "running":
         rank_status = "running"
         if _pipeline_factor_status == "running":
-            rank_step, rank_step_label, rank_pct = "calc_factors", "Calculating Factors", 50
+            pct = _pipeline_live_pct if _pipeline_live_step == "calc_factors" else None
+            rank_step, rank_step_label, rank_pct = "calc_factors", "Calculating Factors", pct
         elif _pipeline_rank_status == "running":
-            rank_step, rank_step_label, rank_pct = "ranking", "Ranking", 80
+            pct = _pipeline_live_pct if _pipeline_live_step == "ranking" else None
+            rank_step, rank_step_label, rank_pct = "ranking", "Ranking", pct
         elif _pipeline_delta_status == "running":
-            rank_step, rank_step_label, rank_pct = "delta", "Delta Engine", 95
+            pct = _pipeline_live_pct if _pipeline_live_step == "delta" else None
+            rank_step, rank_step_label, rank_pct = "delta", "Evaluating Signals", pct
         else:
-            rank_step, rank_step_label, rank_pct = "calc_factors", "Calculating Factors", 30
+            rank_step, rank_step_label, rank_pct = "calc_factors", "Calculating Factors", _pipeline_live_pct
 
     # Only show "Fetching Data" if the pipeline hasn't started yet.
     if not confirmed_terminal and rank_status != "running" and d5 and d5.get("status") == "running" and d5.get("job_type") == "fetch-data":

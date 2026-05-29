@@ -40,6 +40,17 @@ _consumer_task: asyncio.Task | None = None
 
 _job_lock = asyncio.Lock()
 
+# In-memory progress for the currently-running pipeline job.
+# Safe to read concurrently: only one job runs at a time (_job_lock),
+# and readers (the /runs/progress endpoint) only need eventual consistency.
+_current_progress: dict = {"step": None, "pct": 0}
+
+
+def _set_pct(step: str, pct: int) -> None:
+    _current_progress["step"] = step
+    _current_progress["pct"] = pct
+
+
 # Compiled once — used by share-class dedup to normalize company names.
 # Strips share-class suffixes first, then legal-entity suffixes, so that
 # e.g. GOOG/"Alphabet Inc." and GOOGL/"Alphabet Inc Cl A" both collapse to
@@ -332,6 +343,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     Raises or returns a skip string if data is insufficient.
     This is the complete logic from factor-engine/app/main.py _do_calculate.
     """
+    _set_pct("calc_factors", 2)
     async with engine.connect() as conn:
         # ── Step 1: load universe ─────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
@@ -458,6 +470,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             },
         )
 
+    _set_pct("calc_factors", 18)
     async with engine.connect() as conn:
         # ── Step 4a: pre-filter using recent prices ───────────────────────────
         # Load only the last 30 days to cheaply determine the investable set
@@ -545,6 +558,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     if not universe_tickers:
         raise RuntimeError("no investable tickers after universe filters — check min_price and min_avg_dollar_volume_20d")
 
+    _set_pct("calc_factors", 30)
     async with engine.connect() as conn:
         # ── Step 4b: load full price history for investable tickers only ──────
         # Universe is already filtered — only load tickers that passed the
@@ -611,6 +625,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
     print(f"[calculate] loaded {len(prices_df)} price rows for {prices_df['ticker'].nunique()} tickers")
 
+    _set_pct("calc_factors", 58)
     async with engine.connect() as conn:
         # ── Step 5: load fundamentals ─────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
@@ -660,6 +675,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     print(f"[calculate] loaded fundamentals for {tickers_with_fundamentals} tickers")
 
     # ── Step 6: calculate factors ─────────────────────────────────────────────
+    _set_pct("calc_factors", 68)
     t0 = datetime.now(timezone.utc)
     fund_df_for_factors = fund_df.drop(columns=["as_of_date"], errors="ignore")
     factors_df = compute_all_factors(prices_long=prices_df, fundamentals=fund_df_for_factors, cfg=strategy.factor_engine)
@@ -760,6 +776,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
     async with engine.begin() as conn:
         # ── Step 7: write regime snapshot ─────────────────────────────────────
+        _set_pct("calc_factors", 84)
         t0 = datetime.now(timezone.utc)
         await conn.execute(
             text(
@@ -788,6 +805,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         )
 
         # ── Step 8: write factor scores (batched to avoid large single tx) ────
+        _set_pct("calc_factors", 91)
         t0 = datetime.now(timezone.utc)
         _FACTOR_BATCH = 500
         _factor_sql = text(
@@ -840,6 +858,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         )
         await _finish_sub_trace(conn, trace_id, "success")
 
+    _set_pct("calc_factors", 100)
     print(f"[calculate] run {run_id} SUCCESS: {ticker_count} tickers, "
           f"regime={confirmed_regime}, score_date={score_date}")
 
@@ -920,6 +939,7 @@ async def _do_rank(
     rank_date: date,
 ) -> None:
     """The complete ranking logic from ranker/app/main.py _run_rank_job."""
+    _set_pct("ranking", 3)
     # Load ticker_count for trace logging
     t0 = datetime.now(timezone.utc)
     async with engine.connect() as conn:
@@ -985,6 +1005,7 @@ async def _do_rank(
     universe_count = len(factor_scores_df)
 
     # ── Step 3: rank ──────────────────────────────────────────────────────────
+    _set_pct("ranking", 30)
     t0 = datetime.now(timezone.utc)
     ranked_df = rank_universe(factor_scores_df, regime, strategy)
     ranked_count = len(ranked_df)
@@ -1206,6 +1227,7 @@ async def _do_rank(
     ranked_at = datetime.now(timezone.utc)
 
     # ── Step 4: write rankings ────────────────────────────────────────────────
+    _set_pct("ranking", 82)
     t0 = datetime.now(timezone.utc)
     ranking_rows = [
         {
@@ -1282,6 +1304,7 @@ async def _do_rank(
             {"tid": trace_id, "now": datetime.now(timezone.utc)},
         )
 
+    _set_pct("ranking", 100)
     print(f"[ranker] run {ranking_run_id} SUCCESS: {ranked_count} ranked "
           f"({dropped_count} dropped), top={top_ticker}, regime={regime}, date={rank_date}")
 
@@ -1378,6 +1401,7 @@ async def _do_delta_step(
 
 async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) -> None:
     """The complete delta logic from delta-engine/app/main.py _do_delta."""
+    _set_pct("delta", 3)
     confirmation_days = de_cfg.confirmation_days
     entry_rank = de_cfg.entry_rank
     exit_rank = de_cfg.exit_rank
@@ -1424,6 +1448,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
         )
 
     # ── Step 2: load ranking history ──────────────────────────────────────────
+    _set_pct("delta", 12)
     t0 = datetime.now(timezone.utc)
     history_limit = confirmation_days
     async with engine.connect() as conn:
@@ -1488,6 +1513,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
         )
 
     # ── Step 3: load target portfolio and live positions ──────────────────────
+    _set_pct("delta", 28)
     t0 = datetime.now(timezone.utc)
     target_portfolio: dict[str, float] = {}      # from portfolio_holdings
     live_positions_set: set[str] = set()          # from live_positions (broker)
@@ -1611,6 +1637,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
         )
 
     # ── Step 4: evaluate delta ────────────────────────────────────────────────
+    _set_pct("delta", 48)
     t0 = datetime.now(timezone.utc)
 
     # Load active vetter exclusions so cold-start doesn't propose vetoed tickers
@@ -1697,6 +1724,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
         )
 
     # ── Step 5: write intents ─────────────────────────────────────────────────
+    _set_pct("delta", 72)
     # The engine produces a DeltaDecision for every ticker in the universe so
     # capacity projection is correct. Most non-held tickers come back as
     # action="watch" with confirmation_days_met < confirmation_days — pure
@@ -1810,6 +1838,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             },
         )
 
+    _set_pct("delta", 100)
     print(
         f"[delta-engine] run {run_id} SUCCESS: {len(entries)} entries, "
         f"{len(exits)} exits, {len(holds)} holds, {len(at_risks)} at_risk, "
@@ -1846,6 +1875,7 @@ async def _run_pipeline_steps(
     proposals always reflect today's vetter exclusions and target weights.
     Each step creates its own sub-run rows. Updates pipeline_runs with step IDs.
     """
+    _current_progress.clear()
     factor_run_id: Optional[str] = None
     ranking_run_id: Optional[str] = None
     score_date: Optional[date] = None
@@ -2091,6 +2121,7 @@ async def start_delta_only(background_tasks: BackgroundTasks):
         raise
 
     async def _run_standalone_delta():
+        _current_progress.clear()
         try:
             # Pass pre-created IDs so _do_delta_step skips the duplicate INSERT.
             delta_run_id_result = await _do_delta_step(
@@ -2195,6 +2226,14 @@ _PIPELINE_RUN_COLS = (
     "ranking_run_id, delta_run_id, factor_status, ranking_status, delta_status, "
     "started_at, completed_at, error_message, triggered_by"
 )
+
+
+@app.get("/runs/progress")
+async def get_progress():
+    """Return the in-memory progress of the currently-running pipeline job.
+    Resets to {} between runs. Clients should only use this when /runs/latest
+    reports status='running'."""
+    return dict(_current_progress)
 
 
 @app.get("/runs/latest")

@@ -137,13 +137,14 @@ function updateStatusBar(d) {
     text = 'BUILDING PORTFOLIO'; textCls = 'sb-blue';
   } else if (rank.status === 'running') {
     const sl = rank.step_label || '';
-    if (sl === 'Fetching Data')       { text = rank.pct != null ? 'FETCHING DATA  ' + rank.pct + '%' : 'FETCHING DATA'; textCls = 'sb-amber'; }
-    else if (sl === 'Calculating Factors') { text = 'CALCULATING FACTORS'; textCls = 'sb-amber'; }
-    else if (sl === 'Ranking')        { text = 'RANKING STOCKS'; textCls = 'sb-amber'; }
-    else if (sl.indexOf('Delta') !== -1 || sl === 'Evaluating Signals') { text = 'EVALUATING SIGNALS'; textCls = 'sb-amber'; }
-    else if (sl === 'Building Portfolio') { text = 'BUILDING PORTFOLIO'; textCls = 'sb-blue'; }
-    else if (sl === 'Vetting')        { text = 'LLM ANALYSIS'; textCls = 'sb-purple'; }
-    else                               { text = 'PIPELINE RUNNING'; textCls = 'sb-amber'; }
+    const p = rank.pct != null ? '  ' + rank.pct + '%' : '';
+    if (sl === 'Fetching Data')            { text = 'FETCHING DATA' + p;         textCls = 'sb-amber'; }
+    else if (sl === 'Calculating Factors') { text = 'CALCULATING FACTORS' + p;  textCls = 'sb-amber'; }
+    else if (sl === 'Ranking')             { text = 'RANKING STOCKS' + p;        textCls = 'sb-amber'; }
+    else if (sl === 'Evaluating Signals')  { text = 'EVALUATING SIGNALS' + p;   textCls = 'sb-amber'; }
+    else if (sl === 'Building Portfolio')  { text = 'BUILDING PORTFOLIO';        textCls = 'sb-blue'; }
+    else if (sl === 'Vetting')             { text = 'LLM ANALYSIS';              textCls = 'sb-purple'; }
+    else                                   { text = 'PIPELINE RUNNING' + p;      textCls = 'sb-amber'; }
   } else if (universe.status === 'running') {
     text = 'FETCHING UNIVERSE'; textCls = 'sb-blue';
   } else if (universe.status === 'failed') {
