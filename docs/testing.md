@@ -107,6 +107,40 @@ The overlay redirects `av-ingestor`, `llm-gateway`, `llm-vetter`, and
 `trade-executor`/`alpaca-sync` traffic to the local simulators and slows
 the scheduler tick so the harness drives the pipeline directly.
 
+## DB query-contract tier (real Postgres)
+
+`tests/integration/` runs the real, type-sensitive service SQL against a real,
+fully-migrated Postgres — the gap that let two production bugs ship green:
+
+- vetter held-tickers query selected `id` instead of `run_id`
+  → `operator does not exist: uuid = integer`
+- penalty-box query bound a `str` (`date.today().isoformat()`) to a DATE column
+  → `'str' object has no attribute 'toordinal'`
+
+The per-service unit tests mock the DB, so they exercise Python logic but never
+the actual SQL. This tier closes that gap.
+
+```bash
+python -m pytest tests/integration/        # uses an ephemeral local Postgres
+STOCKER_TEST_DSN=postgresql://... python -m pytest tests/integration/  # reuse an existing DB
+```
+
+How it works (`tests/integration/conftest.py`):
+1. If `STOCKER_TEST_DSN` is set, that database is used.
+2. Otherwise a throwaway Postgres cluster is created via `initdb`/`pg_ctl`
+   (run as the `postgres` system user when the test runner is root).
+3. `alembic upgrade head` applies the real migrations.
+4. Tests run the queries through async SQLAlchemy + asyncpg (the production stack).
+
+If neither a DSN nor the Postgres binaries are available, the whole tier skips
+cleanly so bare runners stay green. Each recently-fixed bug has both a positive
+test (correct query runs) and a negative test (the old buggy query still raises),
+so the tier is proven to catch that class of regression.
+
+When you add a query that joins tables or compares typed columns (UUID FKs,
+DATE/TIMESTAMP, enums), add a contract test here — a green unit test is not
+enough.
+
 ## Testing Philosophy
 
 Test the safety boundary first, then correctness of deterministic engines.
