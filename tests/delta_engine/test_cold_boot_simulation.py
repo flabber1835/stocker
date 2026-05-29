@@ -532,24 +532,20 @@ class TestCrossScenarioEdgeCases:
         assert all(d.action == "entry" for d in decisions.values()), \
             "Tickers in target but not at broker should get entry intent"
 
-    def test_broker_position_not_in_target_exits_immediately(self):
+    def test_broker_position_not_in_target_well_ranked_holds(self):
         """
-        Broker has a position that the target portfolio no longer includes.
-
-        Under Option A: the portfolio-builder has deliberately excluded this
-        ticker from the target (e.g. it was bumped out by higher-ranked names,
-        a sector cap, or a vetter exclusion). Buffer-zone protection only
-        applies to in-target positions; not-in-target holdings exit
-        immediately so the portfolio converges to the target.
+        Broker holds MSFT (rank 5) but it was excluded from the target portfolio
+        by the covariance optimizer. Buffer-zone protection applies: rank ≤ exit_rank
+        → hold, not exit. Selling a rank-5 stock only to re-buy it days later is churn.
         """
         from engine import evaluate_target_vs_live
 
-        target = {"AAPL": 0.10}  # MSFT removed from target
-        live: set[str] = {"AAPL", "MSFT"}  # broker still holds MSFT
+        target = {"AAPL": 0.10}
+        live: set[str] = {"AAPL", "MSFT"}
 
         universe = {
             "AAPL": _obs(rank=1),
-            "MSFT": _obs(rank=5),  # still ranks fine but excluded from target
+            "MSFT": _obs(rank=5),  # rank 5 well within entry zone
         }
         decisions = evaluate_target_vs_live(
             target_portfolio=target,
@@ -560,6 +556,32 @@ class TestCrossScenarioEdgeCases:
             confirmation_days=CONFIRMATION_DAYS,
             max_positions=MAX_POSITIONS,
         )
-        assert decisions["MSFT"].action == "exit", \
-            f"MSFT held but not in target → exit, got {decisions['MSFT'].action}"
+        assert decisions["MSFT"].action == "hold", \
+            f"MSFT rank 5 held but not in target → hold (buffer zone), got {decisions['MSFT'].action}"
         assert "not in target portfolio" in decisions["MSFT"].reason
+
+    def test_broker_position_not_in_target_bad_rank_exits_when_confirmed(self):
+        """
+        Broker holds JUNK (rank above exit_rank for confirmation_days) and it's
+        not in the target portfolio. Confirmed bad rank → exit.
+        """
+        from engine import evaluate_target_vs_live
+
+        target = {"AAPL": 0.10}
+        live: set[str] = {"AAPL", "JUNK"}
+
+        universe = {
+            "AAPL": _obs(rank=1),
+            "JUNK": _obs(rank=EXIT_RANK + 10),  # bad rank for all confirmation_days
+        }
+        decisions = evaluate_target_vs_live(
+            target_portfolio=target,
+            live_positions=live,
+            universe=universe,
+            entry_rank=ENTRY_RANK,
+            exit_rank=EXIT_RANK,
+            confirmation_days=CONFIRMATION_DAYS,
+            max_positions=MAX_POSITIONS,
+        )
+        assert decisions["JUNK"].action == "exit", \
+            f"JUNK rank {EXIT_RANK+10} confirmed bad → exit, got {decisions['JUNK'].action}"

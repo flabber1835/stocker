@@ -471,40 +471,51 @@ def test_tvl_exit_when_live_outside_buffer():
     assert decisions["TSLA"].rank == 50
 
 
-def test_tvl_exit_when_live_not_in_target_even_in_buffer_zone():
-    """Ticker at broker but absent from target portfolio → exit immediately.
+def test_tvl_hold_when_live_not_in_target_but_in_buffer_zone():
+    """Ticker at broker, not in target, but rank ≤ exit_rank → hold.
 
-    The portfolio-builder has made the deliberate decision that this ticker is
-    not part of today's strategy. Buffer-zone protection is reserved for
-    in-target positions (where the strategy DID choose to hold); positions the
-    strategy excluded are exited so the portfolio can converge to the target.
+    The portfolio-builder may have excluded WDC on covariance grounds even
+    though it still ranks well. Buffer-zone protection applies: don't sell a
+    well-ranked stock and buy it back a few days later (pure churn).
     """
-    # Non-empty target so Option A applies (not the empty-target safeguard).
     target = {"AAPL": 0.05}
     live = {"WDC"}
-    # WDC rank=28, exit_rank=40 — inside buffer zone, only 1 day.
-    # Pre-Option-A this returned "hold"; now it returns "exit" because
-    # portfolio-builder excluded WDC from the target.
+    # WDC rank=28, exit_rank=40 — inside buffer zone.
     universe = {"AAPL": _history(10), "WDC": _history(28)}
 
     decisions = evaluate_target_vs_live(
         target_portfolio=target, live_positions=live, universe=universe,
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
     )
-    assert decisions["WDC"].action == "exit"
+    assert decisions["WDC"].action == "hold"
     assert "not in target portfolio" in decisions["WDC"].reason
 
 
-def test_tvl_exit_when_above_exit_rank_no_confirmation_needed():
-    """Ticker at broker, not in target, rank > exit_rank → exit immediately.
+def test_tvl_at_risk_when_above_exit_rank_not_yet_confirmed():
+    """Ticker at broker, not in target, rank > exit_rank but < confirmation_days → at_risk.
 
-    Pre-Option-A this returned "at_risk" until confirmation_days had passed;
-    now any not-in-target holding exits on the first observation.
+    Requires confirmation_days of bad rank before exiting, same as a held
+    in-target position. Only 2 days of bad rank (< 3) → at_risk, not exit.
     """
     target = {"AAPL": 0.05}
     live = {"TSLA"}
-    # Rank 45 > exit_rank=40, only 2 days of history (would have been at_risk before).
+    # Rank 45 > exit_rank=40, only 2 days of history.
     universe = {"AAPL": _history(10), "TSLA": _history(45, 45)}
+
+    decisions = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=live, universe=universe,
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+    )
+    assert decisions["TSLA"].action == "at_risk"
+    assert decisions["TSLA"].rank == 45
+
+
+def test_tvl_exit_when_above_exit_rank_confirmed():
+    """Ticker at broker, not in target, rank > exit_rank for confirmation_days → exit."""
+    target = {"AAPL": 0.05}
+    live = {"TSLA"}
+    # 3 days of rank 45 > exit_rank=40 → confirmed exit.
+    universe = {"AAPL": _history(10), "TSLA": _history(45, 45, 45)}
 
     decisions = evaluate_target_vs_live(
         target_portfolio=target, live_positions=live, universe=universe,

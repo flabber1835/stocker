@@ -113,11 +113,11 @@ class TestEmptyTargetPortfolio:
         assert decisions["AAPL"].action == "hold", \
             "Orphan ticker absent from universe should be held (awaiting data), not force-exited"
 
-    def test_non_empty_target_skipped_live_ticker_exits_under_option_a(self):
+    def test_non_empty_target_skipped_well_ranked_live_ticker_holds(self):
         """
         portfolio-builder built a partial target (3 of 4 live tickers).
-        The 4th live ticker is an orphan → exit under Option A, regardless of rank.
-        The 3 target tickers are in both target and live → hold (already held).
+        The 4th live ticker (GOOGL, rank 4) is an orphan but well-ranked →
+        buffer-zone protection: hold, don't exit a rank-4 stock on covariance grounds.
         """
         target = {"AAPL": 0.10, "MSFT": 0.10, "NVDA": 0.10}
         live = {"AAPL", "MSFT", "NVDA", "GOOGL"}
@@ -134,11 +134,52 @@ class TestEmptyTargetPortfolio:
             entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
             confirmation_days=CONF, max_positions=MAX_POS,
         )
-        assert decisions["GOOGL"].action == "exit", \
-            "GOOGL is live but not in target (orphan) — must exit immediately"
+        assert decisions["GOOGL"].action == "hold", \
+            "GOOGL rank 4 is well within entry zone — orphan but must hold, not exit"
         assert decisions["AAPL"].action == "hold"
         assert decisions["MSFT"].action == "hold"
         assert decisions["NVDA"].action == "hold"
+
+    def test_non_empty_target_skipped_bad_ranked_live_ticker_exits_when_confirmed(self):
+        """Orphan ticker outside exit zone for confirmation_days → exit."""
+        target = {"AAPL": 0.10}
+        live = {"AAPL", "JUNK"}
+        universe = {
+            "AAPL": _obs(rank=1),
+            "JUNK": _obs(rank=50),  # rank > EXIT_RANK=30 for all 3 days
+        }
+        decisions = evaluate_target_vs_live(
+            target_portfolio=target,
+            live_positions=live,
+            universe=universe,
+            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
+            confirmation_days=CONF, max_positions=MAX_POS,
+        )
+        assert decisions["JUNK"].action == "exit", \
+            "JUNK rank 50 > exit_rank=30 for 3 days → should exit"
+
+    def test_non_empty_target_skipped_bad_ranked_live_ticker_at_risk_when_not_confirmed(self):
+        """Orphan ticker outside exit zone but not yet confirmed → at_risk."""
+        target = {"AAPL": 0.10}
+        live = {"AAPL", "JUNK"}
+        universe = {
+            "AAPL": _obs(rank=1),
+            # Only 2 days of bad rank (confirmation_days=3 not met)
+            "JUNK": [
+                RankObservation(run_date=date(2025, 1, 3), rank=50, composite_score=0.02),
+                RankObservation(run_date=date(2025, 1, 2), rank=50, composite_score=0.02),
+                RankObservation(run_date=date(2025, 1, 1), rank=5,  composite_score=0.20),
+            ],
+        }
+        decisions = evaluate_target_vs_live(
+            target_portfolio=target,
+            live_positions=live,
+            universe=universe,
+            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
+            confirmation_days=CONF, max_positions=MAX_POS,
+        )
+        assert decisions["JUNK"].action == "at_risk", \
+            "JUNK rank > exit_rank but not confirmed — should be at_risk"
 
 
 # ── Gap 2: cold boot post-portfolio-builder ───────────────────────────────────

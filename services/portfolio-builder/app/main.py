@@ -470,6 +470,11 @@ async def _do_build(
         sector_map = {r.ticker: r.sector for r in sector_rows.fetchall() if r.sector}
 
     # ── Step 4d: load current portfolio holdings for turnover penalty ─────────────────────────────────────────────────
+    # Merge both sources: previous portfolio target AND actual broker positions.
+    # A ticker actually held at the broker (live_positions qty > 0) deserves the
+    # continuity preference even if it wasn't in the last portfolio target — e.g.
+    # positions received via corporate actions, or cases where portfolio_holdings
+    # had fewer rows than live_positions after a restart.
     current_holdings: set[str] = set()
     if pb_cfg.turnover_penalty > 0.0:
         async with engine.connect() as conn:
@@ -480,6 +485,15 @@ async def _do_build(
                 "ORDER BY pr.completed_at DESC NULLS LAST LIMIT 1"
             ))
             current_holdings = {r.ticker for r in hold_rows.fetchall()}
+            live_rows = await conn.execute(text(
+                "SELECT ticker FROM live_positions "
+                "WHERE sync_run_id = ("
+                "  SELECT run_id FROM alpaca_sync_runs "
+                "  WHERE status = 'success' "
+                "  ORDER BY completed_at DESC LIMIT 1"
+                ") AND qty > 0"
+            ))
+            current_holdings |= {r.ticker for r in live_rows.fetchall()}
 
     # ── Step 5: greedy selection ────────────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)

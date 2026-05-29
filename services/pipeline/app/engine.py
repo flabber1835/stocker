@@ -202,21 +202,22 @@ def evaluate_target_vs_live(
             weight_drift=None,
         )
 
-    # Exits: broker holds but target no longer includes. The portfolio-builder
-    # has already made the deliberate judgment that this ticker is not part of
-    # today's strategy (it's not in the top max_positions, or was filtered by
-    # sector caps, vetter, or other constraints). Exit immediately rather than
-    # waiting for buffer-zone confirmation. The buffer zone exists to prevent
-    # whipsawing on positions the strategy DID choose — for not-in-target
-    # holdings (especially arbitrary initial seeds), there is no asymmetric
-    # loss from selling, and lingering positions keep cash tied up and prevent
-    # the portfolio from converging on the target.
+    # Exits: broker holds but target no longer includes.
+    #
+    # The portfolio-builder may exclude a well-ranked ticker for covariance /
+    # capacity reasons (e.g. already holds 3 correlated names in the same
+    # sector). In that case the rank is still good and an immediate exit would
+    # sell the position only to re-buy it a few days later — pure churn.
+    #
+    # Rule: apply the same buffer-zone confirmation logic used for held
+    # positions.  Only exit once rank > exit_rank for confirmation_days
+    # consecutive days.  If rank ≤ exit_rank, classify as "hold" so the
+    # position stays put until the rank actually deteriorates.
     #
     # Safeguard for the degraded case: if target_portfolio is completely
     # empty, portfolio-builder may have failed transiently or filtered all
-    # candidates. Fall back to the original buffer-zone confirmation logic
-    # so a single bad build doesn't flush the entire portfolio. Only the
-    # confirmed-bad-rank branch exits in that mode.
+    # candidates. Same confirmation logic applies — only the confirmed-bad-rank
+    # branch exits in degraded mode.
     target_is_empty = not target_portfolio
     for ticker in live_positions:
         if ticker in target_portfolio:
@@ -283,18 +284,44 @@ def evaluate_target_vs_live(
             )
             continue
 
-        # Has ranking data, non-empty target, ticker not in target → exit now.
+        # Has ranking data, non-empty target, ticker not in target.
+        # Apply buffer-zone confirmation: only exit after rank > exit_rank
+        # for confirmation_days consecutive days.  A well-ranked orphan stays
+        # as "hold" — don't sell rank-11 MU because the covariance optimizer
+        # preferred NVDA+WDC+TSM for semiconductor exposure.
+        exit_days = _consecutive_in_zone(
+            obs, lambda o, xr=exit_rank: o.rank > xr, confirmation_days
+        )
+        if latest.rank > exit_rank:
+            if exit_days >= confirmation_days:
+                orphan_action = "exit"
+                orphan_reason = (
+                    f"Held at broker, not in target portfolio, rank={latest.rank} > "
+                    f"exit_rank={exit_rank} for {exit_days} consecutive days — exiting"
+                )
+            else:
+                orphan_action = "at_risk"
+                orphan_reason = (
+                    f"Held at broker, not in target portfolio, rank={latest.rank} > "
+                    f"exit_rank={exit_rank} "
+                    f"({exit_days}/{confirmation_days}d toward exit confirmation)"
+                )
+        else:
+            zone = "entry zone" if latest.rank <= entry_rank else "buffer zone"
+            orphan_action = "hold"
+            orphan_reason = (
+                f"Held at broker, not in target portfolio (rank={latest.rank} in {zone}) — "
+                "portfolio-builder excluded on covariance/capacity grounds; "
+                "holding until rank falls below exit_rank"
+            )
         decisions[ticker] = DeltaDecision(
             ticker=ticker,
-            action="exit",
+            action=orphan_action,
             rank=latest.rank,
             composite_score=latest.composite_score,
-            confirmation_days_met=0,
+            confirmation_days_met=exit_days,
             current_weight=0.0,
-            reason=(
-                f"Held at broker but not in target portfolio (rank={latest.rank}) — "
-                "portfolio-builder excluded; exiting to converge on target"
-            ),
+            reason=orphan_reason,
             actual_weight=actual_weights.get(ticker) if actual_weights else None,
             weight_drift=None,
         )
