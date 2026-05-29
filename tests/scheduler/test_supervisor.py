@@ -486,6 +486,50 @@ class TestSupervisorTick:
         mock_db_close.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_run_now_self_heals_failed_step(self):
+        """A step that failed earlier today but is queued by run-now (_force_pending)
+        must be re-triggered, not suspend the chain — so a fixed-and-redeployed bug
+        recovers without waiting for midnight or manually clearing the failed row."""
+        self._reset_chain_status()
+        mock_trigger = AsyncMock(return_value=True)
+        mock_db_close = AsyncMock()
+
+        async def _fake_step_state(client, step, today, trading_day, prev_trading_day, latest_rank_date=None):
+            if step.name in ("fetch-data", "pipeline"):
+                return "done"
+            if step.name == "vet":
+                return "failed"
+            return "idle"
+
+        force_pending = _supervisor_tick.__globals__["_force_pending"]
+        force_pending.clear()
+        force_pending.add("vet")
+        try:
+            with patch.dict(_supervisor_tick.__globals__, {
+                "_has_universe": AsyncMock(return_value=True),
+                "_step_state": _fake_step_state,
+                "_trigger_step": mock_trigger,
+                "_get_latest_run_id": AsyncMock(return_value=None),
+                "_db_open_run": AsyncMock(return_value="run-uuid-1"),
+                "_db_update_run": AsyncMock(),
+                "_db_close_run": mock_db_close,
+                "_is_after_scheduled_time": MagicMock(return_value=True),
+                "_latest_rank_date": AsyncMock(return_value=None),
+            }):
+                await _supervisor_tick()
+
+            # vet was re-triggered (not suspended); chain stays running
+            mock_trigger.assert_awaited_once()
+            assert mock_trigger.await_args.args[1].name == "vet"
+            assert _chain_status["status"] == "running"
+            mock_db_close.assert_not_called()
+            # the forced retry is consumed, so a second consecutive failure falls
+            # through to suspend instead of looping forever
+            assert "vet" not in force_pending
+        finally:
+            force_pending.clear()
+
+    @pytest.mark.asyncio
     async def test_marks_success_when_all_done(self):
         """All steps done → marks chain success, fires alpaca sync task."""
         self._reset_chain_status()

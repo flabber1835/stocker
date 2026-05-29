@@ -663,6 +663,36 @@ async def _supervisor_tick() -> None:
                     return  # wait for next tick
 
                 if state == "failed":
+                    # Self-heal: a manual run-now queued this step for a forced
+                    # re-run (it is in _force_pending). Re-trigger it instead of
+                    # suspending. Without this, a step that failed earlier today —
+                    # e.g. a transient bug that has since been fixed and the service
+                    # redeployed — stays terminal until midnight, and run-now cannot
+                    # clear it because the done+force branch above only fires for
+                    # steps already in state "done", never "failed".
+                    #
+                    # Re-triggering starts a fresh run whose newer row supersedes the
+                    # failed one on the next tick. We discard from _force_pending so a
+                    # second consecutive failure (bug not actually fixed) falls through
+                    # to the suspend path below — exactly one forced retry, no loop.
+                    # Regular cron ticks never populate _force_pending, so a genuine
+                    # failure on the daily schedule still halts the chain as before.
+                    if step.name in _force_pending:
+                        ok = await _trigger_step(client, step, force=True)
+                        if ok:
+                            _force_pending.discard(step.name)
+                            _chain_status["status"] = "running"
+                            _chain_status["steps"][step.name] = "running"
+                            _log(f"supervisor: {step.name} was failed — force re-triggered by run-now")
+                        else:
+                            _log(f"supervisor: {step.name} failed force-retrigger failed — will retry next tick")
+                        await _db_update_run(
+                            run_id, "running" if ok else (_chain_status.get("status") or "running"),
+                            _chain_status["steps"], _chain_status["run_ids"],
+                            force_pending=_force_pending,
+                        )
+                        return
+
                     if step.optional:
                         _log(f"supervisor: {step.name} failed — optional, continuing chain")
                         continue
