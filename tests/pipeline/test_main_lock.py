@@ -125,73 +125,37 @@ async def test_run_pipeline_steps_releases_lock_on_failure(monkeypatch):
             pmain._job_lock.release()
 
 
-# ── _trigger_from_event ACKs the message and schedules the run ───────────────
+# ── Redis consumer no longer auto-triggers pipeline steps ────────────────────
+# _trigger_from_event and _trigger_delta_from_event were removed when the
+# scheduler took sole ownership of the chain sequence. The consumer loop now
+# only ACKs events so the PEL stays clean — it never calls _do_run_pipeline.
 
 
-@pytest.mark.asyncio
-async def test_trigger_from_event_acks_when_already_running(monkeypatch):
-    """If _do_run_pipeline returns 'already_running', the redis message must
-    still be ACKed — otherwise the consumer loop re-delivers it forever."""
-    async def _fake_run(triggered_by):
-        return {"status": "already_running"}
-
-    fake_redis = MagicMock()
-    fake_redis.xack = AsyncMock()
-    monkeypatch.setattr(pmain, "_do_run_pipeline", _fake_run)
-    monkeypatch.setattr(pmain, "redis_client", fake_redis)
-
-    await pmain._trigger_from_event("2026-05-22", "msg-1")
-    fake_redis.xack.assert_awaited_once_with(
-        pmain.PIPELINE_STREAM, pmain.CONSUMER_GROUP, "msg-1",
+def test_trigger_from_event_removed():
+    """_trigger_from_event must not exist — the scheduler drives the chain."""
+    assert not hasattr(pmain, "_trigger_from_event"), (
+        "_trigger_from_event must be deleted: auto-triggering from Redis events "
+        "bypasses the strict scheduler sequence and lets vetter-less pipeline runs happen"
     )
 
 
-@pytest.mark.asyncio
-async def test_trigger_from_event_schedules_run_when_started(monkeypatch):
-    """When _do_run_pipeline returns 'started', _trigger_from_event must
-    schedule _run_pipeline_steps as a background task."""
-    from datetime import date, datetime, timezone
-
-    captured = {}
-
-    async def _fake_run(triggered_by):
-        return {
-            "status": "started",
-            "run_id": "r1", "trace_id": "t1",
-            "_internal": ("r1", "t1", date.today(), datetime.now(timezone.utc), "redis"),
-        }
-
-    async def _fake_steps(run_id, trace_id, today, now, tb):
-        captured["called"] = (run_id, trace_id, tb)
-
-    fake_redis = MagicMock()
-    fake_redis.xack = AsyncMock()
-    monkeypatch.setattr(pmain, "_do_run_pipeline", _fake_run)
-    monkeypatch.setattr(pmain, "_run_pipeline_steps", _fake_steps)
-    monkeypatch.setattr(pmain, "redis_client", fake_redis)
-
-    await pmain._trigger_from_event("2026-05-22", "msg-2")
-    # Yield so the create_task'd coroutine runs
-    await asyncio.sleep(0)
-    assert captured.get("called") == ("r1", "t1", "redis")
-    fake_redis.xack.assert_awaited_once()
+def test_trigger_delta_from_event_removed():
+    """_trigger_delta_from_event must not exist — the scheduler drives delta."""
+    assert not hasattr(pmain, "_trigger_delta_from_event"), (
+        "_trigger_delta_from_event must be deleted: delta is now triggered only "
+        "by the scheduler as the last step in the chain"
+    )
 
 
-@pytest.mark.asyncio
-async def test_trigger_from_event_acks_even_if_run_raises(monkeypatch):
-    """If _do_run_pipeline raises, the redis message must still be ACKed
-    (otherwise the loop re-delivers and creates an infinite crash loop)."""
-    async def _boom(triggered_by):
-        raise RuntimeError("pipeline setup boom")
-
-    fake_redis = MagicMock()
-    fake_redis.xack = AsyncMock()
-    monkeypatch.setattr(pmain, "_do_run_pipeline", _boom)
-    monkeypatch.setattr(pmain, "redis_client", fake_redis)
-
-    with pytest.raises(RuntimeError):
-        await pmain._trigger_from_event("2026-05-22", "msg-3")
-    fake_redis.xack.assert_awaited_once()
+def test_consumer_loop_acks_without_triggering():
+    """Consumer loop must ACK every event but must never call _do_run_pipeline."""
+    import inspect
+    src = inspect.getsource(pmain._redis_consumer_loop)
+    assert "_do_run_pipeline" not in src, (
+        "_redis_consumer_loop must not call _do_run_pipeline — "
+        "the scheduler owns the chain sequence"
+    )
+    assert "xack" in src, "consumer must still xack messages to keep the PEL clean"
 
 
 # ── delta-intents actionable filter ──────────────────────────────────────────

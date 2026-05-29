@@ -454,14 +454,14 @@ class TestSupervisorTick:
         mock_db_close.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_skips_optional_failure(self):
-        """vet failed (optional=True) → chain succeeds (no steps after vet in new sequence)."""
+    async def test_vet_failure_fails_chain(self):
+        """vet failed (optional=False) → chain fails, portfolio-builder is never triggered."""
         self._reset_chain_status()
         mock_trigger = AsyncMock()
         mock_db_close = AsyncMock()
 
         async def _fake_step_state(client, step, today, trading_day, prev_trading_day, latest_rank_date=None):
-            if step.name in ("fetch-data", "pipeline", "portfolio-builder", "delta"):
+            if step.name in ("fetch-data", "pipeline"):
                 return "done"
             if step.name == "vet":
                 return "failed"
@@ -475,17 +475,15 @@ class TestSupervisorTick:
             "_db_open_run": AsyncMock(return_value="run-uuid-1"),
             "_db_update_run": AsyncMock(),
             "_db_close_run": mock_db_close,
-            "asyncio": type("_FakeAsyncio", (), {
-                "create_task": staticmethod(lambda coro: (coro.close() if hasattr(coro, "close") else None) or MagicMock()),
-            })(),
             "_is_after_scheduled_time": MagicMock(return_value=True),
             "_latest_rank_date": AsyncMock(return_value=None),
         }):
             await _supervisor_tick()
 
-        # vet is optional and last step — chain should complete successfully
+        # vet is mandatory — failure must halt the chain
         mock_trigger.assert_not_called()
-        assert _chain_status["status"] == "success"
+        assert _chain_status["status"] == "failed"
+        mock_db_close.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_marks_success_when_all_done(self):

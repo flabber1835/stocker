@@ -841,10 +841,9 @@ async def start_build(
                     detail=f"Vetter run status is '{vrow.status}', must be 'success'",
                 )
         else:
-            # Auto-select the latest successful vetter run for this same ranking, so the
-            # scheduler chain (which posts to /jobs/build with no params) still applies
-            # exclusions. Falling back to None silently included tickers the vetter flagged
-            # as risky, surfacing them as BUYs with an EXCL badge in the trader UI.
+            # Auto-select the latest successful vetter run for this same ranking run.
+            # The vetter is not optional: if it has not run for today's ranking,
+            # portfolio construction is blocked so exclusions are always applied.
             vauto = await conn.execute(
                 text(
                     "SELECT run_id FROM vetter_runs "
@@ -854,8 +853,16 @@ async def start_build(
                 {"src": source_ranking_run_id},
             )
             vauto_row = vauto.fetchone()
-            if vauto_row is not None:
-                vetter_run_id = str(vauto_row.run_id)
+            if vauto_row is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"No successful vetter run found for ranking run {source_ranking_run_id}. "
+                        "The vetter must complete before the portfolio can be built. "
+                        "Run the vetter first (POST /jobs/vet on the llm-vetter service)."
+                    ),
+                )
+            vetter_run_id = str(vauto_row.run_id)
 
     async with _job_lock:
         async with engine.connect() as inner_conn:

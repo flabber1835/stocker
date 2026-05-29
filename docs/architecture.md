@@ -108,21 +108,25 @@ Daily chain (scheduler):
 ```text
 1. av-ingestor fetch-data       (also_accept_prev=no  — must fetch today)
 2. pipeline                     (also_accept_prev=yes — accepts prev trading day)
-3. llm-vetter vet               (optional/advisory — runs before portfolio-builder so
+3. llm-vetter vet               (mandatory — must succeed before portfolio is built;
                                  exclusions feed the same-cycle build)
-4. portfolio-builder            (also_accept_prev=no  — must rebuild with today's rankings)
+4. portfolio-builder            (also_accept_prev=no  — must rebuild with today's rankings;
+                                 refuses to run if no vetter run exists for today's ranking)
 5. delta (standalone)           (also_accept_prev=no  — must diff today's target vs live)
 ```
+
+The sequence is strictly enforced: each step only starts after the previous one
+has completed successfully. If any step fails, the chain halts — including the
+vetter. The portfolio will never be built without today's vetter exclusions applied.
 
 Steps 4 and 5 have `also_accept_prev=False` so they are always re-triggered each day
 even if yesterday's run exists. This ensures portfolio-builder always builds from the
 latest rankings and the standalone delta always produces fresh entry/exit intents.
 
-The pipeline service also auto-triggers from av-ingestor via Redis Streams
-(stream `stocker:pipeline_events`, key `run_date`), so a manual fetch-data
-fires factors→rank even without scheduler involvement. The pipeline
-holds a global `_job_lock` for the entire duration of a run, so a concurrent
-HTTP /jobs/run or Redis event sees `{"status":"already_running"}`.
+The pipeline service maintains a Redis consumer on `stocker:pipeline_events` to
+drain the Pending Entries List on restart (recovering events claimed before a crash).
+Events are ACK'd on receipt but do not auto-trigger pipeline steps — the scheduler
+is the sole driver of the chain.
 
 **Why delta does not run inside the pipeline step:**
 Running delta inside `/jobs/run` would produce proposals immediately after
@@ -285,18 +289,14 @@ returns. The chain advances on the next tick.
 scheduler supervisor (every SUPERVISOR_INTERVAL_SECS seconds)
   → POST av-ingestor /jobs/fetch-data   → next tick checks status
   → POST pipeline    /jobs/run          → next tick checks status
-  → POST llm-vetter  /jobs/vet          → next tick checks status (optional)
+  → POST llm-vetter  /jobs/vet          → next tick checks status (mandatory)
+  → POST portfolio-builder /jobs/build  → next tick checks status
+  → POST pipeline    /jobs/delta        → next tick checks status
 ```
 
-When av-ingestor finishes fetch-data successfully it also publishes
-`fetch_data.complete` to the Redis stream `stocker:pipeline_events`. The
-pipeline service's consumer (`pipeline-consumers` group) auto-triggers a
-pipeline run on receipt, so a manual fetch-data also fires factors→rank→delta
-without scheduler involvement.
-
 A `409 Conflict` or `{"status": "already_running"}` response means the target
-service is already running an earlier trigger. Both the scheduler and the
-pipeline's Redis consumer treat this as "wait for next tick" rather than aborting.
+service is already running an earlier trigger. The scheduler treats this as
+"wait for next tick" rather than aborting.
 
 ### Restart recovery
 

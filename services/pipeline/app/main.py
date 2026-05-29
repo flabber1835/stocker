@@ -182,15 +182,12 @@ async def _redis_consumer_loop() -> None:
                     if draining_pel:
                         pel_cursor = msg_id
                     event = fields.get("event", "")
-                    if event == "fetch_data.complete":
-                        chain_date = fields.get("run_date", date.today().isoformat())
-                        print(f"[pipeline] received {event} for {chain_date} — triggering run", flush=True)
-                        asyncio.create_task(_trigger_from_event(chain_date, msg_id))
-                    elif event == "portfolio_builder.complete":
-                        print(f"[pipeline] received {event} — triggering delta", flush=True)
-                        asyncio.create_task(_trigger_delta_from_event(msg_id))
-                    else:
-                        await redis_client.xack(PIPELINE_STREAM, CONSUMER_GROUP, msg_id)
+                    # Events are ACK'd but no longer auto-trigger pipeline steps.
+                    # The scheduler drives the full chain in strict sequence:
+                    #   fetch-data → pipeline → vetter → portfolio-builder → delta
+                    # Each step only starts after the previous one succeeds.
+                    print(f"[pipeline] consumer: ACK {event} (scheduler drives sequence)", flush=True)
+                    await redis_client.xack(PIPELINE_STREAM, CONSUMER_GROUP, msg_id)
         except asyncio.CancelledError:
             break
         except Exception as exc:
@@ -200,101 +197,6 @@ async def _redis_consumer_loop() -> None:
             await asyncio.sleep(1)
 
 
-async def _trigger_from_event(chain_date: str, msg_id: str) -> None:
-    try:
-        result = await _do_run_pipeline(triggered_by="redis")
-        if result.get("status") == "started":
-            run_id, trace_id, today, now, tb = result.pop("_internal")
-            asyncio.create_task(_run_pipeline_steps(run_id, trace_id, today, now, tb))
-        else:
-            print(f"[pipeline] event trigger: {result.get('status')}", flush=True)
-    finally:
-        try:
-            await redis_client.xack(PIPELINE_STREAM, CONSUMER_GROUP, msg_id)
-        except Exception as exc:
-            print(f"[pipeline] xack failed for {msg_id}: {exc}", flush=True)
-
-
-async def _trigger_delta_from_event(msg_id: str) -> None:
-    """Triggered by portfolio_builder.complete Redis event.
-
-    Runs the delta step exactly as /jobs/delta does, so the scheduler can
-    still use /runs/delta-latest to verify completion. Uses triggered_by='scheduler'
-    for /runs/delta-latest compatibility.
-    """
-    if _job_lock.locked():
-        print("[pipeline] portfolio_builder.complete: job lock held — delta already running, skipping", flush=True)
-        try:
-            await redis_client.xack(PIPELINE_STREAM, CONSUMER_GROUP, msg_id)
-        except Exception:
-            pass
-        return
-
-    try:
-        await _job_lock.acquire()
-        delta_run_id = str(uuid.uuid4())
-        delta_trace_id = str(uuid.uuid4())
-        delta_started_at = datetime.now(timezone.utc)
-        # Sentinel date: updated to the actual ranking date once a ranking is found.
-        # Using 1970-01-01 prevents a failed pre-data run from masking real runs in
-        # ORDER BY run_date DESC queries.
-        run_date_init = date(1970, 1, 1)
-        async with engine.begin() as conn:
-            await _create_sub_trace(conn, delta_trace_id, "delta_run", delta_run_id)
-            await conn.execute(
-                text(
-                    "INSERT INTO delta_runs "
-                    "(run_id, trace_id, strategy_id, config_hash, status, run_date, started_at, triggered_by) "
-                    "VALUES (:rid, :tid, :sid, :ch, 'running', :rd, :now, :tb)"
-                ),
-                {
-                    "rid": delta_run_id, "tid": delta_trace_id,
-                    "sid": strategy.strategy_id, "ch": config_hash,
-                    "rd": run_date_init, "now": delta_started_at,
-                    "tb": "scheduler",
-                },
-            )
-    except Exception as exc:
-        if _job_lock.locked():
-            _job_lock.release()
-        print(f"[pipeline] portfolio_builder event: delta setup failed: {exc}", flush=True)
-        try:
-            await redis_client.xack(PIPELINE_STREAM, CONSUMER_GROUP, msg_id)
-        except Exception:
-            pass
-        return
-
-    async def _run_delta():
-        try:
-            result_id = await _do_delta_step(
-                triggered_by="scheduler",
-                run_id=delta_run_id,
-                trace_id=delta_trace_id,
-                started_at=delta_started_at,
-            )
-            print(f"[pipeline] redis-triggered delta {result_id} SUCCESS", flush=True)
-            async with engine.begin() as conn:
-                await conn.execute(text(
-                    "UPDATE pipeline_runs SET delta_status='success', delta_run_id=:rid "
-                    "WHERE run_id = (SELECT run_id FROM pipeline_runs ORDER BY started_at DESC LIMIT 1)"
-                ), {"rid": result_id})
-        except Exception as exc:
-            print(f"[pipeline] redis-triggered delta FAILED: {exc}", flush=True)
-            async with engine.begin() as conn:
-                await conn.execute(text(
-                    "UPDATE pipeline_runs SET delta_status='failed' "
-                    "WHERE run_id = (SELECT run_id FROM pipeline_runs ORDER BY started_at DESC LIMIT 1)"
-                ))
-        finally:
-            if _job_lock.locked():
-                _job_lock.release()
-
-    asyncio.create_task(_run_delta())
-
-    try:
-        await redis_client.xack(PIPELINE_STREAM, CONSUMER_GROUP, msg_id)
-    except Exception as exc:
-        print(f"[pipeline] xack failed for {msg_id}: {exc}", flush=True)
 
 
 # ── DB trace helpers ──────────────────────────────────────────────────────────

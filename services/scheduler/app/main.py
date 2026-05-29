@@ -119,11 +119,12 @@ _STEPS: list[_StepDef] = [
     _StepDef("pipeline", PIPELINE_URL, "/jobs/run", "chain_date",
              use_trading_day=True, also_accept_prev=False),
     # Vetter runs before portfolio-builder so exclusions feed the same-cycle build.
-    # optional=True: if Ollama/OpenAI is not configured the chain continues without it.
+    # Not optional: if the vetter fails, the chain fails. The portfolio must never
+    # be built without vetter exclusions applied.
     # max_running_minutes: Ollama vetting 150 tickers takes at most 30-45 min;
     # after 90 min the job is stale (Ollama crashed mid-run, model not loaded, etc.)
     # and the chain would be permanently blocked without this guard.
-    _StepDef("vet", VETTER_URL, "/jobs/vet", "started_at", optional=True,
+    _StepDef("vet", VETTER_URL, "/jobs/vet", "started_at", optional=False,
              max_running_minutes=90),
     # portfolio_date == ranking_runs.rank_date (the source ranking's data date).
     # Compare to the latest rank_date, not trading_day: portfolio-builder is

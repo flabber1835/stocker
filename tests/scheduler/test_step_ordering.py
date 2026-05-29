@@ -78,11 +78,12 @@ class TestStepOrdering:
             "Unexpected chain order: " + str(names)
         )
 
-    def test_vet_is_optional(self):
-        """Vetter step must be optional so the chain continues if vetter is down."""
+    def test_vet_is_mandatory(self):
+        """Vetter must be mandatory: portfolio-builder refuses to build without vetter exclusions."""
         vet_step = next(s for s in _STEPS if s.name == "vet")
-        assert vet_step.optional is True, (
-            "vet step must be optional=True — vetter failure must not block portfolio-builder"
+        assert vet_step.optional is False, (
+            "vet step must be optional=False — vetter failure must block portfolio-builder "
+            "so the portfolio is never built without vetter exclusions"
         )
 
     def test_no_use_trading_day_step_uses_started_at(self):
