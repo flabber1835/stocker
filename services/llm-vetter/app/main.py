@@ -618,8 +618,8 @@ async def _do_vet(
                     ),
                     {
                         "ticker": exc["ticker"],
-                        "today": today_date.isoformat(),
-                        "until": penalty_until.isoformat(),
+                        "today": today_date,
+                        "until": penalty_until,
                         "reason": exc["reason"],
                         "risk_type": exc["risk_type"],
                     },

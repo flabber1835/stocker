@@ -253,7 +253,7 @@ async def _do_build(
                 "SELECT ticker FROM vetter_penalty_box "
                 "WHERE penalty_box_until >= :today"
             ),
-            {"today": _date.today().isoformat()},
+            {"today": _date.today()},
         )
         penalty_box_set = {r.ticker for r in pb_rows.fetchall()}
 

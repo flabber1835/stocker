@@ -301,7 +301,7 @@ async def _load_penalty_box(conn) -> dict[str, date]:
             "SELECT ticker, penalty_box_until FROM vetter_penalty_box "
             "WHERE penalty_box_until >= :today"
         ),
-        {"today": date.today().isoformat()},
+        {"today": date.today()},
     )
     result: dict[str, date] = {}
     for r in rows.mappings():
