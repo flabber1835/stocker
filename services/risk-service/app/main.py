@@ -55,6 +55,14 @@ MAX_SYNC_AGE_HOURS     = _safe_float("MAX_SYNC_AGE_HOURS",     24.0)
 
 _KILL_SWITCH_FILE = "/tmp/kill_switch"
 
+
+def _is_kill_switch_active() -> bool:
+    """Return True if the kill switch is active (file or env var)."""
+    return os.path.exists(_KILL_SWITCH_FILE) or (
+        os.getenv("KILL_SWITCH", "false").lower() == "true"
+    )
+
+
 def _safety_env() -> dict:
     """Re-read safety env vars on every /check call.
 
@@ -70,10 +78,8 @@ def _safety_env() -> dict:
     module-level constants are kept as the startup snapshot for visibility
     but are not consulted here.
     """
-    kill_switch_env = os.getenv("KILL_SWITCH", "false").lower() == "true"
-    kill_switch = os.path.exists(_KILL_SWITCH_FILE) or kill_switch_env
     return {
-        "kill_switch": kill_switch,
+        "kill_switch": _is_kill_switch_active(),
         "live_trading_enabled":
             os.getenv("LIVE_TRADING_ENABLED", "false").lower() == "true",
         "paper_only": os.getenv("PAPER_ONLY", "true").lower() == "true",
@@ -345,6 +351,11 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
                     ))).first()
                 baseline = float(baseline_row[0]) if baseline_row and baseline_row[0] else None
                 current = float(current_row[0]) if current_row and current_row[0] else None
+                # If no same-day baseline exists, fall back to the latest sync value as
+                # the opening baseline — ensures the loss cap fires even on the first
+                # trade of the day when alpaca-sync hasn't run yet today.
+                if baseline is None:
+                    baseline = current
                 if baseline and baseline > 0 and current is not None:
                     loss_pct = (baseline - current) / baseline
                     if loss_pct > max_loss_pct:
@@ -366,12 +377,20 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
             if req.action == "entry" and max_positions > 0:
                 async with engine.connect() as conn:
                     pos_row = (await conn.execute(text(
-                        "SELECT COUNT(DISTINCT lp.ticker) FROM live_positions lp "
-                        "JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
-                        "WHERE sr.status='success' "
-                        "AND sr.completed_at = ("
-                        "  SELECT MAX(completed_at) FROM alpaca_sync_runs WHERE status='success'"
-                        ")"
+                        "SELECT "
+                        "  (SELECT COUNT(DISTINCT lp.ticker) FROM live_positions lp "
+                        "   JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
+                        "   WHERE sr.status='success' "
+                        "   AND sr.completed_at = (SELECT MAX(completed_at) FROM alpaca_sync_runs WHERE status='success')) "
+                        "+ "
+                        "  (SELECT COUNT(DISTINCT ao.ticker) FROM alpaca_orders ao "
+                        "   WHERE ao.status = 'pending' AND ao.action = 'entry' "
+                        "   AND ao.ticker NOT IN ("
+                        "     SELECT lp2.ticker FROM live_positions lp2 "
+                        "     JOIN alpaca_sync_runs sr2 ON sr2.run_id = lp2.sync_run_id "
+                        "     WHERE sr2.status='success' "
+                        "     AND sr2.completed_at = (SELECT MAX(completed_at) FROM alpaca_sync_runs WHERE status='success')"
+                        "   ))"
                     ))).first()
                     held = (await conn.execute(text(
                         "SELECT 1 FROM live_positions lp "
@@ -469,7 +488,7 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
                 else:
                     today_row = (await conn.execute(text(
                         "SELECT COALESCE(SUM(notional), 0) FROM alpaca_orders "
-                        "WHERE DATE(submitted_at AT TIME ZONE 'UTC') = CURRENT_DATE "
+                        "WHERE DATE(COALESCE(submitted_at, created_at) AT TIME ZONE 'UTC') = CURRENT_DATE "
                         "AND action IN ('exit', 'sell_trim') "
                         "AND status NOT IN ('cancelled', 'rejected', 'risk_rejected')"
                     ))).first()
@@ -523,7 +542,7 @@ async def health() -> dict:
     return {
         "status": "ok",
         "service": "risk-service",
-        "kill_switch": KILL_SWITCH,
+        "kill_switch": _is_kill_switch_active(),
         "paper_only": PAPER_ONLY,
         "live_trading_enabled": LIVE_TRADING_ENABLED,
         "max_order_notional": MAX_ORDER_NOTIONAL,
