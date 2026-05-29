@@ -254,13 +254,30 @@ def test_growth_winsorization_prevents_outlier_collapse():
 
 
 def test_growth_partial_data():
-    # Ticker with only revenue_growth (no eps_growth) should still get a score
+    # Tickers with only one growth component should still score.
+    # cross_section_percentile needs >= 2 valid values per component, so we
+    # need 2 tickers for each component axis we want to rank.
+    # A/B have only revenue_growth; C/D have only eps_growth.
+    # Missing component gets 0.5 neutral fill, so all four get non-NaN scores.
     fund = pd.DataFrame([
-        {"ticker": "A", "revenue_growth": 0.2, "eps_growth": float("nan"),
+        {"ticker": "A", "revenue_growth": 0.20, "eps_growth": float("nan"),
          "pe_ratio": 20.0, "pb_ratio": 2.0, "roe": 0.2, "debt_to_equity": 0.5},
+        {"ticker": "B", "revenue_growth": 0.10, "eps_growth": float("nan"),
+         "pe_ratio": 15.0, "pb_ratio": 1.5, "roe": 0.15, "debt_to_equity": 0.8},
+        {"ticker": "C", "revenue_growth": float("nan"), "eps_growth": 0.15,
+         "pe_ratio": 18.0, "pb_ratio": 1.8, "roe": 0.18, "debt_to_equity": 0.6},
+        {"ticker": "D", "revenue_growth": float("nan"), "eps_growth": 0.05,
+         "pe_ratio": 12.0, "pb_ratio": 1.2, "roe": 0.12, "debt_to_equity": 1.0},
     ])
     result = compute_growth(fund)
-    assert pd.notna(result["A"])
+    assert pd.notna(result["A"]), "ticker with only revenue_growth should still score"
+    assert pd.notna(result["B"]), "ticker with only revenue_growth should still score"
+    assert pd.notna(result["C"]), "ticker with only eps_growth should still score"
+    assert pd.notna(result["D"]), "ticker with only eps_growth should still score"
+    # Higher revenue_growth → higher score for the rev_g-only group
+    assert result["A"] > result["B"]
+    # Higher eps_growth → higher score for the eps_g-only group
+    assert result["C"] > result["D"]
 
 
 # ── compute_value ─────────────────────────────────────────────────────────────────────────────────────
