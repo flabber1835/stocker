@@ -147,5 +147,5 @@ Priority order:
 1. Config validation (strategy schema) — bad configs must be rejected before reaching any service
 2. Risk service safety rules — when built, every hard rule needs a test
 3. Deterministic engines (factor-engine, ranker, backtester) — same inputs → same outputs
-4. Advisory layers (vetter) — hallucination detection and override logic
+4. Vetter (binding exclusions) — hallucination detection and override logic
 5. Integration paths — end-to-end with mocked external services

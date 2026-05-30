@@ -12,7 +12,7 @@ Phases 1–4.5 are complete:
 - Strategy schema and validator
 - Alpha Vantage ingestor (universe + daily data)
 - Factor engine, ranker, portfolio-builder
-- LLM vetter (Tavily + Ollama/OpenAI, advisory only)
+- LLM vetter (Tavily + Ollama/OpenAI; mandatory chain step, exclusions binding)
 - Dashboard with universe / rank / vetter / portfolio / live tabs
 - DB schema for alpaca_sync_runs and live_positions
 

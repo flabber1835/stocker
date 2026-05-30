@@ -47,7 +47,8 @@ Human approval window with auto-approve fallback — the dashboard's auto-approv
   manual.
 
 trade-executor short-circuits when Alpaca credentials are empty
-llm-vetter cannot place trades; vetter is informational only
+llm-vetter cannot place trades; its exclusions are binding (remove tickers from
+  the candidate pool) but it never sizes, approves, or submits orders
 ```
 
 ### Chain liveness heartbeat

@@ -128,19 +128,26 @@ would be stuck in the PEL forever — they are NOT redelivered by `>` reads.
 
 Converts ranked stocks into target portfolio weights.
 
-**Triggered by the scheduler daily chain** (after pipeline completes), not manually.
-The scheduler chain: fetch-data → pipeline → portfolio-builder → delta → vet.
+**Triggered by the scheduler daily chain** (after the vetter completes), not manually.
+The scheduler chain: fetch-data → pipeline → vet → portfolio-builder → delta.
+The vetter runs *before* portfolio-builder so today's exclusions are available.
 
 Steps:
 1. Load top N candidates from ranking run
-2. Apply LLM vetter exclusions (soft — does not block if vetter hasn't run)
+2. Apply LLM vetter exclusions — excluded tickers are removed from the candidate
+   pool (binding). When a `vetter_run_id` is supplied, those tickers cannot be
+   selected. The chain guarantees a vetter run exists (vet is a mandatory step),
+   so in normal operation this step is always applied.
 3. Load price history for covariance matrix
 4. Apply universe filters (min_price, min_avg_dollar_volume_20d)
 5. Build covariance matrix (Ledoit-Wolf shrinkage)
 6. Greedy score-per-portfolio-vol selection with sector caps
 7. Write holdings to portfolio_holdings
 
-Does not require vetter approval — vetter output is advisory only.
+The portfolio is never built without the vetter: the scheduler marks `vet`
+`optional=False`, so a vetter failure halts the chain before portfolio-builder
+runs. The vetter does not "approve" stocks — it only removes excluded tickers;
+the deterministic ranker still owns the final score.
 
 The scheduler's delta step (after portfolio-builder) reads the updated portfolio_holdings
 as the target and diffs it against live_positions to generate trade intents. This means
@@ -186,13 +193,15 @@ score, factor z-scores, active regime, sector, whether the stock is already held
 This grounds the LLM assessment — a top-5 ranked stock needs stronger evidence
 to exclude than a rank-48 stock.
 
-**The vetter is advisory only.** Portfolio construction never waits for or requires
-vetter output. Conviction boosts from the vetter influence score ordering within
-the candidate pool but are attenuated when hallucination flags are present:
-- 0 flags: full boost
-- 1 flag: 75% of boost
-- 2 flags: 50% of boost
-- 3+ flags: boost skipped
+**The vetter is a mandatory, binding gate — but it can only exclude.** The
+scheduler marks the `vet` step `optional=False`, so the chain halts (and the
+portfolio is never built) if the vetter fails. Its exclusions are binding:
+excluded tickers are removed from the candidate pool before portfolio
+construction. It does NOT apply positive-conviction score boosts — the
+deterministic ranker owns the final score. `positive_conviction`/`positive_reason`
+are recorded for the dashboard and audit only; they do not change ordering or
+weights. Hallucination flags only attenuate the vetter's own decision (auto-override
+of unsupported excludes, conviction downgrade), never a score boost.
 
 **Strategy-configurable prompt:** `VetterConfig.system_prompt_file` allows a
 custom system prompt (with placeholders for entry_rank, exit_rank, etc.) to be
@@ -336,8 +345,8 @@ Non-blocking supervisor state machine that advances a five-step daily chain:
 
 ```text
 1. fetch-data        → av-ingestor /jobs/fetch-data
-2. pipeline          → pipeline /jobs/run   (factors + rank + delta, triggered_by='pipeline')
-3. vet               → llm-vetter /jobs/vet         (optional, advisory)
+2. pipeline          → pipeline /jobs/run   (factors + rank only; delta is step 5)
+3. vet               → llm-vetter /jobs/vet         (mandatory; failure halts the chain)
 4. portfolio-builder → portfolio-builder /jobs/build (target portfolio weights;
                        reads vetter_exclusions from step 3)
 5. delta             → pipeline /jobs/delta  (standalone delta, triggered_by='scheduler')
@@ -443,9 +452,12 @@ Backend API for the dashboard and control layer. Exposes:
 `/data-freshness`.
 
 `/rankings/with-overlays` joins rankings with vetter decisions, universe_tickers
-(for company name and sector), and live_positions, returning a unified row per
-ticker for the dashboard rank tab. This is the canonical rankings endpoint used
-by the dashboard.
+(for company name and sector), live_positions, and the latest `fundamentals`
+row per ticker (for `market_cap`, surfaced as the screener's SIZE tier:
+MEGA/LARGE/MID/SMALL/MICRO). It returns a unified row per ticker for the
+dashboard screener (rank) tab. This is the canonical rankings endpoint used by
+the dashboard. The screener columns are RANK / TICKER / COMPANY / SIZE; per-factor
+z-scores live in the per-ticker detail card, not the table.
 
 `/trade/approve` is a thin proxy: it validates the intent_id UUID, runs an
 early idempotency check against `alpaca_orders`, then POSTs `{intent_id, mode}`
@@ -457,17 +469,24 @@ Alpaca submission live in `trade-executor`.
 Displays strategy, rankings, portfolio, vetter output, live positions, and progress.
 Does not directly trade.
 
-**Trade Proposal tab:** renders delta_intents with action tags:
-- `entry` (green), `exit` (red), `hold` (blue), `watch` (purple)
-- `at_risk` (amber-orange) — held but rank deteriorating; exit not yet confirmed
+**Trade Proposal (trader) tab:** an order blotter — it shows ONLY the four
+tradeable actions (`renderTrader` filters delta_intents to
+`TRADE_ACTIONS = ['entry', 'buy_add', 'exit', 'sell_trim']`):
+- `entry` (green) — buy to open a new position
 - `buy_add` (bright green) — held but underweight; add shares to close drift
+- `exit` (red) — sell to close
 - `sell_trim` (golden yellow) — held but overweight; trim shares to close drift
 
-Tradeable intents (`entry`, `exit`, `buy_add`, `sell_trim`) show two approve
-buttons — "Execute Now" (`mode=immediate`, time_in_force="day") and "Schedule
-for Open" (`mode=scheduled`, time_in_force="opg"). Both POST to
-`/api/trade/approve`, which proxies to the api service. `hold`, `at_risk`, and
-`watch` intents are informational only (no approve button).
+The non-order actions (`hold`, `at_risk`, `watch`) are no longer listed in the
+trader tab — their standing is visible on the rankings/portfolio tabs instead.
+
+Each order shows two approve buttons — "Execute Now" (`mode=immediate`) and
+"Schedule for Open" (`mode=scheduled`). Both POST to `/api/trade/approve`, which
+proxies to the api service. **Both modes submit `time_in_force="day"`** — the
+`mode` field is recorded on `alpaca_orders` for audit (immediate vs scheduled
+click) but does not change the Alpaca order type. Day orders are accepted 24/7
+and queue for the next session, avoiding the OPG expiry problem (an OPG order
+expires if the stock has no opening auction print).
 
 A DRIFT column shows `weight_drift` (actual − target) for held positions that
 have live alpaca_sync data available.

@@ -75,11 +75,15 @@ Output: exclude, risk_type, confidence, positive_catalyst, positive_conviction,
 vetter_decisions table in Postgres (includes hallucination_flag_count)
 vetter_exclusions table for excluded tickers
 Dashboard vetter tab: KEEP/EXCLUDE/RISK badges, catalyst badges, news sources
-Informational only — no approval gate, no portfolio blocking
+Mandatory chain step — exclusions are binding (gate, not a hint)
 
-Vetter output is informational only. portfolio-builder reads vetter_exclusions
-to drop excluded tickers but does NOT apply positive-conviction score boosts —
-the deterministic ranker owns the final score and the vetter only excludes.
+Vetter exclusions are binding. The vetter is a mandatory step in the daily
+chain: the scheduler marks it optional=False, so if the vetter fails the whole
+chain halts and the portfolio is never built without today's exclusions applied.
+portfolio-builder reads vetter_exclusions and removes those tickers from the
+candidate pool before construction. The vetter does NOT apply positive-conviction
+score boosts — the deterministic ranker owns the final score and the vetter only
+excludes.
 
 Hallucination detection:
   - Exclude with no supporting data
@@ -190,7 +194,10 @@ trade-executor
   full orchestrator: loads intent → sizes order → calls risk-service → records
     alpaca_orders → submits to Alpaca (if approved + credentials present)
   writes an execution_trace + step-per-stage audit for every approval click
-  market orders; time_in_force = "day" (immediate) or "opg" (Market on Open)
+  market orders; time_in_force = "day" for ALL orders (both immediate and
+    scheduled modes) — mode is audit-only, kept on alpaca_orders but does not
+    change the order type. Day orders queue 24/7 for the next session; this
+    replaced the earlier "opg" path which expired without an opening auction print
   short-circuits when ALPACA_API_KEY is empty
 
 Tables:

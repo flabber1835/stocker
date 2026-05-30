@@ -316,7 +316,7 @@ Planned services:
 av-ingestor          ← built (Phase 3) — publishes fetch_data.complete on stocker:pipeline_events
 pipeline             ← built (Phase 7) — unified factor + rank + delta, consumes pipeline_events
 portfolio-builder    ← built (Phase 4) — publishes portfolio_builder.complete on stocker:pipeline_events
-llm-vetter           ← built (Phase 4.5) — LLM-based stock vetting, informational only
+llm-vetter           ← built (Phase 4.5) — LLM-based stock vetting; mandatory chain step, exclusions binding
 alpaca-sync          ← built (Phase 6) — broker position read sync, paper trading
 risk-service         ← built (Phase 6) — deterministic safety gate; env re-read every /check
 trade-executor       ← built (Phase 6) — submits paper orders to Alpaca; entry+exit staleness gated
@@ -1139,7 +1139,7 @@ stocker/
     factor-engine/       ← built: momentum, quality, value, growth, low_vol, beta, liquidity
     ranker/              ← built: regime detection, factor weighting, scoring, ranking runs
     portfolio-builder/   ← built: greedy_score_per_port_vol, sector caps, vetter exclusions
-    llm-vetter/          ← built: Tavily + Ollama/OpenAI vetting, informational only
+    llm-vetter/          ← built: Tavily + Ollama/OpenAI vetting; mandatory chain step, exclusions binding
     delta-engine/        ← built: buffer-zone entry/exit evaluation, produces delta_intents
     dashboard/           ← built: universe/rank/vetter/portfolio/live/trade-proposal tabs
     alpaca-sync/         ← built: GET /v2/account, GET /v2/positions; writes alpaca_sync_runs + live_positions

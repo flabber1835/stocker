@@ -42,7 +42,7 @@ artifacts volume
 ```text
 av-ingestor
 pipeline          ← unified factor + rank + delta (Phase 7)
-llm-vetter        ← advisory LLM vetting between ranking and portfolio-builder
+llm-vetter        ← mandatory LLM vetting between ranking and portfolio-builder (binding exclusions)
 portfolio-builder
 backtester
 evaluator
@@ -86,7 +86,7 @@ Alpha Vantage
   → av-ingestor
   → Postgres
   → pipeline (factors → rank only; delta is NOT run here)
-  → llm-vetter  (advisory exclusions)
+  → llm-vetter  (mandatory; binding exclusions — chain halts if it fails)
   → portfolio-builder  (target weights, reads today's vetter exclusions)
   → delta  (proposals written here — always reflect today's vetter + target)
   → delta_intents (entry / exit / hold proposals visible on dashboard)
@@ -206,6 +206,38 @@ comes from the latest alpaca_sync run's `market_value / account_value`.
 Fields written to `delta_intents` for drift actions:
 - `actual_weight` — current broker weight (market_value / account_value)
 - `weight_drift`  — actual_weight − target_weight (positive = overweight)
+
+### Buy-side gating (capacity + buying power)
+
+After the per-ticker actions are assigned, `evaluate_target_vs_live` applies two
+deterministic post-passes so a proposal can never breach the position cap or
+spend cash the account doesn't have (`_cap_buys` / `_trim_to_cap` in
+`services/pipeline/app/engine.py`, both pure and unit-tested):
+
+- **Capacity gate (position count, entries only):** `retained_held + kept_entries
+  ≤ max_positions`. Best-ranked entries are kept; the rest are demoted
+  `entry → watch` with reason "deferred — portfolio at capacity". `buy_add`s
+  don't add positions, so they are exempt from this gate.
+- **Buying-power gate (cash, entries + buy_adds share one budget):** kept buys
+  are funded best-ranked-first against
+  `available = buying_power/account_value + exit proceeds + sell_trim proceeds`.
+  Sell-side proceeds are credited so a same-open rotation (exit funds a new
+  entry) still works at ~0 buying power. Unfunded buys are demoted:
+  `entry → watch`, `buy_add → hold` (keep the position, defer the top-up). Only
+  enforced when `account_value > 0` and `buying_power` are supplied; otherwise
+  the trade-executor and risk-service remain the cash backstop.
+- **Trim-to-cap:** the buffer-zone exit is rank-based, so a *well-ranked* orphan
+  (held but covariance-excluded from the target) never exits on its own and the
+  realized book can sit above `max_positions`. When `retained + kept_entries >
+  max_positions`, `_trim_to_cap` exits the worst-ranked **orphans** first
+  (held AND not in target). In-target holds are never force-sold; no-data
+  orphans (rank 9999) are skipped.
+
+When the broker state is unreliable (`_broker_state_unreliable()` — no sync,
+sync staler than `DELTA_SYNC_MAX_AGE_HOURS`, default 12h, or funded-but-no-
+positions), all buy-side intents are suppressed because sizing against a wrong
+account snapshot would be unsafe. Exits are never suppressed (closing is always
+allowed). See `docs/risk-safety-rules.md` for the full guard description.
 
 ## Strategy Flow
 

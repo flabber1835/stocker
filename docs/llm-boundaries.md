@@ -12,7 +12,9 @@ classify thematic exposure
 suggest strategy changes
 generate reports
 explain trade signals
-vet stocks for risk signals and positive catalysts (llm-vetter, advisory only)
+vet stocks for risk signals and positive catalysts (llm-vetter) — its
+  exclusions are binding (remove tickers from the candidate pool), but it can
+  only exclude; it never sizes, scores, approves, or submits orders
 ```
 
 ## Forbidden LLM Responsibilities
@@ -27,7 +29,9 @@ invent missing data
 override safety limits
 directly decide position sizing without deterministic checks
 directly modify approved strategy registry
-block portfolio construction (vetter output is advisory, never a hard gate)
+apply positive-conviction score boosts or otherwise change the ranker's
+  scoring/ordering (the vetter may exclude tickers — a binding hard gate — but
+  the deterministic ranker still owns the final score)
 ```
 
 ## Correct Pattern
