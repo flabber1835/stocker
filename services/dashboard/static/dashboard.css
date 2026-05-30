@@ -370,7 +370,7 @@ td { padding: 9px 12px; white-space: nowrap; font-size: 13px; }
 #screen-screener thead { top: 46px; }
 /* Every ticker row fits the viewport width — no left/right scrolling.
    table-layout:fixed lets COMPANY take the remaining space and ellipsize. */
-#screen-screener .tbl-scroll { overflow-x: hidden; }
+#screen-screener .tbl-scroll { overflow-x: clip; }
 #screen-screener table { table-layout: fixed; }
 #screen-screener th, #screen-screener td { padding: 9px 6px; }
 #screen-screener th:first-child, #screen-screener td:first-child { padding-left: 11px; }
