@@ -1229,9 +1229,24 @@ class TestTargetVsLiveOrphanPositions:
 
         Buffer-zone confirmation applies to orphans too. One day of bad rank
         (< confirmation_days=3) → at_risk, not exit.
+
+        Uses a within-capacity book (small target + few orphans) so the
+        classification is tested in isolation; trim-to-cap (which would exit
+        excess orphans when over the position cap) is covered separately in
+        tests/delta_engine/test_trim_to_cap.py.
         """
-        d = self._run(smcp_days=1)
-        for t in self.ORPHAN_SMCPS:
+        target = {t: 1.0 / MAX_POSITIONS for t in _quality(5)}
+        orphans = _smallcaps(3)
+        live = set(target) | set(orphans)
+        u = {t: _obs(rank=i + 1) for i, t in enumerate(target)}
+        for t in orphans:
+            u[t] = _obs(rank=POOR_RANK_START, days=1)   # rank 45 > exit_rank, day 1
+        d = evaluate_target_vs_live(
+            target_portfolio=target, live_positions=live, universe=u,
+            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
+            confirmation_days=CONFIRMATION_DAYS, max_positions=MAX_POSITIONS,
+        )
+        for t in orphans:
             assert d[t].action == "at_risk", (
                 f"{t}: orphan rank > exit_rank on day 1 → at_risk (not confirmed), got {d[t].action}"
             )
@@ -1252,8 +1267,20 @@ class TestTargetVsLiveOrphanPositions:
         hold until rank actually deteriorates below exit_rank.
         """
         buffer_rank = EXIT_RANK - 5   # within buffer zone
-        d = self._run(smcp_days=3, smcp_rank=buffer_rank)
-        for t in self.ORPHAN_SMCPS:
+        # Within-capacity book so the buffer-zone hold is tested in isolation
+        # (over-capacity trim is covered in test_trim_to_cap.py).
+        target = {t: 1.0 / MAX_POSITIONS for t in _quality(5)}
+        orphans = _smallcaps(3)
+        live = set(target) | set(orphans)
+        u = {t: _obs(rank=i + 1) for i, t in enumerate(target)}
+        for t in orphans:
+            u[t] = _obs(rank=buffer_rank, days=3)
+        d = evaluate_target_vs_live(
+            target_portfolio=target, live_positions=live, universe=u,
+            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
+            confirmation_days=CONFIRMATION_DAYS, max_positions=MAX_POSITIONS,
+        )
+        for t in orphans:
             assert d[t].action == "hold", (
                 f"{t}: orphan not in target but rank {buffer_rank} ≤ exit_rank={EXIT_RANK} → hold, got {d[t].action}"
             )

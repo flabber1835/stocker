@@ -449,6 +449,9 @@ def evaluate_target_vs_live(
         account_value=account_value, buying_power=buying_power,
     )
 
+    # Walk an over-capacity book back down to the cap by exiting excess orphans.
+    _trim_to_cap(decisions, live_positions, target_portfolio, max_positions)
+
     return decisions
 
 
@@ -533,6 +536,59 @@ def _cap_entries(
             )
         decisions[d.ticker] = replace(
             d, action="watch", current_weight=None, reason="; ".join(reasons),
+        )
+
+
+def _trim_to_cap(
+    decisions: dict[str, DeltaDecision],
+    live_positions: set[str],
+    target_portfolio: dict[str, float],
+    max_positions: int,
+) -> None:
+    """Exit excess **orphans** when the retained book exceeds max_positions. Mutates
+    ``decisions`` in place.
+
+    Why this exists
+    ---------------
+    The buffer-zone exit is rank-based: a held name only exits once rank > exit_rank
+    is confirmed. A *well-ranked* orphan (held but covariance-excluded from the
+    target) therefore never exits on its own, so the realized book can sit
+    permanently above max_positions. Trim-to-cap closes that gap.
+
+    Rules:
+      - Fires only when retained + kept-entries > max_positions, so a within-cap
+        book is untouched (no churn).
+      - Only orphans (held AND not in target_portfolio) are eligible — a name the
+        builder still targets is never force-sold here. This is always sufficient,
+        since in-target holds <= target_size <= max_positions.
+      - Worst-ranked orphans go first (highest rank number), so the best names
+        survive and the weakest excess positions are shed.
+    """
+    exits_now = sum(1 for d in decisions.values() if d.action == "exit")
+    entries_now = sum(1 for d in decisions.values() if d.action == "entry")
+    retained = len(live_positions) - exits_now
+    overflow = retained + entries_now - max_positions
+    if overflow <= 0:
+        return
+
+    orphans = sorted(
+        (
+            d for d in decisions.values()
+            if d.ticker in live_positions
+            and d.ticker not in target_portfolio
+            and d.action in ("hold", "at_risk")
+            and d.rank < 9999   # never force-exit a position that's only missing
+                                # from the ranking universe (data gap, not a sell signal)
+        ),
+        key=lambda d: -d.rank,   # worst (highest rank number) first
+    )
+    for d in orphans[:overflow]:
+        decisions[d.ticker] = replace(
+            d, action="exit",
+            reason=(
+                f"trim to cap — held book ({retained}) exceeds max_positions="
+                f"{max_positions}; exiting untargeted orphan (rank={d.rank})"
+            ),
         )
 
 
