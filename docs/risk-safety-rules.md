@@ -46,6 +46,28 @@ Human approval window with auto-approve fallback — the dashboard's auto-approv
   Set TRADE_AUTO_APPROVE_MINUTES to a very large number to keep approval fully
   manual.
 
+Scheduled-only auto-approve (manual runs require a human) — auto-approve fires
+  ONLY for the after-close scheduled/cron chain. A manual run (dashboard "Run"
+  button → scheduler /jobs/run-now) is tagged `delta_runs.manual=TRUE` and is
+  surfaced via /delta/latest; the dashboard never auto-approves a manual run's
+  proposals, regardless of the timeout. Rationale: a scheduled run fires after the
+  close on a trading day, when the prior day's orders have filled and alpaca-sync
+  is current, so auto-approve is safe. A manual run is off-cadence (e.g. a weekend
+  catch-up) and can stack new orders on a queued-but-unfilled book, so it requires
+  human review. `manual` is a separate column from `triggered_by` (which stays
+  'scheduler' for both cron and manual standalone deltas so /runs/delta-latest can
+  keep tracking the step).
+
+Manual-run cancel-all pre-step — when a manual run starts (scheduler
+  /jobs/run-now), the scheduler first calls trade-executor
+  POST /jobs/cancel-all-orders?confirm=yes (cancelling EVERY open Alpaca order)
+  and then re-runs alpaca-sync, BEFORE the chain builds fresh proposals. This
+  guarantees a manual run computes deltas against a clean broker state and cannot
+  submit duplicate orders on top of a still-open book. The after-close cron chain
+  does NOT cancel — by then the prior orders have filled and the book is clean.
+  A failed cancel is logged but does not wedge the run (unfilled orders carry no
+  position). Scheduler needs TRADE_EXECUTOR_URL set for this call.
+
 trade-executor short-circuits when Alpaca credentials are empty
 llm-vetter cannot place trades; its exclusions are binding (remove tickers from
   the candidate pool) but it never sizes, approves, or submits orders

@@ -44,59 +44,89 @@ _TRADEABLE_ACTIONS = {"entry", "exit", "buy_add", "sell_trim"}
 _BUY_ACTIONS = {"entry", "buy_add"}
 
 
+async def _auto_approve_once(client, now: float) -> None:
+    """One poll of /delta/latest → auto-approve eligible intents.
+
+    Extracted from the loop so it can be unit-tested directly against the real
+    gating logic (not a re-implementation). Mutates the module-level
+    _intent_first_seen / _intent_approved sets.
+
+    Gating, in order:
+      - only tradeable actions (entry/exit/buy_add/sell_trim)
+      - skip vetter-excluded BUY-side intents (entry/buy_add); sells always allowed
+      - skip manually-rejected intents (rejected_at set)
+      - skip already-handled intents (terminal order_status)
+      - MANUAL run (delta_runs.manual): never auto-approve — a human must click.
+        Only the after-close scheduled/cron chain auto-approves after the timeout.
+        A manual run is off-cadence (e.g. weekend) and can stack on a
+        queued-but-unfilled book, so it requires human review; the manual path
+        also cancels the open book before submitting.
+      - otherwise approve once the intent has been pending >= timeout
+    """
+    timeout = TRADE_AUTO_APPROVE_MINUTES * 60
+    r = await client.get(f"{API_URL}/delta/latest")
+    if r.status_code != 200:
+        return
+    data = r.json()
+    run_meta = data.get("run") or {}
+    is_manual_run = bool(run_meta.get("manual"))
+    current_ids: set[str] = set()
+    for intent in data.get("intents", []):
+        iid = str(intent.get("intent_id") or intent.get("id") or "")
+        if not iid:
+            continue
+        action = intent.get("action")
+        if action not in _TRADEABLE_ACTIONS:
+            continue
+        # Skip vetter-excluded BUYs (entry + buy_add) and manually rejected intents.
+        # Sells (exit, sell_trim) are not subject to vetter exclusion because the
+        # vetter informs which stocks to AVOID buying, not which to keep holding.
+        if action in _BUY_ACTIONS and intent.get("vetter_excluded"):
+            continue
+        if intent.get("rejected_at"):
+            continue
+        # Skip intents already handled (submitted, queued, failed, or risk-rejected).
+        # Marking them as approved prevents auto-approve from retrying on restart
+        # or, for 'deferred' orders, re-firing into the OPG deferral path while
+        # the worker is already managing the wakeup.
+        # filled / partial_fill are also terminal — no re-submission needed.
+        order_status = intent.get("order_status")
+        if order_status in (
+            "failed", "risk_rejected", "submitted", "pending",
+            "deferred", "filled", "partial_fill",
+        ):
+            _intent_approved.add(iid)
+            continue
+        current_ids.add(iid)
+        if iid in _intent_approved:
+            continue
+        if iid not in _intent_first_seen:
+            _intent_first_seen[iid] = now
+        # Manual runs require a human — never auto-approve. We still track
+        # current_ids/first_seen above so timers stay consistent if the same
+        # intents later belong to a scheduled run.
+        if is_manual_run:
+            continue
+        if now - _intent_first_seen[iid] >= timeout:
+            try:
+                await client.post(
+                    f"{API_URL}/trade/approve",
+                    json={"intent_id": iid, "mode": "immediate"},
+                )
+            except Exception as exc:
+                print(f"[auto-approve] approve failed for {iid}: {exc}")
+            _intent_approved.add(iid)
+    for iid in set(_intent_first_seen) - current_ids - _intent_approved:
+        _intent_first_seen.pop(iid, None)
+
+
 async def _auto_approve_bg():
     await asyncio.sleep(5)
     while True:
         try:
             now = time.time()
-            timeout = TRADE_AUTO_APPROVE_MINUTES * 60
             async with httpx.AsyncClient(timeout=10.0) as client:
-                r = await client.get(f"{API_URL}/delta/latest")
-                if r.status_code == 200:
-                    data = r.json()
-                    current_ids: set[str] = set()
-                    for intent in data.get("intents", []):
-                        iid = str(intent.get("intent_id") or intent.get("id") or "")
-                        if not iid:
-                            continue
-                        action = intent.get("action")
-                        if action not in _TRADEABLE_ACTIONS:
-                            continue
-                        # Skip vetter-excluded BUYs (entry + buy_add) and manually rejected intents.
-                        # Sells (exit, sell_trim) are not subject to vetter exclusion because the
-                        # vetter informs which stocks to AVOID buying, not which to keep holding.
-                        if action in _BUY_ACTIONS and intent.get("vetter_excluded"):
-                            continue
-                        if intent.get("rejected_at"):
-                            continue
-                        # Skip intents already handled (submitted, queued, failed, or risk-rejected).
-                        # Marking them as approved prevents auto-approve from retrying on restart
-                        # or, for 'deferred' orders, re-firing into the OPG deferral path while
-                        # the worker is already managing the wakeup.
-                        # filled / partial_fill are also terminal — no re-submission needed.
-                        order_status = intent.get("order_status")
-                        if order_status in (
-                            "failed", "risk_rejected", "submitted", "pending",
-                            "deferred", "filled", "partial_fill",
-                        ):
-                            _intent_approved.add(iid)
-                            continue
-                        current_ids.add(iid)
-                        if iid in _intent_approved:
-                            continue
-                        if iid not in _intent_first_seen:
-                            _intent_first_seen[iid] = now
-                        if now - _intent_first_seen[iid] >= timeout:
-                            try:
-                                await client.post(
-                                    f"{API_URL}/trade/approve",
-                                    json={"intent_id": iid, "mode": "immediate"},
-                                )
-                            except Exception as exc:
-                                print(f"[auto-approve] approve failed for {iid}: {exc}")
-                            _intent_approved.add(iid)
-                    for iid in set(_intent_first_seen) - current_ids - _intent_approved:
-                        _intent_first_seen.pop(iid, None)
+                await _auto_approve_once(client, now)
         except asyncio.CancelledError:
             break
         except Exception as exc:

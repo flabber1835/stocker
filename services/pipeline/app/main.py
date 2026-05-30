@@ -130,6 +130,10 @@ async def lifespan(app: FastAPI):
                 "triggered_by TEXT NOT NULL DEFAULT 'pipeline'"
             ))
             await conn.execute(text(
+                "ALTER TABLE delta_runs ADD COLUMN IF NOT EXISTS "
+                "manual BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            await conn.execute(text(
                 "ALTER TABLE delta_intents ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ"
             ))
             await mark_orphaned_runs_failed(conn, "pipeline_runs", trace_job_type="pipeline_run")
@@ -1366,6 +1370,7 @@ async def _do_delta_step(
     run_id: str | None = None,
     trace_id: str | None = None,
     started_at: datetime | None = None,
+    manual: bool = False,
 ) -> str:
     """
     Run delta evaluation step. Returns delta_run_id on success.
@@ -1397,14 +1402,14 @@ async def _do_delta_step(
             await conn.execute(
                 text(
                     "INSERT INTO delta_runs "
-                    "(run_id, trace_id, strategy_id, config_hash, status, run_date, started_at, triggered_by) "
-                    "VALUES (:rid, :tid, :sid, :ch, 'running', :rd, :now, :tb)"
+                    "(run_id, trace_id, strategy_id, config_hash, status, run_date, started_at, triggered_by, manual) "
+                    "VALUES (:rid, :tid, :sid, :ch, 'running', :rd, :now, :tb, :manual)"
                 ),
                 {
                     "rid": delta_run_id, "tid": trace_id,
                     "sid": strategy.strategy_id, "ch": config_hash,
                     "rd": run_date_init, "now": started_at,
-                    "tb": triggered_by,
+                    "tb": triggered_by, "manual": manual,
                 },
             )
 
@@ -2215,12 +2220,18 @@ async def start_run(background_tasks: BackgroundTasks, triggered_by: str = "manu
 
 
 @app.post("/jobs/delta")
-async def start_delta_only(background_tasks: BackgroundTasks):
+async def start_delta_only(background_tasks: BackgroundTasks, manual: bool = False):
     """Run only the delta evaluation step (standalone, not part of a full pipeline run).
 
     Called by the scheduler after portfolio-builder updates the target portfolio.
     Uses triggered_by='scheduler' so /runs/delta-latest can distinguish it from
     the delta that runs as part of /jobs/run.
+
+    manual=true marks this delta as produced by a human-initiated run-now (vs the
+    after-close cron chain). It is stored on delta_runs.manual and surfaced to the
+    dashboard so manual proposals are NOT auto-approved — they require a human click.
+    triggered_by stays 'scheduler' regardless so /runs/delta-latest still tracks the
+    standalone delta step.
 
     Pre-creates the delta_runs row synchronously so the run_id is committed before
     the HTTP response is sent — the caller can query the row immediately.
@@ -2242,14 +2253,14 @@ async def start_delta_only(background_tasks: BackgroundTasks):
             await conn.execute(
                 text(
                     "INSERT INTO delta_runs "
-                    "(run_id, trace_id, strategy_id, config_hash, status, run_date, started_at, triggered_by) "
-                    "VALUES (:rid, :tid, :sid, :ch, 'running', :rd, :now, :tb)"
+                    "(run_id, trace_id, strategy_id, config_hash, status, run_date, started_at, triggered_by, manual) "
+                    "VALUES (:rid, :tid, :sid, :ch, 'running', :rd, :now, :tb, :manual)"
                 ),
                 {
                     "rid": delta_run_id, "tid": delta_trace_id,
                     "sid": strategy.strategy_id, "ch": config_hash,
                     "rd": run_date_init, "now": delta_started_at,
-                    "tb": "scheduler",
+                    "tb": "scheduler", "manual": manual,
                 },
             )
     except Exception:
@@ -2266,6 +2277,7 @@ async def start_delta_only(background_tasks: BackgroundTasks):
                 run_id=delta_run_id,
                 trace_id=delta_trace_id,
                 started_at=delta_started_at,
+                manual=manual,
             )
             print(f"[pipeline] standalone delta {delta_run_id_result} SUCCESS", flush=True)
             # Backfill delta_status on the latest pipeline_run so /runs/latest reflects
@@ -2400,7 +2412,7 @@ async def get_delta_latest():
         row = await conn.execute(text(
             "SELECT run_id, status, run_date, started_at, completed_at, "
             "  entries_count, exits_count, holds_count, watches_count, triggered_by, "
-            "  error_message "
+            "  manual, error_message "
             "FROM delta_runs WHERE triggered_by = 'scheduler' "
             "ORDER BY run_date DESC, started_at DESC LIMIT 1"
         ))

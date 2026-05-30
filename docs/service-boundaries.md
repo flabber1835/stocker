@@ -88,6 +88,17 @@ Delta mode selection:
 The scheduler polls this endpoint (not `/runs/latest`) to track standalone delta state
 independently from the pipeline's delta run.
 
+**Manual vs scheduled delta (`delta_runs.manual`):** `POST /jobs/delta?manual=true`
+sets `delta_runs.manual=TRUE` to mark a human-initiated run (scheduler /jobs/run-now)
+vs the after-close cron chain. This is a SEPARATE column from `triggered_by`, which
+stays `'scheduler'` for both — retagging `triggered_by` would break /runs/delta-latest's
+`triggered_by='scheduler'` filter and wedge the supervisor's done-detection. The flag is
+surfaced through /runs/delta-latest and api /delta/latest so the dashboard can refuse to
+auto-approve a manual run's proposals (a human must click). The scheduler appends
+`manual=true` to the delta trigger only when the chain's in-memory `origin` is `'manual'`
+(set by /jobs/run-now; reset to `'scheduled'` on date rollover). A manual run also runs a
+cancel-all-orders + re-sync pre-step before the chain — see docs/risk-safety-rules.md.
+
 **Delta decision semantics (target_vs_live mode):**
 - `entry` — ticker in portfolio_holdings (target) but not yet held at broker; `current_weight` = target weight
 - `exit`  — ticker held at broker but removed from target portfolio

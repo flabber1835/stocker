@@ -473,6 +473,13 @@ CREATE TABLE IF NOT EXISTS delta_runs (
     buy_add_count            INTEGER      NOT NULL DEFAULT 0,
     sell_trim_count          INTEGER      NOT NULL DEFAULT 0,
     triggered_by             TEXT         NOT NULL DEFAULT 'pipeline',
+    -- manual=TRUE marks a delta produced by a human-initiated run (scheduler
+    -- /jobs/run-now), as opposed to the after-close cron chain. Kept SEPARATE
+    -- from triggered_by because /runs/delta-latest filters triggered_by='scheduler'
+    -- to track the standalone delta step; retagging a manual run there would wedge
+    -- the supervisor. The dashboard reads `manual` to decide whether to auto-approve:
+    -- manual runs require a human, scheduled runs auto-approve after the timeout.
+    manual                   BOOLEAN      NOT NULL DEFAULT FALSE,
     started_at               TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     completed_at             TIMESTAMPTZ,
     error_message            TEXT

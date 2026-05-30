@@ -463,6 +463,7 @@ services:
       VETTER_URL:               http://llm-vetter:8000
       PORTFOLIO_BUILDER_URL:    http://portfolio-builder:8000
       ALPACA_SYNC_URL:          http://alpaca-sync:8000
+      TRADE_EXECUTOR_URL:       http://trade-executor:8000
       RANK_SCHEDULE_CRON:       ${RANK_SCHEDULE_CRON:-15 16 * * 1-5}
       TZ:                       America/New_York
       DATABASE_URL:             postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker

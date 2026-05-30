@@ -245,6 +245,7 @@ def test_pipeline_delta_latest_contract():
         "holds_count": 20,
         "watches_count": 3,
         "triggered_by": "scheduler",
+        "manual": False,
     }
     engine = _mock_engine_returning(fake_row)
 
@@ -260,6 +261,9 @@ def test_pipeline_delta_latest_contract():
         ("run_id", str),
         ("status", str),
     ], "pipeline /runs/delta-latest")
+
+    # manual flag must surface so the dashboard can gate auto-approve on it.
+    assert body.get("manual") is False, "pipeline /runs/delta-latest missing manual flag"
 
 
 # ── Contract 4: llm-vetter GET /runs/latest ──────────────────────────────────

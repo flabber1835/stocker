@@ -19,6 +19,7 @@ PIPELINE_URL          = os.getenv("PIPELINE_URL",           "http://pipeline:800
 VETTER_URL            = os.getenv("VETTER_URL",             "http://llm-vetter:8000")
 PORTFOLIO_BUILDER_URL = os.getenv("PORTFOLIO_BUILDER_URL",  "http://portfolio-builder:8000")
 ALPACA_SYNC_URL       = os.getenv("ALPACA_SYNC_URL",        "http://alpaca-sync:8000")
+TRADE_EXECUTOR_URL    = os.getenv("TRADE_EXECUTOR_URL",     "http://trade-executor:8000")
 DATABASE_URL          = os.getenv("DATABASE_URL", "")
 
 # Default: 4:15 pm ET weekdays (market close + 15 min buffer).
@@ -73,6 +74,8 @@ _chain_status: dict = {
     "last_completed": None,
     "current_run_id": None,  # DB run_id for current chain run
     "next_run": None,
+    "origin": "scheduled",   # 'scheduled' (cron) | 'manual' (run-now). Drives delta
+                             # manual-tagging + cancel-all pre-step. Defaults scheduled.
 }
 
 # Set of step names that the next supervisor tick must force-trigger even when
@@ -431,6 +434,45 @@ async def _trigger_alpaca_sync(
             await client.aclose()
 
 
+async def _cancel_all_open_orders(context: str = "manual-run") -> bool:
+    """Cancel every open Alpaca order via trade-executor, then re-sync broker state.
+
+    Pre-step for a MANUAL run-now only. A manual run is off-cadence (e.g. a weekend
+    catch-up) and can stack new orders on top of a queued-but-unfilled book, producing
+    duplicate buys/sells at the next open. Clearing the open book first — then re-syncing
+    so live_positions/buying_power reflect the now-empty queue — lets the fresh proposal
+    compute against clean broker state.
+
+    The after-close cron chain deliberately does NOT call this: by then the prior day's
+    orders have filled and the book is already clean.
+
+    Returns True if the cancel call succeeded (or there was nothing to cancel / no
+    credentials), False only on a hard error. The chain proceeds regardless — a failed
+    cancel is logged but should not wedge a manual run.
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                f"{TRADE_EXECUTOR_URL}/jobs/cancel-all-orders",
+                params={"confirm": "yes"},
+                timeout=30.0,
+            )
+        if r.status_code in (200, 201):
+            d = r.json()
+            _log(f"cancel-all ({context}): {d.get('status')} — "
+                 f"alpaca_cancelled={d.get('alpaca_cancel_count', 0)} "
+                 f"local_updated={d.get('local_orders_updated', 0)}")
+        else:
+            _log(f"cancel-all ({context}): HTTP {r.status_code}", body=r.text[:200])
+            return False
+    except Exception as exc:
+        _log(f"cancel-all ({context}): error — proceeding anyway", error=str(exc))
+        return False
+    # Re-sync so the upcoming delta sees the cleared book (no phantom pending fills).
+    await _trigger_alpaca_sync(context=f"{context}-post-cancel")
+    return True
+
+
 # ── Supervisor state-machine ──────────────────────────────────────────────────
 
 StepState = Literal["done", "running", "failed", "idle"]
@@ -545,6 +587,11 @@ async def _trigger_step(client: httpx.AsyncClient, step: _StepDef, force: bool =
         if force and step.name == "pipeline":
             # Only pipeline has an already_ran_today guard; passing force=true bypasses it.
             params["force"] = "true"
+        if step.name == "delta" and _chain_status.get("origin") == "manual":
+            # Tag the standalone delta as manual so the dashboard does not auto-approve
+            # the resulting proposals — a human must click. triggered_by stays
+            # 'scheduler' so /runs/delta-latest still tracks the step.
+            params["manual"] = "true"
         r = await client.post(f"{step.url}{step.start_path}", timeout=15.0, params=params)
         if r.status_code == 409:
             _log(f"supervisor: {step.name}: already running (409) — will check next tick")
@@ -627,7 +674,11 @@ async def _supervisor_tick() -> None:
                         "supervisor: failed to close previous-day chain run on rollover",
                         db_run_id=prev_run_id, error=str(exc),
                     )
-            _chain_status.update({"date": today, "status": None, "steps": {}, "run_ids": {}, "current_run_id": None})
+            # origin='scheduled': a date-rollover reset means the next chain to
+            # start is cron-driven (the after-close schedule), which auto-approves
+            # and skips the cancel-all pre-step. run_now overwrites this to 'manual'.
+            _chain_status.update({"date": today, "status": None, "steps": {}, "run_ids": {},
+                                  "current_run_id": None, "origin": "scheduled"})
 
         # If today's chain already completed (success/failed), skip — don't
         # re-open a redundant scheduler_runs row on every tick for the rest
@@ -1106,14 +1157,24 @@ async def run_now(background_tasks: BackgroundTasks):
     if _run_now_lock.locked():
         return {"status": "already_running"}
     today = date.today().isoformat()
+    # Manual run pre-step: cancel every open Alpaca order and re-sync BEFORE the
+    # chain runs, so the fresh proposal computes against a clean broker state and
+    # cannot stack duplicate orders on a queued-but-unfilled book. This fires on
+    # run-now only; the after-close cron chain skips it (book already filled).
+    # Fire-and-forget so the HTTP response stays fast; the chain's first useful
+    # step (fetch-data) takes long enough that the cancel+resync completes first,
+    # and the delta (which consumes broker state) runs several steps later.
+    background_tasks.add_task(_cancel_all_open_orders, "manual-run-now")
     # Clear the "today already succeeded" gate so the supervisor actually
     # advances. Reset steps so the UI does not display a half-stale chain
-    # while the new triggers fire. Safe to mutate without locking here because
-    # _run_now_lock.locked() check above guarantees no concurrent run-now is
-    # in progress; the cron supervisor's regular ticks only mutate state
-    # under _chain_lock, which is acquired inside _supervisor_tick.
+    # while the new triggers fire. origin='manual' tags this chain so the delta
+    # step is triggered with manual=true (→ no dashboard auto-approve). Safe to
+    # mutate without locking here because _run_now_lock.locked() check above
+    # guarantees no concurrent run-now is in progress; the cron supervisor's
+    # regular ticks only mutate state under _chain_lock (inside _supervisor_tick).
     _chain_status.update({
-        "date": today, "status": None, "steps": {}, "run_ids": {}, "current_run_id": None,
+        "date": today, "status": None, "steps": {}, "run_ids": {},
+        "current_run_id": None, "origin": "manual",
     })
     _force_pending.update(s.name for s in _STEPS)
     background_tasks.add_task(_run_supervised_fast)
