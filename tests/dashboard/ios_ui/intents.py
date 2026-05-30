@@ -464,7 +464,7 @@ INTENTS: list[Intent] = [
         scenario="cold_boot",
         panel="trader",
         description="Trader with no intents shows clear empty state.",
-        must_contain_text=["No signals"],
+        must_contain_text=["No orders"],
         must_hide=["#trader-toolbar"],  # nothing to show
     ),
 
@@ -823,7 +823,7 @@ INTENTS: list[Intent] = [
         panel="trader",
         description="When all intents are filled (nothing in attention/progress), "
                     "the completed section auto-expands so the operator can see "
-                    "what happened — no 'No signals' empty state.",
+                    "what happened — no 'No orders' empty state.",
         must_contain_text=["AAPL", "MSFT", "NVDA"],
     ),
 

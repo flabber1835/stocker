@@ -628,6 +628,10 @@ async function loadDelta() {
 
 /* ── Action metadata maps ────────────────────────────────────────────── */
 const ACTION_ORDER  = { exit: 0, sell_trim: 1, entry: 2, buy_add: 3, hold: 4, watch: 5, at_risk: 6 };
+// The trader screen is an order blotter — only these four actionable order types
+// appear there (Buy to Open / Buy to Add / Sell to Close / Sell to Trim).
+// hold / watch / at_risk are informational and live on the screener instead.
+const TRADE_ACTIONS = ['entry', 'buy_add', 'exit', 'sell_trim'];
 const ACTION_LABELS = {
   exit: 'Sell to Close', sell_trim: 'Sell to Trim',
   entry: 'Buy to Open', buy_add: 'Buy to Add',
@@ -692,7 +696,10 @@ function renderTrader() {
   // and any orders are untouched; clearing survives the polling refresh and
   // resets automatically when a new delta run appears).
   const visible = deltaData.filter(r => !_clearedTrades.has(String(r.id)));
-  const sorted = [...visible]
+  // Order blotter: show only actionable orders (buy open / buy add / sell close /
+  // sell trim). hold / watch / at_risk are informational and excluded here.
+  const orders = visible.filter(r => TRADE_ACTIONS.includes(r.action));
+  const sorted = [...orders]
     .sort((a, b) => {
       const ao = ACTION_ORDER[a.action] ?? 99;
       const bo = ACTION_ORDER[b.action] ?? 99;
@@ -710,8 +717,8 @@ function renderTrader() {
     else                        completedItems.push(r);
   }
 
-  // Update live-count chips (reflect the cleared view)
-  const hasData = visible.length > 0;
+  // Update live-count chips (reflect the order blotter)
+  const hasData = orders.length > 0;
   const pendEl = $('ds-pending');  if (pendEl)  pendEl.textContent  = hasData ? attentionItems.length : '—';
   const flEl   = $('ds-inflight'); if (flEl)    flEl.textContent    = hasData ? progressItems.length  : '—';
   const doneEl = $('ds-done');     if (doneEl)  doneEl.textContent  = hasData ? completedItems.length : '—';
@@ -724,7 +731,7 @@ function renderTrader() {
   if (!tbody) return;
 
   if (sorted.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" class="tbl-empty">No signals — <strong>all clear</strong></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="tbl-empty">No orders — <strong>all clear</strong></td></tr>';
     _syncSelectAllState();
     updateTraderBadge();
     return;

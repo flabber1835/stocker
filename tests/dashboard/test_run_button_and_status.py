@@ -392,15 +392,18 @@ class TestJSRunButtonLogic:
         assert "showAsRunning" in body, "showAsRunning variable must exist in updatePipelineBar"
 
 
+_TRADE_ACTIONS = {"entry", "buy_add", "exit", "sell_trim"}
+
+
 class TestTraderToolbarVisibility:
     """
-    Regression tests for the trader toolbar visibility (it contains the
-    'Clear approved trades' button).
+    Regression tests for the trader order blotter.
 
-    The toolbar must be visible whenever there are any signals in the Trader
-    tab — not only when there are entry/exit/buy_add/sell_trim signals. A
-    pipeline run that produces only hold/watch signals should still show the
-    toolbar so the view can be tidied.
+    The Trader screen is an order blotter: it shows ONLY actionable order types
+    (entry / buy_add / exit / sell_trim — Buy to Open / Buy to Add / Sell to Close
+    / Sell to Trim). hold / watch / at_risk are informational and excluded. The
+    toolbar (with 'Clear approved trades') is therefore visible only when at least
+    one such order exists.
     """
 
     def _load_js(self):
@@ -411,53 +414,41 @@ class TestTraderToolbarVisibility:
             return f.read()
 
     def _toolbar_visible(self, intents: list[dict]) -> bool:
-        """
-        Simulate the JS renderTrader toolbar visibility logic in Python.
-        Returns True if the toolbar would be displayed for the given intent list.
-        """
-        return len(intents) > 0
+        """Mirror of renderTrader: the blotter (and toolbar) shows only trade orders."""
+        return any(i.get("action") in _TRADE_ACTIONS for i in intents)
 
     def test_toolbar_visible_with_entry_intents(self):
-        """Entry signals → toolbar shown → clear-approved button accessible."""
-        intents = [{"action": "entry"}, {"action": "entry"}]
-        assert self._toolbar_visible(intents)
+        """Entry orders → blotter + toolbar shown."""
+        assert self._toolbar_visible([{"action": "entry"}, {"action": "entry"}])
 
     def test_toolbar_visible_with_exit_intents(self):
-        """Exit signals → toolbar shown."""
-        intents = [{"action": "exit"}]
-        assert self._toolbar_visible(intents)
+        """Exit orders → shown."""
+        assert self._toolbar_visible([{"action": "exit"}])
 
-    def test_toolbar_visible_with_hold_only_intents(self):
-        """Hold-only pipeline run → toolbar must still show so it can be tidied."""
-        intents = [{"action": "hold"}, {"action": "watch"}]
-        assert self._toolbar_visible(intents)
+    def test_blotter_hidden_with_hold_only_intents(self):
+        """Hold/watch-only run → NOT an order, so the blotter shows nothing here."""
+        assert not self._toolbar_visible([{"action": "hold"}, {"action": "watch"}, {"action": "at_risk"}])
 
     def test_toolbar_hidden_with_no_intents(self):
-        """No delta run / no intents → toolbar correctly hidden (nothing to show)."""
-        intents = []
-        assert not self._toolbar_visible(intents)
+        """No delta run / no intents → nothing to show."""
+        assert not self._toolbar_visible([])
 
     def test_toolbar_visible_with_mixed_intents(self):
-        """Mixed hold + entry signals → toolbar shown."""
-        intents = [{"action": "hold"}, {"action": "entry"}]
-        assert self._toolbar_visible(intents)
+        """Mixed hold + entry → shown (because of the entry order)."""
+        assert self._toolbar_visible([{"action": "hold"}, {"action": "entry"}])
 
-    def test_js_toolbar_uses_length_not_action_filter(self):
-        """renderTrader() must gate toolbar on sorted.length, not action-type filter."""
+    def test_js_trader_filters_to_trade_actions(self):
+        """renderTrader() must restrict the blotter to the four order actions."""
         content = self._load_js()
         m = _re.search(r'function renderTrader\(\s*\)\s*\{(.*?)^\}', content,
                        _re.DOTALL | _re.MULTILINE)
         assert m, "renderTrader function not found in dashboard.js"
         body = m.group(1)
-        # Must NOT use the old hasActionable check that excluded hold/watch
-        assert "hasActionable" not in body, (
-            "renderTrader() still uses hasActionable — this hides the toolbar "
-            "when all intents are hold/watch. Use a length check instead."
-        )
-        # Must use a length-based check (toolbar gates on the visible signal count)
-        assert "visible.length" in body or "sorted.length" in body, (
-            "renderTrader() must check the signal count to show the toolbar for all types"
-        )
+        assert "TRADE_ACTIONS" in body, "renderTrader() must filter to TRADE_ACTIONS"
+        # the four order actions must be the defined trade set
+        for act in ("entry", "buy_add", "exit", "sell_trim"):
+            assert act in content, f"TRADE_ACTIONS missing {act}"
+        assert "sorted.length" in body, "renderTrader() must keep the empty-blotter check"
 
     def test_clear_approved_button_present_in_html(self):
         """btn-clear-approved must exist in the dashboard HTML template; the old
