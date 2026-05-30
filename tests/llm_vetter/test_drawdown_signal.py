@@ -6,7 +6,28 @@ Three layers:
   - the deterministic entry backstop logic (mirrors _do_vet's override rule)
 """
 from app.drawdown import recent_drawdown
-from app.vetter import _format_ticker_message
+from app.vetter import _format_ticker_message, _detect_hallucination_flags, PER_TICKER_SCHEMA
+
+
+# ── risk_type enum / drawdown category ───────────────────────────────────────
+
+def test_drawdown_is_a_valid_risk_type():
+    assert "drawdown" in PER_TICKER_SCHEMA["properties"]["risk_type"]["enum"]
+
+
+def test_drawdown_exclude_not_flagged_as_dataless_contradiction():
+    # A price-based drawdown exclusion legitimately has no news/search data and a
+    # non-'none' risk_type — it must NOT trip the "exclude with no data" or
+    # "exclude + risk_type=none" contradiction flags.
+    parsed = {
+        "exclude": True, "confidence": "high", "risk_type": "drawdown",
+        "reason": "Severe recent drawdown of -31% vs 21-day peak; poor entry timing.",
+        "positive_catalyst": False,
+    }
+    flags = _detect_hallucination_flags(
+        "AMD", parsed, news=[], earnings_date=None, raw="{}", today="2026-05-30"
+    )
+    assert flags == []
 
 
 # ── pure helper ──────────────────────────────────────────────────────────────
@@ -73,13 +94,14 @@ def test_prompt_small_drawdown_has_no_warning_note():
 
 def _backstop(result, dd, held, threshold=0.25):
     if threshold > 0 and dd is not None and dd <= -threshold and not held and not result.get("exclude"):
-        result = {**result, "exclude": True}
+        result = {**result, "exclude": True, "risk_type": "drawdown"}
     return result
 
 
 def test_backstop_forces_exclude_on_severe_knife_entry():
     out = _backstop({"exclude": False}, dd=-0.30, held=False)
     assert out["exclude"] is True
+    assert out["risk_type"] == "drawdown"  # surfaces as a DRAWDOWN badge, not NONE
 
 
 def test_backstop_ignores_mild_drawdown():

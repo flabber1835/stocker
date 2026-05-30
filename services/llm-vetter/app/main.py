@@ -566,7 +566,7 @@ async def _do_vet(
             and not result.get("exclude")
         ):
             result["exclude"] = True
-            result["risk_type"] = result.get("risk_type") or "none"
+            result["risk_type"] = "drawdown"
             note = (
                 f"[DRAWDOWN BACKSTOP: entry blocked — {dd:+.1%} vs {DRAWDOWN_WINDOW_DAYS}d peak "
                 f"(limit -{DRAWDOWN_BACKSTOP_PCT:.0%}); deterministic falling-knife guard "

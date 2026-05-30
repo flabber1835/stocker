@@ -451,6 +451,20 @@ output: exclude flag, risk_type, confidence, positive_catalyst, positive_reason
 store results in vetter_decisions + vetter_exclusions tables
 ```
 
+risk_type enum: earnings, regulatory, management, legal, competitive,
+operational, sector, drawdown, none. `drawdown` is the falling-knife category —
+a severe recent price decline with no specific news event; the deterministic
+backstop tags its exclusions `drawdown` so the dashboard shows a ⚠ DRAWDOWN
+badge instead of a misleading ⚠ NONE. The LLM may also choose `drawdown` itself.
+A `drawdown` exclusion is exempt from the "exclude with no supporting data" /
+"exclude + risk_type=none" hallucination flags and from the auto-reverse-to-KEEP
+override (it is price-based, legitimately newsless).
+
+UI note: a ⚠ badge means the vetter EXCLUDED the ticker. On a buy candidate that
+means "not a good moment to enter." On a stock you already HOLD the same badge is
+informational only — it never sells; held positions exit solely via the
+deterministic rank/buffer-zone path.
+
 Falling-knife backstop (DRAWDOWN_BACKSTOP_PCT, default 0.25): a deterministic
 guard behind the LLM. An ENTRY candidate (not already held) whose price is more
 than DRAWDOWN_BACKSTOP_PCT below its 21-day peak is force-excluded even if the

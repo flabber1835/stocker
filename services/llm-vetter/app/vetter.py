@@ -94,6 +94,7 @@ PER_TICKER_SCHEMA = {
                 "competitive",  # major customer loss, market share loss, contract cancellation
                 "operational",  # product recall, supply chain failure, facility issue
                 "sector",       # sector-wide event not captured by above types
+                "drawdown",     # severe recent price decline (falling knife) — bad entry timing
                 "none",         # no material risk identified
             ],
         },
@@ -263,6 +264,9 @@ RISK TYPE — choose the most specific type that fits the identified risk:
   competitive  → major customer loss, contract cancellation, accelerating market share loss
   operational  → product recall, supply chain failure, facility shutdown, safety issue
   sector       → sector-wide event not captured by the above (last resort)
+  drawdown     → severe recent price decline (a "falling knife") — bad moment to
+                 enter even absent a specific news event; use when the recent
+                 drawdown shown above is the primary reason to avoid the entry
   none         → no material risk identified (use when not excluding)
 
 If not excluding: set risk_type="none" and briefly explain why the stock is safe to hold.
@@ -499,12 +503,16 @@ def _detect_hallucination_flags(
     risk_type = parsed.get("risk_type", "none")
     has_data = bool(news or earnings_date or tavily_articles or agent_searches)
 
+    # A drawdown exclusion is price-based, not news-based, so it is legitimately
+    # data-light — exempt it from the "no supporting data" suspicion checks.
+    is_drawdown = risk_type == "drawdown"
+
     # Exclude with no data and high/medium confidence is suspicious
-    if exclude and not has_data and confidence in ("high", "medium"):
+    if exclude and not has_data and confidence in ("high", "medium") and not is_drawdown:
         flags.append(f"EXCLUDE with {confidence} confidence but no news/earnings/search data provided")
 
     # Exclude with no supporting data at any confidence is suspicious
-    if exclude and not has_data:
+    if exclude and not has_data and not is_drawdown:
         flags.append("EXCLUDE with no supporting data (no news, no earnings date, no search results)")
 
     # Exclude with risk_type=none is contradictory
@@ -653,10 +661,13 @@ def _parse_llm_response(
     agent_found_data = any(s.get("result_count", 0) > 0 for s in agent_searches)
     has_any_supporting_data = bool(all_sources) or earnings_date is not None or agent_found_data
 
+    # A drawdown exclusion is price-based and legitimately has no news/search
+    # data — do not auto-reverse it for lacking supporting articles.
     if (
         parsed.get("exclude", False)
         and not has_any_supporting_data
         and parsed.get("confidence", "low") in ("high", "medium")
+        and parsed.get("risk_type") != "drawdown"
     ):
         original_confidence = parsed["confidence"]
         log.warning(
