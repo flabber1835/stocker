@@ -457,7 +457,16 @@ row per ticker (for `market_cap`, surfaced as the screener's SIZE tier:
 MEGA/LARGE/MID/SMALL/MICRO). It returns a unified row per ticker for the
 dashboard screener (rank) tab. This is the canonical rankings endpoint used by
 the dashboard. The screener columns are RANK / TICKER / COMPANY / SIZE; per-factor
-z-scores live in the per-ticker detail card, not the table.
+z-scores live in the per-ticker detail card, not the table. The `market_cap` join
+also covers broker-held tickers that fall outside the ranking window (orphans),
+so they still render a SIZE tier instead of a blank cell.
+
+`/rankings/search?q=` searches the **entire ranked universe** for the latest run
+(prefix match, no row limit) — not just the loaded top-N — plus any held-but-
+unranked broker positions matching the prefix. Its CTEs are scoped to the matched
+tickers first so the query stays fast on a Russell-3000-scale table (an unscoped
+version timed out behind the dashboard's 10s proxy and silently fell back to
+filtering only the loaded top-100).
 
 `/trade/approve` is a thin proxy: it validates the intent_id UUID, runs an
 early idempotency check against `alpaca_orders`, then POSTs `{intent_id, mode}`
@@ -490,6 +499,14 @@ expires if the stock has no opening auction print).
 
 A DRIFT column shows `weight_drift` (actual − target) for held positions that
 have live alpaca_sync data available.
+
+**Screener controls:** the `▶ RUN` button lives in the top status bar (right
+corner, where the clock used to be). The filter row carries a search box (with
+a clear `×`) and a single `Holdings` toggle; the filter row and the column-header
+row pin together as one floating block while the body scrolls. Rows are laid out
+to fit the viewport width (no horizontal scroll) — COMPANY ellipsizes and the
+SIZE cell wraps its badges. Held rows carry a green tint (no separate HOLDINGS
+badge).
 
 Cloud-native render architecture: all job state lives on the server. Browsers poll
 `GET /api/pipeline-status` every 2 seconds and render identically regardless of

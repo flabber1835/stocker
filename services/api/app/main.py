@@ -248,6 +248,7 @@ def _apply_overlays(
                 "prior_rank": real.get("prior_rank") if real else None,
                 "name": pos.get("name"),
                 "sector": pos.get("sector"),
+                "market_cap": pos.get("market_cap"),
                 "not_in_universe": real is None,
             })
 
@@ -387,10 +388,14 @@ async def get_rankings_with_overlays(limit: int = 100):
             pos_rows = await conn.execute(
                 text(
                     "SELECT lp.ticker, lp.qty, lp.market_value, lp.unrealized_plpc, "
-                    "  ut.name, ut.sector "
+                    "  ut.name, ut.sector, fc.market_cap "
                     "FROM live_positions lp "
                     "LEFT JOIN universe_tickers ut ON ut.ticker = lp.ticker "
                     "  AND ut.snapshot_id = (SELECT MAX(id) FROM universe_snapshots) "
+                    "LEFT JOIN LATERAL ("
+                    "  SELECT market_cap FROM fundamentals f "
+                    "  WHERE f.ticker = lp.ticker ORDER BY f.as_of_date DESC LIMIT 1"
+                    ") fc ON true "
                     "WHERE lp.sync_run_id = :rid"
                 ),
                 {"rid": sync_run_id},
@@ -402,6 +407,7 @@ async def get_rankings_with_overlays(limit: int = 100):
                     "unrealized_plpc": float(p["unrealized_plpc"]) if p["unrealized_plpc"] is not None else None,
                     "name": p["name"],
                     "sector": p["sector"],
+                    "market_cap": float(p["market_cap"]) if p["market_cap"] is not None else None,
                 }
 
         # For held tickers outside the display window, fetch their real rank so
@@ -481,9 +487,20 @@ async def search_rankings(q: str = ""):
         ))).fetchone()
         sync_run_id = str(sync_row.run_id) if sync_row else None
 
+        # Scope every CTE to the tickers matching the prefix FIRST. Without this,
+        # ticker_slopes (REGR_SLOPE over all rankings × 5 runs) and caps
+        # (DISTINCT ON over the entire fundamentals table) are computed for the
+        # whole universe on every keystroke — on a Russell-3000-scale DB that
+        # blows past the dashboard proxy's 10s timeout, and the client silently
+        # falls back to filtering only the loaded top-100. Filtering to `matched`
+        # up front keeps search fast and full-universe.
         rows = await conn.execute(
             text(
-                "WITH recent_runs AS ("
+                "WITH matched AS ("
+                "  SELECT ticker, rank, composite_score, percentile, regime, rank_date, factor_scores"
+                "  FROM rankings WHERE run_id = :run_id AND UPPER(ticker) LIKE :pattern"
+                "),"
+                "recent_runs AS ("
                 "  SELECT run_id, ROW_NUMBER() OVER (ORDER BY rank_date ASC) - 1 AS x_pos"
                 "  FROM ranking_runs WHERE status='success' ORDER BY rank_date DESC LIMIT 5"
                 "),"
@@ -491,29 +508,32 @@ async def search_rankings(q: str = ""):
                 "  SELECT r.ticker,"
                 "    REGR_SLOPE(r.rank::double precision, rr.x_pos::double precision) AS rank_slope"
                 "  FROM rankings r JOIN recent_runs rr ON rr.run_id = r.run_id"
+                "  WHERE r.ticker IN (SELECT ticker FROM matched)"
                 "  GROUP BY r.ticker"
                 "),"
                 "prior_ranks AS ("
-                "  SELECT ticker, rank AS prior_rank FROM rankings WHERE run_id = :prior_run_id"
+                "  SELECT ticker, rank AS prior_rank FROM rankings"
+                "  WHERE run_id = :prior_run_id AND ticker IN (SELECT ticker FROM matched)"
                 "),"
                 "names AS ("
                 "  SELECT DISTINCT ON (ticker) ticker, name, sector FROM universe_tickers"
                 "  WHERE snapshot_id = (SELECT MAX(id) FROM universe_snapshots)"
+                "    AND ticker IN (SELECT ticker FROM matched)"
                 "  ORDER BY ticker, id ASC"
                 "),"
                 "caps AS ("
                 "  SELECT DISTINCT ON (ticker) ticker, market_cap FROM fundamentals"
+                "  WHERE ticker IN (SELECT ticker FROM matched)"
                 "  ORDER BY ticker, as_of_date DESC"
                 ")"
-                "SELECT r.ticker, r.rank, r.composite_score, r.percentile, r.regime, r.rank_date,"
-                "  r.factor_scores, ts.rank_slope, pr.prior_rank, n.name, n.sector, c.market_cap "
-                "FROM rankings r "
-                "LEFT JOIN ticker_slopes ts ON ts.ticker = r.ticker "
-                "LEFT JOIN prior_ranks pr ON pr.ticker = r.ticker "
-                "LEFT JOIN names n ON n.ticker = r.ticker "
-                "LEFT JOIN caps c ON c.ticker = r.ticker "
-                "WHERE r.run_id = :run_id AND UPPER(r.ticker) LIKE :pattern "
-                "ORDER BY r.rank ASC"
+                "SELECT m.ticker, m.rank, m.composite_score, m.percentile, m.regime, m.rank_date,"
+                "  m.factor_scores, ts.rank_slope, pr.prior_rank, n.name, n.sector, c.market_cap "
+                "FROM matched m "
+                "LEFT JOIN ticker_slopes ts ON ts.ticker = m.ticker "
+                "LEFT JOIN prior_ranks pr ON pr.ticker = m.ticker "
+                "LEFT JOIN names n ON n.ticker = m.ticker "
+                "LEFT JOIN caps c ON c.ticker = m.ticker "
+                "ORDER BY m.rank ASC"
             ),
             {"run_id": latest_run_id, "prior_run_id": prior_run_id or latest_run_id,
              "pattern": q + "%"},
@@ -539,10 +559,14 @@ async def search_rankings(q: str = ""):
             pos_rows = await conn.execute(
                 text(
                     "SELECT lp.ticker, lp.qty, lp.market_value, lp.unrealized_plpc, "
-                    "  ut.name, ut.sector "
+                    "  ut.name, ut.sector, fc.market_cap "
                     "FROM live_positions lp "
                     "LEFT JOIN universe_tickers ut ON ut.ticker = lp.ticker "
                     "  AND ut.snapshot_id = (SELECT MAX(id) FROM universe_snapshots) "
+                    "LEFT JOIN LATERAL ("
+                    "  SELECT market_cap FROM fundamentals f "
+                    "  WHERE f.ticker = lp.ticker ORDER BY f.as_of_date DESC LIMIT 1"
+                    ") fc ON true "
                     "WHERE lp.sync_run_id = :rid"
                 ),
                 {"rid": sync_run_id},
@@ -554,6 +578,7 @@ async def search_rankings(q: str = ""):
                     "unrealized_plpc": float(p["unrealized_plpc"]) if p["unrealized_plpc"] is not None else None,
                     "name": p["name"],
                     "sector": p["sector"],
+                    "market_cap": float(p["market_cap"]) if p["market_cap"] is not None else None,
                 }
 
         # Fetch real ranks for held tickers that are outside the search result set

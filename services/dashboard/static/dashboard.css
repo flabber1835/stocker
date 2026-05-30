@@ -233,6 +233,16 @@ body {
 .btn-run:hover { background: var(--navy-light); }
 .btn-run:disabled { opacity: .4; cursor: not-allowed; }
 
+/* RUN button living in the dark status bar (replaces the clock) */
+.sb-run {
+  background: rgba(255,255,255,.14);
+  border: 1px solid rgba(255,255,255,.32);
+  color: #fff;
+  padding: 5px 12px;
+}
+.sb-run:hover { background: rgba(255,255,255,.24); }
+.sb-run:disabled { opacity: .45; }
+
 /* ── Sticky filter bar ───────────────────────────────────────────────── */
 .sticky-bar {
   position: sticky;
@@ -348,6 +358,30 @@ td { padding: 9px 12px; white-space: nowrap; font-size: 13px; }
   font-size: 13px; line-height: 1; cursor: pointer; padding: 2px 5px;
 }
 .search-clear:hover { color: var(--navy); }
+
+/* ── Screener: filter bar + column headers float together, fit to width ── */
+/* The column-header row pins just below the sticky filter bar so the two act
+   as one floating block. 46px ≈ filter-bar height (input + sticky padding).
+   Keep the filter bar on ONE line so that height stays fixed — otherwise a
+   wrapped second line would slide under the pinned header. */
+#screen-screener .filter-bar { flex-wrap: nowrap; }
+#screen-screener .search-wrap { flex: 1; min-width: 0; }
+#screen-screener .search-wrap input { width: 100%; }
+#screen-screener thead { top: 46px; }
+/* Every ticker row fits the viewport width — no left/right scrolling.
+   table-layout:fixed lets COMPANY take the remaining space and ellipsize. */
+#screen-screener .tbl-scroll { overflow-x: hidden; }
+#screen-screener table { table-layout: fixed; }
+#screen-screener th, #screen-screener td { padding: 9px 6px; }
+#screen-screener th:first-child, #screen-screener td:first-child { padding-left: 11px; }
+#screen-screener th:last-child,  #screen-screener td:last-child  { padding-right: 11px; }
+#rh-rank       { width: 62px; }
+#rh-ticker     { width: 64px; }
+#rh-market_cap { width: 92px; }
+#screen-screener .t-company { max-width: none; }
+/* SIZE cell may carry a cap badge plus a flag badge — let them wrap rather
+   than widen the column and force horizontal scroll. */
+#screen-screener td.t-size { white-space: normal; line-height: 1.7; }
 
 .score-wrap { display: flex; align-items: center; gap: 8px; min-width: 110px; }
 .score-num { min-width: 44px; text-align: right; font-family: var(--mono); font-size: 12px; }

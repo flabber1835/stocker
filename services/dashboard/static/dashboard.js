@@ -129,7 +129,8 @@ function updateClock() {
   const hh = String(now.getHours()).padStart(2, '0');
   const mm = String(now.getMinutes()).padStart(2, '0');
   const ss = String(now.getSeconds()).padStart(2, '0');
-  $('sb-clock').textContent = hh + ':' + mm + ':' + ss;
+  const el = $('sb-clock');           // removed from the status bar (RUN button took its place)
+  if (el) el.textContent = hh + ':' + mm + ':' + ss;
 }
 
 /* ── Status bar ──────────────────────────────────────────────────────── */
@@ -240,6 +241,11 @@ function updatePipelineBar(rank, vetter) {
   // reached a terminal state — a fast run that completes within 30 s would
   // otherwise show "QUEUED…" instead of "READY".
   const showAsRunning = running || (vetRunning && !success && !failed) || (recentlyRequested && !success && !failed);
+  // The RUN button now lives in the status bar; lock it while the chain runs.
+  if (btn) btn.disabled = showAsRunning;
+  // The inline pipeline-bar was removed — its state is shown in the top status
+  // bar (updateStatusBar). Bail out if those elements aren't in the DOM.
+  if (!dot || !label) return;
   dot.className   = 'pb-dot'   + (showAsRunning ? ' running' : success ? ' success' : failed ? ' failed' : '');
   label.className = 'pb-label' + (showAsRunning ? ' running' : success ? ' success' : failed ? ' failed' : '');
 
@@ -491,7 +497,7 @@ function renderRankings() {
       + '<td><span class="t-rank">' + r.rank + '</span>' + arrow + '</td>'
       + '<td><span class="t-ticker">' + r.ticker + '</span></td>'
       + '<td class="t-company" title="' + (r.name ? esc(r.name) : '') + '">' + (r.name ? esc(r.name) : '—') + '</td>'
-      + '<td>' + sizeHtml + '</td>'
+      + '<td class="t-size">' + sizeHtml + '</td>'
       + '</tr>';
   }).join('');
 

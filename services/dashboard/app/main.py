@@ -646,7 +646,7 @@ _HTML = r"""<!DOCTYPE html>
     <div id="sb-sub" class="sb-sub" style="display:none"></div>
   </div>
   <div class="sb-r">
-    <span id="sb-clock" class="sb-clock">—</span>
+    <button class="btn-run sb-run" id="run-btn" onclick="startJob('rank')">&#9654; RUN</button>
   </div>
 </header>
 
@@ -656,25 +656,12 @@ _HTML = r"""<!DOCTYPE html>
   <!-- SCREENER -->
   <section id="screen-screener" class="screen active">
     <div class="screen-inner">
-      <div class="pipeline-bar" id="pipeline-bar">
-        <div class="pb-state">
-          <span class="pb-dot" id="pb-dot"></span>
-          <span class="pb-label" id="pb-label">IDLE</span>
-          <div class="pb-prog-wrap" id="pb-prog-wrap" style="display:none">
-            <div class="pb-prog-track"><div class="pb-prog-fill" id="pb-prog-fill"></div></div>
-            <span class="pb-pct" id="pb-pct"></span>
-          </div>
-        </div>
-        <button class="btn-run" id="run-btn" onclick="startJob('rank')">&#9654; RUN</button>
-      </div>
-
       <div class="filter-bar sticky-bar">
         <span class="search-wrap">
           <input type="search" id="r-search" placeholder="Search ticker&#8230;" oninput="onSearchInput()" onsearch="onSearchInput()">
           <button class="search-clear" id="r-search-clear" type="button" onclick="clearSearch()" title="Clear filter" style="display:none">&#10005;</button>
         </span>
-        <label class="chk"><input type="checkbox" id="r-only-held" onchange="renderRankings()"> Held</label>
-        <label class="chk"><input type="checkbox" id="r-hide-excl" onchange="renderRankings()"> Hide &#9888;</label>
+        <label class="chk"><input type="checkbox" id="r-only-held" onchange="renderRankings()"> Holdings</label>
         <span class="count-badge" id="r-count"></span>
       </div>
 
