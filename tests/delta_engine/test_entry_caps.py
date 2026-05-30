@@ -10,9 +10,13 @@ Bug 2 — buy-only rotation blew past buying power: entries were sized against t
         equity assuming offsetting exits, but a rotation that keeps orphans produces
         no exits → naked buys exceeding buying_power → Alpaca "insufficient funds".
 
-The fix gates entries (best-ranked first), demoting overflow to "watch":
-  - capacity: retained_held + kept_entries <= max_positions
-  - buying power: cumulative entry weight <= buying_power/account_value + exit proceeds
+The fix allocates the book by rank, then gates buys by cash:
+  - capacity (_allocate_capacity): the max_positions slots are filled best-rank
+    first by new entries AND trimmable orphans together, so a higher-ranked entry
+    rotates out a weaker orphan instead of being locked out. Losing entries → watch,
+    losing orphans → exit. Mandatory holds (in-target / data-gap) are never displaced.
+  - buying power (_cap_buys): cumulative kept-buy weight <= buying_power/account_value
+    + exit proceeds (which now include rotated-out orphans, funding the rotation).
 The buying-power gate is only active when account_value & buying_power are supplied.
 """
 from datetime import date, timedelta
@@ -37,43 +41,71 @@ def _counts(decisions):
 
 # ── Bug 1: capacity ───────────────────────────────────────────────────────────
 
-def test_capacity_caps_entries_so_portfolio_not_over_max():
-    """26 orphan holds + a 10-name fresh target must not realize 36 positions.
-    Only (max_positions - retained) entries are kept; the rest become watch."""
+def test_capacity_rotates_better_entries_over_weaker_orphans():
+    """26 orphan holds (rank 30) + a 10-name fresh target (rank 5) must not realize
+    36 positions. The rank-5 targets out-rank the rank-30 orphans, so all 10 rotate
+    in and the 6 worst orphans are rotated out — the book stays at cap, rank-improved
+    (NOT the old lockout that kept orphans and deferred the better entries)."""
     held = {f"H{i:02d}" for i in range(26)}                 # not in target, buffer zone
     target = {f"N{i:02d}": 1.0 / 30 for i in range(10)}     # new names, not held
     universe = {t: _history(30) for t in held}              # rank 30 ≤ exit_rank → hold
-    universe.update({t: _history(5) for t in target})       # rank 5 → entry-eligible
+    universe.update({t: _history(5) for t in target})       # rank 5 → out-ranks orphans
 
     decisions = evaluate_target_vs_live(
         target_portfolio=target, live_positions=held, universe=universe,
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
     )
     c = _counts(decisions)
-    assert c.get("exit", 0) == 0                            # orphans retained, not exited
+    assert c.get("entry", 0) == 10                          # all 10 better names rotate in
+    assert c.get("exit", 0) == 6                            # 6 worst orphans rotated out
     retained = len(held) - c.get("exit", 0)
-    entries = c.get("entry", 0)
-    assert retained + entries == 30                         # exactly at cap, not 36
-    assert retained + entries <= 30
-    assert entries == 4                                     # 30 - 26 slots
-    # overflow target names deferred
-    assert sum(1 for t in target if decisions[t].action == "watch") == 6
+    assert retained + c.get("entry", 0) == 30              # exactly at cap, not 36
+    assert retained + c.get("entry", 0) <= 30
+    assert sum(1 for t in target if decisions[t].action == "watch") == 0   # none deferred
 
 
-def test_capacity_keeps_best_ranked_entries():
-    """When only 1 slot remains, the best-ranked candidate enters; worse → watch."""
-    held = {f"H{i:02d}" for i in range(29)}                 # slots = 30 - 29 = 1
-    target = {"BEST": 1.0 / 30, "WORST": 1.0 / 30}
+def test_at_risk_orphan_survives_without_entry_competition():
+    """Rotation only displaces an orphan when a higher-ranked entry competes for its
+    slot. With the book under cap and NO entries, a deteriorating orphan (rank just
+    over exit_rank, not yet confirmed) stays 'at_risk' — it is not force-rotated."""
+    held = {"ORPH", "KEEP"}
+    target = {"KEEP": 1.0 / 30}                              # only one target, already held
+    universe = {
+        "KEEP": _history(5),
+        "ORPH": _history(45, 30, 30),                        # latest 45 > exit_rank 40, not confirmed
+    }
+    decisions = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=held, universe=universe,
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+    )
+    assert decisions["ORPH"].action == "at_risk"            # survives — no entry to rotate it out
+    assert decisions["KEEP"].action == "hold"
+
+
+def test_rotation_admits_entries_that_outrank_orphans_only():
+    """A new target rotates in iff it out-ranks a trimmable orphan. With a full book
+    of rank-30 orphans: rank-3 and rank-20 targets rotate in (displacing orphans),
+    but a rank-50 target — worse than every orphan — stays watch. Book ≤ cap."""
+    held = {f"H{i:02d}" for i in range(29)}                 # orphans, rank 30
+    target = {"BEST": 1.0 / 30, "MID": 1.0 / 30, "TOOLOW": 1.0 / 30}
     universe = {t: _history(30) for t in held}
-    universe["BEST"] = _history(3)
-    universe["WORST"] = _history(20)
+    universe["BEST"] = _history(3)                          # out-ranks orphans → in
+    universe["MID"] = _history(20)                          # out-ranks orphans → in
+    universe["TOOLOW"] = _history(50)                       # worse than orphans → watch
 
     decisions = evaluate_target_vs_live(
         target_portfolio=target, live_positions=held, universe=universe,
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
     )
     assert decisions["BEST"].action == "entry"
-    assert decisions["WORST"].action == "watch"
+    assert decisions["MID"].action == "entry"
+    assert decisions["TOOLOW"].action == "watch"           # can't displace a better orphan
+    c = _counts(decisions)
+    # 2 entries admitted (BEST, MID) → 1 orphan displaced to keep the book at cap
+    # (29 orphans − 1 exit + 2 entries = 30); TOOLOW is deferred, not funded by a trim.
+    assert c.get("exit", 0) == 1
+    retained = len(held) - c.get("exit", 0)
+    assert retained + c.get("entry", 0) <= 30
 
 
 def test_capacity_does_not_bind_for_small_portfolio():
@@ -164,10 +196,15 @@ def test_seeded_rotation_scenario_is_bounded_and_funded():
     exits = c.get("exit", 0)
     entries = c.get("entry", 0)
     retained = len(held) - exits
-    assert retained + entries <= 30                          # Bug 1: no over-cap
-    # Bug 2: no entry should be proposed beyond available buying power (≈2%);
-    # with no confirmed exits to fund them, that means zero naked buys.
-    assert entries == 0
+    assert retained + entries <= 30                          # Bug 1: no over-cap (unchanged)
+    # Rotation now sheds the 15 worst orphans (ranks 31-45) for higher-ranked
+    # targets, and their proceeds fund the buys — so the book improves instead of
+    # locking up. Bug 2 invariant still holds: buys never exceed available cash.
+    buys = sum(max(0.0, (d.current_weight or 0.0)) for d in decisions.values() if d.action == "entry")
+    proceeds = sum(1.0 / 30 for t, d in decisions.items() if d.action == "exit")
+    available = 2_000.0 / 100_000.0 + proceeds
+    assert buys <= available + 1e-9                          # funded — no naked buys
+    assert entries > 0                                       # rotation funds real entries (was 0 in the lockout)
 
 
 # ── buy_add buying-power gating (extends the cash gate beyond entries) ─────────

@@ -442,15 +442,17 @@ def evaluate_target_vs_live(
                 weight_drift=None,
             )
 
-    # Gate buy-side intents by capacity and buying power, demoting overflow.
+    # Capacity: fill the book with the best-ranked names, rotating weak orphans
+    # out for strictly higher-ranked new entries (replaces the old cap-then-trim
+    # ordering that let a held orphan permanently block a better new entry).
+    _allocate_capacity(decisions, live_positions, target_portfolio, max_positions)
+
+    # Buying-power: defer any buys the available cash (incl. sell proceeds) can't fund.
     _cap_buys(
         decisions, live_positions, max_positions,
         actual_weights=actual_weights,
         account_value=account_value, buying_power=buying_power,
     )
-
-    # Walk an over-capacity book back down to the cap by exiting excess orphans.
-    _trim_to_cap(decisions, live_positions, target_portfolio, max_positions)
 
     return decisions
 
@@ -469,25 +471,17 @@ def _cap_buys(
     account_value: float | None = None,
     buying_power: float | None = None,
 ) -> None:
-    """Gate buy-side intents so a proposal can't breach the position cap or available
-    buying power. Mutates ``decisions`` in place.
+    """Buying-power (cash) gate: defer buys the available cash can't fund. Mutates
+    ``decisions`` in place. The position-count cap is handled separately, upstream,
+    by ``_allocate_capacity``; this runs after it on the already-capped book.
 
-    Why this exists
-    ---------------
-    `evaluate_target_vs_live` emits an `entry` for every target ticker not held and a
-    `buy_add` for every underweight held name, neither capped. Combined with the
-    buffer-zone logic that retains orphan holds, that produced (a) >max_positions
-    realized positions and (b) buys exceeding buying power — both confirmed live.
-
-    Capacity gate (position count) — entries only (buy_adds don't add positions):
-      retained_held + kept_entries <= max_positions, best-ranked entries kept.
-
-    Buying-power gate (cash) — entries AND buy_adds share one budget, best-ranked
-    first across both:
+    Entries AND buy_adds share one budget, best-ranked first across both:
       Σ kept buy cost <= buying_power/account_value + sell-side proceeds, where
         - entry cost    = full target weight
         - buy_add cost  = top-up increment (target − actual) = −weight_drift
         - proceeds      = Σ exit market value + Σ sell_trim overweight (weight space)
+                          (exit proceeds now include orphans rotated out by
+                          _allocate_capacity, so a rotation funds its own entry)
       Demotion: entry → watch; buy_add → hold (keep the position, defer the top-up).
       Only enforced when account_value (>0) and buying_power are supplied; otherwise
       the executor/risk-service remain the cash backstop.
@@ -495,22 +489,7 @@ def _cap_buys(
     Sell-side proceeds are credited so normal same-open rotation/rebalance still
     funds its buys at ~0 buying power — only unfunded buys are deferred.
     """
-    # ── Capacity gate: entries only ───────────────────────────────────────────
-    entries = sorted((d for d in decisions.values() if d.action == "entry"), key=lambda d: d.rank)
-    num_exits = sum(1 for d in decisions.values() if d.action == "exit")
-    retained = len(live_positions) - num_exits
-    slots = max_positions - retained
-
-    kept_entries: list[DeltaDecision] = []
-    for i, d in enumerate(entries):
-        if i < slots:
-            kept_entries.append(d)
-        else:
-            decisions[d.ticker] = replace(
-                d, action="watch", current_weight=None,
-                reason=(f"deferred — portfolio at capacity ({retained} retained + "
-                        f"{len(kept_entries)} entries ≥ max_positions={max_positions})"),
-            )
+    kept_entries = [d for d in decisions.values() if d.action == "entry"]
 
     # ── Buying-power gate: entries + buy_adds share one budget ────────────────
     cap_cash = account_value is not None and account_value > 0 and buying_power is not None
@@ -558,57 +537,78 @@ def _cap_buys(
             )
 
 
-def _trim_to_cap(
+def _allocate_capacity(
     decisions: dict[str, DeltaDecision],
     live_positions: set[str],
     target_portfolio: dict[str, float],
     max_positions: int,
 ) -> None:
-    """Exit excess **orphans** when the retained book exceeds max_positions. Mutates
-    ``decisions`` in place.
+    """Fill the position book (max_positions slots) with the best-ranked names,
+    rotating weak orphans out for strictly higher-ranked new entries. Mutates
+    ``decisions`` in place. Capacity only — the cash gate runs after, in _cap_buys.
 
-    Why this exists
-    ---------------
-    The buffer-zone exit is rank-based: a held name only exits once rank > exit_rank
-    is confirmed. A *well-ranked* orphan (held but covariance-excluded from the
-    target) therefore never exits on its own, so the realized book can sit
-    permanently above max_positions. Trim-to-cap closes that gap.
+    Slot allocation:
+      1. Mandatory holds occupy a slot unconditionally and cannot be displaced:
+         - in-target held names (the builder still wants them; buy_adds are these)
+         - data-gap orphans (rank 9999: held but missing from the ranking universe
+           — never force-sold on a data gap; that is not a sell signal)
+      2. The remaining slots are contested, best rank first, by:
+         - new entries (target, not held)
+         - trimmable orphans (held, not target, action hold/at_risk, rank < 9999)
+         Winners keep their action (entry / hold); losers are demoted:
+           entry  -> watch  (deferred — out-ranked for the open slots)
+           orphan -> exit   (rotated out for a better-ranked entry, or over cap)
 
-    Rules:
-      - Fires only when retained + kept-entries > max_positions, so a within-cap
-        book is untouched (no churn).
-      - Only orphans (held AND not in target_portfolio) are eligible — a name the
-        builder still targets is never force-sold here. This is always sufficient,
-        since in-target holds <= target_size <= max_positions.
-      - Worst-ranked orphans go first (highest rank number), so the best names
-        survive and the weakest excess positions are shed.
+    Why this exists / what it replaces
+    ----------------------------------
+    The buffer-zone exit is rank-based, so a *well-ranked* orphan (held but
+    covariance-excluded from the target) never exits on its own. The previous
+    cap-then-trim ordering computed entry slots against the pre-trim book, so a
+    held orphan permanently blocked a strictly higher-ranked new entry once the
+    book was full — a steady-state lockout where the realized book stayed
+    rank-worse than the target indefinitely. Contesting entries and trimmable
+    orphans in one ranked allocation closes that: a vacated orphan slot goes to
+    the best deferred entry, and the orphan it displaced is credited as exit
+    proceeds for the cash gate. Mandatory holds and data-gap orphans are still
+    never force-sold, so a within-cap book with no better entries is untouched.
     """
-    exits_now = sum(1 for d in decisions.values() if d.action == "exit")
-    entries_now = sum(1 for d in decisions.values() if d.action == "entry")
-    retained = len(live_positions) - exits_now
-    overflow = retained + entries_now - max_positions
-    if overflow <= 0:
-        return
+    exited = {d.ticker for d in decisions.values() if d.action == "exit"}
+    held_remaining = [t for t in live_positions if t not in exited]
 
-    orphans = sorted(
-        (
-            d for d in decisions.values()
-            if d.ticker in live_positions
-            and d.ticker not in target_portfolio
+    def _trimmable(t: str) -> bool:
+        d = decisions.get(t)
+        return (
+            d is not None
+            and t not in target_portfolio
             and d.action in ("hold", "at_risk")
-            and d.rank < 9999   # never force-exit a position that's only missing
-                                # from the ranking universe (data gap, not a sell signal)
-        ),
-        key=lambda d: -d.rank,   # worst (highest rank number) first
-    )
-    for d in orphans[:overflow]:
-        decisions[d.ticker] = replace(
-            d, action="exit",
-            reason=(
-                f"trim to cap — held book ({retained}) exceeds max_positions="
-                f"{max_positions}; exiting untargeted orphan (rank={d.rank})"
-            ),
+            and d.rank < 9999
         )
+
+    mandatory = [t for t in held_remaining if not _trimmable(t)]
+    contenders = sorted(
+        [d for d in decisions.values() if d.action == "entry"]
+        + [decisions[t] for t in held_remaining if _trimmable(t)],
+        key=lambda d: d.rank,   # best (lowest rank number) first
+    )
+
+    slots = max(0, max_positions - len(mandatory))
+    winners = {d.ticker for d in contenders[:slots]}
+
+    for d in contenders:
+        if d.ticker in winners:
+            continue  # entry stays entry; orphan stays hold/at_risk
+        if d.action == "entry":
+            decisions[d.ticker] = replace(
+                d, action="watch", current_weight=None,
+                reason=(f"deferred — portfolio at capacity; out-ranked for the open "
+                        f"slots (rank={d.rank}, max_positions={max_positions})"),
+            )
+        else:  # trimmable orphan displaced / over cap
+            decisions[d.ticker] = replace(
+                d, action="exit",
+                reason=(f"rotated out — untargeted orphan (rank={d.rank}) displaced by "
+                        f"higher-ranked entries / over max_positions={max_positions}"),
+            )
 
 
 def evaluate_all(

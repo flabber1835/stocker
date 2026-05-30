@@ -257,7 +257,9 @@ def test_365_day_chaos_simulation():
                 seen["capacity_demote"] += 1
             if d.action == "watch" and "buying power" in (d.reason or ""):
                 seen["budget_demote"] += 1
-            if d.action == "exit" and "trim to cap" in (d.reason or ""):
+            if d.action == "exit" and (
+                "trim to cap" in (d.reason or "") or "rotated out" in (d.reason or "")
+            ):
                 seen["trim_exit"] += 1
 
         # ── 7. apply approvals → execute against broker ──────────────────────
@@ -287,7 +289,13 @@ def test_365_day_chaos_simulation():
     # ── coverage: prove the chaos actually touched everything ────────────────
     assert seen["trading"] >= 250 and seen["nontrading"] >= 95
     assert regimes_seen == {"bull_calm", "bull_stress", "bear_stress", "bear_calm"}, regimes_seen
-    for lever in ("entry", "exit", "hold", "at_risk", "buy_add", "sell_trim", "watch",
+    # at_risk is intentionally NOT in this must-fire list: an at_risk ORPHAN is now
+    # rotated out (counted under trim_exit) whenever a higher-ranked entry competes
+    # for its slot, and this seeded-over-capacity scenario always has entry pressure,
+    # so a standalone at_risk final decision never survives here. at_risk survival
+    # (no entry competition) is covered directly by
+    # test_entry_caps.test_at_risk_orphan_survives_without_entry_competition.
+    for lever in ("entry", "exit", "hold", "buy_add", "sell_trim", "watch",
                   "capacity_demote", "budget_demote", "trim_exit",
                   "deposit", "withdraw", "liquidation", "no_sync_days",
                   "dedup_block", "double_fed", "nodata_days", "delisted"):
@@ -320,17 +328,23 @@ def _check_invariants(decisions, target, live, universe, actual_weights,
                 assert d.current_weight is not None and d.current_weight > 0
             elif d.action == "exit":
                 assert t in live, f"exit {t} not held"
-                is_trim = "trim to cap" in (d.reason or "")
-                if not is_trim and t in universe and len(universe[t]) >= CONFIRMATION_DAYS:
+                # A non-rank-confirmed exit is legal only as a capacity-driven
+                # exit: trim-to-cap or a rank-based rotation (orphan displaced by
+                # a higher-ranked entry).
+                is_capacity_exit = (
+                    "trim to cap" in (d.reason or "") or "rotated out" in (d.reason or "")
+                )
+                if not is_capacity_exit and t in universe and len(universe[t]) >= CONFIRMATION_DAYS:
                     # I3b: a rank-confirmed exit needs CONFIRMATION_DAYS of rank > exit_rank
                     lead = universe[t][:CONFIRMATION_DAYS]
                     assert all(o.rank > EXIT_RANK for o in lead), (
                         f"exit {t} not rank-confirmed: {[o.rank for o in lead]}"
                     )
                 else:
-                    # I4b: a trim-to-cap exit must be an untargeted orphan with data
-                    if is_trim:
-                        assert t not in target and (d.rank or 0) < 9999, f"trim exit {t} targeted/no-data"
+                    # I4b: a capacity-driven exit (trim-to-cap or rotation) must be an
+                    # untargeted orphan with ranking data — never a targeted name or data gap.
+                    if is_capacity_exit:
+                        assert t not in target and (d.rank or 0) < 9999, f"capacity exit {t} targeted/no-data"
             elif d.action in ("buy_add", "sell_trim"):
                 assert t in live and t in target, f"{d.action} {t} must be held&targeted"
                 # I3c: drift must exceed the rebalance threshold in the right direction

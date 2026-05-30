@@ -172,6 +172,19 @@ Holding period is variable — held as long as the stock stays in the buffer zon
 Periodic weight normalization rebalances position sizes without forcing exits.
 ```
 
+Capacity allocation at the cap (delta engine `_allocate_capacity`): when the book
+is full, the max_positions slots are filled best-rank-first by new entries AND
+trimmable orphans *together*, so a higher-ranked new entry rotates out a weaker
+untargeted orphan instead of being locked out behind it. This replaced an earlier
+cap-then-trim ordering whose steady-state lockout kept a rank-~30 orphan over a
+rank-~9 target. Mandatory holds (still-targeted names) and data-gap orphans
+(rank 9999, missing from the ranking universe) are NEVER force-rotated. Rotation
+only fires under entry pressure: with no competing entry a buffer-zone orphan
+(`hold`/`at_risk`) is left alone. The rotated-out orphan's proceeds fund the entry
+in the subsequent buying-power gate. This is a deliberate optimality-over-churn
+choice (the "fix fully / always rotate" decision) — it increases turnover at the
+cap in exchange for keeping the realized book rank-aligned with the target.
+
 Two initial strategy styles:
 
 ```text
