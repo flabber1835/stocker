@@ -313,8 +313,8 @@ td { padding: 9px 12px; white-space: nowrap; font-size: 13px; }
 /* ── Rank table cells ────────────────────────────────────────────────── */
 .t-rank {
   font-family: var(--mono); font-weight: 700;
-  color: var(--amber); min-width: 30px;
-  display: inline-block; text-align: right;
+  color: var(--blue); min-width: 30px;
+  display: inline-block; text-align: left;
 }
 .t-ticker {
   font-family: var(--mono); font-weight: 700;
@@ -324,8 +324,30 @@ td { padding: 9px 12px; white-space: nowrap; font-size: 13px; }
   color: var(--text2); max-width: 180px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.rank-up { color: var(--green); font-size: 11px; margin-left: 3px; font-weight: 700; }
-.rank-dn { color: var(--red);   font-size: 11px; margin-left: 3px; font-weight: 700; }
+.rank-up   { color: var(--green); font-size: 11px; margin-left: 3px; font-weight: 700; }
+.rank-dn   { color: var(--red);   font-size: 11px; margin-left: 3px; font-weight: 700; }
+.rank-flat { color: var(--blue);  font-size: 11px; margin-left: 3px; font-weight: 700; }
+
+/* ── Market-cap (SIZE) tier badges ───────────────────────────────────── */
+.cap-badge {
+  display: inline-block; padding: 1px 6px; border-radius: 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: .05em; cursor: help;
+}
+.cap-badge.cap-mega  { background: var(--navy);              color: #fff; }
+.cap-badge.cap-large { background: rgba(59,130,246,.15);     color: var(--blue);  border: 1px solid rgba(59,130,246,.35); }
+.cap-badge.cap-mid   { background: var(--border2);           color: var(--text2); border: 1px solid var(--border); }
+.cap-badge.cap-small { background: rgba(217,119,6,.12);      color: var(--amber); border: 1px solid rgba(217,119,6,.3); }
+.cap-badge.cap-micro { background: rgba(220,38,38,.12);      color: var(--red);   border: 1px solid rgba(220,38,38,.3); }
+
+/* ── Search clear (×) button ─────────────────────────────────────────── */
+.search-wrap { position: relative; display: inline-block; }
+.search-wrap input { padding-right: 24px; }
+.search-clear {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  border: none; background: transparent; color: var(--text3);
+  font-size: 13px; line-height: 1; cursor: pointer; padding: 2px 5px;
+}
+.search-clear:hover { color: var(--navy); }
 
 .score-wrap { display: flex; align-items: center; gap: 8px; min-width: 110px; }
 .score-num { min-width: 44px; text-align: right; font-family: var(--mono); font-size: 12px; }
@@ -348,12 +370,11 @@ td { padding: 9px 12px; white-space: nowrap; font-size: 13px; }
   border-radius: 4px; font-size: 11px; font-weight: 700;
   letter-spacing: .04em; vertical-align: middle; cursor: help;
 }
-.overlay-badge.held     { background: rgba(5,150,105,.12); color: var(--green); border: 1px solid rgba(5,150,105,.3); }
 .overlay-badge.excl     { background: rgba(220,38,38,.1);  color: var(--red);   border: 1px solid rgba(220,38,38,.3); }
 .overlay-badge.pos-cat  { background: rgba(217,119,6,.1);  color: var(--amber); border: 1px solid rgba(217,119,6,.3); }
 .overlay-badge.not-ranked { background: var(--border2); color: var(--text2); border: 1px solid var(--border); }
 
-tr.row-held td        { background: rgba(5,150,105,.03); }
+tr.row-held td        { background: rgba(5,150,105,.12); }
 tr.row-excluded td    { opacity: .6; }
 
 /* ── Detail expand row ───────────────────────────────────────────────── */

@@ -96,6 +96,22 @@ function pctColor(v) {
   if (v == null) return 'neu';
   return +v >= 0.75 ? 'pos' : +v <= 0.25 ? 'neg' : 'neu';
 }
+function capTier(mcap) {
+  // Market-cap tier for the SIZE column. null when unknown (ETFs/funds, no fundamentals).
+  if (mcap == null || !(mcap > 0)) return null;
+  if (mcap >= 200e9) return { label: 'MEGA',  cls: 'cap-mega' };
+  if (mcap >= 10e9)  return { label: 'LARGE', cls: 'cap-large' };
+  if (mcap >= 2e9)   return { label: 'MID',   cls: 'cap-mid' };
+  if (mcap >= 3e8)   return { label: 'SMALL', cls: 'cap-small' };
+  return { label: 'MICRO', cls: 'cap-micro' };
+}
+function fmtCap(mcap) {
+  if (mcap == null || !(mcap > 0)) return 'unknown';
+  if (mcap >= 1e12) return '$' + (mcap / 1e12).toFixed(2) + 'T';
+  if (mcap >= 1e9)  return '$' + (mcap / 1e9).toFixed(1) + 'B';
+  if (mcap >= 1e6)  return '$' + (mcap / 1e6).toFixed(0) + 'M';
+  return '$' + Math.round(mcap);
+}
 
 /* ── Screen navigation ───────────────────────────────────────────────── */
 function showScreen(name, btnEl) {
@@ -292,6 +308,7 @@ function _mapRankRow(r) {
   const fs = r.factor_scores || {};
   return {
     rank: r.rank, ticker: r.ticker, name: r.name || null,
+    market_cap: r.market_cap != null ? +r.market_cap : null,
     composite_score: r.composite_score, percentile: r.percentile,
     momentum: fs.momentum, quality: fs.quality, value: fs.value,
     growth: fs.growth, low_volatility: fs.low_volatility, liquidity: fs.liquidity,
@@ -313,6 +330,8 @@ function _mapRankRow(r) {
 function onSearchInput() {
   clearTimeout(_searchDebounce);
   const q = ($('r-search').value || '').trim().toUpperCase();
+  const clr = $('r-search-clear');
+  if (clr) clr.style.display = q ? '' : 'none';
   if (!q) {
     _searchMode = false;
     _searchData = [];
@@ -322,6 +341,13 @@ function onSearchInput() {
   // Show "searching…" immediately so the user gets feedback
   $('r-count').textContent = 'searching…';
   _searchDebounce = setTimeout(() => _doApiSearch(q), 300);
+}
+
+function clearSearch() {
+  const el = $('r-search');
+  if (el) el.value = '';
+  onSearchInput();
+  if (el) el.focus();
 }
 
 async function _doApiSearch(q) {
@@ -343,7 +369,7 @@ async function _doApiSearch(q) {
 
 /* ── Rankings ────────────────────────────────────────────────────────── */
 async function loadRankings() {
-  $('r-body').innerHTML = '<tr><td colspan="10" class="tbl-empty">Loading rankings&#8230;</td></tr>';
+  $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">Loading rankings&#8230;</td></tr>';
   try {
     const d = await fetch('/api/rankings/with-overlays?limit=100').then(r => {
       if (!r.ok) throw new Error(r.status);
@@ -352,7 +378,7 @@ async function loadRankings() {
     if (!d.rankings || d.rankings.length === 0) {
       _rankingsLoadState = 'empty';
       rankData = [];
-      $('r-body').innerHTML = '<tr><td colspan="10" class="tbl-empty">'
+      $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">'
         + 'No ranking data &mdash; click <strong>&#9654; RUN</strong> to populate'
         + '</td></tr>';
       // Refresh status bar so READY badge is downgraded if data missing
@@ -369,7 +395,7 @@ async function loadRankings() {
   } catch (e) {
     _rankingsLoadState = 'empty';
     rankData = [];
-    $('r-body').innerHTML = '<tr><td colspan="10" class="tbl-empty">'
+    $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">'
       + 'No ranking data &mdash; click <strong>&#9654; RUN</strong> to populate'
       + '</td></tr>';
     if (_pipelineData && _pipelineData.rank) updateStatusBar(_pipelineData);
@@ -418,7 +444,7 @@ function renderRankings() {
     : rows.length + ' / ' + rankData.length;
   if (!rows.length) {
     _expandedTicker = null;
-    $('r-body').innerHTML = '<tr><td colspan="10" class="tbl-empty">No results</td></tr>';
+    $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">No results</td></tr>';
     return;
   }
 
@@ -443,15 +469,19 @@ function renderRankings() {
       if (delta >= 2)       arrow = '<span class="rank-up" title="up ' + delta + ' since last run">&#9650;' + delta + '</span>';
       else if (delta <= -2) arrow = '<span class="rank-dn" title="down ' + (-delta) + ' since last run">&#9660;' + (-delta) + '</span>';
     }
+    if (!arrow) arrow = '<span class="rank-flat" title="no movement">&ndash;</span>';
 
-    const flags = [];
-    if (r.held)           flags.push('<span class="overlay-badge held">HOLDINGS</span>');
-    if (r.not_in_universe) flags.push('<span class="overlay-badge not-ranked" title="Held but not in ranking universe">NOT RANKED</span>');
-    if (r.vetter_excluded) flags.push('<span class="overlay-badge excl" title="' + esc(r.vetter_reason || '') + '">&#9888; ' + (r.vetter_risk_type || '').toUpperCase().replace(/_/g,' ') + '</span>');
-    const flagsHtml = flags.length ? flags.join('') : '<span style="color:var(--text3)">—</span>';
-
-    const FACTORS = ['momentum', 'quality', 'value', 'growth', 'low_volatility', 'liquidity'];
-    const factorCells = FACTORS.map(f => '<td class="' + zColor(r[f]) + '">' + (r[f] != null ? (+r[f]).toFixed(2) : '—') + '</td>').join('');
+    // SIZE column: market-cap tier badge, plus any risk flags (excluded / not-ranked).
+    // The HELD badge is gone — held rows already carry a green tint.
+    const tier = capTier(r.market_cap);
+    const sizeParts = [
+      tier
+        ? '<span class="cap-badge ' + tier.cls + '" title="' + fmtCap(r.market_cap) + '">' + tier.label + '</span>'
+        : '<span style="color:var(--text3)">—</span>',
+    ];
+    if (r.not_in_universe) sizeParts.push('<span class="overlay-badge not-ranked" title="Held but not in ranking universe">NOT RANKED</span>');
+    if (r.vetter_excluded) sizeParts.push('<span class="overlay-badge excl" title="' + esc(r.vetter_reason || '') + '">&#9888; ' + (r.vetter_risk_type || '').toUpperCase().replace(/_/g,' ') + '</span>');
+    const sizeHtml = sizeParts.join(' ');
 
     const heldCls     = r.held ? ' row-held' : '';
     const exclCls     = r.vetter_excluded ? ' row-excluded' : '';
@@ -461,8 +491,7 @@ function renderRankings() {
       + '<td><span class="t-rank">' + r.rank + '</span>' + arrow + '</td>'
       + '<td><span class="t-ticker">' + r.ticker + '</span></td>'
       + '<td class="t-company" title="' + (r.name ? esc(r.name) : '') + '">' + (r.name ? esc(r.name) : '—') + '</td>'
-      + '<td>' + flagsHtml + '</td>'
-      + factorCells
+      + '<td>' + sizeHtml + '</td>'
       + '</tr>';
   }).join('');
 

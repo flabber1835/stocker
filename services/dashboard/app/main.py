@@ -669,7 +669,10 @@ _HTML = r"""<!DOCTYPE html>
       </div>
 
       <div class="filter-bar sticky-bar">
-        <input type="search" id="r-search" placeholder="Search ticker&#8230;" oninput="onSearchInput()" onsearch="onSearchInput()">
+        <span class="search-wrap">
+          <input type="search" id="r-search" placeholder="Search ticker&#8230;" oninput="onSearchInput()" onsearch="onSearchInput()">
+          <button class="search-clear" id="r-search-clear" type="button" onclick="clearSearch()" title="Clear filter" style="display:none">&#10005;</button>
+        </span>
         <label class="chk"><input type="checkbox" id="r-only-held" onchange="renderRankings()"> Held</label>
         <label class="chk"><input type="checkbox" id="r-hide-excl" onchange="renderRankings()"> Hide &#9888;</label>
         <span class="count-badge" id="r-count"></span>
@@ -681,15 +684,9 @@ _HTML = r"""<!DOCTYPE html>
             <th onclick="sortRankings('rank')" id="rh-rank">RANK</th>
             <th onclick="sortRankings('ticker')" id="rh-ticker">TICKER</th>
             <th onclick="sortRankings('name')" id="rh-name">COMPANY</th>
-            <th>FLAGS</th>
-            <th onclick="sortRankings('momentum')" id="rh-momentum">MOM</th>
-            <th onclick="sortRankings('quality')" id="rh-quality">QLTY</th>
-            <th onclick="sortRankings('value')" id="rh-value">VAL</th>
-            <th onclick="sortRankings('growth')" id="rh-growth">GRTH</th>
-            <th onclick="sortRankings('low_volatility')" id="rh-low_volatility">LOVOL</th>
-            <th onclick="sortRankings('liquidity')" id="rh-liquidity">LIQ</th>
+            <th onclick="sortRankings('market_cap')" id="rh-market_cap" title="Market-cap tier">SIZE</th>
           </tr></thead>
-          <tbody id="r-body"><tr><td colspan="11" class="tbl-empty">Loading&#8230;</td></tr></tbody>
+          <tbody id="r-body"><tr><td colspan="4" class="tbl-empty">Loading&#8230;</td></tr></tbody>
         </table>
       </div>
     </div>
