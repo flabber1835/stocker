@@ -804,6 +804,7 @@ function _buildTradeRow(r) {
   const tickerCell = '<td>'
     + '<span class="t-ticker">' + esc(r.ticker) + '</span>'
     + (r.name ? '<div class="t-name">' + esc(r.name) + '</div>' : '')
+    + (r.reason ? '<div class="t-reason" title="' + esc(r.reason) + '">' + esc(r.reason) + '</div>' : '')
     + '</td>';
 
   const rankCell  = '<td class="t-num">' + (r.rank != null ? '#' + r.rank : '—') + '</td>';
