@@ -306,6 +306,7 @@ def _format_ticker_message(
     in_portfolio: bool = False,
     related_tickers: list[str] | None = None,
     company_name: str | None = None,
+    drawdown_21d: float | None = None,
 ) -> str:
     ticker_display = f"{ticker} — {company_name}" if company_name else ticker
     lines = [
@@ -344,6 +345,17 @@ def _format_ticker_message(
         lines.append(f"  Active regime: {regime}  ← USE THIS REGIME. Do not substitute a different one.")
     if sector:
         lines.append(f"  Sector: {sector}")
+    if drawdown_21d is not None:
+        # Recent peak-to-now drawdown (21 trading days, NO skip window) — the
+        # momentum z-score above skips the most recent month and can look strong
+        # even after a fresh crash. This is the "falling knife" check.
+        if drawdown_21d <= -0.20:
+            dd_note = "  ← STEEP recent drop. Is this a one-off dislocation already priced in, or an ongoing, news-driven decline? A falling knife is a bad entry."
+        elif drawdown_21d <= -0.10:
+            dd_note = "  ← notable recent pullback — check whether it is news-driven."
+        else:
+            dd_note = ""
+        lines.append(f"  Recent drawdown (21d, vs recent peak): {drawdown_21d:+.1%}{dd_note}")
     lines.append(
         f"  Portfolio status: {'ALREADY HELD — assess continuation risk' if in_portfolio else 'CANDIDATE FOR ENTRY — assess entry risk'}"
     )
@@ -711,6 +723,7 @@ async def vet_single_ticker(
     in_portfolio: bool = False,
     related_tickers: list[str] | None = None,
     company_name: str | None = None,
+    drawdown_21d: float | None = None,
 ) -> dict:
     """
     Ask the LLM to make a single exclude/keep decision for one ticker.
@@ -738,6 +751,7 @@ async def vet_single_ticker(
         "regime": regime,
         "in_portfolio": in_portfolio,
         "related_tickers": related_tickers or [],
+        "drawdown_21d": drawdown_21d,
     }
     system_prompt = _build_system_prompt(
         entry_rank=entry_rank,
@@ -764,6 +778,7 @@ async def vet_single_ticker(
         in_portfolio=in_portfolio,
         related_tickers=related_tickers,
         company_name=company_name,
+        drawdown_21d=drawdown_21d,
     )
     # Use a set to deduplicate titles; list preserves insertion order via dict.fromkeys.
     _seen_titles: set[str] = set()

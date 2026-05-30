@@ -13,6 +13,7 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy import text
 
+from app.drawdown import recent_drawdown
 from app.vetter import fetch_ticker_data, vet_single_ticker
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
@@ -28,6 +29,14 @@ AV_API_KEY           = os.getenv("AV_API_KEY", "")
 TAVILY_API_KEY       = os.getenv("TAVILY_API_KEY", "")
 ARTIFACTS_PATH       = os.getenv("ARTIFACTS_PATH", "")
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
+# Falling-knife backstop: an ENTRY candidate (not already held) whose price is
+# more than this fraction below its 21-trading-day peak is force-excluded even
+# if the LLM said keep. Deterministic safety net behind the prompt signal.
+# Set to 0 (or >=1) to disable. Default 0.25 — wide, per the A/B/threshold sweep
+# (tighter stops whipsaw on normal dips). Held positions are NEVER force-excluded
+# (exclusion only blocks buying; it never sells).
+DRAWDOWN_BACKSTOP_PCT = float(os.getenv("DRAWDOWN_BACKSTOP_PCT", "0.25"))
+DRAWDOWN_WINDOW_DAYS  = int(os.getenv("DRAWDOWN_WINDOW_DAYS", "21"))
 
 engine: Optional[AsyncEngine] = None
 strategy: Optional[StrategyConfig] = None
@@ -436,6 +445,31 @@ async def _do_vet(
             output_summary={"candidate_count": len(candidates), "top_ticker": tickers[0]},
         )
 
+    # ── Step 1b: recent drawdown per candidate (falling-knife signal) ─────────
+    # 21-trading-day peak-to-now drawdown. Fed to the LLM prompt AND used as a
+    # deterministic entry backstop below. NO skip window (unlike 12-1 momentum),
+    # so it reflects a crash that happened in the last few weeks.
+    drawdown_map: dict[str, float] = {}
+    async with engine.connect() as conn:
+        dd_rows = await conn.execute(
+            text(
+                "SELECT ticker, adjusted_close FROM ("
+                "  SELECT ticker, adjusted_close, date, "
+                "         ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) AS rn "
+                "  FROM daily_prices WHERE ticker = ANY(:tickers)"
+                ") s WHERE rn <= :w ORDER BY ticker, date ASC"
+            ),
+            {"tickers": tickers, "w": DRAWDOWN_WINDOW_DAYS},
+        )
+        _closes_by_ticker: dict[str, list[float]] = {}
+        for row in dd_rows.fetchall():
+            if row.adjusted_close is not None:
+                _closes_by_ticker.setdefault(row.ticker, []).append(float(row.adjusted_close))
+    for t, closes in _closes_by_ticker.items():
+        dd = recent_drawdown(closes, window=DRAWDOWN_WINDOW_DAYS)
+        if dd is not None:
+            drawdown_map[t] = dd
+
     # ── Step 2: fetch external data ───────────────────────────────────────────
     vcfg = strategy.vetter
     # Pre-fetch slightly more results than the per-call agent limit so the
@@ -497,6 +531,7 @@ async def _do_vet(
             in_portfolio=t in held_tickers,
             related_tickers=related_tickers_map.get(t) or None,
             company_name=company_name_map.get(t),
+            drawdown_21d=drawdown_map.get(t),
         )
 
     for i, c in enumerate(candidates):
@@ -516,6 +551,32 @@ async def _do_vet(
         )
         if result.get("crashed"):
             print(f"[llm-vetter] {ticker}: CRASHED — {result['reason']}")
+
+        # ── Deterministic falling-knife backstop ─────────────────────────────
+        # Force-exclude an ENTRY candidate (not already held) in a severe recent
+        # drawdown even if the LLM said keep — the prompt signal informs the LLM,
+        # this guarantees a knife is never bought. Held positions are exempt:
+        # exclusion only blocks BUYING, and we must never let it imply a sell.
+        dd = drawdown_map.get(ticker)
+        if (
+            DRAWDOWN_BACKSTOP_PCT > 0
+            and dd is not None
+            and dd <= -DRAWDOWN_BACKSTOP_PCT
+            and ticker not in held_tickers
+            and not result.get("exclude")
+        ):
+            result["exclude"] = True
+            result["risk_type"] = result.get("risk_type") or "none"
+            note = (
+                f"[DRAWDOWN BACKSTOP: entry blocked — {dd:+.1%} vs {DRAWDOWN_WINDOW_DAYS}d peak "
+                f"(limit -{DRAWDOWN_BACKSTOP_PCT:.0%}); deterministic falling-knife guard "
+                f"overrode the LLM keep.] "
+            )
+            result["reason"] = note + (result.get("reason") or "")
+            result.setdefault("hallucination_flags", []).append(
+                f"DRAWDOWN_BACKSTOP: forced exclude on {dd:+.1%} 21d drawdown"
+            )
+            print(f"[llm-vetter] {ticker}: DRAWDOWN BACKSTOP — entry blocked ({dd:+.1%})")
 
         ticker_results.append(result)
 

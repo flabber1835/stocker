@@ -442,16 +442,31 @@ Responsibilities:
 ```text
 fetch news and earnings context for each ranked stock
 call Tavily for web search results
+compute each candidate's recent drawdown (21-trading-day peak-to-now) and feed
+  it into the per-ticker LLM context — the "falling-knife" signal the 12-1
+  momentum factor misses (momentum skips the most recent ~21 days, so a fresh
+  crash can still look strong). See shared pure helper app/drawdown.py.
 use an LLM (Ollama or OpenAI) to assess each stock
 output: exclude flag, risk_type, confidence, positive_catalyst, positive_reason
 store results in vetter_decisions + vetter_exclusions tables
 ```
+
+Falling-knife backstop (DRAWDOWN_BACKSTOP_PCT, default 0.25): a deterministic
+guard behind the LLM. An ENTRY candidate (not already held) whose price is more
+than DRAWDOWN_BACKSTOP_PCT below its 21-day peak is force-excluded even if the
+LLM said keep. Held positions are NEVER force-excluded — exclusion only blocks
+BUYING and must never imply a sell (held names exit via rank deterioration only).
+Set DRAWDOWN_BACKSTOP_PCT=0 to disable. Wide default per the trailing-stop /
+threshold-sweep analysis (tight stops whipsaw on normal dips).
 
 Must not:
 
 ```text
 approve or reject stocks with authority (score adjustments belong to the ranker)
 call the same search query more than once per ticker
+force-exclude (or otherwise act to sell) a position already held — the vetter's
+  exclusions are buy-side only; held positions are exited solely by the
+  deterministic rank/buffer-zone path, never by the vetter
 ```
 
 ## alpaca-sync
