@@ -111,7 +111,12 @@ async def _submit_deferred_order(row: dict) -> tuple[str, Optional[str]]:
     except Exception:
         pass  # Risk service unreachable — allow order (fail-open, consistent with main path)
     try:
-        alpaca_order_id, alpaca_status, alpaca_err = await _submit_to_alpaca(payload)
+        if row.get("action") == "exit":
+            # Full close → Alpaca close-position (exact held qty), never a qty-based
+            # sell that can round up and over-sell a fractional position.
+            alpaca_order_id, alpaca_status, alpaca_err = await _close_position_alpaca(row["ticker"])
+        else:
+            alpaca_order_id, alpaca_status, alpaca_err = await _submit_to_alpaca(payload)
     except Exception as exc:
         return "failed", f"Alpaca request failed: {exc}"[:1000]
     if alpaca_err is not None:
@@ -140,7 +145,7 @@ async def _deferred_order_worker() -> None:
             if engine is not None:
                 async with engine.connect() as conn:
                     rows = (await conn.execute(text(
-                        "SELECT id, intent_id, ticker, side, qty, notional, "
+                        "SELECT id, intent_id, ticker, action, side, qty, notional, "
                         "       order_type, time_in_force, mode, trace_id "
                         "FROM alpaca_orders "
                         "WHERE status='deferred' "
@@ -610,6 +615,36 @@ async def _submit_to_alpaca(payload: dict) -> tuple[Optional[str], Optional[str]
     if resp.status_code in (200, 201):
         data = resp.json()
         return data.get("id"), data.get("status"), None
+    return None, None, resp.text[:1000]
+
+
+async def _close_position_alpaca(symbol: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """Close 100% of a position via Alpaca DELETE /v2/positions/{symbol}.
+
+    Same return shape as _submit_to_alpaca: (alpaca_order_id, alpaca_status, error).
+
+    Used for full exits instead of a qty-based sell. Alpaca computes the exact held
+    quantity at execution time, so this cannot over-sell a fractional position — it
+    fixes the bug where a stored qty rounded up past the true holding (e.g.
+    live_positions.qty NUMERIC(16,6) storing Alpaca's 0.878611682 as 0.878612) made
+    Alpaca reject the order with "insufficient qty available". It is also immune to
+    drift between the last alpaca-sync and submission.
+    """
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.delete(
+            f"{ALPACA_BASE_URL}/v2/positions/{symbol}",
+            headers={
+                "APCA-API-KEY-ID": ALPACA_API_KEY,
+                "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY,
+            },
+        )
+    if resp.status_code in (200, 201):
+        data = resp.json()
+        return data.get("id"), data.get("status"), None
+    if resp.status_code == 404:
+        # Position is already flat — the exit's goal (be out of the name) is met.
+        # Treat as a benign success rather than a spurious failure.
+        return None, "position_already_closed", None
     return None, None, resp.text[:1000]
 
 
