@@ -152,17 +152,18 @@ _STEPS: list[_StepDef] = [
     _StepDef("fetch-data", AV_INGESTOR_URL, "/jobs/fetch-data", "started_at",
              job_type="fetch-data", extra_ok=("partial_success",)),
     # chain_date is the wall-clock date the pipeline run was started on (set to
-    # date.today() at pipeline startup regardless of what data was available).
-    # We compare chain_date — not run_date — because run_date is set to score_date
-    # (the latest data date in daily_prices), which may lag behind today's trading_day
-    # when the system boots before new data arrives or when mock data only extends to
-    # yesterday.  Using run_date caused an infinite retry loop: scheduler sees
-    # run_date=yesterday != trading_day=today → "idle" → triggers → "already_ran_today"
-    # → loops. chain_date=today matches trading_day=today correctly in all cases.
-    # also_accept_prev=False: yesterday's chain_date never equals today's trading_day
-    # on a normal trading day, so there's no risk of treating yesterday's run as done.
+    # date.today() at startup, and re-stamped to date.today() by the
+    # already_ran_today guard). It is therefore compared against TODAY, never
+    # trading_day. Comparing against trading_day looks correct on a normal session
+    # (today == trading_day) but BREAKS on weekends/holidays: a catch-up chain that
+    # runs on Saturday stamps chain_date=Saturday while trading_day=Friday, so
+    # Saturday != Friday → "idle" forever → trigger → "already_ran_today" → loop,
+    # and the chain wedges at the pipeline step (dashboard stuck on "Calculating
+    # Factors"). TODAY is correct because chain_date is *defined* as date.today().
+    # run_date (=score_date, the data date) is NOT used here precisely because it
+    # lags today's wall clock until the day's bar is ingested.
     _StepDef("pipeline", PIPELINE_URL, "/jobs/run", "chain_date",
-             date_anchor=DateAnchor.TRADING_DAY, also_accept_prev=False),
+             date_anchor=DateAnchor.TODAY),
     # Vetter runs before portfolio-builder so exclusions feed the same-cycle build.
     # Not optional: if the vetter fails, the chain fails. The portfolio must never
     # be built without vetter exclusions applied.

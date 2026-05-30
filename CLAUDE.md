@@ -418,11 +418,18 @@ on a *data*-date that lags the wall clock must NOT be compared against a
 calendar date, or it reads "not done today" forever:
 
 ```text
-TODAY         — wall-clock today (fetch-data, vet; keyed on started_at)
-TRADING_DAY   — last NYSE session (pipeline; chain_date == today on a session)
+TODAY         — wall-clock today (fetch-data, vet: keyed on started_at; pipeline:
+                keyed on chain_date, which is date.today()). NOT trading_day:
+                chain_date==today==trading_day on a session, but on a weekend/holiday
+                catch-up run chain_date=Saturday while trading_day=Friday — comparing
+                against trading_day wedged the chain on the pipeline step every
+                weekend ("idle → already_ran_today → loop", dashboard stuck on
+                "Calculating Factors"). chain_date is defined as today, so compare to TODAY.
 UPSTREAM_RANK — freshest ranking_runs.rank_date, fallback TODAY
                 (portfolio-builder, delta; their date_field inherits rank_date,
                  which lags trading_day intraday)
+(TRADING_DAY exists in the enum but no step uses it — comparing a wall-clock or
+ chain date against the last session breaks on non-trading days.)
 ```
 
 A parametrized invariant test (`TestDateAnchorInvariant`) asserts every

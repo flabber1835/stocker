@@ -1128,33 +1128,55 @@ class TestWeekendDateFields:
         assert result == "idle"
 
     @pytest.mark.asyncio
+    def _pipeline_step(self) -> _StepDef:
+        """The ACTUAL pipeline step from _STEPS — so these tests validate the real
+        config, not a hand-built approximation."""
+        return next(s for s in _STEPS if s.name == "pipeline")
+
+    @pytest.mark.asyncio
     async def test_pipeline_done_when_chain_date_matches_trading_day_even_if_score_date_lags(self):
         """Regression: cold-start loop when pipeline score_date (data date) lags trading_day.
 
         When the system boots in the morning of a trading day, the latest price data
-        may only be from yesterday (AV hasn't published today's data yet, or it's a
-        mock environment).  The pipeline sets run_date=score_date=yesterday but
-        chain_date=today.  Using run_date (old behaviour) caused:
+        may only be from yesterday.  The pipeline sets run_date=score_date=yesterday
+        but chain_date=today.  Using run_date (old behaviour) caused:
           scheduler sees run_date=yesterday != trading_day=today → "idle"
           → triggers pipeline → "already_ran_today" → loops forever
-        Using chain_date fixes this: chain_date=today == trading_day=today → "done".
+        Comparing chain_date against TODAY fixes this: chain_date=today → "done".
         """
         tuesday  = "2026-05-26"   # today (a normal trading day)
-        monday   = "2026-05-25"   # Memorial Day — non-trading; latest mock data goes here
-        friday   = "2026-05-22"   # prev_trading_day (last session before holiday)
-        # Pipeline ran today; run_date=score_date=Monday (latest data), chain_date=Tuesday
-        step = self._make_step(date_field="chain_date", use_trading_day=True,
-                               also_accept_prev=False)
+        monday   = "2026-05-25"   # latest data date (lags)
+        friday   = "2026-05-22"
         client = _async_client_returning({
             "status": "success",
             "run_date": monday,     # score date (data from yesterday)
             "chain_date": tuesday,  # wall-clock date of the run (today)
         })
-        result = await _step_state(client, step, tuesday, tuesday, friday)
+        result = await _step_state(client, self._pipeline_step(), tuesday, tuesday, friday)
+        assert result == "done"
+
+    @pytest.mark.asyncio
+    async def test_pipeline_done_on_weekend_catch_up(self):
+        """Regression for the live Saturday wedge: a catch-up chain runs on a weekend,
+        the pipeline stamps chain_date=Saturday (= date.today()), but the last NYSE
+        session (trading_day) is Friday. Comparing chain_date against trading_day gave
+        Saturday != Friday → 'idle' → trigger → 'already_ran_today' → infinite loop,
+        wedging the chain on the pipeline step (dashboard stuck on 'Calculating
+        Factors'). The pipeline step must compare chain_date against TODAY, so a
+        weekend run reads 'done'."""
+        saturday = "2026-05-30"   # today (non-trading)
+        friday   = "2026-05-29"   # last NYSE session (trading_day)
+        thursday = "2026-05-28"
+        client = _async_client_returning({
+            "status": "success",
+            "run_date": friday,       # data date = Friday's session
+            "chain_date": saturday,   # wall-clock date the run started = today
+        })
+        result = await _step_state(client, self._pipeline_step(), saturday, friday, thursday)
         assert result == "done", (
-            "pipeline must be 'done' when chain_date=today==trading_day, even when "
-            "run_date (score_date) lags behind trading_day. Regression: using run_date "
-            "caused an infinite idle→trigger→already_ran_today loop on cold start."
+            "pipeline ran today (chain_date=Saturday) and succeeded — it must read "
+            "'done', not 'idle'. Comparing chain_date against trading_day (Friday) "
+            "instead of today (Saturday) is the weekend re-trigger-loop bug."
         )
 
     @pytest.mark.asyncio
@@ -1910,33 +1932,42 @@ class TestRestartAbortLoopBreaker:
 # ── TestDateAnchorInvariant ───────────────────────────────────────────────────
 
 class TestDateAnchorInvariant:
-    """Durable guard against the re-trigger-loop bug class.
+    """Durable guard against the re-trigger-loop bug class — including the weekend wedge.
 
-    Every step, once it has produced a SUCCESSFUL run for the cycle currently
-    being processed, must read 'done' — never 'idle' (which would re-POST /jobs/*
-    forever). Parametrized over the REAL _STEPS, with ranking data deliberately
-    lagging wall-clock by a day (the exact condition that used to loop), so a new
-    step configured with the wrong date_anchor fails right here.
+    Every step, once it has produced a SUCCESSFUL run for the cycle currently being
+    processed, must read 'done' — never 'idle' (which would re-POST /jobs/* forever).
+
+    Two things make this catch real bugs (the previous version missed the weekend
+    pipeline wedge because it did neither):
+      1. Run on a WEEKEND (today=Saturday != trading_day=Friday) with ranking data
+         lagging — the exact condition under which today, trading_day, and rank_date
+         all differ, so a wrong anchor is exposed.
+      2. Model the date each service ACTUALLY stamps in its date_field (independent
+         of the step's anchor), instead of deriving it from the anchor. Deriving it
+         from the anchor is circular and silently rubber-stamps a wrong anchor.
     """
+
+    # What each service really writes into its date_field for a run of the current
+    # cycle. A new step with a new date_field must be added here (KeyError otherwise),
+    # forcing the author to state what the service stamps.
+    def _stamped(self, date_field, *, today, latest_rank_date):
+        return {
+            "started_at": f"{today}T10:00:00+00:00",  # wall-clock now
+            "chain_date": today,                       # pipeline: date.today()
+            "portfolio_date": latest_rank_date,        # inherits ranking_runs.rank_date
+            "run_date": latest_rank_date,              # delta: inherits rank_date
+        }[date_field]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("step", _STEPS, ids=lambda s: s.name)
     async def test_step_done_for_current_cycle_never_idles(self, step):
-        today = "2026-05-21"
-        trading_day = "2026-05-21"
-        prev = "2026-05-20"
-        latest_rank_date = "2026-05-20"  # ranking lags wall-clock — the loop trigger
+        today = "2026-05-30"            # Saturday — today != trading_day (weekend wedge)
+        trading_day = "2026-05-29"      # Friday (last NYSE session)
+        prev = "2026-05-28"
+        latest_rank_date = "2026-05-29" # ranking data = Friday's session (lags today)
 
-        # The date this step's date_field carries when it HAS produced output for
-        # the current cycle, per its anchor.
-        if step.date_anchor is DateAnchor.UPSTREAM_RANK:
-            cycle_date = latest_rank_date
-        elif step.date_anchor is DateAnchor.TRADING_DAY:
-            cycle_date = trading_day
-        else:  # TODAY
-            cycle_date = today
-
-        payload = {"status": "success", step.date_field: cycle_date}
+        val = self._stamped(step.date_field, today=today, latest_rank_date=latest_rank_date)
+        payload = {"status": "success", step.date_field: val}
         if step.job_type:
             payload["job_type"] = step.job_type
         client = _async_client_returning(payload)
@@ -1944,7 +1975,8 @@ class TestDateAnchorInvariant:
         state = await _step_state(client, step, today, trading_day, prev,
                                   latest_rank_date=latest_rank_date)
         assert state == "done", (
-            f"{step.name} produced output for the current cycle "
-            f"({step.date_field}={cycle_date}) but _step_state returned {state!r} — "
-            f"that is a re-trigger loop. Check its date_anchor ({step.date_anchor})."
+            f"{step.name} produced output for the current (weekend) cycle "
+            f"({step.date_field}={val}) but _step_state returned {state!r} — a "
+            f"re-trigger loop. Its date_anchor ({step.date_anchor}) compares against "
+            f"the wrong reference date."
         )
