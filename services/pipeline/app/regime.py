@@ -39,12 +39,22 @@ def detect_regime(spy_prices: pd.DataFrame, config: RegimeDetectionConfig) -> di
     prices = spy_prices.sort_values("date").reset_index(drop=True)
     adj = prices["adjusted_close"].astype(float)
 
-    spy_sma_slow = adj.iloc[-config.slow_sma:].mean()
-    spy_price = adj.iloc[-1]
+    # Non-positive prices are data corruption (e.g. AV returns 0.0 for a bar).
+    # Exclude them from the log-return and SMA math — otherwise a single bad SPY
+    # bar makes realized_vol NaN, and `NaN > vol_threshold` is False, silently
+    # forcing a *calm* regime for the entire universe regardless of real vol.
+    adj_valid = adj.where(adj > 0)
+
+    spy_sma_slow = float(adj_valid.iloc[-config.slow_sma:].mean())
+    valid_prices = adj_valid.dropna()
+    if valid_prices.empty or not math.isfinite(spy_sma_slow) or spy_sma_slow <= 0:
+        raise ValueError("SPY prices are non-positive/corrupt — cannot detect regime")
+    spy_price = float(valid_prices.iloc[-1])
     spy_vs_sma = float((spy_price / spy_sma_slow) - 1.0)
 
-    window = min(config.vol_window + 1, len(adj))
-    log_returns = np.log(adj.iloc[-window:]).diff().dropna()
+    window = min(config.vol_window + 1, len(adj_valid))
+    log_returns = np.log(adj_valid.iloc[-window:]).diff()
+    log_returns = log_returns.replace([np.inf, -np.inf], np.nan).dropna()
     realized_vol = float(log_returns.std() * math.sqrt(252)) if len(log_returns) > 1 else 0.0
 
     trend_above = bool(spy_price > spy_sma_slow)
