@@ -168,3 +168,57 @@ def test_seeded_rotation_scenario_is_bounded_and_funded():
     # Bug 2: no entry should be proposed beyond available buying power (≈2%);
     # with no confirmed exits to fund them, that means zero naked buys.
     assert entries == 0
+
+
+# ── buy_add buying-power gating (extends the cash gate beyond entries) ─────────
+
+def _bb(target, live, universe, *, account_value, buying_power, actual_weights):
+    return evaluate_target_vs_live(
+        target_portfolio=target, live_positions=live, universe=universe,
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        account_value=account_value, buying_power=buying_power, actual_weights=actual_weights,
+    )
+
+
+def test_buy_add_blocked_when_no_buying_power():
+    """An underweight held name wants a top-up (buy_add), but with ~no buying power
+    it must stay a plain hold — not buy more it can't fund."""
+    target = {"AAA": 0.10}
+    universe = {"AAA": _history(10)}                  # hold zone
+    d = _bb(target, {"AAA"}, universe,
+            account_value=100_000.0, buying_power=1_000.0,   # 1% available
+            actual_weights={"AAA": 0.02})                    # 8% underweight → wants buy_add
+    assert d["AAA"].action == "hold"                  # demoted from buy_add
+    assert d["AAA"].action != "watch"                 # buy_add demotes to hold, not watch
+
+
+def test_buy_add_allowed_when_funded():
+    target = {"AAA": 0.10}
+    universe = {"AAA": _history(10)}
+    d = _bb(target, {"AAA"}, universe,
+            account_value=100_000.0, buying_power=10_000.0,  # 10% available ≥ 8% top-up
+            actual_weights={"AAA": 0.02})
+    assert d["AAA"].action == "buy_add"
+
+
+def test_sell_trim_proceeds_fund_buy_add():
+    """A sell_trim frees cash that funds a buy_add at ~0 buying power."""
+    target = {"AAA": 0.10, "BBB": 0.10}
+    universe = {"AAA": _history(10), "BBB": _history(12)}
+    d = _bb(target, {"AAA", "BBB"}, universe,
+            account_value=100_000.0, buying_power=0.0,
+            actual_weights={"AAA": 0.02, "BBB": 0.20})       # AAA underweight, BBB overweight
+    assert d["BBB"].action == "sell_trim"                    # frees ~10% proceeds
+    assert d["AAA"].action == "buy_add"                      # funded by the trim
+
+
+def test_entry_and_buy_add_share_one_budget_by_rank():
+    """Entries and buy_adds draw on the same buying-power budget, best-ranked first.
+    Budget fits the rank-3 entry but not the additional rank-5 buy_add → buy_add holds."""
+    target = {"NEW": 0.10, "OLD": 0.10}
+    universe = {"NEW": _history(3), "OLD": _history(5)}
+    d = _bb(target, {"OLD"}, universe,
+            account_value=100_000.0, buying_power=10_000.0,  # exactly 10% — one full position
+            actual_weights={"OLD": 0.02})
+    assert d["NEW"].action == "entry"                        # rank 3, funded first
+    assert d["OLD"].action == "hold"                         # rank 5 buy_add deferred (budget spent)

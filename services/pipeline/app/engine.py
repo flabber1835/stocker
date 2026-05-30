@@ -442,8 +442,8 @@ def evaluate_target_vs_live(
                 weight_drift=None,
             )
 
-    # Gate entries by capacity and buying power, demoting overflow to "watch".
-    _cap_entries(
+    # Gate buy-side intents by capacity and buying power, demoting overflow.
+    _cap_buys(
         decisions, live_positions, max_positions,
         actual_weights=actual_weights,
         account_value=account_value, buying_power=buying_power,
@@ -455,7 +455,12 @@ def evaluate_target_vs_live(
     return decisions
 
 
-def _cap_entries(
+def _finite(x) -> float:
+    """NaN/None-safe float (a corrupt weight must not silently pass a gate)."""
+    return x if (x is not None and x == x) else 0.0
+
+
+def _cap_buys(
     decisions: dict[str, DeltaDecision],
     live_positions: set[str],
     max_positions: int,
@@ -464,79 +469,93 @@ def _cap_entries(
     account_value: float | None = None,
     buying_power: float | None = None,
 ) -> None:
-    """Demote `entry` decisions to `watch` when they would breach the portfolio's
-    position cap or available buying power. Mutates ``decisions`` in place.
+    """Gate buy-side intents so a proposal can't breach the position cap or available
+    buying power. Mutates ``decisions`` in place.
 
     Why this exists
     ---------------
-    `evaluate_target_vs_live` emits an `entry` for every target ticker not held,
-    with no cap. Combined with the buffer-zone logic that *retains* held names not
-    in the new target (orphan holds, never exited unless rank>exit_rank is confirmed),
-    a rotation produced (a) >max_positions realized positions and (b) a wall of buys
-    with no offsetting sells that blew past buying power. Both were confirmed live.
+    `evaluate_target_vs_live` emits an `entry` for every target ticker not held and a
+    `buy_add` for every underweight held name, neither capped. Combined with the
+    buffer-zone logic that retains orphan holds, that produced (a) >max_positions
+    realized positions and (b) buys exceeding buying power — both confirmed live.
 
-    Two caps, best-ranked entries kept first:
-      - capacity:     retained_held + kept_entries <= max_positions, where
-                      retained_held = len(live_positions) - confirmed_exits.
-      - buying power: cumulative kept-entry weight <= buying_power/account_value
-                      + proceeds freed by confirmed exits (in weight space). Only
-                      enforced when account_value (>0) and buying_power are supplied;
-                      otherwise the executor/risk-service remain the cash backstop.
+    Capacity gate (position count) — entries only (buy_adds don't add positions):
+      retained_held + kept_entries <= max_positions, best-ranked entries kept.
 
-    Exit proceeds are credited so a normal matched rotation (one name exits, one
-    enters) still funds the entry even at ~0 buying power — only naked, unfunded
-    buys are deferred.
+    Buying-power gate (cash) — entries AND buy_adds share one budget, best-ranked
+    first across both:
+      Σ kept buy cost <= buying_power/account_value + sell-side proceeds, where
+        - entry cost    = full target weight
+        - buy_add cost  = top-up increment (target − actual) = −weight_drift
+        - proceeds      = Σ exit market value + Σ sell_trim overweight (weight space)
+      Demotion: entry → watch; buy_add → hold (keep the position, defer the top-up).
+      Only enforced when account_value (>0) and buying_power are supplied; otherwise
+      the executor/risk-service remain the cash backstop.
+
+    Sell-side proceeds are credited so normal same-open rotation/rebalance still
+    funds its buys at ~0 buying power — only unfunded buys are deferred.
     """
-    entries = sorted(
-        (d for d in decisions.values() if d.action == "entry"),
-        key=lambda d: d.rank,
-    )
-    if not entries:
-        return
-
+    # ── Capacity gate: entries only ───────────────────────────────────────────
+    entries = sorted((d for d in decisions.values() if d.action == "entry"), key=lambda d: d.rank)
     num_exits = sum(1 for d in decisions.values() if d.action == "exit")
     retained = len(live_positions) - num_exits
     slots = max_positions - retained
 
+    kept_entries: list[DeltaDecision] = []
+    for i, d in enumerate(entries):
+        if i < slots:
+            kept_entries.append(d)
+        else:
+            decisions[d.ticker] = replace(
+                d, action="watch", current_weight=None,
+                reason=(f"deferred — portfolio at capacity ({retained} retained + "
+                        f"{len(kept_entries)} entries ≥ max_positions={max_positions})"),
+            )
+
+    # ── Buying-power gate: entries + buy_adds share one budget ────────────────
     cap_cash = account_value is not None and account_value > 0 and buying_power is not None
-    avail_w = 0.0
-    if cap_cash:
-        exit_proceeds_w = 0.0
-        if actual_weights:
-            exit_proceeds_w = sum(
-                (actual_weights.get(d.ticker) or 0.0)
-                for d in decisions.values()
-                if d.action == "exit"
-            )
-        avail_w = max(0.0, buying_power) / account_value + exit_proceeds_w
+    if not cap_cash:
+        return
 
-    cum_w = 0.0
-    kept = 0
+    aw = actual_weights or {}
+    exit_proceeds = sum(
+        _finite(aw.get(d.ticker)) for d in decisions.values() if d.action == "exit"
+    )
+    trim_proceeds = sum(
+        max(0.0, _finite(d.weight_drift)) for d in decisions.values() if d.action == "sell_trim"
+    )
+    available = max(0.0, buying_power) / account_value + exit_proceeds + trim_proceeds
+
+    def _cost(d: DeltaDecision) -> float:
+        if d.action == "entry":
+            return max(0.0, _finite(d.current_weight))
+        # buy_add top-up increment: prefer the explicit drift, else (target − actual)
+        if d.weight_drift is not None and d.weight_drift == d.weight_drift:
+            return max(0.0, -d.weight_drift)
+        return max(0.0, _finite(d.current_weight) - _finite(d.actual_weight))
+
+    buys = sorted(kept_entries + [d for d in decisions.values() if d.action == "buy_add"],
+                  key=lambda d: d.rank)
+    cum = 0.0
     EPS = 1e-9
-    for d in entries:
-        # NaN-safe weight (a corrupt target weight should not silently pass the gate).
-        w = d.current_weight if (d.current_weight is not None and d.current_weight == d.current_weight) else 0.0
-        fits_count = kept < slots
-        fits_cash = (not cap_cash) or (cum_w + w <= avail_w + EPS)
-        if fits_count and fits_cash:
-            kept += 1
-            cum_w += w
+    for d in buys:
+        cost = _cost(d)
+        if cum + cost <= available + EPS:
+            cum += cost
             continue
-
-        reasons = []
-        if not fits_count:
-            reasons.append(
-                f"deferred — portfolio at capacity ({retained} retained + {kept} "
-                f"entries ≥ max_positions={max_positions})"
+        left = max(0.0, available - cum)
+        if d.action == "entry":
+            decisions[d.ticker] = replace(
+                d, action="watch", current_weight=None,
+                reason=(f"deferred — insufficient buying power (needs {cost:.2%}, "
+                        f"{left:.2%} of equity left)"),
             )
-        if cap_cash and not fits_cash:
-            reasons.append(
-                f"deferred — insufficient buying power (this {w:.2%} entry would take "
-                f"cumulative entries to {cum_w + w:.2%} > available {avail_w:.2%} of equity)"
+        else:  # buy_add → keep the position at its current weight, defer the top-up
+            decisions[d.ticker] = replace(
+                d, action="hold",
+                reason=(f"top-up deferred — insufficient buying power (needs {cost:.2%}, "
+                        f"{left:.2%} of equity left); holding at current weight"),
             )
-        decisions[d.ticker] = replace(
-            d, action="watch", current_weight=None, reason="; ".join(reasons),
-        )
 
 
 def _trim_to_cap(
