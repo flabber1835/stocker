@@ -681,7 +681,7 @@ _HTML = r"""<!DOCTYPE html>
           <thead><tr>
             <th onclick="sortRankings('rank')" id="rh-rank">RANK</th>
             <th onclick="sortRankings('ticker')" id="rh-ticker">TICKER</th>
-            <th onclick="sortRankings('composite_score')" id="rh-composite_score">SCORE</th>
+            <th onclick="sortRankings('name')" id="rh-name">COMPANY</th>
             <th>FLAGS</th>
             <th onclick="sortRankings('penalty_box_days_remaining')" id="rh-penalty_box_days_remaining" title="Days remaining in 30-day vetter penalty box">PENALTY</th>
             <th onclick="sortRankings('momentum')" id="rh-momentum">MOM</th>

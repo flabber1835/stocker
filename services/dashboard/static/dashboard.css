@@ -320,6 +320,10 @@ td { padding: 9px 12px; white-space: nowrap; font-size: 13px; }
   font-family: var(--mono); font-weight: 700;
   color: var(--navy); letter-spacing: .03em;
 }
+.t-company {
+  color: var(--text2); max-width: 180px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .rank-up { color: var(--green); font-size: 11px; margin-left: 3px; font-weight: 700; }
 .rank-dn { color: var(--red);   font-size: 11px; margin-left: 3px; font-weight: 700; }
 

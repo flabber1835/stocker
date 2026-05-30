@@ -415,7 +415,6 @@ function renderRankings() {
     if (av == null) return 1; if (bv == null) return -1;
     return (av < bv ? -1 : av > bv ? 1 : 0) * dir;
   });
-  const maxComp = Math.max(...rows.map(r => +(r.composite_score) || 0));
   $('r-count').textContent = _searchMode
     ? rows.length + ' result' + (rows.length !== 1 ? 's' : '') + ' for ‘' + q + '’'
     : rows.length + ' / ' + rankData.length;
@@ -444,10 +443,8 @@ function renderRankings() {
   }
 
   const html = rows.map(r => {
-    const w = maxComp ? Math.max(0, Math.min(100, (+r.composite_score || 0) / maxComp * 100)) : 0;
     const pctCls = pctColor(r.percentile);
     const pctVal = r.percentile != null ? (+r.percentile * 100).toFixed(0) + '%' : '—';
-    const compCls = r.composite_score != null ? (+r.composite_score > 0.5 ? 'pos' : 'neg') : 'neu';
 
     // Trend arrow shows the rank's direction over the last 5 runs (REGR_SLOPE).
     // Negative slope = rank number falling = stock improving. The slope smooths
@@ -497,8 +494,7 @@ function renderRankings() {
     return '<tr class="rank-row' + heldCls + exclCls + penaltyCls + expandedCls + '" id="rank-row-' + esc(r.ticker) + '" onclick="toggleDetail(\'' + esc(r.ticker) + '\',this)">'
       + '<td><span class="t-rank">' + r.rank + '</span>' + arrow + '</td>'
       + '<td><span class="t-ticker">' + r.ticker + '</span></td>'
-      + '<td><div class="score-wrap"><span class="score-num ' + compCls + '">' + fmtScore(r.composite_score) + '</span>'
-      + '<div class="score-track"><div class="score-fill" style="width:' + w + '%"></div></div></div></td>'
+      + '<td class="t-company" title="' + (r.name ? esc(r.name) : '') + '">' + (r.name ? esc(r.name) : '—') + '</td>'
       + '<td>' + flagsHtml + '</td>'
       + '<td>' + penaltyHtml + '</td>'
       + factorCells
