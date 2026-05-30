@@ -38,13 +38,15 @@ sys.path.insert(0, os.path.join(ROOT, "shared"))
 
 from app.main import (  # noqa: E402
     _call_risk,
+    _close_position_alpaca,
     _submit_to_alpaca,
     _trade_executor_warm_up,
 )
 import app.main as te_main  # noqa: E402
 
 
-def _httpx_client_mock(*, post_side_effect=None, post_return=None, get_return=None):
+def _httpx_client_mock(*, post_side_effect=None, post_return=None, get_return=None,
+                       delete_return=None, delete_side_effect=None):
     """Create an async httpx client mock for use with patch.object(te_main, 'httpx').
 
     Usage:
@@ -366,3 +368,56 @@ async def test_boot_cleanup_marks_pending_orders_as_failed():
     assert "restarted" in combined or "service" in combined, (
         "Boot cleanup error_message should explain why the order failed"
     )
+
+
+# ── 4. _close_position_alpaca (full-exit close, no fractional over-sell) ──────
+# Full exits use DELETE /v2/positions/{symbol} so Alpaca computes the exact held
+# quantity — fixing the bug where a stored qty rounded up past the true holding
+# (live_positions.qty NUMERIC(16,6) → 0.878611682 stored as 0.878612) made a
+# qty-based sell fail with "insufficient qty available".
+
+@pytest.mark.asyncio
+async def test_close_position_success_returns_order_id():
+    """A 200 from close-position returns (order_id, status, None) — no qty sent."""
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {"id": "ord-123", "status": "accepted"}
+    client = _httpx_client_mock(delete_return=resp)
+    with patch.object(te_main, "httpx") as httpx_mock:
+        httpx_mock.AsyncClient = MagicMock(return_value=client)
+        oid, status, err = await _close_position_alpaca("SNDK")
+    assert (oid, status, err) == ("ord-123", "accepted", None)
+    # Must hit the positions endpoint, not /v2/orders, and send no qty.
+    called_url = client.__aenter__.return_value.delete.call_args[0][0]
+    assert called_url.endswith("/v2/positions/SNDK")
+
+
+@pytest.mark.asyncio
+async def test_close_position_404_is_benign_already_flat():
+    """404 = position already flat. The exit goal (be out of the name) is met, so
+    treat as success (None id, sentinel status, no error) — not a failure."""
+    resp = MagicMock()
+    resp.status_code = 404
+    resp.text = "position not found"
+    client = _httpx_client_mock(delete_return=resp)
+    with patch.object(te_main, "httpx") as httpx_mock:
+        httpx_mock.AsyncClient = MagicMock(return_value=client)
+        oid, status, err = await _close_position_alpaca("SNDK")
+    assert oid is None
+    assert status == "position_already_closed"
+    assert err is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_code", [400, 403, 422, 500])
+async def test_close_position_other_errors_return_error_tuple(status_code):
+    """Any other non-2xx returns (None, None, error_text) — surfaced, not raised."""
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.text = f"Alpaca error {status_code}"
+    client = _httpx_client_mock(delete_return=resp)
+    with patch.object(te_main, "httpx") as httpx_mock:
+        httpx_mock.AsyncClient = MagicMock(return_value=client)
+        oid, status, err = await _close_position_alpaca("SNDK")
+    assert oid is None and status is None
+    assert err is not None and str(status_code) in err
