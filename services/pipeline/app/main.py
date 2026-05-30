@@ -13,6 +13,7 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy import text
 import redis.asyncio as aioredis
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from app.factors import compute_all_factors
 from app.regime import detect_regime, resolve_confirmed_regime
@@ -95,7 +96,13 @@ async def _pipeline_redis_setup():
     task after the synchronous DB/orphan-cleanup block in lifespan completes."""
     global redis_client, _consumer_task
     try:
-        redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
+        # socket_keepalive + health_check_interval keep a long-lived consumer
+        # connection healthy across idle gaps and brief redis stalls (the NAS can be
+        # slow), reconnecting cleanly instead of wedging the socket.
+        redis_client = aioredis.from_url(
+            REDIS_URL, decode_responses=True,
+            socket_keepalive=True, health_check_interval=30,
+        )
         await _ensure_consumer_group()
         _consumer_task = asyncio.create_task(_redis_consumer_loop())
     except Exception as exc:
@@ -172,6 +179,7 @@ async def _redis_consumer_loop() -> None:
     # otherwise be silently lost. Read with id="0" until the PEL is empty.
     pel_cursor = "0"
     draining_pel = True
+    idle_timeout_warned = False  # one log per slow/idle episode, reset on success
     while True:
         try:
             msgs = await redis_client.xreadgroup(
@@ -180,6 +188,7 @@ async def _redis_consumer_loop() -> None:
                 count=10 if draining_pel else 1,
                 block=0 if draining_pel else 5000,
             )
+            idle_timeout_warned = False  # a response came back — clear the episode flag
             # redis-py returns [[stream, entries]] even when the PEL is empty,
             # so `not msgs` is always False. Check whether any entries were
             # actually returned to detect an empty PEL correctly.
@@ -201,9 +210,21 @@ async def _redis_consumer_loop() -> None:
                     await redis_client.xack(PIPELINE_STREAM, CONSUMER_GROUP, msg_id)
         except asyncio.CancelledError:
             break
+        except RedisTimeoutError:
+            # A blocking XREADGROUP that elapses with no new events surfaces as a
+            # redis TimeoutError. On this stream that is the NORMAL idle case —
+            # pipeline events are rare and the scheduler (not this consumer) drives
+            # the chain — so it is NOT a failure. Re-issue the read immediately
+            # without an error log or back-off. Log once per episode so a genuinely
+            # slow redis is still visible without flooding (the previous behaviour
+            # spammed "consumer error: Timeout reading from redis:6379" every 5s).
+            if not idle_timeout_warned:
+                print("[pipeline] consumer: idle-stream read timeout (no events / redis "
+                      "slow) — non-fatal, will keep polling", flush=True)
+                idle_timeout_warned = True
+            continue
         except Exception as exc:
-            # xreadgroup already does a 5s server-side block; a 1s back-off
-            # here is enough to avoid a tight loop on transient errors.
+            # A real error (e.g. ConnectionError when redis is down): log and back off.
             print(f"[pipeline] consumer error: {exc}", flush=True)
             await asyncio.sleep(1)
 

@@ -21,11 +21,22 @@ if "redis" not in sys.modules:
             inst.aclose = AsyncMock()
             return inst
 
+    # redis.exceptions.TimeoutError — app.main imports it to treat an idle-stream
+    # blocking-read timeout as benign (not an error). Stub it so import succeeds.
+    _redis_exceptions = types.ModuleType("redis.exceptions")
+
+    class _FakeRedisTimeoutError(Exception):
+        pass
+
+    _redis_exceptions.TimeoutError = _FakeRedisTimeoutError
+
     _redis_async.Redis = _FakeRedis
     _redis_async.from_url = _FakeRedis.from_url
     _redis.asyncio = _redis_async
+    _redis.exceptions = _redis_exceptions
     sys.modules["redis"] = _redis
     sys.modules["redis.asyncio"] = _redis_async
+    sys.modules["redis.exceptions"] = _redis_exceptions
 
 # Default DATABASE_URL so importing app.main doesn't fail on missing env.
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://x:x@x/x")

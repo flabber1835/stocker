@@ -158,6 +158,23 @@ def test_consumer_loop_acks_without_triggering():
     assert "xack" in src, "consumer must still xack messages to keep the PEL clean"
 
 
+def test_consumer_treats_idle_timeout_as_benign():
+    """An idle-stream blocking-read timeout must be handled as the normal 'no events'
+    case (caught as RedisTimeoutError and `continue`d), NOT logged as 'consumer error'
+    every 5s. Guards the fix for the redis-timeout log flood."""
+    import inspect
+    src = inspect.getsource(pmain._redis_consumer_loop)
+    assert "RedisTimeoutError" in src, (
+        "consumer must catch RedisTimeoutError so an idle/slow blocking read is "
+        "treated as benign, not a hard error"
+    )
+    # The RedisTimeoutError handler must come before the generic Exception handler,
+    # otherwise the timeout would still fall into the 'consumer error' branch.
+    assert src.index("except RedisTimeoutError") < src.index("except Exception"), (
+        "RedisTimeoutError must be caught before the generic Exception branch"
+    )
+
+
 # ── delta-intents actionable filter ──────────────────────────────────────────
 # The trade-proposal UI was showing ~1955 rows because every ticker in the
 # universe produced a DeltaDecision and every non-actionable watch was stored.
