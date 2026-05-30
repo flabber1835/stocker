@@ -57,6 +57,9 @@ from stock_strategy_shared.loader import load_strategy  # noqa: E402
 _TS_PATH = os.path.join(ROOT, "services", "alpaca-sim", "app", "trailing.py")
 _spec = importlib.util.spec_from_file_location("sim_trailing", _TS_PATH)
 sim_trailing = importlib.util.module_from_spec(_spec)
+# Register in sys.modules BEFORE exec so the @dataclass in trailing.py can resolve
+# its own module during class creation (dataclasses looks up cls.__module__).
+sys.modules["sim_trailing"] = sim_trailing
 _spec.loader.exec_module(sim_trailing)
 arm = sim_trailing.arm
 
@@ -70,7 +73,11 @@ N_SECTORS = 11
 WARMUP = 220          # trading days before the sim window (>= 200-day SMA)
 SIM_DAYS = 365        # the "365-day simulation" window
 START_CASH = 1_000_000.0
-ALPHA_SCALE = 0.0009  # daily expected return per unit of composite factor signal
+# Daily alpha per unit composite factor signal. Calibrated for realism: a
+# persistently top-ranked name (composite ~1.3) earns ~0.00018*1.3*252 ≈ 6%/yr
+# of factor alpha on top of its market/beta return — a believable factor premium,
+# not the ~1000% runaway that an oversized value produces.
+ALPHA_SCALE = float(os.getenv("ALPHA_SCALE", "0.00018"))
 
 
 # ── Synthetic market generation ────────────────────────────────────────────────
@@ -90,13 +97,17 @@ def _regime_schedule(total, warmup, sim_days):
     intended bull_calm → bear_stress → bull_calm arc."""
     drift = np.empty(total)
     vol = np.empty(total)
-    drift[:warmup] = 0.0005
-    vol[:warmup] = 0.008
-    e1 = warmup + int(sim_days * 0.42)   # end of bull era 1
-    e2 = warmup + int(sim_days * 0.66)   # end of bear era 2
-    drift[warmup:e1] = 0.0006; vol[warmup:e1] = 0.008      # bull_calm
-    drift[e1:e2] = -0.0018;    vol[e1:e2] = 0.0225         # bear_stress
-    drift[e2:] = 0.0013;       vol[e2:] = 0.0105           # recovery bull
+    # Warmup: modest uptrend so the 200-day SMA forms below price (price > SMA).
+    drift[:warmup] = 0.0004
+    vol[:warmup] = 0.0075
+    e1 = warmup + int(sim_days * 0.40)   # end of bull era 1
+    e2 = warmup + int(sim_days * 0.70)   # end of bear era 2 (≈110-day bear)
+    drift[warmup:e1] = 0.0005; vol[warmup:e1] = 0.0080     # bull_calm (~+13% ann)
+    # Bear: deep + volatile so SPY drops decisively below its 200-day SMA (trend
+    # flips) AND 20-day realized vol clears the 0.20 annual threshold
+    # (0.026/day ≈ 41% ann) → detect_regime labels bear_stress.
+    drift[e1:e2] = -0.0030;    vol[e1:e2] = 0.0260
+    drift[e2:] = 0.0016;       vol[e2:] = 0.0110           # recovery bull
     return drift, vol
 
 
@@ -125,8 +136,8 @@ def generate_market(seed) -> Market:
     lowvol_i = FACTORS.index("low_volatility")
 
     strategy, _ = load_strategy(os.path.join(ROOT, "strategies", "quality_core_v1.yaml"))
-    e1 = WARMUP + int(SIM_DAYS * 0.42)
-    e2 = WARMUP + int(SIM_DAYS * 0.66)
+    e1 = WARMUP + int(SIM_DAYS * 0.40)
+    e2 = WARMUP + int(SIM_DAYS * 0.70)
 
     def wvec(regime):
         w = strategy.factor_weights[regime].model_dump()
@@ -513,9 +524,17 @@ def multi(seeds):
     out(f"  Sim2 beat Sim1 on FINAL VALUE in {agg['t_wins']}/{n} seeds")
     out(f"  Sim2 had SHALLOWER drawdown   in {agg['mdd_better']}/{n} seeds")
     out("")
-    out("Interpretation: a 5% trailing stop trades upside capture for downside")
-    out("control - it cuts idiosyncratic crashes and the bear-regime leg, but in")
-    out("choppy bull regimes it whipsaws out of volatile winners (see re-entries).")
+    out("Interpretation (data-driven, this synthetic world):")
+    out(f"  A 5% trailing stop is TIGHT relative to single-name volatility here")
+    out(f"  (~2-6% daily idiosyncratic vol), so it fires constantly: ~{st.mean(agg['stops']):.0f} stop")
+    out(f"  exits/yr with ~{st.mean(agg['reentry']):.0f} re-entries within 10 days. That whipsaw sells on")
+    out("  routine dips and rebuys higher, and because the big drawdowns here are")
+    out("  broad/market-beta driven (not isolated single-name crashes), the stop")
+    out("  does NOT meaningfully cushion drawdown either. Net: slightly lower final")
+    out("  value AND slightly deeper average drawdown vs the as-is buffer-zone exits.")
+    out("  Caveat: this is sensitive to the trail width vs the assumed vol — a wider")
+    out("  trail (e.g. 12-20%) or higher single-name crash frequency would shift the")
+    out("  balance; re-run with TRAIL_PCT to explore.")
 
     report = os.path.join(ROOT, "artifacts", "trailing_stop_ab_report.txt")
     os.makedirs(os.path.dirname(report), exist_ok=True)
