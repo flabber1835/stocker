@@ -4,9 +4,12 @@ Alpaca paper-trading simulator.
 Mimics the subset of Alpaca's REST API the rest of the system depends on:
   GET    /v2/account        — account state (equity, buying_power, cash)
   GET    /v2/positions      — current positions
-  POST   /v2/orders         — submit an order, fills immediately at last DB price
+  POST   /v2/orders         — submit an order. market orders fill immediately at
+                              the last DB price; trailing_stop sells rest open and
+                              fill when price falls trail_percent below their HWM
+                              (evaluated each time the clock advances)
   GET    /v2/orders         — list submitted orders
-  DELETE /v2/orders         — cancel pending orders (no-op: orders fill on submit)
+  DELETE /v2/orders         — cancel pending orders (no-op: market orders fill on submit)
 
 Admin endpoints (not present on real Alpaca, used for test seeding):
   POST /admin/reset                      — wipe state
@@ -31,6 +34,8 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from app.trailing import TrailingStopState, arm
 
 log = logging.getLogger("alpaca-sim")
 logging.basicConfig(level=logging.INFO, format="[alpaca-sim] %(message)s")
@@ -67,18 +72,31 @@ class _Position:
         self.cost_basis = self.qty * self.avg_entry_price
 
 
+class _TrailingStop:
+    """An open sell trailing stop tied to an order. `state` is the pure tracker."""
+    __slots__ = ("order_id", "ticker", "qty", "state")
+
+    def __init__(self, order_id: str, ticker: str, qty: float, state: TrailingStopState) -> None:
+        self.order_id = order_id
+        self.ticker = ticker
+        self.qty = qty
+        self.state = state
+
+
 class _State:
     def __init__(self) -> None:
         self.cash: float = 100_000.0
         self.positions: dict[str, _Position] = {}
         self.orders: list[dict[str, Any]] = []
         self.as_of_date: Optional[date] = None  # if set, prices clamped to this date
+        self.trailing_stops: list[_TrailingStop] = []  # open sell trailing stops
 
     def reset(self) -> None:
         self.cash = 100_000.0
         self.positions.clear()
         self.orders.clear()
         self.as_of_date = None
+        self.trailing_stops.clear()
 
 
 STATE = _State()
@@ -252,14 +270,17 @@ class _OrderIn(BaseModel):
     extended_hours: bool = False
     client_order_id: Optional[str] = None
     order_class: Optional[str] = None
+    trail_percent: Optional[float] = None  # required for type='trailing_stop'
 
 
 @app.post("/v2/orders", status_code=201)
 async def submit_order(req: _OrderIn) -> dict[str, Any]:
     if req.side not in ("buy", "sell"):
         raise HTTPException(status_code=422, detail="side must be buy or sell")
-    if req.type != "market":
-        raise HTTPException(status_code=422, detail="only market orders supported")
+    if req.type not in ("market", "trailing_stop"):
+        raise HTTPException(
+            status_code=422, detail="only market and trailing_stop orders supported"
+        )
 
     qty = req.qty
     if qty is None and req.notional is not None:
@@ -294,9 +315,34 @@ async def submit_order(req: _OrderIn) -> dict[str, Any]:
         "time_in_force": req.time_in_force,
         "status": "accepted",
         "extended_hours": req.extended_hours,
+        "trail_percent": req.trail_percent,
+        "hwm": None,
     }
 
-    # Fill synchronously — MOO semantics are collapsed for simulation simplicity
+    if req.type == "trailing_stop":
+        # A trailing stop is a *resting* order: it does NOT fill on submit. It is
+        # armed at the current price and only fills later when the price falls
+        # trail_percent below its high-water mark. The HWM is advanced (and the
+        # trigger checked) every time the simulation clock moves forward via
+        # POST /admin/set-as-of-date.
+        if req.side != "sell":
+            raise HTTPException(status_code=422, detail="trailing_stop must be a sell")
+        if not req.trail_percent or req.trail_percent <= 0:
+            raise HTTPException(status_code=422, detail="trailing_stop needs trail_percent > 0")
+        price = await _last_price(req.symbol)
+        if price is None:
+            raise HTTPException(status_code=422, detail=f"no price for {req.symbol}")
+        order["status"] = "new"  # open / resting
+        order["hwm"] = price
+        STATE.orders.append(order)
+        STATE.trailing_stops.append(
+            _TrailingStop(order["id"], req.symbol, float(qty), arm(req.trail_percent, price))
+        )
+        log.info("armed trailing stop %s %s qty=%.4g trail=%.2f%% @ $%.4f",
+                 order["id"][:8], req.symbol, qty, req.trail_percent, price)
+        return order
+
+    # Market order: fill synchronously — MOO semantics collapsed for simulation.
     await _fill_order(order)
     STATE.orders.append(order)
 
@@ -309,6 +355,56 @@ async def submit_order(req: _OrderIn) -> dict[str, Any]:
         )
 
     return order
+
+
+async def _evaluate_trailing_stops() -> list[dict[str, Any]]:
+    """Advance every open trailing stop to the current as-of price and fill any
+    that have triggered (or cancel any whose position has since been closed).
+
+    Called whenever the simulation clock moves (set-as-of-date) so resting stops
+    react to each new day's close. Returns the list of orders that filled.
+    """
+    if not STATE.trailing_stops:
+        return []
+    filled: list[dict[str, Any]] = []
+    still_open: list[_TrailingStop] = []
+    for ts in STATE.trailing_stops:
+        order = next((o for o in STATE.orders if o["id"] == ts.order_id), None)
+        pos = STATE.positions.get(ts.ticker)
+        # Cancel if the underlying position is gone (system already exited it).
+        if pos is None or pos.qty <= 1e-6:
+            if order is not None:
+                order["status"] = "canceled"
+                order["canceled_at"] = datetime.now(timezone.utc).isoformat()
+            continue
+        price = await _last_price(ts.ticker)
+        if price is None:
+            still_open.append(ts)
+            continue
+        sell_qty = min(ts.qty, pos.qty)
+        if ts.state.update(price):
+            # Triggered → market sell at the current price.
+            proceeds = sell_qty * price
+            STATE.cash += proceeds
+            pos.apply_sell(sell_qty)
+            if pos.qty <= 1e-6:
+                STATE.positions.pop(ts.ticker, None)
+            now = datetime.now(timezone.utc).isoformat()
+            if order is not None:
+                order.update({
+                    "status": "filled", "filled_at": now, "updated_at": now,
+                    "filled_qty": str(sell_qty), "filled_avg_price": f"{price:.4f}",
+                    "hwm": ts.state.hwm,
+                })
+                filled.append(order)
+            log.info("trailing stop FILLED %s qty=%.4g @ $%.4f (hwm=$%.4f stop=$%.4f)",
+                     ts.ticker, sell_qty, price, ts.state.hwm, ts.state.stop_price)
+        else:
+            if order is not None:
+                order["hwm"] = ts.state.hwm
+            still_open.append(ts)
+    STATE.trailing_stops = still_open
+    return filled
 
 
 @app.get("/v2/orders")
@@ -385,7 +481,12 @@ async def admin_set_as_of(req: _AsOfIn) -> dict[str, Any]:
     else:
         STATE.as_of_date = date.fromisoformat(req.as_of_date)
     log.info("as_of_date=%s", STATE.as_of_date)
-    return {"as_of_date": STATE.as_of_date.isoformat() if STATE.as_of_date else None}
+    # Advancing the clock makes resting trailing stops react to the new day's close.
+    triggered = await _evaluate_trailing_stops()
+    return {
+        "as_of_date": STATE.as_of_date.isoformat() if STATE.as_of_date else None,
+        "trailing_stops_filled": [o["id"] for o in triggered],
+    }
 
 
 class _LiquidateIn(BaseModel):
