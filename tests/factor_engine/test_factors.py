@@ -634,14 +634,17 @@ def _make_prices_with_outlier(
     n_days = 300
     dates = pd.date_range("2023-01-01", periods=n_days, freq="B")
     data = {}
+    # 12-1 momentum reads price_short at iloc[-22] (short_window+1, skip-month). Set
+    # the terminal window from -22 onward so the read position carries the intended
+    # return regardless of the exact momentum indexing (pre/post off-by-one fix).
     for i in range(n_normal):
         t = f"N{i:03d}"
         ret = rng.normal(normal_return, normal_std)
         prices = np.ones(n_days) * 100.0
-        prices[-21] = 100.0 * (1.0 + ret)
+        prices[-22:] = 100.0 * (1.0 + ret)
         data[t] = prices
     data["SNDK"] = np.ones(n_days) * 100.0
-    data["SNDK"][-21] = 100.0 * (1.0 + outlier_return)
+    data["SNDK"][-22:] = 100.0 * (1.0 + outlier_return)
     return pd.DataFrame(data, index=dates)
 
 

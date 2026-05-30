@@ -122,7 +122,12 @@ def test_momentum_monotone_in_ratio(ratio_lo, ratio_hi, long_price):
 
     def _build_pivot(short_price: float) -> pd.DataFrame:
         prices = np.full(n_days, long_price)
-        prices[-short_window:] = short_price
+        # 12-1 momentum reads price_short at iloc[-(short_window+1)] (skip-month),
+        # so cover that position as well as the most-recent window. Setting only the
+        # last short_window rows leaves the read position untouched → momentum 0 for
+        # every ratio. Using short_window+1 makes the data valid regardless of the
+        # exact (pre- vs post-off-by-one-fix) momentum indexing.
+        prices[-(short_window + 1):] = short_price
         dates = pd.date_range("2020-01-01", periods=n_days, freq="B")
         return pd.DataFrame({"TICKER": prices}, index=dates)
 
