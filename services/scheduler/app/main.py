@@ -1,8 +1,10 @@
 import asyncio
 import os
+import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field as dc_field
 from datetime import date, datetime, timedelta, timezone
+from enum import Enum
 from typing import Literal, Optional
 
 import httpx
@@ -43,6 +45,18 @@ _restart_abort_cycles: dict[tuple[str, str], int] = {}
 # started_at tokens already counted, so re-seeing the SAME orphan across ticks
 # (before the re-trigger writes a new run row) does not double-count a cycle.
 _restart_abort_seen: set[str] = set()
+
+# Per-step trigger cooldown. When a step is "idle" the supervisor POSTs /jobs/*
+# to start it, then waits for the next tick. But there's a lag between accepting
+# the trigger and the run row becoming visible as "running"; on a fast tick (the
+# dashboard's supervised run polls every ~1.5s) the step still reads "idle" and
+# gets re-POSTed every tick — a flood of duplicate triggers against the service
+# (the "POST /jobs/run hammered every few seconds" symptom). This throttle skips
+# re-triggering a step that was triggered within the cooldown, giving the prior
+# trigger time to land. Set to 0 to disable.
+TRIGGER_COOLDOWN_SECS = float(os.getenv("TRIGGER_COOLDOWN_SECS", "30"))
+# step name -> monotonic time of its last trigger. Reset when a new chain opens.
+_last_trigger_at: dict[str, float] = {}
 
 _scheduler: Optional[AsyncIOScheduler] = None
 _chain_lock = asyncio.Lock()
@@ -91,6 +105,33 @@ def _log(msg: str, **extra) -> None:
 
 # ── Step definitions ──────────────────────────────────────────────────────────
 
+class DateAnchor(str, Enum):
+    """Which date a step's `date_field` must equal to count as done-for-this-cycle.
+
+    This single knob replaces the old (use_trading_day, use_upstream_rank_date)
+    booleans. It exists because the whole "re-trigger loop" bug family came from
+    comparing a step's *data* date against the wrong reference date: a step keyed
+    on a data-date (which lags the wall clock until the day's bar is ingested)
+    must NOT be compared against a wall-clock date, or it looks "not done today"
+    forever (idle → trigger → success → idle → …). Making the anchor an explicit,
+    mutually-exclusive enum forces every step — including any new one — to declare
+    which reference it compares against, so the loop can't silently reappear.
+
+        TODAY         — wall-clock today. For steps that run once per calendar day
+                        and carry no data-date (fetch-data, vet: keyed on started_at).
+        TRADING_DAY   — last NYSE session. For the pipeline, whose chain_date is
+                        stamped date.today() at run start (== trading_day on a
+                        session; compared here so a weekend catch-up still matches).
+        UPSTREAM_RANK — the freshest successful ranking_runs.rank_date (fallback
+                        TODAY when none exists yet). For steps downstream of ranking
+                        (portfolio-builder, delta) whose date_field inherits
+                        rank_date and therefore lags trading_day intraday.
+    """
+    TODAY = "today"
+    TRADING_DAY = "trading_day"
+    UPSTREAM_RANK = "upstream_rank"
+
+
 @dataclass
 class _StepDef:
     name: str
@@ -98,17 +139,8 @@ class _StepDef:
     start_path: str
     date_field: str
     status_path: str = "/runs/latest"  # path used for status polling
-    use_trading_day: bool = False   # use last_trading_day() for date comparison
+    date_anchor: DateAnchor = DateAnchor.TODAY  # which reference date_field is compared against
     also_accept_prev: bool = False  # also accept prev_trading_day
-    # For downstream-of-ranking steps (portfolio-builder, delta) compare the
-    # step's date_field to the latest successful ranking_runs.rank_date rather
-    # than wall-clock trading_day. portfolio_date and delta run_date inherit
-    # rank_date (the MAX SPY date in daily_prices), which lags trading_day
-    # whenever today's bar isn't ingested yet — every weekday from market open
-    # until ~1–2h after close. Comparing against trading_day caused an
-    # infinite retrigger loop (idle → trigger → success → idle → …). Treat
-    # the step as "done" when its date matches the freshest ranking's date.
-    use_upstream_rank_date: bool = False
     job_type: str | None = None     # job_type filter on /runs/latest
     extra_ok: tuple = ()            # extra ok statuses beyond "success"
     optional: bool = False          # if True, failure does not abort chain
@@ -130,7 +162,7 @@ _STEPS: list[_StepDef] = [
     # also_accept_prev=False: yesterday's chain_date never equals today's trading_day
     # on a normal trading day, so there's no risk of treating yesterday's run as done.
     _StepDef("pipeline", PIPELINE_URL, "/jobs/run", "chain_date",
-             use_trading_day=True, also_accept_prev=False),
+             date_anchor=DateAnchor.TRADING_DAY, also_accept_prev=False),
     # Vetter runs before portfolio-builder so exclusions feed the same-cycle build.
     # Not optional: if the vetter fails, the chain fails. The portfolio must never
     # be built without vetter exclusions applied.
@@ -148,7 +180,7 @@ _STEPS: list[_StepDef] = [
     # step. Once a fresher ranking lands, portfolio_date != latest rank_date again
     # and the step correctly re-runs.
     _StepDef("portfolio-builder", PORTFOLIO_BUILDER_URL, "/jobs/build", "portfolio_date",
-             use_upstream_rank_date=True),
+             date_anchor=DateAnchor.UPSTREAM_RANK),
     # delta_runs.run_date is set from ranking_runs.rank_date in _do_delta_step
     # (see services/pipeline/app/main.py: `run_date = latest_rank.rank_date`).
     # Same data-date semantics as portfolio_date, same fix.
@@ -160,7 +192,7 @@ _STEPS: list[_StepDef] = [
     # (and self-heal/run-now can re-trigger it).
     _StepDef("delta", PIPELINE_URL, "/jobs/delta", "run_date",
              status_path="/runs/delta-latest",
-             use_upstream_rank_date=True,
+             date_anchor=DateAnchor.UPSTREAM_RANK,
              max_running_minutes=30),
 ]
 
@@ -418,11 +450,11 @@ async def _step_state(
         data = r.json()
         if step.job_type and data.get("job_type") != step.job_type:
             return "idle"
-        if step.use_upstream_rank_date and latest_rank_date:
+        if step.date_anchor is DateAnchor.UPSTREAM_RANK and latest_rank_date:
             target = latest_rank_date
             ok_dates = {target}
         else:
-            target = trading_day if step.use_trading_day else today
+            target = trading_day if step.date_anchor is DateAnchor.TRADING_DAY else today
             ok_dates = {target, prev_trading_day} if step.also_accept_prev else {target}
         run_date = (data.get(step.date_field) or "")[:10]
         run_status = data.get("status")
@@ -786,8 +818,23 @@ async def _supervisor_tick() -> None:
                     _log(f"supervisor: {step.name} failed — chain suspended for {today}; fix and re-trigger or wait for tomorrow")
                     return
 
-                # state == "idle" — trigger this step and wait for the next tick
+                # state == "idle" — trigger this step and wait for the next tick.
+                # Throttle: if we triggered this step within TRIGGER_COOLDOWN_SECS,
+                # don't re-POST — the prior trigger's run row may not be visible yet.
+                # Re-POSTing every fast tick floods the service with duplicate runs.
                 _chain_status["status"] = "running"
+                _now = time.monotonic()
+                if (
+                    TRIGGER_COOLDOWN_SECS > 0
+                    and _now - _last_trigger_at.get(step.name, 0.0) < TRIGGER_COOLDOWN_SECS
+                ):
+                    _log(f"supervisor: {step.name} idle but triggered "
+                         f"{_now - _last_trigger_at[step.name]:.0f}s ago "
+                         f"(< {TRIGGER_COOLDOWN_SECS:.0f}s cooldown) — waiting for run to appear")
+                    await _db_update_run(run_id, "running", _chain_status["steps"], _chain_status["run_ids"],
+                                         force_pending=_force_pending)
+                    return
+                _last_trigger_at[step.name] = _now
                 await _trigger_step(client, step)
                 # Discard from _force_pending: triggering an "idle" step IS the
                 # re-run for that step, so when it eventually becomes "done" the

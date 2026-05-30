@@ -35,6 +35,7 @@ def _make_apscheduler_stubs():
 _make_apscheduler_stubs()
 
 from app.main import (  # noqa: E402
+    DateAnchor,
     _StepDef,
     _STEPS,
     _chain_status,
@@ -47,6 +48,21 @@ from app.main import (  # noqa: E402
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def _reset_supervisor_globals():
+    """Clear the supervisor's module-level mutable state before every test so it
+    can't bleed across tests. Reached via _step_state.__globals__ (not a fresh
+    `import app.main`) because the scheduler conftest's `del sys.modules["app.*"]`
+    can otherwise hand back a different module instance with different dicts.
+    Covers the trigger cooldown (_last_trigger_at) and the crash-loop breaker
+    counters (_restart_abort_cycles / _restart_abort_seen)."""
+    g = _step_state.__globals__
+    for name in ("_last_trigger_at", "_restart_abort_cycles", "_restart_abort_seen"):
+        if name in g:
+            g[name].clear()
+    yield
+
 
 def _mock_response(status_code: int = 200, payload: dict | None = None):
     """Build a minimal mock httpx response."""
@@ -68,9 +84,22 @@ def _async_client_returning(payload: dict, status_code: int = 200):
 
 # ── TestStepState ─────────────────────────────────────────────────────────────
 
+def _translate_legacy_date_kwargs(kwargs: dict) -> dict:
+    """Translate the legacy boolean date knobs (use_trading_day /
+    use_upstream_rank_date) to the date_anchor enum so the existing behavioral
+    tests keep exercising the same comparison logic after the knobs were
+    consolidated. also_accept_prev is a real field and passes through unchanged."""
+    if kwargs.pop("use_upstream_rank_date", False):
+        kwargs.setdefault("date_anchor", DateAnchor.UPSTREAM_RANK)
+    elif kwargs.pop("use_trading_day", False):
+        kwargs.setdefault("date_anchor", DateAnchor.TRADING_DAY)
+    return kwargs
+
+
 class TestStepState:
 
     def _make_step(self, **kwargs) -> _StepDef:
+        kwargs = _translate_legacy_date_kwargs(kwargs)
         defaults = dict(
             name="test-step",
             url="http://fake",
@@ -371,6 +400,43 @@ class TestSupervisorTick:
         assert triggered_step.name == "fetch-data"
         # Chain should be running, not complete
         assert _chain_status["status"] == "running"
+
+    def _idle_tick_globals(self, mock_trigger):
+        return {
+            "_has_universe": AsyncMock(return_value=True),
+            "_step_state": AsyncMock(return_value="idle"),
+            "_trigger_step": mock_trigger,
+            "_get_latest_run_id": AsyncMock(return_value=None),
+            "_db_open_run": AsyncMock(return_value="run-uuid-1"),
+            "_db_update_run": AsyncMock(),
+            "_db_close_run": AsyncMock(),
+            "_is_after_scheduled_time": MagicMock(return_value=True),
+            "_latest_rank_date": AsyncMock(return_value=None),
+        }
+
+    @pytest.mark.asyncio
+    async def test_idle_step_not_retriggered_within_cooldown(self):
+        """Two ticks in quick succession with the step still idle → only ONE
+        trigger. The second is inside TRIGGER_COOLDOWN_SECS, so it must not
+        re-POST — this is the /jobs/run flood guard."""
+        self._reset_chain_status()
+        mock_trigger = AsyncMock()
+        with patch.dict(_supervisor_tick.__globals__, self._idle_tick_globals(mock_trigger)):
+            await _supervisor_tick()
+            await _supervisor_tick()
+        assert mock_trigger.call_count == 1, "second tick within cooldown must not re-trigger"
+
+    @pytest.mark.asyncio
+    async def test_idle_step_retriggered_when_cooldown_disabled(self):
+        """TRIGGER_COOLDOWN_SECS=0 disables the throttle → both ticks trigger."""
+        self._reset_chain_status()
+        mock_trigger = AsyncMock()
+        g = self._idle_tick_globals(mock_trigger)
+        g["TRIGGER_COOLDOWN_SECS"] = 0.0
+        with patch.dict(_supervisor_tick.__globals__, g):
+            await _supervisor_tick()
+            await _supervisor_tick()
+        assert mock_trigger.call_count == 2, "cooldown disabled → every idle tick re-triggers"
 
     @pytest.mark.asyncio
     async def test_waits_when_first_step_running(self):
@@ -998,6 +1064,7 @@ class TestWeekendDateFields:
     """
 
     def _make_step(self, **kwargs) -> _StepDef:
+        kwargs = _translate_legacy_date_kwargs(kwargs)
         defaults = dict(name="test-step", url="http://fake", start_path="/jobs/run",
                         date_field="run_date")
         defaults.update(kwargs)
@@ -1456,6 +1523,7 @@ class TestCrossMidnightRunningStep:
     """
 
     def _make_step(self, **kwargs) -> _StepDef:
+        kwargs = _translate_legacy_date_kwargs(kwargs)
         defaults = dict(name="fetch-data", url="http://fake", start_path="/jobs/fetch-data",
                         date_field="started_at", job_type="fetch-data")
         defaults.update(kwargs)
@@ -1837,3 +1905,46 @@ class TestRestartAbortLoopBreaker:
              "error_message": "Connection refused by Alpha Vantage API"}
         )
         assert await _step_state(client, step, today, today, "2026-05-20") == "failed"
+
+
+# ── TestDateAnchorInvariant ───────────────────────────────────────────────────
+
+class TestDateAnchorInvariant:
+    """Durable guard against the re-trigger-loop bug class.
+
+    Every step, once it has produced a SUCCESSFUL run for the cycle currently
+    being processed, must read 'done' — never 'idle' (which would re-POST /jobs/*
+    forever). Parametrized over the REAL _STEPS, with ranking data deliberately
+    lagging wall-clock by a day (the exact condition that used to loop), so a new
+    step configured with the wrong date_anchor fails right here.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("step", _STEPS, ids=lambda s: s.name)
+    async def test_step_done_for_current_cycle_never_idles(self, step):
+        today = "2026-05-21"
+        trading_day = "2026-05-21"
+        prev = "2026-05-20"
+        latest_rank_date = "2026-05-20"  # ranking lags wall-clock — the loop trigger
+
+        # The date this step's date_field carries when it HAS produced output for
+        # the current cycle, per its anchor.
+        if step.date_anchor is DateAnchor.UPSTREAM_RANK:
+            cycle_date = latest_rank_date
+        elif step.date_anchor is DateAnchor.TRADING_DAY:
+            cycle_date = trading_day
+        else:  # TODAY
+            cycle_date = today
+
+        payload = {"status": "success", step.date_field: cycle_date}
+        if step.job_type:
+            payload["job_type"] = step.job_type
+        client = _async_client_returning(payload)
+
+        state = await _step_state(client, step, today, trading_day, prev,
+                                  latest_rank_date=latest_rank_date)
+        assert state == "done", (
+            f"{step.name} produced output for the current cycle "
+            f"({step.date_field}={cycle_date}) but _step_state returned {state!r} — "
+            f"that is a re-trigger loop. Check its date_anchor ({step.date_anchor})."
+        )

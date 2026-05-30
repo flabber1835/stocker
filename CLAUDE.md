@@ -397,6 +397,35 @@ wall-clock date by 1+ days. The `already_ran_today` guard updates
 `chain_date = date.today()` on the existing success row before returning
 so the scheduler classifies the step as `done` without re-triggering.
 
+Which reference date each step's `date_field` is compared against is a
+single explicit `DateAnchor` enum on `_StepDef` (replacing the old
+`use_trading_day` / `use_upstream_rank_date` booleans). This is the
+consolidation of the recurring "re-trigger loop" bug family — a step keyed
+on a *data*-date that lags the wall clock must NOT be compared against a
+calendar date, or it reads "not done today" forever:
+
+```text
+TODAY         — wall-clock today (fetch-data, vet; keyed on started_at)
+TRADING_DAY   — last NYSE session (pipeline; chain_date == today on a session)
+UPSTREAM_RANK — freshest ranking_runs.rank_date, fallback TODAY
+                (portfolio-builder, delta; their date_field inherits rank_date,
+                 which lags trading_day intraday)
+```
+
+A parametrized invariant test (`TestDateAnchorInvariant`) asserts every
+real step, once it has produced output for the current (lagging) cycle,
+reads `done` not `idle` — so a new step with a mis-chosen anchor fails in
+CI instead of looping in production.
+
+Trigger cooldown (`TRIGGER_COOLDOWN_SECS`, default 30s): when a step is
+`idle` the supervisor POSTs `/jobs/*` then waits a tick. There's a lag
+between accepting the trigger and the run row becoming visible as
+`running`; on a fast tick (the dashboard's supervised run polls ~1.5s) the
+step still reads `idle` and would be re-POSTed every tick — the "/jobs/run
+hammered every few seconds" flood. The cooldown skips re-triggering a step
+triggered within the window. Irrelevant to the 300s cron supervisor (tick ≫
+cooldown); only throttles the fast dashboard-driven path.
+
 The pipeline service maintains a Redis consumer on `stocker:pipeline_events`
 (consumer group `pipeline-consumers`) that drains the Pending Entries List on
 startup (`id="0"` until empty) before switching to `>` reads. Events are

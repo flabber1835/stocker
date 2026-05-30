@@ -29,7 +29,7 @@ def _make_apscheduler_stubs():
 
 _make_apscheduler_stubs()
 
-from app.main import _STEPS  # noqa: E402
+from app.main import _STEPS, DateAnchor  # noqa: E402
 
 
 def _step_names() -> list[str]:
@@ -86,26 +86,26 @@ class TestStepOrdering:
             "so the portfolio is never built without vetter exclusions"
         )
 
-    def test_no_use_trading_day_step_uses_started_at(self):
+    def test_no_trading_day_step_uses_started_at(self):
         """
-        Any step with use_trading_day=True must NOT use 'started_at' as its date_field.
+        Any step with date_anchor=TRADING_DAY must NOT use 'started_at' as its date_field.
 
         When a step runs on a weekend, started_at[:10] is the weekend date (e.g.
-        Saturday 2026-05-23), but use_trading_day=True targets the last trading day
+        Saturday 2026-05-23), but TRADING_DAY targets the last trading day
         (Friday 2026-05-22).  Saturday != Friday → the step is perpetually 'idle'
         and the supervisor re-triggers it in an infinite loop on every weekend cold boot.
 
-        Use a data-date field instead (portfolio_date, run_date, score_date) which the
+        Use a data/chain-date field instead (chain_date, portfolio_date, run_date) which the
         service sets to the trading day of the data being processed, not the wall-clock
         run time.
         """
         for step in _STEPS:
-            if step.use_trading_day:
+            if step.date_anchor is DateAnchor.TRADING_DAY:
                 assert step.date_field != "started_at", (
-                    f"Step '{step.name}' has use_trading_day=True but date_field='started_at'. "
+                    f"Step '{step.name}' has date_anchor=TRADING_DAY but date_field='started_at'. "
                     f"On weekends started_at is the weekend date, not the trading day, so the "
-                    f"step will be 'idle' forever.  Use a data-date field (portfolio_date, "
-                    f"run_date, score_date) that the service sets to the trading day."
+                    f"step will be 'idle' forever.  Use a data/chain-date field (chain_date, "
+                    f"portfolio_date, run_date) that the service sets to the trading day."
                 )
 
     def test_portfolio_builder_uses_portfolio_date(self):
