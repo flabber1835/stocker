@@ -56,3 +56,29 @@ def is_stale(last_run_date: date | None, today: date) -> bool:
     if today <= last_run_date:
         return False
     return count_missed_trading_days(last_run_date, today) > 0
+
+
+def is_trading_day(d: date) -> bool:
+    """Return True if `d` is an NYSE trading session (not a weekend or an
+    exchange holiday like Memorial Day, Good Friday, Christmas, etc.)."""
+    return last_trading_day(d) == d
+
+
+def should_run_chain(today: date, last_processed_session: date | None) -> bool:
+    """Trading-calendar-aware decision: should the daily chain START today?
+
+    - On an NYSE trading session: always run. (A separate scheduled-time gate
+      ensures we only run after the close, so today's bar is available.)
+    - On a non-trading day (weekend/holiday): run ONLY to catch up a trading
+      session whose data has not been processed yet. Once that session has been
+      processed, further weekend/holiday ticks are no-ops — this is what stops
+      the chain (and the expensive vetter step) from re-running pointlessly on
+      every weekend day and on weekday holidays.
+
+    `last_processed_session` is the data date of the last completed chain
+    (the latest delta proposal date). None means "never run" → always run.
+    """
+    if is_trading_day(today):
+        return True
+    return is_stale(last_processed_session, today)
+

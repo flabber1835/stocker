@@ -1635,3 +1635,104 @@ class TestRunsLatestStripsMetaKey:
             out = await _runs_latest()
         assert "__meta" not in out["steps"]
         assert out["steps"] == {"fetch-data": "done", "pipeline": "running"}
+
+
+# ── Trading-calendar gate (should_run_chain wiring in _supervisor_tick) ─────────
+
+from datetime import date as _date  # noqa: E402
+
+
+class TestSupervisorTradingCalendarGate:
+    """The supervisor consults should_run_chain() before STARTING a fresh chain,
+    and bypasses it once a chain is already active (so multi-tick runs and
+    weekend catch-ups advance to completion)."""
+
+    def _reset_fresh(self):
+        """Fresh, not-yet-started chain for today (so the date-rollover branch
+        resets cleanly and current_run_id is None)."""
+        _supervisor_tick.__globals__["_chain_status"].update({
+            "status": None, "date": "2026-05-21", "steps": {}, "run_ids": {},
+            "last_completed": None, "current_run_id": None, "next_run": None,
+        })
+        _supervisor_tick.__globals__["_force_pending"].clear()
+
+    @pytest.mark.asyncio
+    async def test_skips_when_should_run_chain_false(self):
+        """Non-trading day, latest session already processed → gate returns False
+        → supervisor returns BEFORE the universe check (no steps triggered)."""
+        self._reset_fresh()
+        mock_has_universe = AsyncMock(return_value=True)
+        mock_trigger = AsyncMock()
+        with patch.dict(_supervisor_tick.__globals__, {
+            "_is_after_scheduled_time": MagicMock(return_value=True),
+            "_latest_delta_date": AsyncMock(return_value=_date(2026, 5, 29)),
+            "should_run_chain": MagicMock(return_value=False),
+            "_has_universe": mock_has_universe,
+            "_trigger_step": mock_trigger,
+            "_db_open_run": AsyncMock(return_value="run-x"),
+            "_db_update_run": AsyncMock(),
+            "_db_close_run": AsyncMock(),
+        }):
+            await _supervisor_tick()
+
+        # Gate short-circuited: never reached the universe check or any trigger.
+        mock_has_universe.assert_not_called()
+        mock_trigger.assert_not_called()
+        assert _chain_status["status"] != "running"
+
+    @pytest.mark.asyncio
+    async def test_proceeds_when_should_run_chain_true(self):
+        """Trading session (or stale catch-up) → gate returns True → supervisor
+        proceeds into the chain (universe check runs, first step triggered)."""
+        self._reset_fresh()
+        mock_has_universe = AsyncMock(return_value=True)
+        mock_trigger = AsyncMock()
+        with patch.dict(_supervisor_tick.__globals__, {
+            "_is_after_scheduled_time": MagicMock(return_value=True),
+            "_latest_delta_date": AsyncMock(return_value=None),
+            "should_run_chain": MagicMock(return_value=True),
+            "_has_universe": mock_has_universe,
+            "_step_state": AsyncMock(return_value="idle"),
+            "_trigger_step": mock_trigger,
+            "_get_latest_run_id": AsyncMock(return_value=None),
+            "_db_open_run": AsyncMock(return_value="run-x"),
+            "_db_update_run": AsyncMock(),
+            "_db_close_run": AsyncMock(),
+        }):
+            await _supervisor_tick()
+
+        mock_has_universe.assert_called_once()
+        assert mock_trigger.call_count == 1
+        assert _chain_status["status"] == "running"
+
+    @pytest.mark.asyncio
+    async def test_active_chain_bypasses_gate(self):
+        """A chain already open for today (current_run_id set) advances even when
+        should_run_chain would say False — so a started run, including a weekend
+        catch-up, always runs to completion across ticks."""
+        today = _date.today().isoformat()
+        _supervisor_tick.__globals__["_chain_status"].update({
+            "status": "running", "date": today, "steps": {}, "run_ids": {},
+            "last_completed": None, "current_run_id": "active-run", "next_run": None,
+        })
+        _supervisor_tick.__globals__["_force_pending"].clear()
+
+        mock_has_universe = AsyncMock(return_value=True)
+        mock_should_run = MagicMock(return_value=False)  # would block a fresh start
+        with patch.dict(_supervisor_tick.__globals__, {
+            "_is_after_scheduled_time": MagicMock(return_value=True),
+            "_latest_delta_date": AsyncMock(return_value=_date(2026, 5, 29)),
+            "should_run_chain": mock_should_run,
+            "_has_universe": mock_has_universe,
+            "_step_state": AsyncMock(return_value="idle"),
+            "_trigger_step": AsyncMock(),
+            "_get_latest_run_id": AsyncMock(return_value=None),
+            "_db_open_run": AsyncMock(return_value="active-run"),
+            "_db_update_run": AsyncMock(),
+            "_db_close_run": AsyncMock(),
+        }):
+            await _supervisor_tick()
+
+        # Bypassed the gate entirely (never consulted) and proceeded.
+        mock_should_run.assert_not_called()
+        mock_has_universe.assert_called_once()

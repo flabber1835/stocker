@@ -10,7 +10,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import BackgroundTasks, FastAPI
 
-from app.staleness import is_stale, last_trading_day
+from app.staleness import last_trading_day, should_run_chain
 
 AV_INGESTOR_URL       = os.getenv("AV_INGESTOR_URL",       "http://av-ingestor:8000")
 PIPELINE_URL          = os.getenv("PIPELINE_URL",           "http://pipeline:8000")
@@ -240,6 +240,32 @@ async def _latest_rank_date() -> str | None:
         return row["rank_date"].isoformat()
     except Exception as exc:
         _log("DB: latest_rank_date failed", error=str(exc))
+        return None
+    finally:
+        await conn.close()
+
+
+async def _latest_delta_date() -> date | None:
+    """Return the data date of the most recent successful delta run, or None.
+
+    This is the "last processed trading session" signal for the trading-calendar
+    gate: a successful delta run means a trade proposal was produced for that
+    data date. Returns None on any DB issue or when no delta run exists yet
+    (treated as "never run" → the gate will allow a run).
+    """
+    conn = await _db_connect()
+    if not conn:
+        return None
+    try:
+        row = await conn.fetchrow(
+            "SELECT run_date FROM delta_runs WHERE status='success' "
+            "ORDER BY run_date DESC, completed_at DESC NULLS LAST LIMIT 1"
+        )
+        if not row or row["run_date"] is None:
+            return None
+        return row["run_date"]
+    except Exception as exc:
+        _log("DB: latest_delta_date failed", error=str(exc))
         return None
     finally:
         await conn.close()
@@ -542,8 +568,26 @@ async def _supervisor_tick() -> None:
         if _chain_status.get("status") in ("success", "failed") and _chain_status.get("date") == today:
             return
 
-        if not _is_after_scheduled_time() and not _force_pending:
-            return  # too early — wait for market close (manual run-now bypasses via _force_pending)
+        # Gate the START of a fresh chain on the trading calendar + scheduled time.
+        # Once a chain is open for today (current_run_id set) we let it advance on
+        # every tick regardless of these gates, so a multi-tick run — including a
+        # weekend catch-up of a missed session — always runs to completion.
+        # Manual run-now (_force_pending) bypasses both gates.
+        chain_active = bool(_chain_status.get("current_run_id"))
+        if not chain_active and not _force_pending:
+            if not _is_after_scheduled_time():
+                return  # too early — wait for market close
+            last_session = await _latest_delta_date()
+            if not should_run_chain(date.today(), last_session):
+                # Non-trading day (weekend/holiday) and the latest session is
+                # already processed — nothing to do. Skips the wasteful weekend/
+                # holiday re-runs of fetch-data and the vetter.
+                _log(
+                    "supervisor: not a trading session and nothing stale — skipping tick",
+                    today=today,
+                    last_processed=last_session.isoformat() if last_session else None,
+                )
+                return
 
         async with httpx.AsyncClient() as client:
             # Cold-start guard: only trigger fetch-universe when the universe is

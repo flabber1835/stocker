@@ -739,6 +739,16 @@ The chain is triggered in exactly two ways:
 2. **Manual** — `POST /jobs/run-now` (dashboard "Run" button) sets `_force_pending`
    and re-executes today's chain from scratch through all five steps
 
+The daily schedule is **trading-calendar aware** (`should_run_chain` in
+`services/scheduler/app/staleness.py`, NYSE calendar via `exchange_calendars`):
+a fresh chain starts only on an NYSE trading session, or on a weekend/holiday
+solely to catch up a session whose proposal hasn't been produced yet (the
+"last processed session" = latest successful `delta_runs.run_date`). This stops
+the chain — and the Ollama vetter — from re-running pointlessly every weekend
+and on weekday holidays, while still recovering a missed Friday chain over the
+weekend for Monday's open. The gate only governs STARTING a chain; once one is
+open for today it advances every tick. Manual run-now bypasses the gate.
+
 Each tick (every SUPERVISOR_INTERVAL_SECS) reads each service's `/runs/latest`
 and triggers the first idle step, then returns. The chain advances on the next
 tick. After today's chain reaches a terminal state (success/failed), further

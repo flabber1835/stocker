@@ -2,7 +2,13 @@ from datetime import date
 
 import pytest
 
-from app.staleness import count_missed_trading_days, is_stale, last_trading_day
+from app.staleness import (
+    count_missed_trading_days,
+    is_stale,
+    is_trading_day,
+    last_trading_day,
+    should_run_chain,
+)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -440,3 +446,110 @@ class TestIsStaleHolidayRandomisation:
     ])
     def test_holiday_stale_matrix(self, last_run, today, stale, note):
         assert is_stale(_d(last_run), _d(today)) is stale, note
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# is_trading_day
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestIsTradingDay:
+    """A trading session is True; weekends and exchange holidays are False."""
+
+    @pytest.mark.parametrize("d", [
+        "2026-05-26",  # Tuesday
+        "2026-05-27",  # Wednesday
+        "2026-05-28",  # Thursday
+        "2026-05-29",  # Friday
+        "2026-06-01",  # Monday
+        "2026-11-27",  # Black Friday — NYSE open (half day)
+    ])
+    def test_sessions_are_trading_days(self, d):
+        assert is_trading_day(_d(d)) is True
+
+    @pytest.mark.parametrize("d", [
+        "2026-05-30",  # Saturday
+        "2026-05-31",  # Sunday
+    ])
+    def test_weekends_are_not_trading_days(self, d):
+        assert is_trading_day(_d(d)) is False
+
+    @pytest.mark.parametrize("d,holiday", [
+        ("2026-05-25", "Memorial Day (Mon)"),
+        ("2026-04-03", "Good Friday"),
+        ("2026-01-19", "MLK Day (Mon)"),
+        ("2026-02-16", "Presidents Day (Mon)"),
+        ("2026-09-07", "Labor Day (Mon)"),
+        ("2026-11-26", "Thanksgiving (Thu)"),
+        ("2025-12-25", "Christmas (Thu)"),
+        ("2026-01-01", "New Year's Day (Thu)"),
+        ("2026-07-03", "Independence Day observed (Fri)"),
+    ])
+    def test_holidays_are_not_trading_days(self, d, holiday):
+        assert is_trading_day(_d(d)) is False, holiday
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# should_run_chain  (trading-calendar gate)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestShouldRunChainTradingDays:
+    """On a trading session the chain always starts, regardless of what was
+    last processed (same-day re-run is guarded elsewhere by chain status)."""
+
+    @pytest.mark.parametrize("last_processed", [
+        None,            # cold start
+        "2026-05-28",    # prior session
+        "2026-05-29",    # 'today' already processed — gate still True; status guard stops re-run
+    ])
+    def test_trading_day_always_runs(self, last_processed):
+        last = _d(last_processed) if last_processed else None
+        assert should_run_chain(_d("2026-05-29"), last) is True  # Friday session
+
+    def test_monday_after_weekend_runs(self):
+        assert should_run_chain(_d("2026-06-01"), _d("2026-05-29")) is True
+
+
+class TestShouldRunChainWeekends:
+    """On weekends the chain runs ONLY to catch up an unprocessed session."""
+
+    def test_saturday_after_completed_friday_skips(self):
+        # Friday's chain ran → last_processed = Friday → nothing to do Saturday
+        assert should_run_chain(_d("2026-05-30"), _d("2026-05-29")) is False
+
+    def test_sunday_after_completed_friday_skips(self):
+        assert should_run_chain(_d("2026-05-31"), _d("2026-05-29")) is False
+
+    def test_saturday_after_missed_friday_catches_up(self):
+        # Friday's chain was missed (last processed = Thursday) → Friday session
+        # is unprocessed → run on Saturday to recover it for Monday's open.
+        assert should_run_chain(_d("2026-05-30"), _d("2026-05-28")) is True
+
+    def test_sunday_after_missed_friday_catches_up(self):
+        assert should_run_chain(_d("2026-05-31"), _d("2026-05-28")) is True
+
+    def test_weekend_cold_start_runs(self):
+        # No delta run ever (fresh deploy on a weekend) → bootstrap so the system
+        # is ready for Monday.
+        assert should_run_chain(_d("2026-05-30"), None) is True
+
+
+class TestShouldRunChainHolidays:
+    """Weekday holidays behave like weekends: skip unless catching up."""
+
+    def test_memorial_day_after_completed_friday_skips(self):
+        # Fri May 22 processed; Mon May 25 is Memorial Day → skip
+        assert should_run_chain(_d("2026-05-25"), _d("2026-05-22")) is False
+
+    def test_memorial_day_after_missed_friday_catches_up(self):
+        # Thu May 21 processed, Fri May 22 missed → catch up on the holiday
+        assert should_run_chain(_d("2026-05-25"), _d("2026-05-21")) is True
+
+    def test_good_friday_after_completed_thursday_skips(self):
+        assert should_run_chain(_d("2026-04-03"), _d("2026-04-02")) is False
+
+    def test_good_friday_after_missed_thursday_catches_up(self):
+        # Wed Apr 1 processed, Thu Apr 2 missed → catch up on Good Friday
+        assert should_run_chain(_d("2026-04-03"), _d("2026-04-01")) is True
+
+    def test_thanksgiving_after_completed_wednesday_skips(self):
+        assert should_run_chain(_d("2026-11-26"), _d("2026-11-25")) is False

@@ -359,9 +359,34 @@ matches `source_ranking_run_id` when no `vetter_run_id` is supplied (the schedul
 passes none) — without this the scheduler chain would silently skip exclusions and
 risky tickers would surface as BUY+EXCL in the trader UI.
 
-`portfolio-builder` is NOT optional — the delta step after it needs a fresh target
-portfolio. If portfolio-builder fails, the chain halts. `vet` IS optional: if Ollama
-or the Anthropic key are unavailable, the chain proceeds.
+Neither `vet` nor `portfolio-builder` is optional. `vet` is `optional=False`: if
+the vetter fails, the chain halts (the portfolio must never be built without
+today's binding exclusions). `portfolio-builder` is likewise required — the delta
+step after it needs a fresh target portfolio. If either fails, the chain halts.
+
+**Trading-calendar gate.** The supervisor (cron + 24/7 interval tick) only STARTS
+a fresh chain when `should_run_chain(today, last_processed_session)` is true
+(`services/scheduler/app/staleness.py`, NYSE calendar via `exchange_calendars`):
+
+```text
+trading session today                         → run (after the scheduled-time gate)
+non-trading day (weekend/holiday):
+    latest trading session already processed  → skip   (no-op)
+    a trading session is still unprocessed     → run    (weekend catch-up)
+```
+
+`last_processed_session` is the data date of the most recent successful
+`delta_runs` row (`_latest_delta_date()`) — i.e. the last session we produced a
+proposal for. This stops the chain — and the expensive Ollama vetter step — from
+re-running pointlessly every weekend day and on weekday holidays, while still
+recovering a missed Friday chain over the weekend so its proposal is ready for
+Monday's open. The gate is only applied to STARTING a chain: once a chain is open
+for today (`current_run_id` set) it advances every tick regardless, so a
+multi-tick run (including a catch-up) always completes. Manual `/jobs/run-now`
+(`_force_pending`) bypasses the gate. Because delta/portfolio/pipeline are keyed
+to the data date, even when fetch-data/vet run on a session they correctly no-op
+if no new bar arrived; the calendar gate eliminates the remaining wasteful weekend
+re-runs of those two wall-clock-keyed steps.
 
 `status_path` on `_StepDef`: each step defines its own status polling path (default
 `/runs/latest`). The standalone delta step uses `/runs/delta-latest` so the scheduler
@@ -380,9 +405,11 @@ until the warm-up task succeeds; `/health` always responds.
 **Stuck-step timeout (`max_running_minutes`):** Each `_StepDef` may declare a maximum
 running age. `_step_state` checks this BEFORE its date-match early return so a job
 that started yesterday and is still "running" today (cross-midnight hang) is correctly
-classified as failed and the chain can advance. Currently set on `vet` (90 min); if
-Ollama crashes mid-run or the LLM provider stalls past this limit, the scheduler
-treats vet as failed and — because vet is optional — continues to portfolio-builder.
+classified as failed and the chain can advance. Currently set on `vet` (90 min) and
+`delta` (30 min). If Ollama crashes mid-run or the LLM provider stalls past the vet
+limit, the scheduler converts the hung "running" into "failed" — and because `vet` is
+`optional=False`, that **halts the chain** rather than letting the timer block it
+forever (no portfolio/proposal is produced that day until the next run).
 
 **Restart Recovery (`RESTART_ABORTED:` marker):**
 Every persistence-using service calls the shared
