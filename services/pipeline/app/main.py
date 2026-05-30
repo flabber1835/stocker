@@ -678,7 +678,16 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     _set_pct("calc_factors", 68)
     t0 = datetime.now(timezone.utc)
     fund_df_for_factors = fund_df.drop(columns=["as_of_date"], errors="ignore")
-    factors_df = compute_all_factors(prices_long=prices_df, fundamentals=fund_df_for_factors, cfg=strategy.factor_engine)
+    # Offload the universe-scale factor math to a worker thread. It is pure CPU
+    # (pandas/numpy, no DB/async), and running it inline starved the event loop
+    # so the /runs/progress endpoint timed out and the dashboard percentage went
+    # blank for the whole step. to_thread yields the loop so progress is served.
+    factors_df = await asyncio.to_thread(
+        compute_all_factors,
+        prices_long=prices_df,
+        fundamentals=fund_df_for_factors,
+        cfg=strategy.factor_engine,
+    )
     null_quality_count = int(factors_df["quality"].isna().sum()) if "quality" in factors_df.columns else 0
 
     _factor_cols = ["momentum", "quality", "value", "growth", "low_volatility", "liquidity"]
@@ -1007,7 +1016,9 @@ async def _do_rank(
     # ── Step 3: rank ──────────────────────────────────────────────────────────
     _set_pct("ranking", 30)
     t0 = datetime.now(timezone.utc)
-    ranked_df = rank_universe(factor_scores_df, regime, strategy)
+    # Pure CPU compute — offload so the event loop can serve /runs/progress
+    # while the whole universe is ranked (see compute_all_factors note above).
+    ranked_df = await asyncio.to_thread(rank_universe, factor_scores_df, regime, strategy)
     ranked_count = len(ranked_df)
     dropped_count = universe_count - ranked_count
 
@@ -1730,7 +1741,9 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
         # (weight=0) so broker positions are not ignored: tickers outside the exit zone
         # stay as "hold"; tickers missing from universe are force-exited.
         cold_start_portfolio = {t: 0.0 for t in live_positions_set}
-        decisions = evaluate_all(
+        # Pure CPU compute — offload so /runs/progress stays answerable (see note above).
+        decisions = await asyncio.to_thread(
+            evaluate_all,
             universe=universe,
             current_portfolio=cold_start_portfolio,
             entry_rank=entry_rank,
@@ -1746,7 +1759,9 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
         mode_used = "confirmation_days_fallback"
     else:
         # Target-vs-live diff: portfolio_holdings is target, live_positions is actual
-        decisions = evaluate_target_vs_live(
+        # Pure CPU compute — offload so /runs/progress stays answerable (see note above).
+        decisions = await asyncio.to_thread(
+            evaluate_target_vs_live,
             target_portfolio=target_portfolio,
             live_positions=live_positions_set,
             universe=universe,

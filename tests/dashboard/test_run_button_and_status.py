@@ -486,6 +486,8 @@ def _call_pipeline_status(
     pipeline_status_raw: str | None = None,
     pipeline_factor_status: str | None = None,
     pipeline_rank_status: str | None = None,
+    pipeline_delta_status: str | None = None,
+    pipeline_progress: dict | None = None,
     av_ingestor_data: dict | None = None,
     scheduler_data: dict | None = None,
     rank_chain_running: bool = False,
@@ -511,11 +513,14 @@ def _call_pipeline_status(
         "status":         pipeline_status_raw,
         "factor_status":  pipeline_factor_status,
         "ranking_status": pipeline_rank_status,
-        "delta_status":   None,
+        "delta_status":   pipeline_delta_status,
         "completed_at":   "2024-01-15T12:00:00Z",
     }
     av_payload      = av_ingestor_data or {}
     sched_payload   = scheduler_data   or {"status": "idle", "steps": {}}
+    # r8_direct = pipeline /runs/progress. EMPTY() (503) mimics the endpoint being
+    # unreachable; a real dict mimics the pipeline serving live sub-step progress.
+    progress_resp   = _make_resp(pipeline_progress) if pipeline_progress is not None else EMPTY()
 
     async def fake_gather(*_coros):
         return [
@@ -526,7 +531,7 @@ def _call_pipeline_status(
             _make_resp(pipeline_payload),   # r4_direct: pipeline /runs/latest
             _make_resp(av_payload or None), # r5_direct: av-ingestor /runs/latest
             _make_resp(sched_payload),      # r7_direct: scheduler /status
-            EMPTY(),                        # r8_direct: pipeline /runs/progress
+            progress_resp,                  # r8_direct: pipeline /runs/progress
         ]
 
     try:
@@ -688,6 +693,78 @@ class TestStepLabelBetweenSteps:
         )
         label = result.get("rank", {}).get("step_label")
         assert label == "Calculating Factors", f"Got {label!r}"
+
+
+# ── TestSubStepProgressPercentage ─────────────────────────────────────────────
+
+class TestSubStepProgressPercentage:
+    """
+    Regression: the live sub-step percentage from the pipeline's /runs/progress
+    endpoint must reach rank.pct in the status payload.
+
+    History: this path had ZERO coverage — the harness always stubbed
+    /runs/progress with EMPTY(), and tests asserted only the step *label*. When
+    the pipeline's heavy factor math starved its event loop, /runs/progress timed
+    out, rank.pct went blank, and nothing failed. These tests feed a live progress
+    payload and assert the number actually flows through, for every pipeline step.
+    """
+
+    def test_factor_percentage_reaches_rank_pct(self):
+        result = _call_pipeline_status(
+            pipeline_status_raw="running",
+            pipeline_factor_status="running",
+            pipeline_progress={"step": "calc_factors", "pct": 58},
+            rank_chain_running=True,
+        )
+        rank = result.get("rank", {})
+        assert rank.get("step_label") == "Calculating Factors"
+        assert rank.get("pct") == 58, f"factor pct did not flow through; got {rank.get('pct')!r}"
+
+    def test_ranking_percentage_reaches_rank_pct(self):
+        result = _call_pipeline_status(
+            pipeline_status_raw="running",
+            pipeline_rank_status="running",
+            pipeline_progress={"step": "ranking", "pct": 82},
+            rank_chain_running=True,
+        )
+        rank = result.get("rank", {})
+        assert rank.get("step_label") == "Ranking"
+        assert rank.get("pct") == 82, f"ranking pct did not flow through; got {rank.get('pct')!r}"
+
+    def test_delta_percentage_reaches_rank_pct(self):
+        result = _call_pipeline_status(
+            pipeline_status_raw="running",
+            pipeline_delta_status="running",
+            pipeline_progress={"step": "delta", "pct": 48},
+            rank_chain_running=True,
+        )
+        rank = result.get("rank", {})
+        assert rank.get("step_label") == "Evaluating Signals"
+        assert rank.get("pct") == 48, f"delta pct did not flow through; got {rank.get('pct')!r}"
+
+    def test_pct_is_none_when_progress_step_mismatches_status(self):
+        """Stale/other-step progress must NOT leak into the current step's pct."""
+        result = _call_pipeline_status(
+            pipeline_status_raw="running",
+            pipeline_factor_status="running",
+            pipeline_progress={"step": "ranking", "pct": 82},  # wrong step for factor status
+            rank_chain_running=True,
+        )
+        rank = result.get("rank", {})
+        assert rank.get("step_label") == "Calculating Factors"
+        assert rank.get("pct") is None, f"mismatched-step pct must be None; got {rank.get('pct')!r}"
+
+    def test_pct_blank_when_progress_endpoint_unreachable(self):
+        """Endpoint times out (the original bug's symptom): label shows, pct is blank."""
+        result = _call_pipeline_status(
+            pipeline_status_raw="running",
+            pipeline_factor_status="running",
+            pipeline_progress=None,  # EMPTY() / 503 — endpoint unreachable
+            rank_chain_running=True,
+        )
+        rank = result.get("rank", {})
+        assert rank.get("step_label") == "Calculating Factors"
+        assert rank.get("pct") is None
 
 
 # ── TestSchedulerStepLabelMapping ─────────────────────────────────────────────
