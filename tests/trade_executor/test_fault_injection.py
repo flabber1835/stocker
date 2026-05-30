@@ -64,6 +64,10 @@ def _httpx_client_mock(*, post_side_effect=None, post_return=None, get_return=No
         client.post = AsyncMock(return_value=post_return)
     if get_return is not None:
         client.get = AsyncMock(return_value=get_return)
+    if delete_side_effect is not None:
+        client.delete = AsyncMock(side_effect=delete_side_effect)
+    elif delete_return is not None:
+        client.delete = AsyncMock(return_value=delete_return)
     return client
 
 
@@ -388,7 +392,7 @@ async def test_close_position_success_returns_order_id():
         oid, status, err = await _close_position_alpaca("SNDK")
     assert (oid, status, err) == ("ord-123", "accepted", None)
     # Must hit the positions endpoint, not /v2/orders, and send no qty.
-    called_url = client.__aenter__.return_value.delete.call_args[0][0]
+    called_url = client.delete.call_args[0][0]
     assert called_url.endswith("/v2/positions/SNDK")
 
 
