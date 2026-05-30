@@ -6,9 +6,8 @@ Each test seeds the minimum rows needed and executes the actual query a service
 runs. A wrong column name, a uuid/integer mismatch, or a str-bound-to-DATE param
 raises here — in CI — instead of silently 500-ing a service in production.
 
-The two queries that recently broke in deployment are covered explicitly:
+The query that recently broke in deployment is covered explicitly:
   - vetter held-tickers  (live_positions.sync_run_id UUID = alpaca_sync_runs.run_id)
-  - penalty-box lookup    (DATE column compared to a date param)
 plus the dashboard's rankings/with-overlays join chain.
 """
 from __future__ import annotations
@@ -30,7 +29,7 @@ async def engine(async_dsn):
     # Clean slate per test so row counts are deterministic.
     async with eng.begin() as conn:
         await conn.execute(text(
-            "TRUNCATE live_positions, alpaca_sync_runs, vetter_penalty_box, "
+            "TRUNCATE live_positions, alpaca_sync_runs, "
             "rankings, ranking_runs, universe_tickers, universe_snapshots "
             "RESTART IDENTITY CASCADE"
         ))
@@ -89,40 +88,6 @@ class TestVetterHeldTickersQuery:
                     "  ORDER BY completed_at DESC LIMIT 1"
                     ") AND qty > 0"
                 ))
-
-
-# ── penalty-box query (regression: str bound to DATE column) ──────────────────
-
-class TestPenaltyBoxDateParam:
-    async def test_date_object_param_runs(self, engine):
-        async with engine.begin() as conn:
-            await conn.execute(text(
-                "INSERT INTO vetter_penalty_box "
-                "(ticker, first_flagged_date, last_flagged_date, penalty_box_until) "
-                "VALUES ('NVDA', :d, :d, :until)"
-            ), {"d": date.today(), "until": date.today() + timedelta(days=30)})
-
-        # The exact query from services/api/app/main.py _load_penalty_box
-        async with engine.connect() as conn:
-            rows = await conn.execute(text(
-                "SELECT ticker, penalty_box_until FROM vetter_penalty_box "
-                "WHERE penalty_box_until >= :today"
-            ), {"today": date.today()})
-            tickers = {r.ticker for r in rows.fetchall()}
-
-        assert tickers == {"NVDA"}
-
-    async def test_isoformat_string_param_raises(self, engine):
-        """Proves the tier catches the original bug: asyncpg rejects a str for a
-        DATE-typed parameter ('str' object has no attribute 'toordinal')."""
-        from sqlalchemy.exc import DBAPIError
-
-        with pytest.raises(DBAPIError):
-            async with engine.connect() as conn:
-                await conn.execute(text(
-                    "SELECT ticker FROM vetter_penalty_box "
-                    "WHERE penalty_box_until >= :today"
-                ), {"today": date.today().isoformat()})  # str → bug
 
 
 # ── dashboard rankings/with-overlays core join (the "NO DATA" endpoint) ───────

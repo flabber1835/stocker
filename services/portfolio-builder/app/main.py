@@ -207,11 +207,10 @@ async def _do_build(
                     warnings=[f"do-not-buy list excluded {len(dnb_excluded)} tickers: {dnb_excluded}"],
                 )
 
-    # ── Step 2b: apply LLM vetter exclusions + penalty box ───────────────────────────────────────────────────────────────────────────────
+    # ── Step 2b: apply LLM vetter exclusions ─────────────────────────────────────────────────────────────────────────────────────────────
     vetter_excluded: list[str] = []
     vetter_candidate_count: int | None = None
     vetter_unvetted_remaining: list[str] = []
-    penalty_box_excluded: list[str] = []
     if vetter_run_id:
         async with engine.connect() as conn:
             vrun_row = (await conn.execute(
@@ -244,37 +243,16 @@ async def _do_build(
         if vetted_tickers:
             vetter_unvetted_remaining = [t for t in candidate_tickers if t not in vetted_tickers]
 
-    # Penalty box: tickers excluded by a prior vetter run that haven't served
-    # their 30-day sentence yet, regardless of today's vetter result.
-    from datetime import date as _date
-    async with engine.connect() as conn:
-        pb_rows = await conn.execute(
-            text(
-                "SELECT ticker FROM vetter_penalty_box "
-                "WHERE penalty_box_until >= :today"
-            ),
-            {"today": _date.today()},
-        )
-        penalty_box_set = {r.ticker for r in pb_rows.fetchall()}
-
-    # Tickers in penalty box that were not already flagged today
-    penalty_box_excluded = [
-        t for t in candidate_tickers
-        if t in penalty_box_set and t not in set(vetter_excluded)
-    ]
-
-    all_excluded_set = set(vetter_excluded) | penalty_box_set
-    if all_excluded_set:
-        candidate_tickers = [t for t in candidate_tickers if t not in all_excluded_set]
-        scores_map = {t: v for t, v in scores_map.items() if t not in all_excluded_set}
-        rank_map = {t: v for t, v in rank_map.items() if t not in all_excluded_set}
+    excluded_set = set(vetter_excluded)
+    if excluded_set:
+        candidate_tickers = [t for t in candidate_tickers if t not in excluded_set]
+        scores_map = {t: v for t, v in scores_map.items() if t not in excluded_set}
+        rank_map = {t: v for t, v in rank_map.items() if t not in excluded_set}
 
     async with engine.begin() as conn:
         warn_lines: list[str] = []
         if vetter_excluded:
             warn_lines.append(f"LLM vetter excluded {len(vetter_excluded)} tickers: {vetter_excluded}")
-        if penalty_box_excluded:
-            warn_lines.append(f"Penalty box excluded {len(penalty_box_excluded)} additional tickers: {penalty_box_excluded}")
         if vetter_unvetted_remaining:
             warn_lines.append(
                 f"{len(vetter_unvetted_remaining)} candidate tickers were not evaluated by the vetter "
@@ -289,8 +267,6 @@ async def _do_build(
             output_summary={
                 "excluded_count": len(vetter_excluded),
                 "excluded_tickers": vetter_excluded,
-                "penalty_box_count": len(penalty_box_excluded),
-                "penalty_box_tickers": penalty_box_excluded,
                 "remaining_candidates": len(candidate_tickers),
                 "unvetted_candidates_count": len(vetter_unvetted_remaining),
             },

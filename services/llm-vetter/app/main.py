@@ -596,35 +596,6 @@ async def _do_vet(
                 },
             )
 
-        # Penalty box: excluded tickers serve 30 calendar days.
-        # Re-flagging within the window resets the clock (flagged_count increments).
-        if exclusions:
-            today_date = date.today()
-            penalty_until = today_date + timedelta(days=30)
-            for exc in exclusions:
-                await conn.execute(
-                    text(
-                        "INSERT INTO vetter_penalty_box "
-                        "(ticker, first_flagged_date, last_flagged_date, penalty_box_until, "
-                        " flagged_count, reason, risk_type) "
-                        "VALUES (:ticker, :today, :today, :until, 1, :reason, :risk_type) "
-                        "ON CONFLICT (ticker) DO UPDATE SET "
-                        "  last_flagged_date = :today, "
-                        "  penalty_box_until = :until, "
-                        "  flagged_count = vetter_penalty_box.flagged_count + 1, "
-                        "  reason = EXCLUDED.reason, "
-                        "  risk_type = EXCLUDED.risk_type, "
-                        "  updated_at = NOW()"
-                    ),
-                    {
-                        "ticker": exc["ticker"],
-                        "today": today_date,
-                        "until": penalty_until,
-                        "reason": exc["reason"],
-                        "risk_type": exc["risk_type"],
-                    },
-                )
-
         # Write ALL ticker decisions (not just exclusions) for full audit trail.
         for r in ticker_results:
             if r.get("crashed"):

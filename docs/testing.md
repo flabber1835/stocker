@@ -110,12 +110,10 @@ the scheduler tick so the harness drives the pipeline directly.
 ## DB query-contract tier (real Postgres)
 
 `tests/integration/` runs the real, type-sensitive service SQL against a real,
-fully-migrated Postgres — the gap that let two production bugs ship green:
+fully-migrated Postgres — the gap that let a production bug ship green:
 
 - vetter held-tickers query selected `id` instead of `run_id`
   → `operator does not exist: uuid = integer`
-- penalty-box query bound a `str` (`date.today().isoformat()`) to a DATE column
-  → `'str' object has no attribute 'toordinal'`
 
 The per-service unit tests mock the DB, so they exercise Python logic but never
 the actual SQL. This tier closes that gap.

@@ -4,15 +4,13 @@ Integration test tier — runs real SQL against a real, fully-migrated Postgres.
 Why this exists
 ---------------
 The per-service unit tests mock the database (e.g. `patch.object(mod, "engine", ...)`),
-so they execute *Python logic* but never the actual SQL. That let two production
-bugs ship green:
+so they execute *Python logic* but never the actual SQL. That let a production
+bug ship green:
 
   - vetter held-tickers query selected `id` instead of `run_id`
     → asyncpg: "operator does not exist: uuid = integer"
-  - penalty-box query bound `date.today().isoformat()` (str) to a DATE column
-    → asyncpg: "'str' object has no attribute 'toordinal'"
 
-Both only fail when the query hits a real Postgres with the real schema. This
+It only fails when the query hits a real Postgres with the real schema. This
 tier closes that gap: a session-scoped ephemeral Postgres is created, the actual
 alembic migrations are applied to `head`, and tests run the real queries through
 an async SQLAlchemy + asyncpg engine — exactly the production stack.
