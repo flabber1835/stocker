@@ -813,6 +813,22 @@ status=failed, prefix absent                    → return "failed" (suspend cha
 `/runs/delta-latest` includes `error_message` in its SELECT so the
 scheduler can apply the marker check to the standalone delta step too.
 
+**Crash-loop breaker (MAX_RESTART_ABORT_RETRIES, default 3):** re-triggering a
+RESTART_ABORTED orphan recovers a *transient* restart, but a *deterministic*
+crash (e.g. the factor step OOM-killing on a RAM-constrained host) reproduces on
+every retry — an infinite crash loop that shows as "stuck on calculating
+factors". The supervisor counts distinct crash cycles per (step, run_date),
+deduped by `started_at` so re-seeing the same orphan across fast ticks counts
+once, and SUSPENDS the chain (returns "failed") once the count exceeds the limit.
+A clean success clears the counter. Paired with the pipeline's `mem_limit`
+(PIPELINE_MEM_LIMIT, default 2g in docker-compose.yml): the cap makes the
+pipeline the predictable OOM victim instead of postgres/redis, and the breaker
+turns the resulting restart into one visible failure instead of a loop. The
+factor step also offloads its universe-scale pandas/numpy to a worker thread
+(`asyncio.to_thread`) and hands the price frame to `compute_all_factors(...,
+copy_input=False)` so no second universe-scale copy is held at peak — both cut
+the OOM probability at the source.
+
 ## api
 
 Backend API for dashboard and control panel.

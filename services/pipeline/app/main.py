@@ -687,7 +687,11 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         prices_long=prices_df,
         fundamentals=fund_df_for_factors,
         cfg=strategy.factor_engine,
+        copy_input=False,
     )
+    # prices_df is disposable past this point — free the universe-scale frame now
+    # so it isn't held alongside factors_df/factor_score_rows for the rest of the step.
+    del prices_df
     null_quality_count = int(factors_df["quality"].isna().sum()) if "quality" in factors_df.columns else 0
 
     _factor_cols = ["momentum", "quality", "value", "growth", "low_volatility", "liquidity"]

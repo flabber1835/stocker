@@ -1736,3 +1736,104 @@ class TestSupervisorTradingCalendarGate:
         # Bypassed the gate entirely (never consulted) and proceeded.
         mock_should_run.assert_not_called()
         mock_has_universe.assert_called_once()
+
+
+# ── TestRestartAbortLoopBreaker ───────────────────────────────────────────────
+
+class TestRestartAbortLoopBreaker:
+    """
+    A RESTART_ABORTED orphan is re-triggered to recover from a transient restart.
+    But a DETERMINISTIC crash (e.g. the factor step OOM-killing) reproduces every
+    retry, turning recovery into an infinite crash loop. The supervisor must count
+    distinct crash cycles and SUSPEND (return 'failed') after MAX_RESTART_ABORT_RETRIES.
+    """
+
+    # The scheduler conftests do `del sys.modules["app.*"]`, so `from app.main
+    # import _step_state` and a fresh `import app.main` can resolve to DIFFERENT
+    # module instances with different module-level dicts. Always reach the breaker
+    # state through the running function's own globals so we touch the exact dicts
+    # `_step_state` mutates — not a stale parallel copy.
+    def _g(self):
+        return _step_state.__globals__
+
+    def _make_step(self, **kwargs) -> _StepDef:
+        defaults = dict(name="pipeline", url="http://fake", start_path="/jobs/run", date_field="run_date")
+        defaults.update(kwargs)
+        return _StepDef(**defaults)
+
+    def _reset(self):
+        g = self._g()
+        g["_restart_abort_cycles"].clear()
+        g["_restart_abort_seen"].clear()
+
+    def _max(self) -> int:
+        return self._g()["MAX_RESTART_ABORT_RETRIES"]
+
+    def _aborted_payload(self, started_at: str, run_date: str = "2026-05-21") -> dict:
+        from stock_strategy_shared.tracing import RESTART_ABORT_MARKER
+        return {
+            "status": "failed",
+            "run_date": run_date,
+            "started_at": started_at,
+            "error_message": f"{RESTART_ABORT_MARKER} service restarted while run was active",
+        }
+
+    @pytest.mark.asyncio
+    async def test_suspends_after_max_distinct_crash_cycles(self):
+        self._reset()
+        today = "2026-05-21"
+        step = self._make_step()
+        results = []
+        # Each distinct started_at = one crash cycle (a fresh run that died again).
+        for i in range(self._max() + 1):
+            client = _async_client_returning(self._aborted_payload(f"2026-05-21T10:0{i}:00Z"))
+            results.append(await _step_state(client, step, today, today, "2026-05-20"))
+        # First MAX cycles re-trigger; the one past the limit suspends.
+        assert results[:self._max()] == ["idle"] * self._max()
+        assert results[-1] == "failed", f"expected suspend after limit, got {results}"
+
+    @pytest.mark.asyncio
+    async def test_same_orphan_across_ticks_counts_once(self):
+        """Re-seeing the SAME orphan (same started_at) over many ticks must NOT
+        advance the crash count — it is one cycle until the re-trigger creates a
+        new run. Otherwise a fast supervisor tick would trip the breaker spuriously."""
+        self._reset()
+        today = "2026-05-21"
+        step = self._make_step()
+        payload = self._aborted_payload("2026-05-21T10:00:00Z")
+        results = [
+            await _step_state(_async_client_returning(payload), step, today, today, "2026-05-20")
+            for _ in range(self._max() + 5)
+        ]
+        assert results == ["idle"] * len(results), "identical orphan must keep re-triggering, never suspend"
+
+    @pytest.mark.asyncio
+    async def test_clean_success_resets_the_counter(self):
+        """A clean success clears the crash count so a later transient restart can
+        still be recovered normally."""
+        self._reset()
+        today = "2026-05-21"
+        step = self._make_step()
+        # Two crash cycles (not yet at the limit)…
+        for i in range(2):
+            await _step_state(_async_client_returning(self._aborted_payload(f"2026-05-21T10:0{i}:00Z")),
+                              step, today, today, "2026-05-20")
+        assert self._g()["_restart_abort_cycles"].get(("pipeline", today)) == 2
+        # …then a clean success on the same (step, date) must reset the count.
+        ok = await _step_state(_async_client_returning({"status": "success", "run_date": today}),
+                               step, today, today, "2026-05-20")
+        assert ok == "done"
+        assert ("pipeline", today) not in self._g()["_restart_abort_cycles"]
+
+    @pytest.mark.asyncio
+    async def test_non_aborted_failure_still_fails_immediately(self):
+        """A real failure (no RESTART_ABORT_MARKER) must still suspend on the first
+        occurrence — the breaker only governs restart-aborted orphans."""
+        self._reset()
+        today = "2026-05-21"
+        step = self._make_step()
+        client = _async_client_returning(
+            {"status": "failed", "run_date": today, "started_at": "2026-05-21T10:00:00Z",
+             "error_message": "Connection refused by Alpha Vantage API"}
+        )
+        assert await _step_state(client, step, today, today, "2026-05-20") == "failed"

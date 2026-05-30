@@ -131,6 +131,14 @@ services:
       dockerfile: services/pipeline/Dockerfile
       network: host
     restart: unless-stopped
+    # Cap the pipeline's memory so the factor step can't trigger a HOST-WIDE OOM
+    # that takes out postgres/redis too. With a cgroup limit the pipeline is the
+    # predictable victim, and the scheduler's MAX_RESTART_ABORT_RETRIES breaker
+    # turns the resulting restart into a clean suspend instead of an infinite loop.
+    # TUNE PIPELINE_MEM_LIMIT to your host: must exceed the factor-step peak
+    # (~0.3-0.5 GB for a few-thousand-ticker universe) with headroom. Too low and
+    # the step will OOM every run and the chain will suspend after 3 cycles.
+    mem_limit: ${PIPELINE_MEM_LIMIT:-2g}
     ports:
       - "8018:8000"
     environment:

@@ -31,6 +31,19 @@ SUPERVISOR_INTERVAL_SECS = int(os.getenv("SUPERVISOR_INTERVAL_SECS", "300"))
 # = ~67h, so 72h would also be reasonable; 36h catches "missed a weekday").
 CHAIN_HEALTH_MAX_AGE_HOURS = float(os.getenv("CHAIN_HEALTH_MAX_AGE_HOURS", "36"))
 
+# Crash-loop breaker. A RESTART_ABORTED orphan is normally re-triggered (recover
+# from a transient restart). But a DETERMINISTIC crash — e.g. the factor step
+# OOM-killing on a RAM-constrained host — reproduces on every retry, turning
+# recovery into an infinite crash loop (the "stuck on calculating factors"
+# incident). After this many distinct crash cycles for one (step, date) the
+# supervisor suspends the chain so it fails ONCE, visibly, instead of looping.
+MAX_RESTART_ABORT_RETRIES = int(os.getenv("MAX_RESTART_ABORT_RETRIES", "3"))
+# (step_name, run_date) -> number of distinct restart-abort crash cycles seen.
+_restart_abort_cycles: dict[tuple[str, str], int] = {}
+# started_at tokens already counted, so re-seeing the SAME orphan across ticks
+# (before the re-trigger writes a new run row) does not double-count a cycle.
+_restart_abort_seen: set[str] = set()
+
 _scheduler: Optional[AsyncIOScheduler] = None
 _chain_lock = asyncio.Lock()
 # Separate lock that's held across an entire manual /jobs/run-now invocation,
@@ -447,6 +460,9 @@ async def _step_state(
         if run_date not in ok_dates:
             return "idle"
         if run_status in ("success",) + step.extra_ok:
+            # Clean success clears any crash-cycle count for this (step, date) so a
+            # later transient restart can still recover normally.
+            _restart_abort_cycles.pop((step.name, run_date), None)
             return "done"
         if run_status in ("failed",):
             # Restart-aborted runs are recoverable — when a service crashes mid-run
@@ -456,8 +472,26 @@ async def _step_state(
             from stock_strategy_shared.tracing import RESTART_ABORT_MARKER
             err = data.get("error_message") or ""
             if err.startswith(RESTART_ABORT_MARKER):
+                # Count distinct crash cycles (deduped by started_at) so a
+                # deterministic crash that reproduces every retry can't loop forever.
+                token = str(data.get("started_at") or data.get(step.date_field) or err)
+                key = (step.name, run_date)
+                if token and token not in _restart_abort_seen:
+                    _restart_abort_seen.add(token)
+                    _restart_abort_cycles[key] = _restart_abort_cycles.get(key, 0) + 1
+                cycles = _restart_abort_cycles.get(key, 0)
+                if cycles > MAX_RESTART_ABORT_RETRIES:
+                    _log(
+                        f"supervisor: {step.name} restart-aborted {cycles}x for {run_date} "
+                        f"(> limit {MAX_RESTART_ABORT_RETRIES}) — SUSPENDING chain. This is a "
+                        f"deterministic crash (likely OOM in the step), not a transient restart; "
+                        f"re-triggering would loop forever.",
+                        error_message=err,
+                    )
+                    return "failed"
                 _log(
-                    f"supervisor: {step.name} run was restart-aborted — re-triggering",
+                    f"supervisor: {step.name} run was restart-aborted "
+                    f"(crash cycle {cycles}/{MAX_RESTART_ABORT_RETRIES}) — re-triggering",
                     error_message=err,
                 )
                 return "idle"

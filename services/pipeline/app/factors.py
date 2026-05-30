@@ -264,13 +264,23 @@ def compute_all_factors(
     prices_long: pd.DataFrame,
     fundamentals: pd.DataFrame,
     cfg: FactorEngineConfig | None = None,
+    copy_input: bool = True,
 ) -> pd.DataFrame:
     if cfg is None:
         cfg = FactorEngineConfig()
 
-    prices_long = prices_long.copy()
-    prices_long["date"] = pd.to_datetime(prices_long["date"])
-    prices_long = prices_long.sort_values(["ticker", "date"])
+    # Peak memory here is the OOM driver on small hosts: the long-form price frame
+    # is held while a sorted copy + the wide pivot are also built. copy_input=False
+    # lets the pipeline hand off a disposable frame so we mutate/sort it IN PLACE
+    # instead of allocating a second universe-scale copy. Default True preserves the
+    # no-mutation contract every other caller/test relies on. Output is identical.
+    if copy_input:
+        prices_long = prices_long.copy()
+        prices_long["date"] = pd.to_datetime(prices_long["date"])
+        prices_long = prices_long.sort_values(["ticker", "date"])
+    else:
+        prices_long["date"] = pd.to_datetime(prices_long["date"])
+        prices_long.sort_values(["ticker", "date"], inplace=True)
 
     prices_long["adjusted_close"] = prices_long["adjusted_close"].astype(float)
     # Use pivot() not pivot_table(): pivot() raises ValueError on duplicate (date, ticker) pairs,
@@ -280,6 +290,7 @@ def compute_all_factors(
 
     momentum_raw = compute_momentum(pivot, short_window=cfg.momentum_short_window, long_window=cfg.momentum_long_window)
     low_vol_raw = compute_low_volatility(pivot, window=cfg.volatility_window)
+    del pivot  # the wide date×ticker matrix is no longer needed — free it before ranking
     liquidity_raw = compute_liquidity(prices_long, window=cfg.liquidity_window)
     quality_raw = compute_quality(fundamentals)
     value_raw = compute_value(fundamentals, pe_pb_cap=cfg.pe_pb_cap)
