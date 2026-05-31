@@ -725,6 +725,22 @@ async def _do_build(
                 },
             )
 
+        # Persist the FULL candidate-pool cluster map (not just selected holdings) so
+        # the screener can show a cluster for every ranked candidate, not only the
+        # ~max_positions held names. Only multi-member memberships are stored; a
+        # missing row reads as "no applicable cluster" (singleton).
+        for _t, _cid in cluster_map.items():
+            if cluster_sizes.get(_cid, 1) <= 1:
+                continue
+            await conn.execute(
+                text(
+                    "INSERT INTO candidate_clusters (run_id, portfolio_date, ticker, cluster_id) "
+                    "VALUES (:rid, :pd, :ticker, :cid) "
+                    "ON CONFLICT (run_id, ticker) DO UPDATE SET cluster_id=EXCLUDED.cluster_id"
+                ),
+                {"rid": run_id, "pd": portfolio_date, "ticker": _t, "cid": _cid},
+            )
+
         await conn.execute(
             text(
                 "UPDATE portfolio_runs SET "

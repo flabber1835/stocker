@@ -1578,6 +1578,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     """The complete delta logic from delta-engine/app/main.py _do_delta."""
     _set_pct("delta", 3)
     confirmation_days = de_cfg.confirmation_days
+    orphan_confirmation_days = de_cfg.orphan_confirmation_days
     entry_rank = de_cfg.entry_rank
     exit_rank = de_cfg.exit_rank
     max_positions = de_cfg.max_positions
@@ -1744,7 +1745,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                     "JOIN portfolio_holdings ph ON ph.run_id = lpd.run_id "
                     "ORDER BY lpd.portfolio_date DESC"
                 ),
-                {"lim": confirmation_days},
+                {"lim": max(confirmation_days, orphan_confirmation_days)},
             )
             _date_tickers: dict[object, set[str]] = {}
             for r in hist_rows.fetchall():
@@ -1931,6 +1932,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             account_value=account_value_for_drift,
             buying_power=buying_power_for_cap,
             target_history=target_history,
+            orphan_confirmation_days=orphan_confirmation_days,
         )
         mode_used = "target_vs_live"
 

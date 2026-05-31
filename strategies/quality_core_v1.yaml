@@ -128,7 +128,8 @@ intraday:
 delta_engine:
   entry_rank: 25        # rank ≤ this for confirmation_days → enter portfolio
   exit_rank: 40         # rank > this for confirmation_days → exit portfolio
-  confirmation_days: 3  # consecutive daily runs required to confirm action
+  confirmation_days: 3  # consecutive daily runs required to confirm rank-based entry/exit
+  orphan_confirmation_days: 2  # builds a held name must be absent from target before sold (flag build 1, sell build 2)
   max_positions: 30     # maximum portfolio size
 
 max_positions: 30

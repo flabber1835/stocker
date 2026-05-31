@@ -175,9 +175,12 @@ Periodic weight normalization rebalances position sizes without forcing exits.
 Orphan handling — the target is binding on the live book (orphan-exit redesign,
 supersedes the earlier "always rotate" capacity policy). An *orphan* is a position
 held at the broker but absent from the current target portfolio. An orphan is
-exited once it has been absent from the target for `confirmation_days` consecutive
-**portfolio builds** (tracked via `target_history`, most-recent-first), REGARDLESS
-of its rank. Until confirmed it is tagged `at_risk` (counting down). This is what
+exited once it has been absent from the target for `orphan_confirmation_days`
+consecutive **portfolio builds** (tracked via `target_history`, most-recent-first;
+default 2 — flagged `at_risk` on build 1, sold on build 2), REGARDLESS of its rank.
+`orphan_confirmation_days` is SEPARATE from `confirmation_days` (the rank-based
+entry/exit buffer, default 3) so orphan disposal can be tightened without loosening
+the rank hysteresis. Until confirmed it is tagged `at_risk` (counting down). This is what
 makes a strategy change (e.g. the correlation-cluster cap thinning the golds)
 actually reach the realized portfolio — a name the builder dropped no longer
 lingers just because its rank holds up. Data-gap orphans (rank 9999, missing from

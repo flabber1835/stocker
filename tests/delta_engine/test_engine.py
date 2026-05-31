@@ -509,6 +509,54 @@ def test_tvl_orphan_at_risk_without_history():
     assert "orphaned for 1/3 builds" in decisions["TSLA"].reason
 
 
+def test_tvl_orphan_separate_window_flag_build1_sell_build2():
+    """orphan_confirmation_days=2 (independent of confirmation_days=3): a held name
+    dropped from the target is flagged at_risk on its first orphaned build and sold
+    on the second — 'flag Monday, sell Tuesday'. The rank buffer (confirmation_days)
+    is unchanged at 3."""
+    target = {"AAPL": 0.05}
+    live = {"TSLA"}
+    universe = {"AAPL": _history(10), "TSLA": _history(8, 8, 8)}  # well-ranked orphan
+
+    # Build 1 (no/one orphaned build) → at_risk, not sold.
+    d1 = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=live, universe=universe,
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_history=[{"AAPL"}], orphan_confirmation_days=2,
+    )
+    assert d1["TSLA"].action == "at_risk"
+    assert "orphaned for 1/2 builds" in d1["TSLA"].reason
+
+    # Build 2 (absent 2 consecutive builds) → exit, despite confirmation_days=3.
+    d2 = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=live, universe=universe,
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_history=[{"AAPL"}, {"AAPL"}], orphan_confirmation_days=2,
+    )
+    assert d2["TSLA"].action == "exit"
+    assert "dropped from target" in d2["TSLA"].reason
+
+
+def test_tvl_orphan_window_independent_of_rank_buffer():
+    """orphan_confirmation_days lowers ONLY orphan disposal; entry/exit rank buffer
+    still uses confirmation_days. An in-target held name whose rank deteriorates is
+    NOT orphan-logic — it's the rank/buffer path — so it's unaffected by the orphan
+    window. Here a still-in-target name with a bad-but-unconfirmed rank stays at_risk
+    under confirmation_days=3 even though orphan_confirmation_days=2."""
+    target = {"AAPL": 0.05, "MU": 0.05}
+    live = {"AAPL", "MU"}
+    # MU in target + held, rank just over exit_rank for only 2 of 3 days → rank
+    # buffer not met → at_risk (not exit). Orphan window must not shortcut this.
+    universe = {"AAPL": _history(10), "MU": _history(45, 45, 5)}
+
+    d = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=live, universe=universe,
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        orphan_confirmation_days=2,
+    )
+    assert d["MU"].action == "at_risk"  # rank buffer (3) governs, not orphan window
+
+
 def test_tvl_hold_when_live_not_in_universe():
     """Ticker at broker, not in target, not in ranking universe → hold (await data, not force-exit).
 

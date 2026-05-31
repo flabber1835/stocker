@@ -422,10 +422,9 @@ async def get_rankings_with_overlays(limit: int = 100):
         # carry a (multi-member) cluster, everything else is None.
         cluster_by_ticker: dict[str, str] = {}
         cl_rows = await conn.execute(text(
-            "SELECT ticker, cluster_id FROM portfolio_holdings "
+            "SELECT ticker, cluster_id FROM candidate_clusters "
             "WHERE run_id = (SELECT run_id FROM portfolio_runs WHERE status='success' "
-            "                ORDER BY completed_at DESC NULLS LAST LIMIT 1) "
-            "  AND cluster_id IS NOT NULL"
+            "                ORDER BY completed_at DESC NULLS LAST LIMIT 1)"
         ))
         for c in cl_rows.mappings():
             cluster_by_ticker[c["ticker"]] = c["cluster_id"]
@@ -670,10 +669,9 @@ async def search_rankings(q: str = ""):
 
         cluster_by_ticker_search: dict[str, str] = {}
         cl_rows2 = await conn.execute(text(
-            "SELECT ticker, cluster_id FROM portfolio_holdings "
+            "SELECT ticker, cluster_id FROM candidate_clusters "
             "WHERE run_id = (SELECT run_id FROM portfolio_runs WHERE status='success' "
-            "                ORDER BY completed_at DESC NULLS LAST LIMIT 1) "
-            "  AND cluster_id IS NOT NULL"
+            "                ORDER BY completed_at DESC NULLS LAST LIMIT 1)"
         ))
         for c in cl_rows2.mappings():
             cluster_by_ticker_search[c["ticker"]] = c["cluster_id"]

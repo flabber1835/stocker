@@ -198,6 +198,7 @@ def evaluate_target_vs_live(
     account_value: float | None = None,
     buying_power: float | None = None,
     target_history: list[set[str]] | None = None,
+    orphan_confirmation_days: int | None = None,
 ) -> dict[str, DeltaDecision]:
     """Diff portfolio_holdings (target) against live_positions (actual broker state).
 
@@ -212,6 +213,14 @@ def evaluate_target_vs_live(
                 informational — portfolio-builder will add on next build
     """
     decisions: dict[str, DeltaDecision] = {}
+
+    # Orphan exits confirm over their OWN window, separate from the rank-based
+    # entry/exit buffer (confirmation_days). Defaults to confirmation_days when not
+    # supplied so callers that don't set it keep the old behavior. A held name
+    # dropped from the target is flagged at_risk on its first orphaned build and
+    # exits once it has been absent for orphan_confirmation_days consecutive builds
+    # (default 2: flagged build 1, sold build 2).
+    orphan_conf = orphan_confirmation_days if orphan_confirmation_days is not None else confirmation_days
 
     # Entries: target says hold but broker doesn't yet
     for ticker, weight in target_portfolio.items():
@@ -327,12 +336,12 @@ def evaluate_target_vs_live(
         # build that re-includes the ticker resets the count. Data-gap orphans
         # (no ranking obs) are handled above and never reach here, so they are
         # never force-sold on missing data.
-        orphan_days = _orphan_confirm_days(ticker, target_history, confirmation_days)
+        orphan_days = _orphan_confirm_days(ticker, target_history, orphan_conf)
         # Fall back to today-only when no build history is available yet: an orphan
-        # today counts as 1 (cannot confirm until confirmation_days builds exist).
+        # today counts as 1 (cannot confirm until orphan_conf builds exist).
         if orphan_days == 0:
             orphan_days = 1
-        if orphan_days >= confirmation_days:
+        if orphan_days >= orphan_conf:
             orphan_action = "exit"
             orphan_reason = (
                 f"Held at broker, dropped from target for {orphan_days} consecutive "
@@ -342,7 +351,7 @@ def evaluate_target_vs_live(
             orphan_action = "at_risk"
             orphan_reason = (
                 f"Held at broker, not in target portfolio (rank={latest.rank}) — "
-                f"orphaned for {orphan_days}/{confirmation_days} builds toward exit"
+                f"orphaned for {orphan_days}/{orphan_conf} builds toward exit"
             )
         decisions[ticker] = DeltaDecision(
             ticker=ticker,
