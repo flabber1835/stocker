@@ -25,29 +25,35 @@ def compute_excluded_set(
 
 
 def correlation_clusters(
-    cov: pd.DataFrame,
+    matrix: pd.DataFrame,
     threshold: float = 0.70,
 ) -> dict[str, str]:
     """
-    Group tickers into correlation clusters from a covariance matrix.
+    Group tickers into correlation clusters.
 
-    Two tickers join the same cluster when their absolute Pearson correlation
-    (derived from cov) is >= threshold. Clustering is single-linkage via
-    union-find: A~B and B~C puts A, B, C in one cluster even if |corr(A,C)| is
-    below threshold (they co-move through B). This is the data-driven replacement
-    for provider sector labels, which are unreliable for risk grouping (e.g. GOOG
-    is "Communication Services"; gold miners span several sectors).
+    `matrix` is a Pearson CORRELATION matrix (NOT a covariance matrix). Pass the
+    RAW correlation from build_covariance — never one derived from the shrunk
+    covariance, which deflates every off-diagonal correlation by the shrinkage
+    factor and would drop genuine co-movers below the threshold. (A correlation
+    matrix has a unit diagonal, so dividing by sqrt(diag) here would be a no-op
+    anyway; we use the off-diagonals directly.)
+
+    Two tickers join the same cluster when their absolute correlation is
+    >= threshold. Clustering is single-linkage via union-find: A~B and B~C puts
+    A, B, C in one cluster even if |corr(A,C)| is below threshold (they co-move
+    through B). This is the data-driven replacement for provider sector labels,
+    which are unreliable for risk grouping (e.g. GOOG is "Communication Services";
+    gold miners span several sectors).
 
     Returns a {ticker: cluster_id} map where cluster_id is the
     lexicographically-smallest ticker in the cluster (stable, deterministic).
     A ticker with no high-correlation peer maps to itself (singleton cluster).
     """
-    tickers = list(cov.index)
+    tickers = list(matrix.index)
     if not tickers:
         return {}
 
-    std = np.sqrt(np.clip(np.diag(cov.values), 1e-18, None))
-    corr = cov.values / np.outer(std, std)
+    corr = matrix.values
 
     # Union-find with path compression.
     parent = {t: t for t in tickers}
@@ -257,7 +263,21 @@ def build_covariance(
             col = log_returns[t].dropna() if t in log_returns.columns else pd.Series(dtype=float)
             cov.loc[t, t] = float(col.var() * 252) if len(col) > 1 else 1e-6
 
-    # Ledoit-Wolf-style shrinkage toward the diagonal
+    # Raw (pre-shrinkage) Pearson correlation — derived from the SAMPLE covariance
+    # before shrinkage. Shrinkage toward the diagonal scales off-diagonal
+    # covariances by (1 - shrinkage) but leaves the diagonal (variances) full-size,
+    # so deriving correlation from the shrunk matrix deflates every pairwise
+    # correlation by the shrinkage factor (e.g. a true 0.86 reads 0.69 at
+    # shrinkage=0.20) — which wrongly drops genuine co-movers below the clustering
+    # threshold. The correlation cluster step must use THIS matrix, not the shrunk
+    # cov. (Shrinkage stays applied to the cov returned for the optimizer.)
+    _std = np.sqrt(np.clip(np.diag(cov.values), 1e-18, None))
+    corr = pd.DataFrame(
+        cov.values / np.outer(_std, _std),
+        index=cov.index, columns=cov.columns,
+    )
+
+    # Ledoit-Wolf-style shrinkage toward the diagonal (optimizer stability only)
     if shrinkage > 0:
         diag_cov = pd.DataFrame(
             np.diag(np.diag(cov.values)),
@@ -266,7 +286,7 @@ def build_covariance(
         )
         cov = (1.0 - shrinkage) * cov + shrinkage * diag_cov
 
-    return cov, dropped
+    return cov, dropped, corr
 
 
 def compute_weights(

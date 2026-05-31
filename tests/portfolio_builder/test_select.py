@@ -32,6 +32,21 @@ def _block_corr_cov(blocks: dict[str, list[str]], within: float = 0.85,
     return pd.DataFrame(mat, index=tickers, columns=tickers)
 
 
+def _block_corr(blocks: dict[str, list[str]], within: float = 0.85,
+                across: float = 0.05) -> pd.DataFrame:
+    """Correlation matrix (unit diagonal) matching _block_corr_cov's blocks.
+    correlation_clusters consumes a correlation matrix (the RAW correlation from
+    build_covariance), not a covariance — see its docstring."""
+    tickers = [t for members in blocks.values() for t in members]
+    blk = {t: b for b, members in blocks.items() for t in members}
+    n = len(tickers)
+    mat = np.empty((n, n))
+    for i, ti in enumerate(tickers):
+        for j, tj in enumerate(tickers):
+            mat[i, j] = 1.0 if i == j else (within if blk[ti] == blk[tj] else across)
+    return pd.DataFrame(mat, index=tickers, columns=tickers)
+
+
 def _prices_df(tickers: list[str], n_days: int = 300, seed: int = 0) -> pd.DataFrame:
     """Long-format price DataFrame suitable for build_covariance."""
     rng = np.random.default_rng(seed)
@@ -157,7 +172,7 @@ def test_greedy_select_single_candidate():
 def test_build_covariance_shape():
     tickers = ["A", "B", "C"]
     df = _prices_df(tickers, n_days=300)
-    cov, dropped = build_covariance(df, window_days=252)
+    cov, dropped, _corr = build_covariance(df, window_days=252)
     assert cov.shape == (3, 3)
     assert list(cov.index) == tickers
     assert list(cov.columns) == tickers
@@ -167,7 +182,7 @@ def test_build_covariance_shape():
 def test_build_covariance_positive_diagonal():
     tickers = ["A", "B", "C", "D"]
     df = _prices_df(tickers, n_days=300)
-    cov, _ = build_covariance(df, window_days=252)
+    cov, _, _corr = build_covariance(df, window_days=252)
     for t in tickers:
         assert cov.loc[t, t] > 0, f"variance for {t} is not positive"
 
@@ -175,7 +190,7 @@ def test_build_covariance_positive_diagonal():
 def test_build_covariance_symmetric():
     tickers = ["A", "B", "C"]
     df = _prices_df(tickers, n_days=300)
-    cov, _ = build_covariance(df, window_days=252)
+    cov, _, _corr = build_covariance(df, window_days=252)
     np.testing.assert_allclose(cov.values, cov.values.T, atol=1e-10)
 
 
@@ -183,8 +198,8 @@ def test_build_covariance_window_truncation():
     """With window_days=50, only the last 50 rows of returns should be used."""
     tickers = ["A", "B"]
     df = _prices_df(tickers, n_days=300)
-    cov_full, _ = build_covariance(df, window_days=252, min_observations=20)
-    cov_short, _ = build_covariance(df, window_days=50, min_observations=20)
+    cov_full, _, _corr = build_covariance(df, window_days=252, min_observations=20)
+    cov_short, _, _corr = build_covariance(df, window_days=50, min_observations=20)
     # Variances should differ since they use different history windows
     assert cov_full.loc["A", "A"] != cov_short.loc["A", "A"]
 
@@ -192,7 +207,7 @@ def test_build_covariance_window_truncation():
 def test_build_covariance_no_nan():
     tickers = ["A", "B", "C"]
     df = _prices_df(tickers, n_days=300)
-    cov, _ = build_covariance(df, window_days=252)
+    cov, _, _corr = build_covariance(df, window_days=252)
     assert not cov.isnull().any().any()
 
 
@@ -203,7 +218,7 @@ def test_build_covariance_drops_sparse_tickers():
     # Give "C" only 50 observations by keeping just the last 50 rows for it
     df_c_sparse = df_full[df_full["ticker"] == "C"].tail(50)
     df = pd.concat([df_full[df_full["ticker"] != "C"], df_c_sparse])
-    cov, dropped = build_covariance(df, window_days=252, min_observations=126)
+    cov, dropped, _corr = build_covariance(df, window_days=252, min_observations=126)
     assert "C" in dropped
     assert "C" not in cov.index
 
@@ -212,12 +227,63 @@ def test_build_covariance_shrinkage_reduces_off_diagonal():
     """Shrinkage should pull off-diagonal elements toward zero."""
     tickers = ["A", "B"]
     df = _prices_df(tickers, n_days=300)
-    cov_raw, _ = build_covariance(df, window_days=252, shrinkage=0.0)
-    cov_shrunk, _ = build_covariance(df, window_days=252, shrinkage=0.5)
+    cov_raw, _, _corr = build_covariance(df, window_days=252, shrinkage=0.0)
+    cov_shrunk, _, _corr = build_covariance(df, window_days=252, shrinkage=0.5)
     # Off-diagonal should be smaller in magnitude after shrinkage
     assert abs(cov_shrunk.loc["A", "B"]) < abs(cov_raw.loc["A", "B"])
     # Diagonal should be unchanged (shrinkage toward diagonal keeps variances)
     np.testing.assert_allclose(cov_raw.loc["A", "A"], cov_shrunk.loc["A", "A"], rtol=1e-6)
+
+
+def test_raw_correlation_is_shrinkage_invariant():
+    """Regression: the RAW correlation matrix returned by build_covariance must be
+    independent of shrinkage. Deriving correlation from the SHRUNK covariance
+    deflated every pairwise correlation by the shrinkage factor (the gold-miners
+    bug: true 0.79-0.92 read 0.63-0.74 at shrinkage=0.20, falling below a 0.70
+    clustering threshold and splitting genuine co-movers into singletons)."""
+    tickers = ["A", "B", "C"]
+    df = _prices_df(tickers, n_days=300)
+    _cov0, _, corr0 = build_covariance(df, window_days=252, shrinkage=0.0)
+    _cov5, _, corr5 = build_covariance(df, window_days=252, shrinkage=0.5)
+    # Same raw correlation regardless of shrinkage.
+    np.testing.assert_allclose(corr0.values, corr5.values, rtol=1e-9, atol=1e-12)
+    # Unit diagonal (it is a correlation matrix, not a covariance).
+    np.testing.assert_allclose(np.diag(corr0.values), np.ones(3), rtol=1e-9)
+
+
+def test_clustering_uses_raw_corr_not_shrunk_cov():
+    """End-to-end: a block of genuine co-movers (corr 0.86, just above a 0.70
+    threshold) must cluster even under shrinkage. Before the fix, shrinkage=0.20
+    pulled the OFF-diagonal of the cov down so corr-from-shrunk-cov read 0.69 and
+    the block fragmented into singletons."""
+    # Build prices where A,B,C move almost identically (a shared factor) and D is
+    # independent — a clean high-within / low-across block.
+    rng = np.random.default_rng(7)
+    base_date = pd.Timestamp("2022-01-03")
+    n = 300
+    factor = rng.normal(0.0004, 0.014, n)          # shared gold-like factor
+    rows = []
+    for t in ["A", "B", "C"]:
+        idio = rng.normal(0, 0.004, n)             # small idiosyncratic noise
+        price = 100.0
+        for i in range(n):
+            price *= 1 + factor[i] + idio[i]
+            rows.append({"ticker": t, "date": base_date + pd.Timedelta(days=i), "adjusted_close": price})
+    price = 100.0
+    dret = rng.normal(0.0003, 0.015, n)            # independent name
+    for i in range(n):
+        price *= 1 + dret[i]
+        rows.append({"ticker": "D", "date": base_date + pd.Timedelta(days=i), "adjusted_close": price})
+    df = pd.DataFrame(rows)
+
+    # With the production default shrinkage, clustering on the RAW correlation
+    # must still group A/B/C and leave D a singleton.
+    _cov, _dropped, raw_corr = build_covariance(df, window_days=252, shrinkage=0.20)
+    clusters = correlation_clusters(raw_corr, threshold=0.70)
+    assert clusters["A"] == clusters["B"] == clusters["C"], (
+        f"genuine co-movers must cluster under shrinkage; got {clusters}"
+    )
+    assert clusters["D"] != clusters["A"], f"independent name must stay singleton; got {clusters}"
 
 
 def test_build_covariance_deduplicates_prices():
@@ -228,8 +294,8 @@ def test_build_covariance_deduplicates_prices():
     # be identical but pivot() would have raised. After the fix, the last row wins
     # and the result should match the clean covariance.
     df_duped = pd.concat([df_clean, df_clean[df_clean["ticker"] == "A"]], ignore_index=True)
-    cov_clean, _ = build_covariance(df_clean, window_days=200, min_observations=50)
-    cov_deduped, _ = build_covariance(df_duped, window_days=200, min_observations=50)
+    cov_clean, _, _corr = build_covariance(df_clean, window_days=200, min_observations=50)
+    cov_deduped, _, _corr = build_covariance(df_duped, window_days=200, min_observations=50)
     # Covariance should be identical — duplicates discarded, not averaged
     np.testing.assert_allclose(
         cov_clean.values, cov_deduped.values, rtol=1e-6,
@@ -441,7 +507,7 @@ def test_build_covariance_empty_raises_runtime_error():
       2. The RuntimeError message matches what the service emits.
     """
     # Only 5 price rows — far below min_observations=126 → both tickers dropped
-    cov, dropped = build_covariance(
+    cov, dropped, _corr = build_covariance(
         _prices_df(["A", "B"], n_days=5),
         window_days=252,
         min_observations=126,
@@ -468,7 +534,7 @@ def test_build_covariance_empty_from_real_data():
     # Only 5 rows — far below min_observations=126
     tickers = ["X", "Y"]
     df = _prices_df(tickers, n_days=5)
-    cov, dropped = build_covariance(df, window_days=252, min_observations=126)
+    cov, dropped, _corr = build_covariance(df, window_days=252, min_observations=126)
 
     # Both tickers must be dropped and the matrix must be empty
     assert set(dropped) == set(tickers)
@@ -615,9 +681,9 @@ def test_sector_cap_tighter_than_one_stock_returns_empty():
 
 def test_correlation_clusters_groups_correlated_block():
     """Highly-correlated tickers land in one cluster; the uncorrelated one is a singleton."""
-    cov = _block_corr_cov({"gold": ["AU", "B", "NEM"], "solo": ["XYZ"]},
-                          within=0.85, across=0.02)
-    clusters = correlation_clusters(cov, threshold=0.70)
+    corr = _block_corr({"gold": ["AU", "B", "NEM"], "solo": ["XYZ"]},
+                       within=0.85, across=0.02)
+    clusters = correlation_clusters(corr, threshold=0.70)
     # AU/B/NEM share one cluster id
     assert clusters["AU"] == clusters["B"] == clusters["NEM"]
     # XYZ is its own cluster
@@ -627,33 +693,32 @@ def test_correlation_clusters_groups_correlated_block():
 
 def test_correlation_clusters_id_is_smallest_member():
     """Cluster id is the lexicographically-smallest ticker — deterministic."""
-    cov = _block_corr_cov({"g": ["NEM", "AU", "KGC"]}, within=0.9, across=0.0)
-    clusters = correlation_clusters(cov, threshold=0.70)
+    corr = _block_corr({"g": ["NEM", "AU", "KGC"]}, within=0.9, across=0.0)
+    clusters = correlation_clusters(corr, threshold=0.70)
     assert set(clusters.values()) == {"AU"}  # AU < KGC < NEM
 
 
 def test_correlation_clusters_threshold_respected():
     """Below-threshold correlation → separate clusters."""
-    cov = _block_corr_cov({"a": ["A", "B"]}, within=0.50, across=0.0)
+    corr = _block_corr({"a": ["A", "B"]}, within=0.50, across=0.0)
     # 0.50 < 0.70 threshold → A and B do NOT cluster
-    clusters = correlation_clusters(cov, threshold=0.70)
+    clusters = correlation_clusters(corr, threshold=0.70)
     assert clusters["A"] != clusters["B"]
     # ...but at a 0.40 threshold they do
-    clusters_low = correlation_clusters(cov, threshold=0.40)
+    clusters_low = correlation_clusters(corr, threshold=0.40)
     assert clusters_low["A"] == clusters_low["B"]
 
 
 def test_correlation_clusters_single_linkage_transitive():
     """A~B and B~C cluster together even if A~C is below threshold (chaining)."""
-    var = 0.04
     # A-B = 0.8, B-C = 0.8, A-C = 0.1  → all three chain through B
     mat = np.array([
-        [var,       0.8 * var, 0.1 * var],
-        [0.8 * var, var,       0.8 * var],
-        [0.1 * var, 0.8 * var, var],
+        [1.0, 0.8, 0.1],
+        [0.8, 1.0, 0.8],
+        [0.1, 0.8, 1.0],
     ])
-    cov = pd.DataFrame(mat, index=["A", "B", "C"], columns=["A", "B", "C"])
-    clusters = correlation_clusters(cov, threshold=0.70)
+    corr = pd.DataFrame(mat, index=["A", "B", "C"], columns=["A", "B", "C"])
+    clusters = correlation_clusters(corr, threshold=0.70)
     assert clusters["A"] == clusters["B"] == clusters["C"]
 
 
@@ -670,9 +735,9 @@ def test_cluster_cap_thins_correlated_top_scorers():
     """
     golds = ["GLD1", "GLD2", "GLD3", "GLD4", "GLD5", "GLD6"]
     others = [f"OTH{i}" for i in range(8)]
-    cov = _block_corr_cov({"gold": golds, **{f"s{i}": [o] for i, o in enumerate(others)}},
-                          within=0.85, across=0.02)
-    cluster_map = correlation_clusters(cov, threshold=0.70)
+    blocks = {"gold": golds, **{f"s{i}": [o] for i, o in enumerate(others)}}
+    cov = _block_corr_cov(blocks, within=0.85, across=0.02)
+    cluster_map = correlation_clusters(_block_corr(blocks, within=0.85, across=0.02), threshold=0.70)
     # Golds hold the 6 highest scores
     scores = pd.Series({**{t: 1.0 - 0.01 * i for i, t in enumerate(golds)},
                         **{t: 0.90 - 0.01 * i for i, t in enumerate(others)}})[cov.index]
@@ -694,9 +759,9 @@ def test_cluster_cap_weight_redistribution_bounds_cluster():
     """compute_weights must keep the summed cluster weight at/under the cap."""
     golds = ["AU", "B", "NEM", "KGC"]
     others = ["OTH0", "OTH1", "OTH2", "OTH3", "OTH4", "OTH5"]
-    cov = _block_corr_cov({"gold": golds, **{f"s{i}": [o] for i, o in enumerate(others)}},
-                          within=0.85, across=0.02)
-    cluster_map = correlation_clusters(cov, threshold=0.70)
+    blocks = {"gold": golds, **{f"s{i}": [o] for i, o in enumerate(others)}}
+    cov = _block_corr_cov(blocks, within=0.85, across=0.02)
+    cluster_map = correlation_clusters(_block_corr(blocks, within=0.85, across=0.02), threshold=0.70)
     tickers = golds + others
     # adj scores favour the golds so they'd dominate without the cap
     selected = _make_selected(tickers, scores=[1.0] * len(tickers),

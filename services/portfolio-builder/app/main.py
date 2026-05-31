@@ -384,7 +384,7 @@ async def _do_build(
 
     # ── Step 4: build covariance matrix ────────────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
-    cov, tickers_dropped_obs = build_covariance(
+    cov, tickers_dropped_obs, raw_corr = build_covariance(
         prices_df[prices_df["ticker"].isin(filtered_tickers)],
         window_days=pb_cfg.covariance_window_days,
         min_observations=pb_cfg.min_covariance_observations,
@@ -451,7 +451,11 @@ async def _do_build(
     # are unreliable for risk grouping (GOOG → Communication Services; gold miners
     # span several sectors), so we group by how names actually co-move, derived
     # from the same covariance matrix the optimizer already built.
-    cluster_map = correlation_clusters(cov, threshold=pb_cfg.cluster_correlation_threshold)
+    # Cluster on the RAW correlation (pre-shrinkage). Using the shrunk cov here
+    # would deflate every pairwise correlation by the shrinkage factor and wrongly
+    # split genuine co-movers into singletons (e.g. gold miners correlated 0.79-0.92
+    # reading 0.63-0.74 after 0.20 shrinkage, mostly falling below a 0.70 threshold).
+    cluster_map = correlation_clusters(raw_corr, threshold=pb_cfg.cluster_correlation_threshold)
     cluster_sizes: dict[str, int] = {}
     for _cid in cluster_map.values():
         cluster_sizes[_cid] = cluster_sizes.get(_cid, 0) + 1
