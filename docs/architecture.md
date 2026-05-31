@@ -188,8 +188,11 @@ watch     — not held, rank confirmed, but portfolio already at max_positions
 hold      — held, rank within buffer zone, actual weight within drift_threshold of target
 buy_add   — held, rank good, actual_weight < target_weight - drift_threshold (underweight)
 sell_trim — held, rank good, actual_weight > target_weight + drift_threshold (overweight)
-at_risk   — held, rank > exit_rank but exit not yet confirmed for confirmation_days
-exit      — held, rank > exit_rank for confirmation_days in a row (confirmed exit)
+at_risk   — held, exit not yet confirmed: either rank > exit_rank (in-target name
+            deteriorating) OR an orphan counting down its build-confirmation window
+exit      — held + confirmed: in-target name with rank > exit_rank for
+            confirmation_days, OR an orphan absent from the target for
+            confirmation_days consecutive builds (orphan exit is rank-independent)
 ```
 
 Priority when multiple conditions apply: exit > at_risk > buy_add/sell_trim > hold.
@@ -211,27 +214,31 @@ Fields written to `delta_intents` for drift actions:
 
 After the per-ticker actions are assigned, `evaluate_target_vs_live` applies two
 deterministic post-passes so a proposal can never breach the position cap or
-spend cash the account doesn't have (`_cap_buys` / `_trim_to_cap` in
+spend cash the account doesn't have (`_allocate_capacity` / `_cap_buys` in
 `services/pipeline/app/engine.py`, both pure and unit-tested):
 
 - **Capacity gate (position count, entries only):** `retained_held + kept_entries
-  ≤ max_positions`. Best-ranked entries are kept; the rest are demoted
+  ≤ max_positions`. Best-ranked entries fill the free slots; the rest are demoted
   `entry → watch` with reason "deferred — portfolio at capacity". `buy_add`s
-  don't add positions, so they are exempt from this gate.
+  don't add positions, so they are exempt. Instant orphan rotation is RETIRED:
+  this gate never force-exits a held position — a deferred entry WAITS for an
+  orphan to time out (see orphan exit below). The realized book may therefore
+  transiently exceed `max_positions` while orphans count down, then converge to
+  the cap as they confirm.
 - **Buying-power gate (cash, entries + buy_adds share one budget):** kept buys
   are funded best-ranked-first against
   `available = buying_power/account_value + exit proceeds + sell_trim proceeds`.
-  Sell-side proceeds are credited so a same-open rotation (exit funds a new
-  entry) still works at ~0 buying power. Unfunded buys are demoted:
+  Sell-side proceeds are credited so a same-open rotation (an orphan-timer exit
+  funds a new entry) still works at ~0 buying power. Unfunded buys are demoted:
   `entry → watch`, `buy_add → hold` (keep the position, defer the top-up). Only
   enforced when `account_value > 0` and `buying_power` are supplied; otherwise
   the trade-executor and risk-service remain the cash backstop.
-- **Trim-to-cap:** the buffer-zone exit is rank-based, so a *well-ranked* orphan
-  (held but covariance-excluded from the target) never exits on its own and the
-  realized book can sit above `max_positions`. When `retained + kept_entries >
-  max_positions`, `_trim_to_cap` exits the worst-ranked **orphans** first
-  (held AND not in target). In-target holds are never force-sold; no-data
-  orphans (rank 9999) are skipped.
+- **Orphan exit (target is binding):** a position the builder dropped from the
+  target is exited once it has been absent for `confirmation_days` consecutive
+  builds (`target_history`), regardless of rank — so a strategy change reaches the
+  realized book instead of a well-ranked orphan lingering forever. Until confirmed
+  it is `at_risk`. In-target holds are never force-sold here; no-data orphans
+  (rank 9999, missing from the ranking universe) are never force-sold at all.
 
 When the broker state is unreliable (`_broker_state_unreliable()` — no sync,
 sync staler than `DELTA_SYNC_MAX_AGE_HOURS`, default 12h, or funded-but-no-

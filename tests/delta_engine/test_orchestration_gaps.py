@@ -18,8 +18,9 @@ import sys
 import os
 import pytest
 
+# Engine lives in the pipeline service (delta-engine was consolidated into it in
+# Phase 7). Import the LIVE copy — do not fall back to the _archive snapshot.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../services/pipeline/app"))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../_archive/delta-engine/app"))
 
 from engine import evaluate_target_vs_live, evaluate_all, RankObservation
 
@@ -113,11 +114,12 @@ class TestEmptyTargetPortfolio:
         assert decisions["AAPL"].action == "hold", \
             "Orphan ticker absent from universe should be held (awaiting data), not force-exited"
 
-    def test_non_empty_target_skipped_well_ranked_live_ticker_holds(self):
+    def test_non_empty_target_skipped_well_ranked_live_ticker_at_risk_first_build(self):
         """
-        portfolio-builder built a partial target (3 of 4 live tickers).
-        The 4th live ticker (GOOGL, rank 4) is an orphan but well-ranked →
-        buffer-zone protection: hold, don't exit a rank-4 stock on covariance grounds.
+        portfolio-builder built a partial target (3 of 4 live tickers). The 4th
+        live ticker (GOOGL, rank 4) is an orphan. On its first orphaned build (no
+        build history) it is at_risk, not a snap exit — even though well-ranked,
+        the target is binding and it will exit once the orphan window is met.
         """
         target = {"AAPL": 0.10, "MSFT": 0.10, "NVDA": 0.10}
         live = {"AAPL", "MSFT", "NVDA", "GOOGL"}
@@ -134,29 +136,32 @@ class TestEmptyTargetPortfolio:
             entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
             confirmation_days=CONF, max_positions=MAX_POS,
         )
-        assert decisions["GOOGL"].action == "hold", \
-            "GOOGL rank 4 is well within entry zone — orphan but must hold, not exit"
+        assert decisions["GOOGL"].action == "at_risk", \
+            "GOOGL orphan on first build → at_risk (will exit once orphan window met)"
         assert decisions["AAPL"].action == "hold"
         assert decisions["MSFT"].action == "hold"
         assert decisions["NVDA"].action == "hold"
 
-    def test_non_empty_target_skipped_bad_ranked_live_ticker_exits_when_confirmed(self):
-        """Orphan ticker outside exit zone for confirmation_days → exit."""
+    def test_non_empty_target_skipped_orphan_exits_when_confirmed_across_builds(self):
+        """Orphan absent from the target for confirmation_days builds → exit
+        (regardless of rank)."""
         target = {"AAPL": 0.10}
         live = {"AAPL", "JUNK"}
         universe = {
             "AAPL": _obs(rank=1),
-            "JUNK": _obs(rank=50),  # rank > EXIT_RANK=30 for all 3 days
+            "JUNK": _obs(rank=50),
         }
+        hist = [{"AAPL"}] * CONF  # JUNK absent from the target for CONF builds
         decisions = evaluate_target_vs_live(
             target_portfolio=target,
             live_positions=live,
             universe=universe,
             entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
             confirmation_days=CONF, max_positions=MAX_POS,
+            target_history=hist,
         )
         assert decisions["JUNK"].action == "exit", \
-            "JUNK rank 50 > exit_rank=30 for 3 days → should exit"
+            "JUNK orphaned for CONF builds → should exit"
 
     def test_non_empty_target_skipped_bad_ranked_live_ticker_at_risk_when_not_confirmed(self):
         """Orphan ticker outside exit zone but not yet confirmed → at_risk."""

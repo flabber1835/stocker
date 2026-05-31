@@ -115,6 +115,9 @@ def test_365_day_chaos_simulation():
     # latent "true score" per ticker; ranks derive from a noisy version each day
     score = {t: rng.uniform(0, 1) for t in UNIVERSE}
     rank_hist: dict[str, list[RankObservation]] = {}
+    # Rolling window of recent build targets (most-recent-first), capped at
+    # CONFIRMATION_DAYS, so the engine can confirm orphan exits across builds.
+    target_hist: list[set[str]] = []
     spy = [100.0]
 
     # regime script: (drift, vol) per phase — vol is driven by the PHASE, not the
@@ -129,7 +132,7 @@ def test_365_day_chaos_simulation():
 
     seen = {k: 0 for k in (
         "trading", "nontrading", "entry", "exit", "hold", "at_risk", "buy_add",
-        "sell_trim", "watch", "capacity_demote", "budget_demote", "trim_exit",
+        "sell_trim", "watch", "capacity_demote", "budget_demote", "orphan_exit",
         "deposit", "withdraw", "liquidation", "no_sync_days", "dedup_block",
         "double_fed", "nodata_days", "delisted",
     )}
@@ -236,12 +239,16 @@ def test_365_day_chaos_simulation():
         else:
             target = {t: 1.0 / MAX_POSITIONS for t in candidates[:MAX_POSITIONS]
                       if t not in missing}
+            # Record this build's target set as the most-recent entry in the
+            # rolling history (this build counts as element 0).
+            target_hist = ([set(target)] + target_hist)[:CONFIRMATION_DAYS]
             decisions = evaluate_target_vs_live(
                 target_portfolio=target, live_positions=live, universe=today_universe,
                 entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
                 confirmation_days=CONFIRMATION_DAYS, max_positions=MAX_POSITIONS,
                 actual_weights=actual_weights, drift_threshold=DRIFT_THRESHOLD,
                 account_value=account_value, buying_power=buying_power,
+                target_history=target_hist,
             )
 
         # ── 6. INVARIANTS on the decisions (math correctness, every ticker) ──
@@ -257,10 +264,8 @@ def test_365_day_chaos_simulation():
                 seen["capacity_demote"] += 1
             if d.action == "watch" and "buying power" in (d.reason or ""):
                 seen["budget_demote"] += 1
-            if d.action == "exit" and (
-                "trim to cap" in (d.reason or "") or "rotated out" in (d.reason or "")
-            ):
-                seen["trim_exit"] += 1
+            if d.action == "exit" and "dropped from target" in (d.reason or ""):
+                seen["orphan_exit"] += 1
 
         # ── 7. apply approvals → execute against broker ──────────────────────
         _execute(broker, decisions, account_value, policy, rng)
@@ -283,20 +288,19 @@ def test_365_day_chaos_simulation():
 
         assert broker.cash >= -1e-3, f"day {day}: overdraft cash={broker.cash}"
         av_recompute = broker.account_value()
-        assert math.isfinite(av_recompute) and av_recompute > 0
+        # On full-liquidation + cash-drain edge days the account legitimately
+        # reaches ~0; allow a floating-point epsilon below zero (e.g. -3.6e-44).
+        assert math.isfinite(av_recompute) and av_recompute >= -1e-9
         max_book_seen = max(max_book_seen, len(broker.held()))
 
     # ── coverage: prove the chaos actually touched everything ────────────────
     assert seen["trading"] >= 250 and seen["nontrading"] >= 95
     assert regimes_seen == {"bull_calm", "bull_stress", "bear_stress", "bear_calm"}, regimes_seen
-    # at_risk is intentionally NOT in this must-fire list: an at_risk ORPHAN is now
-    # rotated out (counted under trim_exit) whenever a higher-ranked entry competes
-    # for its slot, and this seeded-over-capacity scenario always has entry pressure,
-    # so a standalone at_risk final decision never survives here. at_risk survival
-    # (no entry competition) is covered directly by
-    # test_entry_caps.test_at_risk_orphan_survives_without_entry_competition.
-    for lever in ("entry", "exit", "hold", "buy_add", "sell_trim", "watch",
-                  "capacity_demote", "budget_demote", "trim_exit",
+    # at_risk fires whenever a freshly-orphaned name is counting down toward its
+    # orphan-timer exit; orphan_exit fires once a name has been absent from the
+    # target for CONFIRMATION_DAYS consecutive builds (instant rotation retired).
+    for lever in ("entry", "exit", "hold", "at_risk", "buy_add", "sell_trim", "watch",
+                  "capacity_demote", "budget_demote", "orphan_exit",
                   "deposit", "withdraw", "liquidation", "no_sync_days",
                   "dedup_block", "double_fed", "nodata_days", "delisted"):
         assert seen[lever] > 0, f"chaos lever never fired: {lever} (seen={seen})"
@@ -328,23 +332,24 @@ def _check_invariants(decisions, target, live, universe, actual_weights,
                 assert d.current_weight is not None and d.current_weight > 0
             elif d.action == "exit":
                 assert t in live, f"exit {t} not held"
-                # A non-rank-confirmed exit is legal only as a capacity-driven
-                # exit: trim-to-cap or a rank-based rotation (orphan displaced by
-                # a higher-ranked entry).
-                is_capacity_exit = (
-                    "trim to cap" in (d.reason or "") or "rotated out" in (d.reason or "")
-                )
-                if not is_capacity_exit and t in universe and len(universe[t]) >= CONFIRMATION_DAYS:
+                # Orphan-exit redesign: a held name exits either via rank
+                # confirmation (in-target name whose rank deteriorated) OR via the
+                # orphan timer (absent from the target for CONFIRMATION_DAYS builds).
+                # Instant capacity rotation is retired — there is no longer a
+                # "trim to cap"/"rotated out" exit.
+                is_orphan_exit = "dropped from target" in (d.reason or "")
+                if is_orphan_exit:
+                    # I4b: an orphan-timer exit must be an untargeted name with
+                    # ranking data — never a targeted name or a data-gap orphan.
+                    assert t not in target and (d.rank or 0) < 9999, (
+                        f"orphan exit {t} targeted/no-data"
+                    )
+                elif t in universe and len(universe[t]) >= CONFIRMATION_DAYS:
                     # I3b: a rank-confirmed exit needs CONFIRMATION_DAYS of rank > exit_rank
                     lead = universe[t][:CONFIRMATION_DAYS]
                     assert all(o.rank > EXIT_RANK for o in lead), (
                         f"exit {t} not rank-confirmed: {[o.rank for o in lead]}"
                     )
-                else:
-                    # I4b: a capacity-driven exit (trim-to-cap or rotation) must be an
-                    # untargeted orphan with ranking data — never a targeted name or data gap.
-                    if is_capacity_exit:
-                        assert t not in target and (d.rank or 0) < 9999, f"capacity exit {t} targeted/no-data"
             elif d.action in ("buy_add", "sell_trim"):
                 assert t in live and t in target, f"{d.action} {t} must be held&targeted"
                 # I3c: drift must exceed the rebalance threshold in the right direction
@@ -360,15 +365,30 @@ def _check_invariants(decisions, target, live, universe, actual_weights,
                 if "deferred" in (d.reason or ""):
                     assert d.current_weight is None, f"deferred watch {t} kept weight"
 
-    # I4 capacity — entry cap + trim-to-cap
+    # I4 capacity — entry cap holds; the book converges to cap as orphans time out.
+    #
+    # Orphan-exit redesign: instant trim-to-cap rotation is retired, so the book
+    # can TRANSIENTLY exceed max_positions while orphans count down (at_risk). New
+    # entries are still hard-capped to the free slots, so entries never push the
+    # book over the cap on their own. The over-cap overhang is exactly the held
+    # names that are not being force-exited this run: at_risk orphans (timer not
+    # yet met) + data-gap orphans. Each such overhang name will exit once its
+    # orphan window completes, so the book is guaranteed to converge to the cap.
     exits = sum(1 for d in decisions.values() if d.action == "exit")
     entries = sum(1 for d in decisions.values() if d.action == "entry")
     retained = len(live) - exits
-    slots = MAX_POSITIONS - (len(live) - exits)
-    assert entries <= max(0, slots) + 1e-9, f"entry cap breached: {entries} entries, {slots} slots"
-    # book back to cap, except orphans that can't be trimmed (no ranking data)
-    assert retained + entries <= MAX_POSITIONS + nodata_held, (
-        f"book {retained + entries} > cap {MAX_POSITIONS} (+{nodata_held} no-data)"
+    free_slots = MAX_POSITIONS - retained
+    # Entries strictly fit the free slots (never exceed them).
+    assert entries <= max(0, free_slots) + 1e-9, (
+        f"entry cap breached: {entries} entries, {free_slots} free slots"
+    )
+    # Any overhang above the cap must be accounted for by orphans not yet exiting
+    # (at_risk counting down, or data-gap holds) — never by entries.
+    at_risk_held = sum(1 for d in decisions.values() if d.action == "at_risk")
+    overhang = (retained + entries) - MAX_POSITIONS
+    assert overhang <= at_risk_held + nodata_held, (
+        f"book {retained + entries} > cap {MAX_POSITIONS}; overhang {overhang} "
+        f"exceeds at_risk {at_risk_held} + no-data {nodata_held}"
     )
 
     # I5 buying-power gate (only the target_vs_live cash path carries it)

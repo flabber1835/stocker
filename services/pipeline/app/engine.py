@@ -50,6 +50,32 @@ def _consecutive_in_zone(
     return count
 
 
+def _orphan_confirm_days(
+    ticker: str,
+    target_history: list[set[str]] | None,
+    required: int,
+) -> int:
+    """Count consecutive most-recent portfolio builds in which ``ticker`` was
+    ABSENT from the target (i.e. an orphan).
+
+    ``target_history`` is most-recent-first; element 0 is the current build's
+    target ticker set. A name that is an orphan today contributes at least 1.
+    Only the leading ``required`` builds are examined. When history is None or
+    shorter than ``required``, the maximum achievable count is bounded by the
+    history length, so an orphan cannot reach confirmation until enough builds
+    have accumulated — deliberately conservative (no whipsaw on thin history).
+    """
+    if not target_history:
+        return 0
+    count = 0
+    for tset in target_history[:required]:
+        if ticker not in tset:
+            count += 1
+        else:
+            break
+    return count
+
+
 def evaluate_ticker(
     ticker: str,
     observations: list[RankObservation],  # sorted date DESC (most recent first)
@@ -171,6 +197,7 @@ def evaluate_target_vs_live(
     drift_threshold: float = 0.02,
     account_value: float | None = None,
     buying_power: float | None = None,
+    target_history: list[set[str]] | None = None,
 ) -> dict[str, DeltaDecision]:
     """Diff portfolio_holdings (target) against live_positions (actual broker state).
 
@@ -286,42 +313,43 @@ def evaluate_target_vs_live(
             )
             continue
 
-        # Has ranking data, non-empty target, ticker not in target.
-        # Apply buffer-zone confirmation: only exit after rank > exit_rank
-        # for confirmation_days consecutive days.  A well-ranked orphan stays
-        # as "hold" — don't sell rank-11 MU because the covariance optimizer
-        # preferred NVDA+WDC+TSM for semiconductor exposure.
-        exit_days = _consecutive_in_zone(
-            obs, lambda o, xr=exit_rank: o.rank > xr, confirmation_days
-        )
-        if latest.rank > exit_rank:
-            if exit_days >= confirmation_days:
-                orphan_action = "exit"
-                orphan_reason = (
-                    f"Held at broker, not in target portfolio, rank={latest.rank} > "
-                    f"exit_rank={exit_rank} for {exit_days} consecutive days — exiting"
-                )
-            else:
-                orphan_action = "at_risk"
-                orphan_reason = (
-                    f"Held at broker, not in target portfolio, rank={latest.rank} > "
-                    f"exit_rank={exit_rank} "
-                    f"({exit_days}/{confirmation_days}d toward exit confirmation)"
-                )
-        else:
-            zone = "entry zone" if latest.rank <= entry_rank else "buffer zone"
-            orphan_action = "hold"
+        # Has ranking data, non-empty target, ticker not in target → ORPHAN.
+        #
+        # The target is binding on the live book: a position the builder dropped
+        # is exited once it has been absent from the target for confirmation_days
+        # consecutive builds, REGARDLESS of rank. This is what makes a strategy
+        # change (e.g. the correlation-cluster cap thinning the golds) actually
+        # reach the realized portfolio — a well-ranked name the builder no longer
+        # wants no longer lingers indefinitely just because its rank holds up.
+        #
+        # Deterministic, no whipsaw: the confirmation window is counted over
+        # successive portfolio builds (target_history, most-recent-first). A single
+        # build that re-includes the ticker resets the count. Data-gap orphans
+        # (no ranking obs) are handled above and never reach here, so they are
+        # never force-sold on missing data.
+        orphan_days = _orphan_confirm_days(ticker, target_history, confirmation_days)
+        # Fall back to today-only when no build history is available yet: an orphan
+        # today counts as 1 (cannot confirm until confirmation_days builds exist).
+        if orphan_days == 0:
+            orphan_days = 1
+        if orphan_days >= confirmation_days:
+            orphan_action = "exit"
             orphan_reason = (
-                f"Held at broker, not in target portfolio (rank={latest.rank} in {zone}) — "
-                "portfolio-builder excluded on covariance/capacity grounds; "
-                "holding until rank falls below exit_rank"
+                f"Held at broker, dropped from target for {orphan_days} consecutive "
+                f"builds (rank={latest.rank}) — exiting (target is binding)"
+            )
+        else:
+            orphan_action = "at_risk"
+            orphan_reason = (
+                f"Held at broker, not in target portfolio (rank={latest.rank}) — "
+                f"orphaned for {orphan_days}/{confirmation_days} builds toward exit"
             )
         decisions[ticker] = DeltaDecision(
             ticker=ticker,
             action=orphan_action,
             rank=latest.rank,
             composite_score=latest.composite_score,
-            confirmation_days_met=exit_days,
+            confirmation_days_met=orphan_days,
             current_weight=0.0,
             reason=orphan_reason,
             actual_weight=actual_weights.get(ticker) if actual_weights else None,
@@ -543,72 +571,47 @@ def _allocate_capacity(
     target_portfolio: dict[str, float],
     max_positions: int,
 ) -> None:
-    """Fill the position book (max_positions slots) with the best-ranked names,
-    rotating weak orphans out for strictly higher-ranked new entries. Mutates
-    ``decisions`` in place. Capacity only — the cash gate runs after, in _cap_buys.
+    """Defer new entries that don't fit the position book (max_positions slots).
+    Mutates ``decisions`` in place. Capacity only — the cash gate runs after, in
+    _cap_buys.
 
-    Slot allocation:
-      1. Mandatory holds occupy a slot unconditionally and cannot be displaced:
-         - in-target held names (the builder still wants them; buy_adds are these)
-         - data-gap orphans (rank 9999: held but missing from the ranking universe
-           — never force-sold on a data gap; that is not a sell signal)
-      2. The remaining slots are contested, best rank first, by:
-         - new entries (target, not held)
-         - trimmable orphans (held, not target, action hold/at_risk, rank < 9999)
-         Winners keep their action (entry / hold); losers are demoted:
-           entry  -> watch  (deferred — out-ranked for the open slots)
-           orphan -> exit   (rotated out for a better-ranked entry, or over cap)
+    Slot accounting:
+      - Occupied slots = every held name NOT already exiting this run (in-target
+        holds, buy_adds, at_risk orphans counting down, data-gap orphans) PLUS any
+        orphan confirmed-exiting (those free their slot and are excluded).
+      - Free slots = max_positions − occupied. New entries fill free slots best
+        rank first; entries that don't fit are demoted to ``watch``.
 
-    Why this exists / what it replaces
-    ----------------------------------
-    The buffer-zone exit is rank-based, so a *well-ranked* orphan (held but
-    covariance-excluded from the target) never exits on its own. The previous
-    cap-then-trim ordering computed entry slots against the pre-trim book, so a
-    held orphan permanently blocked a strictly higher-ranked new entry once the
-    book was full — a steady-state lockout where the realized book stayed
-    rank-worse than the target indefinitely. Contesting entries and trimmable
-    orphans in one ranked allocation closes that: a vacated orphan slot goes to
-    the best deferred entry, and the orphan it displaced is credited as exit
-    proceeds for the cash gate. Mandatory holds and data-gap orphans are still
-    never force-sold, so a within-cap book with no better entries is untouched.
+    Why instant rotation was retired
+    --------------------------------
+    Previously a higher-ranked new entry could rotate a weaker orphan out
+    immediately ("always rotate"). That reintroduced rank-driven churn and raced
+    the orphan-exit timer. The orphan-exit path is now solely time-based: an
+    orphan leaves only after confirmation_days consecutive builds absent from the
+    target (see evaluate_target_vs_live). So capacity here NEVER force-exits a
+    held position — it only defers entries that can't fit. When the book is full
+    of not-yet-confirmed orphans, a better entry waits (``watch``) until an orphan
+    times out and frees its slot. Deterministic, no whipsaw — the trade-off is
+    higher latency to rank-align the book, accepted per the orphan-exit redesign.
     """
-    exited = {d.ticker for d in decisions.values() if d.action == "exit"}
-    held_remaining = [t for t in live_positions if t not in exited]
+    exiting = {d.ticker for d in decisions.values() if d.action == "exit"}
+    occupied = len([t for t in live_positions if t not in exiting])
 
-    def _trimmable(t: str) -> bool:
-        d = decisions.get(t)
-        return (
-            d is not None
-            and t not in target_portfolio
-            and d.action in ("hold", "at_risk")
-            and d.rank < 9999
-        )
-
-    mandatory = [t for t in held_remaining if not _trimmable(t)]
-    contenders = sorted(
-        [d for d in decisions.values() if d.action == "entry"]
-        + [decisions[t] for t in held_remaining if _trimmable(t)],
+    free_slots = max(0, max_positions - occupied)
+    entries = sorted(
+        [d for d in decisions.values() if d.action == "entry"],
         key=lambda d: d.rank,   # best (lowest rank number) first
     )
+    winners = {d.ticker for d in entries[:free_slots]}
 
-    slots = max(0, max_positions - len(mandatory))
-    winners = {d.ticker for d in contenders[:slots]}
-
-    for d in contenders:
+    for d in entries:
         if d.ticker in winners:
-            continue  # entry stays entry; orphan stays hold/at_risk
-        if d.action == "entry":
-            decisions[d.ticker] = replace(
-                d, action="watch", current_weight=None,
-                reason=(f"deferred — portfolio at capacity; out-ranked for the open "
-                        f"slots (rank={d.rank}, max_positions={max_positions})"),
-            )
-        else:  # trimmable orphan displaced / over cap
-            decisions[d.ticker] = replace(
-                d, action="exit",
-                reason=(f"rotated out — untargeted orphan (rank={d.rank}) displaced by "
-                        f"higher-ranked entries / over max_positions={max_positions}"),
-            )
+            continue  # entry fits a free slot
+        decisions[d.ticker] = replace(
+            d, action="watch", current_weight=None,
+            reason=(f"deferred — portfolio at capacity; out-ranked for the open "
+                    f"slots (rank={d.rank}, max_positions={max_positions})"),
+        )
 
 
 def evaluate_all(

@@ -1,16 +1,20 @@
 """
-Trim-to-cap for evaluate_target_vs_live.
+Orphan handling at/over capacity for evaluate_target_vs_live.
 
-The buffer-zone exit is rank-based: a held name only exits after rank > exit_rank
-for confirmation_days. That can never clean up a *well-ranked* orphan (held but
-covariance-excluded from the target), so the realized book can sit permanently
-above max_positions (the live-confirmed "33 positions vs cap 30" case).
+Orphan-exit redesign: the target is binding on the live book, and instant
+trim-to-cap rotation is RETIRED. An orphan (held, not in the target) is never
+force-sold to bring an over-cap book down; instead it is tagged ``at_risk`` and
+exits only after it has been absent from the target for confirmation_days
+consecutive builds (tracked via ``target_history``). An over-cap book therefore
+corrects over time as orphans time out — deterministically, with no rank-driven
+churn — rather than in a single snap rotation.
 
-Trim-to-cap fixes that: when the retained book exceeds max_positions, exit the
-worst-ranked *orphans* (held but weight 0 / not in target) until the book is back
-at the cap. It only fires when over capacity, and only ever trims orphans — names
-the builder still targets are never force-sold here — so a within-cap book is
-untouched (no churn).
+This file asserts:
+  - an over-cap book of orphans is NOT instantly trimmed (all at_risk, no exits)
+  - a within-cap book of orphans is likewise at_risk, not force-held and not sold
+  - targeted holds are never force-sold regardless of cap
+  - confirmed orphans (absent from target for confirmation_days builds) DO exit,
+    which is what eventually brings an over-cap book back to the cap
 """
 from datetime import date, timedelta
 
@@ -36,9 +40,10 @@ def _retained(decisions, live):
     return sum(1 for t in live if decisions[t].action != "exit")
 
 
-def test_trim_excess_orphans_back_to_cap():
-    """26 in-target holds + 7 orphans = 33 held, cap 30 → exit the 3 worst-ranked
-    orphans, leaving exactly 30 retained."""
+def test_over_cap_orphans_not_instantly_trimmed():
+    """26 in-target holds + 7 orphans = 33 held, cap 30. Instant rotation is retired:
+    with no build history the 7 orphans are at_risk (counting down), NOT trimmed —
+    the book stays at 33 this run and corrects as orphans time out."""
     target = {f"T{i:02d}": 1.0 / 30 for i in range(1, 27)}      # 26 targeted
     orphans = {f"O{i:02d}" for i in range(1, 8)}                # 7 held, not targeted
     live = set(target) | orphans
@@ -50,20 +55,15 @@ def test_trim_excess_orphans_back_to_cap():
         target_portfolio=target, live_positions=live, universe=universe,
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
     )
-    c = _counts(decisions)
-    assert c.get("exit", 0) == 3                                # 33 - 30
-    assert _retained(decisions, live) == 30
-    # the 3 worst-ranked orphans (O05/O06/O07 at ranks 35/36/37) are the ones exited
-    exited = {t for t, d in decisions.items() if d.action == "exit"}
-    assert exited == {"O05", "O06", "O07"}
-    # best-ranked orphans survive as holds
-    assert decisions["O01"].action == "hold"
-    # no targeted name is ever trimmed
+    assert _counts(decisions).get("exit", 0) == 0               # no instant trim
+    assert all(decisions[o].action == "at_risk" for o in orphans)
+    # targeted names are never trimmed
     assert all(decisions[t].action != "exit" for t in target)
 
 
-def test_no_trim_when_within_cap():
-    """28 held (≤ cap) → orphans stay hold, nothing trimmed (no churn)."""
+def test_within_cap_orphans_are_at_risk_not_force_held():
+    """28 held (≤ cap). Orphans are still orphans → at_risk (counting down toward
+    exit), not 'hold' and not sold. The target is binding even under cap."""
     target = {f"T{i:02d}": 1.0 / 30 for i in range(1, 27)}      # 26
     orphans = {"O01", "O02"}                                    # +2 = 28 held
     live = set(target) | orphans
@@ -75,17 +75,18 @@ def test_no_trim_when_within_cap():
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
     )
     assert _counts(decisions).get("exit", 0) == 0
-    assert decisions["O01"].action == "hold"
-    assert decisions["O02"].action == "hold"
+    assert decisions["O01"].action == "at_risk"
+    assert decisions["O02"].action == "at_risk"
 
 
-def test_trim_only_touches_orphans_not_targeted_holds():
-    """Even when a targeted hold ranks worse than an orphan, only orphans are
-    trimmed — the builder's target is respected."""
+def test_targeted_holds_never_force_sold_even_when_over_cap():
+    """A weak-but-targeted hold ranking worse than the orphans is still kept —
+    only the orphan-exit timer can remove a held name, and only orphans (not
+    targeted names) are ever orphans."""
     target = {f"T{i:02d}": 1.0 / 30 for i in range(1, 30)}      # 29 targeted
-    live = set(target) | {"O01", "O02", "O03"}                  # 32 held → overflow 2
-    universe = {f"T{i:02d}": _history(i) for i in range(1, 30)}  # T29 rank 29
-    universe["T29"] = _history(39)                              # a weak (but ≤40) targeted hold
+    live = set(target) | {"O01", "O02", "O03"}                  # 32 held → over cap
+    universe = {f"T{i:02d}": _history(i) for i in range(1, 30)}
+    universe["T29"] = _history(39)                              # weak (but ≤40) targeted hold
     universe["O01"] = _history(5)
     universe["O02"] = _history(6)
     universe["O03"] = _history(7)                               # orphans rank far BETTER than T29
@@ -93,33 +94,38 @@ def test_trim_only_touches_orphans_not_targeted_holds():
         target_portfolio=target, live_positions=live, universe=universe,
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
     )
-    exited = {t for t, d in decisions.items() if d.action == "exit"}
-    assert exited == {"O02", "O03"}                             # 2 worst orphans
+    # No instant trim — orphans (even well-ranked) are at_risk, targeted hold stays.
+    assert _counts(decisions).get("exit", 0) == 0
     assert decisions["T29"].action == "hold"                   # weak targeted name kept
-    assert decisions["O01"].action == "hold"                   # best orphan kept
+    assert decisions["O01"].action == "at_risk"
+    assert decisions["O02"].action == "at_risk"
+    assert decisions["O03"].action == "at_risk"
 
 
-def test_trim_counts_existing_confirmed_exits():
-    """A rank-confirmed exit already reduces the book; trim only the remaining
-    overflow on top of it."""
-    target = {f"T{i:02d}": 1.0 / 30 for i in range(1, 27)}      # 26
+def test_confirmed_orphans_exit_and_reduce_the_book():
+    """When orphans have been absent from the target for confirmation_days builds,
+    they exit — this is what brings an over-cap book back toward the cap. Here 3 of
+    the 7 orphans are confirmed (in target_history); the other 4 keep counting down."""
+    target = {f"T{i:02d}": 1.0 / 30 for i in range(1, 27)}      # 26 targeted
     orphans = {f"O{i:02d}" for i in range(1, 8)}                # 7 → 33 held
     live = set(target) | orphans
     universe = {t: _history(i + 1) for i, t in enumerate(target)}
-    # O07 is a rank-confirmed exit (rank>40 for 3 days); O01..O06 are buffer-zone holds
-    for i, o in enumerate(sorted(orphans)[:6]):
-        universe[o] = _history(31 + i)                          # ranks 31..36
-    universe["O07"] = _history(50, 50, 50)                      # confirmed exit by rank
+    for i, o in enumerate(sorted(orphans)):
+        universe[o] = _history(31 + i)                          # ranks 31..37
+
+    confirmed = {"O05", "O06", "O07"}
+    # In all 3 most-recent builds the target was the 26 T-names plus the 4 NON-confirmed
+    # orphans (so only O05/O06/O07 are absent across the whole window).
+    present = set(target) | {"O01", "O02", "O03", "O04"}
+    history = [present, present, present]
 
     decisions = evaluate_target_vs_live(
         target_portfolio=target, live_positions=live, universe=universe,
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_history=history,
     )
-    # 1 rank-exit (O07) + 2 trimmed orphans = 3 total; book back to 30
     assert _counts(decisions).get("exit", 0) == 3
+    assert {t for t, d in decisions.items() if d.action == "exit"} == confirmed
     assert _retained(decisions, live) == 30
-    assert decisions["O07"].action == "exit"
-    # the 2 worst remaining orphans (O06 rank36, O05 rank35) get trimmed
-    assert decisions["O06"].action == "exit"
-    assert decisions["O05"].action == "exit"
-    assert decisions["O01"].action == "hold"
+    # the 4 not-yet-confirmed orphans keep counting down
+    assert all(decisions[o].action == "at_risk" for o in ("O01", "O02", "O03", "O04"))

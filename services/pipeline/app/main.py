@@ -52,6 +52,25 @@ def _recent_drawdown(closes: list[float], window: int = 21) -> float | None:
         return None
     return recent[-1] / peak - 1.0
 
+
+def _drawdown_map_from_rows(rows, window: int = 21) -> dict[str, float]:
+    """Build {ticker: drawdown_21d} from daily_prices rows ordered (ticker, date ASC).
+
+    Pure: depends only on its arguments (rows are objects with .ticker /
+    .adjusted_close). Extracted from _do_rank so the drawdown step can be unit
+    tested and so it can never reference an orchestrator local that is not yet
+    in scope (the cause of the ranked_tickers forward-reference regression)."""
+    closes: dict[str, list[float]] = {}
+    for r in rows:
+        if r.adjusted_close is not None:
+            closes.setdefault(r.ticker, []).append(float(r.adjusted_close))
+    out: dict[str, float] = {}
+    for t, cl in closes.items():
+        dd = _recent_drawdown(cl, window=window)
+        if dd is not None:
+            out[t] = dd
+    return out
+
 # chain_date MUST be computed in the SAME explicit zone the scheduler uses to
 # decide "did the pipeline run today?" (scheduler._local_today, SCHEDULE_TZ).
 # The scheduler compares its own SCHEDULE_TZ "today" against this chain_date; if
@@ -1115,14 +1134,7 @@ async def _do_rank(
                 ),
                 {"tickers": _ranked_list, "w": DRAWDOWN_WINDOW_DAYS},
             )
-            _closes: dict[str, list[float]] = {}
-            for _r in dd_rows.fetchall():
-                if _r.adjusted_close is not None:
-                    _closes.setdefault(_r.ticker, []).append(float(_r.adjusted_close))
-        for _t, _cl in _closes.items():
-            _dd = _recent_drawdown(_cl, window=DRAWDOWN_WINDOW_DAYS)
-            if _dd is not None:
-                drawdown_map[_t] = _dd
+            drawdown_map = _drawdown_map_from_rows(dd_rows.fetchall(), window=DRAWDOWN_WINDOW_DAYS)
         ranked_df["drawdown_21d"] = ranked_df["ticker"].map(drawdown_map)
 
     def _rfmt(v):
@@ -1692,6 +1704,10 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
         )
         port_run = port_row.fetchone()
 
+    # Target membership over the last `confirmation_days` successful builds,
+    # most-recent-first. Element 0 is the current build's target ticker set.
+    # Used by the delta engine to confirm orphan exits over consecutive builds.
+    target_history: list[set[str]] = []
     if port_run is None:
         cold_start = True
         print(
@@ -1710,6 +1726,32 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             )
             for h in holdings_rows.fetchall():
                 target_portfolio[h.ticker] = float(h.weight) if h.weight is not None else 0.0
+
+        # Build target_history from the most recent confirmation_days successful
+        # builds, one run per portfolio_date (the latest completed_at on that date,
+        # so same-day re-runs don't consume the window — mirrors the ranking-history
+        # dedup). Most-recent-first; element 0 is today's target.
+        async with engine.connect() as conn:
+            latest_per_date = (
+                "SELECT DISTINCT ON (portfolio_date) run_id, portfolio_date "
+                "FROM portfolio_runs WHERE status='success' "
+                "ORDER BY portfolio_date DESC, completed_at DESC NULLS LAST"
+            )
+            hist_rows = await conn.execute(
+                text(
+                    "SELECT lpd.portfolio_date, ph.ticker "
+                    f"FROM ({latest_per_date} LIMIT :lim) lpd "
+                    "JOIN portfolio_holdings ph ON ph.run_id = lpd.run_id "
+                    "ORDER BY lpd.portfolio_date DESC"
+                ),
+                {"lim": confirmation_days},
+            )
+            _date_tickers: dict[object, set[str]] = {}
+            for r in hist_rows.fetchall():
+                _date_tickers.setdefault(r.portfolio_date, set()).add(r.ticker)
+            target_history = [
+                _date_tickers[pd] for pd in sorted(_date_tickers, reverse=True)
+            ]
 
     # Load live positions from latest successful alpaca-sync
     no_sync_data = False
@@ -1881,6 +1923,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             drift_threshold=drift_threshold,
             account_value=account_value_for_drift,
             buying_power=buying_power_for_cap,
+            target_history=target_history,
         )
         mode_used = "target_vs_live"
 

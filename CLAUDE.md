@@ -172,18 +172,28 @@ Holding period is variable — held as long as the stock stays in the buffer zon
 Periodic weight normalization rebalances position sizes without forcing exits.
 ```
 
-Capacity allocation at the cap (delta engine `_allocate_capacity`): when the book
-is full, the max_positions slots are filled best-rank-first by new entries AND
-trimmable orphans *together*, so a higher-ranked new entry rotates out a weaker
-untargeted orphan instead of being locked out behind it. This replaced an earlier
-cap-then-trim ordering whose steady-state lockout kept a rank-~30 orphan over a
-rank-~9 target. Mandatory holds (still-targeted names) and data-gap orphans
-(rank 9999, missing from the ranking universe) are NEVER force-rotated. Rotation
-only fires under entry pressure: with no competing entry a buffer-zone orphan
-(`hold`/`at_risk`) is left alone. The rotated-out orphan's proceeds fund the entry
-in the subsequent buying-power gate. This is a deliberate optimality-over-churn
-choice (the "fix fully / always rotate" decision) — it increases turnover at the
-cap in exchange for keeping the realized book rank-aligned with the target.
+Orphan handling — the target is binding on the live book (orphan-exit redesign,
+supersedes the earlier "always rotate" capacity policy). An *orphan* is a position
+held at the broker but absent from the current target portfolio. An orphan is
+exited once it has been absent from the target for `confirmation_days` consecutive
+**portfolio builds** (tracked via `target_history`, most-recent-first), REGARDLESS
+of its rank. Until confirmed it is tagged `at_risk` (counting down). This is what
+makes a strategy change (e.g. the correlation-cluster cap thinning the golds)
+actually reach the realized portfolio — a name the builder dropped no longer
+lingers just because its rank holds up. Data-gap orphans (rank 9999, missing from
+the ranking universe) are NEVER force-sold — that is not a sell signal. In-target
+held names exit only via the existing rank/buffer-zone path.
+
+Capacity (`_allocate_capacity`) is now purely a *defer-entries* gate: instant
+rotation is RETIRED. New entries are hard-capped to the free slots (max_positions
+− held-not-exiting); entries that don't fit are demoted to `watch` and WAIT for an
+orphan to time out, rather than snap-selling a held position. Consequently the
+realized book can transiently exceed max_positions while orphans count down, then
+converge to the cap as they confirm — a deterministic, no-whipsaw trade-off
+(higher latency to rank-align in exchange for no rank-driven churn). The earlier
+"fix fully / always rotate" decision (rotate a weaker orphan out instantly for a
+higher-ranked entry) was reversed because it raced the orphan-exit timer and
+reintroduced churn.
 
 Two initial strategy styles:
 

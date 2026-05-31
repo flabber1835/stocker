@@ -1194,7 +1194,8 @@ class TestTargetVsLiveOrphanPositions:
     QUALITY_TARGET = _quality(30)
     ORPHAN_SMCPS = _smallcaps(20)
 
-    def _run(self, smcp_days: int, smcp_rank: int = POOR_RANK_START) -> dict[str, DeltaDecision]:
+    def _run(self, smcp_days: int, smcp_rank: int = POOR_RANK_START,
+             orphan_builds: int = 0) -> dict[str, DeltaDecision]:
         u: dict[str, list[RankObservation]] = {}
         for i, t in enumerate(self.QUALITY_TARGET):
             u[t] = _obs(rank=i + 1)
@@ -1206,6 +1207,12 @@ class TestTargetVsLiveOrphanPositions:
         target_portfolio = {t: 1.0 / MAX_POSITIONS for t in self.QUALITY_TARGET}
         live_positions = set(self.QUALITY_TARGET) | set(self.ORPHAN_SMCPS)
 
+        # orphan_builds: number of most-recent builds the orphans were absent from
+        # the target. The orphan-exit timer (not rank) drives the exit now.
+        target_history = (
+            [set(self.QUALITY_TARGET)] * orphan_builds if orphan_builds else None
+        )
+
         return evaluate_target_vs_live(
             target_portfolio=target_portfolio,
             live_positions=live_positions,
@@ -1214,6 +1221,7 @@ class TestTargetVsLiveOrphanPositions:
             exit_rank=EXIT_RANK,
             confirmation_days=CONFIRMATION_DAYS,
             max_positions=MAX_POSITIONS,
+            target_history=target_history,
         )
 
     def test_target_tickers_held_get_hold(self):
@@ -1251,38 +1259,50 @@ class TestTargetVsLiveOrphanPositions:
                 f"{t}: orphan rank > exit_rank on day 1 → at_risk (not confirmed), got {d[t].action}"
             )
 
-    def test_orphan_smallcaps_exit_on_day3(self):
-        """Orphan positions exit (still expected after 3 days of bad rank)."""
-        d = self._run(smcp_days=3)
+    def test_orphan_smallcaps_exit_after_confirmation_builds(self):
+        """Orphan positions exit once absent from the target for confirmation_days
+        builds — the orphan timer, not rank, drives the exit now."""
+        d = self._run(smcp_days=3, orphan_builds=CONFIRMATION_DAYS)
         for t in self.ORPHAN_SMCPS:
             assert d[t].action == "exit", (
-                f"{t}: orphan confirmed bad for 3 days — expected exit, got {d[t].action}"
+                f"{t}: orphan for {CONFIRMATION_DAYS} builds — expected exit, got {d[t].action}"
             )
 
-    def test_orphan_in_buffer_zone_holds(self):
-        """Orphan with rank ≤ exit_rank → hold, not exit.
-
-        Portfolio-builder excluded this ticker on covariance/capacity grounds,
-        not because it's a bad stock. Buffer-zone protection applies:
-        hold until rank actually deteriorates below exit_rank.
-        """
-        buffer_rank = EXIT_RANK - 5   # within buffer zone
-        # Within-capacity book so the buffer-zone hold is tested in isolation
-        # (over-capacity trim is covered in test_trim_to_cap.py).
+    def test_orphan_in_buffer_zone_at_risk_then_exits(self):
+        """A well-ranked orphan (rank ≤ exit_rank) is at_risk while its orphan timer
+        counts down, and exits once confirmed — the target is binding regardless of
+        the still-good rank (orphan-exit redesign)."""
+        buffer_rank = EXIT_RANK - 5   # within buffer zone — rank is still good
         target = {t: 1.0 / MAX_POSITIONS for t in _quality(5)}
         orphans = _smallcaps(3)
         live = set(target) | set(orphans)
         u = {t: _obs(rank=i + 1) for i, t in enumerate(target)}
         for t in orphans:
             u[t] = _obs(rank=buffer_rank, days=3)
-        d = evaluate_target_vs_live(
+
+        # First orphaned build (no history) → at_risk, not a snap exit.
+        d1 = evaluate_target_vs_live(
             target_portfolio=target, live_positions=live, universe=u,
             entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
             confirmation_days=CONFIRMATION_DAYS, max_positions=MAX_POSITIONS,
         )
         for t in orphans:
-            assert d[t].action == "hold", (
-                f"{t}: orphan not in target but rank {buffer_rank} ≤ exit_rank={EXIT_RANK} → hold, got {d[t].action}"
+            assert d1[t].action == "at_risk", (
+                f"{t}: well-ranked orphan, first build → at_risk, got {d1[t].action}"
+            )
+
+        # Absent from the target for confirmation_days builds → exit despite good rank.
+        hist = [set(target)] * CONFIRMATION_DAYS
+        d2 = evaluate_target_vs_live(
+            target_portfolio=target, live_positions=live, universe=u,
+            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
+            confirmation_days=CONFIRMATION_DAYS, max_positions=MAX_POSITIONS,
+            target_history=hist,
+        )
+        for t in orphans:
+            assert d2[t].action == "exit", (
+                f"{t}: orphan for {CONFIRMATION_DAYS} builds → exit despite rank "
+                f"{buffer_rank}, got {d2[t].action}"
             )
 
     def test_orphan_without_ranking_data_gets_hold(self):

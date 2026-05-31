@@ -450,79 +450,63 @@ def test_tvl_hold_when_in_both():
     assert decisions["MSFT"].current_weight == pytest.approx(0.05)
 
 
-def test_tvl_exit_when_live_outside_buffer():
-    """Ticker at broker but not in target with rank well above exit_rank → exit.
+def test_tvl_exit_when_orphan_for_confirmation_builds():
+    """Orphan (held, not in target) exits once it has been absent from the target
+    for confirmation_days consecutive builds — REGARDLESS of rank.
 
-    With Option A, exit is triggered by "not in target," not by confirmation_days.
+    This is the orphan-exit redesign: the target is binding on the live book. A
+    name the builder dropped (e.g. trimmed by the correlation-cluster cap) is
+    exited even if its rank is still strong, so a strategy change actually reaches
+    the realized portfolio.
     """
-    # Non-empty target so the Option A path (not the empty-target safeguard) runs.
     target = {"AAPL": 0.05}
     live = {"TSLA"}
-    universe = {
-        "AAPL": _history(10),
-        "TSLA": _history(50, 50, 50),
-    }
+    universe = {"AAPL": _history(10), "TSLA": _history(8, 8, 8)}  # TSLA still well-ranked
+    # TSLA absent from the target for the last 3 builds (most-recent-first).
+    history = [{"AAPL"}, {"AAPL"}, {"AAPL"}]
 
     decisions = evaluate_target_vs_live(
         target_portfolio=target, live_positions=live, universe=universe,
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_history=history,
     )
     assert decisions["TSLA"].action == "exit"
-    assert decisions["TSLA"].rank == 50
+    assert decisions["TSLA"].rank == 8           # exits despite a strong rank
+    assert "dropped from target" in decisions["TSLA"].reason
 
 
-def test_tvl_hold_when_live_not_in_target_but_in_buffer_zone():
-    """Ticker at broker, not in target, but rank ≤ exit_rank → hold.
-
-    The portfolio-builder may have excluded WDC on covariance grounds even
-    though it still ranks well. Buffer-zone protection applies: don't sell a
-    well-ranked stock and buy it back a few days later (pure churn).
-    """
+def test_tvl_at_risk_when_orphan_not_yet_confirmed():
+    """Orphan absent from target for fewer than confirmation_days builds → at_risk,
+    regardless of rank. Here only the latest 2 builds dropped it (3rd still had it)."""
     target = {"AAPL": 0.05}
     live = {"WDC"}
-    # WDC rank=28, exit_rank=40 — inside buffer zone.
     universe = {"AAPL": _history(10), "WDC": _history(28)}
+    # WDC orphaned in the 2 most-recent builds, but present 3 builds ago.
+    history = [{"AAPL"}, {"AAPL"}, {"AAPL", "WDC"}]
 
     decisions = evaluate_target_vs_live(
         target_portfolio=target, live_positions=live, universe=universe,
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_history=history,
     )
-    assert decisions["WDC"].action == "hold"
-    assert "not in target portfolio" in decisions["WDC"].reason
+    assert decisions["WDC"].action == "at_risk"
+    assert "orphaned for 2/3 builds" in decisions["WDC"].reason
 
 
-def test_tvl_at_risk_when_above_exit_rank_not_yet_confirmed():
-    """Ticker at broker, not in target, rank > exit_rank but < confirmation_days → at_risk.
-
-    Requires confirmation_days of bad rank before exiting, same as a held
-    in-target position. Only 2 days of bad rank (< 3) → at_risk, not exit.
-    """
+def test_tvl_orphan_at_risk_without_history():
+    """No build history supplied → an orphan today counts as 1 build and stays
+    at_risk (cannot confirm an exit until confirmation_days builds accumulate).
+    Conservative: never force-sell on the first orphaned build."""
     target = {"AAPL": 0.05}
     live = {"TSLA"}
-    # Rank 45 > exit_rank=40, only 2 days of history.
-    universe = {"AAPL": _history(10), "TSLA": _history(45, 45)}
-
-    decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
-    )
-    assert decisions["TSLA"].action == "at_risk"
-    assert decisions["TSLA"].rank == 45
-
-
-def test_tvl_exit_when_above_exit_rank_confirmed():
-    """Ticker at broker, not in target, rank > exit_rank for confirmation_days → exit."""
-    target = {"AAPL": 0.05}
-    live = {"TSLA"}
-    # 3 days of rank 45 > exit_rank=40 → confirmed exit.
     universe = {"AAPL": _history(10), "TSLA": _history(45, 45, 45)}
 
     decisions = evaluate_target_vs_live(
         target_portfolio=target, live_positions=live, universe=universe,
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
     )
-    assert decisions["TSLA"].action == "exit"
-    assert decisions["TSLA"].rank == 45
+    assert decisions["TSLA"].action == "at_risk"
+    assert "orphaned for 1/3 builds" in decisions["TSLA"].reason
 
 
 def test_tvl_hold_when_live_not_in_universe():
@@ -584,13 +568,16 @@ def test_tvl_simultaneous_entry_exit_hold():
     universe = {
         "AAPL": _history(10, 10, 10),   # entry (in target, not live)
         "MSFT": _history(20),            # hold (in target + live)
-        "TSLA": _history(50, 50, 50),   # exit (live, not in target)
+        "TSLA": _history(50, 50, 50),   # exit (live, orphaned 3 builds)
         "NVDA": _history(3, 3, 3),       # watch (confirmed, not in target)
     }
+    # TSLA absent from the target for the last 3 builds → confirmed orphan exit.
+    history = [{"AAPL", "MSFT"}, {"AAPL", "MSFT"}, {"AAPL", "MSFT"}]
 
     decisions = evaluate_target_vs_live(
         target_portfolio=target, live_positions=live, universe=universe,
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_history=history,
     )
     assert decisions["AAPL"].action == "entry"
     assert decisions["MSFT"].action == "hold"

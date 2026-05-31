@@ -1,14 +1,58 @@
 """Tests for the display-only 21-day drawdown indicator on the ranker.
 
-Two guarantees:
+Three guarantees:
   - the pure helper app.main._recent_drawdown matches the vetter's drawdown math
+  - _drawdown_map_from_rows builds the right {ticker: drawdown} map from DB rows
+    (this is the code path the ranked_tickers forward-reference regression broke;
+    a direct test now exercises it)
   - drawdown is NOT a scoring factor: it is absent from FACTORS, so rank_universe
     never scores on it and rank order is identical with or without the column.
 """
+from types import SimpleNamespace
+
 import pandas as pd
 
-from app.main import _recent_drawdown
+from app.main import _recent_drawdown, _drawdown_map_from_rows
 from app.rank import rank_universe, FACTORS
+
+
+def _row(ticker, close):
+    return SimpleNamespace(ticker=ticker, adjusted_close=close)
+
+
+# ── _drawdown_map_from_rows (the extracted DB-block logic) ──────────────────────
+
+def test_drawdown_map_groups_by_ticker_in_order():
+    # AAA: peak 120 then 90 → -25%; BBB: flat → 0.0
+    rows = [
+        _row("AAA", 100), _row("AAA", 120), _row("AAA", 90),
+        _row("BBB", 50), _row("BBB", 50),
+    ]
+    m = _drawdown_map_from_rows(rows, window=21)
+    assert m["AAA"] == 90 / 120 - 1.0
+    assert m["BBB"] == 0.0
+
+
+def test_drawdown_map_skips_null_closes():
+    rows = [_row("AAA", None), _row("AAA", 100), _row("AAA", 80)]
+    m = _drawdown_map_from_rows(rows, window=21)
+    assert m["AAA"] == 80 / 100 - 1.0
+
+
+def test_drawdown_map_omits_ticker_with_no_usable_data():
+    rows = [_row("ZZZ", None), _row("ZZZ", 0)]
+    m = _drawdown_map_from_rows(rows, window=21)
+    assert "ZZZ" not in m
+
+
+def test_drawdown_map_empty_rows():
+    assert _drawdown_map_from_rows([], window=21) == {}
+
+
+def test_drawdown_map_window_truncation():
+    # window=2 ignores the leading 100 → peak 120, last 90
+    rows = [_row("AAA", 100), _row("AAA", 120), _row("AAA", 90)]
+    assert _drawdown_map_from_rows(rows, window=2)["AAA"] == 90 / 120 - 1.0
 
 
 # ── pure helper ────────────────────────────────────────────────────────────────

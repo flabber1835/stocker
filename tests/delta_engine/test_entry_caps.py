@@ -41,71 +41,55 @@ def _counts(decisions):
 
 # ── Bug 1: capacity ───────────────────────────────────────────────────────────
 
-def test_capacity_rotates_better_entries_over_weaker_orphans():
-    """26 orphan holds (rank 30) + a 10-name fresh target (rank 5) must not realize
-    36 positions. The rank-5 targets out-rank the rank-30 orphans, so all 10 rotate
-    in and the 6 worst orphans are rotated out — the book stays at cap, rank-improved
-    (NOT the old lockout that kept orphans and deferred the better entries)."""
-    held = {f"H{i:02d}" for i in range(26)}                 # not in target, buffer zone
-    target = {f"N{i:02d}": 1.0 / 30 for i in range(10)}     # new names, not held
-    universe = {t: _history(30) for t in held}              # rank 30 ≤ exit_rank → hold
-    universe.update({t: _history(5) for t in target})       # rank 5 → out-ranks orphans
-
-    decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=held, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
-    )
-    c = _counts(decisions)
-    assert c.get("entry", 0) == 10                          # all 10 better names rotate in
-    assert c.get("exit", 0) == 6                            # 6 worst orphans rotated out
-    retained = len(held) - c.get("exit", 0)
-    assert retained + c.get("entry", 0) == 30              # exactly at cap, not 36
-    assert retained + c.get("entry", 0) <= 30
-    assert sum(1 for t in target if decisions[t].action == "watch") == 0   # none deferred
-
-
-def test_at_risk_orphan_survives_without_entry_competition():
-    """Rotation only displaces an orphan when a higher-ranked entry competes for its
-    slot. With the book under cap and NO entries, a deteriorating orphan (rank just
-    over exit_rank, not yet confirmed) stays 'at_risk' — it is not force-rotated."""
-    held = {"ORPH", "KEEP"}
-    target = {"KEEP": 1.0 / 30}                              # only one target, already held
-    universe = {
-        "KEEP": _history(5),
-        "ORPH": _history(45, 30, 30),                        # latest 45 > exit_rank 40, not confirmed
-    }
-    decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=held, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
-    )
-    assert decisions["ORPH"].action == "at_risk"            # survives — no entry to rotate it out
-    assert decisions["KEEP"].action == "hold"
-
-
-def test_rotation_admits_entries_that_outrank_orphans_only():
-    """A new target rotates in iff it out-ranks a trimmable orphan. With a full book
-    of rank-30 orphans: rank-3 and rank-20 targets rotate in (displacing orphans),
-    but a rank-50 target — worse than every orphan — stays watch. Book ≤ cap."""
-    held = {f"H{i:02d}" for i in range(29)}                 # orphans, rank 30
-    target = {"BEST": 1.0 / 30, "MID": 1.0 / 30, "TOOLOW": 1.0 / 30}
+def test_full_book_of_unconfirmed_orphans_defers_entries_no_instant_rotation():
+    """Orphan-exit redesign: instant rotation is RETIRED. A full book of orphans
+    that are NOT yet confirmed-exiting (no build history → at_risk) does not get
+    force-rotated to admit better entries. The book is full, so the 10 rank-5
+    entries are deferred to 'watch' — they wait for an orphan to time out, rather
+    than snap-selling a held position. No exits this run, book stays ≤ cap."""
+    held = {f"H{i:02d}" for i in range(30)}                 # full book, orphans
+    target = {f"N{i:02d}": 1.0 / 30 for i in range(10)}     # better new names, not held
     universe = {t: _history(30) for t in held}
-    universe["BEST"] = _history(3)                          # out-ranks orphans → in
-    universe["MID"] = _history(20)                          # out-ranks orphans → in
-    universe["TOOLOW"] = _history(50)                       # worse than orphans → watch
+    universe.update({t: _history(5) for t in target})
 
     decisions = evaluate_target_vs_live(
         target_portfolio=target, live_positions=held, universe=universe,
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
     )
-    assert decisions["BEST"].action == "entry"
-    assert decisions["MID"].action == "entry"
-    assert decisions["TOOLOW"].action == "watch"           # can't displace a better orphan
     c = _counts(decisions)
-    # 2 entries admitted (BEST, MID) → 1 orphan displaced to keep the book at cap
-    # (29 orphans − 1 exit + 2 entries = 30); TOOLOW is deferred, not funded by a trim.
-    assert c.get("exit", 0) == 1
+    assert c.get("exit", 0) == 0                            # no orphan force-rotated
+    assert c.get("entry", 0) == 0                           # book full → entries deferred
+    assert all(decisions[t].action == "watch" for t in target)
+    assert all(decisions[t].action == "at_risk" for t in held)  # orphans counting down
+
+
+def test_confirmed_orphans_free_slots_for_entries():
+    """When orphans ARE confirmed-exiting (absent from the target for
+    confirmation_days builds), their slots free up and the best entries fill them.
+    6 confirmed-orphan exits → 6 slots → the 6 best of 10 rank-5 entries enter,
+    the rest stay watch. Book stays at cap."""
+    held = {f"H{i:02d}" for i in range(30)}
+    target = {f"N{i:02d}": 1.0 / 30 for i in range(10)}
+    universe = {t: _history(30) for t in held}
+    universe.update({f"N{i:02d}": _history(i + 1) for i in range(10)})  # ranks 1..10
+    # 6 of the held orphans (H00..H05) have been absent from the target for 3 builds.
+    confirmed = {f"H{i:02d}" for i in range(6)}
+    others = {f"H{i:02d}" for i in range(6, 30)} | {f"N{i:02d}" for i in range(10)}
+    history = [others, others, others]                      # confirmed orphans absent in all 3
+
+    decisions = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=held, universe=universe,
+        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_history=history,
+    )
+    c = _counts(decisions)
+    assert c.get("exit", 0) == 6                            # only the confirmed orphans exit
+    assert all(decisions[t].action == "exit" for t in confirmed)
+    assert c.get("entry", 0) == 6                           # 6 freed slots → 6 best entries
     retained = len(held) - c.get("exit", 0)
-    assert retained + c.get("entry", 0) <= 30
+    assert retained + c.get("entry", 0) <= 30              # book at cap, never over
+    assert decisions["N00"].action == "entry"              # best-ranked enters
+    assert decisions["N09"].action == "watch"              # worst deferred
 
 
 def test_capacity_does_not_bind_for_small_portfolio():
@@ -151,16 +135,19 @@ def test_buying_power_allows_what_fits():
 
 
 def test_exit_proceeds_fund_matched_rotation():
-    """A confirmed exit frees cash that funds an equal-weight entry even at ~0 buying
-    power — normal rebalancing must keep working."""
+    """A confirmed orphan exit frees cash that funds an equal-weight entry even at
+    ~0 buying power — normal rebalancing must keep working. OLD is a confirmed
+    orphan (absent from the target for confirmation_days builds)."""
     target = {"NEW": 1.0 / 30}
     held = {"OLD"}
-    universe = {"NEW": _history(5), "OLD": _history(50, 50, 50)}  # OLD confirmed exit
+    universe = {"NEW": _history(5), "OLD": _history(50, 50, 50)}
+    history = [{"NEW"}, {"NEW"}, {"NEW"}]                        # OLD orphaned 3 builds → exit
     decisions = evaluate_target_vs_live(
         target_portfolio=target, live_positions=held, universe=universe,
         entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
         account_value=100_000.0, buying_power=0.0,
         actual_weights={"OLD": 1.0 / 30},                        # OLD = 3.33% of equity
+        target_history=history,
     )
     assert decisions["OLD"].action == "exit"
     assert decisions["NEW"].action == "entry"                    # funded by the exit
@@ -181,7 +168,12 @@ def test_no_cash_gate_when_account_value_missing():
 
 def test_seeded_rotation_scenario_is_bounded_and_funded():
     """Mirror the live repro: target Z01-Z30, broker holds Z20-Z45, $2k buying power.
-    Result must be <= 30 positions and emit no entry it can't fund."""
+    Result must be <= 30 positions and emit no entry it can't fund.
+
+    Orphan-exit redesign: with no build history the 15 orphans (Z31-Z45) are
+    at_risk (counting down), NOT instantly rotated out. So the book is full of
+    holds + at_risk orphans and the new entries (Z01-Z19) are deferred to watch.
+    Both original invariants still hold: book ≤ cap, and no unfunded buys."""
     target = {f"Z{i:02d}": 1.0 / 30 for i in range(1, 31)}
     held = {f"Z{i:02d}" for i in range(20, 46)}              # 26 held: 11 in target, 15 orphans
     universe = {f"Z{i:02d}": _history(i) for i in range(1, 51)}
@@ -197,14 +189,14 @@ def test_seeded_rotation_scenario_is_bounded_and_funded():
     entries = c.get("entry", 0)
     retained = len(held) - exits
     assert retained + entries <= 30                          # Bug 1: no over-cap (unchanged)
-    # Rotation now sheds the 15 worst orphans (ranks 31-45) for higher-ranked
-    # targets, and their proceeds fund the buys — so the book improves instead of
-    # locking up. Bug 2 invariant still holds: buys never exceed available cash.
+    # Bug 2 invariant still holds: buys never exceed available cash.
     buys = sum(max(0.0, (d.current_weight or 0.0)) for d in decisions.values() if d.action == "entry")
     proceeds = sum(1.0 / 30 for t, d in decisions.items() if d.action == "exit")
     available = 2_000.0 / 100_000.0 + proceeds
     assert buys <= available + 1e-9                          # funded — no naked buys
-    assert entries > 0                                       # rotation funds real entries (was 0 in the lockout)
+    # No instant rotation: orphans are not force-exited on the first build.
+    assert exits == 0
+    assert all(decisions[f"Z{i:02d}"].action == "at_risk" for i in range(31, 46))
 
 
 # ── buy_add buying-power gating (extends the cash gate beyond entries) ─────────
