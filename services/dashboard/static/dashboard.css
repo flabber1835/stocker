@@ -410,6 +410,20 @@ td { padding: 9px 12px; white-space: nowrap; font-size: 13px; }
 .overlay-badge.dd-warn  { background: rgba(217,119,6,.1);  color: var(--amber); border: 1px solid rgba(217,119,6,.3); }
 .overlay-badge.dd-deep  { background: rgba(220,38,38,.1);  color: var(--red);   border: 1px solid rgba(220,38,38,.3); }
 
+/* Holdings-status badges (Trader screen, per-ticker informational section) */
+.hs-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 4px;
+  font-size: 12px; font-weight: 600; letter-spacing: .02em;
+}
+.hs-badge.hs-hold      { background: var(--blue-lt);        color: var(--blue); }
+.hs-badge.hs-entry     { background: rgba(5,150,105,.10);   color: var(--green); }
+.hs-badge.hs-drift     { background: rgba(217,119,6,.10);   color: var(--amber); }
+.hs-badge.hs-atrisk    { background: rgba(217,119,6,.14);   color: var(--amber); }
+.hs-badge.hs-exit      { background: rgba(220,38,38,.10);   color: var(--red); }
+.hs-badge.hs-submitted { background: var(--blue-lt);        color: var(--blue); }
+.hs-badge.hs-done      { background: var(--border2);        color: var(--text2); }
+.hs-badge.hs-attn      { background: rgba(220,38,38,.12);   color: var(--red);  border: 1px solid rgba(220,38,38,.3); }
+
 tr.row-held td        { background: rgba(5,150,105,.12); }
 tr.row-excluded td    { opacity: .6; }
 

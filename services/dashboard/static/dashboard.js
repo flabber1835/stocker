@@ -619,10 +619,13 @@ function _buildDetailHtml(r) {
 }
 
 /* ── Trader screen ───────────────────────────────────────────────────── */
+let deltaRun = {};   // latest delta run meta (confirmation_days, etc.) for holdings-status
+
 async function loadDelta() {
   try {
     const d = await fetch('/api/delta/latest').then(r => r.json());
     const run = d.run || {};
+    deltaRun = run;
     deltaData = d.intents || [];
     _loadClearedTrades(run.run_id || run.run_date || null);
     const dateEl = $('ds-date');
@@ -796,6 +799,83 @@ function renderTrader() {
   tbody.innerHTML = rows.join('');
   _syncSelectAllState();
   updateTraderBadge();
+  renderHoldingsStatus();
+}
+
+/* ── Holdings status (per-ticker, informational) ──────────────────────────
+ * A plain-English status for every name the delta engine evaluated against the
+ * broker book: held-in-target, orphan counting down to exit, drift add/trim, or
+ * an order already submitted. Derived from the same delta intents as the blotter
+ * above; this section is read-only (no approve/reject controls).               */
+function _holdingStatus(r) {
+  const cd = deltaRun.confirmation_days;
+  const os = r.order_status;
+  const st = _approvalState[r.id] || {};
+
+  // An order is already in flight / done for this ticker — surface that first.
+  if (st.status === 'ok' || st.status === 'queued' || st.status === 'pending')
+    return { cls: 'hs-submitted', text: 'Order submitted (' + (ACTION_LABELS[r.action] || r.action) + ')' };
+  if (os === 'submitted' || os === 'pending')
+    return { cls: 'hs-submitted', text: 'Order submitted (' + (ACTION_LABELS[r.action] || r.action) + ')' };
+  if (os === 'deferred')
+    return { cls: 'hs-submitted', text: 'Order deferred — queued for next session' };
+  if (os === 'filled' || os === 'partial_fill')
+    return { cls: 'hs-done', text: (ACTION_LABELS[r.action] || r.action) + ' filled' };
+  if (os === 'failed' || os === 'risk_rejected' || st.status === 'err')
+    return { cls: 'hs-attn', text: (ACTION_LABELS[r.action] || r.action) + ' failed — needs attention' };
+  if (r.rejected_at || st.status === 'rejected')
+    return { cls: 'hs-done', text: 'Signal rejected' };
+
+  // No order yet — describe the standing decision.
+  switch (r.action) {
+    case 'hold':
+      return { cls: 'hs-hold', text: 'Hold — in target portfolio' };
+    case 'at_risk': {
+      // Orphan counting down to a forced exit. confirmation_days_met counts builds
+      // already orphaned; days remaining = confirmation_days - met.
+      const met = r.confirmation_days_met || 0;
+      const left = (cd != null) ? Math.max(0, cd - met) : null;
+      const when = left == null ? '' : left === 0 ? ' — exits next build'
+        : ' — exits in ' + left + ' build' + (left === 1 ? '' : 's');
+      return { cls: 'hs-atrisk', text: 'Orphan (not in target)' + when };
+    }
+    case 'exit':
+      return { cls: 'hs-exit', text: 'Exit confirmed — sell pending approval' };
+    case 'buy_add':
+      return { cls: 'hs-drift', text: 'Underweight — buy-add pending approval' };
+    case 'sell_trim':
+      return { cls: 'hs-drift', text: 'Overweight — sell-trim pending approval' };
+    case 'entry':
+      return { cls: 'hs-entry', text: 'Entry pending approval' };
+    case 'watch':
+      return { cls: 'hs-hold', text: 'Watch — deferred (at capacity)' };
+    default:
+      return { cls: 'hs-hold', text: r.action };
+  }
+}
+
+function renderHoldingsStatus() {
+  const tbody = $('holdings-status-body');
+  if (!tbody) return;
+  // Every ticker the delta engine evaluated that maps to the broker book: held
+  // names (hold/at_risk/exit/buy_add/sell_trim). entry/watch are not yet held.
+  const HELD_ACTIONS = ['hold', 'buy_add', 'sell_trim', 'at_risk', 'exit'];
+  const held = deltaData
+    .filter(r => HELD_ACTIONS.includes(r.action))
+    .sort((a, b) => (a.ticker < b.ticker ? -1 : a.ticker > b.ticker ? 1 : 0));
+  if (!held.length) {
+    tbody.innerHTML = '<tr><td colspan="3" class="tbl-empty">No broker holdings evaluated yet</td></tr>';
+    return;
+  }
+  tbody.innerHTML = held.map(r => {
+    const s = _holdingStatus(r);
+    const wt = r.actual_weight != null ? fmtPct(r.actual_weight) : '—';
+    return '<tr>'
+      + '<td><span class="t-ticker">' + esc(r.ticker) + '</span></td>'
+      + '<td><span class="hs-badge ' + s.cls + '">' + esc(s.text) + '</span></td>'
+      + '<td class="t-wt">' + wt + '</td>'
+      + '</tr>';
+  }).join('');
 }
 
 function _buildTradeRow(r) {

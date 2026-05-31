@@ -772,6 +772,19 @@ _HTML = r"""<!DOCTYPE html>
           <tbody id="trader-body"><tr><td colspan="9" class="tbl-empty">Loading&#8230;</td></tr></tbody>
         </table>
       </div>
+
+      <!-- Holdings status (per-ticker, informational) -->
+      <div class="section-label" style="margin-top:18px" title="Standing status for every broker holding the delta engine evaluated">Holdings Status</div>
+      <div class="tbl-scroll">
+        <table id="holdings-status-table">
+          <thead><tr>
+            <th>TICKER</th>
+            <th>STATUS</th>
+            <th>WEIGHT</th>
+          </tr></thead>
+          <tbody id="holdings-status-body"><tr><td colspan="3" class="tbl-empty">Loading&#8230;</td></tr></tbody>
+        </table>
+      </div>
     </div>
   </section>
 
