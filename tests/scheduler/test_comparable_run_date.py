@@ -100,10 +100,49 @@ def test_malformed_timestamp_falls_back_to_prefix():
     assert _comparable_run_date("2026-13-99Tgarbage") == "2026-13-99"
 
 
-def test_matches_date_today_for_a_just_now_utc_stamp():
-    """End-to-end: a UTC 'now' stamp must resolve to the same local date that
-    date.today() (the supervisor's `today`) would produce — i.e. they always match
+def test_matches_local_today_for_a_just_now_utc_stamp():
+    """End-to-end: a UTC 'now' stamp must resolve to the same date that
+    _local_today() (the supervisor's `today`) produces — i.e. they always match
     for a run that genuinely happened today, regardless of the UTC/ET split."""
-    from datetime import date
+    from app.main import _local_today
     now_utc = datetime.now(timezone.utc).isoformat()
-    assert _comparable_run_date(now_utc) == date.today().isoformat()
+    assert _comparable_run_date(now_utc) == _local_today().isoformat()
+
+
+def test_independent_of_container_tz_env():
+    """The fix uses an EXPLICIT SCHEDULE_TZ, not the process TZ — so the evening-ET
+    case resolves to the ET date even when the container/runner is in UTC (TZ unset
+    or UTC). This is what makes the fix robust to the TZ env var being dropped."""
+    import os, time as _time
+    prev = os.environ.get("TZ")
+    os.environ["TZ"] = "UTC"
+    _time.tzset()
+    try:
+        # 01:50 UTC on the 31st is still 21:50 ET on the 30th. Even with the
+        # process in UTC, the explicit America/New_York SCHEDULE_TZ yields the 30th.
+        assert _comparable_run_date("2026-05-31T01:50:00+00:00") == "2026-05-30"
+    finally:
+        if prev is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = prev
+        _time.tzset()
+
+
+def test_local_today_uses_schedule_tz_not_process_tz():
+    """_local_today() must follow SCHEDULE_TZ regardless of the process TZ."""
+    import os, time as _time
+    from datetime import datetime as _dt, timezone as _tz
+    from app.main import _local_today, SCHEDULE_TZ
+    prev = os.environ.get("TZ")
+    os.environ["TZ"] = "UTC"
+    _time.tzset()
+    try:
+        expected = _dt.now(SCHEDULE_TZ).date().isoformat() if SCHEDULE_TZ else _dt.now().date().isoformat()
+        assert _local_today().isoformat() == expected
+    finally:
+        if prev is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = prev
+        _time.tzset()

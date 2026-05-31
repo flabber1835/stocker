@@ -39,6 +39,7 @@ from app.main import (  # noqa: E402
     _StepDef,
     _STEPS,
     _chain_status,
+    _local_today,
     _restore_force_pending,
     _run_supervised_fast,
     _step_state,
@@ -813,7 +814,7 @@ class TestSupervisorTick:
         day must return early without firing any new triggers.
         """
         import datetime
-        today = datetime.date.today().isoformat()
+        today = _local_today().isoformat()
         chain_status = _supervisor_tick.__globals__["_chain_status"]
         chain_status.update({
             "status": "failed",
@@ -883,7 +884,7 @@ class TestSupervisorTick:
             await _supervisor_tick()
 
         import datetime
-        today = datetime.date.today().isoformat()
+        today = _local_today().isoformat()
         assert chain_status["date"] == today
         # Old state from yesterday should be cleared (run_ids reset to {})
         assert chain_status.get("run_ids", {}).get("fetch-data") != "old-run"
@@ -893,7 +894,7 @@ class TestSupervisorTick:
         """If today's chain already succeeded, the next tick must return
         without opening a new scheduler_runs row (no tick-spam after done)."""
         import datetime
-        today = datetime.date.today().isoformat()
+        today = _local_today().isoformat()
         chain_status = _supervisor_tick.__globals__["_chain_status"]
         chain_status.update({
             "status": "success",
@@ -958,7 +959,7 @@ class TestSupervisorTick:
         }):
             await _supervisor_tick()
 
-        today = datetime.date.today().isoformat()
+        today = _local_today().isoformat()
         assert chain_status["date"] == today
         assert chain_status["status"] != "failed", (
             "status must be cleared on date rollover — yesterday's 'failed' "
@@ -1039,7 +1040,7 @@ class TestSupervisorTick:
         }):
             await _supervisor_tick()
 
-        today = datetime.date.today().isoformat()
+        today = _local_today().isoformat()
         assert chain_status["date"] == today
         assert chain_status["status"] != "success" or mock_trigger.call_count > 0, (
             "Either status was cleared (allowing the chain to start) or "
@@ -1800,7 +1801,7 @@ class TestSupervisorTradingCalendarGate:
         """A chain already open for today (current_run_id set) advances even when
         should_run_chain would say False — so a started run, including a weekend
         catch-up, always runs to completion across ticks."""
-        today = _date.today().isoformat()
+        today = _local_today().isoformat()
         _supervisor_tick.__globals__["_chain_status"].update({
             "status": "running", "date": today, "steps": {}, "run_ids": {},
             "last_completed": None, "current_run_id": "active-run", "next_run": None,

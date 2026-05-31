@@ -27,6 +27,37 @@ DATABASE_URL          = os.getenv("DATABASE_URL", "")
 # Override via env var using standard cron syntax, e.g. "0 17 * * 1-5"
 RANK_SCHEDULE_CRON = os.getenv("RANK_SCHEDULE_CRON", "15 16 * * 1-5")
 
+# The single, EXPLICIT timezone the scheduler reasons about calendar dates in.
+# Everything date-related — `today`, `trading_day`, the cron trigger, the
+# scheduled-time gate, and converting services' UTC `started_at` into a
+# comparable local date — flows through this zone via _local_now/_local_today.
+# Previously these relied on the IMPLICIT container TZ (date.today() reads the
+# process zone). That worked only as long as TZ=America/New_York was set on the
+# container; if the env var were dropped or changed, `today` would silently shift
+# while the cron trigger (which hard-codes America/New_York) would not — a
+# split-brain that re-introduces the evening re-trigger loop. Pinning one
+# ZoneInfo here removes that dependency. Override with SCHEDULE_TZ if needed.
+SCHEDULE_TZ_NAME = os.getenv("SCHEDULE_TZ", "America/New_York")
+try:
+    from zoneinfo import ZoneInfo
+    SCHEDULE_TZ = ZoneInfo(SCHEDULE_TZ_NAME)
+except Exception:
+    SCHEDULE_TZ = None  # fall back to the process-local zone if tzdata is missing
+
+
+def _local_now() -> datetime:
+    """Current time in the scheduler's configured zone (SCHEDULE_TZ), independent
+    of the container's TZ env var. Falls back to naive local if zoneinfo is
+    unavailable."""
+    if SCHEDULE_TZ is not None:
+        return datetime.now(SCHEDULE_TZ)
+    return datetime.now()
+
+
+def _local_today() -> date:
+    """Today's calendar date in the scheduler's configured zone."""
+    return _local_now().date()
+
 SUPERVISOR_INTERVAL_SECS = int(os.getenv("SUPERVISOR_INTERVAL_SECS", "300"))
 
 # Heartbeat: how stale the last successful chain may be before /health/chain
@@ -332,7 +363,7 @@ async def _restore_force_pending() -> tuple[str | None, set[str]]:
         return None, set()
     try:
         import json as _json
-        today = date.today().isoformat()
+        today = _local_today().isoformat()
         row = await conn.fetchrow(
             "SELECT run_id::text, steps FROM scheduler_runs "
             "WHERE chain_date=$1 AND status='running' "
@@ -371,7 +402,7 @@ async def _close_stale_running_chains() -> int:
     if not conn:
         return 0
     try:
-        today = date.today().isoformat()
+        today = _local_today().isoformat()
         result = await conn.execute(
             "UPDATE scheduler_runs SET status='failed', completed_at=NOW() "
             "WHERE status='running' AND chain_date < $1",
@@ -526,9 +557,9 @@ def _comparable_run_date(raw) -> str:
     ET is still "today" (evening ET), a vet run stamped started_at in UTC read as
     "2026-05-31" while today was "2026-05-30", so the vet step never matched
     today → re-triggered every tick → the vetter (no idempotency guard) re-billed
-    LLM credits ~every 16 min until ET also rolled over. `.astimezone()` with no
-    argument converts to the container's local zone, so it stays consistent with
-    date.today() regardless of what that zone is (no hard-coded ET).
+    LLM credits ~every 16 min until ET also rolled over. We convert into SCHEDULE_TZ
+    (the same explicit zone _local_today() uses) so the comparison is consistent
+    regardless of the container's TZ env var.
     """
     s = str(raw or "")
     if not s:
@@ -543,6 +574,10 @@ def _comparable_run_date(raw) -> str:
     if dt.tzinfo is None:
         # Naive timestamp — services stamp started_at in UTC, so assume UTC.
         dt = dt.replace(tzinfo=timezone.utc)
+    # Convert into the scheduler's configured zone (SCHEDULE_TZ), the same zone
+    # _local_today() uses — NOT the implicit process zone.
+    if SCHEDULE_TZ is not None:
+        return dt.astimezone(SCHEDULE_TZ).date().isoformat()
     return dt.astimezone().date().isoformat()
 
 
@@ -696,7 +731,7 @@ def _is_after_scheduled_time() -> bool:
         gate_hour   = int(parts[1])
     except (IndexError, ValueError):
         return True
-    now = datetime.now()  # local time = ET because TZ=America/New_York on container
+    now = _local_now()  # explicit SCHEDULE_TZ, not the implicit container zone
     return now.hour > gate_hour or (now.hour == gate_hour and now.minute >= gate_minute)
 
 
@@ -710,9 +745,9 @@ async def _supervisor_tick() -> None:
     rather than relying on in-process memory, so a restarted scheduler always
     resumes from the correct position without any recovery logic.
     """
-    today = date.today().isoformat()
-    trading_day = last_trading_day(date.today()).isoformat()
-    prev_trading_day = last_trading_day(date.today() - timedelta(days=1)).isoformat()
+    today = _local_today().isoformat()
+    trading_day = last_trading_day(_local_today()).isoformat()
+    prev_trading_day = last_trading_day(_local_today() - timedelta(days=1)).isoformat()
 
     if _chain_lock.locked():
         _log("supervisor: tick skipped — another tick is in progress")
@@ -768,7 +803,7 @@ async def _supervisor_tick() -> None:
             if not _is_after_scheduled_time():
                 return  # too early — wait for market close
             last_session = await _latest_delta_date()
-            if not should_run_chain(date.today(), last_session):
+            if not should_run_chain(_local_today(), last_session):
                 # Non-trading day (weekend/holiday) and the latest session is
                 # already processed — nothing to do. Skips the wasteful weekend/
                 # holiday re-runs of fetch-data and the vetter.
@@ -1009,7 +1044,7 @@ async def _startup_catch_up() -> None:
     # Restore any in-flight chain and pending force-rerun steps from the DB.
     restored_run_id, restored_pending = await _restore_force_pending()
     if restored_run_id:
-        today = date.today().isoformat()
+        today = _local_today().isoformat()
         _chain_status["date"] = today
         _chain_status["current_run_id"] = restored_run_id
         _chain_status["status"] = None  # let supervisor re-evaluate from /runs/latest
@@ -1087,12 +1122,14 @@ async def lifespan(app: FastAPI):
     global _scheduler
     _scheduler = AsyncIOScheduler(timezone="UTC")
 
-    # Cron trigger: daily at market close (default 4:15pm ET weekdays, DST-aware)
+    # Cron trigger: daily at market close (default 4:15pm ET weekdays, DST-aware).
+    # Uses the SAME explicit zone (SCHEDULE_TZ_NAME) as _local_today()/_local_now()
+    # so the cron fire time and the date-comparison logic can never disagree.
     try:
-        cron_trigger = CronTrigger.from_crontab(RANK_SCHEDULE_CRON, timezone="America/New_York")
+        cron_trigger = CronTrigger.from_crontab(RANK_SCHEDULE_CRON, timezone=SCHEDULE_TZ_NAME)
     except Exception as exc:
         _log(f"Invalid RANK_SCHEDULE_CRON {RANK_SCHEDULE_CRON!r}: {exc} — using default")
-        cron_trigger = CronTrigger.from_crontab("15 16 * * 1-5", timezone="America/New_York")
+        cron_trigger = CronTrigger.from_crontab("15 16 * * 1-5", timezone=SCHEDULE_TZ_NAME)
     _scheduler.add_job(
         _supervisor_tick,
         cron_trigger,
@@ -1232,7 +1269,7 @@ async def run_now(background_tasks: BackgroundTasks):
     """
     if _run_now_lock.locked():
         return {"status": "already_running"}
-    today = date.today().isoformat()
+    today = _local_today().isoformat()
     # Manual run pre-step: cancel every open Alpaca order and re-sync BEFORE the
     # chain runs, so the fresh proposal computes against a clean broker state and
     # cannot stack duplicate orders on a queued-but-unfilled book. This fires on

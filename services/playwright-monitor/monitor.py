@@ -16,7 +16,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +25,8 @@ ARTIFACTS.mkdir(parents=True, exist_ok=True)
 
 
 def _ts() -> str:
-    return datetime.utcnow().strftime("%H:%M:%S.%f")[:-3]
+    # timezone-aware UTC; datetime.utcnow() is deprecated in Python 3.12+.
+    return datetime.now(timezone.utc).strftime("%H:%M:%S.%f")[:-3]
 
 
 def _snapshot(page) -> dict[str, Any]:

@@ -52,6 +52,26 @@ MAX_POSITIONS          = _safe_int(  "MAX_POSITIONS",          35)
 MAX_DATA_AGE_HOURS     = _safe_float("MAX_DATA_AGE_HOURS",     96.0)
 MAX_SYNC_AGE_HOURS     = _safe_float("MAX_SYNC_AGE_HOURS",     24.0)
 
+# Trading-day zone for the daily-loss baseline. The "day" the loss cap resets on
+# must be the TRADING day (ET), not the UTC calendar day: CURRENT_DATE in Postgres
+# (UTC session) rolls over at ~19:00–20:00 ET, mid-session for late-ET trading, so
+# a UTC-day baseline could compare a position against the WRONG day's opening
+# equity. We compute the reset date in this zone and pass it as a bound param.
+RISK_TZ_NAME = os.getenv("RISK_TZ", "America/New_York")
+try:
+    from zoneinfo import ZoneInfo
+    _RISK_TZ = ZoneInfo(RISK_TZ_NAME)
+except Exception:
+    _RISK_TZ = None
+
+
+def _trading_day_today() -> str:
+    """Today's calendar date in the trading zone (ET), ISO format. Used as the
+    daily-loss baseline reset boundary instead of Postgres CURRENT_DATE (UTC)."""
+    if _RISK_TZ is not None:
+        return datetime.now(_RISK_TZ).date().isoformat()
+    return datetime.now().date().isoformat()
+
 
 _KILL_SWITCH_FILE = "/tmp/kill_switch"
 
@@ -325,8 +345,12 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
 
             # Daily-loss cap: refuse ALL actions if today's account value is
             # down more than MAX_DAILY_LOSS_PCT vs the day's opening baseline.
-            # Baseline: earliest successful sync from "today" (sim_date when the
-            # caller is in a compressed simulation, else CURRENT_DATE).
+            # Baseline: earliest successful sync from "today" — sim_date in a
+            # compressed simulation, else the current TRADING day in ET. We bucket
+            # each sync by its ET calendar date (completed_at AT TIME ZONE RISK_TZ)
+            # and match the ET "today" passed as a bound param, rather than using
+            # Postgres CURRENT_DATE (UTC), whose rollover at ~19–20:00 ET would put
+            # the baseline on the wrong side of a late-ET session.
             max_loss_pct = env["max_daily_loss_pct"]
             if max_loss_pct > 0 and max_loss_pct < 1.0:
                 async with engine.connect() as conn:
@@ -341,9 +365,9 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
                         baseline_row = (await conn.execute(text(
                             "SELECT account_value FROM alpaca_sync_runs "
                             "WHERE status='success' "
-                            "AND DATE(completed_at AT TIME ZONE 'UTC') = CURRENT_DATE "
+                            "AND DATE(completed_at AT TIME ZONE :risk_tz) = :trading_day::date "
                             "ORDER BY completed_at ASC LIMIT 1"
-                        ))).first()
+                        ), {"risk_tz": RISK_TZ_NAME, "trading_day": _trading_day_today()})).first()
                     current_row = (await conn.execute(text(
                         "SELECT account_value FROM alpaca_sync_runs "
                         "WHERE status='success' "
