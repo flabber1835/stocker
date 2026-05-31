@@ -33,6 +33,25 @@ PIPELINE_STREAM = "stocker:pipeline_events"
 CONSUMER_GROUP = "pipeline-consumers"
 CONSUMER_NAME = "pipeline-worker-1"
 
+# Display-only drawdown indicator on the ranker. 21-trading-day peak-to-now
+# decline, surfaced in the rankings.factor_scores JSONB under "drawdown_21d" and
+# shown on the screener. NOT a scoring factor — it never enters compute_score, so
+# rank order is unchanged. Mirrors the llm-vetter falling-knife window so the
+# screener badge agrees with the vetter's entry block.
+DRAWDOWN_WINDOW_DAYS = int(os.getenv("DRAWDOWN_WINDOW_DAYS", "21"))
+
+
+def _recent_drawdown(closes: list[float], window: int = 21) -> float | None:
+    """Trailing peak-to-now drawdown over the last `window` closes (oldest→newest).
+    Returns a value in (-1.0, 0.0] (0.0 = at peak), or None if no usable data."""
+    recent = [float(c) for c in closes[-window:] if c is not None and float(c) > 0]
+    if not recent:
+        return None
+    peak = max(recent)
+    if peak <= 0:
+        return None
+    return recent[-1] / peak - 1.0
+
 # chain_date MUST be computed in the SAME explicit zone the scheduler uses to
 # decide "did the pipeline run today?" (scheduler._local_today, SCHEDULE_TZ).
 # The scheduler compares its own SCHEDULE_TZ "today" against this chain_date; if
@@ -1077,6 +1096,35 @@ async def _do_rank(
     top_ticker = ranked_df.iloc[0]["ticker"] if ranked_count > 0 else None
     null_quality_before = int(factor_scores_df["quality"].isna().sum())
 
+    # ── Display-only drawdown indicator ───────────────────────────────────────
+    # Compute the 21-day peak-to-now drawdown for the RANKED tickers only (keeps
+    # the query small) and attach it as a column. It is written into the rankings
+    # JSONB for the screener but is NOT in FACTORS, so rank_universe never scored
+    # on it and rank order is unaffected.
+    drawdown_map: dict[str, float] = {}
+    if ranked_count > 0:
+        _ranked_list = list(ranked_tickers)
+        async with engine.connect() as conn:
+            dd_rows = await conn.execute(
+                text(
+                    "SELECT ticker, adjusted_close FROM ("
+                    "  SELECT ticker, adjusted_close, date, "
+                    "         ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) AS rn "
+                    "  FROM daily_prices WHERE ticker = ANY(:tickers)"
+                    ") s WHERE rn <= :w ORDER BY ticker, date ASC"
+                ),
+                {"tickers": _ranked_list, "w": DRAWDOWN_WINDOW_DAYS},
+            )
+            _closes: dict[str, list[float]] = {}
+            for _r in dd_rows.fetchall():
+                if _r.adjusted_close is not None:
+                    _closes.setdefault(_r.ticker, []).append(float(_r.adjusted_close))
+        for _t, _cl in _closes.items():
+            _dd = _recent_drawdown(_cl, window=DRAWDOWN_WINDOW_DAYS)
+            if _dd is not None:
+                drawdown_map[_t] = _dd
+        ranked_df["drawdown_21d"] = ranked_df["ticker"].map(drawdown_map)
+
     def _rfmt(v):
         return None if pd.isna(v) else round(float(v), 4)
 
@@ -1304,9 +1352,16 @@ async def _do_rank(
             "composite_score": None if pd.isna(row["composite_score"]) else float(row["composite_score"]),
             "percentile": None if pd.isna(row["percentile"]) else float(row["percentile"]),
             "factor_scores": json.dumps({
-                f: (None if pd.isna(row[f]) else float(row[f]))
-                for f in FACTORS
-                if f in ranked_df.columns
+                **{
+                    f: (None if pd.isna(row[f]) else float(row[f]))
+                    for f in FACTORS
+                    if f in ranked_df.columns
+                },
+                # Display-only indicator (not a scoring factor — see _recent_drawdown).
+                **(
+                    {"drawdown_21d": (None if pd.isna(row.get("drawdown_21d")) else round(float(row["drawdown_21d"]), 4))}
+                    if "drawdown_21d" in ranked_df.columns else {}
+                ),
             }),
             "ranked_at": ranked_at,
         }

@@ -290,6 +290,29 @@ and surfaced in the trace/`portfolio_runs` for human readability, but they no
 longer gate selection or weighting. Setting `max_cluster_weight = 1.0` disables
 the cluster cap (mirrors the old `max_sector_weight = 1.0` no-op).
 
+## Design Decision: vetter drawdown-only mode + ranker drawdown indicator
+
+The LLM vetter can be put into a **drawdown-only mode** (`VETTER_LLM_ENABLED=false`)
+in which it skips all LLM / Tavily / Alpha-Vantage-news work and every candidate
+defaults to *keep*. The deterministic falling-knife backstop
+(`DRAWDOWN_BACKSTOP_PCT`, an ENTRY-only force-exclude on a name more than X% below
+its 21-day peak) becomes the **only** prevent-entry signal.
+
+**Why a mode, not a chain change.** The vetter step stays mandatory and
+portfolio-builder still requires a successful `vetter_run` for today's ranking.
+Drawdown-only mode keeps that wiring intact — a `vetter_run` row is still written
+and its (drawdown-driven) exclusions still feed portfolio-builder — so disabling
+the LLM is a single reversible env flip with no change to the chain shape or the
+409 gate. Held positions are never force-excluded (exclusion is buy-side only).
+
+**Ranker drawdown indicator (display-only).** The pipeline computes each ranked
+ticker's 21-day peak-to-now drawdown and stores it in `rankings.factor_scores`
+JSONB under `drawdown_21d`. It is **not** a scoring factor — it never enters
+`rank_universe.compute_score` (which consults only the six `FACTORS`), so rank
+order is unchanged. The screener shows a ▼ badge from -10% (red at -25%, matching
+the backstop default) purely for human visibility. The same 21-day window is used
+by the vetter backstop so the badge agrees with the entry block.
+
 ## Trade Approval Flow
 
 Every paper trade requires a human button click. The system does not auto-submit

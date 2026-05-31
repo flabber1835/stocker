@@ -407,6 +407,8 @@ td { padding: 9px 12px; white-space: nowrap; font-size: 13px; }
 .overlay-badge.excl     { background: rgba(220,38,38,.1);  color: var(--red);   border: 1px solid rgba(220,38,38,.3); }
 .overlay-badge.pos-cat  { background: rgba(217,119,6,.1);  color: var(--amber); border: 1px solid rgba(217,119,6,.3); }
 .overlay-badge.not-ranked { background: var(--border2); color: var(--text2); border: 1px solid var(--border); }
+.overlay-badge.dd-warn  { background: rgba(217,119,6,.1);  color: var(--amber); border: 1px solid rgba(217,119,6,.3); }
+.overlay-badge.dd-deep  { background: rgba(220,38,38,.1);  color: var(--red);   border: 1px solid rgba(220,38,38,.3); }
 
 tr.row-held td        { background: rgba(5,150,105,.12); }
 tr.row-excluded td    { opacity: .6; }

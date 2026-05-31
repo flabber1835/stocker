@@ -252,3 +252,40 @@ def test_missing_run_meta_defaults_to_auto_approve(dashboard):
 
     asyncio.run(run())
     assert len(posted) == 1
+
+
+# ── /api/auto-approve-status hides the countdown for MANUAL runs ──────────────
+# The visible timer must be suppressed for manual runs (a human must click); the
+# endpoint reads run.manual from /delta/latest and returns an empty pending list.
+
+def _status_with_manual(dashboard, manual: bool):
+    """Call the real auto_approve_status endpoint with /delta/latest mocked."""
+    dashboard._intent_first_seen.clear()
+    dashboard._intent_approved.clear()
+    # Seed one pending intent so a non-manual run would show a countdown.
+    dashboard._intent_first_seen["i1"] = 0.0
+
+    async def fake_get(url, **kw):
+        r = MagicMock(); r.status_code = 200
+        r.json = MagicMock(return_value={"run": {"manual": manual}, "intents": []})
+        return r
+
+    client_cm = MagicMock()
+    client_cm.__aenter__ = AsyncMock(return_value=MagicMock(get=fake_get))
+    client_cm.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("app.main.httpx.AsyncClient", return_value=client_cm):
+        return asyncio.run(dashboard.auto_approve_status())
+
+
+def test_status_suppresses_countdown_for_manual_run(dashboard):
+    res = _status_with_manual(dashboard, manual=True)
+    assert res["manual"] is True
+    assert res["pending"] == []          # no countdown shown for a manual run
+
+
+def test_status_shows_countdown_for_scheduled_run(dashboard):
+    res = _status_with_manual(dashboard, manual=False)
+    assert res["manual"] is False
+    assert len(res["pending"]) == 1      # scheduled run still counts down
+    assert res["pending"][0]["intent_id"] == "i1"

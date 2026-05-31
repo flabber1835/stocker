@@ -318,6 +318,7 @@ function _mapRankRow(r) {
     composite_score: r.composite_score, percentile: r.percentile,
     momentum: fs.momentum, quality: fs.quality, value: fs.value,
     growth: fs.growth, low_volatility: fs.low_volatility, liquidity: fs.liquidity,
+    drawdown_21d: fs.drawdown_21d != null ? +fs.drawdown_21d : null,
     rank_date: r.rank_date, regime: r.regime,
     rank_slope: r.rank_slope != null ? +r.rank_slope : null,
     prior_rank: r.prior_rank != null ? +r.prior_rank : null,
@@ -487,6 +488,14 @@ function renderRankings() {
     ];
     if (r.not_in_universe) sizeParts.push('<span class="overlay-badge not-ranked" title="Held but not in ranking universe">NOT RANKED</span>');
     if (r.vetter_excluded) sizeParts.push('<span class="overlay-badge excl" title="' + esc(r.vetter_reason || '') + '">&#9888; ' + (r.vetter_risk_type || '').toUpperCase().replace(/_/g,' ') + '</span>');
+    // Display-only 21-day drawdown indicator. Shown from -10%; -25%+ (the
+    // falling-knife backstop default) flagged red. Informational only — it does
+    // not affect rank or block entry on its own (the vetter backstop does that).
+    if (r.drawdown_21d != null && r.drawdown_21d <= -0.10) {
+      const ddPct = (r.drawdown_21d * 100).toFixed(0) + '%';
+      const ddCls = r.drawdown_21d <= -0.25 ? 'dd-deep' : 'dd-warn';
+      sizeParts.push('<span class="overlay-badge ' + ddCls + '" title="21-day peak-to-now drawdown (display only)">&#9660; ' + ddPct + '</span>');
+    }
     const sizeHtml = sizeParts.join(' ');
 
     const heldCls     = r.held ? ' row-held' : '';

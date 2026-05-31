@@ -329,6 +329,25 @@ async def vetter_ticker_results(run_id: str):
 async def auto_approve_status():
     now = time.time()
     timeout = TRADE_AUTO_APPROVE_MINUTES * 60
+
+    # Manual runs never auto-approve (a human must click), so the countdown must
+    # not be shown for them. _auto_approve_once already suppresses the POST; here
+    # we also suppress the visible timer by returning an empty pending list when
+    # the current delta run is manual. Without this the UI shows a countdown that
+    # will never fire. Fail open (treat as non-manual) if /delta/latest is
+    # unreachable — the backend POST gate is still the real safety check.
+    is_manual_run = False
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{API_URL}/delta/latest")
+        if r.status_code == 200:
+            is_manual_run = bool((r.json().get("run") or {}).get("manual"))
+    except Exception as exc:
+        print(f"[auto-approve-status] could not read run origin: {exc}")
+
+    if is_manual_run:
+        return {"auto_approve_minutes": TRADE_AUTO_APPROVE_MINUTES, "pending": [], "manual": True}
+
     items = []
     for iid, first_seen in list(_intent_first_seen.items()):
         if iid in _intent_approved:
@@ -339,7 +358,7 @@ async def auto_approve_status():
             "elapsed_seconds": round(elapsed),
             "remaining_seconds": round(max(0.0, timeout - elapsed)),
         })
-    return {"auto_approve_minutes": TRADE_AUTO_APPROVE_MINUTES, "pending": items}
+    return {"auto_approve_minutes": TRADE_AUTO_APPROVE_MINUTES, "pending": items, "manual": False}
 
 
 async def _safe_fetch(coro, fallback):

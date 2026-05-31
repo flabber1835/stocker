@@ -38,6 +38,18 @@ STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_co
 DRAWDOWN_BACKSTOP_PCT = float(os.getenv("DRAWDOWN_BACKSTOP_PCT", "0.25"))
 DRAWDOWN_WINDOW_DAYS  = int(os.getenv("DRAWDOWN_WINDOW_DAYS", "21"))
 
+# Drawdown-only mode. When false, the vetter skips ALL LLM + Tavily + AV-news
+# work and every candidate defaults to keep — the deterministic falling-knife
+# drawdown backstop becomes the ONLY entry block. The chain step and the
+# portfolio-builder vetter-run requirement stay intact (a vetter_run row is still
+# written, exclusions still feed portfolio-builder), so this is a safe, reversible
+# way to run without the LLM. Flip back to true (or unset) to re-enable the LLM.
+def _env_bool(name: str, default: bool) -> bool:
+    v = os.getenv(name)
+    return default if v is None else v.strip().lower() in ("1", "true", "yes", "on")
+
+VETTER_LLM_ENABLED = _env_bool("VETTER_LLM_ENABLED", True)
+
 engine: Optional[AsyncEngine] = None
 strategy: Optional[StrategyConfig] = None
 config_hash: str = ""
@@ -476,21 +488,27 @@ async def _do_vet(
     # agentic loop has context before it runs its own targeted searches.
     _prefetch_results = vcfg.max_searches_per_ticker + 2
     t0 = datetime.now(timezone.utc)
-    av_news, earnings_calendar, tavily_results, data_sources = await fetch_ticker_data(
-        tickers, AV_API_KEY, TAVILY_API_KEY,
-        related_tickers_map=related_tickers_map or None,
-        company_name_map=company_name_map or None,
-        news_lookback_days=vcfg.news_lookback_days,
-        max_articles_per_ticker=vcfg.max_articles_per_ticker,
-        earnings_horizon_days=vcfg.earnings_horizon_days,
-        max_search_results=_prefetch_results,
-    )
+    if VETTER_LLM_ENABLED:
+        av_news, earnings_calendar, tavily_results, data_sources = await fetch_ticker_data(
+            tickers, AV_API_KEY, TAVILY_API_KEY,
+            related_tickers_map=related_tickers_map or None,
+            company_name_map=company_name_map or None,
+            news_lookback_days=vcfg.news_lookback_days,
+            max_articles_per_ticker=vcfg.max_articles_per_ticker,
+            earnings_horizon_days=vcfg.earnings_horizon_days,
+            max_search_results=_prefetch_results,
+        )
+    else:
+        # Drawdown-only mode: no news/earnings/web context is fetched.
+        av_news, earnings_calendar, tavily_results = {}, {}, {}
+        data_sources = {"llm_disabled": True}
 
     async with engine.begin() as conn:
         await _log_step(
             conn, trace_id, "fetch_data", "success",
             started_at=t0,
             input_summary={
+                "llm_enabled": VETTER_LLM_ENABLED,
                 "news_lookback_days": vcfg.news_lookback_days,
                 "max_articles_per_ticker": vcfg.max_articles_per_ticker,
                 "earnings_horizon_days": vcfg.earnings_horizon_days,
@@ -505,6 +523,31 @@ async def _do_vet(
 
     async def _vet_fn(t: str) -> dict:
         _c = candidate_map[t]
+        if not VETTER_LLM_ENABLED:
+            # Drawdown-only mode: default every candidate to keep. The deterministic
+            # falling-knife backstop below is the sole entry block. No LLM/Tavily call.
+            return {
+                "ticker":            t,
+                "exclude":           False,
+                "reason":            "LLM vetting disabled (drawdown-only mode); deferred to falling-knife backstop.",
+                "confidence":        "low",
+                "risk_type":         "none",
+                "positive_catalyst": False,
+                "positive_reason":   "",
+                "had_av_news":       False,
+                "had_earnings":      False,
+                "had_tavily":        False,
+                "parse_error":       False,
+                "crashed":           False,
+                "latency_ms":        0,
+                "prompt":            "",
+                "system_prompt":     "",
+                "raw_response":      "",
+                "vetter_config":     {"llm_disabled": True},
+                "news_titles":       [],
+                "earnings_date":     None,
+                "hallucination_flags": [],
+            }
         return await vet_single_ticker(
             t,
             news=av_news.get(t, []),
@@ -755,6 +798,8 @@ async def health():
         "gateway_provider": gateway_info.get("default_provider"),
         "av_configured": bool(AV_API_KEY and AV_API_KEY != "demo"),
         "tavily_configured": bool(TAVILY_API_KEY),
+        "llm_enabled": VETTER_LLM_ENABLED,
+        "drawdown_backstop_pct": DRAWDOWN_BACKSTOP_PCT,
         "strategy_id": strategy.strategy_id if strategy else None,
         "config_hash": config_hash,
         "vetter_enabled": strategy.vetter.enabled,
@@ -830,16 +875,20 @@ async def start_vet(
             f"but vetter has '{strategy.strategy_id}' mounted — config drift possible"
         )
 
-    # quick gateway pre-flight — fail fast rather than silently failing after a long timeout
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as gw_client:
-            r = await gw_client.get(f"{LLM_GATEWAY_URL}/health")
-            r.raise_for_status()
-    except Exception as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=f"LLM gateway is not available at {LLM_GATEWAY_URL}: {exc}",
-        )
+    # quick gateway pre-flight — fail fast rather than silently failing after a long timeout.
+    # Skipped in drawdown-only mode: the LLM gateway is intentionally not used.
+    if VETTER_LLM_ENABLED:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as gw_client:
+                r = await gw_client.get(f"{LLM_GATEWAY_URL}/health")
+                r.raise_for_status()
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"LLM gateway is not available at {LLM_GATEWAY_URL}: {exc}",
+            )
+    else:
+        print("[llm-vetter] VETTER_LLM_ENABLED=false — drawdown-only mode; skipping LLM gateway pre-flight")
 
     async with _job_lock:
         await _assert_no_running_job()
