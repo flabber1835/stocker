@@ -121,6 +121,7 @@ function showScreen(name, btnEl) {
   if (btnEl) btnEl.classList.add('active');
   if (name === 'portfolio') { loadLivePortfolio(); fetchOrders(); }
   if (name === 'trader')    renderTrader();
+  if (name === 'target')    loadTargetPortfolio();
 }
 
 /* ── Clock ───────────────────────────────────────────────────────────── */
@@ -1132,6 +1133,41 @@ function renderLive() {
 
   $('live-body').innerHTML = rowsHtml + cashRow
     || '<tr><td colspan="8" class="tbl-empty">No positions</td></tr>';
+}
+
+/* ── Target portfolio (informational) ─────────────────────────────────── */
+
+async function loadTargetPortfolio() {
+  const tbody = $('target-body');
+  try {
+    const d = await fetch('/api/target-portfolio').then(r => r.json());
+    if (d.error || d.detail) {
+      tbody.innerHTML = '<tr><td colspan="4" class="tbl-empty">'
+        + esc(d.detail || d.error) + '</td></tr>';
+      return;
+    }
+    const holdings = d.holdings || [];
+    const sub = $('target-sub');
+    if (sub) {
+      const parts = [];
+      if (d.portfolio_date) parts.push(esc(d.portfolio_date));
+      if (d.regime) parts.push(esc(d.regime));
+      parts.push(holdings.length + ' names');
+      sub.innerHTML = parts.join(' &middot; ') + ' &middot; informational only';
+    }
+    if (!holdings.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="tbl-empty">No target portfolio yet</td></tr>';
+      return;
+    }
+    tbody.innerHTML = holdings.map(h => '<tr>'
+      + '<td class="mono">' + esc(h.ticker) + '</td>'
+      + '<td>' + (esc(h.name) || '&mdash;') + '</td>'
+      + '<td>' + (h.cluster_id ? '<span class="mono">' + esc(h.cluster_id) + '</span>' : '&mdash;') + '</td>'
+      + '<td>' + fmtPct(h.weight) + '</td>'
+      + '</tr>').join('');
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="4" class="tbl-empty">Error loading target portfolio</td></tr>';
+  }
 }
 
 async function syncAlpaca() {

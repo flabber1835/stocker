@@ -263,6 +263,19 @@ async def proxy_live_portfolio():
     return await _proxy("/live-portfolio")
 
 
+@app.get("/api/target-portfolio")
+async def proxy_target_portfolio():
+    """Latest target portfolio from the builder (informational panel): ticker,
+    name, weight, and correlation cluster. Proxies portfolio-builder directly
+    because the builder owns the freshly-built target + persisted cluster_id."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"{PORTFOLIO_URL}/portfolio/latest")
+            return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=502)
+
+
 @app.get("/api/delta/latest")
 async def proxy_delta_latest():
     return await _proxy("/delta/latest")
@@ -814,6 +827,26 @@ _HTML = r"""<!DOCTYPE html>
     </div>
   </section>
 
+  <!-- TARGET PORTFOLIO (informational) -->
+  <section id="screen-target" class="screen">
+    <div class="screen-inner">
+      <div class="filter-bar sticky-bar">
+        <span class="count-badge" id="target-sub">Latest build &mdash; informational only</span>
+      </div>
+      <div class="tbl-scroll">
+        <table>
+          <thead><tr>
+            <th>TICKER</th>
+            <th>COMPANY</th>
+            <th>CLUSTER</th>
+            <th>WEIGHT</th>
+          </tr></thead>
+          <tbody id="target-body"><tr><td colspan="4" class="tbl-empty">Loading&#8230;</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
 </main>
 
 <!-- ── Bottom nav ───────────────────────────────────────────────────────── -->
@@ -837,6 +870,12 @@ _HTML = r"""<!DOCTYPE html>
       <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
     </svg>
     <span>Portfolio</span>
+  </button>
+  <button class="nav-btn" id="nav-target" onclick="showScreen('target',this)">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>
+    </svg>
+    <span>Target</span>
   </button>
 </nav>
 

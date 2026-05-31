@@ -688,13 +688,14 @@ async def _do_build(
                     "INSERT INTO portfolio_holdings "
                     "(run_id, source_ranking_run_id, strategy_id, regime, portfolio_date, "
                     " ticker, position, weight, composite_score, original_rank, "
-                    " adj_score, portfolio_vol_at_add) "
+                    " adj_score, portfolio_vol_at_add, cluster_id) "
                     "VALUES (:run_id, :src, :sid, :regime, :pd, "
-                    "        :ticker, :pos, :weight, :cs, :orank, :adj, :pvol) "
+                    "        :ticker, :pos, :weight, :cs, :orank, :adj, :pvol, :cluster) "
                     "ON CONFLICT (run_id, ticker) DO UPDATE SET "
                     "  weight=EXCLUDED.weight, position=EXCLUDED.position, "
                     "  composite_score=EXCLUDED.composite_score, original_rank=EXCLUDED.original_rank, "
-                    "  adj_score=EXCLUDED.adj_score, portfolio_vol_at_add=EXCLUDED.portfolio_vol_at_add"
+                    "  adj_score=EXCLUDED.adj_score, portfolio_vol_at_add=EXCLUDED.portfolio_vol_at_add, "
+                    "  cluster_id=EXCLUDED.cluster_id"
                 ),
                 {
                     "run_id": run_id,
@@ -709,6 +710,14 @@ async def _do_build(
                     "orank": rank_map.get(ticker),
                     "adj": round(item["adj_score"], 6),
                     "pvol": round(item["portfolio_vol_at_add"], 6),
+                    # Persist the correlation cluster only when it has co-moving
+                    # peers (multi-member); a singleton cluster is "no applicable
+                    # cluster" → NULL, so the UI shows a dash rather than the
+                    # ticker's own name as a pseudo-cluster.
+                    "cluster": (
+                        _cid if (_cid := cluster_map.get(ticker, ticker))
+                        and cluster_sizes.get(_cid, 1) > 1 else None
+                    ),
                 },
             )
 
@@ -1010,9 +1019,16 @@ async def get_latest_portfolio():
 
         holdings_rows = await conn.execute(
             text(
-                "SELECT ticker, position, weight, composite_score, original_rank, "
-                "       adj_score, portfolio_vol_at_add "
-                "FROM portfolio_holdings WHERE run_id = :rid ORDER BY position ASC"
+                "WITH names AS ("
+                "  SELECT DISTINCT ON (ticker) ticker, name FROM universe_tickers "
+                "  ORDER BY ticker, snapshot_id DESC"
+                ") "
+                "SELECT ph.ticker, n.name, ph.position, ph.weight, ph.cluster_id, "
+                "       ph.composite_score, ph.original_rank, "
+                "       ph.adj_score, ph.portfolio_vol_at_add "
+                "FROM portfolio_holdings ph "
+                "LEFT JOIN names n ON n.ticker = ph.ticker "
+                "WHERE ph.run_id = :rid ORDER BY ph.position ASC"
             ),
             {"rid": str(run.run_id)},
         )
