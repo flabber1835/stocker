@@ -356,6 +356,39 @@ async def _restore_force_pending() -> tuple[str | None, set[str]]:
         await conn.close()
 
 
+async def _close_stale_running_chains() -> int:
+    """Mark scheduler_runs rows still 'running' from a PRIOR day as 'failed'.
+
+    A chain interrupted by a deploy/crash leaves a status='running' row. The
+    date-rollover path in _supervisor_tick only closes the run currently held in
+    memory; a row abandoned across a restart (where in-memory state was lost) is
+    never closed and lingers as 'running' forever (we observed 05-28/29/30 rows
+    all stuck 'running'). They're harmless to the live loop but pollute
+    /health/chain and audit history. Today's row is left alone — _restore_force_pending
+    legitimately resumes it. Returns the number of rows closed.
+    """
+    conn = await _db_connect()
+    if not conn:
+        return 0
+    try:
+        today = date.today().isoformat()
+        result = await conn.execute(
+            "UPDATE scheduler_runs SET status='failed', completed_at=NOW() "
+            "WHERE status='running' AND chain_date < $1",
+            today,
+        )
+        # asyncpg returns a status string like "UPDATE 3"
+        n = int(result.split()[-1]) if isinstance(result, str) and result else 0
+        if n:
+            _log("startup: closed stale running chain rows from prior days", count=n)
+        return n
+    except Exception as exc:
+        _log("DB: close_stale_running_chains failed", error=str(exc))
+        return 0
+    finally:
+        await conn.close()
+
+
 # ── Core helpers ──────────────────────────────────────────────────────────────
 
 async def _has_universe(client: httpx.AsyncClient) -> Optional[bool]:
@@ -478,6 +511,41 @@ async def _cancel_all_open_orders(context: str = "manual-run") -> bool:
 StepState = Literal["done", "running", "failed", "idle"]
 
 
+def _comparable_run_date(raw) -> str:
+    """Extract the date a step's /runs/latest reports, in the SAME timezone the
+    supervisor's `today`/`trading_day` are computed in (container-local, ET).
+
+    Two shapes arrive here:
+      - pure DATE columns (chain_date, run_date, portfolio_date) → "2026-05-30",
+        no time component: take the first 10 chars unchanged.
+      - wall-clock TIMESTAMP columns (started_at) → "2026-05-31T01:50:00+00:00",
+        stored in UTC. These MUST be converted to local time before taking the
+        date, because `today = date.today()` is LOCAL (TZ=America/New_York).
+
+    The bug this fixes: in the ~5h window where UTC date is already "tomorrow" but
+    ET is still "today" (evening ET), a vet run stamped started_at in UTC read as
+    "2026-05-31" while today was "2026-05-30", so the vet step never matched
+    today → re-triggered every tick → the vetter (no idempotency guard) re-billed
+    LLM credits ~every 16 min until ET also rolled over. `.astimezone()` with no
+    argument converts to the container's local zone, so it stays consistent with
+    date.today() regardless of what that zone is (no hard-coded ET).
+    """
+    s = str(raw or "")
+    if not s:
+        return ""
+    if "T" not in s:
+        # Pure DATE — no time/tz component, compare as-is.
+        return s[:10]
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return s[:10]
+    if dt.tzinfo is None:
+        # Naive timestamp — services stamp started_at in UTC, so assume UTC.
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone().date().isoformat()
+
+
 async def _step_state(
     client: httpx.AsyncClient,
     step: _StepDef,
@@ -499,7 +567,11 @@ async def _step_state(
         else:
             target = trading_day if step.date_anchor is DateAnchor.TRADING_DAY else today
             ok_dates = {target, prev_trading_day} if step.also_accept_prev else {target}
-        run_date = (data.get(step.date_field) or "")[:10]
+        # Convert the reported date into the supervisor's local zone before
+        # comparing — a UTC wall-clock started_at must not be matched against a
+        # local `today`/`trading_day` (the evening-ET re-trigger loop). Pure DATE
+        # columns pass through unchanged. See _comparable_run_date.
+        run_date = _comparable_run_date(data.get(step.date_field))
         run_status = data.get("status")
 
         # A running job always returns "running" regardless of date — prevents
@@ -930,6 +1002,10 @@ async def _startup_catch_up() -> None:
     The regular SUPERVISOR_INTERVAL_SECS interval trigger continues running
     in parallel; _chain_lock ensures ticks never run concurrently.
     """
+    # Close any chain rows left 'running' by a prior-day deploy/crash so they
+    # don't linger forever (only today's row should ever be resumed).
+    await _close_stale_running_chains()
+
     # Restore any in-flight chain and pending force-rerun steps from the DB.
     restored_run_id, restored_pending = await _restore_force_pending()
     if restored_run_id:

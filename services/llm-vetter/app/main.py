@@ -769,6 +769,7 @@ async def start_vet(
     background_tasks: BackgroundTasks,
     ranking_run_id: Optional[str] = None,
     candidate_count: Optional[int] = None,
+    force: bool = False,
 ):
     if not strategy.vetter.enabled:
         raise HTTPException(
@@ -793,6 +794,35 @@ async def start_vet(
             raise HTTPException(status_code=400, detail="No successful ranking run found — run the ranker first")
         source_ranking_run_id = str(row.run_id)
         source_strategy_id = row.strategy_id if row.strategy_id else "unknown"
+
+        # Idempotency guard: if this ranking run already has a successful vetter
+        # run, do NOT re-vet — return the existing run. The vetter is the most
+        # expensive step (per-ticker LLM calls), so a chain that re-triggers the
+        # vet step (e.g. the supervisor re-running because a downstream step never
+        # read "done") must not re-bill credits. force=true bypasses this for a
+        # deliberate manual re-vet. Mirrors the pipeline's already_ran_today guard.
+        if not force:
+            existing = await conn.execute(
+                text(
+                    "SELECT run_id FROM vetter_runs "
+                    "WHERE source_ranking_run_id=:src AND status='success' "
+                    "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+                ),
+                {"src": source_ranking_run_id},
+            )
+            done_row = existing.fetchone()
+            if done_row is not None:
+                print(
+                    f"[llm-vetter] already_vetted: ranking {source_ranking_run_id} "
+                    f"already has successful vetter run {done_row.run_id} — skipping re-vet "
+                    f"(pass force=true to override)",
+                    flush=True,
+                )
+                return {
+                    "status": "already_vetted",
+                    "run_id": str(done_row.run_id),
+                    "source_ranking_run_id": source_ranking_run_id,
+                }
 
     if source_strategy_id != strategy.strategy_id:
         print(

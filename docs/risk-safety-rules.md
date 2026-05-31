@@ -92,6 +92,24 @@ to alert when the daily pipeline stops running. 36h is the default so a normal
 weekend gap (~67h from Friday close to Monday close) will trip the alert by
 Sunday — adjust via `CHAIN_HEALTH_MAX_AGE_HOURS` if you want a wider tolerance.
 
+### Timezone consistency in step done-detection
+
+The scheduler runs `TZ=America/New_York` and computes `today = date.today()` /
+`trading_day` in that local zone. Services stamp `started_at` in UTC
+(`datetime.now(timezone.utc)`). When the supervisor decides whether a step "ran
+today", it MUST convert a wall-clock `started_at` to local time before taking the
+date — see `_comparable_run_date` in `services/scheduler/app/main.py`. Comparing a
+raw UTC `started_at[:10]` against a local `today` breaks in the evening-ET window
+(≈19:00–24:00 ET) where the UTC date is already tomorrow: the step never reads
+"done", so the supervisor re-triggers it every tick. For the vetter (per-ticker
+LLM calls) that meant re-billing credits ~every 16 minutes until ET rolled over.
+Two defenses: (1) `_comparable_run_date` makes the comparison zone-consistent;
+(2) `/jobs/vet` has an idempotency guard (`already_vetted`) so a ranking that was
+already vetted is never re-vetted unless `force=true`. Pure DATE columns
+(`chain_date`, `run_date`, `portfolio_date`) carry no time component and compare
+directly. Orphaned `running` `scheduler_runs` rows from prior days are closed on
+startup (`_close_stale_running_chains`).
+
 ### MAX_DAILY_TURNOVER_PCT — sell-side daily turnover cap
 
 Rejects an `exit` or `sell_trim` once today's cumulative sell notional plus
