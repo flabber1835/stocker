@@ -479,11 +479,12 @@ liquidity constraints
 minimum score thresholds
 do-not-buy list
 vetter exclusions (soft — does not block if vetter hasn't run)
-turnover penalty (default 5%) — score discount applied to candidates NOT in
-  the current portfolio_holdings, giving continuity holdings a slight
-  preference. Reduces unnecessary churn on regime transitions where new and
-  old top-ranked tickers have similar adjusted scores. Set
-  PortfolioBuilderConfig.turnover_penalty=0 to disable.
+turnover penalty (default 0 — DISABLED) — the builder is the SOURCE OF TRUTH
+  and builds a fresh, holdings-agnostic target each day; churn-damping is owned
+  by the delta engine's buffer-zone / confirmation-days hysteresis, not by
+  biasing the target toward held names. Set
+  PortfolioBuilderConfig.turnover_penalty > 0 to re-enable the old continuity
+  bias (score discount on candidates NOT currently held).
 ```
 
 ## llm-vetter
@@ -520,26 +521,48 @@ A `drawdown` exclusion is exempt from the "exclude with no supporting data" /
 override (it is price-based, legitimately newsless).
 
 UI note: a ⚠ badge means the vetter EXCLUDED the ticker. On a buy candidate that
-means "not a good moment to enter." On a stock you already HOLD the same badge is
-informational only — it never sells; held positions exit solely via the
-deterministic rank/buffer-zone path.
+means "not a good moment to enter." On a stock you already HOLD a falling-knife
+(drawdown) exclusion now ALSO drives a sale (see the source-of-truth redesign
+below): the name is dropped from the fresh target and the delta engine
+orphan-exits it after confirmation_days builds.
+
+Source-of-truth / falling-knife-sells redesign (supersedes the earlier
+"exclusion is buy-side only, held positions never sell on a veto" rule):
+
+```text
+- The portfolio-builder is the SOURCE OF TRUTH. It builds a fresh, holdings-
+  agnostic target each day from rank minus binding vetter exclusions
+  (turnover_penalty defaults to 0 — no continuity bias toward what is held).
+- Churn-damping is owned by the DELTA engine (buffer-zone + confirmation_days +
+  3-build orphan timer), not by biasing the target toward held names.
+- A falling-knife (drawdown) veto applies to HELD names too. The held name is
+  dropped from the target → becomes an orphan → delta orphan-exits it after
+  confirmation_days consecutive builds. So a drawdown veto on a held position
+  DOES sell it. Whipsaw guards: the 3-build confirmation, the wide default
+  threshold (0.25), and the fact that the same veto blocks re-entry until the
+  drawdown heals (so no sell-then-rebuy).
+- Data-gap names stay exempt: no recent price history ⇒ no drawdown value ⇒
+  never treated as a crash, never force-sold.
+```
 
 Falling-knife backstop (DRAWDOWN_BACKSTOP_PCT, default 0.25): a deterministic
-guard behind the LLM. An ENTRY candidate (not already held) whose price is more
-than DRAWDOWN_BACKSTOP_PCT below its 21-day peak is force-excluded even if the
-LLM said keep. Held positions are NEVER force-excluded — exclusion only blocks
-BUYING and must never imply a sell (held names exit via rank deterioration only).
-Set DRAWDOWN_BACKSTOP_PCT=0 to disable. Wide default per the trailing-stop /
-threshold-sweep analysis (tight stops whipsaw on normal dips).
+guard behind the LLM. Any candidate — held OR not — whose price is more than
+DRAWDOWN_BACKSTOP_PCT below its 21-day peak is force-excluded even if the LLM
+said keep. Set DRAWDOWN_BACKSTOP_PCT=0 to disable. Wide default per the
+trailing-stop / threshold-sweep analysis (tight stops whipsaw on normal dips);
+the 3-build orphan confirmation is the sell-side whipsaw guard.
 
 Must not:
 
 ```text
 approve or reject stocks with authority (score adjustments belong to the ranker)
 call the same search query more than once per ticker
-force-exclude (or otherwise act to sell) a position already held — the vetter's
-  exclusions are buy-side only; held positions are exited solely by the
-  deterministic rank/buffer-zone path, never by the vetter
+apply a non-drawdown (LLM-judgement) exclusion to a HELD name — those stay
+  buy-side only. ONLY the deterministic falling-knife (risk_type='drawdown')
+  backstop may exclude a held name, which drops it from the fresh target so the
+  delta engine orphan-exits it (source-of-truth / falling-knife-sells redesign).
+  All held exits still flow through delta → risk-service → trade-executor; the
+  vetter itself never submits trades.
 ```
 
 ## alpaca-sync

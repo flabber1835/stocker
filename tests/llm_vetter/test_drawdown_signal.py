@@ -91,45 +91,56 @@ def test_prompt_small_drawdown_has_no_warning_note():
 
 # ── deterministic backstop rule (mirrors _do_vet) ────────────────────────────
 # The override condition in main._do_vet, isolated for unit testing.
+# Source-of-truth / orphan-exit redesign: the backstop no longer exempts held
+# names. A held falling-knife is force-excluded → dropped from the fresh target →
+# the delta engine orphan-exits it. Data-gap names (dd is None) stay exempt.
 
-def _backstop(result, dd, held, threshold=0.25):
-    if threshold > 0 and dd is not None and dd <= -threshold and not held and not result.get("exclude"):
+def _backstop(result, dd, threshold=0.25):
+    if threshold > 0 and dd is not None and dd <= -threshold and not result.get("exclude"):
         result = {**result, "exclude": True, "risk_type": "drawdown"}
     return result
 
 
 def test_backstop_forces_exclude_on_severe_knife_entry():
-    out = _backstop({"exclude": False}, dd=-0.30, held=False)
+    out = _backstop({"exclude": False}, dd=-0.30)
     assert out["exclude"] is True
     assert out["risk_type"] == "drawdown"  # surfaces as a DRAWDOWN badge, not NONE
 
 
 def test_backstop_ignores_mild_drawdown():
-    out = _backstop({"exclude": False}, dd=-0.18, held=False)
+    out = _backstop({"exclude": False}, dd=-0.18)
     assert out["exclude"] is False
 
 
-def test_backstop_never_excludes_held_position():
-    # held name in a deep drawdown must NOT be force-excluded (exclusion only
-    # blocks buying; held positions are exited via rank, never by the vetter)
-    out = _backstop({"exclude": False}, dd=-0.40, held=True)
+def test_backstop_excludes_held_position_too():
+    # Held name in a deep drawdown IS now force-excluded — it drops from the fresh
+    # target and the delta engine orphan-exits it (the falling-knife-sells redesign).
+    # The held-vs-not distinction only affects the audit wording, not the decision.
+    out = _backstop({"exclude": False}, dd=-0.40)
+    assert out["exclude"] is True
+    assert out["risk_type"] == "drawdown"
+
+
+def test_backstop_exempts_data_gap_names():
+    # No recent price history → dd is None → never treated as a crash, never excluded.
+    out = _backstop({"exclude": False}, dd=None)
     assert out["exclude"] is False
 
 
 def test_backstop_threshold_is_inclusive():
     # the live rule is `dd <= -threshold`, so exactly at the limit DOES trigger
-    out = _backstop({"exclude": False}, dd=-0.25, threshold=0.25, held=False)
+    out = _backstop({"exclude": False}, dd=-0.25, threshold=0.25)
     assert out["exclude"] is True
     # just inside the limit does not
-    assert _backstop({"exclude": False}, dd=-0.249, threshold=0.25, held=False)["exclude"] is False
+    assert _backstop({"exclude": False}, dd=-0.249, threshold=0.25)["exclude"] is False
 
 
 def test_backstop_disabled_when_threshold_zero():
-    out = _backstop({"exclude": False}, dd=-0.90, held=False, threshold=0.0)
+    out = _backstop({"exclude": False}, dd=-0.90, threshold=0.0)
     assert out["exclude"] is False
 
 
 def test_backstop_does_not_downgrade_an_llm_exclude():
     # already excluded by the LLM → untouched (stays excluded)
-    out = _backstop({"exclude": True}, dd=-0.05, held=False)
+    out = _backstop({"exclude": True}, dd=-0.05)
     assert out["exclude"] is True

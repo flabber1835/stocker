@@ -29,12 +29,14 @@ AV_API_KEY           = os.getenv("AV_API_KEY", "")
 TAVILY_API_KEY       = os.getenv("TAVILY_API_KEY", "")
 ARTIFACTS_PATH       = os.getenv("ARTIFACTS_PATH", "")
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
-# Falling-knife backstop: an ENTRY candidate (not already held) whose price is
-# more than this fraction below its 21-trading-day peak is force-excluded even
-# if the LLM said keep. Deterministic safety net behind the prompt signal.
+# Falling-knife backstop: ANY candidate (held OR not) whose price is more than
+# this fraction below its 21-trading-day peak is force-excluded even if the LLM
+# said keep. Deterministic safety net behind the prompt signal.
 # Set to 0 (or >=1) to disable. Default 0.25 — wide, per the A/B/threshold sweep
-# (tighter stops whipsaw on normal dips). Held positions are NEVER force-excluded
-# (exclusion only blocks buying; it never sells).
+# (tighter stops whipsaw on normal dips). Held names are NOT exempt: a drawdown
+# exclusion drops the name from the fresh target and the delta engine orphan-exits
+# it after confirmation_days builds (source-of-truth / orphan-exit redesign). The
+# 3-build confirmation is the sell-side whipsaw guard. Data-gap names stay exempt.
 DRAWDOWN_BACKSTOP_PCT = float(os.getenv("DRAWDOWN_BACKSTOP_PCT", "0.25"))
 DRAWDOWN_WINDOW_DAYS  = int(os.getenv("DRAWDOWN_WINDOW_DAYS", "21"))
 
@@ -596,22 +598,30 @@ async def _do_vet(
             print(f"[llm-vetter] {ticker}: CRASHED — {result['reason']}")
 
         # ── Deterministic falling-knife backstop ─────────────────────────────
-        # Force-exclude an ENTRY candidate (not already held) in a severe recent
-        # drawdown even if the LLM said keep — the prompt signal informs the LLM,
-        # this guarantees a knife is never bought. Held positions are exempt:
-        # exclusion only blocks BUYING, and we must never let it imply a sell.
+        # Force-exclude ANY candidate (held OR not) in a severe recent drawdown
+        # even if the LLM said keep — the prompt signal informs the LLM, this is
+        # the deterministic guard. Held names are NO LONGER exempt (source-of-truth
+        # / orphan-exit redesign): a falling-knife exclusion drops the held name
+        # from the fresh target, and the delta engine orphan-exits it after
+        # confirmation_days consecutive builds. So a drawdown veto on a held
+        # position DOES drive a sale — whipsaw guards are the 3-build confirmation,
+        # the wide threshold, and the same veto blocking re-entry until it heals.
+        # Data-gap names stay exempt: dd is None with no recent price history, so a
+        # missing-data ticker is never treated as a crash.
         dd = drawdown_map.get(ticker)
         if (
             DRAWDOWN_BACKSTOP_PCT > 0
             and dd is not None
             and dd <= -DRAWDOWN_BACKSTOP_PCT
-            and ticker not in held_tickers
             and not result.get("exclude")
         ):
             result["exclude"] = True
             result["risk_type"] = "drawdown"
+            # A held falling-knife is dropped from the target → delta orphan-exits it;
+            # a non-held one is simply not bought. Word the audit reason accordingly.
+            _action = "drops from target (delta will exit)" if ticker in held_tickers else "entry blocked"
             note = (
-                f"[DRAWDOWN BACKSTOP: entry blocked — {dd:+.1%} vs {DRAWDOWN_WINDOW_DAYS}d peak "
+                f"[DRAWDOWN BACKSTOP: {_action} — {dd:+.1%} vs {DRAWDOWN_WINDOW_DAYS}d peak "
                 f"(limit -{DRAWDOWN_BACKSTOP_PCT:.0%}); deterministic falling-knife guard "
                 f"overrode the LLM keep.] "
             )
@@ -619,7 +629,7 @@ async def _do_vet(
             result.setdefault("hallucination_flags", []).append(
                 f"DRAWDOWN_BACKSTOP: forced exclude on {dd:+.1%} 21d drawdown"
             )
-            print(f"[llm-vetter] {ticker}: DRAWDOWN BACKSTOP — entry blocked ({dd:+.1%})")
+            print(f"[llm-vetter] {ticker}: DRAWDOWN BACKSTOP — {_action} ({dd:+.1%})")
 
         ticker_results.append(result)
 

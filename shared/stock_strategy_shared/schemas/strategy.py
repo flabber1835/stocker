@@ -236,11 +236,14 @@ class PortfolioBuilderConfig(BaseModel):
     )
     do_not_buy: list[str] = Field(default_factory=list)
     turnover_penalty: float = Field(
-        default=0.05, ge=0.0, le=0.50,
+        default=0.0, ge=0.0, le=0.50,
         description=(
-            "Fractional score discount applied to candidates NOT in the current portfolio. "
-            "E.g. 0.05 = new positions score 5% lower than continuity holdings, all else equal. "
-            "Reduces unnecessary churn on regime transitions. Set 0 to disable."
+            "Fractional score discount applied to candidates NOT currently held. "
+            "Default 0: the portfolio-builder is the SOURCE OF TRUTH and builds a "
+            "fresh, holdings-agnostic target each day; churn-damping is owned by "
+            "the delta engine's buffer-zone / confirmation-days hysteresis, not by "
+            "biasing the target toward what is already held. Set > 0 to re-enable "
+            "the old continuity bias (new positions score that fraction lower)."
         ),
     )
     cash_reserve: float = Field(

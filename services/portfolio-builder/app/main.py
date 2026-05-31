@@ -209,6 +209,7 @@ async def _do_build(
 
     # ── Step 2b: apply LLM vetter exclusions ─────────────────────────────────────────────────────────────────────────────────────────────
     vetter_excluded: list[str] = []
+    excluded_risk_type: dict[str, str] = {}
     vetter_candidate_count: int | None = None
     vetter_unvetted_remaining: list[str] = []
     if vetter_run_id:
@@ -229,12 +230,16 @@ async def _do_build(
             vetted_tickers = {r.ticker for r in vetted_rows.fetchall()}
             exc_rows = await conn.execute(
                 text(
-                    "SELECT ticker, confidence, reason FROM vetter_exclusions "
+                    "SELECT ticker, confidence, reason, risk_type FROM vetter_exclusions "
                     "WHERE run_id = :rid ORDER BY confidence DESC, ticker ASC"
                 ),
                 {"rid": vetter_run_id},
             )
-            vetter_excluded = [r.ticker for r in exc_rows.fetchall()]
+            _exc_fetched = exc_rows.fetchall()
+            vetter_excluded = [r.ticker for r in _exc_fetched]
+            # risk_type per excluded ticker — only 'drawdown' (the deterministic
+            # falling-knife backstop) is allowed to drop a HELD name from the target.
+            excluded_risk_type = {r.ticker: (r.risk_type or "") for r in _exc_fetched}
 
         # Tickers that survived exclusion filtering but the vetter never actually
         # scanned — they could carry undisclosed risk. Surface in the log so an
@@ -243,7 +248,18 @@ async def _do_build(
         if vetted_tickers:
             vetter_unvetted_remaining = [t for t in candidate_tickers if t not in vetted_tickers]
 
-    excluded_set = set(vetter_excluded)
+    # Held-aware exclusion (see compute_excluded_set). LLM-judgement exclusions of
+    # held names stay buy-side only; only a falling-knife (drawdown) exclusion may
+    # drop a held name from the target so the delta engine orphan-exits it.
+    _held_now: set[str] = set()
+    async with engine.connect() as conn:
+        _hrows = await conn.execute(text(
+            "SELECT ticker FROM live_positions WHERE sync_run_id = ("
+            "  SELECT run_id FROM alpaca_sync_runs WHERE status='success' "
+            "  ORDER BY completed_at DESC NULLS LAST LIMIT 1)"
+        ))
+        _held_now = {r.ticker for r in _hrows.fetchall()}
+    excluded_set = compute_excluded_set(vetter_excluded, _held_now, excluded_risk_type)
     if excluded_set:
         candidate_tickers = [t for t in candidate_tickers if t not in excluded_set]
         scores_map = {t: v for t, v in scores_map.items() if t not in excluded_set}
