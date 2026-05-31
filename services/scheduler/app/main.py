@@ -395,8 +395,9 @@ async def _close_stale_running_chains() -> int:
     memory; a row abandoned across a restart (where in-memory state was lost) is
     never closed and lingers as 'running' forever (we observed 05-28/29/30 rows
     all stuck 'running'). They're harmless to the live loop but pollute
-    /health/chain and audit history. Today's row is left alone — _restore_force_pending
-    legitimately resumes it. Returns the number of rows closed.
+    /health/chain and audit history. TODAY's row is left alone — a restart during
+    an in-flight chain (scheduled OR manual) must RESUME it, not abandon it
+    (_restore_force_pending). Returns the number of rows closed.
     """
     conn = await _db_connect()
     if not conn:
@@ -1053,22 +1054,37 @@ async def _startup_catch_up() -> None:
     The regular SUPERVISOR_INTERVAL_SECS interval trigger continues running
     in parallel; _chain_lock ensures ticks never run concurrently.
     """
-    # Close any chain rows left 'running' by a prior-day deploy/crash so they
-    # don't linger forever (only today's row should ever be resumed).
+    # Close stale running rows from PRIOR days (abandoned across restarts), but
+    # leave today's row so an interrupted chain RESUMES after a reboot.
     await _close_stale_running_chains()
 
-    # Restore any in-flight chain and pending force-rerun steps from the DB.
+    # Resume any in-flight chain for today (scheduled OR manual) — a reboot mid-run
+    # must continue, not lose the run. _restore_force_pending reads today's
+    # 'running' scheduler_runs row and its stashed force_pending steps.
     restored_run_id, restored_pending = await _restore_force_pending()
     if restored_run_id:
         today = _local_today().isoformat()
         _chain_status["date"] = today
         _chain_status["current_run_id"] = restored_run_id
         _chain_status["status"] = None  # let supervisor re-evaluate from /runs/latest
+        # A non-empty force_pending can ONLY come from run_now (manual) — the cron
+        # path never populates it. So if we restored pending steps, this is a manual
+        # run and its origin MUST be restored to "manual"; otherwise the in-memory
+        # origin defaults to "scheduled" after the restart, the delta loses its
+        # manual=true tag, and the dashboard auto-approves a run the human started.
+        # This was the "resumed run auto-approves" bug. A scheduled run has no
+        # force_pending, so origin correctly stays "scheduled".
         if restored_pending:
             _force_pending.update(restored_pending)
+            _chain_status["origin"] = "manual"
             _log(
-                "startup: restored in-flight force-rerun from DB",
-                run_id=restored_run_id, pending=sorted(restored_pending),
+                "startup: resumed in-flight MANUAL run from DB",
+                run_id=restored_run_id, pending=sorted(restored_pending), origin="manual",
+            )
+        else:
+            _log(
+                "startup: resumed in-flight scheduled chain from DB",
+                run_id=restored_run_id, origin="scheduled",
             )
 
     _log("startup: beginning catch-up loop (30s cadence until chain completes)")

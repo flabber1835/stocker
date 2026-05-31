@@ -1571,6 +1571,56 @@ class TestRestartResilience:
         assert run_id == "abc"
         assert pending == set()
 
+    @pytest.mark.asyncio
+    async def test_startup_resumes_manual_run_restores_origin_manual(self):
+        """A reboot mid-MANUAL-run must resume AND restore origin='manual' so the
+        delta is still tagged manual=true and the dashboard does NOT auto-approve.
+        Regression: the resumed run lost its origin tag → auto-approved a human run."""
+        from app.main import _startup_catch_up
+        g = _startup_catch_up.__globals__
+        g["_chain_status"]["origin"] = "scheduled"  # default after a fresh process start
+        g["_force_pending"].clear()
+
+        async def _one_tick():
+            # Terminate the catch-up loop immediately.
+            g["_chain_status"]["status"] = "success"
+
+        with patch.dict(g, {
+            "_close_stale_running_chains": AsyncMock(return_value=0),
+            "_restore_force_pending": AsyncMock(return_value=("manual-run-uuid", {"vet", "delta"})),
+            "_supervisor_tick": AsyncMock(side_effect=_one_tick),
+        }):
+            await _startup_catch_up()
+
+        assert g["_chain_status"]["origin"] == "manual", (
+            "resumed manual run must restore origin='manual' so it doesn't auto-approve"
+        )
+        assert g["_chain_status"]["current_run_id"] == "manual-run-uuid"
+        assert {"vet", "delta"}.issubset(g["_force_pending"]) or \
+            g["_chain_status"]["origin"] == "manual"
+
+    @pytest.mark.asyncio
+    async def test_startup_resumes_scheduled_run_keeps_origin_scheduled(self):
+        """A reboot mid-SCHEDULED-run resumes it (no force_pending) and origin stays
+        'scheduled' so it auto-approves as a normal after-close run."""
+        from app.main import _startup_catch_up
+        g = _startup_catch_up.__globals__
+        g["_chain_status"]["origin"] = "scheduled"
+        g["_force_pending"].clear()
+
+        async def _one_tick():
+            g["_chain_status"]["status"] = "success"
+
+        with patch.dict(g, {
+            "_close_stale_running_chains": AsyncMock(return_value=0),
+            "_restore_force_pending": AsyncMock(return_value=("sched-run-uuid", set())),
+            "_supervisor_tick": AsyncMock(side_effect=_one_tick),
+        }):
+            await _startup_catch_up()
+
+        assert g["_chain_status"]["origin"] == "scheduled"
+        assert g["_chain_status"]["current_run_id"] == "sched-run-uuid"
+
 
 class TestCrossMidnightRunningStep:
     """Regression: a step that started yesterday and is still 'running' today

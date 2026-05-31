@@ -884,7 +884,9 @@ function updateTraderBadge() {
   // Badge = only items requiring a human DECISION (approve or reject).
   // Failed orders and vetter-blocked buys appear in the Needs Attention section
   // for visibility, but don't inflate the badge — there's nothing to click on them.
-  const cnt = deltaData.filter(_isApprovable).length;
+  // Respect _clearedTrades: dismissing the trader screen also dismisses the badge,
+  // so the badge count and the blotter never disagree (no "badge=1, all clear").
+  const cnt = deltaData.filter(r => _isApprovable(r) && !_clearedTrades.has(String(r.id))).length;
   const badge = $('nav-trade-badge');
   if (!badge) return;
   if (cnt > 0) {
@@ -1017,9 +1019,11 @@ function _persistClearedTrades() {
 }
 
 function clearApprovedTrades() {
-  // Dismiss every row that is NOT awaiting a human approval decision, i.e. the
-  // approved/submitted/filled/rejected/failed and hold/watch rows.
-  deltaData.forEach(r => { if (!_isApprovable(r)) _clearedTrades.add(String(r.id)); });
+  // Dismiss ALL current rows from the trader view — including ones still awaiting
+  // a human decision. Per the chosen UX, clearing the screen also clears the badge
+  // so the two never disagree. The intents/orders are untouched in the DB; this is
+  // purely a per-run view dismissal that resets when a new delta run appears.
+  deltaData.forEach(r => { _clearedTrades.add(String(r.id)); });
   _persistClearedTrades();
   renderTrader();
   updateTraderBadge();
