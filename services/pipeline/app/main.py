@@ -1103,7 +1103,7 @@ async def _do_rank(
     # on it and rank order is unaffected.
     drawdown_map: dict[str, float] = {}
     if ranked_count > 0:
-        _ranked_list = list(ranked_tickers)
+        _ranked_list = ranked_df["ticker"].tolist()
         async with engine.connect() as conn:
             dd_rows = await conn.execute(
                 text(
