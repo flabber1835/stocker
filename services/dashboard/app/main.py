@@ -569,15 +569,24 @@ async def pipeline_status():
     # Factors" during that overlap window.
     if not confirmed_terminal and pipeline_status_raw == "running":
         rank_status = "running"
-        if _pipeline_factor_status == "running":
-            pct = _pipeline_live_pct if _pipeline_live_step == "calc_factors" else None
-            rank_step, rank_step_label, rank_pct = "calc_factors", "Calculating Factors", pct
+        # Coherence guard: pick the FURTHEST-ALONG running sub-step, not factors-
+        # first. The pipeline's factor_status/ranking_status columns and the live
+        # /runs/progress step are written to Postgres at slightly different moments,
+        # so during the factors→ranking handoff a single poll can see BOTH columns
+        # "running" (the factor row hasn't flipped to done yet). Factors-first
+        # precedence then painted "Calculating Factors" again on that poll, so the
+        # label flip-flopped Factors↔Ranking across polls. Steps only ever advance
+        # (factors → ranking → delta), so when several read "running" the latest one
+        # is the true state — check delta, then ranking, then factors.
+        if _pipeline_delta_status == "running":
+            pct = _pipeline_live_pct if _pipeline_live_step == "delta" else None
+            rank_step, rank_step_label, rank_pct = "delta", "Evaluating Signals", pct
         elif _pipeline_rank_status == "running":
             pct = _pipeline_live_pct if _pipeline_live_step == "ranking" else None
             rank_step, rank_step_label, rank_pct = "ranking", "Ranking", pct
-        elif _pipeline_delta_status == "running":
-            pct = _pipeline_live_pct if _pipeline_live_step == "delta" else None
-            rank_step, rank_step_label, rank_pct = "delta", "Evaluating Signals", pct
+        elif _pipeline_factor_status == "running":
+            pct = _pipeline_live_pct if _pipeline_live_step == "calc_factors" else None
+            rank_step, rank_step_label, rank_pct = "calc_factors", "Calculating Factors", pct
         else:
             rank_step, rank_step_label, rank_pct = "calc_factors", "Calculating Factors", _pipeline_live_pct
 
