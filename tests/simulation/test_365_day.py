@@ -1406,8 +1406,16 @@ def main() -> int:
         completed_at_offset_secs=200,   # second-oldest run in confirmation window
     )
 
-    # Portfolio: all 30 core stocks (no vetter exclusions yet)
-    # GOOG in portfolio; GOOGL deduped out (ranks 31); FOXA/FOX deduped
+    # Portfolio builds: all 30 core stocks (no vetter exclusions yet). The orphan
+    # exit now confirms over consecutive BUILDS (not ranking days), so seed an Era0
+    # build too — together with the Era1 build and the post-Era1 build (Phase 1.5)
+    # the small caps are absent from 3 consecutive builds → confirmed orphan exit.
+    # GOOG in portfolio; GOOGL deduped out (ranks 31); FOXA/FOX deduped.
+    _port0_id = seed_era_portfolio(
+        ranking_run_id=_rank0_id, regime="bull_calm",
+        portfolio_date=ERA0_DATE,
+        excluded_tickers=[],
+    )
     port1_id = seed_era_portfolio(
         ranking_run_id=rank1_id, regime="bull_calm",
         portfolio_date=ERA1_DATE,
@@ -1468,10 +1476,18 @@ def main() -> int:
         post_era1_date += timedelta(days=1)
     hdr(f"PHASE 1.5 — Daily Delta Loop ({post_era1_date}, 3-day confirmation closes)")
 
-    seed_era_rankings(
+    _, _rank_post1_id = seed_era_rankings(
         era_date=post_era1_date, regime="bull_calm", snap_id=snap_id,
         small_caps_rank_start=41,
         completed_at_offset_secs=80,
+    )
+    # Third consecutive build excluding the small caps — completes the orphan-exit
+    # confirmation window (Era0 + Era1 + post-Era1 = 3 builds with no small caps),
+    # so the 60 inherited small-cap orphans now confirm an exit at this delta.
+    seed_era_portfolio(
+        ranking_run_id=_rank_post1_id, regime="bull_calm",
+        portfolio_date=post_era1_date,
+        excluded_tickers=[],
     )
     sim_set_as_of(post_era1_date)
     sim_sync_now("pre_post_era1_delta")
@@ -1484,6 +1500,12 @@ def main() -> int:
     exits_d1 = [i for i in intents_d1 if i["action"] == "exit"]
     entries_d1 = [i for i in intents_d1 if i["action"] == "entry"]
     print(f"  ℹ  Delta at {post_era1_date}: total={len(intents_d1)}  exits={len(exits_d1)}  entries={len(entries_d1)}")
+
+    # Orphan-exit confirmation lands HERE: after 3 consecutive builds excluding
+    # the small caps (Era0 + Era1 + post-Era1), all 60 inherited small-cap orphans
+    # confirm an exit. Verify on THIS run's intents (by Phase 4 they're already
+    # sold, so this is the correct place to assert the phasing-out signal).
+    verify_small_cap_exits(intents_d1)
 
     pos_before_d1 = sim_position_count()
     if exits_d1:
@@ -1787,7 +1809,13 @@ def main() -> int:
     )
     check(len(intents) > 0, "delta: intents produced", f"{len(intents)} intents")
 
-    verify_small_cap_exits(intents)
+    # Small caps were already confirmed-exited and cleared in Phase 1.5; by Era 3
+    # they are no longer held, so they must NOT reappear as orphan signals here.
+    _sc_still_signaling = [i["ticker"] for i in intents
+                           if i["ticker"] in SMALL_CAPS and i["action"] in ("exit", "at_risk")]
+    check(len(_sc_still_signaling) == 0,
+          "small_caps_cleared_by_era3: no residual small-cap orphan signals",
+          f"unexpected: {_sc_still_signaling[:5]}")
     verify_weight_drift_math(intents)
 
     exits   = [i for i in intents if i["action"] == "exit"]

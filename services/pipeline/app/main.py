@@ -1872,13 +1872,20 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     _set_pct("delta", 48)
     t0 = datetime.now(timezone.utc)
 
-    # Load active vetter exclusions so cold-start doesn't propose vetoed tickers
+    # Load active vetter exclusions so cold-start doesn't propose vetoed tickers.
+    # Exclusions are per vetter run (no expiry column), so "active" = the exclusions
+    # from the most recent successful vetter run. (The earlier query referenced an
+    # excluded_until column that does not exist in the schema and always errored,
+    # silently leaving vetter_excluded empty.)
     vetter_excluded: set[str] = set()
     try:
         async with engine.connect() as conn:
             excl_rows = await conn.execute(text(
-                "SELECT DISTINCT ticker FROM vetter_exclusions "
-                "WHERE excluded_until IS NULL OR excluded_until > NOW()"
+                "SELECT DISTINCT ve.ticker FROM vetter_exclusions ve "
+                "WHERE ve.run_id = ("
+                "  SELECT run_id FROM vetter_runs WHERE status='success' "
+                "  ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+                ")"
             ))
             vetter_excluded = {r[0] for r in excl_rows.fetchall()}
     except Exception as ve_exc:
