@@ -538,19 +538,21 @@ Source-of-truth / falling-knife-sells redesign (supersedes the earlier
 - A falling-knife (drawdown) veto applies to HELD names too. The held name is
   dropped from the target → becomes an orphan → delta orphan-exits it after
   confirmation_days consecutive builds. So a drawdown veto on a held position
-  DOES sell it. Whipsaw guards: the 3-build confirmation, the wide default
-  threshold (0.25), and the fact that the same veto blocks re-entry until the
+  DOES sell it. Whipsaw guards: the 3-build confirmation, the threshold
+  (default 0.10), and the fact that the same veto blocks re-entry until the
   drawdown heals (so no sell-then-rebuy).
 - Data-gap names stay exempt: no recent price history ⇒ no drawdown value ⇒
   never treated as a crash, never force-sold.
 ```
 
-Falling-knife backstop (DRAWDOWN_BACKSTOP_PCT, default 0.25): a deterministic
+Falling-knife backstop (DRAWDOWN_BACKSTOP_PCT, default 0.10): a deterministic
 guard behind the LLM. Any candidate — held OR not — whose price is more than
 DRAWDOWN_BACKSTOP_PCT below its 21-day peak is force-excluded even if the LLM
-said keep. Set DRAWDOWN_BACKSTOP_PCT=0 to disable. Wide default per the
-trailing-stop / threshold-sweep analysis (tight stops whipsaw on normal dips);
-the 3-build orphan confirmation is the sell-side whipsaw guard.
+said keep. Set DRAWDOWN_BACKSTOP_PCT=0 to disable. (Earlier default was 0.25, a
+wide band chosen by the trailing-stop / threshold-sweep analysis to avoid
+whipsaw on normal dips; lowered to 0.10 as a deliberate risk-preference choice —
+a ≥10% drawdown is treated as a reason to keep a name out of the target. The
+3-build orphan confirmation is the sell-side whipsaw guard.)
 
 Must not:
 

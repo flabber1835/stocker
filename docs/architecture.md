@@ -302,15 +302,17 @@ the cluster cap (mirrors the old `max_sector_weight = 1.0` no-op).
 The LLM vetter can be put into a **drawdown-only mode** (`VETTER_LLM_ENABLED=false`)
 in which it skips all LLM / Tavily / Alpha-Vantage-news work and every candidate
 defaults to *keep*. The deterministic falling-knife backstop
-(`DRAWDOWN_BACKSTOP_PCT`, an ENTRY-only force-exclude on a name more than X% below
-its 21-day peak) becomes the **only** prevent-entry signal.
+(`DRAWDOWN_BACKSTOP_PCT`, default 0.10 — force-exclude ANY candidate, held or not,
+more than X% below its 21-day peak) becomes the **only** exclusion signal.
 
 **Why a mode, not a chain change.** The vetter step stays mandatory and
 portfolio-builder still requires a successful `vetter_run` for today's ranking.
 Drawdown-only mode keeps that wiring intact — a `vetter_run` row is still written
 and its (drawdown-driven) exclusions still feed portfolio-builder — so disabling
 the LLM is a single reversible env flip with no change to the chain shape or the
-409 gate. Held positions are never force-excluded (exclusion is buy-side only).
+409 gate. A held name excluded on drawdown is dropped from the fresh target and
+orphan-exited by the delta engine after `confirmation_days` builds (source-of-truth
+redesign); data-gap names with no recent prices are exempt.
 
 **Ranker drawdown indicator (display-only).** The pipeline computes each ranked
 ticker's 21-day peak-to-now drawdown and stores it in `rankings.factor_scores`
