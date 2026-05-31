@@ -640,6 +640,22 @@ async def _step_state(
             return "running"
 
         if run_date not in ok_dates:
+            # Structural loop-breaker: if a SUCCESSFUL run's data-date is NEWER than
+            # the date we're looking for, the step is unambiguously done — never
+            # re-trigger it. Without this, any cross-service date disagreement (e.g.
+            # the pipeline computing chain_date one calendar day ahead of the
+            # scheduler's reference because of a timezone split) makes the exact-match
+            # check read "idle" forever → force-re-trigger every tick. A run can only
+            # be "not done yet" if its data is OLDER than the target, never newer.
+            # This makes the whole "step re-runs because the scheduler thinks it isn't
+            # done" bug family impossible for a step that has actually succeeded.
+            if (
+                run_status in ("success",) + step.extra_ok
+                and run_date  # non-empty
+                and run_date > target
+            ):
+                _restart_abort_cycles.pop((step.name, run_date), None)
+                return "done"
             return "idle"
         if run_status in ("success",) + step.extra_ok:
             # Clean success clears any crash-cycle count for this (step, date) so a

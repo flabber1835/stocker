@@ -190,6 +190,40 @@ class TestStepState:
         assert result == "idle"
 
     @pytest.mark.asyncio
+    async def test_done_when_data_date_is_newer_than_target(self):
+        """Structural loop-breaker: a SUCCESSFUL run whose data-date is NEWER than
+        the scheduler's target must read 'done', NOT 'idle'. This is the exact
+        regression that looped the pipeline: scheduler today=2026-05-30 (ET) vs
+        pipeline chain_date=2026-05-31 (UTC) → without this guard the exact-match
+        check returned 'idle' → force-re-trigger every tick forever."""
+        today = "2026-05-30"
+        step = self._make_step()
+        client = _async_client_returning({"status": "success", "run_date": "2026-05-31"})
+        result = await _step_state(client, step, today, today, "2026-05-29")
+        assert result == "done"
+
+    @pytest.mark.asyncio
+    async def test_newer_date_but_not_success_is_still_idle(self):
+        """The newer-date shortcut only applies to a SUCCESSFUL run. A newer-dated
+        run that isn't success/extra_ok must not be mistaken for done."""
+        today = "2026-05-30"
+        step = self._make_step()
+        client = _async_client_returning({"status": "failed", "run_date": "2026-05-31"})
+        # failed path is handled separately; the key assertion is it is NOT 'done'.
+        result = await _step_state(client, step, today, today, "2026-05-29")
+        assert result != "done"
+
+    @pytest.mark.asyncio
+    async def test_extra_ok_newer_date_is_done(self):
+        """partial_success (in extra_ok) with a newer data-date also reads 'done'."""
+        today = "2026-05-30"
+        step = self._make_step(extra_ok=("partial_success",))
+        client = _async_client_returning({"status": "partial_success", "run_date": "2026-05-31"})
+        result = await _step_state(client, step, today, today, "2026-05-29")
+        assert result == "done"
+
+
+    @pytest.mark.asyncio
     async def test_stale_running_across_midnight_marked_failed(self):
         """Regression: a job that started yesterday and is still 'running' today must be
         treated as failed by the max_running_minutes guard, even though its run_date
@@ -1086,20 +1120,22 @@ class TestWeekendDateFields:
         )
 
     @pytest.mark.asyncio
-    async def test_portfolio_builder_started_at_fails_on_weekend(self):
-        """Demonstrates the old bug: started_at on Saturday != Friday target → 'idle'."""
+    async def test_portfolio_builder_started_at_newer_than_target_now_done(self):
+        """Was the old-bug demonstration (started_at Saturday vs Friday target → idle,
+        which looped). The Layer-2 loop-breaker now returns 'done' because a SUCCESSFUL
+        run whose data-date is NEWER than the target can never be "not done yet". The
+        right config is still portfolio_date/run_date (data-dates), but even the
+        started_at misconfiguration can no longer cause an infinite re-trigger."""
         saturday = "2026-05-23"
         friday   = "2026-05-22"
         thursday = "2026-05-21"
         step = self._make_step(date_field="started_at", use_trading_day=True)
-        # Service ran on Saturday — started_at[:10] = Saturday
         client = _async_client_returning({"status": "success",
                                           "started_at": "2026-05-23T10:00:00+00:00"})
         result = await _step_state(client, step, saturday, friday, thursday)
-        assert result == "idle", (
-            "This test reproduces the old bug: started_at on a Saturday does not match "
-            "Friday's trading-day target → 'idle'.  portfolio-builder and delta must "
-            "not use started_at as their date_field."
+        assert result == "done", (
+            "loop-breaker: a successful run dated NEWER than the target must read "
+            "'done', not 'idle' — otherwise it force-re-triggers forever"
         )
 
     @pytest.mark.asyncio
@@ -1117,8 +1153,9 @@ class TestWeekendDateFields:
         )
 
     @pytest.mark.asyncio
-    async def test_delta_started_at_fails_on_weekend(self):
-        """Demonstrates the old bug: started_at on Saturday != Friday target → 'idle'."""
+    async def test_delta_started_at_newer_than_target_now_done(self):
+        """Companion to the portfolio-builder case: the loop-breaker makes a
+        newer-dated successful run 'done' rather than looping on 'idle'."""
         saturday = "2026-05-23"
         friday   = "2026-05-22"
         thursday = "2026-05-21"
@@ -1126,7 +1163,7 @@ class TestWeekendDateFields:
         client = _async_client_returning({"status": "success",
                                           "started_at": "2026-05-23T10:00:00+00:00"})
         result = await _step_state(client, step, saturday, friday, thursday)
-        assert result == "idle"
+        assert result == "done"
 
     @pytest.mark.asyncio
     def _pipeline_step(self) -> _StepDef:

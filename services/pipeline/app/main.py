@@ -33,6 +33,29 @@ PIPELINE_STREAM = "stocker:pipeline_events"
 CONSUMER_GROUP = "pipeline-consumers"
 CONSUMER_NAME = "pipeline-worker-1"
 
+# chain_date MUST be computed in the SAME explicit zone the scheduler uses to
+# decide "did the pipeline run today?" (scheduler._local_today, SCHEDULE_TZ).
+# The scheduler compares its own SCHEDULE_TZ "today" against this chain_date; if
+# the two sides disagree on the calendar date, the step never reads "done" and
+# the scheduler force-re-triggers the pipeline every tick (the infinite-loop +
+# vetter-credit-burn regression). Both default to America/New_York. Relying on
+# the implicit container TZ here (plain date.today()) is what broke the agreement
+# once the scheduler was made TZ-explicit.
+SCHEDULE_TZ_NAME = os.getenv("SCHEDULE_TZ", "America/New_York")
+try:
+    from zoneinfo import ZoneInfo
+    _SCHEDULE_TZ = ZoneInfo(SCHEDULE_TZ_NAME)
+except Exception:
+    _SCHEDULE_TZ = None
+
+
+def _local_today() -> date:
+    """Today's calendar date in SCHEDULE_TZ — must match scheduler._local_today()."""
+    if _SCHEDULE_TZ is not None:
+        return datetime.now(_SCHEDULE_TZ).date()
+    return date.today()
+
+
 strategy: StrategyConfig | None = None
 engine: AsyncEngine
 config_hash: str = ""
@@ -2167,7 +2190,7 @@ async def _do_run_pipeline(triggered_by: str = "manual", force: bool = False) ->
                                 "UPDATE pipeline_runs SET chain_date=:today "
                                 "WHERE run_id=:rid AND chain_date IS DISTINCT FROM :today"
                             ),
-                            {"today": date.today(), "rid": row[0]},
+                            {"today": _local_today(), "rid": row[0]},
                         )
                         _job_lock.release()
                         return {"status": "already_ran_today", "date": str(spy_max)}
@@ -2175,7 +2198,7 @@ async def _do_run_pipeline(triggered_by: str = "manual", force: bool = False) ->
         run_id = str(uuid.uuid4())
         trace_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
-        today = date.today()
+        today = _local_today()
 
         async with engine.begin() as conn:
             await _create_pipeline_run(conn, run_id, trace_id, triggered_by, today)
@@ -2320,7 +2343,7 @@ async def start_calculate_only(background_tasks: BackgroundTasks):
         run_id = str(uuid.uuid4())
         trace_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
-        today = date.today()
+        today = _local_today()
 
         async with engine.begin() as conn:
             await _create_sub_trace(conn, trace_id, "factor_run", run_id)
