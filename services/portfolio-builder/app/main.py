@@ -14,7 +14,7 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy import text
 
-from app.select import greedy_select, build_covariance, compute_weights, correlation_clusters
+from app.select import greedy_select, build_covariance, compute_weights, correlation_clusters, compute_excluded_set
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 from stock_strategy_shared.tracing import fmt_row, log_step, write_trace_file, mark_orphaned_runs_failed

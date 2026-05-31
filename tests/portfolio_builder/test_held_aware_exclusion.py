@@ -9,7 +9,7 @@ Source-of-truth / falling-knife-sells redesign:
     a HELD name from the target, which the delta engine then orphan-exits;
   - a NON-held name is excluded on any reason (you simply don't buy a vetoed name).
 """
-from app.main import compute_excluded_set
+from app.select import compute_excluded_set
 
 
 def test_non_held_excluded_on_any_reason():

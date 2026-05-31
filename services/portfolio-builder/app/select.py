@@ -2,6 +2,28 @@ import numpy as np
 import pandas as pd
 
 
+def compute_excluded_set(
+    vetter_excluded: list[str],
+    held_now: set[str],
+    excluded_risk_type: dict[str, str],
+) -> set[str]:
+    """Held-aware vetter exclusion (source-of-truth / falling-knife-sells redesign).
+
+    The LLM has no sell authority, so an LLM-judgement exclusion of a name we
+    already HOLD stays buy-side only — it is NOT removed from the candidate pool
+    (so it remains in the fresh target and is not orphan-exited). ONLY the
+    deterministic falling-knife backstop (risk_type='drawdown') may drop a held
+    name from the target, which the delta engine then orphan-exits. A non-held
+    name is excluded on any reason (you simply don't buy a vetoed name).
+
+    Pure function (no DB / no network) so the rule is unit-testable in isolation.
+    """
+    return {
+        t for t in vetter_excluded
+        if t not in held_now or excluded_risk_type.get(t) == "drawdown"
+    }
+
+
 def correlation_clusters(
     cov: pd.DataFrame,
     threshold: float = 0.70,
