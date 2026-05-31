@@ -240,13 +240,19 @@ class TestIdempotencyAllowing:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# Section C: MOO-only enforcement
+# Section C: day-order enforcement
 # ═════════════════════════════════════════════════════════════════════════════
 
-class TestMOOEnforcement:
-    """All orders must use time_in_force='opg' regardless of mode."""
+class TestDayOrderEnforcement:
+    """All orders must use time_in_force='day' regardless of mode.
 
-    def test_immediate_mode_creates_opg_order(self):
+    Day orders are accepted by Alpaca 24/7 and queue for the next session when
+    submitted outside market hours — they avoid the OPG-expiry problem (OPG orders
+    expire if the stock has no opening-auction print). See CLAUDE.md trade-executor
+    section. (These assertions were previously 'opg', from before that decision —
+    corrected here to match the code and the documented contract.)"""
+
+    def test_immediate_mode_creates_day_order(self):
         seed_sync_run()
         seed_daily_price("AAPL", 100.0)
         run_id = seed_delta_run()
@@ -259,9 +265,9 @@ class TestMOOEnforcement:
         rows = orders_for_intent(iid)
         assert rows, "No alpaca_orders row was created"
         tif = rows[-1][2]
-        assert tif == "opg", f"immediate-mode order has time_in_force={tif!r}, expected 'opg'"
+        assert tif == "day", f"immediate-mode order has time_in_force={tif!r}, expected 'day'"
 
-    def test_scheduled_mode_creates_opg_order(self):
+    def test_scheduled_mode_creates_day_order(self):
         seed_sync_run()
         seed_daily_price("MSFT", 100.0)
         run_id = seed_delta_run()
@@ -273,20 +279,20 @@ class TestMOOEnforcement:
         rows = orders_for_intent(iid)
         assert rows
         tif = rows[-1][2]
-        assert tif == "opg", f"scheduled-mode order has time_in_force={tif!r}, expected 'opg'"
+        assert tif == "day", f"scheduled-mode order has time_in_force={tif!r}, expected 'day'"
 
-    def test_no_day_orders_in_recent_history(self):
+    def test_no_opg_orders_in_recent_history(self):
         with pg() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT COUNT(*) FROM alpaca_orders "
-                    "WHERE time_in_force != 'opg' "
+                    "WHERE time_in_force != 'day' "
                     "  AND time_in_force IS NOT NULL "
                     "  AND created_at > NOW() - INTERVAL '1 hour'"
                 )
                 count = cur.fetchone()[0]
         assert count == 0, (
-            f"Found {count} orders with time_in_force != 'opg' in the last hour"
+            f"Found {count} orders with time_in_force != 'day' in the last hour"
         )
 
 

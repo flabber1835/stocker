@@ -111,12 +111,12 @@ async def _submit_deferred_order(row: dict) -> tuple[str, Optional[str]]:
     except Exception:
         pass  # Risk service unreachable — allow order (fail-open, consistent with main path)
     try:
-        if row.get("action") == "exit":
-            # Full close → Alpaca close-position (exact held qty), never a qty-based
-            # sell that can round up and over-sell a fractional position.
-            alpaca_order_id, alpaca_status, alpaca_err = await _close_position_alpaca(row["ticker"])
-        else:
-            alpaca_order_id, alpaca_status, alpaca_err = await _submit_to_alpaca(payload)
+        # Single submission entrypoint — exits route to close-position, everything
+        # else to /v2/orders. Shared with the immediate submit_order() path so the
+        # two can never diverge.
+        alpaca_order_id, alpaca_status, alpaca_err = await _submit_for_action(
+            row.get("action"), row["ticker"], payload
+        )
     except Exception as exc:
         return "failed", f"Alpaca request failed: {exc}"[:1000]
     if alpaca_err is not None:
@@ -673,6 +673,29 @@ async def _close_position_alpaca(symbol: str) -> tuple[Optional[str], Optional[s
     return None, None, resp.text[:1000]
 
 
+async def _submit_for_action(
+    action: str, ticker: str, payload: dict
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """Single Alpaca-submission entrypoint for BOTH submit paths (the immediate
+    submit_order() click path and the deferred-order worker).
+
+    This is the one place that decides HOW an action reaches Alpaca:
+      - exit      → DELETE /v2/positions/{symbol} (close-position). Alpaca computes
+                    the exact held qty at execution, so it never over-sells a
+                    fractional position ("insufficient qty available") and is immune
+                    to drift since the last sync.
+      - all else  → POST /v2/orders with the sized payload.
+
+    Centralising this prevents the two submit paths from diverging — the exact bug
+    where the deferred path got the close-position fix but the immediate path did
+    not. Returns the same (alpaca_order_id, alpaca_status, error) shape as both
+    underlying helpers.
+    """
+    if action == "exit":
+        return await _close_position_alpaca(ticker)
+    return await _submit_to_alpaca(payload)
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 
@@ -980,14 +1003,11 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
             "type": "market", "time_in_force": time_in_force,
         }
         try:
-            if action == "exit":
-                # Full close → Alpaca close-position (exact held qty), never a
-                # qty-based sell that can round up and over-sell a fractional
-                # position ("insufficient qty available"). Mirrors the deferred
-                # worker; this is the immediate Approve-click path.
-                alpaca_order_id, alpaca_status, alpaca_err = await _close_position_alpaca(ticker)
-            else:
-                alpaca_order_id, alpaca_status, alpaca_err = await _submit_to_alpaca(alpaca_payload)
+            # Single submission entrypoint (shared with the deferred-order worker):
+            # exits route to close-position, everything else to /v2/orders.
+            alpaca_order_id, alpaca_status, alpaca_err = await _submit_for_action(
+                action, ticker, alpaca_payload
+            )
         except Exception as exc:
             async with engine.begin() as conn:
                 await conn.execute(
