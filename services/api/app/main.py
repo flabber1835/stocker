@@ -58,8 +58,11 @@ def _linear_slope(ranks: list[float]) -> float | None:
 
     Mirrors the SQL REGR_SLOPE(rank, row_number) logic used in /rankings.
     x indices are always equally-spaced integers — actual date gaps (weekends,
-    holidays, missed runs) are intentionally collapsed so every recorded run
-    counts as one step. Returns None for fewer than 2 points.
+    holidays, missed runs) are intentionally collapsed so every recorded
+    rank_date counts as one step. Note the SQL collapses multiple runs on the
+    SAME rank_date to one point (most recent run wins), so re-running the chain
+    any number of times in a day does not flush the trend window — callers should
+    pass one rank value per distinct date. Returns None for fewer than 2 points.
     """
     n = len(ranks)
     if n < 2:
@@ -153,7 +156,14 @@ async def get_rankings(limit: int = 50, run_id: str | None = None):
                 text(
                     "WITH recent_runs AS ("
                     "  SELECT run_id, ROW_NUMBER() OVER (ORDER BY rank_date ASC) - 1 AS x_pos"
-                    "  FROM ranking_runs WHERE status='success' ORDER BY rank_date DESC LIMIT 5"
+                    "  FROM ("
+                    "    SELECT run_id, rank_date FROM ("
+                    "      SELECT DISTINCT ON (rank_date) run_id, rank_date"
+                    "      FROM ranking_runs WHERE status='success'"
+                    "      ORDER BY rank_date DESC, completed_at DESC NULLS LAST"
+                    "    ) latest_per_date"
+                    "    ORDER BY rank_date DESC LIMIT 5"
+                    "  ) recent_dates"
                     "),"
                     "ticker_slopes AS ("
                     "  SELECT r.ticker,"
@@ -173,7 +183,14 @@ async def get_rankings(limit: int = 50, run_id: str | None = None):
                 text(
                     "WITH recent_runs AS ("
                     "  SELECT run_id, ROW_NUMBER() OVER (ORDER BY rank_date ASC) - 1 AS x_pos"
-                    "  FROM ranking_runs WHERE status='success' ORDER BY rank_date DESC LIMIT 5"
+                    "  FROM ("
+                    "    SELECT run_id, rank_date FROM ("
+                    "      SELECT DISTINCT ON (rank_date) run_id, rank_date"
+                    "      FROM ranking_runs WHERE status='success'"
+                    "      ORDER BY rank_date DESC, completed_at DESC NULLS LAST"
+                    "    ) latest_per_date"
+                    "    ORDER BY rank_date DESC LIMIT 5"
+                    "  ) recent_dates"
                     "),"
                     "ticker_slopes AS ("
                     "  SELECT r.ticker,"
@@ -301,8 +318,12 @@ async def get_rankings_with_overlays(limit: int = 100):
     async with engine.connect() as conn:
         # Find the latest successful rank run + its prior peer
         run_rows = (await conn.execute(text(
-            "SELECT run_id, rank_date FROM ranking_runs WHERE status='success' "
-            "ORDER BY rank_date DESC, completed_at DESC NULLS LAST LIMIT 2"
+            "SELECT run_id, rank_date FROM ("
+            "  SELECT DISTINCT ON (rank_date) run_id, rank_date"
+            "  FROM ranking_runs WHERE status='success'"
+            "  ORDER BY rank_date DESC, completed_at DESC NULLS LAST"
+            ") latest_per_date "
+            "ORDER BY rank_date DESC LIMIT 2"
         ))).fetchall()
         if not run_rows:
             return {"count": 0, "run": None, "prior_run": None, "rankings": []}
@@ -328,7 +349,14 @@ async def get_rankings_with_overlays(limit: int = 100):
             text(
                 "WITH recent_runs AS ("
                 "  SELECT run_id, ROW_NUMBER() OVER (ORDER BY rank_date ASC) - 1 AS x_pos"
-                "  FROM ranking_runs WHERE status='success' ORDER BY rank_date DESC LIMIT 5"
+                "  FROM ("
+                "    SELECT run_id, rank_date FROM ("
+                "      SELECT DISTINCT ON (rank_date) run_id, rank_date"
+                "      FROM ranking_runs WHERE status='success'"
+                "      ORDER BY rank_date DESC, completed_at DESC NULLS LAST"
+                "    ) latest_per_date"
+                "    ORDER BY rank_date DESC LIMIT 5"
+                "  ) recent_dates"
                 "),"
                 "ticker_slopes AS ("
                 "  SELECT r.ticker,"
@@ -467,8 +495,12 @@ async def search_rankings(q: str = ""):
 
     async with engine.connect() as conn:
         run_rows = (await conn.execute(text(
-            "SELECT run_id, rank_date FROM ranking_runs WHERE status='success' "
-            "ORDER BY rank_date DESC, completed_at DESC NULLS LAST LIMIT 2"
+            "SELECT run_id, rank_date FROM ("
+            "  SELECT DISTINCT ON (rank_date) run_id, rank_date"
+            "  FROM ranking_runs WHERE status='success'"
+            "  ORDER BY rank_date DESC, completed_at DESC NULLS LAST"
+            ") latest_per_date "
+            "ORDER BY rank_date DESC LIMIT 2"
         ))).fetchall()
         if not run_rows:
             return {"count": 0, "run": None, "prior_run": None, "rankings": []}
@@ -502,7 +534,14 @@ async def search_rankings(q: str = ""):
                 "),"
                 "recent_runs AS ("
                 "  SELECT run_id, ROW_NUMBER() OVER (ORDER BY rank_date ASC) - 1 AS x_pos"
-                "  FROM ranking_runs WHERE status='success' ORDER BY rank_date DESC LIMIT 5"
+                "  FROM ("
+                "    SELECT run_id, rank_date FROM ("
+                "      SELECT DISTINCT ON (rank_date) run_id, rank_date"
+                "      FROM ranking_runs WHERE status='success'"
+                "      ORDER BY rank_date DESC, completed_at DESC NULLS LAST"
+                "    ) latest_per_date"
+                "    ORDER BY rank_date DESC LIMIT 5"
+                "  ) recent_dates"
                 "),"
                 "ticker_slopes AS ("
                 "  SELECT r.ticker,"
