@@ -489,6 +489,12 @@ async def pipeline_status():
     scheduler_chain_running = False
     scheduler_step_label = None
     _scheduler_running_steps: list[str] = []
+    # Scheduler's view of the vet step ("idle"/"running"/"done"/None). Used to gate
+    # vetter_status so a stale "running" vetter row from the PREVIOUS chain doesn't
+    # paint "LLM ANALYSIS" while this chain is really on fetch-data/factors. None
+    # when the scheduler isn't the driver (manual vet) — then we trust the raw row.
+    _sched_vet_step_state: str | None = None
+    _sched_map_keys = ("fetch-data", "pipeline", "vet", "portfolio-builder", "delta")
     _sched_label_map = {
         "fetch-data":        "Fetching Data",
         "pipeline":          "Calculating Factors",
@@ -501,6 +507,7 @@ async def pipeline_status():
         if d7.get("status") == "running":
             scheduler_chain_running = True
             step_states = d7.get("steps") or {}
+            _sched_vet_step_state = step_states.get("vet")
             _scheduler_running_steps = [k for k, v in step_states.items() if v == "running"]
             if _scheduler_running_steps:
                 # A step is actively running — use its label
@@ -600,7 +607,21 @@ async def pipeline_status():
 
     vetter_status = "none"
     if vetter_status_raw == "running":
-        vetter_status = "running"
+        # Scheduler-step-aware gate: only treat the vetter as "running" when the
+        # chain has actually reached the vet step. At the start of a fresh chain
+        # the vetter's /runs/latest still returns the PREVIOUS run's row — if that
+        # was left non-terminal (restart/abort) it reads "running" and, because the
+        # status bar checks vetter before the pipeline step, briefly paints
+        # "LLM ANALYSIS" while we're really on fetch-data/factors. When the
+        # scheduler is the driver and its vet step is not yet running, suppress the
+        # stale running and show the real current step instead. (When the scheduler
+        # isn't driving — manual /jobs/vet — _sched_vet_step_state is None and we
+        # trust the raw row as before.)
+        _chain_driving = scheduler_chain_running or _rank_chain_running
+        if _chain_driving and _sched_vet_step_state != "running":
+            vetter_status = "none"
+        else:
+            vetter_status = "running"
     elif vetter_status_raw == "success":
         vetter_status = "success"
     elif vetter_status_raw == "failed":
