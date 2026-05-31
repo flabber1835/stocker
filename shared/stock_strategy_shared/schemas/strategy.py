@@ -207,7 +207,33 @@ class PortfolioBuilderConfig(BaseModel):
         "inverse_vol",
     ] = "equal_weight"
     max_position_weight: float = Field(default=0.10, gt=0, le=1.0)
-    max_sector_weight: float = Field(default=0.30, gt=0, le=1.0)
+    max_sector_weight: float = Field(
+        default=0.30, gt=0, le=1.0,
+        description=(
+            "DEPRECATED for selection — retained for informational sector-weight "
+            "logging only. Concentration is now capped by correlation cluster "
+            "(see cluster_correlation_threshold / max_cluster_weight), not by the "
+            "data provider's sector label. No longer gates greedy_select or compute_weights."
+        ),
+    )
+    cluster_correlation_threshold: float = Field(
+        default=0.70, gt=0, le=1.0,
+        description=(
+            "Absolute pairwise correlation at or above which two tickers are placed "
+            "in the same correlation cluster (single-linkage). Clusters replace sector "
+            "labels for concentration capping — provider sectors are unreliable "
+            "(e.g. GOOG tagged Communication Services, gold miners split across sectors)."
+        ),
+    )
+    max_cluster_weight: float = Field(
+        default=0.15, gt=0, le=1.0,
+        description=(
+            "Maximum summed portfolio weight of any one correlation cluster. "
+            "A 0.15 cap implies the portfolio spans >= 7 effectively-independent "
+            "clusters when fully invested, preventing one correlated theme (e.g. golds) "
+            "from dominating. Set to 1.0 to disable the cluster cap."
+        ),
+    )
     do_not_buy: list[str] = Field(default_factory=list)
     turnover_penalty: float = Field(
         default=0.05, ge=0.0, le=0.50,

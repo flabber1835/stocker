@@ -14,7 +14,7 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy import text
 
-from app.select import greedy_select, build_covariance, compute_weights
+from app.select import greedy_select, build_covariance, compute_weights, correlation_clusters
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 from stock_strategy_shared.tracing import fmt_row, log_step, write_trace_file, mark_orphaned_runs_failed
@@ -430,7 +430,36 @@ async def _do_build(
             warnings=cov_warnings or None,
         )
 
-    # ── Step 4c: load sector data for sector cap enforcement ──────────────────────────────────────────────────────
+    # ── Step 4b: build correlation clusters (the concentration-cap grouping) ──────────────────────────────────────
+    # Clusters replace sector labels for capping concentration. Provider sectors
+    # are unreliable for risk grouping (GOOG → Communication Services; gold miners
+    # span several sectors), so we group by how names actually co-move, derived
+    # from the same covariance matrix the optimizer already built.
+    cluster_map = correlation_clusters(cov, threshold=pb_cfg.cluster_correlation_threshold)
+    cluster_sizes: dict[str, int] = {}
+    for _cid in cluster_map.values():
+        cluster_sizes[_cid] = cluster_sizes.get(_cid, 0) + 1
+    largest_clusters = sorted(
+        ((cid, n) for cid, n in cluster_sizes.items() if n > 1),
+        key=lambda kv: (-kv[1], kv[0]),
+    )[:10]
+    async with engine.begin() as conn:
+        await _log_step(
+            conn, trace_id, "build_clusters", "success",
+            started_at=t0,
+            input_summary={
+                "cluster_correlation_threshold": pb_cfg.cluster_correlation_threshold,
+                "max_cluster_weight": pb_cfg.max_cluster_weight,
+                "ticker_count": len(cluster_map),
+            },
+            output_summary={
+                "cluster_count": len(cluster_sizes),
+                "multi_member_clusters": len(largest_clusters),
+                "largest_clusters": [{"cluster_id": cid, "size": n} for cid, n in largest_clusters],
+            },
+        )
+
+    # ── Step 4c: load sector data (INFORMATIONAL ONLY — no longer gates selection) ───────────────────────────────
     t0 = datetime.now(timezone.utc)
     async with engine.connect() as conn:
         sector_rows = await conn.execute(
@@ -483,11 +512,14 @@ async def _do_build(
             scores = scores[pos_tickers]
             cov = cov.loc[pos_tickers, pos_tickers]
 
+    # Concentration is capped by correlation cluster, not sector. The greedy count
+    # cap and weight redistribution are group-agnostic, so we pass cluster_map as
+    # the group and max_cluster_weight as the cap.
     selected = greedy_select(
         scores, cov,
         target=pb_cfg.max_positions,
-        sector_map=sector_map,
-        max_sector_weight=pb_cfg.max_sector_weight,
+        sector_map=cluster_map,
+        max_sector_weight=pb_cfg.max_cluster_weight,
         current_holdings=current_holdings if pb_cfg.turnover_penalty > 0.0 else None,
         turnover_penalty=pb_cfg.turnover_penalty,
     )
@@ -499,8 +531,8 @@ async def _do_build(
         selected, cov,
         method=pb_cfg.weighting,
         max_position_weight=pb_cfg.max_position_weight,
-        sector_map=sector_map,
-        max_sector_weight=pb_cfg.max_sector_weight,
+        sector_map=cluster_map,
+        max_sector_weight=pb_cfg.max_cluster_weight,
     )
 
     # H4: Re-normalize after cap clipping so weights always sum to 1.0.
@@ -532,22 +564,33 @@ async def _do_build(
         weights = {t: w * scale for t, w in weights.items()}
         print(f"[portfolio-builder] cash_reserve={cash_reserve:.3f}: weights scaled to sum={sum(weights.values()):.4f}")
 
-    # M5: Compute and log per-sector weights post-build.
-    # sector_map is loaded in step 4c and is in scope here.
+    # M5: Compute and log per-sector weights post-build (INFORMATIONAL — sectors
+    # no longer gate selection; the binding concentration cap is by cluster below).
     sector_weights: dict[str, float] = {}
     for _t, _w in weights.items():
         _sector = sector_map.get(_t, "Unknown")
         sector_weights[_sector] = sector_weights.get(_sector, 0.0) + _w
     print(
-        f"[portfolio-builder] sector weights post-build: "
+        f"[portfolio-builder] sector weights post-build (informational): "
         + ", ".join(f"{s}={w:.3f}" for s, w in sorted(sector_weights.items()))
     )
-    max_sw = pb_cfg.max_sector_weight
-    for _sector, _sw in sector_weights.items():
-        if _sw > max_sw + 1e-6:
+
+    # Per-cluster weights — this is the cap that actually binds.
+    cluster_weights: dict[str, float] = {}
+    for _t, _w in weights.items():
+        _cid = cluster_map.get(_t, _t)
+        cluster_weights[_cid] = cluster_weights.get(_cid, 0.0) + _w
+    print(
+        f"[portfolio-builder] cluster weights post-build: "
+        + ", ".join(f"{c}={w:.3f}" for c, w in sorted(cluster_weights.items(), key=lambda kv: -kv[1])[:8])
+    )
+    max_cw = pb_cfg.max_cluster_weight
+    for _cid, _cw in cluster_weights.items():
+        if _cw > max_cw + 1e-6:
+            _members = [t for t in selected_tickers if cluster_map.get(t, t) == _cid]
             print(
-                f"[portfolio-builder] WARNING: sector '{_sector}' weight {_sw:.3f} "
-                f"exceeds cap {max_sw}"
+                f"[portfolio-builder] WARNING: cluster '{_cid}' weight {_cw:.3f} "
+                f"exceeds cap {max_cw} (members: {_members})"
             )
 
     # Final portfolio volatility using actual weights
@@ -594,7 +637,9 @@ async def _do_build(
                 "negative_score_excluded": len(negative_excluded),
                 "weighting": pb_cfg.weighting,
                 "max_position_weight": pb_cfg.max_position_weight,
-                "max_sector_weight": pb_cfg.max_sector_weight,
+                "max_cluster_weight": pb_cfg.max_cluster_weight,
+                "cluster_correlation_threshold": pb_cfg.cluster_correlation_threshold,
+                "cluster_count": len(cluster_sizes),
                 "sector_map_size": len(sector_map),
                 "turnover_penalty": pb_cfg.turnover_penalty,
                 "current_holdings_count": len(current_holdings),
@@ -609,6 +654,7 @@ async def _do_build(
                 "weight_max": round(max(weight_values), 6),
                 "cash_residual_before_normalize": cash_residual_before_normalize,
                 "sector_weights": {s: round(w, 6) for s, w in sorted(sector_weights.items())},
+                "cluster_weights": {c: round(w, 6) for c, w in sorted(cluster_weights.items(), key=lambda kv: -kv[1])},
                 "selected_tickers": selected_tickers,
             },
             warnings=sel_warnings or None,
@@ -716,6 +762,7 @@ async def _do_build(
         highest_corr_pair=highest_corr_pair,
         cash_residual_before_normalize=cash_residual_before_normalize,
         sector_weights={s: round(w, 6) for s, w in sorted(sector_weights.items())},
+        cluster_weights={c: round(w, 6) for c, w in sorted(cluster_weights.items(), key=lambda kv: -kv[1])},
         source_ranking_run_id=source_ranking_run_id,
         portfolio_config={
             "method": pb_cfg.method,
@@ -727,6 +774,8 @@ async def _do_build(
             "require_positive_composite_score": pb_cfg.require_positive_composite_score,
             "weighting": pb_cfg.weighting,
             "max_position_weight": pb_cfg.max_position_weight,
+            "max_cluster_weight": pb_cfg.max_cluster_weight,
+            "cluster_correlation_threshold": pb_cfg.cluster_correlation_threshold,
         },
         holdings=holdings_detail,
     )

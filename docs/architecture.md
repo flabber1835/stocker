@@ -253,6 +253,43 @@ User prompt
   → active strategy registry
 ```
 
+## Design Decision: correlation-cluster cap replaces the sector cap
+
+The portfolio-builder caps concentration by **correlation cluster**, not by the
+data provider's sector label.
+
+**Why.** The provider sector strings are unreliable for risk grouping — e.g.
+Alphabet (GOOG) is tagged `Communication Services` while behaving like a mega-cap
+tech name, and a basket of gold miners can span `Basic Materials`, `Energy`, and
+others while moving as one block. Capping by sector therefore both over- and
+under-constrains real co-movement. Correlation is computed directly from the same
+covariance matrix the optimizer already builds, so it groups names by how they
+actually trade.
+
+**How.** From the (shrunk) covariance matrix we derive the correlation matrix and
+form clusters by single-linkage union-find: tickers A and B are in the same
+cluster when `|corr(A,B)| ≥ cluster_correlation_threshold` (default **0.70**).
+Those cluster labels are then fed into the *existing* group-cap machinery — the
+same greedy count cap (`greedy_select`) and post-build weight redistribution
+(`compute_weights`) that previously consumed sector labels. No new constraint
+solver: the cluster is just a different grouping passed to proven code.
+
+**Settings** (`PortfolioBuilderConfig`):
+
+```text
+cluster_correlation_threshold  default 0.70  — |corr| at/above which two names cluster
+max_cluster_weight             default 0.15  — max summed portfolio weight per cluster
+```
+
+A 15% cap implies the portfolio spans **at least 7 effectively-independent
+clusters** (⌈1/0.15⌉) to be fully invested, preventing a single correlated theme
+(e.g. "the golds") from dominating even when its members hold the top ranks.
+
+**Sectors are retained for logging only** — per-sector weights are still computed
+and surfaced in the trace/`portfolio_runs` for human readability, but they no
+longer gate selection or weighting. Setting `max_cluster_weight = 1.0` disables
+the cluster cap (mirrors the old `max_sector_weight = 1.0` no-op).
+
 ## Trade Approval Flow
 
 Every paper trade requires a human button click. The system does not auto-submit

@@ -2,6 +2,60 @@ import numpy as np
 import pandas as pd
 
 
+def correlation_clusters(
+    cov: pd.DataFrame,
+    threshold: float = 0.70,
+) -> dict[str, str]:
+    """
+    Group tickers into correlation clusters from a covariance matrix.
+
+    Two tickers join the same cluster when their absolute Pearson correlation
+    (derived from cov) is >= threshold. Clustering is single-linkage via
+    union-find: A~B and B~C puts A, B, C in one cluster even if |corr(A,C)| is
+    below threshold (they co-move through B). This is the data-driven replacement
+    for provider sector labels, which are unreliable for risk grouping (e.g. GOOG
+    is "Communication Services"; gold miners span several sectors).
+
+    Returns a {ticker: cluster_id} map where cluster_id is the
+    lexicographically-smallest ticker in the cluster (stable, deterministic).
+    A ticker with no high-correlation peer maps to itself (singleton cluster).
+    """
+    tickers = list(cov.index)
+    if not tickers:
+        return {}
+
+    std = np.sqrt(np.clip(np.diag(cov.values), 1e-18, None))
+    corr = cov.values / np.outer(std, std)
+
+    # Union-find with path compression.
+    parent = {t: t for t in tickers}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra == rb:
+            return
+        # Attach the larger ticker's root under the smaller so the final root is
+        # the lexicographically-smallest member (deterministic cluster_id).
+        if ra < rb:
+            parent[rb] = ra
+        else:
+            parent[ra] = rb
+
+    n = len(tickers)
+    for i in range(n):
+        for j in range(i + 1, n):
+            if abs(corr[i, j]) >= threshold:
+                union(tickers[i], tickers[j])
+
+    return {t: find(t) for t in tickers}
+
+
 def greedy_select(
     scores: pd.Series,
     cov: pd.DataFrame,

@@ -97,7 +97,9 @@ portfolio_builder:
   require_positive_composite_score: false  # set true to exclude negative-score names pre-selection
   weighting: adj_score_proportional  # equal_weight | adj_score_proportional | score_proportional | inverse_vol
   max_position_weight: 0.10          # hard cap per position; excess redistributed to others
-  max_sector_weight: 0.30            # no single GICS sector may exceed 30% of the portfolio
+  max_sector_weight: 0.30            # DEPRECATED for selection — informational sector logging only
+  cluster_correlation_threshold: 0.70  # |corr| >= this groups two names into one correlation cluster
+  max_cluster_weight: 0.15           # no correlation cluster may exceed 15% (implies >= 7 independent clusters)
   do_not_buy: []                     # hard-exclude list: ESG screens, legal holds, insider restrictions
   cash_reserve: 0.025                # keep 2.5% uninvested (day orders don't batch-reserve buying power, so OPG buffer no longer needed)
 

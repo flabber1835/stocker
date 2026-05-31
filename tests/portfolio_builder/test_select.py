@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import pytest
-from app.select import greedy_select, build_covariance, compute_weights
+from app.select import greedy_select, build_covariance, compute_weights, correlation_clusters
 
 
 def _simple_cov(tickers: list[str], vol: float = 0.20, corr: float = 0.0) -> pd.DataFrame:
@@ -10,6 +10,25 @@ def _simple_cov(tickers: list[str], vol: float = 0.20, corr: float = 0.0) -> pd.
     var = vol ** 2
     mat = np.full((n, n), corr * var)
     np.fill_diagonal(mat, var)
+    return pd.DataFrame(mat, index=tickers, columns=tickers)
+
+
+def _block_corr_cov(blocks: dict[str, list[str]], within: float = 0.85,
+                    across: float = 0.05, vol: float = 0.20) -> pd.DataFrame:
+    """Covariance where tickers in the same block are highly correlated (`within`)
+    and tickers in different blocks are nearly uncorrelated (`across`)."""
+    tickers = [t for members in blocks.values() for t in members]
+    blk = {t: b for b, members in blocks.items() for t in members}
+    var = vol ** 2
+    n = len(tickers)
+    mat = np.empty((n, n))
+    for i, ti in enumerate(tickers):
+        for j, tj in enumerate(tickers):
+            if i == j:
+                mat[i, j] = var
+            else:
+                c = within if blk[ti] == blk[tj] else across
+                mat[i, j] = c * var
     return pd.DataFrame(mat, index=tickers, columns=tickers)
 
 
@@ -590,3 +609,101 @@ def test_sector_cap_tighter_than_one_stock_returns_empty():
     # 1/30 ≈ 3.3%; a cap of 0.03 means 0.03 < 1/30, so the first pick is blocked.
     result = greedy_select(scores, cov, target=30, sector_map=sector_map, max_sector_weight=0.03)
     assert result == []
+
+
+# ── correlation_clusters ───────────────────────────────────────────────────────
+
+def test_correlation_clusters_groups_correlated_block():
+    """Highly-correlated tickers land in one cluster; the uncorrelated one is a singleton."""
+    cov = _block_corr_cov({"gold": ["AU", "B", "NEM"], "solo": ["XYZ"]},
+                          within=0.85, across=0.02)
+    clusters = correlation_clusters(cov, threshold=0.70)
+    # AU/B/NEM share one cluster id
+    assert clusters["AU"] == clusters["B"] == clusters["NEM"]
+    # XYZ is its own cluster
+    assert clusters["XYZ"] == "XYZ"
+    assert clusters["XYZ"] != clusters["AU"]
+
+
+def test_correlation_clusters_id_is_smallest_member():
+    """Cluster id is the lexicographically-smallest ticker — deterministic."""
+    cov = _block_corr_cov({"g": ["NEM", "AU", "KGC"]}, within=0.9, across=0.0)
+    clusters = correlation_clusters(cov, threshold=0.70)
+    assert set(clusters.values()) == {"AU"}  # AU < KGC < NEM
+
+
+def test_correlation_clusters_threshold_respected():
+    """Below-threshold correlation → separate clusters."""
+    cov = _block_corr_cov({"a": ["A", "B"]}, within=0.50, across=0.0)
+    # 0.50 < 0.70 threshold → A and B do NOT cluster
+    clusters = correlation_clusters(cov, threshold=0.70)
+    assert clusters["A"] != clusters["B"]
+    # ...but at a 0.40 threshold they do
+    clusters_low = correlation_clusters(cov, threshold=0.40)
+    assert clusters_low["A"] == clusters_low["B"]
+
+
+def test_correlation_clusters_single_linkage_transitive():
+    """A~B and B~C cluster together even if A~C is below threshold (chaining)."""
+    var = 0.04
+    # A-B = 0.8, B-C = 0.8, A-C = 0.1  → all three chain through B
+    mat = np.array([
+        [var,       0.8 * var, 0.1 * var],
+        [0.8 * var, var,       0.8 * var],
+        [0.1 * var, 0.8 * var, var],
+    ])
+    cov = pd.DataFrame(mat, index=["A", "B", "C"], columns=["A", "B", "C"])
+    clusters = correlation_clusters(cov, threshold=0.70)
+    assert clusters["A"] == clusters["B"] == clusters["C"]
+
+
+def test_correlation_clusters_empty():
+    assert correlation_clusters(pd.DataFrame()) == {}
+
+
+# ── cluster cap end-to-end (the gold scenario) ─────────────────────────────────
+
+def test_cluster_cap_thins_correlated_top_scorers():
+    """
+    A correlated cluster holding the TOP scores must be thinned in favour of
+    lower-scored uncorrelated names — the core 'don't load up on the golds' behaviour.
+    """
+    golds = ["GLD1", "GLD2", "GLD3", "GLD4", "GLD5", "GLD6"]
+    others = [f"OTH{i}" for i in range(8)]
+    cov = _block_corr_cov({"gold": golds, **{f"s{i}": [o] for i, o in enumerate(others)}},
+                          within=0.85, across=0.02)
+    cluster_map = correlation_clusters(cov, threshold=0.70)
+    # Golds hold the 6 highest scores
+    scores = pd.Series({**{t: 1.0 - 0.01 * i for i, t in enumerate(golds)},
+                        **{t: 0.90 - 0.01 * i for i, t in enumerate(others)}})[cov.index]
+
+    # Cap each cluster at 15% in a 10-name portfolio → at most floor(0.15*10)=1 gold
+    result = greedy_select(scores, cov, target=10,
+                           sector_map=cluster_map, max_sector_weight=0.15)
+    picks = [r["ticker"] for r in result]
+    n_gold = sum(p in golds for p in picks)
+    # 2 golds = 2/10 = 20% > 15% cap → at most 1 gold may be selected.
+    assert n_gold <= 1, f"cluster cap should thin golds to <=1, got {n_gold}: {picks}"
+    # The remaining slots are filled by uncorrelated diversifiers (all 8 others).
+    assert all(o in picks for o in others), f"diversifiers missing: {picks}"
+    # Portfolio is 1 gold + 8 others = 9 (can't reach 10 without a 2nd capped gold).
+    assert len(picks) == 9
+
+
+def test_cluster_cap_weight_redistribution_bounds_cluster():
+    """compute_weights must keep the summed cluster weight at/under the cap."""
+    golds = ["AU", "B", "NEM", "KGC"]
+    others = ["OTH0", "OTH1", "OTH2", "OTH3", "OTH4", "OTH5"]
+    cov = _block_corr_cov({"gold": golds, **{f"s{i}": [o] for i, o in enumerate(others)}},
+                          within=0.85, across=0.02)
+    cluster_map = correlation_clusters(cov, threshold=0.70)
+    tickers = golds + others
+    # adj scores favour the golds so they'd dominate without the cap
+    selected = _make_selected(tickers, scores=[1.0] * len(tickers),
+                              adj_scores=[10, 9, 8, 7, 1, 1, 1, 1, 1, 1])
+    w = compute_weights(selected, cov, "adj_score_proportional",
+                        sector_map=cluster_map, max_sector_weight=0.15)
+    gold_cluster_id = cluster_map["AU"]
+    gold_weight = sum(w[t] for t in tickers if cluster_map.get(t, t) == gold_cluster_id)
+    assert gold_weight <= 0.15 + 1e-6, f"gold cluster weight {gold_weight:.4f} exceeds 15% cap"
+    assert abs(sum(w.values()) - 1.0) < 1e-5

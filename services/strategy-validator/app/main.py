@@ -15,6 +15,7 @@ _SAFETY_LIMITS = {
     "max_positions": 200,
     "max_position_weight": 0.5,
     "max_sector_weight": 0.75,
+    "max_cluster_weight": 0.75,
 }
 
 
@@ -44,6 +45,12 @@ def _check_safety(cfg: StrategyConfig) -> list[str]:
         violations.append(
             f"portfolio_builder.max_sector_weight={pb.max_sector_weight} "
             f"exceeds safety limit of {_SAFETY_LIMITS['max_sector_weight']}"
+        )
+
+    if pb.max_cluster_weight > _SAFETY_LIMITS["max_cluster_weight"]:
+        violations.append(
+            f"portfolio_builder.max_cluster_weight={pb.max_cluster_weight} "
+            f"exceeds safety limit of {_SAFETY_LIMITS['max_cluster_weight']}"
         )
 
     return violations
