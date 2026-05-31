@@ -129,10 +129,23 @@ def test_manual_vet_trusts_raw_when_no_chain_driving():
     assert result["vetter"]["status"] == "running"
 
 
-def test_vetter_success_unaffected_by_gate():
-    """A terminal vetter status passes through regardless of chain state."""
+def test_stale_vetter_success_suppressed_before_vet_step():
+    """Scheduler-authoritative: a 'success' from the PREVIOUS chain's vetter run,
+    while THIS chain is only on fetch-data (vet step idle), must read 'none' — not
+    'success'. Showing success would be the same stale-row bug as the running flash.
+    The vetter panel only reads success once the scheduler marks vet done."""
     result = _call_pipeline_status(
         sys_status=_system_status_with_vetter("success"),
         scheduler_resp=_scheduler("running", {"fetch-data": "running", "vet": "idle"}),
+    )
+    assert result["vetter"]["status"] == "none"
+
+
+def test_vetter_success_when_scheduler_marks_vet_done():
+    """Within the chain, once the scheduler marks vet 'done', vetter reads success."""
+    result = _call_pipeline_status(
+        sys_status=_system_status_with_vetter("success"),
+        scheduler_resp=_scheduler("running",
+                                  {"vet": "done", "portfolio-builder": "running"}),
     )
     assert result["vetter"]["status"] == "success"

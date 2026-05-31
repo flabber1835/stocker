@@ -516,6 +516,56 @@ change — no code change.
 
 App services should be stateless. Durable state belongs in Postgres, Redis, and versioned files.
 
+## Design Decision: scheduler is the single source of truth for chain progress
+
+**Problem.** The dashboard's `/api/pipeline-status` reconstructed "what step is the
+chain on?" by polling 5+ services (`api`, pipeline `/runs/latest`, pipeline
+`/runs/progress`, av-ingestor `/runs/latest`, scheduler `/status`) and inferring the
+current step through a ladder of `if/elif` precedence rules. Because those services
+are read near-simultaneously but each flips its own state at slightly different
+moments — and each `/runs/latest` returns the *last* run with no "is this the chain
+I just started?" marker — a single poll routinely observed two sources mid-transition
+that disagreed. The precedence rules then picked the wrong one for that poll,
+producing visible flicker: a stale prior vetter run flashing "LLM ANALYSIS" before
+factors; the label alternating Factors↔Ranking during the factors→ranking handoff.
+Each was patched with a targeted guard (`confirmed_terminal`, `_rank_chain_running`,
+per-step scheduler gates), but that is whack-a-mole: N independent sources ×
+transition windows = a whole class of races, only the surfaced ones get fixed.
+
+**Decision.** The **scheduler is the authoritative state machine** for the daily
+chain — it is the component that actually advances the steps
+(`fetch-data → pipeline → vet → portfolio-builder → delta`) and already tracks each
+step's state (`idle/running/done/failed`) plus chain status and origin in
+`_chain_status`, exposed verbatim at `GET /status`. The dashboard derives the
+top-level chain step **from the scheduler's step map alone**, rather than blending
+independent per-service run rows.
+
+```text
+scheduler /status.steps  →  authoritative top-level step + status
+pipeline /runs/progress  →  sub-detail ONLY (factors/ranking/delta + pct) WITHIN
+                            the scheduler's "pipeline" step — never its own label
+per-service /runs/latest →  dates / terminal results for idle display only;
+                            never used to claim a step is "running"
+```
+
+**Why the scheduler, not the pipeline.** The scheduler is the only component with a
+total view of all five steps and their ordering. The pipeline only knows its own
+sub-steps, so its `factor_status`/`ranking_status` and `/runs/progress` become a
+*zoom-in* on the scheduler's `pipeline` step (which sub-phase + percent), not a
+competing source of the top-level label. Steps are monotonic
+(factors→ranking→delta), so when several pipeline sub-statuses momentarily read
+`running` the furthest-along one wins.
+
+**Consequences.**
+- One reader, one writer for chain state → the class of cross-source races
+  disappears; the scattered precedence guards collapse into "trust the scheduler."
+- When the scheduler is **not** driving (manual single-step calls like `/jobs/vet`,
+  or the scheduler unreachable), the dashboard falls back to per-service run rows as
+  before — manual operations still surface.
+- The scheduler's `/status` stays the contract; the dashboard's
+  `/api/pipeline-status` response shape (the `universe/rank/vetter/portfolio` blocks
+  the frontend reads) is preserved so the JS is unchanged.
+
 ## Design Decision Rule
 
 Whenever a design decision is made, it must be documented in the design docs before implementation begins.

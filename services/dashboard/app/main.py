@@ -494,7 +494,15 @@ async def pipeline_status():
     # paint "LLM ANALYSIS" while this chain is really on fetch-data/factors. None
     # when the scheduler isn't the driver (manual vet) — then we trust the raw row.
     _sched_vet_step_state: str | None = None
-    _sched_map_keys = ("fetch-data", "pipeline", "vet", "portfolio-builder", "delta")
+    # Authoritative current chain step name when the scheduler is driving (else None).
+    # The scheduler is the single source of truth for chain progress (see
+    # docs/architecture.md "scheduler is the single source of truth for chain
+    # progress"): it is the only component that advances all five steps and knows
+    # their order, so its step map — not the blend of per-service run rows — decides
+    # which top-level phase the UI shows.
+    _sched_current_step: str | None = None
+    _sched_steps: dict = {}   # scheduler's step→state map when it is driving
+    _step_order = ["fetch-data", "pipeline", "vet", "portfolio-builder", "delta"]
     _sched_label_map = {
         "fetch-data":        "Fetching Data",
         "pipeline":          "Calculating Factors",
@@ -507,36 +515,34 @@ async def pipeline_status():
         if d7.get("status") == "running":
             scheduler_chain_running = True
             step_states = d7.get("steps") or {}
+            _sched_steps = step_states
             _sched_vet_step_state = step_states.get("vet")
             _scheduler_running_steps = [k for k, v in step_states.items() if v == "running"]
             if _scheduler_running_steps:
-                # A step is actively running — use its label
-                _sname = _scheduler_running_steps[-1]
-                scheduler_step_label = _sched_label_map.get(
-                    _sname,
-                    _sname.replace("-", " ").replace("_", " ").title(),
-                )
+                # A step is actively running — it (the furthest-along) is current.
+                _sched_current_step = [s for s in _step_order if step_states.get(s) == "running"][-1]
             else:
-                # Between steps: find the step after the last "done" step.
-                # This handles the gap where fetch-data is "done" but pipeline
-                # hasn't been polled yet (its state is null in the dict).
-                _step_order = ["fetch-data", "pipeline", "vet", "portfolio-builder", "delta"]
+                # Between steps: the step after the last "done" step is next/current.
+                # Handles the gap where fetch-data is "done" but pipeline hasn't been
+                # polled yet (its state is still null in the map). When the map is
+                # empty (no step seen yet — e.g. just after run-now reset), we cannot
+                # name the step: leave it None so the UI shows a generic "Running"
+                # rather than guessing "Fetching Data".
                 _last_done = -1
                 for _idx, _sname in enumerate(_step_order):
                     if step_states.get(_sname) == "done":
                         _last_done = _idx
                 if _last_done >= 0 and _last_done < len(_step_order) - 1:
-                    _next = _step_order[_last_done + 1]
-                    scheduler_step_label = _sched_label_map.get(_next, "Running")
+                    _sched_current_step = _step_order[_last_done + 1]
                 else:
-                    # No "done" steps yet — check for any non-null/non-done state
+                    # No "done" steps yet — first non-(done/None) state if any.
                     for _sname in _step_order:
-                        _sstate = step_states.get(_sname)
-                        if _sstate not in ("done", None):
-                            scheduler_step_label = _sched_label_map.get(_sname, "Running")
+                        if step_states.get(_sname) not in ("done", None):
+                            _sched_current_step = _sname
                             break
-                if scheduler_step_label is None:
-                    scheduler_step_label = "Running"
+            scheduler_step_label = _sched_label_map.get(
+                _sched_current_step, "Running"
+            ) if _sched_current_step else "Running"
 
     universe_status = "none"
     d5 = r5.json() if (not isinstance(r5, dict) and r5.status_code == 200) else {}
@@ -663,6 +669,52 @@ async def pipeline_status():
     # Override it to "running" when the scheduler confirms portfolio-builder is active.
     if scheduler_chain_running and "portfolio-builder" in _scheduler_running_steps:
         portfolio_status = "running"
+
+    # ── Scheduler-authoritative override ─────────────────────────────────────
+    # When the scheduler is driving the chain, its current step is the single
+    # source of truth for which phase the UI shows — it dictates exactly one
+    # "running" panel and clears the others, collapsing the cross-service races
+    # the blended inference above is prone to (see docs/architecture.md). The
+    # per-service inference is kept as the fallback for when the scheduler is NOT
+    # driving (manual single-step calls, or scheduler unreachable).
+    if _sched_current_step is not None:
+        cur = _sched_current_step
+
+        def _step_done(name: str) -> bool:
+            return _sched_steps.get(name) == "done"
+
+        # rank panel covers fetch-data, pipeline (factors/ranking), and delta.
+        if cur in ("fetch-data", "pipeline", "delta"):
+            rank_status = "running"
+            if cur == "pipeline":
+                # Sub-detail (which sub-phase + pct) comes from the pipeline service,
+                # zoomed-in WITHIN the scheduler's pipeline step. Monotonic: furthest
+                # along wins (delta → ranking → factors).
+                if _pipeline_delta_status == "running":
+                    rank_step, rank_step_label = "delta", "Evaluating Signals"
+                    rank_pct = _pipeline_live_pct if _pipeline_live_step == "delta" else None
+                elif _pipeline_rank_status == "running":
+                    rank_step, rank_step_label = "ranking", "Ranking"
+                    rank_pct = _pipeline_live_pct if _pipeline_live_step == "ranking" else None
+                else:
+                    rank_step, rank_step_label = "calc_factors", "Calculating Factors"
+                    rank_pct = _pipeline_live_pct if _pipeline_live_step == "calc_factors" else None
+            elif cur == "delta":
+                rank_step, rank_step_label, rank_pct = "delta", "Evaluating Signals", None
+            else:  # fetch-data
+                rank_step, rank_step_label = "fetch_data", "Fetching Data"
+        else:
+            # The chain is past the rank-owned phases (on vet / portfolio-builder):
+            # pipeline is done, so rank reads success (it produced today's rankings).
+            rank_status = "success" if (rank_date or _step_done("pipeline")) else "none"
+
+        # vetter + portfolio panels follow the scheduler's step states exactly:
+        # running iff it is the current step, success iff the scheduler marked it
+        # done this chain, else none. This is what stops a stale prior-run row from
+        # claiming "running"/"success" before the chain reaches that step.
+        vetter_status = "running" if cur == "vet" else ("success" if _step_done("vet") else "none")
+        portfolio_status = "running" if cur == "portfolio-builder" else (
+            "success" if _step_done("portfolio-builder") else "none")
 
     rank_warning, vet_warning, port_warning = _compute_pipeline_warnings(
         uni_fetched_at, rank_completed_at, vet_completed_at, port_completed_at
