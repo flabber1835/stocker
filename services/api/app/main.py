@@ -227,6 +227,7 @@ def _apply_overlays(
     inject_unranked: bool = True,
     query_prefix: str | None = None,
     held_rank_lookup: dict[str, dict] | None = None,
+    cluster_by_ticker: dict[str, str] | None = None,
 ) -> list[dict]:
     """Decorate ranking rows with vetter and holdings overlays.
 
@@ -238,7 +239,11 @@ def _apply_overlays(
         top 150 are shown). Keyed by ticker.
     query_prefix: when inject_unranked is True and a query is active, only inject
         positions whose ticker matches the prefix so search results stay on-topic.
+    cluster_by_ticker: correlation-cluster id per ticker from the latest portfolio
+        build (portfolio_holdings.cluster_id). Informational overlay; None when the
+        ticker wasn't selected into the target or is a singleton cluster.
     """
+    cluster_by_ticker = cluster_by_ticker or {}
     ranked_set = {r["ticker"] for r in ranking_rows}
     run_date_val = ranking_rows[0]["rank_date"] if ranking_rows else None
 
@@ -267,6 +272,7 @@ def _apply_overlays(
                 "sector": pos.get("sector"),
                 "market_cap": pos.get("market_cap"),
                 "not_in_universe": real is None,
+                "cluster_id": cluster_by_ticker.get(broker_ticker),
             })
 
     for r in ranking_rows:
@@ -295,6 +301,9 @@ def _apply_overlays(
             r["market_value"] = pos["market_value"]
             r["unrealized_plpc"] = pos["unrealized_plpc"]
         r.setdefault("not_in_universe", False)
+        # Correlation-cluster overlay (informational). setdefault so injected rows
+        # that already set it above keep their value.
+        r.setdefault("cluster_id", cluster_by_ticker.get(t))
 
     return ranking_rows
 
@@ -408,6 +417,19 @@ async def get_rankings_with_overlays(limit: int = 100):
             for v in vd_rows.mappings():
                 vetter_by_ticker[v["ticker"]] = dict(v)
 
+        # Cluster overlay — correlation-cluster id per ticker from the latest
+        # successful portfolio build. Informational; only the selected target names
+        # carry a (multi-member) cluster, everything else is None.
+        cluster_by_ticker: dict[str, str] = {}
+        cl_rows = await conn.execute(text(
+            "SELECT ticker, cluster_id FROM portfolio_holdings "
+            "WHERE run_id = (SELECT run_id FROM portfolio_runs WHERE status='success' "
+            "                ORDER BY completed_at DESC NULLS LAST LIMIT 1) "
+            "  AND cluster_id IS NOT NULL"
+        ))
+        for c in cl_rows.mappings():
+            cluster_by_ticker[c["ticker"]] = c["cluster_id"]
+
         # Holdings overlay — load ALL live broker positions, not just those in rankings.
         # Broker-held tickers that failed universe/ranking filters are injected below
         # so the user can always see what they hold, even if the system can't rank it.
@@ -460,7 +482,8 @@ async def get_rankings_with_overlays(limit: int = 100):
                 held_rank_lookup[hr["ticker"]] = dict(hr)
 
         ranking_rows = _apply_overlays(ranking_rows, vetter_by_ticker, all_broker_positions,
-                                       held_rank_lookup=held_rank_lookup)
+                                       held_rank_lookup=held_rank_lookup,
+                                       cluster_by_ticker=cluster_by_ticker)
 
     return {
         "count": len(ranking_rows),
@@ -645,10 +668,21 @@ async def search_rankings(q: str = ""):
             for hr in hr_rows2.mappings():
                 held_rank_lookup_search[hr["ticker"]] = dict(hr)
 
+        cluster_by_ticker_search: dict[str, str] = {}
+        cl_rows2 = await conn.execute(text(
+            "SELECT ticker, cluster_id FROM portfolio_holdings "
+            "WHERE run_id = (SELECT run_id FROM portfolio_runs WHERE status='success' "
+            "                ORDER BY completed_at DESC NULLS LAST LIMIT 1) "
+            "  AND cluster_id IS NOT NULL"
+        ))
+        for c in cl_rows2.mappings():
+            cluster_by_ticker_search[c["ticker"]] = c["cluster_id"]
+
         ranking_rows = _apply_overlays(
             ranking_rows, vetter_by_ticker, all_broker_positions,
             inject_unranked=True, query_prefix=q,
             held_rank_lookup=held_rank_lookup_search,
+            cluster_by_ticker=cluster_by_ticker_search,
         )
 
     run_meta = None

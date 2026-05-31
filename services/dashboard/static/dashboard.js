@@ -315,6 +315,7 @@ function _mapRankRow(r) {
   const fs = r.factor_scores || {};
   return {
     rank: r.rank, ticker: r.ticker, name: r.name || null,
+    cluster_id: r.cluster_id || null,
     market_cap: r.market_cap != null ? +r.market_cap : null,
     composite_score: r.composite_score, percentile: r.percentile,
     momentum: fs.momentum, quality: fs.quality, value: fs.value,
@@ -377,7 +378,7 @@ async function _doApiSearch(q) {
 
 /* ── Rankings ────────────────────────────────────────────────────────── */
 async function loadRankings() {
-  $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">Loading rankings&#8230;</td></tr>';
+  $('r-body').innerHTML = '<tr><td colspan="5" class="tbl-empty">Loading rankings&#8230;</td></tr>';
   try {
     const d = await fetch('/api/rankings/with-overlays?limit=100').then(r => {
       if (!r.ok) throw new Error(r.status);
@@ -386,7 +387,7 @@ async function loadRankings() {
     if (!d.rankings || d.rankings.length === 0) {
       _rankingsLoadState = 'empty';
       rankData = [];
-      $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">'
+      $('r-body').innerHTML = '<tr><td colspan="5" class="tbl-empty">'
         + 'No ranking data &mdash; click <strong>&#9654; RUN</strong> to populate'
         + '</td></tr>';
       // Refresh status bar so READY badge is downgraded if data missing
@@ -403,7 +404,7 @@ async function loadRankings() {
   } catch (e) {
     _rankingsLoadState = 'empty';
     rankData = [];
-    $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">'
+    $('r-body').innerHTML = '<tr><td colspan="5" class="tbl-empty">'
       + 'No ranking data &mdash; click <strong>&#9654; RUN</strong> to populate'
       + '</td></tr>';
     if (_pipelineData && _pipelineData.rank) updateStatusBar(_pipelineData);
@@ -411,8 +412,11 @@ async function loadRankings() {
 }
 
 function sortRankings(col) {
+  // Default direction per column: rank/ticker/name/cluster read best ascending
+  // (1, A→Z); score/size columns read best descending (biggest first).
+  const ascendingByDefault = (col === 'rank' || col === 'ticker' || col === 'name' || col === 'cluster_id');
   if (rankSort.col === col) rankSort.dir *= -1;
-  else { rankSort.col = col; rankSort.dir = col === 'rank' ? 1 : -1; }
+  else { rankSort.col = col; rankSort.dir = ascendingByDefault ? 1 : -1; }
   _expandedTicker = null;
   clearSort('rh-');
   const th = $('rh-' + col);
@@ -452,7 +456,7 @@ function renderRankings() {
     : rows.length + ' / ' + rankData.length;
   if (!rows.length) {
     _expandedTicker = null;
-    $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">No results</td></tr>';
+    $('r-body').innerHTML = '<tr><td colspan="5" class="tbl-empty">No results</td></tr>';
     return;
   }
 
@@ -507,6 +511,7 @@ function renderRankings() {
       + '<td><span class="t-rank">' + r.rank + '</span>' + arrow + '</td>'
       + '<td><span class="t-ticker">' + r.ticker + '</span></td>'
       + '<td class="t-company" title="' + (r.name ? esc(r.name) : '') + '">' + (r.name ? esc(r.name) : '—') + '</td>'
+      + '<td class="t-cluster">' + (r.cluster_id ? '<span class="mono">' + esc(r.cluster_id) + '</span>' : '<span style="color:var(--text3)">—</span>') + '</td>'
       + '<td class="t-size">' + sizeHtml + '</td>'
       + '</tr>';
   }).join('');
