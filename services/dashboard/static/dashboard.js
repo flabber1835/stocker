@@ -1028,7 +1028,20 @@ async function approveSelected() {
   );
   if (!toApprove.length) return;
   _selectedIntents.clear();
-  await Promise.all(toApprove.map(id => approveTrade(id, 'immediate')));
+
+  // Submit SELLS first (await), THEN buys. Alpaca validates buying power at
+  // submission time, per order — proceeds from a not-yet-executed sell do not
+  // raise buying power until the sell is accepted/fills. If a buy is submitted
+  // before its funding sell (as the old parallel Promise.all allowed), a fully-
+  // invested account rejects it with "insufficient buying power". Sequencing
+  // sells-then-buys lets the sells free cash first. Within each side, submit in
+  // parallel (same-side orders don't fund each other).
+  const actionOf = id => (deltaData.find(r => String(r.id) === id) || {}).action;
+  const sells = toApprove.filter(id => actionOf(id) === 'exit' || actionOf(id) === 'sell_trim');
+  const buys  = toApprove.filter(id => actionOf(id) === 'entry' || actionOf(id) === 'buy_add');
+
+  await Promise.all(sells.map(id => approveTrade(id, 'immediate')));
+  await Promise.all(buys.map(id => approveTrade(id, 'immediate')));
 }
 
 async function approveTrade(intentId, mode) {

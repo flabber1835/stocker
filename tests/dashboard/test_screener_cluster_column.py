@@ -35,8 +35,10 @@ def test_screener_js_maps_and_renders_cluster():
 
 def test_api_overlays_cluster_id_on_rankings():
     api = _read(API_MAIN)
-    # helper param + load from latest portfolio build's holdings
+    # helper param + load from the latest build's FULL candidate-pool cluster map
+    # (candidate_clusters), so every ranked top-N candidate can show a cluster — not
+    # only the ~max_positions selected holdings.
     assert "cluster_by_ticker" in api
-    assert "SELECT ticker, cluster_id FROM portfolio_holdings" in api
+    assert "SELECT ticker, cluster_id FROM candidate_clusters" in api
     # both the with-overlays and search endpoints pass it through
     assert api.count("cluster_by_ticker=") >= 2
