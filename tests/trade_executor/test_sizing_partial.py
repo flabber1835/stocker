@@ -134,6 +134,7 @@ async def test_sell_trim_uses_account_value_not_buying_power():
     conn = _mock_conn([
         {"account_value": 100_000.0, "buying_power": 20_000.0, "completed_at": _now()},
         {"current_price": 100.0},
+        {"qty": 1000.0},   # held_now: plenty held, no clamp
     ])
     intent = _intent("sell_trim", current_weight=0.10, actual_weight=0.12)
     qty, notional, summary = await _size_partial(conn, "AAPL", intent)
@@ -192,6 +193,7 @@ async def test_sell_trim_basic():
     conn = _mock_conn([
         {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
         {"current_price": 100.0},
+        {"qty": 1000.0},   # held_now: plenty held, no clamp
     ])
     intent = _intent("sell_trim", current_weight=0.10, actual_weight=0.12)
     qty, notional, summary = await _size_partial(conn, "AAPL", intent)
@@ -287,3 +289,37 @@ async def test_buy_add_negative_actual_weight_would_have_over_bought():
     with pytest.raises(HTTPException) as exc_info:
         await _size_partial(conn, "AAPL", intent)
     assert exc_info.value.status_code == 400
+
+
+# ── sell_trim over-sell guard (regression: "insufficient qty available") ────────
+
+
+@pytest.mark.asyncio
+async def test_sell_trim_clamped_to_held_qty():
+    """sell_trim sized from stale drift must clamp to the shares actually held now,
+    so we never request more than the broker holds (Alpaca "insufficient qty")."""
+    # drift=0.02 × $100k = $2000 → wants 20 shares, but only 5 are held now.
+    conn = _mock_conn([
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
+        {"current_price": 100.0},
+        {"qty": 5.0},   # held_now: fewer than the drift-implied 20
+    ])
+    intent = _intent("sell_trim", current_weight=0.10, actual_weight=0.12)
+    qty, notional, summary = await _size_partial(conn, "AAPL", intent)
+    assert qty == 5.0   # clamped to held, not 19/20
+
+
+@pytest.mark.asyncio
+async def test_sell_trim_refused_when_position_gone():
+    """sell_trim of a name no longer held (held qty 0 / no row) is refused with 400
+    rather than submitting a sell that Alpaca rejects with available: 0."""
+    conn = _mock_conn([
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
+        {"current_price": 100.0},
+        None,   # no live_positions row → position gone
+    ])
+    intent = _intent("sell_trim", current_weight=0.10, actual_weight=0.12)
+    with pytest.raises(HTTPException) as exc_info:
+        await _size_partial(conn, "AAPL", intent)
+    assert exc_info.value.status_code == 400
+    assert "no shares" in exc_info.value.detail.lower()

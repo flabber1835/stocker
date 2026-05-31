@@ -552,6 +552,31 @@ async def _size_partial(conn, ticker: str, intent: dict) -> tuple[float, float, 
             ),
         )
     qty = float(qty_int)
+    # Sell-side over-sell guard: a sell_trim sizes from the drift recorded when the
+    # delta ran, but the broker position may have shrunk since (a prior partial
+    # fill, a corporate action, or a stale sync). Selling more than is currently
+    # held → Alpaca "insufficient qty available". Clamp the trim to the shares
+    # actually held now (floored to whole shares), and refuse if the position is
+    # already gone. Exits don't pass through here — they use close-position.
+    if action == "sell_trim":
+        held_now = (await conn.execute(text(
+            "SELECT lp.qty FROM live_positions lp "
+            "JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
+            "WHERE lp.ticker = :t AND sr.status = 'success' "
+            "ORDER BY sr.completed_at DESC NULLS LAST LIMIT 1"
+        ), {"t": ticker})).mappings().first()
+        held_qty = math.floor(abs(_f(held_now["qty"]))) if (held_now and _f(held_now["qty"]) is not None) else 0
+        if held_qty < 1:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Cannot sell_trim {ticker}: no shares currently held "
+                    "(position closed or sync stale). Re-sync before approving."
+                ),
+            )
+        if qty > held_qty:
+            qty = float(held_qty)
+            qty_int = held_qty
     # Cash sufficiency guard for buy-side actions: if the target notional
     # clearly exceeds buying_power (with 5% tolerance for rounding), refuse
     # early rather than letting the risk-service or Alpaca reject it with a
@@ -955,7 +980,14 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
             "type": "market", "time_in_force": time_in_force,
         }
         try:
-            alpaca_order_id, alpaca_status, alpaca_err = await _submit_to_alpaca(alpaca_payload)
+            if action == "exit":
+                # Full close → Alpaca close-position (exact held qty), never a
+                # qty-based sell that can round up and over-sell a fractional
+                # position ("insufficient qty available"). Mirrors the deferred
+                # worker; this is the immediate Approve-click path.
+                alpaca_order_id, alpaca_status, alpaca_err = await _close_position_alpaca(ticker)
+            else:
+                alpaca_order_id, alpaca_status, alpaca_err = await _submit_to_alpaca(alpaca_payload)
         except Exception as exc:
             async with engine.begin() as conn:
                 await conn.execute(
