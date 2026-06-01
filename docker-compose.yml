@@ -287,7 +287,7 @@ services:
       # never silently burns API credits — the falling-knife drawdown backstop is
       # the only entry block. Set VETTER_LLM_ENABLED=true in .env to re-enable the LLM.
       VETTER_LLM_ENABLED: ${VETTER_LLM_ENABLED:-false}
-      DRAWDOWN_BACKSTOP_PCT: ${DRAWDOWN_BACKSTOP_PCT:-0.10}
+      DRAWDOWN_BACKSTOP_PCT: ${DRAWDOWN_BACKSTOP_PCT:-0.15}
       STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
       ARTIFACTS_PATH: /artifacts
     volumes:

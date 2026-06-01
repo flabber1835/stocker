@@ -472,7 +472,7 @@ override / tests); the dashboard's batch "Approve Selected" now enqueues
 The LLM vetter can be put into a **drawdown-only mode** (`VETTER_LLM_ENABLED=false`)
 in which it skips all LLM / Tavily / Alpha-Vantage-news work and every candidate
 defaults to *keep*. The deterministic falling-knife backstop
-(`DRAWDOWN_BACKSTOP_PCT`, default 0.10 — force-exclude ANY candidate, held or not,
+(`DRAWDOWN_BACKSTOP_PCT`, default 0.15 — force-exclude ANY candidate, held or not,
 more than X% below its 21-day peak) becomes the **only** exclusion signal.
 
 **Why a mode, not a chain change.** The vetter step stays mandatory and

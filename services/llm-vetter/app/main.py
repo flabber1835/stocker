@@ -37,7 +37,7 @@ STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_co
 # exclusion drops the name from the fresh target and the delta engine orphan-exits
 # it after confirmation_days builds (source-of-truth / orphan-exit redesign). The
 # 3-build confirmation is the sell-side whipsaw guard. Data-gap names stay exempt.
-DRAWDOWN_BACKSTOP_PCT = float(os.getenv("DRAWDOWN_BACKSTOP_PCT", "0.10"))
+DRAWDOWN_BACKSTOP_PCT = float(os.getenv("DRAWDOWN_BACKSTOP_PCT", "0.15"))
 DRAWDOWN_WINDOW_DAYS  = int(os.getenv("DRAWDOWN_WINDOW_DAYS", "21"))
 
 # Drawdown-only mode. When false, the vetter skips ALL LLM + Tavily + AV-news
