@@ -148,9 +148,9 @@ function updateStatusBar(d) {
     const p = vetter.progress;
     if (p && p.total > 0) {
       const pct = Math.min(100, Math.round((p.completed / p.total) * 100));
-      text = 'LLM ANALYSIS ' + p.completed + '/' + p.total + ' · ' + pct + '%';
+      text = 'VETTER ' + p.completed + '/' + p.total + ' · ' + pct + '%';
     } else {
-      text = 'LLM ANALYSIS';
+      text = 'VETTER';
     }
     textCls = 'sb-purple';
   } else if (portfolio.status === 'running') {
@@ -161,9 +161,9 @@ function updateStatusBar(d) {
     if (sl === 'Fetching Data')            { text = 'FETCHING DATA' + p;         textCls = 'sb-amber'; }
     else if (sl === 'Calculating Factors') { text = 'CALCULATING FACTORS' + p;  textCls = 'sb-amber'; }
     else if (sl === 'Ranking')             { text = 'RANKING STOCKS' + p;        textCls = 'sb-amber'; }
-    else if (sl === 'Evaluating Signals')  { text = 'EVALUATING SIGNALS' + p;   textCls = 'sb-amber'; }
+    else if (sl === 'Delta Eval')          { text = 'DELTA EVAL' + p;           textCls = 'sb-amber'; }
     else if (sl === 'Building Portfolio')  { text = 'BUILDING PORTFOLIO';        textCls = 'sb-blue'; }
-    else if (sl === 'Vetting')             { text = 'LLM ANALYSIS';              textCls = 'sb-purple'; }
+    else if (sl === 'Vetter')              { text = 'VETTER';                    textCls = 'sb-purple'; }
     else                                   { text = 'PIPELINE RUNNING' + p;      textCls = 'sb-amber'; }
   } else if (universe.status === 'running') {
     text = 'FETCHING UNIVERSE'; textCls = 'sb-blue';
@@ -261,10 +261,10 @@ function updatePipelineBar(rank, vetter) {
     const vp = vetter.progress;
     if (vp && vp.total > 0) {
       const vpct = Math.min(100, Math.round((vp.completed / vp.total) * 100));
-      labelText = 'LLM ANALYSIS ' + vp.completed + '/' + vp.total;
+      labelText = 'VETTER ' + vp.completed + '/' + vp.total;
       barPct = vpct;
     } else {
-      labelText = 'LLM ANALYSIS';
+      labelText = 'VETTER';
       barPct = null;
     }
   } else if (success) {
@@ -597,14 +597,14 @@ function _buildDetailHtml(r) {
       ? '<div class="llm-catalyst"><div class="llm-catalyst-label">&#8679; Positive Catalyst</div><div class="llm-catalyst-reason">' + esc(r.positive_reason) + '</div></div>'
       : '';
     llmHtml = '<div class="detail-llm">'
-      + '<div class="llm-header"><span class="llm-label">LLM ANALYSIS</span>'
+      + '<div class="llm-header"><span class="llm-label">VETTER</span>'
       + '<span class="llm-verdict-badge ' + vbCls + '">' + verdict + '</span>'
       + '<span class="llm-conf-badge cb-' + conf + '">' + conf.toUpperCase() + '</span>'
       + riskType + '</div>'
       + (r.vetter_reason ? '<div class="llm-reason">' + esc(r.vetter_reason) + '</div>' : '')
       + catalystHtml + '</div>';
   } else if (r.positive_catalyst && r.positive_reason) {
-    llmHtml = '<div class="detail-llm"><div class="llm-header"><span class="llm-label">LLM ANALYSIS</span></div>'
+    llmHtml = '<div class="detail-llm"><div class="llm-header"><span class="llm-label">VETTER</span></div>'
       + '<div class="llm-catalyst"><div class="llm-catalyst-label">&#8679; Positive Catalyst</div>'
       + '<div class="llm-catalyst-reason">' + esc(r.positive_reason) + '</div></div></div>';
   }

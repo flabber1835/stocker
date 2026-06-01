@@ -602,8 +602,8 @@ class TestStepLabelBetweenSteps:
             rank_chain_running=True,
         )
         label = result.get("rank", {}).get("step_label")
-        assert label == "Vetting", (
-            f"Expected 'Vetting' when vet step is running, got {label!r}"
+        assert label == "Vetter", (
+            f"Expected 'Vetter' when vet step is running, got {label!r}"
         )
 
     def test_between_steps_infers_next_step_label_when_none_running(self):
@@ -626,8 +626,8 @@ class TestStepLabelBetweenSteps:
             rank_chain_running=True,
         )
         label = result.get("rank", {}).get("step_label")
-        assert label == "Vetting", (
-            f"Expected 'Vetting' (first non-done step), got {label!r}"
+        assert label == "Vetter", (
+            f"Expected 'Vetter' (first non-done step), got {label!r}"
         )
 
     def test_portfolio_builder_step_inferred_after_vet_done(self):
@@ -650,7 +650,7 @@ class TestStepLabelBetweenSteps:
         assert label == "Building Portfolio", f"Got {label!r}"
 
     def test_delta_step_inferred_after_portfolio_done(self):
-        """After portfolio-builder completes, the inferred label must be 'Evaluating Signals'."""
+        """After portfolio-builder completes, the inferred label must be 'Delta Eval'."""
         result = _call_pipeline_status(
             pipeline_status_raw="success",
             scheduler_data={
@@ -666,7 +666,7 @@ class TestStepLabelBetweenSteps:
             rank_chain_running=True,
         )
         label = result.get("rank", {}).get("step_label")
-        assert label == "Evaluating Signals", f"Got {label!r}"
+        assert label == "Delta Eval", f"Got {label!r}"
 
     def test_fetch_data_running_shows_fetching_data(self):
         """When fetch-data IS actually running, 'Fetching Data' is correct."""
@@ -739,7 +739,7 @@ class TestSubStepProgressPercentage:
             rank_chain_running=True,
         )
         rank = result.get("rank", {})
-        assert rank.get("step_label") == "Evaluating Signals"
+        assert rank.get("step_label") == "Delta Eval"
         assert rank.get("pct") == 48, f"delta pct did not flow through; got {rank.get('pct')!r}"
 
     def test_pct_is_none_when_progress_step_mismatches_status(self):
@@ -778,9 +778,9 @@ class TestSchedulerStepLabelMapping:
     _CASES = [
         ("fetch-data",        "Fetching Data"),
         ("pipeline",          "Calculating Factors"),
-        ("vet",               "Vetting"),
+        ("vet",               "Vetter"),
         ("portfolio-builder", "Building Portfolio"),
-        ("delta",             "Evaluating Signals"),
+        ("delta",             "Delta Eval"),
     ]
 
     @pytest.mark.parametrize("step_name,expected_label", _CASES)
@@ -1085,7 +1085,7 @@ class TestBetweenStepNullInference:
 
     def test_vet_null_after_pipeline_done_shows_vetting(self):
         """
-        pipeline='done', vet=null → inferred label must be 'Vetting'.
+        pipeline='done', vet=null → inferred label must be 'Vetter'.
         """
         result = _call_pipeline_status(
             pipeline_status_raw="success",
@@ -1097,9 +1097,9 @@ class TestBetweenStepNullInference:
         )
         rank = result.get("rank", {})
         label = rank.get("step_label")
-        assert label == "Vetting", (
+        assert label == "Vetter", (
             "When pipeline is 'done' and vet is null, the inferred label "
-            f"must be 'Vetting'; got {label!r}"
+            f"must be 'Vetter'; got {label!r}"
         )
 
     def test_portfolio_null_after_vet_done_shows_building(self):

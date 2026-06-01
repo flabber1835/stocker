@@ -59,6 +59,12 @@ def _local_today() -> date:
     return _local_now().date()
 
 SUPERVISOR_INTERVAL_SECS = int(os.getenv("SUPERVISOR_INTERVAL_SECS", "300"))
+# While a chain is ACTIVE the supervisor ticks this fast so _chain_status (the
+# single authoritative state the dashboard renders) stays current. The 300s
+# interval above is only the heartbeat that starts/notices a chain; without the
+# fast drain the cron chain left the UI up to 5 min stale. See docs/architecture.md
+# "scheduler is the single, FRESH source of chain-progress truth".
+FAST_TICK_SECS = int(os.getenv("FAST_TICK_SECS", "5"))
 
 # Heartbeat: how stale the last successful chain may be before /health/chain
 # returns 503. Default 36h covers a normal weekend gap (Fri close → Mon close
@@ -1128,6 +1134,59 @@ async def _startup_catch_up() -> None:
     _log("startup catch-up: timed out after 6 hours — handing off to interval trigger")
 
 
+# ── Fast drain while a chain is active (freshness for the UI) ────────────────
+
+def _chain_is_active(chain_status: dict) -> bool:
+    """True iff a chain is in flight (has a run id) and not yet terminal.
+
+    Pure (takes the status dict) so the freshness gate is unit-testable without
+    spinning the scheduler. A terminal status ('success'/'failed') or no
+    current_run_id means no fast drain is needed.
+    """
+    if chain_status.get("status") in ("success", "failed"):
+        return False
+    return bool(chain_status.get("current_run_id")) or bool(chain_status.get("status") == "running")
+
+
+_fast_drain_task: "asyncio.Task | None" = None
+
+
+async def _fast_drain() -> None:
+    """Tick the supervisor every FAST_TICK_SECS until the chain is terminal, so the
+    authoritative _chain_status the dashboard renders is always fresh during a run.
+    _supervisor_tick no-ops if _chain_lock is held, so this is safe to run alongside
+    the 300s interval tick and the run-now fast loop."""
+    global _fast_drain_task
+    try:
+        for _ in range(20000):  # hard cap (~28h at 5s) — chains terminate long before
+            await _supervisor_tick()
+            if not _chain_is_active(_chain_status):
+                break
+            await asyncio.sleep(FAST_TICK_SECS)
+    finally:
+        _fast_drain_task = None
+
+
+def _ensure_fast_drain() -> None:
+    """Start the fast drain if one isn't already running. Idempotent — repeated
+    calls (every heartbeat tick) won't spawn duplicate loops. Skips while run-now's
+    own fast loop holds _run_now_lock (it is already draining fast)."""
+    global _fast_drain_task
+    if _run_now_lock.locked():
+        return
+    if _fast_drain_task is None or _fast_drain_task.done():
+        _fast_drain_task = asyncio.create_task(_fast_drain())
+
+
+async def _heartbeat_tick() -> None:
+    """The 300s interval/cron entrypoint: run one supervisor tick, then — if that
+    started or found an active chain — hand off to the fast drain so the UI sees
+    fresh state without waiting for the next 300s tick."""
+    await _supervisor_tick()
+    if _chain_is_active(_chain_status):
+        _ensure_fast_drain()
+
+
 # ── Fast polling for manual run-now ──────────────────────────────────────────
 
 async def _run_supervised_fast() -> None:
@@ -1163,7 +1222,7 @@ async def lifespan(app: FastAPI):
         _log(f"Invalid RANK_SCHEDULE_CRON {RANK_SCHEDULE_CRON!r}: {exc} — using default")
         cron_trigger = CronTrigger.from_crontab("15 16 * * 1-5", timezone=SCHEDULE_TZ_NAME)
     _scheduler.add_job(
-        _supervisor_tick,
+        _heartbeat_tick,
         cron_trigger,
         id="daily_cron",
         replace_existing=True,
@@ -1174,7 +1233,7 @@ async def lifespan(app: FastAPI):
     # start_date is 15 seconds from now so the first tick fires after services are up.
     from apscheduler.triggers.interval import IntervalTrigger
     _scheduler.add_job(
-        _supervisor_tick,
+        _heartbeat_tick,
         IntervalTrigger(seconds=SUPERVISOR_INTERVAL_SECS,
                         start_date=datetime.now(timezone.utc) + timedelta(seconds=15)),
         id="supervisor_interval",

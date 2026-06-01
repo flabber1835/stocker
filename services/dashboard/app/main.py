@@ -8,6 +8,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
 
+from app.chain_phase import derive_scheduler_phase, SCHED_LABEL_MAP
+
 API_URL             = os.getenv("API_URL",             "http://api:8000")
 AV_INGESTOR_URL     = os.getenv("AV_INGESTOR_URL",     "http://av-ingestor:8000")
 PIPELINE_URL        = os.getenv("PIPELINE_URL",        "http://pipeline:8000")
@@ -507,13 +509,7 @@ async def pipeline_status():
     _sched_current_step: str | None = None
     _sched_steps: dict = {}   # scheduler's step→state map when it is driving
     _step_order = ["fetch-data", "pipeline", "vet", "portfolio-builder", "delta"]
-    _sched_label_map = {
-        "fetch-data":        "Fetching Data",
-        "pipeline":          "Calculating Factors",
-        "vet":               "Vetting",
-        "portfolio-builder": "Building Portfolio",
-        "delta":             "Evaluating Signals",
-    }
+    _sched_label_map = SCHED_LABEL_MAP  # "Vetter" / "Delta Eval" (single source)
     if not isinstance(r7, dict) and r7.status_code == 200:
         d7 = r7.json()
         if d7.get("status") == "running":
@@ -590,7 +586,7 @@ async def pipeline_status():
         # is the true state — check delta, then ranking, then factors.
         if _pipeline_delta_status == "running":
             pct = _pipeline_live_pct if _pipeline_live_step == "delta" else None
-            rank_step, rank_step_label, rank_pct = "delta", "Evaluating Signals", pct
+            rank_step, rank_step_label, rank_pct = "delta", "Delta Eval", pct
         elif _pipeline_rank_status == "running":
             pct = _pipeline_live_pct if _pipeline_live_step == "ranking" else None
             rank_step, rank_step_label, rank_pct = "ranking", "Ranking", pct
@@ -674,51 +670,32 @@ async def pipeline_status():
     if scheduler_chain_running and "portfolio-builder" in _scheduler_running_steps:
         portfolio_status = "running"
 
-    # ── Scheduler-authoritative override ─────────────────────────────────────
-    # When the scheduler is driving the chain, its current step is the single
-    # source of truth for which phase the UI shows — it dictates exactly one
-    # "running" panel and clears the others, collapsing the cross-service races
-    # the blended inference above is prone to (see docs/architecture.md). The
-    # per-service inference is kept as the fallback for when the scheduler is NOT
-    # driving (manual single-step calls, or scheduler unreachable).
+    # ── Scheduler-authoritative phase (single source of truth) ───────────────
+    # When the scheduler is driving the chain, its (now FRESH — the scheduler
+    # fast-drains while active) current step is the SOLE authority for the phase
+    # the UI shows. derive_scheduler_phase maps it to the panels verbatim,
+    # collapsing the cross-service races the blended inference above is prone to
+    # (see docs/architecture.md). The per-service inference above is kept only as
+    # the fallback for when the scheduler is unreachable / not driving.
     if _sched_current_step is not None:
-        cur = _sched_current_step
-
-        def _step_done(name: str) -> bool:
-            return _sched_steps.get(name) == "done"
-
-        # rank panel covers fetch-data, pipeline (factors/ranking), and delta.
-        if cur in ("fetch-data", "pipeline", "delta"):
-            rank_status = "running"
-            if cur == "pipeline":
-                # Sub-detail (which sub-phase + pct) comes from the pipeline service,
-                # zoomed-in WITHIN the scheduler's pipeline step. Monotonic: furthest
-                # along wins (delta → ranking → factors).
-                if _pipeline_delta_status == "running":
-                    rank_step, rank_step_label = "delta", "Evaluating Signals"
-                    rank_pct = _pipeline_live_pct if _pipeline_live_step == "delta" else None
-                elif _pipeline_rank_status == "running":
-                    rank_step, rank_step_label = "ranking", "Ranking"
-                    rank_pct = _pipeline_live_pct if _pipeline_live_step == "ranking" else None
-                else:
-                    rank_step, rank_step_label = "calc_factors", "Calculating Factors"
-                    rank_pct = _pipeline_live_pct if _pipeline_live_step == "calc_factors" else None
-            elif cur == "delta":
-                rank_step, rank_step_label, rank_pct = "delta", "Evaluating Signals", None
-            else:  # fetch-data
-                rank_step, rank_step_label = "fetch_data", "Fetching Data"
-        else:
-            # The chain is past the rank-owned phases (on vet / portfolio-builder):
-            # pipeline is done, so rank reads success (it produced today's rankings).
-            rank_status = "success" if (rank_date or _step_done("pipeline")) else "none"
-
-        # vetter + portfolio panels follow the scheduler's step states exactly:
-        # running iff it is the current step, success iff the scheduler marked it
-        # done this chain, else none. This is what stops a stale prior-run row from
-        # claiming "running"/"success" before the chain reaches that step.
-        vetter_status = "running" if cur == "vet" else ("success" if _step_done("vet") else "none")
-        portfolio_status = "running" if cur == "portfolio-builder" else (
-            "success" if _step_done("portfolio-builder") else "none")
+        _phase = derive_scheduler_phase(
+            steps=_sched_steps,
+            current_step=_sched_current_step,
+            pipeline_factor_status=_pipeline_factor_status,
+            pipeline_rank_status=_pipeline_rank_status,
+            pipeline_delta_status=_pipeline_delta_status,
+            pipeline_live_step=_pipeline_live_step,
+            pipeline_live_pct=_pipeline_live_pct,
+            av_tickers_done=(d5.get("tickers_done") if isinstance(d5, dict) else None),
+            av_total_tickers=(d5.get("total_tickers") if isinstance(d5, dict) else None),
+            rank_date=rank_date,
+        )
+        rank_status      = _phase["rank_status"]
+        rank_step        = _phase["rank_step"]
+        rank_step_label  = _phase["rank_step_label"]
+        rank_pct         = _phase["rank_pct"]
+        vetter_status    = _phase["vetter_status"]
+        portfolio_status = _phase["portfolio_status"]
 
     rank_warning, vet_warning, port_warning = _compute_pipeline_warnings(
         uni_fetched_at, rank_completed_at, vet_completed_at, port_completed_at

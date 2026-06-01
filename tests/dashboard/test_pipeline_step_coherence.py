@@ -104,7 +104,7 @@ def test_only_ranking_running_shows_ranking():
 
 def test_ranking_and_delta_running_shows_delta():
     result = _call(_pipeline(factor="done", ranking="running", delta="running"))
-    assert result["rank"]["step_label"] == "Evaluating Signals"
+    assert result["rank"]["step_label"] == "Delta Eval"
 
 
 def test_pct_attached_to_matching_live_step():

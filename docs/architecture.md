@@ -351,6 +351,49 @@ This also makes the persisted `candidate_clusters` map (the screener overlay)
 cover every ranked candidate including excluded ones, which is what that table is
 meant to represent.
 
+## Design Decision: scheduler is the single, FRESH source of chain-progress truth
+
+**Problem (root cause of a family of UI bugs).** The dashboard's
+`/api/pipeline-status` reconstructed "which step is running / what's the progress"
+by *blending* four non-atomic sources fetched in one `asyncio.gather`: the
+scheduler `/status` step map, the pipeline `factor/ranking/delta` sub-status
+columns, each service's `/runs/latest` row, and av-ingestor's in-memory progress.
+These flip between running/terminal independently, so the blend raced. The
+symptoms were all one bug: a fresh proposal still showing "Evaluating Signals",
+no fetch %, the RUN button re-enabling mid-chain, the auto-approve countdown
+suppressed, and "LLM ANALYSIS" shown even with the vetter LLM disabled.
+
+The deeper cause: the scheduler IS the chain state machine, but `/status` returns
+the in-memory `_chain_status` which is only refreshed on the supervisor tick —
+every `SUPERVISOR_INTERVAL_SECS` (**300 s**) on the cron path. So during the
+after-close chain the authoritative state was **up to 5 minutes stale**, and the
+dashboard's blend existed only to paper over that. A *manual* run uses a 3 s fast
+loop, so its state was fresh — which is exactly why every symptom reproduced on
+the cron chain but not on a manual run.
+
+**Decision.**
+1. **The scheduler state stays fresh while a chain is active.** Whenever a chain
+   is in flight (cron OR manual), a single fast-drain loop ticks the supervisor
+   every `FAST_TICK_SECS` (default 5 s) until the chain reaches a terminal state,
+   then stops. The 300 s interval becomes just the heartbeat that *starts/notices*
+   a chain; once active, the fast drain keeps `_chain_status` current. Guarded so
+   only one drain runs (`_supervisor_tick` already no-ops if `_chain_lock` is held).
+2. **The dashboard renders the scheduler's state verbatim.** When the scheduler is
+   reachable its step map is the SOLE authority for phase/running — a single pure
+   function (`derive_pipeline_phase`) maps it to the UI fields. The old blended
+   inference is kept ONLY as the fallback for when the scheduler is unreachable.
+   The fetch-data % (from av-ingestor) and the vetter's `llm_enabled` flag are
+   layered on as presentational detail keyed off the authoritative phase — fixing
+   the two gaps where the override previously dropped the fetch % and hardcoded
+   the vetter label.
+3. **Labels.** The vet phase is labelled **"Vetter"** (not "LLM ANALYSIS" — the
+   vetter runs as a step even in drawdown-only mode with the LLM disabled, so an
+   "LLM" label is misleading). The delta phase is labelled **"Delta Eval"** (not
+   "Evaluating Signals").
+
+This collapses the whole symptom family because there is exactly one fresh,
+authoritative source and the UI renders it rather than re-deriving it.
+
 ## Design Decision: fill-gated market-open order draining (Option B)
 
 **Problem.** The chain runs after the close and approvals (manual or the 60-min
