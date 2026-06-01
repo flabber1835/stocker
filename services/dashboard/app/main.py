@@ -93,7 +93,7 @@ async def _auto_approve_once(client, now: float) -> None:
         order_status = intent.get("order_status")
         if order_status in (
             "failed", "risk_rejected", "submitted", "pending",
-            "deferred", "filled", "partial_fill",
+            "deferred", "filled", "partial_fill", "expired",
         ):
             _intent_approved.add(iid)
             continue
@@ -109,9 +109,13 @@ async def _auto_approve_once(client, now: float) -> None:
             continue
         if now - _intent_first_seen[iid] >= timeout:
             try:
+                # Auto-approval GREENLIGHTS the intent (mode='scheduled') — it does
+                # NOT submit. The trade-executor's fill-gated drain submits at the
+                # open, sells-first, one buy at a time within buying power. See
+                # docs/architecture.md Option B.
                 await client.post(
                     f"{API_URL}/trade/approve",
-                    json={"intent_id": iid, "mode": "immediate"},
+                    json={"intent_id": iid, "mode": "scheduled"},
                 )
             except Exception as exc:
                 print(f"[auto-approve] approve failed for {iid}: {exc}")

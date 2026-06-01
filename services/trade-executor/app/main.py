@@ -32,6 +32,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from stock_strategy_shared.db import wait_for_db
 
+from app.drain import DeferredOrder, plan_drain
+
 logger = logging.getLogger("trade-executor")
 logging.basicConfig(level=logging.INFO)
 
@@ -54,6 +56,12 @@ try:
     DEFERRED_WORKER_INTERVAL_SECS = int(os.getenv("DEFERRED_WORKER_INTERVAL_SECS", "60"))
 except ValueError:
     DEFERRED_WORKER_INTERVAL_SECS = 60
+try:
+    # How long the drain waits for a submitted sell to fill before it stops
+    # blocking buys (a halted sell must not wedge the book forever).
+    SELL_FILL_TIMEOUT_SECS = float(os.getenv("SELL_FILL_TIMEOUT_SECS", "300"))
+except ValueError:
+    SELL_FILL_TIMEOUT_SECS = 300.0
 
 
 engine: Optional[AsyncEngine] = None
@@ -135,38 +143,201 @@ async def _submit_deferred_order(row: dict) -> tuple[str, Optional[str]]:
     return "submitted", None
 
 
+def _parse_alpaca_dt(raw) -> Optional[datetime]:
+    """Parse an Alpaca ISO timestamp (e.g. '2026-06-01T09:30:00-04:00')."""
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+def _alpaca_read_headers() -> dict:
+    return {"APCA-API-KEY-ID": ALPACA_API_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY}
+
+
+async def _get_alpaca_clock() -> Optional[dict]:
+    """GET /v2/clock → {is_open, next_open, next_close}. None if creds missing or
+    unreachable (caller treats unknown state as 'do not submit blind')."""
+    if not (ALPACA_API_KEY and ALPACA_SECRET_KEY):
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"{ALPACA_BASE_URL}/v2/clock", headers=_alpaca_read_headers())
+        if r.status_code == 200:
+            d = r.json()
+            return {
+                "is_open": bool(d.get("is_open")),
+                "next_open": _parse_alpaca_dt(d.get("next_open")),
+                "next_close": _parse_alpaca_dt(d.get("next_close")),
+            }
+    except Exception as exc:
+        logger.warning("Alpaca clock fetch failed: %s", exc)
+    return None
+
+
+async def _get_alpaca_buying_power() -> Optional[float]:
+    """GET /v2/account → buying_power (float). None on failure."""
+    if not (ALPACA_API_KEY and ALPACA_SECRET_KEY):
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"{ALPACA_BASE_URL}/v2/account", headers=_alpaca_read_headers())
+        if r.status_code == 200:
+            return _f(r.json().get("buying_power"))
+    except Exception as exc:
+        logger.warning("Alpaca account fetch failed: %s", exc)
+    return None
+
+
+async def _get_alpaca_order(alpaca_order_id: str) -> Optional[dict]:
+    """GET /v2/orders/{id} → the order dict. None on failure."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                f"{ALPACA_BASE_URL}/v2/orders/{alpaca_order_id}",
+                headers=_alpaca_read_headers(),
+            )
+        if r.status_code == 200:
+            return r.json()
+    except Exception as exc:
+        logger.warning("Alpaca order fetch failed for %s: %s", alpaca_order_id, exc)
+    return None
+
+
+async def _reconcile_unfilled_sells() -> None:
+    """Poll Alpaca for sells that were submitted but not yet marked filled, and
+    flip them to status='filled' so the drain's gate can see credited buying power.
+
+    The drain does this itself (rather than waiting for the periodic alpaca-sync)
+    so buys release within a pass or two of the sells filling. The UPDATE mirrors
+    alpaca-sync's reconciliation and is idempotent."""
+    async with engine.connect() as conn:
+        rows = (await conn.execute(text(
+            "SELECT id, alpaca_order_id FROM alpaca_orders "
+            "WHERE status='submitted' AND side='sell' AND filled_at IS NULL "
+            "  AND alpaca_order_id IS NOT NULL"
+        ))).mappings().fetchall()
+    for row in rows:
+        info = await _get_alpaca_order(row["alpaca_order_id"])
+        if info and info.get("status") == "filled":
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    "UPDATE alpaca_orders SET status='filled', filled_at=:fat, "
+                    "avg_fill_price=:afp, filled_qty=:fq, alpaca_status='filled' "
+                    "WHERE id=:id"
+                ), {
+                    "id": str(row["id"]),
+                    "fat": _parse_alpaca_dt(info.get("filled_at")) or datetime.now(timezone.utc),
+                    "afp": _f(info.get("filled_avg_price")),
+                    "fq": _f(info.get("filled_qty")),
+                })
+
+
+def _row_to_deferred(row: dict) -> DeferredOrder:
+    return DeferredOrder(
+        id=str(row["id"]),
+        side=row["side"],
+        notional=_f(row["notional"]),
+        submitted_at=row["submitted_at"],
+        expires_at=row["expires_at"],
+    )
+
+
+async def _submit_one_deferred(order_id: str) -> None:
+    """Load a still-deferred order and submit it; mark failed on error."""
+    async with engine.connect() as conn:
+        row = (await conn.execute(text(
+            "SELECT id, intent_id, ticker, action, side, qty, notional, "
+            "       order_type, time_in_force, mode, trace_id "
+            "FROM alpaca_orders WHERE id=:id AND status='deferred'"
+        ), {"id": order_id})).mappings().first()
+    if row is None:
+        return  # already handled (e.g. concurrent pass)
+    new_status, err = await _submit_deferred_order(dict(row))
+    if new_status == "submitted":
+        logger.info("Drain submitted order %s (%s %s)", row["id"], row["side"], row["ticker"])
+    else:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("UPDATE alpaca_orders SET status='failed', error_message=:err WHERE id=:id"),
+                {"id": order_id, "err": err},
+            )
+        logger.warning("Drain: order %s failed: %s", order_id, err)
+
+
+async def _drain_pass() -> None:
+    """One fill-gated drain pass (see docs/architecture.md Option B).
+
+    Sells-first, all sells filled before any buy, buys released one at a time
+    within live buying power, unfunded buys expired at their session close. All
+    state lives in alpaca_orders so the pass is stateless across restarts."""
+    clock = await _get_alpaca_clock()
+    is_open = bool(clock and clock["is_open"])
+    now = datetime.now(timezone.utc)
+
+    # Poll fills for submitted sells so the gate sees credited buying power.
+    if is_open:
+        await _reconcile_unfilled_sells()
+
+    _cols = "id, side, notional, submitted_at, expires_at"
+    async with engine.connect() as conn:
+        d_sells = (await conn.execute(text(
+            f"SELECT {_cols} FROM alpaca_orders WHERE status='deferred' AND side='sell' "
+            "AND (deferred_until IS NULL OR deferred_until <= NOW()) ORDER BY created_at ASC"
+        ))).mappings().fetchall()
+        u_sells = (await conn.execute(text(
+            f"SELECT {_cols} FROM alpaca_orders WHERE status='submitted' AND side='sell' "
+            "AND filled_at IS NULL"
+        ))).mappings().fetchall()
+        d_buys = (await conn.execute(text(
+            f"SELECT {_cols} FROM alpaca_orders WHERE status='deferred' AND side='buy' "
+            "AND (deferred_until IS NULL OR deferred_until <= NOW()) ORDER BY created_at ASC"
+        ))).mappings().fetchall()
+
+    if not (d_sells or u_sells or d_buys):
+        return  # nothing queued
+
+    # Only fetch buying power when buys could actually release this pass.
+    buying_power = None
+    if is_open and not d_sells and not u_sells:
+        buying_power = await _get_alpaca_buying_power()
+
+    decision = plan_drain(
+        is_open=is_open,
+        now=now,
+        deferred_sells=[_row_to_deferred(dict(r)) for r in d_sells],
+        unfilled_submitted_sells=[_row_to_deferred(dict(r)) for r in u_sells],
+        deferred_buys=[_row_to_deferred(dict(r)) for r in d_buys],
+        buying_power=buying_power,
+        sell_fill_timeout_secs=SELL_FILL_TIMEOUT_SECS,
+    )
+
+    for oid in decision.expire:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "UPDATE alpaca_orders SET status='expired', "
+                "error_message='unfunded at session close' "
+                "WHERE id=:id AND status='deferred'"
+            ), {"id": oid})
+        logger.info("Drain expired unfunded queued order %s", oid)
+
+    for oid in decision.submit_sells:
+        await _submit_one_deferred(oid)
+    for oid in decision.submit_buys:
+        await _submit_one_deferred(oid)
+
+
 async def _deferred_order_worker() -> None:
-    """Background worker: submits 'deferred' alpaca_orders rows whose
-    deferred_until has elapsed. Sleeps DEFERRED_WORKER_INTERVAL_SECS (default 60s)
-    between passes. Survives restarts because state lives in the DB."""
+    """Background worker: runs one fill-gated drain pass every
+    DEFERRED_WORKER_INTERVAL_SECS. Stateless across restarts (state lives in
+    alpaca_orders)."""
     await asyncio.sleep(5)
     while True:
         try:
             if engine is not None:
-                async with engine.connect() as conn:
-                    rows = (await conn.execute(text(
-                        "SELECT id, intent_id, ticker, action, side, qty, notional, "
-                        "       order_type, time_in_force, mode, trace_id "
-                        "FROM alpaca_orders "
-                        "WHERE status='deferred' "
-                        "  AND (deferred_until IS NULL OR deferred_until <= NOW()) "
-                        "ORDER BY created_at ASC"
-                    ))).mappings().fetchall()
-                for row in rows:
-                    row_dict = dict(row)
-                    new_status, err = await _submit_deferred_order(row_dict)
-                    if new_status == "submitted":
-                        logger.info("Deferred worker submitted order %s (%s %s)",
-                                    row_dict["id"], row_dict["side"], row_dict["ticker"])
-                    else:  # failed
-                        async with engine.begin() as conn:
-                            await conn.execute(
-                                text("UPDATE alpaca_orders SET status='failed', "
-                                     "error_message=:err WHERE id=:id"),
-                                {"id": str(row_dict["id"]), "err": err},
-                            )
-                        logger.warning("Deferred worker: order %s failed: %s",
-                                       row_dict["id"], err)
+                await _drain_pass()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -969,6 +1140,43 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
                 side=side, qty=qty, notional=notional, risk_approved=False,
                 risk_reason=reason, risk_check_id=check_id, trace_id=trace_id,
                 reason=reason,
+            )
+
+        # ── Step 5b: scheduled mode → enqueue for the fill-gated open drain ────
+        # The approval is a GREENLIGHT, not a submission. The drain worker submits
+        # during market hours only, sells-first, fill-gated, one buy at a time.
+        # deferred_until = next open (so the drain waits for the session); when the
+        # market is already open, deferred_until=NULL so the next pass picks it up.
+        # expires_at = that session's close (an unfunded buy expires, never carries
+        # to the next day). See docs/architecture.md Option B.
+        if req.mode == "scheduled":
+            clock = await _get_alpaca_clock()
+            if clock is None:
+                deferred_until, expires_at = None, None          # no creds/unreachable → drain ASAP
+            elif clock["is_open"]:
+                deferred_until, expires_at = None, clock["next_close"]
+            else:
+                deferred_until, expires_at = clock["next_open"], clock["next_close"]
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    "UPDATE alpaca_orders SET status='deferred', deferred_until=:du, "
+                    "expires_at=:ea WHERE id=:id"
+                ), {"id": order_id, "du": deferred_until, "ea": expires_at})
+                await _log_step(
+                    conn, trace_id, "enqueue_deferred", "success",
+                    datetime.now(timezone.utc),
+                    output_summary={"deferred_until": _iso(deferred_until),
+                                    "expires_at": _iso(expires_at)},
+                )
+                await conn.execute(text(
+                    "UPDATE execution_traces SET status='success', completed_at=:now, "
+                    "notes='queued_for_open' WHERE trace_id=:tid"
+                ), {"tid": trace_id, "now": datetime.now(timezone.utc)})
+            return TradeAttemptResponse(
+                status="deferred", order_id=order_id, ticker=ticker, action=action,
+                side=side, qty=qty, notional=notional, risk_approved=True,
+                risk_reason=reason, risk_check_id=check_id, trace_id=trace_id,
+                deferred_until=_iso(deferred_until), reason="queued for market open",
             )
 
         # ── Step 6: submit to Alpaca ──────────────────────────────────────────

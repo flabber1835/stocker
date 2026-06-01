@@ -676,7 +676,7 @@ function _sectionFor(r) {
   // DB order status
   if (os === 'submitted' || os === 'pending' || os === 'deferred') return 'progress';
   if (os === 'filled' || os === 'partial_fill') return 'completed';
-  if (os === 'failed' || os === 'risk_rejected') return 'attention';
+  if (os === 'failed' || os === 'risk_rejected' || os === 'expired') return 'attention';
   if (r.rejected_at) return 'completed';
 
   // No order yet — check if approvable
@@ -694,7 +694,7 @@ function _isApprovable(r) {
   if (!['entry', 'exit', 'buy_add', 'sell_trim'].includes(r.action)) return false;
   if (_approvalState[r.id]) return false;
   const os = r.order_status;
-  if (os === 'submitted' || os === 'pending' || os === 'deferred' || os === 'failed' || os === 'risk_rejected' || os === 'filled' || os === 'partial_fill') return false;
+  if (os === 'submitted' || os === 'pending' || os === 'deferred' || os === 'failed' || os === 'risk_rejected' || os === 'filled' || os === 'partial_fill' || os === 'expired') return false;
   if (r.rejected_at) return false;
   if ((r.action === 'entry' || r.action === 'buy_add') && r.vetter_excluded) return false;
   return true;
@@ -821,6 +821,8 @@ function _holdingStatus(r) {
     return { cls: 'hs-submitted', text: 'Order deferred — queued for next session' };
   if (os === 'filled' || os === 'partial_fill')
     return { cls: 'hs-done', text: (ACTION_LABELS[r.action] || r.action) + ' filled' };
+  if (os === 'expired')
+    return { cls: 'hs-attn', text: (ACTION_LABELS[r.action] || r.action) + ' expired — unfunded at close' };
   if (os === 'failed' || os === 'risk_rejected' || st.status === 'err')
     return { cls: 'hs-attn', text: (ACTION_LABELS[r.action] || r.action) + ' failed — needs attention' };
   if (r.rejected_at || st.status === 'rejected')
@@ -944,6 +946,8 @@ function _buildTradeRow(r) {
     statusHtml = '<span class="tc-submitted">&#10003; Submitting&#8230;</span>';
   } else if (r.order_status === 'deferred') {
     statusHtml = '<span class="tc-queued">&#9203; ' + esc(_fmtDeferred(r.order_deferred_until)) + '</span>';
+  } else if (r.order_status === 'expired') {
+    statusHtml = '<span class="tc-error">&#x26A0; Expired — unfunded at close</span>';
   } else if (st.status === 'err') {
     statusHtml = '<span class="tc-error">&#x26A0; ' + esc(st.msg || 'Error') + '</span>';
   } else if (r.order_status === 'failed' || r.order_status === 'risk_rejected') {
@@ -963,7 +967,7 @@ function _buildTradeRow(r) {
   let actionsCell;
   if (approvable) {
     actionsCell = '<td class="tc-actions-cell">'
-      + '<button class="btn-sm-approve" onclick="approveTrade(\'' + r.id + '\',\'immediate\')" title="Approve (MOO)">&#9654;</button>'
+      + '<button class="btn-sm-approve" onclick="approveTrade(\'' + r.id + '\',\'scheduled\')" title="Approve — queue for market open">&#9654;</button>'
       + ' <button class="btn-sm-reject" onclick="rejectTrade(\'' + r.id + '\')" title="Reject">&#10005;</button>'
       + '</td>';
   } else {
@@ -1029,19 +1033,13 @@ async function approveSelected() {
   if (!toApprove.length) return;
   _selectedIntents.clear();
 
-  // Submit SELLS first (await), THEN buys. Alpaca validates buying power at
-  // submission time, per order — proceeds from a not-yet-executed sell do not
-  // raise buying power until the sell is accepted/fills. If a buy is submitted
-  // before its funding sell (as the old parallel Promise.all allowed), a fully-
-  // invested account rejects it with "insufficient buying power". Sequencing
-  // sells-then-buys lets the sells free cash first. Within each side, submit in
-  // parallel (same-side orders don't fund each other).
-  const actionOf = id => (deltaData.find(r => String(r.id) === id) || {}).action;
-  const sells = toApprove.filter(id => actionOf(id) === 'exit' || actionOf(id) === 'sell_trim');
-  const buys  = toApprove.filter(id => actionOf(id) === 'entry' || actionOf(id) === 'buy_add');
-
-  await Promise.all(sells.map(id => approveTrade(id, 'immediate')));
-  await Promise.all(buys.map(id => approveTrade(id, 'immediate')));
+  // Approval is a GREENLIGHT, not a submission: enqueue every selected intent as
+  // 'scheduled'. The trade-executor's fill-gated drain submits them during market
+  // hours — sells first, all sells filled before any buy, buys one at a time within
+  // live buying power. The submission ORDER (and the buying-power race that used to
+  // reject buys) is now owned by the drain, so the dashboard no longer sequences
+  // sells-before-buys here. See docs/architecture.md Option B.
+  await Promise.all(toApprove.map(id => approveTrade(id, 'scheduled')));
 }
 
 async function approveTrade(intentId, mode) {

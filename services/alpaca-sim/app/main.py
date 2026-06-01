@@ -27,7 +27,7 @@ import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Request
@@ -421,6 +421,30 @@ async def list_orders(
     # status='all' returns everything
     sorted_orders = sorted(orders, key=lambda o: o["created_at"], reverse=(direction == "desc"))
     return sorted_orders[:limit]
+
+
+@app.get("/v2/orders/{order_id}")
+async def get_order(order_id: str) -> dict[str, Any]:
+    """Fetch a single order by id — used by the trade-executor drain to poll sell
+    fills before releasing buys. Market orders fill on submit, so this returns
+    status='filled' for any submitted order."""
+    for o in STATE.orders:
+        if str(o.get("id")) == order_id:
+            return o
+    raise HTTPException(status_code=404, detail=f"order {order_id} not found")
+
+
+@app.get("/v2/clock")
+async def get_clock() -> dict[str, Any]:
+    """Market clock. The sim is always 'open' so the drain submits immediately in
+    tests; next_open/next_close are nominal stamps for deferral arithmetic."""
+    now = datetime.now(timezone.utc)
+    return {
+        "timestamp": now.isoformat(),
+        "is_open": True,
+        "next_open": (now + timedelta(hours=12)).isoformat(),
+        "next_close": (now + timedelta(hours=6)).isoformat(),
+    }
 
 
 @app.delete("/v2/orders")

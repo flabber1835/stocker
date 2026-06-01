@@ -1373,7 +1373,7 @@ async def approve_trade(req: TradeApproveRequest):
         async with engine.connect() as conn:
             existing = (await conn.execute(text(
                 "SELECT id, status FROM alpaca_orders "
-                "WHERE intent_id = :iid AND status IN ('pending','submitted','risk_rejected') "
+                "WHERE intent_id = :iid AND status IN ('pending','submitted','deferred','risk_rejected') "
                 "LIMIT 1"
             ), {"iid": req.intent_id})).mappings().first()
             if existing:
@@ -1471,7 +1471,7 @@ async def get_recent_orders():
             "FROM alpaca_orders "
             "WHERE created_at > NOW() - INTERVAL '48 hours' "
             "  AND ( "
-            "    status IN ('pending','submitted','risk_rejected','failed') "
+            "    status IN ('pending','submitted','deferred','risk_rejected','failed','expired') "
             "    OR (status = 'filled' AND filled_at > NOW() - INTERVAL '2 hours') "
             "  ) "
             "ORDER BY created_at DESC "
