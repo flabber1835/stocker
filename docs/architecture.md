@@ -351,6 +351,79 @@ This also makes the persisted `candidate_clusters` map (the screener overlay)
 cover every ranked candidate including excluded ones, which is what that table is
 meant to represent.
 
+## Design Decision: fill-gated market-open order draining (Option B)
+
+**Problem.** The chain runs after the close and approvals (manual or the 60-min
+auto-approve) submitted Alpaca `day` orders *immediately*. Those orders queue for
+the next open, but Alpaca validates **buying power at submission time, per order**
+— proceeds from a not-yet-executed sell do not raise buying power. On a
+fully-invested account a queued buy is therefore rejected with *insufficient
+buying power* even though, at the open, the sells would have funded it. Submitting
+a whole batch at once post-close races buys ahead of their funding sells.
+
+**Decision.** Approval no longer submits. It **enqueues**. A single background
+**drain** in the trade-executor is the only thing that submits to Alpaca, and it
+does so **only during market hours**, **sells-first**, **fill-gated**, **one buy
+at a time**:
+
+```text
+approve (manual / auto)
+  → trade-executor sizes + risk-checks the intent
+  → records alpaca_orders row status='deferred'  (= "queued for open")
+     deferred_until = next market open, expires_at = that session's close
+  → NO Alpaca submission yet
+
+drain worker (every DEFERRED_WORKER_INTERVAL_SECS):
+  GET /v2/clock
+  if not is_open → mark any deferred order past expires_at 'expired'; sleep
+  if is_open:
+    1. submit ALL deferred SELLS (exit / sell_trim) not yet submitted
+    2. wait (across passes) until EVERY submitted sell is FILLED
+       — proceeds are now credited to buying power
+    3. for each deferred BUY, oldest first, ONE at a time:
+         GET /v2/account → live buying_power
+         if order notional <= buying_power: submit, wait for fill, next
+         else: leave queued, retry next pass
+    4. any buy still unfunded at expires_at → 'expired'
+```
+
+**Why these choices.**
+- *Sells fully filled before any buy* (not incremental release): simplest correct
+  form and matches "one order at a time". Market sells fill within seconds of the
+  open, so the latency cost is small; the alternative interleaves partial-fill
+  accounting for marginal speed-up.
+- *Unfunded buys expire at close* (not carried over): the next daily chain rebuilds
+  a fresh, holdings-agnostic target and re-proposes the name if still wanted.
+  Carrying a stale order risks acting on a target the next build already changed.
+- *Drain lives in trade-executor, not the scheduler*: trade-executor is already the
+  ONLY service with order-submission credentials and already owns `_submit_for_action`
+  and the (previously unwired) `deferred` worker. Keeping the drain there preserves
+  "only trade-executor submits orders" and avoids a new market-hours scheduler path.
+- *Buying-power gate uses a live `GET /v2/account`*, re-fetched before each buy, not
+  the cached `alpaca_sync` snapshot — the gate must see cash credited by sells that
+  filled seconds ago.
+
+**Status lifecycle** (`alpaca_orders.status`): `deferred` (queued for open) →
+`submitted` → (broker) `filled`; or `risk_rejected` at enqueue; or `expired` if a
+buy can't be funded by its session close; or `failed` on an Alpaca error. The
+`deferred` status, `deferred_until` column (migration 0008) and the worker already
+existed but were never wired — approval always went `pending → submit`. This
+decision wires them and adds the sells-first + fill-gate + buying-power logic.
+`expires_at` is added (migration 0015) for deterministic, restart-safe expiry.
+
+**Approval = greenlight, drain = authority.** Risk-check still runs at approval for
+fast human feedback, and the kill switch is re-checked at submit. The buying-power
+gate is the drain's own pre-submit check. All state lives in `alpaca_orders`, so
+the drain is stateless across restarts — each pass re-derives what to do from the
+row statuses.
+
+**Trade-off accepted.** Orders execute intraday at live prices a few seconds/minutes
+after the open, not in the opening auction. This is deliberate: predictable funding
+and no insufficient-buying-power rejects, in exchange for not capturing the auction
+print. `mode='immediate'` on `/jobs/submit` still submits inline (single manual
+override / tests); the dashboard's batch "Approve Selected" now enqueues
+(`mode='scheduled'`) so the drain sequences it.
+
 ## Design Decision: vetter drawdown-only mode + ranker drawdown indicator
 
 The LLM vetter can be put into a **drawdown-only mode** (`VETTER_LLM_ENABLED=false`)
