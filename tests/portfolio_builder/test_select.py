@@ -286,6 +286,74 @@ def test_clustering_uses_raw_corr_not_shrunk_cov():
     assert clusters["D"] != clusters["A"], f"independent name must stay singleton; got {clusters}"
 
 
+def _bridge_prices(n: int = 400, seed: int = 11) -> pd.DataFrame:
+    """A,B,C where B BRIDGES A and C under single-linkage.
+
+    Two independent factors g1,g2. A loads mostly on g1, C mostly on g2, and the
+    bridge B = g1+g2 loads on both. This gives corr(A,B) ≈ corr(B,C) ≈ 0.83 (≥0.70)
+    but corr(A,C) ≈ 0.39 (<0.70): A and C are one cluster ONLY through B.
+    """
+    rng = np.random.default_rng(seed)
+    g1 = rng.normal(0.0003, 0.012, n)
+    g2 = rng.normal(0.0003, 0.012, n)
+    rets = {
+        "A": g1 + 0.2 * g2,   # mostly factor 1
+        "C": g2 + 0.2 * g1,   # mostly factor 2
+        "B": g1 + g2,         # the bridge: loads on both
+    }
+    base_date = pd.Timestamp("2022-01-03")
+    rows = []
+    for t, r in rets.items():
+        price = 100.0
+        for i in range(n):
+            price *= 1 + r[i]
+            rows.append({"ticker": t, "date": base_date + pd.Timedelta(days=i), "adjusted_close": price})
+    return pd.DataFrame(rows)
+
+
+def test_bridge_ticker_holds_cluster_together():
+    """Single-linkage: A-B-C is ONE cluster because B bridges A and C, even though
+    A and C are only weakly correlated. (Sanity check for the fixture.)"""
+    df = _bridge_prices()
+    _cov, _dropped, raw_corr = build_covariance(df, window_days=400, shrinkage=0.20)
+    # confirm the intended correlation geometry
+    assert raw_corr.loc["A", "B"] >= 0.70 and raw_corr.loc["B", "C"] >= 0.70
+    assert raw_corr.loc["A", "C"] < 0.70
+    clusters = correlation_clusters(raw_corr, threshold=0.70)
+    assert clusters["A"] == clusters["B"] == clusters["C"], (
+        f"bridge B must hold A,B,C in one cluster; got {clusters}"
+    )
+
+
+def test_excluding_bridge_before_clustering_fragments_the_cluster():
+    """The bug the clustering-before-exclusion ordering prevents.
+
+    If a falling-knife / vetter exclusion removes the BRIDGE (B) BEFORE clustering,
+    A and C — genuine co-members of one correlated theme — fall below the linkage
+    threshold and fragment into singletons, so they would escape max_cluster_weight.
+    Clustering the FULL universe first (B retained as a bridge) keeps them grouped;
+    the exclusion is applied only to the selectable pool afterwards. This test pins
+    both halves so re-introducing the pre-clustering filter fails CI.
+    """
+    df = _bridge_prices()
+
+    # CORRECT order: cluster the full universe (B present as bridge) → A,C together.
+    _c1, _d1, raw_full = build_covariance(df, window_days=400, shrinkage=0.20)
+    clusters_full = correlation_clusters(raw_full, threshold=0.70)
+    assert clusters_full["A"] == clusters_full["C"], (
+        f"clustering the full universe must keep A,C in one cluster; got {clusters_full}"
+    )
+
+    # WRONG order: drop the excluded bridge B first, THEN cluster → A,C fragment.
+    df_no_bridge = df[df["ticker"] != "B"]
+    _c2, _d2, raw_frag = build_covariance(df_no_bridge, window_days=400, shrinkage=0.20)
+    clusters_frag = correlation_clusters(raw_frag, threshold=0.70)
+    assert clusters_frag["A"] != clusters_frag["C"], (
+        "removing the bridge before clustering should fragment A,C into singletons "
+        f"(that is the hole the ordering fix closes); got {clusters_frag}"
+    )
+
+
 def test_build_covariance_deduplicates_prices():
     """Duplicate (date, ticker) rows must be dropped (keep last) not silently averaged."""
     tickers = ["A", "B"]

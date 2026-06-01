@@ -259,11 +259,15 @@ async def _do_build(
             "  ORDER BY completed_at DESC NULLS LAST LIMIT 1)"
         ))
         _held_now = {r.ticker for r in _hrows.fetchall()}
+    # Drawdown/vetter exclusions are a per-ticker TRADEABILITY overlay, applied at
+    # SELECTION time (step 5) — NOT here. The excluded names stay in candidate_tickers
+    # so they flow into the covariance + correlation-cluster build and keep acting as
+    # single-linkage BRIDGES. Removing a falling-knife bridge before clustering would
+    # fragment a real correlated theme (e.g. the golds in a sector-wide selloff) into
+    # singletons, letting the survivors escape max_cluster_weight during the very
+    # drawdown the cap exists to contain. See docs/architecture.md "Sub-decision:
+    # cluster on the full universe, apply drawdown/vetter exclusions AFTER".
     excluded_set = compute_excluded_set(vetter_excluded, _held_now, excluded_risk_type)
-    if excluded_set:
-        candidate_tickers = [t for t in candidate_tickers if t not in excluded_set]
-        scores_map = {t: v for t, v in scores_map.items() if t not in excluded_set}
-        rank_map = {t: v for t, v in rank_map.items() if t not in excluded_set}
 
     async with engine.begin() as conn:
         warn_lines: list[str] = []
@@ -283,7 +287,11 @@ async def _do_build(
             output_summary={
                 "excluded_count": len(vetter_excluded),
                 "excluded_tickers": vetter_excluded,
-                "remaining_candidates": len(candidate_tickers),
+                # Excluded names are retained in the candidate pool for the
+                # covariance + cluster build and removed only at selection (step 5),
+                # so this count still includes them by design.
+                "candidates_retained_for_clustering": len(candidate_tickers),
+                "selection_excluded_count": len(excluded_set),
                 "unvetted_candidates_count": len(vetter_unvetted_remaining),
             },
             warnings=warn_lines or None,
@@ -407,8 +415,10 @@ async def _do_build(
     scores = pd.Series({t: scores_map[t] for t in available_tickers})
     cov = cov.loc[available_tickers, available_tickers]
 
-    # Portfolio-level correlation summary for the audit log
-    # corr_matrix is reused below for the highest-correlated pair among selected tickers.
+    # Portfolio-level correlation summary for the audit log (avg pairwise correlation
+    # across the full selectable universe). The highest-correlated-pair-among-selected
+    # stat is computed separately from cov.loc[selected] at step 5, so it stays correct
+    # even after the selectable pool is reduced by exclusions.
     n_cov = len(available_tickers)
     if n_cov > 1:
         std = np.sqrt(np.diag(cov.values))
@@ -523,6 +533,18 @@ async def _do_build(
     # ── Step 5: greedy selection ────────────────────────────────────────────────────────────────────────────────────
     t0 = datetime.now(timezone.utc)
 
+    # Apply drawdown/vetter exclusions HERE — after clustering, before selection.
+    # The excluded names stayed in the covariance + cluster build (so they bridge
+    # single-linkage clusters and the survivors keep correct cluster identity), but
+    # they must never be bought. Drop them from the selectable pool (scores/cov);
+    # cluster_map deliberately retains their membership. See docs/architecture.md
+    # "Sub-decision: cluster on the full universe, apply ... exclusions AFTER".
+    selection_excluded = [t for t in available_tickers if t in excluded_set]
+    if selection_excluded:
+        available_tickers = [t for t in available_tickers if t not in excluded_set]
+        scores = scores[available_tickers]
+        cov = cov.loc[available_tickers, available_tickers]
+
     # Optionally exclude candidates with a negative composite score before selection
     negative_excluded: list[str] = []
     if pb_cfg.require_positive_composite_score:
@@ -618,11 +640,17 @@ async def _do_build(
     final_cov = cov.loc[selected_tickers, selected_tickers].values
     portfolio_vol = float(np.sqrt(max(float(w_vec @ final_cov @ w_vec), 1e-12)))
 
-    # Highest-correlated pair for the trace (informational).
-    # Reuse corr_matrix computed above; slice it to the selected-ticker indices.
-    if len(selected_tickers) > 1 and corr_matrix is not None:
-        sel_idx = [available_tickers.index(t) for t in selected_tickers]
-        sub_corr = corr_matrix[np.ix_(sel_idx, sel_idx)]
+    # Highest-correlated pair among the selected names, for the trace (informational).
+    # Derive the correlation submatrix straight from the label-indexed cov restricted
+    # to selected_tickers — NOT from the module-level `corr_matrix`, whose positional
+    # order tracks the pre-selection-exclusion `available_tickers` and would mis-index
+    # after that pool is reduced at step 5.
+    if len(selected_tickers) > 1:
+        sel_cov = cov.loc[selected_tickers, selected_tickers].values
+        sel_std = np.sqrt(np.diag(sel_cov))
+        sel_outer = np.outer(sel_std, sel_std)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            sub_corr = np.where(sel_outer > 0, sel_cov / sel_outer, 0.0)
         uidx = np.triu_indices(len(selected_tickers), k=1)
         max_corr_idx = int(np.argmax(sub_corr[uidx]))
         i_idx, j_idx = uidx[0][max_corr_idx], uidx[1][max_corr_idx]

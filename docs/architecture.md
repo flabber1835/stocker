@@ -273,9 +273,14 @@ under-constrains real co-movement. Correlation is computed directly from the sam
 covariance matrix the optimizer already builds, so it groups names by how they
 actually trade.
 
-**How.** From the (shrunk) covariance matrix we derive the correlation matrix and
-form clusters by single-linkage union-find: tickers A and B are in the same
-cluster when `|corr(A,B)| ≥ cluster_correlation_threshold` (default **0.70**).
+**How.** From the **raw** (pre-shrinkage) correlation matrix — `build_covariance`
+returns it alongside the shrunk covariance — we form clusters by single-linkage
+union-find: tickers A and B are in the same cluster when
+`|corr(A,B)| ≥ cluster_correlation_threshold` (default **0.70**). The raw
+correlation is used deliberately: clustering off the *shrunk* covariance would
+deflate every off-diagonal correlation by the shrinkage factor and split genuine
+co-movers into singletons (e.g. gold miners correlated 0.79–0.92 read 0.63–0.74
+after 0.20 shrinkage, mostly falling below 0.70).
 Those cluster labels are then fed into the *existing* group-cap machinery — the
 same greedy count cap (`greedy_select`) and post-build weight redistribution
 (`compute_weights`) that previously consumed sector labels. No new constraint
@@ -296,6 +301,55 @@ clusters** (⌈1/0.15⌉) to be fully invested, preventing a single correlated t
 and surfaced in the trace/`portfolio_runs` for human readability, but they no
 longer gate selection or weighting. Setting `max_cluster_weight = 1.0` disables
 the cluster cap (mirrors the old `max_sector_weight = 1.0` no-op).
+
+### Sub-decision: cluster on the full universe, apply drawdown/vetter exclusions AFTER
+
+Correlation clustering is a **structural property of the investable universe**;
+a drawdown (or vetter) exclusion is a **per-ticker tradeability overlay**. These
+live at different layers and must be applied in that order:
+
+```text
+1. load top-N candidates
+2. drop do-not-buy + apply universe filters (min_price, min_avg_dollar_volume)
+     → defines the INVESTABLE UNIVERSE (these names genuinely can't be traded)
+3. build covariance + correlation CLUSTERS on that whole universe
+     → cluster identity is fixed here, including drawdown-excluded names
+4. drop drawdown/vetter exclusions from the SELECTABLE pool only
+     → excluded names are never bought, but keep their cluster membership
+5. greedy select + weight, capped by max_cluster_weight
+```
+
+**Why the order matters — the bridge-fragmentation hole.** Clusters are formed by
+**single-linkage**: A–B–C chain into one cluster even when A and C correlate only
+weakly, *as long as B bridges them* (A–B and B–C each ≥ threshold). If a
+drawdown/vetter exclusion removes a name **before** clustering and that name was a
+bridge, the cluster fragments into singletons. Drawdown exclusions specifically
+fire on falling knives — which, in a *correlated theme selloff* (the golds all
+crashing together), remove some members of the cluster. If the removed members
+were bridges, the surviving correlated names split into separate "clusters" and
+**escape `max_cluster_weight` — at exactly the moment the cap is most needed.**
+Clustering the full universe first preserves linkage *through* the excluded
+bridge, so the cap still binds on the survivors.
+
+Over-grouping is the safe direction: correlation geometry is structural and
+persistent, whereas a drawdown is temporary (it heals, and the same veto blocks
+re-entry until it does). Treating A and C as one theme because B links them is the
+conservative choice — under-grouping is the dangerous failure mode, not
+over-grouping.
+
+**Necessary nuance — data-quality drops stay BEFORE clustering.** "Full universe"
+means *all top-N candidates with a usable price series that pass the universe
+filters*. Names dropped for **no price / insufficient observations** have no
+return series and genuinely cannot be clustered; names below `min_price` /
+`min_avg_dollar_volume_20d` are not in the investable universe at all. Only the
+drawdown/vetter exclusion — which is per-ticker and whose names *do* have prices
+(drawdown is computed from them) — moves to step 4. A falling knife that has also
+crashed below `min_price` is filtered at step 2 as a universe matter, not a
+drawdown one.
+
+This also makes the persisted `candidate_clusters` map (the screener overlay)
+cover every ranked candidate including excluded ones, which is what that table is
+meant to represent.
 
 ## Design Decision: vetter drawdown-only mode + ranker drawdown indicator
 

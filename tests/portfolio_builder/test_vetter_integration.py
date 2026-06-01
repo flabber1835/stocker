@@ -9,8 +9,12 @@ import pytest
 
 # ── Vetter exclusion application logic ───────────────────────────────────────
 #
-# Mirrors the filter logic in _do_build (step 2b).  Tested as a standalone
-# simulation so no DB mock is needed.
+# Mirrors the exclusion-filter primitive in _do_build. Note: as of the
+# cluster-on-full-universe ordering change this filter is applied to the
+# SELECTABLE pool at selection (step 5), AFTER covariance + clustering — the
+# excluded names are retained through the cluster build so they can bridge
+# single-linkage clusters. The primitive (remove names from a list + maps) is
+# unchanged; only WHERE it runs moved. Tested standalone so no DB mock is needed.
 
 
 def _apply_exclusions(
