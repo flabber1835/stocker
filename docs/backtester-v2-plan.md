@@ -1,192 +1,140 @@
 # Backtester v2 — Time-Stepping Strategy Simulator
 
-Status: PROPOSED (design doc — implementation gated on approval)
-Supersedes: the existing `backtester` service replays already-built
-`portfolio_runs` forward against prices. v2 instead **re-runs the pipeline logic
-day by day from a past start date**, building portfolios as the live system would
-have, and compares the resulting equity curve to SPY.
+Status: APPROVED ARCHITECTURE (decisions locked; phased implementation pending go-ahead)
+Supersedes the existing `backtester` service (which only replays already-built
+`portfolio_runs` forward). v2 re-runs the pipeline logic **day by day** from a past
+start date, builds portfolios as the live system would have, and compares the
+equity curve to SPY.
 
-## Goal
+## Decisions locked (from review)
 
-Duplicate the live pipeline's stock-selection + portfolio-construction + rebalance
-logic, start at a configurable date in the past, advance one trading day at a
-time, and observe how the system would have picked and traded stocks through time
-— with portfolio performance measured against SPY. Configurable and viewable
-through its **own separate UI**.
+1. **Vetter** — NO LLM/news. Only the **deterministic falling-knife drawdown
+   backstop**, applied at **portfolio-builder selection** (excluded from the target,
+   exactly as live). Fully point-in-time: drawdown computed from `daily_prices ≤ D`.
+2. **Isolation** — runs on a **SEPARATE MACHINE with its OWN database**. Not a
+   docker-compose profile in the live stack. The live trading system is never
+   reachable or mutated by the backtester. (See "Deployment" below.)
+3. **Data** — backtester has its **own data**, fetched by a dedicated **`bt-data`
+   service** from **Sharadar SF1** (Nasdaq Data Link): TRUE point-in-time
+   fundamentals + deep daily prices + delisted coverage. This eliminates the
+   look-ahead bias that Alpha Vantage's current-only fundamentals would introduce.
+4. **Same GitHub repo** — the backtester machine clones the SAME repo and tracks
+   `origin/main`. One codebase, two deploy targets; develop/pull/push from either.
 
-## Hard constraint: ZERO interference with the live stack
-
-The regular `docker compose up` stack must keep running uninterrupted. The
-backtester v2:
-
-- Runs as **its own opt-in compose profile** (`--profile backtest`), NOT in the
-  default `docker compose up` set. A plain deploy never starts it.
-- **Reads** `daily_prices` / `fundamentals` / `universe_snapshots` from the shared
-  Postgres (read-only on those tables), but **writes only to its own
-  `bt_*` tables** — never to `rankings`, `portfolio_runs`, `delta_runs`,
-  `alpaca_orders`, etc. No shared mutable state.
-- Has its **own service container, own port, own UI** — does not touch the live
-  `dashboard`, `api`, `scheduler`, `pipeline`, or any trading service.
-- Submits **no orders** — simulation only; never imports Alpaca credentials.
-- Optionally points at a **separate read-replica / its own DB** via
-  `BT_DATABASE_URL` if you want total isolation (default: shared DB, bt_* tables).
-
-## Reuse the real logic (don't re-implement)
-
-The pipeline's core math is already pure, deterministic, frame-in/frame-out —
-ideal for replay. The backtester imports and calls the SAME functions the live
-system uses, so results reflect real behavior, not a parallel approximation:
-
-| Step | Live function | Module |
-|------|--------------|--------|
-| Factors | `compute_all_factors(prices_long, fundamentals, cfg)` | pipeline/app/factors.py |
-| Regime | `detect_regime(spy_prices, config)` | pipeline/app/regime.py |
-| Ranking | `rank_universe(factor_scores, regime, strategy)` | pipeline/app/rank.py |
-| Covariance | `build_covariance(...)` | portfolio-builder/app/select.py |
-| Selection | `greedy_select(...)` | portfolio-builder/app/select.py |
-| Weights | `compute_weights(...)` | portfolio-builder/app/select.py |
-| Buffer-zone delta | `evaluate_target_vs_live(target, live, universe, ...)` | pipeline/app/engine.py |
-
-These move to a shared importable location (see "Shared module" below) so both the
-live services and the backtester depend on ONE copy — no logic drift.
-
-## The replay loop (per simulated trading day)
+## Deployment model: separate machine, own stack, same repo
 
 ```
-for D in trading_days(start_date .. end_date):
-    # 1. POINT-IN-TIME data: only rows with date <= D (no look-ahead).
-    prices   = daily_prices WHERE date <= D            (lookback window)
-    funds    = fundamentals WHERE as_of_date <= D      (latest per ticker, ≤ D)
-    universe = universe_snapshots active as of D
-
-    # 2. Reuse pipeline logic exactly:
-    regime  = detect_regime(spy_prices ≤ D)
-    factors = compute_all_factors(prices, funds)
-    ranks   = rank_universe(factors, regime, strategy)
-
-    # 3. Vetter — see "Vetter handling" (default: DETERMINISTIC backstop only)
-    candidates = ranks minus drawdown-backstop exclusions
-
-    # 4. Portfolio build (same caps/weights as live):
-    target = greedy_select + compute_weights(candidates, covariance ≤ D)
-
-    # 5. Buffer-zone delta against the SIMULATED held book:
-    intents = evaluate_target_vs_live(target, sim_positions, universe ≤ D, ...)
-
-    # 6. EXECUTE in the simulator at D's (or D+1 open) price:
-    apply intents to sim_positions; record fills at modeled price + tx cost
-
-    # 7. Mark-to-market the book at D's close; append to equity curve; same for SPY.
+┌─ LIVE MACHINE ─────────────┐     ┌─ BACKTEST MACHINE ──────────────┐
+│ docker-compose.yml         │     │ docker-compose.backtest.yml     │
+│  postgres (live trading)   │     │  bt-postgres (own DB)           │
+│  pipeline, scheduler, …    │     │  bt-data     (Sharadar fetch)   │
+│  trade-executor (Alpaca)   │     │  bt-engine   (replay sim)       │
+│                            │     │  bt-ui       (own dashboard)    │
+└────────────────────────────┘     └─────────────────────────────────┘
+        ▲ git pull/push                        ▲ git pull/push
+        └──────────── same origin/main ────────┘
 ```
 
-Key correctness rules:
-- **No look-ahead**: every query is `<= D`. Factor windows, covariance, regime all
-  computed only from data available on day D.
-- **Fills**: model entries/exits at next-day open (configurable: close-of-D or
-  open-of-D+1) with a `tx_cost_bps` slippage/commission assumption.
-- **Determinism**: same config + same DB snapshot ⇒ identical equity curve
-  (heavily tested, like the rest of the system).
+- The backtest machine runs **only** `docker compose -f docker-compose.backtest.yml up`.
+  It never has the live compose file's services running.
+- The live machine never runs the backtest compose file.
+- **No network path, no shared DB, no shared container** between them. "Absolutely
+  no disruption to the running pipeline" is guaranteed by physical separation.
+- Both clone the repo; the backtester code lives in the same repo under
+  `services/bt-*` + `docker-compose.backtest.yml`. You work on the backtester from
+  its own machine (or the live one — code is shared, deploy targets are not).
+- **Q: same GitHub repo? → YES.** **Q: docker compose profile? → NO** — it's a
+  separate compose FILE on a separate machine, which is stronger than a profile.
 
-## Vetter handling (the one part that can't be faithfully replayed)
+## Services (backtest stack)
 
-The LLM vetter depends on **live** Tavily/AV news with NO point-in-time history —
-we cannot reconstruct "what news existed on 2024-03-15." Options, configurable per
-run:
+### bt-data (new) — Sharadar fetcher
+- Fetches from Sharadar SF1 (Nasdaq Data Link API) into `bt-postgres`:
+  - `SEP`/`SFP` daily prices (deep history, incl. delisted — survivorship-bias-free)
+  - `SF1` point-in-time fundamentals (`dimension=ARQ`/`ART`, `datekey` = the date
+    the data became known — this is what makes value/quality/growth honest)
+  - ticker metadata / actions
+- One-time **backfill** + incremental top-up. Stores into bt_* price/fundamental
+  tables mirroring the SHAPE the pipeline functions expect (so the reused logic
+  needs no changes).
+- Needs `SHARADAR_API_KEY` (Nasdaq Data Link). No Alpaca, no AV.
 
-- **`off`** — no vetter (pure deterministic factor/portfolio strategy). Cleanest,
-  fully reproducible baseline.
-- **`backstop_only`** (DEFAULT) — apply only the DETERMINISTIC falling-knife
-  drawdown backstop (price-based, fully reconstructable from `daily_prices ≤ D`).
-  This is the part of the vetter that IS point-in-time-safe.
-- **`live_llm`** (opt-in, slow/costly, NOT reproducible) — call the real vetter
-  with today's news as a rough proxy. Flagged in the UI as non-reproducible.
+### bt-engine (new) — the replay simulator
+Per simulated trading day D (point-in-time, no look-ahead — every query `≤ D`):
+```
+regime  = detect_regime(spy_prices ≤ D)
+factors = compute_all_factors(prices ≤ D, fundamentals known-as-of ≤ D)
+ranks   = rank_universe(factors, regime, strategy)
+# Falling-knife backstop at selection: drop tickers whose drawdown ≤ -threshold
+candidates = ranks minus drawdown_backstop(prices ≤ D)
+target = greedy_select + compute_weights(candidates, covariance ≤ D)
+intents = evaluate_target_vs_live(target, sim_positions, universe ≤ D, ...)
+apply intents to sim_positions at modeled fill price (+ tx cost)
+mark-to-market at D close; append portfolio + SPY to equity curve
+```
+Reuses the SAME functions as live: `compute_all_factors`, `detect_regime`,
+`rank_universe`, `greedy_select`/`compute_weights`/`build_covariance`,
+`evaluate_target_vs_live`. (Imported from the service paths; a later refactor can
+move them to a shared package — decision deferred, low priority given separation.)
 
-Default `backstop_only` keeps backtests deterministic and honest about what can
-truly be replayed.
+### bt-ui (new) — own interface
+Separate FastAPI app + static UI (NOT the live dashboard):
+- **Configure**: start/end date, strategy YAML, drawdown-backstop threshold,
+  tx cost bps, fill timing (close-D vs open-D+1), starting capital.
+- **Run**: background job, progress bar as it steps through days.
+- **View**: equity curve vs SPY, drawdown chart, summary (total/annualized return,
+  Sharpe, max DD, alpha vs SPY, turnover, win rate), day-by-day holdings/trades
+  explorer.
 
-## Data sufficiency (verify before building)
-
-The replay needs deep history. Before implementation we confirm:
-- `daily_prices` depth ≥ (start_date − max factor lookback, ~400 cal days) for the
-  universe — momentum/low-vol/covariance need ~1yr.
-- `fundamentals.as_of_date` history exists for value/quality/growth (AV gives
-  limited point-in-time; if absent, those factors null out pre-history and the UI
-  warns — the strategy still runs on price-based factors).
-- This is a GO/NO-GO gate: if history is too shallow, the UI surfaces "insufficient
-  data before YYYY-MM-DD" rather than silently producing a misleading curve.
-
-## Schema (new `bt_*` tables — isolated from live)
+## Schema (bt-postgres — entirely separate DB)
 
 ```
-bt_runs        (run_id, config JSONB, start_date, end_date, vetter_mode,
-                tx_cost_bps, status, total_return, annualized_return, sharpe,
-                max_drawdown, benchmark_return, alpha, created_at, ...)
-bt_equity      (run_id, date, portfolio_value, spy_value, drawdown)   -- the curve
-bt_positions   (run_id, date, ticker, qty, weight, market_value)      -- daily book
-bt_trades      (run_id, date, ticker, action, qty, price, tx_cost)    -- fills log
+bt_prices        (ticker, date, open, high, low, close, adj_close, volume)
+bt_fundamentals  (ticker, datekey, <P/E, P/B, ROE, D/E, rev_growth, eps_growth, …>)
+                 -- datekey = point-in-time "known as of" date (no look-ahead)
+bt_universe      (snapshot_date, ticker, …)
+bt_runs          (run_id, config JSONB, start_date, end_date, drawdown_threshold,
+                  tx_cost_bps, fill_timing, status, total_return, annualized_return,
+                  sharpe, max_drawdown, benchmark_return, alpha, turnover, created_at)
+bt_equity        (run_id, date, portfolio_value, spy_value, drawdown)
+bt_positions     (run_id, date, ticker, qty, weight, market_value)
+bt_trades        (run_id, date, ticker, action, qty, price, tx_cost)
 ```
-All prefixed `bt_` so they're trivially separable and never collide with live
-tables. Delivered via an alembic migration (run by the existing db-migrator) AND
-an idempotent `CREATE TABLE IF NOT EXISTS` on backtester startup.
 
-## Service + UI
+## Phasing (each independently shippable)
 
-- New container `backtester-v2` (or extend the existing `backtester`), profile
-  `backtest`, own port (e.g. 8020).
-- **Own FastAPI app + own static UI** (separate from the live dashboard):
-  - **Configure**: start/end date, strategy config (pick a `strategies/*.yaml`),
-    vetter mode, tx cost, fill timing, starting capital.
-  - **Run**: kick off a backtest; progress bar as it steps through days
-    (long runs stream progress like the pipeline does).
-  - **View**: equity curve vs SPY, drawdown chart, summary stats (total/annualized
-    return, Sharpe, max DD, alpha vs SPY, turnover, win rate), a day-by-day
-    holdings/trades explorer, and per-period attribution.
-- Runs **in the background** (async job, like pipeline) so a multi-year daily
-  step doesn't block the UI; results persist in `bt_*` so you can revisit.
-
-## Shared module (avoid logic drift)
-
-Today `engine.py`, `select.py`, `factors.py`, `rank.py`, `regime.py` live inside
-service folders (and were historically copied between them). To guarantee the
-backtester runs the SAME logic as production:
-
-- Move these pure modules into `shared/stock_strategy_shared/strategy_core/`
-  (or import them via a shared package), and have BOTH the live services AND the
-  backtester import from there.
-- This is the one nontrivial refactor; it's also a standing risk reducer (the
-  "math copied verbatim between services" note in CLAUDE.md). Alternatively, to
-  minimize blast radius, the backtester can import directly from the existing
-  service paths without moving them — faster, but keeps the drift risk. **Decision
-  needed (see Open Questions).**
-
-## Phasing (incremental, each independently shippable)
-
-1. **Phase 0 — data audit**: confirm price/fundamental history depth; build the
-   GO/NO-GO date gate. (No service yet; a script + report.)
-2. **Phase 1 — replay engine (headless)**: the day-stepping loop calling the real
-   pipeline functions, vetter `off`/`backstop_only`, writing `bt_*`. CLI/endpoint,
-   deterministic, fully unit + integration tested. No UI yet.
-3. **Phase 2 — service + API**: wrap Phase 1 in a FastAPI service under the
-   `backtest` profile; background jobs + progress; results endpoints.
-4. **Phase 3 — UI**: the separate configure/run/view interface, equity-vs-SPY
-   chart, holdings/trades explorer.
-5. **Phase 4 (optional)** — `live_llm` vetter mode; parameter sweeps (compare N
-   configs); shared-module refactor if not done in Phase 1.
+1. **bt-data + Sharadar backfill** — fetch service, schema, one-time backfill,
+   data-depth report (earliest viable start date). GO/NO-GO on history.
+2. **bt-engine (headless)** — day-stepping replay calling the real pipeline
+   functions + falling-knife backstop; writes bt_* results. Deterministic; unit +
+   integration + no-look-ahead tests.
+3. **bt-ui** — separate configure/run/view interface; equity-vs-SPY; explorer.
+4. **bt-compose** — `docker-compose.backtest.yml` wiring bt-postgres + bt-data +
+   bt-engine + bt-ui for the separate machine.
+5. **(optional)** parameter sweeps (compare N configs side by side).
 
 ## Testing
 
-- Determinism: same config + DB ⇒ byte-identical equity curve.
-- No look-ahead: a unit test asserting day-D computations never read date > D.
-- Parity: for a single rebalance, backtester factors/ranks/target MATCH what the
-  live pipeline produces for the same inputs (shared-module guarantees this; a
-  test pins it).
-- Metrics: known synthetic series ⇒ known Sharpe/drawdown/return.
-- Isolation: a test (or compose assertion) that the `backtest` profile is not in
-  the default service set and the service writes only `bt_*`.
+- Determinism: same config + same bt-data snapshot ⇒ identical equity curve.
+- No look-ahead: assert day-D computations never read `date > D` (incl. fundamentals
+  `datekey ≤ D`).
+- Parity: backtester factors/ranks/target for one rebalance MATCH the live pipeline
+  for identical inputs (shared functions guarantee this; a test pins it).
+- Survivorship: delisted tickers present in bt-data so the backtest can hold names
+  that later disappeared (Sharadar SF1 covers this).
+- Isolation: backtest compose file shares NO service/DB/port with the live compose;
+  asserted in a compose test.
 
-## Explicitly OUT of scope (v1 of this plan)
+## Out of scope (v1)
 
-- Intraday simulation (daily bars only).
-- Faithful historical LLM vetting (impossible without point-in-time news).
-- Tax-lot accounting, margin, shorting (long-only, matching the live system).
-- Modifying ANY live service behavior.
+- Intraday simulation (daily bars only). LLM/news vetting (excluded by decision).
+- Tax lots, margin, shorting (long-only, matching live).
+- Any modification to live-stack behavior.
+
+## Open items before Phase 1
+
+- Sharadar/Nasdaq Data Link subscription + `SHARADAR_API_KEY` provisioned.
+- Confirm the backtest machine spec (Sharadar bulk tables are large; the SF1 +
+  SEP backfill is multi-GB — size bt-postgres storage accordingly).
+- Map Sharadar field names → the column names the pipeline factor functions expect
+  (a thin adapter in bt-data, so the reused logic needs no edits).
