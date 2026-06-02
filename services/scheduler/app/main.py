@@ -22,10 +22,16 @@ ALPACA_SYNC_URL       = os.getenv("ALPACA_SYNC_URL",        "http://alpaca-sync:
 TRADE_EXECUTOR_URL    = os.getenv("TRADE_EXECUTOR_URL",     "http://trade-executor:8000")
 DATABASE_URL          = os.getenv("DATABASE_URL", "")
 
-# Default: 4:15 pm ET weekdays (market close + 15 min buffer).
-# Cron is interpreted in America/New_York so DST shifts are handled automatically.
-# Override via env var using standard cron syntax, e.g. "0 17 * * 1-5"
-RANK_SCHEDULE_CRON = os.getenv("RANK_SCHEDULE_CRON", "15 16 * * 1-5")
+# Default: 10:30 pm ET weekdays. Alpha Vantage publishes the day's DAILY_ADJUSTED
+# close bar in the evening (~7-11pm ET), HOURS after the 4pm close — so an
+# after-close run at 16:15 would fetch nothing new and rank on the PRIOR session's
+# data (observed: a 16:15 run produced a ranking dated the previous day because no
+# fresh price bar existed yet). 22:30 ET runs after AV has published, so fetch-data
+# pulls today's close and the ranking reflects today's data. Day orders queue for
+# the next open regardless, so the late run does not delay execution.
+# Cron is interpreted in SCHEDULE_TZ (America/New_York) so DST shifts are handled.
+# Override via env var using standard cron syntax, e.g. "0 23 * * 1-5".
+RANK_SCHEDULE_CRON = os.getenv("RANK_SCHEDULE_CRON", "30 22 * * 1-5")
 
 # The single, EXPLICIT timezone the scheduler reasons about calendar dates in.
 # Everything date-related — `today`, `trading_day`, the cron trigger, the
@@ -1220,7 +1226,7 @@ async def lifespan(app: FastAPI):
         cron_trigger = CronTrigger.from_crontab(RANK_SCHEDULE_CRON, timezone=SCHEDULE_TZ_NAME)
     except Exception as exc:
         _log(f"Invalid RANK_SCHEDULE_CRON {RANK_SCHEDULE_CRON!r}: {exc} — using default")
-        cron_trigger = CronTrigger.from_crontab("15 16 * * 1-5", timezone=SCHEDULE_TZ_NAME)
+        cron_trigger = CronTrigger.from_crontab("30 22 * * 1-5", timezone=SCHEDULE_TZ_NAME)
     _scheduler.add_job(
         _heartbeat_tick,
         cron_trigger,

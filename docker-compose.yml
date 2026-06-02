@@ -469,7 +469,10 @@ services:
       PORTFOLIO_BUILDER_URL:    http://portfolio-builder:8000
       ALPACA_SYNC_URL:          http://alpaca-sync:8000
       TRADE_EXECUTOR_URL:       http://trade-executor:8000
-      RANK_SCHEDULE_CRON:       ${RANK_SCHEDULE_CRON:-15 16 * * 1-5}
+      # 22:30 ET: AV publishes the day's close bar in the evening (~7-11pm ET),
+      # hours after the 4pm close, so an after-close 16:15 run would rank on the
+      # PRIOR session's prices. 22:30 runs after AV has the close.
+      RANK_SCHEDULE_CRON:       ${RANK_SCHEDULE_CRON:-30 22 * * 1-5}
       TZ:                       America/New_York
       DATABASE_URL:             postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       SUPERVISOR_INTERVAL_SECS: ${SUPERVISOR_INTERVAL_SECS:-300}
