@@ -1,0 +1,54 @@
+# Backtester stack — runs ONLY on the separate backtest machine.
+#
+#   docker compose -f docker-compose.backtest.yml up -d
+#
+# This file is NEVER used by the live trading host. It has its OWN Postgres
+# (bt-postgres), its own services, its own ports. There is no shared database,
+# container, or network with the live stack — running this cannot disrupt the
+# trading pipeline in any way. Same git repo, separate deploy target.
+#
+# Provision before first run:
+#   - SHARADAR_API_KEY  (Nasdaq Data Link "Sharadar Equity Bundle")
+#   - enough disk for bt-postgres (SF1 + SEP backfill is multi-GB)
+# Without SHARADAR_API_KEY the bt-data service runs in MOCK mode (BT_MOCK_DATA),
+# so the stack is exercisable end-to-end before the subscription is live.
+
+services:
+
+  bt-postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: btuser
+      POSTGRES_PASSWORD: ${BT_POSTGRES_PASSWORD:-btpass}
+      POSTGRES_DB: backtest
+    volumes:
+      - bt_pgdata:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"   # distinct host port from the live DB (5433)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U btuser -h 127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  bt-data:
+    build:
+      context: .
+      dockerfile: services/bt-data/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8030:8000"
+    environment:
+      BT_DATABASE_URL: postgresql+asyncpg://btuser:${BT_POSTGRES_PASSWORD:-btpass}@bt-postgres:5432/backtest
+      SHARADAR_API_KEY: ${SHARADAR_API_KEY:-}
+      BT_MOCK_DATA: ${BT_MOCK_DATA:-}
+    depends_on:
+      bt-postgres:
+        condition: service_healthy
+
+  # bt-engine and bt-ui are added in later phases.
+
+volumes:
+  bt_pgdata:

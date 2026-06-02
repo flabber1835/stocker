@@ -1,0 +1,132 @@
+-- bt-data schema — the backtester's OWN database (bt-postgres on the separate
+-- backtest machine). Entirely independent of the live trading DB.
+--
+-- The bt_prices / bt_fundamentals column shapes deliberately MIRROR what the live
+-- pipeline factor functions expect, so the reused logic (compute_all_factors,
+-- detect_regime, rank_universe, …) needs ZERO changes:
+--
+--   prices       → ticker, date, adjusted_close, close, volume
+--   fundamentals → ticker, as_of_date, pe_ratio, pb_ratio, roe, debt_to_equity,
+--                  revenue_growth, eps_growth
+--
+-- The crucial difference from the live AV-fed tables: fundamentals here are
+-- POINT-IN-TIME. `as_of_date` is Sharadar's `datekey` — the date the figure
+-- BECAME KNOWN (filing date), not the fiscal period end. The backtester filters
+-- `as_of_date <= D` so a simulated day D never sees fundamentals that hadn't been
+-- reported yet (no look-ahead bias). This is the whole reason for Sharadar over AV.
+
+-- ── Source data (filled by bt-data from Sharadar) ──────────────────────────────
+
+CREATE TABLE IF NOT EXISTS bt_prices (
+    ticker          VARCHAR(20)  NOT NULL,
+    date            DATE         NOT NULL,
+    open            NUMERIC(16,6),
+    high            NUMERIC(16,6),
+    low             NUMERIC(16,6),
+    close           NUMERIC(16,6),
+    adjusted_close  NUMERIC(16,6),   -- Sharadar SEP closeadj (split+div adjusted)
+    volume          NUMERIC(20,2),
+    PRIMARY KEY (ticker, date)
+);
+CREATE INDEX IF NOT EXISTS idx_bt_prices_date ON bt_prices(date);
+
+CREATE TABLE IF NOT EXISTS bt_fundamentals (
+    ticker          VARCHAR(20)  NOT NULL,
+    as_of_date      DATE         NOT NULL,   -- Sharadar SF1 datekey (known-as-of)
+    fiscal_period   VARCHAR(32),             -- e.g. 2023-03-31/ARQ (audit; not used in math)
+    pe_ratio        NUMERIC(16,6),
+    pb_ratio        NUMERIC(16,6),
+    roe             NUMERIC(16,6),
+    debt_to_equity  NUMERIC(16,6),
+    revenue_growth  NUMERIC(16,6),
+    eps_growth      NUMERIC(16,6),
+    PRIMARY KEY (ticker, as_of_date)
+);
+CREATE INDEX IF NOT EXISTS idx_bt_fundamentals_asof ON bt_fundamentals(as_of_date);
+
+-- Per-day investable universe snapshot (which tickers were tradeable / listed on D).
+-- Sharadar SEP includes delisted names, so a backtest can hold a name that later
+-- disappeared — survivorship-bias-free.
+CREATE TABLE IF NOT EXISTS bt_universe (
+    snapshot_date   DATE         NOT NULL,
+    ticker          VARCHAR(20)  NOT NULL,
+    name            VARCHAR(200),
+    sector          VARCHAR(100),
+    PRIMARY KEY (snapshot_date, ticker)
+);
+CREATE INDEX IF NOT EXISTS idx_bt_universe_date ON bt_universe(snapshot_date);
+
+-- Bookkeeping for the fetch jobs (backfill + incremental top-up).
+CREATE TABLE IF NOT EXISTS bt_data_runs (
+    run_id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_type        VARCHAR(30)  NOT NULL,   -- 'backfill' | 'topup'
+    table_name      VARCHAR(40),             -- bt_prices | bt_fundamentals | bt_universe
+    status          VARCHAR(20)  NOT NULL DEFAULT 'running'
+                        CHECK (status IN ('running','success','failed')),
+    rows_written    BIGINT       NOT NULL DEFAULT 0,
+    date_min        DATE,
+    date_max        DATE,
+    started_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    completed_at    TIMESTAMPTZ,
+    error_message   TEXT
+);
+
+-- ── Backtest results (filled by bt-engine; defined here so the one DB has it all) ─
+
+CREATE TABLE IF NOT EXISTS bt_runs (
+    run_id                      UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    config                      JSONB        NOT NULL,
+    strategy_id                 VARCHAR(100),
+    start_date                  DATE         NOT NULL,
+    end_date                    DATE         NOT NULL,
+    drawdown_backstop_pct       NUMERIC(6,4),
+    tx_cost_bps                 INTEGER      NOT NULL DEFAULT 0,
+    fill_timing                 VARCHAR(16)  NOT NULL DEFAULT 'next_open',
+    starting_capital            NUMERIC(18,2) NOT NULL DEFAULT 100000,
+    status                      VARCHAR(20)  NOT NULL DEFAULT 'running'
+                                    CHECK (status IN ('running','success','failed')),
+    progress_pct                INTEGER      NOT NULL DEFAULT 0,
+    total_return                NUMERIC(12,6),
+    annualized_return           NUMERIC(12,6),
+    sharpe_ratio                NUMERIC(10,4),
+    max_drawdown                NUMERIC(10,4),
+    benchmark_total_return      NUMERIC(12,6),
+    alpha                       NUMERIC(12,6),
+    avg_turnover                NUMERIC(10,4),
+    win_rate                    NUMERIC(10,4),
+    started_at                  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    completed_at                TIMESTAMPTZ,
+    error_message               TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bt_runs_started ON bt_runs(started_at DESC);
+
+CREATE TABLE IF NOT EXISTS bt_equity (
+    run_id          UUID         NOT NULL REFERENCES bt_runs(run_id) ON DELETE CASCADE,
+    date            DATE         NOT NULL,
+    portfolio_value NUMERIC(18,2) NOT NULL,
+    spy_value       NUMERIC(18,2),
+    drawdown        NUMERIC(10,6),
+    PRIMARY KEY (run_id, date)
+);
+
+CREATE TABLE IF NOT EXISTS bt_positions (
+    run_id          UUID         NOT NULL REFERENCES bt_runs(run_id) ON DELETE CASCADE,
+    date            DATE         NOT NULL,
+    ticker          VARCHAR(20)  NOT NULL,
+    qty             NUMERIC(18,6) NOT NULL,
+    weight          NUMERIC(10,6),
+    market_value    NUMERIC(18,2),
+    PRIMARY KEY (run_id, date, ticker)
+);
+
+CREATE TABLE IF NOT EXISTS bt_trades (
+    run_id          UUID         NOT NULL REFERENCES bt_runs(run_id) ON DELETE CASCADE,
+    date            DATE         NOT NULL,
+    ticker          VARCHAR(20)  NOT NULL,
+    action          VARCHAR(12)  NOT NULL,   -- entry | exit | buy_add | sell_trim
+    qty             NUMERIC(18,6) NOT NULL,
+    price           NUMERIC(16,6) NOT NULL,
+    tx_cost         NUMERIC(16,4) NOT NULL DEFAULT 0,
+    reason          TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bt_trades_run_date ON bt_trades(run_id, date);
