@@ -296,17 +296,24 @@ function updatePipelineBar(rank, vetter) {
 
 /* ── Regime ───────────────────────────────────────────────────────────── */
 async function loadRegime() {
+  // Null-guard the element: if #sb-regime is ever absent (markup change, partial
+  // DOM), .textContent on null throws — and since loadRegime is the FIRST awaited
+  // boot step, that aborts the whole init chain and loadDelta() never runs, leaving
+  // the trader/holdings panels frozen on "Loading…". The catch must NOT re-deref a
+  // possibly-null element either. (Proven by tests/dashboard/test_holdings_render_playwright.py.)
+  const setReg = (text, cls) => {
+    const sbReg = $('sb-regime');
+    if (!sbReg) return;
+    sbReg.textContent = text;
+    sbReg.className = cls;
+  };
   try {
     const d = await fetch('/api/regime').then(r => r.json());
     const regime = d.regime || 'unknown';
-    const sbReg = $('sb-regime');
-    sbReg.textContent = regime.toUpperCase().replace(/_/g, ' ');
-    sbReg.className = 'regime-pill regime-' + regime;
+    setReg(regime.toUpperCase().replace(/_/g, ' '), 'regime-pill regime-' + regime);
     // spy_price available but stat boxes removed from screener
   } catch (e) {
-    const sbReg = $('sb-regime');
-    sbReg.textContent = '—';
-    sbReg.className = 'regime-pill regime-unknown';
+    setReg('—', 'regime-pill regime-unknown');
   }
 }
 
@@ -748,6 +755,11 @@ function renderTrader() {
     tbody.innerHTML = '<tr><td colspan="8" class="tbl-empty">No orders — <strong>all clear</strong></td></tr>';
     _syncSelectAllState();
     updateTraderBadge();
+    // Holdings status is independent of the order blotter — it must render even
+    // when there are no actionable orders (e.g. all hold/at_risk/watch). Without
+    // this call the early-return skipped renderHoldingsStatus() and the panel was
+    // stuck on "Loading…" whenever the delta had zero tradeable intents.
+    renderHoldingsStatus();
     return;
   }
 
@@ -1495,12 +1507,24 @@ document.addEventListener('visibilitychange', () => {
 });
 
 /* ── Boot ────────────────────────────────────────────────────────────── */
+// Each boot step is isolated: a throw in ONE step must never abort the others.
+// Previously `await loadRegime()` ran first and unguarded — if it threw, the
+// whole IIFE rejected and loadDelta() never ran, freezing the trader/holdings
+// panels on "Loading…" forever (proven by the playwright render test). _safeStep
+// keeps the chain alive so a single panel's failure stays contained to that panel.
+async function _safeStep(label, fn) {
+  try {
+    await fn();
+  } catch (e) {
+    console.error('[boot] step failed: ' + label, e);
+  }
+}
 (async () => {
-  updateClock();
-  await loadRegime();
-  loadRankings();
-  loadDelta();
+  _safeStep('updateClock', () => updateClock());
+  await _safeStep('loadRegime', () => loadRegime());
+  _safeStep('loadRankings', () => loadRankings());
+  _safeStep('loadDelta', () => loadDelta());
   _initialLoadDone = true;
-  $('rh-rank').classList.add('asc');
-  refresh();
+  const rh = $('rh-rank'); if (rh) rh.classList.add('asc');
+  _safeStep('refresh', () => refresh());
 })();
