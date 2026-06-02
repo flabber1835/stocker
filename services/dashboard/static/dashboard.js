@@ -378,7 +378,7 @@ async function _doApiSearch(q) {
 
 /* ── Rankings ────────────────────────────────────────────────────────── */
 async function loadRankings() {
-  $('r-body').innerHTML = '<tr><td colspan="5" class="tbl-empty">Loading rankings&#8230;</td></tr>';
+  $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">Loading rankings&#8230;</td></tr>';
   try {
     const d = await fetch('/api/rankings/with-overlays?limit=100').then(r => {
       if (!r.ok) throw new Error(r.status);
@@ -387,7 +387,7 @@ async function loadRankings() {
     if (!d.rankings || d.rankings.length === 0) {
       _rankingsLoadState = 'empty';
       rankData = [];
-      $('r-body').innerHTML = '<tr><td colspan="5" class="tbl-empty">'
+      $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">'
         + 'No ranking data &mdash; click <strong>&#9654; RUN</strong> to populate'
         + '</td></tr>';
       // Refresh status bar so READY badge is downgraded if data missing
@@ -404,7 +404,7 @@ async function loadRankings() {
   } catch (e) {
     _rankingsLoadState = 'empty';
     rankData = [];
-    $('r-body').innerHTML = '<tr><td colspan="5" class="tbl-empty">'
+    $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">'
       + 'No ranking data &mdash; click <strong>&#9654; RUN</strong> to populate'
       + '</td></tr>';
     if (_pipelineData && _pipelineData.rank) updateStatusBar(_pipelineData);
@@ -456,7 +456,7 @@ function renderRankings() {
     : rows.length + ' / ' + rankData.length;
   if (!rows.length) {
     _expandedTicker = null;
-    $('r-body').innerHTML = '<tr><td colspan="5" class="tbl-empty">No results</td></tr>';
+    $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">No results</td></tr>';
     return;
   }
 
@@ -483,26 +483,8 @@ function renderRankings() {
     }
     if (!arrow) arrow = '<span class="rank-flat" title="no movement">&ndash;</span>';
 
-    // SIZE column: market-cap tier badge, plus any risk flags (excluded / not-ranked).
-    // The HELD badge is gone — held rows already carry a green tint.
-    const tier = capTier(r.market_cap);
-    const sizeParts = [
-      tier
-        ? '<span class="cap-badge ' + tier.cls + '" title="' + fmtCap(r.market_cap) + '">' + tier.label + '</span>'
-        : '<span style="color:var(--text3)">—</span>',
-    ];
-    if (r.not_in_universe) sizeParts.push('<span class="overlay-badge not-ranked" title="Held but not in ranking universe">NOT RANKED</span>');
-    if (r.vetter_excluded) sizeParts.push('<span class="overlay-badge excl" title="' + esc(r.vetter_reason || '') + '">&#9888; ' + (r.vetter_risk_type || '').toUpperCase().replace(/_/g,' ') + '</span>');
-    // Display-only 21-day drawdown indicator. Shown from -10%; -25%+ (the
-    // falling-knife backstop default) flagged red. Informational only — it does
-    // not affect rank or block entry on its own (the vetter backstop does that).
-    if (r.drawdown_21d != null && r.drawdown_21d <= -0.10) {
-      const ddPct = (r.drawdown_21d * 100).toFixed(0) + '%';
-      const ddCls = r.drawdown_21d <= -0.25 ? 'dd-deep' : 'dd-warn';
-      sizeParts.push('<span class="overlay-badge ' + ddCls + '" title="21-day peak-to-now drawdown (display only)">&#9660; ' + ddPct + '</span>');
-    }
-    const sizeHtml = sizeParts.join(' ');
-
+    // SIZE / drawdown / vetter-warning badges live in the detail card now (compact
+    // row keeps only rank · ticker · company · cluster). See _buildDetailHtml.
     const heldCls     = r.held ? ' row-held' : '';
     const exclCls     = r.vetter_excluded ? ' row-excluded' : '';
     const expandedCls = _expandedTicker === r.ticker ? ' expanded' : '';
@@ -512,7 +494,6 @@ function renderRankings() {
       + '<td><span class="t-ticker">' + r.ticker + '</span></td>'
       + '<td class="t-company" title="' + (r.name ? esc(r.name) : '') + '">' + (r.name ? esc(r.name) : '—') + '</td>'
       + '<td class="t-cluster">' + (r.cluster_id ? '<span class="mono">' + esc(r.cluster_id) + '</span>' : '<span style="color:var(--text3)">—</span>') + '</td>'
-      + '<td class="t-size">' + sizeHtml + '</td>'
       + '</tr>';
   }).join('');
 
@@ -554,7 +535,7 @@ function _insertDetailRow(rowEl, rec) {
   tr.className = 'detail-row';
   tr.id = 'detail-row-' + rec.ticker;
   const td = document.createElement('td');
-  td.colSpan = 11;
+  td.colSpan = 4;
   td.innerHTML = _buildDetailHtml(rec);
   tr.appendChild(td);
   rowEl.parentNode.insertBefore(tr, rowEl.nextSibling);
@@ -566,10 +547,29 @@ function _buildDetailHtml(r) {
   const head = '<div class="detail-head"><span class="detail-ticker">' + esc(r.ticker) + '</span>' + nameHtml + yfLink + '</div>';
 
   const pctVal = r.percentile != null ? (+(r.percentile) * 100).toFixed(1) + '%' : '—';
+
+  // Size + drawdown moved here from the row (compact row is rank·ticker·company·cluster).
+  const tier = capTier(r.market_cap);
+  const sizeVal = tier
+    ? '<span class="cap-badge ' + tier.cls + '" title="' + fmtCap(r.market_cap) + '">' + tier.label + '</span>'
+      + (r.market_cap != null ? ' <span class="dc-sub">' + fmtCap(r.market_cap) + '</span>' : '')
+    : '—';
+  let ddVal = '—';
+  if (r.drawdown_21d != null) {
+    const ddPct = (r.drawdown_21d * 100).toFixed(0) + '%';
+    // -25%+ (knife-deep) red, -10%..-25% amber, milder plain. Display-only.
+    const ddCls = r.drawdown_21d <= -0.25 ? 'dd-deep' : r.drawdown_21d <= -0.10 ? 'dd-warn' : '';
+    ddVal = ddCls
+      ? '<span class="overlay-badge ' + ddCls + '" title="21-day peak-to-now drawdown (display only)">&#9660; ' + ddPct + '</span>'
+      : ddPct;
+  }
+
   const grid = '<div class="detail-grid">'
     + '<div class="detail-cell"><div class="dc-lbl">Rank</div><div class="dc-val">' + r.rank + '</div></div>'
     + '<div class="detail-cell"><div class="dc-lbl">Score</div><div class="dc-val">' + fmtScore(r.composite_score) + '</div></div>'
     + '<div class="detail-cell"><div class="dc-lbl">Percentile</div><div class="dc-val">' + pctVal + '</div></div>'
+    + '<div class="detail-cell"><div class="dc-lbl">Size</div><div class="dc-val">' + sizeVal + '</div></div>'
+    + '<div class="detail-cell"><div class="dc-lbl">21d Drawdown</div><div class="dc-val">' + ddVal + '</div></div>'
     + '</div>';
 
   const FACTORS = [

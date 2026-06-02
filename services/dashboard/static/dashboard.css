@@ -377,11 +377,13 @@ td { padding: 9px 12px; white-space: nowrap; font-size: 13px; }
 #screen-screener th:last-child,  #screen-screener td:last-child  { padding-right: 11px; }
 #rh-rank       { width: 62px; }
 #rh-ticker     { width: 64px; }
-#rh-market_cap { width: 92px; }
-#screen-screener .t-company { max-width: none; }
-/* SIZE cell may carry a cap badge plus a flag badge — let them wrap rather
-   than widen the column and force horizontal scroll. */
-#screen-screener td.t-size { white-space: normal; line-height: 1.7; }
+/* COMPANY takes the space the removed SIZE column used to occupy; CLUSTER
+   (rightmost) sizes to its short id. Size/drawdown/warning badges moved to the
+   detail card. */
+#screen-screener .t-company { max-width: none; width: 100%; }
+#screen-screener .t-cluster { text-align: right; color: var(--text2); }
+/* small muted value beside the cap badge in the detail card's Size cell */
+.dc-val .dc-sub { font-size: 11px; color: var(--text2); font-weight: 500; }
 
 .score-wrap { display: flex; align-items: center; gap: 8px; min-width: 110px; }
 .score-num { min-width: 44px; text-align: right; font-family: var(--mono); font-size: 12px; }

@@ -21,8 +21,22 @@ def test_screener_has_sortable_cluster_header():
     assert 'id="rh-cluster_id"' in html
     assert "sortRankings('cluster_id')" in html
     assert ">CLUSTER<" in html
-    # screener body colspan bumped from 4 to 5 for the new column
-    assert 'id="r-body"><tr><td colspan="5"' in html
+    # Compact row is 4 columns: # · TICKER · COMPANY · CLUSTER. SIZE column was
+    # removed (size/drawdown/warning badges moved to the detail card).
+    assert 'id="r-body"><tr><td colspan="4"' in html
+    # rank header relabeled to "#"
+    assert 'id="rh-rank" title="Rank">#<' in html
+    # SIZE column header is gone
+    assert 'id="rh-market_cap"' not in html
+
+
+def test_screener_detail_card_carries_size_and_drawdown():
+    js = _read(DASH_JS)
+    # size + drawdown now rendered in the detail grid, not the row
+    assert ">Size<" in js
+    assert ">21d Drawdown<" in js
+    # row no longer renders a size cell
+    assert "t-size" not in js
 
 
 def test_screener_js_maps_and_renders_cluster():
