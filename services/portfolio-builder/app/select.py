@@ -92,6 +92,7 @@ def greedy_select(
     max_sector_weight: float = 1.0,
     current_holdings: set[str] | None = None,
     turnover_penalty: float = 0.0,
+    max_tickers_per_sector: int | None = None,
 ) -> list[dict]:
     """
     Greedy portfolio construction: pick tickers that maximise
@@ -100,6 +101,11 @@ def greedy_select(
     Sector cap: when sector_map and max_sector_weight are provided, any candidate
     that would push a sector past the cap under equal-weight assumptions is skipped.
     The cap is enforced as a hard constraint during selection, not post-hoc.
+
+    Count cap: when max_tickers_per_sector is set, a candidate is skipped once its
+    sector/cluster already has that many members selected — an absolute count cap
+    independent of the weighting scheme and `target` (vs max_sector_weight's
+    count/target weight proxy). Both caps apply; whichever binds first wins.
 
     Turnover penalty: when current_holdings and turnover_penalty > 0, candidates
     NOT in current_holdings have their adjusted score reduced by turnover_penalty
@@ -129,12 +135,17 @@ def greedy_select(
     result: list[dict] = []
 
     def _sector_ok(candidate: str) -> bool:
-        if sector_map is None or max_sector_weight >= 1.0:
+        if sector_map is None:
             return True
         sector = sector_map.get(candidate)
         if not sector:
             return True
-        new_count = sector_counts.get(sector, 0) + 1
+        current = sector_counts.get(sector, 0)
+        # Hard count cap (max_tickers_per_sector): absolute, independent of the
+        # weighting scheme and target. Applies even when the weight cap is disabled.
+        if max_tickers_per_sector is not None and current >= max_tickers_per_sector:
+            return False
+        # Weight-proxy cap (max_sector_weight): count/target as a proxy for weight.
         # Use target as denominator so the cap is evaluated against the intended
         # portfolio size, not the current (growing) one. Using len(portfolio)+1
         # would be too restrictive early: pick 2 from any sector would fail
@@ -142,7 +153,9 @@ def greedy_select(
         # target (e.g. only 15 stocks qualify), sector concentration may exceed
         # max_sector_weight on a per-actual-weight basis — this is accepted because
         # the alternative would prevent the portfolio from being built at all.
-        return (new_count / target) <= max_sector_weight
+        if max_sector_weight < 1.0:
+            return (current + 1) / target <= max_sector_weight
+        return True
 
     # First pick: highest standalone score — no covariance context yet
     first_candidates = [t for t in base.sort_values(ascending=False).index

@@ -290,8 +290,22 @@ solver: the cluster is just a different grouping passed to proven code.
 
 ```text
 cluster_correlation_threshold  default 0.70  — |corr| at/above which two names cluster
-max_cluster_weight             default 0.15  — max summed portfolio weight per cluster
+max_cluster_weight             default 0.15  — max summed portfolio WEIGHT per cluster (risk cap)
+max_tickers_per_cluster        default None  — max NUMBER of holdings per cluster (count cap)
 ```
+
+**Two caps, complementary.** `max_cluster_weight` bounds a cluster's contribution to
+portfolio *risk* (its summed weight); `max_tickers_per_cluster` bounds the *number*
+of names from a cluster. They are not redundant under non-equal weighting
+(`adj_score_proportional` etc.): the weight cap is enforced post-build by
+`compute_weights` (scaling over-cap clusters down), while the count cap is enforced
+during `greedy_select` (skip a candidate once its cluster is full). Both apply;
+whichever binds first wins. The count cap is an *absolute* count, independent of the
+weighting scheme and `max_positions` — unlike the weight cap's selection-stage
+`count/target` proxy, which assumes count≈weight. `max_tickers_per_cluster=1` =
+at most one name per cluster (max diversification); `None` disables it. Singletons
+(no correlated peer) are unaffected — only multi-member clusters are thinned. The
+active strategy sets it to **3** (hold the top ~3 names of a theme, no more).
 
 A 15% cap implies the portfolio spans **at least 7 effectively-independent
 clusters** (⌈1/0.15⌉) to be fully invested, preventing a single correlated theme

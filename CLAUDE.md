@@ -477,6 +477,12 @@ Handles:
 max positions
 max position weight
 sector caps
+correlation-cluster caps — BOTH a weight cap (max_cluster_weight, default 0.15 of
+  the book) and a count cap (max_tickers_per_cluster, default 3 names/cluster);
+  complementary, whichever binds first wins. Weight cap = risk control (enforced in
+  compute_weights); count cap = name-concentration control (enforced in
+  greedy_select). Count cap is absolute (independent of weighting + max_positions);
+  =1 means one name per cluster; None disables. Singletons unaffected.
 cash reserve
 liquidity constraints
 minimum score thresholds

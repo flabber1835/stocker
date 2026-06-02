@@ -99,7 +99,8 @@ portfolio_builder:
   max_position_weight: 0.10          # hard cap per position; excess redistributed to others
   max_sector_weight: 0.30            # DEPRECATED for selection — informational sector logging only
   cluster_correlation_threshold: 0.70  # |corr| >= this groups two names into one correlation cluster
-  max_cluster_weight: 0.15           # no correlation cluster may exceed 15% (implies >= 7 independent clusters)
+  max_cluster_weight: 0.15           # weight cap: no correlation cluster may exceed 15% of the book (risk control)
+  max_tickers_per_cluster: 3         # count cap: at most 3 holdings from any one cluster (whichever cap binds first wins)
   do_not_buy: []                     # hard-exclude list: ESG screens, legal holds, insider restrictions
   cash_reserve: 0.025                # keep 2.5% uninvested (day orders don't batch-reserve buying power, so OPG buffer no longer needed)
 

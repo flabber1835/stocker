@@ -234,6 +234,20 @@ class PortfolioBuilderConfig(BaseModel):
             "from dominating. Set to 1.0 to disable the cluster cap."
         ),
     )
+    max_tickers_per_cluster: int | None = Field(
+        default=None, ge=1,
+        description=(
+            "Hard cap on the NUMBER of holdings drawn from any one correlation "
+            "cluster (count cap), complementary to max_cluster_weight (the weight/risk "
+            "cap). Enforced during greedy selection: once a cluster has this many "
+            "members selected, further candidates from it are skipped — whichever of "
+            "the count cap and the weight cap binds first wins. Unlike the weight cap's "
+            "count/target proxy, this is an absolute count independent of the weighting "
+            "scheme and max_positions. None disables it; 1 = at most one name per "
+            "cluster (max diversification). Singletons (no correlated peer) are "
+            "unaffected — only multi-member clusters are thinned."
+        ),
+    )
     do_not_buy: list[str] = Field(default_factory=list)
     turnover_penalty: float = Field(
         default=0.0, ge=0.0, le=0.50,

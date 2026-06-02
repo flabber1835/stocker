@@ -564,6 +564,7 @@ async def _do_build(
         max_sector_weight=pb_cfg.max_cluster_weight,
         current_holdings=current_holdings if pb_cfg.turnover_penalty > 0.0 else None,
         turnover_penalty=pb_cfg.turnover_penalty,
+        max_tickers_per_sector=pb_cfg.max_tickers_per_cluster,
     )
     selected_tickers = [s["ticker"] for s in selected]
     selected_negative_score_count = sum(1 for s in selected if s["composite_score"] < 0)
