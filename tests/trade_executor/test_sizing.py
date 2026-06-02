@@ -205,16 +205,32 @@ async def test_size_exit_basic():
     qty, notional, summary = await _size_exit(conn, "AAPL")
     assert qty == 50.0
     assert notional == 3000.0
-    assert summary["source"] == "live_positions"
+    assert summary["source"] == "live_positions_latest_sync"
     assert summary["current_price"] == 60.0
 
 
 @pytest.mark.asyncio
-async def test_size_exit_no_position_raises_400():
+async def test_size_exit_not_in_latest_sync_raises_409():
+    """Position absent from the latest sync (already closed) → 409 refusal, not a
+    phantom sell. This is the production bug: a stale exit proposal outlived the
+    position close; the executor must refuse rather than size from an old sync."""
     conn = _mock_conn_returning([None])
     with pytest.raises(HTTPException) as exc_info:
         await _size_exit(conn, "AAPL")
-    assert exc_info.value.status_code == 400
+    assert exc_info.value.status_code == 409
+    assert "already closed" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_size_exit_zero_qty_in_latest_sync_raises_409():
+    """A qty=0 row in the latest sync is also 'not held' → refuse."""
+    now = datetime.now(timezone.utc)
+    conn = _mock_conn_returning([
+        {"qty": 0.0, "current_price": 60.0, "completed_at": now},
+    ])
+    with pytest.raises(HTTPException) as exc_info:
+        await _size_exit(conn, "AAPL")
+    assert exc_info.value.status_code == 409
 
 
 @pytest.mark.asyncio

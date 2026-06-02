@@ -466,20 +466,45 @@ async def _load_intent(conn, intent_id: str) -> dict:
 async def _size_exit(conn, ticker: str) -> tuple[float, float, dict]:
     """Return (qty, notional, summary) for an exit.
 
-    Refuses if the latest successful alpaca-sync is older than EXIT_SYNC_MAX_AGE_HOURS,
-    so we never sell shares we may no longer own.
+    Sizes the sell from the ticker's position in the LATEST successful alpaca-sync.
+
+    CRITICAL — scope to the latest sync RUN, not "the most recent sync that
+    contained this ticker". The naive `WHERE ticker=:t ORDER BY completed_at DESC
+    LIMIT 1` reaches back across every sync until it finds one with the ticker, so a
+    position CLOSED since the last targeted run still returns a stale qty from an
+    old sync — and we submit a sell for shares we no longer own (Alpaca rejects
+    "available: 0"). Confirmed in production: a delta proposal from 04:07 outlived
+    the position close; syncs advanced to 13:48 showing 0 shares; this query still
+    resurrected the old qty and re-fired the exit hourly. Mirrors the (correct)
+    latest-sync scoping in _is_already_held — that guard protects entries; this is
+    the same protection for exits.
+
+    Refuses (HTTP 409) if:
+      - the ticker is NOT held with qty>0 in the latest successful sync (position
+        already closed) — never sell a ghost position;
+      - the latest sync is older than EXIT_SYNC_MAX_AGE_HOURS (stale broker state).
     """
     pos = (await conn.execute(text(
         "SELECT lp.qty, lp.current_price, sr.completed_at "
         "FROM live_positions lp "
         "JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
-        "WHERE lp.ticker = :t AND sr.status = 'success' "
-        "ORDER BY sr.completed_at DESC NULLS LAST LIMIT 1"
+        "WHERE sr.run_id = ("
+        "  SELECT run_id FROM alpaca_sync_runs WHERE status='success' "
+        "  ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+        ") AND lp.ticker = :t"
     ), {"t": ticker})).mappings().first()
-    if pos is None or _f(pos["qty"]) is None:
+    # Not in the latest sync (or zero/negative qty) → position is already flat.
+    # Refuse rather than size a phantom sell. 409 so the caller records it as a
+    # clean refusal, not a generic bad request.
+    qty_raw = _f(pos["qty"]) if pos is not None else None
+    if pos is None or qty_raw is None or abs(qty_raw) <= 0:
         raise HTTPException(
-            status_code=400,
-            detail=f"No live position found for {ticker} — run alpaca-sync first",
+            status_code=409,
+            detail=(
+                f"{ticker} is not held (qty>0) in the latest alpaca-sync — "
+                f"position already closed; refusing to size exit. The proposal is "
+                f"stale; it will clear on the next delta run."
+            ),
         )
     sync_age_hours = None
     if pos["completed_at"] is not None:
@@ -495,11 +520,11 @@ async def _size_exit(conn, ticker: str) -> tuple[float, float, dict]:
                 "Re-sync before approving."
             ),
         )
-    qty = abs(_f(pos["qty"]))
+    qty = abs(qty_raw)
     current_price = _f(pos["current_price"]) or 0.0
     notional = qty * current_price
     return qty, notional, {
-        "source": "live_positions",
+        "source": "live_positions_latest_sync",
         "current_price": current_price,
         "sync_age_hours": round(sync_age_hours, 2) if sync_age_hours is not None else None,
     }

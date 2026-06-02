@@ -90,6 +90,70 @@ class TestVetterHeldTickersQuery:
                 ))
 
 
+# ── _size_exit latest-sync scoping (the "sells positions not held" bug) ───────
+
+class TestSizeExitLatestSyncScoping:
+    """_size_exit must size from the ticker's position in the LATEST sync — not the
+    most recent sync that merely CONTAINED the ticker. A position closed since the
+    last targeted run is absent from the latest sync; the query must return no row
+    so the executor refuses, instead of resurrecting a stale qty and selling a ghost
+    (Alpaca "available: 0"). Reproduces the confirmed production incident.
+    """
+
+    # Mirror of the production query in services/trade-executor/app/main.py _size_exit.
+    _SQL = (
+        "SELECT lp.qty, lp.current_price, sr.completed_at "
+        "FROM live_positions lp "
+        "JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
+        "WHERE sr.run_id = ("
+        "  SELECT run_id FROM alpaca_sync_runs WHERE status='success' "
+        "  ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+        ") AND lp.ticker = :t"
+    )
+
+    async def _seed_sync(self, conn, completed_at, positions):
+        rid = uuid.uuid4()
+        await conn.execute(text(
+            "INSERT INTO alpaca_sync_runs (run_id, status, completed_at) "
+            "VALUES (:rid, 'success', :ca)"
+        ), {"rid": rid, "ca": completed_at})
+        for ticker, qty in positions.items():
+            await conn.execute(text(
+                "INSERT INTO live_positions (sync_run_id, ticker, qty, current_price) "
+                "VALUES (:rid, :t, :q, 60.0)"
+            ), {"rid": rid, "t": ticker, "q": qty})
+        return rid
+
+    async def test_closed_position_absent_from_latest_sync_returns_no_row(self, engine):
+        """AU held in an OLD sync, gone from the LATEST sync → query returns nothing
+        → executor refuses. The naive 'latest sync that contained AU' would wrongly
+        return the old qty."""
+        from datetime import datetime, timezone, timedelta
+        now = datetime.now(timezone.utc)
+        async with engine.begin() as conn:
+            # Old sync: AU held (31 shares).
+            await self._seed_sync(conn, now - timedelta(hours=9), {"AU": 31, "MSFT": 10})
+            # Latest sync: AU is GONE (sold); MSFT still held.
+            await self._seed_sync(conn, now, {"MSFT": 10})
+
+        async with engine.connect() as conn:
+            row = (await conn.execute(text(self._SQL), {"t": "AU"})).mappings().first()
+        assert row is None, "AU absent from latest sync must yield no row (refuse exit)"
+
+    async def test_still_held_in_latest_sync_returns_qty(self, engine):
+        """A position present in the latest sync sizes normally."""
+        from datetime import datetime, timezone, timedelta
+        now = datetime.now(timezone.utc)
+        async with engine.begin() as conn:
+            await self._seed_sync(conn, now - timedelta(hours=9), {"MSFT": 5})
+            await self._seed_sync(conn, now, {"MSFT": 10})  # latest: 10 shares
+
+        async with engine.connect() as conn:
+            row = (await conn.execute(text(self._SQL), {"t": "MSFT"})).mappings().first()
+        assert row is not None
+        assert float(row["qty"]) == 10.0, "must size from the LATEST sync's qty, not the old one"
+
+
 # ── dashboard rankings/with-overlays core join (the "NO DATA" endpoint) ───────
 
 class TestRankingsWithOverlaysQuery:
