@@ -138,3 +138,35 @@ bt_trades        (run_id, date, ticker, action, qty, price, tx_cost)
   SEP backfill is multi-GB — size bt-postgres storage accordingly).
 - Map Sharadar field names → the column names the pipeline factor functions expect
   (a thin adapter in bt-data, so the reused logic needs no edits).
+
+## Phase 5 — self-running parameter sweep (NO AI in the loop)  [DECISION LOCKED]
+
+Decision: the optimizer is a DETERMINISTIC parameter sweep, not an LLM-in-the-loop
+tuner. Reasons: reproducible (same grid + same data → same leaderboard), no API
+cost, and — critically — far less prone to overfitting than "ask a model for the
+next config", which curve-fits to the specific history. The LLM's role is reserved
+for INTERPRETING a result (optional, manual export), never for picking numbers.
+
+How it works (built on top of bt-engine, after Phases 1-4):
+- A sweep spec lists parameters + value grids to vary, e.g.:
+    max_positions:        [15, 20, 25, 30, 40, 50]
+    factor_weights:       a few named regime-weight presets
+    drawdown_backstop_pct:[0.10, 0.15, 0.25]
+    entry_rank/exit_rank: [(20,35),(25,40),(30,50)]
+- The sweeper enumerates the grid (or random-samples it), runs bt-engine for each
+  config, and writes one bt_runs row per config.
+- WALK-FORWARD / OUT-OF-SAMPLE is mandatory, not optional: each config is scored on
+  a held-out period it was NOT selected on (e.g. tune on 2015-2021, validate on
+  2022-2026, and/or rolling windows). The leaderboard ranks by OUT-OF-SAMPLE
+  risk-adjusted return (Sharpe / Calmar), with in-sample shown alongside so a large
+  in-vs-out gap flags overfitting. A config that only wins in-sample is rejected.
+- Output: a ranked leaderboard (bt_sweeps / bt_sweep_results tables) viewable in
+  bt-ui — "here are the N best configs by out-of-sample Sharpe, with the in-sample
+  gap so you can see which are robust vs fit."
+- Determinism + anti-overfit are TESTED: same grid/data → identical leaderboard;
+  a synthetic overfit case must show the in/out gap the report relies on.
+
+Optional later: an "analyst export" (JSON/CSV of a run or the leaderboard) that a
+human pastes into a Claude session for INTERPRETATION — strictly separate from the
+sweep, never driving config selection.
+
