@@ -31,7 +31,7 @@ DATABASE_URL          = os.getenv("DATABASE_URL", "")
 # the next open regardless, so the late run does not delay execution.
 # Cron is interpreted in SCHEDULE_TZ (America/New_York) so DST shifts are handled.
 # Override via env var using standard cron syntax, e.g. "0 23 * * 1-5".
-RANK_SCHEDULE_CRON = os.getenv("RANK_SCHEDULE_CRON", "30 22 * * 1-5")
+RANK_SCHEDULE_CRON = os.getenv("RANK_SCHEDULE_CRON", "30 17 * * 1-5")
 
 # The single, EXPLICIT timezone the scheduler reasons about calendar dates in.
 # Everything date-related — `today`, `trading_day`, the cron trigger, the

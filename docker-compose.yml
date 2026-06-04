@@ -469,10 +469,12 @@ services:
       PORTFOLIO_BUILDER_URL:    http://portfolio-builder:8000
       ALPACA_SYNC_URL:          http://alpaca-sync:8000
       TRADE_EXECUTOR_URL:       http://trade-executor:8000
-      # 22:30 ET: AV publishes the day's close bar in the evening (~7-11pm ET),
-      # hours after the 4pm close, so an after-close 16:15 run would rank on the
-      # PRIOR session's prices. 22:30 runs after AV has the close.
-      RANK_SCHEDULE_CRON:       ${RANK_SCHEDULE_CRON:-30 22 * * 1-5}
+      # 17:30 ET: ~1.5h after the 4pm close. Session-keying means fetch-data is
+      # "done" only once AV has actually published the close bar (session_date
+      # advances to the target session); if AV is not ready yet at 17:30 the chain
+      # waits and retries, so an early start is safe and gives the long fetch
+      # plenty of time to finish well before midnight (no cross-midnight rollover).
+      RANK_SCHEDULE_CRON:       ${RANK_SCHEDULE_CRON:-30 17 * * 1-5}
       TZ:                       America/New_York
       DATABASE_URL:             postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       SUPERVISOR_INTERVAL_SECS: ${SUPERVISOR_INTERVAL_SECS:-300}
