@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from .alpha_vantage import AVClient
 from .universe import download_av_universe, get_benchmark_tickers, save_universe_snapshot
 from stock_strategy_shared.db import wait_for_db
-from stock_strategy_shared.tracing import mark_orphaned_runs_failed
+from stock_strategy_shared.tracing import RESTART_ABORT_MARKER, mark_orphaned_runs_failed
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 if not DATABASE_URL:
@@ -33,6 +33,16 @@ MOCK_DATA = os.getenv("MOCK_DATA", "false").lower() == "true"
 ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
 
 CHECKPOINT_EVERY = 100
+
+# Stale-running reclaim. A fetch job runs as a detached BackgroundTask; if the
+# scheduler abandons the chain (or the task dies without the process restarting),
+# its ingest_runs row can linger at status='running' forever, and _assert_no_running_job
+# would then 409 every future fetch — wedging the chain until an av-ingestor
+# restart runs mark_orphaned_runs_failed. A full fetch never exceeds ~3h, so a
+# 'running' row older than this is presumed dead: we mark it failed (with the
+# RESTART_ABORT_MARKER so the scheduler treats it as recoverable and re-triggers)
+# and let the new job proceed. Set to 0 to disable.
+STALE_INGEST_HOURS = float(os.getenv("STALE_INGEST_HOURS", "6"))
 
 # Universe staleness filter — see migration 0007 and ticker_fetch_state.
 # fetch-universe drops every ticker whose `MAX(date) IN daily_prices < spy_max`
@@ -259,6 +269,7 @@ async def _finish_run(
     error_message: Optional[str] = None,
     price_coverage_pct: Optional[float] = None,
     fundamental_coverage_pct: Optional[float] = None,
+    session_date: Optional[date] = None,
 ) -> None:
     async with engine.begin() as conn:
         await conn.execute(
@@ -266,7 +277,8 @@ async def _finish_run(
                 "UPDATE ingest_runs SET status=:status, completed_at=:now, "
                 "ticker_count=:tc, price_rows=:pr, fund_rows=:fr, "
                 "error_count=:ec, error_message=:err, "
-                "price_coverage_pct=:pcp, fundamental_coverage_pct=:fcp "
+                "price_coverage_pct=:pcp, fundamental_coverage_pct=:fcp, "
+                "session_date=:sd "
                 "WHERE run_id=:rid"
             ),
             {
@@ -275,6 +287,7 @@ async def _finish_run(
                 "ec": error_count, "err": error_message,
                 "pcp": round(price_coverage_pct, 4) if price_coverage_pct is not None else None,
                 "fcp": round(fundamental_coverage_pct, 4) if fundamental_coverage_pct is not None else None,
+                "sd": session_date,
                 "rid": run_id,
             },
         )
@@ -356,16 +369,59 @@ async def health():
     return {"status": "ok", "service": "av-ingestor"}
 
 
+def _is_stale_running(started_at: Optional[datetime], now: datetime,
+                      stale_hours: float = STALE_INGEST_HOURS) -> bool:
+    """Pure predicate: is a 'running' ingest row old enough to presume dead?
+
+    A live fetch finishes well under a few hours, so a 'running' row older than
+    `stale_hours` is an abandoned/crashed task. Returns False when reclaim is
+    disabled (stale_hours <= 0) or the timestamp is missing.
+    """
+    if stale_hours <= 0 or started_at is None:
+        return False
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=timezone.utc)
+    age_h = (now - started_at).total_seconds() / 3600.0
+    return age_h > stale_hours
+
+
 async def _assert_no_running_job() -> None:
-    async with engine.connect() as conn:
+    async with engine.begin() as conn:
         row = await conn.execute(
-            text("SELECT run_id FROM ingest_runs WHERE status='running' LIMIT 1")
-        )
-        if row.fetchone() is not None:
-            raise HTTPException(
-                status_code=409,
-                detail="Another ingest job is already running. Wait for it to complete.",
+            text(
+                "SELECT run_id, started_at FROM ingest_runs "
+                "WHERE status='running' ORDER BY started_at DESC LIMIT 1"
             )
+        )
+        existing = row.mappings().first()
+        if existing is None:
+            return
+        # Reclaim a presumed-dead orphan: a 'running' row older than
+        # STALE_INGEST_HOURS can never be a live job (a full fetch finishes well
+        # under that), so it is an abandoned/crashed task whose process never
+        # restarted. Mark it failed with the restart-abort marker so the scheduler
+        # re-triggers it, and let the new job proceed instead of 409-wedging.
+        if _is_stale_running(existing["started_at"], datetime.now(timezone.utc)):
+            await conn.execute(
+                text(
+                    "UPDATE ingest_runs SET status='failed', completed_at=NOW(), "
+                    "error_message=:msg WHERE run_id=:rid"
+                ),
+                {
+                    "msg": f"{RESTART_ABORT_MARKER} reclaimed stale running job "
+                           f"(> {STALE_INGEST_HOURS}h old)",
+                    "rid": existing["run_id"],
+                },
+            )
+            print(
+                f"[av-ingestor] reclaimed stale running ingest run {existing['run_id']}",
+                flush=True,
+            )
+            return
+        raise HTTPException(
+            status_code=409,
+            detail="Another ingest job is already running. Wait for it to complete.",
+        )
 
 
 @app.post("/jobs/fetch-universe")
@@ -413,7 +469,7 @@ async def get_latest_run():
         row = await conn.execute(
             text(
                 "SELECT run_id, job_type, status, ticker_count, price_rows, fund_rows, "
-                "       error_count, error_message, started_at, completed_at "
+                "       error_count, error_message, session_date, started_at, completed_at "
                 "FROM ingest_runs ORDER BY started_at DESC LIMIT 1"
             )
         )
@@ -426,6 +482,9 @@ async def get_latest_run():
         "job_type": result["job_type"],
         "status": result["status"],
         "error_message": result["error_message"],
+        # The trading session this fetch advanced to (MAX SPY date). The scheduler
+        # compares this against the target session to decide if fetch-data is done.
+        "session_date": result["session_date"].isoformat() if result["session_date"] else None,
         "started_at": result["started_at"].isoformat() if result["started_at"] else None,
         "completed_at": result["completed_at"].isoformat() if result["completed_at"] else None,
     }
@@ -879,10 +938,16 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
         status = "partial_success" if err_count > 0 else "success"
         pcp = _coverage(price_ok, len(price_tickers))
         fcp = _coverage(fund_ok, len(fundamental_tickers))
+        # session_date = the trading session this run advanced prices to (MAX SPY
+        # date, reloaded after benchmarks above). The scheduler keys the daily
+        # chain on this session, so it must be the DATA date, not wall-clock today.
+        # None when SPY could not be written (skip optimisation disabled) — the
+        # scheduler then treats fetch-data as not-yet-advanced and waits.
         await _finish_run(run_id, status,
                           ticker_count=len(price_tickers), price_rows=price_rows_written,
                           fund_rows=fund_ok, error_count=err_count,
-                          price_coverage_pct=pcp, fundamental_coverage_pct=fcp)
+                          price_coverage_pct=pcp, fundamental_coverage_pct=fcp,
+                          session_date=spy_max)
         await _write_trace_file(run_id, "fetch-data", status, started_at,
                                 tickers_done=len(price_tickers), total_tickers=len(price_tickers),
                                 price_rows=price_rows_written, fund_rows=fund_ok,

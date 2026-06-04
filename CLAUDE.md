@@ -417,38 +417,39 @@ for the dashboard. `chain_date` is written at run start so the
 scheduler's supervisor sees a valid date during execution and does not
 classify the in-flight run as idle.
 
-The scheduler compares `chain_date` (not `run_date`) when polling step
-status, because `run_date` is set to `MAX(SPY date)` which may lag the
-wall-clock date by 1+ days. The `already_ran_today` guard updates
-`chain_date = date.today()` on the existing success row before returning
-so the scheduler classifies the step as `done` without re-triggering.
-
 Which reference date each step's `date_field` is compared against is a
-single explicit `DateAnchor` enum on `_StepDef` (replacing the old
-`use_trading_day` / `use_upstream_rank_date` booleans). This is the
-consolidation of the recurring "re-trigger loop" bug family — a step keyed
-on a *data*-date that lags the wall clock must NOT be compared against a
-calendar date, or it reads "not done today" forever:
+single explicit `DateAnchor` enum on `_StepDef`. Every step is now anchored
+on a DATA-session date (NO wall-clock anchors) — this is the consolidation of
+the recurring "re-trigger loop" bug family. A step keyed on a *data*-date must
+be compared against another *data*-date (the session being processed), never
+against a wall-clock calendar date, or it reads "not done" forever:
 
 ```text
-TODAY         — wall-clock today (fetch-data, vet: keyed on started_at; pipeline:
-                keyed on chain_date, which is date.today()). NOT trading_day:
-                chain_date==today==trading_day on a session, but on a weekend/holiday
-                catch-up run chain_date=Saturday while trading_day=Friday — comparing
-                against trading_day wedged the chain on the pipeline step every
-                weekend ("idle → already_ran_today → loop", dashboard stuck on
-                "Calculating Factors"). chain_date is defined as today, so compare to TODAY.
-UPSTREAM_RANK — freshest ranking_runs.rank_date, fallback TODAY
-                (portfolio-builder, delta; their date_field inherits rank_date,
-                 which lags trading_day intraday)
-(TRADING_DAY exists in the enum but no step uses it — comparing a wall-clock or
- chain date against the last session breaks on non-trading days.)
+SESSION       — the trading SESSION being processed (latest_closed_session, the
+                most recent NYSE session past its 16:00 ET close). fetch-data
+                (session_date = MAX SPY date ingested) and pipeline (run_date =
+                MAX SPY date scored) compare against it. STABLE across midnight:
+                the session only rolls at the next close, so a chain spanning
+                midnight keeps matching and is neither abandoned nor re-triggered.
+                This replaced the old chain_date==today workaround (which existed
+                only to dodge the weekend wedge while the step was wall-clock-keyed).
+UPSTREAM_RANK — freshest ranking_runs.rank_date (vet via source_rank_date,
+                portfolio-builder via portfolio_date, delta via run_date; all
+                inherit rank_date, which lags the session intraday).
+(TODAY / TRADING_DAY remain in the enum for back-compat but NO real step uses
+ them — comparing a data-date against a wall-clock/calendar date is the bug.)
 ```
+
+`ingest_runs.session_date` (migration 0016, = MAX SPY date at fetch completion)
+and the vetter's JOINed `source_rank_date` expose these data-session dates to the
+scheduler. `chain_date` is still written by the pipeline for audit but the
+scheduler no longer keys on it.
 
 A parametrized invariant test (`TestDateAnchorInvariant`) asserts every
 real step, once it has produced output for the current (lagging) cycle,
-reads `done` not `idle` — so a new step with a mis-chosen anchor fails in
-CI instead of looping in production.
+reads `done` not `idle`, and `test_no_step_uses_wall_clock_started_at`
+forbids any new wall-clock anchor — so a mis-chosen anchor fails in CI
+instead of looping in production.
 
 Trigger cooldown (`TRIGGER_COOLDOWN_SECS`, default 30s): when a step is
 `idle` the supervisor POSTs `/jobs/*` then waits a tick. There's a lag
@@ -862,26 +863,39 @@ The chain is triggered in exactly two ways:
 2. **Manual** — `POST /jobs/run-now` (dashboard "Run" button) sets `_force_pending`
    and re-executes today's chain from scratch through all five steps
 
-The daily schedule is **trading-calendar aware** (`should_run_chain` in
-`services/scheduler/app/staleness.py`, NYSE calendar via `exchange_calendars`):
-a fresh chain starts only on an NYSE trading session, or on a weekend/holiday
-solely to catch up a session whose proposal hasn't been produced yet (the
-"last processed session" = latest successful `delta_runs.run_date`). This stops
-the chain — and the Ollama vetter — from re-running pointlessly every weekend
-and on weekday holidays, while still recovering a missed Friday chain over the
-weekend for Monday's open. The gate only governs STARTING a chain; once one is
-open for today it advances every tick. Manual run-now bypasses the gate.
+The chain is **keyed by the trading SESSION it processes**, not wall-clock
+`today` — `latest_closed_session(now_ET)` in `services/scheduler/app/staleness.py`
+(the most recent NYSE session past its 16:00 ET close). This session date is
+**stable across midnight** (it rolls only at the next close), which is the fix for
+the cross-midnight abandon bug: a chain that starts at 22:30 ET and runs past
+midnight keeps the same key, so the supervisor no longer mistakes it for a new
+cycle, force-`failed`s its `scheduler_runs` row, and orphans the in-flight fetch
+(which left the dashboard stuck on "READY").
+
+The **data-frontier start gate** starts a fresh chain only when the latest closed
+session is unprocessed: `last_processed_session < latest_closed_session` (where
+`last_processed_session` = latest successful `delta_runs.run_date`). This subsumes
+the old `should_run_chain` trading-calendar gate (on a weekend the session is the
+prior Friday, so once Friday is processed there is nothing to do; a missed Friday
+still catches up) and also avoids re-opening a redundant chain once a trading-day
+session is done. A scheduled-time floor (`_is_after_scheduled_time`) is kept
+because AV publishes EOD data ~1–2h after the close and the exact time is unknown.
+The gate only governs STARTING a chain; once one is open it advances every tick.
+Manual run-now bypasses the gate.
 
 Each tick (every SUPERVISOR_INTERVAL_SECS) reads each service's `/runs/latest`
-and triggers the first idle step, then returns. The chain advances on the next
-tick. After today's chain reaches a terminal state (success/failed), further
-ticks are no-ops for the rest of the calendar day — `_chain_status` resets on
-date rollover.
+and triggers the first idle step, then returns. After the session's chain reaches
+a terminal state, further ticks are no-ops until the session rolls over (the next
+NYSE close), at which point `_chain_status` resets.
 
-On midnight date rollover the supervisor first calls `_db_close_run` on any
-still-open `current_run_id` (coercing a non-terminal `running` status to
-`failed`) before resetting in-memory state — without this, a chain that
-spans midnight leaves orphaned `status='running'` rows in `scheduler_runs`.
+On session rollover the supervisor first calls `_db_close_run` on any still-open
+`current_run_id` (coercing a non-terminal `running` status to `failed`) before
+resetting in-memory state. A chain spanning midnight does NOT hit this branch (the
+session is unchanged until the next close), so it is no longer abandoned; the
+branch now only fires for a chain genuinely interrupted across a real session
+boundary. Tier-1 companion guard: av-ingestor reclaims a `running` `ingest_runs`
+row older than `STALE_INGEST_HOURS` (default 6h) so an orphaned forever-`running`
+fetch can't 409-wedge future runs.
 
 The pipeline service maintains a Redis consumer on `stocker:pipeline_events`
 to drain the Pending Entries List on restart (recovering events that a crashed

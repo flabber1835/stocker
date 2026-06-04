@@ -504,7 +504,7 @@ class TestSupervisorTick:
 
         call_count = [0]
 
-        async def _fake_step_state(client, step, today, trading_day, prev_trading_day, latest_rank_date=None):
+        async def _fake_step_state(client, step, today, trading_day, prev_trading_day, latest_rank_date=None, session=None):
             call_count[0] += 1
             if step.name == "fetch-data":
                 return "done"
@@ -536,7 +536,7 @@ class TestSupervisorTick:
         mock_trigger = AsyncMock()
         mock_db_close = AsyncMock()
 
-        async def _fake_step_state(client, step, today, trading_day, prev_trading_day, latest_rank_date=None):
+        async def _fake_step_state(client, step, today, trading_day, prev_trading_day, latest_rank_date=None, session=None):
             if step.name == "fetch-data":
                 return "failed"
             return "idle"
@@ -565,7 +565,7 @@ class TestSupervisorTick:
         mock_trigger = AsyncMock()
         mock_db_close = AsyncMock()
 
-        async def _fake_step_state(client, step, today, trading_day, prev_trading_day, latest_rank_date=None):
+        async def _fake_step_state(client, step, today, trading_day, prev_trading_day, latest_rank_date=None, session=None):
             if step.name in ("fetch-data", "pipeline"):
                 return "done"
             if step.name == "vet":
@@ -599,7 +599,7 @@ class TestSupervisorTick:
         mock_trigger = AsyncMock(return_value=True)
         mock_db_close = AsyncMock()
 
-        async def _fake_step_state(client, step, today, trading_day, prev_trading_day, latest_rank_date=None):
+        async def _fake_step_state(client, step, today, trading_day, prev_trading_day, latest_rank_date=None, session=None):
             if step.name in ("fetch-data", "pipeline"):
                 return "done"
             if step.name == "vet":
@@ -844,15 +844,14 @@ class TestSupervisorTick:
         """Once chain is marked failed today, further ticks return immediately.
 
         This verifies the retry-loop fix: after fetch-universe fails and the chain
-        is set to 'failed', every subsequent supervisor tick for the same calendar
-        day must return early without firing any new triggers.
+        is set to 'failed', every subsequent supervisor tick for the same SESSION
+        must return early without firing any new triggers.
         """
-        import datetime
-        today = _local_today().isoformat()
+        session = _date(2026, 5, 21)
         chain_status = _supervisor_tick.__globals__["_chain_status"]
         chain_status.update({
             "status": "failed",
-            "date": today,
+            "date": session.isoformat(),
             "steps": {},
             "run_ids": {},
             "current_run_id": None,
@@ -862,6 +861,7 @@ class TestSupervisorTick:
         mock_trigger = AsyncMock()
 
         with patch.dict(_supervisor_tick.__globals__, {
+            "latest_closed_session": MagicMock(return_value=session),
             "_has_universe": mock_has_universe,
             "_trigger_step": mock_trigger,
         }):
@@ -891,12 +891,14 @@ class TestSupervisorTick:
         mock_has_universe.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_resets_state_on_date_change(self):
-        """chain_status.date is yesterday → steps and run_ids reset for today."""
+    async def test_resets_state_on_session_change(self):
+        """chain_status.date is the prior session → steps and run_ids reset when the
+        session rolls over."""
+        session = _date(2026, 5, 21)
         # Use the _chain_status from the same globals dict that _supervisor_tick references
         chain_status = _supervisor_tick.__globals__["_chain_status"]
         chain_status.update({
-            "date": "2026-05-20",  # yesterday
+            "date": "2026-05-20",  # prior session
             "steps": {"fetch-data": "done"},
             "run_ids": {"fetch-data": "old-run"},
             "current_run_id": "old-db-run-id",
@@ -907,6 +909,7 @@ class TestSupervisorTick:
         mock_db_open = AsyncMock(return_value="new-run-uuid")
 
         with patch.dict(_supervisor_tick.__globals__, {
+            "latest_closed_session": MagicMock(return_value=session),
             "_has_universe": AsyncMock(return_value=True),
             "_step_state": AsyncMock(return_value="idle"),
             "_trigger_step": mock_trigger,
@@ -917,22 +920,19 @@ class TestSupervisorTick:
         }):
             await _supervisor_tick()
 
-        import datetime
-        today = _local_today().isoformat()
-        assert chain_status["date"] == today
-        # Old state from yesterday should be cleared (run_ids reset to {})
+        assert chain_status["date"] == session.isoformat()
+        # Old state from the prior session should be cleared (run_ids reset to {})
         assert chain_status.get("run_ids", {}).get("fetch-data") != "old-run"
 
     @pytest.mark.asyncio
-    async def test_skips_after_success_same_day(self):
-        """If today's chain already succeeded, the next tick must return
+    async def test_skips_after_success_same_session(self):
+        """If this session's chain already succeeded, the next tick must return
         without opening a new scheduler_runs row (no tick-spam after done)."""
-        import datetime
-        today = _local_today().isoformat()
+        session = _date(2026, 5, 21)
         chain_status = _supervisor_tick.__globals__["_chain_status"]
         chain_status.update({
             "status": "success",
-            "date": today,
+            "date": session.isoformat(),
             "steps": {"fetch-data": "done", "pipeline": "done", "portfolio-builder": "done", "delta": "done", "vet": "done"},
             "run_ids": {},
             "current_run_id": None,
@@ -944,6 +944,7 @@ class TestSupervisorTick:
         mock_trigger = AsyncMock()
 
         with patch.dict(_supervisor_tick.__globals__, {
+            "latest_closed_session": MagicMock(return_value=session),
             "_has_universe": AsyncMock(return_value=True),
             "_step_state": AsyncMock(return_value="done"),
             "_trigger_step": mock_trigger,
@@ -960,18 +961,18 @@ class TestSupervisorTick:
         mock_trigger.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_date_rollover_clears_failed_status(self):
-        """Yesterday's 'failed' chain status must NOT block today's chain.
+    async def test_session_rollover_clears_failed_status(self):
+        """A prior session's 'failed' chain status must NOT block the new session.
 
         Regression test for a bug where _chain_status['status'] was not reset
-        on date rollover, causing the supervisor to return early on every tick
-        for the entire following day.
+        on rollover, causing the supervisor to return early on every tick for the
+        entire following period.
         """
-        import datetime
+        session = _date(2026, 5, 21)
         chain_status = _supervisor_tick.__globals__["_chain_status"]
         chain_status.update({
-            "status": "failed",     # yesterday ended in failure
-            "date": "2026-05-20",   # yesterday's date
+            "status": "failed",     # prior session ended in failure
+            "date": "2026-05-20",   # prior session's date
             "steps": {},
             "run_ids": {},
             "current_run_id": None,
@@ -981,6 +982,7 @@ class TestSupervisorTick:
         mock_db_open = AsyncMock(return_value="new-run-uuid")
 
         with patch.dict(_supervisor_tick.__globals__, {
+            "latest_closed_session": MagicMock(return_value=session),
             "_has_universe": AsyncMock(return_value=True),
             "_step_state": AsyncMock(return_value="idle"),
             "_trigger_step": mock_trigger,
@@ -989,15 +991,15 @@ class TestSupervisorTick:
             "_db_update_run": AsyncMock(),
             "_db_close_run": AsyncMock(),
             "_is_after_scheduled_time": MagicMock(return_value=True),
+            "_latest_delta_date": AsyncMock(return_value=None),
             "_latest_rank_date": AsyncMock(return_value=None),
         }):
             await _supervisor_tick()
 
-        today = _local_today().isoformat()
-        assert chain_status["date"] == today
+        assert chain_status["date"] == session.isoformat()
         assert chain_status["status"] != "failed", (
-            "status must be cleared on date rollover — yesterday's 'failed' "
-            "must not block today's chain"
+            "status must be cleared on session rollover — a prior session's 'failed' "
+            "must not block the new session's chain"
         )
         # Supervisor should have triggered the first step
         mock_trigger.assert_called_once()
@@ -1046,13 +1048,65 @@ class TestSupervisorTick:
         )
 
     @pytest.mark.asyncio
-    async def test_date_rollover_clears_success_status(self):
-        """Yesterday's 'success' must not prevent today's chain from running."""
-        import datetime
+    async def test_chain_spanning_midnight_is_not_abandoned(self):
+        """THE BUG FIX: a chain running across midnight (wall clock rolled to the
+        next day, but the SESSION is unchanged) must NOT be reset or have its
+        scheduler_runs row closed. Before session-keying, the rollover branch fired
+        at midnight, coerced the running row to 'failed', wiped current_run_id, and
+        orphaned the in-flight fetch — leaving the dashboard on 'READY'.
+
+        Here: the chain is keyed to Friday's session and is mid-fetch; it is now
+        00:09 Saturday but latest_closed_session is still Friday. The supervisor
+        must keep the chain intact and simply wait for the running step.
+        """
+        session = _date(2026, 5, 29)  # Friday — the session being processed
         chain_status = _supervisor_tick.__globals__["_chain_status"]
         chain_status.update({
-            "status": "success",    # yesterday succeeded
-            "date": "2026-05-20",   # yesterday
+            "status": "running",
+            "date": session.isoformat(),         # keyed to Friday's session
+            "steps": {"fetch-data": "running"},
+            "run_ids": {},
+            "current_run_id": "friday-run-uuid",  # the in-flight chain
+        })
+
+        mock_db_close = AsyncMock()
+        mock_db_open = AsyncMock(return_value="should-not-open")
+        mock_trigger = AsyncMock()
+
+        with patch.dict(_supervisor_tick.__globals__, {
+            # It is now past midnight (Saturday) but the session is still Friday.
+            "latest_closed_session": MagicMock(return_value=session),
+            "_has_universe": AsyncMock(return_value=True),
+            "_step_state": AsyncMock(return_value="running"),  # fetch-data still running
+            "_trigger_step": mock_trigger,
+            "_get_latest_run_id": AsyncMock(return_value=None),
+            "_db_open_run": mock_db_open,
+            "_db_update_run": AsyncMock(),
+            "_db_close_run": mock_db_close,
+            "_is_after_scheduled_time": MagicMock(return_value=True),
+            "_latest_delta_date": AsyncMock(return_value=_date(2026, 5, 28)),
+            "_latest_rank_date": AsyncMock(return_value=None),
+        }):
+            await _supervisor_tick()
+
+        # The chain must survive: no rollover-close, no reset, run-id intact.
+        mock_db_close.assert_not_called()
+        mock_db_open.assert_not_called()
+        mock_trigger.assert_not_called()  # running step → just wait
+        assert chain_status["current_run_id"] == "friday-run-uuid", (
+            "cross-midnight chain was abandoned — current_run_id should be intact"
+        )
+        assert chain_status["date"] == session.isoformat()
+        assert chain_status["status"] == "running"
+
+    @pytest.mark.asyncio
+    async def test_session_rollover_clears_success_status(self):
+        """A prior session's 'success' must not prevent the new session's chain."""
+        session = _date(2026, 5, 21)
+        chain_status = _supervisor_tick.__globals__["_chain_status"]
+        chain_status.update({
+            "status": "success",    # prior session succeeded
+            "date": "2026-05-20",   # prior session
             "steps": {},
             "run_ids": {},
             "current_run_id": None,
@@ -1062,6 +1116,7 @@ class TestSupervisorTick:
         mock_db_open = AsyncMock(return_value="new-run-uuid")
 
         with patch.dict(_supervisor_tick.__globals__, {
+            "latest_closed_session": MagicMock(return_value=session),
             "_has_universe": AsyncMock(return_value=True),
             "_step_state": AsyncMock(return_value="idle"),
             "_trigger_step": mock_trigger,
@@ -1070,12 +1125,12 @@ class TestSupervisorTick:
             "_db_update_run": AsyncMock(),
             "_db_close_run": AsyncMock(),
             "_is_after_scheduled_time": MagicMock(return_value=True),
+            "_latest_delta_date": AsyncMock(return_value=None),
             "_latest_rank_date": AsyncMock(return_value=None),
         }):
             await _supervisor_tick()
 
-        today = _local_today().isoformat()
-        assert chain_status["date"] == today
+        assert chain_status["date"] == session.isoformat()
         assert chain_status["status"] != "success" or mock_trigger.call_count > 0, (
             "Either status was cleared (allowing the chain to start) or "
             "the chain already processed the first idle step"
@@ -1172,49 +1227,43 @@ class TestWeekendDateFields:
         return next(s for s in _STEPS if s.name == "pipeline")
 
     @pytest.mark.asyncio
-    async def test_pipeline_done_when_chain_date_matches_trading_day_even_if_score_date_lags(self):
-        """Regression: cold-start loop when pipeline score_date (data date) lags trading_day.
-
-        When the system boots in the morning of a trading day, the latest price data
-        may only be from yesterday.  The pipeline sets run_date=score_date=yesterday
-        but chain_date=today.  Using run_date (old behaviour) caused:
-          scheduler sees run_date=yesterday != trading_day=today → "idle"
-          → triggers pipeline → "already_ran_today" → loops forever
-        Comparing chain_date against TODAY fixes this: chain_date=today → "done".
-        """
-        tuesday  = "2026-05-26"   # today (a normal trading day)
-        monday   = "2026-05-25"   # latest data date (lags)
+    async def test_pipeline_done_when_run_date_matches_session_in_morning(self):
+        """Session model: booting in the morning of a trading day, the latest CLOSED
+        session is yesterday (today's session hasn't closed). The pipeline produced
+        run_date=yesterday for yesterday's session. The scheduler compares run_date
+        against the session (yesterday), so it reads 'done' — no re-trigger loop.
+        (Previously this needed a wall-clock chain_date workaround; now run_date vs
+        session is a data-date-vs-data-date comparison and just works.)"""
+        tuesday  = "2026-05-26"   # wall-clock today (a normal trading day, pre-close)
+        monday   = "2026-05-25"   # latest closed session = the data frontier
         friday   = "2026-05-22"
         client = _async_client_returning({
             "status": "success",
-            "run_date": monday,     # score date (data from yesterday)
-            "chain_date": tuesday,  # wall-clock date of the run (today)
+            "run_date": monday,     # score date = the session it processed
         })
-        result = await _step_state(client, self._pipeline_step(), tuesday, tuesday, friday)
+        result = await _step_state(client, self._pipeline_step(), tuesday, tuesday, friday,
+                                   session=monday)
         assert result == "done"
 
     @pytest.mark.asyncio
     async def test_pipeline_done_on_weekend_catch_up(self):
-        """Regression for the live Saturday wedge: a catch-up chain runs on a weekend,
-        the pipeline stamps chain_date=Saturday (= date.today()), but the last NYSE
-        session (trading_day) is Friday. Comparing chain_date against trading_day gave
-        Saturday != Friday → 'idle' → trigger → 'already_ran_today' → infinite loop,
-        wedging the chain on the pipeline step (dashboard stuck on 'Calculating
-        Factors'). The pipeline step must compare chain_date against TODAY, so a
-        weekend run reads 'done'."""
-        saturday = "2026-05-30"   # today (non-trading)
-        friday   = "2026-05-29"   # last NYSE session (trading_day)
+        """The live Saturday wedge, now fixed by session-keying: a catch-up chain runs
+        on a weekend; the session being processed is Friday's (Saturday→Friday). The
+        pipeline produced run_date=Friday, which equals the session, so it reads
+        'done'. No wall-clock comparison is involved, so the weekend re-trigger loop
+        (dashboard stuck on 'Calculating Factors') cannot occur."""
+        saturday = "2026-05-30"   # wall-clock today (non-trading)
+        friday   = "2026-05-29"   # last NYSE session = the session being processed
         thursday = "2026-05-28"
         client = _async_client_returning({
             "status": "success",
             "run_date": friday,       # data date = Friday's session
-            "chain_date": saturday,   # wall-clock date the run started = today
         })
-        result = await _step_state(client, self._pipeline_step(), saturday, friday, thursday)
+        result = await _step_state(client, self._pipeline_step(), saturday, friday, thursday,
+                                   session=friday)
         assert result == "done", (
-            "pipeline ran today (chain_date=Saturday) and succeeded — it must read "
-            "'done', not 'idle'. Comparing chain_date against trading_day (Friday) "
-            "instead of today (Saturday) is the weekend re-trigger-loop bug."
+            "pipeline produced run_date=Friday for Friday's session — comparing against "
+            "the session (Friday) must read 'done', never 'idle'."
         )
 
     @pytest.mark.asyncio
@@ -1835,16 +1884,17 @@ class TestSupervisorTradingCalendarGate:
         _supervisor_tick.__globals__["_force_pending"].clear()
 
     @pytest.mark.asyncio
-    async def test_skips_when_should_run_chain_false(self):
-        """Non-trading day, latest session already processed → gate returns False
-        → supervisor returns BEFORE the universe check (no steps triggered)."""
+    async def test_skips_when_session_already_processed(self):
+        """Latest closed session already has a delta proposal (last_processed >=
+        session) → data-frontier gate skips BEFORE the universe check (no triggers).
+        Covers the weekend/holiday/post-completion no-work case."""
         self._reset_fresh()
         mock_has_universe = AsyncMock(return_value=True)
         mock_trigger = AsyncMock()
         with patch.dict(_supervisor_tick.__globals__, {
             "_is_after_scheduled_time": MagicMock(return_value=True),
+            "latest_closed_session": MagicMock(return_value=_date(2026, 5, 29)),
             "_latest_delta_date": AsyncMock(return_value=_date(2026, 5, 29)),
-            "should_run_chain": MagicMock(return_value=False),
             "_has_universe": mock_has_universe,
             "_trigger_step": mock_trigger,
             "_db_open_run": AsyncMock(return_value="run-x"),
@@ -1859,16 +1909,16 @@ class TestSupervisorTradingCalendarGate:
         assert _chain_status["status"] != "running"
 
     @pytest.mark.asyncio
-    async def test_proceeds_when_should_run_chain_true(self):
-        """Trading session (or stale catch-up) → gate returns True → supervisor
-        proceeds into the chain (universe check runs, first step triggered)."""
+    async def test_proceeds_when_session_unprocessed(self):
+        """Session not yet processed (cold start: no delta) → gate proceeds into the
+        chain (universe check runs, first step triggered)."""
         self._reset_fresh()
         mock_has_universe = AsyncMock(return_value=True)
         mock_trigger = AsyncMock()
         with patch.dict(_supervisor_tick.__globals__, {
             "_is_after_scheduled_time": MagicMock(return_value=True),
+            "latest_closed_session": MagicMock(return_value=_date(2026, 5, 29)),
             "_latest_delta_date": AsyncMock(return_value=None),
-            "should_run_chain": MagicMock(return_value=True),
             "_has_universe": mock_has_universe,
             "_step_state": AsyncMock(return_value="idle"),
             "_trigger_step": mock_trigger,
@@ -1884,23 +1934,47 @@ class TestSupervisorTradingCalendarGate:
         assert _chain_status["status"] == "running"
 
     @pytest.mark.asyncio
+    async def test_stale_missed_session_catches_up(self):
+        """Last processed session lags the latest closed session (a missed Friday)
+        → gate proceeds to catch it up even on a weekend."""
+        self._reset_fresh()
+        mock_has_universe = AsyncMock(return_value=True)
+        mock_trigger = AsyncMock()
+        with patch.dict(_supervisor_tick.__globals__, {
+            "_is_after_scheduled_time": MagicMock(return_value=True),
+            "latest_closed_session": MagicMock(return_value=_date(2026, 5, 29)),
+            "_latest_delta_date": AsyncMock(return_value=_date(2026, 5, 28)),  # missed Friday
+            "_has_universe": mock_has_universe,
+            "_step_state": AsyncMock(return_value="idle"),
+            "_trigger_step": mock_trigger,
+            "_get_latest_run_id": AsyncMock(return_value=None),
+            "_db_open_run": AsyncMock(return_value="run-x"),
+            "_db_update_run": AsyncMock(),
+            "_db_close_run": AsyncMock(),
+        }):
+            await _supervisor_tick()
+
+        mock_has_universe.assert_called_once()
+        assert mock_trigger.call_count == 1
+
+    @pytest.mark.asyncio
     async def test_active_chain_bypasses_gate(self):
-        """A chain already open for today (current_run_id set) advances even when
-        should_run_chain would say False — so a started run, including a weekend
-        catch-up, always runs to completion across ticks."""
-        today = _local_today().isoformat()
+        """A chain already open for the session (current_run_id set) advances even
+        when the data-frontier gate would say "already processed" — so a started
+        run, including a weekend catch-up, always runs to completion across ticks."""
+        session = _date(2026, 5, 29)
         _supervisor_tick.__globals__["_chain_status"].update({
-            "status": "running", "date": today, "steps": {}, "run_ids": {},
+            "status": "running", "date": session.isoformat(), "steps": {}, "run_ids": {},
             "last_completed": None, "current_run_id": "active-run", "next_run": None,
         })
         _supervisor_tick.__globals__["_force_pending"].clear()
 
         mock_has_universe = AsyncMock(return_value=True)
-        mock_should_run = MagicMock(return_value=False)  # would block a fresh start
+        mock_delta = AsyncMock(return_value=_date(2026, 5, 29))  # would block a fresh start
         with patch.dict(_supervisor_tick.__globals__, {
             "_is_after_scheduled_time": MagicMock(return_value=True),
-            "_latest_delta_date": AsyncMock(return_value=_date(2026, 5, 29)),
-            "should_run_chain": mock_should_run,
+            "latest_closed_session": MagicMock(return_value=session),
+            "_latest_delta_date": mock_delta,
             "_has_universe": mock_has_universe,
             "_step_state": AsyncMock(return_value="idle"),
             "_trigger_step": AsyncMock(),
@@ -1911,8 +1985,8 @@ class TestSupervisorTradingCalendarGate:
         }):
             await _supervisor_tick()
 
-        # Bypassed the gate entirely (never consulted) and proceeded.
-        mock_should_run.assert_not_called()
+        # Bypassed the gate entirely (frontier never consulted) and proceeded.
+        mock_delta.assert_not_called()
         mock_has_universe.assert_called_once()
 
 
@@ -2038,12 +2112,15 @@ class TestDateAnchorInvariant:
     # What each service really writes into its date_field for a run of the current
     # cycle. A new step with a new date_field must be added here (KeyError otherwise),
     # forcing the author to state what the service stamps.
-    def _stamped(self, date_field, *, today, latest_rank_date):
+    #   session    = the trading SESSION being processed (latest closed session)
+    #   latest_rank_date = ranking_runs.rank_date (== session once the pipeline ran)
+    def _stamped(self, date_field, *, today, session, latest_rank_date):
         return {
-            "started_at": f"{today}T10:00:00+00:00",  # wall-clock now
-            "chain_date": today,                       # pipeline: date.today()
+            "started_at": f"{today}T10:00:00+00:00",  # wall-clock now (legacy, unused)
+            "session_date": session,                   # fetch-data: MAX SPY date ingested
+            "run_date": session,                       # pipeline: MAX SPY date scored (= delta's rank_date here)
+            "source_rank_date": latest_rank_date,      # vet: rank_date of ranking vetted
             "portfolio_date": latest_rank_date,        # inherits ranking_runs.rank_date
-            "run_date": latest_rank_date,              # delta: inherits rank_date
         }[date_field]
 
     @pytest.mark.asyncio
@@ -2052,16 +2129,18 @@ class TestDateAnchorInvariant:
         today = "2026-05-30"            # Saturday — today != trading_day (weekend wedge)
         trading_day = "2026-05-29"      # Friday (last NYSE session)
         prev = "2026-05-28"
+        session = "2026-05-29"          # the session being processed = Friday
         latest_rank_date = "2026-05-29" # ranking data = Friday's session (lags today)
 
-        val = self._stamped(step.date_field, today=today, latest_rank_date=latest_rank_date)
+        val = self._stamped(step.date_field, today=today, session=session,
+                            latest_rank_date=latest_rank_date)
         payload = {"status": "success", step.date_field: val}
         if step.job_type:
             payload["job_type"] = step.job_type
         client = _async_client_returning(payload)
 
         state = await _step_state(client, step, today, trading_day, prev,
-                                  latest_rank_date=latest_rank_date)
+                                  latest_rank_date=latest_rank_date, session=session)
         assert state == "done", (
             f"{step.name} produced output for the current (weekend) cycle "
             f"({step.date_field}={val}) but _step_state returned {state!r} — a "

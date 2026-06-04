@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
@@ -7,6 +7,7 @@ from app.staleness import (
     is_stale,
     is_trading_day,
     last_trading_day,
+    latest_closed_session,
     should_run_chain,
 )
 
@@ -15,6 +16,10 @@ from app.staleness import (
 
 def _d(s: str) -> date:
     return date.fromisoformat(s)
+
+
+def _dt(s: str) -> datetime:
+    return datetime.fromisoformat(s)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -486,6 +491,83 @@ class TestIsTradingDay:
     ])
     def test_holidays_are_not_trading_days(self, d, holiday):
         assert is_trading_day(_d(d)) is False, holiday
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# latest_closed_session  (the session key a chain is pinned to)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestLatestClosedSessionWeekdays:
+    """On a trading day the session is `today` only AFTER the 16:00 close;
+    before the close it is the previous session."""
+
+    def test_weekday_after_close_is_today(self):
+        # Friday 2026-05-29, 22:30 ET — past the close, session is today
+        assert latest_closed_session(_dt("2026-05-29T22:30:00")) == _d("2026-05-29")
+
+    def test_weekday_just_after_close_is_today(self):
+        assert latest_closed_session(_dt("2026-05-29T16:00:00")) == _d("2026-05-29")
+
+    def test_weekday_before_close_is_previous_session(self):
+        # Friday 10:00 ET — Friday's session has not closed; latest closed = Thursday
+        assert latest_closed_session(_dt("2026-05-29T10:00:00")) == _d("2026-05-28")
+
+    def test_weekday_one_minute_before_close_is_previous(self):
+        assert latest_closed_session(_dt("2026-05-29T15:59:00")) == _d("2026-05-28")
+
+
+class TestLatestClosedSessionStableAcrossMidnight:
+    """THE BUG FIX: a chain that starts after the close and runs past midnight
+    must compute the SAME session key the whole time, so the supervisor never
+    treats the in-flight chain as a new calendar cycle and abandons it."""
+
+    def test_evening_and_after_midnight_match_weekday(self):
+        # Chain starts Mon 2026-06-01 22:30 ET, still running Tue 00:09 ET.
+        # Both must resolve to Monday's session.
+        evening = latest_closed_session(_dt("2026-06-01T22:30:00"))
+        after_midnight = latest_closed_session(_dt("2026-06-02T00:09:00"))
+        assert evening == _d("2026-06-01")
+        assert after_midnight == _d("2026-06-01")
+        assert evening == after_midnight
+
+    def test_session_only_rolls_at_next_close(self):
+        # Still Monday's session right up until Tuesday's 16:00 close…
+        assert latest_closed_session(_dt("2026-06-02T15:59:00")) == _d("2026-06-01")
+        # …then rolls to Tuesday.
+        assert latest_closed_session(_dt("2026-06-02T16:00:00")) == _d("2026-06-02")
+
+    def test_friday_evening_through_weekend_stays_friday(self):
+        # Friday 22:30 → Sat 00:09 → Sat noon → Sun → all Friday's session
+        assert latest_closed_session(_dt("2026-05-29T22:30:00")) == _d("2026-05-29")
+        assert latest_closed_session(_dt("2026-05-30T00:09:00")) == _d("2026-05-29")
+        assert latest_closed_session(_dt("2026-05-30T12:00:00")) == _d("2026-05-29")
+        assert latest_closed_session(_dt("2026-05-31T20:00:00")) == _d("2026-05-29")
+
+
+class TestLatestClosedSessionWeekendsHolidays:
+    """Weekends and holidays resolve to the prior session regardless of time."""
+
+    def test_saturday_any_time_is_friday(self):
+        assert latest_closed_session(_dt("2026-05-30T09:00:00")) == _d("2026-05-29")
+        assert latest_closed_session(_dt("2026-05-30T23:00:00")) == _d("2026-05-29")
+
+    def test_sunday_is_friday(self):
+        assert latest_closed_session(_dt("2026-05-31T12:00:00")) == _d("2026-05-29")
+
+    def test_memorial_day_monday_is_prior_friday(self):
+        # Memorial Day 2026-05-25 (holiday) → Friday 2026-05-22
+        assert latest_closed_session(_dt("2026-05-25T22:30:00")) == _d("2026-05-22")
+
+    def test_good_friday_is_prior_thursday(self):
+        assert latest_closed_session(_dt("2026-04-03T22:30:00")) == _d("2026-04-02")
+
+    def test_day_after_holiday_after_close_is_itself(self):
+        # Tue after Memorial Day, 22:30 — Tuesday's session has closed
+        assert latest_closed_session(_dt("2026-05-26T22:30:00")) == _d("2026-05-26")
+
+    def test_day_after_holiday_before_close_is_prior_friday(self):
+        # Tue after Memorial Day, 10:00 — Tuesday not closed; latest = Fri May 22
+        assert latest_closed_session(_dt("2026-05-26T10:00:00")) == _d("2026-05-22")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

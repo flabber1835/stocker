@@ -125,3 +125,33 @@ class TestStepOrdering:
             "run_date is set to the trading day being processed; "
             "started_at is the wall-clock time and breaks on weekend cold boots."
         )
+
+    def test_no_step_uses_wall_clock_started_at(self):
+        """Session-keying invariant: NO step may anchor on the wall-clock started_at.
+
+        Every step now reports a DATA-session date (session_date / run_date /
+        source_rank_date / portfolio_date) so the chain key is stable across
+        midnight. A started_at anchor reintroduces the cross-midnight re-trigger
+        and the evening-ET re-billing bug, so it is forbidden outright.
+        """
+        for step in _STEPS:
+            assert step.date_field != "started_at", (
+                f"Step '{step.name}' anchors on wall-clock 'started_at' — forbidden. "
+                f"Use the data-session date the service reports (session_date, run_date, "
+                f"source_rank_date, portfolio_date) so the step is stable across midnight."
+            )
+
+    def test_front_steps_use_session_anchor(self):
+        """fetch-data and pipeline are SESSION-anchored on their data-session date."""
+        fetch = next(s for s in _STEPS if s.name == "fetch-data")
+        pipeline = next(s for s in _STEPS if s.name == "pipeline")
+        assert (fetch.date_field, fetch.date_anchor) == ("session_date", DateAnchor.SESSION)
+        assert (pipeline.date_field, pipeline.date_anchor) == ("run_date", DateAnchor.SESSION)
+
+    def test_vet_uses_source_rank_date(self):
+        """vet tracks the ranking it vetted (source_rank_date), not wall-clock time."""
+        vet = next(s for s in _STEPS if s.name == "vet")
+        assert vet.date_field == "source_rank_date", (
+            f"vet.date_field must be 'source_rank_date', got {vet.date_field!r}."
+        )
+        assert vet.date_anchor is DateAnchor.UPSTREAM_RANK

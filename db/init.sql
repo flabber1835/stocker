@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS ingest_runs (
     error_message             TEXT,
     price_coverage_pct        NUMERIC(6,4),            -- fraction of tickers with price data (0..1)
     fundamental_coverage_pct  NUMERIC(6,4),            -- fraction of tickers with fundamental data (0..1)
+    session_date              DATE,                    -- trading session ingested (MAX SPY date); scheduler chain key
     started_at                TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     completed_at              TIMESTAMPTZ
 );

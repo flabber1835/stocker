@@ -3,7 +3,7 @@ Tests for av-ingestor utility functions.
 
 We test the pure-Python helpers directly from app.main production code.
 """
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 import pytest
 from app.main import (
     _TICKER_RE,
@@ -11,8 +11,42 @@ from app.main import (
     _should_use_compact,
     _should_skip_fundamentals,
     _build_benchmarks_first,
+    _is_stale_running,
     BENCHMARK_TICKERS,
 )
+
+
+# ── _is_stale_running (Tier 1 stale-running ingest reclaim) ───────────────────
+
+class TestIsStaleRunning:
+    """A 'running' ingest row older than the threshold is presumed dead and is
+    reclaimed so an orphaned forever-running row can't 409-wedge future fetches."""
+
+    NOW = datetime(2026, 6, 4, 12, 0, 0, tzinfo=timezone.utc)
+
+    def test_recent_running_not_stale(self):
+        started = self.NOW - timedelta(hours=1)
+        assert _is_stale_running(started, self.NOW, stale_hours=6) is False
+
+    def test_old_running_is_stale(self):
+        started = self.NOW - timedelta(hours=7)
+        assert _is_stale_running(started, self.NOW, stale_hours=6) is True
+
+    def test_exactly_threshold_not_stale(self):
+        started = self.NOW - timedelta(hours=6)
+        assert _is_stale_running(started, self.NOW, stale_hours=6) is False
+
+    def test_disabled_when_zero(self):
+        started = self.NOW - timedelta(hours=48)
+        assert _is_stale_running(started, self.NOW, stale_hours=0) is False
+
+    def test_none_started_not_stale(self):
+        assert _is_stale_running(None, self.NOW, stale_hours=6) is False
+
+    def test_naive_timestamp_assumed_utc(self):
+        # A naive started_at (no tzinfo) must be treated as UTC, not crash.
+        started = (self.NOW - timedelta(hours=8)).replace(tzinfo=None)
+        assert _is_stale_running(started, self.NOW, stale_hours=6) is True
 
 
 # ── _TICKER_RE validation ─────────────────────────────────────────────────────

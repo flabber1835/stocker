@@ -1,9 +1,16 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, time as _time, timedelta
 from functools import lru_cache
 
 import pandas as pd
+
+# NYSE regular session close in exchange-local (ET) time. A session only counts
+# as the "latest closed session" once this wall-clock time on its date has
+# passed. 16:00 is the regular close; early-close half-days (1:00pm) settle
+# earlier but the scheduler only ever STARTS a chain in the evening, so a
+# conservative 16:00 boundary is correct in practice and keeps the rule simple.
+REGULAR_CLOSE = _time(16, 0)
 
 
 @lru_cache(maxsize=1)
@@ -62,6 +69,31 @@ def is_trading_day(d: date) -> bool:
     """Return True if `d` is an NYSE trading session (not a weekend or an
     exchange holiday like Memorial Day, Good Friday, Christmas, etc.)."""
     return last_trading_day(d) == d
+
+
+def latest_closed_session(now_local: datetime, close: _time = REGULAR_CLOSE) -> date:
+    """The most recent NYSE session whose regular close has already passed as of
+    `now_local` (which MUST be in exchange-local / ET time).
+
+    This is the date the scheduler pins a chain to. Its defining property is
+    stability across midnight: from a session's close until the NEXT session's
+    close it returns the SAME date. Concretely, a chain that starts at 22:30 ET
+    on Monday's session and runs past midnight still computes "Monday" at 00:09
+    Tuesday (Tuesday's session has not closed yet), so the supervisor does not
+    mistake the in-flight chain for a new cycle and abandon it. The key only
+    rolls when the next session actually closes (≈16:00 the next trading day).
+
+    Contrast with `last_trading_day(today)`, which on a weekday flips to *today*
+    at midnight — long before that session has closed — and is what made a chain
+    spanning midnight look like a fresh day and get reset.
+    """
+    today = now_local.date()
+    sess = last_trading_day(today)
+    if sess == today and now_local.time() < close:
+        # `today` is a trading session but it has not closed yet; the latest
+        # CLOSED session is the previous one.
+        sess = last_trading_day(today - timedelta(days=1))
+    return sess
 
 
 def should_run_chain(today: date, last_processed_session: date | None) -> bool:

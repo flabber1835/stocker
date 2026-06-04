@@ -125,7 +125,10 @@ def _assert_fields(body: dict, required: list[tuple[str, type]], context: str) -
 # ── Contract 1: av-ingestor GET /runs/latest ────────────────────────────────
 
 def test_av_ingestor_runs_latest_contract():
-    """Scheduler reads: run_id, job_type, status, started_at from /runs/latest."""
+    """Scheduler reads: run_id, job_type, status, started_at, session_date from /runs/latest.
+
+    session_date is the trading session the fetch advanced to — the scheduler keys
+    the fetch-data step on it (SESSION anchor)."""
     _clear_app_modules()
     os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://x:x@localhost/x")
     os.environ.setdefault("AV_API_KEY", "demo")
@@ -145,6 +148,7 @@ def test_av_ingestor_runs_latest_contract():
         "fund_rows": 0,
         "error_count": 0,
         "error_message": None,
+        "session_date": _now().date(),
         "started_at": _now(),
         "completed_at": _now(),
     }
@@ -159,10 +163,11 @@ def test_av_ingestor_runs_latest_contract():
     body = resp.json()
 
     _assert_fields(body, [
-        ("run_id",     str),
-        ("job_type",   str),
-        ("status",     str),
-        ("started_at", str),
+        ("run_id",       str),
+        ("job_type",     str),
+        ("status",       str),
+        ("started_at",   str),
+        ("session_date", str),
     ], "av-ingestor /runs/latest")
 
     # Scheduler uses these exact status values
@@ -269,7 +274,10 @@ def test_pipeline_delta_latest_contract():
 # ── Contract 4: llm-vetter GET /runs/latest ──────────────────────────────────
 
 def test_vetter_runs_latest_contract():
-    """Scheduler reads: run_id, status, started_at from /runs/latest."""
+    """Scheduler reads: run_id, status, source_rank_date from /runs/latest.
+
+    source_rank_date is the rank_date of the ranking this run vetted (JOINed from
+    ranking_runs) — the scheduler keys the vet step on it (UPSTREAM_RANK anchor)."""
     _clear_app_modules()
     os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://x:x@localhost/x")
     os.environ.setdefault("OPENAI_API_KEY", "")
@@ -288,6 +296,7 @@ def test_vetter_runs_latest_contract():
         "flagged_count": 3,
         "started_at": _now(),
         "completed_at": _now(),
+        "source_rank_date": _now().date(),
     }
     engine = _mock_engine_returning(fake_row)
 
@@ -303,6 +312,10 @@ def test_vetter_runs_latest_contract():
         ("run_id",   str),
         ("status",   str),
     ], "llm-vetter /runs/latest")
+
+    # source_rank_date must surface so the scheduler can anchor vet on the ranking
+    # it vetted (UPSTREAM_RANK) rather than wall-clock started_at.
+    assert "source_rank_date" in body, "llm-vetter /runs/latest missing source_rank_date"
 
 
 # ── Contract 5: portfolio-builder GET /runs/latest ───────────────────────────

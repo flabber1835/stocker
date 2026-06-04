@@ -988,9 +988,16 @@ async def get_latest_run():
     async with engine.connect() as conn:
         row = await conn.execute(
             text(
-                "SELECT run_id, trace_id, status, candidate_count, flagged_count, "
-                "       error_message, started_at, completed_at "
-                "FROM vetter_runs ORDER BY started_at DESC LIMIT 1"
+                "SELECT vr.run_id, vr.trace_id, vr.status, vr.candidate_count, vr.flagged_count, "
+                "       vr.error_message, vr.started_at, vr.completed_at, "
+                # The data date of the ranking this run vetted. The scheduler keys
+                # the vet step on this (vs the freshest rank_date) instead of the
+                # wall-clock started_at, so a chain that vets across midnight is not
+                # re-triggered. JOINed from ranking_runs via source_ranking_run_id.
+                "       rr.rank_date AS source_rank_date "
+                "FROM vetter_runs vr "
+                "LEFT JOIN ranking_runs rr ON rr.run_id = vr.source_ranking_run_id "
+                "ORDER BY vr.started_at DESC LIMIT 1"
             )
         )
         result = row.fetchone()

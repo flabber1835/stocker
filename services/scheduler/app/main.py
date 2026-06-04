@@ -12,7 +12,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import BackgroundTasks, FastAPI
 
-from app.staleness import last_trading_day, should_run_chain
+from app.staleness import last_trading_day, latest_closed_session
 
 AV_INGESTOR_URL       = os.getenv("AV_INGESTOR_URL",       "http://av-ingestor:8000")
 PIPELINE_URL          = os.getenv("PIPELINE_URL",           "http://pipeline:8000")
@@ -163,19 +163,28 @@ class DateAnchor(str, Enum):
     mutually-exclusive enum forces every step — including any new one — to declare
     which reference it compares against, so the loop can't silently reappear.
 
-        TODAY         — wall-clock today. For steps that run once per calendar day
-                        and carry no data-date (fetch-data, vet: keyed on started_at).
-        TRADING_DAY   — last NYSE session. For the pipeline, whose chain_date is
-                        stamped date.today() at run start (== trading_day on a
-                        session; compared here so a weekend catch-up still matches).
+        SESSION       — the trading SESSION the chain is processing (the latest
+                        closed NYSE session, `latest_closed_session`). For front
+                        steps that report a DATA-session date: fetch-data
+                        (session_date = MAX SPY date ingested) and the pipeline
+                        (run_date = MAX SPY date scored). This is the anchor that
+                        makes the chain key stable across midnight — the session
+                        only rolls at the next close, so a chain spanning midnight
+                        keeps matching and is neither abandoned nor re-triggered.
         UPSTREAM_RANK — the freshest successful ranking_runs.rank_date (fallback
-                        TODAY when none exists yet). For steps downstream of ranking
-                        (portfolio-builder, delta) whose date_field inherits
-                        rank_date and therefore lags trading_day intraday.
+                        to SESSION when none exists yet). For steps downstream of
+                        ranking (vet, portfolio-builder, delta) whose date_field
+                        inherits rank_date and therefore lags the session intraday.
+        TODAY         — wall-clock today (legacy; no real step uses it now that the
+                        front steps report data-session dates). Kept for back-compat.
+        TRADING_DAY   — last NYSE session (legacy; unused — comparing a wall-clock
+                        or chain date against the last session breaks on non-trading
+                        days, which is exactly why SESSION exists).
     """
     TODAY = "today"
     TRADING_DAY = "trading_day"
     UPSTREAM_RANK = "upstream_rank"
+    SESSION = "session"
 
 
 @dataclass
@@ -195,29 +204,36 @@ class _StepDef:
 
 
 _STEPS: list[_StepDef] = [
-    _StepDef("fetch-data", AV_INGESTOR_URL, "/jobs/fetch-data", "started_at",
-             job_type="fetch-data", extra_ok=("partial_success",)),
-    # chain_date is the wall-clock date the pipeline run was started on (set to
-    # date.today() at startup, and re-stamped to date.today() by the
-    # already_ran_today guard). It is therefore compared against TODAY, never
-    # trading_day. Comparing against trading_day looks correct on a normal session
-    # (today == trading_day) but BREAKS on weekends/holidays: a catch-up chain that
-    # runs on Saturday stamps chain_date=Saturday while trading_day=Friday, so
-    # Saturday != Friday → "idle" forever → trigger → "already_ran_today" → loop,
-    # and the chain wedges at the pipeline step (dashboard stuck on "Calculating
-    # Factors"). TODAY is correct because chain_date is *defined* as date.today().
-    # run_date (=score_date, the data date) is NOT used here precisely because it
-    # lags today's wall clock until the day's bar is ingested.
-    _StepDef("pipeline", PIPELINE_URL, "/jobs/run", "chain_date",
-             date_anchor=DateAnchor.TODAY),
+    # session_date = MAX SPY date the run ingested (the trading session whose bar
+    # this fetch advanced prices to). Anchored on SESSION so the step is "done"
+    # only once data for the target session has actually landed — and so a fetch
+    # that started the previous evening still reads done after midnight (its
+    # session_date matches the session, even though its started_at date does not).
+    _StepDef("fetch-data", AV_INGESTOR_URL, "/jobs/fetch-data", "session_date",
+             job_type="fetch-data", extra_ok=("partial_success",),
+             date_anchor=DateAnchor.SESSION),
+    # run_date = score_date = MAX SPY date (the data session the pipeline scored).
+    # Anchored on SESSION (the latest closed session), NOT wall-clock chain_date.
+    # Comparing run_date against the SESSION is correct across midnight and on
+    # weekends/holidays alike: once fetch-data advances prices to session S the
+    # pipeline produces run_date=S, which matches session S regardless of the wall
+    # clock. (Previously this used chain_date vs TODAY as a workaround for the
+    # weekend wedge; session-keying removes the need for the wall-clock stamp.)
+    _StepDef("pipeline", PIPELINE_URL, "/jobs/run", "run_date",
+             date_anchor=DateAnchor.SESSION),
     # Vetter runs before portfolio-builder so exclusions feed the same-cycle build.
     # Not optional: if the vetter fails, the chain fails. The portfolio must never
     # be built without vetter exclusions applied.
+    # source_rank_date = ranking_runs.rank_date of the ranking this run vetted
+    # (JOINed in the vetter's /runs/latest). Anchored on UPSTREAM_RANK so it tracks
+    # the ranking it actually processed rather than wall-clock started_at — the
+    # cross-midnight / evening-ET re-trigger (and repeated LLM billing) that the
+    # started_at anchor caused is gone.
     # max_running_minutes: Ollama vetting 150 tickers takes at most 30-45 min;
     # after 90 min the job is stale (Ollama crashed mid-run, model not loaded, etc.)
     # and the chain would be permanently blocked without this guard.
-    _StepDef("vet", VETTER_URL, "/jobs/vet", "started_at", optional=False,
-             max_running_minutes=90),
+    _StepDef("vet", VETTER_URL, "/jobs/vet", "source_rank_date", optional=False,
+             date_anchor=DateAnchor.UPSTREAM_RANK, max_running_minutes=90),
     # portfolio_date == ranking_runs.rank_date (the source ranking's data date).
     # Compare to the latest rank_date, not trading_day: portfolio-builder is
     # downstream of ranking and inherits whatever data date the pipeline produced.
@@ -375,12 +391,12 @@ async def _restore_force_pending() -> tuple[str | None, set[str]]:
         return None, set()
     try:
         import json as _json
-        today = _local_today().isoformat()
+        session = latest_closed_session(_local_now()).isoformat()
         row = await conn.fetchrow(
             "SELECT run_id::text, steps FROM scheduler_runs "
             "WHERE chain_date=$1 AND status='running' "
             "ORDER BY started_at DESC LIMIT 1",
-            today,
+            session,
         )
         if not row:
             return None, set()
@@ -415,16 +431,16 @@ async def _close_stale_running_chains() -> int:
     if not conn:
         return 0
     try:
-        today = _local_today().isoformat()
+        session = latest_closed_session(_local_now()).isoformat()
         result = await conn.execute(
             "UPDATE scheduler_runs SET status='failed', completed_at=NOW() "
             "WHERE status='running' AND chain_date < $1",
-            today,
+            session,
         )
         # asyncpg returns a status string like "UPDATE 3"
         n = int(result.split()[-1]) if isinstance(result, str) and result else 0
         if n:
-            _log("startup: closed stale running chain rows from prior days", count=n)
+            _log("startup: closed stale running chain rows from prior sessions", count=n)
         return n
     except Exception as exc:
         _log("DB: close_stale_running_chains failed", error=str(exc))
@@ -601,6 +617,7 @@ async def _step_state(
     trading_day: str,
     prev_trading_day: str,
     latest_rank_date: str | None = None,
+    session: str | None = None,
 ) -> StepState:
     try:
         r = await client.get(f"{step.url}{step.status_path}", timeout=10.0)
@@ -611,6 +628,13 @@ async def _step_state(
             return "idle"
         if step.date_anchor is DateAnchor.UPSTREAM_RANK and latest_rank_date:
             target = latest_rank_date
+            ok_dates = {target}
+        elif step.date_anchor is DateAnchor.SESSION:
+            # Compare the step's data-session date (session_date / run_date) against
+            # the session the chain is processing. Stable across midnight — this is
+            # what stops a cross-midnight completed step from reading "idle" and
+            # being re-triggered. Falls back to trading_day if no session passed.
+            target = session or trading_day
             ok_dates = {target}
         else:
             target = trading_day if step.date_anchor is DateAnchor.TRADING_DAY else today
@@ -777,18 +801,27 @@ async def _supervisor_tick() -> None:
     today = _local_today().isoformat()
     trading_day = last_trading_day(_local_today()).isoformat()
     prev_trading_day = last_trading_day(_local_today() - timedelta(days=1)).isoformat()
+    # The trading SESSION this chain is processing — the key the whole supervisor
+    # pins a chain to. Unlike `today`/`trading_day` it is STABLE across midnight
+    # (it only rolls at the next session's close), so a chain that starts in the
+    # evening and runs past midnight keeps the same key and is neither abandoned
+    # by the rollover branch nor re-triggered by the per-step done checks.
+    session = latest_closed_session(_local_now()).isoformat()
 
     if _chain_lock.locked():
         _log("supervisor: tick skipped — another tick is in progress")
         return
 
     async with _chain_lock:
-        # Reset per-day accounting when the calendar date rolls over.
-        # "status" must also be cleared so a yesterday "failed" doesn't block today.
-        if _chain_status.get("date") != today:
-            # Close any still-open scheduler_runs row from yesterday before resetting
-            # in-memory state. Without this, a long-running chain that spans midnight
-            # leaves an orphaned status='running' row in scheduler_runs forever.
+        # Reset per-session accounting when the SESSION rolls over (i.e. the next
+        # trading session has closed), NOT at midnight. "status" must also be
+        # cleared so a prior session's "failed" doesn't block the new session.
+        if _chain_status.get("date") != session:
+            # Close any still-open scheduler_runs row from the previous session
+            # before resetting in-memory state. Without this, a chain interrupted
+            # at session rollover leaves an orphaned status='running' row forever.
+            # (A chain spanning midnight does NOT hit this branch — the session is
+            # unchanged until the next close — so it is no longer abandoned.)
             prev_run_id = _chain_status.get("current_run_id")
             if prev_run_id:
                 prev_status = _chain_status.get("status") or "failed"
@@ -801,45 +834,51 @@ async def _supervisor_tick() -> None:
                         _chain_status.get("run_ids") or {},
                     )
                     _log(
-                        "supervisor: closed previous-day chain run on date rollover",
+                        "supervisor: closed previous-session chain run on session rollover",
                         db_run_id=prev_run_id, status=prev_status,
-                        previous_date=_chain_status.get("date"),
+                        previous_session=_chain_status.get("date"),
                     )
                 except Exception as exc:
                     _log(
-                        "supervisor: failed to close previous-day chain run on rollover",
+                        "supervisor: failed to close previous-session chain run on rollover",
                         db_run_id=prev_run_id, error=str(exc),
                     )
-            # origin='scheduled': a date-rollover reset means the next chain to
+            # origin='scheduled': a session-rollover reset means the next chain to
             # start is cron-driven (the after-close schedule), which auto-approves
             # and skips the cancel-all pre-step. run_now overwrites this to 'manual'.
-            _chain_status.update({"date": today, "status": None, "steps": {}, "run_ids": {},
+            _chain_status.update({"date": session, "status": None, "steps": {}, "run_ids": {},
                                   "current_run_id": None, "origin": "scheduled"})
 
-        # If today's chain already completed (success/failed), skip — don't
-        # re-open a redundant scheduler_runs row on every tick for the rest
-        # of the day. _chain_status resets when the calendar date rolls over.
-        if _chain_status.get("status") in ("success", "failed") and _chain_status.get("date") == today:
+        # If this session's chain already completed (success/failed), skip — don't
+        # re-open a redundant scheduler_runs row on every tick for the rest of the
+        # session. _chain_status resets when the session rolls over.
+        if _chain_status.get("status") in ("success", "failed") and _chain_status.get("date") == session:
             return
 
-        # Gate the START of a fresh chain on the trading calendar + scheduled time.
-        # Once a chain is open for today (current_run_id set) we let it advance on
-        # every tick regardless of these gates, so a multi-tick run — including a
-        # weekend catch-up of a missed session — always runs to completion.
-        # Manual run-now (_force_pending) bypasses both gates.
+        # Gate the START of a fresh chain on the data frontier + scheduled time.
+        # The data-frontier rule IS the trigger: start a chain only when the latest
+        # closed session has NOT yet been processed (last delta proposal < session).
+        # This subsumes the old trading-calendar gate — on a weekend/holiday the
+        # session is the prior Friday, so once Friday is processed there is nothing
+        # to do; a missed Friday (last < Friday) still catches up. It also avoids
+        # re-opening a redundant chain on a trading-day evening once the session is
+        # already done. The scheduled-time floor stays because AV publishes EOD data
+        # ~1-2h after the close and we don't know exactly when. Once a chain is open
+        # (current_run_id set) both gates are bypassed so a multi-tick / weekend
+        # catch-up run completes. Manual run-now (_force_pending) bypasses both.
         chain_active = bool(_chain_status.get("current_run_id"))
         if not chain_active and not _force_pending:
             if not _is_after_scheduled_time():
                 return  # too early — wait for market close
             last_session = await _latest_delta_date()
-            if not should_run_chain(_local_today(), last_session):
-                # Non-trading day (weekend/holiday) and the latest session is
-                # already processed — nothing to do. Skips the wasteful weekend/
-                # holiday re-runs of fetch-data and the vetter.
+            if last_session is not None and last_session.isoformat() >= session:
+                # The latest closed session is already processed — nothing to do.
+                # Skips wasteful weekend/holiday/post-completion re-runs of
+                # fetch-data and the vetter.
                 _log(
-                    "supervisor: not a trading session and nothing stale — skipping tick",
-                    today=today,
-                    last_processed=last_session.isoformat() if last_session else None,
+                    "supervisor: latest closed session already processed — skipping tick",
+                    session=session,
+                    last_processed=last_session.isoformat(),
                 )
                 return
 
@@ -911,11 +950,13 @@ async def _supervisor_tick() -> None:
                 _chain_status["status"] = "running"
                 return
 
-            # Open a DB trace row when the chain starts for today
+            # Open a DB trace row when the chain starts for this session. Keyed by
+            # the session (chain_date column stores the session, not wall-clock
+            # today) so restart-recovery and stale-row cleanup match correctly.
             if not _chain_status.get("current_run_id"):
-                run_id = await _db_open_run(today)
+                run_id = await _db_open_run(session)
                 _chain_status["current_run_id"] = run_id
-                _log("supervisor: opened chain run", db_run_id=run_id, today=today)
+                _log("supervisor: opened chain run", db_run_id=run_id, session=session)
 
             run_id = _chain_status.get("current_run_id")
 
@@ -932,7 +973,7 @@ async def _supervisor_tick() -> None:
                     state = "done"
                 else:
                     state = await _step_state(client, step, today, trading_day, prev_trading_day,
-                                              latest_rank_date=latest_rank_date)
+                                              latest_rank_date=latest_rank_date, session=session)
                 _chain_status["steps"][step.name] = state
                 _log(f"supervisor: {step.name} → {state}")
 
@@ -1075,8 +1116,10 @@ async def _startup_catch_up() -> None:
     # 'running' scheduler_runs row and its stashed force_pending steps.
     restored_run_id, restored_pending = await _restore_force_pending()
     if restored_run_id:
-        today = _local_today().isoformat()
-        _chain_status["date"] = today
+        # Key the resumed chain by the session (matches the chain_date the row was
+        # opened with), so the supervisor's session-rollover check does not
+        # immediately treat the resumed chain as a prior cycle.
+        _chain_status["date"] = latest_closed_session(_local_now()).isoformat()
         _chain_status["current_run_id"] = restored_run_id
         _chain_status["status"] = None  # let supervisor re-evaluate from /runs/latest
         # A non-empty force_pending can ONLY come from run_now (manual) — the cron
@@ -1366,7 +1409,7 @@ async def run_now(background_tasks: BackgroundTasks):
     """
     if _run_now_lock.locked():
         return {"status": "already_running"}
-    today = _local_today().isoformat()
+    session = latest_closed_session(_local_now()).isoformat()
     # Manual run pre-step: cancel every open Alpaca order and re-sync BEFORE the
     # chain runs, so the fresh proposal computes against a clean broker state and
     # cannot stack duplicate orders on a queued-but-unfilled book. This fires on
@@ -1383,7 +1426,7 @@ async def run_now(background_tasks: BackgroundTasks):
     # guarantees no concurrent run-now is in progress; the cron supervisor's
     # regular ticks only mutate state under _chain_lock (inside _supervisor_tick).
     _chain_status.update({
-        "date": today, "status": None, "steps": {}, "run_ids": {},
+        "date": session, "status": None, "steps": {}, "run_ids": {},
         "current_run_id": None, "origin": "manual",
     })
     _force_pending.update(s.name for s in _STEPS)
