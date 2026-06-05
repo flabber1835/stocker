@@ -263,6 +263,20 @@ a path), the other still catches it:
 | Per-ticker concentration | portfolio-builder `max_position_weight` (construction) | `MAX_POSITION_PCT` (post-drift, at check) |
 | Portfolio size | portfolio-builder `max_positions` + delta engine capacity | `MAX_POSITIONS` (broker-state-based) |
 
+### Duplicate-sell guards (trade-executor)
+
+Two complementary guards stop the same position being sold twice — the cause of
+`Alpaca: insufficient qty available for order (available: 0)` rejections:
+
+| Failure mode | Guard | Step |
+|---|---|---|
+| Position **already closed** (sell filled), but a stale proposal resizes from an old sync | `_size_exit` scopes to the **latest successful sync run** and refuses (409) when the ticker is not held (qty>0) | size_order (`e4511d1`) |
+| Position **still held** but its sell is **unfilled** (shares reserved at broker → available 0), and a **new delta run** re-proposes the exit under a new `intent_id` (Step-1 idempotency only dedupes the same `intent_id`) | `_open_sell_order_for_ticker` — before any sell-side submit, skip (`status="duplicate"`) when an **open** (`pending`/`submitted`/`deferred`) **sell** order already exists for the ticker from a different intent | Step 2c, `inflight_sell_check` |
+
+The two are mirror images: the first covers "already flat", the second covers
+"flat-on-the-wire but reserved". Both apply to `exit` and `sell_trim`; an open
+`buy_add` never blocks a sell (the guard is `side='sell'` only).
+
 ## Audit Trail
 
 Every approval click produces a chain of audit rows so any trade can be traced

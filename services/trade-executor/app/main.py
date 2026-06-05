@@ -931,6 +931,35 @@ async def _is_already_held(conn, ticker: str) -> tuple[bool, Optional[float]]:
     return True, qty
 
 
+async def _open_sell_order_for_ticker(
+    conn, ticker: str, exclude_intent_id: str
+) -> Optional[dict]:
+    """Return an OPEN (pending/submitted/deferred) SELL order for `ticker` from a
+    DIFFERENT intent, or None.
+
+    Guards against a duplicate in-flight sell. A position whose sell order is
+    still UNFILLED has its shares reserved at the broker (available qty = 0),
+    while the latest alpaca-sync still shows it HELD (qty > 0) — so _size_exit /
+    _size_partial would size a SECOND sell from the held qty and submit it, and
+    Alpaca rejects "insufficient qty available (available: 0)". The Step-1
+    idempotency check only dedupes the SAME intent_id; a re-proposed exit from a
+    *new* delta run is a new intent_id and slips through. This catches the same
+    ticker across intents.
+
+    Scoped to side='sell' so an open BUY (buy_add) on the ticker never blocks a
+    sell, and excludes `exclude_intent_id` (this intent's own row is already
+    handled by the Step-1 guard).
+    """
+    row = (await conn.execute(text(
+        "SELECT id, intent_id, action, status FROM alpaca_orders "
+        "WHERE ticker = :t AND side = 'sell' "
+        "AND status IN ('pending','submitted','deferred') "
+        "AND intent_id IS DISTINCT FROM :iid "
+        "ORDER BY created_at DESC LIMIT 1"
+    ), {"t": ticker, "iid": exclude_intent_id})).mappings().first()
+    return dict(row) if row is not None else None
+
+
 @app.post("/jobs/submit", response_model=TradeAttemptResponse)
 async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
     """Orchestrate the full approval flow for one delta intent.
@@ -1051,6 +1080,45 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
                     qty=0.0, notional=0.0,
                     risk_approved=False, risk_reason=err,
                     risk_check_id=None, reason=err,
+                )
+
+        # ── Step 2c: in-flight sell guard (sell-side only) ────────────────────
+        # A ticker with an UNFILLED sell order has its shares reserved at the
+        # broker (available qty 0) while the latest sync still shows it HELD, so a
+        # SECOND exit/sell_trim would be sized from the held qty and rejected by
+        # Alpaca "insufficient qty available (available: 0)". Step 1 only dedupes
+        # the same intent_id; a re-proposed exit from a NEW delta run is a new
+        # intent_id and slips through. Skip the duplicate sell instead.
+        if side == "sell":
+            t0 = datetime.now(timezone.utc)
+            async with engine.connect() as conn:
+                inflight = await _open_sell_order_for_ticker(conn, ticker, req.intent_id)
+            if inflight:
+                reason = (
+                    f"{ticker} already has an open sell order "
+                    f"({inflight['action']}, {inflight['status']}, order {inflight['id']}); "
+                    f"its shares are reserved at the broker. Skipping duplicate {action} "
+                    f"to avoid an 'available: 0' rejection — it clears once the in-flight "
+                    f"sell fills or is canceled."
+                )
+                async with engine.begin() as conn:
+                    await _log_step(
+                        conn, trace_id, "inflight_sell_check", "skipped", t0,
+                        input_summary={"ticker": ticker, "action": action},
+                        output_summary={
+                            "existing_order_id": str(inflight["id"]),
+                            "existing_action": inflight["action"],
+                            "existing_status": inflight["status"],
+                        },
+                    )
+                    await conn.execute(
+                        text("UPDATE execution_traces SET status='success', completed_at=:now, "
+                             "notes='duplicate_inflight_sell' WHERE trace_id=:tid"),
+                        {"tid": trace_id, "now": datetime.now(timezone.utc)},
+                    )
+                return TradeAttemptResponse(
+                    status="duplicate", order_id=str(inflight["id"]), trace_id=trace_id,
+                    ticker=ticker, action=action, side=side, reason=reason,
                 )
 
         # ── Step 3: size order ────────────────────────────────────────────────
