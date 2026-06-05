@@ -20,6 +20,58 @@ def cross_section_percentile(series: pd.Series) -> pd.Series:
     return result
 
 
+def neutralized_percentile(
+    series: pd.Series,
+    sector_map: dict[str, str] | None,
+    min_group_size: int = 10,
+) -> pd.Series:
+    """Industry-neutral cross-sectional percentile: rank each ticker WITHIN its
+    own sector instead of against the whole universe.
+
+    This removes structural cross-sector level differences (e.g. banks always
+    look "cheap" vs the market) so the factor measures "best within its sector"
+    rather than "in a structurally cheap sector" (Asness-Porter-Stevens 2000).
+    Used for value/quality only — momentum is partly industry momentum
+    (Moskowitz-Grinblatt) so it is never neutralized (enforced by the
+    FactorEngineConfig validator, not here).
+
+    `sector_map` maps ticker -> sector label (the AV `Sector` string). A ticker
+    falls back to UNIVERSE-WIDE ranking (so coverage never shrinks) when:
+      - sector_map is None (feature effectively off), or
+      - its sector is NULL/unknown, or
+      - its sector has fewer than `min_group_size` tickers with a VALID
+        (non-NaN) value — too few to rank against meaningfully.
+
+    Each within-sector group and the fallback pool are ranked with the same
+    `cross_section_percentile`, so every output is on the identical [0, 1] scale
+    and the downstream weighted sum treats them uniformly.
+    """
+    if sector_map is None:
+        return cross_section_percentile(series)
+
+    result = pd.Series(np.nan, index=series.index, dtype=float)
+
+    # Sector per ticker (only tickers with a non-null value count toward group size).
+    sectors = pd.Series({t: sector_map.get(t) for t in series.index})
+    valid_sectors = sectors[series.notna() & sectors.notna()]
+    group_sizes = valid_sectors.value_counts()
+    big_sectors = set(group_sizes[group_sizes >= min_group_size].index)
+
+    neutralizable = sectors.isin(big_sectors)  # NULL sector -> False
+
+    for sec in big_sectors:
+        members = sectors.index[sectors == sec]
+        result.loc[members] = cross_section_percentile(series.loc[members])
+
+    # Fallback tickers (NULL sector or sector too thin) -> universe-wide rank.
+    fallback_idx = series.index[~neutralizable]
+    if len(fallback_idx) > 0:
+        global_pct = cross_section_percentile(series)
+        result.loc[fallback_idx] = global_pct.loc[fallback_idx]
+
+    return result
+
+
 def cross_section_zscore(series: pd.Series, clip: float = 2.5) -> pd.Series:
     valid = series.dropna()
     result = pd.Series(float("nan"), index=series.index)
@@ -127,30 +179,59 @@ def compute_liquidity(prices_long: pd.DataFrame, window: int = 20, max_staleness
     return score
 
 
-def compute_quality(fundamentals: pd.DataFrame) -> pd.Series:
+def compute_quality(
+    fundamentals: pd.DataFrame,
+    use_gross_profitability: bool = False,
+) -> pd.Series:
     """
-    Composite of ROE and inverse D/E.
+    Composite of a PROFITABILITY leg and an inverse-D/E (safety) leg.
+
+    Profitability leg:
+      - default (use_gross_profitability=False): ROE — the legacy proxy.
+      - use_gross_profitability=True: gross-profits-to-assets
+        (gross_profit / total_assets, Novy-Marx 2013), the robust quality signal.
+        ROE is the literature's weakest quality proxy and mechanically rewards
+        leverage (fighting the inverse-D/E safety leg). Falls back to ROE when
+        gross_profit/total_assets columns are absent or all-NaN (pre-backfill or
+        a ticker whose BALANCE_SHEET fetch failed), so the factor never breaks.
 
     Each component is winsorized then ranked via cross_section_percentile so both
     land on [0, 1] relative to the full universe. Using sub-population z-scores
     instead inflated scores for tickers with only one component: a ticker with
-    ROE data but no D/E data would receive a full unbounded z-score as its quality,
-    while a ticker with both components received a dampened mean of two z-scores.
-    With percentile ranking the scale is identical whether a ticker has one or two
-    components, so sparse-fundamental stocks no longer rank artificially high.
+    profitability data but no D/E data would receive a full unbounded z-score as
+    its quality, while a ticker with both components received a dampened mean of
+    two z-scores. With percentile ranking the scale is identical whether a ticker
+    has one or two components, so sparse-fundamental stocks no longer rank
+    artificially high.
     """
     fund = fundamentals.set_index("ticker")
 
-    roe = fund["roe"].astype(float) if "roe" in fund.columns else pd.Series(dtype=float)
+    # Profitability leg: gross-profits-to-assets when enabled and the inputs exist,
+    # else ROE. Computed as a per-ticker raw series before winsorize+percentile.
+    prof = pd.Series(dtype=float)
+    if (
+        use_gross_profitability
+        and "gross_profit" in fund.columns
+        and "total_assets" in fund.columns
+    ):
+        gp = fund["gross_profit"].astype(float)
+        ta = fund["total_assets"].astype(float)
+        gpa = gp / ta.where(ta > 0)  # assets <= 0 is corrupt data -> NaN
+        prof = gpa.replace([float("inf"), float("-inf")], float("nan"))
+    if prof.dropna().empty and "roe" in fund.columns:
+        # Either the flag is off, or gross-profitability had no usable data —
+        # fall back to ROE so the profitability leg is never silently dropped.
+        prof = fund["roe"].astype(float)
+
     dte = fund["debt_to_equity"].astype(float) if "debt_to_equity" in fund.columns else pd.Series(dtype=float)
 
-    has_roe = roe.notna()
+    has_prof = prof.notna()
     has_dte = dte.notna()
 
     all_tickers = fund.index
     components = pd.DataFrame(index=all_tickers)
-    if has_roe.any():
-        components["roe"] = cross_section_percentile(_winsorize(roe[has_roe]).reindex(all_tickers))
+    if has_prof.any():
+        components["profitability"] = cross_section_percentile(_winsorize(prof[has_prof]).reindex(all_tickers))
     if has_dte.any():
         components["neg_dte"] = cross_section_percentile(_winsorize(-dte[has_dte]).reindex(all_tickers))
 
@@ -265,6 +346,7 @@ def compute_all_factors(
     fundamentals: pd.DataFrame,
     cfg: FactorEngineConfig | None = None,
     copy_input: bool = True,
+    sector_map: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     if cfg is None:
         cfg = FactorEngineConfig()
@@ -292,7 +374,7 @@ def compute_all_factors(
     low_vol_raw = compute_low_volatility(pivot, window=cfg.volatility_window)
     del pivot  # the wide date×ticker matrix is no longer needed — free it before ranking
     liquidity_raw = compute_liquidity(prices_long, window=cfg.liquidity_window)
-    quality_raw = compute_quality(fundamentals)
+    quality_raw = compute_quality(fundamentals, use_gross_profitability=cfg.quality_use_gross_profitability)
     value_raw = compute_value(fundamentals, pe_pb_cap=cfg.pe_pb_cap)
     growth_raw = compute_growth(fundamentals)
 
@@ -303,16 +385,28 @@ def compute_all_factors(
     def _align(raw: pd.Series) -> pd.Series:
         return raw.reindex(result.index)
 
+    neutral = set(cfg.industry_neutral_factors)
+
+    def _rank(name: str, raw: pd.Series) -> pd.Series:
+        # Sector-neutral ranking for factors the config opts in (value/quality/
+        # growth only — the validator forbids momentum/low_vol/liquidity); every
+        # other factor is ranked universe-wide. neutralized_percentile itself
+        # falls back to universe-wide when sector_map is None.
+        aligned = _align(raw)
+        if name in neutral:
+            return neutralized_percentile(aligned, sector_map, cfg.min_sector_group_size)
+        return cross_section_percentile(aligned)
+
     # Percentile-rank each factor cross-sectionally to [0, 1].
     # Winsorization before percentile ranking is unnecessary — percentile ranking is
     # already outlier-robust by construction (a z=6 outlier gets percentile=1.0,
     # same ceiling as any other top-ranked ticker).
-    result["momentum"]      = cross_section_percentile(_align(momentum_raw))
-    result["low_volatility"]= cross_section_percentile(_align(low_vol_raw))
-    result["liquidity"]     = cross_section_percentile(_align(liquidity_raw))
-    result["quality"]       = cross_section_percentile(_align(quality_raw))
-    result["value"]         = cross_section_percentile(_align(value_raw))
-    result["growth"]        = cross_section_percentile(_align(growth_raw))
+    result["momentum"]      = _rank("momentum", momentum_raw)
+    result["low_volatility"]= _rank("low_volatility", low_vol_raw)
+    result["liquidity"]     = _rank("liquidity", liquidity_raw)
+    result["quality"]       = _rank("quality", quality_raw)
+    result["value"]         = _rank("value", value_raw)
+    result["growth"]        = _rank("growth", growth_raw)
 
     result = result.reset_index()
     return result

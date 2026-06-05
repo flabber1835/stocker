@@ -750,6 +750,84 @@ competing source of the top-level label. Steps are monotonic
   `/api/pipeline-status` response shape (the `universe/rank/vetter/portfolio` blocks
   the frontend reads) is preserved so the JS is unchanged.
 
+## Factor Construction: Industry Neutralization & Gross-Profitability Quality
+
+Two factor-construction upgrades grounded in the cross-sectional asset-pricing
+literature (Tier-1 of the strategy-analysis research). Both are **gated behind
+`FactorEngineConfig` flags that default OFF**, so production rankings are
+unchanged until explicitly opted in and A/B-validated against a backtest. The
+output shape is unchanged: every factor is still one `[0,1]` percentile per
+ticker, fed into the same `rank_universe` weighted sum → one universe-wide
+ranking. These change *which names rank near the top*, not the format the
+portfolio-builder consumes.
+
+### 1. Industry neutralization (value & quality only — NOT momentum)
+
+**Decision.** When enabled, the `value` and `quality` factors are
+percentile-ranked **within the stock's own sector** (`universe_tickers.sector`,
+the Alpha Vantage `Sector` label) instead of against the whole universe.
+
+**Why asymmetric.** The literature is two opposing findings:
+- Value/quality are "reliably priced *within* industry" and within-industry
+  measurement is more precise (Asness, Porter & Stevens 2000). Ranking value
+  universe-wide just rediscovers that banks/energy are *structurally* cheap — a
+  sector bet masquerading as stock selection.
+- Momentum is the opposite: a large part of single-stock momentum *is* industry
+  momentum (Moskowitz & Grinblatt 1999). Neutralizing momentum by sector
+  **deletes signal**. Low-volatility and liquidity are likewise left
+  universe-wide.
+
+Therefore neutralization is restricted by a config validator to
+`{value, quality, growth}`; momentum/low_volatility/liquidity may never be
+listed.
+
+**Why labels, not correlation clusters.** Neutralization runs over the *whole
+universe* and must be stable/reproducible. A universe-scale correlation matrix is
+~94% noise (Laloux et al. 1999) and its clusters churn period-to-period
+(Kakushadze 2016) — exactly the turnover/reproducibility cost CLAUDE.md's
+determinism rule forbids. Classification labels are stable and capture most of
+the real comovement (Connor 1995). The correlation-cluster machinery in the
+portfolio-builder stays where it is — that is concentration *capping* on a small
+candidate set, where the covariance is genuinely needed, a different job.
+
+**Where in the pipeline.** At the cross-sectional normalization step — the moment
+a raw factor becomes a percentile — inside `compute_all_factors`, value/quality
+only. Not earlier (raw signals are sector-agnostic), not later (the rank step
+fuses all factors into one composite; per-factor asymmetry can't be expressed
+after the sum).
+
+**Construction level & fallback.** Composite-level: the existing global ranking
+on the value/quality series is swapped for a within-sector ranking on the
+already-composited series (an accepted approximation vs. neutralizing each inner
+component, matching the `_component_zscore` precedent). A ticker falls back to
+universe-wide ranking when (a) its sector is NULL/unknown, or (b) its sector has
+fewer than `min_sector_group_size` (default 10) tickers with a valid value — so
+neutralization never reduces coverage.
+
+### 2. Gross-profitability quality (vs ROE)
+
+**Decision.** When enabled, the `quality` factor's profitability leg switches
+from `ROE` to **gross-profits-to-assets** = `gross_profit / total_assets`
+(Novy-Marx 2013, "The Other Side of Value"), keeping inverse-leverage as the
+"safety" leg (a QMJ-lite profitability+safety composite). ROE is the literature's
+weakest quality proxy and mechanically rewards leverage (fighting the
+inverse-leverage term). Gross profitability has "roughly the same predictive
+power as book-to-market" and drove the Fama-French 2015 profitability factor.
+
+**Data.** `gross_profit` comes from AV OVERVIEW `GrossProfitTTM` (already a
+fetched payload — zero new calls). `total_assets` comes from a best-effort AV
+`BALANCE_SHEET` fetch added to the fundamentals path (gated by
+`FETCH_BALANCE_SHEET`, default on; failures are non-fatal and leave
+`total_assets` NULL). New `fundamentals` columns `gross_profit`, `total_assets`
+(migration 0017). This roughly doubles AV calls on the fundamentals refresh —
+the documented operational cost of the upgrade.
+
+**Graceful degradation.** When the flag is on but `gross_profit`/`total_assets`
+are absent (pre-backfill, or a ticker whose balance-sheet call failed), the
+profitability leg neutral-fills exactly like any other missing component, so the
+factor never breaks. When the flag is off, `compute_quality` is byte-for-byte the
+legacy ROE/leverage composite.
+
 ## Design Decision Rule
 
 Whenever a design decision is made, it must be documented in the design docs before implementation begins.

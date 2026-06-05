@@ -105,6 +105,41 @@ def test_factor_engine_defaults():
     assert cfg.liquidity_window == 20
     assert cfg.pe_pb_cap == 50.0
     assert cfg.spy_price_lookback_days == 600
+    # Tier-1 factor-construction flags default to OFF (legacy behavior).
+    assert cfg.industry_neutral_factors == []
+    assert cfg.min_sector_group_size == 10
+    assert cfg.quality_use_gross_profitability is False
+
+
+def test_industry_neutral_factors_accepts_value_quality_growth():
+    cfg = FactorEngineConfig(industry_neutral_factors=["value", "quality", "growth"])
+    assert set(cfg.industry_neutral_factors) == {"value", "quality", "growth"}
+
+
+@pytest.mark.parametrize("bad", ["momentum", "low_volatility", "liquidity"])
+def test_industry_neutral_factors_rejects_momentum_lowvol_liquidity(bad):
+    """The asymmetry rule is enforced at the schema: momentum is partly industry
+    momentum (Moskowitz-Grinblatt), so neutralizing it deletes signal and must be
+    rejected — likewise low_volatility/liquidity."""
+    with pytest.raises(ValidationError):
+        FactorEngineConfig(industry_neutral_factors=["value", bad])
+
+
+def test_industry_neutral_factors_rejects_unknown():
+    with pytest.raises(ValidationError):
+        FactorEngineConfig(industry_neutral_factors=["nonsense"])
+
+
+def test_min_sector_group_size_bounds():
+    with pytest.raises(ValidationError):
+        FactorEngineConfig(min_sector_group_size=1)  # must be >= 2
+    with pytest.raises(ValidationError):
+        FactorEngineConfig(min_sector_group_size=501)  # must be <= 500
+
+
+def test_quality_gross_profitability_flag_settable():
+    cfg = FactorEngineConfig(quality_use_gross_profitability=True)
+    assert cfg.quality_use_gross_profitability is True
 
 
 def test_factor_engine_custom_values():

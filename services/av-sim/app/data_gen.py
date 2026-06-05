@@ -372,6 +372,11 @@ def generate_fundamentals(
 
         sector = sector_map.get(ticker, "Information Technology")
 
+        # Gross profit (Novy-Marx numerator): scaled off market cap, tier-correlated
+        # so higher-quality names show stronger gross profitability.
+        gp_frac = {1: (0.20, 0.45), 2: (0.10, 0.25), 3: (0.03, 0.12)}[quality_tier]
+        gross_profit = int(market_cap * t_rng.uniform(*gp_frac))
+
         fundamentals[ticker] = {
             "Symbol": ticker,
             "PERatio": f"{pe_ratio:.4f}",
@@ -381,10 +386,28 @@ def generate_fundamentals(
             "QuarterlyRevenueGrowthYOY": f"{revenue_growth:.6f}",
             "QuarterlyEarningsGrowthYOY": f"{eps_growth:.6f}",
             "MarketCapitalization": str(market_cap),
+            "GrossProfitTTM": str(gross_profit),
             "Sector": sector,
         }
 
     return fundamentals
+
+
+def generate_balance_sheet(ticker: str, seed: int) -> dict[str, Any]:
+    """Deterministic AV BALANCE_SHEET shape (most-recent-first quarterly reports).
+
+    Only totalAssets is consumed by av-ingestor (the gross-profitability
+    denominator); generated independently of the overview draw so GP/assets is
+    not a fixed ratio across tickers."""
+    t_rng = random.Random((_ticker_hash_seed(ticker) ^ seed) ^ 0x5A5A5A5A)
+    total_assets = t_rng.randint(1_000_000_000, 2_000_000_000_000)
+    return {
+        "symbol": ticker,
+        "quarterlyReports": [
+            {"fiscalDateEnding": "2024-03-31", "totalAssets": str(total_assets)},
+            {"fiscalDateEnding": "2023-12-31", "totalAssets": str(int(total_assets * 0.97))},
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------

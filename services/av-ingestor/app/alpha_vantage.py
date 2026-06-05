@@ -100,8 +100,29 @@ class AVClient:
             "eps_growth": _to_float(data.get("QuarterlyEarningsGrowthYOY")),
             "market_cap": _to_int(data.get("MarketCapitalization")),
             "avg_volume": None,  # AV OVERVIEW has no reliable avg_volume field; calculated from daily_prices locally
+            "gross_profit": _to_float(data.get("GrossProfitTTM")),  # Novy-Marx gross-profitability numerator
             "sector": data.get("Sector") or None,
         }
+
+    async def get_balance_sheet(self, ticker: str) -> dict | None:
+        """Most-recent total assets (the gross-profitability denominator).
+
+        AV BALANCE_SHEET returns annual + quarterly reports newest-first; we take
+        the freshest quarterly `totalAssets`. Returns None on missing/empty data
+        so the caller can treat a balance-sheet miss as non-fatal (total_assets
+        stays NULL, the quality factor falls back to ROE for that ticker).
+        """
+        if self.mock_mode:
+            return _mock_balance_sheet(ticker)
+
+        data = await self._get({"function": "BALANCE_SHEET", "symbol": ticker})
+        reports = data.get("quarterlyReports") or data.get("annualReports") or []
+        if not reports:
+            return None
+        total_assets = _to_float(reports[0].get("totalAssets"))
+        if total_assets is None:
+            return None
+        return {"total_assets": total_assets}
 
 
 def _to_float(val) -> float | None:
@@ -168,5 +189,13 @@ def _mock_overview(ticker: str) -> dict:
         "eps_growth": round(rng.uniform(-0.10, 0.40), 6),
         "market_cap": rng.randint(1_000_000_000, 3_000_000_000_000),
         "avg_volume": rng.randint(1_000_000, 50_000_000),
+        "gross_profit": round(rng.uniform(1e8, 5e10), 2),
         "sector": rng.choice(_MOCK_SECTORS),
     }
+
+
+def _mock_balance_sheet(ticker: str) -> dict:
+    # Seed offset keeps total_assets independent of the overview draw so
+    # gross_profit/total_assets isn't a fixed ratio across mock tickers.
+    rng = random.Random(_stable_seed(ticker) ^ 0x5A5A5A5A)
+    return {"total_assets": round(rng.uniform(5e8, 5e11), 2)}

@@ -30,6 +30,11 @@ if AV_API_KEY in ("", "demo"):
     print("[av-ingestor] WARNING: AV_API_KEY is 'demo' — using Alpha Vantage demo key, data will be very limited")
 AV_RATE_LIMIT_RPM = int(os.getenv("AV_RATE_LIMIT_RPM", "75"))
 MOCK_DATA = os.getenv("MOCK_DATA", "false").lower() == "true"
+# When true, the fundamentals path also fetches AV BALANCE_SHEET for total_assets
+# (the gross-profitability denominator). This ~doubles AV calls on the
+# fundamentals refresh; turn off to save rate-limit budget if the gross-profit
+# quality factor is not in use. Best-effort: a balance-sheet miss is non-fatal.
+FETCH_BALANCE_SHEET = os.getenv("FETCH_BALANCE_SHEET", "true").lower() == "true"
 ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
 
 CHECKPOINT_EVERY = 100
@@ -190,26 +195,53 @@ async def _upsert_prices(session, ticker: str, rows: list[dict]) -> None:
     )
 
 
+async def _enrich_total_assets(client, ticker: str, overview: dict) -> None:
+    """Best-effort: add total_assets (the gross-profitability denominator) from AV
+    BALANCE_SHEET into the overview dict. Gated by FETCH_BALANCE_SHEET and fully
+    non-fatal — a miss leaves total_assets unset (→ NULL), and the quality factor
+    falls back to ROE for that ticker rather than breaking."""
+    if not FETCH_BALANCE_SHEET:
+        return
+    try:
+        bs = await client.get_balance_sheet(ticker)
+        if bs and bs.get("total_assets") is not None:
+            overview["total_assets"] = bs["total_assets"]
+    except Exception as e:  # noqa: BLE001 — balance sheet is optional enrichment
+        print(f"[fundamentals] {ticker}: balance-sheet fetch failed (non-fatal) - {e}")
+
+
 async def _upsert_fundamentals(session, ticker: str, overview: dict, today: date) -> None:
-    """Upsert fundamental data for a single ticker. Pops 'sector' from overview dict."""
+    """Upsert fundamental data for a single ticker. Pops 'sector' from overview dict.
+
+    Tolerates overview dicts without the gross_profit/total_assets keys (e.g. a
+    caller that didn't fetch the balance sheet) by defaulting them to NULL.
+    """
     sector = overview.pop("sector", None)
+    params = {
+        "ticker": ticker,
+        "as_of_date": today,
+        "gross_profit": None,
+        "total_assets": None,
+        **overview,
+    }
     await session.execute(
         text(
             "INSERT INTO fundamentals "
             "    (ticker, as_of_date, source, pe_ratio, pb_ratio, roe, debt_to_equity, "
-            "     revenue_growth, eps_growth, market_cap, avg_volume) "
+            "     revenue_growth, eps_growth, market_cap, avg_volume, gross_profit, total_assets) "
             "VALUES "
             "    (:ticker, :as_of_date, 'alpha_vantage', :pe_ratio, :pb_ratio, :roe, :debt_to_equity, "
-            "     :revenue_growth, :eps_growth, :market_cap, :avg_volume) "
+            "     :revenue_growth, :eps_growth, :market_cap, :avg_volume, :gross_profit, :total_assets) "
             "ON CONFLICT (ticker, as_of_date) DO UPDATE SET "
             "    source='alpha_vantage', "
             "    pe_ratio=EXCLUDED.pe_ratio, pb_ratio=EXCLUDED.pb_ratio, "
             "    roe=EXCLUDED.roe, debt_to_equity=EXCLUDED.debt_to_equity, "
             "    revenue_growth=EXCLUDED.revenue_growth, eps_growth=EXCLUDED.eps_growth, "
             "    market_cap=EXCLUDED.market_cap, avg_volume=EXCLUDED.avg_volume, "
+            "    gross_profit=EXCLUDED.gross_profit, total_assets=EXCLUDED.total_assets, "
             "    fetched_at=NOW()"
         ),
-        {"ticker": ticker, "as_of_date": today, **overview},
+        params,
     )
     if sector:
         await session.execute(
@@ -899,6 +931,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                                     dv_val = dv_row.scalar()
                                     _ticker_avg_dv[ticker] = float(dv_val) if dv_val is not None else None
                             overview["avg_volume"] = _ticker_avg_dv.get(ticker)
+                            await _enrich_total_assets(client, ticker, overview)
                             async with SessionLocal() as session:
                                 async with session.begin():
                                     await _upsert_fundamentals(session, ticker, overview, today)
@@ -1130,6 +1163,7 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
                         )
                         dv_val = dv_row.scalar()
                     overview["avg_volume"] = float(dv_val) if dv_val is not None else None
+                    await _enrich_total_assets(client, ticker, overview)
 
                     async with SessionLocal() as session:
                         async with session.begin():

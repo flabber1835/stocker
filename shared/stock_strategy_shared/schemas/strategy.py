@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Literal, Optional
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class FactorWeights(BaseModel):
@@ -109,6 +109,39 @@ class FactorEngineConfig(BaseModel):
         description="Calendar days of SPY price history loaded for regime detection. "
                     "Must exceed slow_sma + confirmation_days with comfortable margin."
     )
+    industry_neutral_factors: list[str] = Field(
+        default_factory=list,
+        description="Factors percentile-ranked WITHIN the stock's own sector instead of "
+                    "against the whole universe (Asness-Porter-Stevens within-industry pricing). "
+                    "Restricted to value/quality/growth — momentum is partly industry momentum "
+                    "(Moskowitz-Grinblatt), so neutralizing it deletes signal and is forbidden. "
+                    "Empty = no neutralization (universe-wide ranking, the legacy behavior)."
+    )
+    min_sector_group_size: int = Field(
+        default=10, ge=2, le=500,
+        description="A sector must have at least this many tickers with a valid factor value to "
+                    "be neutralized within; smaller sectors (and NULL-sector tickers) fall back "
+                    "to universe-wide ranking so neutralization never reduces coverage."
+    )
+    quality_use_gross_profitability: bool = Field(
+        default=False,
+        description="When true, the quality factor's profitability leg is gross-profits-to-assets "
+                    "(Novy-Marx) instead of ROE, keeping inverse-leverage as the safety leg. "
+                    "Falls back to ROE when gross_profit/total_assets are absent. "
+                    "False = legacy ROE + inverse-leverage composite."
+    )
+
+    @field_validator("industry_neutral_factors")
+    @classmethod
+    def _only_neutralizable_factors(cls, v: list[str]) -> list[str]:
+        allowed = {"value", "quality", "growth"}
+        bad = [f for f in v if f not in allowed]
+        if bad:
+            raise ValueError(
+                f"industry_neutral_factors may only contain {sorted(allowed)} "
+                f"(momentum/low_volatility/liquidity must never be sector-neutralized); got {bad}"
+            )
+        return v
 
 
 class VetterConfig(BaseModel):

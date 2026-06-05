@@ -442,10 +442,15 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
         snapshot_id = snap[0]
         ticker_rows = await conn.execute(
-            text("SELECT ticker FROM universe_tickers WHERE snapshot_id = :sid"),
+            text("SELECT ticker, sector FROM universe_tickers WHERE snapshot_id = :sid"),
             {"sid": snapshot_id},
         )
-        raw_tickers = [r[0] for r in ticker_rows.fetchall()]
+        fetched_rows = ticker_rows.fetchall()
+        raw_tickers = [r[0] for r in fetched_rows]
+        # ticker -> sector label (AV `Sector`) for industry-neutral factor ranking.
+        # NULL/empty sectors are dropped; neutralized_percentile falls back to
+        # universe-wide ranking for any ticker absent from this map.
+        sector_map = {r[0]: r[1] for r in fetched_rows if r[1]}
 
         universe_tickers = list(dict.fromkeys(raw_tickers))
         duplicates_removed = len(raw_tickers) - len(universe_tickers)
@@ -718,7 +723,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         fund_rows = await conn.execute(
             text(
                 "SELECT DISTINCT ON (ticker) ticker, as_of_date, pe_ratio, pb_ratio, roe, debt_to_equity, "
-                "revenue_growth, eps_growth FROM fundamentals "
+                "revenue_growth, eps_growth, gross_profit, total_assets FROM fundamentals "
                 "WHERE ticker = ANY(:tickers) AND source != 'no_data' "
                 "ORDER BY ticker, as_of_date DESC"
             ),
@@ -727,7 +732,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         fund_df = pd.DataFrame(
             fund_rows.fetchall(),
             columns=["ticker", "as_of_date", "pe_ratio", "pb_ratio", "roe", "debt_to_equity",
-                     "revenue_growth", "eps_growth"],
+                     "revenue_growth", "eps_growth", "gross_profit", "total_assets"],
         )
 
     tickers_with_fund = set(fund_df["ticker"].unique()) if not fund_df.empty else set()
@@ -774,6 +779,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         fundamentals=fund_df_for_factors,
         cfg=strategy.factor_engine,
         copy_input=False,
+        sector_map=sector_map,
     )
     # prices_df is disposable past this point — free the universe-scale frame now
     # so it isn't held alongside factors_df/factor_score_rows for the rest of the step.

@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from .data_gen import (
     BENCHMARK_TICKERS,
     SECTORS,
+    generate_balance_sheet,
     generate_earnings_calendar,
     generate_fundamentals,
     generate_news,
@@ -144,6 +145,9 @@ async def av_query(
 
     if fn == "OVERVIEW":
         return _handle_overview(symbol)
+
+    if fn == "BALANCE_SHEET":
+        return _handle_balance_sheet(symbol)
 
     if fn == "NEWS_SENTIMENT":
         return _handle_news_sentiment(tickers, limit)
@@ -296,6 +300,17 @@ def _handle_overview(symbol: str | None) -> JSONResponse:
 
     # Unknown ticker — return empty dict (av-ingestor returns None, which is fine)
     return JSONResponse({})
+
+
+def _handle_balance_sheet(symbol: str | None) -> JSONResponse:
+    """AV BALANCE_SHEET — totalAssets for the gross-profitability denominator."""
+    if not symbol:
+        return JSONResponse({"Error Message": "Missing symbol parameter"}, status_code=400)
+    ticker = symbol.upper().strip()
+    if ticker in _fundamentals:
+        return JSONResponse(generate_balance_sheet(ticker, _scenario_seed))
+    # Unknown ticker — empty reports (av-ingestor's get_balance_sheet returns None)
+    return JSONResponse({"symbol": ticker, "quarterlyReports": [], "annualReports": []})
 
 
 # ---------------------------------------------------------------------------
