@@ -105,8 +105,9 @@ def test_factor_engine_defaults():
     assert cfg.liquidity_window == 20
     assert cfg.pe_pb_cap == 50.0
     assert cfg.spy_price_lookback_days == 600
-    # Tier-1 factor-construction flags default to OFF (legacy behavior).
-    assert cfg.industry_neutral_factors == []
+    # Sector neutralization of value/quality is ON by default; gross-profitability
+    # quality stays OFF (opt-in pending backtest validation).
+    assert cfg.industry_neutral_factors == ["value", "quality"]
     assert cfg.min_sector_group_size == 10
     assert cfg.quality_use_gross_profitability is False
 

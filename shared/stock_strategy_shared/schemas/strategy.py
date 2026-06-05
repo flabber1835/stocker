@@ -110,12 +110,12 @@ class FactorEngineConfig(BaseModel):
                     "Must exceed slow_sma + confirmation_days with comfortable margin."
     )
     industry_neutral_factors: list[str] = Field(
-        default_factory=list,
+        default_factory=lambda: ["value", "quality"],
         description="Factors percentile-ranked WITHIN the stock's own sector instead of "
                     "against the whole universe (Asness-Porter-Stevens within-industry pricing). "
                     "Restricted to value/quality/growth — momentum is partly industry momentum "
                     "(Moskowitz-Grinblatt), so neutralizing it deletes signal and is forbidden. "
-                    "Empty = no neutralization (universe-wide ranking, the legacy behavior)."
+                    "Defaults to [value, quality] (ON); set [] to disable (universe-wide ranking)."
     )
     min_sector_group_size: int = Field(
         default=10, ge=2, le=500,

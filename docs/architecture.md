@@ -753,10 +753,11 @@ competing source of the top-level label. Steps are monotonic
 ## Factor Construction: Industry Neutralization & Gross-Profitability Quality
 
 Two factor-construction upgrades grounded in the cross-sectional asset-pricing
-literature (Tier-1 of the strategy-analysis research). Both are **gated behind
-`FactorEngineConfig` flags that default OFF**, so production rankings are
-unchanged until explicitly opted in and A/B-validated against a backtest. The
-output shape is unchanged: every factor is still one `[0,1]` percentile per
+literature (Tier-1 of the strategy-analysis research), both `FactorEngineConfig`
+flags. **Industry neutralization of value/quality defaults ON**
+(`industry_neutral_factors=[value, quality]`); **gross-profitability quality
+defaults OFF** (`quality_use_gross_profitability=False`), opt-in pending backtest
+validation. The output shape is unchanged: every factor is still one `[0,1]` percentile per
 ticker, fed into the same `rank_universe` weighted sum → one universe-wide
 ranking. These change *which names rank near the top*, not the format the
 portfolio-builder consumes.
