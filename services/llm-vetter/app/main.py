@@ -13,7 +13,7 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy import text
 
-from app.drawdown import recent_drawdown
+from app.drawdown import recent_drawdown, excess_drawdown
 from app.vetter import fetch_ticker_data, vet_single_ticker
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
@@ -39,6 +39,14 @@ STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_co
 # 3-build confirmation is the sell-side whipsaw guard. Data-gap names stay exempt.
 DRAWDOWN_BACKSTOP_PCT = float(os.getenv("DRAWDOWN_BACKSTOP_PCT", "0.15"))
 DRAWDOWN_WINDOW_DAYS  = int(os.getenv("DRAWDOWN_WINDOW_DAYS", "21"))
+# Beta-adjusted (market-relative) falling knife. excess_dd = raw_dd - beta*SPY_move
+# over the same peak->now span, so a broad market-down day (which drags every stock
+# down via beta) does NOT look like a stock-specific knife — only an IDIOSYNCRATIC
+# drop trips it. This is the primary trigger; DRAWDOWN_BACKSTOP_PCT stays as an
+# absolute FLOOR that still catches a true collapse regardless of the market.
+# Set DRAWDOWN_EXCESS_PCT=0 to disable the beta path (revert to absolute-only).
+DRAWDOWN_EXCESS_PCT   = float(os.getenv("DRAWDOWN_EXCESS_PCT", "0.15"))
+DRAWDOWN_BETA_LOOKBACK = int(os.getenv("DRAWDOWN_BETA_LOOKBACK", "120"))
 
 # Drawdown-only mode. When false, the vetter skips ALL LLM + Tavily + AV-news
 # work and every candidate defaults to keep — the deterministic falling-knife
@@ -460,29 +468,69 @@ async def _do_vet(
         )
 
     # ── Step 1b: recent drawdown per candidate (falling-knife signal) ─────────
-    # 21-trading-day peak-to-now drawdown. Fed to the LLM prompt AND used as a
-    # deterministic entry backstop below. NO skip window (unlike 12-1 momentum),
-    # so it reflects a crash that happened in the last few weeks.
-    drawdown_map: dict[str, float] = {}
+    # raw_dd = 21-trading-day peak-to-now drawdown (fed to the LLM prompt). The
+    # backstop below uses the BETA-ADJUSTED excess drawdown: raw_dd minus the
+    # stock's beta-implied SPY move over the same span, so a broad market-down day
+    # (which drags everything down via beta) does NOT register as a stock-specific
+    # knife — only an idiosyncratic drop does. NO skip window (unlike 12-1 momentum).
+    #
+    # Load enough history per ticker for the beta regression (beta_lookback) PLUS
+    # the drawdown window, WITH dates so each ticker can be aligned to SPY by date.
+    drawdown_map: dict[str, float] = {}        # raw_dd (prompt + absolute floor)
+    excess_dd_map: dict[str, float] = {}       # beta-adjusted excess (primary trigger)
+    dd_detail_map: dict[str, dict] = {}        # full {raw_dd, spy_move, beta, excess_dd}
+    _hist_days = max(DRAWDOWN_WINDOW_DAYS, DRAWDOWN_BETA_LOOKBACK + 5)
     async with engine.connect() as conn:
+        # SPY series (the market benchmark), date -> adjusted_close.
+        spy_rows = await conn.execute(
+            text(
+                "SELECT date, adjusted_close FROM ("
+                "  SELECT date, adjusted_close, "
+                "         ROW_NUMBER() OVER (ORDER BY date DESC) AS rn "
+                "  FROM daily_prices WHERE ticker = 'SPY'"
+                ") s WHERE rn <= :w ORDER BY date ASC"
+            ),
+            {"w": _hist_days},
+        )
+        spy_by_date: dict = {}
+        for row in spy_rows.fetchall():
+            if row.adjusted_close is not None:
+                spy_by_date[row.date] = float(row.adjusted_close)
+
         dd_rows = await conn.execute(
             text(
-                "SELECT ticker, adjusted_close FROM ("
+                "SELECT ticker, date, adjusted_close FROM ("
                 "  SELECT ticker, adjusted_close, date, "
                 "         ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) AS rn "
                 "  FROM daily_prices WHERE ticker = ANY(:tickers)"
                 ") s WHERE rn <= :w ORDER BY ticker, date ASC"
             ),
-            {"tickers": tickers, "w": DRAWDOWN_WINDOW_DAYS},
+            {"tickers": tickers, "w": _hist_days},
         )
-        _closes_by_ticker: dict[str, list[float]] = {}
+        _rows_by_ticker: dict[str, list[tuple]] = {}
         for row in dd_rows.fetchall():
             if row.adjusted_close is not None:
-                _closes_by_ticker.setdefault(row.ticker, []).append(float(row.adjusted_close))
-    for t, closes in _closes_by_ticker.items():
-        dd = recent_drawdown(closes, window=DRAWDOWN_WINDOW_DAYS)
-        if dd is not None:
-            drawdown_map[t] = dd
+                _rows_by_ticker.setdefault(row.ticker, []).append((row.date, float(row.adjusted_close)))
+
+    for t, rows in _rows_by_ticker.items():
+        closes = [c for _, c in rows]
+        # raw drawdown over the last window (market-blind; used for the prompt + floor)
+        raw = recent_drawdown(closes, window=DRAWDOWN_WINDOW_DAYS)
+        if raw is not None:
+            drawdown_map[t] = raw
+        # Beta-adjusted excess: align this ticker's closes to SPY by date (only dates
+        # present in both), then strip the beta-implied market move.
+        aligned_stock = [c for d, c in rows if d in spy_by_date]
+        aligned_spy = [spy_by_date[d] for d, _ in rows if d in spy_by_date]
+        if spy_by_date and len(aligned_stock) >= 2:
+            detail = excess_drawdown(
+                aligned_stock, aligned_spy,
+                window=DRAWDOWN_WINDOW_DAYS, beta_lookback=DRAWDOWN_BETA_LOOKBACK,
+            )
+            if detail is not None:
+                dd_detail_map[t] = detail
+                if detail["excess_dd"] is not None:
+                    excess_dd_map[t] = detail["excess_dd"]
 
     # ── Step 2: fetch external data ───────────────────────────────────────────
     vcfg = strategy.vetter
@@ -608,28 +656,42 @@ async def _do_vet(
         # the wide threshold, and the same veto blocking re-entry until it heals.
         # Data-gap names stay exempt: dd is None with no recent price history, so a
         # missing-data ticker is never treated as a crash.
-        dd = drawdown_map.get(ticker)
-        if (
-            DRAWDOWN_BACKSTOP_PCT > 0
-            and dd is not None
-            and dd <= -DRAWDOWN_BACKSTOP_PCT
-            and not result.get("exclude")
-        ):
+        # Two triggers, either fires (a held knife is dropped from the target →
+        # delta orphan-exits it; a non-held one is simply not bought):
+        #   1. EXCESS (primary): beta-adjusted, market-stripped drop. A broad
+        #      market-down day does NOT trip this — only an idiosyncratic decline.
+        #   2. ABSOLUTE FLOOR: a true collapse vs the 21d peak, regardless of the
+        #      market (catches a crash even when SPY also fell hard).
+        # Data-gap names stay exempt (raw_dd None → no trigger).
+        raw_dd = drawdown_map.get(ticker)
+        exc_dd = excess_dd_map.get(ticker)
+        excess_hit = (DRAWDOWN_EXCESS_PCT > 0 and exc_dd is not None and exc_dd <= -DRAWDOWN_EXCESS_PCT)
+        absolute_hit = (DRAWDOWN_BACKSTOP_PCT > 0 and raw_dd is not None and raw_dd <= -DRAWDOWN_BACKSTOP_PCT)
+        if (excess_hit or absolute_hit) and not result.get("exclude"):
             result["exclude"] = True
             result["risk_type"] = "drawdown"
-            # A held falling-knife is dropped from the target → delta orphan-exits it;
-            # a non-held one is simply not bought. Word the audit reason accordingly.
             _action = "drops from target (delta will exit)" if ticker in held_tickers else "entry blocked"
+            _detail = dd_detail_map.get(ticker, {})
+            if excess_hit:
+                _beta = _detail.get("beta")
+                _spy = _detail.get("spy_move")
+                trigger_desc = (
+                    f"excess {exc_dd:+.1%} (limit -{DRAWDOWN_EXCESS_PCT:.0%}) "
+                    f"= raw {raw_dd:+.1%} − β{_beta:.2f}×SPY {_spy:+.1%}"
+                    if _beta is not None and _spy is not None
+                    else f"excess {exc_dd:+.1%} (limit -{DRAWDOWN_EXCESS_PCT:.0%})"
+                )
+                flag = f"DRAWDOWN_BACKSTOP: forced exclude on {exc_dd:+.1%} beta-adjusted excess drawdown"
+            else:
+                trigger_desc = f"raw {raw_dd:+.1%} vs {DRAWDOWN_WINDOW_DAYS}d peak (floor -{DRAWDOWN_BACKSTOP_PCT:.0%})"
+                flag = f"DRAWDOWN_BACKSTOP: forced exclude on {raw_dd:+.1%} 21d drawdown (absolute floor)"
             note = (
-                f"[DRAWDOWN BACKSTOP: {_action} — {dd:+.1%} vs {DRAWDOWN_WINDOW_DAYS}d peak "
-                f"(limit -{DRAWDOWN_BACKSTOP_PCT:.0%}); deterministic falling-knife guard "
-                f"overrode the LLM keep.] "
+                f"[DRAWDOWN BACKSTOP: {_action} — {trigger_desc}; deterministic "
+                f"falling-knife guard overrode the LLM keep.] "
             )
             result["reason"] = note + (result.get("reason") or "")
-            result.setdefault("hallucination_flags", []).append(
-                f"DRAWDOWN_BACKSTOP: forced exclude on {dd:+.1%} 21d drawdown"
-            )
-            print(f"[llm-vetter] {ticker}: DRAWDOWN BACKSTOP — {_action} ({dd:+.1%})")
+            result.setdefault("hallucination_flags", []).append(flag)
+            print(f"[llm-vetter] {ticker}: DRAWDOWN BACKSTOP — {_action} ({trigger_desc})")
 
         ticker_results.append(result)
 
@@ -810,6 +872,8 @@ async def health():
         "tavily_configured": bool(TAVILY_API_KEY),
         "llm_enabled": VETTER_LLM_ENABLED,
         "drawdown_backstop_pct": DRAWDOWN_BACKSTOP_PCT,
+        "drawdown_excess_pct": DRAWDOWN_EXCESS_PCT,
+        "drawdown_beta_lookback": DRAWDOWN_BETA_LOOKBACK,
         "strategy_id": strategy.strategy_id if strategy else None,
         "config_hash": config_hash,
         "vetter_enabled": strategy.vetter.enabled,

@@ -889,6 +889,35 @@ list for a flake. Recovered tickers are removed from `error_tickers` and decreme
 `success`); a persistent failure (delisted/odd ticker) errors again and stays
 counted. Bounded to the handful that failed; the AV client throttles internally.
 
+## Falling-knife backstop: beta-adjusted (market-relative) drawdown
+
+**Decision (supersedes the fixed-% absolute drawdown as the primary trigger).**
+The vetter's falling-knife guard now triggers on **beta-adjusted excess
+drawdown**, with the absolute % retained only as a floor:
+
+```text
+excess_dd = raw_dd − beta × spy_move        (over the same peak→now span)
+exclude if  excess_dd ≤ −DRAWDOWN_EXCESS_PCT   (primary: stock-specific knife)
+         OR raw_dd    ≤ −DRAWDOWN_BACKSTOP_PCT  (floor: true collapse, market-blind)
+```
+
+**Why.** The fixed-% drawdown was market-blind: on a broad market-down day every
+stock breaches 15% via its market beta, so the backstop dumped good names whose
+only sin was falling *with* the market. Stripping the beta-implied SPY move
+(`raw_dd − β·spy_move`) isolates the IDIOSYNCRATIC drop — a name that fell only
+because the market fell has `excess_dd ≈ 0` and is NOT flagged; a name falling on
+its own is. This is the standard residual-drawdown / market-relative approach.
+
+**Implementation.** `excess_drawdown` + `estimate_beta` in
+`services/llm-vetter/app/drawdown.py` (pure, dependency-free). The vetter loads
+`DRAWDOWN_BETA_LOOKBACK` (default 120) days of each candidate's closes plus SPY,
+aligns them by date, regresses for β (OLS, clipped to [0, 3] so a noisy/negative
+estimate can't invert the adjustment), and computes the excess. SPY history comes
+from `daily_prices` (already ingested for regime detection). Graceful degradation:
+if there isn't enough aligned history for β, `excess_dd` is None and only the
+absolute floor applies — so a data-poor name is never wrongly force-sold. Set
+`DRAWDOWN_EXCESS_PCT=0` to revert to absolute-only.
+
 ## Design Decision Rule
 
 Whenever a design decision is made, it must be documented in the design docs before implementation begins.
