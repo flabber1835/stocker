@@ -93,17 +93,26 @@ def greedy_select(
     current_holdings: set[str] | None = None,
     turnover_penalty: float = 0.0,
     max_tickers_per_sector: int | None = None,
+    av_sector_map: dict[str, str] | None = None,
+    max_av_sector_weight: float = 1.0,
 ) -> list[dict]:
     """
     Greedy portfolio construction: pick tickers that maximise
     candidate_score / hypothetical_portfolio_vol one at a time.
 
-    Sector cap: when sector_map and max_sector_weight are provided, any candidate
-    that would push a sector past the cap under equal-weight assumptions is skipped.
-    The cap is enforced as a hard constraint during selection, not post-hoc.
+    Group cap (primary): when sector_map and max_sector_weight are provided, any
+    candidate that would push a group past the cap under equal-weight assumptions
+    is skipped. The builder passes the correlation-CLUSTER map here. The cap is a
+    hard constraint during selection, not post-hoc.
+
+    AV-sector cap (secondary, independent): when av_sector_map and
+    max_av_sector_weight are provided, the SAME count-proxy cap is applied on the
+    data-provider's sector label. This bounds a whole sector that is spread across
+    several correlation clusters (e.g. energy = tankers + refiners + E&P), which
+    the cluster cap alone cannot see. Both caps apply; either can block a pick.
 
     Count cap: when max_tickers_per_sector is set, a candidate is skipped once its
-    sector/cluster already has that many members selected — an absolute count cap
+    cluster already has that many members selected — an absolute count cap
     independent of the weighting scheme and `target` (vs max_sector_weight's
     count/target weight proxy). Both caps apply; whichever binds first wins.
 
@@ -131,31 +140,48 @@ def greedy_select(
 
     portfolio: list[str] = []
     sector_counts: dict[str, int] = {}
+    av_sector_counts: dict[str, int] = {}
     available = list(base.index)
     result: list[dict] = []
 
-    def _sector_ok(candidate: str) -> bool:
-        if sector_map is None:
+    def _group_ok(candidate: str, gmap: dict[str, str] | None,
+                  gcounts: dict[str, int], gmax: float,
+                  gcount_cap: int | None) -> bool:
+        if gmap is None:
             return True
-        sector = sector_map.get(candidate)
-        if not sector:
+        g = gmap.get(candidate)
+        if not g:
             return True
-        current = sector_counts.get(sector, 0)
-        # Hard count cap (max_tickers_per_sector): absolute, independent of the
-        # weighting scheme and target. Applies even when the weight cap is disabled.
-        if max_tickers_per_sector is not None and current >= max_tickers_per_sector:
+        current = gcounts.get(g, 0)
+        # Hard count cap: absolute, independent of weighting scheme and target.
+        if gcount_cap is not None and current >= gcount_cap:
             return False
-        # Weight-proxy cap (max_sector_weight): count/target as a proxy for weight.
-        # Use target as denominator so the cap is evaluated against the intended
-        # portfolio size, not the current (growing) one. Using len(portfolio)+1
-        # would be too restrictive early: pick 2 from any sector would fail
-        # (1/2=50% > 30%). The tradeoff: if the final portfolio is smaller than
-        # target (e.g. only 15 stocks qualify), sector concentration may exceed
-        # max_sector_weight on a per-actual-weight basis — this is accepted because
-        # the alternative would prevent the portfolio from being built at all.
-        if max_sector_weight < 1.0:
-            return (current + 1) / target <= max_sector_weight
+        # Weight-proxy cap: count/target as a proxy for weight. Use target as the
+        # denominator so the cap is evaluated against the intended portfolio size,
+        # not the current (growing) one (else "pick 2 from any group" fails early
+        # at 1/2=50%). Tradeoff: if the final portfolio is smaller than target, the
+        # actual group weight may exceed gmax — accepted, since the alternative is
+        # failing to build a portfolio. compute_weights enforces the true weight cap.
+        if gmax < 1.0:
+            return (current + 1) / target <= gmax
         return True
+
+    def _sector_ok(candidate: str) -> bool:
+        # Primary grouping (cluster) carries the count cap; AV-sector is weight-only.
+        return (
+            _group_ok(candidate, sector_map, sector_counts, max_sector_weight, max_tickers_per_sector)
+            and _group_ok(candidate, av_sector_map, av_sector_counts, max_av_sector_weight, None)
+        )
+
+    def _record_pick(candidate: str) -> None:
+        if sector_map:
+            s = sector_map.get(candidate)
+            if s:
+                sector_counts[s] = sector_counts.get(s, 0) + 1
+        if av_sector_map:
+            a = av_sector_map.get(candidate)
+            if a:
+                av_sector_counts[a] = av_sector_counts.get(a, 0) + 1
 
     # First pick: highest standalone score — no covariance context yet
     first_candidates = [t for t in base.sort_values(ascending=False).index
@@ -167,10 +193,7 @@ def greedy_select(
     standalone_var = max(float(cov.loc[first, first]), 1e-12)
     standalone_vol = float(np.sqrt(standalone_var))
     portfolio.append(first)
-    if sector_map:
-        s = sector_map.get(first)
-        if s:
-            sector_counts[s] = sector_counts.get(s, 0) + 1
+    _record_pick(first)
     available.remove(first)
     result.append({
         "ticker": first,
@@ -208,10 +231,7 @@ def greedy_select(
             break
 
         portfolio.append(best_candidate)
-        if sector_map:
-            s = sector_map.get(best_candidate)
-            if s:
-                sector_counts[s] = sector_counts.get(s, 0) + 1
+        _record_pick(best_candidate)
         available.remove(best_candidate)
         result.append({
             "ticker": best_candidate,
@@ -309,6 +329,8 @@ def compute_weights(
     max_position_weight: float = 1.0,
     sector_map: dict[str, str] | None = None,
     max_sector_weight: float = 1.0,
+    av_sector_map: dict[str, str] | None = None,
+    max_av_sector_weight: float = 1.0,
 ) -> dict[str, float]:
     """
     Compute portfolio weights for the selected tickers.
@@ -384,58 +406,71 @@ def compute_weights(
 
     weights = _apply_position_cap(raw)
 
-    # Sector cap: redistribute weight away from over-cap sectors.
-    # The greedy_select count cap prevents too many picks from one sector but doesn't
-    # bound the combined weight when adj_score_proportional gives high-conviction
-    # names in the same sector much larger weights. This loop is the hard weight gate.
-    #
-    # Uses the same ever_capped tracking as the position cap: once a sector has been
-    # brought to max_sector_weight it never receives redistributed weight again. This
-    # prevents oscillation when two sectors take turns pushing each other over the cap.
-    # If the constraint is infeasible (n_sectors * max_sector_weight < 1.0) the loop
-    # breaks when no uncapped receiving sectors remain; the final normalization restores
-    # the sum-to-1 invariant.
-    enforce_sector = sector_map is not None and max_sector_weight < 1.0
-    if enforce_sector:
-        ever_sector_capped: set[str] = set()
+    def _apply_group_cap(w: dict[str, float], group_map: dict[str, str],
+                         max_group_weight: float) -> dict[str, float]:
+        """Redistribute weight away from over-cap groups (one grouping dimension).
+
+        The greedy_select count cap prevents too many picks from one group but doesn't
+        bound the combined weight when adj_score_proportional gives high-conviction
+        names in the same group much larger weights. This loop is the hard weight gate.
+
+        ever_capped tracking: once a group is brought to max_group_weight it never
+        receives redistributed weight again, preventing oscillation when two groups
+        take turns pushing each other over. If the constraint is infeasible
+        (n_groups * max < 1.0) the loop breaks when no uncapped receivers remain; the
+        caller's final normalization restores sum-to-1.
+        """
+        w = dict(w)
+        ever_capped: set[str] = set()
         for _round in range(n * 2):
-            sector_totals: dict[str, float] = {}
-            for t, w in weights.items():
-                s = sector_map.get(t, "")  # type: ignore[union-attr]
-                if s:
-                    sector_totals[s] = sector_totals.get(s, 0.0) + w
-
-            over_sectors = {s for s, total in sector_totals.items()
-                            if total > max_sector_weight + 1e-9
-                            and s not in ever_sector_capped}
-            if not over_sectors:
+            totals: dict[str, float] = {}
+            for t, wt in w.items():
+                g = group_map.get(t, "")
+                if g:
+                    totals[g] = totals.get(g, 0.0) + wt
+            over = {g for g, tot in totals.items()
+                    if tot > max_group_weight + 1e-9 and g not in ever_capped}
+            if not over:
                 break
-            ever_sector_capped.update(over_sectors)
-
-            # Scale down each ticker in an over-cap sector proportionally so
-            # the sector lands exactly at max_sector_weight.
+            ever_capped.update(over)
             total_excess = 0.0
-            for t in list(weights.keys()):
-                s = sector_map.get(t, "")  # type: ignore[union-attr]
-                if s in over_sectors:
-                    sector_total = sector_totals[s]
-                    scale = max_sector_weight / sector_total
-                    total_excess += weights[t] * (1.0 - scale)
-                    weights[t] *= scale
-
-            # Redistribute freed weight to tickers NOT in any previously capped sector.
-            under_tickers = {t: w for t, w in weights.items()
-                             if sector_map.get(t, "") not in ever_sector_capped}  # type: ignore[union-attr]
-            total_under = sum(under_tickers.values())
+            for t in list(w.keys()):
+                g = group_map.get(t, "")
+                if g in over:
+                    scale = max_group_weight / totals[g]
+                    total_excess += w[t] * (1.0 - scale)
+                    w[t] *= scale
+            under = {t: wt for t, wt in w.items() if group_map.get(t, "") not in ever_capped}
+            total_under = sum(under.values())
             if total_under < 1e-12:
-                break  # Nowhere to redistribute — infeasible constraint, exit loop
-            for t in under_tickers:
-                weights[t] += total_excess * (weights[t] / total_under)
-
-            # Sector redistribution can push individual positions above max_position_weight;
-            # re-apply the position cap before the next sector check.
+                break
+            for t in under:
+                w[t] += total_excess * (w[t] / total_under)
+            # Group redistribution can push positions above max_position_weight;
+            # re-apply the position cap before the next group check.
             if max_position_weight < 1.0:
-                weights = _apply_position_cap(weights)
+                w = _apply_position_cap(w)
+        return w
+
+    # Active group constraints: the correlation-cluster cap and the independent
+    # AV-sector cap. With two groupings, iterate them to a mutual fixpoint (capping
+    # one redistributes weight that may violate the other) — bounded and convergent
+    # because each group, once capped, never receives weight back.
+    constraints: list[tuple[dict[str, str], float]] = []
+    if sector_map is not None and max_sector_weight < 1.0:
+        constraints.append((sector_map, max_sector_weight))
+    if av_sector_map is not None and max_av_sector_weight < 1.0:
+        constraints.append((av_sector_map, max_av_sector_weight))
+
+    for _outer in range(2 * len(constraints) + 1):
+        changed = False
+        for gmap, gmax in constraints:
+            new_w = _apply_group_cap(weights, gmap, gmax)
+            if any(abs(new_w[t] - weights[t]) > 1e-9 for t in new_w):
+                changed = True
+            weights = new_w
+        if not changed:
+            break
 
     # Normalise to exactly 1.0 (guard against floating-point drift)
     total = sum(weights.values())

@@ -243,10 +243,13 @@ class PortfolioBuilderConfig(BaseModel):
     max_sector_weight: float = Field(
         default=0.30, gt=0, le=1.0,
         description=(
-            "DEPRECATED for selection — retained for informational sector-weight "
-            "logging only. Concentration is now capped by correlation cluster "
-            "(see cluster_correlation_threshold / max_cluster_weight), not by the "
-            "data provider's sector label. No longer gates greedy_select or compute_weights."
+            "Hard cap on any single AV sector's share of the book, enforced as a "
+            "SECOND, independent dimension alongside the correlation-cluster cap "
+            "(max_cluster_weight). The cluster cap controls correlated micro-groups "
+            "(e.g. tankers) but cannot see a whole sector spread across several "
+            "clusters (e.g. energy = tankers + refiners + E&P), so the sector cap "
+            "bounds that. Applied in both greedy_select (count proxy) and "
+            "compute_weights (weight redistribution). Set to 1.0 to disable."
         ),
     )
     cluster_correlation_threshold: float = Field(

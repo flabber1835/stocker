@@ -554,9 +554,13 @@ async def _do_build(
             scores = scores[pos_tickers]
             cov = cov.loc[pos_tickers, pos_tickers]
 
-    # Concentration is capped by correlation cluster, not sector. The greedy count
-    # cap and weight redistribution are group-agnostic, so we pass cluster_map as
-    # the group and max_cluster_weight as the cap.
+    # Concentration is capped on TWO independent dimensions:
+    #   1. correlation CLUSTER (sector_map=cluster_map + max_cluster_weight) — bounds
+    #      correlated micro-groups (e.g. tankers);
+    #   2. AV SECTOR (av_sector_map=sector_map + max_sector_weight) — bounds a whole
+    #      sector spread across several clusters (e.g. energy = tankers+refiners+E&P),
+    #      which the cluster cap alone cannot see.
+    # The greedy count cap and weight redistribution are group-agnostic.
     selected = greedy_select(
         scores, cov,
         target=pb_cfg.max_positions,
@@ -565,6 +569,8 @@ async def _do_build(
         current_holdings=current_holdings if pb_cfg.turnover_penalty > 0.0 else None,
         turnover_penalty=pb_cfg.turnover_penalty,
         max_tickers_per_sector=pb_cfg.max_tickers_per_cluster,
+        av_sector_map=sector_map,
+        max_av_sector_weight=pb_cfg.max_sector_weight,
     )
     selected_tickers = [s["ticker"] for s in selected]
     selected_negative_score_count = sum(1 for s in selected if s["composite_score"] < 0)
@@ -576,6 +582,8 @@ async def _do_build(
         max_position_weight=pb_cfg.max_position_weight,
         sector_map=cluster_map,
         max_sector_weight=pb_cfg.max_cluster_weight,
+        av_sector_map=sector_map,
+        max_av_sector_weight=pb_cfg.max_sector_weight,
     )
 
     # H4: Re-normalize after cap clipping so weights always sum to 1.0.

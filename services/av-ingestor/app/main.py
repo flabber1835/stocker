@@ -813,6 +813,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
     price_ok = price_rows_written = fund_ok = err_count = 0
     price_skipped = fund_skipped = 0
     error_tickers: list[str] = []
+    price_error_tickers: list[str] = []  # subset that failed price fetch — retried once after the main loop
     # avg_dollar_volume_20d computed from the last 20 price rows for each ticker,
     # since AV OVERVIEW does not reliably provide this field.
     _ticker_avg_dv: dict[str, float] = {}
@@ -895,6 +896,8 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                 except Exception as e:
                     err_count += 1
                     error_tickers.append(f"{ticker}:prices")
+                    if not is_benchmark:
+                        price_error_tickers.append(ticker)
                     if is_benchmark and ticker == "SPY":
                         _spy_fetch_failed = True
                     print(f"[fetch-data] {ticker} prices: error - {e}")
@@ -968,6 +971,43 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                                   price_rows=price_rows_written, fund_rows=fund_ok,
                                   price_skipped=price_skipped, fund_skipped=fund_skipped,
                                   error_count=err_count)
+
+        # ── Fetch cleanup: retry transient price-fetch failures ONCE ──────────
+        # Most price errors are transient (AV rate-limit "Note", a dropped TLS
+        # connection) and clear on a second attempt — real names like VRSN/RHI/IAC
+        # shouldn't sit in the error list for a flake. A persistent failure
+        # (delisted/odd ticker) errors again and stays counted. Bounded to the
+        # handful that failed, and the client throttles internally.
+        if price_error_tickers:
+            retry_list = list(price_error_tickers)
+            print(f"[fetch-data] cleanup: retrying {len(retry_list)} price errors once")
+            recovered: list[str] = []
+            for rt in retry_list:
+                try:
+                    rows = await client.get_daily_prices(rt, compact=(ticker_latest.get(rt) is not None))
+                    if not rows:
+                        continue
+                    latest_in_db = ticker_latest.get(rt)
+                    new_rows = (
+                        [r for r in rows if date.fromisoformat(r["date"]) > latest_in_db]
+                        if latest_in_db else rows
+                    )
+                    if new_rows:
+                        async with SessionLocal() as session:
+                            async with session.begin():
+                                await _upsert_prices(session, rt, new_rows)
+                        price_rows_written += len(new_rows)
+                    price_ok += 1
+                    recovered.append(rt)
+                    print(f"[fetch-data] cleanup: {rt} recovered ({len(new_rows)} rows)")
+                except Exception as e:  # noqa: BLE001 — persistent failure stays counted
+                    print(f"[fetch-data] cleanup: {rt} still failing - {e}")
+            if recovered:
+                err_count -= len(recovered)
+                recovered_labels = {f"{rt}:prices" for rt in recovered}
+                error_tickers = [e for e in error_tickers if e not in recovered_labels]
+                print(f"[fetch-data] cleanup: recovered {len(recovered)}/{len(retry_list)} price errors")
+
         status = "partial_success" if err_count > 0 else "success"
         pcp = _coverage(price_ok, len(price_tickers))
         fcp = _coverage(fund_ok, len(fundamental_tickers))

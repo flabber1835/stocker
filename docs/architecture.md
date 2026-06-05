@@ -853,6 +853,42 @@ profitability leg neutral-fills exactly like any other missing component, so the
 factor never breaks. When the flag is off, `compute_quality` is byte-for-byte the
 legacy ROE/leverage composite.
 
+## Portfolio Concentration: dual cap (correlation cluster + AV sector)
+
+**Decision (supersedes "cluster cap only / sector cap deprecated").** The
+portfolio-builder enforces concentration on TWO independent dimensions:
+
+1. **Correlation-cluster cap** (`max_cluster_weight`, `max_tickers_per_cluster`)
+   — bounds correlated micro-groups (e.g. tankers that move together).
+2. **AV-sector cap** (`max_sector_weight`, default 0.30; `quality_core_v1` sets
+   0.25) — bounds a whole sector's share of the book, on the AV `Sector` label.
+
+**Why both.** A single sector can spread across *several* low-correlation
+clusters — energy = tankers + refiners + E&P, each its own cluster under 15% —
+so the cluster cap is individually satisfied while the *sector* reaches ~30%
+(observed live: ENERGY 29.7%). The cluster cap structurally cannot see "energy";
+the sector cap can. This is the momentum-side analogue of the value/quality
+banks concentration that industry-neutralization fixed on the ranking side.
+
+**Implementation.** Both caps run in `greedy_select` (count-proxy, blocks a pick
+that would push either group over) and `compute_weights` (the binding weight
+gate — `_apply_group_cap` is applied per constraint and the constraints are
+iterated to a mutual fixpoint, since capping one group redistributes weight that
+may violate the other; bounded and convergent because a capped group never
+receives weight back). Either cap set to `1.0` disables that dimension. An
+infeasible cap (n_groups × cap < 1.0) degrades gracefully: redistribution stops
+when no uncapped receiver remains and the final normalization restores sum-to-1.
+
+## av-ingestor fetch cleanup: one-shot price retry
+
+`fetch-data` retries price-fetch failures **once** after the main loop. Most
+price errors are transient (AV rate-limit `Note`, a dropped TLS connection) and
+clear on a second attempt — real names (VRSN/RHI/IAC) shouldn't sit in the error
+list for a flake. Recovered tickers are removed from `error_tickers` and decrement
+`error_count` (so a clean retry flips the run from `partial_success` to
+`success`); a persistent failure (delisted/odd ticker) errors again and stays
+counted. Bounded to the handful that failed; the AV client throttles internally.
+
 ## Design Decision Rule
 
 Whenever a design decision is made, it must be documented in the design docs before implementation begins.
