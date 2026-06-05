@@ -979,7 +979,8 @@ function _buildTradeRow(r) {
   let actionsCell;
   if (approvable) {
     actionsCell = '<td class="tc-actions-cell">'
-      + '<button class="btn-sm-approve" onclick="approveTrade(\'' + r.id + '\',\'scheduled\')" title="Approve — queue for market open">&#9654;</button>'
+      + '<button class="btn-sm-approve-now" onclick="approveTrade(\'' + r.id + '\',\'immediate\')" title="Approve NOW — submit immediately as a market order when the market is open (queues for the open drain off-hours). Approve sells before buys so cash is freed.">&#9889;</button>'
+      + ' <button class="btn-sm-approve" onclick="approveTrade(\'' + r.id + '\',\'scheduled\')" title="Approve — queue for the fill-gated market-open drain">&#9654;</button>'
       + ' <button class="btn-sm-reject" onclick="rejectTrade(\'' + r.id + '\')" title="Reject">&#10005;</button>'
       + '</td>';
   } else {

@@ -715,6 +715,13 @@ tr.detail-row td { padding: 0; white-space: normal; }
   cursor: pointer; transition: background .15s;
 }
 .btn-sm-approve:hover { background: var(--navy-light); }
+.btn-sm-approve-now {
+  background: var(--amber, #d97706); color: white;
+  border: none; border-radius: 5px;
+  padding: 4px 9px; font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: filter .15s;
+}
+.btn-sm-approve-now:hover { filter: brightness(1.12); }
 .btn-sm-reject {
   background: transparent; color: var(--red);
   border: 1.5px solid var(--red); border-radius: 5px;

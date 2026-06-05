@@ -177,6 +177,28 @@ async def _get_alpaca_clock() -> Optional[dict]:
     return None
 
 
+def _route_to_drain(mode: str, clock: Optional[dict]) -> bool:
+    """Decide whether an approved order enqueues for the fill-gated open drain
+    (True) or submits inline right now as a market order (False).
+
+      - scheduled         → always the drain (the after-close cron path).
+      - immediate + OPEN  → inline NOW (the "Approve now" daytime path): a market
+                            order that fills within seconds.
+      - immediate + CLOSED→ fall back to the drain. An off-hours 'immediate' click
+                            must not bypass the drain's sells-first, fill-gated
+                            buying-power sequencing — a raw queued buy could fire
+                            ahead of its funding sell at the open and be rejected.
+      - immediate + clock unknown (no creds/unreachable) → inline; Step 6's own
+                            credential guard records the outcome (dev/paper without
+                            creds, or mock).
+    """
+    if mode == "scheduled":
+        return True
+    if mode == "immediate":
+        return clock is not None and not clock.get("is_open", False)
+    return False
+
+
 async def _get_alpaca_buying_power() -> Optional[float]:
     """GET /v2/account → buying_power (float). None on failure."""
     if not (ALPACA_API_KEY and ALPACA_SECRET_KEY):
@@ -1235,15 +1257,17 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
                 reason=reason,
             )
 
-        # ── Step 5b: scheduled mode → enqueue for the fill-gated open drain ────
-        # The approval is a GREENLIGHT, not a submission. The drain worker submits
-        # during market hours only, sells-first, fill-gated, one buy at a time.
-        # deferred_until = next open (so the drain waits for the session); when the
-        # market is already open, deferred_until=NULL so the next pass picks it up.
-        # expires_at = that session's close (an unfunded buy expires, never carries
-        # to the next day). See docs/architecture.md Option B.
-        if req.mode == "scheduled":
-            clock = await _get_alpaca_clock()
+        # ── Step 5b: submission routing (drain vs inline) ─────────────────────
+        # scheduled → fill-gated open drain. immediate → submit inline NOW when the
+        # market is open ("Approve now"), else fall back to the drain off-hours.
+        # The approval is a GREENLIGHT; the drain worker submits during market hours
+        # only, sells-first, fill-gated, one buy at a time. deferred_until = next
+        # open (so the drain waits for the session); when the market is already open,
+        # deferred_until=NULL so the next pass picks it up. expires_at = that
+        # session's close (an unfunded buy expires, never carries to the next day).
+        # See docs/architecture.md Option B.
+        clock = await _get_alpaca_clock() if req.mode in ("scheduled", "immediate") else None
+        if _route_to_drain(req.mode, clock):
             if clock is None:
                 deferred_until, expires_at = None, None          # no creds/unreachable → drain ASAP
             elif clock["is_open"]:

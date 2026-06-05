@@ -468,6 +468,30 @@ existed but were never wired — approval always went `pending → submit`. This
 decision wires them and adds the sells-first + fill-gate + buying-power logic.
 `expires_at` is added (migration 0015) for deterministic, restart-safe expiry.
 
+### "Approve now" — immediate market submission during market hours
+
+The drain (mode `scheduled`) is the right default for the after-close cron path,
+but a **discretionary daytime run** wants the opposite: press Run mid-session,
+review the proposal, and have it hit the market **right now** as a market order.
+
+`mode="immediate"` (the dashboard's ⚡ "Approve now" button, alongside the ▶
+queue-for-open button) routes via `_route_to_drain(mode, clock)`:
+
+```text
+scheduled            → drain (always)
+immediate + market OPEN   → submit INLINE now  (Step 6: market `day` order, fills in seconds)
+immediate + market CLOSED → fall back to the drain
+```
+
+The closed-market fallback is the safety: an off-hours `immediate` click must not
+bypass the drain's sells-first, fill-gated buying-power sequencing — a raw queued
+buy could otherwise fire ahead of its funding sell at the open and be rejected.
+Inline submission still flows through the same `risk_check` and
+`_submit_for_action` entrypoint (exits → close-position, others → `/v2/orders`),
+so `immediate` changes only the *timing*, never the safety path. Operator note:
+when approving inline on a fully-invested book, approve **sells before buys** so
+their proceeds fund the buys (the drain does this automatically; inline does not).
+
 **Approval = greenlight, drain = authority.** Risk-check still runs at approval for
 fast human feedback, and the kill switch is re-checked at submit. The buying-power
 gate is the drain's own pre-submit check. All state lives in `alpaca_orders`, so
