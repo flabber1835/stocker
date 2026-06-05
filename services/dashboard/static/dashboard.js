@@ -74,9 +74,11 @@ function _parseAlpacaError(msg) {
   return msg.length > 140 ? msg.substring(0, 140) + '…' : msg;
 }
 function _fmtDeferred(isoTs) {
-  // Render an OPG-deferred order's wakeup time as "Queued — fires HH:MM ET"
-  // so the operator can see the trade is parked, not lost.
-  if (!isoTs) return 'Queued for OPG window';
+  // A deferred order is parked for the next market open (the fill-gated drain
+  // submits it then). Show the wakeup time when known — "Queued — fires HH:MM ET"
+  // — else a generic "Queued for next open" (deferred_until is NULL when the
+  // Alpaca clock was unreadable at approval; the drain still fires it at the open).
+  if (!isoTs) return 'Queued for next open';
   try {
     const d = new Date(isoTs);
     const hhmm = d.toLocaleTimeString('en-US', {
@@ -84,7 +86,7 @@ function _fmtDeferred(isoTs) {
       hour: '2-digit', minute: '2-digit', hour12: false,
     });
     return 'Queued — fires ' + hhmm + ' ET';
-  } catch (e) { return 'Queued for OPG window'; }
+  } catch (e) { return 'Queued for next open'; }
 }
 function zColor(v) {
   // Factor values are cross-sectional percentile ranks in (0, 1].
