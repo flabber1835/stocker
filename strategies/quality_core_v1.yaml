@@ -27,6 +27,8 @@ factor_engine:
   liquidity_window: 20       # trading days for avg dollar volume (liquidity factor)
   pe_pb_cap: 50.0            # cap PE and PB before computing yields; beyond this the signal is flat
   spy_price_lookback_days: 600  # calendar days of SPY history loaded for regime detection
+  quality_use_gross_profitability: true  # quality profitability leg = gross-profits/assets (Novy-Marx), not ROE; falls back to ROE where total_assets is missing
+  # industry_neutral_factors defaults to [value, quality] (sector-neutral ranking); see schema
 
 regime_detection:
   slow_sma: 200            # SPY trend anchor — 200-day SMA
