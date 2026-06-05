@@ -161,16 +161,30 @@ Polygon/Massive:
 The system ranks stocks daily from a Russell-3000-like U.S. equity universe and manages
 a live portfolio using a continuous buffer-zone rebalance model — not a fixed monthly cycle.
 
-**Rebalance model:**
+**Rebalance model (builder-is-source-of-truth; rank entry/exit buffer RETIRED on
+the live book):**
 
 ```text
-Rankings run daily after market close (scheduler fires at 4:15pm ET).
-A stock enters the portfolio when rank ≤ entry_rank for confirmation_days in a row.
-A stock exits when rank > exit_rank for confirmation_days in a row.
-Stocks between entry_rank and exit_rank are held (buffer prevents whipsawing).
-Holding period is variable — held as long as the stock stays in the buffer zone.
+Rankings run daily after market close (scheduler fires in the evening, ET).
+The portfolio-builder produces a fresh, holdings-agnostic TARGET each day.
+A stock ENTERS the realized book when it is in the target but not yet held.
+A stock is HELD as long as it stays in the target — rank is irrelevant once held
+  (the builder already decided to keep it; greedy/correlation-cluster selection can
+  legitimately keep a name whose raw rank looks weak, for diversification).
+A held stock EXITS only when the builder DROPS it from the target — i.e. via the
+  orphan path, after orphan_confirmation_days consecutive builds absent (below).
 Periodic weight normalization rebalances position sizes without forcing exits.
 ```
+
+The rank-based entry/exit buffer (`entry_rank`/`exit_rank` + `confirmation_days`)
+is NO LONGER applied to the live book in `evaluate_target_vs_live`. It was retired
+because it conflicted with the builder: a rank-86 singleton the builder selected for
+diversification was being force-sold by the exit_rank buffer while simultaneously
+sitting in the target (the "AFL" inconsistency), and the symmetric unconditional
+entry would buy it straight back — churn. Now the builder owns membership and the
+orphan timer owns exit hysteresis. `entry_rank`/`exit_rank` survive ONLY in the
+cold-start fallback `evaluate_all` (used when there is no target to diff against —
+no broker sync or no portfolio run yet), where rank is the only available signal.
 
 Orphan handling — the target is binding on the live book (orphan-exit redesign,
 supersedes the earlier "always rotate" capacity policy). An *orphan* is a position
@@ -178,14 +192,15 @@ held at the broker but absent from the current target portfolio. An orphan is
 exited once it has been absent from the target for `orphan_confirmation_days`
 consecutive **portfolio builds** (tracked via `target_history`, most-recent-first;
 default 2 — flagged `at_risk` on build 1, sold on build 2), REGARDLESS of its rank.
-`orphan_confirmation_days` is SEPARATE from `confirmation_days` (the rank-based
-entry/exit buffer, default 3) so orphan disposal can be tightened without loosening
-the rank hysteresis. Until confirmed it is tagged `at_risk` (counting down). This is what
+`orphan_confirmation_days` (default 2) is the ONLY exit hysteresis on the live
+book. Until confirmed the orphan is tagged `at_risk` (counting down). This is what
 makes a strategy change (e.g. the correlation-cluster cap thinning the golds)
 actually reach the realized portfolio — a name the builder dropped no longer
 lingers just because its rank holds up. Data-gap orphans (rank 9999, missing from
 the ranking universe) are NEVER force-sold — that is not a sell signal. In-target
-held names exit only via the existing rank/buffer-zone path.
+held names NEVER rank-exit: while a name is in the target it is held regardless of
+rank; it can leave only by the builder dropping it from the target (→ orphan path).
+`confirmation_days` now governs only the cold-start fallback `evaluate_all`.
 
 Capacity (`_allocate_capacity`) is now purely a *defer-entries* gate: instant
 rotation is RETIRED. New entries are hard-capped to the free slots (max_positions
@@ -491,7 +506,7 @@ do-not-buy list
 vetter exclusions (soft — does not block if vetter hasn't run)
 turnover penalty (default 0 — DISABLED) — the builder is the SOURCE OF TRUTH
   and builds a fresh, holdings-agnostic target each day; churn-damping is owned
-  by the delta engine's buffer-zone / confirmation-days hysteresis, not by
+  by the delta engine's orphan timer (orphan_confirmation_days), not by
   biasing the target toward held names. Set
   PortfolioBuilderConfig.turnover_penalty > 0 to re-enable the old continuity
   bias (score discount on candidates NOT currently held).
@@ -543,12 +558,12 @@ Source-of-truth / falling-knife-sells redesign (supersedes the earlier
 - The portfolio-builder is the SOURCE OF TRUTH. It builds a fresh, holdings-
   agnostic target each day from rank minus binding vetter exclusions
   (turnover_penalty defaults to 0 — no continuity bias toward what is held).
-- Churn-damping is owned by the DELTA engine (buffer-zone + confirmation_days +
-  3-build orphan timer), not by biasing the target toward held names.
+- Churn-damping is owned by the DELTA engine's orphan timer
+  (orphan_confirmation_days, default 2), not by biasing the target toward held names.
 - A falling-knife (drawdown) veto applies to HELD names too. The held name is
   dropped from the target → becomes an orphan → delta orphan-exits it after
-  confirmation_days consecutive builds. So a drawdown veto on a held position
-  DOES sell it. Whipsaw guards: the 3-build confirmation, the threshold
+  orphan_confirmation_days consecutive builds. So a drawdown veto on a held position
+  DOES sell it. Whipsaw guards: the orphan-build confirmation, the threshold
   (default 0.15), and the fact that the same veto blocks re-entry until the
   drawdown heals (so no sell-then-rebuy).
 - Data-gap names stay exempt: no recent price history ⇒ no drawdown value ⇒

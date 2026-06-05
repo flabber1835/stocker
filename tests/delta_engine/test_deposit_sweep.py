@@ -37,7 +37,7 @@ UNIVERSE = {t: _good_history() for t in TARGET}
 
 _COMMON = dict(
     target_portfolio=TARGET, live_positions=LIVE, universe=UNIVERSE,
-    entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+    confirmation_days=3, max_positions=30,
     drift_threshold=0.02,
 )
 

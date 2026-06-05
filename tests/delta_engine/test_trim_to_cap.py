@@ -52,8 +52,7 @@ def test_over_cap_orphans_not_instantly_trimmed():
         universe[o] = _history(31 + i)                          # ranks 31..37, all <= exit_rank
 
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
     )
     assert _counts(decisions).get("exit", 0) == 0               # no instant trim
     assert all(decisions[o].action == "at_risk" for o in orphans)
@@ -71,8 +70,7 @@ def test_within_cap_orphans_are_at_risk_not_force_held():
     universe["O01"] = _history(33)
     universe["O02"] = _history(34)
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
     )
     assert _counts(decisions).get("exit", 0) == 0
     assert decisions["O01"].action == "at_risk"
@@ -91,8 +89,7 @@ def test_targeted_holds_never_force_sold_even_when_over_cap():
     universe["O02"] = _history(6)
     universe["O03"] = _history(7)                               # orphans rank far BETTER than T29
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
     )
     # No instant trim — orphans (even well-ranked) are at_risk, targeted hold stays.
     assert _counts(decisions).get("exit", 0) == 0
@@ -120,8 +117,7 @@ def test_confirmed_orphans_exit_and_reduce_the_book():
     history = [present, present, present]
 
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
         target_history=history,
     )
     assert _counts(decisions).get("exit", 0) == 3

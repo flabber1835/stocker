@@ -938,8 +938,6 @@ class TestMultiDaySellDown60To30:
                     target_portfolio=sim.target,
                     live_positions=live_set,
                     universe=u,
-                    entry_rank=ENTRY_RANK,
-                    exit_rank=EXIT_RANK,
                     confirmation_days=CONFIRMATION_DAYS,
                     max_positions=MAX_POSITIONS,
                     actual_weights=sim.live_weights(),
@@ -1217,8 +1215,6 @@ class TestTargetVsLiveOrphanPositions:
             target_portfolio=target_portfolio,
             live_positions=live_positions,
             universe=u,
-            entry_rank=ENTRY_RANK,
-            exit_rank=EXIT_RANK,
             confirmation_days=CONFIRMATION_DAYS,
             max_positions=MAX_POSITIONS,
             target_history=target_history,
@@ -1251,7 +1247,6 @@ class TestTargetVsLiveOrphanPositions:
             u[t] = _obs(rank=POOR_RANK_START, days=1)   # rank 45 > exit_rank, day 1
         d = evaluate_target_vs_live(
             target_portfolio=target, live_positions=live, universe=u,
-            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
             confirmation_days=CONFIRMATION_DAYS, max_positions=MAX_POSITIONS,
         )
         for t in orphans:
@@ -1283,7 +1278,6 @@ class TestTargetVsLiveOrphanPositions:
         # First orphaned build (no history) → at_risk, not a snap exit.
         d1 = evaluate_target_vs_live(
             target_portfolio=target, live_positions=live, universe=u,
-            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
             confirmation_days=CONFIRMATION_DAYS, max_positions=MAX_POSITIONS,
         )
         for t in orphans:
@@ -1295,7 +1289,6 @@ class TestTargetVsLiveOrphanPositions:
         hist = [set(target)] * CONFIRMATION_DAYS
         d2 = evaluate_target_vs_live(
             target_portfolio=target, live_positions=live, universe=u,
-            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
             confirmation_days=CONFIRMATION_DAYS, max_positions=MAX_POSITIONS,
             target_history=hist,
         )
@@ -1319,8 +1312,6 @@ class TestTargetVsLiveOrphanPositions:
             target_portfolio=target_portfolio,
             live_positions=live_positions,
             universe=u,
-            entry_rank=ENTRY_RANK,
-            exit_rank=EXIT_RANK,
             confirmation_days=CONFIRMATION_DAYS,
             max_positions=MAX_POSITIONS,
         )

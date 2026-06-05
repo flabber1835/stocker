@@ -244,7 +244,6 @@ def test_365_day_chaos_simulation():
             target_hist = ([set(target)] + target_hist)[:CONFIRMATION_DAYS]
             decisions = evaluate_target_vs_live(
                 target_portfolio=target, live_positions=live, universe=today_universe,
-                entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
                 confirmation_days=CONFIRMATION_DAYS, max_positions=MAX_POSITIONS,
                 actual_weights=actual_weights, drift_threshold=DRIFT_THRESHOLD,
                 account_value=account_value, buying_power=buying_power,

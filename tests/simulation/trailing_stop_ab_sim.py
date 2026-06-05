@@ -307,8 +307,6 @@ def run_variant(use_trailing, mkt: Market, regimes, rankings, strategy, trail_pc
             target_portfolio=target,
             live_positions=set(positions),
             universe=rank_hist,
-            entry_rank=entry_rank,
-            exit_rank=exit_rank,
             confirmation_days=conf_days,
             max_positions=max_positions,
             actual_weights=actual_w,

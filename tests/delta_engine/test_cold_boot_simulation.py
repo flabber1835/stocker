@@ -525,8 +525,6 @@ class TestCrossScenarioEdgeCases:
             target_portfolio=target,
             live_positions=live,
             universe=universe,
-            entry_rank=ENTRY_RANK,
-            exit_rank=EXIT_RANK,
             confirmation_days=CONFIRMATION_DAYS,
             max_positions=MAX_POSITIONS,
         )
@@ -549,7 +547,6 @@ class TestCrossScenarioEdgeCases:
         # First orphaned build (no history) → at_risk, not a snap exit.
         d1 = evaluate_target_vs_live(
             target_portfolio=target, live_positions=live, universe=universe,
-            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
             confirmation_days=CONFIRMATION_DAYS, max_positions=MAX_POSITIONS,
         )
         assert d1["MSFT"].action == "at_risk"
@@ -558,7 +555,6 @@ class TestCrossScenarioEdgeCases:
         hist = [{"AAPL"}] * CONFIRMATION_DAYS
         d2 = evaluate_target_vs_live(
             target_portfolio=target, live_positions=live, universe=universe,
-            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
             confirmation_days=CONFIRMATION_DAYS, max_positions=MAX_POSITIONS,
             target_history=hist,
         )
@@ -580,7 +576,6 @@ class TestCrossScenarioEdgeCases:
 
         decisions = evaluate_target_vs_live(
             target_portfolio=target, live_positions=live, universe=universe,
-            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
             confirmation_days=CONFIRMATION_DAYS, max_positions=MAX_POSITIONS,
             target_history=hist,
         )

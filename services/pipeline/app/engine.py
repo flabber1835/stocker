@@ -189,8 +189,6 @@ def evaluate_target_vs_live(
     target_portfolio: dict[str, float],
     live_positions: set[str],
     universe: dict[str, list[RankObservation]],
-    entry_rank: int,
-    exit_rank: int,
     confirmation_days: int,
     max_positions: int,
     actual_weights: dict[str, float] | None = None,
@@ -202,15 +200,23 @@ def evaluate_target_vs_live(
 ) -> dict[str, DeltaDecision]:
     """Diff portfolio_holdings (target) against live_positions (actual broker state).
 
+    The portfolio-builder is the SOURCE OF TRUTH for which names belong in the
+    book. This function does NOT apply any rank-based entry/exit buffer to the
+    live book: a held name that is in the target is HELD (rank is irrelevant — the
+    builder already decided to keep it), and a held name the builder DROPPED from
+    the target is exited via the orphan timer (orphan_confirmation_days). Entries
+    come from target membership. (Rank-based entry/exit hysteresis is retired here;
+    it survives only in the cold-start fallback evaluate_all, which has no target
+    to diff against.)
+
     entry     — ticker in target but not yet held at broker; current_weight = target weight
                 (trade-executor uses this for order sizing — floor(account_value × weight / price))
-    exit      — ticker held at broker but removed from target portfolio
-    at_risk   — ticker held at broker and in target, rank > exit_rank but not yet confirmed exit
-    hold      — ticker in both target and broker positions, rank good, weight on target
-    buy_add   — ticker held, rank good, actual weight < target - drift_threshold
-    sell_trim — ticker held, rank good, actual weight > target + drift_threshold
-    watch     — confirmed in entry zone (confirmation_days) but not yet in target;
-                informational — portfolio-builder will add on next build
+    exit      — ticker held at broker but removed from target (orphan, confirmed over builds)
+    at_risk   — ticker held at broker, dropped from target, orphan timer counting down
+    hold      — ticker in both target and broker positions, on target weight
+    buy_add   — ticker held and in target, actual weight < target - drift_threshold
+    sell_trim — ticker held and in target, actual weight > target + drift_threshold
+    watch     — an entry deferred by capacity / buying power (not a rank signal)
     """
     decisions: dict[str, DeltaDecision] = {}
 
@@ -240,22 +246,19 @@ def evaluate_target_vs_live(
             weight_drift=None,
         )
 
-    # Exits: broker holds but target no longer includes.
+    # Exits: broker holds but target no longer includes (ORPHANS).
     #
-    # The portfolio-builder may exclude a well-ranked ticker for covariance /
+    # The portfolio-builder may drop a well-ranked ticker for covariance /
     # capacity reasons (e.g. already holds 3 correlated names in the same
-    # sector). In that case the rank is still good and an immediate exit would
-    # sell the position only to re-buy it a few days later — pure churn.
+    # cluster). Rank is irrelevant here: the builder is the source of truth, and a
+    # name it dropped is an orphan. To avoid churn we don't snap-sell — the orphan
+    # exits only once it has been ABSENT from the target for orphan_confirmation_days
+    # consecutive builds (target_history). A single build that re-includes it resets
+    # the count.
     #
-    # Rule: apply the same buffer-zone confirmation logic used for held
-    # positions.  Only exit once rank > exit_rank for confirmation_days
-    # consecutive days.  If rank ≤ exit_rank, classify as "hold" so the
-    # position stays put until the rank actually deteriorates.
-    #
-    # Safeguard for the degraded case: if target_portfolio is completely
-    # empty, portfolio-builder may have failed transiently or filtered all
-    # candidates. Same confirmation logic applies — only the confirmed-bad-rank
-    # branch exits in degraded mode.
+    # Degraded case: if target_portfolio is completely empty (builder failed
+    # transiently or filtered all candidates), HOLD every position — an empty target
+    # is "no information", never a liquidation signal.
     target_is_empty = not target_portfolio
     for ticker in live_positions:
         if ticker in target_portfolio:
@@ -284,39 +287,22 @@ def evaluate_target_vs_live(
             continue
 
         if target_is_empty:
-            # Degraded mode — use the original buffer-zone logic so a single
-            # empty portfolio build doesn't trigger a wholesale liquidation.
-            exit_days_empty = _consecutive_in_zone(
-                obs, lambda o, xr=exit_rank: o.rank > xr, confirmation_days
-            )
-            if exit_days_empty >= confirmation_days:
-                action_empty = "exit"
-                reason_empty = (
-                    f"Rank={latest.rank} > exit_rank={exit_rank} for {exit_days_empty} "
-                    f"consecutive days (target portfolio is empty — degraded mode)"
-                )
-            elif latest.rank > exit_rank:
-                action_empty = "at_risk"
-                reason_empty = (
-                    f"Held at broker, target portfolio empty, rank={latest.rank} > "
-                    f"exit_rank={exit_rank} "
-                    f"({exit_days_empty}/{confirmation_days}d toward exit confirmation)"
-                )
-            else:
-                zone = "entry zone" if latest.rank <= entry_rank else "buffer zone"
-                action_empty = "hold"
-                reason_empty = (
-                    f"Held at broker, target portfolio empty, but rank={latest.rank} "
-                    f"in {zone} — holding pending non-empty target"
-                )
+            # Degraded mode: the builder produced an EMPTY target this build
+            # (transient failure or all candidates filtered). The builder is the
+            # source of truth, so an empty target is treated as "no information",
+            # NOT "sell everything": hold every live position until a non-empty
+            # target appears. No rank is consulted (the rank buffer is retired).
             decisions[ticker] = DeltaDecision(
                 ticker=ticker,
-                action=action_empty,
+                action="hold",
                 rank=latest.rank,
                 composite_score=latest.composite_score,
-                confirmation_days_met=exit_days_empty,
+                confirmation_days_met=0,
                 current_weight=0.0,
-                reason=reason_empty,
+                reason=(
+                    f"Held at broker; target portfolio empty (degraded build) — "
+                    f"holding pending a non-empty target"
+                ),
                 actual_weight=actual_weights.get(ticker) if actual_weights else None,
                 weight_drift=None,
             )
@@ -375,62 +361,36 @@ def evaluate_target_vs_live(
 
         actual_w = actual_weights.get(ticker) if actual_weights else None
         drift = (actual_w - target_weight) if actual_w is not None else None
+        current_rank = latest.rank if latest else 9999
 
-        # Determine rank-based action first
-        if obs:
-            exit_days = _consecutive_in_zone(
-                obs, lambda o, xr=exit_rank: o.rank > xr, confirmation_days
-            )
-            current_rank = latest.rank
-            if exit_days >= confirmation_days:
-                # Confirmed exit overrides everything
-                rank_action = "exit"
-            elif current_rank > exit_rank:
-                # At risk — suppress drift
-                rank_action = "at_risk"
-            else:
-                rank_action = "hold"
-        else:
-            exit_days = 0
-            current_rank = 9999
-            rank_action = "hold"
-
-        # Layer drift on top only when rank-based action is "hold" and there is a real
-        # positive target weight. Explicit None/positive check rejects 0.0 (cold-start
-        # sentinel), negatives, and NaN (which is truthy in Python but breaks drift math).
+        # The builder is the source of truth: a held name that is IN the target is
+        # held, regardless of rank. No rank-based exit / at_risk here — exits flow
+        # only from the orphan path (builder dropped the name). The only action layered
+        # on a hold is a weight-drift rebalance, and only when there is a real positive
+        # target weight (reject the 0.0 cold-start sentinel, negatives, and NaN).
         has_real_target = (
             target_weight is not None
             and target_weight > 0
             and target_weight == target_weight  # NaN-safe
         )
-        if rank_action == "hold" and has_real_target and drift is not None and abs(drift) > drift_threshold:
+        if has_real_target and drift is not None and abs(drift) > drift_threshold:
             if drift < 0:
                 action = "buy_add"
             else:
                 action = "sell_trim"
         else:
-            action = rank_action
+            action = "hold"
 
         # Build reason
-        zone = "entry zone" if (latest and latest.rank <= entry_rank) else "buffer zone"
-        if action == "exit":
+        if action == "buy_add":
             reason = (
-                f"Rank={current_rank} > exit_rank={exit_rank} for {exit_days} consecutive days"
-            )
-        elif action == "at_risk":
-            reason = (
-                f"Held, rank={current_rank} > exit_rank={exit_rank} "
-                f"({exit_days}/{confirmation_days}d toward exit confirmation)"
-            )
-        elif action == "buy_add":
-            reason = (
-                f"Held, rank={current_rank} in {zone}, underweight: "
+                f"Held and in target (rank={current_rank}), underweight: "
                 f"actual={actual_w:.2%} target={target_weight:.2%} "
                 f"drift={drift:+.2%}"
             )
         elif action == "sell_trim":
             reason = (
-                f"Held, rank={current_rank} in {zone}, overweight: "
+                f"Held and in target (rank={current_rank}), overweight: "
                 f"actual={actual_w:.2%} target={target_weight:.2%} "
                 f"drift={drift:+.2%}"
             )
@@ -442,46 +402,19 @@ def evaluate_target_vs_live(
             action=action,
             rank=current_rank,
             composite_score=latest.composite_score if latest else 0.0,
-            confirmation_days_met=exit_days,
+            confirmation_days_met=0,
             current_weight=target_weight,
             reason=reason,
             actual_weight=actual_w,
             weight_drift=drift,
         )
 
-    # Watches: universe tickers confirmed in entry zone but not yet in target
-    in_target_or_live = set(target_portfolio.keys()) | live_positions
-    pending_entries = sum(1 for d in decisions.values() if d.action == "entry")
-    current_held = len(live_positions)
+    # (No rank-based "watch" generation: a name not in the target is simply not
+    # acted on — the builder owns membership. "watch" now arises only from capacity
+    # / buying-power deferral of an entry, below.)
 
-    for ticker, obs in universe.items():
-        if ticker in in_target_or_live or not obs:
-            continue
-        entry_days = _consecutive_in_zone(
-            obs, lambda o, er=entry_rank: o.rank <= er, confirmation_days
-        )
-        if entry_days >= confirmation_days:
-            latest = obs[0]
-            at_capacity = (current_held + pending_entries) >= max_positions
-            decisions[ticker] = DeltaDecision(
-                ticker=ticker,
-                action="watch",
-                rank=latest.rank,
-                composite_score=latest.composite_score,
-                confirmation_days_met=entry_days,
-                current_weight=None,
-                reason=(
-                    f"Confirmed entry (rank={latest.rank} ≤ {entry_rank} for {entry_days}d)"
-                    f" — pending portfolio-builder to add to target"
-                    + (" [at capacity]" if at_capacity else "")
-                ),
-                actual_weight=None,
-                weight_drift=None,
-            )
-
-    # Capacity: fill the book with the best-ranked names, rotating weak orphans
-    # out for strictly higher-ranked new entries (replaces the old cap-then-trim
-    # ordering that let a held orphan permanently block a better new entry).
+    # Capacity: defer entries that don't fit the position book (never force-exits a
+    # held position — orphans leave only via the time-based orphan path).
     _allocate_capacity(decisions, live_positions, target_portfolio, max_positions)
 
     # Buying-power: defer any buys the available cash (incl. sell proceeds) can't fund.

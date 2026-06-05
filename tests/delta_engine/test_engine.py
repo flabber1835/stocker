@@ -414,8 +414,7 @@ def test_tvl_cold_boot_no_live_positions():
     decisions = evaluate_target_vs_live(
         target_portfolio=target,
         live_positions=live,
-        universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        universe=universe, confirmation_days=3, max_positions=30,
     )
 
     assert all(decisions[t].action == "entry" for t in target)
@@ -429,8 +428,7 @@ def test_tvl_entry_carries_target_weight():
     universe = {"AAPL": _history(10, 10, 10)}
 
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
     )
 
     assert decisions["AAPL"].current_weight == pytest.approx(0.05)
@@ -443,8 +441,7 @@ def test_tvl_hold_when_in_both():
     universe = {"MSFT": _history(15)}
 
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
     )
     assert decisions["MSFT"].action == "hold"
     assert decisions["MSFT"].current_weight == pytest.approx(0.05)
@@ -466,8 +463,7 @@ def test_tvl_exit_when_orphan_for_confirmation_builds():
     history = [{"AAPL"}, {"AAPL"}, {"AAPL"}]
 
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
         target_history=history,
     )
     assert decisions["TSLA"].action == "exit"
@@ -485,8 +481,7 @@ def test_tvl_at_risk_when_orphan_not_yet_confirmed():
     history = [{"AAPL"}, {"AAPL"}, {"AAPL", "WDC"}]
 
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
         target_history=history,
     )
     assert decisions["WDC"].action == "at_risk"
@@ -502,8 +497,7 @@ def test_tvl_orphan_at_risk_without_history():
     universe = {"AAPL": _history(10), "TSLA": _history(45, 45, 45)}
 
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
     )
     assert decisions["TSLA"].action == "at_risk"
     assert "orphaned for 1/3 builds" in decisions["TSLA"].reason
@@ -520,8 +514,7 @@ def test_tvl_orphan_separate_window_flag_build1_sell_build2():
 
     # Build 1 (no/one orphaned build) → at_risk, not sold.
     d1 = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
         target_history=[{"AAPL"}], orphan_confirmation_days=2,
     )
     assert d1["TSLA"].action == "at_risk"
@@ -529,32 +522,28 @@ def test_tvl_orphan_separate_window_flag_build1_sell_build2():
 
     # Build 2 (absent 2 consecutive builds) → exit, despite confirmation_days=3.
     d2 = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
         target_history=[{"AAPL"}, {"AAPL"}], orphan_confirmation_days=2,
     )
     assert d2["TSLA"].action == "exit"
     assert "dropped from target" in d2["TSLA"].reason
 
 
-def test_tvl_orphan_window_independent_of_rank_buffer():
-    """orphan_confirmation_days lowers ONLY orphan disposal; entry/exit rank buffer
-    still uses confirmation_days. An in-target held name whose rank deteriorates is
-    NOT orphan-logic — it's the rank/buffer path — so it's unaffected by the orphan
-    window. Here a still-in-target name with a bad-but-unconfirmed rank stays at_risk
-    under confirmation_days=3 even though orphan_confirmation_days=2."""
+def test_tvl_in_target_held_bad_rank_is_held_not_exited():
+    """Source-of-truth: a held name that is IN the target is HELD regardless of how
+    bad its rank is. The rank-based exit/at_risk buffer is retired on the live book —
+    only the orphan path (builder DROPS the name from the target) can exit a held
+    position. Here MU sits at a terrible rank but the builder keeps it in the target,
+    so it must be 'hold', not 'exit'/'at_risk'."""
     target = {"AAPL": 0.05, "MU": 0.05}
     live = {"AAPL", "MU"}
-    # MU in target + held, rank just over exit_rank for only 2 of 3 days → rank
-    # buffer not met → at_risk (not exit). Orphan window must not shortcut this.
-    universe = {"AAPL": _history(10), "MU": _history(45, 45, 5)}
+    universe = {"AAPL": _history(10), "MU": _history(450, 450, 450)}  # MU rank awful
 
     d = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
         orphan_confirmation_days=2,
     )
-    assert d["MU"].action == "at_risk"  # rank buffer (3) governs, not orphan window
+    assert d["MU"].action == "hold"  # in target → held, rank irrelevant
 
 
 def test_tvl_hold_when_live_not_in_universe():
@@ -569,31 +558,29 @@ def test_tvl_hold_when_live_not_in_universe():
     universe = {}  # COHR absent from universe — no ranking data yet
 
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
     )
     assert decisions["COHR"].action == "hold"
     assert decisions["COHR"].rank == 9999
     assert "awaiting" in decisions["COHR"].reason.lower()
 
 
-def test_tvl_watch_confirmed_not_in_target():
-    """Ticker confirmed in entry zone but not in target → watch (pending portfolio-builder)."""
+def test_tvl_high_rank_not_in_target_is_ignored():
+    """A well-ranked universe name that is NOT in the target and NOT held is simply
+    ignored — there is no rank-based 'watch' generation anymore. The builder owns
+    membership; a name the builder didn't select is not acted on."""
     target = {"AAPL": 0.05}
     live = {"AAPL"}
     universe = {
         "AAPL": _history(10, 10, 10),   # in target + live → hold
-        "NVDA": _history(5, 5, 5),       # confirmed entry, not in target → watch
+        "NVDA": _history(5, 5, 5),       # top-ranked but not in target → ignored
     }
 
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
     )
     assert decisions["AAPL"].action == "hold"
-    assert decisions["NVDA"].action == "watch"
-    assert decisions["NVDA"].confirmation_days_met == 3
-    assert "pending portfolio-builder" in decisions["NVDA"].reason
+    assert "NVDA" not in decisions  # not selected by builder → no decision
 
 
 def test_tvl_no_watch_when_not_confirmed():
@@ -603,34 +590,33 @@ def test_tvl_no_watch_when_not_confirmed():
     universe = {"NVDA": _history(5, 5)}  # only 2 days, need 3
 
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
     )
     assert "NVDA" not in decisions
 
 
 def test_tvl_simultaneous_entry_exit_hold():
-    """Mixed scenario: some entries, exits, holds, and watches all at once."""
+    """Mixed scenario: entry (in target, not held), hold (in target + held), exit
+    (orphan confirmed), and an unselected universe name that is ignored."""
     target = {"AAPL": 0.05, "MSFT": 0.04}
     live = {"MSFT", "TSLA"}  # MSFT in both (hold), TSLA orphan (exit)
     universe = {
         "AAPL": _history(10, 10, 10),   # entry (in target, not live)
         "MSFT": _history(20),            # hold (in target + live)
         "TSLA": _history(50, 50, 50),   # exit (live, orphaned 3 builds)
-        "NVDA": _history(3, 3, 3),       # watch (confirmed, not in target)
+        "NVDA": _history(3, 3, 3),       # top-ranked but not in target → ignored
     }
     # TSLA absent from the target for the last 3 builds → confirmed orphan exit.
     history = [{"AAPL", "MSFT"}, {"AAPL", "MSFT"}, {"AAPL", "MSFT"}]
 
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
         target_history=history,
     )
     assert decisions["AAPL"].action == "entry"
     assert decisions["MSFT"].action == "hold"
     assert decisions["TSLA"].action == "exit"
-    assert decisions["NVDA"].action == "watch"
+    assert "NVDA" not in decisions  # unselected universe name is ignored
 
 
 def test_tvl_entry_weight_none_when_not_in_universe():
@@ -640,8 +626,7 @@ def test_tvl_entry_weight_none_when_not_in_universe():
     universe = {}  # OBSCURE not in universe
 
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
     )
     assert decisions["OBSCURE"].action == "entry"
     assert decisions["OBSCURE"].rank == 9999
@@ -651,8 +636,7 @@ def test_tvl_entry_weight_none_when_not_in_universe():
 def test_tvl_empty_target_and_live():
     """Completely empty state → no decisions."""
     decisions = evaluate_target_vs_live(
-        target_portfolio={}, live_positions=set(), universe={},
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio={}, live_positions=set(), universe={}, confirmation_days=3, max_positions=30,
     )
     assert len(decisions) == 0
 
@@ -665,8 +649,7 @@ def test_tvl_weight_math_precision():
     universe = {"AAPL": _history(10, 10, 10)}
 
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
     )
     assert decisions["AAPL"].current_weight == pytest.approx(weight, rel=1e-9)
 
@@ -678,8 +661,7 @@ def test_tvl_hold_weight_equals_target_weight():
     universe = {"MSFT": _history(15)}
 
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
     )
     assert decisions["MSFT"].current_weight == pytest.approx(0.08)
 
@@ -774,19 +756,18 @@ def test_exit_overrides_drift():
     assert d.action == "exit"
 
 
-def test_tvl_at_risk_for_declining_held_ticker():
-    """evaluate_target_vs_live: ticker in both target and live, rank > exit_rank (1 day) → at_risk."""
+def test_tvl_declining_rank_held_in_target_stays_hold():
+    """A held ticker still IN the target whose rank has slipped is HELD — a declining
+    rank no longer produces at_risk/exit on the live book (builder is source of truth;
+    only an orphan, i.e. a builder drop, can exit a held name)."""
     target = {"AAPL": 0.05}
     live = {"AAPL"}
-    # rank 45 > exit_rank=40 but only 1 day — not confirmed
-    universe = {"AAPL": _history(45)}
+    universe = {"AAPL": _history(45)}  # rank slipped, but still in target
 
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
     )
-    assert decisions["AAPL"].action == "at_risk"
-    assert decisions["AAPL"].confirmation_days_met == 1
+    assert decisions["AAPL"].action == "hold"
 
 
 def test_tvl_buy_add_underweight_hold():
@@ -796,8 +777,7 @@ def test_tvl_buy_add_underweight_hold():
     universe = {"AAPL": _history(20, 20, 20)}
 
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
         actual_weights={"AAPL": 0.05},   # 3pp below target → buy_add
         drift_threshold=0.02,
     )
@@ -812,8 +792,7 @@ def test_tvl_sell_trim_overweight_hold():
     universe = {"AAPL": _history(20, 20, 20)}
 
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
         actual_weights={"AAPL": 0.09},   # 4pp above target → sell_trim
         drift_threshold=0.02,
     )

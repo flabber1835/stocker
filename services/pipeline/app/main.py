@@ -1923,8 +1923,6 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             target_portfolio=target_portfolio,
             live_positions=live_positions_set,
             universe=universe,
-            entry_rank=entry_rank,
-            exit_rank=exit_rank,
             confirmation_days=confirmation_days,
             max_positions=max_positions,
             actual_weights=live_weights,

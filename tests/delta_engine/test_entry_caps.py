@@ -53,8 +53,7 @@ def test_full_book_of_unconfirmed_orphans_defers_entries_no_instant_rotation():
     universe.update({t: _history(5) for t in target})
 
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=held, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=held, universe=universe, confirmation_days=3, max_positions=30,
     )
     c = _counts(decisions)
     assert c.get("exit", 0) == 0                            # no orphan force-rotated
@@ -78,8 +77,7 @@ def test_confirmed_orphans_free_slots_for_entries():
     history = [others, others, others]                      # confirmed orphans absent in all 3
 
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=held, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=held, universe=universe, confirmation_days=3, max_positions=30,
         target_history=history,
     )
     c = _counts(decisions)
@@ -97,8 +95,7 @@ def test_capacity_does_not_bind_for_small_portfolio():
     target = {f"N{i:02d}": 1.0 / 30 for i in range(3)}
     universe = {t: _history(5) for t in target}
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=set(), universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=set(), universe=universe, confirmation_days=3, max_positions=30,
     )
     assert all(decisions[t].action == "entry" for t in target)
 
@@ -111,8 +108,7 @@ def test_buying_power_blocks_unfunded_entries():
     target = {f"N{i:02d}": 1.0 / 30 for i in range(5)}
     universe = {t: _history(5) for t in target}
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=set(), universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=set(), universe=universe, confirmation_days=3, max_positions=30,
         account_value=100_000.0, buying_power=2_000.0,
     )
     assert _counts(decisions).get("entry", 0) == 0
@@ -124,8 +120,7 @@ def test_buying_power_allows_what_fits():
     target = {f"N{i:02d}": 1.0 / 30 for i in range(5)}
     universe = {f"N{i:02d}": _history(i + 1) for i in range(5)}  # distinct ranks 1..5
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=set(), universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=set(), universe=universe, confirmation_days=3, max_positions=30,
         account_value=100_000.0, buying_power=10_000.0,
     )
     assert _counts(decisions).get("entry", 0) == 3              # 3 * 3.33% = 10%
@@ -143,8 +138,7 @@ def test_exit_proceeds_fund_matched_rotation():
     universe = {"NEW": _history(5), "OLD": _history(50, 50, 50)}
     history = [{"NEW"}, {"NEW"}, {"NEW"}]                        # OLD orphaned 3 builds → exit
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=held, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=held, universe=universe, confirmation_days=3, max_positions=30,
         account_value=100_000.0, buying_power=0.0,
         actual_weights={"OLD": 1.0 / 30},                        # OLD = 3.33% of equity
         target_history=history,
@@ -158,8 +152,7 @@ def test_no_cash_gate_when_account_value_missing():
     target = {f"N{i:02d}": 1.0 / 30 for i in range(5)}
     universe = {t: _history(5) for t in target}
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=set(), universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=set(), universe=universe, confirmation_days=3, max_positions=30,
     )
     assert all(decisions[t].action == "entry" for t in target)
 
@@ -179,8 +172,7 @@ def test_seeded_rotation_scenario_is_bounded_and_funded():
     universe = {f"Z{i:02d}": _history(i) for i in range(1, 51)}
 
     decisions = evaluate_target_vs_live(
-        target_portfolio=target, live_positions=held, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=held, universe=universe, confirmation_days=3, max_positions=30,
         account_value=100_000.0, buying_power=2_000.0,
         actual_weights={t: 1.0 / 30 for t in held},
     )
@@ -203,8 +195,7 @@ def test_seeded_rotation_scenario_is_bounded_and_funded():
 
 def _bb(target, live, universe, *, account_value, buying_power, actual_weights):
     return evaluate_target_vs_live(
-        target_portfolio=target, live_positions=live, universe=universe,
-        entry_rank=25, exit_rank=40, confirmation_days=3, max_positions=30,
+        target_portfolio=target, live_positions=live, universe=universe, confirmation_days=3, max_positions=30,
         account_value=account_value, buying_power=buying_power, actual_weights=actual_weights,
     )
 

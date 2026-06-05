@@ -67,7 +67,6 @@ class TestEmptyTargetPortfolio:
             target_portfolio={},
             live_positions=self.LIVE,
             universe=self.UNIVERSE,
-            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
             confirmation_days=CONF, max_positions=MAX_POS,
         )
         for ticker in self.LIVE:
@@ -84,23 +83,24 @@ class TestEmptyTargetPortfolio:
             target_portfolio={},
             live_positions={"AAPL"},
             universe={"AAPL": _obs(rank=5)},
-            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
             confirmation_days=CONF, max_positions=MAX_POS,
         )
         assert decisions["AAPL"].action == "hold", \
             "Orphan ticker ranking well should be held, not exited"
 
-    def test_empty_target_with_bad_ranked_live_gives_exit_when_confirmed(self):
-        """Orphan tickers with confirmed bad rank (> exit_rank × confirmation_days) → exit."""
+    def test_empty_target_never_force_exits_even_on_bad_rank(self):
+        """An EMPTY target is a degraded build (builder failed / filtered all), NOT a
+        'sell everything' signal. With the rank buffer retired, a held name is HELD
+        regardless of rank until a non-empty target appears — rank can never force an
+        exit on an empty build."""
         decisions = evaluate_target_vs_live(
             target_portfolio={},
             live_positions={"AAPL"},
-            universe={"AAPL": _obs(rank=40)},
-            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
+            universe={"AAPL": _obs(rank=400)},  # awful rank
             confirmation_days=CONF, max_positions=MAX_POS,
         )
-        assert decisions["AAPL"].action == "exit", \
-            "Orphan ticker with confirmed bad rank should be exited"
+        assert decisions["AAPL"].action == "hold", \
+            "Empty target must hold all positions (degraded build), never force-exit on rank"
 
     def test_empty_target_missing_from_universe_gives_hold_not_exit(self):
         """Orphan ticker absent from universe (e.g. data gap) → hold with 'awaiting data'."""
@@ -108,7 +108,6 @@ class TestEmptyTargetPortfolio:
             target_portfolio={},
             live_positions={"AAPL"},
             universe={},  # AAPL not in universe at all
-            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
             confirmation_days=CONF, max_positions=MAX_POS,
         )
         assert decisions["AAPL"].action == "hold", \
@@ -133,7 +132,6 @@ class TestEmptyTargetPortfolio:
             target_portfolio=target,
             live_positions=live,
             universe=universe,
-            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
             confirmation_days=CONF, max_positions=MAX_POS,
         )
         assert decisions["GOOGL"].action == "at_risk", \
@@ -156,7 +154,6 @@ class TestEmptyTargetPortfolio:
             target_portfolio=target,
             live_positions=live,
             universe=universe,
-            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
             confirmation_days=CONF, max_positions=MAX_POS,
             target_history=hist,
         )
@@ -180,7 +177,6 @@ class TestEmptyTargetPortfolio:
             target_portfolio=target,
             live_positions=live,
             universe=universe,
-            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
             confirmation_days=CONF, max_positions=MAX_POS,
         )
         assert decisions["JUNK"].action == "at_risk", \
@@ -214,7 +210,6 @@ class TestColdBootPostPortfolioBuilder:
             target_portfolio=target,
             live_positions=live,
             universe=universe,
-            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
             confirmation_days=CONF, max_positions=MAX_POS,
         )
         for ticker in target:
@@ -228,7 +223,6 @@ class TestColdBootPostPortfolioBuilder:
             target_portfolio=target,
             live_positions=set(),
             universe={"AAPL": _obs(rank=5)},
-            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
             confirmation_days=CONF, max_positions=MAX_POS,
         )
         assert decisions["AAPL"].current_weight == pytest.approx(0.083, abs=1e-7), \
@@ -246,7 +240,6 @@ class TestColdBootPostPortfolioBuilder:
             target_portfolio=target,
             live_positions=live,
             universe=universe,
-            entry_rank=ENTRY_RANK, exit_rank=EXIT_RANK,
             confirmation_days=CONF, max_positions=MAX_POS,
         )
         assert decisions["AAPL"].action == "hold"

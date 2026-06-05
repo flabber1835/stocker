@@ -134,7 +134,6 @@ def run(use_gate, mkt, rankings, strategy):
 
         decisions = evaluate_target_vs_live(
             target_portfolio=target, live_positions=set(positions), universe=rank_hist,
-            entry_rank=de.entry_rank, exit_rank=de.exit_rank,
             confirmation_days=de.confirmation_days, max_positions=de.max_positions,
             actual_weights=actual_w, drift_threshold=de.rebalance_drift_threshold,
             account_value=acct, buying_power=cash,
