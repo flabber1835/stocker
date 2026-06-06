@@ -1184,6 +1184,14 @@ async def get_delta_latest():
                 return {"run": None, "intents": []}
 
             run_id = str(run_row["run_id"])
+            # Match each intent's order by TICKER+SIDE within the same trading
+            # SESSION (run_date), NOT by di.id. delta_intents ids are re-minted on
+            # every delta run, so a re-run (manual RUN / scheduler) produces fresh
+            # intent ids; an intent_id-keyed join would then show every
+            # already-submitted trade as un-actioned again, letting the whole set be
+            # re-approved. Keying on ticker + side + run_date makes a re-run's intent
+            # resolve to the order already placed today, so it correctly reads as
+            # submitted/pending and drops out of the approvable set.
             intent_rows = (await conn.execute(text(
                 "SELECT di.id, di.ticker, di.action, di.rank, di.composite_score, "
                 "di.confirmation_days_met, di.current_weight, di.actual_weight, "
@@ -1192,13 +1200,19 @@ async def get_delta_latest():
                 "ao.deferred_until AS order_deferred_until "
                 "FROM delta_intents di "
                 "LEFT JOIN LATERAL ("
-                "  SELECT status, error_message, deferred_until FROM alpaca_orders "
-                "  WHERE intent_id = di.id "
-                "  ORDER BY created_at DESC LIMIT 1"
+                "  SELECT ao2.status, ao2.error_message, ao2.deferred_until "
+                "  FROM alpaca_orders ao2 "
+                "  JOIN delta_intents di2 ON di2.id = ao2.intent_id "
+                "  JOIN delta_runs dr2 ON dr2.run_id = di2.run_id "
+                "  WHERE ao2.ticker = di.ticker "
+                "    AND ao2.side = CASE WHEN di.action IN ('entry','buy_add') "
+                "                        THEN 'buy' ELSE 'sell' END "
+                "    AND dr2.run_date = :rdate "
+                "  ORDER BY ao2.created_at DESC LIMIT 1"
                 ") ao ON true "
                 "WHERE di.run_id = :rid "
                 "ORDER BY di.action, di.rank ASC NULLS LAST, di.ticker"
-            ), {"rid": run_id})).mappings().fetchall()
+            ), {"rid": run_id, "rdate": run_row["run_date"]})).mappings().fetchall()
 
             # Vetter overlay — join most recent successful vetter run onto each intent.
             vetter_by_ticker: dict[str, dict] = {}

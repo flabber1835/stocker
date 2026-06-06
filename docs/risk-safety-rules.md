@@ -263,19 +263,37 @@ a path), the other still catches it:
 | Per-ticker concentration | portfolio-builder `max_position_weight` (construction) | `MAX_POSITION_PCT` (post-drift, at check) |
 | Portfolio size | portfolio-builder `max_positions` + delta engine capacity | `MAX_POSITIONS` (broker-state-based) |
 
-### Duplicate-sell guards (trade-executor)
+### Duplicate-order guards (trade-executor)
 
-Two complementary guards stop the same position being sold twice — the cause of
-`Alpaca: insufficient qty available for order (available: 0)` rejections:
+The root issue these guards address: **`delta_intents` ids are re-minted on every
+delta run**, so a re-run (manual RUN / scheduler) re-proposes the same trades under
+fresh `intent_id`s. The Step-1 idempotency check is keyed on `intent_id`, so it
+does NOT catch a re-proposed trade from a new run. The durable thing that must be
+unique is the economic action — **ticker + side per trading session** — so the
+guards below re-key on that instead.
+
+Sell side — stops the same position being sold twice (the cause of
+`Alpaca: insufficient qty available for order (available: 0)` rejections):
 
 | Failure mode | Guard | Step |
 |---|---|---|
 | Position **already closed** (sell filled), but a stale proposal resizes from an old sync | `_size_exit` scopes to the **latest successful sync run** and refuses (409) when the ticker is not held (qty>0) | size_order (`e4511d1`) |
-| Position **still held** but its sell is **unfilled** (shares reserved at broker → available 0), and a **new delta run** re-proposes the exit under a new `intent_id` (Step-1 idempotency only dedupes the same `intent_id`) | `_open_sell_order_for_ticker` — before any sell-side submit, skip (`status="duplicate"`) when an **open** (`pending`/`submitted`/`deferred`) **sell** order already exists for the ticker from a different intent | Step 2c, `inflight_sell_check` |
+| Position **still held** but its sell is **unfilled** (shares reserved at broker → available 0), and a **new delta run** re-proposes the exit under a new `intent_id` | `_open_sell_order_for_ticker` — before any sell-side submit, skip (`status="duplicate"`) when an **open** (`pending`/`submitted`/`deferred`) **sell** order already exists for the ticker from a different intent | Step 2c, `inflight_sell_check` |
 
-The two are mirror images: the first covers "already flat", the second covers
-"flat-on-the-wire but reserved". Both apply to `exit` and `sell_trim`; an open
-`buy_add` never blocks a sell (the guard is `side='sell'` only).
+Buy side — stops the same position being bought twice (a doubled entry):
+
+| Failure mode | Guard | Step |
+|---|---|---|
+| Position **filled and held**, but a **new delta run** re-proposes the entry before alpaca-sync captured the fill | `_is_already_held` — block `entry` (`status="failed"`) when the broker already holds the ticker | Step 2b, `already_held_check` |
+| Buy order **submitted but not yet filled** (e.g. a day order queued after the close — never fills until the next open, so the position stays un-held and Step 2b can't see it), and a **new delta run** re-proposes the entry/buy_add under a new `intent_id` | `_open_buy_order_for_ticker` — before any buy-side submit, skip (`status="duplicate"`) when an **open** (`pending`/`submitted`/`deferred`) **buy** order already exists for the ticker from a different intent | Step 2b2, `inflight_buy_check` |
+
+Sell and buy guards are mirror images, each scoped to its own `side` (an open
+`buy_add` never blocks a sell, and vice versa). Together with the dashboard's
+order-status join (re-keyed on **ticker + side + `run_date`**, not `intent_id`, so
+a re-run's fresh intents resolve to the order already placed today and drop out of
+the approvable set), they make re-running the chain idempotent at the
+economic-action level — you cannot stack a second order for a ticker already
+actioned this session.
 
 ## Audit Trail
 

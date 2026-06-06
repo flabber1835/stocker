@@ -982,6 +982,30 @@ async def _open_sell_order_for_ticker(
     return dict(row) if row is not None else None
 
 
+async def _open_buy_order_for_ticker(
+    conn, ticker: str, exclude_intent_id: str
+) -> Optional[dict]:
+    """Return an OPEN (pending/submitted/deferred) BUY order for `ticker` from a
+    DIFFERENT intent, or None — the buy-side mirror of _open_sell_order_for_ticker.
+
+    Guards against a duplicate in-flight BUY across delta runs. The Step-1
+    idempotency check only dedupes the SAME intent_id; a re-proposed entry/buy_add
+    from a *new* delta run is a new intent_id and slips through. The already-held
+    guard (Step 2b) only fires once alpaca-sync has captured the FILL — so a buy
+    order that is submitted but NOT YET FILLED (e.g. a day order queued after the
+    close, which never fills until the next open) leaves the position un-held, and
+    a re-run would stack a SECOND buy. Dedupe on ticker+side so it can't.
+    """
+    row = (await conn.execute(text(
+        "SELECT id, intent_id, action, status FROM alpaca_orders "
+        "WHERE ticker = :t AND side = 'buy' "
+        "AND status IN ('pending','submitted','deferred') "
+        "AND intent_id IS DISTINCT FROM :iid "
+        "ORDER BY created_at DESC LIMIT 1"
+    ), {"t": ticker, "iid": exclude_intent_id})).mappings().first()
+    return dict(row) if row is not None else None
+
+
 @app.post("/jobs/submit", response_model=TradeAttemptResponse)
 async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
     """Orchestrate the full approval flow for one delta intent.
@@ -1102,6 +1126,45 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
                     qty=0.0, notional=0.0,
                     risk_approved=False, risk_reason=err,
                     risk_check_id=None, reason=err,
+                )
+
+        # ── Step 2b2: in-flight buy guard (buy-side only) ─────────────────────
+        # Symmetric to the in-flight sell guard below. A buy order that is
+        # SUBMITTED but not yet FILLED (e.g. a day order queued after the close)
+        # leaves the position un-held, so the already-held guard (Step 2b) can't
+        # see it; a re-proposed entry/buy_add from a NEW delta run is a new
+        # intent_id and slips past the Step-1 idempotency check. Dedupe on
+        # ticker+side so a re-run can't stack a second buy. Clears once the
+        # in-flight buy fills or is canceled.
+        if side == "buy":
+            t0 = datetime.now(timezone.utc)
+            async with engine.connect() as conn:
+                inflight = await _open_buy_order_for_ticker(conn, ticker, req.intent_id)
+            if inflight:
+                reason = (
+                    f"{ticker} already has an open buy order "
+                    f"({inflight['action']}, {inflight['status']}, order {inflight['id']}); "
+                    f"skipping duplicate {action} to avoid doubling the position — it "
+                    f"clears once the in-flight buy fills or is canceled."
+                )
+                async with engine.begin() as conn:
+                    await _log_step(
+                        conn, trace_id, "inflight_buy_check", "skipped", t0,
+                        input_summary={"ticker": ticker, "action": action},
+                        output_summary={
+                            "existing_order_id": str(inflight["id"]),
+                            "existing_action": inflight["action"],
+                            "existing_status": inflight["status"],
+                        },
+                    )
+                    await conn.execute(
+                        text("UPDATE execution_traces SET status='success', completed_at=:now, "
+                             "notes='duplicate_inflight_buy' WHERE trace_id=:tid"),
+                        {"tid": trace_id, "now": datetime.now(timezone.utc)},
+                    )
+                return TradeAttemptResponse(
+                    status="duplicate", order_id=str(inflight["id"]), trace_id=trace_id,
+                    ticker=ticker, action=action, side=side, reason=reason,
                 )
 
         # ── Step 2c: in-flight sell guard (sell-side only) ────────────────────
