@@ -10,12 +10,13 @@ class FactorWeights(BaseModel):
     growth: float = Field(ge=0, le=1)
     low_volatility: float = Field(ge=0, le=1)
     liquidity: float = Field(default=0.0, ge=0, le=1)  # optional, default 0
+    issuance: float = Field(default=0.0, ge=0, le=1)   # net-share-issuance factor; optional, default 0
 
     @model_validator(mode="after")
     def weights_sum_to_one(self) -> FactorWeights:
         total = (
             self.momentum + self.quality + self.value
-            + self.growth + self.low_volatility + self.liquidity
+            + self.growth + self.low_volatility + self.liquidity + self.issuance
         )
         if abs(total - 1.0) > 1e-6:
             raise ValueError(f"Factor weights must sum to 1.0, got {total:.6f}")
@@ -403,7 +404,7 @@ class StrategyConfig(BaseModel):
     # top-level max_positions is a convenience alias; portfolio_builder.max_positions takes precedence
     max_positions: int = Field(default=30, ge=1, le=500)
     min_score_percentile: float = Field(default=0.0, ge=0, le=1)
-    min_non_null_factors: int = Field(default=3, ge=1, le=6)
+    min_non_null_factors: int = Field(default=3, ge=1, le=7)
     required_factors: list[str] = Field(default_factory=list)
     deduplicate_share_classes: bool = Field(
         default=True,

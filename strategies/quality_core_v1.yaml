@@ -73,12 +73,13 @@ regime_weighting_enabled: false
 # defensive factor, QMJ) stays on top. Sums to 1.0. Crash protection still comes
 # independently from the vetter's beta-adjusted, vol-scaled falling-knife veto.
 static_factor_weights:
-  quality:        0.24
-  value:          0.20
-  momentum:       0.20
+  quality:        0.22
+  value:          0.19
+  momentum:       0.19
   low_volatility: 0.13
-  growth:         0.11
-  liquidity:      0.12
+  growth:         0.10
+  liquidity:      0.11
+  issuance:       0.06   # net-share-issuance (buybacks rank high); modest weight — overlaps value/quality, robust + low-turnover
 
 factor_weights:
   # RETAINED for reference / easy re-enable (unused while regime_weighting_enabled

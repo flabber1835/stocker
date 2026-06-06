@@ -206,6 +206,11 @@ async def _enrich_total_assets(client, ticker: str, overview: dict) -> None:
         bs = await client.get_balance_sheet(ticker)
         if bs and bs.get("total_assets") is not None:
             overview["total_assets"] = bs["total_assets"]
+        # Shares now vs ~1y ago → net-issuance factor (optional; None stays NULL).
+        if bs and bs.get("shares_outstanding") is not None:
+            overview["shares_outstanding"] = bs["shares_outstanding"]
+        if bs and bs.get("shares_outstanding_prior") is not None:
+            overview["shares_outstanding_prior"] = bs["shares_outstanding_prior"]
     except Exception as e:  # noqa: BLE001 — balance sheet is optional enrichment
         print(f"[fundamentals] {ticker}: balance-sheet fetch failed (non-fatal) - {e}")
 
@@ -222,16 +227,20 @@ async def _upsert_fundamentals(session, ticker: str, overview: dict, today: date
         "as_of_date": today,
         "gross_profit": None,
         "total_assets": None,
+        "shares_outstanding": None,
+        "shares_outstanding_prior": None,
         **overview,
     }
     await session.execute(
         text(
             "INSERT INTO fundamentals "
             "    (ticker, as_of_date, source, pe_ratio, pb_ratio, roe, debt_to_equity, "
-            "     revenue_growth, eps_growth, market_cap, avg_volume, gross_profit, total_assets) "
+            "     revenue_growth, eps_growth, market_cap, avg_volume, gross_profit, total_assets, "
+            "     shares_outstanding, shares_outstanding_prior) "
             "VALUES "
             "    (:ticker, :as_of_date, 'alpha_vantage', :pe_ratio, :pb_ratio, :roe, :debt_to_equity, "
-            "     :revenue_growth, :eps_growth, :market_cap, :avg_volume, :gross_profit, :total_assets) "
+            "     :revenue_growth, :eps_growth, :market_cap, :avg_volume, :gross_profit, :total_assets, "
+            "     :shares_outstanding, :shares_outstanding_prior) "
             "ON CONFLICT (ticker, as_of_date) DO UPDATE SET "
             "    source='alpha_vantage', "
             "    pe_ratio=EXCLUDED.pe_ratio, pb_ratio=EXCLUDED.pb_ratio, "
@@ -239,6 +248,8 @@ async def _upsert_fundamentals(session, ticker: str, overview: dict, today: date
             "    revenue_growth=EXCLUDED.revenue_growth, eps_growth=EXCLUDED.eps_growth, "
             "    market_cap=EXCLUDED.market_cap, avg_volume=EXCLUDED.avg_volume, "
             "    gross_profit=EXCLUDED.gross_profit, total_assets=EXCLUDED.total_assets, "
+            "    shares_outstanding=EXCLUDED.shares_outstanding, "
+            "    shares_outstanding_prior=EXCLUDED.shares_outstanding_prior, "
             "    fetched_at=NOW()"
         ),
         params,

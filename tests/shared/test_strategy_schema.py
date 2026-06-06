@@ -87,6 +87,20 @@ def test_static_weights_liquidity_required_factor_enforced():
         )
 
 
+def test_issuance_factor_weight_optional_and_summed():
+    """The optional issuance weight defaults to 0 (back-compat) and is included in
+    the sum-to-1 check when set."""
+    fw = FactorWeights(momentum=0.2, quality=0.2, value=0.2, growth=0.2, low_volatility=0.2)
+    assert fw.issuance == 0.0  # default, existing 6-factor configs still sum to 1.0
+    # Explicit issuance weight must be counted in the sum.
+    ok = FactorWeights(momentum=0.2, quality=0.2, value=0.2, growth=0.15,
+                       low_volatility=0.15, liquidity=0.05, issuance=0.05)
+    assert ok.issuance == 0.05
+    with pytest.raises(ValidationError, match="sum to 1.0"):
+        FactorWeights(momentum=0.2, quality=0.2, value=0.2, growth=0.2,
+                      low_volatility=0.2, issuance=0.1)  # sums to 1.1
+
+
 def test_weights_must_sum_to_one():
     bad_weights = {**VALID_WEIGHTS, "bull_calm": {"momentum": 0.50, "quality": 0.50, "growth": 0.20, "value": 0.10, "low_volatility": 0.10}}
     with pytest.raises(ValidationError, match="sum to 1.0"):

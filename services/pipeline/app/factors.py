@@ -382,6 +382,30 @@ def compute_growth(fundamentals: pd.DataFrame) -> pd.Series:
     return result
 
 
+def compute_issuance(fundamentals: pd.DataFrame) -> pd.Series:
+    """Net-share-issuance factor (raw signal, higher = better).
+
+    net_issuance = shares_outstanding / shares_outstanding_prior - 1, computed
+    YoY from balance-sheet annual common shares. The factor is the NEGATIVE of
+    net issuance, so net repurchasers (shares shrinking → negative issuance) score
+    high and dilutive issuers score low — the net-share-issuance anomaly. Returns
+    NaN where either share count is missing or non-positive (factor is optional;
+    a NaN just means no issuance tilt for that ticker). The downstream
+    cross_section_percentile turns this into a [0,1] rank.
+    """
+    fund = fundamentals.set_index("ticker")
+    if "shares_outstanding" not in fund.columns or "shares_outstanding_prior" not in fund.columns:
+        return pd.Series(np.nan, index=fund.index, name="issuance")
+    cur = fund["shares_outstanding"].astype(float)
+    prior = fund["shares_outstanding_prior"].astype(float)
+    valid = (cur > 0) & (prior > 0)
+    net_issuance = (cur / prior.where(prior > 0)) - 1.0
+    factor = (-net_issuance).where(valid)
+    factor = factor.replace([float("inf"), float("-inf")], float("nan"))
+    factor.name = "issuance"
+    return factor
+
+
 def compute_all_factors(
     prices_long: pd.DataFrame,
     fundamentals: pd.DataFrame,
@@ -418,6 +442,7 @@ def compute_all_factors(
     quality_raw = compute_quality(fundamentals, use_gross_profitability=cfg.quality_use_gross_profitability)
     value_raw = compute_value(fundamentals, pe_pb_cap=cfg.pe_pb_cap)
     growth_raw = compute_growth(fundamentals)
+    issuance_raw = compute_issuance(fundamentals)
 
     all_tickers = prices_long["ticker"].unique().tolist()
     result = pd.DataFrame(index=all_tickers)
@@ -448,6 +473,7 @@ def compute_all_factors(
     result["quality"]       = _rank("quality", quality_raw)
     result["value"]         = _rank("value", value_raw)
     result["growth"]        = _rank("growth", growth_raw)
+    result["issuance"]      = _rank("issuance", issuance_raw)
 
     result = result.reset_index()
     return result

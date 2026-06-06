@@ -105,12 +105,16 @@ class AVClient:
         }
 
     async def get_balance_sheet(self, ticker: str) -> dict | None:
-        """Most-recent total assets (the gross-profitability denominator).
+        """Balance-sheet fields: total assets (gross-profitability denominator) and
+        common shares outstanding now vs ~1 fiscal year ago (net-issuance factor).
 
-        AV BALANCE_SHEET returns annual + quarterly reports newest-first; we take
-        the freshest quarterly `totalAssets`. Returns None on missing/empty data
-        so the caller can treat a balance-sheet miss as non-fatal (total_assets
-        stays NULL, the quality factor falls back to ROE for that ticker).
+        AV BALANCE_SHEET returns annual + quarterly reports newest-first. We take
+        the freshest report's `totalAssets`, and shares from the ANNUAL reports
+        (annualReports[0] vs [1]) — annual is the right cadence for a YoY issuance
+        signal and avoids quarterly seasonality. Returns None only when there is no
+        usable total_assets (keeps the existing contract); shares fields are
+        best-effort and may be None (the issuance factor is optional, so NULL just
+        means no issuance tilt for that ticker).
         """
         if self.mock_mode:
             return _mock_balance_sheet(ticker)
@@ -122,7 +126,14 @@ class AVClient:
         total_assets = _to_float(reports[0].get("totalAssets"))
         if total_assets is None:
             return None
-        return {"total_assets": total_assets}
+        annual = data.get("annualReports") or []
+        shares = _to_float(annual[0].get("commonStockSharesOutstanding")) if len(annual) >= 1 else None
+        shares_prior = _to_float(annual[1].get("commonStockSharesOutstanding")) if len(annual) >= 2 else None
+        return {
+            "total_assets": total_assets,
+            "shares_outstanding": shares,
+            "shares_outstanding_prior": shares_prior,
+        }
 
 
 def _to_float(val) -> float | None:
@@ -198,4 +209,11 @@ def _mock_balance_sheet(ticker: str) -> dict:
     # Seed offset keeps total_assets independent of the overview draw so
     # gross_profit/total_assets isn't a fixed ratio across mock tickers.
     rng = random.Random(_stable_seed(ticker) ^ 0x5A5A5A5A)
-    return {"total_assets": round(rng.uniform(5e8, 5e11), 2)}
+    shares = round(rng.uniform(5e7, 5e9), 2)
+    # Net issuance in [-5%, +8%]: a spread of buybacks vs dilution across mocks.
+    shares_prior = round(shares / (1.0 + rng.uniform(-0.05, 0.08)), 2)
+    return {
+        "total_assets": round(rng.uniform(5e8, 5e11), 2),
+        "shares_outstanding": shares,
+        "shares_outstanding_prior": shares_prior,
+    }

@@ -1007,6 +1007,29 @@ walk-forward, net of costs, against this static baseline before trusting a
 rotation scheme — the literature predicts the static vector is hard to beat and any
 rotation "edge" lives only in the momentum-de-risking cells.
 
+## Design Decision: net-share-issuance factor (optional 7th factor)
+
+**Decision.** Add an optional `issuance` factor capturing the net-share-issuance
+anomaly (net issuers underperform, net repurchasers outperform — one of the more
+robustly-replicated anomalies; low turnover, large-cap-native). It is the 7th
+factor in `FactorWeights`, **default weight 0.0** (like `liquidity`), so every
+existing config still sums to 1.0 and is unaffected; `quality_core_v1` opts in at
+a modest 0.06 (it overlaps value/quality, so marginal alpha is modest).
+
+```text
+net_issuance = shares_outstanding / shares_outstanding_prior - 1   (YoY)
+factor       = -net_issuance        (buybacks rank high, dilution low)
+```
+
+Data: computed from balance-sheet **annual** common shares outstanding —
+`annualReports[0]` vs `[1]` from AV BALANCE_SHEET (already fetched for
+`total_assets`, gated by `FETCH_BALANCE_SHEET`, so no new API surface). Migration
+0018 adds `fundamentals.shares_outstanding` + `shares_outstanding_prior` (nullable);
+`compute_issuance` returns NaN where shares are missing/non-positive, and the
+factor is NOT in `required_factors`, so a missing value never drops a ticker — it
+just gets no issuance tilt. Only the live `services/pipeline` factor math + the
+`FACTORS` list are extended.
+
 ## Design Decision: enhanced momentum (residual + risk-adjusted)
 
 **Decision.** The momentum factor is configurable via `FactorEngineConfig.

@@ -723,7 +723,8 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         fund_rows = await conn.execute(
             text(
                 "SELECT DISTINCT ON (ticker) ticker, as_of_date, pe_ratio, pb_ratio, roe, debt_to_equity, "
-                "revenue_growth, eps_growth, gross_profit, total_assets FROM fundamentals "
+                "revenue_growth, eps_growth, gross_profit, total_assets, "
+                "shares_outstanding, shares_outstanding_prior FROM fundamentals "
                 "WHERE ticker = ANY(:tickers) AND source != 'no_data' "
                 "ORDER BY ticker, as_of_date DESC"
             ),
@@ -732,7 +733,8 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         fund_df = pd.DataFrame(
             fund_rows.fetchall(),
             columns=["ticker", "as_of_date", "pe_ratio", "pb_ratio", "roe", "debt_to_equity",
-                     "revenue_growth", "eps_growth", "gross_profit", "total_assets"],
+                     "revenue_growth", "eps_growth", "gross_profit", "total_assets",
+                     "shares_outstanding", "shares_outstanding_prior"],
         )
 
     tickers_with_fund = set(fund_df["ticker"].unique()) if not fund_df.empty else set()

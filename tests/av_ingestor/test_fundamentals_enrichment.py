@@ -79,6 +79,54 @@ def test_balance_sheet_prefers_latest_quarterly():
     assert bs["total_assets"] == pytest.approx(5000.0)  # most-recent quarter
 
 
+def test_balance_sheet_parses_shares_yoy_from_annual():
+    """Shares now vs prior fiscal year come from annualReports[0] and [1]."""
+    c = _client()
+
+    async def fake_get(params):
+        return {
+            "symbol": "AAA",
+            "quarterlyReports": [{"totalAssets": "5000"}],
+            "annualReports": [
+                {"fiscalDateEnding": "2024-12-31", "totalAssets": "4900", "commonStockSharesOutstanding": "900"},
+                {"fiscalDateEnding": "2023-12-31", "totalAssets": "4700", "commonStockSharesOutstanding": "1000"},
+            ],
+        }
+
+    c._get = fake_get
+    try:
+        bs = _run(c.get_balance_sheet("AAA"))
+    finally:
+        _run(c.close())
+    assert bs["shares_outstanding"] == pytest.approx(900.0)
+    assert bs["shares_outstanding_prior"] == pytest.approx(1000.0)  # → -10% net issuance
+
+
+def test_balance_sheet_shares_none_when_single_annual_report():
+    """Only one annual report → no prior-year shares (None), still returns total_assets."""
+    c = _client()
+
+    async def fake_get(params):
+        return {
+            "quarterlyReports": [{"totalAssets": "5000"}],
+            "annualReports": [{"commonStockSharesOutstanding": "900"}],
+        }
+
+    c._get = fake_get
+    try:
+        bs = _run(c.get_balance_sheet("AAA"))
+    finally:
+        _run(c.close())
+    assert bs["shares_outstanding"] == pytest.approx(900.0)
+    assert bs["shares_outstanding_prior"] is None
+
+
+def test_mock_balance_sheet_has_shares():
+    from app.alpha_vantage import _mock_balance_sheet
+    bs = _mock_balance_sheet("NVDA")
+    assert bs["shares_outstanding"] > 0 and bs["shares_outstanding_prior"] > 0
+
+
 def test_balance_sheet_falls_back_to_annual():
     c = _client()
 
