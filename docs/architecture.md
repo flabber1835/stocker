@@ -983,17 +983,20 @@ OOS, and momentum-crash protection — the one regime effect with strong evidenc
 beta-adjusted, vol-scaled falling-knife drawdown veto. So the overfit-prone
 rotation is removed while crash protection is retained elsewhere.
 
-**The static vector** started as the straight average (centroid) of the four
-previously calibrated regime vectors, then was **rebalanced away from an
-over-defensive tilt**. The raw centroid put low_volatility at ~0.22 (≈ tied with
-quality) and momentum at only ~0.16; research flags low-vol as the most fragile
-leg (crowding, rich valuations, rate/bond-proxy risk that materialized in 2021–22),
-while momentum has the highest stand-alone Sharpe and is the strongest diversifier
-of value (corr ≈ −0.5; the value+momentum combination is the best-evidenced
-multifactor "free lunch"). So low-vol was trimmed and momentum raised to ≈ value,
-keeping quality (best-evidenced defensive factor, QMJ) on top:
-quality 0.24, value 0.20, momentum 0.20, low_volatility 0.13, growth 0.11,
-liquidity 0.12 (sums to 1.0).
+**The static vector** evolved in two steps. (1) From the raw centroid of the four
+regime vectors it was rebalanced away from an over-defensive tilt (low-vol was the
+fragile leg — crowding/valuation/rate risk; momentum the under-weighted
+highest-Sharpe diversifier). (2) It was then re-tilted **momentum-forward** to fit
+the strategy's actual nature: this is a continuous-turnover rotation book, not
+buy-and-hold, so valuation matters less (the value premium is a slow multi-year
+effect that barely operates over a weeks-to-months holding horizon, where momentum
+dominates). Value and low-vol are demoted (we rent expensive/volatile names and
+rotate out); momentum leads; quality stays the anchor; growth raised:
+**momentum 0.28, quality 0.22, growth 0.16, liquidity 0.11, value 0.09,
+low_volatility 0.08, issuance 0.06** (sums to 1.0). The crash risk of a momentum
+tilt is guarded independently by the vetter's beta-adjusted, vol-scaled
+falling-knife veto and the residual/risk-adjusted momentum method — which is what
+makes an aggressive momentum lean defensible here.
 
 **Implementation.** `StrategyConfig.effective_factor_weights(regime)` is the single
 resolver used by both the ranker (`rank_universe`) and the audit/spot-check display:
@@ -1052,6 +1055,14 @@ residual         — cumulative residual return after stripping the market (the
                    momentum, far smaller crash tails; no SPY plumbing needed
 residual_riskadj — residual / formation vol (both effects; quality_core_v1 default)
 ```
+
+**Multi-horizon blend** (`momentum_blend_windows`): when set to >1 long-window
+lengths, the factor is the rank-average of the chosen `method` computed at each
+horizon — `quality_core_v1` uses `[252, 126]` (12-1 + 6-1). All horizons share the
+`momentum_short_window` skip, so the factor reacts sooner to emerging trends while
+still skipping the last month (short-term-reversal protection preserved — it does
+NOT chase 3-week spikes; that's the falling-knife's domain). `null`/one value =
+single-horizon.
 
 Memory-light (the formation-window return slice is a few MB at universe scale,
 built once and freed). Falls back to raw when there isn't enough history or the

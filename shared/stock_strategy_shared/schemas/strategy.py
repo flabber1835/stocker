@@ -146,6 +146,26 @@ class FactorEngineConfig(BaseModel):
                     "residual_riskadj. Falls back to raw when there isn't enough history."
     )
 
+    momentum_blend_windows: Optional[list[int]] = Field(
+        default=None,
+        description="When set to >1 long-window lengths (each sharing momentum_short_window "
+                    "as the skip), the momentum factor is the rank-average of the chosen "
+                    "momentum_method computed at each horizon — e.g. [252, 126] blends 12-1 "
+                    "and 6-1 momentum so the factor reacts sooner to emerging trends while "
+                    "still skipping the last month (reversal protection preserved). "
+                    "None/one value = single-horizon (momentum_long_window)."
+    )
+
+    @field_validator("momentum_blend_windows")
+    @classmethod
+    def _valid_blend_windows(cls, v):
+        if v is None:
+            return v
+        for w in v:
+            if not (63 <= w <= 504):
+                raise ValueError(f"momentum_blend_windows entries must be in [63, 504], got {w}")
+        return v
+
     @field_validator("momentum_method")
     @classmethod
     def _valid_momentum_method(cls, v: str) -> str:

@@ -116,6 +116,36 @@ def compute_momentum(
     short_window: int = 21,
     long_window: int = 252,
     method: str = "raw",
+    blend_long_windows: list[int] | None = None,
+) -> pd.Series:
+    """Momentum factor signal. Single-horizon by default; when `blend_long_windows`
+    has >1 entry, compute the chosen `method` at each long horizon (all sharing the
+    same `short_window` skip — short-term-reversal protection is preserved), rank
+    each cross-sectionally, and average the ranks. A faster horizon (e.g. 126 = 6-1)
+    blended with 12-1 makes the factor react sooner to emerging trends without
+    chasing the last month. Falls back to single-horizon when blend is None/one."""
+    windows = blend_long_windows if blend_long_windows else [long_window]
+    windows = [w for w in windows if w]
+    if len(windows) <= 1:
+        return _momentum_single(prices, short_window, windows[0] if windows else long_window, method)
+    ranks = []
+    for lw in windows:
+        sig = _momentum_single(prices, short_window, lw, method)
+        if sig.empty:
+            continue
+        ranks.append(cross_section_percentile(sig))
+    if not ranks:
+        return pd.Series(dtype=float)
+    blended = pd.concat(ranks, axis=1).mean(axis=1)  # mean of available horizon ranks (skipna)
+    blended.name = "momentum"
+    return blended
+
+
+def _momentum_single(
+    prices: pd.DataFrame,
+    short_window: int = 21,
+    long_window: int = 252,
+    method: str = "raw",
 ) -> pd.Series:
     # prices must contain only trading-day rows (no weekend/holiday NaN rows);
     # iloc[-long_window] and iloc[-short_window] are positional, so calendar rows would shorten the look-back.
@@ -435,7 +465,7 @@ def compute_all_factors(
     pivot = prices_long.pivot(index="date", columns="ticker", values="adjusted_close")
     pivot = pivot.sort_index()
 
-    momentum_raw = compute_momentum(pivot, short_window=cfg.momentum_short_window, long_window=cfg.momentum_long_window, method=cfg.momentum_method)
+    momentum_raw = compute_momentum(pivot, short_window=cfg.momentum_short_window, long_window=cfg.momentum_long_window, method=cfg.momentum_method, blend_long_windows=cfg.momentum_blend_windows)
     low_vol_raw = compute_low_volatility(pivot, window=cfg.volatility_window)
     del pivot  # the wide date×ticker matrix is no longer needed — free it before ranking
     liquidity_raw = compute_liquidity(prices_long, window=cfg.liquidity_window)

@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app.factors import compute_momentum
+from app.factors import compute_momentum, cross_section_percentile as cross_section_pct
 
 
 def _series_from_returns(start: float, daily: list[float]) -> list[float]:
@@ -78,6 +78,37 @@ def test_insufficient_history_falls_back_gracefully():
     rets = {t: list(rng.normal(0, 0.01, 200)) for t in ("A", "B")}
     pivot = _pivot_from_returns(rets)
     assert compute_momentum(pivot, method="residual_riskadj").empty
+
+
+def test_blend_windows_rank_average_of_horizons():
+    """blend_long_windows blends 12-1 and 6-1: result is a rank in [0,1] over all
+    tickers, finite, and reacts to a name that's strong in the recent 6-1 window."""
+    rng = np.random.default_rng(9)
+    # 320 returns so both 252 and 126 horizons have history.
+    base = {t: list(rng.normal(0.0003, 0.012, 320)) for t in ("A", "B", "C", "D")}
+    # RECENT: weak early, strong in the most recent 6 months (ex last month) → 6-1 lifts it.
+    recent = [(-0.001) ] * 200 + [0.004] * 120
+    base["RECENT"] = recent
+    pivot = _pivot_from_returns(base)
+    blended = compute_momentum(pivot, method="raw", blend_long_windows=[252, 126])
+    assert set(blended.index) == {"A", "B", "C", "D", "RECENT"}
+    assert not np.isinf(blended.to_numpy()).any()
+    assert blended.min() >= 0.0 and blended.max() <= 1.0  # rank-averaged → [0,1]
+    # The recent-strength name should out-rank on the blend vs the pure 12-1 horizon.
+    single_12_1 = cross_section_pct(compute_momentum(pivot, method="raw", long_window=252))
+    assert blended["RECENT"] >= single_12_1["RECENT"] - 1e-9
+
+
+def test_blend_single_window_equals_single_horizon():
+    """A one-element (or None) blend behaves exactly as single-horizon."""
+    rng = np.random.default_rng(2)
+    rets = {t: list(rng.normal(0.0004, 0.013, 300)) for t in ("A", "B", "C")}
+    pivot = _pivot_from_returns(rets)
+    single = compute_momentum(pivot, method="raw")
+    one = compute_momentum(pivot, method="raw", blend_long_windows=[252])
+    none = compute_momentum(pivot, method="raw", blend_long_windows=None)
+    pd.testing.assert_series_equal(single.sort_index(), one.sort_index(), check_names=False)
+    pd.testing.assert_series_equal(single.sort_index(), none.sort_index(), check_names=False)
 
 
 def test_residual_riskadj_combines_both_effects():

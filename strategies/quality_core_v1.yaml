@@ -29,6 +29,7 @@ factor_engine:
   spy_price_lookback_days: 600  # calendar days of SPY history loaded for regime detection
   quality_use_gross_profitability: true  # quality profitability leg = gross-profits/assets (Novy-Marx), not ROE; falls back to ROE where total_assets is missing
   momentum_method: residual_riskadj  # 12-1 momentum stripped of the market (idiosyncratic, Blitz-Huij-Martens) AND divided by formation vol (Sharpe-like) — the cross-sectional analogue of vol-scaled/residual momentum; ~2x Sharpe + far smaller crash tails vs raw. Set 'raw' to revert.
+  momentum_blend_windows: [252, 126]  # blend 12-1 and 6-1 momentum (rank-average); both skip the last month, so the factor reacts sooner to emerging trends without chasing short-term spikes/reversals. Set null for single-horizon (momentum_long_window).
   # industry_neutral_factors defaults to [value, quality] (sector-neutral ranking); see schema
 
 regime_detection:
@@ -62,24 +63,25 @@ regime_detection:
 # regime_weighting_enabled: true to restore the per-regime factor_weights table.
 regime_weighting_enabled: false
 
-# Static multi-factor weights. Started as the centroid of the four calibrated
-# regime vectors, then REBALANCED away from an over-defensive tilt: the raw
-# centroid put low_volatility at 0.22 (≈ tied with quality) and momentum at only
-# 0.16. Research flags low-vol as the most fragile leg (crowding / rich valuations /
-# rate-bond-proxy risk that bit in 2021–22), while momentum has the highest
-# stand-alone Sharpe AND is the strongest diversifier of value (corr ≈ −0.5; the
-# value+momentum combination is the best-evidenced multifactor "free lunch"). So
-# low-vol is trimmed and momentum raised to ≈ value. Quality (best-evidenced
-# defensive factor, QMJ) stays on top. Sums to 1.0. Crash protection still comes
-# independently from the vetter's beta-adjusted, vol-scaled falling-knife veto.
+# Static multi-factor weights — MOMENTUM-FORWARD ROTATION tilt. This is a turnover
+# strategy (continuous buffer-zone rebalance), so valuation matters less than for a
+# buy-and-hold book: value is a slow multi-year premium that barely operates over a
+# weeks-to-months holding horizon, where momentum dominates. We therefore demote
+# value and low_volatility (we're willing to rent expensive/volatile names and
+# rotate out) and lead with momentum, keeping quality as the anchor (best-evidenced
+# factor, QMJ) and growth raised. Crash risk of an aggressive momentum tilt is
+# guarded independently by the vetter's beta-adjusted, vol-scaled falling-knife veto
+# and the residual/risk-adjusted momentum method. Sums to 1.0.
+# (Prior over-defensive centroid was quality .22 / value .19 / momentum .19 /
+#  low_vol .13 / growth .10 / liq .11 / issuance .06 — see git history.)
 static_factor_weights:
+  momentum:       0.28
   quality:        0.22
-  value:          0.19
-  momentum:       0.19
-  low_volatility: 0.13
-  growth:         0.10
+  growth:         0.16
   liquidity:      0.11
-  issuance:       0.06   # net-share-issuance (buybacks rank high); modest weight — overlaps value/quality, robust + low-turnover
+  value:          0.09
+  low_volatility: 0.08
+  issuance:       0.06   # net-share-issuance (buybacks rank high); modest weight — robust + low-turnover
 
 factor_weights:
   # RETAINED for reference / easy re-enable (unused while regime_weighting_enabled
