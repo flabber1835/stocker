@@ -61,17 +61,23 @@ regime_detection:
 # regime_weighting_enabled: true to restore the per-regime factor_weights table.
 regime_weighting_enabled: false
 
-# Centroid of the four calibrated regime vectors (their straight average; sums to
-# 1.0). Not invented numbers — it is the middle of what was already calibrated, so
-# it naturally moderates the bull_calm momentum tilt (0.30 → 0.16) and leans on the
-# more cost-robust, OOS-durable quality / low-vol / value factors.
+# Static multi-factor weights. Started as the centroid of the four calibrated
+# regime vectors, then REBALANCED away from an over-defensive tilt: the raw
+# centroid put low_volatility at 0.22 (≈ tied with quality) and momentum at only
+# 0.16. Research flags low-vol as the most fragile leg (crowding / rich valuations /
+# rate-bond-proxy risk that bit in 2021–22), while momentum has the highest
+# stand-alone Sharpe AND is the strongest diversifier of value (corr ≈ −0.5; the
+# value+momentum combination is the best-evidenced multifactor "free lunch"). So
+# low-vol is trimmed and momentum raised to ≈ value. Quality (best-evidenced
+# defensive factor, QMJ) stays on top. Sums to 1.0. Crash protection still comes
+# independently from the vetter's beta-adjusted, vol-scaled falling-knife veto.
 static_factor_weights:
-  quality:        0.2325
-  low_volatility: 0.2175
-  value:          0.1725
-  momentum:       0.1625
+  quality:        0.24
+  value:          0.20
+  momentum:       0.20
+  low_volatility: 0.13
   growth:         0.11
-  liquidity:      0.105
+  liquidity:      0.12
 
 factor_weights:
   # RETAINED for reference / easy re-enable (unused while regime_weighting_enabled

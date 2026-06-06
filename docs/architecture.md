@@ -983,12 +983,17 @@ OOS, and momentum-crash protection — the one regime effect with strong evidenc
 beta-adjusted, vol-scaled falling-knife drawdown veto. So the overfit-prone
 rotation is removed while crash protection is retained elsewhere.
 
-**The static vector** is the straight average (centroid) of the four previously
-calibrated regime vectors — not invented numbers, the middle of what was already
-calibrated. It naturally moderates the bull_calm momentum tilt (0.30 → 0.16) and
-leans on the more cost-robust, OOS-durable quality / low-vol / value factors:
-quality 0.2325, low_volatility 0.2175, value 0.1725, momentum 0.1625, growth 0.11,
-liquidity 0.105 (sums to 1.0).
+**The static vector** started as the straight average (centroid) of the four
+previously calibrated regime vectors, then was **rebalanced away from an
+over-defensive tilt**. The raw centroid put low_volatility at ~0.22 (≈ tied with
+quality) and momentum at only ~0.16; research flags low-vol as the most fragile
+leg (crowding, rich valuations, rate/bond-proxy risk that materialized in 2021–22),
+while momentum has the highest stand-alone Sharpe and is the strongest diversifier
+of value (corr ≈ −0.5; the value+momentum combination is the best-evidenced
+multifactor "free lunch"). So low-vol was trimmed and momentum raised to ≈ value,
+keeping quality (best-evidenced defensive factor, QMJ) on top:
+quality 0.24, value 0.20, momentum 0.20, low_volatility 0.13, growth 0.11,
+liquidity 0.12 (sums to 1.0).
 
 **Implementation.** `StrategyConfig.effective_factor_weights(regime)` is the single
 resolver used by both the ranker (`rank_universe`) and the audit/spot-check display:
