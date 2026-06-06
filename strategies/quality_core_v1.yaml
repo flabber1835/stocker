@@ -49,8 +49,33 @@ regime_detection:
       spy_above_slow_sma: false
       vol_above_threshold: false
 
+# Regime ROTATION is OFF (regime_weighting_enabled: false). The regime is still
+# DETECTED below (and written to regime_snapshots / shown on the dashboard) but it
+# no longer changes the factor weights — static_factor_weights is used in every
+# regime. Rationale: broad regime/value-growth-quality factor rotation is weakly
+# supported out-of-sample and overfits on the handful of historical regime episodes
+# (Asness "factor timing is deceptively difficult"; Cederburg et al. 2020 on
+# volatility-managed portfolios). A single static multi-factor vector is hard to
+# beat OOS, and crash protection is provided independently by the vetter's
+# beta-adjusted, vol-scaled falling-knife drawdown veto. Set
+# regime_weighting_enabled: true to restore the per-regime factor_weights table.
+regime_weighting_enabled: false
+
+# Centroid of the four calibrated regime vectors (their straight average; sums to
+# 1.0). Not invented numbers — it is the middle of what was already calibrated, so
+# it naturally moderates the bull_calm momentum tilt (0.30 → 0.16) and leans on the
+# more cost-robust, OOS-durable quality / low-vol / value factors.
+static_factor_weights:
+  quality:        0.2325
+  low_volatility: 0.2175
+  value:          0.1725
+  momentum:       0.1625
+  growth:         0.11
+  liquidity:      0.105
+
 factor_weights:
-  # Weights calibrated to academic literature on regime-conditional factor premiums.
+  # RETAINED for reference / easy re-enable (unused while regime_weighting_enabled
+  # is false). Weights calibrated to academic literature on regime-conditional factor premiums.
   # Primary sources: Cooper, Gutierrez & Hameed (JF 2004) for momentum market-state
   # dependency; Daniel & Moskowitz (JFE 2016) for momentum crash risk; Frazzini &
   # Pedersen (JFE 2014) for BAB / low-vol premium scaling; Ang, Hodrick, Xing & Zhang

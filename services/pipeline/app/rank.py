@@ -9,7 +9,7 @@ def rank_universe(
     regime: str,
     strategy: StrategyConfig,
 ) -> pd.DataFrame:
-    regime_weights: dict[str, float] = strategy.factor_weights[regime].model_dump()
+    regime_weights: dict[str, float] = strategy.effective_factor_weights(regime).model_dump()
 
     df = factor_scores.copy()
 

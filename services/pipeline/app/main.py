@@ -1171,7 +1171,7 @@ async def _do_rank(
         })
     dropped_detail.sort(key=lambda x: x["ticker"])
 
-    regime_weights_raw = strategy.factor_weights[regime].model_dump()
+    regime_weights_raw = strategy.effective_factor_weights(regime).model_dump()
     weights_used = {f: regime_weights_raw[f] for f in FACTORS if f in regime_weights_raw}
     weight_total = sum(weights_used.values())
     formula_parts = [

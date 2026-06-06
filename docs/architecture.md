@@ -963,6 +963,45 @@ and `scaled_excess_threshold` in `services/llm-vetter/app/drawdown.py`;
 `excess_drawdown` now carries `idio_vol` through to the caller, which computes the
 per-ticker limit in the backstop block.
 
+## Design Decision: regime factor-weight rotation OFF (static weights)
+
+**Decision (supersedes the 4-bucket regime-conditional factor weighting as the
+live weighting scheme).** Factor weights no longer rotate by regime. The regime is
+still **detected** (written to `regime_snapshots`, shown on the dashboard) but it
+no longer changes the weights — a single `static_factor_weights` vector is used in
+all regimes. Controlled by `StrategyConfig.regime_weighting_enabled` (default
+`True` for back-compat; set `False` in `quality_core_v1.yaml`).
+
+**Why.** A deep-research pass (Asness "factor timing is deceptively difficult";
+Cederburg, O'Doherty, Wang & Yan 2020 on volatility-managed portfolios) found that
+broad regime / value-growth-quality *rotation* is weakly supported out-of-sample
+and overfits: a 4-regime × 6-factor table is calibrated on a handful of
+non-stationary regime episodes, exactly the "structural instability" that kills the
+in-sample edge in walk-forward. A single static multi-factor vector is hard to beat
+OOS, and momentum-crash protection — the one regime effect with strong evidence
+(Barroso–Santa-Clara; Daniel–Moskowitz) — is provided independently by the vetter's
+beta-adjusted, vol-scaled falling-knife drawdown veto. So the overfit-prone
+rotation is removed while crash protection is retained elsewhere.
+
+**The static vector** is the straight average (centroid) of the four previously
+calibrated regime vectors — not invented numbers, the middle of what was already
+calibrated. It naturally moderates the bull_calm momentum tilt (0.30 → 0.16) and
+leans on the more cost-robust, OOS-durable quality / low-vol / value factors:
+quality 0.2325, low_volatility 0.2175, value 0.1725, momentum 0.1625, growth 0.11,
+liquidity 0.105 (sums to 1.0).
+
+**Implementation.** `StrategyConfig.effective_factor_weights(regime)` is the single
+resolver used by both the ranker (`rank_universe`) and the audit/spot-check display:
+it returns `static_factor_weights` when rotation is off, else `factor_weights[regime]`.
+A validator requires `static_factor_weights` when `regime_weighting_enabled` is
+False (and applies the liquidity-required-factor check to it). The four
+`factor_weights` regime vectors are kept in the YAML for reference / easy re-enable.
+
+**Re-enable** by setting `regime_weighting_enabled: true`. **Validate** any change
+walk-forward, net of costs, against this static baseline before trusting a
+rotation scheme — the literature predicts the static vector is hard to beat and any
+rotation "edge" lives only in the momentum-de-risking cells.
+
 ## Design Decision Rule
 
 Whenever a design decision is made, it must be documented in the design docs before implementation begins.

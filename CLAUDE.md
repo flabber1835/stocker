@@ -1114,6 +1114,16 @@ vetter:
 
 Factor weights for each regime must sum to 1.0. All four regime conditions must be covered.
 
+Regime factor-weight ROTATION is currently OFF (`regime_weighting_enabled: false`
+in quality_core_v1.yaml). The regime is still detected (snapshots/dashboard) but no
+longer changes the weights — a single `static_factor_weights` vector (the centroid
+of the four calibrated regime vectors) is used in all regimes. Broad regime/factor
+rotation is weakly supported out-of-sample and overfits (Asness; Cederburg et al.);
+momentum-crash protection is provided independently by the vetter's beta-adjusted,
+vol-scaled falling-knife veto. `StrategyConfig.effective_factor_weights(regime)` is
+the single resolver (static when off, else `factor_weights[regime]`). Set
+`regime_weighting_enabled: true` to restore rotation. See docs/architecture.md.
+
 ---
 
 # Strategy Registry

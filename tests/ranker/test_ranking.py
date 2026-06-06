@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 import numpy as np
 from app.rank import rank_universe, FACTORS
-from stock_strategy_shared.schemas.strategy import StrategyConfig
+from stock_strategy_shared.schemas.strategy import StrategyConfig, FactorWeights
 
 VALID_CONFIG = StrategyConfig(**{
     "strategy_id": "test_v1",
@@ -61,6 +61,46 @@ def test_rank_applies_regime_weights():
     result2 = rank_universe(df, "bear_stress", VALID_CONFIG)
     # both have low_volatility=0.0, so quality breaks the tie for B
     assert result2.iloc[0]["ticker"] == "B"
+
+
+def test_static_weights_ignore_regime_when_rotation_disabled():
+    """With regime_weighting_enabled=False, the SAME static vector scores every
+    regime — so the ranking is identical regardless of the regime argument."""
+    cfg = VALID_CONFIG.model_copy(update={
+        "regime_weighting_enabled": False,
+        "static_factor_weights": FactorWeights(
+            momentum=0.35, quality=0.25, growth=0.20, value=0.10, low_volatility=0.10,
+        ),
+    })
+    df = _scores(
+        A={"momentum": 3.0, "quality": -2.0, "value": 0.0, "growth": 0.0, "low_volatility": 0.0},
+        B={"momentum": -3.0, "quality": 2.0, "value": 0.0, "growth": 0.0, "low_volatility": 0.0},
+    )
+    bull = rank_universe(df, "bull_calm", cfg)
+    bear = rank_universe(df, "bear_stress", cfg)
+    # Momentum-heavy static vector favors A in BOTH regimes (rotation is off), and
+    # the composite scores are identical across the two regime calls.
+    assert bull.iloc[0]["ticker"] == "A"
+    assert bear.iloc[0]["ticker"] == "A"
+    bull_scores = dict(zip(bull["ticker"], bull["composite_score"]))
+    bear_scores = dict(zip(bear["ticker"], bear["composite_score"]))
+    assert bull_scores == pytest.approx(bear_scores)
+
+
+def test_effective_factor_weights_resolver():
+    """The resolver returns per-regime vectors when enabled, the static vector when not."""
+    assert VALID_CONFIG.effective_factor_weights("bull_calm").momentum == 0.35
+    assert VALID_CONFIG.effective_factor_weights("bear_stress").low_volatility == 0.35
+    static_cfg = VALID_CONFIG.model_copy(update={
+        "regime_weighting_enabled": False,
+        "static_factor_weights": FactorWeights(
+            momentum=0.20, quality=0.20, growth=0.20, value=0.20, low_volatility=0.20,
+        ),
+    })
+    # Same vector regardless of which regime is asked for.
+    for regime in ("bull_calm", "bull_stress", "bear_stress", "bear_calm"):
+        w = static_cfg.effective_factor_weights(regime)
+        assert w.momentum == 0.20 and w.low_volatility == 0.20
 
 
 def test_min_non_null_factors_excludes_sparse_tickers():

@@ -42,6 +42,51 @@ def test_valid_config_loads():
     assert set(cfg.regime_detection.regimes.keys()) == {"bull_calm", "bull_stress", "bear_stress", "bear_calm"}
 
 
+def test_regime_weighting_enabled_defaults_true():
+    cfg = make_config()
+    assert cfg.regime_weighting_enabled is True
+    # Resolver returns the per-regime vector when rotation is on.
+    assert cfg.effective_factor_weights("bull_calm").momentum == 0.35
+    assert cfg.effective_factor_weights("bear_stress").low_volatility == 0.35
+
+
+def test_static_weights_required_when_regime_disabled():
+    with pytest.raises(ValidationError, match="static_factor_weights is not set"):
+        make_config(regime_weighting_enabled=False)
+
+
+def test_static_weights_used_in_all_regimes_when_disabled():
+    cfg = make_config(
+        regime_weighting_enabled=False,
+        static_factor_weights={"momentum": 0.16, "quality": 0.24, "value": 0.18,
+                               "growth": 0.11, "low_volatility": 0.21, "liquidity": 0.10},
+    )
+    assert cfg.regime_weighting_enabled is False
+    for regime in ("bull_calm", "bull_stress", "bear_stress", "bear_calm"):
+        w = cfg.effective_factor_weights(regime)
+        assert w.quality == 0.24 and w.momentum == 0.16
+
+
+def test_static_weights_must_sum_to_one():
+    with pytest.raises(ValidationError, match="sum to 1.0"):
+        make_config(
+            regime_weighting_enabled=False,
+            static_factor_weights={"momentum": 0.50, "quality": 0.50, "value": 0.18,
+                                   "growth": 0.11, "low_volatility": 0.21, "liquidity": 0.10},
+        )
+
+
+def test_static_weights_liquidity_required_factor_enforced():
+    """When liquidity is required but the STATIC vector has 0 liquidity, reject."""
+    with pytest.raises(ValidationError, match="liquidity weight 0.0"):
+        make_config(
+            required_factors=["liquidity"],
+            regime_weighting_enabled=False,
+            static_factor_weights={"momentum": 0.20, "quality": 0.25, "value": 0.20,
+                                   "growth": 0.15, "low_volatility": 0.20, "liquidity": 0.0},
+        )
+
+
 def test_weights_must_sum_to_one():
     bad_weights = {**VALID_WEIGHTS, "bull_calm": {"momentum": 0.50, "quality": 0.50, "growth": 0.20, "value": 0.10, "low_volatility": 0.10}}
     with pytest.raises(ValidationError, match="sum to 1.0"):

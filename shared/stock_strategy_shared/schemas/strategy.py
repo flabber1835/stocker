@@ -362,6 +362,22 @@ class StrategyConfig(BaseModel):
     factor_engine: FactorEngineConfig = Field(default_factory=FactorEngineConfig)
     regime_detection: RegimeDetectionConfig
     factor_weights: dict[str, FactorWeights]  # keyed by regime name
+    regime_weighting_enabled: bool = Field(
+        default=True,
+        description="When True, factor weights are selected per detected regime "
+                    "(factor_weights[regime]). When False, regime ROTATION is OFF: "
+                    "the single static_factor_weights vector is used in ALL regimes. "
+                    "Regime is still DETECTED (snapshots/dashboard) but no longer "
+                    "changes the weights. Rationale: broad regime factor-rotation is "
+                    "weakly supported out-of-sample and prone to overfitting on few "
+                    "regime episodes (Asness; Cederburg et al.); a static multi-factor "
+                    "vector is hard to beat. See docs/architecture.md.",
+    )
+    static_factor_weights: Optional[FactorWeights] = Field(
+        default=None,
+        description="Single factor-weight vector used in every regime when "
+                    "regime_weighting_enabled is False. Required in that case.",
+    )
     # top-level max_positions is a convenience alias; portfolio_builder.max_positions takes precedence
     max_positions: int = Field(default=30, ge=1, le=500)
     min_score_percentile: float = Field(default=0.0, ge=0, le=1)
@@ -401,10 +417,39 @@ class StrategyConfig(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def static_weights_present_when_regime_disabled(self) -> "StrategyConfig":
+        if not self.regime_weighting_enabled and self.static_factor_weights is None:
+            raise ValueError(
+                "regime_weighting_enabled is False but static_factor_weights is not set "
+                "— provide a single factor-weight vector to use in all regimes"
+            )
+        return self
+
+    def effective_factor_weights(self, regime: str) -> FactorWeights:
+        """The factor weights to SCORE with for `regime`.
+
+        When regime_weighting_enabled is False, regime rotation is OFF and the
+        single static_factor_weights vector is returned regardless of `regime`
+        (regime is still detected for snapshots/dashboard, it just no longer
+        changes the weights). Otherwise returns the per-regime vector. Single
+        source of truth so the ranker and the audit/spot-check display agree.
+        """
+        if not self.regime_weighting_enabled:
+            # Guaranteed non-None by static_weights_present_when_regime_disabled.
+            return self.static_factor_weights  # type: ignore[return-value]
+        return self.factor_weights[regime]
+
+    @model_validator(mode="after")
     def liquidity_weight_consistent_with_required_factors(self) -> "StrategyConfig":
         if "liquidity" not in self.required_factors:
             return self
-        for regime, weights in self.factor_weights.items():
+        # Check the weight vectors actually used for scoring: the static vector when
+        # regime rotation is off, else every per-regime vector.
+        if not self.regime_weighting_enabled:
+            vectors = {"static": self.static_factor_weights} if self.static_factor_weights else {}
+        else:
+            vectors = self.factor_weights
+        for regime, weights in vectors.items():
             if weights.liquidity == 0.0:
                 raise ValueError(
                     f"required_factors includes 'liquidity' but regime '{regime}' has liquidity weight 0.0 "

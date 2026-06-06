@@ -83,8 +83,12 @@ def test_drawdown_not_in_factors():
 def _strategy(monkeypatch_regime="bull_calm"):
     from types import SimpleNamespace
     weights = {f: 1.0 / len(FACTORS) for f in FACTORS}
+    wv = SimpleNamespace(model_dump=lambda: weights)
     return SimpleNamespace(
-        factor_weights={monkeypatch_regime: SimpleNamespace(model_dump=lambda: weights)},
+        factor_weights={monkeypatch_regime: wv},
+        # rank_universe resolves weights via effective_factor_weights(regime); mirror
+        # the real resolver (regime rotation on → per-regime vector) for the mock.
+        effective_factor_weights=lambda regime: wv,
         min_non_null_factors=1,
         required_factors=[],
         min_score_percentile=0.0,
