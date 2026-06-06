@@ -9,6 +9,9 @@ let ordersData    = [];
 
 let rankSort  = { col: 'rank', dir: 1 };
 let liveSort  = { col: 'market_value', dir: -1 };
+let targetSort = { col: 'rank', dir: 1 };   // Target tab table sort
+let targetRows = [];                         // merged held∪target rows for the Target tab
+let _expandedTargetTicker = null;            // Target tab detail-expansion state
 
 let _searchMode    = false;   // true when showing API search results instead of top-N
 let _searchData    = [];      // rows returned by /rankings/search
@@ -437,6 +440,25 @@ function clearSort(pfx) {
   document.querySelectorAll('[id^="' + pfx + '"]').forEach(el => el.classList.remove('asc', 'desc'));
 }
 
+function rankArrowHtml(r) {
+  // Red/green rank-trend arrow — shared by the Screener and Target tabs.
+  // 5-run REGR slope (negative = rank number falling = improving) preferred;
+  // falls back to the 1-day prior_rank delta; flat dash when neither moves.
+  let arrow = '';
+  if (r.rank_slope != null && Math.abs(r.rank_slope) >= 1) {
+    const mag = Math.round(Math.abs(r.rank_slope));
+    arrow = r.rank_slope < 0
+      ? '<span class="rank-up" title="trending up ~' + mag + '/run (5-run slope)">&#9650;' + mag + '</span>'
+      : '<span class="rank-dn" title="trending down ~' + mag + '/run (5-run slope)">&#9660;' + mag + '</span>';
+  } else if (r.prior_rank != null && r.rank != null) {
+    const delta = r.prior_rank - r.rank;
+    if (delta >= 2)       arrow = '<span class="rank-up" title="up ' + delta + ' since last run">&#9650;' + delta + '</span>';
+    else if (delta <= -2) arrow = '<span class="rank-dn" title="down ' + (-delta) + ' since last run">&#9660;' + (-delta) + '</span>';
+  }
+  if (!arrow) arrow = '<span class="rank-flat" title="no movement">&ndash;</span>';
+  return arrow;
+}
+
 function renderRankings() {
   const q = ($('r-search').value || '').toUpperCase().trim();
   const onlyHeld = $('r-only-held') && $('r-only-held').checked;
@@ -473,24 +495,8 @@ function renderRankings() {
     const pctCls = pctColor(r.percentile);
     const pctVal = r.percentile != null ? (+r.percentile * 100).toFixed(0) + '%' : '—';
 
-    // Trend arrow shows the rank's direction over the last 5 runs (REGR_SLOPE).
-    // Negative slope = rank number falling = stock improving. The slope smooths
-    // single-day jitter, matching the system's 5-day-confirmation philosophy.
-    // Before 5 runs of history exist the slope is computed over however many
-    // runs are available (e.g. on day 2 it equals the 1-day diff). The prior_rank
-    // 1-day diff is only a fallback for tickers too new to have any slope at all.
-    let arrow = '';
-    if (r.rank_slope != null && Math.abs(r.rank_slope) >= 1) {
-      const mag = Math.round(Math.abs(r.rank_slope));
-      arrow = r.rank_slope < 0
-        ? '<span class="rank-up" title="trending up ~' + mag + '/run (5-run slope)">&#9650;' + mag + '</span>'
-        : '<span class="rank-dn" title="trending down ~' + mag + '/run (5-run slope)">&#9660;' + mag + '</span>';
-    } else if (r.prior_rank != null) {
-      const delta = r.prior_rank - r.rank;
-      if (delta >= 2)       arrow = '<span class="rank-up" title="up ' + delta + ' since last run">&#9650;' + delta + '</span>';
-      else if (delta <= -2) arrow = '<span class="rank-dn" title="down ' + (-delta) + ' since last run">&#9660;' + (-delta) + '</span>';
-    }
-    if (!arrow) arrow = '<span class="rank-flat" title="no movement">&ndash;</span>';
+    // Trend arrow (shared helper) — 5-run slope, prior-rank fallback, flat dash.
+    const arrow = rankArrowHtml(r);
 
     // SIZE / drawdown / vetter-warning badges live in the detail card now (compact
     // row keeps only rank · ticker · company · cluster). See _buildDetailHtml.
@@ -539,12 +545,12 @@ function toggleDetail(ticker, rowEl) {
   if (rec) _insertDetailRow(rowEl, rec);
 }
 
-function _insertDetailRow(rowEl, rec) {
+function _insertDetailRow(rowEl, rec, colSpan = 4) {
   const tr = document.createElement('tr');
   tr.className = 'detail-row';
   tr.id = 'detail-row-' + rec.ticker;
   const td = document.createElement('td');
-  td.colSpan = 4;
+  td.colSpan = colSpan;
   td.innerHTML = _buildDetailHtml(rec);
   tr.appendChild(td);
   rowEl.parentNode.insertBefore(tr, rowEl.nextSibling);
@@ -1246,39 +1252,138 @@ function renderLive() {
     || '<tr><td colspan="8" class="tbl-empty">No positions</td></tr>';
 }
 
-/* ── Target portfolio (informational) ─────────────────────────────────── */
+/* ── Target tab — held ∪ target table ─────────────────────────────────── */
+// Trade decision shown per ticker, derived from the delta action. Held / in-target
+// are derivable from the action taxonomy (the delta engine emits exactly one action
+// per held-or-target ticker); 'watch' is neither held nor target, so it's excluded.
+const TARGET_TRADE = {
+  entry:     { label: 'Buy',     cls: 'trade-buy',  held: false, target: true  },
+  buy_add:   { label: 'Add',     cls: 'trade-buy',  held: true,  target: true  },
+  hold:      { label: 'Hold',    cls: 'trade-hold', held: true,  target: true  },
+  sell_trim: { label: 'Trim',    cls: 'trade-sell', held: true,  target: true  },
+  exit:      { label: 'Sell',    cls: 'trade-sell', held: true,  target: false },
+  at_risk:   { label: 'At risk', cls: 'trade-risk', held: true,  target: false },
+};
+
+function buildTargetRows() {
+  const byTicker = {};
+  rankData.forEach(r => { byTicker[r.ticker] = r; });
+  targetRows = [];
+  deltaData.forEach(it => {
+    const meta = TARGET_TRADE[it.action];
+    if (!meta) return;   // 'watch' or unknown → not held and not in target → skip
+    const rec = byTicker[it.ticker] || {
+      ticker: it.ticker, rank: it.rank, name: it.name || null,
+      composite_score: it.composite_score, not_in_universe: true,
+    };
+    targetRows.push({
+      ticker: it.ticker,
+      rank: (rec.rank != null ? rec.rank : it.rank),
+      prior_rank: rec.prior_rank != null ? rec.prior_rank : null,
+      rank_slope: rec.rank_slope != null ? rec.rank_slope : null,
+      held: meta.held,
+      in_target: meta.target,
+      trade: it.action,
+      tradeLabel: meta.label,
+      tradeCls: meta.cls,
+      tradeOrder: ACTION_ORDER[it.action] ?? 99,
+      rec,
+    });
+  });
+}
+
+function sortTarget(col) {
+  const ascendingByDefault = (col === 'rank' || col === 'ticker' || col === 'trade');
+  if (targetSort.col === col) targetSort.dir *= -1;
+  else { targetSort.col = col; targetSort.dir = ascendingByDefault ? 1 : -1; }
+  _expandedTargetTicker = null;
+  clearSort('tgh-');
+  const th = $('tgh-' + col);
+  if (th) th.classList.add(targetSort.dir === 1 ? 'asc' : 'desc');
+  renderTargetTable();
+}
 
 async function loadTargetPortfolio() {
   const tbody = $('target-body');
   try {
-    const d = await fetch('/api/target-portfolio').then(r => r.json());
-    if (d.error || d.detail) {
-      tbody.innerHTML = '<tr><td colspan="4" class="tbl-empty">'
-        + esc(d.detail || d.error) + '</td></tr>';
-      return;
-    }
-    const holdings = d.holdings || [];
-    const sub = $('target-sub');
-    if (sub) {
-      const parts = [];
-      if (d.portfolio_date) parts.push(esc(d.portfolio_date));
-      if (d.regime) parts.push(esc(d.regime));
-      parts.push(holdings.length + ' names');
-      sub.innerHTML = parts.join(' &middot; ') + ' &middot; informational only';
-    }
-    if (!holdings.length) {
-      tbody.innerHTML = '<tr><td colspan="4" class="tbl-empty">No target portfolio yet</td></tr>';
-      return;
-    }
-    tbody.innerHTML = holdings.map(h => '<tr>'
-      + '<td class="mono">' + esc(h.ticker) + '</td>'
-      + '<td>' + (esc(h.name) || '&mdash;') + '</td>'
-      + '<td>' + (h.cluster_id ? '<span class="mono">' + esc(h.cluster_id) + '</span>' : '&mdash;') + '</td>'
-      + '<td>' + fmtPct(h.weight) + '</td>'
-      + '</tr>').join('');
+    // The table is the union of held + target tickers (delta intents minus watch),
+    // enriched with the screener's rank/arrows/detail. Refresh both sources.
+    await loadDelta();
+    if (!rankData.length) await loadRankings();
+    buildTargetRows();
+    renderTargetTable();
   } catch (e) {
-    tbody.innerHTML = '<tr><td colspan="4" class="tbl-empty">Error loading target portfolio</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="tbl-empty">Error loading target</td></tr>';
   }
+}
+
+function renderTargetTable() {
+  const tbody = $('target-body');
+  if (!tbody) return;
+  const sub = $('target-sub');
+  if (sub) {
+    const nHeld = targetRows.filter(r => r.held).length;
+    const nTgt  = targetRows.filter(r => r.in_target).length;
+    sub.innerHTML = targetRows.length + ' names &middot; ' + nHeld + ' held &middot; ' + nTgt + ' target';
+  }
+  if (!targetRows.length) {
+    _expandedTargetTicker = null;
+    tbody.innerHTML = '<tr><td colspan="5" class="tbl-empty">No holdings or target yet</td></tr>';
+    return;
+  }
+  const { col, dir } = targetSort;
+  const keyOf = (r) => (col === 'held' ? (r.held ? 1 : 0)
+                      : col === 'in_target' ? (r.in_target ? 1 : 0)
+                      : col === 'trade' ? r.tradeOrder
+                      : r[col]);
+  const rows = targetRows.slice().sort((a, b) => {
+    const av = keyOf(a), bv = keyOf(b);
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1; if (bv == null) return -1;
+    return (av < bv ? -1 : av > bv ? 1 : 0) * dir;
+  });
+
+  const mark = '<span class="tgt-x" title="yes">&#10003;</span>';
+  const nomark = '<span class="tgt-no">&middot;</span>';
+  tbody.innerHTML = rows.map(r => {
+    const expandedCls = _expandedTargetTicker === r.ticker ? ' expanded' : '';
+    const heldCls = r.held ? ' row-held' : '';
+    return '<tr class="rank-row' + heldCls + expandedCls + '" id="tgt-row-' + esc(r.ticker)
+        + '" onclick="toggleTargetDetail(\'' + esc(r.ticker) + '\',this)">'
+      + '<td><span class="t-rank">' + (r.rank != null ? r.rank : '—') + '</span>' + rankArrowHtml(r) + '</td>'
+      + '<td><span class="t-ticker">' + esc(r.ticker) + '</span></td>'
+      + '<td class="tgt-cell">' + (r.held ? mark : nomark) + '</td>'
+      + '<td class="tgt-cell">' + (r.in_target ? mark : nomark) + '</td>'
+      + '<td><span class="trade-tag ' + r.tradeCls + '">' + r.tradeLabel + '</span></td>'
+      + '</tr>';
+  }).join('');
+
+  if (_expandedTargetTicker !== null) {
+    const mainRow = document.getElementById('tgt-row-' + _expandedTargetTicker);
+    const row = targetRows.find(r => r.ticker === _expandedTargetTicker);
+    if (mainRow && row) _insertDetailRow(mainRow, row.rec, 5);
+    else _expandedTargetTicker = null;
+  }
+}
+
+function toggleTargetDetail(ticker, rowEl) {
+  if (_expandedTargetTicker === ticker) {
+    _expandedTargetTicker = null;
+    const next = rowEl.nextSibling;
+    if (next && next.classList && next.classList.contains('detail-row')) next.remove();
+    rowEl.classList.remove('expanded');
+    return;
+  }
+  if (_expandedTargetTicker !== null) {
+    const prev = document.getElementById('detail-row-' + _expandedTargetTicker);
+    if (prev) prev.remove();
+    const prevMain = document.getElementById('tgt-row-' + _expandedTargetTicker);
+    if (prevMain) prevMain.classList.remove('expanded');
+  }
+  _expandedTargetTicker = ticker;
+  rowEl.classList.add('expanded');
+  const row = targetRows.find(r => r.ticker === ticker);
+  if (row) _insertDetailRow(rowEl, row.rec, 5);
 }
 
 async function syncAlpaca() {

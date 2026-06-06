@@ -903,21 +903,22 @@ _HTML = r"""<!DOCTYPE html>
     </div>
   </section>
 
-  <!-- TARGET PORTFOLIO (informational) -->
+  <!-- TARGET — held ∪ target portfolio with trade decisions -->
   <section id="screen-target" class="screen">
     <div class="screen-inner">
       <div class="filter-bar sticky-bar">
-        <span class="count-badge" id="target-sub">Latest build &mdash; informational only</span>
+        <span class="count-badge" id="target-sub">Holdings &amp; target</span>
       </div>
       <div class="tbl-scroll">
         <table>
           <thead><tr>
-            <th>TICKER</th>
-            <th>COMPANY</th>
-            <th>CLUSTER</th>
-            <th>WEIGHT</th>
+            <th onclick="sortTarget('rank')" id="tgh-rank" title="Rank (with trend arrow)">#</th>
+            <th onclick="sortTarget('ticker')" id="tgh-ticker">TICKER</th>
+            <th onclick="sortTarget('held')" id="tgh-held" title="Currently held at the broker">HELD</th>
+            <th onclick="sortTarget('in_target')" id="tgh-target" title="In today's target portfolio">TARGET</th>
+            <th onclick="sortTarget('trade')" id="tgh-trade" title="Trade decision">TRADE</th>
           </tr></thead>
-          <tbody id="target-body"><tr><td colspan="4" class="tbl-empty">Loading&#8230;</td></tr></tbody>
+          <tbody id="target-body"><tr><td colspan="5" class="tbl-empty">Loading&#8230;</td></tr></tbody>
         </table>
       </div>
     </div>

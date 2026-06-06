@@ -1,9 +1,13 @@
-"""Structure tests for the informational Target Portfolio panel (4th UI panel).
+"""Structure tests for the redesigned TARGET tab.
 
-These mirror the existing dashboard tests: they read the HTML/JS source as text
-and assert the panel's wiring is present, so an accidental removal regresses in CI.
-The panel shows ticker, company name, correlation cluster, and weight for the
-latest target portfolio build (read-only — no trade controls).
+The tab is a sortable table of the held∪target union with per-ticker trade
+decisions, mirroring the screener (rank + trend arrow + click-through detail):
+
+    #  ·  TICKER  ·  HELD  ·  TARGET  ·  TRADE
+
+These read the HTML/JS source as text and assert the wiring is present so an
+accidental regression is caught in CI. Behavioural rendering is covered by
+tests/dashboard/test_target_tab_playwright.py.
 """
 from pathlib import Path
 
@@ -17,6 +21,11 @@ def _read(p):
     return p.read_text()
 
 
+def _target_section(html: str) -> str:
+    start = html.index('id="screen-target"')
+    return html[start:start + 1600]
+
+
 def test_nav_button_present():
     html = _read(DASH_MAIN)
     assert 'id="nav-target"' in html
@@ -24,44 +33,47 @@ def test_nav_button_present():
     assert ">Target<" in html
 
 
-def test_screen_section_and_columns_present():
-    html = _read(DASH_MAIN)
-    assert 'id="screen-target"' in html
-    assert 'id="target-body"' in html
-    for col in (">TICKER<", ">COMPANY<", ">CLUSTER<", ">WEIGHT<"):
-        assert col in html, f"missing column header {col}"
+def test_section_has_sortable_columns():
+    section = _target_section(_read(DASH_MAIN))
+    assert 'id="target-body"' in section
+    # Five sortable columns, each wired to sortTarget (blue-triangle sort).
+    for col, header in (("rank", "#"), ("ticker", "TICKER"), ("held", "HELD"),
+                        ("in_target", "TARGET"), ("trade", "TRADE")):
+        assert f"sortTarget('{col}')" in section, f"missing sort hook for {col}"
+        assert f">{header}<" in section, f"missing column header {header}"
+    for hid in ("tgh-rank", "tgh-ticker", "tgh-held", "tgh-target", "tgh-trade"):
+        assert f'id="{hid}"' in section, f"missing sortable header id {hid}"
 
 
-def test_panel_is_informational_no_trade_controls():
-    """The Target panel must be read-only — no approve/reject/trade controls.
-    Scope the check to the screen-target section."""
-    html = _read(DASH_MAIN)
-    start = html.index('id="screen-target"')
-    section = html[start:start + 1400]
+def test_target_is_read_only_view():
+    """The Target tab is a view (click → detail), not a trade surface — no
+    approve/reject controls in the section."""
+    section = _target_section(_read(DASH_MAIN))
     for forbidden in ("approveTrade", "rejectTrade", "btn-approve", 'onclick="approve'):
-        assert forbidden not in section, f"target panel must be read-only, found {forbidden}"
+        assert forbidden not in section, f"target tab must be read-only, found {forbidden}"
+    # Rows are click-through to the shared detail card.
+    assert "toggleTargetDetail" in _read(DASH_JS)
 
 
-def test_js_loader_and_hook():
+def test_js_target_table_wiring():
     js = _read(DASH_JS)
-    assert "async function loadTargetPortfolio" in js
-    assert "/api/target-portfolio" in js
     assert "name === 'target'" in js
-    # renders the four informational fields
-    assert "cluster_id" in js
-    assert "h.ticker" in js and "h.name" in js and "h.weight" in js
-
-
-def test_dashboard_proxy_endpoint_present():
-    main = _read(DASH_MAIN)
-    assert '@app.get("/api/target-portfolio")' in main
-    # proxies the builder's latest target, not the api service
-    assert "PORTFOLIO_URL" in main
-    assert "/portfolio/latest" in main
+    for fn in ("async function loadTargetPortfolio", "function buildTargetRows",
+               "function sortTarget", "function renderTargetTable",
+               "function toggleTargetDetail"):
+        assert fn in js, f"missing {fn}"
+    # Union sourced from delta intents + screener rankData (not the old weight list).
+    assert "deltaData" in js and "rankData" in js
+    assert "TARGET_TRADE" in js                 # action → label/held/target map
+    assert "rankArrowHtml" in js                # same trend arrow as the screener
+    # The old informational fetch/fields are gone.
+    assert "/api/target-portfolio" not in js
+    assert "h.weight" not in js
 
 
 def test_builder_persists_and_returns_cluster_and_name():
+    # Unchanged builder behaviour the screener/detail still rely on.
     pb = _read(PB_MAIN)
-    assert "cluster_id=EXCLUDED.cluster_id" in pb  # persisted on insert
-    assert "LEFT JOIN names n" in pb               # company name join
-    assert "ph.cluster_id" in pb                   # returned by /portfolio/latest
+    assert "cluster_id=EXCLUDED.cluster_id" in pb
+    assert "LEFT JOIN names n" in pb
+    assert "ph.cluster_id" in pb
