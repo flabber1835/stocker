@@ -1007,6 +1007,37 @@ walk-forward, net of costs, against this static baseline before trusting a
 rotation scheme — the literature predicts the static vector is hard to beat and any
 rotation "edge" lives only in the momentum-de-risking cells.
 
+## Alpha-validation harness (backtester)
+
+"Does the system generate alpha?" is an EVIDENCE question, not a construction one
+— a factor-ranked, greedily-selected, capped book always produces a plausible
+equity curve. `services/backtester/app/validation.py` provides the statistics that
+separate skill from selection luck, exposed at `POST /validate`:
+
+```text
+deflated_sharpe_ratio   — PSR vs an N-trials-inflated null (Bailey & López de Prado).
+                          Gate: DSR > 0.95. Needs an HONEST n_trials (every factor
+                          weight / cap / threshold / universe variant ever tried) and
+                          the variance of trial Sharpes; punishes negative skew + fat
+                          tails. Without n_trials the backtest Sharpe is uninterpretable.
+probability_of_backtest_overfitting — CSCV: how often the in-sample-best config lands
+                          below the OOS median. ≈0.5+ = overfit, low = generalizes.
+min_track_record_length — observations needed to prove true Sharpe > benchmark; blows
+                          up as the edge shrinks (months won't do at modest Sharpe).
+min_backtest_length     — years below which an in-sample Sharpe is expected from
+                          n_trials alone (Bailey-Borwein-LdP-Zhu).
+factor_alpha            — OLS attribution: regress strategy EXCESS returns on FF5 +
+                          momentum (+ sector). If the alpha intercept is not positive
+                          AND significant (t ≥ 3, Harvey-Liu-Zhu) net of costs, the
+                          book is a cheap-to-replicate factor TILT, not stock-picking
+                          alpha. load_factor_returns_csv() ingests a Ken-French file
+                          (pass scale=0.01 for percent→decimal).
+```
+
+The bar to claim alpha: DSR > 0.95 AND FF5+momentum alpha t ≥ 3 net of realistic
+costs, established out-of-sample with low PBO, stable across regimes, then paper
+(≥ MinTRL) then small live. Pre-register the thresholds before looking at results.
+
 ## Design Decision Rule
 
 Whenever a design decision is made, it must be documented in the design docs before implementation begins.

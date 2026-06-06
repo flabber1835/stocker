@@ -12,6 +12,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.simulate import run_backtest
+from app import validation
+from pydantic import BaseModel
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 from stock_strategy_shared.tracing import log_step, write_trace_file, mark_orphaned_runs_failed
@@ -359,6 +361,39 @@ async def _run_backtest_bg(
         except Exception:
             traceback.print_exc()
             print(f"[backtester] WARNING: failed to update DB with failure status for run {run_id}")
+
+
+class ValidateRequest(BaseModel):
+    period_returns: list[float]            # strategy per-period EXCESS returns
+    n_trials: int = 1                      # how many configs were tried (HONEST count)
+    var_trial_sr: float = 0.0              # variance of per-obs Sharpe across trials
+    periods_per_year: float = 12.0
+    sr_benchmark_annual: float = 0.0
+    factor_returns: list[list[float]] | None = None   # optional [T,k] for attribution
+
+
+@app.post("/validate")
+async def validate(req: ValidateRequest):
+    """Alpha-validation verdict for a return series. Returns the Deflated Sharpe
+    (with the DSR>0.95 gate), MinTRL, MinBTL, and — if factor_returns are
+    supplied (e.g. Fama-French 5 + momentum) — the factor-model alpha intercept
+    and its t-stat, so you can see whether the edge is real alpha or just factor
+    beta. See validation.load_factor_returns_csv to source the factor matrix.
+    """
+    if len(req.period_returns) < 3:
+        raise HTTPException(status_code=400, detail="need >= 3 return observations")
+    out = {
+        "summary": validation.validation_summary(
+            req.period_returns, req.n_trials, req.var_trial_sr,
+            req.periods_per_year, req.sr_benchmark_annual,
+        )
+    }
+    if req.factor_returns is not None:
+        try:
+            out["attribution"] = validation.factor_alpha(req.period_returns, req.factor_returns)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"attribution failed: {exc}")
+    return out
 
 
 @app.post("/jobs/backtest")
