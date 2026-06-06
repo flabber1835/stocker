@@ -925,6 +925,44 @@ if there isn't enough aligned history for β, `excess_dd` is None and only the
 absolute floor applies — so a data-poor name is never wrongly force-sold. Set
 `DRAWDOWN_EXCESS_PCT=0` to revert to absolute-only.
 
+### Volatility-scaled excess threshold (ON by default)
+
+**Decision (refines the flat `DRAWDOWN_EXCESS_PCT`).** A single market-relative
+limit is still *volatility*-blind: a −15% idiosyncratic excess is a genuine alarm
+for a sleepy staple but ordinary noise for a high-flyer that swings ±15% in a
+week. The excess limit is therefore made **per-ticker**, scaled by the stock's own
+idiosyncratic volatility:
+
+```text
+excess_limit_i = clamp( DRAWDOWN_EXCESS_PCT × idio_vol_i / DRAWDOWN_VOL_ANCHOR,
+                        DRAWDOWN_EXCESS_MIN, DRAWDOWN_EXCESS_MAX )
+exclude if excess_dd_i ≤ −excess_limit_i
+```
+
+`idio_vol_i` is the stock's **annualized residual volatility** — the stdev of
+`r_stock − β·r_spy` over `DRAWDOWN_BETA_LOOKBACK` days × √252, i.e. the market
+component is stripped out so it measures *stock-specific* turbulence, consistent
+with the beta-adjusted excess it gates. `DRAWDOWN_VOL_ANCHOR` (default 0.35) is the
+residual vol of a "typical" name: a stock at the anchor keeps the base limit, a
+calm name (lower idio_vol) gets a **tighter** limit (flagged on a smaller drop),
+a wild one gets **more rope**. The result is clamped to
+`[DRAWDOWN_EXCESS_MIN=0.10, DRAWDOWN_EXCESS_MAX=0.30]` so the scaling can never
+produce an absurd limit.
+
+**Defaults / safety.** `DRAWDOWN_VOL_SCALING=true` by default (set both in code and
+`docker-compose.yml`). When `idio_vol` is unavailable (insufficient aligned
+history), `scaled_excess_threshold` falls back to the flat `DRAWDOWN_EXCESS_PCT`,
+so a data-poor name is never given a weird threshold. The absolute floor
+(`DRAWDOWN_BACKSTOP_PCT`) is unchanged and still market-blind. Set
+`DRAWDOWN_VOL_SCALING=false` to revert to the flat percentage. The exclusion
+reason string shows the realized per-ticker limit and σ (e.g.
+`limit -12% @ σ28%`) for transparency.
+
+**Implementation.** `beta_and_idio_vol` (returns β and residual vol in one pass)
+and `scaled_excess_threshold` in `services/llm-vetter/app/drawdown.py`;
+`excess_drawdown` now carries `idio_vol` through to the caller, which computes the
+per-ticker limit in the backstop block.
+
 ## Design Decision Rule
 
 Whenever a design decision is made, it must be documented in the design docs before implementation begins.

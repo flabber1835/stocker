@@ -9,7 +9,13 @@ import math
 
 import pytest
 
-from app.drawdown import recent_drawdown, estimate_beta, excess_drawdown
+from app.drawdown import (
+    recent_drawdown,
+    estimate_beta,
+    excess_drawdown,
+    beta_and_idio_vol,
+    scaled_excess_threshold,
+)
 
 
 def _series_from_returns(start: float, returns: list[float]) -> list[float]:
@@ -105,3 +111,76 @@ def test_beta_clipped_to_floor():
     out = excess_drawdown(stock_full, spy_full, window=4, beta_lookback=120, beta_floor=0.0)
     assert out["beta"] == 0.0                  # clipped from negative
     assert out["excess_dd"] == pytest.approx(out["raw_dd"], abs=1e-9)  # no market credit
+
+
+# ── beta_and_idio_vol: residual (idiosyncratic) volatility ────────────────────
+
+def test_idio_vol_zero_when_stock_is_pure_beta():
+    """If the stock is EXACTLY beta*SPY every day there is no residual → idio_vol≈0."""
+    rng = [0.01, -0.02, 0.015, -0.005, 0.02, -0.01, 0.008, -0.012] * 4
+    spy = _series_from_returns(100.0, rng)
+    stock = _series_from_returns(50.0, [1.5 * r for r in rng])
+    beta, idio_vol = beta_and_idio_vol(stock, spy, lookback=120, min_observations=10)
+    assert beta == pytest.approx(1.5, abs=1e-6)
+    assert idio_vol == pytest.approx(0.0, abs=1e-6)
+
+
+def test_idio_vol_positive_when_stock_has_own_noise():
+    """Stock = beta*SPY + idiosyncratic noise → idio_vol > 0 and annualized."""
+    rng = [0.01, -0.02, 0.015, -0.005, 0.02, -0.01, 0.008, -0.012] * 6
+    noise = [0.01, -0.01] * (len(rng) // 2)
+    spy = _series_from_returns(100.0, rng)
+    stock = _series_from_returns(50.0, [r + noise[i] for i, r in enumerate(rng)])
+    beta, idio_vol = beta_and_idio_vol(stock, spy, lookback=200, min_observations=10)
+    assert idio_vol is not None and idio_vol > 0
+    # Daily residual ~1% → annualized ≈ 0.01 * sqrt(252) ≈ 0.16; sanity range.
+    assert 0.05 < idio_vol < 0.40
+
+
+def test_idio_vol_none_when_insufficient_history():
+    spy = [100.0, 101.0, 100.5]
+    stock = [50.0, 50.5, 50.2]
+    beta, idio_vol = beta_and_idio_vol(stock, spy, min_observations=20)
+    assert beta is None and idio_vol is None
+
+
+def test_excess_drawdown_exposes_idio_vol():
+    """excess_drawdown carries idio_vol through for the vol-scaled threshold."""
+    base = [0.003, -0.003] * 60
+    spy_full = _series_from_returns(100.0, base + [0.0, 0.0, 0.0])
+    stock_full = _series_from_returns(100.0, base + [-0.08, -0.08, -0.05])
+    out = excess_drawdown(stock_full, spy_full, window=5, beta_lookback=120)
+    assert "idio_vol" in out
+    assert out["idio_vol"] is not None and out["idio_vol"] >= 0
+
+
+# ── scaled_excess_threshold: the vol-scaled per-ticker limit ───────────────────
+
+def test_scaled_threshold_typical_vol_keeps_base():
+    """idio_vol == anchor → limit is exactly the base."""
+    assert scaled_excess_threshold(0.35, 0.15, anchor=0.35) == pytest.approx(0.15)
+
+
+def test_scaled_threshold_calm_name_tighter():
+    """Half the anchor vol → half the base limit (but not below the floor)."""
+    # base 0.15 * (0.175/0.35) = 0.075 → clamped up to lo=0.10
+    assert scaled_excess_threshold(0.175, 0.15, anchor=0.35, lo=0.10, hi=0.30) == pytest.approx(0.10)
+    # base 0.30 * (0.175/0.35) = 0.15, above lo → unclamped
+    assert scaled_excess_threshold(0.175, 0.30, anchor=0.35, lo=0.10, hi=0.30) == pytest.approx(0.15)
+
+
+def test_scaled_threshold_wild_name_more_rope_capped():
+    """High vol loosens the limit, but it is capped at hi."""
+    # base 0.15 * (1.40/0.35) = 0.60 → clamped to hi=0.30
+    assert scaled_excess_threshold(1.40, 0.15, anchor=0.35, lo=0.10, hi=0.30) == pytest.approx(0.30)
+    # base 0.15 * (0.70/0.35) = 0.30 → exactly at hi
+    assert scaled_excess_threshold(0.70, 0.15, anchor=0.35, lo=0.10, hi=0.30) == pytest.approx(0.30)
+
+
+def test_scaled_threshold_falls_back_to_base_when_idio_vol_unknown():
+    assert scaled_excess_threshold(None, 0.15, anchor=0.35) == 0.15
+
+
+def test_scaled_threshold_falls_back_to_base_on_invalid_anchor():
+    assert scaled_excess_threshold(0.50, 0.15, anchor=0.0) == 0.15
+    assert scaled_excess_threshold(0.50, 0.15, anchor=None) == 0.15

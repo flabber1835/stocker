@@ -578,6 +578,15 @@ Falling-knife backstop — TWO triggers, either fires:
    trips it. Beta is an OLS regression of the stock on SPY (DRAWDOWN_BETA_LOOKBACK,
    default 120 days), clipped to [0,3]. Set DRAWDOWN_EXCESS_PCT=0 to disable the
    beta path (revert to absolute-only).
+   VOL-SCALED (DRAWDOWN_VOL_SCALING, default true): the excess limit is per-ticker,
+   = DRAWDOWN_EXCESS_PCT × (idio_vol / DRAWDOWN_VOL_ANCHOR) clamped to
+   [DRAWDOWN_EXCESS_MIN 0.10, DRAWDOWN_EXCESS_MAX 0.30]. idio_vol is the stock's
+   annualized residual (market-stripped) vol; anchor 0.35 = a typical name keeps
+   the base limit, a calm name gets a TIGHTER limit, a wild one MORE rope. Falls
+   back to flat DRAWDOWN_EXCESS_PCT when idio_vol is unavailable (insufficient
+   history). The exclusion reason shows the realized limit + σ (e.g. limit -12% @
+   σ28%). Set DRAWDOWN_VOL_SCALING=false to revert to the flat percentage. The
+   absolute floor (#2) is unaffected — still market-blind and vol-blind.
 2. Absolute FLOOR (DRAWDOWN_BACKSTOP_PCT, default 0.25): raw peak-to-now drop,
    market-blind. Set ABOVE the excess limit so the excess governs moderate drops
    (a name the market dragged down ~20% has excess < 15% → KEPT) and the floor

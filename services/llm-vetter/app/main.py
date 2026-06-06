@@ -13,7 +13,7 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy import text
 
-from app.drawdown import recent_drawdown, excess_drawdown
+from app.drawdown import recent_drawdown, excess_drawdown, scaled_excess_threshold
 from app.vetter import fetch_ticker_data, vet_single_ticker
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
@@ -29,6 +29,11 @@ AV_API_KEY           = os.getenv("AV_API_KEY", "")
 TAVILY_API_KEY       = os.getenv("TAVILY_API_KEY", "")
 ARTIFACTS_PATH       = os.getenv("ARTIFACTS_PATH", "")
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
+def _env_bool(name: str, default: bool) -> bool:
+    v = os.getenv(name)
+    return default if v is None else v.strip().lower() in ("1", "true", "yes", "on")
+
+
 # Falling-knife ABSOLUTE FLOOR: ANY candidate (held OR not) whose price is more
 # than this fraction below its 21-trading-day peak is force-excluded even if the
 # LLM said keep — a true-collapse guard that fires regardless of the market.
@@ -49,6 +54,17 @@ DRAWDOWN_WINDOW_DAYS  = int(os.getenv("DRAWDOWN_WINDOW_DAYS", "21"))
 # path (revert to absolute-only).
 DRAWDOWN_EXCESS_PCT   = float(os.getenv("DRAWDOWN_EXCESS_PCT", "0.15"))
 DRAWDOWN_BETA_LOOKBACK = int(os.getenv("DRAWDOWN_BETA_LOOKBACK", "120"))
+# Volatility-scaled excess threshold (ON by default). The flat DRAWDOWN_EXCESS_PCT
+# is vol-blind — too sensitive for calm names, too lax for wild ones. When enabled,
+# the per-ticker excess limit = DRAWDOWN_EXCESS_PCT × (idio_vol / DRAWDOWN_VOL_ANCHOR),
+# clamped to [MIN, MAX]. idio_vol is the stock's annualized residual (market-stripped)
+# vol; anchor 0.35 means a typical-vol name keeps the base limit. Falls back to the
+# flat base when idio_vol is unavailable (insufficient history). Set
+# DRAWDOWN_VOL_SCALING=false to revert to the flat percentage.
+DRAWDOWN_VOL_SCALING  = _env_bool("DRAWDOWN_VOL_SCALING", True)
+DRAWDOWN_VOL_ANCHOR   = float(os.getenv("DRAWDOWN_VOL_ANCHOR", "0.35"))
+DRAWDOWN_EXCESS_MIN   = float(os.getenv("DRAWDOWN_EXCESS_MIN", "0.10"))
+DRAWDOWN_EXCESS_MAX   = float(os.getenv("DRAWDOWN_EXCESS_MAX", "0.30"))
 
 # Drawdown-only mode. When false, the vetter skips ALL LLM + Tavily + AV-news
 # work and every candidate defaults to keep — the deterministic falling-knife
@@ -56,10 +72,6 @@ DRAWDOWN_BETA_LOOKBACK = int(os.getenv("DRAWDOWN_BETA_LOOKBACK", "120"))
 # portfolio-builder vetter-run requirement stay intact (a vetter_run row is still
 # written, exclusions still feed portfolio-builder), so this is a safe, reversible
 # way to run without the LLM. Flip back to true (or unset) to re-enable the LLM.
-def _env_bool(name: str, default: bool) -> bool:
-    v = os.getenv(name)
-    return default if v is None else v.strip().lower() in ("1", "true", "yes", "on")
-
 VETTER_LLM_ENABLED = _env_bool("VETTER_LLM_ENABLED", True)
 
 engine: Optional[AsyncEngine] = None
@@ -667,21 +679,38 @@ async def _do_vet(
         # Data-gap names stay exempt (raw_dd None → no trigger).
         raw_dd = drawdown_map.get(ticker)
         exc_dd = excess_dd_map.get(ticker)
-        excess_hit = (DRAWDOWN_EXCESS_PCT > 0 and exc_dd is not None and exc_dd <= -DRAWDOWN_EXCESS_PCT)
+        _detail = dd_detail_map.get(ticker, {})
+        # Per-ticker excess limit. With vol-scaling ON (default) it tightens for
+        # calm names and loosens for wild ones via the stock's idiosyncratic vol;
+        # otherwise it's the flat DRAWDOWN_EXCESS_PCT. Falls back to the flat base
+        # automatically when idio_vol is unavailable (insufficient history).
+        if DRAWDOWN_VOL_SCALING and DRAWDOWN_EXCESS_PCT > 0:
+            excess_limit = scaled_excess_threshold(
+                _detail.get("idio_vol"), DRAWDOWN_EXCESS_PCT,
+                anchor=DRAWDOWN_VOL_ANCHOR, lo=DRAWDOWN_EXCESS_MIN, hi=DRAWDOWN_EXCESS_MAX,
+            )
+        else:
+            excess_limit = DRAWDOWN_EXCESS_PCT
+        excess_hit = (DRAWDOWN_EXCESS_PCT > 0 and exc_dd is not None and exc_dd <= -excess_limit)
         absolute_hit = (DRAWDOWN_BACKSTOP_PCT > 0 and raw_dd is not None and raw_dd <= -DRAWDOWN_BACKSTOP_PCT)
         if (excess_hit or absolute_hit) and not result.get("exclude"):
             result["exclude"] = True
             result["risk_type"] = "drawdown"
             _action = "drops from target (delta will exit)" if ticker in held_tickers else "entry blocked"
-            _detail = dd_detail_map.get(ticker, {})
             if excess_hit:
                 _beta = _detail.get("beta")
                 _spy = _detail.get("spy_move")
+                _iv = _detail.get("idio_vol")
+                _limit_desc = (
+                    f"limit -{excess_limit:.0%} @ σ{_iv:.0%}"
+                    if (DRAWDOWN_VOL_SCALING and _iv is not None)
+                    else f"limit -{excess_limit:.0%}"
+                )
                 trigger_desc = (
-                    f"excess {exc_dd:+.1%} (limit -{DRAWDOWN_EXCESS_PCT:.0%}) "
+                    f"excess {exc_dd:+.1%} ({_limit_desc}) "
                     f"= raw {raw_dd:+.1%} − β{_beta:.2f}×SPY {_spy:+.1%}"
                     if _beta is not None and _spy is not None
-                    else f"excess {exc_dd:+.1%} (limit -{DRAWDOWN_EXCESS_PCT:.0%})"
+                    else f"excess {exc_dd:+.1%} ({_limit_desc})"
                 )
                 flag = f"DRAWDOWN_BACKSTOP: forced exclude on {exc_dd:+.1%} beta-adjusted excess drawdown"
             else:
@@ -876,6 +905,10 @@ async def health():
         "drawdown_backstop_pct": DRAWDOWN_BACKSTOP_PCT,
         "drawdown_excess_pct": DRAWDOWN_EXCESS_PCT,
         "drawdown_beta_lookback": DRAWDOWN_BETA_LOOKBACK,
+        "drawdown_vol_scaling": DRAWDOWN_VOL_SCALING,
+        "drawdown_vol_anchor": DRAWDOWN_VOL_ANCHOR,
+        "drawdown_excess_min": DRAWDOWN_EXCESS_MIN,
+        "drawdown_excess_max": DRAWDOWN_EXCESS_MAX,
         "strategy_id": strategy.strategy_id if strategy else None,
         "config_hash": config_hash,
         "vetter_enabled": strategy.vetter.enabled,
