@@ -509,9 +509,11 @@ override / tests); the dashboard's batch "Approve Selected" now enqueues
 
 The LLM vetter can be put into a **drawdown-only mode** (`VETTER_LLM_ENABLED=false`)
 in which it skips all LLM / Tavily / Alpha-Vantage-news work and every candidate
-defaults to *keep*. The deterministic falling-knife backstop
-(`DRAWDOWN_BACKSTOP_PCT`, default 0.15 — force-exclude ANY candidate, held or not,
-more than X% below its 21-day peak) becomes the **only** exclusion signal.
+defaults to *keep*. The deterministic falling-knife backstop becomes the **only**
+exclusion signal: the beta-adjusted excess trigger (`DRAWDOWN_EXCESS_PCT`, default
+0.15) plus an absolute floor (`DRAWDOWN_BACKSTOP_PCT`, default 0.25 — set ABOVE the
+excess limit so the market-relative excess governs moderate drops and the floor
+only catches extreme routs).
 
 **Why a mode, not a chain change.** The vetter step stays mandatory and
 portfolio-builder still requires a successful `vetter_run` for today's ranking.
@@ -897,9 +899,14 @@ drawdown**, with the absolute % retained only as a floor:
 
 ```text
 excess_dd = raw_dd − beta × spy_move        (over the same peak→now span)
-exclude if  excess_dd ≤ −DRAWDOWN_EXCESS_PCT   (primary: stock-specific knife)
-         OR raw_dd    ≤ −DRAWDOWN_BACKSTOP_PCT  (floor: true collapse, market-blind)
+exclude if  excess_dd ≤ −DRAWDOWN_EXCESS_PCT   (primary: stock-specific knife, default 0.15)
+         OR raw_dd    ≤ −DRAWDOWN_BACKSTOP_PCT  (floor: true collapse, market-blind, default 0.25)
 ```
+
+The floor is set **above** the excess limit (0.25 > 0.15) on purpose: the
+market-relative excess is the primary gate for *moderate* drops (a name the market
+dragged down ~20% has excess < 15% and is **kept**), and the absolute floor only
+catches *extreme* routs (~25%+) regardless of the market.
 
 **Why.** The fixed-% drawdown was market-blind: on a broad market-down day every
 stock breaches 15% via its market beta, so the backstop dumped good names whose

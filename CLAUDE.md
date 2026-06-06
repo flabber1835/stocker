@@ -570,15 +570,24 @@ Source-of-truth / falling-knife-sells redesign (supersedes the earlier
   never treated as a crash, never force-sold.
 ```
 
-Falling-knife backstop (DRAWDOWN_BACKSTOP_PCT, default 0.15): a deterministic
-guard behind the LLM. Any candidate — held OR not — whose price is more than
-DRAWDOWN_BACKSTOP_PCT below its 21-day peak is force-excluded even if the LLM
-said keep. Set DRAWDOWN_BACKSTOP_PCT=0 to disable. (History: 0.25 originally — a
-wide band chosen by the trailing-stop / threshold-sweep analysis to avoid whipsaw
-on normal dips; tightened to 0.10, then relaxed to 0.15 as a deliberate
-risk-preference choice — a ≥15% drawdown is treated as a reason to keep a name out
-of the target, tolerating normal ~10% dips. The 3-build orphan confirmation is the
-sell-side whipsaw guard.)
+Falling-knife backstop — TWO triggers, either fires:
+1. Beta-adjusted EXCESS (PRIMARY, DRAWDOWN_EXCESS_PCT, default 0.15): excess_dd =
+   raw_dd − beta×SPY_move over the same peak→now span. Strips the market-driven
+   part of the drop so a broad market-down day (which drags every stock down via
+   beta) is NOT treated as a stock-specific knife — only an idiosyncratic decline
+   trips it. Beta is an OLS regression of the stock on SPY (DRAWDOWN_BETA_LOOKBACK,
+   default 120 days), clipped to [0,3]. Set DRAWDOWN_EXCESS_PCT=0 to disable the
+   beta path (revert to absolute-only).
+2. Absolute FLOOR (DRAWDOWN_BACKSTOP_PCT, default 0.25): raw peak-to-now drop,
+   market-blind. Set ABOVE the excess limit so the excess governs moderate drops
+   (a name the market dragged down ~20% has excess < 15% → KEPT) and the floor
+   only catches extreme routs (~25%+). Set 0 to disable.
+
+Any candidate — held OR not — that trips either trigger is force-excluded even if
+the LLM said keep. (History: fixed absolute 0.25 → 0.10 → 0.15, then replaced as
+PRIMARY by the beta-adjusted excess (0.15) with the absolute raised to 0.25 as the
+extreme-collapse floor. The 3-build orphan confirmation is the sell-side whipsaw
+guard. Data-gap names — no recent prices / no beta — fall back to the floor only.)
 
 Must not:
 

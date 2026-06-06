@@ -29,22 +29,24 @@ AV_API_KEY           = os.getenv("AV_API_KEY", "")
 TAVILY_API_KEY       = os.getenv("TAVILY_API_KEY", "")
 ARTIFACTS_PATH       = os.getenv("ARTIFACTS_PATH", "")
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
-# Falling-knife backstop: ANY candidate (held OR not) whose price is more than
-# this fraction below its 21-trading-day peak is force-excluded even if the LLM
-# said keep. Deterministic safety net behind the prompt signal.
-# Set to 0 (or >=1) to disable. Default 0.25 — wide, per the A/B/threshold sweep
-# (tighter stops whipsaw on normal dips). Held names are NOT exempt: a drawdown
-# exclusion drops the name from the fresh target and the delta engine orphan-exits
-# it after confirmation_days builds (source-of-truth / orphan-exit redesign). The
-# 3-build confirmation is the sell-side whipsaw guard. Data-gap names stay exempt.
-DRAWDOWN_BACKSTOP_PCT = float(os.getenv("DRAWDOWN_BACKSTOP_PCT", "0.15"))
+# Falling-knife ABSOLUTE FLOOR: ANY candidate (held OR not) whose price is more
+# than this fraction below its 21-trading-day peak is force-excluded even if the
+# LLM said keep — a true-collapse guard that fires regardless of the market.
+# Deliberately set ABOVE the beta-adjusted excess limit (DRAWDOWN_EXCESS_PCT) so
+# the market-relative excess is the PRIMARY gate for moderate drops and the floor
+# only catches extreme collapses (a name the market dragged down ~20% is kept by
+# the excess; only a ~25%+ rout trips the floor). Set 0 (or >=1) to disable.
+# Held names are NOT exempt: a drawdown exclusion drops the name from the fresh
+# target and the delta engine orphan-exits it after confirmation_days builds
+# (source-of-truth / orphan-exit redesign). Data-gap names stay exempt.
+DRAWDOWN_BACKSTOP_PCT = float(os.getenv("DRAWDOWN_BACKSTOP_PCT", "0.25"))
 DRAWDOWN_WINDOW_DAYS  = int(os.getenv("DRAWDOWN_WINDOW_DAYS", "21"))
-# Beta-adjusted (market-relative) falling knife. excess_dd = raw_dd - beta*SPY_move
-# over the same peak->now span, so a broad market-down day (which drags every stock
-# down via beta) does NOT look like a stock-specific knife — only an IDIOSYNCRATIC
-# drop trips it. This is the primary trigger; DRAWDOWN_BACKSTOP_PCT stays as an
-# absolute FLOOR that still catches a true collapse regardless of the market.
-# Set DRAWDOWN_EXCESS_PCT=0 to disable the beta path (revert to absolute-only).
+# Beta-adjusted (market-relative) falling knife — the PRIMARY trigger.
+# excess_dd = raw_dd - beta*SPY_move over the same peak->now span, so a broad
+# market-down day (which drags every stock down via beta) does NOT look like a
+# stock-specific knife — only an IDIOSYNCRATIC drop trips it. The absolute floor
+# above is the wider safety net. Set DRAWDOWN_EXCESS_PCT=0 to disable the beta
+# path (revert to absolute-only).
 DRAWDOWN_EXCESS_PCT   = float(os.getenv("DRAWDOWN_EXCESS_PCT", "0.15"))
 DRAWDOWN_BETA_LOOKBACK = int(os.getenv("DRAWDOWN_BETA_LOOKBACK", "120"))
 
