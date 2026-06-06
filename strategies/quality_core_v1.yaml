@@ -28,6 +28,7 @@ factor_engine:
   pe_pb_cap: 50.0            # cap PE and PB before computing yields; beyond this the signal is flat
   spy_price_lookback_days: 600  # calendar days of SPY history loaded for regime detection
   quality_use_gross_profitability: true  # quality profitability leg = gross-profits/assets (Novy-Marx), not ROE; falls back to ROE where total_assets is missing
+  momentum_method: residual_riskadj  # 12-1 momentum stripped of the market (idiosyncratic, Blitz-Huij-Martens) AND divided by formation vol (Sharpe-like) — the cross-sectional analogue of vol-scaled/residual momentum; ~2x Sharpe + far smaller crash tails vs raw. Set 'raw' to revert.
   # industry_neutral_factors defaults to [value, quality] (sector-neutral ranking); see schema
 
 regime_detection:

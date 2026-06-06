@@ -115,6 +115,7 @@ def compute_momentum(
     prices: pd.DataFrame,
     short_window: int = 21,
     long_window: int = 252,
+    method: str = "raw",
 ) -> pd.Series:
     # prices must contain only trading-day rows (no weekend/holiday NaN rows);
     # iloc[-long_window] and iloc[-short_window] are positional, so calendar rows would shorten the look-back.
@@ -135,7 +136,47 @@ def compute_momentum(
     # Guard: replace any inf/-inf that slipped through with NaN
     momentum = momentum.replace([float("inf"), float("-inf")], float("nan"))
     momentum.name = "momentum"
-    return momentum
+
+    if method == "raw":
+        return momentum
+
+    # ── Enhanced momentum: residual and/or risk-adjusted ─────────────────────
+    # Operate on daily returns over the SAME 12-1 formation window (T-long .. T-short,
+    # i.e. skipping the last month). Memory-light: the formation slice is ~(long-short)
+    # rows × N tickers (a few MB at universe scale), built once and freed on return.
+    form = prices.iloc[-(long_window + 1):-short_window]      # prices spanning the window
+    rets = form.pct_change().iloc[1:]                          # daily returns within it
+    rets = rets.replace([float("inf"), float("-inf")], float("nan"))
+    if len(rets) < 2:
+        return momentum  # not enough history → fall back to raw
+
+    # Formation-period idiosyncratic volatility (per ticker), used by the risk-adjust legs.
+    vol = rets.std(axis=0, ddof=1)
+    vol = vol.where(vol > 0)  # 0 vol → NaN (avoid divide-by-zero)
+
+    signal = momentum
+    if method in ("residual", "residual_riskadj"):
+        # Market proxy = equal-weight cross-sectional mean daily return (no SPY plumbing).
+        mkt = rets.mean(axis=1)
+        m = mkt.to_numpy()
+        m_dem = m - m.mean()
+        var_m = float((m_dem * m_dem).mean())
+        if var_m > 0:
+            R = rets.to_numpy()                                # (W, N)
+            R_dem = R - np.nanmean(R, axis=0)
+            beta = np.nansum(R_dem * m_dem[:, None], axis=0) / (var_m * R.shape[0])
+            resid = R - beta[None, :] * m[:, None]             # idiosyncratic daily returns
+            resid_cum = np.nansum(resid, axis=0)               # cumulative residual return
+            signal = pd.Series(resid_cum, index=rets.columns, name="momentum")
+            # A ticker with no usable returns this window → NaN, not 0.
+            signal = signal.where(rets.notna().any(axis=0))
+        # var_m == 0 (degenerate flat market) → keep raw momentum as `signal`.
+
+    if method in ("risk_adjusted", "residual_riskadj"):
+        signal = (signal / vol).replace([float("inf"), float("-inf")], float("nan"))
+
+    signal.name = "momentum"
+    return signal
 
 
 def compute_low_volatility(prices: pd.DataFrame, window: int = 252) -> pd.Series:
@@ -370,7 +411,7 @@ def compute_all_factors(
     pivot = prices_long.pivot(index="date", columns="ticker", values="adjusted_close")
     pivot = pivot.sort_index()
 
-    momentum_raw = compute_momentum(pivot, short_window=cfg.momentum_short_window, long_window=cfg.momentum_long_window)
+    momentum_raw = compute_momentum(pivot, short_window=cfg.momentum_short_window, long_window=cfg.momentum_long_window, method=cfg.momentum_method)
     low_vol_raw = compute_low_volatility(pivot, window=cfg.volatility_window)
     del pivot  # the wide date×ticker matrix is no longer needed — free it before ranking
     liquidity_raw = compute_liquidity(prices_long, window=cfg.liquidity_window)

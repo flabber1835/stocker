@@ -130,6 +130,28 @@ class FactorEngineConfig(BaseModel):
                     "Falls back to ROE when gross_profit/total_assets are absent. "
                     "False = legacy ROE + inverse-leverage composite."
     )
+    momentum_method: str = Field(
+        default="raw",
+        description="How the momentum factor is computed before percentile ranking. "
+                    "'raw' = plain 12-1 price return (Jegadeesh-Titman). "
+                    "'risk_adjusted' = raw / formation-period volatility (Sharpe-like; "
+                    "penalizes high-vol momentum, the names prone to momentum crashes). "
+                    "'residual' = cumulative residual return after stripping the market "
+                    "(equal-weight cross-sectional mean) — idiosyncratic momentum "
+                    "(Blitz-Huij-Martens), far smaller crash tails. "
+                    "'residual_riskadj' = residual / formation vol (both effects; the "
+                    "cross-sectional analogue of vol-scaled/residual momentum). "
+                    "Raw is the schema default for back-compat; quality_core_v1 opts into "
+                    "residual_riskadj. Falls back to raw when there isn't enough history."
+    )
+
+    @field_validator("momentum_method")
+    @classmethod
+    def _valid_momentum_method(cls, v: str) -> str:
+        allowed = {"raw", "risk_adjusted", "residual", "residual_riskadj"}
+        if v not in allowed:
+            raise ValueError(f"momentum_method must be one of {sorted(allowed)}, got {v!r}")
+        return v
 
     @field_validator("industry_neutral_factors")
     @classmethod

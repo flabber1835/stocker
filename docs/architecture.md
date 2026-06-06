@@ -1007,6 +1007,34 @@ walk-forward, net of costs, against this static baseline before trusting a
 rotation scheme — the literature predicts the static vector is hard to beat and any
 rotation "edge" lives only in the momentum-de-risking cells.
 
+## Design Decision: enhanced momentum (residual + risk-adjusted)
+
+**Decision.** The momentum factor is configurable via `FactorEngineConfig.
+momentum_method`; `quality_core_v1` uses `residual_riskadj`. Plain 12-1 price
+momentum is the highest-turnover, most crash-prone factor, and the research with
+the strongest, most cost-robust evidence is *risk-managing* it, not adding new
+factors (Barroso-Santa-Clara "Momentum Has Its Moments", Sharpe 0.53→0.97;
+Blitz-Huij-Martens "Residual Momentum", Sharpe ≈ doubles; Daniel-Moskowitz).
+
+Pure portfolio-level vol-scaling doesn't map onto a *cross-sectional* z-score
+ranker, so we implement the cross-sectional analogues, computed over the same 12-1
+formation window:
+
+```text
+raw              — plain Jegadeesh-Titman 12-1 price return (schema default)
+risk_adjusted    — raw / formation-period volatility (Sharpe-like; penalizes the
+                   high-vol names that drive momentum crashes)
+residual         — cumulative residual return after stripping the market (the
+                   equal-weight cross-sectional mean daily return) — idiosyncratic
+                   momentum, far smaller crash tails; no SPY plumbing needed
+residual_riskadj — residual / formation vol (both effects; quality_core_v1 default)
+```
+
+Memory-light (the formation-window return slice is a few MB at universe scale,
+built once and freed). Falls back to raw when there isn't enough history or the
+market proxy is degenerate. Set `momentum_method: raw` to revert. Only the live
+`services/pipeline` factor math is changed (the `_archive` copies are dead).
+
 ## Alpha-validation harness (backtester)
 
 "Does the system generate alpha?" is an EVIDENCE question, not a construction one
