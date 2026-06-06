@@ -287,7 +287,12 @@ services:
       # never silently burns API credits — the falling-knife drawdown backstop is
       # the only entry block. Set VETTER_LLM_ENABLED=true in .env to re-enable the LLM.
       VETTER_LLM_ENABLED: ${VETTER_LLM_ENABLED:-false}
-      DRAWDOWN_BACKSTOP_PCT: ${DRAWDOWN_BACKSTOP_PCT:-0.15}
+      # Falling-knife backstop. EXCESS (beta-adjusted, market-relative) is the primary
+      # trigger; BACKSTOP is the absolute floor, set ABOVE the excess so the market-
+      # relative drop governs moderate cases and the floor only catches extreme routs.
+      DRAWDOWN_BACKSTOP_PCT: ${DRAWDOWN_BACKSTOP_PCT:-0.25}
+      DRAWDOWN_EXCESS_PCT: ${DRAWDOWN_EXCESS_PCT:-0.15}
+      DRAWDOWN_BETA_LOOKBACK: ${DRAWDOWN_BETA_LOOKBACK:-120}
       STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
       ARTIFACTS_PATH: /artifacts
     volumes:
