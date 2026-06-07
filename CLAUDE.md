@@ -702,6 +702,15 @@ human approval window with auto-approve fallback
     posts /trade/approve automatically. Vetter-excluded BUY-side intents
     (entry/buy_add) require a human; sells (exit/sell_trim) auto-approve
     regardless of vetter (closing must always be allowed).
+    Rule: MANUAL run (run-now, delta_runs.manual=true) → human approves (no
+    timer); AUTO/cron run → auto-approve after the timeout. Both the timer and
+    the auto-approve POST are ALSO suppressed while a fresh chain is in progress
+    (scheduler /status == "running" or the dashboard's run-now supervisor active):
+    during a mid-chain window /delta/latest still points at the PRIOR cycle's
+    delta, so acting on it would count down / auto-submit stale intents that
+    today's run is about to replace. The UI countdown override is gated on NO
+    chain step running (not just the ranking step) so it can't overwrite the live
+    vetter/portfolio label.
 chain liveness — scheduler /health/chain returns 503 if no successful
   chain in CHAIN_HEALTH_MAX_AGE_HOURS (default 36h); api proxies it
   at /health/chain for external monitors.

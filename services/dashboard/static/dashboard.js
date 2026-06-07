@@ -190,8 +190,14 @@ function updateStatusBar(d) {
     }
   }
 
-  // Override with auto-approve countdown when trades are pending and pipeline idle
-  if (rank.status !== 'running') {
+  // Override with auto-approve countdown only when NO chain step is running. The
+  // countdown reflects the latest COMPLETED delta; while any step of a fresh chain
+  // is in flight (vetter/portfolio/rank/universe) that delta is the prior cycle's
+  // and about to be replaced, so the timer must not overwrite the live step label.
+  // (The backend also empties the pending list while a chain runs — belt + braces.)
+  const _chainBusy = rank.status === 'running' || vetter.status === 'running'
+    || portfolio.status === 'running' || universe.status === 'running';
+  if (!_chainBusy) {
     const pending = _aaStatus.pending;
     if (pending.length > 0) {
       const fetchedAt = _aaStatus.fetchedAt || Date.now();

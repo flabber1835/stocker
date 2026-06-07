@@ -254,6 +254,92 @@ def test_missing_run_meta_defaults_to_auto_approve(dashboard):
     assert len(posted) == 1
 
 
+# ── Chain-in-progress gate (don't act on the prior cycle's delta) ────────────
+# While a fresh chain is running, /delta/latest is the PREVIOUS cycle's proposal
+# (today's delta step hasn't written yet). Auto-approve must skip, and the timer
+# must be hidden, until the new delta lands — else the prior cycle's countdown
+# leaks over the live vetter/portfolio step and could submit superseded trades.
+
+def test_chain_in_progress_skips_auto_approve(dashboard):
+    posted = []
+
+    async def fake_post(url, json=None, **kw):
+        posted.append(json)
+        r = MagicMock(); r.status_code = 200; r.json = MagicMock(return_value={})
+        return r
+
+    async def fake_get(url, **kw):
+        r = MagicMock(); r.status_code = 200
+        if url.endswith("/status"):       # scheduler: a chain is running
+            r.json = MagicMock(return_value={"status": "running", "steps": {"vet": "running"}})
+        else:                              # /delta/latest: prior cycle, scheduled
+            r.json = MagicMock(return_value={"run": {"manual": False},
+                                             "intents": [_intent("e1", "entry")]})
+        return r
+
+    client = MagicMock(); client.get = fake_get; client.post = fake_post
+
+    async def run():
+        await dashboard._auto_approve_once(client, 0.0)
+        posted.clear()
+        await dashboard._auto_approve_once(client, 99999.0)
+
+    asyncio.run(run())
+    assert posted == []  # nothing auto-approved while the chain is mid-flight
+
+
+def test_chain_idle_still_auto_approves(dashboard):
+    """When the scheduler reports no running chain, the scheduled run auto-approves."""
+    posted = []
+
+    async def fake_post(url, json=None, **kw):
+        posted.append(json)
+        r = MagicMock(); r.status_code = 200; r.json = MagicMock(return_value={})
+        return r
+
+    async def fake_get(url, **kw):
+        r = MagicMock(); r.status_code = 200
+        if url.endswith("/status"):
+            r.json = MagicMock(return_value={"status": "idle"})
+        else:
+            r.json = MagicMock(return_value={"run": {"manual": False},
+                                             "intents": [_intent("e1", "entry")]})
+        return r
+
+    client = MagicMock(); client.get = fake_get; client.post = fake_post
+
+    async def run():
+        await dashboard._auto_approve_once(client, 0.0)
+        posted.clear()
+        await dashboard._auto_approve_once(client, 99999.0)
+
+    asyncio.run(run())
+    assert len(posted) == 1 and posted[0]["intent_id"] == "e1"
+
+
+def test_status_suppresses_countdown_while_chain_running(dashboard):
+    dashboard._intent_first_seen.clear()
+    dashboard._intent_approved.clear()
+    dashboard._intent_first_seen["i1"] = 0.0
+
+    async def fake_get(url, **kw):
+        r = MagicMock(); r.status_code = 200
+        if url.endswith("/status"):
+            r.json = MagicMock(return_value={"status": "running"})
+        else:
+            r.json = MagicMock(return_value={"run": {"manual": False}, "intents": []})
+        return r
+
+    client_cm = MagicMock()
+    client_cm.__aenter__ = AsyncMock(return_value=MagicMock(get=fake_get))
+    client_cm.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("app.main.httpx.AsyncClient", return_value=client_cm):
+        res = asyncio.run(dashboard.auto_approve_status())
+    assert res["pending"] == []                 # no countdown while chain runs
+    assert res.get("chain_running") is True
+
+
 # ── /api/auto-approve-status hides the countdown for MANUAL runs ──────────────
 # The visible timer must be suppressed for manual runs (a human must click); the
 # endpoint reads run.manual from /delta/latest and returns an empty pending list.

@@ -46,6 +46,30 @@ _TRADEABLE_ACTIONS = {"entry", "exit", "buy_add", "sell_trim"}
 _BUY_ACTIONS = {"entry", "buy_add"}
 
 
+async def _chain_in_progress(client) -> bool:
+    """True when a fresh daily chain is mid-flight — the scheduler is driving a run
+    (GET /status → status=='running'), or the dashboard's own run-now supervisor is
+    active (_rank_chain_running).
+
+    While a chain is in progress, /delta/latest still points at the PREVIOUS cycle's
+    delta (today's delta step hasn't written yet), so its intents are stale: today's
+    proposal is about to replace them. We must NOT show the auto-approve countdown or
+    auto-approve those intents during this window — otherwise the prior cycle's timer
+    leaks over the live chain step (the "countdown while the vetter is running" bug)
+    and could even auto-submit superseded trades. Fail-open (return False) if the
+    scheduler is unreachable: the manual/terminal-status gates remain the safety net.
+    """
+    if _rank_chain_running:
+        return True
+    try:
+        r = await client.get(f"{SCHEDULER_URL}/status")
+        if r.status_code == 200 and (r.json() or {}).get("status") == "running":
+            return True
+    except Exception:
+        pass
+    return False
+
+
 async def _auto_approve_once(client, now: float) -> None:
     """One poll of /delta/latest → auto-approve eligible intents.
 
@@ -66,6 +90,11 @@ async def _auto_approve_once(client, now: float) -> None:
       - otherwise approve once the intent has been pending >= timeout
     """
     timeout = TRADE_AUTO_APPROVE_MINUTES * 60
+    # Don't act on the latest delta while a fresh chain is running — it's the PREVIOUS
+    # cycle's proposal (today's delta step hasn't written yet) and is about to be
+    # superseded. Auto-approving it now could submit stale trades.
+    if await _chain_in_progress(client):
+        return
     r = await client.get(f"{API_URL}/delta/latest")
     if r.status_code != 200:
         return
@@ -356,16 +385,23 @@ async def auto_approve_status():
     # will never fire. Fail open (treat as non-manual) if /delta/latest is
     # unreachable — the backend POST gate is still the real safety check.
     is_manual_run = False
+    chain_running = False
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
+            chain_running = await _chain_in_progress(client)
             r = await client.get(f"{API_URL}/delta/latest")
         if r.status_code == 200:
             is_manual_run = bool((r.json().get("run") or {}).get("manual"))
     except Exception as exc:
         print(f"[auto-approve-status] could not read run origin: {exc}")
 
-    if is_manual_run:
-        return {"auto_approve_minutes": TRADE_AUTO_APPROVE_MINUTES, "pending": [], "manual": True}
+    # Suppress the countdown for manual runs (human must click) AND while a fresh
+    # chain is in progress (the visible delta is the prior cycle's, about to be
+    # replaced — don't count down on stale intents). Mirrors the _auto_approve_once
+    # gates so the timer never shows when no auto-approval will actually happen.
+    if is_manual_run or chain_running:
+        return {"auto_approve_minutes": TRADE_AUTO_APPROVE_MINUTES, "pending": [],
+                "manual": is_manual_run, "chain_running": chain_running}
 
     items = []
     for iid, first_seen in list(_intent_first_seen.items()):
