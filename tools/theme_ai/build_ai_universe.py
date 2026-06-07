@@ -10,16 +10,18 @@ built.
 Method (the residualized-correlation approach we discussed):
   1. Seed = a small, hand-picked set of PURE-PLAY AI-infra names (editable below).
   2. Theme basket return = equal-weight daily return of the seed names.
-  3. Strip the market AND the semis sector: regress every stock AND the basket on
-     [SPY, SOXX], keep residuals — so we measure AI-SPECIFIC co-movement, not "both
-     are high-beta tech" (SPY) and not "both are semiconductors" (SOXX). The sector
-     strip is what drops generic non-AI chip names (mobile RF, auto analog).
+  3. Build an ORTHOGONALIZED semis-sector factor: generic_semi = residual of SOXX
+     on [SPY, AI_basket] — the part of the chip sector that is neither market nor
+     AI. Then strip [SPY, generic_semi] from every stock and the basket. This
+     removes generic-semi co-movement (mobile RF, auto/industrial analog) WITHOUT
+     eating AI signal (the factor is orthogonal to the basket by construction), so
+     the core AI semis (NVDA/AVGO/MU) stay on top.
   4. Exposure score = max(0, corr(stock_residual, basket_residual)) in [0,1].
-  5. Rank the whole liquid universe by that score and print the top N.
+  5. Rank the whole liquid universe by that one score and print the top N.
 
-It prints three correlations side by side: ai (market+sector stripped, the ranking
-key), mkt (market-only stripped, the previous method), and raw (no controls). A
-name whose mkt is high but ai collapses is a generic semi riding the sector, not AI.
+It prints expo (the AI-specific score) next to mkt (market-only) and raw (no
+controls), and at the end shows where known GENERIC semis landed — they should be
+low, confirming the sector strip works without burying the real AI names.
 
 Run it inside the pipeline container (which has the deps + DB access):
 
@@ -62,24 +64,19 @@ WINDOW_CALENDAR_DAYS = 400      # pull ~400 calendar days → ~252 trading rows
 MIN_OBS = 120                   # min overlapping return pairs to score a ticker
 MIN_AVG_DOLLAR_VOL = 20_000_000 # self-contained liquidity gate ($/day), matches the live universe filter
 
-# Sector factor stripped IN ADDITION to the market. The AI-infra basket is
-# semis-heavy, so generic (non-AI) chip names — mobile RF (SWKS/QRVO), auto/
-# industrial analog (NXPI/ADI) — co-move with it purely via the semiconductor
-# sector, not via AI. Regressing out SOXX (the semis sector) as well leaves only
-# AI-SPECIFIC co-movement (optical, HBM, accelerators, power, packaging), so those
-# generic semis fall away. SOXX itself is never scored — used only as a factor.
+# Semiconductor sector factor. Raw SOXX is cap-weighted and IS the core AI semis
+# (NVDA/AVGO/AMD/TSM/MU), so regressing it out directly buries those very names. We
+# instead ORTHOGONALIZE it to the AI basket first: generic_semi = residual of SOXX
+# on [SPY, AI_basket] — "the part of the semi sector that is NOT market and NOT AI".
+# Stripping [SPY, generic_semi] then removes generic-semi co-movement (mobile RF,
+# auto/industrial analog) WITHOUT touching AI signal (generic_semi is orthogonal to
+# the basket by construction). One clean AI-specific score; NVDA stays on top.
+# SOXX is used only to build the factor, never scored.
 SECTOR_ETF = "SOXX"
 
-# SOXX is cap-weighted and IS the core AI semis (NVDA/AVGO/AMD/TSM/MU), so
-# regressing it out also buries those names. Resolution: use each residual for what
-# it's good at —
-#   * RANK by the market-only correlation (mkt) so core AI semis sit on top;
-#   * use the market+SOXX correlation (ai) ONLY as a membership FILTER to exclude
-#     generic non-AI semis (mobile RF, auto analog), whose ai collapses near 0;
-#   * SEED names are members by definition (curated core) regardless of either score.
-# A non-seed name joins the universe only if its AI-specific (SOXX-stripped) corr
-# clears this bar. Tunable — raise it to be stricter about adjacents.
-AI_FILTER = 0.15
+# Known generic (non-AI) semis — printed at the end as a validation check; they
+# should land with LOW scores once the orthogonalized sector factor is stripped.
+GENERIC_SEMI_CHECK = ["SWKS", "QRVO", "NXPI", "ADI", "TXN", "MCHP", "ON"]
 
 
 def _residual(y: pd.Series, x: pd.Series) -> pd.Series:
@@ -164,8 +161,6 @@ async def main() -> None:
         print("SPY not found in daily_prices — cannot residualize. Aborting.")
         return
     spy = rets["SPY"]
-    factor_names = ["SPY"] + ([SECTOR_ETF] if SECTOR_ETF in rets.columns else [])
-    factors = rets[factor_names]
     sector_on = SECTOR_ETF in rets.columns
 
     seed_present = [t for t in SEED if t in rets.columns]
@@ -174,9 +169,21 @@ async def main() -> None:
         print(f"Too few seed names present ({seed_present}); aborting.")
         return
     basket = rets[seed_present].mean(axis=1)        # equal-weight theme return
-    basket_resid_spy = _residual(basket, spy)               # market-only
-    basket_resid_ms = _residual_multi(basket, factors)      # market + semis sector
-    if basket_resid_ms.empty:
+
+    # Orthogonalized sector factor: the part of SOXX that is NEITHER market NOR AI.
+    # generic_semi = residual of SOXX on [SPY, basket]. Stripping [SPY, generic_semi]
+    # removes generic-semi co-movement without eating AI signal (it's orthogonal to
+    # the basket). Falls back to market-only if SOXX is absent.
+    if sector_on:
+        gsemi = _residual_multi(rets[SECTOR_ETF], pd.concat([spy.rename("SPY"), basket.rename("BSK")], axis=1))
+        gsemi = gsemi.rename("GSEMI")
+        ai_factors = pd.concat([spy.rename("SPY"), gsemi], axis=1)
+    else:
+        ai_factors = spy.to_frame("SPY")
+
+    basket_resid_spy = _residual(basket, spy)                 # market-only
+    basket_resid_ai = _residual_multi(basket, ai_factors)     # market + orthogonalized sector
+    if basket_resid_ai.empty:
         print("Could not residualize the basket. Aborting.")
         return
 
@@ -187,54 +194,47 @@ async def main() -> None:
         col = rets[t]
         if col.dropna().shape[0] < MIN_OBS:
             continue
-        ai = _corr(_residual_multi(col, factors), basket_resid_ms)   # AI-specific (market+sector stripped)
+        ai = _corr(_residual_multi(col, ai_factors), basket_resid_ai)  # AI-specific (market + ortho-sector stripped)
         if ai is None:
             continue
-        mkt = _corr(_residual(col, spy), basket_resid_spy)           # market-only stripped
-        raw = _corr(col, basket)                                     # no controls
-        is_seed = t in seed_present
-        # Member = curated seed OR a non-seed name whose AI-SPECIFIC corr clears the
-        # bar (filters out generic semis). Rank magnitude uses market-only so the
-        # core AI semis aren't buried by the SOXX strip.
-        member = is_seed or (ai >= AI_FILTER)
+        mkt = _corr(_residual(col, spy), basket_resid_spy)            # market-only stripped
+        raw = _corr(col, basket)                                      # no controls
         out.append({
             "ticker": t,
-            "exposure": round(max(0.0, mkt if mkt is not None else ai), 3),  # rank key (market-stripped)
-            "ai_corr": round(ai, 3),                 # SOXX-stripped — used as the membership filter
+            "exposure": round(max(0.0, ai), 3),      # rank key: AI-specific (market + ortho-sector stripped)
+            "ai_corr": round(ai, 3),
             "mkt_corr": round(mkt, 3) if mkt is not None else None,
             "raw_corr": round(raw, 3) if raw is not None else None,
-            "in_seed": is_seed,
-            "member": bool(member),
+            "in_seed": t in seed_present,
             "avg_$vol_M": round(float(liq.get(t, 0)) / 1e6, 1),
         })
 
     df_all = pd.DataFrame(out)
-    res = (df_all[df_all["member"]]
-           .sort_values("exposure", ascending=False).reset_index(drop=True))
-    excluded = (df_all[~df_all["member"]]
-                .sort_values("mkt_corr", ascending=False).reset_index(drop=True))
+    res = df_all.sort_values("exposure", ascending=False).reset_index(drop=True)
+    rank_of = {r["ticker"]: i + 1 for i, (_, r) in enumerate(res.iterrows())}
 
-    nfac = len(factor_names)
     print(f"\nWindow: last {WINDOW_CALENDAR_DAYS} calendar days  |  liquid universe: "
-          f"{len(liquid)-nfac} tickers  |  seed: {len(seed_present)}  |  members: {len(res)}  |  "
-          f"factors: {'SPY+'+SECTOR_ETF if sector_on else 'SPY only ('+SECTOR_ETF+' MISSING)'}")
+          f"{len(df_all)} scored  |  seed: {len(seed_present)}  |  "
+          f"sector factor: {'orthogonalized '+SECTOR_ETF if sector_on else SECTOR_ETF+' MISSING (market-only)'}")
     if seed_missing:
         print(f"Seed names missing from daily_prices (skipped): {seed_missing}")
-    print(f"\nAI-INFRA UNIVERSE — top {top_n} members, ranked by market-stripped corr (expo).")
-    print(f"  member = seed (core) OR non-seed with ai>={AI_FILTER} (SOXX-stripped filter kills generic semis)")
-    print("  expo = market-only stripped (rank) | ai = market+SOXX stripped (filter) | raw = no controls\n")
-    print(f"{'#':>3}  {'ticker':<7} {'expo':>5} {'ai':>6} {'raw':>6}  {'seed':<5} {'$vol(M)':>8}")
+    print(f"\nAI-INFRA UNIVERSE — top {top_n}, ranked by AI-SPECIFIC corr (expo).")
+    print("  expo = market + orthogonalized-sector stripped (rank key) | mkt = market-only | raw = no controls\n")
+    print(f"{'#':>3}  {'ticker':<7} {'expo':>5} {'mkt':>6} {'raw':>6}  {'seed':<5} {'$vol(M)':>8}")
     for i, r in res.head(top_n).iterrows():
-        print(f"{i+1:>3}  {r['ticker']:<7} {r['exposure']:>5} {str(r['ai_corr']):>6} "
+        print(f"{i+1:>3}  {r['ticker']:<7} {r['exposure']:>5} {str(r['mkt_corr']):>6} "
               f"{str(r['raw_corr']):>6}  {'YES' if r['in_seed'] else '':<5} {r['avg_$vol_M']:>8}")
 
-    # Transparency: the highest market-corr names the SOXX filter EXCLUDED — these
-    # should be generic non-AI semis (mobile RF, auto analog). Sanity-check the filter.
-    print(f"\nExcluded by the SOXX filter (high mkt-corr but AI-specific corr < {AI_FILTER} — "
-          f"should be generic non-AI semis):")
-    print(f"{'ticker':<7} {'ai':>6} {'mkt':>6}")
-    for _, r in excluded.head(15).iterrows():
-        print(f"{r['ticker']:<7} {str(r['ai_corr']):>6} {str(r['mkt_corr']):>6}")
+    # Validation: known GENERIC (non-AI) semis should now land LOW — confirms the
+    # orthogonalized sector strip removes them without burying the real AI names.
+    print("\nValidation — where known GENERIC semis landed (should be low expo / deep rank):")
+    print(f"{'ticker':<7} {'expo':>5} {'rank':>6}")
+    for t in GENERIC_SEMI_CHECK:
+        if t in rank_of:
+            rr = df_all[df_all["ticker"] == t].iloc[0]
+            print(f"{t:<7} {rr['exposure']:>5} {rank_of[t]:>6}")
+        else:
+            print(f"{t:<7} {'—':>5} {'(absent)':>8}")
 
     # Optional CSV to the mounted artifacts volume for easy off-box review.
     try:
