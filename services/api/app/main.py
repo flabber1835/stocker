@@ -1045,6 +1045,37 @@ async def get_portfolio(run_id: str | None = None):
         )
         holdings = [dict(r) for r in holdings_rows.mappings()]
 
+        # Per-holding market beta (display-only) from the SAME ranking run that
+        # produced this target (rankings.factor_scores->'beta', 120d vs SPY).
+        # Used to surface the weight-weighted PORTFOLIO beta — observability for
+        # how much of the book's return is just market exposure.
+        beta_map: dict[str, float] = {}
+        if holdings and run["source_ranking_run_id"]:
+            beta_rows = await conn.execute(
+                text(
+                    "SELECT ticker, (factor_scores->>'beta')::float AS beta "
+                    "FROM rankings WHERE run_id = :rid AND ticker = ANY(:tickers)"
+                ),
+                {
+                    "rid": str(run["source_ranking_run_id"]),
+                    "tickers": [h["ticker"] for h in holdings],
+                },
+            )
+            beta_map = {
+                r["ticker"]: float(r["beta"])
+                for r in beta_rows.mappings()
+                if r["beta"] is not None
+            }
+
+    # Weight-weighted portfolio beta, normalized over only the holdings that have
+    # a beta (so a missing-beta name doesn't silently drag the average toward 0).
+    covered = [h for h in holdings if h["ticker"] in beta_map]
+    wsum = sum(float(h["weight"]) for h in covered)
+    portfolio_beta = (
+        sum(float(h["weight"]) * beta_map[h["ticker"]] for h in covered) / wsum
+        if wsum > 0 else None
+    )
+
     return {
         "run": {
             "run_id": str(run["run_id"]),
@@ -1060,6 +1091,8 @@ async def get_portfolio(run_id: str | None = None):
             "covariance_window_days": run["covariance_window_days"],
             "avg_pairwise_correlation": float(run["avg_pairwise_correlation"]) if run["avg_pairwise_correlation"] is not None else None,
             "portfolio_estimated_vol": float(run["portfolio_estimated_vol"]) if run["portfolio_estimated_vol"] is not None else None,
+            "portfolio_beta": round(portfolio_beta, 3) if portfolio_beta is not None else None,
+            "portfolio_beta_coverage": len(covered),
             "error_message": run["error_message"],
             "started_at": run["started_at"].isoformat() if run["started_at"] else None,
             "completed_at": run["completed_at"].isoformat() if run["completed_at"] else None,
@@ -1069,6 +1102,7 @@ async def get_portfolio(run_id: str | None = None):
                 "ticker": h["ticker"],
                 "position": h["position"],
                 "weight": float(h["weight"]),
+                "beta": beta_map.get(h["ticker"]),
                 "composite_score": float(h["composite_score"]) if h["composite_score"] is not None else None,
                 "original_rank": h["original_rank"],
                 "adj_score": float(h["adj_score"]) if h["adj_score"] is not None else None,

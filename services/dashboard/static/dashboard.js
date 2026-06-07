@@ -11,6 +11,7 @@ let rankSort  = { col: 'rank', dir: 1 };
 let liveSort  = { col: 'market_value', dir: -1 };
 let targetSort = { col: 'rank', dir: 1 };   // Target tab table sort
 let targetRows = [];                         // merged held∪target rows for the Target tab
+let targetPortfolioRun = null;               // /portfolio run summary (portfolio_beta, est vol)
 let _expandedTargetTicker = null;            // Target tab detail-expansion state
 
 let _searchMode    = false;   // true when showing API search results instead of top-N
@@ -1318,6 +1319,11 @@ async function loadTargetPortfolio() {
     // enriched with the screener's rank/arrows/detail. Refresh both sources.
     await loadDelta();
     if (!rankData.length) await loadRankings();
+    // Target-book risk summary (weight-weighted portfolio beta + est vol).
+    try {
+      const pr = await fetch('/api/portfolio').then(r => r.json());
+      targetPortfolioRun = (pr && pr.run) ? pr.run : null;
+    } catch (_) { targetPortfolioRun = null; }
     buildTargetRows();
     renderTargetTable();
   } catch (e) {
@@ -1332,7 +1338,17 @@ function renderTargetTable() {
   if (sub) {
     const nHeld = targetRows.filter(r => r.held).length;
     const nTgt  = targetRows.filter(r => r.in_target).length;
-    sub.innerHTML = targetRows.length + ' names &middot; ' + nHeld + ' held &middot; ' + nTgt + ' target';
+    let s = targetRows.length + ' names &middot; ' + nHeld + ' held &middot; ' + nTgt + ' target';
+    const pr = targetPortfolioRun;
+    if (pr && pr.portfolio_beta != null) {
+      const cov = (pr.portfolio_beta_coverage != null && pr.selected_count)
+        ? ' (' + pr.portfolio_beta_coverage + '/' + pr.selected_count + ')' : '';
+      s += ' &middot; <strong>target &beta; ' + (+pr.portfolio_beta).toFixed(2) + '</strong>' + cov;
+    }
+    if (pr && pr.portfolio_estimated_vol != null) {
+      s += ' &middot; est vol ' + (pr.portfolio_estimated_vol * 100).toFixed(1) + '%';
+    }
+    sub.innerHTML = s;
   }
   if (!targetRows.length) {
     _expandedTargetTicker = null;
