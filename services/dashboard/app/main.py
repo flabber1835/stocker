@@ -16,6 +16,7 @@ PIPELINE_URL        = os.getenv("PIPELINE_URL",        "http://pipeline:8000")
 VETTER_URL          = os.getenv("VETTER_URL",          "http://llm-vetter:8000")
 PORTFOLIO_URL       = os.getenv("PORTFOLIO_URL",       "http://portfolio-builder:8000")
 SCHEDULER_URL       = os.getenv("SCHEDULER_URL",       "http://scheduler:8000")
+THEME_URL           = os.getenv("THEME_URL",           "http://theme-classifier:8000")
 TRADE_AUTO_APPROVE_MINUTES = int(os.getenv("TRADE_AUTO_APPROVE_MINUTES", "60"))
 
 _rank_chain_running: bool = False
@@ -210,6 +211,23 @@ async def _proxy_post(url: str, params: dict | None = None):
             return JSONResponse(content=r.json(), status_code=r.status_code)
     except Exception as exc:
         return JSONResponse(content={"error": str(exc)}, status_code=502)
+
+
+@app.get("/api/theme")
+async def proxy_theme(theme: str = "ai_infra", min: float = 0.35):
+    """Read-only proxy to the standalone theme-classifier. Independent of the
+    trading pipeline — purely feeds the Theme tab."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"{THEME_URL}/exposures", params={"theme": theme, "min": min})
+            return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(content={"error": str(exc), "members": []}, status_code=502)
+
+
+@app.post("/api/theme/refresh")
+async def proxy_theme_refresh(theme: str = "ai_infra"):
+    return await _proxy_post(f"{THEME_URL}/jobs/run", {"theme": theme})
 
 
 @app.get("/api/regime")
@@ -961,6 +979,28 @@ _HTML = r"""<!DOCTYPE html>
     </div>
   </section>
 
+  <!-- ── Theme: standalone AI-infra universe (read-only; decoupled from the book) ── -->
+  <section id="screen-theme" class="screen">
+    <div class="screen-inner">
+      <div class="filter-bar sticky-bar">
+        <span class="count-badge" id="theme-sub">AI-infra universe</span>
+        <button class="btn-sm" id="theme-refresh" onclick="refreshTheme(this)">&#x21BB; Refresh</button>
+      </div>
+      <div class="tbl-scroll">
+        <table>
+          <thead><tr>
+            <th title="Rank by AI-specific exposure">#</th>
+            <th>TICKER</th>
+            <th title="AI-specific exposure score (0-1): market + orthogonalized-semis stripped">EXPO</th>
+            <th title="Part of the curated pure-play seed">SEED</th>
+            <th title="Avg daily dollar volume ($M)">$VOL</th>
+          </tr></thead>
+          <tbody id="theme-body"><tr><td colspan="5" class="tbl-empty">Loading&#8230;</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
 </main>
 
 <!-- ── Bottom nav ───────────────────────────────────────────────────────── -->
@@ -990,6 +1030,13 @@ _HTML = r"""<!DOCTYPE html>
       <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>
     </svg>
     <span>Target</span>
+  </button>
+  <button class="nav-btn" id="nav-theme" onclick="showScreen('theme',this)">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 2a7 7 0 0 0-4 12.7V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.3A7 7 0 0 0 12 2z"/>
+      <line x1="9" y1="21" x2="15" y2="21"/>
+    </svg>
+    <span>Theme</span>
   </button>
 </nav>
 

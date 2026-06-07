@@ -128,6 +128,60 @@ function showScreen(name, btnEl) {
   if (name === 'portfolio') { loadLivePortfolio(); fetchOrders(); }
   if (name === 'trader')    renderTrader();
   if (name === 'target')    loadTargetPortfolio();
+  if (name === 'theme')     loadTheme();
+}
+
+/* ── Theme tab — standalone AI-infra universe (read-only; decoupled) ──────── */
+async function loadTheme() {
+  const tbody = $('theme-body');
+  try {
+    const d = await fetch('/api/theme?theme=ai_infra&min=0.35').then(r => r.json());
+    renderTheme(d);
+  } catch (e) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="tbl-empty">Error loading theme</td></tr>';
+  }
+}
+
+function renderTheme(d) {
+  const tbody = $('theme-body');
+  const sub = $('theme-sub');
+  const members = (d && d.members) || [];
+  if (sub) {
+    if (d && d.error) {
+      sub.innerHTML = 'AI-infra universe &middot; service unavailable';
+    } else {
+      const asof = d.as_of_date ? (' &middot; as of ' + esc(d.as_of_date)) : '';
+      sub.innerHTML = members.length + ' names (expo &ge; ' + (d.min_exposure ?? 0.35) + ')' + asof;
+    }
+  }
+  if (!tbody) return;
+  if (!members.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="tbl-empty">No AI-infra universe yet — press Refresh</td></tr>';
+    return;
+  }
+  tbody.innerHTML = members.map(m =>
+    '<tr class="rank-row">'
+    + '<td><span class="t-rank">' + m.rank + '</span></td>'
+    + '<td><span class="t-ticker">' + esc(m.ticker) + '</span></td>'
+    + '<td class="t-num">' + (m.exposure != null ? m.exposure.toFixed(2) : '—') + '</td>'
+    + '<td class="tgt-cell">' + (m.in_seed ? '<span class="tgt-x" title="seed">&#10003;</span>' : '<span class="tgt-no">&middot;</span>') + '</td>'
+    + '<td class="t-num">' + (m.avg_dollar_vol_m != null ? m.avg_dollar_vol_m.toFixed(0) : '—') + '</td>'
+    + '</tr>'
+  ).join('');
+}
+
+async function refreshTheme(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Computing…'; }
+  const sub = $('theme-sub');
+  if (sub) sub.innerHTML = 'Recomputing AI-infra universe… (this takes ~1 min)';
+  try {
+    await fetch('/api/theme/refresh?theme=ai_infra', { method: 'POST' });
+    await loadTheme();
+  } catch (e) {
+    if (sub) sub.innerHTML = 'Refresh failed';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Refresh'; }
+  }
 }
 
 /* ── Clock ───────────────────────────────────────────────────────────── */
