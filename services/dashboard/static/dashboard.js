@@ -339,6 +339,7 @@ function _mapRankRow(r) {
     momentum: fs.momentum, quality: fs.quality, value: fs.value,
     growth: fs.growth, low_volatility: fs.low_volatility, liquidity: fs.liquidity,
     drawdown_21d: fs.drawdown_21d != null ? +fs.drawdown_21d : null,
+    beta: fs.beta != null ? +fs.beta : null,
     rank_date: r.rank_date, regime: r.regime,
     rank_slope: r.rank_slope != null ? +r.rank_slope : null,
     prior_rank: r.prior_rank != null ? +r.prior_rank : null,
@@ -591,6 +592,7 @@ function _buildDetailHtml(r) {
     + '<div class="detail-cell"><div class="dc-lbl">Percentile</div><div class="dc-val">' + pctVal + '</div></div>'
     + '<div class="detail-cell"><div class="dc-lbl">Size</div><div class="dc-val">' + sizeVal + '</div></div>'
     + '<div class="detail-cell"><div class="dc-lbl">21d Drawdown</div><div class="dc-val">' + ddVal + '</div></div>'
+    + '<div class="detail-cell"><div class="dc-lbl">Beta (120d vs SPY)</div><div class="dc-val">' + (r.beta != null ? r.beta.toFixed(2) : '—') + '</div></div>'
     + '</div>';
 
   const FACTORS = [

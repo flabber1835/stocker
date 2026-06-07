@@ -39,6 +39,9 @@ CONSUMER_NAME = "pipeline-worker-1"
 # rank order is unchanged. Mirrors the llm-vetter falling-knife window so the
 # screener badge agrees with the vetter's entry block.
 DRAWDOWN_WINDOW_DAYS = int(os.getenv("DRAWDOWN_WINDOW_DAYS", "21"))
+# Display-only market beta surfaced on the screener detail card. 120d vs SPY to
+# match the falling-knife (vetter) beta the user sees in drawdown exclusion reasons.
+BETA_LOOKBACK_DAYS = int(os.getenv("BETA_LOOKBACK_DAYS", "120"))
 
 
 def _recent_drawdown(closes: list[float], window: int = 21) -> float | None:
@@ -69,6 +72,58 @@ def _drawdown_map_from_rows(rows, window: int = 21) -> dict[str, float]:
         dd = _recent_drawdown(cl, window=window)
         if dd is not None:
             out[t] = dd
+    return out
+
+
+def _beta_map_from_rows(ticker_rows, spy_rows, lookback: int = 120,
+                        min_obs: int = 20, clip_hi: float = 3.0) -> dict[str, float]:
+    """Build {ticker: market_beta} = OLS of stock daily returns on SPY daily
+    returns, ALIGNED by date over the trailing window, clipped to [0, clip_hi].
+
+    Display-only (not a scoring factor). Matches the vetter's falling-knife beta
+    (120d vs SPY) so the card value agrees with the β shown in drawdown exclusion
+    reasons. `ticker_rows` are objects with .ticker/.date/.adjusted_close ordered
+    (ticker, date ASC); `spy_rows` the same for SPY only. Pure (stdlib only) so it
+    is unit-testable without a DB. Returns no entry for a ticker with < min_obs
+    aligned return pairs or zero SPY variance."""
+    spy = sorted(
+        ((r.date, float(r.adjusted_close)) for r in spy_rows
+         if r.adjusted_close is not None and float(r.adjusted_close) > 0),
+        key=lambda x: x[0],
+    )
+    spy_ret: dict = {}
+    for i in range(1, len(spy)):
+        (_, c0), (d1, c1) = spy[i - 1], spy[i]
+        if c0 > 0:
+            spy_ret[d1] = c1 / c0 - 1.0
+    if not spy_ret:
+        return {}
+
+    by_t: dict[str, list] = {}
+    for r in ticker_rows:
+        if r.adjusted_close is not None and float(r.adjusted_close) > 0:
+            by_t.setdefault(r.ticker, []).append((r.date, float(r.adjusted_close)))
+
+    out: dict[str, float] = {}
+    for t, series in by_t.items():
+        series.sort(key=lambda x: x[0])
+        rs: list[float] = []
+        rm: list[float] = []
+        for i in range(1, len(series)):
+            (d0, c0), (d1, c1) = series[i - 1], series[i]
+            if c0 > 0 and d1 in spy_ret:
+                rs.append(c1 / c0 - 1.0)
+                rm.append(spy_ret[d1])
+        k = len(rs)
+        if k < min_obs:
+            continue
+        mean_m = sum(rm) / k
+        var_m = sum((x - mean_m) ** 2 for x in rm)
+        if var_m <= 0:
+            continue
+        mean_s = sum(rs) / k
+        cov = sum((rs[i] - mean_s) * (rm[i] - mean_m) for i in range(k))
+        out[t] = max(0.0, min(clip_hi, cov / var_m))
     return out
 
 # chain_date MUST be computed in the SAME explicit zone the scheduler uses to
@@ -1145,6 +1200,37 @@ async def _do_rank(
             drawdown_map = _drawdown_map_from_rows(dd_rows.fetchall(), window=DRAWDOWN_WINDOW_DAYS)
         ranked_df["drawdown_21d"] = ranked_df["ticker"].map(drawdown_map)
 
+    # Display-only market beta (120d vs SPY), attached to the rankings JSONB for the
+    # detail card — NOT a scoring factor. Matches the falling-knife beta definition.
+    beta_map: dict[str, float] = {}
+    if ranked_count > 0:
+        _ranked_list = ranked_df["ticker"].tolist()
+        async with engine.connect() as conn:
+            bt_rows = await conn.execute(
+                text(
+                    "SELECT ticker, date, adjusted_close FROM ("
+                    "  SELECT ticker, date, adjusted_close, "
+                    "         ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) AS rn "
+                    "  FROM daily_prices WHERE ticker = ANY(:tickers)"
+                    ") s WHERE rn <= :w ORDER BY ticker, date ASC"
+                ),
+                {"tickers": _ranked_list, "w": BETA_LOOKBACK_DAYS + 1},
+            )
+            spy_rows = await conn.execute(
+                text(
+                    "SELECT ticker, date, adjusted_close FROM ("
+                    "  SELECT ticker, date, adjusted_close, "
+                    "         ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) AS rn "
+                    "  FROM daily_prices WHERE ticker = 'SPY'"
+                    ") s WHERE rn <= :w ORDER BY date ASC"
+                ),
+                {"w": BETA_LOOKBACK_DAYS + 1},
+            )
+            beta_map = _beta_map_from_rows(
+                bt_rows.fetchall(), spy_rows.fetchall(), lookback=BETA_LOOKBACK_DAYS
+            )
+        ranked_df["beta"] = ranked_df["ticker"].map(beta_map)
+
     def _rfmt(v):
         return None if pd.isna(v) else round(float(v), 4)
 
@@ -1381,6 +1467,11 @@ async def _do_rank(
                 **(
                     {"drawdown_21d": (None if pd.isna(row.get("drawdown_21d")) else round(float(row["drawdown_21d"]), 4))}
                     if "drawdown_21d" in ranked_df.columns else {}
+                ),
+                # Display-only market beta (120d vs SPY) — matches the falling-knife β.
+                **(
+                    {"beta": (None if pd.isna(row.get("beta")) else round(float(row["beta"]), 3))}
+                    if "beta" in ranked_df.columns else {}
                 ),
             }),
             "ranked_at": ranked_at,

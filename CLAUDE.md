@@ -1123,6 +1123,13 @@ vetter:
 
 Factor weights for each regime must sum to 1.0. All four regime conditions must be covered.
 
+Display-only indicators in `rankings.factor_scores` JSONB (NOT scoring factors,
+NOT weighted in the rank): `drawdown_21d` (21-day peak-to-now) and `beta` (120-day
+OLS vs SPY, clipped [0,3] — matches the vetter falling-knife β so the screener
+detail card agrees with drawdown exclusion reasons). Both computed in the pipeline
+rank step (`_drawdown_map_from_rows` / `_beta_map_from_rows`) and surfaced on the
+dashboard detail card.
+
 Regime factor-weight ROTATION is currently OFF (`regime_weighting_enabled: false`
 in quality_core_v1.yaml). The regime is still detected (snapshots/dashboard) but no
 longer changes the weights — a single `static_factor_weights` vector (the centroid
