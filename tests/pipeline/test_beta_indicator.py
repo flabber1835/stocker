@@ -48,6 +48,33 @@ def test_beta_aligns_by_date_when_ticker_has_gaps():
     assert abs(m["BBB"] - 1.0) < 0.1
 
 
+def test_beta_correct_when_ticker_missing_interior_dates():
+    """Regression for the energy=0 bug: a ticker whose date set differs from SPY's
+    (missing scattered interior trading days) must still get the right beta. With
+    identical closes on the common dates, beta is exactly 1.0 — the old end-date
+    matching corrupted this (paired a multi-day stock return with a 1-day SPY
+    return); common-date alignment gets it exact."""
+    rng = [0.01, -0.02, 0.015, -0.005, 0.02, -0.01, 0.008, -0.012, 0.006, -0.009] * 6  # 60d
+    spy = _spy_rows(rng)                                  # daily SPY (start 400)
+    stock_full = _series("AAA", rng, start=400.0)        # identical closes to SPY
+    drop = {7, 13, 19, 26, 31, 38, 44, 51}               # missing interior days
+    stock = [r for i, r in enumerate(stock_full) if i not in drop]
+    m = _beta_map_from_rows(stock, spy, lookback=120, min_obs=20)
+    assert abs(m["AAA"] - 1.0) < 1e-6
+
+
+def test_beta_ignores_extra_spy_history():
+    """SPY carrying more history than the ticker must not break alignment — only
+    the common (ticker) dates are used."""
+    rng = [0.01, -0.02, 0.015, -0.005, 0.02, -0.01, 0.008, -0.012] * 4
+    spy = _spy_rows(rng)                                  # 33 SPY rows
+    # Ticker starts later (only the last 20 dates) at 1.3x SPY returns.
+    stock = _series("BBB", [1.3 * r for r in rng[-20:]], start=400.0,
+                    d0=spy[-21].date)                     # align start to a real SPY date
+    m = _beta_map_from_rows(stock, spy, lookback=120, min_obs=10)
+    assert abs(m["BBB"] - 1.3) < 0.05
+
+
 def test_beta_clipped_to_zero_floor():
     """A negative-beta name is clipped to 0 (no shorting the market in display)."""
     rng = [0.01, -0.01] * 16

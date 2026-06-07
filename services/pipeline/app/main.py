@@ -78,45 +78,43 @@ def _drawdown_map_from_rows(rows, window: int = 21) -> dict[str, float]:
 def _beta_map_from_rows(ticker_rows, spy_rows, lookback: int = 120,
                         min_obs: int = 20, clip_hi: float = 3.0) -> dict[str, float]:
     """Build {ticker: market_beta} = OLS of stock daily returns on SPY daily
-    returns, ALIGNED by date over the trailing window, clipped to [0, clip_hi].
+    returns, computed over the **common trading dates** of the two series (date
+    intersection → consecutive returns over those shared dates), clipped to
+    [0, clip_hi].
 
-    Display-only (not a scoring factor). Matches the vetter's falling-knife beta
-    (120d vs SPY) so the card value agrees with the β shown in drawdown exclusion
-    reasons. `ticker_rows` are objects with .ticker/.date/.adjusted_close ordered
-    (ticker, date ASC); `spy_rows` the same for SPY only. Pure (stdlib only) so it
-    is unit-testable without a DB. Returns no entry for a ticker with < min_obs
-    aligned return pairs or zero SPY variance."""
-    spy = sorted(
-        ((r.date, float(r.adjusted_close)) for r in spy_rows
-         if r.adjusted_close is not None and float(r.adjusted_close) > 0),
-        key=lambda x: x[0],
-    )
-    spy_ret: dict = {}
-    for i in range(1, len(spy)):
-        (_, c0), (d1, c1) = spy[i - 1], spy[i]
-        if c0 > 0:
-            spy_ret[d1] = c1 / c0 - 1.0
-    if not spy_ret:
+    Display-only (not a scoring factor). Same date-intersection alignment as the
+    vetter's falling-knife beta (beta_and_idio_vol), so the card value matches the
+    β shown in drawdown exclusion reasons. Aligning on common dates — rather than
+    matching each series' own consecutive returns by end-date — is required: when a
+    ticker's date set differs from SPY's (a gap, or SPY carrying more history), the
+    naive match pairs returns over different spans and corrupts the covariance
+    (the bug that floored liquid names like energy to 0). `ticker_rows`/`spy_rows`
+    have .ticker/.date/.adjusted_close. Pure (stdlib only) → unit-testable. No
+    entry for a ticker with < min_obs common return pairs or zero SPY variance."""
+    spy_close: dict = {}
+    for r in spy_rows:
+        if r.adjusted_close is not None and float(r.adjusted_close) > 0:
+            spy_close[r.date] = float(r.adjusted_close)
+    if len(spy_close) < 2:
         return {}
 
-    by_t: dict[str, list] = {}
+    by_t: dict[str, dict] = {}
     for r in ticker_rows:
         if r.adjusted_close is not None and float(r.adjusted_close) > 0:
-            by_t.setdefault(r.ticker, []).append((r.date, float(r.adjusted_close)))
+            by_t.setdefault(r.ticker, {})[r.date] = float(r.adjusted_close)
 
     out: dict[str, float] = {}
-    for t, series in by_t.items():
-        series.sort(key=lambda x: x[0])
+    for t, dmap in by_t.items():
+        common = sorted(d for d in dmap if d in spy_close)
+        if len(common) < min_obs + 1:
+            continue
         rs: list[float] = []
         rm: list[float] = []
-        for i in range(1, len(series)):
-            (d0, c0), (d1, c1) = series[i - 1], series[i]
-            if c0 > 0 and d1 in spy_ret:
-                rs.append(c1 / c0 - 1.0)
-                rm.append(spy_ret[d1])
+        for i in range(1, len(common)):
+            d0, d1 = common[i - 1], common[i]
+            rs.append(dmap[d1] / dmap[d0] - 1.0)
+            rm.append(spy_close[d1] / spy_close[d0] - 1.0)
         k = len(rs)
-        if k < min_obs:
-            continue
         mean_m = sum(rm) / k
         var_m = sum((x - mean_m) ** 2 for x in rm)
         if var_m <= 0:
