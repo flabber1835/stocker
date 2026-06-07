@@ -1261,14 +1261,17 @@ function renderLive() {
 /* ── Target tab — held ∪ target table ─────────────────────────────────── */
 // Trade decision shown per ticker, derived from the delta action. Held / in-target
 // are derivable from the action taxonomy (the delta engine emits exactly one action
-// per held-or-target ticker); 'watch' is neither held nor target, so it's excluded.
+// per held-or-target ticker). 'watch' IS a target name — a builder-selected entry
+// that capacity deferred (no free slot yet, waiting for an orphan to time out) — so
+// it's shown with Target ✓ / Holdings ✗ and a 'Watch' tag, NOT excluded.
 const TARGET_TRADE = {
-  entry:     { label: 'Buy',     cls: 'trade-buy',  held: false, target: true  },
-  buy_add:   { label: 'Add',     cls: 'trade-buy',  held: true,  target: true  },
-  hold:      { label: 'Hold',    cls: 'trade-hold', held: true,  target: true  },
-  sell_trim: { label: 'Trim',    cls: 'trade-sell', held: true,  target: true  },
-  exit:      { label: 'Sell',    cls: 'trade-sell', held: true,  target: false },
-  at_risk:   { label: 'At risk', cls: 'trade-risk', held: true,  target: false },
+  entry:     { label: 'Buy',     cls: 'trade-buy',   held: false, target: true  },
+  buy_add:   { label: 'Add',     cls: 'trade-buy',   held: true,  target: true  },
+  hold:      { label: 'Hold',    cls: 'trade-hold',  held: true,  target: true  },
+  sell_trim: { label: 'Trim',    cls: 'trade-sell',  held: true,  target: true  },
+  exit:      { label: 'Sell',    cls: 'trade-sell',  held: true,  target: false },
+  at_risk:   { label: 'At risk', cls: 'trade-risk',  held: true,  target: false },
+  watch:     { label: 'Watch',   cls: 'trade-watch', held: false, target: true  },
 };
 
 function buildTargetRows() {
@@ -1277,7 +1280,7 @@ function buildTargetRows() {
   targetRows = [];
   deltaData.forEach(it => {
     const meta = TARGET_TRADE[it.action];
-    if (!meta) return;   // 'watch' or unknown → not held and not in target → skip
+    if (!meta) return;   // unknown/non-actionable action → skip (watch IS mapped now)
     const rec = byTicker[it.ticker] || {
       ticker: it.ticker, rank: it.rank, name: it.name || null,
       composite_score: it.composite_score, not_in_universe: true,

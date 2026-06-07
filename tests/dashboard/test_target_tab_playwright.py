@@ -1,15 +1,16 @@
 """
 Playwright UI test for the redesigned TARGET tab.
 
-The target tab is a table of the held∪target union (delta intents minus 'watch'),
-each row enriched with the screener's rank + trend arrow + click-through detail:
+The target tab is a table of the held∪target union, each row enriched with the
+screener's rank + trend arrow + click-through detail:
 
     #  ·  TICKER  ·  HELD  ·  TARGET  ·  TRADE
 
-This test serves the real target-table markup + the REAL dashboard.js, mocks the
-/api/delta/latest and /api/rankings/with-overlays shapes, runs the real
-loadTargetPortfolio(), and asserts:
-  - only held-or-target tickers appear ('watch' excluded)
+'watch' (a capacity-deferred target entry) IS shown — Target ✓ / Holdings ✗ /
+trade 'Watch'. This test serves the real target-table markup + the REAL
+dashboard.js, mocks the /api/delta/latest and /api/rankings/with-overlays shapes,
+runs the real loadTargetPortfolio(), and asserts:
+  - held-or-target tickers appear, including 'watch' as a deferred target
   - HELD / TARGET ✓ marks match the delta action taxonomy
   - TRADE labels are correct
   - rank trend arrows render (up / down)
@@ -63,7 +64,7 @@ def _delta_payload():
         _intent("DDD", "buy_add", 4),    # held + target  → Add
         _intent("EEE", "sell_trim", 5),  # held + target  → Trim
         _intent("FFF", "at_risk", 6),    # held only      → At risk
-        _intent("GGG", "watch", 7),      # neither        → EXCLUDED
+        _intent("GGG", "watch", 7),      # target only (capacity-deferred) → Watch
         _intent("HHH", "exit", 142),     # held, ranked beyond top-N → fallback row
     ]
     return {"run": {"run_id": "t1", "run_date": "2026-06-06"}, "intents": intents}
@@ -190,10 +191,13 @@ def _run() -> dict:
         res["BBB_target"] = page.locator("#tgt-row-BBB td").nth(3).locator(".tgt-x").count()
         res["CCC_held"]   = page.locator("#tgt-row-CCC td").nth(2).locator(".tgt-x").count()
         res["CCC_target"] = page.locator("#tgt-row-CCC td").nth(3).locator(".tgt-x").count()
+        res["GGG_held"]   = page.locator("#tgt-row-GGG td").nth(2).locator(".tgt-x").count()
+        res["GGG_target"] = page.locator("#tgt-row-GGG td").nth(3).locator(".tgt-x").count()
         res["AAA_trade"] = _cell_text(page, "AAA", 4)
         res["BBB_trade"] = _cell_text(page, "BBB", 4)
         res["CCC_trade"] = _cell_text(page, "CCC", 4)
         res["FFF_trade"] = _cell_text(page, "FFF", 4)
+        res["GGG_trade"] = _cell_text(page, "GGG", 4)
         res["HHH_rank"]  = _cell_text(page, "HHH", 0)
         res["AAA_arrow_up"] = page.locator("#tgt-row-AAA .rank-up").count()
         res["CCC_arrow_dn"] = page.locator("#tgt-row-CCC .rank-dn").count()
@@ -230,9 +234,10 @@ def main() -> int:
 
     print("=== TARGET tab playwright ===")
     print("rows:", r["row_tickers"])
-    check(set(r["row_tickers"]) == {"AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "HHH"},
-          "exactly held∪target rows (watch GGG excluded, orphan HHH included)")
-    check("GGG" not in r["row_tickers"], "watch ticker GGG is not shown")
+    check(set(r["row_tickers"]) == {"AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG", "HHH"},
+          "held∪target rows incl. watch GGG (deferred target) and orphan HHH")
+    check(r["GGG_held"] == 0 and r["GGG_target"] == 1, "GGG (watch) → HELD· TARGET✓ (deferred)")
+    check(r["GGG_trade"] == "Watch", f"GGG trade label = Watch (got {r.get('GGG_trade')!r})")
     check(r["AAA_held"] == 1 and r["AAA_target"] == 1, "AAA (hold) → HELD✓ TARGET✓")
     check(r["BBB_held"] == 0 and r["BBB_target"] == 1, "BBB (entry) → HELD· TARGET✓")
     check(r["CCC_held"] == 1 and r["CCC_target"] == 0, "CCC (exit) → HELD✓ TARGET·")
