@@ -287,6 +287,20 @@ Buy side — stops the same position being bought twice (a doubled entry):
 | Position **filled and held**, but a **new delta run** re-proposes the entry before alpaca-sync captured the fill | `_is_already_held` — block `entry` (`status="failed"`) when the broker already holds the ticker | Step 2b, `already_held_check` |
 | Buy order **submitted but not yet filled** (e.g. a day order queued after the close — never fills until the next open, so the position stays un-held and Step 2b can't see it), and a **new delta run** re-proposes the entry/buy_add under a new `intent_id` | `_open_buy_order_for_ticker` — before any buy-side submit, skip (`status="duplicate"`) when an **open** (`pending`/`submitted`/`deferred`) **buy** order already exists for the ticker from a different intent | Step 2b2, `inflight_buy_check` |
 
+Deferred-order purge (target is source of truth) — every delta run supersedes the
+prior cycle's **un-sent** orders. The scheduler calls trade-executor
+`POST /jobs/cancel-deferred` immediately before each `delta` step (cron, run-now,
+and manual paths), flipping all `status='deferred'` rows to `canceled`. Deferred
+orders were approved but never sent to Alpaca (no `alpaca_order_id`; the fill-gated
+drain would submit them at the next open), so this is a **local-only** cancel — no
+broker call, no execution risk. Without it, a leftover deferred order from an
+earlier run (e.g. after a config change like raising `orphan_confirmation_days`, or
+any same-session re-run) would (a) **fire stale at the open** and (b) **block the
+new delta from re-queueing the correct decision** (the in-flight guards above treat
+`deferred` as an open order). NOTE: `/jobs/cancel-all-orders` does NOT cover
+`deferred` (its `open_statuses` are broker states only) — `cancel-deferred` is the
+dedicated un-sent purge; the two are complementary (broker cancel vs local purge).
+
 Sell and buy guards are mirror images, each scoped to its own `side` (an open
 `buy_add` never blocks a sell, and vice versa). Together with the dashboard's
 order-status join (re-keyed on **ticker + side + `run_date`**, not `intent_id`, so

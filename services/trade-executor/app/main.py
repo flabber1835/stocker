@@ -1551,6 +1551,51 @@ class CancelAllResponse(BaseModel):
     reason: Optional[str] = None
 
 
+class CancelDeferredResponse(BaseModel):
+    status: str
+    cancelled: int
+    trace_id: Optional[str] = None
+
+
+@app.post("/jobs/cancel-deferred", response_model=CancelDeferredResponse)
+async def cancel_deferred() -> CancelDeferredResponse:
+    """Purge un-sent (status='deferred') orders — a LOCAL-only cancel.
+
+    Deferred orders were approved but never sent to the broker (no
+    alpaca_order_id; the fill-gated drain would submit them at the next open), so
+    flipping them to 'canceled' here is risk-free — no Alpaca call, nothing to
+    unwind. The scheduler calls this just before each delta step so a freshly
+    built target supersedes the previous cycle's queued-but-unsent orders: without
+    it, a stale deferred sell both fires wrongly at the open AND blocks the new
+    delta from re-queueing the correct decision (the duplicate guards treat
+    'deferred' as an open order). Submitted/at-broker orders are intentionally NOT
+    touched — those go through /jobs/cancel-all-orders (a real broker cancel).
+    """
+    trace_id = str(uuid.uuid4())
+    t0 = datetime.now(timezone.utc)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("INSERT INTO execution_traces (trace_id, job_type, status, started_at) "
+                 "VALUES (:tid, 'cancel_deferred', 'running', :now)"),
+            {"tid": trace_id, "now": t0},
+        )
+        result = await conn.execute(
+            text("UPDATE alpaca_orders SET status='canceled', deferred_until=NULL, "
+                 "error_message=COALESCE(error_message, '') || ' [superseded by new delta run]' "
+                 "WHERE status='deferred'")
+        )
+        n = result.rowcount or 0
+        await _log_step(
+            conn, trace_id, "cancel_deferred", "success", t0,
+            output_summary={"cancelled": n},
+        )
+        await conn.execute(
+            text("UPDATE execution_traces SET status='success', completed_at=:now WHERE trace_id=:tid"),
+            {"tid": trace_id, "now": datetime.now(timezone.utc)},
+        )
+    return CancelDeferredResponse(status="ok", cancelled=n, trace_id=trace_id)
+
+
 @app.post("/jobs/cancel-all-orders", response_model=CancelAllResponse)
 async def cancel_all_orders(confirm: str = "") -> CancelAllResponse:
     """Cancel every open order at Alpaca and mark local rows as canceled.

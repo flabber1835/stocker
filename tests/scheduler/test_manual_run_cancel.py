@@ -37,6 +37,7 @@ _make_apscheduler_stubs()
 from app.main import (  # noqa: E402
     _STEPS,
     _cancel_all_open_orders,
+    _cancel_deferred_orders,
     _chain_status,
     _trigger_step,
     run_now,
@@ -102,6 +103,63 @@ class TestTriggerStepManualTag:
         """Even on a manual chain, only the delta step carries manual=true."""
         captured = await self._capture_post_params(_pipeline_step(), "manual")
         assert "manual" not in captured["params"]
+
+
+# ── _cancel_deferred_orders + pre-delta purge ────────────────────────────────
+
+class TestCancelDeferredOrders:
+
+    @pytest.mark.asyncio
+    async def test_posts_to_cancel_deferred_endpoint(self):
+        captured = {}
+
+        async def fake_post(url, timeout=None, params=None):
+            captured["url"] = url
+            return _mock_resp(200, {"status": "ok", "cancelled": 4})
+
+        client = MagicMock(); client.post = fake_post
+        await _cancel_deferred_orders(client, "pre-delta")
+        assert captured["url"].endswith("/jobs/cancel-deferred")
+
+    @pytest.mark.asyncio
+    async def test_non_fatal_on_error(self):
+        async def fake_post(url, timeout=None, params=None):
+            raise RuntimeError("boom")
+        client = MagicMock(); client.post = fake_post
+        # Must not raise — the chain proceeds even if the purge call fails.
+        await _cancel_deferred_orders(client, "pre-delta")
+
+
+class TestDeltaPurgesDeferredFirst:
+
+    @pytest.mark.asyncio
+    async def test_delta_step_purges_deferred_before_posting_delta(self):
+        posts = []
+
+        async def fake_post(url, timeout=None, params=None):
+            posts.append(url)
+            return _mock_resp(200, {"status": "started"})
+
+        client = MagicMock(); client.post = fake_post
+        _trigger_step.__globals__["_chain_status"]["origin"] = "scheduled"
+        ok = await _trigger_step(client, _delta_step())
+        assert ok is True
+        cd = [i for i, u in enumerate(posts) if u.endswith("/jobs/cancel-deferred")]
+        dl = [i for i, u in enumerate(posts) if u.endswith("/jobs/delta")]
+        assert cd and dl, f"expected both cancel-deferred and delta posts, got {posts}"
+        assert cd[0] < dl[0], "cancel-deferred must run BEFORE the delta trigger"
+
+    @pytest.mark.asyncio
+    async def test_non_delta_step_does_not_purge(self):
+        posts = []
+
+        async def fake_post(url, timeout=None, params=None):
+            posts.append(url)
+            return _mock_resp(200, {"status": "started"})
+
+        client = MagicMock(); client.post = fake_post
+        await _trigger_step(client, _pipeline_step())
+        assert not any(u.endswith("/jobs/cancel-deferred") for u in posts)
 
 
 # ── _cancel_all_open_orders ──────────────────────────────────────────────────

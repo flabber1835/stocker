@@ -483,6 +483,25 @@ async def _get_latest_run_id(
     return None
 
 
+async def _cancel_deferred_orders(client: httpx.AsyncClient, context: str = "pre-delta") -> None:
+    """Purge un-sent (deferred) orders so a freshly-built target supersedes the
+    previous cycle's queued-but-unsent orders. Local-only cancel in trade-executor
+    (no broker call). Called before EVERY delta step (cron, run-now, manual) — a
+    deferred order left over from a prior run (e.g. after a config change or
+    re-run) would otherwise fire wrongly at the open and block the new delta's
+    correct decision. Non-fatal: a failure is logged and the chain proceeds."""
+    try:
+        r = await client.post(f"{TRADE_EXECUTOR_URL}/jobs/cancel-deferred", timeout=15.0)
+        if r.status_code in (200, 201):
+            n = (r.json() or {}).get("cancelled", 0)
+            if n:
+                _log(f"cancel-deferred ({context}): purged {n} un-sent order(s)")
+        else:
+            _log(f"cancel-deferred ({context}): HTTP {r.status_code}", body=r.text[:200])
+    except Exception as exc:
+        _log(f"cancel-deferred ({context}): error — proceeding anyway", error=str(exc))
+
+
 async def _trigger_alpaca_sync(
     client: httpx.AsyncClient | None = None,
     context: str = "startup",
@@ -747,11 +766,16 @@ async def _trigger_step(client: httpx.AsyncClient, step: _StepDef, force: bool =
         if force and step.name == "pipeline":
             # Only pipeline has an already_ran_today guard; passing force=true bypasses it.
             params["force"] = "true"
-        if step.name == "delta" and _chain_status.get("origin") == "manual":
-            # Tag the standalone delta as manual so the dashboard does not auto-approve
-            # the resulting proposals — a human must click. triggered_by stays
-            # 'scheduler' so /runs/delta-latest still tracks the step.
-            params["manual"] = "true"
+        if step.name == "delta":
+            # Before re-syncing the target to the broker, purge the prior cycle's
+            # un-sent (deferred) orders so they can't fire stale at the open or block
+            # the new delta's correct decisions (the builder/delta is source of truth).
+            await _cancel_deferred_orders(client, context="pre-delta")
+            if _chain_status.get("origin") == "manual":
+                # Tag the standalone delta as manual so the dashboard does not auto-approve
+                # the resulting proposals — a human must click. triggered_by stays
+                # 'scheduler' so /runs/delta-latest still tracks the step.
+                params["manual"] = "true"
         r = await client.post(f"{step.url}{step.start_path}", timeout=15.0, params=params)
         if r.status_code == 409:
             _log(f"supervisor: {step.name}: already running (409) — will check next tick")
