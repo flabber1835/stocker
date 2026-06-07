@@ -851,7 +851,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     del prices_df
     null_quality_count = int(factors_df["quality"].isna().sum()) if "quality" in factors_df.columns else 0
 
-    _factor_cols = ["momentum", "quality", "value", "growth", "low_volatility", "liquidity"]
+    _factor_cols = ["momentum", "quality", "value", "growth", "low_volatility", "liquidity", "issuance"]
     factor_stats = {}
     clipped_by_factor: dict[str, list] = {}
     for col in _factor_cols:
@@ -939,6 +939,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             "growth": _val(row.get("growth")),
             "low_volatility": _val(row.get("low_volatility")),
             "liquidity": _val(row.get("liquidity")),
+            "issuance": _val(row.get("issuance")),
             "calculated_at": calculated_at,
         }
         for _, row in factors_df.iterrows()
@@ -981,9 +982,9 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         _factor_sql = text(
             "INSERT INTO factor_scores "
             "(run_id, ticker, score_date, momentum, quality, value, growth, "
-            " low_volatility, liquidity, calculated_at) "
+            " low_volatility, liquidity, issuance, calculated_at) "
             "VALUES (:run_id, :ticker, :score_date, :momentum, :quality, :value, "
-            "        :growth, :low_volatility, :liquidity, :calculated_at) "
+            "        :growth, :low_volatility, :liquidity, :issuance, :calculated_at) "
             "ON CONFLICT (run_id, ticker) DO UPDATE SET "
             "  momentum      = EXCLUDED.momentum, "
             "  quality       = EXCLUDED.quality, "
@@ -991,6 +992,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             "  growth        = EXCLUDED.growth, "
             "  low_volatility = EXCLUDED.low_volatility, "
             "  liquidity     = EXCLUDED.liquidity, "
+            "  issuance      = EXCLUDED.issuance, "
             "  calculated_at = EXCLUDED.calculated_at"
         )
         for _i in range(0, len(factor_score_rows), _FACTOR_BATCH):
@@ -1137,7 +1139,7 @@ async def _do_rank(
     async with engine.begin() as conn:
         rows = await conn.execute(
             text(
-                "SELECT ticker, momentum, quality, value, growth, low_volatility, liquidity "
+                "SELECT ticker, momentum, quality, value, growth, low_volatility, liquidity, issuance "
                 "FROM factor_scores WHERE run_id = :run_id"
             ),
             {"run_id": source_factor_run_id},
@@ -1168,6 +1170,7 @@ async def _do_rank(
                 "growth": float(r.growth) if r.growth is not None else float("nan"),
                 "low_volatility": float(r.low_volatility) if r.low_volatility is not None else float("nan"),
                 "liquidity": float(r.liquidity) if r.liquidity is not None else float("nan"),
+                "issuance": float(r.issuance) if r.issuance is not None else float("nan"),
             }
             for r in records
         ]
