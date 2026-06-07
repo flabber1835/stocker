@@ -70,6 +70,17 @@ MIN_AVG_DOLLAR_VOL = 20_000_000 # self-contained liquidity gate ($/day), matches
 # generic semis fall away. SOXX itself is never scored — used only as a factor.
 SECTOR_ETF = "SOXX"
 
+# SOXX is cap-weighted and IS the core AI semis (NVDA/AVGO/AMD/TSM/MU), so
+# regressing it out also buries those names. Resolution: use each residual for what
+# it's good at —
+#   * RANK by the market-only correlation (mkt) so core AI semis sit on top;
+#   * use the market+SOXX correlation (ai) ONLY as a membership FILTER to exclude
+#     generic non-AI semis (mobile RF, auto analog), whose ai collapses near 0;
+#   * SEED names are members by definition (curated core) regardless of either score.
+# A non-seed name joins the universe only if its AI-specific (SOXX-stripped) corr
+# clears this bar. Tunable — raise it to be stricter about adjacents.
+AI_FILTER = 0.15
+
 
 def _residual(y: pd.Series, x: pd.Series) -> pd.Series:
     """OLS residual of y on x over their common non-NaN dates: y - (alpha + beta*x)."""
@@ -179,34 +190,51 @@ async def main() -> None:
         ai = _corr(_residual_multi(col, factors), basket_resid_ms)   # AI-specific (market+sector stripped)
         if ai is None:
             continue
-        mkt = _corr(_residual(col, spy), basket_resid_spy)           # market-only stripped (prev method)
+        mkt = _corr(_residual(col, spy), basket_resid_spy)           # market-only stripped
         raw = _corr(col, basket)                                     # no controls
+        is_seed = t in seed_present
+        # Member = curated seed OR a non-seed name whose AI-SPECIFIC corr clears the
+        # bar (filters out generic semis). Rank magnitude uses market-only so the
+        # core AI semis aren't buried by the SOXX strip.
+        member = is_seed or (ai >= AI_FILTER)
         out.append({
             "ticker": t,
-            "exposure": round(max(0.0, ai), 3),     # primary: AI-specific
-            "ai_corr": round(ai, 3),
+            "exposure": round(max(0.0, mkt if mkt is not None else ai), 3),  # rank key (market-stripped)
+            "ai_corr": round(ai, 3),                 # SOXX-stripped — used as the membership filter
             "mkt_corr": round(mkt, 3) if mkt is not None else None,
             "raw_corr": round(raw, 3) if raw is not None else None,
-            "in_seed": t in seed_present,
+            "in_seed": is_seed,
+            "member": bool(member),
             "avg_$vol_M": round(float(liq.get(t, 0)) / 1e6, 1),
         })
 
-    res = pd.DataFrame(out).sort_values("exposure", ascending=False).reset_index(drop=True)
+    df_all = pd.DataFrame(out)
+    res = (df_all[df_all["member"]]
+           .sort_values("exposure", ascending=False).reset_index(drop=True))
+    excluded = (df_all[~df_all["member"]]
+                .sort_values("mkt_corr", ascending=False).reset_index(drop=True))
 
     nfac = len(factor_names)
     print(f"\nWindow: last {WINDOW_CALENDAR_DAYS} calendar days  |  liquid universe: "
-          f"{len(liquid)-nfac} tickers  |  seed used: {len(seed_present)}  |  "
-          f"factors stripped: {'SPY+'+SECTOR_ETF if sector_on else 'SPY only ('+SECTOR_ETF+' MISSING)'}")
+          f"{len(liquid)-nfac} tickers  |  seed: {len(seed_present)}  |  members: {len(res)}  |  "
+          f"factors: {'SPY+'+SECTOR_ETF if sector_on else 'SPY only ('+SECTOR_ETF+' MISSING)'}")
     if seed_missing:
         print(f"Seed names missing from daily_prices (skipped): {seed_missing}")
-    print(f"\nTop {top_n} by AI-SPECIFIC correlation (market + semis-sector stripped).")
-    print("  ai = market+SOXX stripped (rank by this) | mkt = market-only stripped | raw = no controls")
-    print("  Watch names where mkt is high but ai drops sharply → generic semis, not AI.\n")
-    print(f"{'#':>3}  {'ticker':<7} {'expo':>5} {'ai':>6} {'mkt':>6} {'raw':>6}  {'seed':<5} {'$vol(M)':>8}")
+    print(f"\nAI-INFRA UNIVERSE — top {top_n} members, ranked by market-stripped corr (expo).")
+    print(f"  member = seed (core) OR non-seed with ai>={AI_FILTER} (SOXX-stripped filter kills generic semis)")
+    print("  expo = market-only stripped (rank) | ai = market+SOXX stripped (filter) | raw = no controls\n")
+    print(f"{'#':>3}  {'ticker':<7} {'expo':>5} {'ai':>6} {'raw':>6}  {'seed':<5} {'$vol(M)':>8}")
     for i, r in res.head(top_n).iterrows():
         print(f"{i+1:>3}  {r['ticker']:<7} {r['exposure']:>5} {str(r['ai_corr']):>6} "
-              f"{str(r['mkt_corr']):>6} {str(r['raw_corr']):>6}  "
-              f"{'YES' if r['in_seed'] else '':<5} {r['avg_$vol_M']:>8}")
+              f"{str(r['raw_corr']):>6}  {'YES' if r['in_seed'] else '':<5} {r['avg_$vol_M']:>8}")
+
+    # Transparency: the highest market-corr names the SOXX filter EXCLUDED — these
+    # should be generic non-AI semis (mobile RF, auto analog). Sanity-check the filter.
+    print(f"\nExcluded by the SOXX filter (high mkt-corr but AI-specific corr < {AI_FILTER} — "
+          f"should be generic non-AI semis):")
+    print(f"{'ticker':<7} {'ai':>6} {'mkt':>6}")
+    for _, r in excluded.head(15).iterrows():
+        print(f"{r['ticker']:<7} {str(r['ai_corr']):>6} {str(r['mkt_corr']):>6}")
 
     # Optional CSV to the mounted artifacts volume for easy off-box review.
     try:
