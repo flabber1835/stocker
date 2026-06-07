@@ -468,20 +468,22 @@ existed but were never wired — approval always went `pending → submit`. This
 decision wires them and adds the sells-first + fill-gate + buying-power logic.
 `expires_at` is added (migration 0015) for deterministic, restart-safe expiry.
 
-### "Approve now" — immediate market submission during market hours
+### Single approval rule — submit now if open, else queue for next open
 
-The drain (mode `scheduled`) is the right default for the after-close cron path,
-but a **discretionary daytime run** wants the opposite: press Run mid-session,
-review the proposal, and have it hit the market **right now** as a market order.
-
-`mode="immediate"` (the dashboard's ⚡ "Approve now" button, alongside the ▶
-queue-for-open button) routes via `_route_to_drain(mode, clock)`:
+There is **one** approve action (manual click, Approve-Selected, and auto-approve
+all use it): **send to the broker immediately if the market is open, otherwise
+queue until the next trading day.** The dashboard shows a single ▶ Approve button
+(plus ✕ Reject) and always sends `mode="immediate"`; `_route_to_drain(mode, clock)`:
 
 ```text
-scheduled            → drain (always)
 immediate + market OPEN   → submit INLINE now  (Step 6: market `day` order, fills in seconds)
-immediate + market CLOSED → fall back to the drain
+immediate + market CLOSED → fall back to the drain (queued for the next open)
+(scheduled is retained in _route_to_drain for back-compat but no caller emits it.)
 ```
+
+The after-close cron chain runs while the market is CLOSED, so its auto-approvals
+route to the drain (sells-first, fill-gated) — the dominant path keeps that safety.
+A mid-session approval submits inline immediately.
 
 The closed-market fallback is the safety: an off-hours `immediate` click must not
 bypass the drain's sells-first, fill-gated buying-power sequencing — a raw queued

@@ -140,13 +140,14 @@ async def _auto_approve_once(client, now: float) -> None:
             continue
         if now - _intent_first_seen[iid] >= timeout:
             try:
-                # Auto-approval GREENLIGHTS the intent (mode='scheduled') — it does
-                # NOT submit. The trade-executor's fill-gated drain submits at the
-                # open, sells-first, one buy at a time within buying power. See
-                # docs/architecture.md Option B.
+                # Single approval rule (same as manual): submit to the broker NOW if
+                # the market is open, else queue for the next open. The after-close
+                # cron path is market-closed, so the executor routes these to the
+                # fill-gated drain (sells-first, one buy at a time); if a chain is
+                # ever approved while open, they submit immediately. See architecture.md.
                 await client.post(
                     f"{API_URL}/trade/approve",
-                    json={"intent_id": iid, "mode": "scheduled"},
+                    json={"intent_id": iid, "mode": "immediate"},
                 )
             except Exception as exc:
                 print(f"[auto-approve] approve failed for {iid}: {exc}")

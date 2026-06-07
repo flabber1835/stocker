@@ -1,14 +1,12 @@
-"""approveSelected enqueues every selected intent as mode='scheduled'.
+"""approveSelected enqueues every selected intent as mode='immediate'.
 
-Under the fill-gated market-open drain (Option B) approval is a GREENLIGHT, not a
-submission: the dashboard enqueues all selected intents and the trade-executor's
-drain submits them at the open — sells first, all sells filled before any buy,
-buys one at a time within buying power. So the client no longer sequences
-sells-before-buys (that guarantee moved to the drain; see
-tests/trade_executor/test_drain_planner.py). This test pins the new dashboard
-contract: every approvable selection is sent via approveTrade with mode
-'scheduled'. It extracts the REAL approveSelected() from dashboard.js so a
-regression (e.g. reverting to mode='immediate') fails CI.
+Single approval rule (manual or auto): submit to the broker NOW if the market is
+open, else queue for the next open. The executor's `_route_to_drain('immediate')`
+does exactly that — open → submit now; closed → fill-gated drain (sells first,
+buys one at a time within buying power). So there is one approve action, and every
+approvable selection is sent via approveTrade with mode 'immediate'. This extracts
+the REAL approveSelected() from dashboard.js so a regression (reverting to the old
+two-mode 'scheduled' greenlight) fails CI.
 """
 import json
 import re
@@ -66,7 +64,7 @@ def _run(data, selected, tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_all_selected_enqueued_as_scheduled(tmp_path):
+def test_all_selected_enqueued_as_immediate(tmp_path):
     data = [
         {"id": "B1", "action": "entry",     "order_status": None, "rejected_at": None, "vetter_excluded": False},
         {"id": "S1", "action": "exit",      "order_status": None, "rejected_at": None, "vetter_excluded": False},
@@ -75,8 +73,8 @@ def test_all_selected_enqueued_as_scheduled(tmp_path):
     ]
     calls = _run(data, ["B1", "S1", "B2", "S2"], tmp_path)
     assert {c["id"] for c in calls} == {"B1", "S1", "B2", "S2"}, f"not all enqueued: {calls}"
-    # The whole point of Option B: the dashboard greenlights, it does not submit-now.
-    assert all(c["mode"] == "scheduled" for c in calls), f"every approval must be 'scheduled': {calls}"
+    # Single rule: submit now if open, else queue — the executor decides via the clock.
+    assert all(c["mode"] == "immediate" for c in calls), f"every approval must be 'immediate': {calls}"
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
@@ -90,4 +88,4 @@ def test_non_approvable_intents_skipped(tmp_path):
     ]
     calls = _run(data, ["OK", "DONE", "REJ", "VEX"], tmp_path)
     assert {c["id"] for c in calls} == {"OK"}, f"only OK should enqueue: {calls}"
-    assert calls[0]["mode"] == "scheduled"
+    assert calls[0]["mode"] == "immediate"

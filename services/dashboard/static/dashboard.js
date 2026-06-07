@@ -993,8 +993,7 @@ function _buildTradeRow(r) {
   let actionsCell;
   if (approvable) {
     actionsCell = '<td class="tc-actions-cell">'
-      + '<button class="btn-sm-approve-now" onclick="approveTrade(\'' + r.id + '\',\'immediate\')" title="Approve NOW — submit immediately as a market order when the market is open (queues for the open drain off-hours). Approve sells before buys so cash is freed.">&#9889;</button>'
-      + ' <button class="btn-sm-approve" onclick="approveTrade(\'' + r.id + '\',\'scheduled\')" title="Approve — queue for the fill-gated market-open drain">&#9654;</button>'
+      + '<button class="btn-sm-approve" onclick="approveTrade(\'' + r.id + '\',\'immediate\')" title="Approve — submit to the broker now if the market is open, else queue for the next open (sells-first drain).">&#9654; Approve</button>'
       + ' <button class="btn-sm-reject" onclick="rejectTrade(\'' + r.id + '\')" title="Reject">&#10005;</button>'
       + '</td>';
   } else {
@@ -1060,13 +1059,11 @@ async function approveSelected() {
   if (!toApprove.length) return;
   _selectedIntents.clear();
 
-  // Approval is a GREENLIGHT, not a submission: enqueue every selected intent as
-  // 'scheduled'. The trade-executor's fill-gated drain submits them during market
-  // hours — sells first, all sells filled before any buy, buys one at a time within
-  // live buying power. The submission ORDER (and the buying-power race that used to
-  // reject buys) is now owned by the drain, so the dashboard no longer sequences
-  // sells-before-buys here. See docs/architecture.md Option B.
-  await Promise.all(toApprove.map(id => approveTrade(id, 'scheduled')));
+  // Single approval rule: submit to the broker NOW if the market is open, else
+  // queue for the next open. Market-closed approvals (the usual after-close path)
+  // go to the fill-gated drain (sells first, buys one at a time within buying
+  // power); market-open approvals submit immediately. See docs/architecture.md.
+  await Promise.all(toApprove.map(id => approveTrade(id, 'immediate')));
 }
 
 async function approveTrade(intentId, mode) {
