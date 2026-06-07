@@ -75,13 +75,24 @@ def test_beta_ignores_extra_spy_history():
     assert abs(m["BBB"] - 1.3) < 0.05
 
 
-def test_beta_clipped_to_zero_floor():
-    """A negative-beta name is clipped to 0 (no shorting the market in display)."""
+def test_beta_negative_is_shown_not_floored_at_zero():
+    """A genuinely market-decoupled name with a NEGATIVE realized beta must show its
+    true signed value, not be floored to 0 (the SU/EOG/VLO energy-bloc case: corr
+    ~-0.15 to SPY → real beta ~-0.3, which the old 0-floor mislabeled as 0.00)."""
+    rng = [0.01, -0.02, 0.015, -0.005, 0.02, -0.01, 0.008, -0.012] * 4
+    spy = _spy_rows(rng)
+    stock = _series("CCC", [-0.5 * r for r in rng])  # moves opposite SPY, beta -0.5
+    m = _beta_map_from_rows(stock, spy, lookback=120, min_obs=10)
+    assert abs(m["CCC"] - (-0.5)) < 0.02
+
+
+def test_beta_clipped_to_low_floor():
+    """An implausibly negative beta (data error) is clipped to the -1.0 floor."""
     rng = [0.01, -0.01] * 16
     spy = _spy_rows(rng)
-    stock = _series("CCC", [-1.0 * r for r in rng])  # moves opposite SPY
+    stock = _series("CCC", [-2.0 * r for r in rng])  # beta -2 → clipped to -1
     m = _beta_map_from_rows(stock, spy, lookback=120, min_obs=10)
-    assert m["CCC"] == 0.0
+    assert m["CCC"] == -1.0
 
 
 def test_beta_clipped_to_high_cap():

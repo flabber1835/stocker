@@ -76,21 +76,31 @@ def _drawdown_map_from_rows(rows, window: int = 21) -> dict[str, float]:
 
 
 def _beta_map_from_rows(ticker_rows, spy_rows, lookback: int = 120,
-                        min_obs: int = 20, clip_hi: float = 3.0) -> dict[str, float]:
+                        min_obs: int = 20, clip_hi: float = 3.0,
+                        clip_lo: float = -1.0) -> dict[str, float]:
     """Build {ticker: market_beta} = OLS of stock daily returns on SPY daily
     returns, computed over the **common trading dates** of the two series (date
     intersection → consecutive returns over those shared dates), clipped to
-    [0, clip_hi].
+    [clip_lo, clip_hi].
 
-    Display-only (not a scoring factor). Same date-intersection alignment as the
-    vetter's falling-knife beta (beta_and_idio_vol), so the card value matches the
-    β shown in drawdown exclusion reasons. Aligning on common dates — rather than
+    Display-only (not a scoring factor). Aligning on common dates — rather than
     matching each series' own consecutive returns by end-date — is required: when a
     ticker's date set differs from SPY's (a gap, or SPY carrying more history), the
-    naive match pairs returns over different spans and corrupts the covariance
-    (the bug that floored liquid names like energy to 0). `ticker_rows`/`spy_rows`
-    have .ticker/.date/.adjusted_close. Pure (stdlib only) → unit-testable. No
-    entry for a ticker with < min_obs common return pairs or zero SPY variance."""
+    naive match pairs returns over different spans and corrupts the covariance.
+    `ticker_rows`/`spy_rows` have .ticker/.date/.adjusted_close. Pure (stdlib only)
+    → unit-testable. No entry for a ticker with < min_obs common return pairs or
+    zero SPY variance.
+
+    The floor is clip_lo=-1.0, NOT 0: a genuinely market-decoupled name can have a
+    real NEGATIVE realized beta (e.g. an energy bloc that rallies while SPY is flat
+    — SU/EOG/VLO ran at corr ~-0.15 to SPY but ~0.72 to each other, a real beta of
+    ~-0.3). Flooring at 0 mislabeled those as 0.00 / "broken". We now show the true
+    signed beta and clip only implausible outliers ([-1,3] — equities essentially
+    never sustain |beta|>3 or beta<-1; those indicate data errors). NOTE: this is
+    intentionally LOOSER than the vetter's falling-knife beta, which keeps a [0,3]
+    clamp on purpose (a conservative choice for the excess-drawdown market-strip —
+    see beta_and_idio_vol). So the display beta and the veto beta can differ in
+    sign for a negatively-correlated name; that is by design."""
     spy_close: dict = {}
     for r in spy_rows:
         if r.adjusted_close is not None and float(r.adjusted_close) > 0:
@@ -121,7 +131,7 @@ def _beta_map_from_rows(ticker_rows, spy_rows, lookback: int = 120,
             continue
         mean_s = sum(rs) / k
         cov = sum((rs[i] - mean_s) * (rm[i] - mean_m) for i in range(k))
-        out[t] = max(0.0, min(clip_hi, cov / var_m))
+        out[t] = max(clip_lo, min(clip_hi, cov / var_m))
     return out
 
 # chain_date MUST be computed in the SAME explicit zone the scheduler uses to

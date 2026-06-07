@@ -1125,10 +1125,24 @@ Factor weights for each regime must sum to 1.0. All four regime conditions must 
 
 Display-only indicators in `rankings.factor_scores` JSONB (NOT scoring factors,
 NOT weighted in the rank): `drawdown_21d` (21-day peak-to-now) and `beta` (120-day
-OLS vs SPY, clipped [0,3] — matches the vetter falling-knife β so the screener
-detail card agrees with drawdown exclusion reasons). Both computed in the pipeline
-rank step (`_drawdown_map_from_rows` / `_beta_map_from_rows`) and surfaced on the
-dashboard detail card.
+OLS vs SPY, clipped [-1,3]). Both computed in the pipeline rank step
+(`_drawdown_map_from_rows` / `_beta_map_from_rows`) and surfaced on the dashboard
+detail card.
+
+The display beta floor is -1.0, NOT 0: a real market-decoupled name can have a
+genuinely NEGATIVE realized beta. This was discovered when SU/EOG/VLO (an energy
+bloc, ranks 1-3) all showed 0.00 — diagnosed (lag-correlation scan) NOT to be a
+data/ingestion artifact: the three move together (corr ~0.72) but ran flat-to-
+inverse vs SPY (corr ~-0.15 at every lag → no date shift), a true beta ~-0.3 that
+the old 0-floor mislabeled as 0.00 / "broken". The display now shows the true
+signed beta and clips only implausible outliers ([-1,3]; equities essentially never
+sustain |beta|>3 or beta<-1 → data error). This is intentionally LOOSER than the
+vetter's falling-knife β, which keeps a [0,3] clamp on purpose (conservative for
+the excess-drawdown market-strip). So the screener card beta and the veto beta can
+differ in sign for a negatively-correlated name — by design. (A consequence: the
+weight-weighted target portfolio beta on the Target tab can run genuinely low /
+sub-1 when the book is heavy on currently-decoupled sectors like energy — that is
+real, not a bug.)
 
 Regime factor-weight ROTATION is currently OFF (`regime_weighting_enabled: false`
 in quality_core_v1.yaml). The regime is still detected (snapshots/dashboard) but no
