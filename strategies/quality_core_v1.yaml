@@ -63,25 +63,30 @@ regime_detection:
 # regime_weighting_enabled: true to restore the per-regime factor_weights table.
 regime_weighting_enabled: false
 
-# Static multi-factor weights — MOMENTUM-FORWARD ROTATION tilt. This is a turnover
-# strategy (continuous buffer-zone rebalance), so valuation matters less than for a
-# buy-and-hold book: value is a slow multi-year premium that barely operates over a
-# weeks-to-months holding horizon, where momentum dominates. We therefore demote
-# value and low_volatility (we're willing to rent expensive/volatile names and
-# rotate out) and lead with momentum, keeping quality as the anchor (best-evidenced
-# factor, QMJ) and growth raised. Crash risk of an aggressive momentum tilt is
-# guarded independently by the vetter's beta-adjusted, vol-scaled falling-knife veto
-# and the residual/risk-adjusted momentum method. Sums to 1.0.
-# (Prior over-defensive centroid was quality .22 / value .19 / momentum .19 /
-#  low_vol .13 / growth .10 / liq .11 / issuance .06 — see git history.)
+# Static multi-factor weights — RESEARCH-BACKED BALANCED CENTROID (reverted from the
+# momentum-forward tilt). The strongest result in the factor literature is not
+# momentum alone but MOMENTUM + VALUE TOGETHER: they are negatively correlated, so
+# the combination's Sharpe far exceeds either alone (Asness-Moskowitz-Pedersen,
+# "Value and Momentum Everywhere", 2013). A momentum-dominant tilt that starves
+# value gives up that diversification and adds momentum crash risk (Daniel-Moskowitz
+# 2016). So momentum and value are held CO-EQUAL (0.19 each), with quality as the
+# anchor (best-evidenced factor, QMJ — Asness-Frazzini-Pedersen), low_volatility
+# meaningful (BAB / low-vol anomaly — Frazzini-Pedersen, Baker-Bradley-Wurgler),
+# growth modest (weak standalone premium), and net-issuance a small robust overlay.
+# Momentum is still measured the research-backed way (residual + vol-scaled, see
+# momentum_method) — only the WEIGHTING was rebalanced away from momentum-dominance.
+# Crash protection also comes independently from the vetter's beta-adjusted,
+# vol-scaled falling-knife veto. Sums to 1.0.
+# (The momentum-forward tilt this replaced was momentum .28 / quality .22 /
+#  growth .16 / liq .11 / value .09 / low_vol .08 / issuance .06 — see git history.)
 static_factor_weights:
-  momentum:       0.28
-  quality:        0.22
-  growth:         0.16
+  momentum:       0.19   # co-equal with value (mom+value combo is the strongest evidence)
+  value:          0.19   # co-equal with momentum — NOT starved
+  quality:        0.22   # anchor: best-evidenced factor (QMJ)
+  low_volatility: 0.13   # low-vol / BAB anomaly — meaningful, not demoted
   liquidity:      0.11
-  value:          0.09
-  low_volatility: 0.08
-  issuance:       0.06   # net-share-issuance (buybacks rank high); modest weight — robust + low-turnover
+  growth:         0.10   # modest — weak standalone premium
+  issuance:       0.06   # net-share-issuance (buybacks rank high); robust + low-turnover
 
 factor_weights:
   # RETAINED for reference / easy re-enable (unused while regime_weighting_enabled
