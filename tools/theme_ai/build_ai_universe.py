@@ -93,7 +93,15 @@ async def main() -> None:
             "WHERE date >= (CURRENT_DATE - INTERVAL '%d days') "
             "AND adjusted_close IS NOT NULL AND adjusted_close > 0" % WINDOW_CALENDAR_DAYS
         ))).fetchall()
+        # Equities only: ETFs/funds (SOXX, QQQ, leveraged products…) have no
+        # fundamentals row and otherwise leak in because they co-move with the
+        # basket by construction. Read-only; keeps the tool decoupled.
+        fund_rows = (await conn.execute(text(
+            "SELECT DISTINCT ticker FROM fundamentals WHERE source != 'no_data'"
+        ))).fetchall()
     await engine.dispose()
+
+    equities = {r[0] for r in fund_rows}
 
     if not rows:
         print("No price data found.")
@@ -106,7 +114,9 @@ async def main() -> None:
     # Liquidity gate (self-contained — no dependency on the live universe tables).
     df["dollar_vol"] = df["adjusted_close"] * df["volume"]
     liq = df.groupby("ticker")["dollar_vol"].mean()
-    liquid = set(liq[liq >= MIN_AVG_DOLLAR_VOL].index) | set(SEED) | {"SPY"}
+    # Liquid AND a real equity (has fundamentals) — drops ETFs/funds. SPY is kept
+    # only as the market benchmark for residualization, not scored.
+    liquid = ((set(liq[liq >= MIN_AVG_DOLLAR_VOL].index) & equities) | set(SEED) | {"SPY"})
 
     px = df[df["ticker"].isin(liquid)].pivot_table(
         index="date", columns="ticker", values="adjusted_close"
