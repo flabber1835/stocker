@@ -266,6 +266,39 @@ class IntradayConfig(BaseModel):
     risk_event_action: Literal["cut", "reduce", "hold"] = "reduce"
 
 
+class ThemeOverlayConfig(BaseModel):
+    """Optional thematic overlay for the portfolio-builder. DEFAULT OFF — when
+    disabled the builder behaves exactly as before (no theme coupling).
+
+    The overlay NEVER ranks by theme exposure — the deterministic quant rank always
+    owns selection/sizing. The theme only acts as a membership FILTER or a bounded
+    score TILT, fed from the standalone theme_exposures table (read-only). If the
+    table is missing/empty the overlay degrades gracefully to no-theme behavior.
+
+    Modes:
+      tilt     — keep the full top-N candidate pool, multiply theme members'
+                 composite score by (1 + tilt_lambda * exposure). Leans selection
+                 toward AI names while they still compete on quant merit.
+      restrict — candidate pool = theme universe members only (a dedicated sleeve),
+                 still ranked/selected/weighted by quant rank. NOTE: a theme sleeve
+                 is concentrated by design, so you will typically also relax
+                 max_sector_weight / max_tickers_per_cluster / max_positions for it.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    theme: str = "ai_infra"
+    mode: Literal["tilt", "restrict"] = "tilt"
+    min_exposure: float = Field(
+        default=0.35, ge=0.0, le=1.0,
+        description="Membership threshold: a non-seed name joins the theme universe "
+                    "at exposure >= this. Seeds are always members (mirrors /exposures).")
+    tilt_lambda: float = Field(
+        default=0.25, ge=0.0, le=2.0,
+        description="tilt mode only: score multiplier is (1 + tilt_lambda * exposure). "
+                    "0 = no tilt (members compete on raw quant). Higher = stronger lean.")
+
+
 class PortfolioBuilderConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -347,6 +380,7 @@ class PortfolioBuilderConfig(BaseModel):
             "Prevents buying-power exhaustion when broker reserves exceed 100% for pending OPG orders."
         ),
     )
+    theme_overlay: ThemeOverlayConfig = Field(default_factory=ThemeOverlayConfig)
 
     @model_validator(mode="after")
     def position_weight_consistent_with_count(self) -> "PortfolioBuilderConfig":

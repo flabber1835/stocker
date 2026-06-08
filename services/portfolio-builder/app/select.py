@@ -2,6 +2,44 @@ import numpy as np
 import pandas as pd
 
 
+def apply_theme_tilt(
+    scores: dict[str, float],
+    theme_members: dict[str, float],
+    tilt_lambda: float,
+) -> dict[str, float]:
+    """Thematic TILT (pure). Multiply each theme member's composite score by
+    (1 + tilt_lambda * exposure); non-members and missing exposures are unchanged.
+
+    Leans selection toward theme names while preserving the quant ordering as the
+    base signal — a member only out-ranks a non-member if the bounded boost closes
+    the score gap. tilt_lambda <= 0 or empty membership → identity (no behavior
+    change). Returns a NEW dict; never mutates the input. Unit-testable in isolation.
+    """
+    if tilt_lambda <= 0.0 or not theme_members:
+        return dict(scores)
+    out: dict[str, float] = {}
+    for t, s in scores.items():
+        ex = theme_members.get(t)
+        out[t] = s * (1.0 + tilt_lambda * ex) if ex is not None else s
+    return out
+
+
+def restrict_to_theme(
+    candidate_tickers: list[str],
+    scores: dict[str, float],
+    rank: dict[str, int],
+    theme_members: dict[str, float],
+) -> tuple[list[str], dict[str, float], dict[str, int]]:
+    """Thematic RESTRICT (pure). Keep only theme-universe members, preserving order
+    and their quant score/rank. Empty membership → empty result (caller must guard
+    and fall back to no-theme rather than build an empty portfolio). Unit-testable.
+    """
+    keep = [t for t in candidate_tickers if t in theme_members]
+    return (keep,
+            {t: scores[t] for t in keep if t in scores},
+            {t: rank[t] for t in keep if t in rank})
+
+
 def compute_excluded_set(
     vetter_excluded: list[str],
     held_now: set[str],

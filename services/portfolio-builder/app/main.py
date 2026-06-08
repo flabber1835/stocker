@@ -14,7 +14,8 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy import text
 
-from app.select import greedy_select, build_covariance, compute_weights, correlation_clusters, compute_excluded_set
+from app.select import (greedy_select, build_covariance, compute_weights, correlation_clusters,
+                        compute_excluded_set, apply_theme_tilt, restrict_to_theme)
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 from stock_strategy_shared.tracing import fmt_row, log_step, write_trace_file, mark_orphaned_runs_failed
@@ -30,6 +31,28 @@ _MIN_EIGENVALUE = 1e-8  # numerical zero threshold for PSD matrix repair
 
 
 _fmt_row = fmt_row
+
+
+async def _load_theme_members(conn, theme: str, min_exposure: float) -> dict[str, float]:
+    """Read the latest theme_exposures snapshot → {ticker: exposure} for members
+    (seed OR exposure >= min_exposure), mirroring the theme-classifier /exposures
+    membership. READ-ONLY. Returns {} (and the overlay degrades to no-theme) if the
+    table is absent/empty — so a builder run never fails because the optional theme
+    service hasn't been deployed/computed."""
+    try:
+        rows = await conn.execute(
+            text(
+                "SELECT ticker, exposure FROM theme_exposures WHERE theme = :t "
+                "AND as_of_date = (SELECT max(as_of_date) FROM theme_exposures WHERE theme = :t) "
+                "AND (exposure >= :m OR in_seed)"
+            ),
+            {"t": theme, "m": min_exposure},
+        )
+        return {r.ticker: float(r.exposure) for r in rows.fetchall()}
+    except Exception as exc:  # noqa: BLE001 — optional, decoupled; never block a build
+        print(f"[portfolio-builder] theme overlay: could not load members for "
+              f"'{theme}' ({exc}); proceeding WITHOUT overlay")
+        return {}
 
 
 strategy: Optional[StrategyConfig] = None
@@ -160,16 +183,34 @@ async def _do_build(
             },
         )
 
-    # ── Step 2: load top N candidates ────────────────────────────────────────────────────────────────────────────────────
+    # ── Step 2: load candidates ──────────────────────────────────────────────────────────────────────────────────────────
+    # Thematic overlay (optional, default OFF — see ThemeOverlayConfig). The quant
+    # rank always owns selection; the theme only filters/tilts the candidate pool.
+    overlay = pb_cfg.theme_overlay
+    theme_members: dict[str, float] = {}
     t0 = datetime.now(timezone.utc)
     async with engine.connect() as conn:
-        rows = await conn.execute(
-            text(
-                "SELECT ticker, rank, composite_score FROM rankings "
-                "WHERE run_id = :rid ORDER BY rank ASC LIMIT :n"
-            ),
-            {"rid": source_ranking_run_id, "n": pb_cfg.candidate_count},
-        )
+        if overlay.enabled:
+            theme_members = await _load_theme_members(conn, overlay.theme, overlay.min_exposure)
+        use_restrict = overlay.enabled and overlay.mode == "restrict" and bool(theme_members)
+        if use_restrict:
+            # Sleeve: candidate pool = theme universe members (ANY rank), ordered by
+            # the quant rank. candidate_count does not bound a restricted pool.
+            rows = await conn.execute(
+                text(
+                    "SELECT ticker, rank, composite_score FROM rankings "
+                    "WHERE run_id = :rid AND ticker = ANY(:tk) ORDER BY rank ASC"
+                ),
+                {"rid": source_ranking_run_id, "tk": list(theme_members.keys())},
+            )
+        else:
+            rows = await conn.execute(
+                text(
+                    "SELECT ticker, rank, composite_score FROM rankings "
+                    "WHERE run_id = :rid ORDER BY rank ASC LIMIT :n"
+                ),
+                {"rid": source_ranking_run_id, "n": pb_cfg.candidate_count},
+            )
         candidates = rows.fetchall()
 
     if not candidates:
@@ -186,6 +227,40 @@ async def _do_build(
             input_summary={"candidate_count": pb_cfg.candidate_count},
             output_summary={"loaded": len(candidate_tickers), "top_ticker": candidate_tickers[0]},
         )
+
+    # ── Step 2-theme: apply the thematic overlay (no-op when disabled) ────────────────────────────────────────────────────
+    if overlay.enabled:
+        t0 = datetime.now(timezone.utc)
+        before = len(candidate_tickers)
+        applied = "none"
+        warn = None
+        if not theme_members:
+            warn = (f"theme overlay enabled (theme='{overlay.theme}') but no membership "
+                    f"data found — proceeding WITHOUT overlay (is theme-classifier deployed/computed?)")
+        elif overlay.mode == "restrict":
+            candidate_tickers, scores_map, rank_map = restrict_to_theme(
+                candidate_tickers, scores_map, rank_map, theme_members)
+            applied = "restrict"
+            if not candidate_tickers:
+                raise RuntimeError(
+                    f"theme overlay mode=restrict left no candidates "
+                    f"(theme='{overlay.theme}', {len(theme_members)} members not in this ranking run)")
+        elif overlay.mode == "tilt":
+            scores_map = apply_theme_tilt(scores_map, theme_members, overlay.tilt_lambda)
+            applied = "tilt"
+        async with engine.begin() as conn:
+            await _log_step(
+                conn, trace_id, "apply_theme_overlay", "success",
+                started_at=t0,
+                input_summary={"enabled": True, "mode": overlay.mode, "theme": overlay.theme,
+                               "min_exposure": overlay.min_exposure, "tilt_lambda": overlay.tilt_lambda,
+                               "theme_member_count": len(theme_members)},
+                output_summary={"applied": applied, "candidates_before": before,
+                                "candidates_after": len(candidate_tickers),
+                                "tilted_count": (sum(1 for t in scores_map if t in theme_members)
+                                                 if applied == "tilt" else 0)},
+                warnings=[warn] if warn else None,
+            )
 
     # ── Step 2a: apply do-not-buy list ───────────────────────────────────────────────────────────────────────────────────────────────────
     do_not_buy_set = set(t.upper() for t in (pb_cfg.do_not_buy or []))
