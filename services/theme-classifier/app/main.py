@@ -113,9 +113,11 @@ async def exposures(theme: str = "ai_infra", min: float = DEFAULT_MIN_EXPOSURE):
     async with engine.connect() as conn:
         rows = (await conn.execute(text(
             "SELECT ticker, exposure, in_seed, avg_dollar_vol FROM theme_exposures "
-            "WHERE theme = :t AND as_of_date = :d AND exposure >= :m "
+            "WHERE theme = :t "
+            "AND as_of_date = (SELECT max(as_of_date) FROM theme_exposures WHERE theme = :t) "
+            "AND exposure >= :m "
             "ORDER BY exposure DESC"
-        ), {"t": theme, "d": meta["as_of_date"], "m": min})).mappings().all()
+        ), {"t": theme, "m": min})).mappings().all()
     members = [{"rank": i + 1, "ticker": r["ticker"], "exposure": float(r["exposure"]),
                 "in_seed": bool(r["in_seed"]),
                 "avg_dollar_vol_m": round(float(r["avg_dollar_vol"]) / 1e6, 1)
