@@ -133,14 +133,17 @@ function showScreen(name, btnEl) {
 
 /* ── Theme tab — standalone AI-infra universe (read-only; decoupled) ──────── */
 let themeRows = [];                       // members enriched with universe rank + screener rec
+let themeUnivRecs = [];                   // FULL universe ranking (for rank lookup + detail card)
 let _expandedThemeTicker = null;
 
 async function loadTheme() {
   const tbody = $('theme-body');
   try {
-    // Load the main rankings too (read-only) so we can annotate each theme name
-    // with its rank in the ENTIRE universe and reuse the screener detail card.
-    if (!rankData.length) await loadRankings();
+    // Pull the FULL universe ranking (not the screener's top-100) so EVERY theme
+    // name can resolve its global rank and a detail card, wherever it sits in the
+    // ~2000-name universe. Plain /rankings is lean (no overlay/caps joins).
+    const rk = await fetch('/api/rankings?limit=5000').then(r => r.json());
+    themeUnivRecs = (rk.rankings || []).map(_mapRankRow);
     const d = await fetch('/api/theme?theme=ai_infra&min=0.35').then(r => r.json());
     renderTheme(d);
   } catch (e) {
@@ -166,9 +169,11 @@ function renderTheme(d) {
     tbody.innerHTML = '<tr><td colspan="6" class="tbl-empty">No AI-infra universe yet — press Refresh</td></tr>';
     return;
   }
-  // Enrich with universe rank + the screener record (for the detail card).
+  // Enrich with universe rank + the record (for the detail card) from the FULL
+  // ranking. '—' means the name isn't in the ranked universe (e.g. dropped for
+  // missing required factors) — a genuine gap, not a lookup limit.
   const byTicker = {};
-  rankData.forEach(r => { byTicker[r.ticker] = r; });
+  themeUnivRecs.forEach(r => { byTicker[r.ticker] = r; });
   themeRows = members.map(m => {
     const rec = byTicker[m.ticker] || null;
     return { ...m, univ_rank: rec ? rec.rank : null, rec };
