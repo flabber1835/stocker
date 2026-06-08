@@ -29,13 +29,16 @@ class ThemeConfig:
 AI_INFRA = ThemeConfig(
     theme="ai_infra",
     seed=[
-        "NVDA", "AVGO", "AMD",          # compute / accelerators
-        "TSM", "MU",                    # foundry / memory
-        "AMAT", "LRCX", "KLAC", "ASML", # semicap
-        "ANET", "CRDO", "ALAB",         # networking / interconnect
-        "COHR", "LITE",                 # optical
-        "VRT", "POWL", "ETN", "GEV",    # power / electrical / thermal
-        "EQIX", "DLR",                  # data-center REITs
+        "NVDA", "AVGO", "AMD",                    # compute / accelerators
+        "TSM", "MU",                              # foundry / memory
+        "AMAT", "LRCX", "KLAC", "ASML",           # semicap (litho/etch/deposition/metrology)
+        "ONTO", "CAMT", "ENTG", "TER",            # HBM / advanced packaging / test / materials
+        "ANET", "CRDO", "ALAB", "MRVL",           # networking / interconnect / custom silicon
+        "COHR", "LITE", "FN", "CIEN",             # optical (modules + manufacturing + DCI)
+        "SMCI", "CLS",                            # AI servers / ODM
+        "CRWV",                                   # AI cloud
+        "VRT", "POWL", "ETN", "GEV",              # power / electrical / thermal
+        "EQIX", "DLR",                            # data-center REITs
     ],
 )
 

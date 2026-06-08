@@ -50,10 +50,16 @@ SEED = [
     "TSM", "MU",
     # semicap (the equipment that builds the chips)
     "AMAT", "LRCX", "KLAC", "ASML",
-    # networking / interconnect
-    "ANET", "CRDO", "ALAB",
-    # optical
-    "COHR", "LITE",
+    # HBM / advanced packaging / test / materials
+    "ONTO", "CAMT", "ENTG", "TER",
+    # networking / interconnect / custom silicon
+    "ANET", "CRDO", "ALAB", "MRVL",
+    # optical (modules + manufacturing + DCI)
+    "COHR", "LITE", "FN", "CIEN",
+    # AI servers / ODM
+    "SMCI", "CLS",
+    # AI cloud
+    "CRWV",
     # power / electrical / thermal for data centers
     "VRT", "POWL", "ETN", "GEV",
     # data-center REITs
