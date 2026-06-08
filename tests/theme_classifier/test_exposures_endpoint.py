@@ -80,3 +80,17 @@ def test_exposures_returns_members_and_binds_no_date_param():
     sql, params = member_calls[0]
     assert "max(as_of_date)" in sql, "members query should resolve the latest date via subquery"
     assert set(params.keys()) <= {"t", "m"}, f"members query must not bind a date param: {params}"
+
+
+def test_exposures_never_filters_out_seeds():
+    """Regression: a curated seed (e.g. NVDA) must appear even when its exposure is
+    below the threshold — seeds are core members by curation, the threshold gates
+    only discovered adjacents. Asserts the query includes the 'OR in_seed' exemption
+    and pins seeds first."""
+    fake = _FakeEngine()
+    with patch.object(svc, "engine", fake):
+        asyncio.run(svc.exposures(theme="ai_infra", min=0.35))
+    sql = [s for s, _ in fake.captured if "SELECT ticker, exposure" in s][0]
+    norm = " ".join(sql.split()).lower()
+    assert "or in_seed" in norm, "seeds must be exempt from the exposure threshold (OR in_seed)"
+    assert "order by in_seed desc" in norm, "core (seed) members must be pinned first"

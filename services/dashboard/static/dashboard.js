@@ -160,7 +160,10 @@ function renderTheme(d) {
       sub.innerHTML = 'AI-infra universe &middot; service unavailable';
     } else {
       const asof = d.as_of_date ? (' &middot; as of ' + esc(d.as_of_date)) : '';
-      sub.innerHTML = members.length + ' names (expo &ge; ' + (d.min_exposure ?? 0.35) + ')' + asof;
+      const core = d.core_count != null ? d.core_count : members.filter(m => m.in_seed).length;
+      const disc = d.discovered_count != null ? d.discovered_count : members.length - core;
+      sub.innerHTML = members.length + ' names &middot; ' + core + ' core &middot; '
+        + disc + ' discovered (expo &ge; ' + (d.min_exposure ?? 0.35) + ')' + asof;
     }
   }
   if (!tbody) return;

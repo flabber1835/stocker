@@ -115,17 +115,24 @@ async def exposures(theme: str = "ai_infra", min: float = DEFAULT_MIN_EXPOSURE):
             "SELECT ticker, exposure, in_seed, avg_dollar_vol FROM theme_exposures "
             "WHERE theme = :t "
             "AND as_of_date = (SELECT max(as_of_date) FROM theme_exposures WHERE theme = :t) "
-            "AND exposure >= :m "
-            "ORDER BY exposure DESC"
+            # Seeds are CORE members by curation — never filtered by the exposure
+            # threshold (a hand-picked name like NVDA must not vanish because the
+            # sector strip depresses its correlation). The threshold gates only the
+            # DISCOVERED (non-seed) adjacents. Core pinned first, then discovery by
+            # exposure.
+            "AND (exposure >= :m OR in_seed) "
+            "ORDER BY in_seed DESC, exposure DESC"
         ), {"t": theme, "m": min})).mappings().all()
     members = [{"rank": i + 1, "ticker": r["ticker"], "exposure": float(r["exposure"]),
                 "in_seed": bool(r["in_seed"]),
                 "avg_dollar_vol_m": round(float(r["avg_dollar_vol"]) / 1e6, 1)
                 if r["avg_dollar_vol"] is not None else None}
                for i, r in enumerate(rows)]
+    core = sum(1 for m in members if m["in_seed"])
     return {"theme": theme, "as_of_date": meta["as_of_date"],
             "computed_at": meta["computed_at"], "min_exposure": min,
-            "count": len(members), "members": members}
+            "count": len(members), "core_count": core,
+            "discovered_count": len(members) - core, "members": members}
 
 
 @app.get("/runs/latest")
