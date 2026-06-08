@@ -3,4 +3,7 @@ WORKDIR /app
 ENV PIP_TRUSTED_HOST="pypi.org files.pythonhosted.org pypi.python.org"
 RUN sed -i 's/MinProtocol = TLSv1.2/MinProtocol = TLSv1.2\nMaxProtocol = TLSv1.2/' /etc/ssl/openssl.cnf
 COPY shared/ /shared/
-RUN pip install --no-cache-dir /shared/
+# Editable install so a bind-mount of ./shared (docker-compose.override.yml) takes
+# effect at runtime — shared code changes need only `git pull` + restart, no base
+# rebuild. A clean build with no override still works (uses the COPYed /shared).
+RUN pip install --no-cache-dir -e /shared/

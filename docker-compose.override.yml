@@ -2,15 +2,23 @@
 #
 # Compose auto-merges this file into docker-compose.yml on every `docker compose`
 # command, bind-mounting each service's source over the code baked into its image.
-# Effect: a CODE change or a new MIGRATION needs only `git pull` + a restart/re-run
-# of the service — NO image rebuild.
+# Effect: a CODE change (service OR shared/) or a new MIGRATION needs only
+# `git pull` + a restart/re-run of the service — NO image rebuild. shared/ is
+# mounted into every base-derived service and stocker-base installs it editable
+# (`pip install -e /shared/`), so shared edits are picked up live too.
 #
 #   Code change:   git pull && docker compose restart <service>
+#   shared change: git pull && docker compose restart <affected services>
 #   New migration: git pull && docker compose up -d --force-recreate db-migrator
 #
 # What this does NOT cover (these still require a rebuild):
-#   - new pip dependencies (requirements.txt)  -> docker compose build <service>
-#   - changes under shared/  (baked into stocker-base) -> rebuild stocker-base
+#   - new pip dependencies (requirements.txt, or new deps in shared/pyproject.toml)
+#       -> docker compose build <service>   (and rebuild stocker-base for shared deps)
+#   - adding a brand-new module file under shared/ (editable finder caches the file
+#       list) -> rebuild stocker-base. Editing existing shared files is live.
+#
+# NOTE: shared/ is imported by every service, so a syntax error there breaks ALL
+# services on their next restart — higher blast radius than a single-service edit.
 #
 # Bypass for a clean, immutable deploy (ignore this file):
 #   docker compose -f docker-compose.yml up -d --build
@@ -28,57 +36,71 @@ services:
 
   api:
     volumes:
+      - ./shared:/shared
       - ./services/api/app:/app/app
 
   av-ingestor:
     volumes:
+      - ./shared:/shared
       - ./services/av-ingestor/app:/app/app
 
   pipeline:
     volumes:
+      - ./shared:/shared
       - ./services/pipeline/app:/app/app
 
   strategy-validator:
     volumes:
+      - ./shared:/shared
       - ./services/strategy-validator/app:/app/app
 
   llm-gateway:
     volumes:
+      - ./shared:/shared
       - ./services/llm-gateway/app:/app/app
 
   portfolio-builder:
     volumes:
+      - ./shared:/shared
       - ./services/portfolio-builder/app:/app/app
 
   llm-vetter:
     volumes:
+      - ./shared:/shared
       - ./services/llm-vetter/app:/app/app
 
   alpaca-sync:
     volumes:
+      - ./shared:/shared
       - ./services/alpaca-sync/app:/app/app
 
   risk-service:
     volumes:
+      - ./shared:/shared
       - ./services/risk-service/app:/app/app
 
   trade-executor:
     volumes:
+      - ./shared:/shared
       - ./services/trade-executor/app:/app/app
 
   backtester:
     volumes:
+      - ./shared:/shared
       - ./services/backtester/app:/app/app
 
   theme-classifier:
     volumes:
+      - ./shared:/shared
       - ./services/theme-classifier/app:/app/app
 
   scheduler:
     volumes:
+      - ./shared:/shared
       - ./services/scheduler/app:/app/app
 
   dashboard:
     volumes:
+      - ./shared:/shared
       - ./services/dashboard/app:/app/app
       - ./services/dashboard/static:/app/static
