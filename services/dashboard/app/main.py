@@ -397,28 +397,33 @@ async def auto_approve_status():
     now = time.time()
     timeout = TRADE_AUTO_APPROVE_MINUTES * 60
 
-    # Manual runs never auto-approve (a human must click), so the countdown must
-    # not be shown for them. _auto_approve_once already suppresses the POST; here
-    # we also suppress the visible timer by returning an empty pending list when
-    # the current delta run is manual. Without this the UI shows a countdown that
-    # will never fire. Fail open (treat as non-manual) if /delta/latest is
-    # unreachable — the backend POST gate is still the real safety check.
-    is_manual_run = False
-    chain_running = False
+    # FAIL CLOSED. A countdown implies imminent auto-approval, so it may be shown
+    # ONLY when we have POSITIVELY confirmed the latest delta is a NON-manual
+    # (auto/cron) run AND no chain is in progress. If we cannot read the run origin
+    # (a /delta/latest blip — common while services are restarting), SUPPRESS the
+    # countdown rather than imply auto-approval on a manual run we couldn't verify.
+    #
+    # This is the regression fix: _intent_first_seen holds the manual run's intents
+    # (populated by _auto_approve_once before its manual check), so the previous
+    # "fail open → is_manual_run=False" leaked a countdown onto manual runs whenever
+    # /delta/latest momentarily failed. _auto_approve_once never actually approves a
+    # manual run, but the visible timer must match that guarantee — no confirmation,
+    # no countdown.
+    is_manual_run = True       # assume manual (suppress) until proven non-manual
+    chain_running = True        # assume busy (suppress) until proven idle
+    origin_known = False
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            chain_running = await _chain_in_progress(client)
+            chain_running = await _chain_in_progress(client)   # fails open → False internally
             r = await client.get(f"{API_URL}/delta/latest")
         if r.status_code == 200:
             is_manual_run = bool((r.json().get("run") or {}).get("manual"))
+            origin_known = True
     except Exception as exc:
-        print(f"[auto-approve-status] could not read run origin: {exc}")
+        print(f"[auto-approve-status] could not read run origin (suppressing countdown): {exc}")
 
-    # Suppress the countdown for manual runs (human must click) AND while a fresh
-    # chain is in progress (the visible delta is the prior cycle's, about to be
-    # replaced — don't count down on stale intents). Mirrors the _auto_approve_once
-    # gates so the timer never shows when no auto-approval will actually happen.
-    if is_manual_run or chain_running:
+    # Countdown only when origin is CONFIRMED non-manual and no chain is in progress.
+    if (not origin_known) or is_manual_run or chain_running:
         return {"auto_approve_minutes": TRADE_AUTO_APPROVE_MINUTES, "pending": [],
                 "manual": is_manual_run, "chain_running": chain_running}
 

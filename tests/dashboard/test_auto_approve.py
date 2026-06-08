@@ -375,3 +375,54 @@ def test_status_shows_countdown_for_scheduled_run(dashboard):
     assert res["manual"] is False
     assert len(res["pending"]) == 1      # scheduled run still counts down
     assert res["pending"][0]["intent_id"] == "i1"
+
+
+def test_status_fails_closed_when_delta_unreachable(dashboard):
+    """Regression: if /delta/latest can't be read (an api blip — common while
+    services restart), the countdown must be SUPPRESSED, not shown. Previously the
+    endpoint failed OPEN (is_manual_run defaulted False) and leaked a countdown onto
+    the latest MANUAL run's intents (which sit in _intent_first_seen). Fail closed:
+    a countdown shows ONLY when the run origin is positively confirmed non-manual."""
+    dashboard._intent_first_seen.clear()
+    dashboard._intent_approved.clear()
+    dashboard._intent_first_seen["i1"] = 0.0   # a manual run's intent, already tracked
+
+    async def fake_get(url, **kw):
+        if url.endswith("/status"):            # scheduler reachable, idle
+            r = MagicMock(); r.status_code = 200
+            r.json = MagicMock(return_value={"status": "idle"})
+            return r
+        raise RuntimeError("delta unreachable")  # /delta/latest blip → origin unknown
+
+    client_cm = MagicMock()
+    client_cm.__aenter__ = AsyncMock(return_value=MagicMock(get=fake_get))
+    client_cm.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("app.main.httpx.AsyncClient", return_value=client_cm):
+        res = asyncio.run(dashboard.auto_approve_status())
+    assert res["pending"] == []            # FAIL CLOSED — no countdown when origin unknown
+
+
+def test_status_fails_closed_when_delta_non_200(dashboard):
+    """A non-200 from /delta/latest is also 'origin unknown' → suppress the countdown."""
+    dashboard._intent_first_seen.clear()
+    dashboard._intent_approved.clear()
+    dashboard._intent_first_seen["i1"] = 0.0
+
+    async def fake_get(url, **kw):
+        r = MagicMock()
+        if url.endswith("/status"):
+            r.status_code = 200
+            r.json = MagicMock(return_value={"status": "idle"})
+        else:
+            r.status_code = 502            # api degraded
+            r.json = MagicMock(return_value={})
+        return r
+
+    client_cm = MagicMock()
+    client_cm.__aenter__ = AsyncMock(return_value=MagicMock(get=fake_get))
+    client_cm.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("app.main.httpx.AsyncClient", return_value=client_cm):
+        res = asyncio.run(dashboard.auto_approve_status())
+    assert res["pending"] == []
