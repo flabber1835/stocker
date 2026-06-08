@@ -134,6 +134,8 @@ function showScreen(name, btnEl) {
 /* ── Theme tab — standalone AI-infra universe (read-only; decoupled) ──────── */
 let themeRows = [];                       // members enriched with universe rank + screener rec
 let themeUnivRecs = [];                   // FULL universe ranking (for rank lookup + detail card)
+let themeSort = { col: 'rank', dir: 1 };  // Theme tab column sort (default: theme rank asc)
+let _themeMeta = {};                      // last response meta (as_of, min_exposure, error)
 let _expandedThemeTicker = null;
 
 async function loadTheme() {
@@ -152,37 +154,62 @@ async function loadTheme() {
 }
 
 function renderTheme(d) {
-  const tbody = $('theme-body');
-  const sub = $('theme-sub');
+  _themeMeta = { error: !!(d && d.error), as_of_date: d && d.as_of_date,
+                 min_exposure: d && d.min_exposure };
   const members = (d && d.members) || [];
-  if (sub) {
-    if (d && d.error) {
-      sub.innerHTML = 'AI-infra universe &middot; service unavailable';
-    } else {
-      const asof = d.as_of_date ? (' &middot; as of ' + esc(d.as_of_date)) : '';
-      const core = d.core_count != null ? d.core_count : members.filter(m => m.in_seed).length;
-      const disc = d.discovered_count != null ? d.discovered_count : members.length - core;
-      sub.innerHTML = members.length + ' names &middot; ' + core + ' core &middot; '
-        + disc + ' discovered (expo &ge; ' + (d.min_exposure ?? 0.35) + ')' + asof;
-    }
-  }
-  if (!tbody) return;
-  if (!members.length) {
-    _expandedThemeTicker = null;
-    tbody.innerHTML = '<tr><td colspan="6" class="tbl-empty">No AI-infra universe yet — press Refresh</td></tr>';
-    return;
-  }
   // Enrich with universe rank + the record (for the detail card) from the FULL
-  // ranking. '—' means the name isn't in the ranked universe (e.g. dropped for
-  // missing required factors) — a genuine gap, not a lookup limit.
+  // ranking. univ_rank null ('—') means the name isn't in the ranked universe.
   const byTicker = {};
   themeUnivRecs.forEach(r => { byTicker[r.ticker] = r; });
   themeRows = members.map(m => {
     const rec = byTicker[m.ticker] || null;
     return { ...m, univ_rank: rec ? rec.rank : null, rec };
   });
+  renderThemeTable();
+}
 
-  tbody.innerHTML = themeRows.map(m =>
+function sortTheme(col) {
+  // rank/univ_rank/ticker read best ascending; exposure/seed/$vol descending.
+  const ascendingByDefault = (col === 'rank' || col === 'univ_rank' || col === 'ticker');
+  if (themeSort.col === col) themeSort.dir *= -1;
+  else { themeSort.col = col; themeSort.dir = ascendingByDefault ? 1 : -1; }
+  _expandedThemeTicker = null;
+  clearSort('thh-');
+  const th = $('thh-' + col);
+  if (th) th.classList.add(themeSort.dir === 1 ? 'asc' : 'desc');
+  renderThemeTable();
+}
+
+function renderThemeTable() {
+  const tbody = $('theme-body');
+  const sub = $('theme-sub');
+  if (sub) {
+    if (_themeMeta.error) {
+      sub.innerHTML = 'AI-infra universe &middot; service unavailable';
+    } else {
+      const core = themeRows.filter(m => m.in_seed).length;
+      const disc = themeRows.length - core;
+      const asof = _themeMeta.as_of_date ? (' &middot; as of ' + esc(_themeMeta.as_of_date)) : '';
+      sub.innerHTML = themeRows.length + ' names &middot; ' + core + ' core &middot; '
+        + disc + ' discovered (expo &ge; ' + (_themeMeta.min_exposure ?? 0.35) + ')' + asof;
+    }
+  }
+  if (!tbody) return;
+  if (!themeRows.length) {
+    _expandedThemeTicker = null;
+    tbody.innerHTML = '<tr><td colspan="6" class="tbl-empty">No AI-infra universe yet — press Refresh</td></tr>';
+    return;
+  }
+  const { col, dir } = themeSort;
+  const keyOf = (m) => (col === 'in_seed' ? (m.in_seed ? 1 : 0) : m[col]);
+  const rows = themeRows.slice().sort((a, b) => {
+    const av = keyOf(a), bv = keyOf(b);
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1; if (bv == null) return -1;   // nulls (—) always last
+    return (av < bv ? -1 : av > bv ? 1 : 0) * dir;
+  });
+
+  tbody.innerHTML = rows.map(m =>
     '<tr class="rank-row" id="thm-row-' + esc(m.ticker) + '"'
       + ' onclick="toggleThemeDetail(\'' + esc(m.ticker) + '\',this)">'
     + '<td><span class="t-rank">' + m.rank + '</span></td>'

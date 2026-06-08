@@ -994,12 +994,12 @@ _HTML = r"""<!DOCTYPE html>
       <div class="tbl-scroll">
         <table>
           <thead><tr>
-            <th title="Rank within the AI-infra theme (by exposure)">THEME&nbsp;#</th>
-            <th title="Rank within the entire ranked universe">UNIV&nbsp;#</th>
-            <th>TICKER</th>
-            <th title="AI-specific exposure score (0-1): market + orthogonalized-semis stripped">EXPO</th>
-            <th title="Part of the curated pure-play seed">SEED</th>
-            <th title="Avg daily dollar volume ($M)">$VOL</th>
+            <th id="thh-rank" onclick="sortTheme('rank')" title="Rank within the AI-infra theme (core first, then by exposure)">THEME&nbsp;#</th>
+            <th id="thh-univ_rank" onclick="sortTheme('univ_rank')" title="Rank within the entire ranked universe">UNIV&nbsp;#</th>
+            <th id="thh-ticker" onclick="sortTheme('ticker')">TICKER</th>
+            <th id="thh-exposure" onclick="sortTheme('exposure')" title="AI-specific exposure score (0-1): market + orthogonalized-semis stripped">EXPO</th>
+            <th id="thh-in_seed" onclick="sortTheme('in_seed')" title="Part of the curated pure-play seed (core)">SEED</th>
+            <th id="thh-avg_dollar_vol_m" onclick="sortTheme('avg_dollar_vol_m')" title="Avg daily dollar volume ($M)">$VOL</th>
           </tr></thead>
           <tbody id="theme-body"><tr><td colspan="6" class="tbl-empty">Loading&#8230;</td></tr></tbody>
         </table>
