@@ -46,17 +46,21 @@ async def _latest_meta(theme: str) -> dict | None:
             "scored": int(row["n"])}
 
 
-async def _run_theme(theme: str) -> dict:
+async def _run_theme(theme: str) -> dict | None:
+    """Compute + store one theme. Stores any error in _last_error; never raises (so
+    background tasks don't leave 'never retrieved' exceptions). Returns summary or None."""
     global _last_error
     cfg = THEMES[theme]
     async with _job_lock:
         try:
             summary = await run_and_store(engine, cfg)
             _last_error = None
+            print(f"[theme-classifier] computed '{theme}': {summary}", flush=True)
             return summary
         except Exception as exc:  # noqa: BLE001
             _last_error = f"{type(exc).__name__}: {exc}"
-            raise
+            print(f"[theme-classifier] compute FAILED for '{theme}': {_last_error}", flush=True)
+            return None
 
 
 async def _refresher():
@@ -130,8 +134,12 @@ async def runs_latest(theme: str = "ai_infra"):
 
 @app.post("/jobs/run")
 async def jobs_run(theme: str = "ai_infra"):
+    """Non-blocking: kick the compute as a background task and return immediately so
+    the HTTP call doesn't hold open for the ~minute of work. Poll /exposures or
+    /runs/latest for completion."""
     if theme not in THEMES:
         raise HTTPException(404, f"unknown theme: {theme}")
     if _job_lock.locked():
         return {"status": "already_running", "theme": theme}
-    return {"status": "success", **await _run_theme(theme)}
+    asyncio.create_task(_run_theme(theme))
+    return {"status": "started", "theme": theme}

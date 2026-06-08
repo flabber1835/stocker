@@ -173,14 +173,20 @@ function renderTheme(d) {
 async function refreshTheme(btn) {
   if (btn) { btn.disabled = true; btn.textContent = 'Computing…'; }
   const sub = $('theme-sub');
-  if (sub) sub.innerHTML = 'Recomputing AI-infra universe… (this takes ~1 min)';
   try {
+    // Non-blocking trigger; the compute runs ~1 min server-side. Poll until ready.
     await fetch('/api/theme/refresh?theme=ai_infra', { method: 'POST' });
-    await loadTheme();
+    for (let i = 0; i < 40; i++) {        // up to ~3.5 min
+      if (sub) sub.innerHTML = 'Computing AI-infra universe… (' + (i * 5) + 's)';
+      await new Promise(r => setTimeout(r, 5000));
+      const d = await fetch('/api/theme?theme=ai_infra&min=0.35').then(r => r.json());
+      if (d && d.members && d.members.length) { renderTheme(d); return; }
+    }
+    if (sub) sub.innerHTML = 'Still computing — reopen the tab shortly';
   } catch (e) {
     if (sub) sub.innerHTML = 'Refresh failed';
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Refresh'; }
+    if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; }
   }
 }
 

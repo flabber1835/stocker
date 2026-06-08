@@ -7,6 +7,7 @@ here references the trading pipeline.
 """
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import date
 
@@ -125,8 +126,9 @@ def score_exposures(prices: pd.DataFrame, equities: set[str], liq: pd.Series,
     return pd.DataFrame(rows).sort_values("exposure", ascending=False).reset_index(drop=True)
 
 
-async def load_panel(engine, cfg: ThemeConfig):
-    """Read daily_prices (read-only) into a price panel + liquidity + equity set."""
+async def _fetch_raw(engine, cfg: ThemeConfig):
+    """Read daily_prices + fundamentals (read-only). Returns raw rows for threaded
+    pandas processing — keeps DB I/O in the event loop, CPU work out of it."""
     async with engine.connect() as conn:
         rows = (await conn.execute(text(
             "SELECT ticker, date, adjusted_close, volume FROM daily_prices "
@@ -136,7 +138,14 @@ async def load_panel(engine, cfg: ThemeConfig):
         fund_rows = (await conn.execute(text(
             "SELECT DISTINCT ticker FROM fundamentals WHERE source != 'no_data'"
         ))).fetchall()
+    return rows, fund_rows
 
+
+def build_and_score(rows, fund_rows, cfg: ThemeConfig):
+    """Pure CPU: build the price panel and score exposures. Run via asyncio.to_thread
+    so the ~minute of pandas/numpy never blocks the FastAPI event loop (otherwise
+    /health and /exposures time out → the service looks 'unavailable' and the
+    healthcheck restarts it mid-compute)."""
     if not rows:
         raise ValueError("no price data")
     df = pd.DataFrame(rows, columns=["ticker", "date", "adjusted_close", "volume"])
@@ -150,15 +159,16 @@ async def load_panel(engine, cfg: ThemeConfig):
     panel = df[df["ticker"].isin(liquid)].pivot_table(
         index="date", columns="ticker", values="adjusted_close").sort_index()
     as_of = df["date"].max()
-    return panel, equities, liq, as_of
+    as_of_d = as_of if isinstance(as_of, date) else pd.to_datetime(as_of).date()
+    res = score_exposures(panel, equities, liq, cfg)
+    return res, as_of_d
 
 
 async def run_and_store(engine, cfg: ThemeConfig) -> dict:
     """Compute exposures and replace the theme's snapshot for as_of_date. Returns a
-    summary dict. Writes ONLY theme_exposures."""
-    panel, equities, liq, as_of = await load_panel(engine, cfg)
-    res = score_exposures(panel, equities, liq, cfg)
-    as_of_d = as_of if isinstance(as_of, date) else pd.to_datetime(as_of).date()
+    summary dict. Writes ONLY theme_exposures. CPU work is offloaded to a thread."""
+    rows, fund_rows = await _fetch_raw(engine, cfg)
+    res, as_of_d = await asyncio.to_thread(build_and_score, rows, fund_rows, cfg)
 
     records = [
         {"theme": cfg.theme, "ticker": r["ticker"], "exposure": float(r["exposure"]),
