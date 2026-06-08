@@ -132,13 +132,19 @@ function showScreen(name, btnEl) {
 }
 
 /* ── Theme tab — standalone AI-infra universe (read-only; decoupled) ──────── */
+let themeRows = [];                       // members enriched with universe rank + screener rec
+let _expandedThemeTicker = null;
+
 async function loadTheme() {
   const tbody = $('theme-body');
   try {
+    // Load the main rankings too (read-only) so we can annotate each theme name
+    // with its rank in the ENTIRE universe and reuse the screener detail card.
+    if (!rankData.length) await loadRankings();
     const d = await fetch('/api/theme?theme=ai_infra&min=0.35').then(r => r.json());
     renderTheme(d);
   } catch (e) {
-    if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="tbl-empty">Error loading theme</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="tbl-empty">Error loading theme</td></tr>';
   }
 }
 
@@ -156,18 +162,57 @@ function renderTheme(d) {
   }
   if (!tbody) return;
   if (!members.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="tbl-empty">No AI-infra universe yet — press Refresh</td></tr>';
+    _expandedThemeTicker = null;
+    tbody.innerHTML = '<tr><td colspan="6" class="tbl-empty">No AI-infra universe yet — press Refresh</td></tr>';
     return;
   }
-  tbody.innerHTML = members.map(m =>
-    '<tr class="rank-row">'
+  // Enrich with universe rank + the screener record (for the detail card).
+  const byTicker = {};
+  rankData.forEach(r => { byTicker[r.ticker] = r; });
+  themeRows = members.map(m => {
+    const rec = byTicker[m.ticker] || null;
+    return { ...m, univ_rank: rec ? rec.rank : null, rec };
+  });
+
+  tbody.innerHTML = themeRows.map(m =>
+    '<tr class="rank-row" id="thm-row-' + esc(m.ticker) + '"'
+      + ' onclick="toggleThemeDetail(\'' + esc(m.ticker) + '\',this)">'
     + '<td><span class="t-rank">' + m.rank + '</span></td>'
+    + '<td><span class="t-rank">' + (m.univ_rank != null ? m.univ_rank : '—') + '</span></td>'
     + '<td><span class="t-ticker">' + esc(m.ticker) + '</span></td>'
     + '<td class="t-num">' + (m.exposure != null ? m.exposure.toFixed(2) : '—') + '</td>'
     + '<td class="tgt-cell">' + (m.in_seed ? '<span class="tgt-x" title="seed">&#10003;</span>' : '<span class="tgt-no">&middot;</span>') + '</td>'
     + '<td class="t-num">' + (m.avg_dollar_vol_m != null ? m.avg_dollar_vol_m.toFixed(0) : '—') + '</td>'
     + '</tr>'
   ).join('');
+
+  if (_expandedThemeTicker !== null) {
+    const mainRow = document.getElementById('thm-row-' + _expandedThemeTicker);
+    const row = themeRows.find(m => m.ticker === _expandedThemeTicker);
+    if (mainRow && row && row.rec) _insertDetailRow(mainRow, row.rec, 6);
+    else _expandedThemeTicker = null;
+  }
+}
+
+function toggleThemeDetail(ticker, rowEl) {
+  if (_expandedThemeTicker === ticker) {
+    _expandedThemeTicker = null;
+    const next = rowEl.nextSibling;
+    if (next && next.classList && next.classList.contains('detail-row')) next.remove();
+    rowEl.classList.remove('expanded');
+    return;
+  }
+  if (_expandedThemeTicker !== null) {
+    const prev = document.getElementById('detail-row-' + _expandedThemeTicker);
+    if (prev) prev.remove();
+    const prevMain = document.getElementById('thm-row-' + _expandedThemeTicker);
+    if (prevMain) prevMain.classList.remove('expanded');
+  }
+  const row = themeRows.find(m => m.ticker === ticker);
+  if (!row || !row.rec) return;            // not in the ranked universe → no detail card
+  _expandedThemeTicker = ticker;
+  rowEl.classList.add('expanded');
+  _insertDetailRow(rowEl, row.rec, 6);
 }
 
 async function refreshTheme(btn) {
