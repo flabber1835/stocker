@@ -1,0 +1,84 @@
+# docker-compose.override.yml — DEV/NAS bind-mounts for fast iteration.
+#
+# Compose auto-merges this file into docker-compose.yml on every `docker compose`
+# command, bind-mounting each service's source over the code baked into its image.
+# Effect: a CODE change or a new MIGRATION needs only `git pull` + a restart/re-run
+# of the service — NO image rebuild.
+#
+#   Code change:   git pull && docker compose restart <service>
+#   New migration: git pull && docker compose up -d --force-recreate db-migrator
+#
+# What this does NOT cover (these still require a rebuild):
+#   - new pip dependencies (requirements.txt)  -> docker compose build <service>
+#   - changes under shared/  (baked into stocker-base) -> rebuild stocker-base
+#
+# Bypass for a clean, immutable deploy (ignore this file):
+#   docker compose -f docker-compose.yml up -d --build
+# Revert entirely: delete this file.
+#
+# Note: uvicorn does not hot-reload, so a `restart` is still needed to load new
+# code. Volume merge is additive — existing mounts (./strategies, ./artifacts)
+# defined in docker-compose.yml are preserved.
+
+services:
+  db-migrator:
+    volumes:
+      - ./db/migrations:/app/db/migrations
+      - ./alembic.ini:/app/alembic.ini:ro
+
+  api:
+    volumes:
+      - ./services/api/app:/app/app
+
+  av-ingestor:
+    volumes:
+      - ./services/av-ingestor/app:/app/app
+
+  pipeline:
+    volumes:
+      - ./services/pipeline/app:/app/app
+
+  strategy-validator:
+    volumes:
+      - ./services/strategy-validator/app:/app/app
+
+  llm-gateway:
+    volumes:
+      - ./services/llm-gateway/app:/app/app
+
+  portfolio-builder:
+    volumes:
+      - ./services/portfolio-builder/app:/app/app
+
+  llm-vetter:
+    volumes:
+      - ./services/llm-vetter/app:/app/app
+
+  alpaca-sync:
+    volumes:
+      - ./services/alpaca-sync/app:/app/app
+
+  risk-service:
+    volumes:
+      - ./services/risk-service/app:/app/app
+
+  trade-executor:
+    volumes:
+      - ./services/trade-executor/app:/app/app
+
+  backtester:
+    volumes:
+      - ./services/backtester/app:/app/app
+
+  theme-classifier:
+    volumes:
+      - ./services/theme-classifier/app:/app/app
+
+  scheduler:
+    volumes:
+      - ./services/scheduler/app:/app/app
+
+  dashboard:
+    volumes:
+      - ./services/dashboard/app:/app/app
+      - ./services/dashboard/static:/app/static
