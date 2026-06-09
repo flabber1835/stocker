@@ -220,6 +220,39 @@ Two initial strategy styles:
 2. Quality ranking plus thematic overlay, for example AI infrastructure
 ```
 
+A third, opposite style also exists as a separate config (`strategies/speculative_growth_v1.yaml`):
+
+```text
+3. Speculative growth / "story stock" sleeve — the INVERSE of the core model.
+```
+
+It deliberately buys the wrong side of several anomalies (lottery, low-vol, quality,
+value, issuance) to fish the fat right tail: pre-profit, expensive, dilutive, high-vol,
+small-cap momentum names (e.g. ASTS) the core model correctly screens out. Expected
+AVERAGE return is poor with huge dispersion — it's a small, diversified, risk-managed
+lottery basket, NOT a core book; backtest the DISTRIBUTION (not the mean) first.
+
+It is enabled purely by config (raw short-window momentum, quality/value/low-vol
+dropped, quality/value removed from `required_factors`, lower liquidity floor) PLUS
+four optional factors added to support it. These factors are OPTIONAL with default
+weight 0, so the core strategy is unaffected (a 0 weight contributes nothing and the
+composite renormalizes over non-null factors):
+
+```text
+small_cap        — prefers smaller market cap (raw = -market_cap)
+volume_surge     — recent vol / baseline vol (accumulation / unusual volume)
+near_high        — last close / trailing high (breakout / strength)
+high_volatility  — inverse percentile of low_volatility (prefers high vol)
+```
+
+They are computed in the pipeline (services/pipeline/app/factors.py), persisted in
+`factor_scores` (migration 0021), threaded through the write/read like the other
+factors, and listed in `rank.FACTORS`. `small_cap` needs `fundamentals.market_cap`
+(now loaded by the factor step). To run the speculative sleeve, point
+`STRATEGY_CONFIG_PATH` (or the backtester) at `speculative_growth_v1.yaml`; swap back
+to `quality_core_v1.yaml` to fully revert (config is stateless; runs are tagged by
+config_hash, so nothing is overwritten).
+
 The system may also add swing/day-trading style behavior:
 
 ```text

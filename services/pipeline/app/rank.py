@@ -1,7 +1,8 @@
 import pandas as pd
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 
-FACTORS = ["momentum", "quality", "value", "growth", "low_volatility", "liquidity", "issuance"]
+FACTORS = ["momentum", "quality", "value", "growth", "low_volatility", "liquidity", "issuance",
+           "small_cap", "volume_surge", "near_high", "high_volatility"]
 
 
 def rank_universe(

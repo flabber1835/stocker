@@ -1,0 +1,126 @@
+# speculative_growth_v1 — high-risk "story stock" sleeve (the INVERSE of quality_core).
+#
+# DELIBERATELY buys the wrong side of several documented anomalies (lottery, low-vol,
+# quality, value, issuance) to fish the fat right tail — pre-profit, expensive,
+# dilutive, high-vol, small-cap momentum names (e.g. ASTS) that the core model
+# correctly screens out. EXPECTED AVERAGE return is poor and dispersion is huge; this
+# is a small, diversified, aggressively-risk-managed lottery basket, NOT a core book.
+# Backtest the DISTRIBUTION (not the mean) before risking capital.
+#
+# quality_core_v1.yaml is unaffected — this is a separate file. Swap STRATEGY_CONFIG_PATH
+# (or the backtester's --config) back to it to fully revert.
+
+strategy_id: speculative_growth_v1
+description: >
+  Speculative growth / momentum sleeve. Raw short-horizon momentum + growth, plus
+  small-cap / high-volatility / breakout / volume-surge signals; quality, value and
+  low-volatility deliberately dropped so pre-profit story stocks are not screened out.
+
+universe:
+  source: av_listing
+  min_price: 2.0                 # lower than core (5.0) — admit smaller speculative names
+  min_avg_dollar_volume_20d: 5000000   # lower than core (20M) — admit smaller-cap names (still tradeable)
+
+factor_engine:
+  momentum_short_window: 21
+  momentum_long_window: 252
+  volatility_window: 252
+  liquidity_window: 20
+  pe_pb_cap: 50.0
+  spy_price_lookback_days: 600
+  quality_use_gross_profitability: true
+  momentum_method: raw           # RAW (not residual/vol-scaled) — we WANT the un-penalized surge
+  momentum_blend_windows: [126, 63]   # shorter horizons (6-1 and 3-1) to catch emerging moves; 63 is the floor (below = reversal)
+
+regime_detection:
+  slow_sma: 200
+  vol_window: 20
+  vol_threshold: 0.20
+  confirmation_days: 5
+  regimes:
+    bull_calm:   { spy_above_slow_sma: true,  vol_above_threshold: false }
+    bull_stress: { spy_above_slow_sma: true,  vol_above_threshold: true  }
+    bear_stress: { spy_above_slow_sma: false, vol_above_threshold: true  }
+    bear_calm:   { spy_above_slow_sma: false, vol_above_threshold: false }
+
+regime_weighting_enabled: false  # static weights (no regime rotation)
+
+# Speculative static weights — momentum/growth-led, with the code-only factors that
+# the core can't express. quality/value/low_volatility = 0 (we do NOT penalize
+# expensive/unprofitable/volatile names); high_volatility actively rewards vol.
+static_factor_weights:
+  momentum:        0.30   # raw short-horizon — the surge
+  growth:          0.20   # sales growth (renormalized out for names with no fundamentals)
+  high_volatility: 0.10   # prefer high vol (inverse of low_volatility) — opposite of core
+  small_cap:       0.10   # prefer smaller caps (moonshot room)
+  volume_surge:    0.10   # accumulation / unusual volume
+  near_high:       0.10   # breakout / proximity to trailing high
+  liquidity:       0.10   # execution floor (still tradeable)
+  quality:         0.0    # deliberately dropped (pre-profit names welcome)
+  value:           0.0    # deliberately dropped (expensive names welcome)
+  low_volatility:  0.0    # dropped — replaced by high_volatility
+  # issuance defaults to 0 (don't penalize the capital raises that fund the story)
+
+factor_weights:
+  # Unused (regime_weighting_enabled false) but schema requires the 4-regime table.
+  # Reuse the speculative static shape in every regime so it validates and behaves
+  # identically if rotation is ever switched on.
+  bull_calm:   { momentum: 0.30, growth: 0.20, high_volatility: 0.10, small_cap: 0.10, volume_surge: 0.10, near_high: 0.10, liquidity: 0.10, quality: 0.0, value: 0.0, low_volatility: 0.0 }
+  bull_stress: { momentum: 0.30, growth: 0.20, high_volatility: 0.10, small_cap: 0.10, volume_surge: 0.10, near_high: 0.10, liquidity: 0.10, quality: 0.0, value: 0.0, low_volatility: 0.0 }
+  bear_stress: { momentum: 0.30, growth: 0.20, high_volatility: 0.10, small_cap: 0.10, volume_surge: 0.10, near_high: 0.10, liquidity: 0.10, quality: 0.0, value: 0.0, low_volatility: 0.0 }
+  bear_calm:   { momentum: 0.30, growth: 0.20, high_volatility: 0.10, small_cap: 0.10, volume_surge: 0.10, near_high: 0.10, liquidity: 0.10, quality: 0.0, value: 0.0, low_volatility: 0.0 }
+
+portfolio_builder:
+  method: greedy_score_per_port_vol
+  candidate_count: 200               # wider net than core (100) — more speculative names considered
+  max_positions: 50                  # MANY small lottery tickets — diversify the fat tail
+  covariance_window_days: 252
+  min_covariance_observations: 126
+  covariance_shrinkage: 0.20
+  require_positive_composite_score: false
+  weighting: equal_weight            # equal-weight the basket — don't over-bet any one lottery ticket
+  max_position_weight: 0.04          # ≤ 3 / max_positions (50) = 0.06; small caps each
+  max_sector_weight: 0.40            # allow more sector concentration than core (these cluster) but bounded
+  cluster_correlation_threshold: 0.70
+  max_cluster_weight: 0.20
+  max_tickers_per_cluster: 5
+  do_not_buy: []
+  cash_reserve: 0.025
+  theme_overlay:
+    enabled: false                   # standalone speculative model; theme overlay off
+
+vetter:
+  enabled: true                      # falling-knife veto is ESPECIALLY important for this cohort
+  candidate_count: 200               # cover the portfolio-builder horizon (200)
+  risk_horizon_days: 90
+  system_prompt_file: /strategies/quality_core_v1.vetter_prompt.txt
+  max_searches_per_ticker: 3
+  news_lookback_days: 7
+  max_articles_per_ticker: 4
+  earnings_horizon_days: 90
+  strictness: moderate
+
+intraday:
+  enabled: false
+  benchmark_ticker: SPY
+  trim_winners_enabled: false
+  trim_winner_threshold_pct: 10.0
+  trim_winner_partial_pct: 25.0
+  trim_time_window_minutes_before_close: 60
+  delay_buys_after_spike_enabled: false
+  delay_buy_spike_threshold_pct: 15.0
+  risk_event_action: reduce
+
+delta_engine:
+  entry_rank: 25
+  exit_rank: 40
+  confirmation_days: 3
+  orphan_confirmation_days: 3
+  max_positions: 50
+
+max_positions: 50
+min_score_percentile: 0.0
+min_non_null_factors: 4   # permissive — pre-profit names lack quality/value; require only the price/volume signals below
+required_factors:         # price/volume-derived gates only (always present for a liquid name with history)
+  - momentum              # needs price history
+  - liquidity             # needs price + volume history

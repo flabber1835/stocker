@@ -436,6 +436,57 @@ def compute_issuance(fundamentals: pd.DataFrame) -> pd.Series:
     return factor
 
 
+def compute_small_cap(fundamentals: pd.DataFrame) -> pd.Series:
+    """Small-cap preference (raw signal, higher = SMALLER). Returns -market_cap so the
+    cross-sectional percentile scores the smallest companies highest — the cohort
+    speculative moonshots come from. NaN where market_cap is missing/non-positive.
+    Optional factor (default weight 0). Pure / dependency-free."""
+    fund = fundamentals.set_index("ticker")
+    if "market_cap" not in fund.columns:
+        return pd.Series(dtype=float, name="small_cap")
+    mc = fund["market_cap"].astype(float)
+    score = (-mc).where(mc > 0)
+    score.name = "small_cap"
+    return score
+
+
+def compute_volume_surge(prices_long: pd.DataFrame, short_window: int = 5,
+                         long_window: int = 60) -> pd.Series:
+    """Unusual-volume / accumulation signal (raw, higher = bigger recent surge):
+    mean(volume, last short_window) / mean(volume, last long_window). >1 means recent
+    volume is running hot vs the ticker's own baseline — a tell for story/breakout
+    names. NaN with < long_window rows or zero baseline. Optional factor."""
+    recent = prices_long.sort_values(["ticker", "date"])
+
+    def _surge(g: pd.DataFrame) -> float:
+        v = g["volume"].astype(float).to_numpy()
+        if len(v) < long_window:
+            return float("nan")
+        lw = v[-long_window:].mean()
+        if lw <= 0:
+            return float("nan")
+        return float(v[-short_window:].mean() / lw)
+
+    score = recent.groupby("ticker").apply(_surge)
+    score.name = "volume_surge"
+    return score
+
+
+def compute_near_high(prices: pd.DataFrame, window: int = 252) -> pd.Series:
+    """Proximity to the trailing high (raw, higher = closer to/at the high) — a
+    breakout/strength signal: last_close / max(close over window), in (0, 1]. Takes
+    the wide adjusted_close pivot (date × ticker). NaN with < 2 rows or non-positive
+    high. Optional factor."""
+    if len(prices) < 2:
+        return pd.Series(dtype=float, name="near_high")
+    hist = prices.iloc[-window:] if len(prices) >= window else prices
+    high = hist.max(skipna=True)
+    last = hist.ffill().iloc[-1]
+    score = (last / high).where(high > 0)
+    score.name = "near_high"
+    return score
+
+
 def compute_all_factors(
     prices_long: pd.DataFrame,
     fundamentals: pd.DataFrame,
@@ -467,12 +518,15 @@ def compute_all_factors(
 
     momentum_raw = compute_momentum(pivot, short_window=cfg.momentum_short_window, long_window=cfg.momentum_long_window, method=cfg.momentum_method, blend_long_windows=cfg.momentum_blend_windows)
     low_vol_raw = compute_low_volatility(pivot, window=cfg.volatility_window)
+    near_high_raw = compute_near_high(pivot, window=cfg.volatility_window)
     del pivot  # the wide date×ticker matrix is no longer needed — free it before ranking
     liquidity_raw = compute_liquidity(prices_long, window=cfg.liquidity_window)
     quality_raw = compute_quality(fundamentals, use_gross_profitability=cfg.quality_use_gross_profitability)
     value_raw = compute_value(fundamentals, pe_pb_cap=cfg.pe_pb_cap)
     growth_raw = compute_growth(fundamentals)
     issuance_raw = compute_issuance(fundamentals)
+    small_cap_raw = compute_small_cap(fundamentals)
+    volume_surge_raw = compute_volume_surge(prices_long)
 
     all_tickers = prices_long["ticker"].unique().tolist()
     result = pd.DataFrame(index=all_tickers)
@@ -504,6 +558,13 @@ def compute_all_factors(
     result["value"]         = _rank("value", value_raw)
     result["growth"]        = _rank("growth", growth_raw)
     result["issuance"]      = _rank("issuance", issuance_raw)
+    # Speculative-style factors (optional; default weight 0 → no effect on the core
+    # model). high_volatility is the inverse percentile of low_volatility (high-vol
+    # names score high) — free, no recompute.
+    result["small_cap"]       = _rank("small_cap", small_cap_raw)
+    result["volume_surge"]    = _rank("volume_surge", volume_surge_raw)
+    result["near_high"]       = _rank("near_high", near_high_raw)
+    result["high_volatility"] = 1.0 - result["low_volatility"]
 
     result = result.reset_index()
     return result
