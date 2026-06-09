@@ -1157,10 +1157,19 @@ vetter:
 Factor weights for each regime must sum to 1.0. All four regime conditions must be covered.
 
 Display-only indicators in `rankings.factor_scores` JSONB (NOT scoring factors,
-NOT weighted in the rank): `drawdown_21d` (21-day peak-to-now) and `beta` (120-day
-OLS vs SPY, clipped [-1,3]). Both computed in the pipeline rank step
-(`_drawdown_map_from_rows` / `_beta_map_from_rows`) and surfaced on the dashboard
-detail card.
+NOT weighted in the rank): `drawdown_21d` (21-day peak-to-now), `beta` (120-day
+OLS vs SPY, clipped [-1,3]), and `excess_dd_21d` + `idio_vol` (the beta-adjusted
+falling-knife inputs the VETTER evaluates — `excess_dd = raw_dd − beta×SPY_move`
+over the peak→now span, plus the annualized idiosyncratic/residual vol σ). All
+computed in the pipeline rank step (`_drawdown_map_from_rows` / `_beta_map_from_rows`
+/ `_excess_drawdown_map_from_rows`) and surfaced on the dashboard detail card
+(`excess −7% @ σ28%` shown under the 21d drawdown). `excess_dd_21d` clamps beta to
+the veto's CONSERVATIVE [0,3] (so the card preview matches what the falling-knife
+veto computes), NOT the looser display-beta [-1,3] — so for a negatively-correlated
+name the card's signed `beta` and the 0-floored beta behind `excess_dd_21d` differ
+by design (the excess strips no market move when beta floors to 0 → excess = raw_dd).
+The card preview shows the excess INPUTS (excess + σ); the realized vol-scaled LIMIT
+and the actual exclude/keep decision still come from the vetter (env-configured).
 
 The display beta floor is -1.0, NOT 0: a real market-decoupled name can have a
 genuinely NEGATIVE realized beta. This was discovered when SU/EOG/VLO (an energy

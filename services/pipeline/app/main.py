@@ -134,6 +134,73 @@ def _beta_map_from_rows(ticker_rows, spy_rows, lookback: int = 120,
         out[t] = max(clip_lo, min(clip_hi, cov / var_m))
     return out
 
+
+def _excess_drawdown_map_from_rows(ticker_rows, spy_rows, window: int = 21,
+                                   lookback: int = 120, min_obs: int = 20,
+                                   beta_floor: float = 0.0, beta_cap: float = 3.0
+                                   ) -> dict[str, dict]:
+    """Build {ticker: {"excess_dd", "idio_vol"}} — the beta-adjusted (residual)
+    falling-knife signal the VETTER evaluates, surfaced display-only on the screener
+    card so the user sees the market-stripped drop, not just the raw drawdown.
+
+    Mirrors the vetter's app/drawdown.excess_drawdown semantics:
+        excess_dd = raw_dd - beta * spy_move   (over the peak->now span)
+    where beta is clamped to [beta_floor, beta_cap] = [0, 3] — the veto's
+    CONSERVATIVE clamp, NOT the display beta's [-1, 3] — so the card preview matches
+    what the veto computes. idio_vol is the annualized residual (market-stripped) vol
+    (computed from the UNCLAMPED regression, as in beta_and_idio_vol) and drives the
+    veto's vol-scaled threshold. Aligns stock+SPY on COMMON trading dates (same as
+    _beta_map_from_rows). Pure (stdlib only) → unit-testable. No entry for a ticker
+    with < min_obs common return pairs, zero SPY variance, or no positive peak."""
+    spy_close: dict = {}
+    for r in spy_rows:
+        if r.adjusted_close is not None and float(r.adjusted_close) > 0:
+            spy_close[r.date] = float(r.adjusted_close)
+    if len(spy_close) < 2:
+        return {}
+
+    by_t: dict[str, dict] = {}
+    for r in ticker_rows:
+        if r.adjusted_close is not None and float(r.adjusted_close) > 0:
+            by_t.setdefault(r.ticker, {})[r.date] = float(r.adjusted_close)
+
+    out: dict[str, dict] = {}
+    for t, dmap in by_t.items():
+        common = sorted(d for d in dmap if d in spy_close)
+        if len(common) < min_obs + 1:
+            continue
+        rs: list[float] = []
+        rm: list[float] = []
+        for i in range(1, len(common)):
+            d0, d1 = common[i - 1], common[i]
+            rs.append(dmap[d1] / dmap[d0] - 1.0)
+            rm.append(spy_close[d1] / spy_close[d0] - 1.0)
+        k = len(rs)
+        mean_m = sum(rm) / k
+        var_m = sum((x - mean_m) ** 2 for x in rm)
+        if var_m <= 0:
+            continue
+        mean_s = sum(rs) / k
+        cov = sum((rs[i] - mean_s) * (rm[i] - mean_m) for i in range(k))
+        raw_beta = cov / var_m
+        resid = [rs[i] - raw_beta * rm[i] for i in range(k)]
+        mean_r = sum(resid) / k
+        var_r = sum((x - mean_r) ** 2 for x in resid) / max(k - 1, 1)
+        idio_vol = (var_r ** 0.5) * (252 ** 0.5)
+        beta = min(max(raw_beta, beta_floor), beta_cap)
+        # raw_dd + spy_move over the last `window` COMMON dates (peak -> now)
+        win = common[-window:]
+        s_vals = [dmap[d] for d in win]
+        m_vals = [spy_close[d] for d in win]
+        peak = max(s_vals)
+        peak_i = s_vals.index(peak)
+        if peak <= 0 or m_vals[peak_i] <= 0:
+            continue
+        raw_dd = s_vals[-1] / peak - 1.0
+        spy_move = m_vals[-1] / m_vals[peak_i] - 1.0
+        out[t] = {"excess_dd": raw_dd - beta * spy_move, "idio_vol": idio_vol}
+    return out
+
 # chain_date MUST be computed in the SAME explicit zone the scheduler uses to
 # decide "did the pipeline run today?" (scheduler._local_today, SCHEDULE_TZ).
 # The scheduler compares its own SCHEDULE_TZ "today" against this chain_date; if
@@ -1268,10 +1335,23 @@ async def _do_rank(
                 ),
                 {"w": BETA_LOOKBACK_DAYS + 1},
             )
+            _bt_rows = bt_rows.fetchall()
+            _spy_rows = spy_rows.fetchall()
             beta_map = _beta_map_from_rows(
-                bt_rows.fetchall(), spy_rows.fetchall(), lookback=BETA_LOOKBACK_DAYS
+                _bt_rows, _spy_rows, lookback=BETA_LOOKBACK_DAYS
+            )
+            # Beta-adjusted excess drawdown + idio vol (the falling-knife inputs the
+            # vetter evaluates), reusing the SAME fetched price rows as the beta map.
+            excess_map = _excess_drawdown_map_from_rows(
+                _bt_rows, _spy_rows, window=DRAWDOWN_WINDOW_DAYS, lookback=BETA_LOOKBACK_DAYS
             )
         ranked_df["beta"] = ranked_df["ticker"].map(beta_map)
+        ranked_df["excess_dd_21d"] = ranked_df["ticker"].map(
+            lambda t: (excess_map.get(t) or {}).get("excess_dd")
+        )
+        ranked_df["idio_vol"] = ranked_df["ticker"].map(
+            lambda t: (excess_map.get(t) or {}).get("idio_vol")
+        )
 
     def _rfmt(v):
         return None if pd.isna(v) else round(float(v), 4)
@@ -1514,6 +1594,16 @@ async def _do_rank(
                 **(
                     {"beta": (None if pd.isna(row.get("beta")) else round(float(row["beta"]), 3))}
                     if "beta" in ranked_df.columns else {}
+                ),
+                # Display-only beta-adjusted excess drawdown + idio vol — the inputs
+                # the falling-knife veto evaluates (raw_dd minus beta×SPY move).
+                **(
+                    {"excess_dd_21d": (None if pd.isna(row.get("excess_dd_21d")) else round(float(row["excess_dd_21d"]), 4))}
+                    if "excess_dd_21d" in ranked_df.columns else {}
+                ),
+                **(
+                    {"idio_vol": (None if pd.isna(row.get("idio_vol")) else round(float(row["idio_vol"]), 4))}
+                    if "idio_vol" in ranked_df.columns else {}
                 ),
             }),
             "ranked_at": ranked_at,

@@ -480,6 +480,8 @@ function _mapRankRow(r) {
     momentum: fs.momentum, quality: fs.quality, value: fs.value,
     growth: fs.growth, low_volatility: fs.low_volatility, liquidity: fs.liquidity,
     drawdown_21d: fs.drawdown_21d != null ? +fs.drawdown_21d : null,
+    excess_dd_21d: fs.excess_dd_21d != null ? +fs.excess_dd_21d : null,
+    idio_vol: fs.idio_vol != null ? +fs.idio_vol : null,
     beta: fs.beta != null ? +fs.beta : null,
     rank_date: r.rank_date, regime: r.regime,
     rank_slope: r.rank_slope != null ? +r.rank_slope : null,
@@ -726,13 +728,21 @@ function _buildDetailHtml(r) {
       ? '<span class="overlay-badge ' + ddCls + '" title="21-day peak-to-now drawdown (display only)">&#9660; ' + ddPct + '</span>'
       : ddPct;
   }
+  // Beta-adjusted excess drawdown (what the falling-knife veto evaluates): raw drop
+  // minus beta×SPY move over the same span, with idiosyncratic vol (σ) for context.
+  let excessSub = '';
+  if (r.excess_dd_21d != null) {
+    const exPct = (r.excess_dd_21d * 100).toFixed(0) + '%';
+    const sig = r.idio_vol != null ? ' @ σ' + (r.idio_vol * 100).toFixed(0) + '%' : '';
+    excessSub = '<div class="dc-sub" title="Beta-adjusted excess drawdown = raw drawdown minus beta×SPY move over the same span — the market-stripped, idiosyncratic drop the falling-knife veto evaluates. σ = annualized idiosyncratic (residual) volatility.">excess ' + exPct + sig + '</div>';
+  }
 
   const grid = '<div class="detail-grid">'
     + '<div class="detail-cell"><div class="dc-lbl">Rank</div><div class="dc-val">' + r.rank + '</div></div>'
     + '<div class="detail-cell"><div class="dc-lbl">Score</div><div class="dc-val">' + fmtScore(r.composite_score) + '</div></div>'
     + '<div class="detail-cell"><div class="dc-lbl">Percentile</div><div class="dc-val">' + pctVal + '</div></div>'
     + '<div class="detail-cell"><div class="dc-lbl">Size</div><div class="dc-val">' + sizeVal + '</div></div>'
-    + '<div class="detail-cell"><div class="dc-lbl">21d Drawdown</div><div class="dc-val">' + ddVal + '</div></div>'
+    + '<div class="detail-cell"><div class="dc-lbl">21d Drawdown</div><div class="dc-val">' + ddVal + excessSub + '</div></div>'
     + '<div class="detail-cell"><div class="dc-lbl">Beta (120d vs SPY)</div><div class="dc-val">' + (r.beta != null ? r.beta.toFixed(2) : '—') + '</div></div>'
     + '</div>';
 
