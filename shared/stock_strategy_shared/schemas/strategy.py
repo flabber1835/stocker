@@ -78,6 +78,18 @@ class UniverseConfig(BaseModel):
     source: str = "av_listing"
     min_price: float = 5.0
     min_avg_dollar_volume_20d: float = 20_000_000
+    require_fundamentals: bool = Field(
+        default=False,
+        description=(
+            "Drop securities that have no fundamentals row (the ETF / closed-end-fund "
+            "signature — index and leveraged ETFs like SOXX/SNXX/QQQ file no financials) "
+            "from the rankable universe BEFORE factor computation. Default False preserves "
+            "legacy behavior (the core strategy already drops them implicitly via "
+            "required_factors=quality, which is null for a fund). Set True for any strategy "
+            "whose required_factors are price/volume-only (e.g. the speculative sleeve), "
+            "otherwise a fundamentals-less ETF can top a momentum/liquidity-only ranking."
+        ),
+    )
 
 
 class FactorEngineConfig(BaseModel):

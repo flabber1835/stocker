@@ -20,6 +20,10 @@ universe:
   source: av_listing
   min_price: 2.0                 # lower than core (5.0) — admit smaller speculative names
   min_avg_dollar_volume_20d: 5000000   # lower than core (20M) — admit smaller-cap names (still tradeable)
+  require_fundamentals: true     # drop ETFs/funds (no financials filed) — SOXX/SNXX/QQQ/IWM etc. must NOT
+                                 # top a price/volume-only ranking. Core leaves this false (it drops funds
+                                 # implicitly via required_factors=quality). Pre-profit STOCKS still have a
+                                 # fundamentals row (market_cap/revenue), so genuine story names (ASTS) survive.
 
 factor_engine:
   momentum_short_window: 21

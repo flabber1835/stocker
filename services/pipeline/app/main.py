@@ -15,7 +15,7 @@ from sqlalchemy import text
 import redis.asyncio as aioredis
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
-from app.factors import compute_all_factors
+from app.factors import compute_all_factors, drop_fundamentalless
 from app.regime import detect_regime, resolve_confirmed_regime
 from app.rank import rank_universe, FACTORS
 from app.engine import evaluate_all, evaluate_target_vs_live, RankObservation
@@ -830,6 +830,20 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
     print(f"[calculate] loaded fundamentals for {tickers_with_fundamentals} tickers")
 
+    # Drop fundamentals-less securities (ETFs / closed-end funds file no financials)
+    # from the rankable universe when the strategy requires fundamentals. This keeps
+    # index / leveraged ETFs (SOXX, SNXX, QQQ, IWM, …) out of a price/volume-only
+    # ranking — the speculative sleeve uses required_factors=[momentum, liquidity],
+    # which a fundamentals-less ETF would otherwise satisfy and top. Filtering BEFORE
+    # factor computation also keeps the cross-sectional percentiles clean: leveraged
+    # ETFs carry extreme vol / near-high values that would distort the scale for real
+    # stocks. Default-False strategies (core) are unaffected.
+    prices_df, fund_etf_dropped = drop_fundamentalless(
+        prices_df, tickers_with_fund, getattr(strategy.universe, "require_fundamentals", False)
+    )
+    if fund_etf_dropped:
+        print(f"[calculate] require_fundamentals: dropped {fund_etf_dropped} fundamentals-less tickers (ETFs/funds)")
+
     # ── Step 6: calculate factors ─────────────────────────────────────────────
     _set_pct("calc_factors", 68)
     t0 = datetime.now(timezone.utc)
@@ -919,6 +933,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
                 "factor_stats": factor_stats,
                 "clipped_by_factor": {k: len(v) for k, v in clipped_by_factor.items()},
                 "low_price_coverage_count": len(low_coverage_tickers),
+                "fund_etf_dropped": fund_etf_dropped,
             },
             warnings=step_warnings or None,
         )

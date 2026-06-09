@@ -6,6 +6,32 @@ import pandas as pd
 from stock_strategy_shared.schemas.strategy import FactorEngineConfig
 
 
+def drop_fundamentalless(
+    prices_long: pd.DataFrame,
+    fundamental_tickers,
+    require_fundamentals: bool,
+) -> tuple[pd.DataFrame, int]:
+    """Restrict the rankable price universe to tickers that filed fundamentals.
+
+    ETFs and closed-end funds file no financials, so "has a fundamentals row" is a
+    clean proxy for "is an operating company". When ``require_fundamentals`` is True
+    this drops index / leveraged ETFs (SOXX, SNXX, QQQ, IWM, …) from the universe
+    BEFORE factor computation, so they cannot top a price/volume-only ranking and so
+    their extreme vol / near-high values don't distort the cross-sectional percentiles
+    for real stocks. Pre-profit STOCKS still have a fundamentals row (market_cap /
+    revenue, just no earnings), so genuine story names (e.g. ASTS) survive.
+
+    No-op when the flag is False or the universe is empty. Returns
+    ``(filtered_prices, dropped_ticker_count)``.
+    """
+    if not require_fundamentals or prices_long.empty:
+        return prices_long, 0
+    keep = set(fundamental_tickers)
+    before = prices_long["ticker"].nunique()
+    out = prices_long[prices_long["ticker"].isin(keep)].reset_index(drop=True)
+    return out, before - out["ticker"].nunique()
+
+
 def cross_section_percentile(series: pd.Series) -> pd.Series:
     """Cross-sectional percentile rank in (0, 1].
     Highest value → 1.0, lowest → 1/N.

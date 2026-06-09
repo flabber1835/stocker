@@ -144,7 +144,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       REDIS_URL: redis://redis:6379
-      STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
+      STRATEGY_CONFIG_PATH: ${STRATEGY_CONFIG_PATH:-/strategies/quality_core_v1.yaml}
       ARTIFACTS_PATH: /artifacts
       PYTHONUNBUFFERED: "1"
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -224,7 +224,7 @@ services:
       SERVICE_NAME: portfolio-builder
       DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       REDIS_URL: redis://redis:6379
-      STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
+      STRATEGY_CONFIG_PATH: ${STRATEGY_CONFIG_PATH:-/strategies/quality_core_v1.yaml}
       ARTIFACTS_PATH: /artifacts
     volumes:
       - ./artifacts:/artifacts
@@ -297,7 +297,7 @@ services:
       DRAWDOWN_VOL_ANCHOR: ${DRAWDOWN_VOL_ANCHOR:-0.35}
       DRAWDOWN_EXCESS_MIN: ${DRAWDOWN_EXCESS_MIN:-0.10}
       DRAWDOWN_EXCESS_MAX: ${DRAWDOWN_EXCESS_MAX:-0.30}
-      STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
+      STRATEGY_CONFIG_PATH: ${STRATEGY_CONFIG_PATH:-/strategies/quality_core_v1.yaml}
       ARTIFACTS_PATH: /artifacts
     volumes:
       - ./artifacts:/artifacts
@@ -436,7 +436,7 @@ services:
       - "8013:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
-      STRATEGY_CONFIG_PATH: /strategies/quality_core_v1.yaml
+      STRATEGY_CONFIG_PATH: ${STRATEGY_CONFIG_PATH:-/strategies/quality_core_v1.yaml}
       ARTIFACTS_PATH: /artifacts
     volumes:
       - ./artifacts:/artifacts
