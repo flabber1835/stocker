@@ -455,19 +455,20 @@ def compute_volume_surge(prices_long: pd.DataFrame, short_window: int = 5,
     """Unusual-volume / accumulation signal (raw, higher = bigger recent surge):
     mean(volume, last short_window) / mean(volume, last long_window). >1 means recent
     volume is running hot vs the ticker's own baseline — a tell for story/breakout
-    names. NaN with < long_window rows or zero baseline. Optional factor."""
-    recent = prices_long.sort_values(["ticker", "date"])
+    names. NaN with < long_window rows or zero baseline. Optional factor.
 
-    def _surge(g: pd.DataFrame) -> float:
-        v = g["volume"].astype(float).to_numpy()
-        if len(v) < long_window:
-            return float("nan")
-        lw = v[-long_window:].mean()
-        if lw <= 0:
-            return float("nan")
-        return float(v[-short_window:].mean() / lw)
-
-    score = recent.groupby("ticker").apply(_surge)
+    Fully vectorized (no per-group Python apply, only 3 columns copied) — the factor
+    step runs over the whole ~2k-ticker universe under a tight memory cap, so a
+    groupby.apply here would be both slow and an OOM risk."""
+    df = prices_long[["ticker", "date", "volume"]].copy()
+    df["volume"] = df["volume"].astype(float)
+    df.sort_values(["ticker", "date"], inplace=True)
+    tk = df["ticker"]
+    rn = df.groupby("ticker").cumcount(ascending=False)   # 0 = most recent row per ticker
+    short_mean = df["volume"].where(rn < short_window).groupby(tk).mean()
+    long_mean = df["volume"].where(rn < long_window).groupby(tk).mean()
+    cnt = tk.groupby(tk).size()                           # rows per ticker
+    score = (short_mean / long_mean).where((cnt >= long_window) & (long_mean > 0))
     score.name = "volume_surge"
     return score
 
