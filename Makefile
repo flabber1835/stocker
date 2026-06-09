@@ -1,5 +1,5 @@
 .PHONY: up down logs build build-base test integration-test migrate-fresh-test init shell-api shell-db shell-pipeline \
-        universe data prices fundamentals run-pipeline vet portfolio pipeline pull-model redeploy
+        universe data prices fundamentals run-pipeline vet portfolio pipeline pull-model
 
 # ── Compose lifecycle ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -12,12 +12,6 @@ up: init
 
 down:
 	docker compose down
-
-# One-command atomic deploy: sync to origin/main, recreate the FULL stack on that
-# code, and verify it's live. Use this instead of ad-hoc `git pull` + partial
-# restarts (the source of the "flaky deploy" problems). .env and DB volumes are preserved.
-redeploy:
-	./scripts/redeploy.sh
 
 build-base:
 	docker build --network host -t stocker-base:latest -f Dockerfile.base .
