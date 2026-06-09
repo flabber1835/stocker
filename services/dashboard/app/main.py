@@ -806,7 +806,17 @@ async def _run_rank_chain_bg():
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
-    return HTMLResponse(content=_HTML)
+    # Cache-bust dashboard.js by its file mtime so a git-pull + restart deploy is
+    # picked up on the next page load without a manual hard-refresh (StaticFiles
+    # serves the file with no versioned URL, so browsers — mobile Safari especially —
+    # otherwise keep the stale cached copy).
+    js_path = os.path.join(os.path.dirname(__file__), "..", "static", "dashboard.js")
+    try:
+        ver = int(os.path.getmtime(js_path))
+    except OSError:
+        ver = 0
+    return HTMLResponse(content=_HTML.replace(
+        "/static/dashboard.js", f"/static/dashboard.js?v={ver}"))
 
 
 _HTML = r"""<!DOCTYPE html>
