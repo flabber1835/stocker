@@ -1168,8 +1168,16 @@ the veto's CONSERVATIVE [0,3] (so the card preview matches what the falling-knif
 veto computes), NOT the looser display-beta [-1,3] — so for a negatively-correlated
 name the card's signed `beta` and the 0-floored beta behind `excess_dd_21d` differ
 by design (the excess strips no market move when beta floors to 0 → excess = raw_dd).
-The card preview shows the excess INPUTS (excess + σ); the realized vol-scaled LIMIT
-and the actual exclude/keep decision still come from the vetter (env-configured).
+The card preview shows the excess INPUTS (excess + σ) AND the per-ticker trigger
+`excess_dd_limit` (rendered "excess -6% / limit -12% @ σ28%") so the user can see how
+close a name is to the veto. `excess_dd_limit` is computed in the pipeline rank step
+(`_excess_dd_limit`, mirroring the vetter's `scaled_excess_threshold` = base ×
+σ/anchor clamped to [min,max]) and stored display-only in factor_scores. It reads the
+SAME `DRAWDOWN_EXCESS_PCT/VOL_SCALING/VOL_ANCHOR/EXCESS_MIN/EXCESS_MAX` env as the
+vetter — those vars are wired to BOTH the pipeline and llm-vetter services in
+docker-compose (one .env, two consumers) so the displayed limit equals the vetter's
+real trigger. The actual exclude/keep decision (and the flat 25% absolute raw-drawdown
+floor) still come from the vetter.
 
 The display beta floor is -1.0, NOT 0: a real market-decoupled name can have a
 genuinely NEGATIVE realized beta. This was discovered when SU/EOG/VLO (an energy

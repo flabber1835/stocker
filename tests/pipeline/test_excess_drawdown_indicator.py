@@ -89,3 +89,30 @@ def test_excess_skips_zero_spy_variance():
     stock = _series("EEE", [0.01, -0.02] * 20)
     m = _excess_drawdown_map_from_rows(stock, spy, window=21, lookback=120, min_obs=10)
     assert m == {}
+
+
+# ── _excess_dd_limit (per-ticker vol-scaled trigger shown on the card) ─────────
+
+def test_excess_dd_limit_scales_and_clamps(monkeypatch):
+    import app.main as m
+    monkeypatch.setattr(m, "DRAWDOWN_EXCESS_PCT", 0.15)
+    monkeypatch.setattr(m, "DRAWDOWN_VOL_SCALING", True)
+    monkeypatch.setattr(m, "DRAWDOWN_VOL_ANCHOR", 0.35)
+    monkeypatch.setattr(m, "DRAWDOWN_EXCESS_MIN", 0.10)
+    monkeypatch.setattr(m, "DRAWDOWN_EXCESS_MAX", 0.30)
+    # typical name (σ == anchor) → base
+    assert abs(m._excess_dd_limit(0.35) - 0.15) < 1e-9
+    # calm name → clamped up to MIN
+    assert abs(m._excess_dd_limit(0.05) - 0.10) < 1e-9
+    # wild name → clamped down to MAX
+    assert abs(m._excess_dd_limit(2.0) - 0.30) < 1e-9
+    # unknown vol → flat base
+    assert abs(m._excess_dd_limit(None) - 0.15) < 1e-9
+
+
+def test_excess_dd_limit_flat_when_scaling_off(monkeypatch):
+    import app.main as m
+    monkeypatch.setattr(m, "DRAWDOWN_EXCESS_PCT", 0.10)
+    monkeypatch.setattr(m, "DRAWDOWN_VOL_SCALING", False)
+    assert abs(m._excess_dd_limit(0.05) - 0.10) < 1e-9
+    assert abs(m._excess_dd_limit(2.0) - 0.10) < 1e-9

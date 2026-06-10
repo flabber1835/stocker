@@ -43,6 +43,26 @@ DRAWDOWN_WINDOW_DAYS = int(os.getenv("DRAWDOWN_WINDOW_DAYS", "21"))
 # match the falling-knife (vetter) beta the user sees in drawdown exclusion reasons.
 BETA_LOOKBACK_DAYS = int(os.getenv("BETA_LOOKBACK_DAYS", "120"))
 
+# Display-only: the per-ticker excess-drawdown LIMIT the falling-knife veto uses, so
+# the card can show "excess -6% / limit -12%" and the user sees how close a name is.
+# MUST mirror the vetter's scaled_excess_threshold + the same env (wired to both
+# services in docker-compose) so the displayed limit matches the actual trigger.
+DRAWDOWN_EXCESS_PCT = float(os.getenv("DRAWDOWN_EXCESS_PCT", "0.15"))
+DRAWDOWN_VOL_SCALING = os.getenv("DRAWDOWN_VOL_SCALING", "true").lower() in ("1", "true", "yes")
+DRAWDOWN_VOL_ANCHOR = float(os.getenv("DRAWDOWN_VOL_ANCHOR", "0.35"))
+DRAWDOWN_EXCESS_MIN = float(os.getenv("DRAWDOWN_EXCESS_MIN", "0.10"))
+DRAWDOWN_EXCESS_MAX = float(os.getenv("DRAWDOWN_EXCESS_MAX", "0.30"))
+
+
+def _excess_dd_limit(idio_vol: float | None) -> float:
+    """Per-ticker excess-drawdown trigger magnitude (positive). Mirrors the vetter's
+    scaled_excess_threshold: base × (idio_vol / anchor) clamped to [min, max] when
+    vol-scaling is on; the flat base when off or idio_vol is unavailable."""
+    base = DRAWDOWN_EXCESS_PCT
+    if not DRAWDOWN_VOL_SCALING or idio_vol is None or DRAWDOWN_VOL_ANCHOR <= 0:
+        return base
+    return max(DRAWDOWN_EXCESS_MIN, min(DRAWDOWN_EXCESS_MAX, base * (idio_vol / DRAWDOWN_VOL_ANCHOR)))
+
 
 def _recent_drawdown(closes: list[float], window: int = 21) -> float | None:
     """Trailing peak-to-now drawdown over the last `window` closes (oldest→newest).
@@ -1352,6 +1372,11 @@ async def _do_rank(
         ranked_df["idio_vol"] = ranked_df["ticker"].map(
             lambda t: (excess_map.get(t) or {}).get("idio_vol")
         )
+        # Per-ticker excess-drawdown trigger magnitude (display-only), so the card
+        # can show how close each name is to the falling-knife excess veto.
+        ranked_df["excess_dd_limit"] = ranked_df["idio_vol"].map(
+            lambda v: _excess_dd_limit(None if pd.isna(v) else float(v))
+        )
 
     def _rfmt(v):
         return None if pd.isna(v) else round(float(v), 4)
@@ -1604,6 +1629,10 @@ async def _do_rank(
                 **(
                     {"idio_vol": (None if pd.isna(row.get("idio_vol")) else round(float(row["idio_vol"]), 4))}
                     if "idio_vol" in ranked_df.columns else {}
+                ),
+                **(
+                    {"excess_dd_limit": (None if pd.isna(row.get("excess_dd_limit")) else round(float(row["excess_dd_limit"]), 4))}
+                    if "excess_dd_limit" in ranked_df.columns else {}
                 ),
             }),
             "ranked_at": ranked_at,

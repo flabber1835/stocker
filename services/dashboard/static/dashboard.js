@@ -482,6 +482,7 @@ function _mapRankRow(r) {
     drawdown_21d: fs.drawdown_21d != null ? +fs.drawdown_21d : null,
     excess_dd_21d: fs.excess_dd_21d != null ? +fs.excess_dd_21d : null,
     idio_vol: fs.idio_vol != null ? +fs.idio_vol : null,
+    excess_dd_limit: fs.excess_dd_limit != null ? +fs.excess_dd_limit : null,
     beta: fs.beta != null ? +fs.beta : null,
     rank_date: r.rank_date, regime: r.regime,
     rank_slope: r.rank_slope != null ? +r.rank_slope : null,
@@ -733,8 +734,14 @@ function _buildDetailHtml(r) {
   let excessSub = '';
   if (r.excess_dd_21d != null) {
     const exPct = (r.excess_dd_21d * 100).toFixed(0) + '%';
+    // Per-ticker excess trigger (vol-scaled). Show as a negative % to compare
+    // directly with the excess, so "excess -6% / limit -12%" reads as 6pp of room.
+    const lim = r.excess_dd_limit != null ? ' / limit -' + (r.excess_dd_limit * 100).toFixed(0) + '%' : '';
     const sig = r.idio_vol != null ? ' @ σ' + (r.idio_vol * 100).toFixed(0) + '%' : '';
-    excessSub = '<div class="dc-sub" title="Beta-adjusted excess drawdown = raw drawdown minus beta×SPY move over the same span — the market-stripped, idiosyncratic drop the falling-knife veto evaluates. σ = annualized idiosyncratic (residual) volatility.">excess ' + exPct + sig + '</div>';
+    // Amber when within 5pp of the trigger (close to the falling-knife veto).
+    const near = (r.excess_dd_limit != null && r.excess_dd_21d <= -(r.excess_dd_limit - 0.05));
+    const cls = near ? ' dd-warn' : '';
+    excessSub = '<div class="dc-sub' + cls + '" title="Beta-adjusted excess drawdown (raw minus beta×SPY move) vs this ticker\'s falling-knife trigger. The veto fires if excess ≤ -limit. limit = vol-scaled per σ (idiosyncratic vol). A separate flat 25% raw-drawdown floor also applies.">excess ' + exPct + lim + sig + '</div>';
   }
 
   const grid = '<div class="detail-grid">'
