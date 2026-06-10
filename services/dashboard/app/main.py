@@ -198,10 +198,17 @@ async def health():
     return {"status": "ok", "service": "dashboard"}
 
 
-async def _proxy(path: str, params: dict | None = None):
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        r = await client.get(f"{API_URL}{path}", params=params or {})
-        return JSONResponse(content=r.json(), status_code=r.status_code)
+async def _proxy(path: str, params: dict | None = None, timeout: float = 10.0):
+    # Wrapped so an upstream timeout/connection error degrades to a clean 504 JSON
+    # body instead of an uncaught exception → raw 500 "Internal Server Error".
+    # `timeout` is per-endpoint: heavy queries (e.g. rankings/with-overlays) pass a
+    # larger value so the proxy doesn't bail before a slow-but-valid query returns.
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.get(f"{API_URL}{path}", params=params or {})
+            return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as exc:
+        return JSONResponse(content={"error": f"upstream {path} failed: {exc}"}, status_code=504)
 
 
 async def _proxy_post(url: str, params: dict | None = None):
@@ -242,7 +249,10 @@ async def proxy_rankings(limit: int = 500):
 
 @app.get("/api/rankings/with-overlays")
 async def proxy_rankings_with_overlays(limit: int = 500):
-    return await _proxy("/rankings/with-overlays", {"limit": limit})
+    # Heavy query (REGR_SLOPE over recent runs × full universe + held-injection
+    # joins); on the larger speculative universe it can exceed the default 10s and
+    # was throwing a raw 500. Give it room — it returns in well under this.
+    return await _proxy("/rankings/with-overlays", {"limit": limit}, timeout=60.0)
 
 
 @app.get("/api/rankings/search")
