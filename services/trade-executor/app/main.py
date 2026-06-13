@@ -67,6 +67,25 @@ except ValueError:
 engine: Optional[AsyncEngine] = None
 
 
+# ── Open / working order statuses ─────────────────────────────────────────────
+# An order is "open" (still in flight, not terminal) when it occupies one of
+# these statuses. The set MUST include both our LOCAL pre-broker states
+# (pending/submitted/deferred) AND the Alpaca-working states that alpaca-sync
+# maps live broker orders into (accepted/new/partially_filled). A working-but-
+# unfilled order in accepted/new/partially_filled still reserves shares / cash
+# and represents an in-flight intent — omitting it from the idempotency SELECT
+# and the in-flight ticker guards let a re-proposed intent slip through and
+# double-submit. One shared constant so the three consumers (Step-1 idempotency,
+# in-flight buy guard, in-flight sell guard) can never drift; the SQL-literal
+# form is shared with /jobs/cancel-all-orders.
+OPEN_ORDER_STATUSES: tuple[str, ...] = (
+    "pending", "submitted", "deferred", "accepted", "new", "partially_filled",
+)
+# Comma-separated single-quoted literals for inlining into a `status IN (...)`
+# clause (these are fixed, code-controlled constants — never user input).
+_OPEN_STATUS_SQL = ", ".join(f"'{s}'" for s in OPEN_ORDER_STATUSES)
+
+
 # ── Lifespan ─────────────────────────────────────────────────────────────────
 
 
@@ -107,17 +126,43 @@ async def _submit_deferred_order(row: dict) -> tuple[str, Optional[str]]:
     }
     if not (ALPACA_API_KEY and ALPACA_SECRET_KEY):
         return "failed", "Alpaca credentials not configured"
-    # Re-check the kill switch before submitting a deferred order — the kill
-    # switch may have been activated after this order entered deferred state.
+
+    # ── Re-run the FULL risk gate before submitting a deferred order ──────────
+    # The order was risk-approved at approval time, possibly hours earlier; the
+    # deferred drain submits it at the next market open. Every DB-backed control
+    # (daily-loss, sync-staleness, position/turnover caps, kill switch) could have
+    # changed in the interim, so we re-call risk-service /check — the SAME call the
+    # immediate path uses — and only submit if STILL approved. This path fails
+    # CLOSED: if risk-service is unreachable or returns not-approved, we do NOT
+    # submit. Defaulting to safety, an off-hours queued order never bypasses the
+    # gate. (Previously this re-checked only the kill switch and was fail-OPEN —
+    # submitting on any risk-service error — which let a stale approval slip past
+    # every other control.)
+    risk_payload = {
+        "ticker": row["ticker"], "action": row.get("action"), "side": row["side"],
+        "qty": float(row["qty"]), "notional": float(row["notional"]),
+        "mode": row.get("mode") or "scheduled", "trade_type": "paper",
+        **({"sim_date": str(row["sim_date"])} if row.get("sim_date") else {}),
+    }
     try:
-        async with httpx.AsyncClient(timeout=5.0) as _ks_client:
-            _ks_resp = await _ks_client.get(f"{RISK_SERVICE_URL}/health")
-            if _ks_resp.status_code == 200:
-                _ks_data = _ks_resp.json()
-                if _ks_data.get("kill_switch"):
-                    return "failed", "Kill switch active — deferred order blocked"
-    except Exception:
-        pass  # Risk service unreachable — allow order (fail-open, consistent with main path)
+        approved, reason, check_id, _rule = await _call_risk(risk_payload)
+    except Exception as exc:
+        # Fail CLOSED — risk-service unreachable means we cannot confirm safety.
+        return "failed", f"Risk re-check unavailable — deferred order not submitted: {exc}"[:1000]
+    if not approved:
+        return "failed", f"Risk re-check rejected deferred order: {reason}"[:1000]
+    if not check_id:
+        # Approved but no audit id — same hard-failure rule as the immediate path.
+        return "failed", ("Risk re-check approved but returned no check_id — "
+                          "refusing to submit deferred order without audit trail")
+    # Record the FRESH risk decision on the order so the audit trail reflects the
+    # gate that actually authorized the submission (not the stale approval-time one).
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE alpaca_orders SET risk_check_id=:cid, risk_approved=TRUE, "
+                 "risk_reason=:reason WHERE id=:id"),
+            {"id": order_id, "cid": check_id, "reason": (reason or "")[:1000]},
+        )
     try:
         # Single submission entrypoint — exits route to close-position, everything
         # else to /v2/orders. Shared with the immediate submit_order() path so the
@@ -271,9 +316,13 @@ async def _submit_one_deferred(order_id: str) -> None:
     """Load a still-deferred order and submit it; mark failed on error."""
     async with engine.connect() as conn:
         row = (await conn.execute(text(
-            "SELECT id, intent_id, ticker, action, side, qty, notional, "
-            "       order_type, time_in_force, mode, trace_id "
-            "FROM alpaca_orders WHERE id=:id AND status='deferred'"
+            "SELECT ao.id, ao.intent_id, ao.ticker, ao.action, ao.side, ao.qty, "
+            "       ao.notional, ao.order_type, ao.time_in_force, ao.mode, ao.trace_id, "
+            "       dr.run_date AS sim_date "
+            "FROM alpaca_orders ao "
+            "LEFT JOIN delta_intents di ON di.id = ao.intent_id "
+            "LEFT JOIN delta_runs dr ON dr.run_id = di.run_id "
+            "WHERE ao.id=:id AND ao.status='deferred'"
         ), {"id": order_id})).mappings().first()
     if row is None:
         return  # already handled (e.g. concurrent pass)
@@ -827,16 +876,28 @@ async def _size_partial(conn, ticker: str, intent: dict) -> tuple[float, float, 
 # ── Risk-service call ────────────────────────────────────────────────────────
 
 
-async def _call_risk(payload: dict) -> tuple[bool, str, str, str]:
-    """Call risk-service /check. Returns (approved, reason, check_id, rule_triggered)."""
+async def _call_risk(payload: dict) -> tuple[bool, str, Optional[str], str]:
+    """Call risk-service /check. Returns (approved, reason, check_id, rule_triggered).
+
+    check_id is the risk_decisions.decision_id the risk-service persisted; it is
+    the FK target of alpaca_orders.risk_check_id (the audit guarantee "which rule
+    approved this trade?"). We return it verbatim — or None when the response
+    omits it. We deliberately do NOT fabricate a random UUID on a missing
+    check_id: a fabricated id points at no risk_decisions row, so an APPROVED
+    order would record a dangling risk_check_id and (with the FK now VALIDATEd)
+    would fail to insert or, worse, silently lose its audit trail. Callers treat
+    "approved but no check_id" as a hard failure and refuse to submit.
+    """
     async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.post(f"{RISK_SERVICE_URL}/check", json=payload)
         r.raise_for_status()
         data = r.json()
+    raw_check_id = data.get("check_id")
+    check_id = str(raw_check_id) if raw_check_id else None
     return (
         bool(data.get("approved", False)),
         str(data.get("reason", "")),
-        str(data.get("check_id", uuid.uuid4())),
+        check_id,
         str(data.get("rule_triggered", "unknown")),
     )
 
@@ -975,7 +1036,7 @@ async def _open_sell_order_for_ticker(
     row = (await conn.execute(text(
         "SELECT id, intent_id, action, status FROM alpaca_orders "
         "WHERE ticker = :t AND side = 'sell' "
-        "AND status IN ('pending','submitted','deferred') "
+        f"AND status IN ({_OPEN_STATUS_SQL}) "
         "AND intent_id IS DISTINCT FROM :iid "
         "ORDER BY created_at DESC LIMIT 1"
     ), {"t": ticker, "iid": exclude_intent_id})).mappings().first()
@@ -999,7 +1060,7 @@ async def _open_buy_order_for_ticker(
     row = (await conn.execute(text(
         "SELECT id, intent_id, action, status FROM alpaca_orders "
         "WHERE ticker = :t AND side = 'buy' "
-        "AND status IN ('pending','submitted','deferred') "
+        f"AND status IN ({_OPEN_STATUS_SQL}) "
         "AND intent_id IS DISTINCT FROM :iid "
         "ORDER BY created_at DESC LIMIT 1"
     ), {"t": ticker, "iid": exclude_intent_id})).mappings().first()
@@ -1040,7 +1101,7 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
         async with engine.connect() as conn:
             existing = (await conn.execute(text(
                 "SELECT id, status FROM alpaca_orders "
-                "WHERE intent_id = :iid AND status IN ('pending','submitted','deferred') "
+                f"WHERE intent_id = :iid AND status IN ({_OPEN_STATUS_SQL}) "
                 "LIMIT 1"
             ), {"iid": req.intent_id})).mappings().first()
         if existing:
@@ -1270,6 +1331,30 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
                 },
             )
 
+        # An APPROVED decision MUST carry a check_id (the risk_decisions.decision_id
+        # that alpaca_orders.risk_check_id references for audit). A missing check_id
+        # means we cannot tie this order to the rule that approved it — treat it as
+        # a hard failure and refuse to submit, rather than fabricating an id that
+        # points at no decision. (A rejection with no check_id is harmless — we're
+        # not submitting anyway.)
+        if approved and not check_id:
+            err = "risk-service approved but returned no check_id — refusing to submit without audit trail"
+            async with engine.begin() as conn:
+                await _record_order(
+                    conn, order_id=order_id, intent_id=req.intent_id,
+                    ticker=ticker, action=action, side=side, qty=qty,
+                    notional=notional, mode=req.mode, trace_id=trace_id,
+                    risk_approved=False, risk_reason=err,
+                    risk_check_id=None, status="failed",
+                    error_message=err,
+                )
+                await conn.execute(
+                    text("UPDATE execution_traces SET status='failed', completed_at=:now, "
+                         "notes='risk_no_check_id' WHERE trace_id=:tid"),
+                    {"tid": trace_id, "now": datetime.now(timezone.utc)},
+                )
+            raise HTTPException(status_code=502, detail=err)
+
         # ── Step 5: persist alpaca_orders row ─────────────────────────────────
         t0 = datetime.now(timezone.utc)
         order_type = "market"
@@ -1296,7 +1381,7 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
             async with engine.connect() as conn:
                 dupe = (await conn.execute(text(
                     "SELECT id, status FROM alpaca_orders "
-                    "WHERE intent_id=:iid AND status IN ('pending','submitted','deferred') "
+                    f"WHERE intent_id=:iid AND status IN ({_OPEN_STATUS_SQL}) "
                     "LIMIT 1"
                 ), {"iid": req.intent_id})).mappings().first()
             return TradeAttemptResponse(

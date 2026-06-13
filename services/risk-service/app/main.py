@@ -275,10 +275,16 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
         )
 
     # ── Planned safety controls (Phase 6+): DB-dependent, defense-in-depth ─────
-    # All these queries are wrapped in a single try/except so a transient DB
-    # error degrades safely (skip the check, log a warning) rather than blocking
-    # legitimate trades. The earlier in-memory checks (kill_switch, qty, etc.)
-    # always run regardless of DB health.
+    # These are SAFETY-CRITICAL gates (sync staleness, data staleness, daily loss,
+    # max positions, max-position-pct). They depend on the DB to read broker /
+    # pipeline / account state. A DB error here means we CANNOT verify the
+    # controls — so we DEFAULT TO SAFETY and REJECT the trade ("control
+    # unavailable"), fail-CLOSED, rather than silently skipping and approving
+    # (the prior fail-OPEN behavior, which let trades through whenever the DB
+    # hiccupped). The earlier in-memory checks (kill_switch, qty, notional) always
+    # run regardless of DB health. A `return (False, ...)` inside the block is a
+    # real rule rejection and propagates as-is; only an unexpected exception trips
+    # the fail-closed handler.
     if engine is not None:
         try:
             # Alpaca-availability: refuse ALL actions if the last successful sync
@@ -355,12 +361,16 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
             if max_loss_pct > 0 and max_loss_pct < 1.0:
                 async with engine.connect() as conn:
                     if req.sim_date:
+                        # Bucket sim-day syncs by the SAME ET trading zone as the
+                        # non-sim branch. (Previously this bucketed AT TIME ZONE
+                        # 'UTC', which could put a late-ET sync on the wrong sim
+                        # day vs the ET-keyed non-sim path — an inconsistency.)
                         baseline_row = (await conn.execute(text(
                             "SELECT account_value FROM alpaca_sync_runs "
                             "WHERE status='success' "
-                            "AND DATE(completed_at AT TIME ZONE 'UTC') = :sim_date::date "
+                            "AND DATE(completed_at AT TIME ZONE :risk_tz) = :sim_date::date "
                             "ORDER BY completed_at ASC LIMIT 1"
-                        ), {"sim_date": req.sim_date})).first()
+                        ), {"risk_tz": RISK_TZ_NAME, "sim_date": req.sim_date})).first()
                     else:
                         baseline_row = (await conn.execute(text(
                             "SELECT account_value FROM alpaca_sync_runs "
@@ -375,12 +385,31 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
                     ))).first()
                 baseline = float(baseline_row[0]) if baseline_row and baseline_row[0] else None
                 current = float(current_row[0]) if current_row and current_row[0] else None
-                # If no same-day baseline exists, fall back to the latest sync value as
-                # the opening baseline — ensures the loss cap fires even on the first
-                # trade of the day when alpaca-sync hasn't run yet today.
+                # No same-day opening baseline → we cannot compute the day's loss.
+                # We must NOT fall back to current equity as the baseline: that makes
+                # loss_pct = 0 and silently NEUTRALIZES the cap on the first trade of
+                # a down day (exactly when the protection matters). Default to safety
+                # and REJECT — "loss control unavailable" — until a same-day sync
+                # establishes the opening baseline. (We still need a current value to
+                # report; if even that is missing, broker state is unknown → reject.)
+                if current is None:
+                    return (
+                        False,
+                        "Daily loss control unavailable: no account value on record — broker state unknown",
+                        "daily_loss_limit",
+                        env,
+                    )
                 if baseline is None:
-                    baseline = current
-                if baseline and baseline > 0 and current is not None:
+                    return (
+                        False,
+                        (
+                            "Daily loss control unavailable: no same-day opening baseline sync "
+                            "to compare against — refusing to trade until today's baseline is established"
+                        ),
+                        "daily_loss_limit",
+                        env,
+                    )
+                if baseline > 0:
                     loss_pct = (baseline - current) / baseline
                     if loss_pct > max_loss_pct:
                         return (
@@ -477,7 +506,15 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
                             env,
                         )
         except Exception as exc:
-            print(f"[risk-service] WARN: planned-control check failed (skipped): {exc}")
+            # Fail CLOSED: a DB error means a safety-critical control could not be
+            # evaluated. Reject rather than approve-by-default — default to safety.
+            print(f"[risk-service] ERROR: safety-critical control unavailable (rejecting): {exc}")
+            return (
+                False,
+                "Safety control unavailable (database error) — trade rejected to default to safety",
+                "control_unavailable",
+                env,
+            )
 
     # Daily sell-side turnover cap: reject exits/sell_trims once today's sell
     # notional exceeds max_daily_turnover_pct of portfolio value. Only sells
@@ -493,7 +530,22 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
     # (looked up through alpaca_orders.intent_id → delta_intents.run_id →
     # pipeline_runs.chain_date). Falls back to wall-clock date if sim_date absent.
     #
+    # TOCTOU note (C2): the trade-executor records each order as 'pending' BEFORE
+    # it calls /check for the NEXT order and before it submits, so a not-yet-
+    # submitted sell already sits in alpaca_orders as 'pending'. We therefore sum
+    # the IN-FLIGHT/WORKING and FILLED sell notional via an explicit positive
+    # status list (pending, submitted, accepted, new, partially_filled, filled)
+    # rather than a NOT-IN exclusion — so a concurrent/queued sell that hasn't
+    # filled yet still counts against the cap, closing the window where two sells
+    # could both pass. The positive list also fixes the prior 'cancelled' (two-l)
+    # vs the executor's 'canceled' (one-l) spelling drift and stops terminal
+    # non-fills (failed/expired/canceled) from inflating the sum.
+    #
     # Skipped when DB is unavailable.
+    _TURNOVER_STATUSES = (
+        "pending", "submitted", "accepted", "new", "partially_filled", "filled",
+    )
+    _turnover_status_sql = ", ".join(f"'{s}'" for s in _TURNOVER_STATUSES)
     max_daily_pct = env["max_daily_turnover_pct"]
     if req.action in ("exit", "sell_trim") and engine is not None and max_daily_pct < 1.0:
         try:
@@ -507,14 +559,14 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
                         "JOIN delta_runs dr ON dr.run_id = di.run_id "
                         "WHERE dr.run_date = :sim_date "
                         "AND ao.action IN ('exit', 'sell_trim') "
-                        "AND ao.status NOT IN ('cancelled', 'rejected', 'risk_rejected')"
+                        f"AND ao.status IN ({_turnover_status_sql})"
                     ), {"sim_date": req.sim_date})).first()
                 else:
                     today_row = (await conn.execute(text(
                         "SELECT COALESCE(SUM(notional), 0) FROM alpaca_orders "
                         "WHERE DATE(COALESCE(submitted_at, created_at) AT TIME ZONE 'UTC') = CURRENT_DATE "
                         "AND action IN ('exit', 'sell_trim') "
-                        "AND status NOT IN ('cancelled', 'rejected', 'risk_rejected')"
+                        f"AND status IN ({_turnover_status_sql})"
                     ))).first()
                 acct_row = (await conn.execute(text(
                     "SELECT account_value FROM alpaca_sync_runs "

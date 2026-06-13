@@ -387,8 +387,13 @@ class TestControlDisablement:
         r = client.post("/check", json=_payload(action="entry"))
         assert r.json()["approved"] is True
 
-    def test_db_exception_degrades_safely(self, mock_engine, monkeypatch):
-        """If DB queries throw, the planned controls are skipped (no false reject)."""
+    def test_db_exception_fails_closed(self, mock_engine, monkeypatch):
+        """If a safety-critical DB query throws, the trade is REJECTED (fail-closed).
+
+        A DB error means we cannot evaluate sync-staleness / daily-loss /
+        max-positions / position-pct, so we default to safety and reject rather
+        than approving by default. (Previously this fail-OPEN'd to approved.)
+        """
         # Replace execute with a raiser
         async def _raise(*_a, **_k):
             raise RuntimeError("simulated DB outage")
@@ -402,9 +407,8 @@ class TestControlDisablement:
 
         r = client.post("/check", json=_payload(action="entry"))
         body = r.json()
-        # Planned controls all skipped → we fall through to the turnover cap
-        # (also DB-dependent, also fails) → then to "ok". Result: approved.
-        assert body["approved"] is True
+        assert body["approved"] is False
+        assert body["rule_triggered"] == "control_unavailable"
 
 
 # ═════════════════════════════════════════════════════════════════════════════
