@@ -565,6 +565,73 @@ def test_tvl_hold_when_live_not_in_universe():
     assert "awaiting" in decisions["COHR"].reason.lower()
 
 
+def test_tvl_priced_no_rank_exits_not_held_forever():
+    """Held name absent from rankings BUT with recent price data (it trades — it was
+    filtered out of the strategy's universe, e.g. below the liquidity/price floor
+    after a strategy switch) must ORPHAN-EXIT, not get the never-force-sell data-gap
+    hold. This is what lets a strategy switch self-clean unattended."""
+    target = {"AAPL": 0.05}
+    live = {"AAPL", "SMALLCAP"}
+    universe = {"AAPL": _history(10, 10, 10)}   # SMALLCAP not ranked
+
+    decisions = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=live, universe=universe,
+        confirmation_days=3, max_positions=30,
+        orphan_confirmation_days=1,             # confirm on the first build
+        priced_no_rank={"SMALLCAP"},
+    )
+    assert decisions["SMALLCAP"].action == "exit"
+    assert "below strategy universe floor" in decisions["SMALLCAP"].reason.lower()
+    assert decisions["AAPL"].action == "hold"   # genuine in-target name unaffected
+
+
+def test_tvl_priced_no_rank_at_risk_before_confirmation():
+    """Priced-but-unranked held name counts down the orphan timer like any orphan."""
+    target = {"AAPL": 0.05}
+    live = {"AAPL", "SMALLCAP"}
+    universe = {"AAPL": _history(10, 10, 10)}
+
+    decisions = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=live, universe=universe,
+        confirmation_days=3, max_positions=30,
+        orphan_confirmation_days=2,             # needs 2 builds → at_risk first
+        priced_no_rank={"SMALLCAP"},
+    )
+    assert decisions["SMALLCAP"].action == "at_risk"
+
+
+def test_tvl_priced_no_rank_holds_in_degraded_empty_target():
+    """Safety guard for unattended operation: when the builder produced an EMPTY
+    target (degraded build — transient failure / all candidates filtered), even a
+    priced-but-unranked held name is HELD, not exited. An empty target is 'no
+    information', never a mass-liquidation signal."""
+    decisions = evaluate_target_vs_live(
+        target_portfolio={}, live_positions={"SMALLCAP"}, universe={},
+        confirmation_days=3, max_positions=30,
+        orphan_confirmation_days=1,
+        priced_no_rank={"SMALLCAP"},
+    )
+    assert decisions["SMALLCAP"].action == "hold"
+
+
+def test_tvl_no_price_no_rank_still_holds_data_gap():
+    """Held name absent from rankings AND with no recent price data (genuine data gap
+    / transient outage / delisted-no-market) STILL holds — we never force-sell on
+    missing data and won't try to trade a name with no price."""
+    target = {"AAPL": 0.05}
+    live = {"AAPL", "NODATA"}
+    universe = {"AAPL": _history(10, 10, 10)}
+
+    decisions = evaluate_target_vs_live(
+        target_portfolio=target, live_positions=live, universe=universe,
+        confirmation_days=3, max_positions=30,
+        orphan_confirmation_days=2,
+        priced_no_rank=set(),                   # NODATA has no recent price
+    )
+    assert decisions["NODATA"].action == "hold"
+    assert "no recent price data" in decisions["NODATA"].reason.lower()
+
+
 def test_tvl_high_rank_not_in_target_is_ignored():
     """A well-ranked universe name that is NOT in the target and NOT held is simply
     ignored — there is no rank-based 'watch' generation anymore. The builder owns

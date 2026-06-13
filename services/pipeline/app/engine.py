@@ -199,6 +199,7 @@ def evaluate_target_vs_live(
     orphan_confirmation_days: int | None = None,
     dedup_survivors: dict[str, str] | None = None,
     cash_fraction: float | None = None,
+    priced_no_rank: set[str] | None = None,
 ) -> dict[str, DeltaDecision]:
     """Diff portfolio_holdings (target) against live_positions (actual broker state).
 
@@ -252,6 +253,13 @@ def evaluate_target_vs_live(
     """
     decisions: dict[str, DeltaDecision] = {}
     dedup_survivors = dedup_survivors or {}
+    # Held names that are absent from the rankings but DO have recent price data —
+    # i.e. they trade, they were just filtered OUT of the strategy's universe
+    # (below the liquidity/price floor, typically after a config/strategy switch).
+    # These are NOT data gaps and must orphan-exit, not get the never-force-sell
+    # hold (which would strand them forever and burn a slot — breaking unattended
+    # operation across strategy switches). Genuine no-price names are NOT in this set.
+    priced_no_rank = priced_no_rank or set()
 
     # Drift-comparison basis fix: gross the target back up to the sum-to-1 basis
     # the actual broker weights live on, so the cash_reserve hold-back is not
@@ -351,11 +359,47 @@ def evaluate_target_vs_live(
             latest = obs[0] if obs else RankObservation(
                 run_date=date.min, rank=9999, composite_score=0.0,
             )
+        if not obs and not forced_orphan and ticker in priced_no_rank and not target_is_empty:
+            # Held name with NO ranking obs but WITH recent price data: it trades,
+            # it was just filtered out of the strategy's universe (below the
+            # liquidity/price floor — typically after a config/strategy switch).
+            # This is NOT a data gap, so it must NOT get the never-force-sell
+            # exemption (which would strand it forever and burn a slot). Route it
+            # through the orphan-exit timer so a strategy switch self-cleans
+            # unattended. rank=9999 here means "below universe / unranked", not
+            # "missing data".
+            orphan_days = _orphan_confirm_days(ticker, target_history, orphan_conf) or 1
+            if orphan_days >= orphan_conf:
+                pnr_action, pnr_reason = "exit", (
+                    f"Held at broker, below strategy universe floor (unranked but "
+                    f"trades) for {orphan_days} consecutive builds — exiting "
+                    f"(target is binding)"
+                )
+            else:
+                pnr_action, pnr_reason = "at_risk", (
+                    f"Held at broker, below strategy universe floor (unranked but "
+                    f"trades) — orphaned for {orphan_days}/{orphan_conf} builds toward exit"
+                )
+            decisions[ticker] = DeltaDecision(
+                ticker=ticker,
+                action=pnr_action,
+                rank=9999,
+                composite_score=0.0,
+                confirmation_days_met=orphan_days,
+                current_weight=0.0,
+                reason=pnr_reason,
+                actual_weight=actual_weights.get(ticker) if actual_weights else None,
+                weight_drift=None,
+            )
+            continue
+
         if not obs and not forced_orphan:
-            # No ranking history and not a dedup loser — a GENUINE data gap
-            # (av-ingestor hasn't fetched yet) or a position added directly at the
-            # broker. Hold rather than force-exit; the next pipeline run will
-            # reconsider once ranking data is available.
+            # No ranking history, not a dedup loser, and NO recent price data — a
+            # GENUINE data gap (av-ingestor hasn't fetched yet, a position added
+            # directly at the broker, or a delisted name with no market). Hold
+            # rather than force-exit: a missing-data name is not a sell signal, and
+            # we won't try to trade a name with no price. The next pipeline run
+            # reconsiders once ranking/price data is available.
             decisions[ticker] = DeltaDecision(
                 ticker=ticker,
                 action="hold",
@@ -364,8 +408,8 @@ def evaluate_target_vs_live(
                 confirmation_days_met=0,
                 current_weight=0.0,
                 reason=(
-                    "Held at broker but absent from ranking universe — "
-                    "awaiting price/fundamentals data from av-ingestor"
+                    "Held at broker but absent from ranking universe with no recent "
+                    "price data — awaiting price/fundamentals data from av-ingestor"
                 ),
                 actual_weight=actual_weights.get(ticker) if actual_weights else None,
                 weight_drift=None,

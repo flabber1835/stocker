@@ -196,11 +196,30 @@ default 2 — flagged `at_risk` on build 1, sold on build 2), REGARDLESS of its 
 book. Until confirmed the orphan is tagged `at_risk` (counting down). This is what
 makes a strategy change (e.g. the correlation-cluster cap thinning the golds)
 actually reach the realized portfolio — a name the builder dropped no longer
-lingers just because its rank holds up. Data-gap orphans (rank 9999, missing from
-the ranking universe) are NEVER force-sold — that is not a sell signal. In-target
-held names NEVER rank-exit: while a name is in the target it is held regardless of
-rank; it can leave only by the builder dropping it from the target (→ orphan path).
-`confirmation_days` now governs only the cold-start fallback `evaluate_all`.
+lingers just because its rank holds up.
+
+Held names absent from the ranking universe are split by PRICE RECENCY (so a
+strategy switch self-cleans unattended — the "priced-no-rank exit" rule):
+  - NO recent price data (rank 9999, av-ingestor hasn't fetched / position added at
+    broker / delisted-no-market) → GENUINE data gap → HELD, never force-sold. That
+    is not a sell signal and we won't try to trade a name with no price.
+  - HAS recent price data but is unranked (it trades; it was just filtered OUT of
+    the strategy's universe — typically below the `min_price`/`min_avg_dollar_volume_20d`
+    floor after a config/strategy switch) → NOT a data gap → routed to the ORPHAN-EXIT
+    path (at_risk → exit after `orphan_confirmation_days`). Without this, legacy
+    low-liquidity holdings from a prior strategy (e.g. speculative→core) would be
+    held FOREVER by the data-gap exemption, permanently burning slots and starving
+    buying power — breaking unattended operation. The delta decides "has data" the
+    same way the factor step does (price within `DELTA_PRICED_STALE_DAYS`, default 7,
+    of the data frontier); the set is computed in the pipeline delta step and passed
+    to `evaluate_target_vs_live(priced_no_rank=...)`.
+Share-class dedup losers are handled separately (held if survivor in target, else
+orphan-exit) and are NOT part of this split.
+
+In-target held names NEVER rank-exit: while a name is in the target it is held
+regardless of rank; it can leave only by the builder dropping it from the target
+(→ orphan path). `confirmation_days` now governs only the cold-start fallback
+`evaluate_all`.
 
 Capacity (`_allocate_capacity`) is now purely a *defer-entries* gate: instant
 rotation is RETIRED. New entries are hard-capped to the free slots (max_positions

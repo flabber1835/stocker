@@ -2107,6 +2107,45 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 if surv is not None and surv != t:
                     dedup_survivors[t] = surv
 
+    # Held names absent from the rankings that nonetheless HAVE recent price data
+    # are NOT data gaps — they trade, they were just filtered out of the strategy's
+    # universe (below the liquidity/price floor, typically after a strategy switch).
+    # They must orphan-exit (self-cleaning, unattended), not get the never-force-sell
+    # data-gap hold. Distinguish by price recency: a held-unranked-non-dedup ticker
+    # whose latest daily_prices row is within DELTA_PRICED_STALE_DAYS of the data
+    # frontier has data → exit; older/absent → genuine gap → hold. Mirrors the factor
+    # step's 7-day staleness so "has data" means the same thing on both sides.
+    priced_no_rank: set[str] = set()
+    held_unranked = [
+        t for t in live_positions_set
+        if t not in universe and t not in dedup_survivors
+    ]
+    if held_unranked:
+        _stale_days = int(os.getenv("DELTA_PRICED_STALE_DAYS", "7"))
+        async with engine.connect() as conn:
+            _ref = (await conn.execute(
+                text("SELECT MAX(date) FROM daily_prices")
+            )).scalar()
+            _pr = await conn.execute(
+                text(
+                    "SELECT ticker, MAX(date) AS last_date FROM daily_prices "
+                    "WHERE ticker = ANY(:tickers) GROUP BY ticker"
+                ),
+                {"tickers": held_unranked},
+            )
+            for r in _pr.fetchall():
+                if (_ref is not None and r.last_date is not None
+                        and (_ref - r.last_date).days <= _stale_days):
+                    priced_no_rank.add(r.ticker)
+        if priced_no_rank:
+            print(
+                f"[delta] {len(priced_no_rank)} held name(s) below universe floor "
+                f"(unranked but priced) → orphan-exit path: "
+                f"{sorted(priced_no_rank)[:20]}"
+                + (" …" if len(priced_no_rank) > 20 else ""),
+                flush=True,
+            )
+
     # Buying power for the delta entry-cap gate (None when no sync / not recorded).
     buying_power_for_cap: Optional[float] = (
         float(sync_run.buying_power)
@@ -2265,6 +2304,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             target_history=target_history,
             orphan_confirmation_days=orphan_confirmation_days,
             dedup_survivors=dedup_survivors,
+            priced_no_rank=priced_no_rank,
             # Put actual (sums to ~1.0) and target (scaled to ~1-cash_reserve) on the
             # same basis for the drift comparison, so the cash reserve isn't misread as
             # universal overweight → phantom sell_trims. Does NOT change persisted/sized
