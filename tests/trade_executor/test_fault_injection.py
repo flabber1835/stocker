@@ -128,6 +128,10 @@ def _intent_rows(ticker="AAPL", action="entry", weight=0.05):
     ]
     if action == "entry":
         rows.append(None)                   # _is_already_held: ticker not in live_positions
+    if action in ("entry", "buy_add"):
+        rows.append(None)                   # _open_buy_order_for_ticker: no in-flight buy
+    else:
+        rows.append(None)                   # _open_sell_order_for_ticker: no in-flight sell
     rows += [
         {                                   # _size_entry: alpaca_sync_runs
             "account_value": 100_000.0,
