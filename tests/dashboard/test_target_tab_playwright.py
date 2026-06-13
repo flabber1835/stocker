@@ -58,14 +58,18 @@ def _intent(ticker, action, rank, **extra):
 
 def _delta_payload():
     intents = [
-        _intent("AAA", "hold", 1),       # held + target  → Hold
-        _intent("BBB", "entry", 2),      # target only    → Buy
-        _intent("CCC", "exit", 3),       # held only      → Sell
-        _intent("DDD", "buy_add", 4),    # held + target  → Add
-        _intent("EEE", "sell_trim", 5),  # held + target  → Trim
-        _intent("FFF", "at_risk", 6),    # held only      → At risk
-        _intent("GGG", "watch", 7),      # target only (capacity-deferred) → Watch
-        _intent("HHH", "exit", 142),     # held, ranked beyond top-N → fallback row
+        _intent("AAA", "hold", 1, in_target=True),   # held + target  → Hold (TARGET✓)
+        _intent("BBB", "entry", 2, in_target=True),  # target only    → Buy
+        _intent("CCC", "exit", 3, in_target=False),  # held only      → Sell
+        _intent("DDD", "buy_add", 4, in_target=True),    # held + target  → Add
+        _intent("EEE", "sell_trim", 5, in_target=True),  # held + target  → Trim
+        _intent("FFF", "at_risk", 6, in_target=False),   # held only      → At risk
+        _intent("GGG", "watch", 7, in_target=True),  # target only (capacity-deferred) → Watch
+        _intent("HHH", "exit", 142, in_target=False),    # held, ranked beyond top-N → fallback
+        # Data-gap HOLD: held, action='hold', but NOT a builder-target member
+        # (weight 0, never selected). Must show HELD✓ but TARGET✗ — it must NOT
+        # inflate the Target count (regression for the "38 vs 30 ticks" bug).
+        _intent("DGAP", "hold", 9999, in_target=False, current_weight=0.0),
     ]
     return {"run": {"run_id": "t1", "run_date": "2026-06-06"}, "intents": intents}
 
@@ -193,6 +197,8 @@ def _run() -> dict:
         res["CCC_target"] = page.locator("#tgt-row-CCC td").nth(3).locator(".tgt-x").count()
         res["GGG_held"]   = page.locator("#tgt-row-GGG td").nth(2).locator(".tgt-x").count()
         res["GGG_target"] = page.locator("#tgt-row-GGG td").nth(3).locator(".tgt-x").count()
+        res["DGAP_held"]   = page.locator("#tgt-row-DGAP td").nth(2).locator(".tgt-x").count()
+        res["DGAP_target"] = page.locator("#tgt-row-DGAP td").nth(3).locator(".tgt-x").count()
         res["AAA_trade"] = _cell_text(page, "AAA", 4)
         res["BBB_trade"] = _cell_text(page, "BBB", 4)
         res["CCC_trade"] = _cell_text(page, "CCC", 4)
@@ -234,8 +240,10 @@ def main() -> int:
 
     print("=== TARGET tab playwright ===")
     print("rows:", r["row_tickers"])
-    check(set(r["row_tickers"]) == {"AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG", "HHH"},
-          "held∪target rows incl. watch GGG (deferred target) and orphan HHH")
+    check(set(r["row_tickers"]) == {"AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG", "HHH", "DGAP"},
+          "held∪target rows incl. watch GGG (deferred target), orphan HHH, data-gap DGAP")
+    check(r["DGAP_held"] == 1 and r["DGAP_target"] == 0,
+          "DGAP (data-gap hold, in_target=False) → HELD✓ TARGET· (does NOT inflate target)")
     check(r["GGG_held"] == 0 and r["GGG_target"] == 1, "GGG (watch) → HELD· TARGET✓ (deferred)")
     check(r["GGG_trade"] == "Watch", f"GGG trade label = Watch (got {r.get('GGG_trade')!r})")
     check(r["AAA_held"] == 1 and r["AAA_target"] == 1, "AAA (hold) → HELD✓ TARGET✓")
@@ -254,6 +262,23 @@ def main() -> int:
 
     print("\n=== RESULT:", "PASS ===" if ok else "FAIL ===")
     return 0 if ok else 1
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.skipif(_chrome_path() is None, reason="no Chromium binary")
+def test_target_tab_marks_and_data_gap_hold():
+    """Regression: a data-gap HOLD (in_target=False) shows HELD✓ but TARGET·, so the
+    Target column reflects the real builder target (not inflated by held-not-target
+    names) — the '38 vs 30 ticks' bug. Also re-checks the held/target taxonomy."""
+    r = _run()
+    assert not r.get("fatal"), r["fatal"]
+    assert not r["errors"], r["errors"]
+    assert r["DGAP_held"] == 1 and r["DGAP_target"] == 0, "data-gap hold must not tick TARGET"
+    assert r["AAA_held"] == 1 and r["AAA_target"] == 1, "in-target hold ticks TARGET"
+    assert r["CCC_held"] == 1 and r["CCC_target"] == 0, "exit/orphan does not tick TARGET"
+    assert r["GGG_held"] == 0 and r["GGG_target"] == 1, "watch (deferred target) ticks TARGET"
 
 
 if __name__ == "__main__":

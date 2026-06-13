@@ -1376,7 +1376,11 @@ function buildTargetRows() {
       prior_rank: rec.prior_rank != null ? rec.prior_rank : null,
       rank_slope: rec.rank_slope != null ? rec.rank_slope : null,
       held: meta.held,
-      in_target: meta.target,
+      // Authoritative target membership from the API (ticker ∈ builder
+      // portfolio_holdings) so the Target column shows the REAL builder target and
+      // does NOT tick data-gap/degraded HOLDs (held, weight 0, never selected).
+      // Fall back to the action map only if the API didn't supply it.
+      in_target: (it.in_target != null ? it.in_target : meta.target),
       trade: it.action,
       tradeLabel: meta.label,
       tradeCls: meta.cls,

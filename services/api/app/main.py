@@ -1499,6 +1499,20 @@ async def get_delta_latest():
                     for v in vd_rows:
                         vetter_by_ticker[v["ticker"]] = dict(v)
 
+            # Authoritative target membership for the dashboard's "Target" tick:
+            # a ticker is in the target iff it is in the latest successful build's
+            # portfolio_holdings. This is what makes the Target column show the real
+            # builder target (e.g. 30) instead of also ticking data-gap/degraded
+            # HOLDs (action='hold' but weight 0, never selected) — those are held,
+            # not target members.
+            target_set: set[str] = set()
+            th_rows = (await conn.execute(text(
+                "SELECT ticker FROM portfolio_holdings WHERE run_id = "
+                "(SELECT run_id FROM portfolio_runs WHERE status='success' "
+                " ORDER BY completed_at DESC NULLS LAST LIMIT 1)"
+            ))).fetchall()
+            target_set = {r.ticker for r in th_rows}
+
         return {
             "run": {
                 "run_id":                str(run_row["run_id"]),
@@ -1530,6 +1544,7 @@ async def get_delta_latest():
                     "rank":                  r["rank"],
                     "composite_score":       _f(r["composite_score"]),
                     "confirmation_days_met": r["confirmation_days_met"],
+                    "in_target":             r["ticker"] in target_set,
                     "current_weight":        _f(r["current_weight"]),
                     "actual_weight":         _f(r["actual_weight"]),
                     "weight_drift":          _f(r["weight_drift"]),
