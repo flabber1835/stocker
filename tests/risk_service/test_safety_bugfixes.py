@@ -147,12 +147,9 @@ class TestTurnoverCountsPendingSells:
         """A prior 'pending' (recorded-but-not-yet-submitted) sell must count, so a
         concurrent second sell that would breach the cap is rejected."""
         monkeypatch.setenv("MAX_DAILY_TURNOVER_PCT", "0.50")
-        # Exit path scripts: sync(fresh), daily-loss baseline, current,
-        # then turnover SUM, then turnover account_value.
+        # Exits are exempt from sync_staleness + daily_loss (closing always allowed),
+        # so a close only reads the turnover rows: SUM so far, then account_value.
         mock_engine.responses = [
-            (_now() - timedelta(minutes=5),),  # sync fresh
-            (100_000.0,),                      # daily-loss baseline
-            (100_000.0,),                      # daily-loss current (no loss)
             (45_000.0,),                       # turnover SUM so far (incl pending sells)
             (100_000.0,),                      # account_value for turnover limit
         ]
@@ -172,10 +169,7 @@ class TestTurnoverCountsPendingSells:
         # ONE shared responses list across all connect() blocks (each /check uses
         # several separate `async with engine.connect()` scopes).
         responses = [
-            (_now() - timedelta(minutes=5),),  # sync fresh
-            (100_000.0,),                      # baseline
-            (100_000.0,),                      # current
-            (0.0,),                            # turnover SUM
+            (0.0,),                            # turnover SUM (exit only reads turnover rows now)
             (100_000.0,),                      # account_value
         ]
 

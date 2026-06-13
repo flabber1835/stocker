@@ -285,6 +285,12 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
     # run regardless of DB health. A `return (False, ...)` inside the block is a
     # real rule rejection and propagates as-is; only an unexpected exception trips
     # the fail-closed handler.
+    # An exit or a sell_trim must ALWAYS be allowed — reducing/closing risk can never
+    # be trapped by a system condition (a DB outage, a stale broker sync, or a daily
+    # loss halt). So closes are exempt from the DB-dependent controls below; opening
+    # risk (entry / buy_add) stays fail-closed. The kill switch + qty/notional
+    # validity above still apply to everything.
+    is_close = req.action in ("exit", "sell_trim")
     if engine is not None:
         try:
             # Alpaca-availability: refuse ALL actions if the last successful sync
@@ -292,7 +298,7 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
             # positions are wrong; sizing decisions made against them could
             # double-spend cash or sell positions we no longer hold.
             max_sync_age = env["max_sync_age_hours"]
-            if max_sync_age > 0:
+            if max_sync_age > 0 and not is_close:
                 async with engine.connect() as conn:
                     sync_row = (await conn.execute(text(
                         "SELECT completed_at FROM alpaca_sync_runs "
@@ -358,7 +364,7 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
             # Postgres CURRENT_DATE (UTC), whose rollover at ~19–20:00 ET would put
             # the baseline on the wrong side of a late-ET session.
             max_loss_pct = env["max_daily_loss_pct"]
-            if max_loss_pct > 0 and max_loss_pct < 1.0:
+            if max_loss_pct > 0 and max_loss_pct < 1.0 and not is_close:
                 async with engine.connect() as conn:
                     if req.sim_date:
                         # Bucket sim-day syncs by the SAME ET trading zone as the
@@ -506,15 +512,19 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
                             env,
                         )
         except Exception as exc:
-            # Fail CLOSED: a DB error means a safety-critical control could not be
-            # evaluated. Reject rather than approve-by-default — default to safety.
-            print(f"[risk-service] ERROR: safety-critical control unavailable (rejecting): {exc}")
-            return (
-                False,
-                "Safety control unavailable (database error) — trade rejected to default to safety",
-                "control_unavailable",
-                env,
-            )
+            # Fail CLOSED for OPENING risk (entry / buy_add): a DB error means a
+            # safety-critical control could not be evaluated — reject rather than
+            # approve-by-default. EXITS / sell_trims are EXEMPT: closing must always be
+            # allowed, so a transient control outage can never trap us in a position.
+            print(f"[risk-service] ERROR: safety-critical control unavailable: {exc}")
+            if not is_close:
+                return (
+                    False,
+                    "Safety control unavailable (database error) — trade rejected to default to safety",
+                    "control_unavailable",
+                    env,
+                )
+            print("[risk-service] exit/sell_trim EXEMPT from control_unavailable — allowing close")
 
     # Daily sell-side turnover cap: reject exits/sell_trims once today's sell
     # notional exceeds max_daily_turnover_pct of portfolio value. Only sells

@@ -107,6 +107,10 @@ def _scripted_responses(*, sync_row, pl_row=None, baseline_row=None,
       max_position_pct_limit: acct_row, held_mv  (buys only — entry, buy_add)
       daily_turnover_limit: turnover_row, turnover_acct_row  (sells only — exit, sell_trim)
     """
+    # Exits / sell_trims are EXEMPT from sync_staleness + daily_loss (closing must
+    # always be allowed), so a close only reads the turnover rows.
+    if action in ("exit", "sell_trim"):
+        return [turnover_row, turnover_acct_row]
     rows = [sync_row]
     if action in ("entry", "buy_add"):
         rows.append(pl_row)
@@ -118,9 +122,6 @@ def _scripted_responses(*, sync_row, pl_row=None, baseline_row=None,
     if action in ("entry", "buy_add"):
         rows.append(acct_row)
         rows.append(held_mv)
-    if action in ("exit", "sell_trim"):
-        rows.append(turnover_row)
-        rows.append(turnover_acct_row)
     return rows
 
 
@@ -158,13 +159,14 @@ class TestSyncStaleness:
         assert body["rule_triggered"] == "sync_staleness"
         assert "no successful alpaca-sync" in body["reason"].lower()
 
-    def test_stale_sync_blocks_exit(self, mock_engine):
-        mock_engine.responses = [(_now() - timedelta(hours=48),)]
-        r = client.post("/check", json=_payload(action="exit", side="sell"))
+    def test_stale_sync_does_not_block_exit(self, mock_engine):
+        # Closing must always be allowed — a stale broker sync never blocks an exit.
+        # The exit doesn't even run the sync-age query; it only reads turnover rows.
+        mock_engine.responses = [(0.0,), (100_000.0,)]  # turnover SUM, account_value
+        r = client.post("/check", json=_payload(action="exit", side="sell", notional=2000.0))
         body = r.json()
-        assert body["approved"] is False
-        assert body["rule_triggered"] == "sync_staleness"
-        assert "48" in body["reason"]
+        assert body["approved"] is True, body
+        assert body["rule_triggered"] == "ok"
 
     def test_fresh_sync_does_not_block(self, mock_engine):
         # Use action=exit so we skip buy-only checks; still need turnover rows
@@ -242,20 +244,15 @@ class TestDailyLossLimit:
         r = client.post("/check", json=_payload(action="entry"))
         assert r.json()["approved"] is True
 
-    def test_loss_limit_applies_to_sells_too(self, mock_engine):
-        # A meltdown should halt ALL trading — even exits — to avoid panic
-        # selling. (The rationale: kill_switch is the operator-controlled halt,
-        # MAX_DAILY_LOSS_PCT is the automated halt.)
-        mock_engine.responses = [
-            _OK["sync_row"],
-            # No pl_row for exit
-            (100_000.0,),
-            (50_000.0,),  # 50% drawdown
-        ]
-        r = client.post("/check", json=_payload(action="exit", side="sell"))
+    def test_loss_limit_does_not_block_exit(self, mock_engine):
+        # Daily-loss halts OPENING risk only. A close/trim must ALWAYS be allowed —
+        # on a meltdown day you must still be able to de-risk — so an exit is approved
+        # even at a 50% drawdown (the exit doesn't run the daily-loss query at all).
+        mock_engine.responses = [(0.0,), (50_000.0,)]  # turnover SUM, account_value
+        r = client.post("/check", json=_payload(action="exit", side="sell", notional=2000.0))
         body = r.json()
-        assert body["approved"] is False
-        assert body["rule_triggered"] == "daily_loss_limit"
+        assert body["approved"] is True, body
+        assert body["rule_triggered"] == "ok"
 
 
 # ═════════════════════════════════════════════════════════════════════════════
