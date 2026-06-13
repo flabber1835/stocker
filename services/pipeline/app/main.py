@@ -18,7 +18,12 @@ from redis.exceptions import TimeoutError as RedisTimeoutError
 from app.factors import compute_all_factors, drop_fundamentalless
 from app.regime import detect_regime, resolve_confirmed_regime
 from app.rank import rank_universe, FACTORS
-from app.engine import evaluate_all, evaluate_target_vs_live, RankObservation
+from app.engine import (
+    evaluate_all,
+    evaluate_target_vs_live,
+    below_floor_unranked,
+    RankObservation,
+)
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.tracing import log_step, write_trace_file, mark_orphaned_runs_failed
@@ -2107,15 +2112,14 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 if surv is not None and surv != t:
                     dedup_survivors[t] = surv
 
-    # Held names absent from the rankings that nonetheless HAVE recent price data
-    # are NOT data gaps — they trade, they were just filtered out of the strategy's
-    # universe (below the liquidity/price floor, typically after a strategy switch).
-    # They must orphan-exit (self-cleaning, unattended), not get the never-force-sell
-    # data-gap hold. Distinguish by price recency: a held-unranked-non-dedup ticker
-    # whose latest daily_prices row is within DELTA_PRICED_STALE_DAYS of the data
-    # frontier has data → exit; older/absent → genuine gap → hold. Mirrors the factor
-    # step's 7-day staleness so "has data" means the same thing on both sides.
-    priced_no_rank: set[str] = set()
+    # Held names absent from the rankings that fall BELOW the strategy's investability
+    # floor are NOT data gaps — they trade, they were just filtered out of the universe
+    # (price/liquidity), typically after a strategy switch. They must orphan-exit
+    # (self-cleaning, unattended), not get the never-force-sell data-gap hold. We use
+    # the SAME investability test as the factor step (min_price, min_avg_dollar_volume_20d)
+    # via the shared pure helper `below_floor_unranked`, so a name dropped for a
+    # transient factor/data reason (fresh price, meets floor) is NOT exited.
+    unranked_below_floor: set[str] = set()
     held_unranked = [
         t for t in live_positions_set
         if t not in universe and t not in dedup_survivors
@@ -2126,23 +2130,43 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             _ref = (await conn.execute(
                 text("SELECT MAX(date) FROM daily_prices")
             )).scalar()
+            # Per held-unranked ticker: latest adjusted_close, latest date, and mean
+            # close*volume over the last 20 sessions (mirrors the factor pre-filter).
             _pr = await conn.execute(
                 text(
-                    "SELECT ticker, MAX(date) AS last_date FROM daily_prices "
-                    "WHERE ticker = ANY(:tickers) GROUP BY ticker"
+                    "SELECT ticker, "
+                    "  (array_agg(adjusted_close ORDER BY date DESC))[1] AS last_px, "
+                    "  MAX(date) AS last_date, "
+                    "  AVG(close::double precision * volume::double precision) AS avg_dv "
+                    "FROM (SELECT ticker, date, adjusted_close, close, volume, "
+                    "        ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) AS rn "
+                    "      FROM daily_prices WHERE ticker = ANY(:tickers)) x "
+                    "WHERE rn <= 20 GROUP BY ticker"
                 ),
                 {"tickers": held_unranked},
             )
-            for r in _pr.fetchall():
-                if (_ref is not None and r.last_date is not None
-                        and (_ref - r.last_date).days <= _stale_days):
-                    priced_no_rank.add(r.ticker)
-        if priced_no_rank:
+            price_rows = {
+                r.ticker: (
+                    float(r.last_px) if r.last_px is not None else None,
+                    r.last_date,
+                    float(r.avg_dv) if r.avg_dv is not None else None,
+                )
+                for r in _pr.fetchall()
+            }
+        if _ref is not None:
+            unranked_below_floor = below_floor_unranked(
+                price_rows,
+                min_price=float(strategy.universe.min_price),
+                min_avg_dollar_volume=float(strategy.universe.min_avg_dollar_volume_20d),
+                ref_date=_ref,
+                stale_days=_stale_days,
+            )
+        if unranked_below_floor:
             print(
-                f"[delta] {len(priced_no_rank)} held name(s) below universe floor "
-                f"(unranked but priced) → orphan-exit path: "
-                f"{sorted(priced_no_rank)[:20]}"
-                + (" …" if len(priced_no_rank) > 20 else ""),
+                f"[delta] {len(unranked_below_floor)} held name(s) below the universe "
+                f"floor (unranked but priced) → orphan-exit path: "
+                f"{sorted(unranked_below_floor)[:20]}"
+                + (" …" if len(unranked_below_floor) > 20 else ""),
                 flush=True,
             )
 
@@ -2304,7 +2328,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             target_history=target_history,
             orphan_confirmation_days=orphan_confirmation_days,
             dedup_survivors=dedup_survivors,
-            priced_no_rank=priced_no_rank,
+            unranked_below_floor=unranked_below_floor,
             # Put actual (sums to ~1.0) and target (scaled to ~1-cash_reserve) on the
             # same basis for the drift comparison, so the cash reserve isn't misread as
             # universal overweight → phantom sell_trims. Does NOT change persisted/sized

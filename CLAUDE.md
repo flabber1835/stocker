@@ -203,16 +203,24 @@ strategy switch self-cleans unattended — the "priced-no-rank exit" rule):
   - NO recent price data (rank 9999, av-ingestor hasn't fetched / position added at
     broker / delisted-no-market) → GENUINE data gap → HELD, never force-sold. That
     is not a sell signal and we won't try to trade a name with no price.
-  - HAS recent price data but is unranked (it trades; it was just filtered OUT of
-    the strategy's universe — typically below the `min_price`/`min_avg_dollar_volume_20d`
-    floor after a config/strategy switch) → NOT a data gap → routed to the ORPHAN-EXIT
-    path (at_risk → exit after `orphan_confirmation_days`). Without this, legacy
-    low-liquidity holdings from a prior strategy (e.g. speculative→core) would be
-    held FOREVER by the data-gap exemption, permanently burning slots and starving
-    buying power — breaking unattended operation. The delta decides "has data" the
-    same way the factor step does (price within `DELTA_PRICED_STALE_DAYS`, default 7,
-    of the data frontier); the set is computed in the pipeline delta step and passed
-    to `evaluate_target_vs_live(priced_no_rank=...)`.
+  - HAS a fresh price AND falls BELOW the strategy investability floor
+    (`min_price` OR `min_avg_dollar_volume_20d`) → it trades but the strategy no
+    longer wants it (typically a legacy low-liquidity/sub-price holding after a
+    config/strategy switch, e.g. speculative→core) → NOT a data gap → routed to the
+    ORPHAN-EXIT path (at_risk → exit after `orphan_confirmation_days`). Without this
+    such holdings are held FOREVER by the data-gap exemption, permanently burning
+    slots and starving buying power — breaking unattended operation.
+  - HAS a fresh price but MEETS the floor (unranked for some OTHER reason, e.g. a
+    transiently NULL `required_factors` factor) → HELD, never force-sold. Exiting
+    this would be a false-exit of a legit holding over a transient factor/data gap.
+
+The split uses the SAME investability test as the factor step (`min_price`,
+`min_avg_dollar_volume_20d`, 7-day staleness via `DELTA_PRICED_STALE_DAYS`), via the
+shared pure helper `engine.below_floor_unranked(...)` — so "below floor" means the
+same on both sides and can't drift. The pipeline delta step computes the set and
+passes it to `evaluate_target_vs_live(unranked_below_floor=...)`. It is suppressed
+when the target is empty (degraded build) so a transient builder/rank failure never
+mass-liquidates; `orphan_confirmation_days` buffers transient partial rankings.
 Share-class dedup losers are handled separately (held if survivor in target, else
 orphan-exit) and are NOT part of this split.
 

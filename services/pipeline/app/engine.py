@@ -185,6 +185,42 @@ def evaluate_ticker(
     )
 
 
+def below_floor_unranked(
+    price_rows: dict[str, tuple[Optional[float], Optional[date], Optional[float]]],
+    *,
+    min_price: float,
+    min_avg_dollar_volume: float,
+    ref_date: date,
+    stale_days: int = 7,
+) -> set[str]:
+    """Held+unranked tickers that fall BELOW the strategy investability floor and
+    therefore must orphan-EXIT (not data-gap-hold).
+
+    price_rows maps ticker → (last_adjusted_close, last_date, avg_dollar_volume_20d).
+    A ticker qualifies iff:
+      - it has a FRESH price (last_date within `stale_days` of ref_date) — a stale /
+        missing price is a genuine data gap and stays HELD (never force-sell a name
+        we can't currently price), AND
+      - it FAILS the floor: price < min_price OR avg_dollar_volume < min_avg_dollar_volume
+        — the SAME test the factor step applies to build the investable universe.
+
+    A fresh name that MEETS the floor but is still unranked (e.g. a transiently NULL
+    required factor) is deliberately EXCLUDED here → it stays held, so a temporary
+    fundamentals/factor gap never force-exits a legit holding. Pure / deterministic;
+    mirrors the factor-step filter so "below floor" means the same on both sides.
+    """
+    out: set[str] = set()
+    for ticker, (last_px, last_date, avg_dv) in price_rows.items():
+        if last_date is None or (ref_date - last_date).days > stale_days:
+            continue  # no fresh price → genuine data gap → hold
+        below = (last_px is not None and last_px < min_price) or (
+            avg_dv is not None and avg_dv < min_avg_dollar_volume
+        )
+        if below:
+            out.add(ticker)
+    return out
+
+
 def evaluate_target_vs_live(
     target_portfolio: dict[str, float],
     live_positions: set[str],
@@ -199,7 +235,7 @@ def evaluate_target_vs_live(
     orphan_confirmation_days: int | None = None,
     dedup_survivors: dict[str, str] | None = None,
     cash_fraction: float | None = None,
-    priced_no_rank: set[str] | None = None,
+    unranked_below_floor: set[str] | None = None,
 ) -> dict[str, DeltaDecision]:
     """Diff portfolio_holdings (target) against live_positions (actual broker state).
 
@@ -253,13 +289,17 @@ def evaluate_target_vs_live(
     """
     decisions: dict[str, DeltaDecision] = {}
     dedup_survivors = dedup_survivors or {}
-    # Held names that are absent from the rankings but DO have recent price data —
-    # i.e. they trade, they were just filtered OUT of the strategy's universe
-    # (below the liquidity/price floor, typically after a config/strategy switch).
-    # These are NOT data gaps and must orphan-exit, not get the never-force-sell
-    # hold (which would strand them forever and burn a slot — breaking unattended
-    # operation across strategy switches). Genuine no-price names are NOT in this set.
-    priced_no_rank = priced_no_rank or set()
+    # Held names that are unranked but fall BELOW the strategy's investability floor
+    # (price < min_price OR avg_dollar_volume < min_avg_dollar_volume_20d) — i.e. the
+    # SAME reason the factor step drops them from the universe. They trade (fresh
+    # price) but the strategy no longer wants them (typically after a config/strategy
+    # switch), so they must ORPHAN-EXIT, not get the never-force-sell data-gap hold
+    # (which would strand them forever and burn a slot — breaking unattended
+    # operation). Computed precisely by the pipeline via `below_floor_unranked()`.
+    # NOT in this set (→ still held): genuine no-price data gaps, AND fresh names that
+    # MEET the floor but are unranked for a transient factor/data reason (a null
+    # required factor) — exiting those would be a false-exit of a legit holding.
+    unranked_below_floor = unranked_below_floor or set()
 
     # Drift-comparison basis fix: gross the target back up to the sum-to-1 basis
     # the actual broker weights live on, so the cash_reserve hold-back is not
@@ -359,15 +399,15 @@ def evaluate_target_vs_live(
             latest = obs[0] if obs else RankObservation(
                 run_date=date.min, rank=9999, composite_score=0.0,
             )
-        if not obs and not forced_orphan and ticker in priced_no_rank and not target_is_empty:
-            # Held name with NO ranking obs but WITH recent price data: it trades,
-            # it was just filtered out of the strategy's universe (below the
-            # liquidity/price floor — typically after a config/strategy switch).
-            # This is NOT a data gap, so it must NOT get the never-force-sell
-            # exemption (which would strand it forever and burn a slot). Route it
-            # through the orphan-exit timer so a strategy switch self-cleans
-            # unattended. rank=9999 here means "below universe / unranked", not
-            # "missing data".
+        if not obs and not forced_orphan and ticker in unranked_below_floor and not target_is_empty:
+            # Held name with NO ranking obs that falls BELOW the investability floor
+            # (price/liquidity) — the same reason the factor step excluded it. It
+            # trades, the strategy just no longer wants it (typically after a
+            # config/strategy switch). This is NOT a data gap, so it must NOT get the
+            # never-force-sell exemption (which would strand it forever and burn a
+            # slot). Route it through the orphan-exit timer so a strategy switch
+            # self-cleans unattended. rank=9999 here means "below universe / unranked",
+            # not "missing data".
             orphan_days = _orphan_confirm_days(ticker, target_history, orphan_conf) or 1
             if orphan_days >= orphan_conf:
                 pnr_action, pnr_reason = "exit", (

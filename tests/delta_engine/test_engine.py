@@ -11,6 +11,7 @@ from app.engine import (
     evaluate_ticker,
     evaluate_all,
     evaluate_target_vs_live,
+    below_floor_unranked,
     _consecutive_in_zone,
 )
 from stock_strategy_shared.schemas.strategy import DeltaEngineConfig
@@ -565,6 +566,55 @@ def test_tvl_hold_when_live_not_in_universe():
     assert "awaiting" in decisions["COHR"].reason.lower()
 
 
+# ── below_floor_unranked (pure investability-floor classifier) ──────────────────
+
+_REF = date(2026, 6, 12)
+
+
+def _bfu(rows, min_price=5.0, min_dv=20_000_000.0, stale_days=7):
+    return below_floor_unranked(
+        rows, min_price=min_price, min_avg_dollar_volume=min_dv,
+        ref_date=_REF, stale_days=stale_days,
+    )
+
+
+def test_bfu_below_liquidity_floor_exits():
+    # fresh price, ABOVE $5, but avg_dv < $20M → below floor → exit
+    assert _bfu({"ATLC": (92.38, _REF, 10_367_996.0)}) == {"ATLC"}
+
+
+def test_bfu_below_price_floor_exits():
+    # fresh price BELOW $5 (liquidity fine) → below floor → exit
+    assert _bfu({"CLOV": (4.73, _REF, 38_935_138.0)}) == {"CLOV"}
+
+
+def test_bfu_meets_floor_but_unranked_is_held():
+    # fresh price, ABOVE $5 AND ABOVE $20M ADV → meets the floor → NOT exited.
+    # (Unranked for some other reason, e.g. a transient null required factor —
+    #  exiting this would be a false-exit of a legit holding.)
+    assert _bfu({"AAPL": (190.0, _REF, 9_000_000_000.0)}) == set()
+
+
+def test_bfu_stale_price_is_held_not_exited():
+    # last price 30 days stale → genuine data gap → held (never force-sell)
+    assert _bfu({"OLD": (3.0, _REF - timedelta(days=30), 1_000.0)}) == set()
+
+
+def test_bfu_no_price_is_held():
+    assert _bfu({"NODATA": (None, None, None)}) == set()
+
+
+def test_bfu_mixed_set():
+    rows = {
+        "ATLC": (92.38, _REF, 10_367_996.0),   # below dv → exit
+        "CLOV": (4.73, _REF, 38_935_138.0),    # below price → exit
+        "AAPL": (190.0, _REF, 9e9),            # meets floor → hold
+        "OLD":  (3.0, _REF - timedelta(days=20), 5.0),  # stale → hold
+        "NODATA": (None, None, None),          # no price → hold
+    }
+    assert _bfu(rows) == {"ATLC", "CLOV"}
+
+
 def test_tvl_priced_no_rank_exits_not_held_forever():
     """Held name absent from rankings BUT with recent price data (it trades — it was
     filtered out of the strategy's universe, e.g. below the liquidity/price floor
@@ -578,7 +628,7 @@ def test_tvl_priced_no_rank_exits_not_held_forever():
         target_portfolio=target, live_positions=live, universe=universe,
         confirmation_days=3, max_positions=30,
         orphan_confirmation_days=1,             # confirm on the first build
-        priced_no_rank={"SMALLCAP"},
+        unranked_below_floor={"SMALLCAP"},
     )
     assert decisions["SMALLCAP"].action == "exit"
     assert "below strategy universe floor" in decisions["SMALLCAP"].reason.lower()
@@ -595,7 +645,7 @@ def test_tvl_priced_no_rank_at_risk_before_confirmation():
         target_portfolio=target, live_positions=live, universe=universe,
         confirmation_days=3, max_positions=30,
         orphan_confirmation_days=2,             # needs 2 builds → at_risk first
-        priced_no_rank={"SMALLCAP"},
+        unranked_below_floor={"SMALLCAP"},
     )
     assert decisions["SMALLCAP"].action == "at_risk"
 
@@ -609,7 +659,7 @@ def test_tvl_priced_no_rank_holds_in_degraded_empty_target():
         target_portfolio={}, live_positions={"SMALLCAP"}, universe={},
         confirmation_days=3, max_positions=30,
         orphan_confirmation_days=1,
-        priced_no_rank={"SMALLCAP"},
+        unranked_below_floor={"SMALLCAP"},
     )
     assert decisions["SMALLCAP"].action == "hold"
 
@@ -626,7 +676,7 @@ def test_tvl_no_price_no_rank_still_holds_data_gap():
         target_portfolio=target, live_positions=live, universe=universe,
         confirmation_days=3, max_positions=30,
         orphan_confirmation_days=2,
-        priced_no_rank=set(),                   # NODATA has no recent price
+        unranked_below_floor=set(),             # NODATA has no recent price
     )
     assert decisions["NODATA"].action == "hold"
     assert "no recent price data" in decisions["NODATA"].reason.lower()
