@@ -477,7 +477,7 @@ def compute_small_cap(fundamentals: pd.DataFrame) -> pd.Series:
 
 
 def compute_volume_surge(prices_long: pd.DataFrame, short_window: int = 5,
-                         long_window: int = 60) -> pd.Series:
+                         long_window: int = 60, max_staleness_days: int = 7) -> pd.Series:
     """Unusual-volume / accumulation signal (raw, higher = bigger recent surge):
     mean(volume, last short_window) / mean(volume, last long_window). >1 means recent
     volume is running hot vs the ticker's own baseline — a tell for story/breakout
@@ -485,7 +485,12 @@ def compute_volume_surge(prices_long: pd.DataFrame, short_window: int = 5,
 
     Fully vectorized (no per-group Python apply, only 3 columns copied) — the factor
     step runs over the whole ~2k-ticker universe under a tight memory cap, so a
-    groupby.apply here would be both slow and an OOM risk."""
+    groupby.apply here would be both slow and an OOM risk.
+
+    Staleness guard (matches compute_liquidity / the pipeline _stale pre-filter):
+    rn<short/long counts rows by POSITION, so a halted/delisted ticker with old rows
+    would surge-score on stale volume. Drop tickers whose most recent real row is
+    more than max_staleness_days behind the dataset's reference date (= latest date)."""
     df = prices_long[["ticker", "date", "volume"]].copy()
     df["volume"] = df["volume"].astype(float)
     df.sort_values(["ticker", "date"], inplace=True)
@@ -494,22 +499,42 @@ def compute_volume_surge(prices_long: pd.DataFrame, short_window: int = 5,
     short_mean = df["volume"].where(rn < short_window).groupby(tk).mean()
     long_mean = df["volume"].where(rn < long_window).groupby(tk).mean()
     cnt = tk.groupby(tk).size()                           # rows per ticker
-    score = (short_mean / long_mean).where((cnt >= long_window) & (long_mean > 0))
+    reference_date = df["date"].max()
+    latest_by_ticker = df.groupby("ticker")["date"].max()
+    not_stale = latest_by_ticker >= (reference_date - pd.Timedelta(days=max_staleness_days))
+    not_stale = not_stale.reindex(short_mean.index, fill_value=False)
+    score = (short_mean / long_mean).where(
+        (cnt >= long_window) & (long_mean > 0) & not_stale
+    )
     score.name = "volume_surge"
     return score
 
 
-def compute_near_high(prices: pd.DataFrame, window: int = 252) -> pd.Series:
+def compute_near_high(prices: pd.DataFrame, window: int = 252,
+                      max_staleness_days: int = 7) -> pd.Series:
     """Proximity to the trailing high (raw, higher = closer to/at the high) — a
     breakout/strength signal: last_close / max(close over window), in (0, 1]. Takes
     the wide adjusted_close pivot (date × ticker). NaN with < 2 rows or non-positive
-    high. Optional factor."""
+    high. Optional factor.
+
+    Staleness guard (matches compute_liquidity / the pipeline _stale pre-filter):
+    `ffill().iloc[-1]` forward-fills a halted/delisted ticker's old close to the
+    last row, so it would score ~1.0 (at its own stale high) on dead data. Drop any
+    ticker whose most recent REAL (non-NaN) date in the pivot is more than
+    max_staleness_days behind the pivot's latest date."""
     if len(prices) < 2:
         return pd.Series(dtype=float, name="near_high")
     hist = prices.iloc[-window:] if len(prices) >= window else prices
     high = hist.max(skipna=True)
     last = hist.ffill().iloc[-1]
     score = (last / high).where(high > 0)
+    # Per-ticker last date with a real (non-NaN) value vs the pivot's latest date.
+    idx = pd.to_datetime(prices.index)
+    reference_date = idx.max()
+    real_mask = prices.notna()
+    last_real = real_mask.apply(lambda col: idx[col.values].max() if col.any() else pd.NaT)
+    stale = last_real < (reference_date - pd.Timedelta(days=max_staleness_days))
+    score = score.where(~stale.reindex(score.index, fill_value=True))
     score.name = "near_high"
     return score
 

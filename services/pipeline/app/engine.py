@@ -197,6 +197,7 @@ def evaluate_target_vs_live(
     buying_power: float | None = None,
     target_history: list[set[str]] | None = None,
     orphan_confirmation_days: int | None = None,
+    dedup_survivors: dict[str, str] | None = None,
 ) -> dict[str, DeltaDecision]:
     """Diff portfolio_holdings (target) against live_positions (actual broker state).
 
@@ -217,8 +218,22 @@ def evaluate_target_vs_live(
     buy_add   — ticker held and in target, actual weight < target - drift_threshold
     sell_trim — ticker held and in target, actual weight > target + drift_threshold
     watch     — an entry deferred by capacity / buying power (not a rank signal)
+
+    dedup_survivors maps a held broker ticker that was SUPPRESSED by share-class
+    dedup (it lost to a higher-ranked sibling, so it has no ranking row → no
+    `universe` obs) to its surviving sibling ticker. This distinguishes a
+    deliberately-suppressed dedup loser from a GENUINE data gap (no ranking AND
+    not a dedup loser). For a dedup loser:
+      - survivor IS in the target  → treat the held loser as in-target (HOLD —
+        same company, the builder kept the class). It NEVER consumes a phantom
+        slot via the data-gap exemption.
+      - survivor NOT in target     → route the held loser through the NORMAL
+        orphan path (orphan-exits after orphan_confirmation_days), borrowing the
+        survivor's rank obs for reporting, instead of holding forever.
+    Genuine data-gap names (not in dedup_survivors) keep the data-gap exemption.
     """
     decisions: dict[str, DeltaDecision] = {}
+    dedup_survivors = dedup_survivors or {}
 
     # Orphan exits confirm over their OWN window, separate from the rank-based
     # entry/exit buffer (confirmation_days). Defaults to confirmation_days when not
@@ -265,11 +280,48 @@ def evaluate_target_vs_live(
             continue  # handled in holds below
         obs = universe.get(ticker, [])
         latest = obs[0] if obs else None
-        if not obs:
-            # No ranking history — could be a data gap (av-ingestor hasn't
-            # fetched yet) or a position added directly at the broker. Hold
-            # rather than force-exit; the next pipeline run will reconsider
-            # once ranking data is available.
+        survivor = dedup_survivors.get(ticker)
+        forced_orphan = False
+        if not obs and survivor is not None:
+            # This held position is a share-class dedup LOSER: it was suppressed
+            # from the rankings in favour of a higher-ranked sibling, so it has
+            # no ranking obs. This is NOT a data gap — do not grant the data-gap
+            # hold exemption (which would strand it forever AND burn a slot).
+            if survivor in target_portfolio:
+                # Survivor (same company) is in the target → the company IS
+                # wanted; hold the class we actually own. Counts as occupied, but
+                # legitimately so (it's a real in-target holding, not a phantom).
+                decisions[ticker] = DeltaDecision(
+                    ticker=ticker,
+                    action="hold",
+                    rank=9999,
+                    composite_score=0.0,
+                    confirmation_days_met=0,
+                    current_weight=0.0,
+                    reason=(
+                        f"Held at broker; share-class dedup loser whose survivor "
+                        f"{survivor} is in target — holding (same company)"
+                    ),
+                    actual_weight=actual_weights.get(ticker) if actual_weights else None,
+                    weight_drift=None,
+                )
+                continue
+            # Survivor NOT in target → the company was dropped by the builder.
+            # Route through the NORMAL orphan path so the held loser orphan-exits
+            # after orphan_confirmation_days. Borrow the survivor's obs (if any)
+            # purely for rank/score reporting; the orphan logic below is identical.
+            # `forced_orphan` keeps it out of the genuine-data-gap hold even when
+            # the survivor itself has no obs (then it orphan-exits as rank 9999).
+            forced_orphan = True
+            obs = universe.get(survivor, [])
+            latest = obs[0] if obs else RankObservation(
+                run_date=date.min, rank=9999, composite_score=0.0,
+            )
+        if not obs and not forced_orphan:
+            # No ranking history and not a dedup loser — a GENUINE data gap
+            # (av-ingestor hasn't fetched yet) or a position added directly at the
+            # broker. Hold rather than force-exit; the next pipeline run will
+            # reconsider once ranking data is available.
             decisions[ticker] = DeltaDecision(
                 ticker=ticker,
                 action="hold",

@@ -186,7 +186,14 @@ def _excess_drawdown_map_from_rows(ticker_rows, spy_rows, window: int = 21,
 
     out: dict[str, dict] = {}
     for t, dmap in by_t.items():
-        common = sorted(d for d in dmap if d in spy_close)
+        common_all = sorted(d for d in dmap if d in spy_close)
+        # Beta/idio-vol regress over the last `lookback`+1 COMMON dates — EXACTLY
+        # the vetter's beta_and_idio_vol slice ([-(lookback+1):] on the already
+        # date-aligned lists). Without this slice the pipeline would regress over
+        # ALL common dates and diverge from the veto when the fetched history runs
+        # longer than the lookback. The drawdown window below is unaffected
+        # (lookback+1 >> window, so common[-window:] is identical either way).
+        common = common_all[-(lookback + 1):]
         if len(common) < min_obs + 1:
             continue
         rs: list[float] = []
@@ -2034,6 +2041,57 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             # positions that may already be held at the broker.
             no_sync_data = True
 
+    # ── Share-class dedup-loser map ───────────────────────────────────────────
+    # The rank step drops share-class losers (e.g. GOOG when GOOGL ranks better)
+    # from `rankings`, so a broker position held in the dropped class has NO obs in
+    # `universe`. Without this map the delta engine would hit the data-gap branch
+    # and HOLD it forever (data-gap exemption) AND permanently burn a slot — it
+    # conflates "deliberately suppressed by dedup" with "genuine data gap".
+    #
+    # Recompute (no schema change) the loser→survivor map ONLY for the held
+    # positions that are missing from the rankings: look up each such ticker's
+    # company name, normalize it the SAME way the rank step does
+    # (_normalize_company_name), and find a RANKED ticker (the survivor, present in
+    # `universe`) sharing that normalized name. evaluate_target_vs_live then routes
+    # the held loser by whether its survivor is in the target (hold) or not (orphan).
+    dedup_survivors: dict[str, str] = {}
+    if strategy.deduplicate_share_classes and universe:
+        missing_held = [t for t in live_positions_set if t not in universe]
+        ranked_tickers = list(universe.keys())
+        if missing_held and ranked_tickers:
+            async with engine.connect() as conn:
+                name_rows = await conn.execute(
+                    text(
+                        "SELECT DISTINCT ON (ut.ticker) ut.ticker, ut.name "
+                        "FROM universe_tickers ut "
+                        "JOIN universe_snapshots us ON ut.snapshot_id = us.id "
+                        "WHERE ut.ticker = ANY(:tickers) "
+                        "  AND ut.name IS NOT NULL AND ut.name != '' "
+                        "ORDER BY ut.ticker, us.snapshot_date DESC"
+                    ),
+                    {"tickers": missing_held + ranked_tickers},
+                )
+                _names = {r.ticker: r.name for r in name_rows.fetchall()}
+            # Map normalized company name → best-ranked survivor ticker (lowest rank).
+            survivor_by_name: dict[str, str] = {}
+            for t in ranked_tickers:
+                nm = _names.get(t)
+                if not nm:
+                    continue
+                key = _normalize_company_name(nm)
+                if not key:
+                    continue
+                cand = survivor_by_name.get(key)
+                if cand is None or universe[t][0].rank < universe[cand][0].rank:
+                    survivor_by_name[key] = t
+            for t in missing_held:
+                nm = _names.get(t)
+                if not nm:
+                    continue
+                surv = survivor_by_name.get(_normalize_company_name(nm))
+                if surv is not None and surv != t:
+                    dedup_survivors[t] = surv
+
     # Buying power for the delta entry-cap gate (None when no sync / not recorded).
     buying_power_for_cap: Optional[float] = (
         float(sync_run.buying_power)
@@ -2191,6 +2249,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             buying_power=buying_power_for_cap,
             target_history=target_history,
             orphan_confirmation_days=orphan_confirmation_days,
+            dedup_survivors=dedup_survivors,
         )
         mode_used = "target_vs_live"
 
