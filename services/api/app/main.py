@@ -218,6 +218,31 @@ async def get_rankings(limit: int = 50, run_id: str | None = None):
     return {"count": len(results), "rankings": results}
 
 
+def _intent_in_target(action: str, current_weight) -> bool:
+    """Whether a delta intent represents an actual BUILDER-TARGET member — the signal
+    the dashboard's "Target ✓" tick uses.
+
+    Derived from the intent's OWN fields (delta-native), NOT a re-query of the latest
+    portfolio_holdings: re-querying risks reading a portfolio build newer than the one
+    THIS delta consumed (mid-chain / partial re-run), so the tick could desync from the
+    delta it's shown next to. The delta engine encodes membership directly:
+      - entry / buy_add / sell_trim → in target (target weight > 0)
+      - watch                       → in target (a capacity-deferred entry)
+      - hold with current_weight>0  → in-target hold (engine sets current_weight =
+                                      target_weight for in-target holds)
+      - hold with current_weight 0/None, exit, at_risk → held/orphan, NOT a target
+        member (data-gap / degraded / dropped) → no tick.
+    """
+    if action in ("entry", "buy_add", "sell_trim", "watch"):
+        return True
+    if action == "hold":
+        try:
+            return current_weight is not None and float(current_weight) > 0.0
+        except (TypeError, ValueError):
+            return False
+    return False
+
+
 def _match_ticker_prefix(ticker: str, query: str) -> bool:
     """Case-insensitive prefix match — mirrors SQL UPPER(ticker) LIKE UPPER(:q) || '%'."""
     return ticker.upper().startswith(query.upper())
@@ -1499,20 +1524,6 @@ async def get_delta_latest():
                     for v in vd_rows:
                         vetter_by_ticker[v["ticker"]] = dict(v)
 
-            # Authoritative target membership for the dashboard's "Target" tick:
-            # a ticker is in the target iff it is in the latest successful build's
-            # portfolio_holdings. This is what makes the Target column show the real
-            # builder target (e.g. 30) instead of also ticking data-gap/degraded
-            # HOLDs (action='hold' but weight 0, never selected) — those are held,
-            # not target members.
-            target_set: set[str] = set()
-            th_rows = (await conn.execute(text(
-                "SELECT ticker FROM portfolio_holdings WHERE run_id = "
-                "(SELECT run_id FROM portfolio_runs WHERE status='success' "
-                " ORDER BY completed_at DESC NULLS LAST LIMIT 1)"
-            ))).fetchall()
-            target_set = {r.ticker for r in th_rows}
-
         return {
             "run": {
                 "run_id":                str(run_row["run_id"]),
@@ -1544,7 +1555,7 @@ async def get_delta_latest():
                     "rank":                  r["rank"],
                     "composite_score":       _f(r["composite_score"]),
                     "confirmation_days_met": r["confirmation_days_met"],
-                    "in_target":             r["ticker"] in target_set,
+                    "in_target":             _intent_in_target(r["action"], r["current_weight"]),
                     "current_weight":        _f(r["current_weight"]),
                     "actual_weight":         _f(r["actual_weight"]),
                     "weight_drift":          _f(r["weight_drift"]),
