@@ -198,6 +198,7 @@ def evaluate_target_vs_live(
     target_history: list[set[str]] | None = None,
     orphan_confirmation_days: int | None = None,
     dedup_survivors: dict[str, str] | None = None,
+    cash_fraction: float | None = None,
 ) -> dict[str, DeltaDecision]:
     """Diff portfolio_holdings (target) against live_positions (actual broker state).
 
@@ -231,9 +232,42 @@ def evaluate_target_vs_live(
         orphan path (orphan-exits after orphan_confirmation_days), borrowing the
         survivor's rank obs for reporting, instead of holding forever.
     Genuine data-gap names (not in dedup_survivors) keep the data-gap exemption.
+
+    cash_fraction — the portfolio-builder's ``cash_reserve``. When the builder
+    holds back a cash buffer it scales every persisted target weight DOWN by
+    ``(1 - cash_reserve)`` (e.g. a fully-invested book's targets sum to ~0.975 at
+    cash_reserve=0.025). But the actual broker weights here are computed as
+    ``market_value / account_value`` and, for a fully-invested book, sum to ~1.0.
+    Diffing those two directly would read every held name as structurally
+    overweight by ~cash_reserve/N — a uniform positive drift bias that, once it
+    crosses ``drift_threshold`` (raise cash_reserve or concentrate the book),
+    fires phantom ``sell_trim`` intents every run that bleed the book toward cash.
+    To put actual and target on the SAME basis for the drift COMPARISON ONLY, we
+    scale the comparison target UP by ``1 / (1 - cash_fraction)`` so it sums to 1
+    like the actual weights. The PERSISTED target weight (``current_weight``,
+    which the trade-executor sizes orders against) is left untouched — only the
+    drift number and the buy_add/sell_trim/hold classification change. None or 0
+    ⇒ no rescale (back-compat: every existing caller / test is byte-for-byte
+    unaffected).
     """
     decisions: dict[str, DeltaDecision] = {}
     dedup_survivors = dedup_survivors or {}
+
+    # Drift-comparison basis fix: gross the target back up to the sum-to-1 basis
+    # the actual broker weights live on, so the cash_reserve hold-back is not
+    # misread as a universal overweight. Comparison-only — current_weight stays
+    # the persisted (cash-scaled) target the executor sizes against. Guard the
+    # divisor: cash_fraction is validated in [0,1) upstream (PortfolioBuilderConfig),
+    # but be defensive against an out-of-range value reaching here.
+    _cf = cash_fraction if (cash_fraction is not None and cash_fraction == cash_fraction) else 0.0
+    drift_basis = (1.0 - _cf) if (0.0 < _cf < 1.0) else 1.0
+
+    def _drift(actual_w: Optional[float], target_w: float) -> Optional[float]:
+        """actual − (target grossed up to the invested basis). drift_basis==1.0
+        (no cash reserve) reduces to the plain actual − target diff."""
+        if actual_w is None:
+            return None
+        return actual_w - (target_w / drift_basis)
 
     # Orphan exits confirm over their OWN window, separate from the rank-based
     # entry/exit buffer (confirmation_days). Defaults to confirmation_days when not
@@ -412,7 +446,10 @@ def evaluate_target_vs_live(
         latest = obs[0] if obs else None
 
         actual_w = actual_weights.get(ticker) if actual_weights else None
-        drift = (actual_w - target_weight) if actual_w is not None else None
+        # Drift on a common basis: gross the (cash-scaled) target up to the
+        # sum-to-1 basis the broker weights live on (drift_basis), so the cash
+        # reserve is not misread as a universal overweight (phantom sell_trims).
+        drift = _drift(actual_w, target_weight)
         current_rank = latest.rank if latest else 9999
 
         # The builder is the source of truth: a held name that is IN the target is
@@ -433,17 +470,19 @@ def evaluate_target_vs_live(
         else:
             action = "hold"
 
-        # Build reason
+        # Build reason. When a cash reserve grosses the comparison basis up, show
+        # the grossed-up target so actual − target visibly equals the drift.
+        cmp_target = target_weight / drift_basis
         if action == "buy_add":
             reason = (
                 f"Held and in target (rank={current_rank}), underweight: "
-                f"actual={actual_w:.2%} target={target_weight:.2%} "
+                f"actual={actual_w:.2%} target={cmp_target:.2%} "
                 f"drift={drift:+.2%}"
             )
         elif action == "sell_trim":
             reason = (
                 f"Held and in target (rank={current_rank}), overweight: "
-                f"actual={actual_w:.2%} target={target_weight:.2%} "
+                f"actual={actual_w:.2%} target={cmp_target:.2%} "
                 f"drift={drift:+.2%}"
             )
         else:
