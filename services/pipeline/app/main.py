@@ -259,6 +259,21 @@ _consumer_task: asyncio.Task | None = None
 
 _job_lock = asyncio.Lock()
 
+# Stable 64-bit advisory-lock keys for the cross-process check-and-claim. The
+# in-process _job_lock only serializes job starts WITHIN one process; if the
+# pipeline ever runs >1 worker/replica, two processes could both pass the
+# already_running / already_ran_today guard and both create a run row. Wrapping
+# the claim transaction in pg_advisory_xact_lock(key) (transaction-scoped, so it
+# auto-releases at commit/rollback — never a session lock to release by hand)
+# makes the check-and-claim atomic across processes. /jobs/run and /jobs/delta
+# use DISTINCT keys: a run-claim and a standalone-delta-claim are independent
+# critical sections (the in-process _job_lock already mutually excludes them, but
+# cross-process they need not block each other beyond what _job_lock implies — and
+# distinct keys keep each claim's intent self-documenting). A single process is
+# unaffected: it takes the lock uncontended and proceeds exactly as today.
+PIPELINE_RUN_LOCK_KEY = 8472013465120021    # /jobs/run check-and-claim
+PIPELINE_DELTA_LOCK_KEY = 8472013465120022  # /jobs/delta check-and-claim
+
 # In-memory progress for the currently-running pipeline job.
 # Safe to read concurrently: only one job runs at a time (_job_lock),
 # and readers (the /runs/progress endpoint) only need eventual consistency.
@@ -2563,19 +2578,36 @@ async def _do_run_pipeline(triggered_by: str = "manual", force: bool = False) ->
 
     await _job_lock.acquire()
     try:
-        # force=True bypasses the once-per-day idempotency guard. Used by the manual
-        # "Run" button in the dashboard so a user can re-run after a code fix
-        # (e.g. validating the momentum winsorize change) without waiting for tomorrow.
-        # Even when forced, we still inspect SPY's freshness and log a warning if the
-        # underlying daily_prices data is unchanged — running the pipeline twice on
-        # the same SPY date produces two "today" success rows; the caller should know
-        # they're re-running against the same input data.
-        if force:
-            async with engine.connect() as conn:
-                spy_row = await conn.execute(
-                    text("SELECT MAX(date) FROM daily_prices WHERE ticker = 'SPY'")
-                )
-                spy_max = spy_row.scalar()
+        run_id = str(uuid.uuid4())
+        trace_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc)
+        today = _local_today()
+
+        # Cross-process check-and-claim under ONE transaction-scoped advisory lock.
+        # The already-ran-today guard (read) and the pipeline_runs INSERT (claim)
+        # MUST share a single transaction so a second process cannot slip its own
+        # claim in between another process's check and insert. pg_advisory_xact_lock
+        # serializes that critical section across processes and auto-releases at
+        # commit/rollback (never a session lock to release by hand). A single
+        # process behaves exactly as before: it takes the lock uncontended, runs
+        # the same guard, and creates the same row. force=True keeps bypassing the
+        # once-per-day guard but still claims under the lock.
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("SELECT pg_advisory_xact_lock(:key)"),
+                {"key": PIPELINE_RUN_LOCK_KEY},
+            )
+            spy_row = await conn.execute(
+                text("SELECT MAX(date) FROM daily_prices WHERE ticker = 'SPY'")
+            )
+            spy_max = spy_row.scalar()
+            if force:
+                # force=True bypasses the once-per-day idempotency guard. Used by the
+                # manual "Run" button in the dashboard so a user can re-run after a
+                # code fix without waiting for tomorrow. Even when forced, we log a
+                # warning if the underlying daily_prices data is unchanged — running
+                # the pipeline twice on the same SPY date produces two "today" success
+                # rows; the caller should know they're re-running against the same data.
                 if spy_max is not None:
                     dup_count = (await conn.execute(
                         text(
@@ -2589,42 +2621,30 @@ async def _do_run_pipeline(triggered_by: str = "manual", force: bool = False) ->
                             f"this will create pipeline_run #{dup_count + 1} for SPY date {spy_max}",
                             flush=True,
                         )
-        else:
-            async with engine.begin() as conn:
-                spy_row = await conn.execute(
-                    text("SELECT MAX(date) FROM daily_prices WHERE ticker = 'SPY'")
+            elif spy_max is not None:
+                existing = await conn.execute(
+                    text(
+                        "SELECT run_id FROM pipeline_runs WHERE status='success' AND run_date=:d LIMIT 1"
+                    ),
+                    {"d": spy_max},
                 )
-                spy_max = spy_row.scalar()
-                if spy_max is not None:
-                    existing = await conn.execute(
+                row = existing.fetchone()
+                if row:
+                    # Stamp chain_date=today on the blocking row so the scheduler's
+                    # chain_date comparison classifies the step as "done" today.
+                    # Without this the scheduler sees chain_date=yesterday (from when
+                    # this run was originally created), reports the step as "idle",
+                    # triggers /jobs/run, hits this guard again, and loops every tick.
+                    await conn.execute(
                         text(
-                            "SELECT run_id FROM pipeline_runs WHERE status='success' AND run_date=:d LIMIT 1"
+                            "UPDATE pipeline_runs SET chain_date=:today "
+                            "WHERE run_id=:rid AND chain_date IS DISTINCT FROM :today"
                         ),
-                        {"d": spy_max},
+                        {"today": today, "rid": row[0]},
                     )
-                    row = existing.fetchone()
-                    if row:
-                        # Stamp chain_date=today on the blocking row so the scheduler's
-                        # chain_date comparison classifies the step as "done" today.
-                        # Without this the scheduler sees chain_date=yesterday (from when
-                        # this run was originally created), reports the step as "idle",
-                        # triggers /jobs/run, hits this guard again, and loops every tick.
-                        await conn.execute(
-                            text(
-                                "UPDATE pipeline_runs SET chain_date=:today "
-                                "WHERE run_id=:rid AND chain_date IS DISTINCT FROM :today"
-                            ),
-                            {"today": _local_today(), "rid": row[0]},
-                        )
-                        _job_lock.release()
-                        return {"status": "already_ran_today", "date": str(spy_max)}
+                    _job_lock.release()
+                    return {"status": "already_ran_today", "date": str(spy_max)}
 
-        run_id = str(uuid.uuid4())
-        trace_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc)
-        today = _local_today()
-
-        async with engine.begin() as conn:
             await _create_pipeline_run(conn, run_id, trace_id, triggered_by, today)
 
         return {
@@ -2696,6 +2716,15 @@ async def start_delta_only(background_tasks: BackgroundTasks, manual: bool = Fal
     run_date_init = date(1970, 1, 1)
     try:
         async with engine.begin() as conn:
+            # Cross-process claim guard. The standalone-delta claim is already a
+            # single transaction (the delta_runs INSERT); take the transaction-scoped
+            # advisory lock at its start so two processes can't both insert a
+            # 'running' delta row at once. Auto-released at commit/rollback. A single
+            # process takes it uncontended and proceeds exactly as today.
+            await conn.execute(
+                text("SELECT pg_advisory_xact_lock(:key)"),
+                {"key": PIPELINE_DELTA_LOCK_KEY},
+            )
             await _create_sub_trace(conn, delta_trace_id, "delta_run", delta_run_id)
             await conn.execute(
                 text(

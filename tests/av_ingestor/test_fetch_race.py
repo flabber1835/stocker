@@ -41,8 +41,12 @@ class _FakeConn:
     on. Recognises the three statements _reserve_run issues by substring.
     """
 
-    def __init__(self, runs: list):
+    def __init__(self, runs: list, advisory_calls: list | None = None):
         self.runs = runs
+        # Shared list recording the advisory-lock keys taken inside the
+        # check-and-claim transaction, so tests can assert the cross-process
+        # guard is emitted at the start of _reserve_run's transaction.
+        self.advisory_calls = advisory_calls if advisory_calls is not None else []
 
     async def __aenter__(self):
         return self
@@ -52,6 +56,11 @@ class _FakeConn:
 
     async def execute(self, stmt, params=None):
         sql = str(stmt)
+        if "pg_advisory_xact_lock" in sql:
+            # Transaction-scoped advisory lock guarding the check-and-claim across
+            # processes. Record the key and no-op (returns void in real Postgres).
+            self.advisory_calls.append(params["key"] if params else None)
+            return _FakeResult(None)
         if "SELECT run_id, started_at FROM ingest_runs" in sql:
             running = [r for r in self.runs if r["status"] == "running"]
             running.sort(key=lambda r: r["started_at"], reverse=True)
@@ -75,11 +84,15 @@ class _FakeConn:
 
 
 class _FakeEngine:
-    def __init__(self, runs: list):
+    def __init__(self, runs: list, advisory_calls: list | None = None):
         self.runs = runs
+        self.advisory_calls = advisory_calls if advisory_calls is not None else []
 
     def begin(self):
-        return _FakeConn(self.runs)
+        # Each transaction gets a fresh conn but shares the runs + advisory_calls
+        # lists, so an INSERT in one txn is visible to the next SELECT and every
+        # advisory-lock acquisition is recorded across all transactions.
+        return _FakeConn(self.runs, self.advisory_calls)
 
 
 @pytest.fixture
@@ -87,6 +100,16 @@ def fake_engine(monkeypatch):
     runs: list = []
     monkeypatch.setattr(main, "engine", _FakeEngine(runs))
     return runs
+
+
+@pytest.fixture
+def fake_engine_with_advisory(monkeypatch):
+    """Like `fake_engine` but exposes (runs, advisory_calls) so a test can assert
+    the cross-process advisory lock is taken in the claim transaction."""
+    runs: list = []
+    advisory_calls: list = []
+    monkeypatch.setattr(main, "engine", _FakeEngine(runs, advisory_calls))
+    return runs, advisory_calls
 
 
 @pytest.mark.asyncio
@@ -166,3 +189,57 @@ async def test_recent_running_blocks_even_under_stale_threshold(fake_engine, mon
     assert exc.value.status_code == 409
     # The live row is untouched (not reclaimed).
     assert fake_engine[0]["status"] == "running"
+
+
+# ── Cross-process advisory-lock guard (multi-worker hazard) ──────────────────
+# The in-process _job_lock only serializes claims WITHIN one process. _reserve_run
+# additionally takes a TRANSACTION-SCOPED Postgres advisory lock so that with
+# >1 worker/replica two processes cannot both pass the no-running-job check and
+# INSERT a 'running' row. These tests assert the advisory lock is emitted at the
+# start of the claim transaction (and that it uses the stable, transaction-scoped
+# pg_advisory_xact_lock, which auto-releases — never a leakable session lock).
+
+
+@pytest.mark.asyncio
+async def test_reserve_run_takes_transaction_advisory_lock(fake_engine_with_advisory):
+    """A successful reserve issues pg_advisory_xact_lock with the stable key."""
+    _runs, advisory_calls = fake_engine_with_advisory
+    run_id = await main._reserve_run("fetch-data")
+    assert run_id
+    assert advisory_calls == [main.INGEST_RESERVE_LOCK_KEY], (
+        "the check-and-claim transaction must take the cross-process advisory lock "
+        "exactly once, with the stable INGEST_RESERVE_LOCK_KEY"
+    )
+
+
+@pytest.mark.asyncio
+async def test_reserve_run_takes_advisory_lock_before_check(fake_engine_with_advisory):
+    """The advisory lock is taken in the SAME transaction as the check+insert, so
+    a second concurrent caller (which would see the running row) still contends on
+    the lock first. We verify a second reserve also issues the lock before its 409."""
+    _runs, advisory_calls = fake_engine_with_advisory
+    first = await main._reserve_run("fetch-data")
+    assert first
+    assert len(advisory_calls) == 1
+
+    with pytest.raises(HTTPException):
+        await main._reserve_run("fetch-data")
+    # The rejected caller still acquired the advisory lock (then saw the running
+    # row inside the locked critical section and 409'd) — proving the check runs
+    # under the lock, not before it.
+    assert len(advisory_calls) == 2
+    assert advisory_calls == [main.INGEST_RESERVE_LOCK_KEY] * 2
+
+
+def test_reserve_run_uses_transaction_scoped_lock_not_session_lock():
+    """Source guard: _reserve_run must use the auto-released xact lock, never a
+    session-scoped pg_advisory_lock that would have to be unlocked by hand."""
+    import inspect
+    src = inspect.getsource(main._reserve_run)
+    assert "pg_advisory_xact_lock" in src, (
+        "_reserve_run must take a transaction-scoped advisory lock"
+    )
+    assert "pg_advisory_lock(" not in src, (
+        "must NOT use the session-scoped pg_advisory_lock (would leak without "
+        "a manual pg_advisory_unlock)"
+    )

@@ -58,6 +58,17 @@ STALE_INGEST_HOURS = float(os.getenv("STALE_INGEST_HOURS", "6"))
 # every excluded ticker gets one AV call ~once a month.
 PROBATION_ROTATION_DAYS = int(os.getenv("PROBATION_ROTATION_DAYS", "30"))
 
+# Stable 64-bit advisory-lock key for the ingest check-and-claim. Used with
+# pg_advisory_xact_lock (transaction-scoped, auto-released at commit/rollback) so
+# that if av-ingestor ever runs >1 worker/replica, two processes cannot both pass
+# the no-running-job check and INSERT a 'running' row simultaneously — the
+# cross-process complement to the in-process _job_lock. A single constant key is
+# correct because _reserve_run already serializes ALL ingest job types through one
+# "is any job running?" check (it never partitions by job_type), so every claim
+# must contend on the same lock. Arbitrary fixed value; just needs to be stable
+# and not collide with other advisory-lock users in the same DB.
+INGEST_RESERVE_LOCK_KEY = 8472013465120011  # within int8 range
+
 _TICKER_RE = re.compile(r"^[A-Z]{1,5}([.\-][A-Z0-9]{1,4})?$")
 
 # In-memory progress for the currently running fetch-data job.
@@ -284,7 +295,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="av-ingestor", lifespan=lifespan)
 
 # Serialises concurrent job-start requests so the TOCTOU check-then-insert is atomic.
-# Single-process service (Docker), so asyncio.Lock is sufficient.
+# In-process FAST PATH: a single-process service (Docker) is fully covered by this.
+# The cross-process complement is INGEST_RESERVE_LOCK_KEY (pg_advisory_xact_lock
+# taken inside _reserve_run's transaction) for the >1-worker/replica case.
 _job_lock = asyncio.Lock()
 
 
@@ -438,6 +451,17 @@ async def _reserve_run(job_type: str) -> str:
     task must NOT call _start_run again.
     """
     async with engine.begin() as conn:
+        # Cross-process guard (multi-worker/replica hazard): the in-process
+        # _job_lock only serializes claims WITHIN one process. A transaction-scoped
+        # advisory lock makes the check-and-claim atomic across processes too — a
+        # second process blocks here until the first commits/rolls back (the lock
+        # auto-releases at txn end, so there is nothing to release manually and no
+        # leak risk). A single process behaves exactly as before: it takes the lock
+        # uncontended and proceeds. pg_advisory_xact_lock returns void.
+        await conn.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"),
+            {"key": INGEST_RESERVE_LOCK_KEY},
+        )
         row = await conn.execute(
             text(
                 "SELECT run_id, started_at FROM ingest_runs "
