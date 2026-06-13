@@ -353,10 +353,27 @@ async def get_rankings_with_overlays(limit: int = 100):
         ))).fetchone()
         sync_run_id = str(sync_row.run_id) if sync_row else None
 
-        # Main rankings query
+        # Main rankings query.
+        #
+        # Scope the overlay CTEs to ONLY the top-`limit` tickers that will be
+        # returned (the `displayed` CTE), mirroring /rankings/search's `matched`
+        # CTE. Without this, ticker_slopes (REGR_SLOPE over all rankings × 5
+        # runs), names (DISTINCT ON over the whole universe snapshot), and caps
+        # (DISTINCT ON over the entire fundamentals table) are computed for the
+        # FULL universe and then LEFT JOINed down to ~100 rows — O(universe)
+        # work that blew past the dashboard proxy timeout on a Russell-3000-
+        # scale DB (the real screener "no data" root cause). The held-but-
+        # outside-window tickers injected by _apply_overlays are decorated
+        # entirely from the separate live_positions query + held_rank_lookup,
+        # so they don't depend on these CTEs and the `displayed` scoping does
+        # not change any returned row.
         rows = await conn.execute(
             text(
-                "WITH recent_runs AS ("
+                "WITH displayed AS ("
+                "  SELECT ticker FROM rankings"
+                "  WHERE run_id = :run_id ORDER BY rank ASC LIMIT :limit"
+                "),"
+                "recent_runs AS ("
                 "  SELECT run_id, ROW_NUMBER() OVER (ORDER BY rank_date ASC) - 1 AS x_pos"
                 "  FROM ("
                 "    SELECT run_id, rank_date FROM ("
@@ -371,18 +388,22 @@ async def get_rankings_with_overlays(limit: int = 100):
                 "  SELECT r.ticker,"
                 "    REGR_SLOPE(r.rank::double precision, rr.x_pos::double precision) AS rank_slope"
                 "  FROM rankings r JOIN recent_runs rr ON rr.run_id = r.run_id"
+                "  WHERE r.ticker IN (SELECT ticker FROM displayed)"
                 "  GROUP BY r.ticker"
                 "),"
                 "prior_ranks AS ("
-                "  SELECT ticker, rank AS prior_rank FROM rankings WHERE run_id = :prior_run_id"
+                "  SELECT ticker, rank AS prior_rank FROM rankings"
+                "  WHERE run_id = :prior_run_id AND ticker IN (SELECT ticker FROM displayed)"
                 "),"
                 "names AS ("
                 "  SELECT DISTINCT ON (ticker) ticker, name, sector FROM universe_tickers"
                 "  WHERE snapshot_id = (SELECT MAX(id) FROM universe_snapshots)"
+                "    AND ticker IN (SELECT ticker FROM displayed)"
                 "  ORDER BY ticker, id ASC"
                 "),"
                 "caps AS ("
                 "  SELECT DISTINCT ON (ticker) ticker, market_cap FROM fundamentals"
+                "  WHERE ticker IN (SELECT ticker FROM displayed)"
                 "  ORDER BY ticker, as_of_date DESC"
                 ")"
                 "SELECT r.ticker, r.rank, r.composite_score, r.percentile, r.regime, r.rank_date,"
