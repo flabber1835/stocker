@@ -460,9 +460,13 @@ services:
 
   # ── theme-classifier: standalone thematic universe (AI-infra). Fully decoupled
   # from the trading pipeline — reads daily_prices/fundamentals read-only, writes
-  # ONLY theme_exposures, consumed by the dashboard's read-only Theme tab. Nothing
-  # in ranking/portfolio-builder/delta/risk/trade-executor references it.
+  # ONLY theme_exposures. RETIRED from the default graph: the dashboard's standalone
+  # Theme tab was replaced by the Screener's "Theme" filter, which reads a hardcoded
+  # universe (shared/stock_strategy_shared/ai_universe.py) via api /rankings/theme.
+  # Kept behind the `optional` profile for reference until the planned Anthropic-API
+  # dynamic universe supersedes it. Nothing in the live chain references it.
   theme-classifier:
+    profiles: [optional]
     build:
       context: .
       dockerfile: services/theme-classifier/Dockerfile

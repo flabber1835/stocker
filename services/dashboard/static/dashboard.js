@@ -128,146 +128,40 @@ function showScreen(name, btnEl) {
   if (name === 'portfolio') { loadLivePortfolio(); fetchOrders(); }
   if (name === 'trader')    renderTrader();
   if (name === 'target')    loadTargetPortfolio();
-  if (name === 'theme')     loadTheme();
 }
 
-/* ── Theme tab — standalone AI-infra universe (read-only; decoupled) ──────── */
-let themeRows = [];                       // members enriched with universe rank + screener rec
-let themeUnivRecs = [];                   // FULL universe ranking (for rank lookup + detail card)
-let themeSort = { col: 'rank', dir: 1 };  // Theme tab column sort (default: theme rank asc)
-let _themeMeta = {};                      // last response meta (as_of, min_exposure, error)
-let _expandedThemeTicker = null;
+/* ── Screener "Theme" filter — hardcoded AI-buildout universe ──────────────── */
+// The standalone Theme TAB was retired; the theme is now a Screener filter (like
+// Holdings). When checked, the screener shows ONLY the AI-buildout theme universe,
+// fetched full-universe from /api/rankings/theme (theme names sit anywhere in the
+// ranked universe, not just the displayed top-100). The set is hardcoded server-
+// side for now and will become Anthropic-API-generated later.
+let _themeMode = false;        // is the Theme filter active?
+let _themeData = [];           // ranked theme rows (full-universe), mapped
+let _themeMeta = {};           // { as_of, universe_size }
 
-async function loadTheme() {
-  const tbody = $('theme-body');
+async function _loadThemeData() {
   try {
-    // Pull the FULL universe ranking (not the screener's top-100) so EVERY theme
-    // name can resolve its global rank and a detail card, wherever it sits in the
-    // ~2000-name universe. Plain /rankings is lean (no overlay/caps joins).
-    const rk = await fetch('/api/rankings?limit=5000', {cache:'no-store'}).then(r => r.json());
-    themeUnivRecs = (rk.rankings || []).map(_mapRankRow);
-    const d = await fetch('/api/theme?theme=ai_infra&min=0.35').then(r => r.json());
-    renderTheme(d);
+    const d = await fetch('/api/rankings/theme', {cache:'no-store'}).then(r => {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    });
+    _themeData = (d.rankings || []).map(_mapRankRow);
+    _themeMeta = (d && d.theme) || {};
   } catch (e) {
-    if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="tbl-empty">Error loading theme</td></tr>';
+    _themeData = [];
+    _themeMeta = { error: true };
   }
 }
 
-function renderTheme(d) {
-  _themeMeta = { error: !!(d && d.error), as_of_date: d && d.as_of_date,
-                 min_exposure: d && d.min_exposure };
-  const members = (d && d.members) || [];
-  // Enrich with universe rank + the record (for the detail card) from the FULL
-  // ranking. univ_rank null ('—') means the name isn't in the ranked universe.
-  const byTicker = {};
-  themeUnivRecs.forEach(r => { byTicker[r.ticker] = r; });
-  themeRows = members.map(m => {
-    const rec = byTicker[m.ticker] || null;
-    return { ...m, univ_rank: rec ? rec.rank : null, rec };
-  });
-  renderThemeTable();
-}
-
-function sortTheme(col) {
-  // rank/univ_rank/ticker read best ascending; exposure/seed/$vol descending.
-  const ascendingByDefault = (col === 'rank' || col === 'univ_rank' || col === 'ticker');
-  if (themeSort.col === col) themeSort.dir *= -1;
-  else { themeSort.col = col; themeSort.dir = ascendingByDefault ? 1 : -1; }
-  _expandedThemeTicker = null;
-  clearSort('thh-');
-  const th = $('thh-' + col);
-  if (th) th.classList.add(themeSort.dir === 1 ? 'asc' : 'desc');
-  renderThemeTable();
-}
-
-function renderThemeTable() {
-  const tbody = $('theme-body');
-  const sub = $('theme-sub');
-  if (sub) {
-    if (_themeMeta.error) {
-      sub.innerHTML = 'AI-infra universe &middot; service unavailable';
-    } else {
-      const core = themeRows.filter(m => m.in_seed).length;
-      const disc = themeRows.length - core;
-      const asof = _themeMeta.as_of_date ? (' &middot; as of ' + esc(_themeMeta.as_of_date)) : '';
-      sub.innerHTML = themeRows.length + ' names &middot; ' + core + ' core &middot; '
-        + disc + ' discovered (expo &ge; ' + (_themeMeta.min_exposure ?? 0.35) + ')' + asof;
-    }
+async function onThemeToggle() {
+  _themeMode = !!($('r-only-theme') && $('r-only-theme').checked);
+  if (_themeMode) {
+    $('r-count').textContent = 'loading theme…';
+    await _loadThemeData();
   }
-  if (!tbody) return;
-  if (!themeRows.length) {
-    _expandedThemeTicker = null;
-    tbody.innerHTML = '<tr><td colspan="6" class="tbl-empty">No AI-infra universe yet — press Refresh</td></tr>';
-    return;
-  }
-  const { col, dir } = themeSort;
-  const keyOf = (m) => (col === 'in_seed' ? (m.in_seed ? 1 : 0) : m[col]);
-  const rows = themeRows.slice().sort((a, b) => {
-    const av = keyOf(a), bv = keyOf(b);
-    if (av == null && bv == null) return 0;
-    if (av == null) return 1; if (bv == null) return -1;   // nulls (—) always last
-    return (av < bv ? -1 : av > bv ? 1 : 0) * dir;
-  });
-
-  tbody.innerHTML = rows.map(m =>
-    '<tr class="rank-row" id="thm-row-' + esc(m.ticker) + '"'
-      + ' onclick="toggleThemeDetail(\'' + esc(m.ticker) + '\',this)">'
-    + '<td><span class="t-rank">' + m.rank + '</span></td>'
-    + '<td><span class="t-rank">' + (m.univ_rank != null ? m.univ_rank : '—') + '</span></td>'
-    + '<td><span class="t-ticker">' + esc(m.ticker) + '</span></td>'
-    + '<td class="t-num">' + (m.exposure != null ? m.exposure.toFixed(2) : '—') + '</td>'
-    + '<td class="tgt-cell">' + (m.in_seed ? '<span class="tgt-x" title="seed">&#10003;</span>' : '<span class="tgt-no">&middot;</span>') + '</td>'
-    + '<td class="t-num">' + (m.avg_dollar_vol_m != null ? m.avg_dollar_vol_m.toFixed(0) : '—') + '</td>'
-    + '</tr>'
-  ).join('');
-
-  if (_expandedThemeTicker !== null) {
-    const mainRow = document.getElementById('thm-row-' + _expandedThemeTicker);
-    const row = themeRows.find(m => m.ticker === _expandedThemeTicker);
-    if (mainRow && row && row.rec) _insertDetailRow(mainRow, row.rec, 6);
-    else _expandedThemeTicker = null;
-  }
-}
-
-function toggleThemeDetail(ticker, rowEl) {
-  if (_expandedThemeTicker === ticker) {
-    _expandedThemeTicker = null;
-    const next = rowEl.nextSibling;
-    if (next && next.classList && next.classList.contains('detail-row')) next.remove();
-    rowEl.classList.remove('expanded');
-    return;
-  }
-  if (_expandedThemeTicker !== null) {
-    const prev = document.getElementById('detail-row-' + _expandedThemeTicker);
-    if (prev) prev.remove();
-    const prevMain = document.getElementById('thm-row-' + _expandedThemeTicker);
-    if (prevMain) prevMain.classList.remove('expanded');
-  }
-  const row = themeRows.find(m => m.ticker === ticker);
-  if (!row || !row.rec) return;            // not in the ranked universe → no detail card
-  _expandedThemeTicker = ticker;
-  rowEl.classList.add('expanded');
-  _insertDetailRow(rowEl, row.rec, 6);
-}
-
-async function refreshTheme(btn) {
-  if (btn) { btn.disabled = true; btn.textContent = 'Computing…'; }
-  const sub = $('theme-sub');
-  try {
-    // Non-blocking trigger; the compute runs ~1 min server-side. Poll until ready.
-    await fetch('/api/theme/refresh?theme=ai_infra', { method: 'POST' });
-    for (let i = 0; i < 40; i++) {        // up to ~3.5 min
-      if (sub) sub.innerHTML = 'Computing AI-infra universe… (' + (i * 5) + 's)';
-      await new Promise(r => setTimeout(r, 5000));
-      const d = await fetch('/api/theme?theme=ai_infra&min=0.35').then(r => r.json());
-      if (d && d.members && d.members.length) { renderTheme(d); return; }
-    }
-    if (sub) sub.innerHTML = 'Still computing — reopen the tab shortly';
-  } catch (e) {
-    if (sub) sub.innerHTML = 'Refresh failed';
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; }
-  }
+  _expandedTicker = null;
+  renderRankings();
 }
 
 /* ── Clock ───────────────────────────────────────────────────────────── */
@@ -563,6 +457,9 @@ async function loadRankings() {
     _searchMode = false;
     _searchData = [];
     _expandedTicker = null;
+    // Keep the Theme filter fresh across background refreshes / run completions:
+    // re-fetch the theme set (ranks + overlays change between runs) before render.
+    if (_themeMode) await _loadThemeData();
     renderRankings();
   } catch (e) {
     _rankingsLoadState = 'empty';
@@ -615,12 +512,17 @@ function renderRankings() {
   const onlyHeld = $('r-only-held') && $('r-only-held').checked;
   const hideExcl = $('r-hide-excl') && $('r-hide-excl').checked;
 
-  // In search mode the API already filtered by ticker prefix — only apply the
-  // held/excl toggles locally. Otherwise filter client-side from the top-N set.
-  const base = _searchMode ? _searchData : rankData.filter(r => {
-    if (q && !r.ticker.startsWith(q)) return false;
-    return true;
-  });
+  // Source precedence: explicit search (full-universe, API-filtered by prefix) >
+  // Theme filter (full-universe theme set, search-text applied locally) > the
+  // default top-N set. In search mode the API already filtered by prefix.
+  let base;
+  if (_searchMode) {
+    base = _searchData;
+  } else if (_themeMode) {
+    base = _themeData.filter(r => !q || r.ticker.startsWith(q));
+  } else {
+    base = rankData.filter(r => !q || r.ticker.startsWith(q));
+  }
   let rows = base.filter(r => {
     if (onlyHeld && !r.held) return false;
     if (hideExcl && r.vetter_excluded) return false;
@@ -633,12 +535,22 @@ function renderRankings() {
     if (av == null) return 1; if (bv == null) return -1;
     return (av < bv ? -1 : av > bv ? 1 : 0) * dir;
   });
-  $('r-count').textContent = _searchMode
-    ? rows.length + ' result' + (rows.length !== 1 ? 's' : '') + ' for ‘' + q + '’'
-    : rows.length + ' / ' + rankData.length;
+  if (_searchMode) {
+    $('r-count').textContent = rows.length + ' result' + (rows.length !== 1 ? 's' : '') + ' for ‘' + q + '’';
+  } else if (_themeMode) {
+    const sz = _themeMeta.universe_size;
+    $('r-count').textContent = rows.length + ' theme'
+      + (sz ? ' / ' + sz : '')
+      + (_themeMeta.as_of ? ' · as of ' + _themeMeta.as_of : '');
+  } else {
+    $('r-count').textContent = rows.length + ' / ' + rankData.length;
+  }
   if (!rows.length) {
     _expandedTicker = null;
-    $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">No results</td></tr>';
+    const msg = (_themeMode && _themeMeta.error)
+      ? 'Theme universe unavailable'
+      : (_themeMode ? 'No theme names in the current ranking' : 'No results');
+    $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">' + msg + '</td></tr>';
     return;
   }
 
@@ -668,12 +580,21 @@ function renderRankings() {
   if (_expandedTicker !== null) {
     const mainRow = document.getElementById('rank-row-' + _expandedTicker);
     if (mainRow) {
-      const rec = rankData.find(r => r.ticker === _expandedTicker);
+      const rec = _rankSource().find(r => r.ticker === _expandedTicker);
       if (rec) _insertDetailRow(mainRow, rec);
     } else {
       _expandedTicker = null;
     }
   }
+}
+
+// The array currently feeding the screener rows — mirrors renderRankings's source
+// precedence (search > theme > default top-N), so detail-card lookups resolve a
+// ticker that lives only in the search/theme set rather than the top-100 rankData.
+function _rankSource() {
+  if (_searchMode) return _searchData;
+  if (_themeMode)  return _themeData;
+  return rankData;
 }
 
 function toggleDetail(ticker, rowEl) {
@@ -692,7 +613,7 @@ function toggleDetail(ticker, rowEl) {
   }
   _expandedTicker = ticker;
   rowEl.classList.add('expanded');
-  const rec = rankData.find(r => r.ticker === ticker);
+  const rec = _rankSource().find(r => r.ticker === ticker);
   if (rec) _insertDetailRow(rowEl, rec);
 }
 

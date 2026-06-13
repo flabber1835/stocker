@@ -16,6 +16,10 @@ import httpx
 from sqlalchemy.ext.asyncio import create_async_engine
 from stock_strategy_shared.db import warm_up_db_in_background
 from stock_strategy_shared.tracing import fmt_row
+from stock_strategy_shared.ai_universe import (
+    AI_BUILDOUT_AS_OF,
+    AI_BUILDOUT_UNIVERSE,
+)
 
 DATABASE_URL          = os.getenv("DATABASE_URL", "")
 TRADE_EXECUTOR_URL    = os.getenv("TRADE_EXECUTOR_URL",    "http://trade-executor:8000")
@@ -731,6 +735,190 @@ async def search_rankings(q: str = ""):
         "prior_run": {"run_id": prior_run_id} if prior_run_id else None,
         "vetter_run_id": vetter_run_id,
         "sync_run_id": sync_run_id,
+        "rankings": ranking_rows,
+    }
+
+
+@app.get("/rankings/theme")
+async def get_rankings_theme():
+    """Rankings filtered to the hardcoded AI-buildout theme universe.
+
+    Powers the Screener's "Theme" filter. Like /rankings/search there is NO row
+    limit and the query runs over the FULL ranked universe (theme names sit
+    anywhere in it, often well below the displayed top-100), but the filter is a
+    fixed ticker SET (the AI-buildout picks-and-shovels list) instead of a prefix.
+
+    inject_unranked=False: we show ONLY ranked theme names (decorated with the same
+    vetter / held / cluster overlays as the rest of the screener). We do NOT inject
+    non-theme broker positions — the whole point is to scope the view to the theme.
+    A theme name with a data gap (not in the latest ranking run) simply won't appear,
+    exactly as it wouldn't in the normal screener.
+
+    Returns the same overlay schema as /rankings/with-overlays, plus a `theme`
+    metadata block (id, as_of, universe_size) so the dashboard can label it.
+    """
+    theme_tickers = list(AI_BUILDOUT_UNIVERSE)
+    empty = {
+        "count": 0, "run": None, "prior_run": None, "rankings": [],
+        "theme": {"id": "ai_buildout", "as_of": AI_BUILDOUT_AS_OF,
+                  "universe_size": len(theme_tickers)},
+    }
+    async with engine.connect() as conn:
+        run_rows = (await conn.execute(text(
+            "SELECT run_id, rank_date FROM ("
+            "  SELECT DISTINCT ON (rank_date) run_id, rank_date"
+            "  FROM ranking_runs WHERE status='success'"
+            "  ORDER BY rank_date DESC, completed_at DESC NULLS LAST"
+            ") latest_per_date "
+            "ORDER BY rank_date DESC LIMIT 2"
+        ))).fetchall()
+        if not run_rows:
+            return empty
+        latest_run_id = str(run_rows[0].run_id)
+        prior_run_id = str(run_rows[1].run_id) if len(run_rows) > 1 else None
+        latest_rank_date = run_rows[0].rank_date
+
+        vetter_row = (await conn.execute(text(
+            "SELECT run_id FROM vetter_runs "
+            "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+        ))).fetchone()
+        vetter_run_id = str(vetter_row.run_id) if vetter_row else None
+
+        sync_row = (await conn.execute(text(
+            "SELECT run_id FROM alpaca_sync_runs WHERE status='success' "
+            "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+        ))).fetchone()
+        sync_run_id = str(sync_row.run_id) if sync_row else None
+
+        # Scope every CTE to the theme set FIRST (mirrors /rankings/search's
+        # `matched` CTE) so ticker_slopes / caps aren't computed over the whole
+        # Russell-3000-scale universe on each call.
+        rows = await conn.execute(
+            text(
+                "WITH matched AS ("
+                "  SELECT ticker, rank, composite_score, percentile, regime, rank_date, factor_scores"
+                "  FROM rankings WHERE run_id = :run_id AND ticker = ANY(:theme)"
+                "),"
+                "recent_runs AS ("
+                "  SELECT run_id, ROW_NUMBER() OVER (ORDER BY rank_date ASC) - 1 AS x_pos"
+                "  FROM ("
+                "    SELECT run_id, rank_date FROM ("
+                "      SELECT DISTINCT ON (rank_date) run_id, rank_date"
+                "      FROM ranking_runs WHERE status='success'"
+                "      ORDER BY rank_date DESC, completed_at DESC NULLS LAST"
+                "    ) latest_per_date"
+                "    ORDER BY rank_date DESC LIMIT 5"
+                "  ) recent_dates"
+                "),"
+                "ticker_slopes AS ("
+                "  SELECT r.ticker,"
+                "    REGR_SLOPE(r.rank::double precision, rr.x_pos::double precision) AS rank_slope"
+                "  FROM rankings r JOIN recent_runs rr ON rr.run_id = r.run_id"
+                "  WHERE r.ticker IN (SELECT ticker FROM matched)"
+                "  GROUP BY r.ticker"
+                "),"
+                "prior_ranks AS ("
+                "  SELECT ticker, rank AS prior_rank FROM rankings"
+                "  WHERE run_id = :prior_run_id AND ticker IN (SELECT ticker FROM matched)"
+                "),"
+                "names AS ("
+                "  SELECT DISTINCT ON (ticker) ticker, name, sector FROM universe_tickers"
+                "  WHERE snapshot_id = (SELECT MAX(id) FROM universe_snapshots)"
+                "    AND ticker IN (SELECT ticker FROM matched)"
+                "  ORDER BY ticker, id ASC"
+                "),"
+                "caps AS ("
+                "  SELECT DISTINCT ON (ticker) ticker, market_cap FROM fundamentals"
+                "  WHERE ticker IN (SELECT ticker FROM matched)"
+                "  ORDER BY ticker, as_of_date DESC"
+                ")"
+                "SELECT m.ticker, m.rank, m.composite_score, m.percentile, m.regime, m.rank_date,"
+                "  m.factor_scores, ts.rank_slope, pr.prior_rank, n.name, n.sector, c.market_cap "
+                "FROM matched m "
+                "LEFT JOIN ticker_slopes ts ON ts.ticker = m.ticker "
+                "LEFT JOIN prior_ranks pr ON pr.ticker = m.ticker "
+                "LEFT JOIN names n ON n.ticker = m.ticker "
+                "LEFT JOIN caps c ON c.ticker = m.ticker "
+                "ORDER BY m.rank ASC"
+            ),
+            {"run_id": latest_run_id, "prior_run_id": prior_run_id or latest_run_id,
+             "theme": theme_tickers},
+        )
+        ranking_rows = [dict(r) for r in rows.mappings()]
+        tickers = [r["ticker"] for r in ranking_rows]
+        if not ranking_rows:
+            return empty
+
+        vetter_by_ticker: dict[str, dict] = {}
+        if vetter_run_id and tickers:
+            vd_rows = await conn.execute(
+                text(
+                    "SELECT ticker, exclude, confidence, risk_type, reason, "
+                    "  positive_catalyst, positive_reason, crashed "
+                    "FROM vetter_decisions WHERE run_id = :rid AND ticker = ANY(:tickers)"
+                ),
+                {"rid": vetter_run_id, "tickers": tickers},
+            )
+            for v in vd_rows.mappings():
+                vetter_by_ticker[v["ticker"]] = dict(v)
+
+        # Holdings overlay — only need theme tickers, so scope to them (a held theme
+        # name shows its held badge). inject_unranked=False means non-theme positions
+        # are never pulled in.
+        all_broker_positions: dict[str, dict] = {}
+        if sync_run_id and tickers:
+            pos_rows = await conn.execute(
+                text(
+                    "SELECT lp.ticker, lp.qty, lp.market_value, lp.unrealized_plpc, "
+                    "  ut.name, ut.sector, fc.market_cap "
+                    "FROM live_positions lp "
+                    "LEFT JOIN universe_tickers ut ON ut.ticker = lp.ticker "
+                    "  AND ut.snapshot_id = (SELECT MAX(id) FROM universe_snapshots) "
+                    "LEFT JOIN LATERAL ("
+                    "  SELECT market_cap FROM fundamentals f "
+                    "  WHERE f.ticker = lp.ticker ORDER BY f.as_of_date DESC LIMIT 1"
+                    ") fc ON true "
+                    "WHERE lp.sync_run_id = :rid AND lp.ticker = ANY(:tickers)"
+                ),
+                {"rid": sync_run_id, "tickers": tickers},
+            )
+            for p in pos_rows.mappings():
+                all_broker_positions[p["ticker"]] = {
+                    "qty": float(p["qty"]) if p["qty"] is not None else None,
+                    "market_value": float(p["market_value"]) if p["market_value"] is not None else None,
+                    "unrealized_plpc": float(p["unrealized_plpc"]) if p["unrealized_plpc"] is not None else None,
+                    "name": p["name"],
+                    "sector": p["sector"],
+                    "market_cap": float(p["market_cap"]) if p["market_cap"] is not None else None,
+                }
+
+        cluster_by_ticker: dict[str, str] = {}
+        cl_rows = await conn.execute(text(
+            "SELECT ticker, cluster_id FROM candidate_clusters "
+            "WHERE run_id = (SELECT run_id FROM portfolio_runs WHERE status='success' "
+            "                ORDER BY completed_at DESC NULLS LAST LIMIT 1)"
+        ))
+        for c in cl_rows.mappings():
+            cluster_by_ticker[c["ticker"]] = c["cluster_id"]
+
+        ranking_rows = _apply_overlays(
+            ranking_rows, vetter_by_ticker, all_broker_positions,
+            inject_unranked=False, cluster_by_ticker=cluster_by_ticker,
+        )
+
+    run_meta = None
+    if ranking_rows:
+        rd = latest_rank_date
+        run_meta = {"run_id": latest_run_id,
+                    "rank_date": rd.isoformat() if hasattr(rd, "isoformat") else str(rd)}
+    return {
+        "count": len(ranking_rows),
+        "run": run_meta,
+        "prior_run": {"run_id": prior_run_id} if prior_run_id else None,
+        "vetter_run_id": vetter_run_id,
+        "sync_run_id": sync_run_id,
+        "theme": {"id": "ai_buildout", "as_of": AI_BUILDOUT_AS_OF,
+                  "universe_size": len(theme_tickers)},
         "rankings": ranking_rows,
     }
 
