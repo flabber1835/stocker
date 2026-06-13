@@ -765,8 +765,10 @@ async def _size_partial(conn, ticker: str, intent: dict) -> tuple[float, float, 
     #   floor(account_value × weight / last_price)
     # A fully-invested portfolio has buying_power ≈ $0, so sizing against
     # buying_power would make every rebalancing buy_add fail. We use
-    # account_value (total equity) instead; a separate buying_power guard
-    # below refuses the trade if the notional clearly exceeds available cash.
+    # account_value (total equity) instead — and, like entries, do NOT add a
+    # buying_power hard-reject (see the note at the buy_add notional line below):
+    # buys queue-and-net against the same-open sells, with the delta's _cap_buys
+    # as the upstream cash gate.
     acct = (await conn.execute(text(
         "SELECT account_value, buying_power, completed_at FROM alpaca_sync_runs "
         "WHERE status='success' ORDER BY completed_at DESC NULLS LAST LIMIT 1"
@@ -844,21 +846,18 @@ async def _size_partial(conn, ticker: str, intent: dict) -> tuple[float, float, 
         if qty > held_qty:
             qty = float(held_qty)
             qty_int = held_qty
-    # Cash sufficiency guard for buy-side actions: if the target notional
-    # clearly exceeds buying_power (with 5% tolerance for rounding), refuse
-    # early rather than letting the risk-service or Alpaca reject it with a
-    # cryptic error.  Exits and sell_trims are not affected (they free cash).
-    if action in ("entry", "buy_add") and buying_power is not None:
-        target_notional_check = drift_weight * account_value
-        if target_notional_check > buying_power * 1.05:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Insufficient buying power for {action} {ticker}: "
-                    f"notional ${target_notional_check:.0f} > buying_power ${buying_power:.0f}. "
-                    "Wait for pending sells to settle or reduce position size."
-                ),
-            )
+    # NOTE: no buying_power hard-reject here, by design. A buy_add sizes against
+    # account_value exactly like an entry (_size_entry), and like an entry it
+    # QUEUES-AND-NETS at the next open: on a fully-invested book buying_power ≈ $0,
+    # and the same-open exits/sell_trims free the cash before the deferred drain
+    # submits this buy (fill-gated drain, Option B). A pre-emptive
+    # `notional > buying_power` guard here contradicted that — it hard-rejected
+    # every rebalance buy_add on a fully-invested book (the exact failure the
+    # account_value-sizing comment above warns about), so a legitimate top-up that
+    # the same-open GOOG sell would fund (e.g. LRCX) failed instead of deferring.
+    # The cash gate that defers genuinely-unfundable buys lives upstream in the
+    # delta (_cap_buys, which credits same-cycle exit proceeds); Alpaca is the final
+    # backstop at submission. So buy_adds are treated identically to entries.
     notional = qty * last_price
     return qty, notional, {
         "target_weight": target_weight,

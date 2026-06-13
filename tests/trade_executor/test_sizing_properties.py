@@ -42,7 +42,8 @@ for _k in list(sys.modules.keys()):
 if _TE_PATH not in sys.path:
     sys.path.insert(0, _TE_PATH)
 
-from app.main import _size_entry, _size_exit
+from app.main import _size_entry, _size_exit, _size_partial
+import asyncio
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -80,6 +81,49 @@ def _mock_conn_entry(account_value: float, buying_power: float, price: float):
 
     conn.execute = _execute
     return conn
+
+
+def _mock_conn_partial(account_value: float, buying_power: float, price: float):
+    """Fake async conn for _size_partial with actual_weight supplied in the intent
+    (so the live-position fallback query is skipped): query order is
+    idx0 = acct (account_value/buying_power/completed_at), idx1 = live current_price."""
+    conn = AsyncMock()
+    call_count = [0]
+
+    async def _execute(query, params=None):
+        idx = call_count[0]
+        call_count[0] += 1
+        result = MagicMock()
+        mappings_result = MagicMock()
+        if idx == 0:
+            row = {"account_value": account_value, "buying_power": buying_power, "completed_at": _now()}
+        elif idx == 1:
+            row = {"current_price": price}
+        else:
+            row = None
+        mappings_result.first = MagicMock(return_value=row)
+        result.mappings = MagicMock(return_value=mappings_result)
+        return result
+
+    conn.execute = _execute
+    return conn
+
+
+def test_buy_add_not_rejected_when_buying_power_below_notional():
+    """Regression (LRCX "insufficient funds"): on a fully-invested book buying_power
+    ≈ $0, but a buy_add sizes against account_value and must QUEUE-AND-NET at the open
+    like an entry — NOT hard-fail just because notional > buying_power. The old
+    _size_partial buying_power guard rejected every rebalance buy_add here, blocking a
+    top-up the same-open sells would fund."""
+    # account $100k, target 5% vs actual 3% → drift 2% = $2000 top-up; price $100 → 20 sh.
+    # buying_power $1,830 < $2,000 notional, yet it must size cleanly (no exception).
+    conn = _mock_conn_partial(account_value=100_000.0, buying_power=1_830.0, price=100.0)
+    intent = {"action": "buy_add", "current_weight": 0.05, "actual_weight": 0.03}
+    qty, notional, summary = asyncio.run(_size_partial(conn, "LRCX", intent))
+    assert qty == 20
+    assert abs(notional - 2_000.0) < 1e-6
+    assert notional > summary["buying_power"]      # exceeds BP, but NOT rejected
+    assert summary["sizing_basis"] == "account_value"
 
 
 def _mock_conn_exit(position_qty: float, current_price: float):
