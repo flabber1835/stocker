@@ -18,6 +18,7 @@ from .alpha_vantage import AVClient
 from .universe import download_av_universe, get_benchmark_tickers, save_universe_snapshot
 from stock_strategy_shared.db import wait_for_db
 from stock_strategy_shared.tracing import RESTART_ABORT_MARKER, mark_orphaned_runs_failed
+from stock_strategy_shared.corporate_actions import apply_corporate_actions
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 if not DATABASE_URL:
@@ -186,16 +187,22 @@ def _coverage(ok: int, total: int) -> Optional[float]:
 
 
 async def _upsert_prices(session, ticker: str, rows: list[dict]) -> None:
-    """Upsert daily price rows for a single ticker."""
+    """Upsert daily price rows for a single ticker.
+
+    raw_adjusted_close is set to AV's adjusted close (the immutable split/div-adjusted
+    source); adjusted_close is initialised to the same value and later re-derived
+    spinoff-adjusted by apply_spinoff_adjustments() for tickers in corporate_actions.
+    """
     await session.execute(
         text(
             "INSERT INTO daily_prices "
-            "    (ticker, date, open, high, low, close, adjusted_close, volume) "
+            "    (ticker, date, open, high, low, close, adjusted_close, raw_adjusted_close, volume) "
             "VALUES "
-            "    (:ticker, :date, :open, :high, :low, :close, :adjusted_close, :volume) "
+            "    (:ticker, :date, :open, :high, :low, :close, :adjusted_close, :adjusted_close, :volume) "
             "ON CONFLICT (ticker, date) DO UPDATE SET "
             "    open=EXCLUDED.open, high=EXCLUDED.high, low=EXCLUDED.low, "
             "    close=EXCLUDED.close, adjusted_close=EXCLUDED.adjusted_close, "
+            "    raw_adjusted_close=EXCLUDED.raw_adjusted_close, "
             "    volume=EXCLUDED.volume, fetched_at=NOW()"
         ),
         [{"ticker": ticker, "date": date.fromisoformat(r["date"]),
@@ -204,6 +211,56 @@ async def _upsert_prices(session, ticker: str, rows: list[dict]) -> None:
           "adjusted_close": r["adjusted_close"] if r.get("adjusted_close") and 0 < r["adjusted_close"] < 1_000_000 else None,
           "volume": r["volume"]} for r in rows],
     )
+
+
+async def apply_spinoff_adjustments(session, ticker: str | None = None) -> int:
+    """Re-derive adjusted_close = raw_adjusted_close × Π(spinoff gap factors) for every
+    ticker in corporate_actions (or just ``ticker`` if given). Idempotent: always
+    recomputed from the immutable raw_adjusted_close + the curated ex-dates, so it is
+    safe to run on every fetch and on startup. Returns the number of rows updated.
+    """
+    q = "SELECT ticker, ex_date FROM corporate_actions"
+    params: dict = {}
+    if ticker is not None:
+        q += " WHERE ticker = :t"
+        params["t"] = ticker
+    rows = (await session.execute(text(q), params)).fetchall()
+    if not rows:
+        return 0
+    ex_by_ticker: dict[str, list] = {}
+    for r in rows:
+        ex_by_ticker.setdefault(r.ticker, []).append(r.ex_date)
+
+    total = 0
+    for tk, ex_dates in ex_by_ticker.items():
+        price_rows = (await session.execute(
+            text("SELECT date, raw_adjusted_close FROM daily_prices "
+                 "WHERE ticker = :t AND raw_adjusted_close IS NOT NULL ORDER BY date"),
+            {"t": tk},
+        )).fetchall()
+        raw = {r.date: float(r.raw_adjusted_close) for r in price_rows}
+        if not raw:
+            continue
+        adj = apply_corporate_actions(raw, list(ex_dates))
+        # Only write rows whose adjusted value actually changes from raw (the pre-ex
+        # window); post-ex rows already equal raw from _upsert_prices.
+        updates = [
+            {"t": tk, "d": d, "a": round(v, 4)}
+            for d, v in adj.items()
+            if v is not None and abs(v - raw[d]) > 1e-9
+        ]
+        if updates:
+            await session.execute(
+                text("UPDATE daily_prices SET adjusted_close = :a "
+                     "WHERE ticker = :t AND date = :d"),
+                updates,
+            )
+            total += len(updates)
+    if total:
+        print(f"[av-ingestor] spinoff adjustment: rewrote {total} adjusted_close row(s) "
+              f"for {len(ex_by_ticker)} ticker(s)", flush=True)
+    return total
+
 
 
 async def _enrich_total_assets(client, ticker: str, overview: dict) -> None:
@@ -284,6 +341,14 @@ async def lifespan(app: FastAPI):
         async with engine.begin() as conn:
             await mark_orphaned_runs_failed(conn, "ingest_runs", trace_job_type="fetch-data")
         print("[av-ingestor] DB connected; orphan cleanup done", flush=True)
+        # Re-derive spinoff-adjusted prices on startup so a deploy fixes existing data
+        # (e.g. FDX) immediately, without waiting for the next fetch. Idempotent + cheap
+        # (only corporate_actions tickers); never fatal.
+        try:
+            async with engine.begin() as conn:
+                await apply_spinoff_adjustments(conn)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[av-ingestor] WARN: spinoff adjustment skipped on startup: {exc}", flush=True)
     except Exception as exc:
         # Table may not exist yet on first boot while init.sql is still running.
         print(f"[av-ingestor] WARN: orphan cleanup skipped: {exc}", flush=True)
@@ -1061,6 +1126,14 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                 recovered_labels = {f"{rt}:prices" for rt in recovered}
                 error_tickers = [e for e in error_tickers if e not in recovered_labels]
                 print(f"[fetch-data] cleanup: recovered {len(recovered)}/{len(retry_list)} price errors")
+
+        # Re-derive spinoff-adjusted prices for corporate_actions tickers now that this
+        # run's new bars are written (idempotent; only the curated ticker set).
+        try:
+            async with engine.begin() as conn:
+                await apply_spinoff_adjustments(conn)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[fetch-data] WARN: spinoff adjustment skipped: {exc}", flush=True)
 
         status = "partial_success" if err_count > 0 else "success"
         pcp = _coverage(price_ok, len(price_tickers))
