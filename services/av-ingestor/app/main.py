@@ -41,8 +41,8 @@ CHECKPOINT_EVERY = 100
 
 # Stale-running reclaim. A fetch job runs as a detached BackgroundTask; if the
 # scheduler abandons the chain (or the task dies without the process restarting),
-# its ingest_runs row can linger at status='running' forever, and _assert_no_running_job
-# would then 409 every future fetch — wedging the chain until an av-ingestor
+# its ingest_runs row can linger at status='running' forever, and _reserve_run's
+# no-running-job check would then 409 every future fetch — wedging the chain until an av-ingestor
 # restart runs mark_orphaned_runs_failed. A full fetch never exceeds ~3h, so a
 # 'running' row older than this is presumed dead: we mark it failed (with the
 # RESTART_ABORT_MARKER so the scheduler treats it as recoverable and re-triggers)
@@ -290,17 +290,6 @@ _job_lock = asyncio.Lock()
 
 # ── Run lifecycle helpers ────────────────────────────────
 
-async def _start_run(run_id: str, job_type: str) -> None:
-    async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "INSERT INTO ingest_runs (run_id, job_type, status, started_at) "
-                "VALUES (:run_id, :job_type, 'running', :now)"
-            ),
-            {"run_id": run_id, "job_type": job_type, "now": datetime.now(timezone.utc)},
-        )
-
-
 async def _finish_run(
     run_id: str,
     status: str,
@@ -428,7 +417,26 @@ def _is_stale_running(started_at: Optional[datetime], now: datetime,
     return age_h > stale_hours
 
 
-async def _assert_no_running_job() -> None:
+async def _reserve_run(job_type: str) -> str:
+    """Atomically gate-and-claim a run slot, returning the new run_id.
+
+    Bug C1 fix (duplicate-fetch race): the no-running-job check and the INSERT of
+    the 'running' ingest_runs row MUST happen in the same locked critical section
+    (one DB transaction). Previously the check ran here under _job_lock but the
+    'running' row was INSERTed later by _start_run inside the background task,
+    AFTER the lock was released and the HTTP response returned — so two requests
+    arriving close together both saw no running row and both launched a full
+    fetch (two concurrent jobs hammering Alpha Vantage, double-writing prices,
+    "fetch starts at 0 again"). Inserting the row here, before the lock is
+    released, makes a second concurrent caller see the running row and get a 409.
+
+    Caller MUST hold _job_lock. Raises HTTPException(409) if a live job is
+    running; reclaims a presumed-dead stale orphan (STALE_INGEST_HOURS) the same
+    way the old _assert_no_running_job did, then claims a fresh slot.
+
+    The returned run_id is for an already-INSERTed 'running' row — the background
+    task must NOT call _start_run again.
+    """
     async with engine.begin() as conn:
         row = await conn.execute(
             text(
@@ -437,41 +445,53 @@ async def _assert_no_running_job() -> None:
             )
         )
         existing = row.mappings().first()
-        if existing is None:
-            return
-        # Reclaim a presumed-dead orphan: a 'running' row older than
-        # STALE_INGEST_HOURS can never be a live job (a full fetch finishes well
-        # under that), so it is an abandoned/crashed task whose process never
-        # restarted. Mark it failed with the restart-abort marker so the scheduler
-        # re-triggers it, and let the new job proceed instead of 409-wedging.
-        if _is_stale_running(existing["started_at"], datetime.now(timezone.utc)):
-            await conn.execute(
-                text(
-                    "UPDATE ingest_runs SET status='failed', completed_at=NOW(), "
-                    "error_message=:msg WHERE run_id=:rid"
-                ),
-                {
-                    "msg": f"{RESTART_ABORT_MARKER} reclaimed stale running job "
-                           f"(> {STALE_INGEST_HOURS}h old)",
-                    "rid": existing["run_id"],
-                },
-            )
-            print(
-                f"[av-ingestor] reclaimed stale running ingest run {existing['run_id']}",
-                flush=True,
-            )
-            return
-        raise HTTPException(
-            status_code=409,
-            detail="Another ingest job is already running. Wait for it to complete.",
+        if existing is not None:
+            # Reclaim a presumed-dead orphan: a 'running' row older than
+            # STALE_INGEST_HOURS can never be a live job (a full fetch finishes
+            # well under that), so it is an abandoned/crashed task whose process
+            # never restarted. Mark it failed with the restart-abort marker so the
+            # scheduler re-triggers it, and let the new job proceed instead of
+            # 409-wedging.
+            if _is_stale_running(existing["started_at"], datetime.now(timezone.utc)):
+                await conn.execute(
+                    text(
+                        "UPDATE ingest_runs SET status='failed', completed_at=NOW(), "
+                        "error_message=:msg WHERE run_id=:rid"
+                    ),
+                    {
+                        "msg": f"{RESTART_ABORT_MARKER} reclaimed stale running job "
+                               f"(> {STALE_INGEST_HOURS}h old)",
+                        "rid": existing["run_id"],
+                    },
+                )
+                print(
+                    f"[av-ingestor] reclaimed stale running ingest run {existing['run_id']}",
+                    flush=True,
+                )
+            else:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Another ingest job is already running. Wait for it to complete.",
+                )
+        # Insert the 'running' row in the SAME transaction (and the SAME locked
+        # critical section) as the check above, so a second concurrent caller sees
+        # it and is rejected with 409. The background task no longer calls
+        # _start_run — this row already exists.
+        run_id = str(uuid.uuid4())
+        await conn.execute(
+            text(
+                "INSERT INTO ingest_runs (run_id, job_type, status, started_at) "
+                "VALUES (:run_id, :job_type, 'running', :now)"
+            ),
+            {"run_id": run_id, "job_type": job_type, "now": datetime.now(timezone.utc)},
         )
+    return run_id
 
 
 @app.post("/jobs/fetch-universe")
 async def fetch_universe(background_tasks: BackgroundTasks):
     async with _job_lock:
-        await _assert_no_running_job()
-        run_id = str(uuid.uuid4())
+        run_id = await _reserve_run("fetch-universe")
         background_tasks.add_task(_run_fetch_universe, run_id)
     return {"status": "started", "job": "fetch-universe", "run_id": run_id}
 
@@ -479,9 +499,8 @@ async def fetch_universe(background_tasks: BackgroundTasks):
 @app.post("/jobs/fetch-data")
 async def fetch_data(background_tasks: BackgroundTasks):
     async with _job_lock:
-        await _assert_no_running_job()
         tickers, snapshot_id = await _get_universe_tickers()
-        run_id = str(uuid.uuid4())
+        run_id = await _reserve_run("fetch-data")
         background_tasks.add_task(_run_fetch_data, run_id, tickers)
     return {"status": "started", "job": "fetch-data", "run_id": run_id, "ticker_count": len(tickers), "snapshot_id": snapshot_id}
 
@@ -489,9 +508,8 @@ async def fetch_data(background_tasks: BackgroundTasks):
 @app.post("/jobs/fetch-prices")
 async def fetch_prices(background_tasks: BackgroundTasks):
     async with _job_lock:
-        await _assert_no_running_job()
         tickers, snapshot_id = await _get_universe_tickers()
-        run_id = str(uuid.uuid4())
+        run_id = await _reserve_run("fetch-prices")
         background_tasks.add_task(_run_fetch_prices, run_id, tickers)
     return {"status": "started", "job": "fetch-prices", "run_id": run_id, "ticker_count": len(tickers), "snapshot_id": snapshot_id}
 
@@ -499,9 +517,8 @@ async def fetch_prices(background_tasks: BackgroundTasks):
 @app.post("/jobs/fetch-fundamentals")
 async def fetch_fundamentals(background_tasks: BackgroundTasks):
     async with _job_lock:
-        await _assert_no_running_job()
         tickers, snapshot_id = await _get_universe_tickers()
-        run_id = str(uuid.uuid4())
+        run_id = await _reserve_run("fetch-fundamentals")
         background_tasks.add_task(_run_fetch_fundamentals, run_id, tickers)
     return {"status": "started", "job": "fetch-fundamentals", "run_id": run_id, "snapshot_id": snapshot_id}
 
@@ -619,7 +636,8 @@ async def _get_universe_tickers() -> tuple[list[str], int | None]:
 
 async def _run_fetch_universe(run_id: str) -> None:
     started_at = datetime.now(timezone.utc)
-    await _start_run(run_id, "fetch-universe")
+    # The 'running' ingest_runs row was already INSERTed atomically by
+    # _reserve_run under _job_lock (Bug C1 fix) — do not re-insert here.
     await _checkpoint(run_id, "fetch-universe", started_at, step="download")
     print("[fetch-universe] starting")
     try:
@@ -774,7 +792,8 @@ async def _load_investable_tickers() -> frozenset[str] | None:
 
 async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
     started_at = datetime.now(timezone.utc)
-    await _start_run(run_id, "fetch-data")
+    # The 'running' ingest_runs row was already INSERTed atomically by
+    # _reserve_run under _job_lock (Bug C1 fix) — do not re-insert here.
     benchmark_set = set(BENCHMARK_TICKERS)
     # Fetch benchmark tickers (SPY etc.) FIRST so spy_max lands in the DB early.
     # If benchmarks are last and the run is interrupted, spy_max=None on the next
@@ -1057,7 +1076,8 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
 
 async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
     started_at = datetime.now(timezone.utc)
-    await _start_run(run_id, "fetch-prices")
+    # The 'running' ingest_runs row was already INSERTed atomically by
+    # _reserve_run under _job_lock (Bug C1 fix) — do not re-insert here.
     # Benchmarks first so SPY is written early — same reasoning as _run_fetch_data.
     all_tickers = _build_benchmarks_first(tickers)
 
@@ -1149,7 +1169,8 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
 
 async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
     started_at = datetime.now(timezone.utc)
-    await _start_run(run_id, "fetch-fundamentals")
+    # The 'running' ingest_runs row was already INSERTed atomically by
+    # _reserve_run under _job_lock (Bug C1 fix) — do not re-insert here.
     investable = [t for t in tickers if t not in set(BENCHMARK_TICKERS)]
     today = datetime.now(timezone.utc).date()
 
