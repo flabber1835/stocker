@@ -102,11 +102,19 @@ async def _auto_approve_once(client, now: float) -> None:
     data = r.json()
     run_meta = data.get("run") or {}
     is_manual_run = bool(run_meta.get("manual"))
+    # Capture the identity of the delta run these intents belong to. Before each
+    # auto-approve POST we re-fetch /delta/latest and re-confirm this identity
+    # still matches — if a fresh chain wrote a new delta mid-pass, the run_id /
+    # run_date changes and we must NOT submit the superseded cycle's intents (F3).
+    run_id = run_meta.get("run_id") or run_meta.get("id")
+    run_date = run_meta.get("run_date")
     current_ids: set[str] = set()
+    all_run_ids: set[str] = set()
     for intent in data.get("intents", []):
         iid = str(intent.get("intent_id") or intent.get("id") or "")
         if not iid:
             continue
+        all_run_ids.add(iid)
         action = intent.get("action")
         if action not in _TRADEABLE_ACTIONS:
             continue
@@ -140,6 +148,28 @@ async def _auto_approve_once(client, now: float) -> None:
         if is_manual_run:
             continue
         if now - _intent_first_seen[iid] >= timeout:
+            # TOCTOU guard (F3): _chain_in_progress was checked once at the top of
+            # this pass, but the loop spans many awaits and a fresh chain can flip
+            # to "running" mid-pass. Re-check IMMEDIATELY before each POST so we
+            # never auto-submit the prior cycle's intents once today's run started.
+            if await _chain_in_progress(client):
+                return
+            # Re-confirm the delta run identity still matches what we read at the
+            # top of the pass. If a new delta was written mid-pass (run_id/run_date
+            # changed), these intents are superseded — abort without submitting.
+            try:
+                rc = await client.get(f"{API_URL}/delta/latest")
+            except Exception as exc:
+                print(f"[auto-approve] re-confirm fetch failed for {iid}: {exc}")
+                return
+            if rc.status_code != 200:
+                return
+            cur_run = (rc.json() or {}).get("run") or {}
+            cur_run_id = cur_run.get("run_id") or cur_run.get("id")
+            cur_run_date = cur_run.get("run_date")
+            if cur_run_id != run_id or cur_run_date != run_date:
+                # Superseded by a fresher delta run — stop this pass.
+                return
             try:
                 # Single approval rule (same as manual): submit to the broker NOW if
                 # the market is open, else queue for the next open. The after-close
@@ -155,6 +185,12 @@ async def _auto_approve_once(client, now: float) -> None:
             _intent_approved.add(iid)
     for iid in set(_intent_first_seen) - current_ids - _intent_approved:
         _intent_first_seen.pop(iid, None)
+    # Prune _intent_approved down to the current delta's intent ids (F4). Unlike
+    # _intent_first_seen it was previously only ever .add()'d, so ids from
+    # superseded runs accumulated unbounded. all_run_ids is every intent id in the
+    # current delta payload (approvable + already-handled), so intersecting drops
+    # stale ids from prior/superseded runs while keeping this run's handled ids.
+    _intent_approved.intersection_update(all_run_ids)
 
 
 async def _auto_approve_bg():
@@ -198,7 +234,7 @@ async def health():
     return {"status": "ok", "service": "dashboard"}
 
 
-async def _proxy(path: str, params: dict | None = None, timeout: float = 10.0):
+async def _proxy(path: str, params: dict | None = None, timeout: float = 30.0):
     # Wrapped so an upstream timeout/connection error degrades to a clean 504 JSON
     # body instead of an uncaught exception → raw 500 "Internal Server Error".
     # `timeout` is per-endpoint: heavy queries (e.g. rankings/with-overlays) pass a

@@ -144,7 +144,7 @@ async function loadTheme() {
     // Pull the FULL universe ranking (not the screener's top-100) so EVERY theme
     // name can resolve its global rank and a detail card, wherever it sits in the
     // ~2000-name universe. Plain /rankings is lean (no overlay/caps joins).
-    const rk = await fetch('/api/rankings?limit=5000').then(r => r.json());
+    const rk = await fetch('/api/rankings?limit=5000', {cache:'no-store'}).then(r => r.json());
     themeUnivRecs = (rk.rankings || []).map(_mapRankRow);
     const d = await fetch('/api/theme?theme=ai_infra&min=0.35').then(r => r.json());
     renderTheme(d);
@@ -543,7 +543,7 @@ async function _doApiSearch(q) {
 async function loadRankings() {
   $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">Loading rankings&#8230;</td></tr>';
   try {
-    const d = await fetch('/api/rankings/with-overlays?limit=100').then(r => {
+    const d = await fetch('/api/rankings/with-overlays?limit=100', {cache:'no-store'}).then(r => {
       if (!r.ok) throw new Error(r.status);
       return r.json();
     });
@@ -804,7 +804,7 @@ let deltaRun = {};   // latest delta run meta (confirmation_days, etc.) for hold
 
 async function loadDelta() {
   try {
-    const d = await fetch('/api/delta/latest').then(r => r.json());
+    const d = await fetch('/api/delta/latest', {cache:'no-store'}).then(r => r.json());
     const run = d.run || {};
     deltaRun = run;
     deltaData = d.intents || [];
@@ -1328,7 +1328,7 @@ function sortLive(col) {
 
 async function loadLivePortfolio() {
   try {
-    const d = await fetch('/api/live-portfolio').then(r => r.json());
+    const d = await fetch('/api/live-portfolio', {cache:'no-store'}).then(r => r.json());
     const dot   = $('conn-dot');
     const label = $('conn-label');
     const sync  = d.sync || {};
@@ -1581,7 +1581,7 @@ async function syncAlpaca() {
 
 async function fetchOrders() {
   try {
-    const d = await fetch('/api/orders/recent').then(r => r.json());
+    const d = await fetch('/api/orders/recent', {cache:'no-store'}).then(r => r.json());
     ordersData = Array.isArray(d) ? d : [];
   } catch (e) {
     ordersData = [];

@@ -288,6 +288,93 @@ def test_chain_in_progress_skips_auto_approve(dashboard):
     assert posted == []  # nothing auto-approved while the chain is mid-flight
 
 
+def test_chain_flips_running_before_post_skips_auto_approve(dashboard):
+    """F3 (TOCTOU): the chain is IDLE when the pass starts (top-of-pass guard
+    passes) but flips to RUNNING right before the /trade/approve POST. The
+    immediately-before-POST re-check must catch it and submit nothing — otherwise
+    the prior cycle's superseded intent would be auto-approved into today's run."""
+    posted = []
+    state = {"status_calls": 0}
+
+    async def fake_post(url, json=None, **kw):
+        posted.append(json)
+        r = MagicMock(); r.status_code = 200; r.json = MagicMock(return_value={})
+        return r
+
+    async def fake_get(url, **kw):
+        r = MagicMock(); r.status_code = 200
+        if url.endswith("/status"):
+            state["status_calls"] += 1
+            # 1st call = top-of-pass guard (pass 1 seed): idle.
+            # 2nd call = top-of-pass guard (pass 2): idle so we reach the loop.
+            # 3rd call = the immediately-before-POST re-check: now running.
+            running = state["status_calls"] >= 3
+            r.json = MagicMock(return_value={"status": "running" if running else "idle"})
+        else:
+            r.json = MagicMock(return_value={"run": {"manual": False, "run_id": 7,
+                                                     "run_date": "2026-06-12"},
+                                             "intents": [_intent("e1", "entry")]})
+        return r
+
+    client = MagicMock(); client.get = fake_get; client.post = fake_post
+
+    async def run():
+        await dashboard._auto_approve_once(client, 0.0)   # seed first_seen
+        posted.clear()
+        await dashboard._auto_approve_once(client, 99999.0)
+
+    asyncio.run(run())
+    assert posted == []  # mid-pass flip caught by the before-POST re-check
+
+
+def test_delta_run_changes_before_post_skips_auto_approve(dashboard):
+    """F3: the delta run identity changes mid-pass (a fresh delta was written
+    after we read /delta/latest at the top). The re-confirm fetch sees a new
+    run_id/run_date → the captured intents are superseded → submit nothing."""
+    posted = []
+    state = {"delta_calls": 0}
+
+    async def fake_post(url, json=None, **kw):
+        posted.append(json)
+        r = MagicMock(); r.status_code = 200; r.json = MagicMock(return_value={})
+        return r
+
+    async def fake_get(url, **kw):
+        r = MagicMock(); r.status_code = 200
+        if url.endswith("/status"):
+            r.json = MagicMock(return_value={"status": "idle"})
+        else:  # /delta/latest
+            state["delta_calls"] += 1
+            # First delta reads (seed pass + top of pass 2) = run 7.
+            # The re-confirm fetch just before the POST = run 8 (superseded).
+            run_id = 7 if state["delta_calls"] < 3 else 8
+            r.json = MagicMock(return_value={"run": {"manual": False, "run_id": run_id,
+                                                     "run_date": "2026-06-12"},
+                                             "intents": [_intent("e1", "entry")]})
+        return r
+
+    client = MagicMock(); client.get = fake_get; client.post = fake_post
+
+    async def run():
+        await dashboard._auto_approve_once(client, 0.0)
+        posted.clear()
+        await dashboard._auto_approve_once(client, 99999.0)
+
+    asyncio.run(run())
+    assert posted == []  # superseded run → no submission
+
+
+def test_intent_approved_pruned_to_current_delta(dashboard):
+    """F4 (leak): _intent_approved must not grow unbounded. After a pass it is
+    intersected with the current delta's intent ids, so ids from a superseded
+    prior run are dropped while the current run's handled ids survive."""
+    dashboard._intent_approved.add("stale_from_old_run")
+    # A terminal-status intent gets .add()'d to _intent_approved during the pass.
+    _run_one_tick(dashboard, [_intent("e1", "entry", order_status="submitted")])
+    assert "stale_from_old_run" not in dashboard._intent_approved  # pruned
+    assert "e1" in dashboard._intent_approved                       # current run kept
+
+
 def test_chain_idle_still_auto_approves(dashboard):
     """When the scheduler reports no running chain, the scheduled run auto-approves."""
     posted = []
