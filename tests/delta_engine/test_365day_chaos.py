@@ -162,10 +162,29 @@ def test_365_day_chaos_simulation():
 
         # ── 2. account snapshot (pre-trade) ──────────────────────────────────
         account_value = broker.account_value()
-        assert account_value > 0 and math.isfinite(account_value)
+        # The synthetic Broker accumulates cash via a long chain of float ops
+        # (deposits, *0.3 / *0.02 withdrawals, sell proceeds added, buy notionals
+        # subtracted). On a day FOLLOWING a full-liquidation (days 140/250) or the
+        # cash-drain (day 333) the account legitimately sits at ~0, and the residual
+        # can land microscopically below zero (e.g. -2.9e-43, -6.4e-12) — a pure
+        # float-rounding artifact, NOT an engine bug (the engine isn't even called
+        # until step 5). The post-trade recompute below already tolerates this
+        # epsilon; the pre-trade snapshot must use the SAME tolerance, else the
+        # outcome is PYTHONHASHSEED-dependent: set/dict iteration order shifts the
+        # RNG-driven price path so the residual lands negative only for some hash
+        # seeds (seeds 23/32/59 trip it) — the source of the rare combined-suite
+        # flake. account_value is forced non-negative for downstream weight math.
+        assert math.isfinite(account_value) and account_value >= -1e-9
+        account_value = max(0.0, account_value)
         buying_power = broker.cash
         live = broker.held()
-        actual_weights = {t: broker.market_value(t) / account_value for t in live}
+        # Guard the ~0 account case (post full-liquidation / cash-drain): a held
+        # name worth ~0 (e.g. the delisted S26 at $0.01) over a ~0 account would
+        # divide by zero. A 0-equity book has 0 actual weight everywhere.
+        actual_weights = {
+            t: (broker.market_value(t) / account_value if account_value > 0 else 0.0)
+            for t in live
+        }
         # I7a: weights finite and consistent
         for t, w in actual_weights.items():
             assert math.isfinite(w) and w >= -1e-12

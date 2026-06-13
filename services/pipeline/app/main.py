@@ -2265,6 +2265,11 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             target_history=target_history,
             orphan_confirmation_days=orphan_confirmation_days,
             dedup_survivors=dedup_survivors,
+            # Put actual (sums to ~1.0) and target (scaled to ~1-cash_reserve) on the
+            # same basis for the drift comparison, so the cash reserve isn't misread as
+            # universal overweight → phantom sell_trims. Does NOT change persisted/sized
+            # target weights (executor sizing is untouched).
+            cash_fraction=strategy.portfolio_builder.cash_reserve,
         )
         mode_used = "target_vs_live"
 
