@@ -175,10 +175,13 @@ async def test_approval_idempotency_detects_queued_order(engine):
         await _insert_order(conn, ticker="AAPL", side="buy", action="entry",
                             status="deferred", intent_id=iid)
     async with engine.connect() as conn:
+        # Mirrors the api approve-idempotency guard: only genuinely-OPEN statuses
+        # block re-approval. risk_rejected/failed are dead (no live broker order)
+        # and are intentionally excluded so a rejected intent can be retried.
         existing = (await conn.execute(text(
             "SELECT id, status FROM alpaca_orders "
             "WHERE intent_id = :iid AND status IN "
-            "('pending','submitted','deferred','risk_rejected') LIMIT 1"
+            "('pending','submitted','deferred') LIMIT 1"
         ), {"iid": iid})).mappings().first()
     assert existing is not None
     assert existing["status"] == "deferred"

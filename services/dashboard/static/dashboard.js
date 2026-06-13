@@ -796,7 +796,14 @@ function _isApprovable(r) {
   if (!['entry', 'exit', 'buy_add', 'sell_trim'].includes(r.action)) return false;
   if (_approvalState[r.id]) return false;
   const os = r.order_status;
-  if (os === 'submitted' || os === 'pending' || os === 'deferred' || os === 'failed' || os === 'risk_rejected' || os === 'filled' || os === 'partial_fill' || os === 'expired') return false;
+  // Block only orders that are genuinely OPEN or already DONE — re-approving those
+  // would double-submit. A DEAD attempt (risk_rejected / failed / expired / canceled)
+  // placed NO live broker order, so it must stay manually re-approvable: the operator
+  // can retry after the cause is fixed (e.g. the risk-service exit bug). NOTE: the
+  // server-side cron auto-approve deliberately still SKIPS risk_rejected/failed
+  // (see dashboard app.main _auto_approve_once) so a persistent failure can't loop;
+  // only this manual UI path allows the retry.
+  if (os === 'submitted' || os === 'pending' || os === 'deferred' || os === 'filled' || os === 'partial_fill') return false;
   if (r.rejected_at) return false;
   if ((r.action === 'entry' || r.action === 'buy_add') && r.vetter_excluded) return false;
   return true;

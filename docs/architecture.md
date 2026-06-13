@@ -609,6 +609,34 @@ be hot-flipped at runtime without restarting the container by touching or removi
 a control file: `docker exec stocker-risk-service-1 touch /tmp/kill_switch` (ON)
 / `rm /tmp/kill_switch` (OFF). The file takes precedence over the env var.
 
+### Design Decision: a DEAD order never wedges its intent (retry semantics)
+
+An order status is either **open** (`pending`/`submitted`/`deferred`, plus the
+Alpaca-working `accepted`/`new`/`partially_filled`), **done** (`filled`), or
+**dead** (`risk_rejected`/`failed`/`expired`/`canceled`). A dead attempt placed
+**no live order at the broker**, so it must remain **manually re-approvable** — the
+operator retries once the cause is fixed (this is exactly how a transient or
+bug-induced rejection, e.g. the risk-service `control_unavailable` exit bug, is
+recovered). Three gates enforce this consistently:
+
+- `/delta/latest` joins order status to an intent by **ticker + side + run_date**
+  (so a re-run resolves to a trade already PLACED this session, not re-shown as
+  un-actioned). The LATERAL **prefers a live/done order over a dead one**, so a
+  stale rejection from earlier in the *same session* can't stick to a fresh
+  re-run's intent and mask it. (Bug fixed 2026-06-13: without this, a GOOG exit
+  rejected at 07:33 made every later re-run that day un-approvable, because all runs
+  share the session `run_date`.)
+- The dashboard's `_isApprovable` blocks only **open/done** statuses; dead ones get
+  a checkbox + Approve button (the "⚠ Risk rejected" badge still shows via
+  `_sectionFor`, so the row stays in *Needs Attention*).
+- `/trade/approve` 409s only on **open** orders (`pending`/`submitted`/`deferred`);
+  the trade-executor's own idempotency guard (`OPEN_ORDER_STATUSES`) likewise
+  excludes dead statuses.
+
+Asymmetry on purpose: the **cron auto-approve** (`_auto_approve_once`) still SKIPS
+`risk_rejected`/`failed` so a *persistent* failure can't loop unattended. Only the
+**manual** UI path allows the retry — a human decides to try again.
+
 ### Audit chain
 
 ```text

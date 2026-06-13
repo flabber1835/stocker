@@ -1466,7 +1466,17 @@ async def get_delta_latest():
                 "    AND ao2.side = CASE WHEN di.action IN ('entry','buy_add') "
                 "                        THEN 'buy' ELSE 'sell' END "
                 "    AND dr2.run_date = :rdate "
-                "  ORDER BY ao2.created_at DESC LIMIT 1"
+                # Prefer a LIVE/DONE order (open or filled) over a DEAD attempt
+                # (risk_rejected/failed/expired/canceled). The ticker+side+run_date
+                # join exists so a re-run resolves to a trade already PLACED today —
+                # but a DEAD order from earlier in the same session must NOT stick to
+                # a fresh re-run's intent and make it look un-actionable. So a real
+                # open/filled order always wins; only when none exists does the latest
+                # dead one show (status badge stays, but _isApprovable lets it retry).
+                "  ORDER BY (CASE WHEN ao2.status IN "
+                "             ('pending','submitted','deferred','accepted','new',"
+                "              'partially_filled','filled') THEN 0 ELSE 1 END), "
+                "           ao2.created_at DESC LIMIT 1"
                 ") ao ON true "
                 "WHERE di.run_id = :rid "
                 "ORDER BY di.action, di.rank ASC NULLS LAST, di.ticker"
@@ -1643,9 +1653,15 @@ async def approve_trade(req: TradeApproveRequest):
 
     try:
         async with engine.connect() as conn:
+            # Block re-approval only when a genuinely OPEN order exists. A DEAD
+            # attempt (risk_rejected / failed / expired / canceled) placed no live
+            # broker order, so it must NOT 409 the retry — otherwise a transient or
+            # bug-induced rejection (e.g. the risk-service exit bug) permanently
+            # wedges the intent. The trade-executor's own idempotency guard
+            # (OPEN_ORDER_STATUSES) likewise excludes the dead statuses.
             existing = (await conn.execute(text(
                 "SELECT id, status FROM alpaca_orders "
-                "WHERE intent_id = :iid AND status IN ('pending','submitted','deferred','risk_rejected') "
+                "WHERE intent_id = :iid AND status IN ('pending','submitted','deferred') "
                 "LIMIT 1"
             ), {"iid": req.intent_id})).mappings().first()
             if existing:

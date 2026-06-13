@@ -920,10 +920,13 @@ INTENTS: list[Intent] = [
         name="risk_rejected_pending_entry_still_approvable",
         scenario="risk_rejected",
         panel="trader",
-        description="The non-rejected entry (AAPL) still has its approve button.",
+        description="Both the pending entry (AAPL) AND the risk-rejected exit (NVDA) "
+                    "are approvable: a dead attempt placed no live order, so the "
+                    "operator can retry it manually after the cause is fixed.",
         custom_check=lambda page: _check_count(
-            page, ".btn-sm-approve", expected=1,
-            why="only AAPL (pending entry) should have an approve button"
+            page, ".btn-sm-approve", expected=2,
+            why="AAPL (pending entry) and NVDA (retryable risk-rejected exit) "
+                "both have an approve button"
         ),
     ),
 
