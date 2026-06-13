@@ -244,8 +244,15 @@ def _apply_overlays(
         ticker wasn't selected into the target or is a singleton cluster.
     """
     cluster_by_ticker = cluster_by_ticker or {}
-    ranked_set = {r["ticker"] for r in ranking_rows}
-    run_date_val = ranking_rows[0]["rank_date"] if ranking_rows else None
+    # Copy the list AND each row dict so the caller's `ranking_rows` is never
+    # mutated: no injected broker rows appended to its list, and no overlay keys
+    # written onto its row objects. Callers derive the `run`/`rank_date` metadata
+    # from their ORIGINAL ranked rows (run_rows[0].rank_date), so an injected row
+    # that happens to sort to index 0 of this output can never drift the reported
+    # run_id/rank_date away from the actual latest run.
+    out_rows = [dict(r) for r in ranking_rows]
+    ranked_set = {r["ticker"] for r in out_rows}
+    run_date_val = out_rows[0]["rank_date"] if out_rows else None
 
     if inject_unranked:
         for broker_ticker, pos in all_broker_positions.items():
@@ -258,7 +265,7 @@ def _apply_overlays(
             # is loaded). Fall back to 9999 only if the ticker has no ranking at
             # all (genuinely not in universe or never ranked).
             real = (held_rank_lookup or {}).get(broker_ticker)
-            ranking_rows.append({
+            out_rows.append({
                 "ticker": broker_ticker,
                 "rank": real["rank"] if real else 9999,
                 "composite_score": real.get("composite_score") if real else None,
@@ -275,7 +282,7 @@ def _apply_overlays(
                 "cluster_id": cluster_by_ticker.get(broker_ticker),
             })
 
-    for r in ranking_rows:
+    for r in out_rows:
         t = r["ticker"]
         v = vetter_by_ticker.get(t)
         if v:
@@ -305,7 +312,7 @@ def _apply_overlays(
         # that already set it above keep their value.
         r.setdefault("cluster_id", cluster_by_ticker.get(t))
 
-    return ranking_rows
+    return out_rows
 
 
 @app.get("/rankings/with-overlays")
@@ -338,6 +345,10 @@ async def get_rankings_with_overlays(limit: int = 100):
             return {"count": 0, "run": None, "prior_run": None, "rankings": []}
         latest_run_id = str(run_rows[0].run_id)
         prior_run_id = str(run_rows[1].run_id) if len(run_rows) > 1 else None
+        # rank_date of the ACTUAL latest ranked run (authoritative for run_id).
+        # Captured from run_rows (not from a post-overlay list) so an injected
+        # broker row sorting ahead of index 0 can never drift the reported date.
+        latest_rank_date = run_rows[0].rank_date
 
         # Latest vetter run (any status — UI surfaces in-progress info too)
         vetter_row = (await conn.execute(text(
@@ -508,8 +519,8 @@ async def get_rankings_with_overlays(limit: int = 100):
     return {
         "count": len(ranking_rows),
         "run": {"run_id": latest_run_id, "rank_date":
-                ranking_rows[0]["rank_date"].isoformat() if hasattr(ranking_rows[0]["rank_date"], "isoformat")
-                else str(ranking_rows[0]["rank_date"])},
+                latest_rank_date.isoformat() if hasattr(latest_rank_date, "isoformat")
+                else str(latest_rank_date)},
         "prior_run": {"run_id": prior_run_id} if prior_run_id else None,
         "vetter_run_id": vetter_run_id,
         "sync_run_id": sync_run_id,
@@ -549,6 +560,10 @@ async def search_rankings(q: str = ""):
             return {"count": 0, "run": None, "prior_run": None, "rankings": []}
         latest_run_id = str(run_rows[0].run_id)
         prior_run_id = str(run_rows[1].run_id) if len(run_rows) > 1 else None
+        # rank_date of the ACTUAL latest ranked run (authoritative for run_id).
+        # Captured here so run metadata can never be drifted by an injected
+        # broker row that _apply_overlays sorts ahead of index 0.
+        latest_rank_date = run_rows[0].rank_date
 
         vetter_row = (await conn.execute(text(
             "SELECT run_id FROM vetter_runs "
@@ -706,7 +721,7 @@ async def search_rankings(q: str = ""):
 
     run_meta = None
     if ranking_rows:
-        rd = ranking_rows[0]["rank_date"]
+        rd = latest_rank_date
         run_meta = {"run_id": latest_run_id,
                     "rank_date": rd.isoformat() if hasattr(rd, "isoformat") else str(rd)}
     return {

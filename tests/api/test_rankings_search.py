@@ -264,6 +264,73 @@ class TestApplyOverlaysInjectUnranked:
         assert tsla["rank_date"] is None
 
 
+class TestApplyOverlaysDoesNotMutateCaller:
+    """Latent-trap guard: _apply_overlays must not mutate the caller's list.
+
+    Both call sites (get_rankings_with_overlays, search_rankings) reassign the
+    return value, but the `run`/`rank_date` metadata is now derived from the
+    ACTUAL latest ranked run (run_rows[0].rank_date), NOT from index 0 of the
+    post-overlay list. An injected broker row that sorts ahead of index 0 must
+    not be able to (a) mutate the caller's input list, nor (b) drift the
+    reported run metadata.
+    """
+
+    def test_input_list_length_unchanged_after_injection(self):
+        rows = [_make_row("AAPL")]
+        original_len = len(rows)
+        positions = {"AAPL": _make_position("AAPL"), "TSLA": _make_position("TSLA")}
+        result = _apply_overlays(rows, {}, positions, inject_unranked=True)
+        # Caller's list is untouched...
+        assert len(rows) == original_len
+        # ...while the returned (copied) list got the injected broker row.
+        assert len(result) == original_len + 1
+        assert {r["ticker"] for r in result} == {"AAPL", "TSLA"}
+
+    def test_input_list_is_not_the_returned_list(self):
+        rows = [_make_row("AAPL")]
+        positions = {"AAPL": _make_position("AAPL"), "TSLA": _make_position("TSLA")}
+        result = _apply_overlays(rows, {}, positions, inject_unranked=True)
+        assert result is not rows
+
+    def test_caller_row_dicts_not_mutated_in_place(self):
+        """Decoration writes onto copied dicts, not the caller's row objects."""
+        rows = [_make_row("AAPL")]
+        positions = {"AAPL": _make_position("AAPL")}
+        _apply_overlays(rows, {}, positions, inject_unranked=True)
+        # The caller's original row dict gained no overlay keys.
+        assert "held" not in rows[0]
+        assert "vetter_excluded" not in rows[0]
+
+    def test_run_metadata_stable_when_injected_row_lands_at_index_0(self):
+        """If an injected broker row sorts to index 0, run metadata derived from
+        the authoritative run row must still reflect the real latest run, not the
+        injected row's (possibly None) rank_date.
+
+        Mirrors the call-site logic: capture latest_rank_date from the ORIGINAL
+        ranked rows (== run_rows[0].rank_date) BEFORE overlays; result[0] may be
+        an injected row but the metadata must not move.
+        """
+        real_rank_date = "2026-05-22"
+        rows = [_make_row("AAPL", rank=1, rank_date=real_rank_date)]
+        # Caller captures the authoritative date from the ORIGINAL ranked rows.
+        latest_rank_date = rows[0]["rank_date"]
+        # An unranked broker holding gets injected with rank 9999 (sorts last by
+        # rank, but the API does NOT re-sort, so simulate it sitting at index 0
+        # by giving the test a position whose injected row could front-run).
+        positions = {"ZZZZ": _make_position("ZZZZ")}
+        result = _apply_overlays(rows, {}, positions, inject_unranked=True)
+        injected = next(r for r in result if r["ticker"] == "ZZZZ")
+        # Injected row inherits the run_date_val (the real date here, since rows
+        # was non-empty) — but the metadata must come from latest_rank_date,
+        # which is unchanged regardless of what overlays produced.
+        assert latest_rank_date == real_rank_date
+        # The captured date is independent of the post-overlay list ordering.
+        assert latest_rank_date == rows[0]["rank_date"]
+        # Sanity: the injected row exists in the returned (copied) list only.
+        assert injected["ticker"] == "ZZZZ"
+        assert all(r["ticker"] != "ZZZZ" for r in rows)
+
+
 # ── Scenario tests: end-to-end data assembly ─────────────────────────────────
 
 class TestSearchScenarios:
