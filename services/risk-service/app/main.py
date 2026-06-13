@@ -368,14 +368,14 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
                         baseline_row = (await conn.execute(text(
                             "SELECT account_value FROM alpaca_sync_runs "
                             "WHERE status='success' "
-                            "AND DATE(completed_at AT TIME ZONE :risk_tz) = :sim_date::date "
+                            "AND to_char(completed_at AT TIME ZONE :risk_tz, 'YYYY-MM-DD') = :sim_date "
                             "ORDER BY completed_at ASC LIMIT 1"
                         ), {"risk_tz": RISK_TZ_NAME, "sim_date": req.sim_date})).first()
                     else:
                         baseline_row = (await conn.execute(text(
                             "SELECT account_value FROM alpaca_sync_runs "
                             "WHERE status='success' "
-                            "AND DATE(completed_at AT TIME ZONE :risk_tz) = :trading_day::date "
+                            "AND to_char(completed_at AT TIME ZONE :risk_tz, 'YYYY-MM-DD') = :trading_day "
                             "ORDER BY completed_at ASC LIMIT 1"
                         ), {"risk_tz": RISK_TZ_NAME, "trading_day": _trading_day_today()})).first()
                     current_row = (await conn.execute(text(
