@@ -370,16 +370,37 @@ class TestStepState:
 
     @pytest.mark.asyncio
     async def test_upstream_rank_date_fallback_when_no_ranking(self):
-        """use_upstream_rank_date=True but latest_rank_date=None (no ranking yet): falls
-        back to trading_day so the chain still triggers ranking via the earlier steps.
+        """UPSTREAM_RANK with latest_rank_date=None falls back to the SESSION date —
+        NOT wall-clock today/trading_day. A data-date step must never be compared
+        against a wall-clock reference (that re-introduces the re-trigger loop / vetter
+        re-bill). When the step's data-date matches the session it reads 'done'.
+        """
+        today = "2026-05-27"
+        trading_day = "2026-05-27"
+        session = "2026-05-26"  # data session lags wall clock; step ran for it
+        step = self._make_step(date_field="portfolio_date", use_upstream_rank_date=True)
+        client = _async_client_returning({"status": "success", "portfolio_date": "2026-05-26"})
+        result = await _step_state(client, step, today, trading_day, "2026-05-25",
+                                   latest_rank_date=None, session=session)
+        assert result == "done"
+
+    @pytest.mark.asyncio
+    async def test_upstream_rank_date_none_never_matches_wall_clock_today(self):
+        """REGRESSION (B1): with latest_rank_date=None AND session=None the step must
+        NOT read 'done'/'idle' by comparing its data-date against wall-clock today.
+        The old fallback compared portfolio_date==today and force-completed (or
+        re-triggered) on a DB outage — the re-trigger loop. Now it returns 'blocked'
+        so the supervisor waits instead of churning against a wall-clock reference.
         """
         today = "2026-05-27"
         trading_day = "2026-05-27"
         step = self._make_step(date_field="portfolio_date", use_upstream_rank_date=True)
+        # portfolio_date == today: under the old bug this matched today → 'done'.
         client = _async_client_returning({"status": "success", "portfolio_date": "2026-05-27"})
         result = await _step_state(client, step, today, trading_day, "2026-05-26",
-                                   latest_rank_date=None)
-        assert result == "done"
+                                   latest_rank_date=None, session=None)
+        assert result == "blocked"
+        assert result not in ("done", "idle")
 
 
 # ── TestSupervisorTick ────────────────────────────────────────────────────────
@@ -2021,14 +2042,22 @@ class TestRestartAbortLoopBreaker:
     def _max(self) -> int:
         return self._g()["MAX_RESTART_ABORT_RETRIES"]
 
-    def _aborted_payload(self, started_at: str, run_date: str = "2026-05-21") -> dict:
+    def _aborted_payload(self, started_at: str, run_date: str = "2026-05-21",
+                         run_id: str | None = None) -> dict:
         from stock_strategy_shared.tracing import RESTART_ABORT_MARKER
-        return {
+        payload = {
             "status": "failed",
             "run_date": run_date,
             "started_at": started_at,
             "error_message": f"{RESTART_ABORT_MARKER} service restarted while run was active",
         }
+        # The breaker now dedups distinct crash cycles by the orphan's run_id (unique
+        # per attempt) — NOT started_at, which collapsed to run_date when absent and
+        # so capped the counter at 1 (the breaker never fired). Tests that model
+        # distinct/same cycles must therefore vary/repeat run_id.
+        if run_id is not None:
+            payload["run_id"] = run_id
+        return payload
 
     @pytest.mark.asyncio
     async def test_suspends_after_max_distinct_crash_cycles(self):
@@ -2036,23 +2065,46 @@ class TestRestartAbortLoopBreaker:
         today = "2026-05-21"
         step = self._make_step()
         results = []
-        # Each distinct started_at = one crash cycle (a fresh run that died again).
+        # Each distinct run_id = one crash cycle (a fresh re-triggered run that died again).
         for i in range(self._max() + 1):
-            client = _async_client_returning(self._aborted_payload(f"2026-05-21T10:0{i}:00Z"))
+            client = _async_client_returning(
+                self._aborted_payload(f"2026-05-21T10:0{i}:00Z", run_id=f"run-{i}")
+            )
             results.append(await _step_state(client, step, today, today, "2026-05-20"))
         # First MAX cycles re-trigger; the one past the limit suspends.
         assert results[:self._max()] == ["idle"] * self._max()
         assert results[-1] == "failed", f"expected suspend after limit, got {results}"
 
     @pytest.mark.asyncio
-    async def test_same_orphan_across_ticks_counts_once(self):
-        """Re-seeing the SAME orphan (same started_at) over many ticks must NOT
-        advance the crash count — it is one cycle until the re-trigger creates a
-        new run. Otherwise a fast supervisor tick would trip the breaker spuriously."""
+    async def test_suspends_when_no_run_id_counts_every_cycle(self):
+        """REGRESSION (B3): when the orphan payload carries NO run_id we cannot dedup,
+        so EVERY observation counts as a cycle (over-counting is the safe direction —
+        trip sooner rather than loop forever). Previously the token fell back to
+        run_date (identical every cycle) so the counter capped at 1 and the breaker
+        NEVER tripped. Now repeated run_id-less orphans must suspend after the limit."""
         self._reset()
         today = "2026-05-21"
         step = self._make_step()
-        payload = self._aborted_payload("2026-05-21T10:00:00Z")
+        payload = self._aborted_payload("2026-05-21T10:00:00Z")  # no run_id
+        results = [
+            await _step_state(_async_client_returning(payload), step, today, today, "2026-05-20")
+            for _ in range(self._max() + 2)
+        ]
+        assert results[:self._max()] == ["idle"] * self._max()
+        assert "failed" in results, (
+            f"breaker must trip when no run_id is available to dedup, got {results}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_same_orphan_across_ticks_counts_once(self):
+        """Re-seeing the SAME orphan (same run_id) over many ticks must NOT advance
+        the crash count — it is one cycle until the re-trigger creates a new run
+        (with a new run_id). Otherwise a fast supervisor tick would trip the breaker
+        spuriously."""
+        self._reset()
+        today = "2026-05-21"
+        step = self._make_step()
+        payload = self._aborted_payload("2026-05-21T10:00:00Z", run_id="run-stable")
         results = [
             await _step_state(_async_client_returning(payload), step, today, today, "2026-05-20")
             for _ in range(self._max() + 5)

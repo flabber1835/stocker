@@ -86,9 +86,13 @@ CHAIN_HEALTH_MAX_AGE_HOURS = float(os.getenv("CHAIN_HEALTH_MAX_AGE_HOURS", "36")
 MAX_RESTART_ABORT_RETRIES = int(os.getenv("MAX_RESTART_ABORT_RETRIES", "3"))
 # (step_name, run_date) -> number of distinct restart-abort crash cycles seen.
 _restart_abort_cycles: dict[tuple[str, str], int] = {}
-# started_at tokens already counted, so re-seeing the SAME orphan across ticks
-# (before the re-trigger writes a new run row) does not double-count a cycle.
-_restart_abort_seen: set[str] = set()
+# (step, run_date) -> set of orphan run_id tokens already counted, so re-seeing the
+# SAME orphan across ticks (before the re-trigger writes a new run row) does not
+# double-count a cycle. Scoped by (step, run_date) — the SAME key as
+# _restart_abort_cycles — so a clean success can clear BOTH together; previously
+# this was a flat global set that was never cleared, so stale tokens accumulated
+# across days and a recovered step kept its old tokens forever.
+_restart_abort_seen: dict[tuple[str, str], set[str]] = {}
 
 # Per-step trigger cooldown. When a step is "idle" the supervisor POSTs /jobs/*
 # to start it, then waits for the next tick. But there's a lag between accepting
@@ -147,6 +151,23 @@ def _log(msg: str, **extra) -> None:
     if len(_event_log) > _MAX_LOG:
         _event_log.pop(0)
     print(f"[scheduler] {msg}", flush=True)
+
+
+def _clear_restart_abort_state(step_name: str) -> None:
+    """Drop ALL crash-loop-breaker bookkeeping for a step on a clean success.
+
+    Clears both `_restart_abort_cycles` (the per-(step, run_date) crash count)
+    and `_restart_abort_seen` (the per-(step, run_date) set of already-counted
+    orphan run_id tokens) for every run_date belonging to this step. We clear by
+    STEP, not by a single (step, run_date), because a success means the step has
+    recovered — any orphan-cycle bookkeeping for an earlier crashing cycle of the
+    SAME step is now moot, and leaving stale tokens around would let them
+    accumulate across days (the dict was never cleared before this fix). A later
+    transient restart starts counting from zero again, as intended.
+    """
+    for d in (_restart_abort_cycles, _restart_abort_seen):
+        for key in [k for k in d if k[0] == step_name]:
+            d.pop(key, None)
 
 
 # ── Step definitions ──────────────────────────────────────────────────────────
@@ -587,7 +608,7 @@ async def _cancel_all_open_orders(context: str = "manual-run") -> bool:
 
 # ── Supervisor state-machine ──────────────────────────────────────────────────
 
-StepState = Literal["done", "running", "failed", "idle"]
+StepState = Literal["done", "running", "failed", "idle", "blocked"]
 
 
 def _comparable_run_date(raw) -> str:
@@ -645,9 +666,25 @@ async def _step_state(
         data = r.json()
         if step.job_type and data.get("job_type") != step.job_type:
             return "idle"
-        if step.date_anchor is DateAnchor.UPSTREAM_RANK and latest_rank_date:
-            target = latest_rank_date
-            ok_dates = {target}
+        if step.date_anchor is DateAnchor.UPSTREAM_RANK:
+            # A data-date step must NEVER be compared against wall-clock `today`.
+            # latest_rank_date is None on ANY DB error in _latest_rank_date (broad
+            # except) OR before the first ranking run exists. Falling through to the
+            # `today` branch here re-introduces the re-trigger loop (and re-bills the
+            # LLM vetter). Fall back to the SESSION date — the same data-session that
+            # SESSION-anchored steps compare against — so it stays data-date vs
+            # data-date. If neither is available, do NOT treat the step as idle
+            # (which would re-trigger); report its current status verbatim
+            # ("blocked") so the supervisor waits instead of churning.
+            if latest_rank_date:
+                target = latest_rank_date
+                ok_dates = {target}
+            elif session:
+                target = session
+                ok_dates = {target}
+            else:
+                run_status = data.get("status")
+                return run_status if run_status in ("running", "failed") else "blocked"
         elif step.date_anchor is DateAnchor.SESSION:
             # Compare the step's data-session date (session_date / run_date) against
             # the session the chain is processing. Stable across midnight — this is
@@ -710,13 +747,17 @@ async def _step_state(
                 and run_date  # non-empty
                 and run_date > target
             ):
-                _restart_abort_cycles.pop((step.name, run_date), None)
+                _clear_restart_abort_state(step.name)
                 return "done"
             return "idle"
         if run_status in ("success",) + step.extra_ok:
-            # Clean success clears any crash-cycle count for this (step, date) so a
-            # later transient restart can still recover normally.
-            _restart_abort_cycles.pop((step.name, run_date), None)
+            # Clean success clears any crash-cycle count AND the counted-token set
+            # for this step so a later transient restart can recover normally and
+            # the token set does not accumulate stale run_ids across days. We clear
+            # by step (not just this run_date) because a success means the step
+            # recovered — any orphan-cycle bookkeeping for an earlier crashing
+            # cycle of the SAME step is now moot.
+            _clear_restart_abort_state(step.name)
             return "done"
         if run_status in ("failed",):
             # Restart-aborted runs are recoverable — when a service crashes mid-run
@@ -726,13 +767,27 @@ async def _step_state(
             from stock_strategy_shared.tracing import RESTART_ABORT_MARKER
             err = data.get("error_message") or ""
             if err.startswith(RESTART_ABORT_MARKER):
-                # Count distinct crash cycles (deduped by started_at) so a
-                # deterministic crash that reproduces every retry can't loop forever.
-                token = str(data.get("started_at") or data.get(step.date_field) or err)
+                # Count distinct crash cycles so a deterministic crash that
+                # reproduces every retry can't loop forever. Dedup MUST be on the
+                # orphaned run's run_id — it is unique per attempt, so re-seeing the
+                # SAME orphan across fast ticks counts once, while each fresh
+                # re-triggered run (new run_id) counts as a new cycle. The old token
+                # (started_at or run_date) collapsed to run_date when started_at was
+                # missing — identical every cycle — so the counter capped at 1 and
+                # the breaker NEVER tripped. If there is no run_id we cannot dedup,
+                # so COUNT the cycle anyway (never silently skip) — slightly
+                # over-counting is the safe direction: it trips the breaker sooner
+                # rather than letting a deterministic crash loop forever.
                 key = (step.name, run_date)
-                if token and token not in _restart_abort_seen:
-                    _restart_abort_seen.add(token)
+                run_id_token = data.get("run_id")
+                if run_id_token is None:
                     _restart_abort_cycles[key] = _restart_abort_cycles.get(key, 0) + 1
+                else:
+                    token = str(run_id_token)
+                    seen = _restart_abort_seen.setdefault(key, set())
+                    if token not in seen:
+                        seen.add(token)
+                        _restart_abort_cycles[key] = _restart_abort_cycles.get(key, 0) + 1
                 cycles = _restart_abort_cycles.get(key, 0)
                 if cycles > MAX_RESTART_ABORT_RETRIES:
                     _log(
@@ -1026,7 +1081,14 @@ async def _supervisor_tick() -> None:
                         _chain_status["run_ids"][step.name] = svc_run_id
                     continue
 
-                if state == "running":
+                if state in ("running", "blocked"):
+                    # "blocked" = an UPSTREAM_RANK step whose data-date reference is
+                    # unavailable (both latest_rank_date AND session are None — a
+                    # transient DB outage). Do NOT trigger it (that would compare
+                    # against wall-clock today and re-loop); wait for the next tick
+                    # when the reference may be readable again. Treated exactly like
+                    # "running" so the chain pauses on THIS step instead of falling
+                    # through to evaluate downstream steps out of order.
                     _chain_status["status"] = "running"
                     await _db_update_run(run_id, "running", _chain_status["steps"], _chain_status["run_ids"],
                                           force_pending=_force_pending)
@@ -1445,17 +1507,26 @@ async def run_now(background_tasks: BackgroundTasks):
     # Clear the "today already succeeded" gate so the supervisor actually
     # advances. Reset steps so the UI does not display a half-stale chain
     # while the new triggers fire. origin='manual' tags this chain so the delta
-    # step is triggered with manual=true (→ no dashboard auto-approve). Safe to
-    # mutate without locking here because _run_now_lock.locked() check above
-    # guarantees no concurrent run-now is in progress; the cron supervisor's
-    # regular ticks only mutate state under _chain_lock (inside _supervisor_tick).
-    _chain_status.update({
-        "date": session, "status": None, "steps": {}, "run_ids": {},
-        "current_run_id": None, "origin": "manual",
-    })
-    _force_pending.update(s.name for s in _STEPS)
+    # step is triggered with manual=true (→ no dashboard auto-approve).
+    #
+    # This MUST hold _chain_lock. _run_now_lock.locked() only guards against a
+    # second run-now; it does NOT exclude the cron _supervisor_tick, which
+    # mutates the SAME _chain_status/_force_pending under _chain_lock. Without
+    # the lock here a cron tick could interleave between our clearing
+    # current_run_id and the new chain opening — orphaning the just-opened run,
+    # flipping origin manual→scheduled (auto-approving what should need a human),
+    # or spawning a duplicate concurrent chain. Acquiring _chain_lock makes the
+    # reset atomic w.r.t. ticks: any in-flight tick finishes first, then our
+    # reset lands as one indivisible unit before the next tick can observe it.
+    async with _chain_lock:
+        _chain_status.update({
+            "date": session, "status": None, "steps": {}, "run_ids": {},
+            "current_run_id": None, "origin": "manual",
+        })
+        _force_pending.update(s.name for s in _STEPS)
+        forced = sorted(_force_pending)
     background_tasks.add_task(_run_supervised_fast)
-    return {"status": "started", "forced_steps": sorted(_force_pending)}
+    return {"status": "started", "forced_steps": forced}
 
 
 @app.get("/runs/latest")
