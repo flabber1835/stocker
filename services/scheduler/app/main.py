@@ -400,6 +400,74 @@ async def _latest_delta_date() -> date | None:
         await conn.close()
 
 
+async def _persist_restart_cycle(step_name: str, run_date: str, run_id_token: str | None) -> int | None:
+    """Durably record a RESTART_ABORTED crash cycle for (step, run_date) and return
+    the persisted cycle count, or None if the DB is unreachable.
+
+    This is the SOURCE OF TRUTH for the crash-loop breaker. The in-memory
+    _restart_abort_cycles dict resets on every scheduler restart — including the
+    very restart a deterministic crash (OOM) triggers — so a process-memory-only
+    counter re-arms from 0 and loops forever. Persisting here makes the count
+    survive the restart it is guarding.
+
+    Dedup matches the in-memory logic exactly: a NEW orphan run_id_token bumps
+    cycle_count; re-seeing the SAME token (the same orphan across fast ticks,
+    before the re-trigger writes a new run row) does NOT bump it. A NULL token
+    (no run_id to dedup on) always bumps — over-counting is the safe direction
+    (trips the breaker sooner) and matches the in-memory branch.
+
+    The whole UPSERT is one statement so concurrent ticks can't double-count.
+    """
+    conn = await _db_connect()
+    if not conn:
+        return None
+    try:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO scheduler_restart_cycles (step, run_date, run_id_token, cycle_count, updated_at)
+            VALUES ($1, $2::date, $3, 1, NOW())
+            ON CONFLICT (step, run_date) DO UPDATE SET
+                cycle_count = scheduler_restart_cycles.cycle_count
+                    + CASE
+                        WHEN $3 IS NULL THEN 1
+                        WHEN scheduler_restart_cycles.run_id_token IS DISTINCT FROM $3 THEN 1
+                        ELSE 0
+                      END,
+                run_id_token = COALESCE($3, scheduler_restart_cycles.run_id_token),
+                updated_at = NOW()
+            RETURNING cycle_count
+            """,
+            step_name, run_date, run_id_token,
+        )
+        return int(row["cycle_count"]) if row else None
+    except Exception as exc:
+        _log("DB: persist_restart_cycle failed", error=str(exc))
+        return None
+    finally:
+        await conn.close()
+
+
+async def _clear_persisted_restart_cycles(step_name: str) -> None:
+    """Drop ALL persisted crash-cycle rows for a step on a clean success.
+
+    Clears by STEP (every run_date), mirroring _clear_restart_abort_state: a
+    success means the step recovered, so any earlier crashing cycle's bookkeeping
+    is moot and must not accumulate across days. No-ops if the DB is unreachable
+    (the table may not exist yet on a partially-migrated DB → broad except).
+    """
+    conn = await _db_connect()
+    if not conn:
+        return
+    try:
+        await conn.execute(
+            "DELETE FROM scheduler_restart_cycles WHERE step=$1", step_name
+        )
+    except Exception as exc:
+        _log("DB: clear_persisted_restart_cycles failed", error=str(exc))
+    finally:
+        await conn.close()
+
+
 async def _restore_force_pending() -> tuple[str | None, set[str]]:
     """On startup, recover any in-flight chain for today and its pending force-rerun
     steps from the DB. Returns (run_id, pending_set) — both empty if no in-flight run.
@@ -748,6 +816,7 @@ async def _step_state(
                 and run_date > target
             ):
                 _clear_restart_abort_state(step.name)
+                await _clear_persisted_restart_cycles(step.name)
                 return "done"
             return "idle"
         if run_status in ("success",) + step.extra_ok:
@@ -756,8 +825,11 @@ async def _step_state(
             # the token set does not accumulate stale run_ids across days. We clear
             # by step (not just this run_date) because a success means the step
             # recovered — any orphan-cycle bookkeeping for an earlier crashing
-            # cycle of the SAME step is now moot.
+            # cycle of the SAME step is now moot. The persisted (DB) row is the
+            # source of truth, so it must be cleared too — otherwise a stale count
+            # would survive a later restart and trip the breaker on a healthy step.
             _clear_restart_abort_state(step.name)
+            await _clear_persisted_restart_cycles(step.name)
             return "done"
         if run_status in ("failed",):
             # Restart-aborted runs are recoverable — when a service crashes mid-run
@@ -780,15 +852,26 @@ async def _step_state(
                 # rather than letting a deterministic crash loop forever.
                 key = (step.name, run_date)
                 run_id_token = data.get("run_id")
-                if run_id_token is None:
+                token = str(run_id_token) if run_id_token is not None else None
+                # SOURCE OF TRUTH is the persisted count: the in-memory dict resets
+                # on a scheduler restart — including the very restart a deterministic
+                # crash (OOM) triggers — so a memory-only counter re-arms from 0 and
+                # loops forever. _persist_restart_cycle does the same dedup (bump on a
+                # NEW run_id token / NULL token, no-op on a re-seen token) but durably,
+                # and returns the persisted count so the breaker trips across restarts.
+                persisted = await _persist_restart_cycle(step.name, run_date, token)
+                # Keep the in-memory dicts as a fast cache, mirroring the persisted
+                # dedup, so nothing breaks when the DB is unreachable (persisted=None).
+                if token is None:
                     _restart_abort_cycles[key] = _restart_abort_cycles.get(key, 0) + 1
                 else:
-                    token = str(run_id_token)
                     seen = _restart_abort_seen.setdefault(key, set())
                     if token not in seen:
                         seen.add(token)
                         _restart_abort_cycles[key] = _restart_abort_cycles.get(key, 0) + 1
-                cycles = _restart_abort_cycles.get(key, 0)
+                # Prefer the durable count; fall back to the in-memory cache only when
+                # the DB is unreachable (persisted is None).
+                cycles = persisted if persisted is not None else _restart_abort_cycles.get(key, 0)
                 if cycles > MAX_RESTART_ABORT_RETRIES:
                     _log(
                         f"supervisor: {step.name} restart-aborted {cycles}x for {run_date} "
@@ -1449,7 +1532,15 @@ async def health_chain():
         return Response(content=__import__("json").dumps(body), status_code=503,
                         media_type="application/json")
 
-    age_h = (datetime.now(timezone.utc) - row["completed_at"]).total_seconds() / 3600.0
+    # tz-safety: scheduler_runs.completed_at is timestamptz (tz-aware) in production,
+    # but a naive datetime (e.g. a column written as plain TIMESTAMP, a sqlite-backed
+    # test, or a mock) would raise TypeError on the subtraction below ("can't subtract
+    # offset-naive and offset-aware datetimes") and 500 the health endpoint. Coerce a
+    # naive timestamp to UTC (services stamp completed_at in UTC) before subtracting.
+    completed_at = row["completed_at"]
+    if completed_at.tzinfo is None:
+        completed_at = completed_at.replace(tzinfo=timezone.utc)
+    age_h = (datetime.now(timezone.utc) - completed_at).total_seconds() / 3600.0
     body["last_success_chain_date"] = str(row["chain_date"]) if row["chain_date"] else None
     body["last_success_completed_at"] = row["completed_at"].isoformat()
     body["age_hours"] = round(age_h, 2)
