@@ -31,13 +31,16 @@ down_revision = "0024"
 
 
 def upgrade() -> None:
-    # Immutable AV source column; backfill existing rows from the current AV value.
+    # Immutable AV source column. ADD COLUMN with no default is metadata-only (instant).
+    # We DO NOT backfill the whole table: a `UPDATE daily_prices SET raw_adjusted_close
+    # = adjusted_close` rewrites EVERY row (multi-million-row MVCC rewrite → minutes of
+    # stall + ~2x table bloat + stale stats → every later daily_prices read crawls).
+    # Only corporate_actions tickers need raw_adjusted_close, so av-ingestor populates
+    # it lazily per-ticker (apply_spinoff_adjustments), and _upsert_prices sets it for
+    # every new bar on write. Non-action tickers leave it NULL and are unaffected
+    # (consumers read adjusted_close, which stays the AV value for them).
     op.execute(
         "ALTER TABLE daily_prices ADD COLUMN IF NOT EXISTS raw_adjusted_close NUMERIC(14,4)"
-    )
-    op.execute(
-        "UPDATE daily_prices SET raw_adjusted_close = adjusted_close "
-        "WHERE raw_adjusted_close IS NULL"
     )
 
     # Curated corporate-action ex-dates (currently spinoffs). adj_factor is OPTIONAL:

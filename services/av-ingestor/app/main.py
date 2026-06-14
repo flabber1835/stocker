@@ -233,6 +233,14 @@ async def apply_spinoff_adjustments(session, ticker: str | None = None) -> int:
 
     total = 0
     for tk, ex_dates in ex_by_ticker.items():
+        # Lazily backfill raw_adjusted_close for THIS ticker only (tiny set), since the
+        # migration no longer backfills the whole table. Cheap per-ticker UPDATE; a
+        # no-op once populated.
+        await session.execute(
+            text("UPDATE daily_prices SET raw_adjusted_close = adjusted_close "
+                 "WHERE ticker = :t AND raw_adjusted_close IS NULL AND adjusted_close IS NOT NULL"),
+            {"t": tk},
+        )
         price_rows = (await session.execute(
             text("SELECT date, raw_adjusted_close FROM daily_prices "
                  "WHERE ticker = :t AND raw_adjusted_close IS NOT NULL ORDER BY date"),
