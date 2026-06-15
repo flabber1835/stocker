@@ -160,7 +160,12 @@ portfolio_builder:
 
 vetter:
   enabled: true
-  candidate_count: 100         # must cover the portfolio-builder candidate horizon (100) so every selectable name is drawdown-checked; else candidates 61-100 enter unvetted
+  candidate_count: 200         # schema max (le=200). Vets top-200 by rank + all held. In
+                               # RESTRICT mode the builder selects from the theme pool, whose
+                               # members span deeper ranks (seen down to ~626), so 200 covers
+                               # theme names ranked <=200 but cannot reach the deepest — full
+                               # restrict-mode coverage needs theme-aware vetting (vet the
+                               # builder's theme pool), not a rank-based count. Non-restrict: 200 >> builder horizon (100).
   risk_horizon_days: 90        # risk assessment window — holding is variable (weeks to months)
   system_prompt_file: /strategies/quality_core_v1.vetter_prompt.txt
   max_searches_per_ticker: 3   # agentic web searches allowed per ticker
