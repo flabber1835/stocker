@@ -11,6 +11,10 @@ let rankSort  = { col: 'rank', dir: 1 };
 let liveSort  = { col: 'market_value', dir: -1 };
 let targetSort = { col: 'rank', dir: 1 };   // Target tab table sort
 let targetRows = [];                         // merged held∪target rows for the Target tab
+let _fullRankByTicker = {};                  // ticker → full-universe rank record (Target tab
+                                             // detail cards: a target/held name ranked beyond
+                                             // the screener's top-100 must still resolve its
+                                             // real rank/score/factors, not look "not in universe")
 let targetPortfolioRun = null;               // /portfolio run summary (portfolio_beta, est vol)
 let _expandedTargetTicker = null;            // Target tab detail-expansion state
 
@@ -1366,7 +1370,10 @@ function buildTargetRows() {
   deltaData.forEach(it => {
     const meta = TARGET_TRADE[it.action];
     if (!meta) return;   // unknown/non-actionable action → skip (watch IS mapped now)
-    const rec = byTicker[it.ticker] || {
+    // Prefer the overlay-rich top-100 record; else the full-universe record (real
+    // rank/score/factors for names beyond the top-100); else a genuine "not ranked"
+    // stub (only then is the "NOT IN RANKING UNIVERSE" note correct).
+    const rec = byTicker[it.ticker] || _fullRankByTicker[it.ticker] || {
       ticker: it.ticker, rank: it.rank, name: it.name || null,
       composite_score: it.composite_score, not_in_universe: true,
     };
@@ -1408,6 +1415,16 @@ async function loadTargetPortfolio() {
     // enriched with the screener's rank/arrows/detail. Refresh both sources.
     await loadDelta();
     if (!rankData.length) await loadRankings();
+    // Resolve EVERY target/held name's record against the FULL ranking, not just the
+    // screener's top-100 — otherwise a name ranked beyond 100 (e.g. a portfolio
+    // holding at rank 133) isn't in rankData and falls to the "not in universe" stub
+    // with blank factors, which is wrong (it IS ranked). /rankings returns
+    // factor_scores + percentile + rank_slope for the whole universe.
+    try {
+      const rk = await fetch('/api/rankings?limit=5000', {cache:'no-store'}).then(r => r.json());
+      _fullRankByTicker = {};
+      (rk.rankings || []).forEach(r => { _fullRankByTicker[r.ticker] = _mapRankRow(r); });
+    } catch (_) { /* keep last good map; buildTargetRows still falls back to the stub */ }
     // Target-book risk summary (weight-weighted portfolio beta + est vol).
     try {
       const pr = await fetch('/api/portfolio').then(r => r.json());

@@ -70,6 +70,11 @@ def _delta_payload():
         # (weight 0, never selected). Must show HELD✓ but TARGET✗ — it must NOT
         # inflate the Target count (regression for the "38 vs 30 ticks" bug).
         _intent("DGAP", "hold", 9999, in_target=False, current_weight=0.0),
+        # Target name ranked BEYOND the screener's top-100 (e.g. portfolio holding
+        # at rank 133). It is NOT in /api/rankings/with-overlays (top set) but IS in
+        # the full /api/rankings — so its detail card must resolve real rank/factors,
+        # NOT show "NOT IN RANKING UNIVERSE" (regression for the LFUS bug).
+        _intent("FAR", "watch", 133, in_target=True),
     ]
     return {"run": {"run_id": "t1", "run_date": "2026-06-06"}, "intents": intents}
 
@@ -98,6 +103,12 @@ def _rankings_payload():
         _rank_row("FFF", 6),
         _rank_row("GGG", 7),
     ]}
+
+
+def _full_rankings_payload():
+    # The FULL ranking (/api/rankings?limit=5000): the top set PLUS FAR at rank 133,
+    # which is NOT in the with-overlays top set. The Target tab resolves FAR here.
+    return {"rankings": _rankings_payload()["rankings"] + [_rank_row("FAR", 133)]}
 
 
 def _page() -> str:
@@ -158,6 +169,9 @@ def _run() -> dict:
                 route.fulfill(status=200, content_type="application/json", body=json.dumps(delta))
             elif "/api/rankings/with-overlays" in url:
                 route.fulfill(status=200, content_type="application/json", body=json.dumps(rankings))
+            elif "/api/rankings" in url:   # full ranking (limit=5000) — Target detail resolution
+                route.fulfill(status=200, content_type="application/json",
+                              body=json.dumps(_full_rankings_payload()))
             elif "/api/regime" in url:
                 route.fulfill(status=200, content_type="application/json",
                               body=json.dumps({"regime": "bull_calm", "spy_price": 500}))
@@ -178,8 +192,10 @@ def _run() -> dict:
         page.evaluate(
             "(d) => { deltaData = d.delta.intents;"
             "         rankData = d.rank.rankings.map(_mapRankRow);"
+            "         _fullRankByTicker = {};"
+            "         d.full.rankings.forEach(r => { _fullRankByTicker[r.ticker] = _mapRankRow(r); });"
             "         buildTargetRows(); renderTargetTable(); }",
-            {"delta": delta, "rank": rankings},
+            {"delta": delta, "rank": rankings, "full": _full_rankings_payload()},
         )
         page.wait_for_timeout(200)
         res["target_html_len"] = len(page.locator("#target-body").inner_html())
@@ -221,6 +237,15 @@ def _run() -> dict:
         res["detail_present"] = page.locator("#detail-row-AAA").count()
         res["detail_has_ticker"] = ("AAA" in (page.locator("#detail-row-AAA").text_content() or "")) if res["detail_present"] else False
 
+        # FAR (rank 133, beyond top-100, resolved from the FULL ranking) → its detail
+        # card must NOT say "NOT IN RANKING UNIVERSE" and must show real rank/factors.
+        page.eval_on_selector("#tgt-row-FAR", "el => el.click()")
+        page.wait_for_timeout(100)
+        far_detail = page.locator("#detail-row-FAR").text_content() or "" if page.locator("#detail-row-FAR").count() else ""
+        res["far_detail_present"] = page.locator("#detail-row-FAR").count()
+        res["far_not_in_universe"] = "NOT IN RANKING UNIVERSE" in far_detail
+        res["far_rank_cell"] = _cell_text(page, "FAR", 0)
+
         browser.close()
     res["errors"] = errors
     return res
@@ -240,10 +265,14 @@ def main() -> int:
 
     print("=== TARGET tab playwright ===")
     print("rows:", r["row_tickers"])
-    check(set(r["row_tickers"]) == {"AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG", "HHH", "DGAP"},
-          "held∪target rows incl. watch GGG (deferred target), orphan HHH, data-gap DGAP")
+    check(set(r["row_tickers"]) == {"AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG", "HHH", "DGAP", "FAR"},
+          "held∪target rows incl. watch GGG, orphan HHH, data-gap DGAP, beyond-top-N FAR")
     check(r["DGAP_held"] == 1 and r["DGAP_target"] == 0,
           "DGAP (data-gap hold, in_target=False) → HELD✓ TARGET· (does NOT inflate target)")
+    check(r.get("far_detail_present") == 1 and not r.get("far_not_in_universe"),
+          "FAR (rank 133, beyond top-100) detail resolves from full ranking — NOT 'not in universe'")
+    check(r.get("far_rank_cell", "").startswith("133"),
+          f"FAR shows its real rank 133 (got {r.get('far_rank_cell')!r})")
     check(r["GGG_held"] == 0 and r["GGG_target"] == 1, "GGG (watch) → HELD· TARGET✓ (deferred)")
     check(r["GGG_trade"] == "Watch", f"GGG trade label = Watch (got {r.get('GGG_trade')!r})")
     check(r["AAA_held"] == 1 and r["AAA_target"] == 1, "AAA (hold) → HELD✓ TARGET✓")
@@ -279,6 +308,10 @@ def test_target_tab_marks_and_data_gap_hold():
     assert r["AAA_held"] == 1 and r["AAA_target"] == 1, "in-target hold ticks TARGET"
     assert r["CCC_held"] == 1 and r["CCC_target"] == 0, "exit/orphan does not tick TARGET"
     assert r["GGG_held"] == 0 and r["GGG_target"] == 1, "watch (deferred target) ticks TARGET"
+    # Beyond-top-100 target name resolves from the full ranking (LFUS regression).
+    assert r.get("far_detail_present") == 1, "FAR detail card should render"
+    assert not r.get("far_not_in_universe"), "FAR (rank 133) must NOT show 'NOT IN RANKING UNIVERSE'"
+    assert r.get("far_rank_cell", "").startswith("133"), "FAR shows its real rank 133"
 
 
 if __name__ == "__main__":
