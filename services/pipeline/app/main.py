@@ -28,6 +28,11 @@ from stock_strategy_shared.schemas.strategy import StrategyConfig
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.tracing import log_step, write_trace_file, mark_orphaned_runs_failed
 from stock_strategy_shared.db import wait_for_db
+from stock_strategy_shared.drawdown import recent_drawdown, scaled_excess_threshold
+# Backward-compat alias: the drawdown math now lives in the shared package (one source
+# of truth with the vetter's veto). _recent_drawdown is kept as a name so existing
+# imports/tests resolve; it IS the shared function.
+_recent_drawdown = recent_drawdown
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
@@ -60,41 +65,29 @@ DRAWDOWN_EXCESS_MAX = float(os.getenv("DRAWDOWN_EXCESS_MAX", "0.30"))
 
 
 def _excess_dd_limit(idio_vol: float | None) -> float:
-    """Per-ticker excess-drawdown trigger magnitude (positive). Mirrors the vetter's
-    scaled_excess_threshold: base × (idio_vol / anchor) clamped to [min, max] when
-    vol-scaling is on; the flat base when off or idio_vol is unavailable."""
+    """Per-ticker excess-drawdown trigger magnitude (positive). Delegates to the
+    SHARED scaled_excess_threshold (the same function the vetter's veto uses) so the
+    displayed limit can never drift from the actual trigger; vol-scaling off → flat base."""
     base = DRAWDOWN_EXCESS_PCT
-    if not DRAWDOWN_VOL_SCALING or idio_vol is None or DRAWDOWN_VOL_ANCHOR <= 0:
+    if not DRAWDOWN_VOL_SCALING:
         return base
-    return max(DRAWDOWN_EXCESS_MIN, min(DRAWDOWN_EXCESS_MAX, base * (idio_vol / DRAWDOWN_VOL_ANCHOR)))
-
-
-def _recent_drawdown(closes: list[float], window: int = 21) -> float | None:
-    """Trailing peak-to-now drawdown over the last `window` closes (oldest→newest).
-    Returns a value in (-1.0, 0.0] (0.0 = at peak), or None if no usable data."""
-    recent = [float(c) for c in closes[-window:] if c is not None and float(c) > 0]
-    if not recent:
-        return None
-    peak = max(recent)
-    if peak <= 0:
-        return None
-    return recent[-1] / peak - 1.0
+    return scaled_excess_threshold(idio_vol, base=base, anchor=DRAWDOWN_VOL_ANCHOR,
+                                   lo=DRAWDOWN_EXCESS_MIN, hi=DRAWDOWN_EXCESS_MAX)
 
 
 def _drawdown_map_from_rows(rows, window: int = 21) -> dict[str, float]:
     """Build {ticker: drawdown_21d} from daily_prices rows ordered (ticker, date ASC).
 
-    Pure: depends only on its arguments (rows are objects with .ticker /
-    .adjusted_close). Extracted from _do_rank so the drawdown step can be unit
-    tested and so it can never reference an orchestrator local that is not yet
-    in scope (the cause of the ranked_tickers forward-reference regression)."""
+    Uses the SHARED recent_drawdown (identical to the vetter's), so the screener's
+    21d-drawdown badge matches the veto's raw drawdown. Pure: depends only on its
+    arguments (rows have .ticker / .adjusted_close)."""
     closes: dict[str, list[float]] = {}
     for r in rows:
         if r.adjusted_close is not None:
             closes.setdefault(r.ticker, []).append(float(r.adjusted_close))
     out: dict[str, float] = {}
     for t, cl in closes.items():
-        dd = _recent_drawdown(cl, window=window)
+        dd = recent_drawdown(cl, window=window)
         if dd is not None:
             out[t] = dd
     return out
