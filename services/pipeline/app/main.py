@@ -234,19 +234,17 @@ def _excess_drawdown_map_from_rows(ticker_rows, spy_rows, window: int = 21,
 # vetter-credit-burn regression). Both default to America/New_York. Relying on
 # the implicit container TZ here (plain date.today()) is what broke the agreement
 # once the scheduler was made TZ-explicit.
-SCHEDULE_TZ_NAME = os.getenv("SCHEDULE_TZ", "America/New_York")
-try:
-    from zoneinfo import ZoneInfo
-    _SCHEDULE_TZ = ZoneInfo(SCHEDULE_TZ_NAME)
-except Exception:
-    _SCHEDULE_TZ = None
+# Shared resolver — MUST match scheduler's zone (canonical STOCKER_TZ, back-compat
+# SCHEDULE_TZ). Fails fast on missing tzdata instead of silently using UTC, which
+# would re-introduce the chain_date split-brain vs the scheduler.
+from stock_strategy_shared.trading_tz import resolve_trading_tz
+_SCHEDULE_TZ = resolve_trading_tz("SCHEDULE_TZ")
+SCHEDULE_TZ_NAME = str(_SCHEDULE_TZ)
 
 
 def _local_today() -> date:
     """Today's calendar date in SCHEDULE_TZ — must match scheduler._local_today()."""
-    if _SCHEDULE_TZ is not None:
-        return datetime.now(_SCHEDULE_TZ).date()
-    return date.today()
+    return datetime.now(_SCHEDULE_TZ).date()
 
 
 strategy: StrategyConfig | None = None

@@ -62,20 +62,22 @@ MAX_SYNC_AGE_HOURS     = _safe_float("MAX_SYNC_AGE_HOURS",     24.0)
 # (UTC session) rolls over at ~19:00–20:00 ET, mid-session for late-ET trading, so
 # a UTC-day baseline could compare a position against the WRONG day's opening
 # equity. We compute the reset date in this zone and pass it as a bound param.
-RISK_TZ_NAME = os.getenv("RISK_TZ", "America/New_York")
-try:
-    from zoneinfo import ZoneInfo
-    _RISK_TZ = ZoneInfo(RISK_TZ_NAME)
-except Exception:
-    _RISK_TZ = None
+# Shared resolver: honors the canonical STOCKER_TZ first, then RISK_TZ (back-compat).
+# Previously risk-service read ONLY RISK_TZ, so a deploy that set SCHEDULE_TZ/STOCKER_TZ
+# left risk-service on its own default — a divergence from scheduler/pipeline. Fails
+# fast on missing tzdata rather than silently using UTC. RISK_TZ_NAME is still the
+# IANA name string (str(ZoneInfo) == the key) for the SQL `AT TIME ZONE :risk_tz`.
+from stock_strategy_shared.trading_tz import resolve_trading_tz
+_RISK_TZ = resolve_trading_tz("RISK_TZ")
+RISK_TZ_NAME = str(_RISK_TZ)
 
 
 def _trading_day_today() -> str:
     """Today's calendar date in the trading zone (ET), ISO format. Used as the
-    daily-loss baseline reset boundary instead of Postgres CURRENT_DATE (UTC)."""
-    if _RISK_TZ is not None:
-        return datetime.now(_RISK_TZ).date().isoformat()
-    return datetime.now().date().isoformat()
+    daily-loss baseline reset boundary instead of Postgres CURRENT_DATE (UTC).
+    Uses the module-local `datetime` (patchable in tests) with the shared-resolved
+    zone — only the TZ resolution is shared, not the clock read."""
+    return datetime.now(_RISK_TZ).date().isoformat()
 
 
 # Order statuses that mean "queued or in-flight at the broker" (NOT terminal:

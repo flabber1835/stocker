@@ -43,21 +43,18 @@ RANK_SCHEDULE_CRON = os.getenv("RANK_SCHEDULE_CRON", "30 17 * * 1-5")
 # while the cron trigger (which hard-codes America/New_York) would not — a
 # split-brain that re-introduces the evening re-trigger loop. Pinning one
 # ZoneInfo here removes that dependency. Override with SCHEDULE_TZ if needed.
-SCHEDULE_TZ_NAME = os.getenv("SCHEDULE_TZ", "America/New_York")
-try:
-    from zoneinfo import ZoneInfo
-    SCHEDULE_TZ = ZoneInfo(SCHEDULE_TZ_NAME)
-except Exception:
-    SCHEDULE_TZ = None  # fall back to the process-local zone if tzdata is missing
+# Shared resolver (canonical STOCKER_TZ, back-compat SCHEDULE_TZ). Fails fast if
+# tzdata is missing instead of silently using UTC — the old per-service silent
+# fallback could make scheduler/pipeline/risk disagree on the trading date.
+from stock_strategy_shared.trading_tz import resolve_trading_tz
+SCHEDULE_TZ = resolve_trading_tz("SCHEDULE_TZ")
+SCHEDULE_TZ_NAME = str(SCHEDULE_TZ)
 
 
 def _local_now() -> datetime:
-    """Current time in the scheduler's configured zone (SCHEDULE_TZ), independent
-    of the container's TZ env var. Falls back to naive local if zoneinfo is
-    unavailable."""
-    if SCHEDULE_TZ is not None:
-        return datetime.now(SCHEDULE_TZ)
-    return datetime.now()
+    """Current time in the scheduler's configured trading zone (shared-resolved),
+    independent of the container's TZ env var."""
+    return datetime.now(SCHEDULE_TZ)
 
 
 def _local_today() -> date:
