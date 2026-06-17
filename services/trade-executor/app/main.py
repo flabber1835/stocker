@@ -141,6 +141,12 @@ async def _submit_deferred_order(row: dict) -> tuple[str, Optional[str]]:
         "side": row["side"],
         "type": row.get("order_type") or "market",
         "time_in_force": row.get("time_in_force") or "day",
+        # Deterministic idempotency key (= the alpaca_orders row id). If the process
+        # crashes AFTER Alpaca accepts but BEFORE we flip status to 'submitted', the
+        # next drain pass re-loads this still-'deferred' row and would re-submit —
+        # Alpaca rejects a second order with the same client_order_id, so the dup is
+        # blocked broker-side instead of placing a real second order.
+        "client_order_id": order_id,
     }
     if not (ALPACA_API_KEY and ALPACA_SECRET_KEY):
         return "failed", "Alpaca credentials not configured"
@@ -1528,6 +1534,9 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
         alpaca_payload = {
             "symbol": ticker, "qty": qty_str, "side": side,
             "type": "market", "time_in_force": time_in_force,
+            # Deterministic idempotency key (= alpaca_orders row id) so a retry
+            # after a crash-in-window can't place a duplicate broker order.
+            "client_order_id": order_id,
         }
         try:
             # Single submission entrypoint (shared with the deferred-order worker):

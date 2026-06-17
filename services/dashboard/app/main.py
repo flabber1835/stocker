@@ -46,7 +46,7 @@ _TRADEABLE_ACTIONS = {"entry", "exit", "buy_add", "sell_trim"}
 _BUY_ACTIONS = {"entry", "buy_add"}
 
 
-async def _chain_in_progress(client) -> bool:
+async def _chain_in_progress(client, *, fail_closed: bool = False) -> bool:
     """True when a fresh daily chain is mid-flight — the scheduler is driving a run
     (GET /status → status=='running'), or the dashboard's own run-now supervisor is
     active (_rank_chain_running).
@@ -56,8 +56,15 @@ async def _chain_in_progress(client) -> bool:
     proposal is about to replace them. We must NOT show the auto-approve countdown or
     auto-approve those intents during this window — otherwise the prior cycle's timer
     leaks over the live chain step (the "countdown while the vetter is running" bug)
-    and could even auto-submit superseded trades. Fail-open (return False) if the
-    scheduler is unreachable: the manual/terminal-status gates remain the safety net.
+    and could even auto-submit superseded trades.
+
+    On a scheduler-unreachable error the return depends on `fail_closed`:
+      - fail_closed=True  (AUTO-APPROVE path): return True — treat unknown chain
+        state as "in progress" and SUPPRESS auto-submit. Submitting the prior
+        cycle's intents during a scheduler outage (when today's delta may be about
+        to land) is the unsafe direction, so we default to safety.
+      - fail_closed=False (UI countdown/display): return False — a blip must not
+        freeze the display; the auto-approve path is separately protected.
     """
     if _rank_chain_running:
         return True
@@ -65,9 +72,9 @@ async def _chain_in_progress(client) -> bool:
         r = await client.get(f"{SCHEDULER_URL}/status")
         if r.status_code == 200 and (r.json() or {}).get("status") == "running":
             return True
+        return False
     except Exception:
-        pass
-    return False
+        return fail_closed
 
 
 async def _auto_approve_once(client, now: float) -> None:
@@ -92,8 +99,10 @@ async def _auto_approve_once(client, now: float) -> None:
     timeout = TRADE_AUTO_APPROVE_MINUTES * 60
     # Don't act on the latest delta while a fresh chain is running — it's the PREVIOUS
     # cycle's proposal (today's delta step hasn't written yet) and is about to be
-    # superseded. Auto-approving it now could submit stale trades.
-    if await _chain_in_progress(client):
+    # superseded. Auto-approving it now could submit stale trades. fail_closed=True:
+    # if the scheduler is unreachable we treat the chain as in-progress and skip
+    # auto-submit (the safe direction during a scheduler outage).
+    if await _chain_in_progress(client, fail_closed=True):
         return
     r = await client.get(f"{API_URL}/delta/latest")
     if r.status_code != 200:
@@ -151,7 +160,7 @@ async def _auto_approve_once(client, now: float) -> None:
             # this pass, but the loop spans many awaits and a fresh chain can flip
             # to "running" mid-pass. Re-check IMMEDIATELY before each POST so we
             # never auto-submit the prior cycle's intents once today's run started.
-            if await _chain_in_progress(client):
+            if await _chain_in_progress(client, fail_closed=True):
                 return
             # Re-confirm the delta run identity still matches what we read at the
             # top of the pass. If a new delta was written mid-pass (run_id/run_date

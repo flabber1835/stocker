@@ -288,6 +288,37 @@ def test_chain_in_progress_skips_auto_approve(dashboard):
     assert posted == []  # nothing auto-approved while the chain is mid-flight
 
 
+def test_scheduler_unreachable_fails_closed_no_auto_approve(dashboard):
+    """M2: when the scheduler /status is unreachable, the auto-approve gate must
+    fail CLOSED (treat chain state as unknown→in-progress) and NOT submit the prior
+    cycle's intents — a scheduler blip during a chain could otherwise auto-submit
+    superseded trades before today's delta lands."""
+    posted = []
+
+    async def fake_post(url, json=None, **kw):
+        posted.append(json)
+        r = MagicMock(); r.status_code = 200; r.json = MagicMock(return_value={})
+        return r
+
+    async def fake_get(url, **kw):
+        if url.endswith("/status"):        # scheduler unreachable
+            raise Exception("connection refused")
+        r = MagicMock(); r.status_code = 200
+        r.json = MagicMock(return_value={"run": {"manual": False},
+                                         "intents": [_intent("e1", "entry")]})
+        return r
+
+    client = MagicMock(); client.get = fake_get; client.post = fake_post
+
+    async def run():
+        await dashboard._auto_approve_once(client, 0.0)
+        posted.clear()
+        await dashboard._auto_approve_once(client, 99999.0)
+
+    asyncio.run(run())
+    assert posted == []  # fail-closed: nothing submitted while scheduler state unknown
+
+
 def test_chain_flips_running_before_post_skips_auto_approve(dashboard):
     """F3 (TOCTOU): the chain is IDLE when the pass starts (top-of-pass guard
     passes) but flips to RUNNING right before the /trade/approve POST. The
