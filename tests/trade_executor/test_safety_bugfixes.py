@@ -42,9 +42,24 @@ from app.main import (  # noqa: E402
 def test_open_status_set_includes_alpaca_working_states():
     """The dedup set must include the Alpaca-working states alpaca-sync maps into,
     not just our local pre-broker states — else a working-but-unfilled order is
-    not deduped and gets double-submitted."""
-    for s in ("pending", "submitted", "deferred", "accepted", "new", "partially_filled"):
+    not deduped and gets double-submitted. NOTE the partial-fill token is
+    `partial_fill` — the token alpaca-sync PERSISTS — NOT the broker spelling
+    `partially_filled` (which never lands in alpaca_orders.status). This test
+    previously asserted `partially_filled`, which matched the buggy code but never
+    the DB — the false-confidence that hid the double-submit hole."""
+    for s in ("pending", "submitted", "deferred", "accepted", "new", "partial_fill"):
         assert s in OPEN_ORDER_STATUSES, f"{s} missing from OPEN_ORDER_STATUSES"
+    # Guard against regressing to the broker spelling that the DB never stores.
+    assert "partially_filled" not in OPEN_ORDER_STATUSES
+
+
+def test_open_set_matches_what_alpaca_sync_persists():
+    """Cross-service guard: every WORKING/partial token alpaca-sync writes to
+    alpaca_orders.status must be queryable via OPEN_ORDER_STATUSES. This is the
+    split-brain the shared order_status module exists to prevent."""
+    # alpaca-sync persists `partial_fill` for a partially_filled broker order; that
+    # token must be in the open set (a partial fill is still working its remainder).
+    assert "partial_fill" in OPEN_ORDER_STATUSES
 
 
 def test_open_status_sql_literal_matches_constant():
@@ -56,7 +71,7 @@ def test_open_status_sql_literal_matches_constant():
 
 @pytest.mark.asyncio
 async def test_inflight_sell_guard_query_uses_full_open_set():
-    """_open_sell_order_for_ticker must match accepted/new/partially_filled too."""
+    """_open_sell_order_for_ticker must match accepted/new/partial_fill too."""
     captured = {}
 
     async def _execute(query, params=None):
@@ -71,14 +86,14 @@ async def test_inflight_sell_guard_query_uses_full_open_set():
     conn.execute = _execute
     await te_main._open_sell_order_for_ticker(conn, "AAPL", "intent-1")
     sql = captured["sql"].lower()
-    assert "accepted" in sql and "new" in sql and "partially_filled" in sql
+    assert "accepted" in sql and "new" in sql and "partial_fill" in sql
     # and the original three are still present
     assert "pending" in sql and "submitted" in sql and "deferred" in sql
 
 
 @pytest.mark.asyncio
 async def test_inflight_buy_guard_query_uses_full_open_set():
-    """_open_buy_order_for_ticker must match accepted/new/partially_filled too."""
+    """_open_buy_order_for_ticker must match accepted/new/partial_fill too."""
     captured = {}
 
     async def _execute(query, params=None):
@@ -93,7 +108,7 @@ async def test_inflight_buy_guard_query_uses_full_open_set():
     conn.execute = _execute
     await te_main._open_buy_order_for_ticker(conn, "AAPL", "intent-1")
     sql = captured["sql"].lower()
-    assert "accepted" in sql and "new" in sql and "partially_filled" in sql
+    assert "accepted" in sql and "new" in sql and "partial_fill" in sql
 
 
 # ══════════════════════════════════════════════════════════════════════════════

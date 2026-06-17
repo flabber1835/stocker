@@ -36,6 +36,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from stock_strategy_shared.db import wait_for_db
+from stock_strategy_shared.order_status import OPEN_ORDER_STATUSES, open_status_sql
 
 from app.drain import DeferredOrder, plan_drain
 
@@ -90,19 +91,17 @@ engine: Optional[AsyncEngine] = None
 # An order is "open" (still in flight, not terminal) when it occupies one of
 # these statuses. The set MUST include both our LOCAL pre-broker states
 # (pending/submitted/deferred) AND the Alpaca-working states that alpaca-sync
-# maps live broker orders into (accepted/new/partially_filled). A working-but-
-# unfilled order in accepted/new/partially_filled still reserves shares / cash
+# maps live broker orders into (accepted/new/partial_fill). A working-but-
+# unfilled order in accepted/new/partial_fill still reserves shares / cash
 # and represents an in-flight intent — omitting it from the idempotency SELECT
 # and the in-flight ticker guards let a re-proposed intent slip through and
-# double-submit. One shared constant so the three consumers (Step-1 idempotency,
-# in-flight buy guard, in-flight sell guard) can never drift; the SQL-literal
-# form is shared with /jobs/cancel-all-orders.
-OPEN_ORDER_STATUSES: tuple[str, ...] = (
-    "pending", "submitted", "deferred", "accepted", "new", "partially_filled",
-)
+# double-submit. Imported from the SHARED canonical set so the token we QUERY is
+# the token alpaca-sync WRITES (it persists `partial_fill`, NOT the broker spelling
+# `partially_filled` this set used to query — a partially-filled order was therefore
+# invisible to the idempotency guard → double-submit).
 # Comma-separated single-quoted literals for inlining into a `status IN (...)`
 # clause (these are fixed, code-controlled constants — never user input).
-_OPEN_STATUS_SQL = ", ".join(f"'{s}'" for s in OPEN_ORDER_STATUSES)
+_OPEN_STATUS_SQL = open_status_sql()
 
 
 # ── Lifespan ─────────────────────────────────────────────────────────────────
@@ -1743,7 +1742,7 @@ async def cancel_all_orders(confirm: str = "") -> CancelAllResponse:
     Operational tool for freeing up buying_power that's reserved by queued
     or pending MOO orders. Calls Alpaca's `DELETE /v2/orders` (multi-status)
     and updates local `alpaca_orders` rows whose status is in
-    ('pending','submitted','accepted','new','partially_filled') to 'canceled'.
+    ('pending','submitted','accepted','new','partial_fill') to 'canceled'.
 
     Safety:
       - Requires `?confirm=yes` query param to avoid accidental wipes
@@ -1822,7 +1821,9 @@ async def cancel_all_orders(confirm: str = "") -> CancelAllResponse:
         alpaca_errors.append({"error": str(exc)[:500]})
 
     # ── Update local rows ────────────────────────────────────────────────────
-    open_statuses = ("pending", "submitted", "accepted", "new", "partially_filled")
+    # Non-deferred working states (deferred orders have their own purge path).
+    # 'partial_fill' is the token alpaca-sync persists (NOT 'partially_filled').
+    open_statuses = ("pending", "submitted", "accepted", "new", "partial_fill")
     async with engine.begin() as conn:
         result = await conn.execute(
             text("UPDATE alpaca_orders SET status='canceled', "

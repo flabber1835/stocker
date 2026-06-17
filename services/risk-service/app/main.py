@@ -11,6 +11,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from stock_strategy_shared.db import wait_for_db, warm_up_db_in_background
+from stock_strategy_shared.order_status import (
+    OPEN_ORDER_STATUSES,
+    TURNOVER_STATUSES,
+    open_status_sql,
+)
 
 # ── Environment variables ────────────────────────────────────────────────────
 
@@ -75,17 +80,16 @@ def _trading_day_today() -> str:
 
 # Order statuses that mean "queued or in-flight at the broker" (NOT terminal:
 # filled / canceled / expired / risk_rejected / failed are excluded). Mirrors
-# trade-executor's OPEN_ORDER_STATUSES — kept in sync by name. Used by the
-# MAX_POSITIONS gate to net the rotation: an `exit` order in one of these states
-# is a held name on its way out (it vacates at the same open the entry fills at),
-# so it must not count against capacity. Critically includes 'deferred' because
-# the after-close cron approves exits FIRST (Step 4 risk-check → Step 5b drain),
-# flipping them to 'deferred' BEFORE entries are risk-checked while live_positions
-# still shows the full pre-rotation book.
-_OPEN_ORDER_STATUSES = (
-    "pending", "submitted", "deferred", "accepted", "new", "partially_filled",
-)
-_OPEN_STATUS_SQL = ", ".join(f"'{s}'" for s in _OPEN_ORDER_STATUSES)
+# SHARED canonical open-order set (stock_strategy_shared.order_status) — the SAME
+# tokens alpaca-sync persists, so "what we write" == "what we query". Used by the
+# MAX_POSITIONS gate to net the rotation: an `exit` order in one of these states is
+# a held name on its way out (it vacates at the same open the entry fills at), so it
+# must not count against capacity. Includes 'deferred' (the after-close cron approves
+# exits FIRST → flips them to 'deferred' BEFORE entries are risk-checked) and
+# 'partial_fill' (previously this set used the broker spelling 'partially_filled',
+# which alpaca-sync never writes — so a partially-exited position was miscounted).
+_OPEN_ORDER_STATUSES = OPEN_ORDER_STATUSES
+_OPEN_STATUS_SQL = open_status_sql()
 
 # Projected post-rotation position count for the MAX_POSITIONS gate:
 #   held_distinct − held names being EXITED this cycle + queued new-ticker entries.
@@ -672,17 +676,17 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
     # it calls /check for the NEXT order and before it submits, so a not-yet-
     # submitted sell already sits in alpaca_orders as 'pending'. We therefore sum
     # the IN-FLIGHT/WORKING and FILLED sell notional via an explicit positive
-    # status list (pending, submitted, accepted, new, partially_filled, filled)
-    # rather than a NOT-IN exclusion — so a concurrent/queued sell that hasn't
-    # filled yet still counts against the cap, closing the window where two sells
-    # could both pass. The positive list also fixes the prior 'cancelled' (two-l)
-    # vs the executor's 'canceled' (one-l) spelling drift and stops terminal
-    # non-fills (failed/expired/canceled) from inflating the sum.
+    # status list (SHARED TURNOVER_STATUSES = open set + 'filled') rather than a
+    # NOT-IN exclusion — so a concurrent/queued sell that hasn't filled yet still
+    # counts against the cap, closing the window where two sells could both pass.
+    # CRITICALLY this now includes 'deferred' (the normal after-close queued-sell
+    # state — previously omitted, so a full rotation of deferred sells slipped past
+    # the cap) and the correct 'partial_fill' token (was 'partially_filled', which
+    # alpaca-sync never writes). Terminal non-fills (failed/expired/canceled) are
+    # excluded so they don't inflate the sum.
     #
     # Skipped when DB is unavailable.
-    _TURNOVER_STATUSES = (
-        "pending", "submitted", "accepted", "new", "partially_filled", "filled",
-    )
+    _TURNOVER_STATUSES = TURNOVER_STATUSES
     _turnover_status_sql = ", ".join(f"'{s}'" for s in _TURNOVER_STATUSES)
     max_daily_pct = env["max_daily_turnover_pct"]
     if req.action in ("exit", "sell_trim") and engine is not None and max_daily_pct < 1.0:
