@@ -173,6 +173,36 @@ def _safety_env() -> dict:
 
 engine: Optional[AsyncEngine] = None
 
+
+def _control_error(name: str, exc: Exception, *, is_close: bool, env: dict):
+    """Per-control fail-closed handler.
+
+    Each DB-dependent safety control runs in its OWN try/except (not one shared
+    block) so a defect or transient error in one control is contained and
+    DIAGNOSABLE — the rejection names the specific control (e.g.
+    `max_positions_unavailable`) instead of a generic `control_unavailable`,
+    and a failure in one control does not abort evaluation of the others.
+
+    Semantics (unchanged from the old shared handler, just per-control):
+      - OPENING risk (entry / buy_add): fail CLOSED — return a rejection tuple so
+        the trade is refused; we must never approve when a safety control could
+        not be evaluated.
+      - CLOSES (exit / sell_trim): EXEMPT — log and return None so the caller
+        continues; reducing/closing risk can never be trapped by a control outage.
+    """
+    print(f"[risk-service] ERROR: control '{name}' unavailable: {exc}")
+    if not is_close:
+        return (
+            False,
+            f"Safety control '{name}' unavailable (database error) — "
+            f"trade rejected to default to safety",
+            f"{name}_unavailable",
+            env,
+        )
+    print(f"[risk-service] exit/sell_trim EXEMPT from '{name}' unavailability — allowing close")
+    return None
+
+
 # ── Pydantic models ──────────────────────────────────────────────────────────
 
 
@@ -335,14 +365,21 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
     # ── Planned safety controls (Phase 6+): DB-dependent, defense-in-depth ─────
     # These are SAFETY-CRITICAL gates (sync staleness, data staleness, daily loss,
     # max positions, max-position-pct). They depend on the DB to read broker /
-    # pipeline / account state. A DB error here means we CANNOT verify the
-    # controls — so we DEFAULT TO SAFETY and REJECT the trade ("control
-    # unavailable"), fail-CLOSED, rather than silently skipping and approving
-    # (the prior fail-OPEN behavior, which let trades through whenever the DB
-    # hiccupped). The earlier in-memory checks (kill_switch, qty, notional) always
-    # run regardless of DB health. A `return (False, ...)` inside the block is a
-    # real rule rejection and propagates as-is; only an unexpected exception trips
-    # the fail-closed handler.
+    # pipeline / account state. A DB error means we CANNOT verify a control — so we
+    # DEFAULT TO SAFETY and REJECT opening risk, fail-CLOSED, rather than silently
+    # skipping and approving (the prior fail-OPEN behavior, which let trades through
+    # whenever the DB hiccupped). The earlier in-memory checks (kill_switch, qty,
+    # notional) always run regardless of DB health.
+    #
+    # PER-CONTROL ISOLATION: each control runs in its OWN try/except via
+    # `_control_error`, NOT one shared block. Previously a single defect anywhere in
+    # the block (e.g. a sim_date type mismatch in the max-positions query) aborted
+    # ALL controls and rejected every entry with a generic "control unavailable".
+    # Now a failure is contained and DIAGNOSABLE — the rejection names the specific
+    # control (`<name>_unavailable`) and the other controls still evaluate. A
+    # `return (False, ...)` inside a control is a real rule rejection and propagates
+    # as-is; only an unexpected exception trips that control's fail-closed handler.
+    #
     # An exit or a sell_trim must ALWAYS be allowed — reducing/closing risk can never
     # be trapped by a system condition (a DB outage, a stale broker sync, or a daily
     # loss halt). So closes are exempt from the DB-dependent controls below; opening
@@ -381,7 +418,12 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
                         "sync_staleness",
                         env,
                     )
+        except Exception as exc:
+            rej = _control_error("sync_staleness", exc, is_close=is_close, env=env)
+            if rej is not None:
+                return rej
 
+        try:
             # Factor-data staleness: refuse buys (entry, buy_add) when the
             # rankings driving the decision are too old. Sells are not gated —
             # an exit signal on stale data is conservative (close a position we
@@ -412,7 +454,12 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
                         "data_staleness",
                         env,
                     )
+        except Exception as exc:
+            rej = _control_error("data_staleness", exc, is_close=is_close, env=env)
+            if rej is not None:
+                return rej
 
+        try:
             # Daily-loss cap: refuse ALL actions if today's account value is
             # down more than MAX_DAILY_LOSS_PCT vs the day's opening baseline.
             # Baseline: earliest successful sync from "today" — sim_date in a
@@ -485,7 +532,12 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
                             "daily_loss_limit",
                             env,
                         )
+        except Exception as exc:
+            rej = _control_error("daily_loss", exc, is_close=is_close, env=env)
+            if rej is not None:
+                return rej
 
+        try:
             # Max-positions count: refuse entries when the PROJECTED post-rotation
             # book would reach MAX_POSITIONS and this ticker isn't already held.
             #
@@ -553,7 +605,12 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
                         "max_positions_limit",
                         env,
                     )
+        except Exception as exc:
+            rej = _control_error("max_positions", exc, is_close=is_close, env=env)
+            if rej is not None:
+                return rej
 
+        try:
             # Per-position size cap: refuse entry / buy_add if filling would
             # push the ticker above MAX_POSITION_PCT of account_value. Catches
             # the price-drift case where an existing position has appreciated
@@ -593,19 +650,9 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
                             env,
                         )
         except Exception as exc:
-            # Fail CLOSED for OPENING risk (entry / buy_add): a DB error means a
-            # safety-critical control could not be evaluated — reject rather than
-            # approve-by-default. EXITS / sell_trims are EXEMPT: closing must always be
-            # allowed, so a transient control outage can never trap us in a position.
-            print(f"[risk-service] ERROR: safety-critical control unavailable: {exc}")
-            if not is_close:
-                return (
-                    False,
-                    "Safety control unavailable (database error) — trade rejected to default to safety",
-                    "control_unavailable",
-                    env,
-                )
-            print("[risk-service] exit/sell_trim EXEMPT from control_unavailable — allowing close")
+            rej = _control_error("max_position_pct", exc, is_close=is_close, env=env)
+            if rej is not None:
+                return rej
 
     # Daily sell-side turnover cap: reject exits/sell_trims once today's sell
     # notional exceeds max_daily_turnover_pct of portfolio value. Only sells

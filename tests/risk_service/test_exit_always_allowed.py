@@ -26,7 +26,11 @@ def test_exit_and_trim_always_allowed_on_db_outage(monkeypatch):
         approved, _reason, rule, _env = asyncio.run(rs._decide(_req(action, side)))
         assert approved is True and rule == "ok", (action, rule)
     approved, _reason, rule, _env = asyncio.run(rs._decide(_req("entry", "buy")))
-    assert approved is False and rule == "control_unavailable"
+    # Per-control isolation: the entry fails CLOSED, and the rule names the SPECIFIC
+    # control that could not be evaluated (the first DB control for an entry is
+    # sync-staleness) instead of a generic 'control_unavailable' — diagnosable.
+    assert approved is False and rule == "sync_staleness_unavailable"
+    assert rule.endswith("_unavailable")
 
 
 def test_kill_switch_still_blocks_exit(monkeypatch):

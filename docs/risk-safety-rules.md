@@ -18,6 +18,30 @@ no trade if market data stale
 no trade if kill switch is active
 ```
 
+### Per-control isolation & fail-closed on DB error
+
+The DB-dependent controls (sync-staleness, data-staleness, daily-loss,
+max-positions, max-position-pct) each run in their **own** `try/except`
+(`_control_error`), not one shared block. On a query error:
+
+- **Opening risk** (`entry` / `buy_add`) fails **CLOSED** — the trade is rejected
+  with a control-specific rule name (`<control>_unavailable`, e.g.
+  `max_positions_unavailable`), never a silent approve.
+- **Closes** (`exit` / `sell_trim`) are **EXEMPT** — a control outage can never
+  trap us in a position.
+
+Isolation matters because a single defect previously aborted *all* controls and
+rejected every entry with a generic "Safety control unavailable" — which is
+exactly what a `run_date = :sim_date` type mismatch in the max-positions query
+did in production (asyncpg infers a bare `= :date` placeholder as DATE and
+rejects an ISO string). Now the failure is contained and names the culprit, and
+the remaining controls still evaluate.
+
+Testing note: the risk-service unit tests use a mock engine that never executes
+SQL, so query-level defects are invisible to them. `tests/risk_service/
+test_max_positions_sql_pg.py` drives the **real** `_decide` against an ephemeral
+**Postgres** so every control's actual SQL is exercised in CI.
+
 ## Implemented Safety Controls (Phase 6)
 
 These are actually enforced in code today.

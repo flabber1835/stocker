@@ -455,6 +455,11 @@ class TestControlDisablement:
         A DB error means we cannot evaluate sync-staleness / daily-loss /
         max-positions / position-pct, so we default to safety and reject rather
         than approving by default. (Previously this fail-OPEN'd to approved.)
+
+        With PER-CONTROL ISOLATION the rejection now names the SPECIFIC control
+        that failed (`<name>_unavailable`) rather than a generic
+        `control_unavailable`, so an outage is diagnosable. For an `entry`, the
+        first DB-dependent control is sync-staleness, so that is what trips here.
         """
         # Replace execute with a raiser
         async def _raise(*_a, **_k):
@@ -470,7 +475,43 @@ class TestControlDisablement:
         r = client.post("/check", json=_payload(action="entry"))
         body = r.json()
         assert body["approved"] is False
-        assert body["rule_triggered"] == "control_unavailable"
+        # Per-control isolation: specific, diagnosable rule name, fail-closed.
+        assert body["rule_triggered"] == "sync_staleness_unavailable"
+        assert body["rule_triggered"].endswith("_unavailable")
+
+    def test_db_exception_on_close_is_exempt(self, mock_engine):
+        """A DB outage must NEVER block a close (exit / sell_trim). Per-control
+        isolation preserves the close-exemption: each control's _control_error
+        returns None for closes, so the chain falls through to approval."""
+        async def _raise(*_a, **_k):
+            raise RuntimeError("simulated DB outage")
+        bad_conn = MagicMock()
+        bad_conn.execute = _raise
+        ctx = MagicMock()
+        ctx.__aenter__ = AsyncMock(return_value=bad_conn)
+        ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_engine.connect = lambda: ctx
+
+        r = client.post("/check", json=_payload(action="exit", side="sell"))
+        assert r.json()["approved"] is True
+
+    def test_one_control_error_does_not_mask_a_real_reject(self, mock_engine):
+        """Isolation regression guard: a LATER control still rejects on its own
+        merits even though it runs after others. Here sync + data + daily-loss
+        pass, then max_positions reports at-capacity → rejected with its own rule
+        (not swallowed, not turned into a generic 'control_unavailable')."""
+        mock_engine.responses = [
+            _OK["sync_row"],
+            _OK["pl_row"],
+            _OK["baseline_row"],
+            _OK["current_row"],
+            (35,),    # max_positions at cap
+            None,     # not already held
+        ]
+        r = client.post("/check", json=_payload(action="entry", ticker="NEWC"))
+        body = r.json()
+        assert body["approved"] is False
+        assert body["rule_triggered"] == "max_positions_limit"
 
 
 # ═════════════════════════════════════════════════════════════════════════════

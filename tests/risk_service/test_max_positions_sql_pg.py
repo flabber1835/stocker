@@ -1,22 +1,20 @@
-"""Postgres INTEGRATION test for the MAX_POSITIONS projected-count query.
+"""Postgres INTEGRATION tests for the risk-service DB-dependent controls.
 
 WHY THIS EXISTS (forensics):
   The risk-service unit tests (test_planned_controls.py) use a MOCK engine that
-  returns canned scalar rows and NEVER executes SQL. That makes every query-level
+  returns canned scalar rows and NEVER executes SQL. That made every query-level
   defect invisible to them — type mismatches, wrong columns, unbalanced parens.
-  Three MAX_POSITIONS regressions shipped through a green unit suite this way:
-    1. raw count (no netting) → full-rotation wedge,
-    2. order-only netting → lost the approval-ordering race,
-    3. `run_date = :sim_date` → asyncpg infers $1 as DATE, rejects the ISO string
-       ("'str' has no attribute 'toordinal'"), the fail-closed wrapper turns it
-       into "Safety control unavailable", and EVERY entry is rejected.
+  Three MAX_POSITIONS regressions shipped through a green unit suite this way,
+  the last being `run_date = :sim_date` (asyncpg infers $1 as DATE, rejects the
+  ISO string → the fail-closed wrapper emits "Safety control unavailable" and
+  EVERY entry is rejected).
 
-  This test executes the EXACT module constant `_PROJECTED_POSITIONS_SQL` against a
-  REAL Postgres via the same SQLAlchemy+asyncpg path production uses, so a SQL-level
-  defect fails CI instead of reaching the broker gate. It spins up an ephemeral
-  cluster (skips if Postgres server binaries are unavailable or we're running as
-  root, which pg_ctl refuses); set STOCKER_TEST_PG_URL to point at an existing
-  async URL to bypass the ephemeral cluster.
+  These tests drive the REAL `_decide` against a REAL Postgres (the same
+  SQLAlchemy+asyncpg path production uses), so a SQL-level defect in ANY control
+  fails CI instead of reaching the broker gate. An ephemeral cluster is started
+  (skips if Postgres server binaries are unavailable or we're running as root,
+  which pg_ctl refuses); set STOCKER_TEST_PG_URL to point at an existing async
+  URL to bypass the ephemeral cluster.
 """
 from __future__ import annotations
 
@@ -27,12 +25,11 @@ import socket
 import subprocess
 import sys
 import tempfile
-import time
-from pathlib import Path
+from datetime import datetime
 
 import pytest
 
-# ── import the REAL constant from risk-service (handle the cross-service `app`
+# ── import the REAL risk-service module (handle the cross-service `app`
 #    module-name collision the other risk tests also guard against) ────────────
 _RISK_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "services", "risk-service")
@@ -45,14 +42,22 @@ if _app is None or _RISK_PATH not in os.path.abspath(getattr(_app, "__file__", "
     if _RISK_PATH not in sys.path:
         sys.path.insert(0, _RISK_PATH)
 
-from app.main import _PROJECTED_POSITIONS_SQL  # noqa: E402
+from app import main as risk_main  # noqa: E402
+from app.main import _PROJECTED_POSITIONS_SQL, TradeCheckRequest, _decide  # noqa: E402
 
 sqlalchemy = pytest.importorskip("sqlalchemy")
 pytest.importorskip("asyncpg")
 from sqlalchemy import text  # noqa: E402
 from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
 
+try:
+    from zoneinfo import ZoneInfo
+    TODAY_ET = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+except Exception:  # pragma: no cover
+    TODAY_ET = datetime.now().date().isoformat()
 
+
+# ── ephemeral Postgres ────────────────────────────────────────────────────────
 def _find_pg_bin() -> str | None:
     for cand in ("/usr/lib/postgresql/16/bin", "/usr/lib/postgresql/15/bin",
                  "/usr/lib/postgresql/14/bin"):
@@ -64,16 +69,11 @@ def _find_pg_bin() -> str | None:
 
 
 def _free_port() -> int:
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close()
+    return p
 
 
 class _EphemeralPG:
-    """Minimal ephemeral Postgres cluster for one test module."""
-
     def __init__(self, bindir: str):
         self.bindir = bindir
         self.datadir = tempfile.mkdtemp(prefix="risk_pg_")
@@ -81,24 +81,17 @@ class _EphemeralPG:
         self.port = _free_port()
 
     def start(self):
-        subprocess.run(
-            [os.path.join(self.bindir, "initdb"), "-D", self.datadir,
-             "-A", "trust", "-U", "postgres"],
-            check=True, capture_output=True,
-        )
-        subprocess.run(
-            [os.path.join(self.bindir, "pg_ctl"), "-D", self.datadir,
-             "-o", f"-p {self.port} -k {self.sock} -c listen_addresses=''",
-             "-l", os.path.join(self.datadir, "pg.log"), "-w", "start"],
-            check=True, capture_output=True,
-        )
+        subprocess.run([os.path.join(self.bindir, "initdb"), "-D", self.datadir,
+                        "-A", "trust", "-U", "postgres"], check=True, capture_output=True)
+        subprocess.run([os.path.join(self.bindir, "pg_ctl"), "-D", self.datadir,
+                        "-o", f"-p {self.port} -k {self.sock} -c listen_addresses=''",
+                        "-l", os.path.join(self.datadir, "pg.log"), "-w", "start"],
+                       check=True, capture_output=True)
 
     def stop(self):
         try:
-            subprocess.run(
-                [os.path.join(self.bindir, "pg_ctl"), "-D", self.datadir, "-m", "immediate", "stop"],
-                capture_output=True,
-            )
+            subprocess.run([os.path.join(self.bindir, "pg_ctl"), "-D", self.datadir,
+                            "-m", "immediate", "stop"], capture_output=True)
         finally:
             shutil.rmtree(self.datadir, ignore_errors=True)
             shutil.rmtree(self.sock, ignore_errors=True)
@@ -131,7 +124,8 @@ def pg_url():
 
 
 _SCHEMA = """
-DROP TABLE IF EXISTS delta_intents, delta_runs, alpaca_orders, live_positions, alpaca_sync_runs CASCADE;
+DROP TABLE IF EXISTS delta_intents, delta_runs, alpaca_orders, live_positions,
+  alpaca_sync_runs, pipeline_runs CASCADE;
 CREATE TABLE alpaca_sync_runs (
   run_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   status VARCHAR(20) NOT NULL, completed_at TIMESTAMPTZ, account_value NUMERIC);
@@ -146,57 +140,146 @@ CREATE TABLE delta_intents (
   ticker VARCHAR(20) NOT NULL, action VARCHAR(10) NOT NULL);
 CREATE TABLE alpaca_orders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(), intent_id UUID,
-  ticker VARCHAR(20) NOT NULL, action VARCHAR(20), status VARCHAR(20));
-"""
-
-# Reproduces the 2026-06-16 production rotation: 42 held, a delta run with 33 exit
-# intents (for held H1..H33) — NO exit orders yet (the race: entries checked before
-# any exit order is recorded). Expected projected = 42 - 33 + 0 = 9.
-_SEED = """
-WITH s AS (INSERT INTO alpaca_sync_runs(status, completed_at, account_value)
-           VALUES ('success', NOW(), 100000) RETURNING run_id)
-INSERT INTO live_positions(sync_run_id, ticker)
-SELECT (SELECT run_id FROM s), 'H'||g FROM generate_series(1,42) g;
-WITH d AS (INSERT INTO delta_runs(run_date) VALUES ('2026-06-16') RETURNING run_id)
-INSERT INTO delta_intents(run_id, ticker, action)
-SELECT (SELECT run_id FROM d), 'H'||g, 'exit' FROM generate_series(1,33) g;
+  ticker VARCHAR(20) NOT NULL, action VARCHAR(20), status VARCHAR(20), notional NUMERIC,
+  submitted_at TIMESTAMPTZ, created_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE pipeline_runs (
+  run_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  status VARCHAR(20) NOT NULL, completed_at TIMESTAMPTZ);
 """
 
 
-async def _setup_and_query(url: str, sim_date):
+def _seed_healthy(run_date: str) -> str:
+    """Fresh sync (held H1..H42, account 100k), same-day opening baseline sync,
+    fresh pipeline run, and a delta run on `run_date` with 33 exit intents.
+    Timestamps are NOW()-relative so sync/data staleness pass; the opening
+    baseline is NOW()-6h (same ET day) so daily-loss finds a 0% baseline."""
+    return f"""
+    INSERT INTO pipeline_runs(status, completed_at) VALUES ('success', NOW());
+    INSERT INTO alpaca_sync_runs(status, completed_at, account_value)
+      VALUES ('success', NOW() - interval '6 hours', 100000);
+    WITH s AS (INSERT INTO alpaca_sync_runs(status, completed_at, account_value)
+               VALUES ('success', NOW(), 100000) RETURNING run_id)
+    INSERT INTO live_positions(sync_run_id, ticker, market_value)
+    SELECT (SELECT run_id FROM s), 'H'||g, 2000 FROM generate_series(1,42) g;
+    WITH d AS (INSERT INTO delta_runs(run_date) VALUES ('{run_date}') RETURNING run_id)
+    INSERT INTO delta_intents(run_id, ticker, action)
+    SELECT (SELECT run_id FROM d), 'H'||g, 'exit' FROM generate_series(1,33) g;
+    """
+
+
+async def _run_schema_seed(eng, seed_sql: str):
+    async with eng.begin() as c:
+        for stmt in (_SCHEMA + seed_sql).split(";"):
+            if stmt.strip():
+                await c.execute(text(stmt))
+
+
+async def _decide_against(url, seed_sql, **req_kw):
+    """Seed a real DB, point risk_main.engine at it, and run the REAL _decide."""
+    eng = create_async_engine(url)
+    saved = risk_main.engine
+    risk_main.engine = eng
+    try:
+        await _run_schema_seed(eng, seed_sql)
+        return await _decide(TradeCheckRequest(**req_kw))   # (approved, reason, rule, env)
+    finally:
+        risk_main.engine = saved
+        await eng.dispose()
+
+
+def _entry(**kw):
+    base = dict(ticker="NVDA", action="entry", side="buy", qty=10, notional=3000.0,
+                mode="immediate", trade_type="paper", sim_date=TODAY_ET)
+    base.update(kw)
+    return base
+
+
+# ── direct query-constant tests (headline regression: the sim_date DataError) ──
+async def _projected(url, sim_date):
     eng = create_async_engine(url)
     try:
-        async with eng.begin() as c:
-            for stmt in _SCHEMA.strip().split(";"):
-                if stmt.strip():
-                    await c.execute(text(stmt))
-            for stmt in _SEED.strip().split(";"):
-                if stmt.strip():
-                    await c.execute(text(stmt))
+        await _run_schema_seed(eng, _seed_healthy("2026-06-16"))
         async with eng.connect() as c:
-            row = (await c.execute(text(_PROJECTED_POSITIONS_SQL),
-                                   {"sim_date": sim_date})).first()
+            row = (await c.execute(text(_PROJECTED_POSITIONS_SQL), {"sim_date": sim_date})).first()
             return int(row[0]) if row and row[0] is not None else None
     finally:
         await eng.dispose()
 
 
 def test_projected_count_nets_exit_intents_no_dataerror(pg_url):
-    # The headline regression: a string sim_date must NOT raise DataError (which
-    # the fail-closed wrapper turns into "Safety control unavailable"), and the 33
-    # exit INTENTS must net out → projected 9, not 42.
-    projected = asyncio.run(_setup_and_query(pg_url, "2026-06-16"))
-    assert projected == 9, f"expected 42 - 33 exit intents = 9, got {projected}"
+    # A string sim_date must NOT raise DataError, and the 33 exit INTENTS net out
+    # → projected 9 (42 - 33), not 42.
+    assert asyncio.run(_projected(pg_url, "2026-06-16")) == 9
 
 
 def test_projected_count_sim_date_none_falls_back(pg_url):
-    # No sim_date → intent subquery empty → no netting → raw held (42). Safe: a
-    # cold-start with no run can only be MORE conservative, never wedged-by-error.
-    projected = asyncio.run(_setup_and_query(pg_url, None))
-    assert projected == 42, f"expected raw 42 with no sim_date, got {projected}"
+    assert asyncio.run(_projected(pg_url, None)) == 42
 
 
 def test_projected_count_unknown_date_no_netting(pg_url):
-    # A sim_date with no matching delta run nets nothing (no exits for that run).
-    projected = asyncio.run(_setup_and_query(pg_url, "2099-01-01"))
-    assert projected == 42, f"expected 42 for a date with no run, got {projected}"
+    assert asyncio.run(_projected(pg_url, "2099-01-01")) == 42
+
+
+# ── full _decide() against real Postgres — every control's real SQL exercised ──
+def test_decide_entry_healthy_rotation_approved(pg_url):
+    # Fresh sync + fresh pipeline + same-day baseline + 33 netted exits → projected
+    # book (9) under cap; EVERY DB control runs against real SQL without error.
+    approved, reason, rule, _ = asyncio.run(
+        _decide_against(pg_url, _seed_healthy(TODAY_ET), **_entry()))
+    assert approved is True, f"expected approve, got rule={rule} reason={reason}"
+
+
+def test_decide_sync_staleness_real_sql(pg_url):
+    seed = """
+    INSERT INTO pipeline_runs(status, completed_at) VALUES ('success', NOW());
+    INSERT INTO alpaca_sync_runs(status, completed_at, account_value)
+      VALUES ('success', NOW() - interval '100 hours', 100000);
+    """
+    approved, reason, rule, _ = asyncio.run(_decide_against(pg_url, seed, **_entry()))
+    assert approved is False and rule == "sync_staleness", (rule, reason)
+
+
+def test_decide_data_staleness_real_sql(pg_url):
+    seed = """
+    INSERT INTO pipeline_runs(status, completed_at) VALUES ('success', NOW() - interval '200 hours');
+    INSERT INTO alpaca_sync_runs(status, completed_at, account_value) VALUES ('success', NOW(), 100000);
+    """
+    approved, reason, rule, _ = asyncio.run(_decide_against(pg_url, seed, **_entry()))
+    assert approved is False and rule == "data_staleness", (rule, reason)
+
+
+def test_decide_position_pct_real_sql(pg_url):
+    # Fresh sync/pipeline + same-day baseline (so daily-loss passes); NVDA already
+    # 14k, +3k buy_add = 17k/100k = 17% > 15%. buy_add skips the count gate.
+    seed = f"""
+    INSERT INTO pipeline_runs(status, completed_at) VALUES ('success', NOW());
+    INSERT INTO alpaca_sync_runs(status, completed_at, account_value)
+      VALUES ('success', NOW() - interval '6 hours', 100000);
+    WITH s AS (INSERT INTO alpaca_sync_runs(status, completed_at, account_value)
+               VALUES ('success', NOW(), 100000) RETURNING run_id)
+    INSERT INTO live_positions(sync_run_id, ticker, market_value)
+    VALUES ((SELECT run_id FROM s), 'NVDA', 14000);
+    INSERT INTO delta_runs(run_date) VALUES ('{TODAY_ET}');
+    """
+    approved, reason, rule, _ = asyncio.run(
+        _decide_against(pg_url, seed, **_entry(action="buy_add", notional=3000.0)))
+    assert approved is False and rule == "max_position_pct_limit", (rule, reason)
+
+
+def test_decide_per_control_isolation_names_the_failing_control(pg_url):
+    # Drop delta_intents AFTER seeding so ONLY the max_positions query (which
+    # references it) throws while sync/data/daily-loss pass — proving per-control
+    # isolation against a REAL DB: the rejection is the SPECIFIC control, not a
+    # generic 'control_unavailable', and the earlier controls were unaffected.
+    seed = _seed_healthy(TODAY_ET) + "; DROP TABLE delta_intents;"
+    approved, reason, rule, _ = asyncio.run(_decide_against(pg_url, seed, **_entry()))
+    assert approved is False and rule == "max_positions_unavailable", (rule, reason)
+
+
+def test_decide_control_outage_never_blocks_a_close(pg_url):
+    # Every table dropped → all DB controls error. A close (exit) must STILL be
+    # allowed (closes are exempt from fail-closed in every control).
+    seed = _seed_healthy(TODAY_ET) + "; DROP TABLE alpaca_sync_runs CASCADE;"
+    approved, reason, rule, _ = asyncio.run(
+        _decide_against(pg_url, seed, **_entry(action="exit", side="sell")))
+    assert approved is True, f"close must not be blocked; got rule={rule}"
