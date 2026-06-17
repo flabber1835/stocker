@@ -112,19 +112,23 @@ async def test_buy_add_always_uses_account_value():
 
 
 @pytest.mark.asyncio
-async def test_buy_add_raises_400_when_notional_exceeds_buying_power():
-    """buy_add raises 400 if the target notional exceeds buying_power by >5%.
-    This guards against submitting a buy when all cash is committed to pending sells."""
+async def test_buy_add_does_not_hard_fail_on_low_buying_power():
+    """buy_add must NOT hard-fail when buying_power is low — it sizes against
+    account_value and QUEUES like an entry (commit 201e906). The funding
+    sequencing is owned downstream: the fill-gated drain releases the buy only
+    once live buying power covers it (and risk-service's MAX_POSITION_PCT still
+    caps concentration). A pre-emptive 400 here would wedge a rotation whose
+    cash is momentarily tied up in not-yet-settled sells."""
     conn = _mock_conn([
-        # buying_power=$500 — much less than the $2000 notional for 2% drift on $100k
+        # buying_power=$500 — far below the $2000 notional for 2% drift on $100k
         {"account_value": 100_000.0, "buying_power": 500.0, "completed_at": _now()},
         {"current_price": 50.0},
     ])
     intent = _intent("buy_add", current_weight=0.10, actual_weight=0.08)
-    with pytest.raises(HTTPException) as exc_info:
-        await _size_partial(conn, "AAPL", intent)
-    assert exc_info.value.status_code == 400
-    assert "buying power" in exc_info.value.detail.lower()
+    qty, notional, summary = await _size_partial(conn, "AAPL", intent)
+    assert qty == 40.0
+    assert notional == pytest.approx(2000.0)
+    assert summary["sizing_basis"] == "account_value"
 
 
 @pytest.mark.asyncio

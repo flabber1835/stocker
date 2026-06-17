@@ -857,6 +857,16 @@ Order params:
   The `mode` field in alpaca_orders is kept for audit (records whether the
   click was immediate vs scheduled) but does not change the Alpaca order type.
 
+Submission routing (`_route_to_drain`): during market hours an `immediate`
+approval submits SELLS inline (they fill in seconds and free buying power) but
+routes BUYS (entry/buy_add) to the fill-gated drain, which releases each buy only
+once live buying power covers it. This stops a fully-invested rotation from firing
+its buys inline before the sells settle (the confirmed "insufficient buying power"
+on a rotation). Market-closed drains everything; scheduled always drains. The
+executor's `_call_risk` retries transient transport errors / 5xx
+(RISK_CALL_RETRIES, default 3) so a risk-service blip mid-approval (e.g. a
+redeploy) doesn't fail a close; a real risk REJECTION (HTTP 200) is never retried.
+
 Short-circuits when ALPACA_API_KEY is empty (records a failed row, no HTTP call).
 
 No other service should contain Alpaca order-submission credentials.

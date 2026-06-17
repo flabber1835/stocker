@@ -476,23 +476,30 @@ queue until the next trading day.** The dashboard shows a single ▶ Approve but
 (plus ✕ Reject) and always sends `mode="immediate"`; `_route_to_drain(mode, clock)`:
 
 ```text
-immediate + market OPEN   → submit INLINE now  (Step 6: market `day` order, fills in seconds)
-immediate + market CLOSED → fall back to the drain (queued for the next open)
+immediate + market OPEN, side=SELL → submit INLINE now (fills in seconds, frees cash)
+immediate + market OPEN, side=BUY  → the DRAIN (released only within live buying power)
+immediate + market CLOSED          → the drain entirely (queued for the next open)
 (scheduled is retained in _route_to_drain for back-compat but no caller emits it.)
 ```
 
 The after-close cron chain runs while the market is CLOSED, so its auto-approvals
 route to the drain (sells-first, fill-gated) — the dominant path keeps that safety.
-A mid-session approval submits inline immediately.
 
-The closed-market fallback is the safety: an off-hours `immediate` click must not
-bypass the drain's sells-first, fill-gated buying-power sequencing — a raw queued
-buy could otherwise fire ahead of its funding sell at the open and be rejected.
+During market hours, **sells still submit inline** (they fill in seconds and free
+buying power) but **buys route to the drain** so they release only once live buying
+power covers them. This closes a confirmed footgun: a rotation approved mid-session
+fired its buys inline within seconds of the sells — *before* the sells' proceeds
+settled — so each buy saw the stale pre-rotation buying power (~the small free cash
+on a fully-invested book) and Alpaca rejected it "insufficient buying power".
+Routing buys through the drain makes a fully-invested rotation self-fund instead of
+failing; a discretionary buy with spare cash is released on the next drain tick
+(seconds). The closed-market case drains everything for the same reason.
+
 Inline submission still flows through the same `risk_check` and
 `_submit_for_action` entrypoint (exits → close-position, others → `/v2/orders`),
-so `immediate` changes only the *timing*, never the safety path. Operator note:
-when approving inline on a fully-invested book, approve **sells before buys** so
-their proceeds fund the buys (the drain does this automatically; inline does not).
+so `immediate` changes only the *timing*, never the safety path. (Previously the
+operator had to approve sells before buys by hand on a fully-invested book; the
+buy→drain routing now does this automatically.)
 
 **Approval = greenlight, drain = authority.** Risk-check still runs at approval for
 fast human feedback, and the kill switch is re-checked at submit. The buying-power

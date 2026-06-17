@@ -156,11 +156,15 @@ _RISK_PAYLOAD = {
 
 @pytest.mark.asyncio
 async def test_call_risk_raises_on_connection_refused():
-    """_call_risk propagates ConnectError so submit_order can catch and audit it."""
+    """_call_risk propagates ConnectError (after exhausting retries) so submit_order
+    can catch and audit it."""
     client = _httpx_client_mock(
         post_side_effect=httpx.ConnectError("Connection refused by risk-service")
     )
-    with patch.object(te_main, "httpx") as httpx_mock:
+    # retries=1, no backoff → assert the raise path fast, without delay.
+    with patch.object(te_main, "httpx") as httpx_mock, \
+         patch.object(te_main, "RISK_CALL_RETRIES", 1), \
+         patch.object(te_main, "RISK_CALL_BACKOFF_SECS", 0.0):
         httpx_mock.AsyncClient = MagicMock(return_value=client)
         with pytest.raises(httpx.ConnectError):
             await _call_risk(_RISK_PAYLOAD)
@@ -172,7 +176,9 @@ async def test_call_risk_raises_on_timeout():
     client = _httpx_client_mock(
         post_side_effect=httpx.ReadTimeout("risk-service timed out")
     )
-    with patch.object(te_main, "httpx") as httpx_mock:
+    with patch.object(te_main, "httpx") as httpx_mock, \
+         patch.object(te_main, "RISK_CALL_RETRIES", 1), \
+         patch.object(te_main, "RISK_CALL_BACKOFF_SECS", 0.0):
         httpx_mock.AsyncClient = MagicMock(return_value=client)
         with pytest.raises(httpx.ReadTimeout):
             await _call_risk(_RISK_PAYLOAD)
@@ -191,10 +197,55 @@ async def test_call_risk_raises_on_server_500():
         )
     )
     client = _httpx_client_mock(post_return=mock_response)
-    with patch.object(te_main, "httpx") as httpx_mock:
+    with patch.object(te_main, "httpx") as httpx_mock, \
+         patch.object(te_main, "RISK_CALL_RETRIES", 1), \
+         patch.object(te_main, "RISK_CALL_BACKOFF_SECS", 0.0):
         httpx_mock.AsyncClient = MagicMock(return_value=client)
         with pytest.raises(httpx.HTTPStatusError):
             await _call_risk(_RISK_PAYLOAD)
+
+
+@pytest.mark.asyncio
+async def test_call_risk_retries_then_succeeds_on_transient_blip():
+    """A transient connect failure (e.g. risk-service restarting mid-approval)
+    is retried and recovers — the close is NOT failed. This is the fix for the
+    prod incident where a redeploy mid-click failed 12 exits with
+    'risk-service: All connection attempts failed'."""
+    ok = MagicMock()
+    ok.status_code = 200
+    ok.raise_for_status = MagicMock()
+    ok.json = MagicMock(return_value={"approved": True, "reason": "ok",
+                                      "check_id": "chk-1", "rule_triggered": "ok"})
+    # First call raises a transient ConnectError, second returns a 200.
+    client = _httpx_client_mock(
+        post_side_effect=[httpx.ConnectError("transient: risk-service restarting"), ok]
+    )
+    with patch.object(te_main, "httpx") as httpx_mock, \
+         patch.object(te_main, "RISK_CALL_RETRIES", 3), \
+         patch.object(te_main, "RISK_CALL_BACKOFF_SECS", 0.0):
+        httpx_mock.AsyncClient = MagicMock(return_value=client)
+        approved, reason, check_id, rule = await _call_risk(_RISK_PAYLOAD)
+    assert approved is True and check_id == "chk-1" and rule == "ok"
+
+
+@pytest.mark.asyncio
+async def test_call_risk_does_not_retry_on_4xx():
+    """A 4xx is a real client error, not transient → NO retry, raises immediately."""
+    mock_response = MagicMock()
+    mock_response.status_code = 400
+    mock_response.raise_for_status = MagicMock(
+        side_effect=httpx.HTTPStatusError("400 Bad Request", request=MagicMock(),
+                                          response=mock_response)
+    )
+    client = _httpx_client_mock(post_return=mock_response)
+    with patch.object(te_main, "httpx") as httpx_mock, \
+         patch.object(te_main, "RISK_CALL_RETRIES", 3), \
+         patch.object(te_main, "RISK_CALL_BACKOFF_SECS", 0.0):
+        httpx_mock.AsyncClient = MagicMock(return_value=client)
+        with pytest.raises(httpx.HTTPStatusError):
+            await _call_risk(_RISK_PAYLOAD)
+    # exactly one POST attempt — no retry on a 4xx
+    assert client.post.await_count == 1
 
 
 # ── 2. _submit_to_alpaca 4xx handling ────────────────────────────────────────

@@ -24,6 +24,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Optional
 
 import httpx
+# Bind the retry-relevant exception classes at import so they survive tests that
+# patch the whole `httpx` module (patching te_main.httpx must not turn the except
+# tuple into Mocks). `httpx.AsyncClient` is still used qualified elsewhere.
+from httpx import HTTPStatusError as _HttpxStatusError
+from httpx import TransportError as _HttpxTransportError
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -44,6 +49,20 @@ ALPACA_API_KEY = os.getenv("ALPACA_API_KEY", "")
 ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
 ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
 RISK_SERVICE_URL = os.getenv("RISK_SERVICE_URL", "http://risk-service:8000")
+# Retry the risk-service /check call on TRANSIENT transport errors / 5xx so a brief
+# blip (e.g. risk-service restarting on a redeploy mid-approval) does not fail the
+# attempt. Confirmed in prod: a batch of clicks during a risk-service redeploy left
+# 12 closes "failed: risk-service error: All connection attempts failed". Bounded
+# short so the dashboard's approve fetch does not time out; a real risk REJECTION
+# (HTTP 200, approved=false) is NOT retried — only transport failures / 5xx.
+try:
+    RISK_CALL_RETRIES = max(1, int(os.getenv("RISK_CALL_RETRIES", "3")))
+except ValueError:
+    RISK_CALL_RETRIES = 3
+try:
+    RISK_CALL_BACKOFF_SECS = float(os.getenv("RISK_CALL_BACKOFF_SECS", "0.4"))
+except ValueError:
+    RISK_CALL_BACKOFF_SECS = 0.4
 try:
     EXIT_SYNC_MAX_AGE_HOURS = float(os.getenv("EXIT_SYNC_MAX_AGE_HOURS", "24"))
 except ValueError:
@@ -222,13 +241,21 @@ async def _get_alpaca_clock() -> Optional[dict]:
     return None
 
 
-def _route_to_drain(mode: str, clock: Optional[dict]) -> bool:
+def _route_to_drain(mode: str, clock: Optional[dict], side: Optional[str] = None) -> bool:
     """Decide whether an approved order enqueues for the fill-gated open drain
     (True) or submits inline right now as a market order (False).
 
       - scheduled         → always the drain (the after-close cron path).
-      - immediate + OPEN  → inline NOW (the "Approve now" daytime path): a market
-                            order that fills within seconds.
+      - immediate + OPEN  → SELLS submit inline NOW (they fill in seconds and free
+                            buying power); BUYS go to the drain. A rotation approved
+                            during market hours fires the buys within seconds of the
+                            sells, before the sells' proceeds settle — so an inline
+                            buy sees stale buying power (~the pre-rotation free cash)
+                            and Alpaca rejects it "insufficient buying power". The
+                            drain releases each buy only once live buying power covers
+                            it (sells-first, fill-gated), so a fully-invested rotation
+                            self-funds instead of failing. A discretionary buy with
+                            spare cash is released on the next drain tick (seconds).
       - immediate + CLOSED→ fall back to the drain. An off-hours 'immediate' click
                             must not bypass the drain's sells-first, fill-gated
                             buying-power sequencing — a raw queued buy could fire
@@ -240,7 +267,13 @@ def _route_to_drain(mode: str, clock: Optional[dict]) -> bool:
     if mode == "scheduled":
         return True
     if mode == "immediate":
-        return clock is not None and not clock.get("is_open", False)
+        if clock is None:
+            return False
+        if not clock.get("is_open", False):
+            return True
+        # Market open: sells inline (fund the book fast), buys via the drain so
+        # they release only within real buying power.
+        return side == "buy"
     return False
 
 
@@ -887,18 +920,41 @@ async def _call_risk(payload: dict) -> tuple[bool, str, Optional[str], str]:
     would fail to insert or, worse, silently lose its audit trail. Callers treat
     "approved but no check_id" as a hard failure and refuse to submit.
     """
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        r = await client.post(f"{RISK_SERVICE_URL}/check", json=payload)
-        r.raise_for_status()
-        data = r.json()
-    raw_check_id = data.get("check_id")
-    check_id = str(raw_check_id) if raw_check_id else None
-    return (
-        bool(data.get("approved", False)),
-        str(data.get("reason", "")),
-        check_id,
-        str(data.get("rule_triggered", "unknown")),
-    )
+    last_exc: Optional[Exception] = None
+    for attempt in range(RISK_CALL_RETRIES):
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r = await client.post(f"{RISK_SERVICE_URL}/check", json=payload)
+                r.raise_for_status()
+                data = r.json()
+            raw_check_id = data.get("check_id")
+            check_id = str(raw_check_id) if raw_check_id else None
+            return (
+                bool(data.get("approved", False)),
+                str(data.get("reason", "")),
+                check_id,
+                str(data.get("rule_triggered", "unknown")),
+            )
+        except (_HttpxTransportError, _HttpxStatusError) as exc:
+            # Retry only TRANSIENT failures: any transport error (connect/timeout/
+            # protocol) or a 5xx. A 4xx is a real client error and is NOT retried.
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            transient = isinstance(exc, _HttpxTransportError) or (
+                status is not None and 500 <= status < 600
+            )
+            last_exc = exc
+            if transient and attempt < RISK_CALL_RETRIES - 1:
+                delay = RISK_CALL_BACKOFF_SECS * (2 ** attempt)
+                logger.warning(
+                    "risk-service /check transient failure (attempt %d/%d): %s — retrying in %.2fs",
+                    attempt + 1, RISK_CALL_RETRIES, exc, delay,
+                )
+                await asyncio.sleep(delay)
+                continue
+            raise
+    # Exhausted retries on a transient error — re-raise the last one for the caller's
+    # existing 502 handler (records a failed attempt; closes can be re-approved).
+    raise last_exc  # type: ignore[misc]
 
 
 # ── Alpaca submission ────────────────────────────────────────────────────────
@@ -1414,7 +1470,7 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
         # session's close (an unfunded buy expires, never carries to the next day).
         # See docs/architecture.md Option B.
         clock = await _get_alpaca_clock() if req.mode in ("scheduled", "immediate") else None
-        if _route_to_drain(req.mode, clock):
+        if _route_to_drain(req.mode, clock, side=side):
             if clock is None:
                 deferred_until, expires_at = None, None          # no creds/unreachable → drain ASAP
             elif clock["is_open"]:
