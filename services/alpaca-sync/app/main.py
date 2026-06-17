@@ -410,10 +410,44 @@ async def _sync_with_lock(
     so the pre-inserted row is reused rather than creating a duplicate.
     """
     if _job_lock.locked():
+        # The lock is already held by an in-flight sync. trigger_sync pre-inserted
+        # a 'running' row + trace BEFORE scheduling this task, and _do_sync (which
+        # flips them to success/failed) will NOT run on this path — so without this
+        # they would orphan as forever-'running', misleading broker-freshness
+        # consumers. Mark them failed here so the short-circuit is self-cleaning.
+        if run_id:
+            await _mark_run_superseded(run_id, trace_id)
         return "already_running", ""
     async with _job_lock:
         run_id = await _do_sync(run_id=run_id, trace_id=trace_id, started_at=started_at)
     return "started", run_id
+
+
+async def _mark_run_superseded(run_id: str, trace_id: Optional[str]) -> None:
+    """Flip a pre-inserted run+trace to failed when its sync never runs (lock held).
+    Best-effort: a DB hiccup here must not crash the trigger task."""
+    try:
+        async with SessionLocal() as db:
+            await db.execute(
+                text(
+                    "UPDATE alpaca_sync_runs SET status='failed', completed_at=NOW(), "
+                    "error_message='superseded: a sync was already running' "
+                    "WHERE run_id=:rid AND status='running'"
+                ),
+                {"rid": run_id},
+            )
+            if trace_id:
+                await db.execute(
+                    text(
+                        "UPDATE execution_traces SET status='failed', completed_at=NOW(), "
+                        "notes='superseded: a sync was already running' "
+                        "WHERE trace_id=:tid AND status='running'"
+                    ),
+                    {"tid": trace_id},
+                )
+            await db.commit()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[alpaca-sync] WARN: could not mark superseded run {run_id} failed: {exc}", flush=True)
 
 
 # ---------------------------------------------------------------------------

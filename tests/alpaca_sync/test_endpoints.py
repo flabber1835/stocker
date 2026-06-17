@@ -41,16 +41,32 @@ def test_health_returns_ok(client):
 def test_jobs_sync_returns_started_when_unlocked(client, monkeypatch):
     from app import main
 
-    # Prevent the background task from actually trying to run _do_sync (which
-    # would hit SessionLocal=None). Replace _sync_with_lock with a no-op coro.
-    async def _noop():
+    # Prevent the background task from actually running _do_sync.
+    async def _noop(*a, **k):
         return ("started", "")
 
     monkeypatch.setattr(main, "_sync_with_lock", _noop)
 
+    # trigger_sync pre-inserts the 'running' row synchronously (so the caller gets
+    # the run_id immediately) — give it a fake SessionLocal so the INSERT succeeds.
+    fake_db = MagicMock()
+    fake_db.execute = AsyncMock(return_value=MagicMock())
+    fake_db.commit = AsyncMock()
+
+    class _FakeSessionCM:
+        async def __aenter__(self):
+            return fake_db
+
+        async def __aexit__(self, *a):
+            return None
+
+    monkeypatch.setattr(main, "SessionLocal", lambda: _FakeSessionCM())
+
     resp = client.post("/jobs/sync")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "started"}
+    body = resp.json()
+    assert body["status"] == "started"
+    assert "run_id" in body  # pre-inserted row id returned to the caller
 
 
 def test_jobs_sync_returns_already_running_when_locked(client):

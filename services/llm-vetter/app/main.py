@@ -82,6 +82,77 @@ _system_prompt_override: str | None = None
 
 _job_lock = asyncio.Lock()
 
+# Cross-process check-and-claim lock (same namespace as av-ingestor's
+# INGEST_RESERVE_LOCK_KEY / pipeline's PIPELINE_*_LOCK_KEY). The in-process
+# _job_lock only serializes WITHIN one process; this transaction-scoped advisory
+# lock makes "already-vetted? + no-running? + INSERT running" atomic across
+# processes too, so a scheduler tick and a dashboard run-now (or >1 replica) can
+# never both launch a vet run for the same ranking → duplicate LLM billing +
+# duplicate exclusions. Auto-released at txn end (no leak).
+VETTER_RESERVE_LOCK_KEY = 8472013465120031
+
+
+async def _reserve_vet_run(
+    source_ranking_run_id: str,
+    source_strategy_id: str,
+    force: bool,
+    model: str,
+) -> tuple[str, str, Optional[str], Optional[datetime]]:
+    """Atomically gate-and-claim a vet run under the advisory lock.
+
+    Returns one of:
+      ("already_vetted", existing_run_id, None, None) — a successful run exists
+        for this ranking run (and force=False);
+      ("claimed", run_id, trace_id, started_at) — a fresh 'running' vetter_runs +
+        execution_traces pair was INSERTed in this transaction.
+    Raises HTTPException(409) if another vet run is already 'running'.
+    """
+    run_id = str(uuid.uuid4())
+    trace_id = str(uuid.uuid4())
+    started_at = datetime.now(timezone.utc)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"),
+            {"key": VETTER_RESERVE_LOCK_KEY},
+        )
+        if not force:
+            done = (await conn.execute(
+                text(
+                    "SELECT run_id FROM vetter_runs "
+                    "WHERE source_ranking_run_id=:src AND status='success' "
+                    "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+                ),
+                {"src": source_ranking_run_id},
+            )).fetchone()
+            if done is not None:
+                return ("already_vetted", str(done.run_id), None, None)
+        running = (await conn.execute(
+            text("SELECT run_id FROM vetter_runs WHERE status='running' LIMIT 1")
+        )).fetchone()
+        if running is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="A vetter job is already running. Wait for it to complete.",
+            )
+        await conn.execute(
+            text(
+                "INSERT INTO vetter_runs "
+                "(run_id, trace_id, source_ranking_run_id, strategy_id, model, status, started_at) "
+                "VALUES (:rid, :tid, :src, :sid, :model, 'running', :now)"
+            ),
+            {"rid": run_id, "tid": trace_id, "src": source_ranking_run_id,
+             "sid": source_strategy_id, "model": model, "now": started_at},
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO execution_traces "
+                "(trace_id, job_type, status, root_run_id, started_at) "
+                "VALUES (:tid, 'vetter_run', 'running', :rid, :now)"
+            ),
+            {"tid": trace_id, "rid": run_id, "now": started_at},
+        )
+    return ("claimed", run_id, trace_id, started_at)
+
 
 async def _assert_no_running_job() -> None:
     async with engine.connect() as conn:
@@ -1059,28 +1130,26 @@ async def start_vet(
         print("[llm-vetter] VETTER_LLM_ENABLED=false — drawdown-only mode; skipping LLM gateway pre-flight")
 
     async with _job_lock:
-        await _assert_no_running_job()
-        run_id = str(uuid.uuid4())
-        trace_id = str(uuid.uuid4())
-        started_at = datetime.now(timezone.utc)
-        async with engine.begin() as conn:
-            await conn.execute(
-                text(
-                    "INSERT INTO vetter_runs "
-                    "(run_id, trace_id, source_ranking_run_id, strategy_id, model, status, started_at) "
-                    "VALUES (:rid, :tid, :src, :sid, :model, 'running', :now)"
-                ),
-                {"rid": run_id, "tid": trace_id, "src": source_ranking_run_id,
-                 "sid": source_strategy_id, "model": f"gateway:{LLM_GATEWAY_URL}", "now": started_at},
+        # Atomic check-and-claim (advisory lock): re-checks already-vetted +
+        # no-running and INSERTs the 'running' rows in ONE transaction, so the
+        # early idempotency read above (a fast-path) can't race a concurrent
+        # trigger into a duplicate run across processes/replicas.
+        status, claimed_run_id, claimed_trace_id, claimed_started_at = await _reserve_vet_run(
+            source_ranking_run_id, source_strategy_id, force,
+            model=f"gateway:{LLM_GATEWAY_URL}",
+        )
+        if status == "already_vetted":
+            print(
+                f"[llm-vetter] already_vetted (atomic recheck): ranking "
+                f"{source_ranking_run_id} → vetter run {claimed_run_id}; skipping re-vet",
+                flush=True,
             )
-            await conn.execute(
-                text(
-                    "INSERT INTO execution_traces "
-                    "(trace_id, job_type, status, root_run_id, started_at) "
-                    "VALUES (:tid, 'vetter_run', 'running', :rid, :now)"
-                ),
-                {"tid": trace_id, "rid": run_id, "now": started_at},
-            )
+            return {
+                "status": "already_vetted",
+                "run_id": claimed_run_id,
+                "source_ranking_run_id": source_ranking_run_id,
+            }
+        run_id, trace_id, started_at = claimed_run_id, claimed_trace_id, claimed_started_at
         background_tasks.add_task(
             _run_vet, run_id, trace_id, source_ranking_run_id,
             source_strategy_id, effective_count, started_at,
