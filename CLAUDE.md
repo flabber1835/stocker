@@ -746,13 +746,18 @@ MAX_POSITION_PCT            — default 0.15 (15%); refuses entries/buy_adds
 MAX_POSITIONS               — default 35; refuses entry when the PROJECTED
                               post-rotation book reaches X distinct tickers and
                               this entry is for a new (not-yet-held) ticker.
-                              Projected = held − held names with a queued exit
-                              order + queued new-ticker entries (all day orders
+                              Projected = held − held names being EXITED this
+                              cycle + queued new-ticker entries (all day orders
                               settle at the same open, so a full rotation nets
-                              out instead of self-wedging). Exits are 'deferred'
-                              at entry-check time (after-close cron approves
-                              sells first), so the netting matches all
-                              OPEN_ORDER_STATUSES incl. 'deferred'.
+                              out instead of self-wedging). "Being exited" is
+                              detected from a queued exit ORDER (any
+                              OPEN_ORDER_STATUSES, incl. 'deferred') OR an exit
+                              INTENT in the run's delta_intents (scoped by
+                              sim_date). The intent source is order-independent —
+                              required because auto-approve does NOT submit all
+                              exits before entries, so an early-checked entry
+                              would see zero deferred exit ORDERS, reject, and
+                              never retry (the confirmed "42 projected" race).
 MAX_DATA_AGE_HOURS          — default 96 (4 days, weekend-safe); refuses
                               entries/buy_adds when the latest successful
                               pipeline run is older than threshold. Sells

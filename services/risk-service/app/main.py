@@ -451,15 +451,31 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
             # are all `day` orders queued for one open, so exits and entries net out.
             #
             #   projected = held_distinct                          (latest alpaca-sync)
-            #             − held names with a queued `exit` order   (on their way out)
+            #             − held names being EXITED this cycle      (on their way out)
             #             + queued NEW-ticker `entry` orders        (on their way in)
             #
             # Without the exit subtraction a full rotation (e.g. 42 held → 30 target:
             # 34 exits + 22 entries) self-wedges: every entry is rejected because the
             # gate counts the 34 names that are simultaneously being exited (42 ≥ 35),
-            # even though the post-open book is only 30. The exits are `deferred` at
-            # entry-check time (after-close cron approves sells first, Step 4 risk →
-            # Step 5b drain), so the netting matches all _OPEN_ORDER_STATUSES.
+            # even though the post-open book is only 30.
+            #
+            # "Being exited this cycle" is detected from TWO sources, OR'd, because an
+            # exit ORDER does not exist yet when the entry is checked — the after-close
+            # auto-approve does NOT submit exits strictly before entries, so an entry
+            # checked early in the pass sees zero deferred exits and (with order-only
+            # netting) computes the full 42, rejects, and — since auto-approve never
+            # retries a `risk_rejected` row — stays wedged even after the 33 exits
+            # later defer. The race was confirmed in prod: rejections stamped
+            # "42 projected" while a later snapshot showed held=42, held_exiting=33.
+            # So we also net the exit INTENTS from delta_intents for this run, which
+            # exist the instant the delta step completes (before ANY approval) and are
+            # therefore order-independent:
+            #   (a) held names with a queued `exit` ORDER (_OPEN_ORDER_STATUSES), OR
+            #   (b) held names with an `exit` INTENT in the latest delta run for
+            #       sim_date (the run this entry belongs to; sim_date = its
+            #       delta_runs.run_date, passed by the trade-executor).
+            # When sim_date is absent (cold-start / manual without a run) the
+            # delta-intent subquery is empty and only the order source applies.
             # Execution-time over-commit is still backstopped by the trade-executor
             # drain's fill-gate + buying-power check.
             max_positions = env["max_positions"]
@@ -476,10 +492,16 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
                         "   JOIN alpaca_sync_runs sr3 ON sr3.run_id = lp3.sync_run_id "
                         "   WHERE sr3.status='success' "
                         "   AND sr3.completed_at = (SELECT MAX(completed_at) FROM alpaca_sync_runs WHERE status='success') "
-                        "   AND lp3.ticker IN ("
-                        "     SELECT ao3.ticker FROM alpaca_orders ao3 "
-                        f"     WHERE ao3.action = 'exit' AND ao3.status IN ({_OPEN_STATUS_SQL})"
-                        "   )) "
+                        "   AND ( lp3.ticker IN ("
+                        "       SELECT ao3.ticker FROM alpaca_orders ao3 "
+                        f"      WHERE ao3.action = 'exit' AND ao3.status IN ({_OPEN_STATUS_SQL})"
+                        "     ) OR lp3.ticker IN ("
+                        "       SELECT di.ticker FROM delta_intents di "
+                        "       WHERE di.action = 'exit' AND di.run_id = ("
+                        "         SELECT run_id FROM delta_runs WHERE run_date = :sim_date "
+                        "         ORDER BY started_at DESC NULLS LAST LIMIT 1"
+                        "       )"
+                        "     ) )) "
                         "+ "
                         "  (SELECT COUNT(DISTINCT ao.ticker) FROM alpaca_orders ao "
                         f"   WHERE ao.status IN ({_OPEN_STATUS_SQL}) AND ao.action = 'entry' "
@@ -489,7 +511,7 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
                         "     WHERE sr2.status='success' "
                         "     AND sr2.completed_at = (SELECT MAX(completed_at) FROM alpaca_sync_runs WHERE status='success')"
                         "   ))"
-                    ))).first()
+                    ), {"sim_date": req.sim_date})).first()
                     held = (await conn.execute(text(
                         "SELECT 1 FROM live_positions lp "
                         "JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "

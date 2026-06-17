@@ -216,12 +216,29 @@ Set `MAX_POSITIONS=0` to disable.
 
 ```text
 projected = held_distinct                            (latest successful alpaca-sync)
-          − held names with a queued `exit` order    (on their way out)
+          − held names being EXITED this cycle        (on their way out)
           + queued NEW-ticker `entry` orders          (on their way in)
 ```
 
 clamped at 0. "Queued" = any of `pending, submitted, deferred, accepted, new,
 partially_filled` (mirrors trade-executor `OPEN_ORDER_STATUSES`).
+
+"Being exited this cycle" is detected from **two OR'd sources**:
+- a queued `exit` **order** (one of the open statuses above), **OR**
+- an `exit` **intent** in the latest `delta_runs` row for `sim_date` (the run the
+  entry belongs to; `sim_date` = its `delta_runs.run_date`, passed by the
+  trade-executor) — read from `delta_intents`.
+
+The intent source is required because of a confirmed **ordering race**: the
+after-close auto-approve does **not** submit all exits strictly before entries, so
+an entry checked early in the pass sees zero deferred exit *orders* and — with
+order-only netting — computes the full pre-rotation count, rejects, and (since
+auto-approve never retries a `risk_rejected` row) stays wedged even after the exits
+later defer. Prod evidence: entries stamped "42 projected positions" at check time
+while a later snapshot showed `held=42, held_exiting=33`. Exit **intents** exist the
+instant the delta step completes (before any approval), so netting them is
+order-independent. When `sim_date` is absent (cold-start / manual without a run) the
+intent subquery is empty and only the order source applies.
 
 **Why netting is required (design decision — full-rotation wedge, 2026-06-16).**
 All chain orders are `day` orders queued for the same market open, so the exits

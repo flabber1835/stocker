@@ -353,18 +353,25 @@ class TestMaxPositionsLimit:
         assert r.json()["approved"] is True
 
     def test_query_nets_queued_exits_with_deferred(self):
-        # Source-shape guard: the MAX_POSITIONS query MUST subtract held names with
-        # a queued `exit` order, and that netting MUST match the 'deferred' status —
-        # the after-close cron approves exits first (flipping them to 'deferred')
-        # BEFORE entries are risk-checked. Dropping either is the rotation-wedge
-        # regression, so fail loudly if a refactor removes them.
+        # Source-shape guard: the MAX_POSITIONS query MUST subtract held names that
+        # are being exited this cycle, from BOTH sources, or the rotation wedges:
+        #   (a) a queued `exit` ORDER matching 'deferred' (after-close approves
+        #       exits first, flipping them to 'deferred' before entries check), AND
+        #   (b) an `exit` INTENT in the run's delta_intents — order-independent,
+        #       the fix for the confirmed race where entries were checked BEFORE
+        #       any exit order existed (rejections stamped "42 projected" while a
+        #       later snapshot showed held_exiting=33).
+        # Dropping either reintroduces the wedge, so fail loudly on a refactor.
         import inspect
         src = inspect.getsource(risk_main._decide)
         assert "deferred" in risk_main._OPEN_STATUS_SQL
-        # the exit-subtraction clause: an action='exit' membership test against the
-        # held tickers, combined via subtraction into the projected count.
+        # (a) exit-ORDER source against the held tickers
         assert "action = 'exit'" in src
         assert "_OPEN_STATUS_SQL" in src
+        # (b) exit-INTENT source (order-independent), scoped to the run via sim_date
+        assert "delta_intents" in src
+        assert "di.action = 'exit'" in src
+        assert ":sim_date" in src
         # subtraction of the exiting-held term must be present (not just additions)
         assert "- " in src or "-\n" in src
 
