@@ -18,7 +18,7 @@ from app.select import (greedy_select, build_covariance, compute_weights, correl
                         compute_excluded_set, apply_theme_tilt, restrict_to_theme)
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
-from stock_strategy_shared.ai_universe import AI_BUILDOUT_UNIVERSE
+from stock_strategy_shared.ai_universe import AI_BUILDOUT_UNIVERSE, AI_THEME_NAMES
 from stock_strategy_shared.investability import (
     avg_dollar_volume,
     below_investability_floor,
@@ -43,7 +43,9 @@ _fmt_row = fmt_row
 # screener's "Theme" filter uses (api /rankings/theme → AI_BUILDOUT_UNIVERSE). Unifying
 # both paths means "what you see on the screener" == "what the book is built from", and
 # the future Anthropic-generated universe swaps in one place.
-_AI_THEME_NAMES = {"ai_infra", "ai_buildout"}
+# Single source of truth (shared) for which theme_overlay.theme values map to the
+# AI-buildout universe — the llm-vetter resolves the same set for theme coverage.
+_AI_THEME_NAMES = AI_THEME_NAMES
 
 
 async def _load_theme_members(conn, theme: str, min_exposure: float) -> dict[str, float]:

@@ -58,3 +58,18 @@ AI_BUILDOUT_UNIVERSE: tuple[str, ...] = (
 
 # Frozenset for O(1) membership tests by consumers.
 AI_BUILDOUT_SET = frozenset(AI_BUILDOUT_UNIVERSE)
+
+# Theme-config names that resolve to the hardcoded AI-buildout universe above.
+# Single source of truth so the portfolio-builder (overlay membership) and the
+# llm-vetter (theme coverage) agree on which `theme_overlay.theme` values map to
+# AI_BUILDOUT_SET — they must not drift.
+AI_THEME_NAMES = frozenset({"ai_infra", "ai_buildout"})
+
+
+def ai_theme_members(theme: str) -> frozenset[str] | None:
+    """Return the AI-buildout ticker set when `theme` names it, else None.
+
+    None means "not an AI-buildout theme" — callers fall back to their own source
+    (e.g. the builder's legacy theme_exposures table). Used so the builder and the
+    vetter resolve AI-theme membership identically from ONE place."""
+    return AI_BUILDOUT_SET if theme in AI_THEME_NAMES else None

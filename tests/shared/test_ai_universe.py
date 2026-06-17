@@ -10,6 +10,8 @@ from stock_strategy_shared.ai_universe import (
     AI_BUILDOUT_AS_OF,
     AI_BUILDOUT_SET,
     AI_BUILDOUT_UNIVERSE,
+    AI_THEME_NAMES,
+    ai_theme_members,
 )
 
 # Demand-side hyperscalers are deliberately NOT part of the picks-and-shovels set.
@@ -45,3 +47,21 @@ def test_contains_known_core_picks_and_shovels():
 
 def test_as_of_is_iso_date():
     assert re.match(r"^\d{4}-\d{2}-\d{2}$", AI_BUILDOUT_AS_OF)
+
+
+def test_ai_theme_names_resolve_to_buildout_set():
+    for name in AI_THEME_NAMES:
+        assert ai_theme_members(name) is AI_BUILDOUT_SET
+
+
+def test_non_ai_theme_returns_none():
+    # A legacy/other theme name is NOT the buildout set → callers fall back.
+    for name in ("value", "", "ai", "infra", "quality_core_v1"):
+        assert ai_theme_members(name) is None
+
+
+def test_ai_theme_names_is_the_documented_set():
+    # Single source of truth consumed by BOTH the portfolio-builder (overlay
+    # membership) and the llm-vetter (theme coverage). Both bind this shared
+    # frozenset directly, so they cannot drift; this pins its contents.
+    assert AI_THEME_NAMES == frozenset({"ai_infra", "ai_buildout"})
