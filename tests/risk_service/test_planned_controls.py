@@ -362,18 +362,23 @@ class TestMaxPositionsLimit:
         #       any exit order existed (rejections stamped "42 projected" while a
         #       later snapshot showed held_exiting=33).
         # Dropping either reintroduces the wedge, so fail loudly on a refactor.
-        import inspect
-        src = inspect.getsource(risk_main._decide)
+        # (Lightweight complement to the real-Postgres execution test in
+        # test_max_positions_sql_pg.py, which catches query-level defects the mock
+        # engine here cannot.)
+        sql = risk_main._PROJECTED_POSITIONS_SQL
         assert "deferred" in risk_main._OPEN_STATUS_SQL
         # (a) exit-ORDER source against the held tickers
-        assert "action = 'exit'" in src
-        assert "_OPEN_STATUS_SQL" in src
+        assert "action = 'exit'" in sql
         # (b) exit-INTENT source (order-independent), scoped to the run via sim_date
-        assert "delta_intents" in src
-        assert "di.action = 'exit'" in src
-        assert ":sim_date" in src
+        assert "delta_intents" in sql
+        assert "di.action = 'exit'" in sql
+        assert ":sim_date" in sql
+        # run_date MUST be compared as text (asyncpg infers a bare DATE placeholder
+        # and rejects the ISO string → "Safety control unavailable"). Guard the cast.
+        assert "run_date::text = :sim_date" in sql
+        assert "run_date = :sim_date" not in sql
         # subtraction of the exiting-held term must be present (not just additions)
-        assert "- " in src or "-\n" in src
+        assert "- " in sql
 
 
 # ═════════════════════════════════════════════════════════════════════════════

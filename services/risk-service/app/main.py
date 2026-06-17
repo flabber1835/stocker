@@ -87,6 +87,49 @@ _OPEN_ORDER_STATUSES = (
 )
 _OPEN_STATUS_SQL = ", ".join(f"'{s}'" for s in _OPEN_ORDER_STATUSES)
 
+# Projected post-rotation position count for the MAX_POSITIONS gate:
+#   held_distinct − held names being EXITED this cycle + queued new-ticker entries.
+# Bound param :sim_date (ISO string, may be NULL). NOTE run_date::text = :sim_date,
+# NOT run_date = :sim_date — asyncpg infers a bare `run_date = $1` placeholder as a
+# DATE and raises DataError on a str ("'str' has no attribute 'toordinal'"); the
+# fail-closed wrapper then turns that into "Safety control unavailable" and rejects
+# every entry. Casting the column forces $1 to text. Defined at module scope (not
+# inline) so the Postgres integration test executes THIS exact SQL, not a copy that
+# could silently drift — the unit tests use a mock engine that never runs SQL, so a
+# query-level defect (type mismatch, bad column, unbalanced parens) is invisible to
+# them. See tests/risk_service/test_max_positions_sql_pg.py.
+_PROJECTED_POSITIONS_SQL = (
+    "SELECT "
+    "  (SELECT COUNT(DISTINCT lp.ticker) FROM live_positions lp "
+    "   JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
+    "   WHERE sr.status='success' "
+    "   AND sr.completed_at = (SELECT MAX(completed_at) FROM alpaca_sync_runs WHERE status='success')) "
+    "- "
+    "  (SELECT COUNT(DISTINCT lp3.ticker) FROM live_positions lp3 "
+    "   JOIN alpaca_sync_runs sr3 ON sr3.run_id = lp3.sync_run_id "
+    "   WHERE sr3.status='success' "
+    "   AND sr3.completed_at = (SELECT MAX(completed_at) FROM alpaca_sync_runs WHERE status='success') "
+    "   AND ( lp3.ticker IN ("
+    "       SELECT ao3.ticker FROM alpaca_orders ao3 "
+    f"      WHERE ao3.action = 'exit' AND ao3.status IN ({_OPEN_STATUS_SQL})"
+    "     ) OR lp3.ticker IN ("
+    "       SELECT di.ticker FROM delta_intents di "
+    "       WHERE di.action = 'exit' AND di.run_id = ("
+    "         SELECT run_id FROM delta_runs WHERE run_date::text = :sim_date "
+    "         ORDER BY started_at DESC NULLS LAST LIMIT 1"
+    "       )"
+    "     ) )) "
+    "+ "
+    "  (SELECT COUNT(DISTINCT ao.ticker) FROM alpaca_orders ao "
+    f"   WHERE ao.status IN ({_OPEN_STATUS_SQL}) AND ao.action = 'entry' "
+    "   AND ao.ticker NOT IN ("
+    "     SELECT lp2.ticker FROM live_positions lp2 "
+    "     JOIN alpaca_sync_runs sr2 ON sr2.run_id = lp2.sync_run_id "
+    "     WHERE sr2.status='success' "
+    "     AND sr2.completed_at = (SELECT MAX(completed_at) FROM alpaca_sync_runs WHERE status='success')"
+    "   ))"
+)
+
 
 _KILL_SWITCH_FILE = "/tmp/kill_switch"
 
@@ -481,37 +524,9 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
             max_positions = env["max_positions"]
             if req.action == "entry" and max_positions > 0:
                 async with engine.connect() as conn:
-                    pos_row = (await conn.execute(text(
-                        "SELECT "
-                        "  (SELECT COUNT(DISTINCT lp.ticker) FROM live_positions lp "
-                        "   JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
-                        "   WHERE sr.status='success' "
-                        "   AND sr.completed_at = (SELECT MAX(completed_at) FROM alpaca_sync_runs WHERE status='success')) "
-                        "- "
-                        "  (SELECT COUNT(DISTINCT lp3.ticker) FROM live_positions lp3 "
-                        "   JOIN alpaca_sync_runs sr3 ON sr3.run_id = lp3.sync_run_id "
-                        "   WHERE sr3.status='success' "
-                        "   AND sr3.completed_at = (SELECT MAX(completed_at) FROM alpaca_sync_runs WHERE status='success') "
-                        "   AND ( lp3.ticker IN ("
-                        "       SELECT ao3.ticker FROM alpaca_orders ao3 "
-                        f"      WHERE ao3.action = 'exit' AND ao3.status IN ({_OPEN_STATUS_SQL})"
-                        "     ) OR lp3.ticker IN ("
-                        "       SELECT di.ticker FROM delta_intents di "
-                        "       WHERE di.action = 'exit' AND di.run_id = ("
-                        "         SELECT run_id FROM delta_runs WHERE run_date = :sim_date "
-                        "         ORDER BY started_at DESC NULLS LAST LIMIT 1"
-                        "       )"
-                        "     ) )) "
-                        "+ "
-                        "  (SELECT COUNT(DISTINCT ao.ticker) FROM alpaca_orders ao "
-                        f"   WHERE ao.status IN ({_OPEN_STATUS_SQL}) AND ao.action = 'entry' "
-                        "   AND ao.ticker NOT IN ("
-                        "     SELECT lp2.ticker FROM live_positions lp2 "
-                        "     JOIN alpaca_sync_runs sr2 ON sr2.run_id = lp2.sync_run_id "
-                        "     WHERE sr2.status='success' "
-                        "     AND sr2.completed_at = (SELECT MAX(completed_at) FROM alpaca_sync_runs WHERE status='success')"
-                        "   ))"
-                    ), {"sim_date": req.sim_date})).first()
+                    pos_row = (await conn.execute(
+                        text(_PROJECTED_POSITIONS_SQL), {"sim_date": req.sim_date}
+                    )).first()
                     held = (await conn.execute(text(
                         "SELECT 1 FROM live_positions lp "
                         "JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
@@ -627,13 +642,20 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
         try:
             async with engine.connect() as conn:
                 if req.sim_date:
-                    # Use delta_runs.run_date to scope per simulation day
+                    # Use delta_runs.run_date to scope per simulation day.
+                    # Compare run_date::text = :sim_date (NOT run_date = :sim_date):
+                    # sim_date arrives as an ISO string and asyncpg infers a bare
+                    # `run_date = $1` placeholder as a DATE type, then rejects the
+                    # str with "DataError: 'str' has no attribute 'toordinal'".
+                    # Casting the column to text forces $1 to text. (This query
+                    # silently swallowed that error via the outer except for the
+                    # whole life of the sim_date turnover path — see git history.)
                     today_row = (await conn.execute(text(
                         "SELECT COALESCE(SUM(ao.notional), 0) "
                         "FROM alpaca_orders ao "
                         "JOIN delta_intents di ON di.id = ao.intent_id "
                         "JOIN delta_runs dr ON dr.run_id = di.run_id "
-                        "WHERE dr.run_date = :sim_date "
+                        "WHERE dr.run_date::text = :sim_date "
                         "AND ao.action IN ('exit', 'sell_trim') "
                         f"AND ao.status IN ({_turnover_status_sql})"
                     ), {"sim_date": req.sim_date})).first()
