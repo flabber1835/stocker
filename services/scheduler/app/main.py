@@ -482,8 +482,15 @@ async def _restore_force_pending() -> tuple[str | None, set[str]]:
         import json as _json
         session = latest_closed_session(_local_now()).isoformat()
         row = await conn.fetchrow(
+            # chain_date::text = $1 (not chain_date = $1): $1 is an ISO string and
+            # scheduler_runs.chain_date is currently TEXT, but every OTHER chain_date
+            # in the schema is DATE — if this column is ever migrated to DATE, a bare
+            # `chain_date = $1` would make asyncpg infer $1 as DATE and raise on the
+            # string (the toordinal DataError), fail-closing the supervisor. The cast
+            # decouples correctness from the column type. Text ordering of ISO dates
+            # matches date ordering, so the `<` query below is equally correct.
             "SELECT run_id::text, steps FROM scheduler_runs "
-            "WHERE chain_date=$1 AND status='running' "
+            "WHERE chain_date::text=$1 AND status='running' "
             "ORDER BY started_at DESC LIMIT 1",
             session,
         )
@@ -522,8 +529,10 @@ async def _close_stale_running_chains() -> int:
     try:
         session = latest_closed_session(_local_now()).isoformat()
         result = await conn.execute(
+            # chain_date::text < $1 — see the cast rationale in _close_stale_running
+            # above; ISO-date text ordering matches date ordering.
             "UPDATE scheduler_runs SET status='failed', completed_at=NOW() "
-            "WHERE status='running' AND chain_date < $1",
+            "WHERE status='running' AND chain_date::text < $1",
             session,
         )
         # asyncpg returns a status string like "UPDATE 3"

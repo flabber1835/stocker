@@ -44,7 +44,9 @@ async def test_closes_prior_day_running_rows_and_spares_today():
     # touches 'running' rows.
     sql, param = conn.execute.await_args.args
     assert "status='running'" in sql
-    assert "chain_date < $1" in sql
+    # chain_date is compared as text (::text cast) so a future DATE migration of the
+    # column can't make asyncpg reject the ISO-string bind param.
+    assert "chain_date::text < $1" in sql
     assert "SET status='failed'" in sql
     conn.close.assert_awaited_once()
 

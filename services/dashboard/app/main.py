@@ -19,6 +19,11 @@ SCHEDULER_URL       = os.getenv("SCHEDULER_URL",       "http://scheduler:8000")
 TRADE_AUTO_APPROVE_MINUTES = int(os.getenv("TRADE_AUTO_APPROVE_MINUTES", "60"))
 
 _rank_chain_running: bool = False
+# Release _rank_chain_running after this many consecutive failed /status polls
+# (~2s each → ~60s) so a scheduler outage can't strand the flag for the full poll
+# window and suppress auto-approve. Safe: the auto-approve gate fails closed while
+# the scheduler is unreachable (M2).
+RANK_CHAIN_MAX_CONSEC_ERRORS = 30
 _intent_first_seen: dict[str, float] = {}
 _intent_approved: set[str] = set()
 
@@ -138,10 +143,14 @@ async def _auto_approve_once(client, now: float) -> None:
         # or, for 'deferred' orders, re-firing into the OPG deferral path while
         # the worker is already managing the wakeup.
         # filled / partial_fill are also terminal — no re-submission needed.
+        # canceled (executor) / cancelled (alpaca-sync — note the spelling drift in
+        # the DB) are terminal too: a deliberately-cancelled order must NOT be
+        # auto-re-submitted. (Both spellings until the DB token is unified.)
         order_status = intent.get("order_status")
         if order_status in (
             "failed", "risk_rejected", "submitted", "pending",
             "deferred", "filled", "partial_fill", "expired",
+            "canceled", "cancelled",
         ):
             _intent_approved.add(iid)
             continue
@@ -835,15 +844,29 @@ async def _run_rank_chain_bg():
                 return
 
         async with httpx.AsyncClient(timeout=10.0) as client:
+            consec_err = 0
             for _ in range(5400):
                 await asyncio.sleep(2)
                 try:
                     s = await client.get(f"{SCHEDULER_URL}/status")
                     if s.status_code == 200:
+                        consec_err = 0
                         if s.json().get("status") in ("success", "failed", "idle"):
                             break
+                    else:
+                        consec_err += 1
                 except Exception:
-                    pass
+                    consec_err += 1
+                # If the scheduler is unreachable for a sustained window, STOP holding
+                # _rank_chain_running — otherwise a scheduler blip strands the flag for
+                # the full ~3h poll, suppressing auto-approve the whole time (M1). This
+                # is safe because the auto-approve gate itself fails CLOSED while the
+                # scheduler is unreachable (M2: _chain_in_progress(fail_closed=True)),
+                # so releasing the flag here cannot leak a stale auto-submit.
+                if consec_err >= RANK_CHAIN_MAX_CONSEC_ERRORS:
+                    print(f"[rank-chain] scheduler unreachable for "
+                          f"{consec_err} polls — releasing _rank_chain_running")
+                    break
     finally:
         _rank_chain_running = False
 
