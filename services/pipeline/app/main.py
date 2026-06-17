@@ -766,6 +766,11 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     min_price_filter = uni_cfg.min_price
     min_avg_dv_filter = uni_cfg.min_avg_dollar_volume_20d
 
+    # CANONICAL investability definition (shared.investability): avg dollar volume =
+    # mean(close × volume) over the last 20 sessions; below floor = price < min_price OR
+    # avg_dv < min_avg_dollar_volume. This factor step is the reference implementation
+    # (vectorized for the whole universe); the delta below-floor exit and the
+    # portfolio-builder filter use the shared helpers so all three agree.
     pf_sorted = prefilter_df.sort_values("date")
     latest_price = pf_sorted.groupby("ticker")["adjusted_close"].last().fillna(0.0)
     last20 = pf_sorted.groupby("ticker").tail(20).copy()

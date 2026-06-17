@@ -9,6 +9,8 @@ from dataclasses import dataclass, replace
 from datetime import date
 from typing import Optional
 
+from stock_strategy_shared.investability import below_investability_floor
+
 
 @dataclass(frozen=True)
 class RankObservation:
@@ -213,10 +215,9 @@ def below_floor_unranked(
     for ticker, (last_px, last_date, avg_dv) in price_rows.items():
         if last_date is None or (ref_date - last_date).days > stale_days:
             continue  # no fresh price → genuine data gap → hold
-        below = (last_px is not None and last_px < min_price) or (
-            avg_dv is not None and avg_dv < min_avg_dollar_volume
-        )
-        if below:
+        # SHARED floor test (same one the factor universe filter and the builder use).
+        if below_investability_floor(last_px, avg_dv, min_price=min_price,
+                                     min_avg_dollar_volume=min_avg_dollar_volume):
             out.add(ticker)
     return out
 

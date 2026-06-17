@@ -19,6 +19,11 @@ from app.select import (greedy_select, build_covariance, compute_weights, correl
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 from stock_strategy_shared.ai_universe import AI_BUILDOUT_UNIVERSE
+from stock_strategy_shared.investability import (
+    avg_dollar_volume,
+    below_investability_floor,
+    DOLLAR_VOLUME_WINDOW,
+)
 from stock_strategy_shared.tracing import fmt_row, log_step, write_trace_file, mark_orphaned_runs_failed
 from stock_strategy_shared.db import wait_for_db
 
@@ -394,7 +399,7 @@ async def _do_build(
     async with engine.connect() as conn:
         price_rows = await conn.execute(
             text(
-                "SELECT ticker, date, adjusted_close FROM daily_prices "
+                "SELECT ticker, date, adjusted_close, close, volume FROM daily_prices "
                 "WHERE ticker = ANY(:tickers) "
                 "AND date <= :pd "
                 "AND date >= :pd - :days * INTERVAL '1 day' "
@@ -404,7 +409,7 @@ async def _do_build(
         )
         prices_df = pd.DataFrame(
             price_rows.fetchall(),
-            columns=["ticker", "date", "adjusted_close"],
+            columns=["ticker", "date", "adjusted_close", "close", "volume"],
         )
 
     prices_df["date"] = pd.to_datetime(prices_df["date"])
@@ -435,31 +440,31 @@ async def _do_build(
     min_price = universe_cfg.min_price
     min_avg_dv = universe_cfg.min_avg_dollar_volume_20d
 
-    # Latest adjusted_close per ticker using already-loaded prices_df (no extra DB query)
-    latest_prices = (
-        prices_df[prices_df["ticker"].isin(rankable_tickers)]
-        .sort_values("date")
-        .groupby("ticker")["adjusted_close"]
-        .last()
-        .to_dict()
-    )
+    # Latest adjusted_close + canonical avg DOLLAR volume (close × volume over the last
+    # DOLLAR_VOLUME_WINDOW sessions) from the already-loaded prices_df — the SAME
+    # definition the factor universe filter and the delta below-floor exit use
+    # (shared.investability), so "investable" means the same in every step. Previously
+    # this read fundamentals.avg_volume (adjusted_close × volume, ingestion-time), which
+    # could disagree with the factor gate and spuriously drop/keep candidates.
+    _sub = prices_df[prices_df["ticker"].isin(rankable_tickers)].sort_values("date")
+    latest_prices = _sub.groupby("ticker")["adjusted_close"].last().to_dict()
+    avg_dv_map: dict[str, float] = {}
+    for _t, _g in _sub.groupby("ticker"):
+        _dv = avg_dollar_volume(_g["close"].tolist(), _g["volume"].tolist(),
+                                window=DOLLAR_VOLUME_WINDOW)
+        if _dv is not None:
+            avg_dv_map[_t] = _dv
 
-    async with engine.connect() as conn:
-        # 20-day avg dollar volume from fundamentals (computed during ingestion)
-        avg_dv_rows = await conn.execute(
-            text(
-                "SELECT DISTINCT ON (ticker) ticker, avg_volume "
-                "FROM fundamentals WHERE ticker = ANY(:tickers) "
-                "ORDER BY ticker, as_of_date DESC"
-            ),
-            {"tickers": rankable_tickers},
-        )
-        avg_dv_map = {r.ticker: float(r.avg_volume) for r in avg_dv_rows.fetchall() if r.avg_volume is not None}
-
-    price_filtered = [t for t in rankable_tickers if latest_prices.get(t, 0) < min_price]
+    # Single shared floor test for the decision; split derived only for the log.
+    universe_filtered = {
+        t for t in rankable_tickers
+        if below_investability_floor(latest_prices.get(t), avg_dv_map.get(t),
+                                     min_price=min_price, min_avg_dollar_volume=min_avg_dv)
+    }
+    price_filtered = [t for t in universe_filtered
+                      if latest_prices.get(t) is not None and latest_prices[t] < min_price]
     _price_filtered_set = set(price_filtered)
-    dv_filtered = [t for t in rankable_tickers if t not in _price_filtered_set and (t not in avg_dv_map or avg_dv_map[t] < min_avg_dv)]
-    universe_filtered = set(price_filtered) | set(dv_filtered)
+    dv_filtered = [t for t in universe_filtered if t not in _price_filtered_set]
     filtered_tickers = [t for t in rankable_tickers if t not in universe_filtered]
 
     async with engine.begin() as conn:
