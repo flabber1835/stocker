@@ -315,6 +315,59 @@ class TestMaxPositionsLimit:
         r = client.post("/check", json=_payload(action="buy_add"))
         assert r.json()["approved"] is True
 
+    def test_rotation_projected_count_passes(self, mock_engine):
+        # Full-rotation regression (2026-06-16): the broker holds 42 names but the
+        # cycle queues 34 exits, so the PROJECTED post-open book is 42-34+entries.
+        # The gate now reads that projected scalar from SQL (not the raw 42), so
+        # pos_count here is the already-netted 8 → well under the cap 35 → passes.
+        # Before the netting fix the gate saw 42 >= 35 and rejected every entry,
+        # self-wedging the rotation.
+        mock_engine.responses = [
+            _OK["sync_row"],
+            _OK["pl_row"],
+            _OK["baseline_row"],
+            _OK["current_row"],
+            (8,),     # projected = 42 held - 34 queued exits + 0 entries so far
+            None,     # ticker NOT already held
+            _OK["acct_row"],
+            None,
+        ]
+        r = client.post("/check", json=_payload(action="entry", ticker="NVDA"))
+        assert r.json()["approved"] is True
+
+    def test_negative_projection_clamps_to_zero(self, mock_engine):
+        # If a sync lag makes queued exits exceed the snapshot's held count, the
+        # netted scalar can go negative; it must clamp to 0 (plenty of room), never
+        # wrap or confuse the cap comparison.
+        mock_engine.responses = [
+            _OK["sync_row"],
+            _OK["pl_row"],
+            _OK["baseline_row"],
+            _OK["current_row"],
+            (-3,),    # netted projection went negative
+            None,     # ticker NOT already held
+            _OK["acct_row"],
+            None,
+        ]
+        r = client.post("/check", json=_payload(action="entry", ticker="NVDA"))
+        assert r.json()["approved"] is True
+
+    def test_query_nets_queued_exits_with_deferred(self):
+        # Source-shape guard: the MAX_POSITIONS query MUST subtract held names with
+        # a queued `exit` order, and that netting MUST match the 'deferred' status —
+        # the after-close cron approves exits first (flipping them to 'deferred')
+        # BEFORE entries are risk-checked. Dropping either is the rotation-wedge
+        # regression, so fail loudly if a refactor removes them.
+        import inspect
+        src = inspect.getsource(risk_main._decide)
+        assert "deferred" in risk_main._OPEN_STATUS_SQL
+        # the exit-subtraction clause: an action='exit' membership test against the
+        # held tickers, combined via subtraction into the projected count.
+        assert "action = 'exit'" in src
+        assert "_OPEN_STATUS_SQL" in src
+        # subtraction of the exiting-held term must be present (not just additions)
+        assert "- " in src or "-\n" in src
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # 5. max_position_pct_limit — refuse buys that push a ticker above the cap

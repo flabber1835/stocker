@@ -30,7 +30,7 @@ MAX_ORDER_NOTIONAL       — default $50,000 per order
 MAX_DAILY_TURNOVER_PCT   — default 0.50 (50%); per-day sell-side cap (see below)
 MAX_DAILY_LOSS_PCT       — default 0.10 (10%); halts ALL trades after a daily drawdown
 MAX_POSITION_PCT         — default 0.15 (15%); per-ticker concentration cap on buys
-MAX_POSITIONS            — default 35; refuses new entries when live_positions reaches cap
+MAX_POSITIONS            — default 35; refuses new entries when the PROJECTED post-rotation book (held − queued exits + queued entries) reaches cap
 MAX_DATA_AGE_HOURS       — default 96; refuses buys when pipeline rankings are too stale
 MAX_SYNC_AGE_HOURS       — default 24; refuses ALL trades when alpaca-sync is too stale
 qty > 0 validation       — enforced in risk-service /check
@@ -203,14 +203,44 @@ Set `MAX_DAILY_LOSS_PCT=1.0` (or higher) to disable.
 
 ### MAX_POSITIONS — portfolio count cap
 
-Refuses `entry` when the broker already holds `MAX_POSITIONS` distinct
-tickers (default 35) AND this entry is for a ticker not currently held.
-`buy_add`, `exit`, and `sell_trim` are not affected (none of them grow the
-distinct-ticker count). Acts as defense in depth alongside the portfolio-
-builder's `max_positions` config — if a misconfigured strategy or bug ever
-generated entries past the cap, this gate blocks them.
+Refuses `entry` when the **projected post-rotation** book would reach
+`MAX_POSITIONS` distinct tickers (default 35) AND this entry is for a ticker
+not currently held. `buy_add`, `exit`, and `sell_trim` are not affected (none
+of them grow the distinct-ticker count). Acts as defense in depth alongside the
+portfolio-builder's `max_positions` config — if a misconfigured strategy or bug
+ever generated entries past the cap, this gate blocks them.
 
 Set `MAX_POSITIONS=0` to disable.
+
+**Projected count (net-the-rotation), not the raw broker book.** The gate counts:
+
+```text
+projected = held_distinct                            (latest successful alpaca-sync)
+          − held names with a queued `exit` order    (on their way out)
+          + queued NEW-ticker `entry` orders          (on their way in)
+```
+
+clamped at 0. "Queued" = any of `pending, submitted, deferred, accepted, new,
+partially_filled` (mirrors trade-executor `OPEN_ORDER_STATUSES`).
+
+**Why netting is required (design decision — full-rotation wedge, 2026-06-16).**
+All chain orders are `day` orders queued for the same market open, so the exits
+and entries settle together. Counting the raw broker book instead self-wedges any
+rotation: a strategy switch that holds 42 names and builds a 30-name target emits
+34 exits + 22 entries; the raw count sees `42 ≥ 35` and rejects *every* entry,
+even though the post-open book is only 30. The portfolio could then never rotate
+unattended — exactly the manual-cleanup scenario the system is meant to avoid.
+
+The exits are in `deferred` (not `pending`) at entry-check time: the after-close
+cron approves sells **first** (executor Step 4 risk-check → Step 5b drain routing
+flips them to `deferred`), then risk-checks the entries while `live_positions`
+still shows the full pre-rotation book. So the netting **must** match `deferred`.
+
+This is the count-axis twin of the buying-power netting in trade-executor
+`_size_partial` (exits free cash at the same open, so entries size against
+`account_value`). Execution-time over-commit remains backstopped by the drain's
+fill-gate + buying-power check, so an optimistic projection can never actually
+over-fill the book.
 
 ### MAX_POSITION_PCT — per-ticker concentration cap
 

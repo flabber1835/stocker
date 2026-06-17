@@ -73,6 +73,21 @@ def _trading_day_today() -> str:
     return datetime.now().date().isoformat()
 
 
+# Order statuses that mean "queued or in-flight at the broker" (NOT terminal:
+# filled / canceled / expired / risk_rejected / failed are excluded). Mirrors
+# trade-executor's OPEN_ORDER_STATUSES — kept in sync by name. Used by the
+# MAX_POSITIONS gate to net the rotation: an `exit` order in one of these states
+# is a held name on its way out (it vacates at the same open the entry fills at),
+# so it must not count against capacity. Critically includes 'deferred' because
+# the after-close cron approves exits FIRST (Step 4 risk-check → Step 5b drain),
+# flipping them to 'deferred' BEFORE entries are risk-checked while live_positions
+# still shows the full pre-rotation book.
+_OPEN_ORDER_STATUSES = (
+    "pending", "submitted", "deferred", "accepted", "new", "partially_filled",
+)
+_OPEN_STATUS_SQL = ", ".join(f"'{s}'" for s in _OPEN_ORDER_STATUSES)
+
+
 _KILL_SWITCH_FILE = "/tmp/kill_switch"
 
 
@@ -428,10 +443,25 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
                             env,
                         )
 
-            # Max-positions count: refuse entries when live_positions has
-            # already reached MAX_POSITIONS and this ticker isn't already held
-            # (a buy_add on an existing position keeps the count unchanged, so
-            # entries are the only action that can grow the portfolio).
+            # Max-positions count: refuse entries when the PROJECTED post-rotation
+            # book would reach MAX_POSITIONS and this ticker isn't already held.
+            #
+            # The count must be the projected book AFTER this cycle's queued orders
+            # settle at the same market open, NOT the raw current broker book — they
+            # are all `day` orders queued for one open, so exits and entries net out.
+            #
+            #   projected = held_distinct                          (latest alpaca-sync)
+            #             − held names with a queued `exit` order   (on their way out)
+            #             + queued NEW-ticker `entry` orders        (on their way in)
+            #
+            # Without the exit subtraction a full rotation (e.g. 42 held → 30 target:
+            # 34 exits + 22 entries) self-wedges: every entry is rejected because the
+            # gate counts the 34 names that are simultaneously being exited (42 ≥ 35),
+            # even though the post-open book is only 30. The exits are `deferred` at
+            # entry-check time (after-close cron approves sells first, Step 4 risk →
+            # Step 5b drain), so the netting matches all _OPEN_ORDER_STATUSES.
+            # Execution-time over-commit is still backstopped by the trade-executor
+            # drain's fill-gate + buying-power check.
             max_positions = env["max_positions"]
             if req.action == "entry" and max_positions > 0:
                 async with engine.connect() as conn:
@@ -441,9 +471,18 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
                         "   JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
                         "   WHERE sr.status='success' "
                         "   AND sr.completed_at = (SELECT MAX(completed_at) FROM alpaca_sync_runs WHERE status='success')) "
+                        "- "
+                        "  (SELECT COUNT(DISTINCT lp3.ticker) FROM live_positions lp3 "
+                        "   JOIN alpaca_sync_runs sr3 ON sr3.run_id = lp3.sync_run_id "
+                        "   WHERE sr3.status='success' "
+                        "   AND sr3.completed_at = (SELECT MAX(completed_at) FROM alpaca_sync_runs WHERE status='success') "
+                        "   AND lp3.ticker IN ("
+                        "     SELECT ao3.ticker FROM alpaca_orders ao3 "
+                        f"     WHERE ao3.action = 'exit' AND ao3.status IN ({_OPEN_STATUS_SQL})"
+                        "   )) "
                         "+ "
                         "  (SELECT COUNT(DISTINCT ao.ticker) FROM alpaca_orders ao "
-                        "   WHERE ao.status = 'pending' AND ao.action = 'entry' "
+                        f"   WHERE ao.status IN ({_OPEN_STATUS_SQL}) AND ao.action = 'entry' "
                         "   AND ao.ticker NOT IN ("
                         "     SELECT lp2.ticker FROM live_positions lp2 "
                         "     JOIN alpaca_sync_runs sr2 ON sr2.run_id = lp2.sync_run_id "
@@ -459,14 +498,19 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
                         "  SELECT MAX(completed_at) FROM alpaca_sync_runs WHERE status='success'"
                         ") LIMIT 1"
                     ), {"t": req.ticker})).first()
-                current_positions = int(pos_row[0]) if pos_row else 0
+                # Clamp at 0: in a heavy rotation the netted projection can go
+                # transiently negative (more queued exits than the snapshot held,
+                # e.g. a sync lag); a negative count must never satisfy the cap in
+                # a way that confuses the message — it just means "plenty of room".
+                current_positions = max(0, int(pos_row[0])) if pos_row else 0
                 already_held = held is not None
                 if not already_held and current_positions >= max_positions:
                     return (
                         False,
                         (
-                            f"Portfolio at capacity: {current_positions} live positions "
-                            f"(limit {max_positions}); entry for {req.ticker} blocked. "
+                            f"Portfolio at capacity: {current_positions} projected positions "
+                            f"after queued exits/entries settle (limit {max_positions}); "
+                            f"entry for {req.ticker} blocked. "
                             f"Exit a position before adding a new one."
                         ),
                         "max_positions_limit",

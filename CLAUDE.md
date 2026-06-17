@@ -743,9 +743,16 @@ MAX_POSITION_PCT            — default 0.15 (15%); refuses entries/buy_adds
                               that would push a ticker above X% of account_value.
                               Backstop to portfolio-builder's max_position_weight
                               for the price-drift case.
-MAX_POSITIONS               — default 35; refuses entry when broker already
-                              holds X distinct tickers and this entry is for
-                              a new (not-yet-held) ticker.
+MAX_POSITIONS               — default 35; refuses entry when the PROJECTED
+                              post-rotation book reaches X distinct tickers and
+                              this entry is for a new (not-yet-held) ticker.
+                              Projected = held − held names with a queued exit
+                              order + queued new-ticker entries (all day orders
+                              settle at the same open, so a full rotation nets
+                              out instead of self-wedging). Exits are 'deferred'
+                              at entry-check time (after-close cron approves
+                              sells first), so the netting matches all
+                              OPEN_ORDER_STATUSES incl. 'deferred'.
 MAX_DATA_AGE_HOURS          — default 96 (4 days, weekend-safe); refuses
                               entries/buy_adds when the latest successful
                               pipeline run is older than threshold. Sells
