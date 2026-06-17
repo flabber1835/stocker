@@ -351,6 +351,26 @@ without this they stick around as ghost containers in `docker compose ps`.
 `https://paper-api.alpaca.markets`; without `ALPACA_API_KEY` set, both
 services short-circuit to no-op (no credentials in repo).
 
+## Deployment (Synology NAS)
+
+The live deployment repo on the NAS is at **`/volume1/docker/github/stocker`**
+(NOT `/volume1/docker/docker/github/stocker` — that path does not exist; cd-ing to
+it silently leaves the shell in the wrong dir so the subsequent `git pull` /
+`docker compose` run against the wrong tree). Always use:
+
+```bash
+cd /volume1/docker/github/stocker
+git pull origin main
+git log --oneline -1          # confirm HEAD is the commit you expect
+docker compose up -d --build <changed-services...>
+```
+
+Rebuild only the services whose code (or the `shared/` package they bundle)
+changed. A change under `shared/` requires rebuilding EVERY service that imports it.
+After pulling a new `docker-compose.yml`, run `docker compose down --remove-orphans`
+once (see above). NEVER pass `--volumes` to any `docker compose down` / prune — it
+deletes the Postgres data volume.
+
 ---
 
 # Stateful Infrastructure
