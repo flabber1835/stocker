@@ -18,6 +18,7 @@ from app.select import (greedy_select, build_covariance, compute_weights, correl
                         compute_excluded_set, apply_theme_tilt, restrict_to_theme)
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
+from stock_strategy_shared.ai_universe import AI_BUILDOUT_UNIVERSE
 from stock_strategy_shared.tracing import fmt_row, log_step, write_trace_file, mark_orphaned_runs_failed
 from stock_strategy_shared.db import wait_for_db
 
@@ -33,12 +34,27 @@ _MIN_EIGENVALUE = 1e-8  # numerical zero threshold for PSD matrix repair
 _fmt_row = fmt_row
 
 
+# Theme names that resolve to the HARDCODED AI-buildout universe — the SAME source the
+# screener's "Theme" filter uses (api /rankings/theme → AI_BUILDOUT_UNIVERSE). Unifying
+# both paths means "what you see on the screener" == "what the book is built from", and
+# the future Anthropic-generated universe swaps in one place.
+_AI_THEME_NAMES = {"ai_infra", "ai_buildout"}
+
+
 async def _load_theme_members(conn, theme: str, min_exposure: float) -> dict[str, float]:
-    """Read the latest theme_exposures snapshot → {ticker: exposure} for members
-    (seed OR exposure >= min_exposure), mirroring the theme-classifier /exposures
-    membership. READ-ONLY. Returns {} (and the overlay degrades to no-theme) if the
-    table is absent/empty — so a builder run never fails because the optional theme
-    service hasn't been deployed/computed."""
+    """Theme membership for the portfolio overlay → {ticker: exposure}.
+
+    For the AI-buildout theme this is the hardcoded AI_BUILDOUT_UNIVERSE — the same set
+    the screener's Theme filter shows — so the screener view and the realized book are
+    ONE universe (this replaces the legacy theme_exposures / theme-classifier source).
+    Membership is binary, so exposure is a uniform 1.0: restrict uses membership only;
+    tilt then boosts every member equally (members vs non-members). No DB needed.
+
+    Any OTHER theme name still falls back to the legacy theme_exposures snapshot (so the
+    decoupled theme-classifier path is preserved); returns {} if that table is
+    absent/empty so a build never fails on a missing optional service. READ-ONLY."""
+    if theme in _AI_THEME_NAMES:
+        return {t: 1.0 for t in AI_BUILDOUT_UNIVERSE}
     try:
         rows = await conn.execute(
             text(

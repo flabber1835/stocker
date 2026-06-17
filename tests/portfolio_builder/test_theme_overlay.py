@@ -20,8 +20,27 @@ os.environ.setdefault("STRATEGY_CONFIG_PATH",
                                    "strategies", "quality_core_v1.yaml"))
 
 
-# ── graceful fallback: overlay must never break a build when the theme service ──
-# isn't deployed/computed (missing theme_exposures table) ──────────────────────
+# ── unified theme source: AI theme == the hardcoded AI_BUILDOUT_UNIVERSE ───────
+# (the SAME set the screener's Theme filter uses) so the screener and the built book
+# are one universe — no theme_exposures / theme-classifier dependency for the AI book.
+
+def test_ai_theme_uses_hardcoded_universe_not_db():
+    from app.main import _load_theme_members
+    from stock_strategy_shared.ai_universe import AI_BUILDOUT_UNIVERSE, AI_BUILDOUT_SET
+
+    class _BoomConn:                       # must NOT be touched for the AI theme
+        async def execute(self, *a, **k):
+            raise AssertionError("AI theme must resolve from the hardcoded universe, not the DB")
+
+    for theme in ("ai_infra", "ai_buildout"):
+        res = asyncio.run(_load_theme_members(_BoomConn(), theme, 0.35))
+        assert set(res.keys()) == AI_BUILDOUT_SET           # membership == hardcoded list
+        assert len(res) == len(AI_BUILDOUT_UNIVERSE)
+        assert all(v == 1.0 for v in res.values())          # uniform binary exposure
+
+
+# ── graceful fallback: a NON-AI theme still reads the legacy theme_exposures and
+# must never break a build when that table is absent/empty ──────────────────────
 
 def test_load_theme_members_returns_empty_on_missing_table():
     from app.main import _load_theme_members
@@ -30,7 +49,7 @@ def test_load_theme_members_returns_empty_on_missing_table():
         async def execute(self, *a, **k):
             raise Exception("relation \"theme_exposures\" does not exist")
 
-    res = asyncio.run(_load_theme_members(_BadConn(), "ai_infra", 0.35))
+    res = asyncio.run(_load_theme_members(_BadConn(), "some_other_theme", 0.35))
     assert res == {}        # empty -> overlay no-ops, the build proceeds (no crash)
 
 
