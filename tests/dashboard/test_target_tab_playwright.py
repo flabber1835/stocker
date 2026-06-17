@@ -106,8 +106,10 @@ def _rankings_payload():
 
 
 def _full_rankings_payload():
-    # The FULL ranking (/api/rankings?limit=5000): the top set PLUS FAR at rank 133,
-    # which is NOT in the with-overlays top set. The Target tab resolves FAR here.
+    # The FULL enriched ranking (/api/rankings/with-overlays?limit=5000 — the SAME
+    # endpoint the screener uses): the top set PLUS FAR at rank 133, which is NOT in
+    # the with-overlays top-100. The Target tab resolves FAR here, WITH name +
+    # market_cap (SIZE), so the detail card is fully populated for a deep-ranked name.
     return {"rankings": _rankings_payload()["rankings"] + [_rank_row("FAR", 133)]}
 
 
@@ -245,6 +247,11 @@ def _run() -> dict:
         res["far_detail_present"] = page.locator("#detail-row-FAR").count()
         res["far_not_in_universe"] = "NOT IN RANKING UNIVERSE" in far_detail
         res["far_rank_cell"] = _cell_text(page, "FAR", 0)
+        # Regression for THIS fix: a deep-ranked target name must show its company
+        # NAME and SIZE in the detail card (they were blank when the Target tab
+        # sourced the bare /rankings, which omits name + market_cap).
+        res["far_has_name"] = "FAR Corp" in far_detail
+        res["far_has_size"] = "$5.0B" in far_detail  # fmtCap(5e9)
 
         browser.close()
     res["errors"] = errors
@@ -273,6 +280,8 @@ def main() -> int:
           "FAR (rank 133, beyond top-100) detail resolves from full ranking — NOT 'not in universe'")
     check(r.get("far_rank_cell", "").startswith("133"),
           f"FAR shows its real rank 133 (got {r.get('far_rank_cell')!r})")
+    check(r.get("far_has_name"), "FAR (deep-ranked) detail shows company NAME")
+    check(r.get("far_has_size"), "FAR (deep-ranked) detail shows SIZE ($5.0B)")
     check(r["GGG_held"] == 0 and r["GGG_target"] == 1, "GGG (watch) → HELD· TARGET✓ (deferred)")
     check(r["GGG_trade"] == "Watch", f"GGG trade label = Watch (got {r.get('GGG_trade')!r})")
     check(r["AAA_held"] == 1 and r["AAA_target"] == 1, "AAA (hold) → HELD✓ TARGET✓")
@@ -312,6 +321,11 @@ def test_target_tab_marks_and_data_gap_hold():
     assert r.get("far_detail_present") == 1, "FAR detail card should render"
     assert not r.get("far_not_in_universe"), "FAR (rank 133) must NOT show 'NOT IN RANKING UNIVERSE'"
     assert r.get("far_rank_cell", "").startswith("133"), "FAR shows its real rank 133"
+    # This fix: deep-ranked target names resolve from the enriched with-overlays
+    # source, so name + SIZE (market_cap) populate the detail card (were blank when
+    # sourced from the bare /rankings).
+    assert r.get("far_has_name"), "deep-ranked FAR detail must show the company name"
+    assert r.get("far_has_size"), "deep-ranked FAR detail must show SIZE ($5.0B)"
 
 
 if __name__ == "__main__":

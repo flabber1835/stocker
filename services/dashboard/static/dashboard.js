@@ -1424,10 +1424,15 @@ async function loadTargetPortfolio() {
     // Resolve EVERY target/held name's record against the FULL ranking, not just the
     // screener's top-100 — otherwise a name ranked beyond 100 (e.g. a portfolio
     // holding at rank 133) isn't in rankData and falls to the "not in universe" stub
-    // with blank factors, which is wrong (it IS ranked). /rankings returns
-    // factor_scores + percentile + rank_slope for the whole universe.
+    // with blank factors, which is wrong (it IS ranked). We use the SAME enriched
+    // endpoint the screener uses (with-overlays), NOT the bare /rankings: the bare
+    // endpoint omits name, market_cap (SIZE), prior_rank, cluster_id, and the vetter
+    // overlay, so a deep-ranked target name (e.g. a Watch beyond top-100) showed a
+    // blank company name + "SIZE —" + no vetter verdict in its detail card. Sourcing
+    // both the screener and the Target tab from with-overlays makes every field
+    // populate identically (single source of truth).
     try {
-      const rk = await fetch('/api/rankings?limit=5000', {cache:'no-store'}).then(r => r.json());
+      const rk = await fetch('/api/rankings/with-overlays?limit=5000', {cache:'no-store'}).then(r => r.json());
       _fullRankByTicker = {};
       (rk.rankings || []).forEach(r => { _fullRankByTicker[r.ticker] = _mapRankRow(r); });
     } catch (_) { /* keep last good map; buildTargetRows still falls back to the stub */ }
