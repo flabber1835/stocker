@@ -143,6 +143,9 @@ function showScreen(name, btnEl) {
 let _themeMode = false;        // is the Theme filter active?
 let _themeData = [];           // ranked theme rows (full-universe), mapped
 let _themeMeta = {};           // { as_of, universe_size }
+let _themeLoaded = false;      // has theme data been fetched at least once this run?
+                               // prewarmed by loadRankings so toggling Theme is
+                               // instant (like the client-side Holdings checkbox)
 
 async function _loadThemeData() {
   try {
@@ -152,20 +155,29 @@ async function _loadThemeData() {
     });
     _themeData = (d.rankings || []).map(_mapRankRow);
     _themeMeta = (d && d.theme) || {};
+    _themeLoaded = true;
   } catch (e) {
     _themeData = [];
     _themeMeta = { error: true };
+    _themeLoaded = true;   // attempted — show the error state, don't spin forever
   }
 }
 
 async function onThemeToggle() {
   _themeMode = !!($('r-only-theme') && $('r-only-theme').checked);
-  if (_themeMode) {
+  _expandedTicker = null;
+  // If theme data is already warm (prewarmed by loadRankings, or loaded on a prior
+  // toggle), render IMMEDIATELY — matching the instant Holdings checkbox — then
+  // refresh in the background. Only block on the fetch the very first time, before
+  // the prewarm has landed.
+  if (_themeMode && !_themeLoaded) {
     $('r-count').textContent = 'loading theme…';
     await _loadThemeData();
+    renderRankings();
+    return;
   }
-  _expandedTicker = null;
   renderRankings();
+  if (_themeMode) _loadThemeData().then(renderRankings);
 }
 
 /* ── Clock ───────────────────────────────────────────────────────────── */
@@ -465,6 +477,10 @@ async function loadRankings() {
     // re-fetch the theme set (ranks + overlays change between runs) before render.
     if (_themeMode) await _loadThemeData();
     renderRankings();
+    // Prewarm the theme set in the background (once per run completion) so pressing
+    // the Theme filter renders instantly like the Holdings checkbox. When _themeMode
+    // is already on we refreshed it synchronously above, so only prewarm otherwise.
+    if (!_themeMode) _loadThemeData();
   } catch (e) {
     // Transient fetch failure (proxy 504 while the api recomputes, network blip,
     // pool busy). Do NOT blank the screener if we already have rows — a single slow
