@@ -9,6 +9,8 @@ services:
       postgres
       -c max_connections=200
       -c shared_buffers=128MB
+      -c datestyle=ISO,MDY
+      -c timezone=UTC
     environment:
       POSTGRES_USER: stocker
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stocker}
@@ -103,6 +105,9 @@ services:
     ports:
       - "8001:8000"
     environment:
+      # Pin the container clock so naive date.today() (ingestion "today") resolves
+      # to the US market day on any host, regardless of the box's locale/TZ.
+      TZ: America/New_York
       DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       REDIS_URL: redis://redis:6379
       AV_API_KEY: ${AV_API_KEY:-demo}
@@ -286,6 +291,9 @@ services:
     ports:
       - "8016:8000"
     environment:
+      # Pin the container clock so naive date.today() (news/earnings lookback
+      # windows) resolves to the US market day on any host locale/TZ.
+      TZ: America/New_York
       DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       LLM_GATEWAY_URL: http://llm-gateway:8000
       AV_API_KEY: ${AV_API_KEY:-demo}
