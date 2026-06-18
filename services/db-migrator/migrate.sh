@@ -42,6 +42,25 @@ echo "[db-migrator] Running: alembic upgrade head" >&2
 alembic -c /app/alembic.ini upgrade head
 echo "[db-migrator] Migration complete" >&2
 
+# Refresh planner statistics after every deploy. The dashboard screener's
+# /rankings/with-overlays query (rank_slope REGR + prior_rank + joins to
+# fundamentals/universe_tickers/vetter_decisions) is plan-sensitive: as the
+# universe grew (~2050 → ~2920 tickers) and the rankings table accumulated runs,
+# stale statistics tipped the planner from index scans to seq scans and the query
+# blew past the dashboard proxy timeout (the "screener shows no data" symptom).
+# ANALYZE is cheap (a sampled stats refresh, not a rewrite) and idempotent, so
+# running it on every deploy keeps plans healthy as the data keeps growing.
+echo "[db-migrator] Running: ANALYZE (refresh planner statistics)" >&2
+python - <<'EOF' || echo "[db-migrator] WARNING: ANALYZE failed (non-fatal)" >&2
+import os, psycopg2
+conn = psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=30)
+conn.set_isolation_level(0)  # ANALYZE cannot run inside a transaction block
+with conn.cursor() as cur:
+    cur.execute("ANALYZE")
+conn.close()
+print("[db-migrator] ANALYZE complete", flush=True)
+EOF
+
 # Show final state
 echo "[db-migrator] Final alembic state:" >&2
 alembic -c /app/alembic.ini current 2>&1 || true
