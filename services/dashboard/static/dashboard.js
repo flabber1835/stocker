@@ -466,6 +466,16 @@ async function loadRankings() {
     if (_themeMode) await _loadThemeData();
     renderRankings();
   } catch (e) {
+    // Transient fetch failure (proxy 504 while the api recomputes, network blip,
+    // pool busy). Do NOT blank the screener if we already have rows — a single slow
+    // response must not wipe the screen ("no data" flakiness on refresh). Keep the
+    // last-good data and re-render it; the next poll/run will refresh it.
+    if (rankData && rankData.length) {
+      renderRankings();   // re-render last-good rows
+      return;
+    }
+    // No prior data: a genuine cold-boot / no-rankings-yet state (the api returns
+    // 503 until the first ranking run exists). Show the empty state, not a spinner.
     _rankingsLoadState = 'empty';
     rankData = [];
     $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">'

@@ -29,7 +29,8 @@ VETTER_URL            = os.getenv("VETTER_URL",            "http://llm-vetter:80
 AV_INGESTOR_URL       = os.getenv("AV_INGESTOR_URL",       "http://av-ingestor:8000")
 PORTFOLIO_BUILDER_URL = os.getenv("PORTFOLIO_BUILDER_URL", "http://portfolio-builder:8000")
 SCHEDULER_URL         = os.getenv("SCHEDULER_URL",         "http://scheduler:8000")
-engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=7,
+engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=8, max_overflow=12,
+                             pool_timeout=10,
                              connect_args={"timeout": 60}) if DATABASE_URL else None
 
 
@@ -344,10 +345,71 @@ def _apply_overlays(
     return out_rows
 
 
+# ── /rankings/with-overlays caching (per ranking/vetter/sync run) ──────────────
+# The overlay query is expensive (rank_slope REGR + prior_rank over the ~187k-row
+# rankings table) and its result only changes when a NEW ranking, vetter, or sync
+# run lands. Without caching it ran on EVERY page load/refresh, taking ~60s, which
+# tripped the dashboard proxy's 60s timeout ("no data") and held a DB connection
+# the whole time → the 10-conn pool exhausted under a couple of refreshes
+# (QueuePool timeout). We cache the assembled payload keyed by (limit, run-key) and
+# serve it instantly; a single-flight lock means concurrent refreshes share ONE
+# computation; and if a stale payload exists while a fresh one is being computed we
+# serve the stale one immediately (stale-while-revalidate) so a refresh never blocks
+# on the recompute. Single uvicorn worker → a process-local dict is sufficient.
+_overlay_cache: dict[int, dict] = {}            # limit -> {"key": run_key, "payload": dict}
+_overlay_locks: dict[int, asyncio.Lock] = {}
+
+
+async def _current_overlay_run_key(conn) -> tuple:
+    """The identity of the data the overlay payload depends on: latest successful
+    ranking run + latest vetter run + latest successful sync. When any changes the
+    cache is invalidated. All three are cheap indexed LIMIT-1 reads."""
+    rk = (await conn.execute(text(
+        "SELECT run_id FROM ranking_runs WHERE status='success' "
+        "ORDER BY rank_date DESC, completed_at DESC NULLS LAST LIMIT 1"))).fetchone()
+    vt = (await conn.execute(text(
+        "SELECT run_id FROM vetter_runs ORDER BY completed_at DESC NULLS LAST, "
+        "started_at DESC LIMIT 1"))).fetchone()
+    sy = (await conn.execute(text(
+        "SELECT run_id FROM alpaca_sync_runs WHERE status='success' "
+        "ORDER BY completed_at DESC NULLS LAST LIMIT 1"))).fetchone()
+    return (
+        str(rk.run_id) if rk else None,
+        str(vt.run_id) if vt else None,
+        str(sy.run_id) if sy else None,
+    )
+
+
 @app.get("/rankings/with-overlays")
 async def get_rankings_with_overlays(limit: int = 100):
     if limit < 0:
         raise HTTPException(status_code=422, detail="limit must be >= 0")
+    if engine is None:
+        return {"count": 0, "run": None, "prior_run": None, "rankings": []}
+    async with engine.connect() as conn:
+        run_key = await _current_overlay_run_key(conn)
+
+    cached = _overlay_cache.get(limit)
+    if cached and cached["key"] == run_key:
+        return cached["payload"]
+
+    lock = _overlay_locks.setdefault(limit, asyncio.Lock())
+    # Stale-while-revalidate: if someone is already computing and we have ANY prior
+    # payload, return it now rather than queueing behind a ~60s recompute.
+    if lock.locked() and cached is not None:
+        return cached["payload"]
+
+    async with lock:
+        # Re-check: a prior waiter may have just populated the fresh payload.
+        cached = _overlay_cache.get(limit)
+        if cached and cached["key"] == run_key:
+            return cached["payload"]
+        payload = await _compute_with_overlays(limit)
+        _overlay_cache[limit] = {"key": run_key, "payload": payload}
+        return payload
+
+
+async def _compute_with_overlays(limit: int = 100):
     """
     Latest rank run, top `limit` tickers, plus per-ticker overlay flags:
     - prior_rank: rank in the immediately-prior successful rank run (for arrows)

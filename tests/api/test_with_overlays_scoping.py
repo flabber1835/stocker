@@ -23,7 +23,10 @@ from app import main
 
 
 def _endpoint_source() -> str:
-    return inspect.getsource(main.get_rankings_with_overlays)
+    # The heavy SQL lives in the internal compute function; the public
+    # `get_rankings_with_overlays` endpoint is now a thin per-run cache wrapper
+    # around it (single-flight + stale-while-revalidate).
+    return inspect.getsource(main._compute_with_overlays)
 
 
 # ── The scoping CTE exists and every overlay CTE references it ─────────────────
