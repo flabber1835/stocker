@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import re
+import time
 import traceback
 import uuid
 from contextlib import asynccontextmanager
@@ -293,12 +294,51 @@ PIPELINE_DELTA_LOCK_KEY = 8472013465120022  # /jobs/delta check-and-claim
 # In-memory progress for the currently-running pipeline job.
 # Safe to read concurrently: only one job runs at a time (_job_lock),
 # and readers (the /runs/progress endpoint) only need eventual consistency.
-_current_progress: dict = {"step": None, "pct": 0}
+_current_progress: dict = {"step": None, "pct": 0, "real": 0, "ts": 0.0}
+
+# The real work emits progress only at coarse phase boundaries (e.g. calc_factors
+# jumps 18→30), so a naive bar sits still then leaps. To show a smooth 5/10/15/20…
+# cadence, the /runs/progress reader EASES the displayed value: it creeps in
+# 5-point steps from the current milestone toward (but never reaching) the next
+# one as time passes, and snaps exactly onto each real milestone when the work
+# actually gets there. Purely cosmetic — the underlying _set_pct milestones and
+# the deterministic computation are unchanged.
+_STEP_MILESTONES = {
+    "calc_factors": [2, 18, 30, 58, 68, 84, 91, 100],
+    "ranking":      [3, 30, 82, 100],
+    "delta":        [3, 12, 28, 48, 72, 100],
+}
+_CREEP_STEP = 5            # display increment (→ 5, 10, 15, 20, …)
+_CREEP_INTERVAL_SECS = 2.0  # advance one step per this many seconds
 
 
 def _set_pct(step: str, pct: int) -> None:
     _current_progress["step"] = step
-    _current_progress["pct"] = pct
+    _current_progress["real"] = pct
+    _current_progress["pct"] = pct          # actual milestone (back-compat)
+    _current_progress["ts"] = time.monotonic()
+
+
+def _round5(x: int) -> int:
+    return int(round(x / _CREEP_STEP) * _CREEP_STEP)
+
+
+def _eased_pct() -> int:
+    """Displayed percent: real milestones smoothed into even 5-point steps."""
+    step = _current_progress.get("step")
+    real = int(_current_progress.get("real", 0) or 0)
+    if not step:
+        return real
+    ladder = _STEP_MILESTONES.get(step)
+    if not ladder:
+        return real
+    anchors = sorted({_round5(m) for m in ladder})
+    here = _round5(real)
+    nxt = next((a for a in anchors if a > here), 100)
+    ceiling = max(here, nxt - _CREEP_STEP)   # don't pre-announce the next milestone
+    steps = int(max(0.0, time.monotonic() - (_current_progress.get("ts") or 0.0))
+                // _CREEP_INTERVAL_SECS)
+    return min(here + steps * _CREEP_STEP, ceiling)
 
 
 # Compiled once — used by share-class dedup to normalize company names.
@@ -2945,8 +2985,12 @@ _PIPELINE_RUN_COLS = (
 async def get_progress():
     """Return the in-memory progress of the currently-running pipeline job.
     Resets to {} between runs. Clients should only use this when /runs/latest
-    reports status='running'."""
-    return dict(_current_progress)
+    reports status='running'. `pct` is the eased (smooth 5-point) display value;
+    `real` is the exact underlying milestone."""
+    out = dict(_current_progress)
+    if out.get("step"):
+        out["pct"] = _eased_pct()
+    return out
 
 
 @app.get("/runs/latest")
