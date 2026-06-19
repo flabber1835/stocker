@@ -174,11 +174,12 @@ def _row(ticker, d, close):
 
 
 def _vetter_excess(stock_closes, spy_closes, window=21, lookback=120,
-                   beta_floor=0.0, beta_cap=3.0):
+                   beta_floor=0.0, beta_cap=3.0, baseline_window=3):
     """Re-implement the vetter's excess_drawdown + beta_and_idio_vol semantics
     (services/llm-vetter/app/drawdown.py) on already date-aligned, positive-price
     close lists, so we can assert byte-for-byte parity without importing the vetter
-    package (different service path)."""
+    package (different service path). Includes the round-trip baseline suppression
+    (baseline_window) so it still mirrors the shared formula both services use."""
     # beta + idio_vol over the last lookback+1 aligned closes
     s = list(stock_closes)[-(lookback + 1):]
     m = list(spy_closes)[-(lookback + 1):]
@@ -204,6 +205,15 @@ def _vetter_excess(stock_closes, spy_closes, window=21, lookback=120,
     peak_i = sw.index(peak)
     raw_dd = sw[-1] / peak - 1.0
     spy_move = mw[-1] / mw[peak_i] - 1.0
+    if baseline_window and baseline_window > 0:
+        bw = min(baseline_window, len(sw))
+        base_s = sum(sw[:bw]) / bw
+        base_m = sum(mw[:bw]) / bw
+        if base_s > 0 and base_m > 0:
+            net_dd = sw[-1] / base_s - 1.0
+            if net_dd >= raw_dd:
+                raw_dd = min(0.0, net_dd)
+                spy_move = mw[-1] / base_m - 1.0
     return {"excess_dd": raw_dd - beta * spy_move, "idio_vol": idio_vol}
 
 

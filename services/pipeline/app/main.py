@@ -49,6 +49,11 @@ CONSUMER_NAME = "pipeline-worker-1"
 # rank order is unchanged. Mirrors the llm-vetter falling-knife window so the
 # screener badge agrees with the vetter's entry block.
 DRAWDOWN_WINDOW_DAYS = int(os.getenv("DRAWDOWN_WINDOW_DAYS", "21"))
+# Round-trip suppression: closes averaged for the pre-spike baseline so a spike
+# that has since been given back doesn't read as a falling knife (see
+# shared.drawdown.recent_drawdown). 0 = pure peak-to-now. MUST match the vetter's
+# value (wired to both services in docker-compose) so card == veto.
+DRAWDOWN_BASELINE_WINDOW = int(os.getenv("DRAWDOWN_BASELINE_WINDOW", "3"))
 # Display-only market beta surfaced on the screener detail card. 120d vs SPY to
 # match the falling-knife (vetter) beta the user sees in drawdown exclusion reasons.
 BETA_LOOKBACK_DAYS = int(os.getenv("BETA_LOOKBACK_DAYS", "120"))
@@ -75,19 +80,21 @@ def _excess_dd_limit(idio_vol: float | None) -> float:
                                    lo=DRAWDOWN_EXCESS_MIN, hi=DRAWDOWN_EXCESS_MAX)
 
 
-def _drawdown_map_from_rows(rows, window: int = 21) -> dict[str, float]:
+def _drawdown_map_from_rows(rows, window: int = 21,
+                            baseline_window: int = 3) -> dict[str, float]:
     """Build {ticker: drawdown_21d} from daily_prices rows ordered (ticker, date ASC).
 
     Uses the SHARED recent_drawdown (identical to the vetter's), so the screener's
-    21d-drawdown badge matches the veto's raw drawdown. Pure: depends only on its
-    arguments (rows have .ticker / .adjusted_close)."""
+    21d-drawdown badge matches the veto's drawdown — including the round-trip
+    suppression (baseline_window). Pure: depends only on its arguments (rows have
+    .ticker / .adjusted_close)."""
     closes: dict[str, list[float]] = {}
     for r in rows:
         if r.adjusted_close is not None:
             closes.setdefault(r.ticker, []).append(float(r.adjusted_close))
     out: dict[str, float] = {}
     for t, cl in closes.items():
-        dd = recent_drawdown(cl, window=window)
+        dd = recent_drawdown(cl, window=window, baseline_window=baseline_window)
         if dd is not None:
             out[t] = dd
     return out
@@ -155,7 +162,8 @@ def _beta_map_from_rows(ticker_rows, spy_rows, lookback: int = 120,
 
 def _excess_drawdown_map_from_rows(ticker_rows, spy_rows, window: int = 21,
                                    lookback: int = 120, min_obs: int = 20,
-                                   beta_floor: float = 0.0, beta_cap: float = 3.0
+                                   beta_floor: float = 0.0, beta_cap: float = 3.0,
+                                   baseline_window: int = 3
                                    ) -> dict[str, dict]:
     """Build {ticker: {"excess_dd", "idio_vol"}} — the beta-adjusted (residual)
     falling-knife signal the VETTER evaluates, surfaced display-only on the screener
@@ -223,6 +231,18 @@ def _excess_drawdown_map_from_rows(ticker_rows, spy_rows, window: int = 21,
             continue
         raw_dd = s_vals[-1] / peak - 1.0
         spy_move = m_vals[-1] / m_vals[peak_i] - 1.0
+        # Round-trip suppression — mirrors shared.drawdown.excess_drawdown so the
+        # card's excess matches the veto's: measure vs a pre-spike baseline and use
+        # it (with the matching SPY span) when it shows less damage (a give-back).
+        if baseline_window and baseline_window > 0:
+            bw = min(baseline_window, len(s_vals))
+            base_s = sum(s_vals[:bw]) / bw
+            base_m = sum(m_vals[:bw]) / bw
+            if base_s > 0 and base_m > 0:
+                net_dd = s_vals[-1] / base_s - 1.0
+                if net_dd >= raw_dd:
+                    raw_dd = min(0.0, net_dd)
+                    spy_move = m_vals[-1] / base_m - 1.0
         out[t] = {"excess_dd": raw_dd - beta * spy_move, "idio_vol": idio_vol}
     return out
 
@@ -1349,7 +1369,9 @@ async def _do_rank(
                 ),
                 {"tickers": _ranked_list, "w": DRAWDOWN_WINDOW_DAYS},
             )
-            drawdown_map = _drawdown_map_from_rows(dd_rows.fetchall(), window=DRAWDOWN_WINDOW_DAYS)
+            drawdown_map = _drawdown_map_from_rows(
+                dd_rows.fetchall(), window=DRAWDOWN_WINDOW_DAYS,
+                baseline_window=DRAWDOWN_BASELINE_WINDOW)
         ranked_df["drawdown_21d"] = ranked_df["ticker"].map(drawdown_map)
 
     # Display-only market beta (120d vs SPY), attached to the rankings JSONB for the
@@ -1386,7 +1408,8 @@ async def _do_rank(
             # Beta-adjusted excess drawdown + idio vol (the falling-knife inputs the
             # vetter evaluates), reusing the SAME fetched price rows as the beta map.
             excess_map = _excess_drawdown_map_from_rows(
-                _bt_rows, _spy_rows, window=DRAWDOWN_WINDOW_DAYS, lookback=BETA_LOOKBACK_DAYS
+                _bt_rows, _spy_rows, window=DRAWDOWN_WINDOW_DAYS, lookback=BETA_LOOKBACK_DAYS,
+                baseline_window=DRAWDOWN_BASELINE_WINDOW
             )
         ranked_df["beta"] = ranked_df["ticker"].map(beta_map)
         ranked_df["excess_dd_21d"] = ranked_df["ticker"].map(

@@ -66,6 +66,11 @@ DRAWDOWN_VOL_SCALING  = _env_bool("DRAWDOWN_VOL_SCALING", True)
 DRAWDOWN_VOL_ANCHOR   = float(os.getenv("DRAWDOWN_VOL_ANCHOR", "0.35"))
 DRAWDOWN_EXCESS_MIN   = float(os.getenv("DRAWDOWN_EXCESS_MIN", "0.10"))
 DRAWDOWN_EXCESS_MAX   = float(os.getenv("DRAWDOWN_EXCESS_MAX", "0.30"))
+# Round-trip suppression: closes averaged for the pre-spike baseline so a spike
+# that has since been given back (e.g. an earnings round-trip) doesn't trip the
+# knife (see shared.drawdown.recent_drawdown). 0 = pure peak-to-now. MUST match the
+# pipeline's value (wired to both services in docker-compose) so card == veto.
+DRAWDOWN_BASELINE_WINDOW = int(os.getenv("DRAWDOWN_BASELINE_WINDOW", "3"))
 
 # Drawdown-only mode. When false, the vetter skips ALL LLM + Tavily + AV-news
 # work and every candidate defaults to keep — the deterministic falling-knife
@@ -658,8 +663,10 @@ async def _do_vet(
 
     for t, rows in _rows_by_ticker.items():
         closes = [c for _, c in rows]
-        # raw drawdown over the last window (market-blind; used for the prompt + floor)
-        raw = recent_drawdown(closes, window=DRAWDOWN_WINDOW_DAYS)
+        # Round-trip-aware drawdown over the last window (market-blind; used for the
+        # prompt + the absolute floor) — net of any spike that's been given back.
+        raw = recent_drawdown(closes, window=DRAWDOWN_WINDOW_DAYS,
+                              baseline_window=DRAWDOWN_BASELINE_WINDOW)
         if raw is not None:
             drawdown_map[t] = raw
         # Beta-adjusted excess: align this ticker's closes to SPY by date (only dates
@@ -670,6 +677,7 @@ async def _do_vet(
             detail = excess_drawdown(
                 aligned_stock, aligned_spy,
                 window=DRAWDOWN_WINDOW_DAYS, beta_lookback=DRAWDOWN_BETA_LOOKBACK,
+                baseline_window=DRAWDOWN_BASELINE_WINDOW,
             )
             if detail is not None:
                 dd_detail_map[t] = detail

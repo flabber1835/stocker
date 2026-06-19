@@ -73,7 +73,11 @@ def test_idiosyncratic_drop_is_a_knife():
     base = [0.003, -0.003] * 60          # SPY drifts ~flat
     spy_full = _series_from_returns(100.0, base + [0.0, 0.0, 0.0])
     stock_full = _series_from_returns(100.0, base + [-0.08, -0.08, -0.05])  # -20% on its own
-    out = excess_drawdown(stock_full, spy_full, window=5, beta_lookback=120)
+    # baseline_window=0 here: this 5-day window is too short for the 3-day baseline
+    # (the crash spans most of the window). Round-trip suppression on a genuine
+    # one-way collapse over a realistic 21d window is covered in
+    # tests/shared/test_drawdown_baseline.py and the real-DB integration test.
+    out = excess_drawdown(stock_full, spy_full, window=5, beta_lookback=120, baseline_window=0)
     assert out["raw_dd"] < -0.18
     assert out["excess_dd"] < -0.15      # market did NOT explain it → still a knife
 

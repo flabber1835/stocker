@@ -37,12 +37,14 @@ def test_at_peak_is_zero():
 
 
 def test_below_peak():
-    assert recent_drawdown([100, 120, 90]) == 90 / 120 - 1.0
+    # baseline_window=0 → pure peak-to-now (round-trip suppression has its own
+    # realistic-window coverage in tests/shared/test_drawdown_baseline.py).
+    assert recent_drawdown([100, 120, 90], baseline_window=0) == 90 / 120 - 1.0
 
 
 def test_window_limits_lookback():
     # window=2 ignores the leading 100 → peak 120, last 90
-    assert recent_drawdown([100, 120, 90], window=2) == 90 / 120 - 1.0
+    assert recent_drawdown([100, 120, 90], window=2, baseline_window=0) == 90 / 120 - 1.0
 
 
 def test_empty_and_nonpositive_return_none():
@@ -53,7 +55,7 @@ def test_empty_and_nonpositive_return_none():
 
 def test_skips_nonpositive_but_uses_valid():
     # a corrupt 0.0 bar is ignored; peak/last computed from the valid ones
-    assert recent_drawdown([100.0, 0.0, 80.0]) == 80.0 / 100.0 - 1.0
+    assert recent_drawdown([100.0, 0.0, 80.0], baseline_window=0) == 80.0 / 100.0 - 1.0
 
 
 # ── prompt rendering ─────────────────────────────────────────────────────────

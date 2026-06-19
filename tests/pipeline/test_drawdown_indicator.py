@@ -28,14 +28,16 @@ def test_drawdown_map_groups_by_ticker_in_order():
         _row("AAA", 100), _row("AAA", 120), _row("AAA", 90),
         _row("BBB", 50), _row("BBB", 50),
     ]
-    m = _drawdown_map_from_rows(rows, window=21)
+    # baseline_window=0 → pure peak-to-now (this test checks grouping, not the
+    # round-trip baseline logic, which is covered in tests/shared/test_drawdown_baseline).
+    m = _drawdown_map_from_rows(rows, window=21, baseline_window=0)
     assert m["AAA"] == 90 / 120 - 1.0
     assert m["BBB"] == 0.0
 
 
 def test_drawdown_map_skips_null_closes():
     rows = [_row("AAA", None), _row("AAA", 100), _row("AAA", 80)]
-    m = _drawdown_map_from_rows(rows, window=21)
+    m = _drawdown_map_from_rows(rows, window=21, baseline_window=0)
     assert m["AAA"] == 80 / 100 - 1.0
 
 
@@ -52,7 +54,7 @@ def test_drawdown_map_empty_rows():
 def test_drawdown_map_window_truncation():
     # window=2 ignores the leading 100 → peak 120, last 90
     rows = [_row("AAA", 100), _row("AAA", 120), _row("AAA", 90)]
-    assert _drawdown_map_from_rows(rows, window=2)["AAA"] == 90 / 120 - 1.0
+    assert _drawdown_map_from_rows(rows, window=2, baseline_window=0)["AAA"] == 90 / 120 - 1.0
 
 
 # ── pure helper ────────────────────────────────────────────────────────────────
@@ -62,11 +64,11 @@ def test_recent_drawdown_at_peak_is_zero():
 
 
 def test_recent_drawdown_below_peak():
-    assert _recent_drawdown([100, 120, 90]) == 90 / 120 - 1.0
+    assert _recent_drawdown([100, 120, 90], baseline_window=0) == 90 / 120 - 1.0
 
 
 def test_recent_drawdown_window_limits_lookback():
-    assert _recent_drawdown([100, 120, 90], window=2) == 90 / 120 - 1.0
+    assert _recent_drawdown([100, 120, 90], window=2, baseline_window=0) == 90 / 120 - 1.0
 
 
 def test_recent_drawdown_empty_and_nonpositive_none():

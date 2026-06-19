@@ -17,12 +17,14 @@ ROOT = Path(__file__).resolve().parents[2]
 # ── shared math (smoke) ─────────────────────────────────────────────────────────
 
 def test_recent_drawdown_at_peak_zero_and_below():
+    # At a fresh high → 0 regardless of baseline mode.
     assert recent_drawdown([100, 105, 110]) == 0.0
-    assert recent_drawdown([100, 120, 90]) == 90 / 120 - 1.0
+    # baseline_window=0 → pure peak-to-now (the legacy behaviour).
+    assert recent_drawdown([100, 120, 90], baseline_window=0) == 90 / 120 - 1.0
 
 
 def test_recent_drawdown_window_and_empty():
-    assert recent_drawdown([100, 120, 90], window=2) == 90 / 120 - 1.0
+    assert recent_drawdown([100, 120, 90], window=2, baseline_window=0) == 90 / 120 - 1.0
     assert recent_drawdown([]) is None
     assert recent_drawdown([0, -5]) is None
 
