@@ -381,19 +381,31 @@ async def _current_overlay_run_key(conn) -> tuple:
 
 
 @app.get("/rankings/with-overlays")
-async def get_rankings_with_overlays(limit: int = 100):
+async def get_rankings_with_overlays(limit: int = 100, tickers: str | None = None):
     if limit < 0:
         raise HTTPException(status_code=422, detail="limit must be >= 0")
     if engine is None:
         return {"count": 0, "run": None, "prior_run": None, "rankings": []}
+    # `tickers` (CSV) scopes the (expensive) overlay CTEs to a specific set instead
+    # of the top-`limit`. The Target tab needs overlays for only its ~30-60
+    # target+held names (some ranked far below 100); without this it fetched
+    # limit=5000 — running rank_slope/prior_rank/joins over the WHOLE universe (the
+    # screener's old slow-load problem, ~30x worse). Cache key includes the set.
+    only_tickers = None
+    if tickers:
+        only_tickers = sorted({t.strip().upper() for t in tickers.split(",") if t.strip()})
+        if not only_tickers:
+            only_tickers = None
+    cache_key = ("tickers", tuple(only_tickers)) if only_tickers else ("limit", limit)
+
     async with engine.connect() as conn:
         run_key = await _current_overlay_run_key(conn)
 
-    cached = _overlay_cache.get(limit)
+    cached = _overlay_cache.get(cache_key)
     if cached and cached["key"] == run_key:
         return cached["payload"]
 
-    lock = _overlay_locks.setdefault(limit, asyncio.Lock())
+    lock = _overlay_locks.setdefault(cache_key, asyncio.Lock())
     # Stale-while-revalidate: if someone is already computing and we have ANY prior
     # payload, return it now rather than queueing behind a ~60s recompute.
     if lock.locked() and cached is not None:
@@ -401,15 +413,15 @@ async def get_rankings_with_overlays(limit: int = 100):
 
     async with lock:
         # Re-check: a prior waiter may have just populated the fresh payload.
-        cached = _overlay_cache.get(limit)
+        cached = _overlay_cache.get(cache_key)
         if cached and cached["key"] == run_key:
             return cached["payload"]
-        payload = await _compute_with_overlays(limit)
-        _overlay_cache[limit] = {"key": run_key, "payload": payload}
+        payload = await _compute_with_overlays(limit, only_tickers)
+        _overlay_cache[cache_key] = {"key": run_key, "payload": payload}
         return payload
 
 
-async def _compute_with_overlays(limit: int = 100):
+async def _compute_with_overlays(limit: int = 100, only_tickers: list[str] | None = None):
     """
     Latest rank run, top `limit` tickers, plus per-ticker overlay flags:
     - prior_rank: rank in the immediately-prior successful rank run (for arrows)
@@ -469,11 +481,26 @@ async def _compute_with_overlays(limit: int = 100):
         # entirely from the separate live_positions query + held_rank_lookup,
         # so they don't depend on these CTEs and the `displayed` scoping does
         # not change any returned row.
+        # `displayed` bounds every overlay CTE. Default = top-`limit`; when
+        # only_tickers is given, scope to exactly that set (no limit) so the heavy
+        # work runs over ~30 names, not the whole universe.
+        _scoped = bool(only_tickers)
+        _disp_filter = ("WHERE run_id = :run_id AND ticker = ANY(:only_tickers)"
+                        if _scoped else
+                        "WHERE run_id = :run_id ORDER BY rank ASC LIMIT :limit")
+        _main_filter = ("WHERE r.run_id = :run_id AND r.ticker = ANY(:only_tickers) "
+                        "ORDER BY r.rank ASC"
+                        if _scoped else
+                        "WHERE r.run_id = :run_id ORDER BY r.rank ASC LIMIT :limit")
+        _params = {"run_id": latest_run_id, "prior_run_id": prior_run_id or latest_run_id,
+                   "limit": limit}
+        if _scoped:
+            _params["only_tickers"] = only_tickers
         rows = await conn.execute(
             text(
                 "WITH displayed AS ("
-                "  SELECT ticker FROM rankings"
-                "  WHERE run_id = :run_id ORDER BY rank ASC LIMIT :limit"
+                "  SELECT ticker FROM rankings "
+                + _disp_filter +
                 "),"
                 "recent_runs AS ("
                 "  SELECT run_id, ROW_NUMBER() OVER (ORDER BY rank_date ASC) - 1 AS x_pos"
@@ -515,11 +542,9 @@ async def _compute_with_overlays(limit: int = 100):
                 "LEFT JOIN prior_ranks pr ON pr.ticker = r.ticker "
                 "LEFT JOIN names n ON n.ticker = r.ticker "
                 "LEFT JOIN caps c ON c.ticker = r.ticker "
-                "WHERE r.run_id = :run_id "
-                "ORDER BY r.rank ASC LIMIT :limit"
+                + _main_filter
             ),
-            {"run_id": latest_run_id, "prior_run_id": prior_run_id or latest_run_id,
-             "limit": limit},
+            _params,
         )
         ranking_rows = [dict(r) for r in rows.mappings()]
         tickers = [r["ticker"] for r in ranking_rows]

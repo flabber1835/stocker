@@ -37,12 +37,18 @@ class TestDisplayedScoping:
         src = _endpoint_source()
         assert "displayed AS (" in src, "displayed scoping CTE was removed"
 
-    def test_displayed_cte_is_bounded_by_limit(self):
-        """The displayed CTE must select the top-`limit` tickers for the latest run."""
+    def test_displayed_cte_is_bounded_by_limit_or_ticker_set(self):
+        """The displayed CTE must be bounded: top-`limit` by default, or the explicit
+        ticker set when `tickers=` is passed (the Target tab's scoped fetch). The
+        default filter (limit) and the scoped filter (ANY(:only_tickers)) both live
+        in the _disp_filter the CTE is built from."""
         src = _endpoint_source()
-        # Look for: SELECT ticker FROM rankings WHERE run_id = :run_id ... LIMIT :limit
-        assert re.search(r"displayed AS \(.*?run_id = :run_id.*?LIMIT :limit",
-                         src, re.DOTALL), "displayed CTE is not bounded by :limit"
+        # default path still bounds to the top-`limit` for the latest run
+        assert re.search(r"run_id = :run_id ORDER BY rank ASC LIMIT :limit", src), \
+            "default displayed CTE is no longer bounded by :limit"
+        # scoped path bounds to the explicit set instead of the whole universe
+        assert "ticker = ANY(:only_tickers)" in src, \
+            "scoped (tickers=) path missing — Target tab would over-fetch the universe"
 
     def test_ticker_slopes_scoped_to_displayed(self):
         """ticker_slopes (REGR_SLOPE over 5 runs) must filter to the displayed set."""

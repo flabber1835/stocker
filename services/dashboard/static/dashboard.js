@@ -1498,11 +1498,20 @@ async function loadTargetPortfolio() {
     // blank company name + "SIZE —" + no vetter verdict in its detail card. Sourcing
     // both the screener and the Target tab from with-overlays makes every field
     // populate identically (single source of truth).
-    try {
-      const rk = await fetch('/api/rankings/with-overlays?limit=5000', {cache:'no-store'}).then(r => r.json());
-      _fullRankByTicker = {};
-      (rk.rankings || []).forEach(r => { _fullRankByTicker[r.ticker] = _mapRankRow(r); });
-    } catch (_) { /* keep last good map; buildTargetRows still falls back to the stub */ }
+    // Scope the enriched fetch to ONLY the target+held names (the delta intents),
+    // not the whole universe. The old limit=5000 ran the expensive overlay CTEs
+    // (rank_slope/prior_rank/joins) over ~2900 tickers just to display ~30 — the
+    // screener's slow-load problem, ~30x worse. tickers= bounds it to the set, so
+    // even a cold load is sub-second.
+    const _targetTickers = [...new Set((deltaData || []).map(it => it && it.ticker).filter(Boolean))];
+    if (_targetTickers.length) {
+      try {
+        const rk = await fetch('/api/rankings/with-overlays?tickers='
+            + encodeURIComponent(_targetTickers.join(',')), {cache:'no-store'}).then(r => r.json());
+        _fullRankByTicker = {};
+        (rk.rankings || []).forEach(r => { _fullRankByTicker[r.ticker] = _mapRankRow(r); });
+      } catch (_) { /* keep last good map; buildTargetRows still falls back to the stub */ }
+    }
     // Target-book risk summary (weight-weighted portfolio beta + est vol).
     try {
       const pr = await fetch('/api/portfolio').then(r => r.json());

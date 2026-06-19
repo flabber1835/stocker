@@ -211,6 +211,54 @@ class TestRankingsWithOverlaysQuery:
 
         assert ranked == [("AAPL", 1), ("MSFT", 2)]
 
+    async def test_tickers_param_scopes_to_subset(self, engine):
+        """The Target tab's tickers= path: `displayed` is the EXPLICIT set (not
+        top-N) and the final query returns only those tickers — validated against
+        real PG so the scoped SQL fragment can't silently break the join chain."""
+        run_id = uuid.uuid4()
+        factor_run_id = uuid.uuid4()
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "INSERT INTO factor_runs (run_id, strategy_id, status, started_at) "
+                "VALUES (:f,'quality_core_v1','success',NOW())"
+            ), {"f": factor_run_id})
+            await conn.execute(text(
+                "INSERT INTO ranking_runs (run_id, source_factor_run_id, strategy_id, "
+                " status, rank_date, regime, universe_count, ranked_count, completed_at) "
+                "VALUES (:r,:f,'quality_core_v1','success',:d,'bull_calm',3,3,NOW())"
+            ), {"r": run_id, "f": factor_run_id, "d": date.today()})
+            await conn.execute(text(
+                "INSERT INTO rankings (run_id, source_factor_run_id, strategy_id, regime, "
+                " rank_date, ticker, rank, composite_score, percentile) VALUES "
+                "(:r,:f,'quality_core_v1','bull_calm',:d,'AAPL',1,1.5,1.0),"
+                "(:r,:f,'quality_core_v1','bull_calm',:d,'MSFT',2,1.2,0.5),"
+                "(:r,:f,'quality_core_v1','bull_calm',:d,'NVDA',3,1.0,0.0)"
+            ), {"r": run_id, "f": factor_run_id, "d": date.today()})
+
+        only = ["AAPL", "NVDA"]   # request a subset; MSFT must NOT come back
+        async with engine.connect() as conn:
+            rows = await conn.execute(text(
+                "WITH displayed AS ("
+                "  SELECT ticker FROM rankings WHERE run_id = :rid AND ticker = ANY(:only)"
+                "),"
+                "recent_runs AS ("
+                "  SELECT run_id, ROW_NUMBER() OVER (ORDER BY rank_date ASC) - 1 AS x_pos FROM ("
+                "    SELECT run_id, rank_date FROM ("
+                "      SELECT DISTINCT ON (rank_date) run_id, rank_date FROM ranking_runs "
+                "      WHERE status='success' ORDER BY rank_date DESC, completed_at DESC NULLS LAST"
+                "    ) lpd ORDER BY rank_date DESC LIMIT 5) rd),"
+                "ticker_slopes AS ("
+                "  SELECT r.ticker, REGR_SLOPE(r.rank::double precision, rr.x_pos::double precision) AS rank_slope"
+                "  FROM rankings r JOIN recent_runs rr ON rr.run_id = r.run_id"
+                "  WHERE r.ticker IN (SELECT ticker FROM displayed) GROUP BY r.ticker)"
+                "SELECT r.ticker, r.rank, ts.rank_slope FROM rankings r "
+                "LEFT JOIN ticker_slopes ts ON ts.ticker = r.ticker "
+                "WHERE r.run_id = :rid AND r.ticker = ANY(:only) ORDER BY r.rank ASC"
+            ), {"rid": run_id, "only": only})
+            got = [r.ticker for r in rows.fetchall()]
+
+        assert got == ["AAPL", "NVDA"]   # scoped to the set, MSFT (top-N) excluded
+
 
 class TestSlopeDedupesSameDayRuns:
     """Re-running the chain multiple times on one session must NOT flush the

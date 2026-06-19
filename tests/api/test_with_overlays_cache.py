@@ -56,7 +56,7 @@ def _patch_runkey(monkeypatch, key):
 def test_same_runkey_computes_once(monkeypatch):
     calls = {"n": 0}
 
-    async def _compute(limit=100):
+    async def _compute(limit=100, only_tickers=None):
         calls["n"] += 1
         return {"count": 1, "limit": limit, "rankings": []}
 
@@ -77,7 +77,7 @@ def test_runkey_change_invalidates(monkeypatch):
     calls = {"n": 0}
     key = {"v": ("r1", "v1", "s1")}
 
-    async def _compute(limit=100):
+    async def _compute(limit=100, only_tickers=None):
         calls["n"] += 1
         return {"n": calls["n"]}
 
@@ -101,7 +101,7 @@ def test_runkey_change_invalidates(monkeypatch):
 def test_limit_keys_are_independent(monkeypatch):
     calls = {"n": 0}
 
-    async def _compute(limit=100):
+    async def _compute(limit=100, only_tickers=None):
         calls["n"] += 1
         return {"limit": limit}
 
@@ -117,6 +117,32 @@ def test_limit_keys_are_independent(monkeypatch):
     assert calls["n"] == 2  # one per distinct limit; 3rd call cached
 
 
+def test_tickers_scopes_normalizes_and_caches_by_set(monkeypatch):
+    """`tickers=` (Target tab) scopes the compute to a set, normalizes it
+    (upper/sorted/dedup), caches by that set, and is independent of the limit key."""
+    calls = []
+
+    async def _compute(limit=100, only_tickers=None):
+        calls.append(only_tickers)
+        return {"only": only_tickers}
+
+    _patch_runkey(monkeypatch, ("r1", "v1", "s1"))
+    monkeypatch.setattr(main, "_compute_with_overlays", _compute)
+
+    async def _run():
+        a = await main.get_rankings_with_overlays(tickers="aapl,msft")
+        b = await main.get_rankings_with_overlays(tickers="MSFT, AAPL,msft")  # same set
+        c = await main.get_rankings_with_overlays(limit=100)                   # separate key
+        return a, b
+
+    a, b = asyncio.run(_run())
+    assert calls[0] == ["AAPL", "MSFT"]                 # normalized + sorted + deduped
+    assert a == b                                       # same set → cache hit, no recompute
+    ticker_computes = [x for x in calls if x is not None]
+    assert len(ticker_computes) == 1                    # scoped compute ran exactly once
+    assert None in calls                                # the limit=100 path computed separately
+
+
 def test_single_flight_serves_stale_during_recompute(monkeypatch):
     """While a recompute for a new run-key is in flight, a concurrent request gets
     the prior (stale) payload immediately rather than queueing behind the ~60s
@@ -125,7 +151,7 @@ def test_single_flight_serves_stale_during_recompute(monkeypatch):
     release = asyncio.Event()
     key = {"v": ("r1", "v1", "s1")}
 
-    async def _compute(limit=100):
+    async def _compute(limit=100, only_tickers=None):
         if key["v"][0] == "r2":
             started.set()
             await release.wait()      # hold the recompute open
