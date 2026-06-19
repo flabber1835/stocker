@@ -191,6 +191,46 @@ function updateClock() {
 }
 
 /* ── Status bar ──────────────────────────────────────────────────────── */
+// Keep-last-good for the vetter's live progress. The {completed,total} travels
+// two hops (dashboard → api /system/status → llm-vetter), each with a 6s timeout;
+// while the vetter is busy with per-ticker LLM calls that field intermittently
+// drops out of a poll, which made the label flip between "VETTER x/y · n%" and a
+// bare "VETTER". Cache the last-good value (scoped to the run) and reuse it while
+// the same run is still running, so the bar stays steady through the dropouts.
+let _lastVetterProgress = null;   // { runId, progress:{completed,total} }
+
+function _resolveVetterProgress(vetter) {
+  const p = vetter.progress;
+  const live = (p && p.total > 0) ? p : null;
+  if (vetter.status !== 'running') {
+    _lastVetterProgress = null;   // run ended → forget last-good (don't leak to next run)
+    return live;
+  }
+  if (live) {
+    _lastVetterProgress = { runId: vetter.run_id || null, progress: live };
+    return live;
+  }
+  // Running but no live progress this poll → reuse last-good for the SAME run.
+  if (_lastVetterProgress && _lastVetterProgress.runId === (vetter.run_id || null)) {
+    return _lastVetterProgress.progress;
+  }
+  return null;
+}
+
+// Same keep-last-good for the pipeline sub-step % (factors/ranking/delta). rank.pct
+// comes from the pipeline's /runs/progress, which can time out on a busy poll and
+// blink the % off the label ("CALCULATING FACTORS 25%" → "CALCULATING FACTORS").
+// Cache scoped to the step label so a stale factors % can't leak into ranking/delta.
+let _lastRankPct = null;   // { step, pct }
+
+function _resolveRankPct(rank) {
+  if (rank.status !== 'running') { _lastRankPct = null; return rank.pct != null ? rank.pct : null; }
+  const step = rank.step_label || '';
+  if (rank.pct != null) { _lastRankPct = { step, pct: rank.pct }; return rank.pct; }
+  if (_lastRankPct && _lastRankPct.step === step) return _lastRankPct.pct;  // dropout → last-good
+  return null;
+}
+
 function updateStatusBar(d) {
   const rank      = d.rank      || {};
   const vetter    = d.vetter    || {};
@@ -201,7 +241,7 @@ function updateStatusBar(d) {
   let sub = '', subCls = '';
 
   if (vetter.status === 'running') {
-    const p = vetter.progress;
+    const p = _resolveVetterProgress(vetter);
     if (p && p.total > 0) {
       const pct = Math.min(100, Math.round((p.completed / p.total) * 100));
       text = 'VETTER ' + p.completed + '/' + p.total + ' · ' + pct + '%';
@@ -213,7 +253,8 @@ function updateStatusBar(d) {
     text = 'BUILDING PORTFOLIO'; textCls = 'sb-blue';
   } else if (rank.status === 'running') {
     const sl = rank.step_label || '';
-    const p = rank.pct != null ? '  ' + rank.pct + '%' : '';
+    const _rp = _resolveRankPct(rank);
+    const p = _rp != null ? '  ' + _rp + '%' : '';
     if (sl === 'Fetching Data')            { text = 'FETCHING DATA' + p;         textCls = 'sb-amber'; }
     else if (sl === 'Calculating Factors') { text = 'CALCULATING FACTORS' + p;  textCls = 'sb-amber'; }
     else if (sl === 'Ranking')             { text = 'RANKING STOCKS' + p;        textCls = 'sb-amber'; }
@@ -315,12 +356,12 @@ function updatePipelineBar(rank, vetter) {
   let labelText, barPct;
   if (running) {
     labelText = rank.step_label || 'RUNNING';
-    barPct = rank.pct;
+    barPct = _resolveRankPct(rank);
   } else if (recentlyRequested) {
     labelText = 'QUEUED…';
     barPct = null;
   } else if (vetRunning) {
-    const vp = vetter.progress;
+    const vp = _resolveVetterProgress(vetter);
     if (vp && vp.total > 0) {
       const vpct = Math.min(100, Math.round((vp.completed / vp.total) * 100));
       labelText = 'VETTER ' + vp.completed + '/' + vp.total;
