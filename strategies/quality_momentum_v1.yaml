@@ -1,0 +1,180 @@
+# quality_momentum_v1 — quality_core_v1 with a measured MOMENTUM LEAN
+#
+# Identical to quality_core_v1 in every respect (universe, factor engine, regime
+# detection, portfolio builder, AI-infra theme overlay, vetter, delta engine)
+# EXCEPT the static factor weights: momentum is lifted from the co-equal 0.19 to
+# 0.23 (the single highest weight, just above quality's anchor 0.22), funded from
+# the two weakest-conviction factors (growth, liquidity). Value, quality and the
+# low-volatility crash buffer are left untouched so the momentum+value
+# diversification (Asness-Moskowitz-Pedersen 2013) and the QMJ anchor are
+# preserved — this is a lean, NOT a momentum-dominant book.
+#
+# This is a separate, versioned artifact so it can be backtested against
+# quality_core_v1 before activation; the live config is unchanged. Activate by
+# pointing STRATEGY_CONFIG_PATH at this file (and the backtester likewise).
+
+strategy_id: quality_momentum_v1
+description: >
+  Quality-tilted broad US equity ranking (AV LISTING_STATUS) with a measured
+  momentum lean: momentum 0.23 (top weight) vs the quality_core_v1 co-equal 0.19,
+  funded from growth/liquidity. Value, quality and low-volatility unchanged, so
+  the mom+value diversification and QMJ anchor are preserved. All other settings
+  identical to quality_core_v1 to isolate the weighting change.
+
+universe:
+  source: av_listing
+  min_price: 5.0
+  min_avg_dollar_volume_20d: 20000000
+
+factor_engine:
+  momentum_short_window: 21  # recent-price reference: skip last ~1 month
+  momentum_long_window: 252  # base-price reference: ~12-month lookback
+  volatility_window: 252     # trading days for realized-vol (low_volatility factor)
+  liquidity_window: 20       # trading days for avg dollar volume (liquidity factor)
+  pe_pb_cap: 50.0            # cap PE and PB before computing yields; beyond this the signal is flat
+  spy_price_lookback_days: 600  # calendar days of SPY history loaded for regime detection
+  quality_use_gross_profitability: true  # quality profitability leg = gross-profits/assets (Novy-Marx), not ROE; falls back to ROE where total_assets is missing
+  momentum_method: residual_riskadj  # 12-1 momentum stripped of the market (idiosyncratic, Blitz-Huij-Martens) AND divided by formation vol (Sharpe-like) — the cross-sectional analogue of vol-scaled/residual momentum; ~2x Sharpe + far smaller crash tails vs raw. Set 'raw' to revert.
+  momentum_blend_windows: [252, 126]  # blend 12-1 and 6-1 momentum (rank-average); both skip the last month, so the factor reacts sooner to emerging trends without chasing short-term spikes/reversals. Set null for single-horizon (momentum_long_window).
+  # industry_neutral_factors defaults to [value, quality] (sector-neutral ranking); see schema
+
+regime_detection:
+  slow_sma: 200            # SPY trend anchor — 200-day SMA
+  vol_window: 20           # days used to calculate realized volatility
+  vol_threshold: 0.20      # annualized vol above this = "stress" (≈ VIX 20)
+  confirmation_days: 5     # both signals must hold for 5 consecutive days
+  regimes:
+    bull_calm:             # trending up, volatility contained — ride winners
+      spy_above_slow_sma: true
+      vol_above_threshold: false
+    bull_stress:           # trending up but choppy — selective momentum, more quality
+      spy_above_slow_sma: true
+      vol_above_threshold: true
+    bear_stress:           # downtrend + high vol — maximum defense
+      spy_above_slow_sma: false
+      vol_above_threshold: true
+    bear_calm:             # downtrend but orderly — value works, lower momentum
+      spy_above_slow_sma: false
+      vol_above_threshold: false
+
+# Regime ROTATION is OFF (regime_weighting_enabled: false) — same as quality_core_v1.
+# The regime is still detected (snapshots/dashboard) but does not change the
+# weights; static_factor_weights is used in every regime.
+regime_weighting_enabled: false
+
+# Static multi-factor weights — quality_core_v1's balanced centroid with a MEASURED
+# MOMENTUM LEAN. momentum 0.19 → 0.23 (now the single highest weight, 1 point above
+# the quality anchor), funded by trimming growth (-0.03, weakest standalone premium)
+# and liquidity (-0.01). value (0.19), quality (0.22) and low_volatility (0.13) are
+# DELIBERATELY unchanged: the momentum+value combination is the strongest factor
+# result (Asness-Moskowitz-Pedersen 2013) and is preserved, and the low-vol buffer
+# keeps momentum's crash tail (Daniel-Moskowitz 2016) in check. This is a lean, not
+# a momentum-dominant book. Sums to 1.0.
+# (quality_core_v1 baseline: momentum .19 / value .19 / quality .22 / low_vol .13 /
+#  liquidity .11 / growth .10 / issuance .06.)
+static_factor_weights:
+  momentum:       0.23   # +0.04 lean — top weight, just above the quality anchor
+  value:          0.19   # unchanged — mom+value diversification preserved (NOT starved)
+  quality:        0.22   # unchanged — anchor (QMJ)
+  low_volatility: 0.13   # unchanged — momentum-crash buffer kept intact
+  liquidity:      0.10   # -0.01
+  growth:         0.07   # -0.03 — weakest standalone premium funds the tilt
+  issuance:       0.06   # unchanged — net-share-issuance overlay
+
+factor_weights:
+  # RETAINED for reference / easy re-enable (unused while regime_weighting_enabled
+  # is false). Identical to quality_core_v1.
+  bull_calm:
+    momentum:       0.30
+    growth:         0.20
+    quality:        0.17
+    value:          0.12
+    liquidity:      0.11
+    low_volatility: 0.10
+
+  bull_stress:
+    low_volatility: 0.24
+    quality:        0.23
+    value:          0.17
+    momentum:       0.16
+    liquidity:      0.10
+    growth:         0.10
+
+  bear_stress:
+    low_volatility: 0.35
+    quality:        0.27
+    liquidity:      0.14
+    value:          0.10
+    growth:         0.07
+    momentum:       0.07
+
+  bear_calm:
+    value:          0.30
+    quality:        0.26
+    low_volatility: 0.18
+    momentum:       0.12
+    growth:         0.07
+    liquidity:      0.07
+
+portfolio_builder:
+  method: greedy_score_per_port_vol  # score / hypothetical equal-weight portfolio vol (total, not marginal delta)
+  candidate_count: 100               # top N from ranker fed into greedy selection
+  max_positions: 30                  # final portfolio size
+  covariance_window_days: 252        # trading days used to build covariance matrix
+  min_covariance_observations: 126   # drop tickers with fewer non-NaN return observations (~6 months)
+  covariance_shrinkage: 0.20         # Ledoit-Wolf-style: 80% sample + 20% diagonal
+  require_positive_composite_score: false  # set true to exclude negative-score names pre-selection
+  weighting: adj_score_proportional  # equal_weight | adj_score_proportional | score_proportional | inverse_vol
+  max_position_weight: 0.10          # hard cap per position; excess redistributed to others
+  max_sector_weight: 1.00            # RELAXED for the AI-infra restrict sleeve (PURE CORE = 0.25). The sleeve is intentionally tech-heavy; 0.25 would strangle it.
+  cluster_correlation_threshold: 0.70  # |corr| >= this groups two names into one correlation cluster
+  max_cluster_weight: 0.50           # RELAXED for the AI restrict sleeve (PURE CORE = 0.15)
+  max_tickers_per_cluster: null      # RELAXED for the AI restrict sleeve (PURE CORE = 3)
+  do_not_buy: []                     # hard-exclude list: ESG screens, legal holds, insider restrictions
+  cash_reserve: 0.025                # keep 2.5% uninvested (day orders don't batch-reserve buying power, so OPG buffer no longer needed)
+  theme_overlay:
+    enabled: true                    # AI thematic overlay ON (same as quality_core_v1). For PURE CORE set false AND restore caps above to 0.25 / 0.15 / 3.
+    theme: ai_infra
+    mode: restrict                   # restrict = AI-infra-only sleeve. Set 'tilt' for the milder full-book AI boost.
+    min_exposure: 0.35               # membership cutoff (seeds always members)
+    tilt_lambda: 0.25                # tilt mode: score *= (1 + tilt_lambda * exposure); 0 = no tilt
+
+vetter:
+  enabled: true
+  candidate_count: 200         # schema max (le=200). Vets top-200 by rank + all held.
+  risk_horizon_days: 90        # risk assessment window — holding is variable (weeks to months)
+  system_prompt_file: /strategies/quality_core_v1.vetter_prompt.txt  # reuse core prompt (weight tilt only)
+  max_searches_per_ticker: 3   # agentic web searches allowed per ticker
+  news_lookback_days: 7        # how far back to pull AV news sentiment
+  max_articles_per_ticker: 4   # max AV news articles loaded per ticker
+  earnings_horizon_days: 90    # flag upcoming earnings within this many days
+  strictness: moderate         # strict | moderate | permissive
+
+intraday:
+  enabled: false               # intraday-monitor service not yet built
+  benchmark_ticker: SPY
+  trim_winners_enabled: false
+  trim_winner_threshold_pct: 10.0         # trim if stock up this % intraday
+  trim_winner_partial_pct: 25.0           # sell this fraction of position
+  trim_time_window_minutes_before_close: 60
+  delay_buys_after_spike_enabled: false
+  delay_buy_spike_threshold_pct: 15.0
+  risk_event_action: reduce              # cut | reduce | hold
+
+delta_engine:
+  entry_rank: 25        # rank ≤ this for confirmation_days → enter portfolio
+  exit_rank: 40         # rank > this for confirmation_days → exit portfolio
+  confirmation_days: 3  # consecutive daily runs required to confirm rank-based entry/exit
+  orphan_confirmation_days: 3  # builds a held name must be absent from target before sold
+  max_positions: 30     # maximum portfolio size
+
+max_positions: 30
+min_score_percentile: 0.0
+min_non_null_factors: 6   # all 6 required factors must be present — any ticker with a null factor is dropped
+required_factors:
+  - quality
+  - growth
+  - value
+  - momentum
+  - low_volatility
+  - liquidity
