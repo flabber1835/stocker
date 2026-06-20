@@ -18,9 +18,13 @@ let _fullRankByTicker = {};                  // ticker → full-universe rank re
 let targetPortfolioRun = null;               // /portfolio run summary (portfolio_beta, est vol)
 let _expandedTargetTicker = null;            // Target tab detail-expansion state
 
-let _searchMode    = false;   // true when showing API search results instead of top-N
-let _searchData    = [];      // rows returned by /rankings/search
-let _searchDebounce = null;   // setTimeout handle for debouncing keystrokes
+// Navigate-typeahead state. The search box no longer FILTERS the list — it shows a
+// helper dropdown of matches; selecting one scrolls/highlights that row in the full
+// list (fetching+injecting the row if it's ranked outside the displayed window).
+let _suggestMatches = [];      // [{ticker,name,rank}] from /rankings/suggest
+let _suggestActive  = -1;      // highlighted dropdown index (keyboard nav); -1 = none
+let _searchDebounce = null;    // setTimeout handle for debouncing keystrokes
+let _flashTimer     = null;    // setTimeout handle for clearing the row-flash highlight
 
 let _clearedTrades   = new Set();  // intent ids dismissed from the trader UI (cosmetic only)
 let _clearedRunId    = null;       // delta run_id the dismissals belong to
@@ -132,52 +136,6 @@ function showScreen(name, btnEl) {
   if (name === 'portfolio') { loadLivePortfolio(); fetchOrders(); }
   if (name === 'trader')    renderTrader();
   if (name === 'target')    loadTargetPortfolio();
-}
-
-/* ── Screener "Theme" filter — hardcoded AI-buildout universe ──────────────── */
-// The standalone Theme TAB was retired; the theme is now a Screener filter (like
-// Holdings). When checked, the screener shows ONLY the AI-buildout theme universe,
-// fetched full-universe from /api/rankings/theme (theme names sit anywhere in the
-// ranked universe, not just the displayed top-100). The set is hardcoded server-
-// side for now and will become Anthropic-API-generated later.
-let _themeMode = false;        // is the Theme filter active?
-let _themeData = [];           // ranked theme rows (full-universe), mapped
-let _themeMeta = {};           // { as_of, universe_size }
-let _themeLoaded = false;      // has theme data been fetched at least once this run?
-                               // prewarmed by loadRankings so toggling Theme is
-                               // instant (like the client-side Holdings checkbox)
-
-async function _loadThemeData() {
-  try {
-    const d = await fetch('/api/rankings/theme', {cache:'no-store'}).then(r => {
-      if (!r.ok) throw new Error(r.status);
-      return r.json();
-    });
-    _themeData = (d.rankings || []).map(_mapRankRow);
-    _themeMeta = (d && d.theme) || {};
-    _themeLoaded = true;
-  } catch (e) {
-    _themeData = [];
-    _themeMeta = { error: true };
-    _themeLoaded = true;   // attempted — show the error state, don't spin forever
-  }
-}
-
-async function onThemeToggle() {
-  _themeMode = !!($('r-only-theme') && $('r-only-theme').checked);
-  _expandedTicker = null;
-  // If theme data is already warm (prewarmed by loadRankings, or loaded on a prior
-  // toggle), render IMMEDIATELY — matching the instant Holdings checkbox — then
-  // refresh in the background. Only block on the fetch the very first time, before
-  // the prewarm has landed.
-  if (_themeMode && !_themeLoaded) {
-    $('r-count').textContent = 'loading theme…';
-    await _loadThemeData();
-    renderRankings();
-    return;
-  }
-  renderRankings();
-  if (_themeMode) _loadThemeData().then(renderRankings);
 }
 
 /* ── Clock ───────────────────────────────────────────────────────────── */
@@ -450,44 +408,199 @@ function _mapRankRow(r) {
   };
 }
 
+/* ── Navigate-typeahead ──────────────────────────────────────────────────
+ * The search box is a JUMP control, not a list filter. As the user types we show
+ * a dropdown of matching tickers (ticker contains OR company name contains, from
+ * /rankings/suggest). Selecting one — click, Enter, or Arrow+Enter — scrolls the
+ * main list to that row and flashes it; the list itself is never filtered.       */
 function onSearchInput() {
   clearTimeout(_searchDebounce);
-  const q = ($('r-search').value || '').trim().toUpperCase();
+  _clearSearchNote();
+  const raw = ($('r-search').value || '').trim();
   const clr = $('r-search-clear');
-  if (clr) clr.style.display = q ? '' : 'none';
-  if (!q) {
-    _searchMode = false;
-    _searchData = [];
-    renderRankings();
+  if (clr) clr.style.display = raw ? '' : 'none';
+  if (!raw) {
+    _hideSuggest();
     return;
   }
-  // Show "searching…" immediately so the user gets feedback
-  $('r-count').textContent = 'searching…';
-  _searchDebounce = setTimeout(() => _doApiSearch(q), 300);
+  // Debounce the suggest fetch; show local matches instantly for snappy feedback.
+  _renderSuggest(_localSuggest(raw));
+  _searchDebounce = setTimeout(() => _fetchSuggest(raw), 200);
 }
 
 function clearSearch() {
   const el = $('r-search');
   if (el) el.value = '';
-  onSearchInput();
+  _hideSuggest();
+  _clearSearchNote();
+  const clr = $('r-search-clear');
+  if (clr) clr.style.display = 'none';
   if (el) el.focus();
 }
 
-async function _doApiSearch(q) {
-  try {
-    const d = await fetch('/api/rankings/search?q=' + encodeURIComponent(q)).then(r => {
-      if (!r.ok) throw new Error(r.status);
-      return r.json();
-    });
-    _searchMode = true;
-    _searchData = (d.rankings || []).map(_mapRankRow);
-    renderRankings();
-  } catch (_) {
-    // On error fall back to client-side filter from loaded data
-    _searchMode = false;
-    _searchData = [];
-    renderRankings();
+// Local fallback / instant matches from already-loaded rows. Mirrors the API's
+// contains-on-ticker-or-name so the dropdown isn't empty while the fetch is in flight.
+function _localSuggest(q) {
+  const u = q.toUpperCase();
+  const out = [];
+  for (const r of rankData) {
+    const tk = (r.ticker || '').toUpperCase();
+    const nm = (r.name || '').toUpperCase();
+    if (tk.includes(u) || nm.includes(u)) {
+      out.push({ ticker: r.ticker, name: r.name, rank: r.rank });
+    }
+    if (out.length >= 20) break;
   }
+  // Exact ticker → ticker-prefix → other, then rank asc (mirror the API ordering).
+  out.sort((a, b) => {
+    const at = (a.ticker || '').toUpperCase(), bt = (b.ticker || '').toUpperCase();
+    const ax = at === u ? 0 : at.startsWith(u) ? 1 : 2;
+    const bx = bt === u ? 0 : bt.startsWith(u) ? 1 : 2;
+    return ax - bx || (a.rank ?? 1e9) - (b.rank ?? 1e9);
+  });
+  return out;
+}
+
+async function _fetchSuggest(q) {
+  try {
+    const d = await fetch('/api/rankings/suggest?q=' + encodeURIComponent(q) + '&limit=20')
+      .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    // Ignore a stale response if the box moved on.
+    if (($('r-search').value || '').trim() !== q) return;
+    _renderSuggest(d.matches || []);
+  } catch (_) {
+    // Keep whatever local matches are showing; don't blank the dropdown on a blip.
+  }
+}
+
+function _renderSuggest(matches) {
+  _suggestMatches = matches || [];
+  _suggestActive = -1;
+  const dd = $('r-search-dd');
+  if (!dd) return;
+  if (!_suggestMatches.length) {
+    dd.innerHTML = '<div class="search-dd-empty">No matching tickers</div>';
+    dd.style.display = '';
+    return;
+  }
+  dd.innerHTML = _suggestMatches.map((m, i) =>
+    '<div class="search-dd-item" data-idx="' + i + '" onmousedown="onSuggestPick(event,' + i + ')">'
+    + '<span class="sd-ticker">' + esc(m.ticker) + '</span>'
+    + '<span class="sd-name">' + (m.name ? esc(m.name) : '—') + '</span>'
+    + '<span class="sd-rank">#' + (m.rank != null ? m.rank : '—') + '</span>'
+    + '</div>'
+  ).join('');
+  dd.style.display = '';
+}
+
+function _hideSuggest() {
+  _suggestMatches = [];
+  _suggestActive = -1;
+  const dd = $('r-search-dd');
+  if (dd) { dd.style.display = 'none'; dd.innerHTML = ''; }
+}
+
+function _setActiveSuggest(idx) {
+  const items = $('r-search-dd') ? $('r-search-dd').querySelectorAll('.search-dd-item') : [];
+  _suggestActive = idx;
+  items.forEach((el, i) => el.classList.toggle('active', i === idx));
+  if (idx >= 0 && items[idx]) items[idx].scrollIntoView({ block: 'nearest' });
+}
+
+// Keyboard nav on the search box: ↑/↓ move the highlight, Enter selects (the
+// highlighted item, else an exact-ticker match, else the first match), Esc closes.
+function onSearchKeydown(ev) {
+  const open = _suggestMatches.length > 0 && $('r-search-dd') && $('r-search-dd').style.display !== 'none';
+  if (ev.key === 'ArrowDown') {
+    if (!open) { onSearchInput(); return; }
+    ev.preventDefault();
+    _setActiveSuggest(Math.min(_suggestActive + 1, _suggestMatches.length - 1));
+  } else if (ev.key === 'ArrowUp') {
+    if (!open) return;
+    ev.preventDefault();
+    _setActiveSuggest(Math.max(_suggestActive - 1, 0));
+  } else if (ev.key === 'Enter') {
+    ev.preventDefault();
+    const typed = (($('r-search').value || '').trim()).toUpperCase();
+    let pick = null;
+    if (_suggestActive >= 0 && _suggestMatches[_suggestActive]) {
+      pick = _suggestMatches[_suggestActive];
+    } else {
+      pick = _suggestMatches.find(m => (m.ticker || '').toUpperCase() === typed)
+          || _suggestMatches[0] || null;
+    }
+    // No suggestion (e.g. an unknown ticker typed in full) → navigate to the typed
+    // value anyway so the "not in this ranking run" note shows instead of doing nothing.
+    if (pick) _navigateToTicker(pick.ticker);
+    else if (typed) _navigateToTicker(typed);
+  } else if (ev.key === 'Escape') {
+    _hideSuggest();
+  }
+}
+
+function onSuggestPick(ev, idx) {
+  if (ev) ev.preventDefault();   // mousedown — keep focus stable
+  const m = _suggestMatches[idx];
+  if (m) _navigateToTicker(m.ticker);
+}
+
+// Scroll the main list to `ticker` and flash its row. Card stays COLLAPSED. If the
+// ticker isn't in the rendered list, fetch its row via the scoped overlays endpoint
+// and inject it (mirrors how held-but-unranked rows are injected). If it isn't
+// ranked at all, show an inline note instead of scrolling to nothing.
+async function _navigateToTicker(ticker) {
+  const tk = (ticker || '').toUpperCase();
+  if (!tk) return;
+  _hideSuggest();
+  _clearSearchNote();
+
+  if (_scrollToRow(tk)) return;
+
+  // Not in the rendered list — pull the single row via the scoped endpoint and inject.
+  try {
+    const d = await fetch('/api/rankings/with-overlays?tickers=' + encodeURIComponent(tk), {cache:'no-store'})
+      .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    const rows = (d.rankings || []).map(_mapRankRow);
+    const match = rows.find(r => (r.ticker || '').toUpperCase() === tk);
+    if (match) {
+      // Inject if not already present (forward-compatible: a no-op once a full
+      // list lands and the row is always already there).
+      if (!rankData.some(r => (r.ticker || '').toUpperCase() === tk)) {
+        rankData.push(match);
+      }
+      renderRankings();
+      if (_scrollToRow(tk)) return;
+    }
+  } catch (_) { /* fall through to the not-in-run note */ }
+
+  _showSearchNote(tk + ' not in this ranking run');
+}
+
+function _scrollToRow(ticker) {
+  const tk = (ticker || '').toUpperCase();
+  const row = document.getElementById('rank-row-' + tk)
+           || document.getElementById('rank-row-' + ticker);
+  if (!row) return false;
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  clearTimeout(_flashTimer);
+  document.querySelectorAll('.rank-row.row-flash').forEach(el => el.classList.remove('row-flash'));
+  // Reflow so the animation restarts even if the same row is re-selected.
+  void row.offsetWidth;
+  row.classList.add('row-flash');
+  _flashTimer = setTimeout(() => row.classList.remove('row-flash'), 1700);
+  return true;
+}
+
+function _showSearchNote(msg) {
+  const el = $('r-search-note');
+  if (!el) return;
+  el.textContent = '⚠ ' + msg;
+  el.style.display = '';
+}
+
+function _clearSearchNote() {
+  const el = $('r-search-note');
+  if (el) { el.textContent = ''; el.style.display = 'none'; }
 }
 
 /* ── Rankings ────────────────────────────────────────────────────────── */
@@ -510,18 +623,8 @@ async function loadRankings() {
     }
     _rankingsLoadState = 'ok';
     rankData = (d.rankings || []).map(_mapRankRow);
-    // Clear any stale search state so the fresh top-N is shown
-    _searchMode = false;
-    _searchData = [];
     _expandedTicker = null;
-    // Keep the Theme filter fresh across background refreshes / run completions:
-    // re-fetch the theme set (ranks + overlays change between runs) before render.
-    if (_themeMode) await _loadThemeData();
     renderRankings();
-    // Prewarm the theme set in the background (once per run completion) so pressing
-    // the Theme filter renders instantly like the Holdings checkbox. When _themeMode
-    // is already on we refreshed it synchronously above, so only prewarm otherwise.
-    if (!_themeMode) _loadThemeData();
   } catch (e) {
     // Transient fetch failure (proxy 504 while the api recomputes, network blip,
     // pool busy). Do NOT blank the screener if we already have rows — a single slow
@@ -579,26 +682,10 @@ function rankArrowHtml(r) {
 }
 
 function renderRankings() {
-  const q = ($('r-search').value || '').toUpperCase().trim();
-  const onlyHeld = $('r-only-held') && $('r-only-held').checked;
-  const hideExcl = $('r-hide-excl') && $('r-hide-excl').checked;
-
-  // Source precedence: explicit search (full-universe, API-filtered by prefix) >
-  // Theme filter (full-universe theme set, search-text applied locally) > the
-  // default top-N set. In search mode the API already filtered by prefix.
-  let base;
-  if (_searchMode) {
-    base = _searchData;
-  } else if (_themeMode) {
-    base = _themeData.filter(r => !q || r.ticker.startsWith(q));
-  } else {
-    base = rankData.filter(r => !q || r.ticker.startsWith(q));
-  }
-  let rows = base.filter(r => {
-    if (onlyHeld && !r.held) return false;
-    if (hideExcl && r.vetter_excluded) return false;
-    return true;
-  });
+  // The list is NEVER filtered — the search box is a navigate-typeahead (see
+  // onSearchInput / _navigateToTicker), not a filter. Always render the full
+  // ranked set; only the column SORT applies.
+  let rows = rankData.slice();
   const { col, dir } = rankSort;
   rows.sort((a, b) => {
     const av = a[col], bv = b[col];
@@ -606,22 +693,10 @@ function renderRankings() {
     if (av == null) return 1; if (bv == null) return -1;
     return (av < bv ? -1 : av > bv ? 1 : 0) * dir;
   });
-  if (_searchMode) {
-    $('r-count').textContent = rows.length + ' result' + (rows.length !== 1 ? 's' : '') + ' for ‘' + q + '’';
-  } else if (_themeMode) {
-    const sz = _themeMeta.universe_size;
-    $('r-count').textContent = rows.length + ' theme'
-      + (sz ? ' / ' + sz : '')
-      + (_themeMeta.as_of ? ' · as of ' + _themeMeta.as_of : '');
-  } else {
-    $('r-count').textContent = rows.length + ' / ' + rankData.length;
-  }
+  $('r-count').textContent = rows.length + ' / ' + rankData.length;
   if (!rows.length) {
     _expandedTicker = null;
-    const msg = (_themeMode && _themeMeta.error)
-      ? 'Theme universe unavailable'
-      : (_themeMode ? 'No theme names in the current ranking' : 'No results');
-    $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">' + msg + '</td></tr>';
+    $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">No results</td></tr>';
     return;
   }
 
@@ -659,12 +734,10 @@ function renderRankings() {
   }
 }
 
-// The array currently feeding the screener rows — mirrors renderRankings's source
-// precedence (search > theme > default top-N), so detail-card lookups resolve a
-// ticker that lives only in the search/theme set rather than the top-100 rankData.
+// The array feeding the screener rows. The list is no longer filtered (the search
+// box navigates instead), so this is simply the full rankData — kept as a helper so
+// detail-card lookups (toggleDetail/_insertDetailRow) have a single source.
 function _rankSource() {
-  if (_searchMode) return _searchData;
-  if (_themeMode)  return _themeData;
   return rankData;
 }
 
@@ -1829,6 +1902,12 @@ setInterval(async () => {
 setInterval(refresh, REFRESH_SECS * 1000);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) refresh();
+});
+
+// Close the screener typeahead dropdown when clicking outside the search box.
+document.addEventListener('click', (ev) => {
+  const wrap = document.querySelector('#screen-screener .search-wrap');
+  if (wrap && !wrap.contains(ev.target)) _hideSuggest();
 });
 
 /* ── Boot ────────────────────────────────────────────────────────────── */

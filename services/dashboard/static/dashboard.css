@@ -373,6 +373,40 @@ td { padding: 9px 12px; white-space: nowrap; font-size: 13px; }
 }
 .search-clear:hover { color: var(--navy); }
 
+/* ── Screener navigate-typeahead dropdown ────────────────────────────────
+   Helper list under the search box. Selecting a row scrolls/highlights the
+   main list — it does NOT filter it. */
+.search-dd {
+  position: absolute; left: 0; top: calc(100% + 4px);
+  z-index: 30; min-width: 100%; max-width: 360px;
+  max-height: 320px; overflow-y: auto;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: var(--shadow);
+}
+.search-dd-item {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 7px 10px; cursor: pointer;
+  border-bottom: 1px solid var(--border2);
+  font-size: 13px; white-space: nowrap;
+}
+.search-dd-item:last-child { border-bottom: none; }
+.search-dd-item:hover, .search-dd-item.active { background: var(--blue-lt); }
+.search-dd-item .sd-ticker { font-family: var(--mono); font-weight: 700; color: var(--navy); }
+.search-dd-item .sd-name {
+  color: var(--text2); overflow: hidden; text-overflow: ellipsis;
+  flex: 1; min-width: 0;
+}
+.search-dd-item .sd-rank { font-family: var(--mono); color: var(--text3); font-size: 12px; }
+.search-dd-empty { padding: 10px; color: var(--text3); font-size: 12px; text-align: center; }
+.search-note { font-size: 12px; color: var(--amber); font-weight: 600; }
+
+/* Brief flash when the list scrolls to a searched row. */
+@keyframes rowFlash {
+  0%   { background: var(--amber-lt, rgba(217,119,6,.18)); }
+  100% { background: transparent; }
+}
+.rank-row.row-flash { animation: rowFlash 1.6s ease-out; }
+
 /* ── Screener: filter bar + column headers float together, fit to width ── */
 /* The column-header row pins just below the sticky filter bar so the two act
    as one floating block. 46px ≈ filter-bar height (input + sticky padding).

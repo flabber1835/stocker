@@ -291,16 +291,28 @@ async def proxy_rankings(limit: int = 500):
 
 
 @app.get("/api/rankings/with-overlays")
-async def proxy_rankings_with_overlays(limit: int = 500):
+async def proxy_rankings_with_overlays(limit: int = 500, tickers: str | None = None):
     # Heavy query (REGR_SLOPE over recent runs × full universe + held-injection
     # joins); on the larger speculative universe it can exceed the default 10s and
     # was throwing a raw 500. Give it room — it returns in well under this.
-    return await _proxy("/rankings/with-overlays", {"limit": limit}, timeout=60.0)
+    # `tickers` (CSV) scopes the overlay CTEs to a specific set — used by the Target
+    # tab and the Screener's navigate-typeahead to inject a single deep-ranked row.
+    params: dict = {"limit": limit}
+    if tickers:
+        params["tickers"] = tickers
+    return await _proxy("/rankings/with-overlays", params, timeout=60.0)
 
 
 @app.get("/api/rankings/search")
 async def proxy_rankings_search(q: str = ""):
     return await _proxy("/rankings/search", {"q": q})
+
+
+@app.get("/api/rankings/suggest")
+async def proxy_rankings_suggest(q: str = "", limit: int = 20):
+    # Lightweight typeahead — ticker/name contains-match within the latest ranking
+    # run. Cheap (no overlay CTEs); fired on each keystroke by the Screener search.
+    return await _proxy("/rankings/suggest", {"q": q, "limit": limit})
 
 
 @app.get("/api/universe")
@@ -920,11 +932,12 @@ _HTML = r"""<!DOCTYPE html>
     <div class="screen-inner">
       <div class="filter-bar sticky-bar">
         <span class="search-wrap">
-          <input type="search" id="r-search" placeholder="Search ticker&#8230;" oninput="onSearchInput()" onsearch="onSearchInput()">
-          <button class="search-clear" id="r-search-clear" type="button" onclick="clearSearch()" title="Clear filter" style="display:none">&#10005;</button>
+          <input type="search" id="r-search" placeholder="Jump to ticker or company&#8230;" autocomplete="off"
+                 oninput="onSearchInput()" onkeydown="onSearchKeydown(event)">
+          <button class="search-clear" id="r-search-clear" type="button" onclick="clearSearch()" title="Clear search" style="display:none">&#10005;</button>
+          <div id="r-search-dd" class="search-dd" style="display:none"></div>
         </span>
-        <label class="chk"><input type="checkbox" id="r-only-held" onchange="renderRankings()"> Holdings</label>
-        <label class="chk" title="Filter the universe to the AI-buildout theme universe"><input type="checkbox" id="r-only-theme" onchange="onThemeToggle()"> Theme</label>
+        <span class="search-note" id="r-search-note" style="display:none"></span>
         <span class="count-badge" id="r-count"></span>
       </div>
 

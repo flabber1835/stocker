@@ -851,6 +851,74 @@ async def search_rankings(q: str = ""):
     }
 
 
+@app.get("/rankings/suggest")
+async def suggest_rankings(q: str = "", limit: int = 20):
+    """Lightweight typeahead for the Screener search box.
+
+    Matches the query against ticker symbol (contains) OR company name (contains),
+    case-insensitive, within the latest successful ranking run. Returns just
+    {ticker, name, rank} per match — NO overlay CTEs (rank_slope / prior_rank /
+    vetter / caps), so it's cheap enough to fire on every keystroke. Ordering:
+    exact-ticker match first, then ticker-prefix, then everything else; ties broken
+    by rank ascending.
+
+    This drives the navigate-typeahead dropdown (helper list under the search box);
+    the main rankings list is NOT filtered. An empty/whitespace query returns no
+    matches without touching the DB.
+    """
+    q = (q or "").strip()
+    if not q:
+        return {"q": q, "matches": []}
+    if limit < 1:
+        limit = 1
+    if limit > 100:
+        limit = 100
+
+    async with engine.connect() as conn:
+        run_rows = (await conn.execute(text(
+            "SELECT run_id, rank_date FROM ("
+            "  SELECT DISTINCT ON (rank_date) run_id, rank_date"
+            "  FROM ranking_runs WHERE status='success'"
+            "  ORDER BY rank_date DESC, completed_at DESC NULLS LAST"
+            ") latest_per_date "
+            "ORDER BY rank_date DESC LIMIT 1"
+        ))).fetchall()
+        if not run_rows:
+            return {"q": q, "matches": []}
+        latest_run_id = str(run_rows[0].run_id)
+
+        # Match ticker-contains OR name-contains. names CTE = latest universe snapshot.
+        # Order: exact ticker → ticker-prefix → other, then rank asc. The pattern is
+        # bound as a param (no SQL injection) and we LIKE on UPPER() for case-insens.
+        rows = await conn.execute(
+            text(
+                "WITH names AS ("
+                "  SELECT DISTINCT ON (ticker) ticker, name FROM universe_tickers"
+                "  WHERE snapshot_id = (SELECT MAX(id) FROM universe_snapshots)"
+                "  ORDER BY ticker, id ASC"
+                ")"
+                "SELECT r.ticker, n.name, r.rank "
+                "FROM rankings r "
+                "LEFT JOIN names n ON n.ticker = r.ticker "
+                "WHERE r.run_id = :run_id "
+                "  AND (UPPER(r.ticker) LIKE '%' || UPPER(:q) || '%' "
+                "       OR UPPER(n.name) LIKE '%' || UPPER(:q) || '%') "
+                "ORDER BY "
+                "  (UPPER(r.ticker) = UPPER(:q)) DESC, "
+                "  (UPPER(r.ticker) LIKE UPPER(:q) || '%') DESC, "
+                "  r.rank ASC "
+                "LIMIT :limit"
+            ),
+            {"run_id": latest_run_id, "q": q, "limit": limit},
+        )
+        matches = [
+            {"ticker": m["ticker"], "name": m["name"], "rank": m["rank"]}
+            for m in rows.mappings()
+        ]
+
+    return {"q": q, "matches": matches}
+
+
 @app.get("/rankings/theme")
 async def get_rankings_theme():
     """Rankings filtered to the hardcoded AI-buildout theme universe.
