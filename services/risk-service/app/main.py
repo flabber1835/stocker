@@ -1,3 +1,4 @@
+import math
 import os
 import re
 import uuid
@@ -235,12 +236,23 @@ class TradeCheckRequest(BaseModel):
             )
         return v
 
+    @field_validator("qty", "notional")
+    @classmethod
+    def validate_finite(cls, v: float) -> float:
+        # Defense-in-depth: reject NaN/inf at the schema boundary so a malformed
+        # request can never reach _decide. _decide ALSO re-checks (so a directly
+        # constructed request — e.g. in tests or internal callers — is still safe).
+        if not math.isfinite(v):
+            raise ValueError("must be a finite number (NaN/inf not allowed)")
+        return v
+
 
 class TradeCheckResponse(BaseModel):
     approved: bool
     reason: str
     check_id: str           # also the risk_decisions.decision_id
     rule_triggered: str     # 'kill_switch'|'live_disabled'|'paper_only'|'qty'|
+                            # 'non_finite_qty'|'non_finite_notional'|
                             # 'notional_zero'|'notional_limit'|'daily_turnover_limit'|
                             # 'daily_loss_limit'|'max_positions_limit'|'max_position_pct_limit'|
                             # 'data_staleness'|'sync_staleness'|'ok'
@@ -356,6 +368,14 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
         )
     if env["paper_only"] and req.trade_type == "live":
         return False, "Paper-only mode is active", "paper_only", env
+    # Non-finite (NaN / +inf / -inf) qty or notional must be rejected BEFORE any
+    # numeric comparison: NaN fails every `<=` / `>` test, so a NaN qty/notional
+    # would slip past the `<=0` and `>max` gates and reach approve. inf would pass
+    # `>0` but break sizing and downstream math. Default to safety and reject.
+    if not math.isfinite(req.qty):
+        return False, "Invalid qty: must be a finite number", "non_finite_qty", env
+    if not math.isfinite(req.notional):
+        return False, "Invalid notional: must be a finite number", "non_finite_notional", env
     if req.qty <= 0:
         return False, "Invalid qty: must be > 0", "qty", env
     if req.notional <= 0:
