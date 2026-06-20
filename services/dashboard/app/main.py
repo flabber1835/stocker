@@ -954,9 +954,8 @@ _HTML = r"""<!DOCTYPE html>
             <th onclick="sortRankings('rank')" id="rh-rank" title="Rank">#</th>
             <th onclick="sortRankings('ticker')" id="rh-ticker">TICKER</th>
             <th onclick="sortRankings('name')" id="rh-name">COMPANY</th>
-            <th onclick="sortRankings('cluster_id')" id="rh-cluster_id" title="Correlation cluster (from latest portfolio build)">CLUSTER</th>
           </tr></thead>
-          <tbody id="r-body"><tr><td colspan="4" class="tbl-empty">Loading&#8230;</td></tr></tbody>
+          <tbody id="r-body"><tr><td colspan="3" class="tbl-empty">Loading&#8230;</td></tr></tbody>
         </table>
       </div>
     </div>

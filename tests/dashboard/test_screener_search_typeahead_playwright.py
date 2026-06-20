@@ -93,7 +93,7 @@ def _page() -> str:
         <span id="r-count"></span>
       </div>
       <table><thead><tr><th id="rh-rank">#</th></tr></thead>
-        <tbody id="r-body"><tr><td colspan="4" class="tbl-empty">Loading…</td></tr></tbody></table>
+        <tbody id="r-body"><tr><td colspan="3" class="tbl-empty">Loading…</td></tr></tbody></table>
       </section>
       <section id="screen-trader"></section>
       <table><tbody id="trader-body"><tr><td class="tbl-empty">Loading…</td></tr></tbody></table>

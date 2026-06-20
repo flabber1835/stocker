@@ -145,9 +145,8 @@ def _page() -> str:
           <th id="rh-rank" onclick="sortRankings('rank')">#</th>
           <th id="rh-ticker" onclick="sortRankings('ticker')">TICKER</th>
           <th id="rh-name" onclick="sortRankings('name')">COMPANY</th>
-          <th id="rh-cluster_id" onclick="sortRankings('cluster_id')">CLUSTER</th>
         </tr></thead>
-        <tbody id="r-body"><tr><td colspan="4" class="tbl-empty">Loading…</td></tr></tbody></table>
+        <tbody id="r-body"><tr><td colspan="3" class="tbl-empty">Loading…</td></tr></tbody></table>
       </div>
       </section>
       <section id="screen-trader"></section>
@@ -247,6 +246,19 @@ def _run_desktop() -> dict:
         out["window_rows_after_scroll"] = _row_count(page)
         out["tickers_after_scroll"] = _tickers_in_body(page)[:3]
 
+        # Sticky-header guard (regression: thead floated OVER tickers when it carried
+        # top:46px inside the bounded #r-scroll). While scrolled, the column header
+        # must pin FLUSH at the top of #r-scroll and NO data row may render above it.
+        out["header_geom"] = page.evaluate(
+            "() => {"
+            "  const sc = document.getElementById('r-scroll').getBoundingClientRect();"
+            "  const th = document.querySelector('#r-scroll thead').getBoundingClientRect();"
+            "  const tops = [...document.querySelectorAll('#r-scroll tr.rank-row')]"
+            "      .map(r => r.getBoundingClientRect().top);"
+            "  return {scTop: sc.top, thTop: th.top, thBottom: th.bottom,"
+            "          minRowTop: tops.length ? Math.min(...tops) : null};"
+            "}")
+
         # Scroll back to top.
         page.eval_on_selector("#r-scroll", "el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')); }")
         page.wait_for_timeout(250)
@@ -320,6 +332,18 @@ def _evaluate_desktop(r: dict) -> list[str]:
         fails.append("expanding should fire a with-overlays?tickers= request")
     if r.get("card_has_vetter", 0) < 1:
         fails.append("card should show a heavy overlay field (vetter) after lazy load")
+    # Sticky-header guard: the column header must pin FLUSH at the top of #r-scroll
+    # after scrolling. The regression (thead top:46px inside the bounded container)
+    # parked the header 46px down, leaving a gap where rows showed ABOVE it. We test
+    # thTop ≈ scTop only — NOT "no row above header bottom", because rows correctly
+    # scroll UNDER an opaque sticky header (their top can sit above its bottom).
+    g = r.get("header_geom") or {}
+    if not g:
+        fails.append("header_geom not captured")
+    elif abs(g["thTop"] - g["scTop"]) > 2:
+        fails.append("sticky header not flush at #r-scroll top after scroll "
+                     "(regression: header floating over tickers): thTop=%r scTop=%r"
+                     % (g["thTop"], g["scTop"]))
     return fails
 
 

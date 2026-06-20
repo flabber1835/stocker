@@ -644,7 +644,7 @@ function _clearSearchNote() {
 
 /* ── Rankings ────────────────────────────────────────────────────────── */
 async function loadRankings() {
-  $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">Loading rankings&#8230;</td></tr>';
+  $('r-body').innerHTML = '<tr><td colspan="3" class="tbl-empty">Loading rankings&#8230;</td></tr>';
   try {
     // Full-universe LIGHT list (rank/ticker/name/cluster/held + cheap overlays). The
     // heavy per-row overlays (rank_slope, vetter, market_cap, factor_scores,
@@ -657,7 +657,7 @@ async function loadRankings() {
     if (!d.rankings || d.rankings.length === 0) {
       _rankingsLoadState = 'empty';
       rankData = [];
-      $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">'
+      $('r-body').innerHTML = '<tr><td colspan="3" class="tbl-empty">'
         + 'No ranking data &mdash; click <strong>&#9654; RUN</strong> to populate'
         + '</td></tr>';
       // Refresh status bar so READY badge is downgraded if data missing
@@ -681,7 +681,7 @@ async function loadRankings() {
     // 503 until the first ranking run exists). Show the empty state, not a spinner.
     _rankingsLoadState = 'empty';
     rankData = [];
-    $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">'
+    $('r-body').innerHTML = '<tr><td colspan="3" class="tbl-empty">'
       + 'No ranking data &mdash; click <strong>&#9654; RUN</strong> to populate'
       + '</td></tr>';
     if (_pipelineData && _pipelineData.rank) updateStatusBar(_pipelineData);
@@ -739,7 +739,7 @@ function renderRankings() {
   $('r-count').textContent = _sortedRank.length + ' / ' + rankData.length;
   if (!_sortedRank.length) {
     _expandedTicker = null;
-    $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">No results</td></tr>';
+    $('r-body').innerHTML = '<tr><td colspan="3" class="tbl-empty">No results</td></tr>';
     return;
   }
   _renderRankWindow();
@@ -758,7 +758,6 @@ function _rankRowHtml(r) {
     + '<td><span class="t-rank">' + r.rank + '</span>' + arrow + '</td>'
     + '<td><span class="t-ticker">' + r.ticker + '</span></td>'
     + '<td class="t-company" title="' + (r.name ? esc(r.name) : '') + '">' + (r.name ? esc(r.name) : '—') + '</td>'
-    + '<td class="t-cluster">' + (r.cluster_id ? '<span class="mono">' + esc(r.cluster_id) + '</span>' : '<span style="color:var(--text3)">—</span>') + '</td>'
     + '</tr>';
 }
 
@@ -787,9 +786,9 @@ function _renderRankWindow() {
   const botPad = (total - last) * RANK_ROW_H;
 
   const parts = [];
-  if (topPad > 0) parts.push('<tr class="rank-spacer"><td colspan="4" style="height:' + topPad + 'px"></td></tr>');
+  if (topPad > 0) parts.push('<tr class="rank-spacer"><td colspan="3" style="height:' + topPad + 'px"></td></tr>');
   for (let i = first; i < last; i++) parts.push(_rankRowHtml(_sortedRank[i]));
-  if (botPad > 0) parts.push('<tr class="rank-spacer"><td colspan="4" style="height:' + botPad + 'px"></td></tr>');
+  if (botPad > 0) parts.push('<tr class="rank-spacer"><td colspan="3" style="height:' + botPad + 'px"></td></tr>');
   $('r-body').innerHTML = parts.join('');
   _reinsertExpandedDetail();
   // Re-apply the flash class to the flashed row if it's in this window — the row's
@@ -981,6 +980,7 @@ function _buildDetailHtml(r) {
     + '<div class="detail-cell"><div class="dc-lbl">Size</div><div class="dc-val">' + sizeVal + '</div></div>'
     + '<div class="detail-cell"><div class="dc-lbl">21d Drawdown</div><div class="dc-val">' + ddVal + excessSub + '</div></div>'
     + '<div class="detail-cell"><div class="dc-lbl">Beta (120d vs SPY)</div><div class="dc-val">' + (r.beta != null ? r.beta.toFixed(2) : '—') + '</div></div>'
+    + '<div class="detail-cell"><div class="dc-lbl">Cluster</div><div class="dc-val">' + (r.cluster_id ? esc(r.cluster_id) : '—') + '</div></div>'
     + '</div>';
 
   const FACTORS = [
