@@ -380,6 +380,91 @@ the approvable set), they make re-running the chain idempotent at the
 economic-action level — you cannot stack a second order for a ticker already
 actioned this session.
 
+### Atomic approve-and-reserve (cross-intent capacity race)
+
+**Audit finding #8.** Risk approval and the local creation of the reservation
+(the committed `pending` `alpaca_orders` row) are **not** atomic across *different*
+intents. The trade-executor's submit flow is:
+
+```text
+risk-service /check   →   record_order (INSERT alpaca_orders, status='pending')
+```
+
+The reservation row is recorded **after** the risk-check returns. Risk-service
+already counts committed pending `alpaca_orders` rows (statuses in
+`OPEN_ORDER_STATUSES`) and `delta_intents` as reservations in BOTH the
+`MAX_POSITIONS` projected-count SQL and the `MAX_DAILY_TURNOVER_PCT` sum — so a
+committed pending order row **is** the reservation. The defect is purely one of
+**ordering**: two concurrent submits for two *distinct* new-ticker entries can both
+run `/check` before *either* has committed its `pending` row, so neither sees the
+other's reservation, both pass the same `MAX_POSITIONS` / position-pct / turnover
+gate, and both commit — breaching the cap by one (or more, under N-way concurrency).
+
+**Why per-intent idempotency did not cover it.** The existing idempotency guard
+(`idx_alpaca_orders_intent_open` unique index + the Step-1 check) is keyed on
+`intent_id`. It prevents the **same** intent from reserving twice. The capacity
+race is between **different** `intent_id`s competing for the same scarce capacity
+(a free position slot, a turnover budget), so a per-intent key cannot serialize
+them. The duplicate-order guards above (`ticker + side`) close same-ticker double
+orders but not the multi-distinct-ticker capacity breach.
+
+**Design — Postgres advisory lock per (account, trading_day) around
+[risk-check → reserve].** The trade-executor (NOT risk-service) serializes the
+critical section so a waiting submit only proceeds *after* the prior submit has
+committed its reservation, and therefore its `/check` sees that reservation and is
+correctly rejected at capacity.
+
+```text
+acquire advisory lock(account, trading_day)        ← BEFORE risk-check
+    risk-service /check
+    record_order (INSERT alpaca_orders 'pending'/'risk_rejected', COMMIT)
+release advisory lock                               ← in finally
+```
+
+- **Key.** A stable 64-bit hash of `f"trade_submit:{account}:{trading_day}"`, passed
+  to `pg_advisory_lock`/`pg_try_advisory_lock` (single-bigint form). `account` is the
+  Alpaca account (single-account system → a fixed constant derived consistently);
+  `trading_day` is the **same** day the risk/turnover scoping uses — `sim_date` when
+  the intent carries one, else the executor's local `CURRENT_DATE`. Different
+  accounts or different days hash to different keys and so **do not block each
+  other**; same account + same day serializes. (Different days must not serialize —
+  a compressed harness simulation processes many sim-dates and must not globally
+  block; and a real new session must not wait on yesterday.)
+- **Reservation = committed pending order.** The lock is held across the risk-check
+  AND the reservation INSERT/commit. The reservation is exactly the existing
+  `record_order` writing a `pending` (approved) or `risk_rejected` row — no new
+  table. Because the lock spans both, by the time a waiting intent acquires it the
+  prior intent's `pending` row is committed and visible to the next `/check`.
+- **Bounded acquisition (no deadlock on a hung risk call).** Acquisition is
+  bounded — `pg_try_advisory_lock` in a short retry loop with a total timeout
+  (`SUBMIT_LOCK_TIMEOUT_SECS`, default 30s). A hung risk-service holding the lock
+  must not wedge *all* submits forever. **On timeout the submit fails CLOSED**: it
+  records the `alpaca_orders` row as `status='failed'` with a clear reason
+  (`submit_lock_timeout`) and **does NOT submit to the broker**. (Failing open —
+  submitting without the serialized capacity check — would re-introduce the very
+  race this fix closes.)
+- **Dedicated connection.** The advisory lock is held on its **own** connection
+  across the whole section; the reservation INSERT/commit runs in a separate
+  `engine.begin()` transaction. Session-level advisory locks are independent of data
+  transactions, so the reservation can commit while the lock is still held — what
+  matters is the strict order: lock acquired → `/check` → reservation committed →
+  unlock. The executor pool is bumped so a lock-holding submit always has a second
+  free connection for its reservation insert (it must never starve itself).
+- **Scope.** Applied to **every** path that runs risk-check then records/submits an
+  order: the immediate per-click submit, the deferred-submit re-check path, and the
+  drain submit path — all via one shared `_with_submit_lock(account, trading_day)`
+  async context manager.
+- **Additive, not a replacement.** The per-intent unique-index/idempotency guard is
+  unchanged; the advisory lock is the *cross-intent* serialization layer on top.
+- **Risk-service is unchanged.** Its counting logic (projected-count SQL, turnover
+  sum) already treats a committed pending order as a reservation. The fix only
+  changes *ordering* in the trade-executor so that reservation is visible to the
+  next checker. No risk-service code is touched.
+
+This is deliberately a **defer/serialize** trade-off: under heavy concurrency
+submits are processed one-account-day-at-a-time (each is a sub-second DB section),
+in exchange for the cap being a hard invariant rather than a best-effort check.
+
 ## Audit Trail
 
 Every approval click produces a chain of audit rows so any trade can be traced
