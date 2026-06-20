@@ -39,6 +39,12 @@ from stock_strategy_shared.db import wait_for_db
 from stock_strategy_shared.order_status import OPEN_ORDER_STATUSES, open_status_sql
 
 from app.drain import DeferredOrder, plan_drain
+from app.submit_lock import (
+    DEFAULT_ACCOUNT,
+    SUBMIT_LOCK_TIMEOUT_SECS,
+    SubmitLockTimeout,
+    with_submit_lock,
+)
 
 logger = logging.getLogger("trade-executor")
 logging.basicConfig(level=logging.INFO)
@@ -498,8 +504,15 @@ async def lifespan(application: FastAPI):
     global engine
     if not DATABASE_URL:
         raise RuntimeError("Missing required environment variable: DATABASE_URL")
+    # Pool sizing (audit #8 — atomic approve-and-reserve): each submit that holds
+    # the per-(account, trading_day) advisory lock pins a DEDICATED connection for
+    # the lock AND needs a SECOND connection for the reservation INSERT/commit (a
+    # separate engine.begin() txn). With the old pool_size=2/max_overflow=3 a couple
+    # of concurrent lock-holding submits could pin all connections on their lock and
+    # starve their own reservation insert (self-deadlock). Bump modestly so a
+    # lock-holding submit always has a free connection for its reservation.
     engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True,
-                                 pool_size=2, max_overflow=3, connect_args={"timeout": 60})
+                                 pool_size=5, max_overflow=10, connect_args={"timeout": 60})
     asyncio.create_task(_trade_executor_warm_up())
     worker_task = asyncio.create_task(_deferred_order_worker())
     has_creds = bool(ALPACA_API_KEY and ALPACA_SECRET_KEY)
@@ -1453,110 +1466,145 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
                 output_summary={"qty": qty, "notional": notional, **sizing_summary},
             )
 
-        # ── Step 4: risk check ────────────────────────────────────────────────
-        t0 = datetime.now(timezone.utc)
+        # ── Steps 4–5 under the cross-intent approve-and-reserve lock (audit #8) ──
+        # Serialize [risk-check → record the reservation] per (account, trading_day)
+        # with a Postgres advisory lock: a concurrent intent only runs its risk-check
+        # AFTER this one's `pending` order (the reservation risk-service counts in its
+        # MAX_POSITIONS/turnover SQL) is committed, so the cap can't be breached by a
+        # race. The broker submission (Steps 5b/6) runs AFTER the lock releases — the
+        # reservation is already visible, so the lock need not span the slow HTTP call.
+        # SubmitLockTimeout → fail CLOSED (record 'failed', never submit).
+        # See submit_lock.py / docs/risk-safety-rules.md.
         sim_date = intent.get("sim_date")
-        risk_payload = {
-            "ticker": ticker, "action": action, "side": side,
-            "qty": qty, "notional": notional,
-            "mode": req.mode, "trade_type": "paper",
-            **({"sim_date": str(sim_date)} if sim_date else {}),
-        }
+        trading_day = str(sim_date) if sim_date else datetime.now(timezone.utc).date().isoformat()
         try:
-            approved, reason, check_id, rule = await _call_risk(risk_payload)
-        except Exception as exc:
-            async with engine.begin() as conn:
-                await _log_step(
-                    conn, trace_id, "risk_check", "failed", t0,
-                    input_summary=risk_payload, error_message=str(exc),
-                )
-                # Persist a failed attempt audit row before giving up.
-                await _record_order(
-                    conn, order_id=order_id, intent_id=req.intent_id,
-                    ticker=ticker, action=action, side=side, qty=qty,
-                    notional=notional, mode=req.mode, trace_id=trace_id,
-                    risk_approved=False, risk_reason="risk service unreachable",
-                    risk_check_id=None, status="failed",
-                    error_message=f"risk-service error: {exc}",
-                )
-                await conn.execute(
-                    text("UPDATE execution_traces SET status='failed', completed_at=:now, "
-                         "notes='risk_service_unreachable' WHERE trace_id=:tid"),
-                    {"tid": trace_id, "now": datetime.now(timezone.utc)},
-                )
-            raise HTTPException(
-                status_code=502,
-                detail=f"Risk service unavailable (attempt recorded as order {order_id}): {exc}",
-            )
+            async with with_submit_lock(engine, DEFAULT_ACCOUNT, trading_day):
+                # ── Step 4: risk check ────────────────────────────────────────
+                t0 = datetime.now(timezone.utc)
+                risk_payload = {
+                    "ticker": ticker, "action": action, "side": side,
+                    "qty": qty, "notional": notional,
+                    "mode": req.mode, "trade_type": "paper",
+                    **({"sim_date": str(sim_date)} if sim_date else {}),
+                }
+                try:
+                    approved, reason, check_id, rule = await _call_risk(risk_payload)
+                except Exception as exc:
+                    async with engine.begin() as conn:
+                        await _log_step(
+                            conn, trace_id, "risk_check", "failed", t0,
+                            input_summary=risk_payload, error_message=str(exc),
+                        )
+                        # Persist a failed attempt audit row before giving up.
+                        await _record_order(
+                            conn, order_id=order_id, intent_id=req.intent_id,
+                            ticker=ticker, action=action, side=side, qty=qty,
+                            notional=notional, mode=req.mode, trace_id=trace_id,
+                            risk_approved=False, risk_reason="risk service unreachable",
+                            risk_check_id=None, status="failed",
+                            error_message=f"risk-service error: {exc}",
+                        )
+                        await conn.execute(
+                            text("UPDATE execution_traces SET status='failed', completed_at=:now, "
+                                 "notes='risk_service_unreachable' WHERE trace_id=:tid"),
+                            {"tid": trace_id, "now": datetime.now(timezone.utc)},
+                        )
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"Risk service unavailable (attempt recorded as order {order_id}): {exc}",
+                    )
 
-        async with engine.begin() as conn:
-            await _log_step(
-                conn, trace_id, "risk_check", "success", t0,
-                input_summary=risk_payload,
-                output_summary={
-                    "approved": approved, "rule_triggered": rule,
-                    "reason": reason, "check_id": check_id,
-                },
-            )
+                async with engine.begin() as conn:
+                    await _log_step(
+                        conn, trace_id, "risk_check", "success", t0,
+                        input_summary=risk_payload,
+                        output_summary={
+                            "approved": approved, "rule_triggered": rule,
+                            "reason": reason, "check_id": check_id,
+                        },
+                    )
 
-        # An APPROVED decision MUST carry a check_id (the risk_decisions.decision_id
-        # that alpaca_orders.risk_check_id references for audit). A missing check_id
-        # means we cannot tie this order to the rule that approved it — treat it as
-        # a hard failure and refuse to submit, rather than fabricating an id that
-        # points at no decision. (A rejection with no check_id is harmless — we're
-        # not submitting anyway.)
-        if approved and not check_id:
-            err = "risk-service approved but returned no check_id — refusing to submit without audit trail"
+                # An APPROVED decision MUST carry a check_id (the risk_decisions.decision_id
+                # that alpaca_orders.risk_check_id references for audit). A missing check_id
+                # means we cannot tie this order to the rule that approved it — treat it as
+                # a hard failure and refuse to submit, rather than fabricating an id that
+                # points at no decision. (A rejection with no check_id is harmless — we're
+                # not submitting anyway.)
+                if approved and not check_id:
+                    err = "risk-service approved but returned no check_id — refusing to submit without audit trail"
+                    async with engine.begin() as conn:
+                        await _record_order(
+                            conn, order_id=order_id, intent_id=req.intent_id,
+                            ticker=ticker, action=action, side=side, qty=qty,
+                            notional=notional, mode=req.mode, trace_id=trace_id,
+                            risk_approved=False, risk_reason=err,
+                            risk_check_id=None, status="failed",
+                            error_message=err,
+                        )
+                        await conn.execute(
+                            text("UPDATE execution_traces SET status='failed', completed_at=:now, "
+                                 "notes='risk_no_check_id' WHERE trace_id=:tid"),
+                            {"tid": trace_id, "now": datetime.now(timezone.utc)},
+                        )
+                    raise HTTPException(status_code=502, detail=err)
+
+                # ── Step 5: persist alpaca_orders row (THE reservation) ───────
+                t0 = datetime.now(timezone.utc)
+                order_type = "market"
+                time_in_force = "day"
+                initial_status = "pending" if approved else "risk_rejected"
+                try:
+                    async with engine.begin() as conn:
+                        await _record_order(
+                            conn, order_id=order_id, intent_id=req.intent_id,
+                            ticker=ticker, action=action, side=side, qty=qty,
+                            notional=notional, mode=req.mode, trace_id=trace_id,
+                            risk_approved=approved, risk_reason=reason,
+                            risk_check_id=check_id, status=initial_status,
+                            order_type=order_type, time_in_force=time_in_force,
+                        )
+                        await _log_step(
+                            conn, trace_id, "record_order", "success", t0,
+                            input_summary={"order_id": order_id, "initial_status": initial_status},
+                        )
+                except IntegrityError:
+                    # A concurrent submit raced and won the DB unique constraint
+                    # idx_alpaca_orders_intent_open. Treat as duplicate — same as the
+                    # idempotency check above, just caught at the DB layer.
+                    async with engine.connect() as conn:
+                        dupe = (await conn.execute(text(
+                            "SELECT id, status FROM alpaca_orders "
+                            f"WHERE intent_id=:iid AND status IN ({_OPEN_STATUS_SQL}) "
+                            "LIMIT 1"
+                        ), {"iid": req.intent_id})).mappings().first()
+                    return TradeAttemptResponse(
+                        status="duplicate",
+                        order_id=str(dupe["id"]) if dupe else order_id,
+                        trace_id=trace_id,
+                        reason=f"Concurrent submit: intent {req.intent_id} already has an open order",
+                    )
+        except SubmitLockTimeout as exc:
+            # Could not serialize within the timeout — fail CLOSED: record the attempt
+            # and do NOT submit (submitting un-serialized risks the very cap breach the
+            # lock exists to prevent).
+            err = f"submit serialization lock timed out after {SUBMIT_LOCK_TIMEOUT_SECS:.0f}s: {exc}"
             async with engine.begin() as conn:
                 await _record_order(
                     conn, order_id=order_id, intent_id=req.intent_id,
                     ticker=ticker, action=action, side=side, qty=qty,
                     notional=notional, mode=req.mode, trace_id=trace_id,
                     risk_approved=False, risk_reason=err,
-                    risk_check_id=None, status="failed",
-                    error_message=err,
+                    risk_check_id=None, status="failed", error_message=err,
                 )
                 await conn.execute(
                     text("UPDATE execution_traces SET status='failed', completed_at=:now, "
-                         "notes='risk_no_check_id' WHERE trace_id=:tid"),
+                         "notes='submit_lock_timeout' WHERE trace_id=:tid"),
                     {"tid": trace_id, "now": datetime.now(timezone.utc)},
                 )
-            raise HTTPException(status_code=502, detail=err)
-
-        # ── Step 5: persist alpaca_orders row ─────────────────────────────────
-        t0 = datetime.now(timezone.utc)
-        order_type = "market"
-        time_in_force = "day"
-        initial_status = "pending" if approved else "risk_rejected"
-        try:
-            async with engine.begin() as conn:
-                await _record_order(
-                    conn, order_id=order_id, intent_id=req.intent_id,
-                    ticker=ticker, action=action, side=side, qty=qty,
-                    notional=notional, mode=req.mode, trace_id=trace_id,
-                    risk_approved=approved, risk_reason=reason,
-                    risk_check_id=check_id, status=initial_status,
-                    order_type=order_type, time_in_force=time_in_force,
-                )
-                await _log_step(
-                    conn, trace_id, "record_order", "success", t0,
-                    input_summary={"order_id": order_id, "initial_status": initial_status},
-                )
-        except IntegrityError:
-            # A concurrent submit raced and won the DB unique constraint
-            # idx_alpaca_orders_intent_open. Treat as duplicate — same as the
-            # idempotency check above, just caught at the DB layer.
-            async with engine.connect() as conn:
-                dupe = (await conn.execute(text(
-                    "SELECT id, status FROM alpaca_orders "
-                    f"WHERE intent_id=:iid AND status IN ({_OPEN_STATUS_SQL}) "
-                    "LIMIT 1"
-                ), {"iid": req.intent_id})).mappings().first()
             return TradeAttemptResponse(
-                status="duplicate",
-                order_id=str(dupe["id"]) if dupe else order_id,
-                trace_id=trace_id,
-                reason=f"Concurrent submit: intent {req.intent_id} already has an open order",
+                status="failed", order_id=order_id, trace_id=trace_id,
+                ticker=ticker, action=action, side=side, qty=qty, notional=notional,
+                risk_approved=False, risk_reason=err, risk_check_id=None, reason=err,
             )
 
         if not approved:

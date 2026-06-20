@@ -42,6 +42,26 @@ import app.main as te_main  # noqa: E402
 from sqlalchemy.exc import IntegrityError  # noqa: E402
 
 
+class _ConnHandle:
+    """Mimics a real AsyncConnection acquisition so a single `engine.connect()`
+    works both as `await engine.connect()` (the submit lock's dedicated
+    connection, audit #8) and as `async with engine.connect()` (dupe lookup)."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __await__(self):
+        async def _ret():
+            return self._conn
+        return _ret().__await__()
+
+    async def __aenter__(self):
+        return self._conn
+
+    async def __aexit__(self, *exc):
+        return None
+
+
 # ── Engine mock ───────────────────────────────────────────────────────────────
 
 def _make_engine(rows: list):
@@ -221,6 +241,12 @@ async def test_concurrent_submit_handled_by_integrity_error():
     alpaca_orders_insert_count = [0]
 
     async def _exec_with_integrity_error(sql, params=None):
+        # submit-lock advisory calls run on a dedicated connection and must not
+        # consume the data-row sequence (audit #8).
+        if "advisory" in str(sql).lower():
+            r = MagicMock()
+            r.scalar = MagicMock(return_value=True)
+            return r
         result = MagicMock()
         idx = call_idx[0]
         call_idx[0] += 1
@@ -249,7 +275,9 @@ async def test_concurrent_submit_handled_by_integrity_error():
 
     engine = MagicMock()
     engine.begin = MagicMock(side_effect=lambda: _ctx())
-    engine.connect = MagicMock(side_effect=lambda: _ctx())
+    # `engine.connect()` must support BOTH `await engine.connect()` (submit lock)
+    # and `async with engine.connect()` (dupe lookup) — like a real AsyncConnection.
+    engine.connect = MagicMock(side_effect=lambda: _ConnHandle(conn))
 
     intent_id = str(uuid.uuid4())
 

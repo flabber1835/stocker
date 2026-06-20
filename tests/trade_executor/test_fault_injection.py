@@ -45,6 +45,27 @@ from app.main import (  # noqa: E402
 import app.main as te_main  # noqa: E402
 
 
+class _ConnHandle:
+    """Mimics a real SQLAlchemy AsyncConnection acquisition so a single
+    `engine.connect()` works both as `await engine.connect()` (the submit lock's
+    dedicated connection, audit #8) and as `async with engine.connect() as conn`
+    (the rest of the code). Both yield the same underlying conn mock."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __await__(self):
+        async def _ret():
+            return self._conn
+        return _ret().__await__()
+
+    async def __aenter__(self):
+        return self._conn
+
+    async def __aexit__(self, *exc):
+        return None
+
+
 def _httpx_client_mock(*, post_side_effect=None, post_return=None, get_return=None,
                        delete_return=None, delete_side_effect=None):
     """Create an async httpx client mock for use with patch.object(te_main, 'httpx').
@@ -82,6 +103,13 @@ def _make_engine(rows: list):
     call_idx = [0]
 
     async def _exec(sql, params=None):
+        # The submit-lock's pg_try_advisory_lock / pg_advisory_unlock run on a
+        # dedicated connection and must NOT consume the data-row sequence (they
+        # just need a truthy scalar so the lock is acquired).
+        if "advisory" in str(sql).lower():
+            r = MagicMock()
+            r.scalar = MagicMock(return_value=True)
+            return r
         result = MagicMock()
         idx = call_idx[0]
         call_idx[0] += 1
@@ -104,7 +132,10 @@ def _make_engine(rows: list):
 
     engine = MagicMock()
     engine.begin = MagicMock(side_effect=lambda: _ctx())
-    engine.connect = MagicMock(side_effect=lambda: _ctx())
+    # `engine.connect()` must support BOTH `await engine.connect()` (the submit
+    # lock's dedicated connection) AND `async with engine.connect()` (e.g. the
+    # IntegrityError dupe lookup) — exactly like a real AsyncConnection.
+    engine.connect = MagicMock(side_effect=lambda: _ConnHandle(conn))
     engine.dispose = AsyncMock()
     return engine, conn
 
