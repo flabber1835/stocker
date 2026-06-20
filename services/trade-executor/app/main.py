@@ -840,12 +840,19 @@ async def _size_partial(conn, ticker: str, intent: dict) -> tuple[float, float, 
     # live_positions.market_value was unavailable when the delta ran), compute
     # it directly from the current live position at submit time.
     if actual_weight is None:
+        # Scope to the SINGLE latest successful sync run (not "the most recent sync
+        # that contained this ticker") — see _size_exit / _is_already_held. The naive
+        # `ORDER BY completed_at DESC LIMIT 1` reaches back across syncs to ANY run
+        # holding the ticker, so a name absent from the LATEST sync (already closed /
+        # rotated out) gets resurrected from an older run and mis-sized. (audit #5)
         live_pos = (await conn.execute(text(
             "SELECT lp.market_value, sr.account_value "
             "FROM live_positions lp "
             "JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
-            "WHERE lp.ticker = :t AND sr.status = 'success' "
-            "ORDER BY sr.completed_at DESC NULLS LAST LIMIT 1"
+            "WHERE sr.run_id = ("
+            "  SELECT run_id FROM alpaca_sync_runs WHERE status='success' "
+            "  ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+            ") AND lp.ticker = :t"
         ), {"t": ticker})).mappings().first()
         if live_pos:
             mv = _f(live_pos["market_value"])
@@ -903,12 +910,15 @@ async def _size_partial(conn, ticker: str, intent: dict) -> tuple[float, float, 
                 ),
             )
 
-    # Current price — prefer live_positions, fall back to daily_prices
+    # Current price — prefer live_positions (scoped to the latest sync run, audit #5),
+    # fall back to daily_prices.
     live_px = (await conn.execute(text(
         "SELECT lp.current_price FROM live_positions lp "
         "JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
-        "WHERE lp.ticker = :t AND sr.status = 'success' "
-        "ORDER BY sr.completed_at DESC NULLS LAST LIMIT 1"
+        "WHERE sr.run_id = ("
+        "  SELECT run_id FROM alpaca_sync_runs WHERE status='success' "
+        "  ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+        ") AND lp.ticker = :t"
     ), {"t": ticker})).mappings().first()
     last_price = _f(live_px["current_price"]) if live_px else None
     price_source = "live_positions"
@@ -944,11 +954,15 @@ async def _size_partial(conn, ticker: str, intent: dict) -> tuple[float, float, 
     # actually held now (floored to whole shares), and refuse if the position is
     # already gone. Exits don't pass through here — they use close-position.
     if action == "sell_trim":
+        # Scoped to the latest sync run (audit #5): a ticker absent from the latest
+        # sync must read as not-held (held_qty 0) → refuse, not resurrect an old qty.
         held_now = (await conn.execute(text(
             "SELECT lp.qty FROM live_positions lp "
             "JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
-            "WHERE lp.ticker = :t AND sr.status = 'success' "
-            "ORDER BY sr.completed_at DESC NULLS LAST LIMIT 1"
+            "WHERE sr.run_id = ("
+            "  SELECT run_id FROM alpaca_sync_runs WHERE status='success' "
+            "  ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+            ") AND lp.ticker = :t"
         ), {"t": ticker})).mappings().first()
         held_qty = math.floor(abs(_f(held_now["qty"]))) if (held_now and _f(held_now["qty"]) is not None) else 0
         if held_qty < 1:
