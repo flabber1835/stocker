@@ -919,6 +919,119 @@ async def suggest_rankings(q: str = "", limit: int = 20):
     return {"q": q, "matches": matches}
 
 
+@app.get("/rankings/universe")
+async def get_rankings_universe(limit: int = 5000):
+    """Full ranked-universe list for the Screener — LIGHT columns only.
+
+    Returns the ENTIRE latest-run ranking with cheap columns (rank, ticker, name,
+    sector, composite_score, percentile, prior_rank for the ▲▼ arrows, cluster_id,
+    held + qty/market_value) and NO expensive overlays — no rank_slope REGR, no
+    vetter, no market_cap. The screener renders this full list (virtualized); the
+    per-row detail card fetches the heavy overlays on demand via
+    /rankings/with-overlays?tickers=. Held-but-unranked broker positions are
+    injected so a holding always appears. Cheap enough to skip the per-run cache
+    (indexed rank scan + small indexed joins), unlike with-overlays.
+    """
+    if limit < 1:
+        limit = 1
+    if engine is None:
+        return {"count": 0, "run": None, "prior_run": None, "rankings": []}
+    async with engine.connect() as conn:
+        run_rows = (await conn.execute(text(
+            "SELECT run_id, rank_date FROM ("
+            "  SELECT DISTINCT ON (rank_date) run_id, rank_date"
+            "  FROM ranking_runs WHERE status='success'"
+            "  ORDER BY rank_date DESC, completed_at DESC NULLS LAST"
+            ") latest_per_date ORDER BY rank_date DESC LIMIT 2"
+        ))).fetchall()
+        if not run_rows:
+            return {"count": 0, "run": None, "prior_run": None, "rankings": []}
+        latest_run_id = str(run_rows[0].run_id)
+        prior_run_id = str(run_rows[1].run_id) if len(run_rows) > 1 else None
+        latest_rank_date = run_rows[0].rank_date
+
+        rows = await conn.execute(
+            text(
+                "WITH prior AS ("
+                "  SELECT ticker, rank AS prior_rank FROM rankings WHERE run_id = :prior_run_id"
+                "),"
+                "names AS ("
+                "  SELECT DISTINCT ON (ticker) ticker, name, sector FROM universe_tickers"
+                "  WHERE snapshot_id = (SELECT MAX(id) FROM universe_snapshots)"
+                "  ORDER BY ticker, id ASC"
+                "),"
+                "cl AS ("
+                "  SELECT ticker, cluster_id FROM candidate_clusters"
+                "  WHERE run_id = (SELECT run_id FROM portfolio_runs WHERE status='success'"
+                "                  ORDER BY completed_at DESC NULLS LAST LIMIT 1)"
+                ")"
+                "SELECT r.ticker, r.rank, r.composite_score, r.percentile, r.rank_date, r.regime,"
+                "  n.name, n.sector, p.prior_rank, cl.cluster_id "
+                "FROM rankings r "
+                "LEFT JOIN prior p ON p.ticker = r.ticker "
+                "LEFT JOIN names n ON n.ticker = r.ticker "
+                "LEFT JOIN cl ON cl.ticker = r.ticker "
+                "WHERE r.run_id = :run_id "
+                "ORDER BY r.rank ASC LIMIT :limit"
+            ),
+            {"run_id": latest_run_id, "prior_run_id": prior_run_id or latest_run_id,
+             "limit": limit},
+        )
+        ranking_rows = [dict(m) for m in rows.mappings()]
+        for r in ranking_rows:
+            if r.get("composite_score") is not None:
+                r["composite_score"] = float(r["composite_score"])
+            if r.get("percentile") is not None:
+                r["percentile"] = float(r["percentile"])
+            if r.get("prior_rank") is not None:
+                r["prior_rank"] = int(r["prior_rank"])
+            rd = r.get("rank_date")
+            r["rank_date"] = rd.isoformat() if hasattr(rd, "isoformat") else (str(rd) if rd else None)
+
+        # Held overlay (light): flag held rows + inject held-but-unranked positions.
+        sync_row = (await conn.execute(text(
+            "SELECT run_id FROM alpaca_sync_runs WHERE status='success' "
+            "ORDER BY completed_at DESC NULLS LAST LIMIT 1"))).fetchone()
+        held: dict[str, dict] = {}
+        if sync_row:
+            pos = await conn.execute(text(
+                "SELECT lp.ticker, lp.qty, lp.market_value, ut.name, ut.sector "
+                "FROM live_positions lp "
+                "LEFT JOIN universe_tickers ut ON ut.ticker = lp.ticker "
+                "  AND ut.snapshot_id = (SELECT MAX(id) FROM universe_snapshots) "
+                "WHERE lp.sync_run_id = :rid"), {"rid": str(sync_row.run_id)})
+            for p in pos.mappings():
+                held[p["ticker"]] = {
+                    "qty": float(p["qty"]) if p["qty"] is not None else None,
+                    "market_value": float(p["market_value"]) if p["market_value"] is not None else None,
+                    "name": p["name"], "sector": p["sector"],
+                }
+        present = set()
+        for r in ranking_rows:
+            r["held"] = r["ticker"] in held
+            if r["held"]:
+                r["qty"] = held[r["ticker"]]["qty"]
+                r["market_value"] = held[r["ticker"]]["market_value"]
+            present.add(r["ticker"])
+        for t, h in held.items():
+            if t not in present:
+                ranking_rows.append({
+                    "ticker": t, "rank": 9999, "composite_score": None, "percentile": None,
+                    "rank_date": None, "regime": None, "name": h["name"], "sector": h["sector"],
+                    "prior_rank": None, "cluster_id": None, "held": True,
+                    "qty": h["qty"], "market_value": h["market_value"], "not_in_universe": True,
+                })
+
+    return {
+        "count": len(ranking_rows),
+        "run": {"run_id": latest_run_id,
+                "rank_date": (latest_rank_date.isoformat()
+                              if hasattr(latest_rank_date, "isoformat") else str(latest_rank_date))},
+        "prior_run": ({"run_id": prior_run_id} if prior_run_id else None),
+        "rankings": ranking_rows,
+    }
+
+
 @app.get("/rankings/theme")
 async def get_rankings_theme():
     """Rankings filtered to the hardcoded AI-buildout theme universe.

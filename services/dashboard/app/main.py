@@ -315,6 +315,13 @@ async def proxy_rankings_suggest(q: str = "", limit: int = 20):
     return await _proxy("/rankings/suggest", {"q": q, "limit": limit})
 
 
+@app.get("/api/rankings/universe")
+async def proxy_rankings_universe(limit: int = 5000):
+    # Full ranked-universe LIGHT list (no overlay CTEs) for the virtualized screener.
+    # Per-row heavy overlays load on demand via /rankings/with-overlays?tickers=.
+    return await _proxy("/rankings/universe", {"limit": limit})
+
+
 @app.get("/api/universe")
 async def proxy_universe():
     return await _proxy("/universe")
