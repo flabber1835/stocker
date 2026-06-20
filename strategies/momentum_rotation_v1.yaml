@@ -1,0 +1,188 @@
+# momentum_rotation_v1 — momentum-DOMINANT rotation book (not a lean)
+#
+# Where quality_momentum_v1 only NUDGES momentum (0.19 → 0.23 over an otherwise
+# balanced quality_core_v1), this config makes momentum the DOMINANT signal
+# (0.42) and turns the book over faster. It is a true momentum *rotation*: ride
+# winners, drop laggards quickly, let momentum find the hot sector organically
+# (theme overlay OFF) — then cap concentration hard so the book never degenerates
+# into a single thematic bet.
+#
+# The whole design is built around momentum's two failure modes:
+#   1. CRASH TAILS (Daniel-Moskowitz 2016 — the 2009 momentum crash). Mitigated by
+#      (a) residual_riskadj construction (market-stripped + vol-scaled — ~2x Sharpe,
+#      far smaller crash tails than raw 12-1), (b) a low_volatility weight kept as a
+#      crash buffer, (c) a quality weight to filter junk-momentum (the part that
+#      blows up), (d) a value weight as the negatively-correlated diversifier
+#      (Asness-Moskowitz-Pedersen 2013), and (e) the vetter's beta-adjusted,
+#      vol-scaled FALLING-KNIFE veto — momentum's blind spot is exactly the last
+#      ~21 days (the formation skip), which is where a fresh crash hides.
+#   2. TURNOVER / WHIPSAW. Faster exits (orphan_confirmation_days: 2) cost turnover;
+#      risk-service's MAX_DAILY_TURNOVER_PCT is the hard guardrail. BACKTEST the
+#      net-of-cost return and turnover before trusting the gross premium.
+#
+# This is a separate, versioned artifact. Activate by pointing STRATEGY_CONFIG_PATH
+# at this file (pipeline, portfolio-builder, llm-vetter) and the backtester likewise.
+# Config is stateless and runs are tagged by config_hash, so swapping back to
+# quality_core_v1.yaml / quality_momentum_v1.yaml fully reverts with nothing
+# overwritten.
+
+strategy_id: momentum_rotation_v1
+description: >
+  Momentum-dominant US equity rotation (AV LISTING_STATUS). momentum 0.42 (the
+  dominant weight) balanced by quality 0.20 (junk-momentum filter), low_volatility
+  0.16 (crash buffer) and value 0.14 (mom+value diversification), with faster
+  rotation (orphan_confirmation_days 2). Theme overlay OFF so momentum finds the
+  hot sector organically; correlation-cluster and sector caps kept TIGHT so the
+  book can't collapse into one bet. residual_riskadj momentum + falling-knife veto
+  guard the crash tail.
+
+universe:
+  source: av_listing
+  min_price: 5.0
+  min_avg_dollar_volume_20d: 20000000   # momentum turns over fast → liquidity matters
+
+factor_engine:
+  momentum_short_window: 21  # KEEP the ~1-month skip: the last month is short-term REVERSAL, not momentum
+  momentum_long_window: 252  # ~12-month formation
+  volatility_window: 252
+  liquidity_window: 20
+  pe_pb_cap: 50.0
+  spy_price_lookback_days: 600
+  quality_use_gross_profitability: true
+  momentum_method: residual_riskadj  # market-stripped + vol-scaled — ~2x Sharpe, far smaller crash tails than raw. DO NOT set 'raw' here: a momentum-dominant book on raw momentum is the crash-prone configuration.
+  momentum_blend_windows: [252, 126]  # 12-1 + 6-1 (both skip the last month) → reacts to emerging trends sooner without chasing 1-month reversals. Add 63 (→ 3-1) for an even faster rotation at the cost of more turnover/noise.
+
+regime_detection:
+  slow_sma: 200
+  vol_window: 20
+  vol_threshold: 0.20
+  confirmation_days: 5
+  regimes:
+    bull_calm:
+      spy_above_slow_sma: true
+      vol_above_threshold: false
+    bull_stress:
+      spy_above_slow_sma: true
+      vol_above_threshold: true
+    bear_stress:
+      spy_above_slow_sma: false
+      vol_above_threshold: true
+    bear_calm:
+      spy_above_slow_sma: false
+      vol_above_threshold: false
+
+# Regime ROTATION stays OFF (overfits out-of-sample — Asness; Cederburg). The regime
+# is still detected for the dashboard but does not change weights. Momentum's crash
+# protection comes from the low_vol/quality ballast + the falling-knife veto, NOT
+# from switching weight vectors.
+regime_weighting_enabled: false
+
+# Static MOMENTUM-DOMINANT weights. momentum is the single dominant factor (0.42),
+# but deliberately NOT pure: quality (0.20) filters junk-momentum, low_volatility
+# (0.16) buffers the crash tail, value (0.14) is the negatively-correlated
+# diversifier. liquidity/growth are residual. Sums to 1.0.
+static_factor_weights:
+  momentum:       0.42   # DOMINANT
+  quality:        0.20   # junk-momentum filter (QMJ)
+  low_volatility: 0.16   # crash-tail buffer (Daniel-Moskowitz)
+  value:          0.14   # mom+value diversification (AMP 2013)
+  liquidity:      0.05   # turnover is high → liquidity earns its keep
+  growth:         0.03   # residual
+
+factor_weights:
+  # RETAINED for reference / easy re-enable (unused while regime_weighting_enabled
+  # is false). Identical to quality_core_v1.
+  bull_calm:
+    momentum:       0.30
+    growth:         0.20
+    quality:        0.17
+    value:          0.12
+    liquidity:      0.11
+    low_volatility: 0.10
+
+  bull_stress:
+    low_volatility: 0.24
+    quality:        0.23
+    value:          0.17
+    momentum:       0.16
+    liquidity:      0.10
+    growth:         0.10
+
+  bear_stress:
+    low_volatility: 0.35
+    quality:        0.27
+    liquidity:      0.14
+    value:          0.10
+    growth:         0.07
+    momentum:       0.07
+
+  bear_calm:
+    value:          0.30
+    quality:        0.26
+    low_volatility: 0.18
+    momentum:       0.12
+    growth:         0.07
+    liquidity:      0.07
+
+portfolio_builder:
+  method: greedy_score_per_port_vol
+  candidate_count: 120               # a touch wider than core: more momentum names to select 35 from
+  max_positions: 35                  # more names → dilute the higher per-name idiosyncratic risk of momentum
+  covariance_window_days: 252
+  min_covariance_observations: 126
+  covariance_shrinkage: 0.20
+  require_positive_composite_score: false
+  weighting: inverse_vol             # avoid piling weight into the hottest, most volatile winners (a momentum-crash amplifier). equal_weight is the conservative alternative.
+  max_position_weight: 0.08          # <= 3x equal-weight (3/35 = 8.57%, schema cap); also tighter single-name risk for a broad momentum book
+  max_sector_weight: 0.30            # TIGHT — momentum over-concentrates into whatever is hot; cap it
+  cluster_correlation_threshold: 0.70
+  max_cluster_weight: 0.15           # TIGHT (core value, NOT the relaxed AI-sleeve 0.50)
+  max_tickers_per_cluster: 3         # TIGHT — keep it a count cap, not null
+  do_not_buy: []
+  cash_reserve: 0.025
+  theme_overlay:
+    enabled: false                   # OFF — a pure momentum rotation should DISCOVER the hot sector organically (then be capped), not be hard-wired to one theme
+    theme: ai_infra
+    mode: tilt
+    min_exposure: 0.35
+    tilt_lambda: 0.25
+
+vetter:
+  enabled: true
+  candidate_count: 200
+  risk_horizon_days: 90
+  system_prompt_file: /strategies/quality_core_v1.vetter_prompt.txt  # reuse core prompt (weighting change only)
+  max_searches_per_ticker: 3
+  news_lookback_days: 7
+  max_articles_per_ticker: 4
+  earnings_horizon_days: 90
+  strictness: moderate
+
+intraday:
+  enabled: false
+  benchmark_ticker: SPY
+  trim_winners_enabled: false
+  trim_winner_threshold_pct: 10.0
+  trim_winner_partial_pct: 25.0
+  trim_time_window_minutes_before_close: 60
+  delay_buys_after_spike_enabled: false
+  delay_buy_spike_threshold_pct: 15.0
+  risk_event_action: reduce
+
+delta_engine:
+  entry_rank: 25        # cold-start fallback only (evaluate_all) — rank-based entry when there's no target to diff against
+  exit_rank: 40         # cold-start fallback only
+  confirmation_days: 3  # cold-start fallback only
+  orphan_confirmation_days: 2  # FASTER rotation: a name the builder drops leaves the live book after 2 builds (core uses 3). This is the real rotation-speed dial.
+  max_positions: 35
+
+max_positions: 35
+min_score_percentile: 0.0
+min_non_null_factors: 6   # all 6 weighted factors must be present
+required_factors:
+  - momentum
+  - quality
+  - value
+  - growth
+  - low_volatility
+  - liquidity
