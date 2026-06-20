@@ -4,13 +4,14 @@ These tests mock the SQLAlchemy connection so each helper can be exercised in
 isolation without a real Postgres. The mock connection serves a configured
 sequence of dict rows for each conn.execute(...).mappings().first() call.
 """
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
 
-from app.main import _size_entry, _size_exit
+import app.main as te_main
+from app.main import _size_entry, _size_exit, _size_partial
 
 
 def _now():
@@ -328,3 +329,73 @@ async def test_size_entry_nan_from_portfolio_holdings_uses_default():
     qty, notional, summary = await _size_entry(conn, "AAPL", None)
     assert qty >= 1.0
     assert summary["weight_source"] == "default"
+
+
+# ── FIX F: BUY-side daily_prices fallback must be freshness-bounded ────────────
+
+
+@pytest.mark.asyncio
+async def test_size_entry_stale_daily_price_refused(monkeypatch):
+    """An entry (always a buy) whose ONLY price is a stale daily close is refused —
+    sizing a buy off a stale print places a wrong-sized order."""
+    monkeypatch.setattr(te_main, "MAX_PRICE_AGE_DAYS", 7)
+    stale = date.today() - timedelta(days=30)
+    conn = _mock_conn_returning([
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
+        {"current_price": None},                      # live price missing → fallback
+        {"close": 48.0, "date": stale},               # stale daily_prices fallback
+    ])
+    with pytest.raises(HTTPException) as exc_info:
+        await _size_entry(conn, "AAPL", intent_weight=0.05)
+    assert exc_info.value.status_code == 422
+    assert "stale daily price" in exc_info.value.detail.lower()
+
+
+@pytest.mark.asyncio
+async def test_size_entry_fresh_daily_price_ok(monkeypatch):
+    """A FRESH daily close fallback sizes normally."""
+    monkeypatch.setattr(te_main, "MAX_PRICE_AGE_DAYS", 7)
+    fresh = date.today() - timedelta(days=1)
+    conn = _mock_conn_returning([
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
+        {"current_price": None},
+        {"close": 50.0, "date": fresh},
+    ])
+    qty, notional, summary = await _size_entry(conn, "AAPL", intent_weight=0.05)
+    assert qty == 100.0
+    assert summary["price_source"] == "daily_prices"
+
+
+@pytest.mark.asyncio
+async def test_size_buy_add_stale_daily_price_refused(monkeypatch):
+    monkeypatch.setattr(te_main, "MAX_PRICE_AGE_DAYS", 7)
+    stale = date.today() - timedelta(days=30)
+    intent = {"action": "buy_add", "current_weight": 0.10, "actual_weight": 0.05}
+    conn = _mock_conn_returning([
+        # _size_partial query order: account_value, live_price(None), daily_prices
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
+        {"current_price": None},
+        {"close": 48.0, "date": stale},
+    ])
+    with pytest.raises(HTTPException) as exc_info:
+        await _size_partial(conn, "AAPL", intent)
+    assert exc_info.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_size_sell_trim_stale_daily_price_allowed(monkeypatch):
+    """A sell_trim is NOT bounded by the buy-side freshness rule — de-risking on a
+    stale price is safe."""
+    monkeypatch.setattr(te_main, "MAX_PRICE_AGE_DAYS", 7)
+    stale = date.today() - timedelta(days=30)
+    intent = {"action": "sell_trim", "current_weight": 0.05, "actual_weight": 0.10}
+    conn = _mock_conn_returning([
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
+        {"current_price": None},
+        {"close": 50.0, "date": stale},
+        # sell_trim over-sell guard then reads held qty
+        {"qty": 100.0},
+    ])
+    qty, notional, summary = await _size_partial(conn, "AAPL", intent)
+    assert qty >= 1.0  # sized despite the stale price
+    assert summary["price_source"] == "daily_prices"

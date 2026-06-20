@@ -69,6 +69,16 @@ try:
 except ValueError:
     EXIT_SYNC_MAX_AGE_HOURS = 24.0
 try:
+    # Max age (calendar days) of the daily_prices fallback close used to SIZE a BUY
+    # (entry / buy_add). The fallback is `ORDER BY date DESC LIMIT 1` with no bound,
+    # so a delisted/halted name with only a stale close would otherwise size a buy
+    # off a price that no longer reflects the market. Default 7 days (weekend +
+    # holiday safe). Sells are NOT bounded by this — de-risking on a stale price is
+    # safe. The live-position price (intraday) is always preferred over this.
+    MAX_PRICE_AGE_DAYS = int(os.getenv("MAX_PRICE_AGE_DAYS", "7"))
+except ValueError:
+    MAX_PRICE_AGE_DAYS = 7
+try:
     DEFAULT_MAX_POSITIONS = int(os.getenv("DEFAULT_MAX_POSITIONS", "30"))
 except ValueError:
     DEFAULT_MAX_POSITIONS = 30
@@ -585,6 +595,37 @@ async def _load_intent(conn, intent_id: str) -> dict:
     return dict(row)
 
 
+def _refuse_if_stale_buy_price(ticker: str, price_row, action: str) -> None:
+    """Refuse (HTTP 422) to size a BUY off a stale daily_prices fallback close.
+
+    `price_row` is the `{close, date}` mapping (or None) from the daily_prices
+    fallback. When MAX_PRICE_AGE_DAYS > 0 and the row's date is older than that many
+    calendar days, raise — sizing a buy on a price that no longer reflects the
+    market (a delisted/halted name with only an old print) would place a wrong-sized
+    order. No-op when MAX_PRICE_AGE_DAYS <= 0, the row is missing (the caller's own
+    'no price' guard handles that), or the date is absent. Sells never call this.
+    """
+    if MAX_PRICE_AGE_DAYS <= 0 or price_row is None:
+        return
+    px_date = price_row.get("date") if hasattr(price_row, "get") else None
+    if px_date is None:
+        return
+    today = datetime.now(timezone.utc).date()
+    # px_date may be a date or datetime depending on the column; normalize.
+    if hasattr(px_date, "date") and not isinstance(px_date, type(today)):
+        px_date = px_date.date()
+    age_days = (today - px_date).days
+    if age_days > MAX_PRICE_AGE_DAYS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Refusing to size {action} for {ticker}: only a stale daily price "
+                f"is available ({px_date}, {age_days}d old > {MAX_PRICE_AGE_DAYS}d "
+                f"MAX_PRICE_AGE_DAYS). A buy must not be sized off a stale close."
+            ),
+        )
+
+
 async def _size_exit(conn, ticker: str) -> tuple[float, float, dict]:
     """Return (qty, notional, summary) for an exit.
 
@@ -738,10 +779,15 @@ async def _size_entry(conn, ticker: str, intent_weight: Optional[float]) -> tupl
     if last_price is None or last_price <= 0:
         price_source = "daily_prices"
         price_row = (await conn.execute(text(
-            "SELECT close FROM daily_prices "
+            "SELECT close, date FROM daily_prices "
             "WHERE ticker = :t ORDER BY date DESC LIMIT 1"
         ), {"t": ticker})).mappings().first()
         last_price = _f(price_row["close"]) if price_row else None
+        # BUY-side freshness bound: an entry is always a buy, so refuse to size off a
+        # stale daily close (delisted/halted name with only an old print). Sizing a
+        # buy on a price that no longer reflects the market produces a wrong-sized
+        # order. The live-position price above is always preferred.
+        _refuse_if_stale_buy_price(ticker, price_row, "entry")
 
     if sizing_basis is None or last_price is None or last_price <= 0:
         raise HTTPException(
@@ -868,10 +914,14 @@ async def _size_partial(conn, ticker: str, intent: dict) -> tuple[float, float, 
     price_source = "live_positions"
     if last_price is None or last_price <= 0:
         price_row = (await conn.execute(text(
-            "SELECT close FROM daily_prices WHERE ticker = :t ORDER BY date DESC LIMIT 1"
+            "SELECT close, date FROM daily_prices WHERE ticker = :t ORDER BY date DESC LIMIT 1"
         ), {"t": ticker})).mappings().first()
         last_price = _f(price_row["close"]) if price_row else None
         price_source = "daily_prices"
+        # BUY-side freshness bound: only a buy_add must refuse a stale fallback close
+        # (don't over-restrict a sell_trim — de-risking on a stale price is safe).
+        if action == "buy_add":
+            _refuse_if_stale_buy_price(ticker, price_row, "buy_add")
     if last_price is None or last_price <= 0:
         raise HTTPException(status_code=400, detail=f"No price found for {ticker}")
 
