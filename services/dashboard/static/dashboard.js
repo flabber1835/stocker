@@ -1675,10 +1675,14 @@ function buildTargetRows() {
   deltaData.forEach(it => {
     const meta = TARGET_TRADE[it.action];
     if (!meta) return;   // unknown/non-actionable action → skip (watch IS mapped now)
-    // Prefer the overlay-rich top-100 record; else the full-universe record (real
-    // rank/score/factors for names beyond the top-100); else a genuine "not ranked"
-    // stub (only then is the "NOT IN RANKING UNIVERSE" note correct).
-    const rec = byTicker[it.ticker] || _fullRankByTicker[it.ticker] || {
+    // Prefer the OVERLAY-RICH record (_fullRankByTicker, fetched per target+held
+    // ticker via with-overlays?tickers= with rank_slope/vetter/factors and marked
+    // _overlayLoaded) over byTicker — which since the full-universe switch is the
+    // LIGHT list (rank/ticker/name/cluster only). Using the light row here was the
+    // "Target card stuck on loading… / data not calculated" bug: the card had no
+    // heavy fields and _overlayLoaded was never set. Else fall back to the light
+    // row, else a genuine "not ranked" stub.
+    const rec = _fullRankByTicker[it.ticker] || byTicker[it.ticker] || {
       ticker: it.ticker, rank: it.rank, name: it.name || null,
       composite_score: it.composite_score, not_in_universe: true,
     };
@@ -1747,7 +1751,11 @@ async function loadTargetPortfolio() {
         const rk = await fetch('/api/rankings/with-overlays?tickers='
             + encodeURIComponent(_targetTickers.join(',')), {cache:'no-store'}).then(r => r.json());
         _fullRankByTicker = {};
-        (rk.rankings || []).forEach(r => { _fullRankByTicker[r.ticker] = _mapRankRow(r); });
+        // Mark each as _overlayLoaded: these rows came from with-overlays?tickers=
+        // (full heavy overlays), so the detail card must NOT show the "loading…" hint.
+        (rk.rankings || []).forEach(r => {
+          const m = _mapRankRow(r); m._overlayLoaded = true; _fullRankByTicker[r.ticker] = m;
+        });
       } catch (_) { /* keep last good map; buildTargetRows still falls back to the stub */ }
     }
     // Target-book risk summary (weight-weighted portfolio beta + est vol).

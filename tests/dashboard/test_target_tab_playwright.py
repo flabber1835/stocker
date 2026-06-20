@@ -191,11 +191,21 @@ def _run() -> dict:
         # (deltaData raw intents; rankData via the real _mapRankRow), then run the
         # REAL target build+render. (We set data directly rather than via
         # loadTargetPortfolio() so the test doesn't depend on unrelated trader markup.)
+        # Mirror REAL topology after the full-universe switch: rankData is the LIGHT
+        # universe (no overlay fields), and _fullRankByTicker holds the overlay-rich
+        # rows marked _overlayLoaded (as loadTargetPortfolio's with-overlays?tickers=
+        # fetch does). The Target card must source heavy data from _fullRankByTicker,
+        # not the light rankData — sourcing the light row was the "stuck on loading"
+        # / "data not calculated" bug.
         page.evaluate(
             "(d) => { deltaData = d.delta.intents;"
-            "         rankData = d.rank.rankings.map(_mapRankRow);"
+            "         rankData = d.rank.rankings.concat(d.full.rankings).map(r => ({ticker:r.ticker,"
+            "             rank:r.rank, name:r.name, composite_score:r.composite_score,"
+            "             percentile:r.percentile, cluster_id:r.cluster_id,"
+            "             prior_rank:r.prior_rank, held:r.held}));"
             "         _fullRankByTicker = {};"
-            "         d.full.rankings.forEach(r => { _fullRankByTicker[r.ticker] = _mapRankRow(r); });"
+            "         d.rank.rankings.concat(d.full.rankings).forEach(r => {"
+            "             const m=_mapRankRow(r); m._overlayLoaded=true; _fullRankByTicker[r.ticker]=m; });"
             "         buildTargetRows(); renderTargetTable(); }",
             {"delta": delta, "rank": rankings, "full": _full_rankings_payload()},
         )
@@ -238,6 +248,10 @@ def _run() -> dict:
         page.wait_for_timeout(100)
         res["detail_present"] = page.locator("#detail-row-AAA").count()
         res["detail_has_ticker"] = ("AAA" in (page.locator("#detail-row-AAA").text_content() or "")) if res["detail_present"] else False
+        # Regression: the Target card must NOT be stuck on the "loading…" hint — its
+        # heavy overlays come from _fullRankByTicker (marked _overlayLoaded), not the
+        # light rankData. (Bug: it sourced the light row → perpetual "loading…".)
+        res["aaa_loading_stuck"] = page.locator("#detail-row-AAA .detail-loading").count() if res["detail_present"] else 1
 
         # FAR (rank 133, beyond top-100, resolved from the FULL ranking) → its detail
         # card must NOT say "NOT IN RANKING UNIVERSE" and must show real rank/factors.
@@ -296,6 +310,7 @@ def main() -> int:
     check(r["HHH_rank"].startswith("142"), f"HHH fallback row shows intent rank 142 (got {r['HHH_rank']!r})")
     check(r["first_after_desc"] == "HHH", f"ticker desc sort → HHH first (got {r['first_after_desc']!r})")
     check(r["detail_present"] == 1 and r["detail_has_ticker"], "row click expands the detail card")
+    check(r["aaa_loading_stuck"] == 0, "Target detail card is not stuck on 'loading…' (heavy overlays sourced from _fullRankByTicker)")
     check(not r["errors"], f"no JS page errors ({r['errors']})")
 
     print("\n=== RESULT:", "PASS ===" if ok else "FAIL ===")
