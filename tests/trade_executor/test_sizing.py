@@ -255,6 +255,37 @@ async def test_size_exit_returns_abs_qty_for_short():
     assert notional == 1500.0
 
 
+# ── FIX E: exit must not produce a $0 notional when current_price is missing ───
+
+
+@pytest.mark.asyncio
+async def test_size_exit_missing_price_falls_back_to_market_value():
+    """current_price absent → notional would be qty×0=0, which the risk-service
+    notional_zero guard rejected before its close exemption. _size_exit now falls
+    back to the broker's last-known market_value for a positive audit notional so
+    the de-risking exit is never $0."""
+    now = datetime.now(timezone.utc)
+    conn = _mock_conn_returning([
+        {"qty": 50.0, "current_price": None, "market_value": 3120.0, "completed_at": now},
+    ])
+    qty, notional, summary = await _size_exit(conn, "AAPL")
+    assert qty == 50.0
+    assert notional == 3120.0  # from market_value, NOT qty×0
+    assert summary["notional_source"] == "market_value_fallback"
+
+
+@pytest.mark.asyncio
+async def test_size_exit_uses_price_when_present():
+    """When current_price is present, notional is qty×price (market_value ignored)."""
+    now = datetime.now(timezone.utc)
+    conn = _mock_conn_returning([
+        {"qty": 50.0, "current_price": 60.0, "market_value": 9999.0, "completed_at": now},
+    ])
+    qty, notional, summary = await _size_exit(conn, "AAPL")
+    assert notional == 3000.0
+    assert summary["notional_source"] == "qty_x_current_price"
+
+
 # ── NaN weight guard ──────────────────────────────────────────────────────────
 
 

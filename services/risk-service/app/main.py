@@ -378,7 +378,14 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
         return False, "Invalid notional: must be a finite number", "non_finite_notional", env
     if req.qty <= 0:
         return False, "Invalid qty: must be > 0", "qty", env
-    if req.notional <= 0:
+    # notional_zero is a BUY-side guard only. A de-risking CLOSE (exit / sell_trim)
+    # must never be blocked by a missing/zero notional — the local display price can
+    # be absent (notional = qty × 0 = 0) while the position is genuinely held and we
+    # MUST be allowed to close it. The exit is sized qty-only at the broker
+    # (close-position computes the exact held qty), so a zero notional here is an
+    # audit-display gap, not a real "$0 order". Entries/buy_adds still reject $0.
+    is_close = req.action in ("exit", "sell_trim")
+    if req.notional <= 0 and not is_close:
         return False, "Invalid notional: must be > 0", "notional_zero", env
     if req.notional > env["max_order_notional"]:
         return (
@@ -411,7 +418,7 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
     # loss halt). So closes are exempt from the DB-dependent controls below; opening
     # risk (entry / buy_add) stays fail-closed. The kill switch + qty/notional
     # validity above still apply to everything.
-    is_close = req.action in ("exit", "sell_trim")
+    # (is_close already computed above for the notional_zero close-exemption.)
     if engine is not None:
         try:
             # Alpaca-availability: refuse ALL actions if the last successful sync

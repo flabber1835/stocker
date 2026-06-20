@@ -607,7 +607,7 @@ async def _size_exit(conn, ticker: str) -> tuple[float, float, dict]:
       - the latest sync is older than EXIT_SYNC_MAX_AGE_HOURS (stale broker state).
     """
     pos = (await conn.execute(text(
-        "SELECT lp.qty, lp.current_price, sr.completed_at "
+        "SELECT lp.qty, lp.current_price, lp.market_value, sr.completed_at "
         "FROM live_positions lp "
         "JOIN alpaca_sync_runs sr ON sr.run_id = lp.sync_run_id "
         "WHERE sr.run_id = ("
@@ -645,9 +645,24 @@ async def _size_exit(conn, ticker: str) -> tuple[float, float, dict]:
     qty = abs(qty_raw)
     current_price = _f(pos["current_price"]) or 0.0
     notional = qty * current_price
+    # A de-risking exit must never be blocked by a missing local display price.
+    # If current_price is absent (notional = qty × 0 = 0) the risk-service's
+    # notional_zero guard would otherwise reject the close BEFORE its is_close
+    # exemption — and the exit itself is sized qty-only at the broker anyway. So
+    # when the price-derived notional is non-positive, fall back to the position's
+    # last-known market_value (the broker's own dollar valuation) for a positive
+    # AUDIT notional. The risk-service close-exemption is the primary guarantee;
+    # this keeps the recorded notional meaningful instead of $0.
+    notional_source = "qty_x_current_price"
+    if notional <= 0:
+        mv = _f(pos["market_value"])
+        if mv is not None and abs(mv) > 0:
+            notional = abs(mv)
+            notional_source = "market_value_fallback"
     return qty, notional, {
         "source": "live_positions_latest_sync",
         "current_price": current_price,
+        "notional_source": notional_source,
         "sync_age_hours": round(sync_age_hours, 2) if sync_age_hours is not None else None,
     }
 
