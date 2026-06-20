@@ -1,8 +1,9 @@
-"""Structure tests for the Screener's CLUSTER column (sortable correlation cluster).
+"""Structure tests for the Screener's cluster display.
 
-The screener shows each ranked ticker's correlation cluster (from the latest
-portfolio build's portfolio_holdings.cluster_id), overlaid by the api's
-/rankings/with-overlays + /rankings/search endpoints. Column is sortable.
+History: cluster was once a sortable CLUSTER *column* in the screener row. When the
+screener went full-universe it was MOVED to the per-row detail card (so COMPANY
+gets the full row width). These tests assert the column is gone and cluster now
+lives in the detail card, while the api still overlays cluster_id.
 """
 from pathlib import Path
 
@@ -16,42 +17,40 @@ def _read(p):
     return p.read_text()
 
 
-def test_screener_has_sortable_cluster_header():
+def test_screener_cluster_column_removed():
     html = _read(DASH_MAIN)
-    assert 'id="rh-cluster_id"' in html
-    assert "sortRankings('cluster_id')" in html
-    assert ">CLUSTER<" in html
-    # Compact row is 4 columns: # · TICKER · COMPANY · CLUSTER. SIZE column was
-    # removed (size/drawdown/warning badges moved to the detail card).
-    assert 'id="r-body"><tr><td colspan="4"' in html
-    # rank header relabeled to "#"
+    # The sortable CLUSTER column was removed from the screener row.
+    assert 'id="rh-cluster_id"' not in html
+    assert ">CLUSTER<" not in html
+    # Compact row is now 3 columns: # · TICKER · COMPANY (cluster moved to the card).
+    assert 'id="r-body"><tr><td colspan="3"' in html
     assert 'id="rh-rank" title="Rank">#<' in html
-    # SIZE column header is gone
+    # SIZE column header is also gone (size lives in the detail card).
     assert 'id="rh-market_cap"' not in html
 
 
-def test_screener_detail_card_carries_size_and_drawdown():
+def test_screener_row_has_no_cluster_or_size_cell():
     js = _read(DASH_JS)
-    # size + drawdown now rendered in the detail grid, not the row
-    assert ">Size<" in js
-    assert ">21d Drawdown<" in js
-    # row no longer renders a size cell
+    # the row no longer renders a cluster or size cell — both moved to the card
+    assert "t-cluster" not in js
     assert "t-size" not in js
 
 
-def test_screener_js_maps_and_renders_cluster():
+def test_screener_detail_card_carries_cluster_size_drawdown():
     js = _read(DASH_JS)
-    assert "cluster_id: r.cluster_id" in js          # _mapRankRow carries it
-    assert "t-cluster" in js                          # rendered cell
-    # cluster sorts ascending (A->Z) by default like name/ticker
-    assert "col === 'cluster_id'" in js
+    # cluster + size + drawdown render in the detail card grid (not the row)
+    assert ">Cluster<" in js
+    assert ">Size<" in js
+    assert ">21d Drawdown<" in js
+    # _mapRankRow still carries cluster_id (used by the detail card)
+    assert "cluster_id: r.cluster_id" in js
 
 
 def test_api_overlays_cluster_id_on_rankings():
     api = _read(API_MAIN)
     # helper param + load from the latest build's FULL candidate-pool cluster map
-    # (candidate_clusters), so every ranked top-N candidate can show a cluster — not
-    # only the ~max_positions selected holdings.
+    # (candidate_clusters), so every ranked candidate can show a cluster — not only
+    # the ~max_positions selected holdings.
     assert "cluster_by_ticker" in api
     assert "SELECT ticker, cluster_id FROM candidate_clusters" in api
     # both the with-overlays and search endpoints pass it through
