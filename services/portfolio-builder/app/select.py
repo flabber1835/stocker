@@ -393,6 +393,17 @@ def compute_weights(
     tickers = [s["ticker"] for s in selected]
     n = len(tickers)
 
+    # Empty selection has no feasible weighting — every method below divides by n
+    # or by a sum that is 0 when there are no positions (equal_weight: 1.0/n →
+    # ZeroDivisionError). Refuse explicitly with a clear, catchable error so the
+    # caller marks the run a controlled no-feasible-portfolio failure instead of
+    # crashing on an opaque ZeroDivisionError.
+    if n == 0:
+        raise ValueError(
+            "compute_weights: empty selection — no holdings to weight "
+            "(greedy_select returned 0 candidates / no feasible portfolio)"
+        )
+
     if method == "equal_weight":
         raw = {t: 1.0 / n for t in tickers}
 

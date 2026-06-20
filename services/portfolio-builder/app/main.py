@@ -673,6 +673,19 @@ async def _do_build(
     selected_tickers = [s["ticker"] for s in selected]
     selected_negative_score_count = sum(1 for s in selected if s["composite_score"] < 0)
 
+    # Empty-selection guard: greedy_select can return [] (e.g. every candidate
+    # blocked by sector/cluster/count caps, or an empty candidate pool that slipped
+    # past the earlier guards). compute_weights' equal_weight path does 1.0/n with
+    # n=0 → ZeroDivisionError, crashing the build mid-flight. Default to a CONTROLLED
+    # no-feasible-portfolio failure: mark the run failed with a clear diagnostic and
+    # write NO holdings, rather than crashing with an opaque ZeroDivisionError.
+    if not selected:
+        raise RuntimeError(
+            "no feasible portfolio: greedy_select returned 0 holdings "
+            f"(candidates={len(candidate_tickers)}, max_positions={pb_cfg.max_positions}) "
+            "— every candidate was blocked by caps or the candidate pool was empty"
+        )
+
     # Compute weights according to configured method
     weights = compute_weights(
         selected, cov,
