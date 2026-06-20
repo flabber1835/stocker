@@ -146,11 +146,13 @@ async def _auto_approve_once(client, now: float) -> None:
         # canceled (executor) / cancelled (alpaca-sync — note the spelling drift in
         # the DB) are terminal too: a deliberately-cancelled order must NOT be
         # auto-re-submitted. (Both spellings until the DB token is unified.)
+        # closed = the close-position-404 terminal no-op (the exit already flat at
+        # the broker) — handled, never re-submit.
         order_status = intent.get("order_status")
         if order_status in (
             "failed", "risk_rejected", "submitted", "pending",
             "deferred", "filled", "partial_fill", "expired",
-            "canceled", "cancelled",
+            "canceled", "cancelled", "closed",
         ):
             _intent_approved.add(iid)
             continue

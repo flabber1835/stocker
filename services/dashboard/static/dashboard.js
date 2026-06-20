@@ -1086,7 +1086,8 @@ function _sectionFor(r) {
 
   // DB order status
   if (os === 'submitted' || os === 'pending' || os === 'deferred') return 'progress';
-  if (os === 'filled' || os === 'partial_fill') return 'completed';
+  // 'closed' = close-position-404 terminal no-op (exit already flat at broker) — done.
+  if (os === 'filled' || os === 'partial_fill' || os === 'closed') return 'completed';
   if (os === 'failed' || os === 'risk_rejected' || os === 'expired') return 'attention';
   if (r.rejected_at) return 'completed';
 

@@ -113,6 +113,16 @@ engine: Optional[AsyncEngine] = None
 # clause (these are fixed, code-controlled constants — never user input).
 _OPEN_STATUS_SQL = open_status_sql()
 
+# Sentinel alpaca_status returned by _close_position_alpaca on a 404 (the position
+# was already flat at the broker). The exit's goal — be out of the name — is met,
+# but there is NO broker order, so the local row must NOT enter the 'submitted'
+# lifecycle (it has alpaca_order_id NULL and would otherwise read as an in-flight
+# submitted order forever). Instead it gets the TERMINAL no-op status 'closed'.
+# 'closed' (not 'position_already_closed') because alpaca_orders.status is
+# VARCHAR(20) — the longer token would be truncated/rejected.
+_ALREADY_CLOSED_ALPACA_STATUS = "position_already_closed"
+_CLOSED_NOOP_STATUS = "closed"
+
 
 # ── Lifespan ─────────────────────────────────────────────────────────────────
 
@@ -208,18 +218,23 @@ async def _submit_deferred_order(row: dict) -> tuple[str, Optional[str]]:
         return "failed", f"Alpaca request failed: {exc}"[:1000]
     if alpaca_err is not None:
         return "failed", alpaca_err
-    # Success
+    # Success. Mirror the immediate path: a close-position 404 (already flat) is a
+    # TERMINAL no-op — record 'closed', NOT 'submitted' (no broker order exists).
+    already_closed = (
+        alpaca_order_id is None and alpaca_status == _ALREADY_CLOSED_ALPACA_STATUS
+    )
+    final_status = _CLOSED_NOOP_STATUS if already_closed else "submitted"
     async with engine.begin() as conn:
         await conn.execute(
             text(
-                "UPDATE alpaca_orders SET status='submitted', alpaca_order_id=:aid, "
+                "UPDATE alpaca_orders SET status=:st, alpaca_order_id=:aid, "
                 "alpaca_status=:astatus, submitted_at=:s, deferred_until=NULL, "
                 "error_message=NULL WHERE id=:id"
             ),
-            {"id": order_id, "aid": alpaca_order_id,
+            {"id": order_id, "st": final_status, "aid": alpaca_order_id,
              "astatus": alpaca_status, "s": datetime.now(timezone.utc)},
         )
-    return "submitted", None
+    return final_status, None
 
 
 def _parse_alpaca_dt(raw) -> Optional[datetime]:
@@ -388,8 +403,9 @@ async def _submit_one_deferred(order_id: str) -> None:
     if row is None:
         return  # already handled (e.g. concurrent pass)
     new_status, err = await _submit_deferred_order(dict(row))
-    if new_status == "submitted":
-        logger.info("Drain submitted order %s (%s %s)", row["id"], row["side"], row["ticker"])
+    if new_status in ("submitted", _CLOSED_NOOP_STATUS):
+        logger.info("Drain %s order %s (%s %s)",
+                    new_status, row["id"], row["side"], row["ticker"])
     else:
         async with engine.begin() as conn:
             await conn.execute(
@@ -1682,17 +1698,26 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
                 reason=alpaca_err,
             )
 
-        # Success
+        # Success. A close-position 404 (position already flat) returns no broker
+        # order id with alpaca_status='position_already_closed' and alpaca_err=None.
+        # That is a TERMINAL no-op — not a submission — so it must NOT enter the
+        # 'submitted' lifecycle (a NULL alpaca_order_id 'submitted' row would read as
+        # an in-flight order forever and could be re-submitted). Record 'closed'.
+        already_closed = (
+            alpaca_order_id is None
+            and alpaca_status == _ALREADY_CLOSED_ALPACA_STATUS
+        )
+        final_status = _CLOSED_NOOP_STATUS if already_closed else "submitted"
         submitted_at = datetime.now(timezone.utc)
         async with engine.begin() as conn:
             await conn.execute(
                 text(
-                    "UPDATE alpaca_orders SET status='submitted', "
+                    "UPDATE alpaca_orders SET status=:st, "
                     "alpaca_order_id=:aid, alpaca_status=:astatus, submitted_at=:s "
                     "WHERE id=:id"
                 ),
                 {
-                    "id": order_id, "aid": alpaca_order_id,
+                    "id": order_id, "st": final_status, "aid": alpaca_order_id,
                     "astatus": alpaca_status, "s": submitted_at,
                 },
             )
@@ -1702,6 +1727,7 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
                 output_summary={
                     "alpaca_order_id": alpaca_order_id,
                     "alpaca_status": alpaca_status,
+                    "local_status": final_status,
                 },
             )
             await conn.execute(
@@ -1711,7 +1737,7 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
             )
 
         return TradeAttemptResponse(
-            status="submitted", order_id=order_id, alpaca_order_id=alpaca_order_id,
+            status=final_status, order_id=order_id, alpaca_order_id=alpaca_order_id,
             alpaca_status=alpaca_status, ticker=ticker, action=action, side=side,
             qty=qty, notional=notional, risk_approved=True, risk_reason=reason,
             risk_check_id=check_id, trace_id=trace_id,
