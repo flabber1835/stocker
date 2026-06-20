@@ -1708,6 +1708,7 @@ class CancelAllResponse(BaseModel):
     alpaca_cancel_count: int
     alpaca_errors: list[dict[str, Any]]
     local_orders_updated: int
+    local_cancel_failed: int = 0  # rows whose broker cancel was NOT confirmed
     trace_id: Optional[str] = None
     reason: Optional[str] = None
 
@@ -1810,8 +1811,18 @@ async def cancel_all_orders(confirm: str = "") -> CancelAllResponse:
         )
 
     # ── Call Alpaca DELETE /v2/orders ────────────────────────────────────────
+    # Track per-order broker outcome by Alpaca order id so the LOCAL update only
+    # marks 'canceled' the rows the broker CONFIRMED. confirmed_ids / failed_ids
+    # hold the Alpaca order ids; an id absent from confirmed_ids never gets the
+    # terminal 'canceled' (it would falsely claim the order is dead while it may
+    # still be live at the broker). `whole_call_failed` means we have NO per-order
+    # info at all (HTTP non-2xx or transport exception) → every submitted local
+    # row is treated as unconfirmed.
     alpaca_results: list[dict[str, Any]] = []
     alpaca_errors: list[dict[str, Any]] = []
+    confirmed_ids: set[str] = set()
+    failed_ids: set[str] = set()
+    whole_call_failed = False
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.delete(
@@ -1830,30 +1841,78 @@ async def cancel_all_orders(confirm: str = "") -> CancelAllResponse:
             except Exception:
                 alpaca_results = []
             for r in alpaca_results:
-                code = r.get("status") if isinstance(r, dict) else None
-                # 2xx → success, anything else → record as error
-                if code is None or not (200 <= int(code) < 300):
-                    alpaca_errors.append({"id": r.get("id"), "status": code, "body": r.get("body")})
-            cancel_count = len(alpaca_results) - len(alpaca_errors)
+                if not isinstance(r, dict):
+                    continue
+                code = r.get("status")
+                oid = r.get("id")
+                ok = code is not None and 200 <= int(code) < 300
+                if ok:
+                    if oid is not None:
+                        confirmed_ids.add(str(oid))
+                else:
+                    # 2xx → success, anything else → record as error AND mark the
+                    # broker order id as a CONFIRMED FAILURE so the local row is
+                    # NOT flipped to 'canceled'.
+                    alpaca_errors.append({"id": oid, "status": code, "body": r.get("body")})
+                    if oid is not None:
+                        failed_ids.add(str(oid))
+            cancel_count = len(confirmed_ids)
         else:
             cancel_count = 0
+            whole_call_failed = True
             alpaca_errors.append({"http_status": resp.status_code, "body": resp.text[:500]})
     except Exception as exc:
         cancel_count = 0
+        whole_call_failed = True
         alpaca_errors.append({"error": str(exc)[:500]})
 
     # ── Update local rows ────────────────────────────────────────────────────
     # Non-deferred working states (deferred orders have their own purge path).
     # 'partial_fill' is the token alpaca-sync persists (NOT 'partially_filled').
+    #
+    # CRITICAL (audit #11): only mark a local row 'canceled' when its broker cancel
+    # was CONFIRMED. A row whose broker cancel FAILED or whose outcome is UNKNOWN
+    # must NOT claim 'canceled' — the broker order may still be live. Such rows get
+    # the distinct non-terminal status 'cancel_failed' so a follow-up can retry and
+    # the dashboard never shows a falsely-dead order.
+    #   - alpaca_order_id IN confirmed_ids                → 'canceled'
+    #   - alpaca_order_id IS NULL (never reached broker)  → 'canceled' (nothing live)
+    #   - anything else (failed / unknown / whole-call)   → 'cancel_failed'
     open_statuses = ("pending", "submitted", "accepted", "new", "partial_fill")
     async with engine.begin() as conn:
-        result = await conn.execute(
-            text("UPDATE alpaca_orders SET status='canceled', "
-                 "error_message=COALESCE(error_message, '') || ' [canceled by /jobs/cancel-all-orders]' "
-                 "WHERE status = ANY(:open)"),
-            {"open": list(open_statuses)},
-        )
-        local_updated = result.rowcount or 0
+        if whole_call_failed:
+            # No per-order info: local-only rows (no broker order) can still be
+            # canceled; everything with a broker order id is unconfirmed.
+            canceled_res = await conn.execute(
+                text("UPDATE alpaca_orders SET status='canceled', "
+                     "error_message=COALESCE(error_message, '') || ' [canceled by /jobs/cancel-all-orders]' "
+                     "WHERE status = ANY(:open) AND alpaca_order_id IS NULL"),
+                {"open": list(open_statuses)},
+            )
+            failed_res = await conn.execute(
+                text("UPDATE alpaca_orders SET status='cancel_failed', "
+                     "error_message=COALESCE(error_message, '') || ' [cancel-all: broker cancel unconfirmed]' "
+                     "WHERE status = ANY(:open) AND alpaca_order_id IS NOT NULL"),
+                {"open": list(open_statuses)},
+            )
+        else:
+            canceled_res = await conn.execute(
+                text("UPDATE alpaca_orders SET status='canceled', "
+                     "error_message=COALESCE(error_message, '') || ' [canceled by /jobs/cancel-all-orders]' "
+                     "WHERE status = ANY(:open) "
+                     "AND (alpaca_order_id IS NULL OR alpaca_order_id = ANY(:confirmed))"),
+                {"open": list(open_statuses), "confirmed": list(confirmed_ids)},
+            )
+            failed_res = await conn.execute(
+                text("UPDATE alpaca_orders SET status='cancel_failed', "
+                     "error_message=COALESCE(error_message, '') || ' [cancel-all: broker cancel unconfirmed]' "
+                     "WHERE status = ANY(:open) "
+                     "AND alpaca_order_id IS NOT NULL "
+                     "AND NOT (alpaca_order_id = ANY(:confirmed))"),
+                {"open": list(open_statuses), "confirmed": list(confirmed_ids)},
+            )
+        local_updated = canceled_res.rowcount or 0
+        local_cancel_failed = failed_res.rowcount or 0
         await _log_step(
             conn, trace_id, "alpaca_cancel_all", "success", t0,
             input_summary={"open_statuses": list(open_statuses)},
@@ -1861,6 +1920,7 @@ async def cancel_all_orders(confirm: str = "") -> CancelAllResponse:
                 "alpaca_cancel_count": cancel_count,
                 "alpaca_errors": alpaca_errors[:10],   # cap audit row size
                 "local_orders_updated": local_updated,
+                "local_cancel_failed": local_cancel_failed,
             },
         )
         await conn.execute(
@@ -1870,10 +1930,11 @@ async def cancel_all_orders(confirm: str = "") -> CancelAllResponse:
         )
 
     return CancelAllResponse(
-        status="ok" if not alpaca_errors else "partial",
+        status="ok" if not alpaca_errors and not local_cancel_failed else "partial",
         alpaca_cancel_count=cancel_count,
         alpaca_errors=alpaca_errors[:20],
         local_orders_updated=local_updated,
+        local_cancel_failed=local_cancel_failed,
         trace_id=trace_id,
     )
 
