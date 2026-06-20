@@ -408,14 +408,17 @@ td { padding: 9px 12px; white-space: nowrap; font-size: 13px; }
 .rank-row.row-flash { animation: rowFlash 1.6s ease-out; }
 
 /* ── Screener: filter bar + column headers float together, fit to width ── */
-/* The column-header row pins just below the sticky filter bar so the two act
-   as one floating block. 46px ≈ filter-bar height (input + sticky padding).
-   Keep the filter bar on ONE line so that height stays fixed — otherwise a
-   wrapped second line would slide under the pinned header. */
+/* The filter bar (search) is a sticky element ABOVE the scroll container; the
+   column-header row is sticky to the TOP of #r-scroll (its own scroll context),
+   so it must pin at top:0 — not offset by the filter-bar height. (Pre-
+   virtualization the whole page scrolled and the header needed a 46px offset to
+   clear the filter bar; now #r-scroll is bounded and starts below it, so top:0 is
+   correct. top:46px left a 46px gap where rows scrolled ABOVE the pinned header —
+   the "header floating over tickers" bug.) Keep the filter bar on ONE line. */
 #screen-screener .filter-bar { flex-wrap: nowrap; }
 #screen-screener .search-wrap { flex: 1; min-width: 0; }
 #screen-screener .search-wrap input { width: 100%; }
-#screen-screener thead { top: 46px; }
+#screen-screener thead { top: 0; }
 /* Every ticker row fits the viewport width — no left/right scrolling.
    table-layout:fixed lets COMPANY take the remaining space and ellipsize. */
 #screen-screener .tbl-scroll { overflow-x: clip; }
