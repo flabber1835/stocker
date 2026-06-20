@@ -948,7 +948,7 @@ _HTML = r"""<!DOCTYPE html>
         <span class="count-badge" id="r-count"></span>
       </div>
 
-      <div class="tbl-scroll">
+      <div class="tbl-scroll" id="r-scroll" onscroll="onRankScroll()">
         <table>
           <thead><tr>
             <th onclick="sortRankings('rank')" id="rh-rank" title="Rank">#</th>

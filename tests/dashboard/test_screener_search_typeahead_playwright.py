@@ -106,7 +106,11 @@ def _page() -> str:
 
 def _route(route):
     url = route.request.url
-    if "/api/rankings/with-overlays" in url and "tickers=" in url:
+    if "/api/rankings/universe" in url:
+        # loadRankings() now fetches the FULL light universe list (Phase 2).
+        body = {"count": len(_TOPN), "run": {"run_id": "r1", "rank_date": "2026-06-12"},
+                "prior_run": None, "rankings": _TOPN}
+    elif "/api/rankings/with-overlays" in url and "tickers=" in url:
         # Scoped fetch for a deep-ranked / unknown ticker.
         if "OKLO" in url:
             body = {"count": 1, "run": {"run_id": "r1", "rank_date": "2026-06-12"},

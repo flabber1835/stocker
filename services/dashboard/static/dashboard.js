@@ -26,6 +26,20 @@ let _suggestActive  = -1;      // highlighted dropdown index (keyboard nav); -1 
 let _searchDebounce = null;    // setTimeout handle for debouncing keystrokes
 let _flashTimer     = null;    // setTimeout handle for clearing the row-flash highlight
 
+// ── Screener virtualization + lazy-overlay state ────────────────────────────
+// The screener now renders the ENTIRE ranked universe (thousands of rows) via a
+// windowed (virtualized) table: only the visible rows (+ a buffer) are in the DOM,
+// with top/bottom spacer <tr>s sized to preserve the full scroll height.
+const RANK_ROW_H   = 38;   // px — MUST match #screen-screener tr.rank-row height in CSS
+const RANK_BUFFER  = 12;   // extra rows rendered above/below the viewport
+let   _sortedRank  = [];   // the currently-sorted full array renderRankings windows over
+let   _overlayCache = {};  // ticker → merged heavy overlay fields (session cache)
+let   _overlayInflight = {}; // ticker → Promise (dedupe concurrent lazy fetches)
+let   _flashTicker  = null; // ticker whose row should currently carry the flash class
+                            // (re-applied on each window repaint — a virtualized row
+                            //  is destroyed/recreated on scroll, so the class can't
+                            //  live only on the DOM node)
+
 let _clearedTrades   = new Set();  // intent ids dismissed from the trader UI (cosmetic only)
 let _clearedRunId    = null;       // delta run_id the dismissals belong to
 let _approvalState   = {};   // intent_id → { status, msg }
@@ -402,6 +416,7 @@ function _mapRankRow(r) {
     vetter_confidence: r.vetter_confidence,
     vetter_risk_type: r.vetter_risk_type,
     vetter_reason: r.vetter_reason,
+    vetter_crashed: !!r.vetter_crashed,
     positive_catalyst: !!r.positive_catalyst,
     positive_reason: r.positive_reason,
     not_in_universe: !!r.not_in_universe,
@@ -576,18 +591,42 @@ async function _navigateToTicker(ticker) {
   _showSearchNote(tk + ' not in this ranking run');
 }
 
+// INDEX-BASED scroll-to-row. Under virtualization an off-screen row is NOT in the DOM,
+// so we can't getElementById it directly. Find the ticker's index in the current
+// SORTED array, scroll the virtual container so that index is centered (scrollTop =
+// index×rowH − viewH/2), repaint the window, THEN flash the row once it renders.
 function _scrollToRow(ticker) {
   const tk = (ticker || '').toUpperCase();
-  const row = document.getElementById('rank-row-' + tk)
-           || document.getElementById('rank-row-' + ticker);
-  if (!row) return false;
-  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const idx = _sortedRank.findIndex(r => (r.ticker || '').toUpperCase() === tk);
+  if (idx < 0) return false;
+
+  // Mark the flashed ticker BEFORE repainting so _renderRankWindow re-applies the
+  // class on the freshly-created row node (a virtualized row is destroyed/recreated
+  // on every repaint, so we can't just add the class to a DOM node and walk away).
   clearTimeout(_flashTimer);
   document.querySelectorAll('.rank-row.row-flash').forEach(el => el.classList.remove('row-flash'));
-  // Reflow so the animation restarts even if the same row is re-selected.
-  void row.offsetWidth;
-  row.classList.add('row-flash');
-  _flashTimer = setTimeout(() => row.classList.remove('row-flash'), 1700);
+  _flashTicker = tk;
+
+  const sc = $('r-scroll');
+  if (sc) {
+    const viewH = sc.clientHeight || 600;
+    let top = idx * RANK_ROW_H - viewH / 2 + RANK_ROW_H / 2;
+    if (top < 0) top = 0;
+    sc.scrollTop = top;     // direct set; centers the target index in the viewport
+    _renderRankWindow();    // repaint so the target row is in the DOM (and flashed)
+  } else {
+    _renderRankWindow();    // no scroll container (test stub) → all rows, flash applies
+  }
+
+  const row = document.getElementById('rank-row-' + tk);
+  if (row) {
+    void row.offsetWidth;   // reflow so the animation restarts on re-selection
+    row.classList.add('row-flash');
+  }
+  _flashTimer = setTimeout(() => {
+    _flashTicker = null;
+    document.querySelectorAll('.rank-row.row-flash').forEach(el => el.classList.remove('row-flash'));
+  }, 1700);
   return true;
 }
 
@@ -607,7 +646,11 @@ function _clearSearchNote() {
 async function loadRankings() {
   $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">Loading rankings&#8230;</td></tr>';
   try {
-    const d = await fetch('/api/rankings/with-overlays?limit=100', {cache:'no-store'}).then(r => {
+    // Full-universe LIGHT list (rank/ticker/name/cluster/held + cheap overlays). The
+    // heavy per-row overlays (rank_slope, vetter, market_cap, factor_scores,
+    // excess_dd_*) are lazy-loaded when a row's detail card is opened — see
+    // toggleDetail → _ensureOverlay. The table is virtualized (renderRankings).
+    const d = await fetch('/api/rankings/universe', {cache:'no-store'}).then(r => {
       if (!r.ok) throw new Error(r.status);
       return r.json();
     });
@@ -681,57 +724,103 @@ function rankArrowHtml(r) {
   return arrow;
 }
 
+// Build (and cache) the sorted full array. The list is NEVER filtered — the search
+// box is a navigate-typeahead (see _navigateToTicker), not a filter. Only the column
+// SORT applies. Virtualization windows over _sortedRank; _renderRankWindow() paints
+// just the visible slice. Re-sorting (or new data) rebuilds _sortedRank then repaints.
 function renderRankings() {
-  // The list is NEVER filtered — the search box is a navigate-typeahead (see
-  // onSearchInput / _navigateToTicker), not a filter. Always render the full
-  // ranked set; only the column SORT applies.
-  let rows = rankData.slice();
   const { col, dir } = rankSort;
-  rows.sort((a, b) => {
+  _sortedRank = rankData.slice().sort((a, b) => {
     const av = a[col], bv = b[col];
     if (av == null && bv == null) return 0;
     if (av == null) return 1; if (bv == null) return -1;
     return (av < bv ? -1 : av > bv ? 1 : 0) * dir;
   });
-  $('r-count').textContent = rows.length + ' / ' + rankData.length;
-  if (!rows.length) {
+  $('r-count').textContent = _sortedRank.length + ' / ' + rankData.length;
+  if (!_sortedRank.length) {
     _expandedTicker = null;
     $('r-body').innerHTML = '<tr><td colspan="4" class="tbl-empty">No results</td></tr>';
     return;
   }
+  _renderRankWindow();
+}
 
-  const html = rows.map(r => {
-    const pctCls = pctColor(r.percentile);
-    const pctVal = r.percentile != null ? (+r.percentile * 100).toFixed(0) + '%' : '—';
+// Map a sorted-array index → that row's <tr> HTML (data row only; the expanded
+// detail card is injected separately, OUTSIDE the spacer math — see below).
+function _rankRowHtml(r) {
+  const arrow = rankArrowHtml(r);   // 5-run slope / prior-rank fallback / flat dash
+  // SIZE / drawdown / vetter-warning badges live in the detail card now (compact
+  // row keeps only rank · ticker · company · cluster). See _buildDetailHtml.
+  const heldCls     = r.held ? ' row-held' : '';
+  const exclCls     = r.vetter_excluded ? ' row-excluded' : '';
+  const expandedCls = _expandedTicker === r.ticker ? ' expanded' : '';
+  return '<tr class="rank-row' + heldCls + exclCls + expandedCls + '" id="rank-row-' + esc(r.ticker) + '" onclick="toggleDetail(\'' + esc(r.ticker) + '\',this)">'
+    + '<td><span class="t-rank">' + r.rank + '</span>' + arrow + '</td>'
+    + '<td><span class="t-ticker">' + r.ticker + '</span></td>'
+    + '<td class="t-company" title="' + (r.name ? esc(r.name) : '') + '">' + (r.name ? esc(r.name) : '—') + '</td>'
+    + '<td class="t-cluster">' + (r.cluster_id ? '<span class="mono">' + esc(r.cluster_id) + '</span>' : '<span style="color:var(--text3)">—</span>') + '</td>'
+    + '</tr>';
+}
 
-    // Trend arrow (shared helper) — 5-run slope, prior-rank fallback, flat dash.
-    const arrow = rankArrowHtml(r);
-
-    // SIZE / drawdown / vetter-warning badges live in the detail card now (compact
-    // row keeps only rank · ticker · company · cluster). See _buildDetailHtml.
-    const heldCls     = r.held ? ' row-held' : '';
-    const exclCls     = r.vetter_excluded ? ' row-excluded' : '';
-    const expandedCls = _expandedTicker === r.ticker ? ' expanded' : '';
-
-    return '<tr class="rank-row' + heldCls + exclCls + expandedCls + '" id="rank-row-' + esc(r.ticker) + '" onclick="toggleDetail(\'' + esc(r.ticker) + '\',this)">'
-      + '<td><span class="t-rank">' + r.rank + '</span>' + arrow + '</td>'
-      + '<td><span class="t-ticker">' + r.ticker + '</span></td>'
-      + '<td class="t-company" title="' + (r.name ? esc(r.name) : '') + '">' + (r.name ? esc(r.name) : '—') + '</td>'
-      + '<td class="t-cluster">' + (r.cluster_id ? '<span class="mono">' + esc(r.cluster_id) + '</span>' : '<span style="color:var(--text3)">—</span>') + '</td>'
-      + '</tr>';
-  }).join('');
-
-  $('r-body').innerHTML = html;
-
-  if (_expandedTicker !== null) {
-    const mainRow = document.getElementById('rank-row-' + _expandedTicker);
-    if (mainRow) {
-      const rec = _rankSource().find(r => r.ticker === _expandedTicker);
-      if (rec) _insertDetailRow(mainRow, rec);
-    } else {
-      _expandedTicker = null;
-    }
+// Paint only the rows visible in the scroll viewport (+ RANK_BUFFER above/below).
+// Total scroll height is preserved with two spacer rows whose td height = number of
+// hidden rows × RANK_ROW_H. The window math assumes a UNIFORM row height; the one
+// expanded detail card is injected inline after its row (it lives inside the rendered
+// window, so rows ABOVE it keep correct positions; rows below shift by the card's
+// height and self-correct on the next scroll repaint — simplest robust approach for a
+// single-open card without breaking <table> layout via absolute positioning).
+function _renderRankWindow() {
+  const sc = $('r-scroll');
+  const total = _sortedRank.length;
+  if (!sc) {  // no scroll container (test stub / partial DOM) → render all rows
+    $('r-body').innerHTML = _sortedRank.map(_rankRowHtml).join('');
+    _reinsertExpandedDetail();
+    return;
   }
+  const viewH = sc.clientHeight || 600;
+  const scrollTop = sc.scrollTop || 0;
+  let first = Math.floor(scrollTop / RANK_ROW_H) - RANK_BUFFER;
+  if (first < 0) first = 0;
+  let visCount = Math.ceil(viewH / RANK_ROW_H) + RANK_BUFFER * 2;
+  let last = Math.min(total, first + visCount);
+  const topPad = first * RANK_ROW_H;
+  const botPad = (total - last) * RANK_ROW_H;
+
+  const parts = [];
+  if (topPad > 0) parts.push('<tr class="rank-spacer"><td colspan="4" style="height:' + topPad + 'px"></td></tr>');
+  for (let i = first; i < last; i++) parts.push(_rankRowHtml(_sortedRank[i]));
+  if (botPad > 0) parts.push('<tr class="rank-spacer"><td colspan="4" style="height:' + botPad + 'px"></td></tr>');
+  $('r-body').innerHTML = parts.join('');
+  _reinsertExpandedDetail();
+  // Re-apply the flash class to the flashed row if it's in this window — the row's
+  // DOM node is recreated on every repaint, so the class can't persist on the node.
+  if (_flashTicker) {
+    const fr = document.getElementById('rank-row-' + _flashTicker);
+    if (fr) fr.classList.add('row-flash');
+  }
+}
+
+// Re-attach the open detail card after a window repaint, if its row is in view.
+function _reinsertExpandedDetail() {
+  if (_expandedTicker == null) return;
+  const mainRow = document.getElementById('rank-row-' + _expandedTicker);
+  if (mainRow) {
+    const rec = _rankSource().find(r => r.ticker === _expandedTicker);
+    if (rec) _insertDetailRow(mainRow, rec);
+  }
+  // If the row scrolled out of the window the card simply isn't shown; the
+  // _expandedTicker state is kept so it reappears when scrolled back into view.
+}
+
+// Scroll handler — repaint the window. Cheap (innerHTML of ~tens of rows); guarded by
+// rAF so a fast scroll coalesces repaints to one per frame.
+let _rankScrollRaf = 0;
+function onRankScroll() {
+  if (_rankScrollRaf) return;
+  _rankScrollRaf = requestAnimationFrame(() => {
+    _rankScrollRaf = 0;
+    _renderRankWindow();
+  });
 }
 
 // The array feeding the screener rows. The list is no longer filtered (the search
@@ -758,7 +847,78 @@ function toggleDetail(ticker, rowEl) {
   _expandedTicker = ticker;
   rowEl.classList.add('expanded');
   const rec = _rankSource().find(r => r.ticker === ticker);
-  if (rec) _insertDetailRow(rowEl, rec);
+  if (!rec) return;
+  // Render the card immediately (it tolerates not-yet-loaded heavy fields, showing a
+  // brief "loading…" placeholder), then lazy-load the heavy overlays and re-render.
+  _insertDetailRow(rowEl, rec);
+  _ensureOverlay(ticker);
+}
+
+// Lazy-load the heavy overlays (rank_slope, vetter_*, market_cap, factor_scores,
+// excess_dd_*) for a ticker when its detail card opens. The full-universe list is
+// LIGHT — these fields are absent until fetched via /api/rankings/with-overlays?
+// tickers=<T>. Cached per ticker for the session (re-open is instant) and deduped so a
+// double-click fires one request. On success the overlay fields are merged into the
+// rankData row and the open card re-rendered.
+function _overlayLoaded(rec) {
+  // A light row has none of the heavy fields; treat the presence of an explicit
+  // overlay-loaded flag (set on merge) as the cache hit.
+  return rec && rec._overlayLoaded === true;
+}
+
+async function _ensureOverlay(ticker) {
+  const tk = (ticker || '').toUpperCase();
+  const rec = _rankSource().find(r => (r.ticker || '').toUpperCase() === tk);
+  if (!rec || _overlayLoaded(rec)) return;
+
+  // Session cache hit → merge synchronously, re-render, done (no fetch).
+  if (_overlayCache[tk]) {
+    Object.assign(rec, _overlayCache[tk], { _overlayLoaded: true });
+    _rerenderOpenCard(rec);
+    return;
+  }
+  if (_overlayInflight[tk]) return;   // already fetching
+
+  _overlayInflight[tk] = (async () => {
+    try {
+      const d = await fetch('/api/rankings/with-overlays?tickers=' + encodeURIComponent(tk), {cache:'no-store'})
+        .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+      const rows = (d.rankings || []).map(_mapRankRow);
+      const match = rows.find(r => (r.ticker || '').toUpperCase() === tk);
+      if (match) {
+        // Keep the light row's held/qty/market_value (universe list is authoritative
+        // for those) but take all heavy overlay fields from the scoped response.
+        const overlay = {
+          rank_slope: match.rank_slope, prior_rank: match.prior_rank,
+          market_cap: match.market_cap, beta: match.beta,
+          momentum: match.momentum, quality: match.quality, value: match.value,
+          growth: match.growth, low_volatility: match.low_volatility, liquidity: match.liquidity,
+          drawdown_21d: match.drawdown_21d, excess_dd_21d: match.excess_dd_21d,
+          idio_vol: match.idio_vol, excess_dd_limit: match.excess_dd_limit,
+          vetter_excluded: match.vetter_excluded, vetter_confidence: match.vetter_confidence,
+          vetter_risk_type: match.vetter_risk_type, vetter_reason: match.vetter_reason,
+          vetter_crashed: match.vetter_crashed,
+          positive_catalyst: match.positive_catalyst, positive_reason: match.positive_reason,
+        };
+        _overlayCache[tk] = overlay;
+        Object.assign(rec, overlay, { _overlayLoaded: true });
+        _rerenderOpenCard(rec);
+      }
+    } catch (_) {
+      // Leave the card in its light state; a flagged retry happens on next open.
+    } finally {
+      delete _overlayInflight[tk];
+    }
+  })();
+}
+
+// Re-render the currently-open detail card in place (overlays just arrived).
+function _rerenderOpenCard(rec) {
+  if (_expandedTicker !== rec.ticker) return;   // user closed/changed it meanwhile
+  const dr = document.getElementById('detail-row-' + rec.ticker);
+  if (!dr) return;
+  const td = dr.firstChild;
+  if (td) td.innerHTML = _buildDetailHtml(rec);
 }
 
 function _insertDetailRow(rowEl, rec, colSpan = 4) {
@@ -775,7 +935,12 @@ function _insertDetailRow(rowEl, rec, colSpan = 4) {
 function _buildDetailHtml(r) {
   const nameHtml = r.name ? '<span class="detail-name">' + esc(r.name) + '</span>' : '<span class="detail-name"></span>';
   const yfLink = '<a class="detail-yf-link" href="https://finance.yahoo.com/quote/' + esc(r.ticker) + '" target="_blank" rel="noopener">&#8599; Yahoo Finance</a>';
-  const head = '<div class="detail-head"><span class="detail-ticker">' + esc(r.ticker) + '</span>' + nameHtml + yfLink + '</div>';
+  // While the heavy overlays for this row are still lazy-loading, show a small inline
+  // hint in the header. The card itself renders fine with light data (rank/score/
+  // percentile come from the universe list); the loaded fields fill in on re-render.
+  const loadingHtml = _overlayLoaded(r) ? ''
+    : ' <span class="detail-loading" title="loading factor / vetter detail…">loading&#8230;</span>';
+  const head = '<div class="detail-head"><span class="detail-ticker">' + esc(r.ticker) + '</span>' + nameHtml + loadingHtml + yfLink + '</div>';
 
   const pctVal = r.percentile != null ? (+(r.percentile) * 100).toFixed(1) + '%' : '—';
 

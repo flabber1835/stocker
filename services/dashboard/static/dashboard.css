@@ -419,6 +419,12 @@ td { padding: 9px 12px; white-space: nowrap; font-size: 13px; }
 /* Every ticker row fits the viewport width — no left/right scrolling.
    table-layout:fixed lets COMPANY take the remaining space and ellipsize. */
 #screen-screener .tbl-scroll { overflow-x: clip; }
+/* Virtualized screener: the .tbl-scroll is the scroll container (bounded height),
+   only a window of rows is rendered, top/bottom spacer rows preserve total height.
+   Fixed data-row height keeps the windowing math simple (see RANK_ROW_H in JS). */
+#r-scroll { overflow-y: auto; max-height: calc(100vh - 190px); }
+#screen-screener tr.rank-row { height: 38px; }
+#screen-screener tr.rank-spacer td { padding: 0; border: 0; }
 #screen-screener table { table-layout: fixed; }
 #screen-screener th, #screen-screener td { padding: 9px 6px; }
 #screen-screener th:first-child, #screen-screener td:first-child { padding-left: 11px; }
@@ -478,6 +484,11 @@ tr.row-held td        { background: rgba(5,150,105,.12); }
 tr.row-excluded td    { opacity: .6; }
 
 /* ── Detail expand row ───────────────────────────────────────────────── */
+.detail-loading {
+  font-size: 11px; color: var(--text3); font-style: italic;
+  margin-left: 6px; animation: ddPulse 1s ease-in-out infinite;
+}
+@keyframes ddPulse { 0%,100% { opacity: .4; } 50% { opacity: 1; } }
 tr.rank-row { cursor: pointer; }
 tr.rank-row.expanded td { background: var(--blue-lt); }
 tr.detail-row td { padding: 0; white-space: normal; }
