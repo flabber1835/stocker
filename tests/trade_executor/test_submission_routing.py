@@ -52,10 +52,16 @@ def test_immediate_closed_falls_back_to_drain():
     assert _route_to_drain("immediate", _clock(False), side="buy") is True
 
 
-def test_immediate_unknown_clock_submits_inline():
-    # No creds / unreachable: Step 6's credential guard records the outcome;
-    # we don't silently defer (dev/paper/mock immediate still submits).
-    assert _route_to_drain("immediate", None, side="buy") is False
+def test_immediate_unknown_clock_buy_routes_to_drain():
+    # FIX D: unknown clock (fetch failed) is do-not-submit-blind for BUYS — a real
+    # buy must NOT submit inline with unknown market state (could fire ahead of its
+    # funding sell / outside hours → "insufficient buying power"). Route to drain.
+    assert _route_to_drain("immediate", None, side="buy") is True
+
+
+def test_immediate_unknown_clock_sell_submits_inline():
+    # FIX D: a SELL (de-risk / emergency close) is still allowed inline even when
+    # the clock is unknown — closing must never be trapped by a clock outage.
     assert _route_to_drain("immediate", None, side="sell") is False
 
 

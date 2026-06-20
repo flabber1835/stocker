@@ -356,9 +356,17 @@ async def test_submit_order_records_failed_order_when_alpaca_errors():
 
     conn.execute = _capturing_exec
 
+    # Force the INLINE submit path so this test exercises Alpaca-error handling
+    # regardless of drain-routing policy. FIX D: an immediate BUY no longer submits
+    # inline on an unknown clock (it routes to the drain), and an open-market buy
+    # already routed to the drain — so pin _route_to_drain=False to reach
+    # _submit_to_alpaca, which is what this test is actually asserting.
     with patch.object(te_main, "engine", engine), \
          patch.object(te_main, "ALPACA_API_KEY", "test-key"), \
          patch.object(te_main, "ALPACA_SECRET_KEY", "test-secret"), \
+         patch.object(te_main, "_get_alpaca_clock",
+                      new=AsyncMock(return_value={"is_open": True, "next_open": None, "next_close": None})), \
+         patch.object(te_main, "_route_to_drain", new=MagicMock(return_value=False)), \
          patch.object(te_main, "_call_risk",
                       new=AsyncMock(return_value=(True, "ok", str(uuid.uuid4()), "ok"))), \
          patch.object(te_main, "_submit_to_alpaca",

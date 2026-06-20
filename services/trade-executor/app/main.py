@@ -228,7 +228,13 @@ def _alpaca_read_headers() -> dict:
 
 async def _get_alpaca_clock() -> Optional[dict]:
     """GET /v2/clock → {is_open, next_open, next_close}. None if creds missing or
-    unreachable (caller treats unknown state as 'do not submit blind')."""
+    unreachable.
+
+    A None return means UNKNOWN market state. Callers MUST treat unknown as
+    do-not-submit-blind for BUYS: _route_to_drain routes a buy to the fill-gated
+    drain (never an inline real order) when the clock is unknown, so a buy can't
+    fire ahead of its funding sell / outside hours. Sells are still allowed inline
+    (a de-risking close must never be trapped by a clock outage)."""
     if not (ALPACA_API_KEY and ALPACA_SECRET_KEY):
         return None
     try:
@@ -265,15 +271,22 @@ def _route_to_drain(mode: str, clock: Optional[dict], side: Optional[str] = None
                             must not bypass the drain's sells-first, fill-gated
                             buying-power sequencing — a raw queued buy could fire
                             ahead of its funding sell at the open and be rejected.
-      - immediate + clock unknown (no creds/unreachable) → inline; Step 6's own
-                            credential guard records the outcome (dev/paper without
-                            creds, or mock).
+      - immediate + clock unknown (no creds/unreachable) → fail-safe: BUYS route
+                            to the drain (never submit a real BUY blind to market
+                            state — an inline buy on an unknown clock can fire ahead
+                            of its funding sell / outside hours and be rejected
+                            "insufficient buying power"). SELLS still submit inline
+                            (de-risking / emergency close must always be allowed).
+                            When creds are missing, Step 6's credential guard records
+                            the outcome regardless of which branch is taken.
     """
     if mode == "scheduled":
         return True
     if mode == "immediate":
         if clock is None:
-            return False
+            # Unknown market state — do not submit a BUY blind; drain it (fail-safe).
+            # Sells stay inline so a close is never trapped by a clock outage.
+            return side == "buy"
         if not clock.get("is_open", False):
             return True
         # Market open: sells inline (fund the book fast), buys via the drain so
