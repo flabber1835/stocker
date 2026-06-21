@@ -115,3 +115,23 @@ def test_pct_attached_to_matching_live_step():
     )
     assert result["rank"]["step_label"] == "Ranking"
     assert result["rank"]["pct"] == 42
+
+
+def test_ranking_success_but_run_not_terminal_stays_ranking():
+    """Window (2): the pipeline commits ranking_status='success' BEFORE the run's
+    status flips to 'success' (separate transactions). A poll then sees status=
+    'running' with BOTH sub-statuses 'success' and NEITHER 'running'. The label must
+    NOT regress to 'Calculating Factors' — it should stay 'Ranking' until terminal.
+    This is the residual flip-flop the monotonic guard fixes."""
+    result = _call(_pipeline(factor="success", ranking="success"))
+    assert result["rank"]["step_label"] == "Ranking", (
+        "ranking-done→terminal window must stay Ranking, not flip back to Factors; "
+        f"got {result['rank']['step_label']!r}"
+    )
+
+
+def test_factors_success_ranking_not_started_shows_factors():
+    """Symmetric check: factors done but ranking not yet recorded → still Factors
+    (we've reached factors, not ranking). Monotonic, no false jump to Ranking."""
+    result = _call(_pipeline(factor="success", ranking=None))
+    assert result["rank"]["step_label"] == "Calculating Factors"

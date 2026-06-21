@@ -709,22 +709,25 @@ async def pipeline_status():
     # Factors" during that overlap window.
     if not confirmed_terminal and pipeline_status_raw == "running":
         rank_status = "running"
-        # Coherence guard: pick the FURTHEST-ALONG running sub-step, not factors-
-        # first. The pipeline's factor_status/ranking_status columns and the live
-        # /runs/progress step are written to Postgres at slightly different moments,
-        # so during the factors→ranking handoff a single poll can see BOTH columns
-        # "running" (the factor row hasn't flipped to done yet). Factors-first
-        # precedence then painted "Calculating Factors" again on that poll, so the
-        # label flip-flopped Factors↔Ranking across polls. Steps only ever advance
-        # (factors → ranking → delta), so when several read "running" the latest one
-        # is the true state — check delta, then ranking, then factors.
-        if _pipeline_delta_status == "running":
+        # Coherence guard (MONOTONIC): a sub-step that is running OR already "success"
+        # means the run has REACHED at least that phase; pick the FURTHEST reached so
+        # the label never regresses. Covers two windows:
+        #   (1) factors→ranking handoff: a poll sees BOTH columns "running" → Ranking.
+        #   (2) ranking-done → run-terminal: the pipeline commits ranking_status=
+        #       "success" in a SEPARATE txn BEFORE status="success" (pipeline main.py
+        #       ~2650 vs ~2656), so a poll can see status="running" with BOTH sub-
+        #       statuses "success" and NEITHER "running". The old `else` painted
+        #       "Calculating Factors" here → the label flipped backward Ranking→Factors.
+        #       Treating "success" as "reached" keeps it on Ranking until terminal.
+        # Steps only advance (factors → ranking → delta), so furthest-reached = truth.
+        _reached = ("running", "success")
+        if _pipeline_delta_status in _reached:
             pct = _pipeline_live_pct if _pipeline_live_step == "delta" else None
             rank_step, rank_step_label, rank_pct = "delta", "Delta Eval", pct
-        elif _pipeline_rank_status == "running":
+        elif _pipeline_rank_status in _reached:
             pct = _pipeline_live_pct if _pipeline_live_step == "ranking" else None
             rank_step, rank_step_label, rank_pct = "ranking", "Ranking", pct
-        elif _pipeline_factor_status == "running":
+        elif _pipeline_factor_status in _reached:
             pct = _pipeline_live_pct if _pipeline_live_step == "calc_factors" else None
             rank_step, rank_step_label, rank_pct = "calc_factors", "Calculating Factors", pct
         else:
