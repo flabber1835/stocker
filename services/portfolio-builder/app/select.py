@@ -194,6 +194,7 @@ def greedy_select(
     max_tickers_per_sector: int | None = None,
     av_sector_map: dict[str, str] | None = None,
     max_av_sector_weight: float = 1.0,
+    selection_vol_aversion: float = 1.0,
 ) -> list[dict]:
     """
     Greedy portfolio construction: pick tickers that maximise
@@ -219,6 +220,17 @@ def greedy_select(
     NOT in current_holdings have their adjusted score reduced by turnover_penalty
     fraction before the greedy selection loop. This gives continuity holdings a
     slight preference to reduce unnecessary churn on regime transitions.
+
+    selection_vol_aversion (default 1.0): exponent on the portfolio-vol divisor —
+    each candidate is scored `base_score / port_vol ** selection_vol_aversion`.
+      - 1.0  → classic score-per-vol (favours vol-reducing / diversifying names;
+               this is what drags a momentum book's beta down).
+      - 0.0  → port_vol**0 = 1, so the divisor vanishes → PURE score/momentum
+               selection (highest composite wins); concentration is still bounded
+               by the sector/cluster/count caps, and book-level risk by vol_target.
+      - ~0.3-0.5 → middle ground: still tilts toward diversification but lets
+               high-momentum/high-beta leaders win.
+    Range [0, 1]. Backward-compatible: 1.0 reproduces the previous behaviour exactly.
 
     Two traps handled:
       1. Negative z-scores: shift all scores to be strictly positive before
@@ -298,7 +310,7 @@ def greedy_select(
         "ticker": first,
         "position": 1,
         "composite_score": float(scores[first]),
-        "adj_score": float(base[first]) / standalone_vol,
+        "adj_score": float(base[first]) / standalone_vol ** selection_vol_aversion,
         "portfolio_vol_at_add": standalone_vol,
     })
 
@@ -320,7 +332,7 @@ def greedy_select(
             test = portfolio + [candidate]
             sub = cov.loc[test, test].values
             port_vol = float(np.sqrt(max(float(w @ sub @ w), 1e-12)))
-            adj = float(base[candidate]) / port_vol
+            adj = float(base[candidate]) / port_vol ** selection_vol_aversion
             if adj > best_adj:
                 best_adj = adj
                 best_candidate = candidate

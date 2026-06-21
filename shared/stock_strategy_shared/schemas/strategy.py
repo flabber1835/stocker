@@ -324,6 +324,19 @@ class PortfolioBuilderConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     method: Literal["greedy_score_per_port_vol"] = "greedy_score_per_port_vol"
+    selection_vol_aversion: float = Field(
+        default=1.0, ge=0.0, le=1.0,
+        description=(
+            "Exponent on the portfolio-vol divisor in greedy selection: each "
+            "candidate is scored `base_score / port_vol ** selection_vol_aversion`. "
+            "1.0 = classic score-per-vol (favours vol-reducing/diversifying names — "
+            "suppresses book beta); 0.0 = the divisor vanishes → PURE score/momentum "
+            "selection (highest composite wins, concentration still bounded by the "
+            "sector/cluster/count caps and book risk by vol_target); ~0.3-0.5 = "
+            "middle ground that lets high-momentum/high-beta leaders win while keeping "
+            "some diversification pull. Backward-compatible: 1.0 = previous behaviour."
+        ),
+    )
     candidate_count: int = Field(default=100, ge=10, le=500)
     max_positions: int = Field(default=30, ge=1, le=100)
     covariance_window_days: int = Field(default=252, ge=20, le=504)

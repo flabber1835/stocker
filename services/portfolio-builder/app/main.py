@@ -670,6 +670,7 @@ async def _do_build(
         max_tickers_per_sector=pb_cfg.max_tickers_per_cluster,
         av_sector_map=sector_map,
         max_av_sector_weight=pb_cfg.max_sector_weight,
+        selection_vol_aversion=pb_cfg.selection_vol_aversion,
     )
     selected_tickers = [s["ticker"] for s in selected]
     selected_negative_score_count = sum(1 for s in selected if s["composite_score"] < 0)
@@ -830,6 +831,7 @@ async def _do_build(
                 "require_positive_composite_score": pb_cfg.require_positive_composite_score,
                 "negative_score_excluded": len(negative_excluded),
                 "weighting": pb_cfg.weighting,
+                "selection_vol_aversion": pb_cfg.selection_vol_aversion,
                 "max_position_weight": pb_cfg.max_position_weight,
                 "max_cluster_weight": pb_cfg.max_cluster_weight,
                 "cluster_correlation_threshold": pb_cfg.cluster_correlation_threshold,
