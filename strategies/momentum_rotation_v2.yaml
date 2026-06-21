@@ -27,15 +27,19 @@
 # ballast. Backtest Sharpe, MAX DRAWDOWN / left tail, turnover, and realized semi
 # exposure vs v1 before activating.
 #
-# NOTE: this weight cut alone will NOT fully restore NVDA-type names whose MOMENTUM
-# PERCENTILE itself is vol-demoted by residual_riskadj (NVDA 0.742 vs SOXX 0.915).
-# Capturing those additionally needs momentum_method: residual (drop the vol divisor)
-# — a SEPARATE lever, intentionally NOT changed here so this variant isolates the
-# weight cut.
+# This config has been iterated toward leadership capture in four steps (each cut one
+# of the stacked low-vol tilts that were dragging book beta to ~0.1):
+#   1. low_volatility/value weights cut (0.16/0.14 → 0.08/0.08), momentum → 0.50
+#   2. weighting inverse_vol → score_proportional (sizing no longer up-weights low-vol)
+#   3. selection_vol_aversion 1.0 → 0.3 (greedy no longer minimises vol)
+#   4. momentum_method residual_riskadj → residual (signal no longer vol-demotes
+#      high-beta leaders like NVDA; market-strip retained)
+# Observed effect: target book beta climbed 0.12 → 0.19 → 0.30 → (expected higher).
+# Crash protection now lives at the BOOK level (vol_target) + quality 0.22 + the
+# falling-knife veto, not in four name-level vol penalties. Backtest drawdown/turnover.
 #
-# Separate, versioned artifact — NOT activated. Live config stays on
-# momentum_rotation_v1 (hardcoded in docker-compose.yml). To backtest, point the
-# backtester at this file; to go live, change STRATEGY_CONFIG_PATH in compose.
+# Live config (hardcoded in docker-compose.yml). To revert a step, flip the relevant
+# line back (momentum_method → residual_riskadj, weighting → inverse_vol, etc.).
 
 strategy_id: momentum_rotation_v2
 description: >
@@ -60,7 +64,7 @@ factor_engine:
   pe_pb_cap: 50.0
   spy_price_lookback_days: 600
   quality_use_gross_profitability: true
-  momentum_method: residual_riskadj  # UNCHANGED from v1 — the weight cut is isolated here. Switch to 'residual' in a v3 to also un-demote high-vol leaders like NVDA.
+  momentum_method: residual  # lever #2: market-stripped but NOT vol-scaled. Drops the formation-vol divisor that was demoting high-vol/high-beta leaders (NVDA-type) at the signal level — the fourth and last of the stacked low-vol tilts. Keeps market-stripping (Blitz residual momentum: ~2x risk-adjusted profit, lower crash tails than raw), so it's the balanced choice vs 'raw' (max beta, fattest crash tail). Book-level risk is handled by vol_target.
   momentum_blend_windows: [252, 126]  # 12-1 + 6-1 (both skip the last month) → reacts to emerging trends sooner without chasing 1-month reversals.
 
 regime_detection:

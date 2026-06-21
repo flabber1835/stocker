@@ -126,3 +126,44 @@ def test_residual_riskadj_combines_both_effects():
     # The risk-adjusted ordering can differ from raw residual; at minimum the
     # transform is not the identity (vols differ between A and B).
     assert not np.allclose(resid.to_numpy(), rr.to_numpy())
+
+
+def test_residual_undemotes_high_vol_leader_vs_residual_riskadj():
+    """Lever #2 mechanism (momentum_rotation_v2: residual_riskadj → residual).
+
+    A HIGH-VOL name with a STRONG idiosyncratic up-trend vs a CALM name with a
+    milder trend. Under residual_riskadj the vol divisor penalises the high-vol
+    leader; under plain `residual` (no divisor) that penalty is gone, so the
+    high-vol leader's standing IMPROVES relative to the calm name. This is exactly
+    the un-demotion of high-beta leaders (NVDA-type) that raises book beta.
+    """
+    rng = np.random.default_rng(7)
+    mkt = rng.normal(0.0005, 0.010, 260)
+    # LEADER: strong idiosyncratic drift but HIGH idio vol. CALM: smaller drift, low vol.
+    leader = list(mkt + rng.normal(0.0020, 0.030, 260))   # big trend, big swings
+    calm   = list(mkt + rng.normal(0.0010, 0.004, 260))   # smaller trend, smooth
+    pivot = _pivot_from_returns({"LEADER": leader, "CALM": calm})
+
+    resid = compute_momentum(pivot, method="residual")
+    rr    = compute_momentum(pivot, method="residual_riskadj")
+
+    # Dividing by the LEADER's large formation vol drags its residual_riskadj score
+    # down relative to its plain-residual score (vs CALM). So the LEADER-minus-CALM
+    # gap is STRICTLY LARGER (more favourable to the leader) under residual.
+    assert (resid["LEADER"] - resid["CALM"]) > (rr["LEADER"] - rr["CALM"])
+
+
+def test_residual_keeps_market_strip_unlike_raw():
+    """Sanity that lever #2 (`residual`) still strips the market — it is NOT `raw`.
+    Two names sharing a big market move but with opposite idiosyncratic drift must
+    be ordered by the IDIOSYNCRATIC part under residual, and the residual scores
+    must differ from raw (which keeps the shared market component)."""
+    rng = np.random.default_rng(9)
+    mkt = rng.normal(0.0009, 0.012, 260)
+    up   = list(mkt + 0.0015)   # +idio
+    down = list(mkt - 0.0015)   # -idio (still positive raw return via the market)
+    pivot = _pivot_from_returns({"UP": up, "DOWN": down})
+    resid = compute_momentum(pivot, method="residual")
+    raw   = compute_momentum(pivot, method="raw")
+    assert resid["UP"] > resid["DOWN"]                         # ordered by idiosyncratic part
+    assert not np.allclose(resid.to_numpy(), raw.to_numpy())   # market component stripped → != raw
