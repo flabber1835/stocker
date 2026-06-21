@@ -42,8 +42,10 @@ description: >
   momentum_rotation_v1 with the low-vol/value weight CUT to stop mechanically
   filtering out high-momentum semis. momentum 0.42→0.50, low_volatility 0.16→0.08,
   value 0.14→0.08, quality kept at 0.22 (junk-momentum crash filter that doesn't
-  penalize leaders). All else identical to v1. Leadership-capture tilt; re-arms the
-  momentum crash tail — backtest drawdown/turnover/semi-exposure before activating.
+  penalize leaders). Weighting switched inverse_vol→score_proportional (removes a
+  low-vol SIZING tilt that was dragging book beta to ~0.1); portfolio risk is now
+  controlled at the book level by vol_target instead. Leadership-capture tilt;
+  re-arms the momentum crash tail — backtest drawdown/turnover/semi-exposure.
 
 universe:
   source: av_listing
@@ -141,7 +143,7 @@ portfolio_builder:
   min_covariance_observations: 126
   covariance_shrinkage: 0.20
   require_positive_composite_score: false
-  weighting: inverse_vol             # avoid piling weight into the hottest, most volatile winners (a momentum-crash amplifier). equal_weight is the conservative alternative.
+  weighting: score_proportional      # weight by composite conviction (momentum-coherent). REPLACED inverse_vol, which up-weighted the lowest-vol names and was one of FOUR stacked low-vol tilts dragging the book's beta toward ~0.1 — defensive, not leadership-capturing. Portfolio risk is now controlled at the book level by vol_target (below), not by penalising vol again in sizing. equal_weight is the neutral alternative.
   max_position_weight: 0.08          # <= 3x equal-weight (3/35 = 8.57%, schema cap); also tighter single-name risk for a broad momentum book
   max_sector_weight: 0.30            # TIGHT — momentum over-concentrates into whatever is hot; cap it
   cluster_correlation_threshold: 0.70
