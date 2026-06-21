@@ -1,0 +1,197 @@
+# momentum_rotation_v2 — momentum_rotation_v1 with low-vol/value CUT (leadership tilt)
+#
+# Identical to momentum_rotation_v1 in EVERY respect (universe, factor engine incl.
+# residual_riskadj momentum, regime detection, portfolio builder, theme-overlay-OFF,
+# vetter, delta engine, caps) EXCEPT the static factor weights.
+#
+# WHY: the v1 first run produced ZERO semiconductors despite the semis basket
+# (SOXX) ranking momentum percentile 0.92 near its highs. Per-name diagnosis showed
+# the strong-momentum semis (SNDK 1.00, MU 0.99, STX 0.99, WDC 0.98) were filtered
+# at the RANK stage — not by the builder or vetter — by the composite's 30%
+# anti-volatility/anti-expensive weight (low_volatility 0.16 + value 0.14). They
+# landed rank ~185–360, outside the top-120 candidate pool. That is a low-vol/value
+# momentum book, not leadership-capture momentum.
+#
+# THE CUT (the "Moderate" reweight): low_volatility 0.16 → 0.08 and value 0.14 →
+# 0.08; the freed 0.14 goes mostly to momentum (0.42 → 0.50), with small bumps to
+# liquidity (0.05 → 0.06) and growth (0.03 → 0.06). quality is KEPT high (0.20 →
+# 0.22) ON PURPOSE: it is the one defensive factor that does NOT structurally
+# penalize trend leaders (NVDA quality 0.95, STX 0.88, LRCX 0.89), so it preserves
+# junk-momentum crash protection WITHOUT re-excluding the semis. Estimated effect:
+# SNDK composite ~0.68 → ~0.81 (rank ~244 → ~top-25); MU/STX/WDC similar → the
+# strongest semis re-enter the builder pool.
+#
+# TRADE-OFF (read before trusting live): cutting low-vol + value re-arms momentum's
+# crash tail. The remaining crash protection is the quality weight (0.22) + the
+# vetter's beta-adjusted, vol-scaled falling-knife veto — NOT a low-vol/value
+# ballast. Backtest Sharpe, MAX DRAWDOWN / left tail, turnover, and realized semi
+# exposure vs v1 before activating.
+#
+# NOTE: this weight cut alone will NOT fully restore NVDA-type names whose MOMENTUM
+# PERCENTILE itself is vol-demoted by residual_riskadj (NVDA 0.742 vs SOXX 0.915).
+# Capturing those additionally needs momentum_method: residual (drop the vol divisor)
+# — a SEPARATE lever, intentionally NOT changed here so this variant isolates the
+# weight cut.
+#
+# Separate, versioned artifact — NOT activated. Live config stays on
+# momentum_rotation_v1 (hardcoded in docker-compose.yml). To backtest, point the
+# backtester at this file; to go live, change STRATEGY_CONFIG_PATH in compose.
+
+strategy_id: momentum_rotation_v2
+description: >
+  momentum_rotation_v1 with the low-vol/value weight CUT to stop mechanically
+  filtering out high-momentum semis. momentum 0.42→0.50, low_volatility 0.16→0.08,
+  value 0.14→0.08, quality kept at 0.22 (junk-momentum crash filter that doesn't
+  penalize leaders). All else identical to v1. Leadership-capture tilt; re-arms the
+  momentum crash tail — backtest drawdown/turnover/semi-exposure before activating.
+
+universe:
+  source: av_listing
+  min_price: 5.0
+  min_avg_dollar_volume_20d: 20000000   # momentum turns over fast → liquidity matters
+
+factor_engine:
+  momentum_short_window: 21  # KEEP the ~1-month skip: the last month is short-term REVERSAL, not momentum
+  momentum_long_window: 252  # ~12-month formation
+  volatility_window: 252
+  liquidity_window: 20
+  pe_pb_cap: 50.0
+  spy_price_lookback_days: 600
+  quality_use_gross_profitability: true
+  momentum_method: residual_riskadj  # UNCHANGED from v1 — the weight cut is isolated here. Switch to 'residual' in a v3 to also un-demote high-vol leaders like NVDA.
+  momentum_blend_windows: [252, 126]  # 12-1 + 6-1 (both skip the last month) → reacts to emerging trends sooner without chasing 1-month reversals.
+
+regime_detection:
+  slow_sma: 200
+  vol_window: 20
+  vol_threshold: 0.20
+  confirmation_days: 5
+  regimes:
+    bull_calm:
+      spy_above_slow_sma: true
+      vol_above_threshold: false
+    bull_stress:
+      spy_above_slow_sma: true
+      vol_above_threshold: true
+    bear_stress:
+      spy_above_slow_sma: false
+      vol_above_threshold: true
+    bear_calm:
+      spy_above_slow_sma: false
+      vol_above_threshold: false
+
+# Regime ROTATION stays OFF (overfits out-of-sample — Asness; Cederburg). The regime
+# is still detected for the dashboard but does not change weights. Momentum's crash
+# protection comes from the quality weight + the falling-knife veto, NOT from
+# switching weight vectors (and, in v2, NO LONGER from a heavy low-vol/value ballast).
+regime_weighting_enabled: false
+
+# Static MOMENTUM-DOMINANT weights — the "Moderate" CUT of low-vol/value vs v1.
+# momentum 0.50 (was 0.42), low_volatility 0.08 (was 0.16), value 0.08 (was 0.14),
+# quality 0.22 (was 0.20 — KEPT as the leader-friendly crash filter), liquidity 0.06,
+# growth 0.06. Sums to 1.0.
+static_factor_weights:
+  momentum:       0.50   # DOMINANT (up from 0.42) — absorbs most of the low-vol/value cut
+  quality:        0.22   # KEPT high — junk-momentum filter that does NOT penalize trend leaders
+  low_volatility: 0.08   # CUT from 0.16 — was demoting high-vol semis at the rank stage
+  value:          0.08   # CUT from 0.14 — was demoting expensive semis at the rank stage
+  liquidity:      0.06   # turnover is high → liquidity earns its keep
+  growth:         0.06   # residual
+
+factor_weights:
+  # RETAINED for reference / easy re-enable (unused while regime_weighting_enabled
+  # is false). Identical to quality_core_v1 / momentum_rotation_v1.
+  bull_calm:
+    momentum:       0.30
+    growth:         0.20
+    quality:        0.17
+    value:          0.12
+    liquidity:      0.11
+    low_volatility: 0.10
+
+  bull_stress:
+    low_volatility: 0.24
+    quality:        0.23
+    value:          0.17
+    momentum:       0.16
+    liquidity:      0.10
+    growth:         0.10
+
+  bear_stress:
+    low_volatility: 0.35
+    quality:        0.27
+    liquidity:      0.14
+    value:          0.10
+    growth:         0.07
+    momentum:       0.07
+
+  bear_calm:
+    value:          0.30
+    quality:        0.26
+    low_volatility: 0.18
+    momentum:       0.12
+    growth:         0.07
+    liquidity:      0.07
+
+portfolio_builder:
+  method: greedy_score_per_port_vol
+  candidate_count: 120               # a touch wider than core: more momentum names to select 35 from
+  max_positions: 35                  # more names → dilute the higher per-name idiosyncratic risk of momentum
+  covariance_window_days: 252
+  min_covariance_observations: 126
+  covariance_shrinkage: 0.20
+  require_positive_composite_score: false
+  weighting: inverse_vol             # avoid piling weight into the hottest, most volatile winners (a momentum-crash amplifier). equal_weight is the conservative alternative.
+  max_position_weight: 0.08          # <= 3x equal-weight (3/35 = 8.57%, schema cap); also tighter single-name risk for a broad momentum book
+  max_sector_weight: 0.30            # TIGHT — momentum over-concentrates into whatever is hot; cap it
+  cluster_correlation_threshold: 0.70
+  max_cluster_weight: 0.15           # TIGHT (core value, NOT the relaxed AI-sleeve 0.50)
+  max_tickers_per_cluster: 3         # TIGHT — keep it a count cap, not null
+  do_not_buy: []
+  cash_reserve: 0.025
+  theme_overlay:
+    enabled: false                   # OFF — a pure momentum rotation should DISCOVER the hot sector organically (then be capped), not be hard-wired to one theme
+    theme: ai_infra
+    mode: tilt
+    min_exposure: 0.35
+    tilt_lambda: 0.25
+
+vetter:
+  enabled: true
+  candidate_count: 200
+  risk_horizon_days: 90
+  system_prompt_file: /strategies/quality_core_v1.vetter_prompt.txt  # reuse core prompt (weighting change only)
+  max_searches_per_ticker: 3
+  news_lookback_days: 7
+  max_articles_per_ticker: 4
+  earnings_horizon_days: 90
+  strictness: moderate
+
+intraday:
+  enabled: false
+  benchmark_ticker: SPY
+  trim_winners_enabled: false
+  trim_winner_threshold_pct: 10.0
+  trim_winner_partial_pct: 25.0
+  trim_time_window_minutes_before_close: 60
+  delay_buys_after_spike_enabled: false
+  delay_buy_spike_threshold_pct: 15.0
+  risk_event_action: reduce
+
+delta_engine:
+  entry_rank: 25        # cold-start fallback only (evaluate_all) — rank-based entry when there's no target to diff against
+  exit_rank: 40         # cold-start fallback only
+  confirmation_days: 3  # cold-start fallback only
+  orphan_confirmation_days: 2  # FASTER rotation: a name the builder drops leaves the live book after 2 builds (core uses 3). This is the real rotation-speed dial.
+  max_positions: 35
+
+max_positions: 35
+min_score_percentile: 0.0
+min_non_null_factors: 6   # all 6 weighted factors must be present
+required_factors:
+  - momentum
+  - quality
+  - value
+  - growth
+  - low_volatility
+  - liquidity
