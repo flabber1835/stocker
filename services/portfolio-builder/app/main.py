@@ -15,7 +15,8 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy import text
 
 from app.select import (greedy_select, build_covariance, compute_weights, correlation_clusters,
-                        compute_excluded_set, apply_theme_tilt, restrict_to_theme)
+                        compute_excluded_set, apply_theme_tilt, restrict_to_theme,
+                        book_volatility, vol_target_exposure)
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 from stock_strategy_shared.ai_universe import AI_BUILDOUT_UNIVERSE, AI_THEME_NAMES
@@ -717,13 +718,38 @@ async def _do_build(
         if not any(w > max_pw + 1e-9 for w in weights.values()):
             break
 
-    # Apply cash_reserve: scale weights so total notional = (1 - cash_reserve) × account_value.
-    # This leaves a cash buffer so broker buying-power reservations (e.g. for pending OPG orders)
-    # don't exhaust capacity before the last order in a batch is submitted.
+    # Exposure scaling = fixed cash_reserve buffer + optional volatility targeting.
+    # `weights` sums to 1.0 here (fully-invested relative weights), so its vol IS the
+    # book vol we target. cash_reserve sets the max investable exposure (a buffer so
+    # broker buying-power reservations don't exhaust capacity); vol-targeting may
+    # de-lever FURTHER when the book's ex-ante vol exceeds vol_target.
     cash_reserve = getattr(pb_cfg, "cash_reserve", 0.0)
-    if cash_reserve > 0.0:
-        scale = 1.0 - cash_reserve
-        weights = {t: w * scale for t, w in weights.items()}
+    max_exposure = 1.0 - cash_reserve
+    vol_target_enabled = bool(getattr(pb_cfg, "vol_target_enabled", False))
+    book_vol_full_invested = book_volatility(weights, cov) if vol_target_enabled else None
+    if vol_target_enabled:
+        exposure = vol_target_exposure(
+            book_vol_full_invested, pb_cfg.vol_target,
+            min_exposure=pb_cfg.vol_target_min_exposure,
+            max_exposure=max_exposure,
+        )
+        if book_vol_full_invested <= 0.0:
+            print(
+                "[portfolio-builder] WARNING: vol-target enabled but book vol is "
+                "0/degenerate — failing OPEN (no de-lever, exposure=max)"
+            )
+    else:
+        exposure = max_exposure
+    if exposure < 1.0 - 1e-12:
+        weights = {t: w * exposure for t, w in weights.items()}
+    if vol_target_enabled:
+        print(
+            f"[portfolio-builder] vol_target={pb_cfg.vol_target:.3f} "
+            f"book_vol={book_vol_full_invested:.4f} min_exp={pb_cfg.vol_target_min_exposure:.2f} "
+            f"max_exp={max_exposure:.3f} → exposure={exposure:.3f} "
+            f"(cash={1.0 - sum(weights.values()):.3f})"
+        )
+    elif cash_reserve > 0.0:
         print(f"[portfolio-builder] cash_reserve={cash_reserve:.3f}: weights scaled to sum={sum(weights.values()):.4f}")
 
     # M5: Compute and log per-sector weights post-build (INFORMATIONAL — sectors
@@ -816,6 +842,11 @@ async def _do_build(
                 "selected_count": len(selected),
                 "selected_negative_score_count": selected_negative_score_count,
                 "portfolio_estimated_vol": round(portfolio_vol, 4),
+                "vol_target_enabled": vol_target_enabled,
+                "vol_target": pb_cfg.vol_target if vol_target_enabled else None,
+                "book_vol_full_invested": round(book_vol_full_invested, 4) if book_vol_full_invested is not None else None,
+                "vol_target_exposure": round(exposure, 4),
+                "invested_fraction": round(sum(weights.values()), 4),
                 "avg_candidate_pool_correlation": round(avg_pairwise_corr, 4),
                 "highest_corr_pair": highest_corr_pair,
                 "weight_min": round(min(weight_values), 6),

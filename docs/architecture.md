@@ -260,6 +260,44 @@ User prompt
   → active strategy registry
 ```
 
+## Design Decision: portfolio-level volatility targeting (constant-vol crash control)
+
+The portfolio-builder optionally scales **total invested exposure** so the selected
+book's ex-ante annualised volatility is pulled toward a target — Barroso &
+Santa-Clara (2015) constant-volatility momentum. Off by default
+(`vol_target_enabled: false`); enabled on `momentum_rotation_v2`.
+
+**Mechanism.** After weights are computed (summing to 1.0 = fully invested), the
+builder measures the book's ex-ante vol `σ = sqrt(wᵀΣw)` (Σ = the annualised
+covariance it already builds) and sets
+`exposure = clamp(vol_target / σ, vol_target_min_exposure, 1 − cash_reserve)`,
+then scales every weight by `exposure`; the remainder is cash. Pure helpers
+`book_volatility` / `vol_target_exposure` live in `services/portfolio-builder/app/select.py`.
+
+**Why.** The deep-research pass (momentum literature) found constant-/dynamic-vol
+scaling is the single highest-Sharpe momentum crash control (Barroso–Santa-Clara:
+Sharpe ~0.53→0.97, kurtosis 18→2.7; Daniel–Moskowitz: dynamic scaling ~doubles
+alpha/Sharpe). It is the intended substitute for a heavy low-vol/value factor
+*ballast* in the momentum-dominant rotation configs (v2/v3 cut those weights to
+restore semis/leadership; this overlay re-supplies crash protection at the
+portfolio level instead of the signal level).
+
+**Properties / guardrails.**
+- **Long-only, de-lever-only.** Exposure never exceeds `1 − cash_reserve`, so a calm
+  book (recent runs ~7–8% vol vs a 12% target) stays fully invested — **no drag in
+  normal markets**; it bites only when book vol exceeds the target (stress /
+  correlation spikes).
+- **Floor.** `vol_target_min_exposure` (default 0.30) caps how far it de-levers, so a
+  vol spike can't dump the book entirely to cash; a validator rejects a floor above
+  `1 − cash_reserve`.
+- **Fail OPEN.** Degenerate vol (zero / NaN / no covariance overlap) returns
+  max exposure rather than liquidating — a transient bad covariance matrix must not
+  move the book to cash. Real per-name crash control still flows through the vetter's
+  falling-knife veto.
+- Complementary to, not a replacement for: the per-name falling-knife drawdown veto
+  (reactive, idiosyncratic) and the correlation-cluster / sector / position caps
+  (cross-sectional concentration). Vol-targeting governs **gross exposure over time**.
+
 ## Design Decision: correlation-cluster cap replaces the sector cap
 
 The portfolio-builder caps concentration by **correlation cluster**, not by the

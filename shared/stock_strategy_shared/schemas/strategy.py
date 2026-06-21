@@ -403,6 +403,50 @@ class PortfolioBuilderConfig(BaseModel):
     )
     theme_overlay: ThemeOverlayConfig = Field(default_factory=ThemeOverlayConfig)
 
+    vol_target_enabled: bool = Field(
+        default=False,
+        description=(
+            "Portfolio-level constant-volatility targeting (Barroso & Santa-Clara "
+            "2015). When True, the builder scales TOTAL invested exposure so the "
+            "book's ex-ante annualised vol is pulled toward `vol_target`: "
+            "exposure = clamp(vol_target / book_vol, vol_target_min_exposure, "
+            "1 - cash_reserve). Long-only — it only ever DE-levers (raises cash) when "
+            "the selected book's vol exceeds the target; a calm book stays fully "
+            "invested. This is the literature's highest-Sharpe momentum crash control "
+            "and the intended substitute for a heavy low-vol/value factor ballast."
+        ),
+    )
+    vol_target: float = Field(
+        default=0.12, gt=0.0, le=1.0,
+        description=(
+            "Annualised target volatility for the invested book (e.g. 0.12 = 12%). "
+            "Only binds when the selected book's ex-ante vol exceeds it (stress / "
+            "correlation-spike regimes), so it adds no drag in calm markets. "
+            "Ignored when vol_target_enabled is False."
+        ),
+    )
+    vol_target_min_exposure: float = Field(
+        default=0.30, ge=0.0, le=1.0,
+        description=(
+            "Floor on invested exposure under vol-targeting — the book never de-levers "
+            "below this fraction even in extreme volatility (avoids going fully to "
+            "cash on a vol spike). Clamped to <= (1 - cash_reserve) at apply time. "
+            "Ignored when vol_target_enabled is False."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def vol_target_min_exposure_feasible(self) -> "PortfolioBuilderConfig":
+        if self.vol_target_enabled:
+            max_exposure = 1.0 - self.cash_reserve
+            if self.vol_target_min_exposure > max_exposure + 1e-9:
+                raise ValueError(
+                    f"vol_target_min_exposure {self.vol_target_min_exposure:.2f} exceeds "
+                    f"max investable exposure {max_exposure:.2f} (= 1 - cash_reserve "
+                    f"{self.cash_reserve:.2f}); lower it or reduce cash_reserve"
+                )
+        return self
+
     @model_validator(mode="after")
     def position_weight_consistent_with_count(self) -> "PortfolioBuilderConfig":
         if self.max_positions > 0 and self.max_position_weight > 0:

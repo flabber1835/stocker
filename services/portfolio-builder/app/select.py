@@ -1,5 +1,66 @@
+import math
+
 import numpy as np
 import pandas as pd
+
+
+def book_volatility(weights: dict[str, float], cov: pd.DataFrame) -> float:
+    """Annualised ex-ante volatility of a weight vector against the covariance matrix.
+
+    sigma = sqrt(w' Σ w). `cov` is the ANNUALISED covariance from build_covariance
+    (daily cov × 252), so the returned figure is annualised too. Weights need NOT
+    sum to 1 — volatility scales with gross exposure, which is exactly what the
+    vol-target overlay relies on (it measures the fully-invested book, then scales).
+
+    Tickers in `weights` that are absent from `cov` are ignored (treated as 0). A
+    degenerate result (no overlapping tickers, non-finite, or <= 0 variance) returns
+    0.0 so callers can detect "unknown vol" and fail open rather than de-levering on
+    a data glitch.
+    """
+    tickers = [t for t in weights if t in cov.index]
+    if not tickers:
+        return 0.0
+    w = np.array([float(weights[t]) for t in tickers], dtype=float)
+    sub = cov.loc[tickers, tickers].values
+    var = float(w @ sub @ w)
+    if not math.isfinite(var) or var <= 0.0:
+        return 0.0
+    return float(np.sqrt(var))
+
+
+def vol_target_exposure(
+    book_vol: float,
+    target_vol: float,
+    *,
+    min_exposure: float = 0.0,
+    max_exposure: float = 1.0,
+) -> float:
+    """Constant-volatility exposure scaling (Barroso & Santa-Clara 2015).
+
+    Returns the fraction of capital to invest so the book's ex-ante volatility is
+    pulled toward `target_vol`:  exposure = clamp(target_vol / book_vol, min, max).
+
+    Long-only, no leverage: exposure never exceeds `max_exposure` (= 1 - cash_reserve),
+    so a calm book that *could* be levered up is simply held fully invested. The
+    overlay only ever DE-levers (adds cash) when book_vol > target_vol.
+
+    Fail-OPEN on degenerate inputs (returns max_exposure):
+      - target_vol <= 0  → targeting disabled.
+      - book_vol is None / NaN / <= 0 → unknown risk; do NOT dump the book to cash
+        on a covariance glitch (a transient bad matrix shouldn't liquidate). The
+        caller logs this; real risk control still flows through the falling-knife veto.
+    `min_exposure` is clamped into [0, max_exposure] so a contradictory config
+    (min > max) can never invert the bounds.
+    """
+    if max_exposure <= 0.0:
+        return 0.0
+    if target_vol is None or target_vol <= 0.0:
+        return max_exposure
+    if book_vol is None or not math.isfinite(book_vol) or book_vol <= 0.0:
+        return max_exposure  # fail open
+    lo = max(0.0, min(min_exposure, max_exposure))
+    raw = target_vol / book_vol
+    return float(min(max_exposure, max(lo, raw)))
 
 
 def apply_theme_tilt(
