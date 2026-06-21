@@ -1,0 +1,184 @@
+# momentum_rotation_v3 — AGGRESSIVE momentum (deepest low-vol/value cut)
+#
+# Spectrum: momentum_rotation_v1 (mom 0.42, low_vol 0.16, value 0.14, defensive) →
+# v2 "Moderate" (mom 0.50, low_vol 0.08, value 0.08) → v3 "AGGRESSIVE" (THIS file:
+# mom 0.60, low_vol 0.06, value 0.04). Each step cuts the anti-volatility/anti-
+# expensive ballast further and pushes the freed weight into momentum, to maximize
+# leadership capture (semis/tech) at the cost of a fatter momentum crash tail.
+#
+# Identical to v1/v2 in every other respect (universe, factor engine incl.
+# residual_riskadj momentum, regime detection OFF, portfolio builder, theme-overlay
+# OFF, vetter, delta engine, caps) EXCEPT static_factor_weights.
+#
+# CRASH-PROTECTION TRADE-OFF (read before trusting live): with low_vol at 0.06 and
+# value at 0.04, the ballast that historically tamed momentum's left tail (the 2009-
+# style crash) is almost gone. The REMAINING protection is:
+#   (a) quality 0.22 (junk-momentum filter — kept high on purpose),
+#   (b) residual_riskadj momentum construction (market-stripped + vol-scaled — itself
+#       a crash-tail reducer; NOT changed here),
+#   (c) the vetter's beta-adjusted, vol-scaled falling-knife veto + 25% absolute floor.
+# Whether (a)-(c) adequately substitute for a real low-vol/value ballast is UNVERIFIED
+# on this book — BACKTEST max drawdown / left tail / turnover vs v1 & v2 before relying
+# on it. This is the most crash-exposed of the three rotation configs.
+#
+# NOTE: residual_riskadj is retained, so NVDA-type names whose MOMENTUM PERCENTILE is
+# vol-demoted (NVDA 0.742 vs SOXX 0.915) are only partially restored by the weight cut.
+# Dropping the vol divisor (momentum_method: residual) is a SEPARATE further step.
+#
+# Activated: docker-compose.yml pins STRATEGY_CONFIG_PATH at this file on all four
+# consumers. Revert by repointing at momentum_rotation_v2.yaml (moderate) or v1.
+
+strategy_id: momentum_rotation_v3
+description: >
+  Aggressive momentum-dominant US equity rotation. momentum 0.60, quality 0.22
+  (junk-momentum crash filter kept high), low_volatility 0.06, value 0.04,
+  liquidity 0.04, growth 0.04. Deepest low-vol/value cut of the rotation series to
+  maximize leadership capture (semis/tech); fattest momentum crash tail of the
+  three. residual_riskadj momentum + falling-knife veto are the only crash guards.
+  Backtest drawdown/turnover before relying on it.
+
+universe:
+  source: av_listing
+  min_price: 5.0
+  min_avg_dollar_volume_20d: 20000000   # momentum turns over fast → liquidity matters
+
+factor_engine:
+  momentum_short_window: 21  # KEEP the ~1-month skip: the last month is short-term REVERSAL, not momentum
+  momentum_long_window: 252  # ~12-month formation
+  volatility_window: 252
+  liquidity_window: 20
+  pe_pb_cap: 50.0
+  spy_price_lookback_days: 600
+  quality_use_gross_profitability: true
+  momentum_method: residual_riskadj  # UNCHANGED — the aggressive change is weights only. Switch to 'residual' to also un-demote high-vol leaders like NVDA (separate lever).
+  momentum_blend_windows: [252, 126]  # 12-1 + 6-1 (both skip the last month)
+
+regime_detection:
+  slow_sma: 200
+  vol_window: 20
+  vol_threshold: 0.20
+  confirmation_days: 5
+  regimes:
+    bull_calm:
+      spy_above_slow_sma: true
+      vol_above_threshold: false
+    bull_stress:
+      spy_above_slow_sma: true
+      vol_above_threshold: true
+    bear_stress:
+      spy_above_slow_sma: false
+      vol_above_threshold: true
+    bear_calm:
+      spy_above_slow_sma: false
+      vol_above_threshold: false
+
+# Regime ROTATION stays OFF (overfits out-of-sample — Asness; Cederburg).
+regime_weighting_enabled: false
+
+# AGGRESSIVE static weights — deepest low-vol/value cut. momentum 0.60 (was 0.50 in
+# v2 / 0.42 in v1), quality 0.22 (KEPT high as the leader-friendly crash filter),
+# low_volatility 0.06, value 0.04, liquidity 0.04, growth 0.04. Sums to 1.0.
+static_factor_weights:
+  momentum:       0.60   # AGGRESSIVE — leadership capture
+  quality:        0.22   # KEPT high — only meaningful crash filter left
+  low_volatility: 0.06   # near-minimal ballast
+  value:          0.04   # near-minimal ballast
+  liquidity:      0.04
+  growth:         0.04
+
+factor_weights:
+  # RETAINED for reference (unused while regime_weighting_enabled is false).
+  bull_calm:
+    momentum:       0.30
+    growth:         0.20
+    quality:        0.17
+    value:          0.12
+    liquidity:      0.11
+    low_volatility: 0.10
+
+  bull_stress:
+    low_volatility: 0.24
+    quality:        0.23
+    value:          0.17
+    momentum:       0.16
+    liquidity:      0.10
+    growth:         0.10
+
+  bear_stress:
+    low_volatility: 0.35
+    quality:        0.27
+    liquidity:      0.14
+    value:          0.10
+    growth:         0.07
+    momentum:       0.07
+
+  bear_calm:
+    value:          0.30
+    quality:        0.26
+    low_volatility: 0.18
+    momentum:       0.12
+    growth:         0.07
+    liquidity:      0.07
+
+portfolio_builder:
+  method: greedy_score_per_port_vol
+  candidate_count: 120
+  max_positions: 35
+  covariance_window_days: 252
+  min_covariance_observations: 126
+  covariance_shrinkage: 0.20
+  require_positive_composite_score: false
+  weighting: inverse_vol
+  max_position_weight: 0.08
+  max_sector_weight: 0.30
+  cluster_correlation_threshold: 0.70
+  max_cluster_weight: 0.15
+  max_tickers_per_cluster: 3
+  do_not_buy: []
+  cash_reserve: 0.025
+  theme_overlay:
+    enabled: false
+    theme: ai_infra
+    mode: tilt
+    min_exposure: 0.35
+    tilt_lambda: 0.25
+
+vetter:
+  enabled: true
+  candidate_count: 200
+  risk_horizon_days: 90
+  system_prompt_file: /strategies/quality_core_v1.vetter_prompt.txt
+  max_searches_per_ticker: 3
+  news_lookback_days: 7
+  max_articles_per_ticker: 4
+  earnings_horizon_days: 90
+  strictness: moderate
+
+intraday:
+  enabled: false
+  benchmark_ticker: SPY
+  trim_winners_enabled: false
+  trim_winner_threshold_pct: 10.0
+  trim_winner_partial_pct: 25.0
+  trim_time_window_minutes_before_close: 60
+  delay_buys_after_spike_enabled: false
+  delay_buy_spike_threshold_pct: 15.0
+  risk_event_action: reduce
+
+delta_engine:
+  entry_rank: 25
+  exit_rank: 40
+  confirmation_days: 3
+  orphan_confirmation_days: 2
+  max_positions: 35
+
+max_positions: 35
+min_score_percentile: 0.0
+min_non_null_factors: 6
+required_factors:
+  - momentum
+  - quality
+  - value
+  - growth
+  - low_volatility
+  - liquidity
