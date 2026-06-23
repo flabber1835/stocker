@@ -17,8 +17,10 @@ Tests:
   3. Partial failure: Alpaca positions fetch fails → sync run marked failed
      and live_positions NOT written (no partial state)
 
-  4. Skipped positions: row with missing symbol or qty is silently skipped →
-     skipped count is reported but sync still succeeds
+  4. Skipped positions: a row with missing symbol/qty is skipped; the good rows are
+     still stored, but the sync is marked FAILED by default (audit P1 — an incomplete
+     snapshot must not be trusted as fresh). SYNC_FAIL_ON_SKIPPED_POSITIONS=false
+     reverts to best-effort success.
 
   5. Stale detection: trade-executor staleness guard identifies that a sync
      run older than EXIT_SYNC_MAX_AGE_HOURS blocks order sizing
@@ -324,6 +326,75 @@ async def test_positions_with_missing_symbol_or_qty_are_skipped():
     assert stored_tickers == {"AAPL", "NVDA"}, (
         f"Stored tickers {stored_tickers} — malformed rows should have been skipped"
     )
+
+
+# ── Test 4b: skipped positions FAIL the sync (audit P1) ──────────────────────
+
+def _malformed_run_mocks():
+    acct_resp = MagicMock()
+    acct_resp.status_code = 200
+    acct_resp.raise_for_status = MagicMock()
+    acct_resp.json = MagicMock(return_value={
+        "equity": "50000.00", "buying_power": "25000.00", "cash": "10000.00"
+    })
+    positions = [
+        _alpaca_position("AAPL", "10"),
+        {"qty": "5"},                 # missing symbol → skip
+    ]
+    pos_resp = _make_alpaca_response(positions)
+    orders_resp = MagicMock()
+    orders_resp.status_code = 200
+    orders_resp.raise_for_status = MagicMock()
+    orders_resp.json = MagicMock(return_value=[])
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(side_effect=[acct_resp, pos_resp, orders_resp])
+    return mock_client
+
+
+@pytest.mark.asyncio
+async def test_skipped_positions_mark_sync_failed_by_default():
+    """audit P1: an incomplete position snapshot (any skip) must NOT be 'success'.
+    Marking it success undercounts MAX_POSITIONS downstream → over-entry."""
+    mock_client = _malformed_run_mocks()
+    session_factory, inserts, updates = _make_session(fetch_rows=[])
+
+    with patch.object(as_main, "SessionLocal", session_factory), \
+         patch.object(as_main, "_has_credentials", True), \
+         patch.object(as_main, "SYNC_FAIL_ON_SKIPPED_POSITIONS", True), \
+         patch.object(as_main, "ALPACA_API_KEY", "test"), \
+         patch.object(as_main, "ALPACA_SECRET_KEY", "secret"), \
+         patch("app.main.httpx.AsyncClient") as mock_cls:
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        await _do_sync()
+
+    failed = [u for u in updates if "failed" in u and "alpaca_sync_runs" in u]
+    success = [u for u in updates if "success" in u and "alpaca_sync_runs" in u]
+    assert failed, "skipped position must mark the sync run failed"
+    assert not success, "an incomplete sync must NOT be marked success"
+
+
+@pytest.mark.asyncio
+async def test_skipped_positions_can_be_tolerated_when_flag_off():
+    """SYNC_FAIL_ON_SKIPPED_POSITIONS=false reverts to best-effort: good positions
+    stored, run still succeeds."""
+    mock_client = _malformed_run_mocks()
+    session_factory, inserts, updates = _make_session(fetch_rows=[])
+
+    with patch.object(as_main, "SessionLocal", session_factory), \
+         patch.object(as_main, "_has_credentials", True), \
+         patch.object(as_main, "SYNC_FAIL_ON_SKIPPED_POSITIONS", False), \
+         patch.object(as_main, "ALPACA_API_KEY", "test"), \
+         patch.object(as_main, "ALPACA_SECRET_KEY", "secret"), \
+         patch("app.main.httpx.AsyncClient") as mock_cls:
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        await _do_sync()
+
+    success = [u for u in updates if "success" in u and "alpaca_sync_runs" in u]
+    lp_inserts = [i for i in inserts if "live_positions" in i["sql"]]
+    assert success, "flag off → incomplete sync still marked success"
+    assert len(lp_inserts) == 1  # AAPL stored, malformed skipped
 
 
 # ── Test 5: Staleness guard blocks sizing on old sync data ────────────────────

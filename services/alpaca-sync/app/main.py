@@ -21,6 +21,17 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 ALPACA_API_KEY = os.getenv("ALPACA_API_KEY", "")
 ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
 ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+# audit P1: if any broker position fails to parse/write, the snapshot is INCOMPLETE.
+# Marking it 'success' undercounts MAX_POSITIONS downstream → over-entry → insufficient
+# funds, and can make _size_exit refuse a position you actually hold. Fail the sync
+# instead so freshness gates fall back to the last COMPLETE snapshot. Set false to
+# revert to best-effort (record skipped but still succeed).
+SYNC_FAIL_ON_SKIPPED_POSITIONS = os.getenv("SYNC_FAIL_ON_SKIPPED_POSITIONS", "true").lower() == "true"
+
+
+class _PartialSyncError(Exception):
+    """Raised when positions were skipped and SYNC_FAIL_ON_SKIPPED_POSITIONS is on —
+    routes the run through the normal failed path so it is not trusted as fresh."""
 
 _has_credentials = bool(ALPACA_API_KEY) and ALPACA_API_KEY != "demo"
 
@@ -325,6 +336,14 @@ async def _do_sync(
                     error_message=str(ord_exc)[:500],
                 )
                 await db2.commit()
+
+        # audit P1: an incomplete position snapshot must NOT be marked success.
+        if skipped > 0 and SYNC_FAIL_ON_SKIPPED_POSITIONS:
+            raise _PartialSyncError(
+                f"{skipped} of {len(positions)} broker positions failed to parse/write "
+                f"(inserted={inserted}); refusing to mark this sync 'success' — an "
+                "incomplete snapshot would undercount positions downstream."
+            )
 
         # Update sync run + trace to success
         completed_at = datetime.now(timezone.utc)
