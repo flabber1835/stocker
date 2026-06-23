@@ -64,7 +64,7 @@ factor_engine:
   pe_pb_cap: 50.0
   spy_price_lookback_days: 600
   quality_use_gross_profitability: true
-  momentum_method: residual_tstat  # canonical Gutierrez-Prinsky/Blitz residual momentum: cumulative residual / STD OF RESIDUALS (information-ratio / t-stat). Market-stripped like 'residual' but rewards CONSISTENT idiosyncratic outperformance over lucky jumps; not vol-double-scaled. Was 'residual'; 'residual_riskadj' (÷ total vol) and 'raw' remain the alternatives. Book-level risk handled by vol_target.
+  momentum_method: residual  # REVERTED from residual_tstat: the t-stat standardization divides the cumulative residual by the residual STD — a signal-level volatility penalty (same family as residual_riskadj's ÷total-vol) that re-demoted high-vol/high-beta leaders and dropped book beta 0.93 → ~0.29. 'residual' is market-stripped but NOT vol-scaled, preserving the leadership/high-beta tilt (lever #2). residual_tstat/residual_riskadj/raw remain selectable; book risk handled by vol_target.
   momentum_blend_windows: [252, 126]  # 12-1 + 6-1 (both skip the last month) → reacts to emerging trends sooner without chasing 1-month reversals.
 
 regime_detection:
