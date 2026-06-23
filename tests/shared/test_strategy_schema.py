@@ -284,3 +284,31 @@ def test_intraday_in_strategy_config():
     cfg = make_config(intraday={"enabled": True, "trim_winners_enabled": True, "trim_winner_threshold_pct": 8.0})
     assert cfg.intraday.enabled is True
     assert cfg.intraday.trim_winner_threshold_pct == 8.0
+
+
+# ── audit P2: delta_engine.max_positions must cover portfolio_builder ────────────
+
+def test_delta_cap_below_builder_rejected():
+    with pytest.raises(ValidationError) as ei:
+        make_config(
+            portfolio_builder={"max_positions": 35, "max_position_weight": 0.08},
+            delta_engine={"max_positions": 30},
+        )
+    assert "delta_engine.max_positions" in str(ei.value)
+
+
+def test_delta_cap_equal_to_builder_ok():
+    cfg = make_config(
+        portfolio_builder={"max_positions": 35, "max_position_weight": 0.08},
+        delta_engine={"max_positions": 35},
+    )
+    assert cfg.delta_engine.max_positions == cfg.portfolio_builder.max_positions == 35
+
+
+def test_delta_cap_above_builder_ok():
+    cfg = make_config(
+        portfolio_builder={"max_positions": 30, "max_position_weight": 0.10},
+        delta_engine={"max_positions": 35},
+    )
+    assert cfg.delta_engine.max_positions == 35
+    assert cfg.portfolio_builder.max_positions == 30

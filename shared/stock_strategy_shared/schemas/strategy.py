@@ -557,6 +557,22 @@ class StrategyConfig(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def delta_cap_covers_builder(self) -> "StrategyConfig":
+        # audit P2: the delta engine's capacity gate (max_positions) must allow at
+        # least as many names as the builder selects. If delta_engine.max_positions <
+        # portfolio_builder.max_positions, the target routinely contains more names
+        # than the delta engine will let into the book, so the overflow oscillates
+        # entry<->watch every run with no progress. Require delta >= builder.
+        if self.delta_engine.max_positions < self.portfolio_builder.max_positions:
+            raise ValueError(
+                f"delta_engine.max_positions ({self.delta_engine.max_positions}) must be "
+                f">= portfolio_builder.max_positions ({self.portfolio_builder.max_positions}) "
+                "— otherwise builder-selected names beyond the delta cap oscillate "
+                "entry<->watch and never enter the book."
+            )
+        return self
+
+    @model_validator(mode="after")
     def weights_match_regimes(self) -> StrategyConfig:
         regime_names = set(self.regime_detection.regimes.keys())
         weight_names = set(self.factor_weights.keys())
