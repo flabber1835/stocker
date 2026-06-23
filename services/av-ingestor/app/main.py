@@ -64,6 +64,11 @@ PROBATION_ROTATION_DAYS = int(os.getenv("PROBATION_ROTATION_DAYS", "30"))
 # advancing the chain on a near-empty snapshot. Coverage counts skipped-as-current
 # tickers, so a normal warm re-run scores ~1.0 and is unaffected. Set 0 to disable.
 MIN_PRICE_COVERAGE_PCT = float(os.getenv("MIN_PRICE_COVERAGE_PCT", "0.80"))
+# Relative universe-size floor (audit P1): a new universe snapshot must be at least
+# this fraction of the previous snapshot's ticker_count, else it's rejected WITHOUT
+# saving (a truncated AV LISTING_STATUS — partial CSV / throttle body — must not
+# replace a good ~6,600-name universe with a few hundred). 0 disables.
+UNIVERSE_RELATIVE_FLOOR = float(os.getenv("UNIVERSE_RELATIVE_FLOOR", "0.5"))
 
 # Stable 64-bit advisory-lock key for the ingest check-and-claim. Used with
 # pg_advisory_xact_lock (transaction-scoped, auto-released at commit/rollback) so
@@ -190,6 +195,15 @@ def _build_benchmarks_first(universe_tickers: list[str]) -> list[str]:
 
 def _coverage(ok: int, total: int) -> Optional[float]:
     return ok / total if total else None
+
+
+def _universe_too_small(new_count: int, prev_count, floor: float) -> bool:
+    """True if a new universe snapshot of `new_count` tickers is too small to replace a
+    prior snapshot of `prev_count` — i.e. below `floor` × prev (audit P1). No prior
+    snapshot, or floor <= 0, never blocks. Pure — unit-tested."""
+    if not prev_count or floor <= 0:
+        return False
+    return new_count < floor * prev_count
 
 
 def _chain_advance_decision(spy_max, price_coverage_pct, floor) -> tuple[bool, Optional[str]]:
@@ -367,15 +381,24 @@ async def _upsert_fundamentals(session, ticker: str, overview: dict, today: date
             "    (:ticker, :as_of_date, 'alpha_vantage', :pe_ratio, :pb_ratio, :roe, :debt_to_equity, "
             "     :revenue_growth, :eps_growth, :market_cap, :avg_volume, :gross_profit, :total_assets, "
             "     :shares_outstanding, :shares_outstanding_prior) "
+            # audit P1: COALESCE(EXCLUDED.x, existing) so a degraded/partial OVERVIEW
+            # re-fetch (AV often returns "None" strings → NULL fields) does NOT blank
+            # previously-good values. A new non-null overwrites; a new NULL preserves
+            # the prior value. (source/fetched_at always advance.)
             "ON CONFLICT (ticker, as_of_date) DO UPDATE SET "
             "    source='alpha_vantage', "
-            "    pe_ratio=EXCLUDED.pe_ratio, pb_ratio=EXCLUDED.pb_ratio, "
-            "    roe=EXCLUDED.roe, debt_to_equity=EXCLUDED.debt_to_equity, "
-            "    revenue_growth=EXCLUDED.revenue_growth, eps_growth=EXCLUDED.eps_growth, "
-            "    market_cap=EXCLUDED.market_cap, avg_volume=EXCLUDED.avg_volume, "
-            "    gross_profit=EXCLUDED.gross_profit, total_assets=EXCLUDED.total_assets, "
-            "    shares_outstanding=EXCLUDED.shares_outstanding, "
-            "    shares_outstanding_prior=EXCLUDED.shares_outstanding_prior, "
+            "    pe_ratio=COALESCE(EXCLUDED.pe_ratio, fundamentals.pe_ratio), "
+            "    pb_ratio=COALESCE(EXCLUDED.pb_ratio, fundamentals.pb_ratio), "
+            "    roe=COALESCE(EXCLUDED.roe, fundamentals.roe), "
+            "    debt_to_equity=COALESCE(EXCLUDED.debt_to_equity, fundamentals.debt_to_equity), "
+            "    revenue_growth=COALESCE(EXCLUDED.revenue_growth, fundamentals.revenue_growth), "
+            "    eps_growth=COALESCE(EXCLUDED.eps_growth, fundamentals.eps_growth), "
+            "    market_cap=COALESCE(EXCLUDED.market_cap, fundamentals.market_cap), "
+            "    avg_volume=COALESCE(EXCLUDED.avg_volume, fundamentals.avg_volume), "
+            "    gross_profit=COALESCE(EXCLUDED.gross_profit, fundamentals.gross_profit), "
+            "    total_assets=COALESCE(EXCLUDED.total_assets, fundamentals.total_assets), "
+            "    shares_outstanding=COALESCE(EXCLUDED.shares_outstanding, fundamentals.shares_outstanding), "
+            "    shares_outstanding_prior=COALESCE(EXCLUDED.shares_outstanding_prior, fundamentals.shares_outstanding_prior), "
             "    fetched_at=NOW()"
         ),
         params,
@@ -832,6 +855,21 @@ async def _run_fetch_universe(run_id: str) -> None:
             print(f"[fetch-universe] stale-skipped sample: {sample}{more}")
         await _checkpoint(run_id, "fetch-universe", started_at,
                           step="save", ticker_count=len(all_tickers))
+
+        # Relative-size floor (audit P1): refuse to replace a much larger good universe
+        # with a truncated one (AV partial CSV / throttle body). Abort WITHOUT saving so
+        # the prior snapshot stays active (MAX(id) unchanged).
+        async with SessionLocal() as session:
+            prev_count = (await session.execute(text(
+                "SELECT ticker_count FROM universe_snapshots ORDER BY id DESC LIMIT 1"
+            ))).scalar()
+        if _universe_too_small(len(all_tickers), prev_count, UNIVERSE_RELATIVE_FLOOR):
+            raise RuntimeError(
+                f"universe fetch returned {len(all_tickers)} tickers, below "
+                f"{UNIVERSE_RELATIVE_FLOOR:.0%} of the previous {prev_count} — refusing "
+                "to replace a good snapshot with a truncated one (likely an AV "
+                "partial/throttle). Prior snapshot remains active."
+            )
 
         async with SessionLocal() as session:
             async with session.begin():

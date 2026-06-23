@@ -11,7 +11,26 @@ AV_BASE_URL = os.getenv("AV_BASE_URL", "https://www.alphavantage.co/query")
 
 
 class AVError(Exception):
-    pass
+    """Alpha Vantage failure. `retryable` distinguishes transient faults (network /
+    timeout / 5xx / in-band rate-limit) from permanent ones (bad symbol, invalid key,
+    no data) so the client can back off and retry only the former (audit P1)."""
+    def __init__(self, message: str, *, retryable: bool = False):
+        super().__init__(message)
+        self.retryable = retryable
+
+
+# AV signals rate-limit IN-BAND (HTTP 200 + a JSON "Note"/"Information" body), not via
+# HTTP status. "Note" is always a throttle; "Information" is a throttle ONLY when the
+# message looks rate-limit-ish — otherwise it's a permanent key/plan problem.
+_RATE_LIMIT_HINTS = (
+    "rate limit", "calls per", "requests per", "per minute", "per day",
+    "premium", "higher api call", "thank you for using",
+)
+
+
+def _is_rate_limit_msg(msg: str) -> bool:
+    m = (msg or "").lower()
+    return any(h in m for h in _RATE_LIMIT_HINTS)
 
 
 class AVClient:
@@ -22,6 +41,10 @@ class AVClient:
         self._sleep_interval = 60.0 / rate_limit_rpm
         self._last_call_time: float = 0.0
         self._client = httpx.AsyncClient(timeout=30.0)
+        # Retry/backoff (audit P1). Exponential base*2^n + jitter, capped.
+        self._max_retries = int(os.getenv("AV_MAX_RETRIES", "3"))
+        self._backoff_base = float(os.getenv("AV_BACKOFF_BASE_SECS", "2.0"))
+        self._backoff_max = float(os.getenv("AV_BACKOFF_MAX_SECS", "30.0"))
 
     async def close(self):
         await self._client.aclose()
@@ -34,19 +57,46 @@ class AVClient:
             await asyncio.sleep(wait)
         self._last_call_time = time.monotonic()
 
-    async def _get(self, params: dict) -> dict:
-        await self._throttle()
-        params["apikey"] = self.api_key
-        response = await self._client.get(AV_BASE_URL, params=params)
-        response.raise_for_status()
-        data = response.json()
-        if "Note" in data:
-            raise AVError(f"Alpha Vantage rate limit hit: {data['Note']}")
-        if "Information" in data:
-            raise AVError(f"Alpha Vantage API key issue: {data['Information']}")
-        if "Error Message" in data:
-            raise AVError(f"Alpha Vantage error: {data['Error Message']}")
+    def _classify(self, data: dict):
+        """Inspect a parsed AV body. Return the data dict on success, or raise AVError
+        (retryable for in-band rate-limit, non-retryable for key/plan/error)."""
+        note = data.get("Note")
+        info = data.get("Information")
+        if note:
+            raise AVError(f"AV rate limit (Note): {note}", retryable=True)
+        if info and _is_rate_limit_msg(info):
+            raise AVError(f"AV rate limit (Information): {info}", retryable=True)
+        if info:
+            raise AVError(f"AV API key/plan issue: {info}", retryable=False)
+        if data.get("Error Message"):
+            raise AVError(f"AV error: {data['Error Message']}", retryable=False)
         return data
+
+    async def _get(self, params: dict) -> dict:
+        params["apikey"] = self.api_key
+        last_exc: AVError | None = None
+        for attempt in range(self._max_retries + 1):
+            await self._throttle()  # respects the rate limit between retries too
+            try:
+                response = await self._client.get(AV_BASE_URL, params=params)
+                response.raise_for_status()
+                return self._classify(response.json())
+            except AVError as e:
+                if not e.retryable:
+                    raise            # bad symbol / key / plan — retrying won't help
+                last_exc = e
+            except httpx.HTTPStatusError as e:
+                code = e.response.status_code if e.response is not None else 0
+                if code < 500:
+                    raise AVError(f"AV HTTP {code}: {e}", retryable=False)
+                last_exc = AVError(f"AV HTTP {code}", retryable=True)
+            except (httpx.TimeoutException, httpx.TransportError) as e:
+                last_exc = AVError(f"AV transport error: {e}", retryable=True)
+            if attempt >= self._max_retries:
+                break
+            backoff = min(self._backoff_base * (2 ** attempt), self._backoff_max)
+            await asyncio.sleep(backoff + random.uniform(0.0, 0.5))
+        raise last_exc if last_exc else AVError("AV request failed", retryable=True)
 
     async def get_daily_prices(self, ticker: str, compact: bool = False) -> list[dict]:
         if self.mock_mode:

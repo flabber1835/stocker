@@ -139,3 +139,32 @@ def test_gate_none_coverage_does_not_block():
     # empty universe → pcp None → can't judge coverage → don't block on it (SPY still required)
     ready, reason = _chain_advance_decision(D, None, 0.80)
     assert ready and reason is None
+
+
+# ── universe relative-size floor ──────────────────────────────────────────────
+
+from app.main import _universe_too_small  # noqa: E402
+
+
+def test_universe_floor_blocks_catastrophic_shrink():
+    # 250 tickers vs prior 6600, floor 0.5 → 250 < 3300 → block
+    assert _universe_too_small(250, 6600, 0.5) is True
+
+
+def test_universe_floor_allows_normal_variation():
+    assert _universe_too_small(6580, 6600, 0.5) is False
+
+
+def test_universe_floor_no_prior_never_blocks():
+    assert _universe_too_small(10, None, 0.5) is False
+    assert _universe_too_small(10, 0, 0.5) is False
+
+
+def test_universe_floor_disabled():
+    assert _universe_too_small(1, 6600, 0.0) is False
+
+
+def test_universe_floor_at_boundary():
+    # exactly at floor → not "too small" (uses strict <)
+    assert _universe_too_small(3300, 6600, 0.5) is False
+    assert _universe_too_small(3299, 6600, 0.5) is True
