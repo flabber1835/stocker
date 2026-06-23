@@ -544,3 +544,55 @@ def test_status_fails_closed_when_delta_non_200(dashboard):
     with patch("app.main.httpx.AsyncClient", return_value=client_cm):
         res = asyncio.run(dashboard.auto_approve_status())
     assert res["pending"] == []
+
+
+# ── audit P2: timeout anchored to delta_runs.completed_at (survives restart) ─────
+
+def test_timeout_anchored_to_completed_at_survives_restart(dashboard):
+    """With _intent_first_seen EMPTY (simulating a dashboard restart), an eligible
+    non-manual intent whose delta run completed > timeout ago must STILL auto-approve
+    on the first poll — because the anchor is the run's persistent completed_at, not
+    the just-now first-seen. Pre-fix this returned 0 (clock reset on restart)."""
+    import datetime as _dt
+
+    now = 1_000_000.0
+    timeout = dashboard.TRADE_AUTO_APPROVE_MINUTES * 60
+    completed_iso = _dt.datetime.fromtimestamp(
+        now - timeout - 600, tz=_dt.timezone.utc
+    ).isoformat()  # completed well past the timeout
+
+    posted: list[dict] = []
+
+    async def fake_post(url, json=None, **kw):
+        posted.append(json)
+        r = MagicMock(); r.status_code = 200; r.json = MagicMock(return_value={"ok": True})
+        return r
+
+    run = {"run_id": "R1", "run_date": "2026-06-22", "manual": False,
+           "completed_at": completed_iso}
+
+    async def fake_get(url, **kw):
+        r = MagicMock(); r.status_code = 200
+        if url.endswith("/status"):
+            r.json = MagicMock(return_value={"status": "idle"})
+        else:
+            r.json = MagicMock(return_value={"run": run, "intents": [_intent("e1", "entry")]})
+        return r
+
+    client = MagicMock(get=fake_get, post=fake_post)
+    dashboard._intent_first_seen.clear()      # simulate restart: no in-memory history
+    dashboard._intent_approved.clear()
+
+    # SINGLE poll at `now`: first_seen[e1] is set to now, but the anchor is the old
+    # completed_at, so the timeout is already satisfied → approved on this poll.
+    asyncio.run(dashboard._auto_approve_once(client, now))
+    assert [p["intent_id"] for p in posted] == ["e1"]
+
+
+def test_epoch_or_none_parses_and_handles_bad_input(dashboard):
+    import datetime as _dt
+    ts = _dt.datetime(2026, 6, 22, 20, 15, tzinfo=_dt.timezone.utc)
+    assert dashboard._epoch_or_none(ts.isoformat()) == ts.timestamp()
+    assert dashboard._epoch_or_none(None) is None
+    assert dashboard._epoch_or_none("") is None
+    assert dashboard._epoch_or_none("not-a-date") is None

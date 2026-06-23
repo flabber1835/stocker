@@ -82,6 +82,21 @@ async def _chain_in_progress(client, *, fail_closed: bool = False) -> bool:
         return fail_closed
 
 
+def _epoch_or_none(iso_str):
+    """Parse an ISO-8601 timestamp → epoch seconds (float), or None (audit P2).
+
+    Used to anchor the auto-approve timeout to the delta run's PERSISTENT
+    completed_at instead of a process-local first-seen, so the clock survives
+    dashboard restarts."""
+    if not iso_str:
+        return None
+    try:
+        from datetime import datetime as _dt
+        return _dt.fromisoformat(str(iso_str)).timestamp()
+    except (ValueError, TypeError):
+        return None
+
+
 async def _auto_approve_once(client, now: float) -> None:
     """One poll of /delta/latest → auto-approve eligible intents.
 
@@ -121,6 +136,13 @@ async def _auto_approve_once(client, now: float) -> None:
     # run_date changes and we must NOT submit the superseded cycle's intents (F3).
     run_id = run_meta.get("run_id") or run_meta.get("id")
     run_date = run_meta.get("run_date")
+    # audit P2: anchor the auto-approve timeout to the delta run's PERSISTENT
+    # completion time, not a process-local first-seen timestamp. The in-memory
+    # _intent_first_seen map resets on every dashboard restart (deploys/reboots),
+    # which let an auto/cron intent's clock restart from zero forever (auto-approve
+    # "never fires") and made the displayed countdown jump back to full. completed_at
+    # is when the proposal actually became actionable and survives restarts.
+    run_completed_epoch = _epoch_or_none(run_meta.get("completed_at"))
     current_ids: set[str] = set()
     all_run_ids: set[str] = set()
     for intent in data.get("intents", []):
@@ -166,7 +188,10 @@ async def _auto_approve_once(client, now: float) -> None:
         # intents later belong to a scheduled run.
         if is_manual_run:
             continue
-        if now - _intent_first_seen[iid] >= timeout:
+        # Persistent anchor (audit P2): prefer the delta run's completed_at over the
+        # in-memory first-seen so the clock survives restarts.
+        anchor = run_completed_epoch if run_completed_epoch is not None else _intent_first_seen[iid]
+        if now - anchor >= timeout:
             # TOCTOU guard (F3): _chain_in_progress was checked once at the top of
             # this pass, but the loop spans many awaits and a fresh chain can flip
             # to "running" mid-pass. Re-check IMMEDIATELY before each POST so we
@@ -486,12 +511,15 @@ async def auto_approve_status():
     is_manual_run = True       # assume manual (suppress) until proven non-manual
     chain_running = True        # assume busy (suppress) until proven idle
     origin_known = False
+    run_completed_epoch = None  # persistent anchor for the countdown (audit P2)
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             chain_running = await _chain_in_progress(client)   # fails open → False internally
             r = await client.get(f"{API_URL}/delta/latest")
         if r.status_code == 200:
-            is_manual_run = bool((r.json().get("run") or {}).get("manual"))
+            _run = r.json().get("run") or {}
+            is_manual_run = bool(_run.get("manual"))
+            run_completed_epoch = _epoch_or_none(_run.get("completed_at"))
             origin_known = True
     except Exception as exc:
         print(f"[auto-approve-status] could not read run origin (suppressing countdown): {exc}")
@@ -505,7 +533,10 @@ async def auto_approve_status():
     for iid, first_seen in list(_intent_first_seen.items()):
         if iid in _intent_approved:
             continue
-        elapsed = now - first_seen
+        # Anchor to the run's persistent completion time (audit P2); the in-memory
+        # first_seen is only a fallback when completed_at is unavailable.
+        anchor = run_completed_epoch if run_completed_epoch is not None else first_seen
+        elapsed = now - anchor
         items.append({
             "intent_id": iid,
             "elapsed_seconds": round(elapsed),
