@@ -9,6 +9,7 @@ See docs/architecture.md "Design Decision: fill-gated market-open order draining
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
@@ -21,6 +22,7 @@ class DeferredOrder:
     notional: Optional[float]
     submitted_at: Optional[datetime]   # set once submitted (drives the sell fill timeout)
     expires_at: Optional[datetime]     # session close stamped at enqueue; None = never expires
+    qty: Optional[float] = None        # share count (lets the gate re-size a buy down to fit BP)
 
 
 @dataclass
@@ -29,6 +31,11 @@ class DrainDecision:
     submit_buys: list[str] = field(default_factory=list)
     expire: list[str] = field(default_factory=list)
     waiting_on_sells: bool = False     # buys held this pass because sells aren't all filled
+    # Buys released at a REDUCED qty to fit available buying power (id → new whole-share
+    # qty). A buy sized on account_value can land a few shares over the cash freed by
+    # its funding sells (fees/price drift); rather than letting it expire unfunded, the
+    # gate trims it to what BP affords. Smaller-than-approved is always within risk.
+    resized: dict[str, float] = field(default_factory=dict)
 
 
 def _sell_timed_out(submitted_at: Optional[datetime], now: datetime, timeout_secs: float) -> bool:
@@ -52,6 +59,7 @@ def plan_drain(
     deferred_buys: list[DeferredOrder],             # status='deferred', side='buy', due (OLDEST FIRST)
     buying_power: Optional[float],
     sell_fill_timeout_secs: float,
+    min_fill_ratio: float = 0.5,                     # min fraction of a buy's shares worth re-sizing down to (else skip)
 ) -> DrainDecision:
     """Decide a single drain pass.
 
@@ -99,4 +107,17 @@ def plan_drain(
         if b.notional <= bp + 1e-6:
             decision.submit_buys.append(b.id)
             bp -= b.notional
+            continue
+        # Doesn't fully fit. Rather than expire a buy that's a few shares over the
+        # cash its funding sells freed, trim it to what BP affords — IF that's still a
+        # meaningful fraction of the intended order. Needs qty to derive share price.
+        if b.qty and b.qty > 0:
+            price = b.notional / b.qty
+            if price > 0 and bp >= price:          # can afford at least one share
+                new_qty = math.floor((bp + 1e-6) / price)
+                if new_qty >= 1 and (new_qty / b.qty) >= min_fill_ratio:
+                    decision.submit_buys.append(b.id)
+                    decision.resized[b.id] = float(new_qty)
+                    bp -= new_qty * price
+        # else: not enough BP for a meaningful fill → leave deferred (expires at close)
     return decision

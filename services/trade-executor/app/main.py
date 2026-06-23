@@ -99,6 +99,33 @@ try:
 except ValueError:
     SELL_FILL_TIMEOUT_SECS = 300.0
 
+# audit P1: when a deferred buy is sized a few shares over the cash its funding sells
+# freed, the drain trims it to what buying power affords rather than expiring it
+# unfunded — but only if the trimmed order is still >= this fraction of the intended
+# shares (otherwise it waits/expires rather than placing a token fill). 0 disables
+# the floor (always trim to fit); 1.0 disables re-sizing (original expire behavior).
+try:
+    DRAIN_BUY_MIN_FILL_RATIO = float(os.getenv("DRAIN_BUY_MIN_FILL_RATIO", "0.5"))
+except ValueError:
+    DRAIN_BUY_MIN_FILL_RATIO = 0.5
+
+# audit P1: bounded expiry for a buy deferred while the Alpaca clock was unreachable
+# (so it can't sit 'deferred' forever and block re-proposal of the ticker).
+try:
+    CLOCK_NONE_EXPIRY_HOURS = float(os.getenv("CLOCK_NONE_EXPIRY_HOURS", "24"))
+except ValueError:
+    CLOCK_NONE_EXPIRY_HOURS = 24.0
+
+# audit P1: reaper for orphaned 'pending' alpaca_orders — a row committed inside the
+# submit lock but never advanced (process died between the reservation commit and the
+# broker submit, or an abandoned request). Without this they linger until the next
+# restart's warm-up, counting as open orders (blocking re-proposal + consuming a
+# projected MAX_POSITIONS slot). Reaped to 'failed' once older than this.
+try:
+    PENDING_REAP_MINUTES = float(os.getenv("PENDING_REAP_MINUTES", "15"))
+except ValueError:
+    PENDING_REAP_MINUTES = 15.0
+
 
 engine: Optional[AsyncEngine] = None
 
@@ -391,6 +418,7 @@ def _row_to_deferred(row: dict) -> DeferredOrder:
         notional=_f(row["notional"]),
         submitted_at=row["submitted_at"],
         expires_at=row["expires_at"],
+        qty=_f(row.get("qty")) if isinstance(row, dict) else _f(row["qty"]),
     )
 
 
@@ -435,7 +463,7 @@ async def _drain_pass() -> None:
     if is_open:
         await _reconcile_unfilled_sells()
 
-    _cols = "id, side, notional, submitted_at, expires_at"
+    _cols = "id, side, notional, submitted_at, expires_at, qty"
     async with engine.connect() as conn:
         d_sells = (await conn.execute(text(
             f"SELECT {_cols} FROM alpaca_orders WHERE status='deferred' AND side='sell' "
@@ -466,7 +494,30 @@ async def _drain_pass() -> None:
         deferred_buys=[_row_to_deferred(dict(r)) for r in d_buys],
         buying_power=buying_power,
         sell_fill_timeout_secs=SELL_FILL_TIMEOUT_SECS,
+        min_fill_ratio=DRAIN_BUY_MIN_FILL_RATIO,
     )
+
+    # Apply any buying-power-driven re-sizes BEFORE submission so _submit_one_deferred
+    # reads the trimmed qty/notional. Trimming down is strictly within the approved
+    # order (fewer shares, less notional) so it needs no re-approval; audited via the
+    # row's error_message note and the recomputed notional.
+    for oid, new_qty in decision.resized.items():
+        async with engine.begin() as conn:
+            row = (await conn.execute(text(
+                "SELECT qty, notional FROM alpaca_orders WHERE id=:id AND status='deferred'"
+            ), {"id": oid})).mappings().first()
+            if row is None:
+                continue
+            old_qty = _f(row["qty"]) or 0.0
+            old_notional = _f(row["notional"]) or 0.0
+            price = (old_notional / old_qty) if old_qty > 0 else 0.0
+            new_notional = round(new_qty * price, 2)
+            await conn.execute(text(
+                "UPDATE alpaca_orders SET qty=:q, notional=:n, "
+                "error_message=:msg WHERE id=:id AND status='deferred'"
+            ), {"q": new_qty, "n": new_notional, "id": oid,
+                "msg": f"resized {old_qty:g}->{new_qty:g} shares to fit buying power"})
+        logger.info("Drain re-sized buy %s: %g -> %g shares (fit BP)", oid, old_qty, new_qty)
 
     for oid in decision.expire:
         async with engine.begin() as conn:
@@ -483,6 +534,31 @@ async def _drain_pass() -> None:
         await _submit_one_deferred(oid)
 
 
+async def _reap_orphaned_pending() -> None:
+    """Fail 'pending' alpaca_orders older than PENDING_REAP_MINUTES (audit P1).
+
+    A 'pending' row is the committed reservation written inside the submit lock just
+    before the broker submit. If the process dies (or the request is abandoned)
+    between that commit and the submit/defer transition, the row never advances and —
+    until the next restart's warm-up — counts as an open order: it blocks re-proposal
+    of the ticker (in-flight guard) and consumes a projected MAX_POSITIONS slot. This
+    periodic reaper bounds that limbo without needing a restart. 'deferred'/'submitted'
+    rows are NOT touched (the drain owns their lifecycle)."""
+    if PENDING_REAP_MINUTES <= 0:
+        return
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=PENDING_REAP_MINUTES)
+    async with engine.begin() as conn:
+        reaped = (await conn.execute(text(
+            "UPDATE alpaca_orders SET status='failed', "
+            "error_message='REAPED: pending older than threshold (orphaned pre-submit)' "
+            "WHERE status='pending' AND created_at < :cutoff "
+            "RETURNING id"
+        ), {"cutoff": cutoff})).fetchall()
+    if reaped:
+        logger.warning("Reaped %d orphaned pending order(s): %s",
+                       len(reaped), [str(r[0]) for r in reaped])
+
+
 async def _deferred_order_worker() -> None:
     """Background worker: runs one fill-gated drain pass every
     DEFERRED_WORKER_INTERVAL_SECS. Stateless across restarts (state lives in
@@ -492,6 +568,7 @@ async def _deferred_order_worker() -> None:
         try:
             if engine is not None:
                 await _drain_pass()
+                await _reap_orphaned_pending()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -1656,7 +1733,14 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
         clock = await _get_alpaca_clock() if req.mode in ("scheduled", "immediate") else None
         if _route_to_drain(req.mode, clock, side=side):
             if clock is None:
-                deferred_until, expires_at = None, None          # no creds/unreachable → drain ASAP
+                # Clock unreachable → drain ASAP, but stamp a BOUNDED expiry (audit P1).
+                # Previously expires_at=None meant the buy could NEVER expire and sat
+                # 'deferred' forever, blocking re-proposal of the ticker via the
+                # in-flight-buy guard until a manual cancel. A fallback window lets the
+                # next daily chain rebuild instead of wedging the name.
+                deferred_until, expires_at = None, (
+                    datetime.now(timezone.utc) + timedelta(hours=CLOCK_NONE_EXPIRY_HOURS)
+                )
             elif clock["is_open"]:
                 deferred_until, expires_at = None, clock["next_close"]
             else:
