@@ -61,7 +61,7 @@ class TestDuplicateTickerDedup:
     def test_second_occurrence_marked_duplicate(self):
         rows = [
             _row("B", "Barnes Group Inc",  "NYSE"),
-            _row("B", "Barrick Gold Corp", "OTC"),
+            _row("B", "Barrick Gold Corp", "NASDAQ"),  # same ticker, another MAJOR exchange
         ]
         _, filtered = _run_filter(rows)
         dup = [r for r in filtered if r.get("_filter_reason") == "duplicate_ticker"]
@@ -71,7 +71,7 @@ class TestDuplicateTickerDedup:
     def test_three_listings_same_ticker_keeps_first(self):
         rows = [
             _row("A", "Agilent Technologies Inc", "NYSE"),
-            _row("A", "Some OTC Company",         "OTC"),
+            _row("A", "Some Other Company",        "NASDAQ"),
             _row("A", "Another Exchange Company",  "BATS"),
         ]
         accepted, filtered = _run_filter(rows)
@@ -112,7 +112,7 @@ class TestDuplicateTickerDedup:
     def test_dedup_independent_of_other_filters(self):
         rows = [
             _row("AAPL", "Apple Inc",   "NASDAQ"),
-            _row("AAPL", "Apple Corp",  "OTC"),    # clean name — only fails because duplicate
+            _row("AAPL", "Apple Corp",  "NYSE"),    # clean name — only fails because duplicate
             _row("BAD!", "Bad Ticker",  "NYSE"),    # ticker format failure
         ]
         accepted, filtered = _run_filter(rows)

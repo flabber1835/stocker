@@ -3,6 +3,7 @@ import hashlib
 import os
 import random
 import time
+from collections import deque
 from datetime import date, timedelta
 
 import httpx
@@ -40,6 +41,7 @@ class AVClient:
         self.mock_mode = mock_mode
         self._sleep_interval = 60.0 / rate_limit_rpm
         self._last_call_time: float = 0.0
+        self._call_times: deque[float] = deque()  # monotonic stamps in the trailing 60s
         self._client = httpx.AsyncClient(timeout=30.0)
         # Retry/backoff (audit P1). Exponential base*2^n + jitter, capped.
         self._max_retries = int(os.getenv("AV_MAX_RETRIES", "3"))
@@ -50,12 +52,32 @@ class AVClient:
         await self._client.aclose()
 
     async def _throttle(self):
+        """Sliding-window rate limit (audit P2) + a minimum inter-call gap.
+
+        The old fixed-gap-only limiter reset to "ready" after any idle pause, so a run
+        that periodically stalled (DB upsert, checkpoint, a second AV call) could burst
+        past the per-minute budget on resume. This enforces BOTH a hard cap of
+        rate_limit_rpm calls per trailing 60s AND the ~0.8s smoothing gap, so neither a
+        post-idle burst nor an instant rate_limit_rpm-call spike can occur."""
+        window = 60.0
         now = time.monotonic()
-        elapsed = now - self._last_call_time
-        wait = self._sleep_interval - elapsed
-        if wait > 0:
-            await asyncio.sleep(wait)
-        self._last_call_time = time.monotonic()
+        # Sliding-window cap: drop calls older than the window; if we're at the cap,
+        # wait until the oldest call ages out.
+        while self._call_times and now - self._call_times[0] >= window:
+            self._call_times.popleft()
+        if len(self._call_times) >= self.rate_limit_rpm:
+            await asyncio.sleep(window - (now - self._call_times[0]) + 0.001)
+            now = time.monotonic()
+            while self._call_times and now - self._call_times[0] >= window:
+                self._call_times.popleft()
+        # Minimum inter-call gap (smooths bursts within the window).
+        if self._last_call_time:
+            gap = self._sleep_interval - (now - self._last_call_time)
+            if gap > 0:
+                await asyncio.sleep(gap)
+                now = time.monotonic()
+        self._last_call_time = now
+        self._call_times.append(now)
 
     def _classify(self, data: dict):
         """Inspect a parsed AV body. Return the data dict on success, or raise AVError

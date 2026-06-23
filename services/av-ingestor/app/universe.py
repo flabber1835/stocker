@@ -98,8 +98,11 @@ _NON_INVESTABLE_NAME_RE = re.compile(
 
 _AV_LISTING_URL = os.getenv("AV_LISTING_URL", "https://www.alphavantage.co/query?function=LISTING_STATUS&apikey={api_key}")
 
-# Exchanges considered part of the broad US equity universe.
-_US_EXCHANGES = {"NYSE", "NASDAQ", "NYSE MKT", "NYSE ARCA", "NYSE American", "BATS", "OTC"}
+# Major US exchanges (audit P2: OTC/pink-sheet REMOVED — spec is "major exchanges";
+# OTC admitted thinly-traded names that burned throttle and could clear the liquidity
+# floor contrary to spec). Stored upper-cased; exchange values are compared .upper()
+# so AV casing/spacing drift ("NYSE Arca", "nyse") still matches.
+_US_EXCHANGES = {"NYSE", "NASDAQ", "NYSE MKT", "NYSE ARCA", "NYSE AMERICAN", "BATS"}
 
 
 async def download_av_listing(session: httpx.AsyncClient, api_key: str) -> tuple[list[dict], dict]:
@@ -112,8 +115,25 @@ async def download_av_listing(session: httpx.AsyncClient, api_key: str) -> tuple
     response = await session.get(url, follow_redirects=True, timeout=30.0)
     response.raise_for_status()
 
+    # AV signals throttle/error IN-BAND as a JSON body (HTTP 200), not CSV (audit P2).
+    # Detect it before pd.read_csv parses the throttle text into garbage columns (which
+    # would silently yield ~0 rows and a confusing "universe shrank" failure).
+    _head = response.text.lstrip()[:500]
+    if _head.startswith("{") or '"Information"' in _head or '"Note"' in _head:
+        raise ValueError(
+            f"AV LISTING_STATUS returned a non-CSV body (likely rate-limit/error): {_head[:200]}"
+        )
+
     df = pd.read_csv(io.StringIO(response.text), dtype=str, keep_default_na=False)
     df.columns = [c.strip() for c in df.columns]
+    # Header-drift guard: fail loudly with the actual header rather than silently
+    # dropping every row when a required column is renamed/missing.
+    _required = {"symbol", "name", "exchange", "assetType", "status"}
+    _missing = _required - set(df.columns)
+    if _missing:
+        raise ValueError(
+            f"AV LISTING_STATUS CSV missing expected columns {_missing}; got {list(df.columns)}"
+        )
 
     rows = []
     raw_rows = []       # every row AV returned, as-is
@@ -139,10 +159,10 @@ async def download_av_listing(session: httpx.AsyncClient, api_key: str) -> tuple
         if av_row.get("status", "").lower() != "active":
             filtered_rows.append({**av_row, "_filter_reason": "inactive"})
             continue
-        if av_row.get("assetType", "") not in ("Stock",):
+        if av_row.get("assetType", "").strip().lower() != "stock":
             filtered_rows.append({**av_row, "_filter_reason": "non_stock"})
             continue
-        if av_row.get("exchange", "") not in _US_EXCHANGES:
+        if av_row.get("exchange", "").strip().upper() not in _US_EXCHANGES:
             filtered_rows.append({**av_row, "_filter_reason": "wrong_exchange"})
             continue
         if ticker in seen_tickers:
