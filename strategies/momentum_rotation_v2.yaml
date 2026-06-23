@@ -64,7 +64,7 @@ factor_engine:
   pe_pb_cap: 50.0
   spy_price_lookback_days: 600
   quality_use_gross_profitability: true
-  momentum_method: residual  # lever #2: market-stripped but NOT vol-scaled. Drops the formation-vol divisor that was demoting high-vol/high-beta leaders (NVDA-type) at the signal level — the fourth and last of the stacked low-vol tilts. Keeps market-stripping (Blitz residual momentum: ~2x risk-adjusted profit, lower crash tails than raw), so it's the balanced choice vs 'raw' (max beta, fattest crash tail). Book-level risk is handled by vol_target.
+  momentum_method: residual_tstat  # canonical Gutierrez-Prinsky/Blitz residual momentum: cumulative residual / STD OF RESIDUALS (information-ratio / t-stat). Market-stripped like 'residual' but rewards CONSISTENT idiosyncratic outperformance over lucky jumps; not vol-double-scaled. Was 'residual'; 'residual_riskadj' (÷ total vol) and 'raw' remain the alternatives. Book-level risk handled by vol_target.
   momentum_blend_windows: [252, 126]  # 12-1 + 6-1 (both skip the last month) → reacts to emerging trends sooner without chasing 1-month reversals.
 
 regime_detection:
