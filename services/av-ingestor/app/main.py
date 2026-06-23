@@ -58,6 +58,12 @@ STALE_INGEST_HOURS = float(os.getenv("STALE_INGEST_HOURS", "6"))
 # At default 30, each fetch-universe re-tries ~1/30th of stale tickers, so
 # every excluded ticker gets one AV call ~once a month.
 PROBATION_ROTATION_DAYS = int(os.getenv("PROBATION_ROTATION_DAYS", "30"))
+# Minimum price coverage for a fetch-data run to ADVANCE the chain (audit P0). Below
+# this (e.g. an AV outage/rate-limit storm errored most tickers), the run withholds
+# its session_date and the complete event, so the scheduler re-triggers rather than
+# advancing the chain on a near-empty snapshot. Coverage counts skipped-as-current
+# tickers, so a normal warm re-run scores ~1.0 and is unaffected. Set 0 to disable.
+MIN_PRICE_COVERAGE_PCT = float(os.getenv("MIN_PRICE_COVERAGE_PCT", "0.80"))
 
 # Stable 64-bit advisory-lock key for the ingest check-and-claim. Used with
 # pg_advisory_xact_lock (transaction-scoped, auto-released at commit/rollback) so
@@ -186,13 +192,60 @@ def _coverage(ok: int, total: int) -> Optional[float]:
     return ok / total if total else None
 
 
-async def _upsert_prices(session, ticker: str, rows: list[dict]) -> None:
-    """Upsert daily price rows for a single ticker.
+def _chain_advance_decision(spy_max, price_coverage_pct, floor) -> tuple[bool, Optional[str]]:
+    """Whether a fetch-data run may ADVANCE the daily chain (audit P0).
+
+    Requires (1) SPY actually advanced this run (spy_max is set — None means no fresh
+    SPY bar / SPY fetch failed) AND (2) price coverage >= floor (a near-empty snapshot
+    from an AV outage must not advance the chain). Returns (ready, reason_if_not).
+    Pure — unit-tested in tests/av_ingestor/test_chain_advance_gate.py."""
+    if not spy_max:
+        return False, "SPY did not advance (no fresh SPY bar this run)"
+    if price_coverage_pct is not None and price_coverage_pct < floor:
+        return False, f"price coverage {price_coverage_pct:.1%} < floor {floor:.0%}"
+    return True, None
+
+
+def _valid_px(x) -> bool:
+    """A usable price: a real, finite number in (0, 1e6). Rejects None, NaN, 0,
+    negatives, and absurd values. (x == x is the NaN check.)"""
+    return isinstance(x, (int, float)) and x == x and 0.0 < x < 1_000_000.0
+
+
+async def _upsert_prices(session, ticker: str, rows: list[dict]) -> int:
+    """Upsert daily price rows for a single ticker; return the number actually written.
 
     raw_adjusted_close is set to AV's adjusted close (the immutable split/div-adjusted
     source); adjusted_close is initialised to the same value and later re-derived
     spinoff-adjusted by apply_spinoff_adjustments() for tickers in corporate_actions.
-    """
+
+    VALIDATION (audit P0): a bar is written only if BOTH the unadjusted `close` AND
+    `adjusted_close` are valid prices. A 0 / negative / absurd / NULL on either is a
+    corrupt bar (halted/thin name, or an AV glitch) and is SKIPPED entirely — so it
+    neither stores a 0 `close` (which would break dollar-volume / the liquidity floor
+    that use the unadjusted close) NOR advances MAX(date) on a NULL-adjusted bar (which
+    would strand the ticker as "current" and never re-pull it). open/high/low and
+    volume are individually nulled if invalid rather than dropping the whole bar."""
+    clean = []
+    for r in rows:
+        close = r.get("close")
+        adj = r.get("adjusted_close")
+        if not (_valid_px(close) and _valid_px(adj)):
+            continue  # corrupt bar — skip (do not store, do not advance the date)
+        vol = r.get("volume")
+        vol_ok = isinstance(vol, (int, float)) and vol == vol and vol >= 0
+        clean.append({
+            "ticker": ticker,
+            "date": date.fromisoformat(r["date"]),
+            "open": r["open"] if _valid_px(r.get("open")) else None,
+            "high": r["high"] if _valid_px(r.get("high")) else None,
+            "low": r["low"] if _valid_px(r.get("low")) else None,
+            "close": close,
+            "adjusted_close": adj,
+            "volume": vol if vol_ok else None,
+        })
+    if not clean:
+        return 0
     await session.execute(
         text(
             "INSERT INTO daily_prices "
@@ -205,12 +258,9 @@ async def _upsert_prices(session, ticker: str, rows: list[dict]) -> None:
             "    raw_adjusted_close=EXCLUDED.raw_adjusted_close, "
             "    volume=EXCLUDED.volume, fetched_at=NOW()"
         ),
-        [{"ticker": ticker, "date": date.fromisoformat(r["date"]),
-          "open": r["open"], "high": r["high"], "low": r["low"],
-          "close": r["close"],
-          "adjusted_close": r["adjusted_close"] if r.get("adjusted_close") and 0 < r["adjusted_close"] < 1_000_000 else None,
-          "volume": r["volume"]} for r in rows],
+        clean,
     )
+    return len(clean)
 
 
 async def apply_spinoff_adjustments(session, ticker: str | None = None) -> int:
@@ -996,15 +1046,19 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                         if new_rows:
                             async with SessionLocal() as session:
                                 async with session.begin():
-                                    await _upsert_prices(session, ticker, new_rows)
-                            price_rows_written += len(new_rows)
+                                    written = await _upsert_prices(session, ticker, new_rows)
+                            price_rows_written += written
+                            if written < len(new_rows):
+                                print(f"[fetch-data] {ticker} prices: skipped "
+                                      f"{len(new_rows) - written} invalid bar(s) {label}")
                         price_ok += 1
                         last_20 = sorted(rows, key=lambda r: r["date"])[-20:]
-                        # BUG 5: skip rows with NULL close to avoid diluting avg_dv with zeros
+                        # Only valid positive closes contribute to avg dollar-volume
+                        # (a 0/neg close would zero or corrupt the average).
                         dv_vals = [
                             r["close"] * (r["volume"] or 0)
                             for r in last_20
-                            if r.get("close")
+                            if _valid_px(r.get("close"))
                         ]
                         if dv_vals:
                             _ticker_avg_dv[ticker] = sum(dv_vals) / len(dv_vals)
@@ -1119,14 +1173,15 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                         [r for r in rows if date.fromisoformat(r["date"]) > latest_in_db]
                         if latest_in_db else rows
                     )
+                    written = 0
                     if new_rows:
                         async with SessionLocal() as session:
                             async with session.begin():
-                                await _upsert_prices(session, rt, new_rows)
-                        price_rows_written += len(new_rows)
+                                written = await _upsert_prices(session, rt, new_rows)
+                        price_rows_written += written
                     price_ok += 1
                     recovered.append(rt)
-                    print(f"[fetch-data] cleanup: {rt} recovered ({len(new_rows)} rows)")
+                    print(f"[fetch-data] cleanup: {rt} recovered ({written} rows)")
                 except Exception as e:  # noqa: BLE001 — persistent failure stays counted
                     print(f"[fetch-data] cleanup: {rt} still failing - {e}")
             if recovered:
@@ -1146,16 +1201,25 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
         status = "partial_success" if err_count > 0 else "success"
         pcp = _coverage(price_ok, len(price_tickers))
         fcp = _coverage(fund_ok, len(fundamental_tickers))
-        # session_date = the trading session this run advanced prices to (MAX SPY
-        # date, reloaded after benchmarks above). The scheduler keys the daily
-        # chain on this session, so it must be the DATA date, not wall-clock today.
-        # None when SPY could not be written (skip optimisation disabled) — the
-        # scheduler then treats fetch-data as not-yet-advanced and waits.
+        # Chain-advance gate (audit P0): only advance the daily chain when SPY actually
+        # advanced AND price coverage cleared the floor. Otherwise WITHHOLD the
+        # session_date (scheduler treats fetch-data as not-done → re-triggers, rather
+        # than advancing on a near-empty/SPY-less snapshot) and skip the complete event.
+        # This does NOT fail the run (that would halt the chain) — it makes it retry.
+        chain_ready, degraded_reason = _chain_advance_decision(
+            spy_max, pcp, MIN_PRICE_COVERAGE_PCT)
+        if not chain_ready:
+            print(f"[fetch-data] WITHHOLDING chain advance — {degraded_reason}; "
+                  "session_date not recorded, complete event suppressed (will retry).")
+        # session_date = the trading session prices advanced to (MAX SPY date); the
+        # scheduler keys the chain on it, so it must be the DATA date. None when the
+        # chain-advance gate withholds it.
         await _finish_run(run_id, status,
                           ticker_count=len(price_tickers), price_rows=price_rows_written,
                           fund_rows=fund_ok, error_count=err_count,
                           price_coverage_pct=pcp, fundamental_coverage_pct=fcp,
-                          session_date=spy_max)
+                          session_date=(spy_max if chain_ready else None),
+                          error_message=(f"degraded: {degraded_reason}" if degraded_reason else None))
         await _write_trace_file(run_id, "fetch-data", status, started_at,
                                 tickers_done=len(price_tickers), total_tickers=len(price_tickers),
                                 price_rows=price_rows_written, fund_rows=fund_ok,
@@ -1164,9 +1228,11 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
         if error_tickers:
             print(f"[fetch-data] {err_count} errors: {', '.join(error_tickers)}")
         print(f"[fetch-data] done — {price_skipped} price / {fund_skipped} fund tickers skipped (already current)")
-        # Publish pipeline event so the pipeline service can auto-start factor/rank/delta.
-        # Published for both "success" and "partial_success" — either is actionable.
-        asyncio.create_task(_publish_fetch_complete(str(today), run_id))
+        # Publish pipeline event only when the chain may advance. Carry the SESSION
+        # date (spy_max), not wall-clock today (audit P0/M1) — consistent with the
+        # session-anchored scheduler. Suppressed when the chain-advance gate withholds.
+        if chain_ready:
+            asyncio.create_task(_publish_fetch_complete(str(spy_max), run_id))
     except Exception as exc:
         traceback.print_exc()
         err = str(exc)[:1000]
@@ -1231,14 +1297,15 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
                         [r for r in rows if date.fromisoformat(r["date"]) > latest_in_db]
                         if latest_in_db else rows
                     )
+                    written = 0
                     if new_rows:
                         async with SessionLocal() as session:
                             async with session.begin():
-                                await _upsert_prices(session, ticker, new_rows)
-                    rows_written += len(new_rows)
+                                written = await _upsert_prices(session, ticker, new_rows)
+                    rows_written += written
                     tickers_ok += 1
                     mode = "compact" if use_compact else "full"
-                    print(f"[fetch-prices] {ticker}: {len(new_rows)}/{len(rows)} new rows [{mode}] ({i+1}/{len(all_tickers)})")
+                    print(f"[fetch-prices] {ticker}: {written}/{len(rows)} new rows [{mode}] ({i+1}/{len(all_tickers)})")
             except Exception as e:
                 err_count += 1
                 error_tickers.append(ticker)

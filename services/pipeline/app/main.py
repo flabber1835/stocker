@@ -661,11 +661,18 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     async with engine.connect() as conn:
         # ── Step 1: load universe ─────────────────────────────────────────────
         t0 = datetime.now(timezone.utc)
+        # Active snapshot = MAX(id) — the SAME selector av-ingestor, llm-vetter,
+        # portfolio-builder, and the api use (audit P0 split-brain fix). Previously this
+        # ordered by (snapshot_date DESC, fetched_at DESC); snapshot_date is day-grained,
+        # so two snapshots written the same day (manual re-run + cron) could resolve to a
+        # DIFFERENT row here than MAX(id) elsewhere — the factor step would then score a
+        # different universe than the one fetched-for/executed-on. MAX(id) is the single
+        # monotonic source of truth for "newest snapshot".
         snap_row = await conn.execute(
-            text("SELECT id FROM universe_snapshots ORDER BY snapshot_date DESC, fetched_at DESC LIMIT 1")
+            text("SELECT MAX(id) FROM universe_snapshots")
         )
         snap = snap_row.fetchone()
-        if snap is None:
+        if snap is None or snap[0] is None:
             raise RuntimeError("no universe snapshot — run fetch-universe first")
 
         snapshot_id = snap[0]
