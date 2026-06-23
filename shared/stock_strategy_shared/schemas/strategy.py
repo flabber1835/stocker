@@ -163,6 +163,10 @@ class FactorEngineConfig(BaseModel):
                     "(Blitz-Huij-Martens), far smaller crash tails. "
                     "'residual_riskadj' = residual / formation vol (both effects; the "
                     "cross-sectional analogue of vol-scaled/residual momentum). "
+                    "'residual_tstat' = cumulative residual / STD OF THE RESIDUALS — the "
+                    "canonical Gutierrez-Prinsky/Blitz information-ratio standardization "
+                    "(rewards CONSISTENT idiosyncratic outperformance; ranks like the "
+                    "residual t-stat). "
                     "Raw is the schema default for back-compat; quality_core_v1 opts into "
                     "residual_riskadj. Falls back to raw when there isn't enough history."
     )
@@ -190,7 +194,7 @@ class FactorEngineConfig(BaseModel):
     @field_validator("momentum_method")
     @classmethod
     def _valid_momentum_method(cls, v: str) -> str:
-        allowed = {"raw", "risk_adjusted", "residual", "residual_riskadj"}
+        allowed = {"raw", "risk_adjusted", "residual", "residual_riskadj", "residual_tstat"}
         if v not in allowed:
             raise ValueError(f"momentum_method must be one of {sorted(allowed)}, got {v!r}")
         return v

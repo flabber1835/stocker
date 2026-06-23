@@ -312,3 +312,15 @@ def test_delta_cap_above_builder_ok():
     )
     assert cfg.delta_engine.max_positions == 35
     assert cfg.portfolio_builder.max_positions == 30
+
+
+# ── momentum_method validator (incl. residual_tstat, audit/alpha refinement) ─────
+
+def test_momentum_method_accepts_all_supported_including_residual_tstat():
+    for m in ("raw", "risk_adjusted", "residual", "residual_riskadj", "residual_tstat"):
+        assert FactorEngineConfig(momentum_method=m).momentum_method == m
+
+
+def test_momentum_method_rejects_unknown():
+    with pytest.raises(ValidationError):
+        FactorEngineConfig(momentum_method="t_stat")  # not a supported value

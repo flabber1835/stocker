@@ -167,3 +167,68 @@ def test_residual_keeps_market_strip_unlike_raw():
     raw   = compute_momentum(pivot, method="raw")
     assert resid["UP"] > resid["DOWN"]                         # ordered by idiosyncratic part
     assert not np.allclose(resid.to_numpy(), raw.to_numpy())   # market component stripped → != raw
+
+
+# ── residual_tstat (Gutierrez-Prinsky / Blitz information-ratio standardization) ──
+
+def test_residual_tstat_rewards_consistency_penalizes_residual_vol():
+    """Two names with a similar positive idiosyncratic DRIFT but very different
+    residual volatility: residual_tstat (cum residual / residual std) ranks the STEADY
+    one well above the VOLATILE one — the whole point of the t-stat standardization.
+    Plain `residual` (cumulative only) does NOT separate them nearly as much."""
+    rng = np.random.default_rng(7)
+    W = 60
+    rets = {f"N{i}": list(rng.normal(0.0, 0.004, W)) for i in range(18)}  # market noise
+    rets["STEADY"] = [0.004 + float(rng.normal(0, 0.0004)) for _ in range(W)]   # low resid vol
+    rets["VOLATILE"] = [0.004 + float(rng.normal(0, 0.018)) for _ in range(W)]  # high resid vol
+    pivot = _pivot_from_returns(rets)
+
+    t = compute_momentum(pivot, method="residual_tstat", long_window=30, short_window=5)
+    rr = compute_momentum(pivot, method="residual_riskadj", long_window=30, short_window=5)
+
+    # Core property: with comparable drift, the LOW-residual-vol name wins decisively
+    # under the t-stat standardization (consistency rewarded / residual vol penalised).
+    assert t["STEADY"] > t["VOLATILE"]
+    # It's a distinct transform from residual_riskadj (which divides by TOTAL vol, not
+    # the residual std) — the two need not even agree on the STEADY-vs-VOLATILE margin.
+    assert t["STEADY"] != rr["STEADY"]
+
+
+def test_residual_tstat_differs_from_residual_and_riskadj():
+    rng = np.random.default_rng(11)
+    mkt = rng.normal(0.0005, 0.01, 260)
+    a = list(mkt + rng.normal(0.001, 0.005, 260))
+    b = list(mkt + rng.normal(0.001, 0.02, 260))
+    pivot = _pivot_from_returns({"A": a, "B": b})
+    ts = compute_momentum(pivot, method="residual_tstat")
+    rr = compute_momentum(pivot, method="residual_riskadj")
+    rs = compute_momentum(pivot, method="residual")
+    assert set(ts.index) == {"A", "B"}
+    assert not np.isinf(ts.to_numpy()).any() and not np.isnan(ts.to_numpy()).any()
+    # standardizing by residual std (ts) is not the same transform as / total vol (rr)
+    # nor the raw cumulative residual (rs).
+    assert not np.allclose(ts.to_numpy(), rr.to_numpy())
+    assert not np.allclose(ts.to_numpy(), rs.to_numpy())
+
+
+def test_residual_tstat_returns_series_over_all_tickers():
+    rng = np.random.default_rng(3)
+    rets = {t: list(rng.normal(0.0005, 0.012, 300)) for t in ("A", "B", "C", "D")}
+    out = compute_momentum(_pivot_from_returns(rets), method="residual_tstat")
+    assert set(out.index) == {"A", "B", "C", "D"}
+    assert out.notna().all()
+
+
+def test_residual_tstat_insufficient_history_empty():
+    rng = np.random.default_rng(1)
+    rets = {t: list(rng.normal(0, 0.01, 10)) for t in ("A", "B")}   # far < long_window
+    assert compute_momentum(_pivot_from_returns(rets), method="residual_tstat").empty
+
+
+def test_residual_tstat_blend_supported():
+    rng = np.random.default_rng(5)
+    rets = {t: list(rng.normal(0.0005, 0.012, 300)) for t in ("A", "B", "C")}
+    pivot = _pivot_from_returns(rets)
+    blended = compute_momentum(pivot, method="residual_tstat", blend_long_windows=[252, 126])
+    assert set(blended.index) == {"A", "B", "C"}
+    assert blended.notna().all()

@@ -211,7 +211,7 @@ def _momentum_single(
     vol = vol.where(vol > 0)  # 0 vol → NaN (avoid divide-by-zero)
 
     signal = momentum
-    if method in ("residual", "residual_riskadj"):
+    if method in ("residual", "residual_riskadj", "residual_tstat"):
         # Market proxy = equal-weight cross-sectional mean daily return (no SPY plumbing).
         mkt = rets.mean(axis=1)
         m = mkt.to_numpy()
@@ -223,11 +223,32 @@ def _momentum_single(
             beta = np.nansum(R_dem * m_dem[:, None], axis=0) / (var_m * R.shape[0])
             resid = R - beta[None, :] * m[:, None]             # idiosyncratic daily returns
             resid_cum = np.nansum(resid, axis=0)               # cumulative residual return
-            signal = pd.Series(resid_cum, index=rets.columns, name="momentum")
+            if method == "residual_tstat":
+                # Gutierrez-Prinsky (2007) / Blitz-Huij-Martens (2011): standardize the
+                # cumulative residual by the STD OF THE RESIDUALS over the window — an
+                # information-ratio / t-stat-like measure that rewards CONSISTENT
+                # idiosyncratic outperformance rather than a few lucky jumps. (This is
+                # the canonical residual-momentum construction; residual_riskadj instead
+                # divides by TOTAL-return vol, which is close but not the residual std.)
+                # Cross-sectional rank is invariant to the constant sqrt(n), so
+                # cum/std_resid ranks identically to the per-day-mean t-stat.
+                n_obs = np.sum(~np.isnan(resid), axis=0)
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    resid_std = np.nanstd(resid, axis=0, ddof=1)
+                    tstat = np.where(
+                        (resid_std > 0) & (n_obs >= 2),
+                        resid_cum / resid_std,
+                        np.nan,
+                    )
+                signal = pd.Series(tstat, index=rets.columns, name="momentum")
+            else:
+                signal = pd.Series(resid_cum, index=rets.columns, name="momentum")
             # A ticker with no usable returns this window → NaN, not 0.
             signal = signal.where(rets.notna().any(axis=0))
         # var_m == 0 (degenerate flat market) → keep raw momentum as `signal`.
 
+    # residual_tstat is ALREADY standardized (by residual std) above — it must NOT also
+    # pass through the total-vol divisor here (that would double-scale it).
     if method in ("risk_adjusted", "residual_riskadj"):
         signal = (signal / vol).replace([float("inf"), float("-inf")], float("nan"))
 
