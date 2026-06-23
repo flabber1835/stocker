@@ -332,7 +332,14 @@ async def _persist_decision(req: TradeCheckRequest, *, approved: bool, reason: s
 async def lifespan(app_: FastAPI):
     global engine
     if DATABASE_URL:
-        engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=2, max_overflow=3,
+        # Pool sizing (audit P0): each /check serially checks out a connection up to
+        # ~6 times (one per DB-dependent control + the persist txn). The old 2/3 (=5
+        # max) starved under concurrent /check (e.g. the drain re-check overlapping an
+        # approval) while a control's query waited on the pool past the 30s checkout
+        # timeout → the control threw → spurious "Safety control unavailable" fail-
+        # closed rejects. Bump so a burst of concurrent checks can't exhaust the pool.
+        engine = create_async_engine(DATABASE_URL, pool_pre_ping=True,
+                                     pool_size=10, max_overflow=20,
                                      connect_args={"timeout": 60})
         # Warm up the DB in the background — see warm_up_db_in_background docstring.
         # Blocking here would mean uvicorn doesn't accept /health until the ping

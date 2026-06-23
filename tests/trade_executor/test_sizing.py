@@ -170,9 +170,25 @@ async def test_size_entry_falls_back_to_account_value_when_no_buying_power():
 
 
 @pytest.mark.asyncio
-async def test_size_entry_aborts_when_no_account_value():
+async def test_size_entry_aborts_when_no_sync_row():
+    # audit P0: no successful sync row is a FRESHNESS failure (fail closed) → 409
+    # with re-sync guidance, caught before the generic "cannot compute" path.
     conn = _mock_conn_returning([
         None,                               # alpaca_sync_runs returns None
+    ])
+    with pytest.raises(HTTPException) as exc_info:
+        await _size_entry(conn, "AAPL", intent_weight=0.05)
+    assert exc_info.value.status_code == 409
+    assert "alpaca-sync" in exc_info.value.detail.lower()
+
+
+@pytest.mark.asyncio
+async def test_size_entry_aborts_when_sync_present_but_values_null():
+    # A FRESH sync row (completed_at set) that nonetheless has NULL account_value AND
+    # buying_power still aborts at the "cannot compute" guard (400) — the freshness
+    # gate passes (it's fresh), so the original sizing-data error path is preserved.
+    conn = _mock_conn_returning([
+        {"account_value": None, "buying_power": None, "completed_at": _now()},
         {"current_price": 50.0},
     ])
     with pytest.raises(HTTPException) as exc_info:

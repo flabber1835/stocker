@@ -2263,7 +2263,11 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     # that exceed buying power and bounce at Alpaca ("insufficient funds"). Detect
     # an unreliable snapshot and (below) suppress buy-side intents; exits/holds stay
     # allowed because closing a position is always safe.
-    DELTA_SYNC_MAX_AGE_HOURS = float(os.getenv("DELTA_SYNC_MAX_AGE_HOURS", "12"))
+    # Aligned to the executor/risk sync-age thresholds (EXIT_SYNC_MAX_AGE_HOURS /
+    # MAX_SYNC_AGE_HOURS, both 24h) — audit P0. The previous 12h default meant a
+    # 12-24h-old sync was "unreliable" to the delta step (suppressing buys) but
+    # "fresh" to risk/executor, an inconsistent freshness contract across services.
+    DELTA_SYNC_MAX_AGE_HOURS = float(os.getenv("DELTA_SYNC_MAX_AGE_HOURS", "24"))
     broker_unreliable, broker_unreliable_reason = _broker_state_unreliable(
         no_sync_data=no_sync_data,
         sync_completed_at=(sync_run.completed_at if sync_run is not None else None),

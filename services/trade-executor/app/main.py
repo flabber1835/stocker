@@ -781,20 +781,30 @@ async def _size_entry(conn, ticker: str, intent_weight: Optional[float]) -> tupl
     account_value = _f(acct["account_value"]) if acct else None
     buying_power = _f(acct["buying_power"]) if acct else None
     sizing_basis = account_value if account_value is not None else buying_power
-    sync_age_hours = None
-    if acct and acct["completed_at"] is not None:
-        sync_age_hours = (
-            datetime.now(timezone.utc) - acct["completed_at"]
-        ).total_seconds() / 3600.0
-        if sync_age_hours > EXIT_SYNC_MAX_AGE_HOURS:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"Latest alpaca-sync is {sync_age_hours:.1f}h old "
-                    f"(> {EXIT_SYNC_MAX_AGE_HOURS}h); refusing to size entry. "
-                    "Re-sync before approving."
-                ),
-            )
+    # Sync freshness gate (audit P0): an entry is an OPENING trade — fail CLOSED on
+    # an unknown-age snapshot. Previously a sync row with NULL completed_at silently
+    # SKIPPED this guard and sized off a possibly-stale account_value. A missing row
+    # OR a NULL completion time both mean "freshness cannot be established" → refuse.
+    if acct is None or acct["completed_at"] is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No fresh alpaca-sync available (missing run or no completion "
+                "timestamp); refusing to size entry. Re-sync before approving."
+            ),
+        )
+    sync_age_hours = (
+        datetime.now(timezone.utc) - acct["completed_at"]
+    ).total_seconds() / 3600.0
+    if sync_age_hours > EXIT_SYNC_MAX_AGE_HOURS:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Latest alpaca-sync is {sync_age_hours:.1f}h old "
+                f"(> {EXIT_SYNC_MAX_AGE_HOURS}h); refusing to size entry. "
+                "Re-sync before approving."
+            ),
+        )
 
     # Price: prefer intraday live_positions.current_price, fall back to daily close.
     price_source = "live_positions"
@@ -927,7 +937,20 @@ async def _size_partial(conn, ticker: str, intent: dict) -> tuple[float, float, 
     buying_power = _f(acct["buying_power"])
     sizing_basis = account_value
     sizing_basis_name = "account_value"
-    if acct["completed_at"] is not None:
+    if acct["completed_at"] is None:
+        # Unknown freshness (audit P0): a 'success' row with no completion time can no
+        # longer SKIP the staleness gate. Fail CLOSED on the OPENING side (buy_add) —
+        # sizing an add off an unknown-age snapshot is unsafe. A reducing sell_trim is
+        # allowed through (de-risking must never be trapped, like an exit).
+        if action == "buy_add":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "No fresh alpaca-sync (no completion timestamp); refusing to "
+                    f"size {action}. Re-sync before approving."
+                ),
+            )
+    else:
         sync_age_hours = (datetime.now(timezone.utc) - acct["completed_at"]).total_seconds() / 3600.0
         if sync_age_hours > EXIT_SYNC_MAX_AGE_HOURS:
             raise HTTPException(

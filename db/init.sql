@@ -377,6 +377,8 @@ CREATE TABLE IF NOT EXISTS alpaca_sync_runs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_alpaca_sync_runs_started ON alpaca_sync_runs(started_at DESC);
+-- Risk-service freshness hot path: MAX(completed_at) WHERE status='success' (audit P0, migration 0027)
+CREATE INDEX IF NOT EXISTS idx_alpaca_sync_runs_status_completed ON alpaca_sync_runs(status, completed_at DESC);
 
 -- ── Live positions ────────────────────────────────────────────────────────────
 -- Current broker positions as of the latest successful alpaca-sync run.
@@ -533,6 +535,9 @@ CREATE TABLE IF NOT EXISTS alpaca_orders (
 
 CREATE INDEX IF NOT EXISTS idx_alpaca_orders_ticker  ON alpaca_orders(ticker);
 CREATE INDEX IF NOT EXISTS idx_alpaca_orders_created ON alpaca_orders(created_at DESC);
+-- Risk-service projected-positions + turnover filter by status/action (audit P0, migration 0027)
+CREATE INDEX IF NOT EXISTS idx_alpaca_orders_status        ON alpaca_orders(status);
+CREATE INDEX IF NOT EXISTS idx_alpaca_orders_action_status ON alpaca_orders(action, status);
 
 -- ── Risk decisions ────────────────────────────────────────────────────────────
 -- Every call to risk-service /check writes one row. Answers "which rule
