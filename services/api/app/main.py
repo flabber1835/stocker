@@ -20,6 +20,7 @@ from stock_strategy_shared.ai_universe import (
     AI_BUILDOUT_AS_OF,
     AI_BUILDOUT_UNIVERSE,
 )
+from stock_strategy_shared.order_status import open_status_sql, turnover_status_sql
 
 DATABASE_URL          = os.getenv("DATABASE_URL", "")
 TRADE_EXECUTOR_URL    = os.getenv("TRADE_EXECUTOR_URL",    "http://trade-executor:8000")
@@ -1766,9 +1767,11 @@ async def get_delta_latest():
                 # a fresh re-run's intent and make it look un-actionable. So a real
                 # open/filled order always wins; only when none exists does the latest
                 # dead one show (status badge stays, but _isApprovable lets it retry).
-                "  ORDER BY (CASE WHEN ao2.status IN "
-                "             ('pending','submitted','deferred','accepted','new',"
-                "              'partially_filled','filled') THEN 0 ELSE 1 END), "
+                # "live or done" = OPEN_ORDER_STATUSES + 'filled' (= turnover set).
+                # Uses the canonical DB tokens (e.g. 'partial_fill', NOT the broker
+                # 'partially_filled' which is never persisted) — see order_status.py.
+                f"  ORDER BY (CASE WHEN ao2.status IN ({turnover_status_sql()}) "
+                "             THEN 0 ELSE 1 END), "
                 "           ao2.created_at DESC LIMIT 1"
                 ") ao ON true "
                 "WHERE di.run_id = :rid "
@@ -1781,7 +1784,11 @@ async def get_delta_latest():
             if tickers:
                 vr = (await conn.execute(text(
                     "SELECT run_id FROM vetter_runs WHERE status='success' "
-                    "ORDER BY started_at DESC LIMIT 1"
+                    # canonical "latest successful run" ordering — matches every
+                    # other vetter_runs selector in this file (completed-time wins;
+                    # started_at only breaks ties). started_at-alone could pick a
+                    # later-started run that completed before an earlier-started one.
+                    "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
                 ))).mappings().first()
                 if vr:
                     vd_rows = (await conn.execute(text(
@@ -1955,7 +1962,7 @@ async def approve_trade(req: TradeApproveRequest):
             # (OPEN_ORDER_STATUSES) likewise excludes the dead statuses.
             existing = (await conn.execute(text(
                 "SELECT id, status FROM alpaca_orders "
-                "WHERE intent_id = :iid AND status IN ('pending','submitted','deferred') "
+                f"WHERE intent_id = :iid AND status IN ({open_status_sql()}) "
                 "LIMIT 1"
             ), {"iid": req.intent_id})).mappings().first()
             if existing:
@@ -2053,7 +2060,8 @@ async def get_recent_orders():
             "FROM alpaca_orders "
             "WHERE created_at > NOW() - INTERVAL '48 hours' "
             "  AND ( "
-            "    status IN ('pending','submitted','deferred','risk_rejected','failed','expired') "
+            # open orders (canonical set) + recent dead attempts kept for visibility
+            f"    status IN ({open_status_sql()}, 'risk_rejected','failed','expired') "
             "    OR (status = 'filled' AND filled_at > NOW() - INTERVAL '2 hours') "
             "  ) "
             "ORDER BY created_at DESC "

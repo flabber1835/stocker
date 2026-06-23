@@ -177,7 +177,7 @@ Built:
 ```text
 alpaca-sync service
   /health, POST /jobs/sync, GET /runs/latest, GET /positions
-  reads GET /v2/account and GET /v2/positions from Alpaca
+  reads GET /v2/account, GET /v2/positions, GET /v2/orders from Alpaca (read-only)
   writes alpaca_sync_runs and live_positions (incl. lastday_price, change_today for day P&L)
   asyncio-locked single-flight; auto-syncs on startup when credentials are present
 

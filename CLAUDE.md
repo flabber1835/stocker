@@ -901,7 +901,8 @@ Short-circuits when ALPACA_API_KEY is empty (records a failed row, no HTTP call)
 
 No other service should contain Alpaca order-submission credentials.
 alpaca-sync also has Alpaca credentials but only performs read calls
-(`GET /v2/account`, `GET /v2/positions`).
+(`GET /v2/account`, `GET /v2/positions`, and `GET /v2/orders` to reconcile
+fill status — read-only; it never submits or cancels orders).
 
 Initial implementation is paper-trading only.
 
@@ -1507,7 +1508,7 @@ stocker/
     llm-vetter/          ← built: Tavily + Ollama/OpenAI vetting; mandatory chain step, exclusions binding
     delta-engine/        ← built: buffer-zone entry/exit evaluation, produces delta_intents
     dashboard/           ← built: universe/rank/vetter/portfolio/live/trade-proposal tabs
-    alpaca-sync/         ← built: GET /v2/account, GET /v2/positions; writes alpaca_sync_runs + live_positions
+    alpaca-sync/         ← built: GET /v2/account, GET /v2/positions, GET /v2/orders (read-only reconcile); writes alpaca_sync_runs + live_positions
     risk-service/        ← built: deterministic /check (kill switch, paper guard, notional limit)
     trade-executor/      ← built: only service permitted to submit Alpaca orders; writes alpaca_orders
     scheduler/           ← built: daily chain + startup catch-up

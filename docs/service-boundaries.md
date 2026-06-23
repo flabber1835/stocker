@@ -252,7 +252,9 @@ them to Postgres. Never submits orders.
 - `GET /positions`
 
 **Behaviour:**
-- Calls only `GET /v2/account` and `GET /v2/positions` against Alpaca
+- Calls only read endpoints against Alpaca: `GET /v2/account`, `GET /v2/positions`,
+  and `GET /v2/orders` (reconciles fill status of orders trade-executor submitted).
+  It never submits or cancels orders — only trade-executor places orders.
 - Writes to `alpaca_sync_runs` and `live_positions` (including `lastday_price` and
   `change_today` so the dashboard can compute day P&L)
 - Auto-syncs on startup when `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` are present

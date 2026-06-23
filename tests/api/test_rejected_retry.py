@@ -27,18 +27,44 @@ def _js():
 
 def test_approve_guard_does_not_block_risk_rejected():
     src = _api()
-    # The approve idempotency guard blocks only open orders now.
-    assert "status IN ('pending','submitted','deferred') " in src
-    # The old list that trapped retries must be gone from that guard.
+    # The approve idempotency guard blocks only OPEN orders, and now sources the
+    # open set from the shared single-source-of-truth (open_status_sql()) instead
+    # of an inline literal list — so it can't drift from the canonical tokens.
+    assert "WHERE intent_id = :iid AND status IN ({open_status_sql()}) " in src
+    # The old narrow inline list (missing accepted/new/partial_fill) must be gone.
+    assert "status IN ('pending','submitted','deferred') " not in src
+    # And it must never trap a dead status (would wedge retries).
     assert "status IN ('pending','submitted','deferred','risk_rejected')" not in src
 
 
 def test_delta_latest_prefers_live_over_dead_order():
     src = _api()
     # LATERAL order-status join prefers a live/filled order over a dead attempt,
-    # so a stale rejection in the same session can't mask a fresh intent.
-    assert "CASE WHEN ao2.status IN " in src
-    assert "'partially_filled','filled') THEN 0 ELSE 1 END" in src
+    # so a stale rejection in the same session can't mask a fresh intent. The
+    # "live or done" set is OPEN_ORDER_STATUSES + filled = turnover_status_sql(),
+    # sourced from the shared module.
+    assert "CASE WHEN ao2.status IN ({turnover_status_sql()}) " in src
+    # The broker spelling 'partially_filled' is NEVER persisted (alpaca-sync maps
+    # it to 'partial_fill'), so it must not appear in status-matching SQL — its
+    # presence here was a confirmed split-brain bug (the CASE never matched a
+    # partial fill). The canonical 'partial_fill' comes in via the shared helper.
+    # (Match the SQL literal form, not the explanatory comment in main.py.)
+    assert "'partially_filled','filled')" not in src
+    assert "'partially_filled', 'filled')" not in src
+
+
+def test_api_sources_open_status_from_shared_module():
+    """C-1 regression: api must import the canonical order-status helpers and use
+    them in its status-matching SQL, rather than re-typing the open set inline
+    (which had already drifted: the broker spelling 'partially_filled' that is
+    never persisted, plus a 409 guard missing accepted/new/partial_fill)."""
+    src = _api()
+    assert "from stock_strategy_shared.order_status import" in src
+    assert "open_status_sql" in src
+    assert "turnover_status_sql" in src
+    # The recent-activity feed composes the open set from the helper too (then adds
+    # the dead-for-visibility statuses), not from an inline open list.
+    assert "status IN ({open_status_sql()}, 'risk_rejected','failed','expired')" in src
 
 
 def test_ui_isApprovable_allows_dead_but_blocks_open():
