@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from stock_strategy_shared.db import wait_for_db, warm_up_db_in_background  # noqa: F401
+from stock_strategy_shared.broker import get_broker_adapter
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -107,16 +108,20 @@ async def _log_step(
 # Sync logic
 # ---------------------------------------------------------------------------
 
-# Map Alpaca terminal statuses to our DB statuses
-_ALPACA_TO_STATUS = {
-    "filled":           "filled",
-    "partially_filled": "partial_fill",
-    "canceled":         "cancelled",
-    "done_for_day":     "cancelled",
-    "expired":          "cancelled",
-    "replaced":         "cancelled",
-    "rejected":         "failed",
-}
+# Broker access goes through the shared adapter (single source of broker
+# knowledge: base URL, auth headers, endpoint shapes, and the broker-status →
+# canonical-DB-token map). One broker per deployment, selected by BROKER env.
+# The adapter is built per-call reading the CURRENT module config so tests that
+# patch ALPACA_API_KEY/SECRET_KEY still take effect; http_provider routes
+# transport through this module's `httpx` so `patch("app.main.httpx.AsyncClient")`
+# keeps intercepting.
+def _broker():
+    return get_broker_adapter(
+        api_key=ALPACA_API_KEY,
+        secret_key=ALPACA_SECRET_KEY,
+        base_url=ALPACA_BASE_URL,
+        http_provider=lambda: httpx,
+    )
 
 
 async def _do_sync(
@@ -164,38 +169,30 @@ async def _do_sync(
             await db.commit()
 
     try:
-        headers = {
-            "APCA-API-KEY-ID": ALPACA_API_KEY,
-            "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY,
-        }
+        broker = _broker()
 
         # Step: fetch_account
         t0 = datetime.now(timezone.utc)
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            acct_resp = await client.get(f"{ALPACA_BASE_URL}/v2/account", headers=headers)
-            acct_resp.raise_for_status()
-            acct = acct_resp.json()
-            equity = _parse_float(acct.get("equity"))
-            buying_power = _parse_float(acct.get("buying_power"))
-            cash = _parse_float(acct.get("cash"))
-            async with SessionLocal() as db:
-                await _log_step(
-                    db, trace_id, "fetch_account", "success", t0,
-                    output_summary={"equity": equity, "buying_power": buying_power, "cash": cash},
-                )
-                await db.commit()
+        acct = await broker.get_account()
+        equity = acct.equity
+        buying_power = acct.buying_power
+        cash = acct.cash
+        async with SessionLocal() as db:
+            await _log_step(
+                db, trace_id, "fetch_account", "success", t0,
+                output_summary={"equity": equity, "buying_power": buying_power, "cash": cash},
+            )
+            await db.commit()
 
-            # Step: fetch_positions
-            t0 = datetime.now(timezone.utc)
-            pos_resp = await client.get(f"{ALPACA_BASE_URL}/v2/positions", headers=headers)
-            pos_resp.raise_for_status()
-            positions = pos_resp.json()
-            async with SessionLocal() as db:
-                await _log_step(
-                    db, trace_id, "fetch_positions", "success", t0,
-                    output_summary={"position_count": len(positions)},
-                )
-                await db.commit()
+        # Step: fetch_positions
+        t0 = datetime.now(timezone.utc)
+        positions = await broker.get_positions()
+        async with SessionLocal() as db:
+            await _log_step(
+                db, trace_id, "fetch_positions", "success", t0,
+                output_summary={"position_count": len(positions)},
+            )
+            await db.commit()
 
         synced_at = datetime.now(timezone.utc)
 
@@ -205,10 +202,10 @@ async def _do_sync(
         skipped = 0
         async with SessionLocal() as db:
             for pos in positions:
-                qty = _parse_float(pos.get("qty"))
-                ticker = pos.get("symbol", "")
+                qty = pos.qty
+                ticker = pos.ticker
                 if qty is None or not ticker:
-                    print(f"[alpaca-sync] Skipping position with missing qty/ticker: {pos}")
+                    print(f"[alpaca-sync] Skipping position with missing qty/ticker: {pos.raw}")
                     skipped += 1
                     continue
                 await db.execute(
@@ -231,15 +228,15 @@ async def _do_sync(
                         "sync_run_id": run_id,
                         "ticker": ticker,
                         "qty": qty,
-                        "avg_entry_price": _parse_float(pos.get("avg_entry_price")),
-                        "current_price": _parse_float(pos.get("current_price")),
-                        "market_value": _parse_float(pos.get("market_value")),
-                        "cost_basis": _parse_float(pos.get("cost_basis")),
-                        "unrealized_pl": _parse_float(pos.get("unrealized_pl")),
-                        "unrealized_plpc": _parse_float(pos.get("unrealized_plpc")),
-                        "side": pos.get("side", "long"),
-                        "lastday_price": _parse_float(pos.get("lastday_price")),
-                        "change_today": _parse_float(pos.get("change_today")),
+                        "avg_entry_price": pos.avg_entry_price,
+                        "current_price": pos.current_price,
+                        "market_value": pos.market_value,
+                        "cost_basis": pos.cost_basis,
+                        "unrealized_pl": pos.unrealized_pl,
+                        "unrealized_plpc": pos.unrealized_plpc,
+                        "side": pos.side,
+                        "lastday_price": pos.lastday_price,
+                        "change_today": pos.change_today,
                         "synced_at": synced_at,
                     },
                 )
@@ -256,18 +253,13 @@ async def _do_sync(
         orders_updated = 0
         orders_skipped = 0
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                # Fetch all orders (open + closed) up to 500; covers typical paper account
-                ord_resp = await client.get(
-                    f"{ALPACA_BASE_URL}/v2/orders",
-                    headers=headers,
-                    params={"status": "all", "limit": 500, "direction": "desc"},
-                )
-                ord_resp.raise_for_status()
-                alpaca_orders = ord_resp.json()
+            # Fetch all orders (open + closed) up to 500; covers typical paper account.
+            # Adapter returns normalized BrokerOrder objects with status already
+            # mapped to canonical DB tokens (partial_fill, not partially_filled).
+            broker_orders = await broker.list_orders(status="all", limit=500)
 
-            # Build lookup: alpaca_order_id → Alpaca order object
-            alpaca_map = {o["id"]: o for o in alpaca_orders if isinstance(o, dict)}
+            # Build lookup: broker_order_id → BrokerOrder
+            alpaca_map = {o.broker_order_id: o for o in broker_orders}
 
             # Load our submitted orders that have an Alpaca order ID
             async with SessionLocal() as db2:
@@ -281,21 +273,15 @@ async def _do_sync(
                 if ao is None:
                     orders_skipped += 1
                     continue
-                alpaca_status = ao.get("status", "")
-                new_status = _ALPACA_TO_STATUS.get(alpaca_status)
+                alpaca_status = ao.raw_status
+                new_status = ao.status
                 if new_status is None:
                     orders_skipped += 1
                     continue  # still open (new, pending_new, accepted, held…)
 
-                filled_qty = _parse_float(ao.get("filled_qty"))
-                avg_fill = _parse_float(ao.get("filled_avg_price"))
-                filled_at_raw = ao.get("filled_at")
-                filled_at = None
-                if filled_at_raw:
-                    try:
-                        filled_at = datetime.fromisoformat(filled_at_raw.replace("Z", "+00:00"))
-                    except Exception:
-                        pass
+                filled_qty = ao.filled_qty
+                avg_fill = ao.avg_fill_price
+                filled_at = ao.filled_at
 
                 async with SessionLocal() as db2:
                     await db2.execute(
@@ -321,7 +307,7 @@ async def _do_sync(
                 await _log_step(
                     db2, trace_id, "sync_orders", "success", t0,
                     output_summary={
-                        "alpaca_orders_fetched": len(alpaca_orders),
+                        "alpaca_orders_fetched": len(broker_orders),
                         "local_submitted": len(rows),
                         "updated": orders_updated,
                         "skipped": orders_skipped,

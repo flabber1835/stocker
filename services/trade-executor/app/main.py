@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from stock_strategy_shared.db import wait_for_db
 from stock_strategy_shared.order_status import OPEN_ORDER_STATUSES, open_status_sql
+from stock_strategy_shared.broker import get_broker_adapter
 
 from app.drain import DeferredOrder, plan_drain
 from app.submit_lock import (
@@ -284,6 +285,23 @@ def _alpaca_read_headers() -> dict:
     return {"APCA-API-KEY-ID": ALPACA_API_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY}
 
 
+def _broker():
+    """Build the deployment's broker adapter from CURRENT module config.
+
+    Built per-call so tests that patch ALPACA_* / te_main attrs take effect, and
+    http_provider routes transport through this module's `httpx` so the existing
+    `patch.object(te_main, "httpx")` mocking keeps intercepting adapter calls.
+    Used by the READ helpers below; the order-submission/close/cancel paths keep
+    their own inline transport (the safety-critical, transport-tested code).
+    """
+    return get_broker_adapter(
+        api_key=ALPACA_API_KEY,
+        secret_key=ALPACA_SECRET_KEY,
+        base_url=ALPACA_BASE_URL,
+        http_provider=lambda: httpx,
+    )
+
+
 async def _get_alpaca_clock() -> Optional[dict]:
     """GET /v2/clock → {is_open, next_open, next_close}. None if creds missing or
     unreachable.
@@ -296,15 +314,7 @@ async def _get_alpaca_clock() -> Optional[dict]:
     if not (ALPACA_API_KEY and ALPACA_SECRET_KEY):
         return None
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.get(f"{ALPACA_BASE_URL}/v2/clock", headers=_alpaca_read_headers())
-        if r.status_code == 200:
-            d = r.json()
-            return {
-                "is_open": bool(d.get("is_open")),
-                "next_open": _parse_alpaca_dt(d.get("next_open")),
-                "next_close": _parse_alpaca_dt(d.get("next_close")),
-            }
+        return await _broker().get_clock()
     except Exception as exc:
         logger.warning("Alpaca clock fetch failed: %s", exc)
     return None
@@ -358,10 +368,8 @@ async def _get_alpaca_buying_power() -> Optional[float]:
     if not (ALPACA_API_KEY and ALPACA_SECRET_KEY):
         return None
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.get(f"{ALPACA_BASE_URL}/v2/account", headers=_alpaca_read_headers())
-        if r.status_code == 200:
-            return _f(r.json().get("buying_power"))
+        acct = await _broker().get_account()
+        return acct.buying_power if acct else None
     except Exception as exc:
         logger.warning("Alpaca account fetch failed: %s", exc)
     return None
@@ -370,13 +378,7 @@ async def _get_alpaca_buying_power() -> Optional[float]:
 async def _get_alpaca_order(alpaca_order_id: str) -> Optional[dict]:
     """GET /v2/orders/{id} → the order dict. None on failure."""
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.get(
-                f"{ALPACA_BASE_URL}/v2/orders/{alpaca_order_id}",
-                headers=_alpaca_read_headers(),
-            )
-        if r.status_code == 200:
-            return r.json()
+        return await _broker().get_order(alpaca_order_id)
     except Exception as exc:
         logger.warning("Alpaca order fetch failed for %s: %s", alpaca_order_id, exc)
     return None

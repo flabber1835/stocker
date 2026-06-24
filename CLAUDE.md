@@ -1497,6 +1497,10 @@ stocker/
     stock_strategy_shared/
       schemas/
         strategy.py      ← StrategyConfig, RegimeDetectionConfig, FactorWeights, etc.
+      order_status.py    ← canonical alpaca_orders.status tokens (single source)
+      broker/            ← BrokerAdapter abstraction (one active broker per deploy,
+                           BROKER env; AlpacaBrokerAdapter built, IBKR planned).
+                           See docs/service-boundaries.md "Broker abstraction".
 
   services/
     api/                 ← built: health, universe, rankings, portfolio, regime, live-portfolio

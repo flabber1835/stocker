@@ -240,6 +240,56 @@ API:
 - `POST /jobs/backtest` — triggers background run (date_from, date_to, tx_cost_bps)
 - `GET /runs/latest`, `/runs/{id}`, `/runs/{id}/monthly`
 
+### Broker abstraction (`shared/stock_strategy_shared/broker/`)
+
+All broker I/O goes through a shared `BrokerAdapter` interface — the single seam
+between the deterministic engine and a concrete paper/live broker. This exists so
+a second broker (IBKR) can be added without scattering broker logic across
+services.
+
+**Deployment model — one active broker per deployment.** Each machine runs ONE
+book against ONE broker, selected at deploy time by the `BROKER` env var
+(default `alpaca`) via `broker.get_broker_adapter()`. There is **no runtime
+multi-broker routing**: every per-account control (MAX_POSITIONS, turnover,
+sizing, sync freshness) operates on a single account, so no per-broker scoping is
+needed. When several machines each run a book, each has its **own Postgres** —
+there is no shared DB, so the `alpaca_orders` / `live_positions` / `alpaca_sync_runs`
+tables on an IBKR box simply hold IBKR data (the `alpaca_*` names are a naming
+carry-over, not a coupling).
+
+**The adapter is transport + normalization only — never a decision-maker.**
+`trade-executor` remains the sole service that DECIDES to submit (sizing,
+risk-check, idempotency); the adapter is its outbound pipe. This preserves the
+architecture invariant "only trade-executor places orders."
+
+**What the adapter centralizes (single source of broker knowledge):**
+- base URL, auth headers, endpoint shapes, float/timestamp parsing
+- the broker-status → canonical `order_status.py` DB-token map (so a new broker's
+  status vocabulary can never re-introduce the `partial_fill` vs
+  `partially_filled` split-brain)
+- read methods return broker-agnostic dataclasses (`AccountSnapshot`,
+  `BrokerPosition`, `BrokerOrder`) so consumers don't change when the broker does
+
+**`http_provider` seam:** services pass `http_provider=lambda: <module>.httpx` so
+transport resolves through the service's own `httpx` at call time — existing
+module-level test mocks (`patch.object(te_main, "httpx")` /
+`patch("app.main.httpx.AsyncClient")`) keep intercepting adapter calls.
+
+**Current consumers:**
+- `alpaca-sync` — fully on the adapter (account/positions/orders reads + status
+  normalization).
+- `trade-executor` — read helpers (`_get_alpaca_clock` / `_get_alpaca_buying_power`
+  / `_get_alpaca_order`) on the adapter. The order-submission / close-position /
+  cancel-all transport stays inline for now (safety-critical, transport-tested);
+  migrating it onto `adapter.submit_order`/`close_position`/`cancel_all` is a
+  documented follow-up (**Phase 2b**) and does not change behavior.
+
+**Adding IBKR (future):** implement `IBKRBrokerAdapter`, add a `BROKER=ibkr`
+branch in `factory.py`, and run IBKR's stateful session process (IB Gateway /
+Client Portal Gateway) as a sidecar gated behind a `--profile ibkr` compose
+profile (Alpaca machines never start it). No risk-math changes — provided each
+machine keeps its own DB.
+
 ### alpaca-sync
 
 Read-only Alpaca sync. Pulls account state and positions from Alpaca and writes

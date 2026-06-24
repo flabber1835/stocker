@@ -55,6 +55,16 @@ live trading later
 
 Only `trade-executor` should submit orders.
 
+### Broker selection (Alpaca / IBKR)
+
+Broker access is abstracted behind a shared `BrokerAdapter`
+(`shared/stock_strategy_shared/broker/`). Exactly ONE broker is active per
+deployment, chosen at deploy time by the `BROKER` env var (default `alpaca`).
+Each machine runs one book against one broker with its own Postgres; there is no
+runtime multi-broker routing. IBKR is the planned second broker
+(`BROKER=ibkr` + an `IBKRBrokerAdapter` + a `--profile ibkr` session sidecar).
+See `docs/service-boundaries.md` → "Broker abstraction" for the full design.
+
 ## Future Optional Sources
 
 ### Sharadar
