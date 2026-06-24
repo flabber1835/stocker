@@ -159,11 +159,15 @@ portfolio_builder:
   # Portfolio-level CONSTANT-VOLATILITY TARGETING (Barroso & Santa-Clara 2015) — the
   # literature's highest-Sharpe momentum crash control and the intended substitute for
   # the low-vol/value ballast cut in v2. Only DE-levers (raises cash) when the selected
-  # book's ex-ante annualised vol exceeds vol_target; a calm book (~7-8% vol in recent
-  # runs) stays fully invested, so it adds NO drag in normal markets and bites only in
-  # stress / correlation-spike regimes. Long-only, never levers up.
+  # book's ex-ante annualised vol exceeds vol_target; never levers up (long-only).
+  # NOTE: this momentum book runs HOT — a recent live build measured
+  # book_vol_full_invested ≈ 0.188, so at vol_target 0.12 the overlay was de-levering
+  # to ~64% invested (~36% cash), chronically capping upside/beta. Raised to 0.18 so
+  # the book stays ~fully invested in calm/normal regimes (0.18/0.188 ≈ 96%) and the
+  # overlay only bites in a genuine vol spike / correlation cluster-up. Lower it back
+  # toward 0.12 to trade upside for a thicker crash cushion.
   vol_target_enabled: true
-  vol_target: 0.12                   # annualised target book vol; binds only above this
+  vol_target: 0.18                   # annualised target book vol; binds only above this
   vol_target_min_exposure: 0.30      # never de-lever below 30% invested even in extreme vol
   theme_overlay:
     enabled: false                   # OFF — a pure momentum rotation should DISCOVER the hot sector organically (then be capped), not be hard-wired to one theme
