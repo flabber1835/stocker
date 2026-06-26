@@ -275,20 +275,37 @@ transport resolves through the service's own `httpx` at call time — existing
 module-level test mocks (`patch.object(te_main, "httpx")` /
 `patch("app.main.httpx.AsyncClient")`) keep intercepting adapter calls.
 
-**Current consumers:**
-- `alpaca-sync` — fully on the adapter (account/positions/orders reads + status
-  normalization).
-- `trade-executor` — read helpers (`_get_alpaca_clock` / `_get_alpaca_buying_power`
-  / `_get_alpaca_order`) on the adapter. The order-submission / close-position /
-  cancel-all transport stays inline for now (safety-critical, transport-tested);
-  migrating it onto `adapter.submit_order`/`close_position`/`cancel_all` is a
-  documented follow-up (**Phase 2b**) and does not change behavior.
+**Current consumers (fully migrated):**
+- `alpaca-sync` — account/positions/orders reads + status normalization on the
+  adapter.
+- `trade-executor` — BOTH the read helpers (`_get_alpaca_clock` /
+  `_get_alpaca_buying_power` / `_get_alpaca_order`) AND the write path
+  (`_submit_to_alpaca` → `adapter.submit_order`, `_close_position_alpaca` →
+  `adapter.close_position`, `cancel_all_orders` → `adapter.cancel_all_orders`) go
+  through the adapter (Phase 2b). The decision logic (sizing, risk-check,
+  idempotency, the close-position-404 → `closed` no-op, the cancel multi-status
+  confirmed/failed split, status persistence) stays in trade-executor — the
+  adapter is transport only. Behavior is unchanged for Alpaca. The
+  `position_already_closed` sentinel is single-sourced from the adapter
+  (`ALREADY_CLOSED_STATUS`).
 
-**Adding IBKR (future):** implement `IBKRBrokerAdapter`, add a `BROKER=ibkr`
-branch in `factory.py`, and run IBKR's stateful session process (IB Gateway /
-Client Portal Gateway) as a sidecar gated behind a `--profile ibkr` compose
-profile (Alpaca machines never start it). No risk-math changes — provided each
-machine keeps its own DB.
+So the entire order path (submit / close / cancel / reads) is now broker-portable:
+an IBKR adapter implementing the same `BrokerAdapter` methods makes trade-executor
+work against IBKR with no changes to its decision logic.
+
+**The `http_provider` seam keeps transport patchable:** trade-executor's existing
+tests `patch.object(te_main, "httpx")`; because the adapter resolves transport via
+`http_provider=lambda: te_main.httpx` at call time, those patches still intercept
+the adapter's POST/DELETE/GET — so the write-path migration changed no test
+mocking strategy and is behavior-identical (verified:
+`tests/trade_executor/test_broker_adapter_seam.py`,
+`test_cancel_all_partial.py`, `test_close_position_404.py`).
+
+**Adding IBKR (future):** implement `IBKRBrokerAdapter` (the read + write methods
+above), add a `BROKER=ibkr` branch in `factory.py`, and run IBKR's stateful
+session process (IB Gateway / Client Portal Gateway) as a sidecar gated behind a
+`--profile ibkr` compose profile (Alpaca machines never start it). No risk-math
+or decision-logic changes — provided each machine keeps its own DB.
 
 ### alpaca-sync
 

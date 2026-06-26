@@ -7,18 +7,19 @@ from .base import (
     BrokerAdapter,
     BrokerOrder,
     BrokerPosition,
-    OrderRequest,
-    SubmitResult,
 )
 from .factory import get_broker_adapter
+
+# Single source of the "position already flat" sentinel that close_position
+# returns — trade-executor imports this instead of redefining the literal.
+ALREADY_CLOSED_STATUS = BrokerAdapter.ALREADY_CLOSED_STATUS
 
 __all__ = [
     "AccountSnapshot",
     "BrokerAdapter",
     "BrokerOrder",
     "BrokerPosition",
-    "OrderRequest",
-    "SubmitResult",
     "AlpacaBrokerAdapter",
     "get_broker_adapter",
+    "ALREADY_CLOSED_STATUS",
 ]

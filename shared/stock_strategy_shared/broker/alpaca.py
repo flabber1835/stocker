@@ -16,13 +16,13 @@ import os
 from datetime import datetime
 from typing import Callable, Optional
 
+from typing import Any
+
 from .base import (
     AccountSnapshot,
     BrokerAdapter,
     BrokerOrder,
     BrokerPosition,
-    OrderRequest,
-    SubmitResult,
 )
 
 
@@ -192,23 +192,58 @@ class AlpacaBrokerAdapter(BrokerAdapter):
             }
         return None
 
-    # -- writes (transport helpers; trade-executor owns the decision logic) --
-    async def submit_order(self, req: OrderRequest) -> SubmitResult:
-        payload = {
-            "symbol": req.symbol,
-            "qty": str(req.qty),
-            "side": req.side,
-            "type": req.type,
-            "time_in_force": req.time_in_force,
-        }
+    # -- writes (transport only; trade-executor owns the decision logic) -----
+    async def submit_order(
+        self, payload: dict
+    ) -> tuple[Optional[str], Optional[str], Optional[str]]:
+        """POST an order to Alpaca. Returns (alpaca_order_id, alpaca_status, error).
+        Transport errors propagate (caller wraps them)."""
         async with self._httpx.AsyncClient(timeout=self.timeout) as client:
-            r = await client.post(
-                f"{self.base_url}/v2/orders", headers=self.headers(), json=payload
+            resp = await client.post(
+                f"{self.base_url}/v2/orders", json=payload, headers=self.headers()
             )
-            r.raise_for_status()
-            body = r.json()
-        return SubmitResult(
-            broker_order_id=str(body.get("id")) if body.get("id") else None,
-            raw_status=body.get("status", ""),
-            raw=body if isinstance(body, dict) else {},
-        )
+        if resp.status_code in (200, 201):
+            data = resp.json()
+            return data.get("id"), data.get("status"), None
+        return None, None, resp.text[:1000]
+
+    async def close_position(
+        self, symbol: str
+    ) -> tuple[Optional[str], Optional[str], Optional[str]]:
+        """Close 100% of a position via DELETE /v2/positions/{symbol}. Same return
+        shape as submit_order. A 404 (already flat) maps to the benign
+        ALREADY_CLOSED_STATUS sentinel rather than a spurious error.
+
+        Alpaca computes the exact held qty at execution, so this never over-sells a
+        fractional position ("insufficient qty available") and is immune to drift
+        since the last sync."""
+        async with self._httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.delete(
+                f"{self.base_url}/v2/positions/{symbol}", headers=self.headers()
+            )
+        if resp.status_code in (200, 201):
+            data = resp.json()
+            return data.get("id"), data.get("status"), None
+        if resp.status_code == 404:
+            return None, self.ALREADY_CLOSED_STATUS, None
+        return None, None, resp.text[:1000]
+
+    async def cancel_all_orders(self) -> tuple[int, Any, str]:
+        """DELETE /v2/orders. Returns (http_status, parsed_body, text). Alpaca
+        replies 207 multi-status with a list of {id, status} items; parsed_body is
+        that list (or None if it did not parse). Transport errors propagate."""
+        async with self._httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.delete(
+                f"{self.base_url}/v2/orders", headers=self.headers()
+            )
+        body: Any = None
+        try:
+            body = resp.json()
+        except Exception:
+            body = None
+        text = ""
+        try:
+            text = resp.text
+        except Exception:
+            text = ""
+        return resp.status_code, body, text

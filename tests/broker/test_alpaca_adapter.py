@@ -15,8 +15,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "shared"))
 
 from stock_strategy_shared.broker import (  # noqa: E402
+    ALREADY_CLOSED_STATUS,
     AlpacaBrokerAdapter,
-    OrderRequest,
     get_broker_adapter,
 )
 from stock_strategy_shared.order_status import OPEN_ORDER_STATUSES, TURNOVER_STATUSES  # noqa: E402
@@ -28,9 +28,10 @@ from stock_strategy_shared.order_status import OPEN_ORDER_STATUSES, TURNOVER_STA
 
 
 class _Resp:
-    def __init__(self, payload, status_code=200):
+    def __init__(self, payload, status_code=200, text=""):
         self._payload = payload
         self.status_code = status_code
+        self.text = text
 
     def json(self):
         return self._payload
@@ -60,6 +61,10 @@ class _FakeClient:
 
     async def post(self, url, headers=None, json=None):
         self._rec.append(("POST", url, headers, json))
+        return self._match(url)
+
+    async def delete(self, url, headers=None):
+        self._rec.append(("DELETE", url, headers, None))
         return self._match(url)
 
     def _match(self, url):
@@ -197,15 +202,43 @@ async def test_get_clock_parses_and_handles_non_200():
 
 
 @pytest.mark.asyncio
-async def test_submit_order_shapes_payload():
+async def test_submit_order_passes_payload_through_and_returns_tuple():
     rec = []
     a = _adapter({"/v2/orders": _Resp({"id": "abc", "status": "accepted"})}, rec)
-    res = await a.submit_order(OrderRequest(symbol="MSFT", qty=3, side="buy"))
-    assert res.broker_order_id == "abc" and res.raw_status == "accepted"
+    payload = {"symbol": "MSFT", "qty": "3", "side": "buy", "type": "market",
+               "time_in_force": "day", "client_order_id": "row-1"}
+    oid, status, err = await a.submit_order(payload)
+    assert (oid, status, err) == ("abc", "accepted", None)
     method, url, _, body = rec[0]
     assert method == "POST" and url == "https://paper.test/v2/orders"
-    assert body == {"symbol": "MSFT", "qty": "3", "side": "buy",
-                    "type": "market", "time_in_force": "day"}
+    # exact payload (incl. client_order_id idempotency key) reaches the broker
+    assert body == payload
+
+
+@pytest.mark.asyncio
+async def test_submit_order_non_2xx_returns_error_text():
+    a = _adapter({"/v2/orders": _Resp({}, status_code=422, text="insufficient buying power")}, [])
+    oid, status, err = await a.submit_order({"symbol": "X"})
+    assert oid is None and status is None and err == "insufficient buying power"
+
+
+@pytest.mark.asyncio
+async def test_close_position_success_and_404_sentinel():
+    ok = _adapter({"/v2/positions/AAPL": _Resp({"id": "c1", "status": "accepted"})}, [])
+    assert await ok.close_position("AAPL") == ("c1", "accepted", None)
+
+    flat = _adapter({"/v2/positions/AAPL": _Resp({}, status_code=404)}, [])
+    oid, status, err = await flat.close_position("AAPL")
+    assert oid is None and err is None
+    assert status == ALREADY_CLOSED_STATUS == "position_already_closed"
+
+
+@pytest.mark.asyncio
+async def test_cancel_all_orders_returns_status_body_text():
+    items = [{"id": "o1", "status": 200}, {"id": "o2", "status": 500}]
+    a = _adapter({"/v2/orders": _Resp(items, status_code=207)}, [])
+    status_code, body, _text = await a.cancel_all_orders()
+    assert status_code == 207 and body == items
 
 
 # --------------------------------------------------------------------------

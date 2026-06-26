@@ -34,7 +34,7 @@ from __future__ import annotations
 import abc
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -85,25 +85,6 @@ class BrokerOrder:
     raw: dict = field(default_factory=dict)
 
 
-@dataclass
-class OrderRequest:
-    """A normalized order intent handed to `submit_order`."""
-    symbol: str
-    qty: float
-    side: str               # "buy" | "sell"
-    type: str = "market"
-    time_in_force: str = "day"
-
-
-@dataclass
-class SubmitResult:
-    """Outcome of a submit attempt. `broker_order_id` is None on a no-op/failure
-    that did not place an order; `raw_status` carries a sentinel in that case."""
-    broker_order_id: Optional[str]
-    raw_status: str
-    raw: dict = field(default_factory=dict)
-
-
 # ---------------------------------------------------------------------------
 # Adapter interface
 # ---------------------------------------------------------------------------
@@ -114,6 +95,12 @@ class BrokerAdapter(abc.ABC):
 
     #: short broker identifier, e.g. "alpaca" / "ibkr"
     name: str = "base"
+
+    #: sentinel returned by `close_position` when the position is ALREADY flat
+    #: (e.g. a 404 close on Alpaca). The exit's goal — be out of the name — is
+    #: met, so callers treat it as a benign terminal no-op, not a submission.
+    #: Single source: trade-executor imports this instead of redefining it.
+    ALREADY_CLOSED_STATUS: str = "position_already_closed"
 
     def __init__(self, http_provider: Optional[Callable[[], object]] = None) -> None:
         self._http_provider = http_provider
@@ -159,3 +146,32 @@ class BrokerAdapter(abc.ABC):
     def normalize_status(self, raw_status: str) -> Optional[str]:
         """Map a broker status spelling to a canonical `alpaca_orders.status` token,
         or None when the order is still open/working (not a terminal we persist)."""
+
+    # -- writes -------------------------------------------------------------
+    # These are TRANSPORT only. trade-executor owns the decision logic (sizing,
+    # risk-check, idempotency, status persistence); the adapter just talks to the
+    # broker and returns a broker-agnostic result. All three are the seam an IBKR
+    # adapter implements to make the order path broker-portable.
+
+    @abc.abstractmethod
+    async def submit_order(
+        self, payload: dict
+    ) -> tuple[Optional[str], Optional[str], Optional[str]]:
+        """Place an order. `payload` is the broker-agnostic order dict
+        (symbol, qty, side, type, time_in_force, client_order_id).
+        Returns (broker_order_id, broker_status, error) — error is None on success,
+        else a short message and (broker_order_id, broker_status) are None."""
+
+    @abc.abstractmethod
+    async def close_position(
+        self, symbol: str
+    ) -> tuple[Optional[str], Optional[str], Optional[str]]:
+        """Close 100% of `symbol`. Same return shape as `submit_order`. When the
+        position is already flat, returns (None, ALREADY_CLOSED_STATUS, None)."""
+
+    @abc.abstractmethod
+    async def cancel_all_orders(self) -> tuple[int, Any, str]:
+        """Cancel all open orders. Returns (http_status, parsed_body, text):
+        parsed_body is the broker's per-order multi-status list (or None if it did
+        not parse); text is the raw body (used when http_status is non-2xx).
+        Transport errors propagate to the caller (which records a whole-call fail)."""

@@ -37,7 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from stock_strategy_shared.db import wait_for_db
 from stock_strategy_shared.order_status import OPEN_ORDER_STATUSES, open_status_sql
-from stock_strategy_shared.broker import get_broker_adapter
+from stock_strategy_shared.broker import ALREADY_CLOSED_STATUS, get_broker_adapter
 
 from app.drain import DeferredOrder, plan_drain
 from app.submit_lock import (
@@ -154,7 +154,9 @@ _OPEN_STATUS_SQL = open_status_sql()
 # submitted order forever). Instead it gets the TERMINAL no-op status 'closed'.
 # 'closed' (not 'position_already_closed') because alpaca_orders.status is
 # VARCHAR(20) — the longer token would be truncated/rejected.
-_ALREADY_CLOSED_ALPACA_STATUS = "position_already_closed"
+# Single-sourced from the broker adapter (broker.close_position returns this when
+# the position is already flat). Keep the local name — tests/callers reference it.
+_ALREADY_CLOSED_ALPACA_STATUS = ALREADY_CLOSED_STATUS
 _CLOSED_NOOP_STATUS = "closed"
 
 
@@ -279,10 +281,6 @@ def _parse_alpaca_dt(raw) -> Optional[datetime]:
         return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
     except (ValueError, TypeError):
         return None
-
-
-def _alpaca_read_headers() -> dict:
-    return {"APCA-API-KEY-ID": ALPACA_API_KEY, "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY}
 
 
 def _broker():
@@ -1189,50 +1187,24 @@ async def _call_risk(payload: dict) -> tuple[bool, str, Optional[str], str]:
 
 
 async def _submit_to_alpaca(payload: dict) -> tuple[Optional[str], Optional[str], Optional[str]]:
-    """POST an order to Alpaca. Returns (alpaca_order_id, alpaca_status, error)."""
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{ALPACA_BASE_URL}/v2/orders",
-            json=payload,
-            headers={
-                "APCA-API-KEY-ID": ALPACA_API_KEY,
-                "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY,
-            },
-        )
-    if resp.status_code in (200, 201):
-        data = resp.json()
-        return data.get("id"), data.get("status"), None
-    return None, None, resp.text[:1000]
+    """POST an order to the broker. Returns (broker_order_id, broker_status, error).
+
+    Transport goes through the shared broker adapter (Phase 2b) — the single seam
+    the IBKR adapter will implement. Behavior is unchanged for Alpaca."""
+    return await _broker().submit_order(payload)
 
 
 async def _close_position_alpaca(symbol: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
-    """Close 100% of a position via Alpaca DELETE /v2/positions/{symbol}.
+    """Close 100% of a position via the broker adapter (DELETE /v2/positions/{symbol}
+    for Alpaca). Same return shape as _submit_to_alpaca; a 404/already-flat maps to
+    (None, _ALREADY_CLOSED_ALPACA_STATUS, None).
 
-    Same return shape as _submit_to_alpaca: (alpaca_order_id, alpaca_status, error).
-
-    Used for full exits instead of a qty-based sell. Alpaca computes the exact held
-    quantity at execution time, so this cannot over-sell a fractional position — it
-    fixes the bug where a stored qty rounded up past the true holding (e.g.
-    live_positions.qty NUMERIC(16,6) storing Alpaca's 0.878611682 as 0.878612) made
-    Alpaca reject the order with "insufficient qty available". It is also immune to
-    drift between the last alpaca-sync and submission.
+    Used for full exits instead of a qty-based sell. The broker computes the exact
+    held quantity at execution time, so this cannot over-sell a fractional position
+    ("insufficient qty available") and is immune to drift between the last
+    alpaca-sync and submission.
     """
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.delete(
-            f"{ALPACA_BASE_URL}/v2/positions/{symbol}",
-            headers={
-                "APCA-API-KEY-ID": ALPACA_API_KEY,
-                "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY,
-            },
-        )
-    if resp.status_code in (200, 201):
-        data = resp.json()
-        return data.get("id"), data.get("status"), None
-    if resp.status_code == 404:
-        # Position is already flat — the exit's goal (be out of the name) is met.
-        # Treat as a benign success rather than a spurious failure.
-        return None, "position_already_closed", None
-    return None, None, resp.text[:1000]
+    return await _broker().close_position(symbol)
 
 
 async def _submit_for_action(
@@ -2086,22 +2058,13 @@ async def cancel_all_orders(confirm: str = "") -> CancelAllResponse:
     failed_ids: set[str] = set()
     whole_call_failed = False
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.delete(
-                f"{ALPACA_BASE_URL}/v2/orders",
-                headers={
-                    "APCA-API-KEY-ID": ALPACA_API_KEY,
-                    "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY,
-                },
-            )
+        # Transport via the broker adapter (Phase 2b). Returns
+        # (http_status, parsed_body, text); parsed_body is the per-order
+        # multi-status list (Alpaca 207) or None.
+        status_code, body, body_text = await _broker().cancel_all_orders()
         # Alpaca returns 207 multi-status with a list of {id, status} items
-        if resp.status_code in (200, 207):
-            try:
-                alpaca_results = resp.json()
-                if not isinstance(alpaca_results, list):
-                    alpaca_results = []
-            except Exception:
-                alpaca_results = []
+        if status_code in (200, 207):
+            alpaca_results = body if isinstance(body, list) else []
             for r in alpaca_results:
                 if not isinstance(r, dict):
                     continue
@@ -2122,7 +2085,7 @@ async def cancel_all_orders(confirm: str = "") -> CancelAllResponse:
         else:
             cancel_count = 0
             whole_call_failed = True
-            alpaca_errors.append({"http_status": resp.status_code, "body": resp.text[:500]})
+            alpaca_errors.append({"http_status": status_code, "body": (body_text or "")[:500]})
     except Exception as exc:
         cancel_count = 0
         whole_call_failed = True
