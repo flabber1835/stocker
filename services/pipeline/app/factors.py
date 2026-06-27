@@ -1,9 +1,81 @@
 from __future__ import annotations
 
+from datetime import date as _date
+
 import numpy as np
 import pandas as pd
 
 from stock_strategy_shared.schemas.strategy import FactorEngineConfig
+
+
+def compute_earnings_surprise(
+    earnings: pd.DataFrame,
+    as_of: _date,
+    drift_window_days: int = 90,
+    min_quarters_for_sue: int = 6,
+) -> pd.Series:
+    """Per-ticker RAW earnings-surprise signal (SUE) as of `as_of`, point-in-time.
+
+    This is the "buy winners / sell losers" signal: it captures Post-Earnings-
+    Announcement Drift (PEAD) — names that BEAT consensus keep drifting up, names
+    that MISS drift down, for ~1-3 months after the report. It is partially
+    orthogonal to 12-1 price momentum (which skips the most recent ~21 days and so
+    misses a fresh beat).
+
+    `earnings` columns: ticker, reported_date (date), reported_eps, estimated_eps.
+
+    Construction (per ticker):
+      - POINT-IN-TIME: only quarters with reported_date <= as_of are visible (no
+        look-ahead — critical for backtest integrity).
+      - DRIFT WINDOW: the signal is used only if the latest visible report is within
+        `drift_window_days` of as_of; older than that the drift has played out →
+        NaN (neutral). This is what makes it a *leadership* signal, not a stale one.
+      - SUE = latest unexpected EPS / stdev of the ticker's unexpected-EPS history,
+        where unexpected = reported_eps - estimated_eps. Standardizing by the
+        ticker's own surprise volatility (Bernard-Thomas / Foster-Olsen-Shevlin)
+        stops a chronically-noisy reporter from dominating. Requires
+        `min_quarters_for_sue` non-null quarters; otherwise falls back to a
+        normalized surprise (unexpected / |estimated|), so newly-covered names
+        still get a (less precise) signal instead of NaN.
+
+    Returns a raw float Series indexed by ticker (NaN where no usable, in-window
+    surprise). compute_all_factors percentile-ranks it cross-sectionally, so a
+    bigger positive SUE → higher percentile → ranked as a winner.
+    """
+    if earnings is None or earnings.empty:
+        return pd.Series(dtype=float, name="earnings_surprise")
+
+    df = earnings.copy()
+    df["reported_date"] = pd.to_datetime(df["reported_date"]).dt.date
+    as_of = pd.to_datetime(as_of).date()
+    cutoff = as_of - pd.Timedelta(days=drift_window_days).to_pytimedelta()
+    df = df[df["reported_date"] <= as_of]                     # POINT-IN-TIME
+    for col in ("reported_eps", "estimated_eps"):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    df = df.sort_values(["ticker", "reported_date"])
+
+    out: dict[str, float] = {}
+    for ticker, g in df.groupby("ticker", sort=False):
+        latest = g.iloc[-1]
+        # DRIFT WINDOW: a report older than the window has already drifted → neutral.
+        if latest["reported_date"] < cutoff:
+            out[ticker] = float("nan")
+            continue
+        unexpected = g["reported_eps"] - g["estimated_eps"]
+        unexpected = unexpected.dropna()
+        if unexpected.empty:
+            out[ticker] = float("nan")
+            continue
+        u_latest = float(unexpected.iloc[-1])
+        if len(unexpected) >= min_quarters_for_sue:
+            sigma = float(unexpected.std(ddof=1))
+            out[ticker] = (u_latest / sigma) if sigma > 1e-12 else float("nan")
+        else:
+            est = latest["estimated_eps"]
+            denom = abs(float(est)) if pd.notna(est) and abs(float(est)) > 1e-6 else float("nan")
+            out[ticker] = (u_latest / denom) if denom == denom else float("nan")
+
+    return pd.Series(out, name="earnings_surprise", dtype=float)
 
 
 def drop_fundamentalless(
@@ -566,6 +638,8 @@ def compute_all_factors(
     cfg: FactorEngineConfig | None = None,
     copy_input: bool = True,
     sector_map: dict[str, str] | None = None,
+    earnings: pd.DataFrame | None = None,
+    as_of_date: _date | None = None,
 ) -> pd.DataFrame:
     if cfg is None:
         cfg = FactorEngineConfig()
@@ -600,6 +674,16 @@ def compute_all_factors(
     issuance_raw = compute_issuance(fundamentals)
     small_cap_raw = compute_small_cap(fundamentals)
     volume_surge_raw = compute_volume_surge(prices_long)
+    # Earnings-surprise (PEAD) — point-in-time SUE as of the score date. Null
+    # (→ neutral, renormalized out) when no earnings data is loaded or no in-window
+    # report exists, so the factor is inert until earnings are ingested.
+    if earnings is not None and as_of_date is not None:
+        earnings_surprise_raw = compute_earnings_surprise(
+            earnings, as_of_date,
+            drift_window_days=cfg.earnings_drift_window_days,
+        )
+    else:
+        earnings_surprise_raw = pd.Series(dtype=float, name="earnings_surprise")
 
     all_tickers = prices_long["ticker"].unique().tolist()
     result = pd.DataFrame(index=all_tickers)
@@ -638,6 +722,7 @@ def compute_all_factors(
     result["volume_surge"]    = _rank("volume_surge", volume_surge_raw)
     result["near_high"]       = _rank("near_high", near_high_raw)
     result["high_volatility"] = 1.0 - result["low_volatility"]
+    result["earnings_surprise"] = _rank("earnings_surprise", earnings_surprise_raw)
 
     result = result.reset_index()
     return result

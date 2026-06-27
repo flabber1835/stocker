@@ -1022,6 +1022,29 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     if fund_etf_dropped:
         print(f"[calculate] require_fundamentals: dropped {fund_etf_dropped} fundamentals-less tickers (ETFs/funds)")
 
+    # ── Step 5b: load earnings (for the earnings-surprise / PEAD factor) ───────
+    # Point-in-time is enforced in the factor (only quarters reported_date <=
+    # score_date are used). Loading the full per-ticker history lets the factor
+    # standardize the surprise by the ticker's own surprise volatility (SUE).
+    # Missing/empty → the factor is null everywhere → renormalized out (inert).
+    earnings_df = pd.DataFrame(columns=["ticker", "reported_date", "reported_eps", "estimated_eps"])
+    try:
+        async with engine.connect() as conn:
+            erows = await conn.execute(
+                text("SELECT ticker, reported_date, reported_eps, estimated_eps "
+                     "FROM earnings WHERE ticker = ANY(:tk) AND reported_date IS NOT NULL"),
+                {"tk": list(universe_tickers)},
+            )
+            _erecs = erows.fetchall()
+        if _erecs:
+            earnings_df = pd.DataFrame(_erecs, columns=["ticker", "reported_date",
+                                                        "reported_eps", "estimated_eps"])
+        print(f"[calculate] loaded {len(earnings_df)} earnings rows "
+              f"for {earnings_df['ticker'].nunique() if not earnings_df.empty else 0} tickers")
+    except Exception as exc:
+        # Earnings are optional: a missing table / load error must not fail factors.
+        print(f"[calculate] earnings load skipped (factor will be neutral): {exc}", flush=True)
+
     # ── Step 6: calculate factors ─────────────────────────────────────────────
     _set_pct("calc_factors", 68)
     t0 = datetime.now(timezone.utc)
@@ -1037,6 +1060,8 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         cfg=strategy.factor_engine,
         copy_input=False,
         sector_map=sector_map,
+        earnings=earnings_df,
+        as_of_date=score_date,
     )
     # prices_df is disposable past this point — free the universe-scale frame now
     # so it isn't held alongside factors_df/factor_score_rows for the rest of the step.
@@ -1044,7 +1069,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     null_quality_count = int(factors_df["quality"].isna().sum()) if "quality" in factors_df.columns else 0
 
     _factor_cols = ["momentum", "quality", "value", "growth", "low_volatility", "liquidity", "issuance",
-                    "small_cap", "volume_surge", "near_high", "high_volatility"]
+                    "small_cap", "volume_surge", "near_high", "high_volatility", "earnings_surprise"]
     factor_stats = {}
     clipped_by_factor: dict[str, list] = {}
     for col in _factor_cols:
@@ -1138,6 +1163,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             "volume_surge": _val(row.get("volume_surge")),
             "near_high": _val(row.get("near_high")),
             "high_volatility": _val(row.get("high_volatility")),
+            "earnings_surprise": _val(row.get("earnings_surprise")),
             "calculated_at": calculated_at,
         }
         for _, row in factors_df.iterrows()
@@ -1181,10 +1207,10 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             "INSERT INTO factor_scores "
             "(run_id, ticker, score_date, momentum, quality, value, growth, "
             " low_volatility, liquidity, issuance, small_cap, volume_surge, near_high, "
-            " high_volatility, calculated_at) "
+            " high_volatility, earnings_surprise, calculated_at) "
             "VALUES (:run_id, :ticker, :score_date, :momentum, :quality, :value, "
             "        :growth, :low_volatility, :liquidity, :issuance, :small_cap, "
-            "        :volume_surge, :near_high, :high_volatility, :calculated_at) "
+            "        :volume_surge, :near_high, :high_volatility, :earnings_surprise, :calculated_at) "
             "ON CONFLICT (run_id, ticker) DO UPDATE SET "
             "  momentum      = EXCLUDED.momentum, "
             "  quality       = EXCLUDED.quality, "
@@ -1197,6 +1223,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             "  volume_surge  = EXCLUDED.volume_surge, "
             "  near_high     = EXCLUDED.near_high, "
             "  high_volatility = EXCLUDED.high_volatility, "
+            "  earnings_surprise = EXCLUDED.earnings_surprise, "
             "  calculated_at = EXCLUDED.calculated_at"
         )
         for _i in range(0, len(factor_score_rows), _FACTOR_BATCH):
@@ -1344,7 +1371,7 @@ async def _do_rank(
         rows = await conn.execute(
             text(
                 "SELECT ticker, momentum, quality, value, growth, low_volatility, liquidity, issuance, "
-                "small_cap, volume_surge, near_high, high_volatility "
+                "small_cap, volume_surge, near_high, high_volatility, earnings_surprise "
                 "FROM factor_scores WHERE run_id = :run_id"
             ),
             {"run_id": source_factor_run_id},
@@ -1380,6 +1407,7 @@ async def _do_rank(
                 "volume_surge": float(r.volume_surge) if r.volume_surge is not None else float("nan"),
                 "near_high": float(r.near_high) if r.near_high is not None else float("nan"),
                 "high_volatility": float(r.high_volatility) if r.high_volatility is not None else float("nan"),
+                "earnings_surprise": float(r.earnings_surprise) if r.earnings_surprise is not None else float("nan"),
             }
             for r in records
         ]

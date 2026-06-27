@@ -286,6 +286,16 @@ small_cap        — prefers smaller market cap (raw = -market_cap)
 volume_surge     — recent vol / baseline vol (accumulation / unusual volume)
 near_high        — last close / trailing high (breakout / strength)
 high_volatility  — inverse percentile of low_volatility (prefers high vol)
+earnings_surprise— PEAD ("buy beats / sell misses"): point-in-time SUE = latest
+                   unexpected EPS (reported−estimated) ÷ the ticker's own surprise
+                   stdev. Uses ONLY quarters with reported_date ≤ score_date (no
+                   look-ahead) and within earnings_drift_window_days (default 90 —
+                   drift plays out over ~1-3 months; older = neutral). Falls back to
+                   normalized surprise when < 6 quarters. Partially ORTHOGONAL to
+                   12-1 price momentum (which skips the last ~21d, missing a fresh
+                   report). Data: AV EARNINGS → `earnings` table (migration 0028).
+                   Null (→ renormalized out, inert) until earnings are ingested.
+                   ACTIVE in momentum_rotation_v2 at weight 0.12 (momentum 0.42).
 ```
 
 They are computed in the pipeline (services/pipeline/app/factors.py), persisted in

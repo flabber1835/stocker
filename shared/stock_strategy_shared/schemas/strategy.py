@@ -19,6 +19,10 @@ class FactorWeights(BaseModel):
     volume_surge: float = Field(default=0.0, ge=0, le=1)     # recent vol vs baseline (accumulation)
     near_high: float = Field(default=0.0, ge=0, le=1)        # proximity to trailing high (breakout)
     high_volatility: float = Field(default=0.0, ge=0, le=1)  # inverse of low_volatility (prefers high vol)
+    # Earnings-surprise (PEAD) — point-in-time SUE; "buy winners (beats) / sell
+    # losers (misses)". Partially orthogonal to 12-1 price momentum. Optional,
+    # default 0 so existing strategies are unaffected; set a real weight to use it.
+    earnings_surprise: float = Field(default=0.0, ge=0, le=1)
 
     @model_validator(mode="after")
     def weights_sum_to_one(self) -> FactorWeights:
@@ -26,6 +30,7 @@ class FactorWeights(BaseModel):
             self.momentum + self.quality + self.value
             + self.growth + self.low_volatility + self.liquidity + self.issuance
             + self.small_cap + self.volume_surge + self.near_high + self.high_volatility
+            + self.earnings_surprise
         )
         if abs(total - 1.0) > 1e-6:
             raise ValueError(f"Factor weights must sum to 1.0, got {total:.6f}")
@@ -120,6 +125,13 @@ class FactorEngineConfig(BaseModel):
     liquidity_window: int = Field(
         default=20, ge=5, le=63,
         description="Trading days over which average dollar volume is computed for the liquidity factor."
+    )
+    earnings_drift_window_days: int = Field(
+        default=90, ge=14, le=180,
+        description="PEAD drift window for the earnings_surprise factor: a quarterly "
+                    "report is only used while it is within this many calendar days of "
+                    "the score date (post-earnings drift plays out over ~1-3 months); "
+                    "older reports give a neutral (null) signal."
     )
     pe_pb_cap: float = Field(
         default=50.0, gt=0, le=500,

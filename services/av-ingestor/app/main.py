@@ -355,6 +355,37 @@ async def _enrich_total_assets(client, ticker: str, overview: dict) -> None:
         print(f"[fundamentals] {ticker}: balance-sheet fetch failed (non-fatal) - {e}")
 
 
+async def _upsert_earnings(session, ticker: str, quarters: list[dict]) -> int:
+    """Upsert quarterly earnings rows (AV EARNINGS) for a ticker. Idempotent on
+    (ticker, fiscal_date_ending). Skips rows without a fiscal_date_ending. Returns
+    the number of rows written. Non-fatal data: bad numerics become NULL."""
+    written = 0
+    for q in quarters or []:
+        fde = q.get("fiscal_date_ending")
+        if not fde:
+            continue
+        await session.execute(
+            text(
+                "INSERT INTO earnings "
+                "(ticker, fiscal_date_ending, reported_date, reported_eps, estimated_eps, "
+                " surprise, surprise_percentage, updated_at) "
+                "VALUES (:t, :fde, :rd, :rep, :est, :sur, :surp, NOW()) "
+                "ON CONFLICT (ticker, fiscal_date_ending) DO UPDATE SET "
+                "  reported_date=COALESCE(EXCLUDED.reported_date, earnings.reported_date), "
+                "  reported_eps=COALESCE(EXCLUDED.reported_eps, earnings.reported_eps), "
+                "  estimated_eps=COALESCE(EXCLUDED.estimated_eps, earnings.estimated_eps), "
+                "  surprise=COALESCE(EXCLUDED.surprise, earnings.surprise), "
+                "  surprise_percentage=COALESCE(EXCLUDED.surprise_percentage, earnings.surprise_percentage), "
+                "  updated_at=NOW()"
+            ),
+            {"t": ticker, "fde": fde, "rd": q.get("reported_date"),
+             "rep": q.get("reported_eps"), "est": q.get("estimated_eps"),
+             "sur": q.get("surprise"), "surp": q.get("surprise_percentage")},
+        )
+        written += 1
+    return written
+
+
 async def _upsert_fundamentals(session, ticker: str, overview: dict, today: date) -> None:
     """Upsert fundamental data for a single ticker. Pops 'sector' from overview dict.
 
@@ -1159,6 +1190,18 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                                     await _upsert_fundamentals(session, ticker, overview, today)
                             fund_ok += 1
                             print(f"[fetch-data] {ticker} fundamentals: upserted {label}")
+                            # Earnings (PEAD factor inputs) — same quarterly cadence as
+                            # fundamentals, fetched here to share the rate-limit budget.
+                            # Fully non-fatal: a miss leaves the factor neutral for this name.
+                            try:
+                                quarters = await client.get_earnings(ticker)
+                                if quarters:
+                                    async with SessionLocal() as session:
+                                        async with session.begin():
+                                            n_e = await _upsert_earnings(session, ticker, quarters)
+                                    print(f"[fetch-data] {ticker} earnings: upserted {n_e} quarter(s)")
+                            except Exception as e:  # noqa: BLE001 — earnings are optional
+                                print(f"[fetch-data] {ticker} earnings fetch failed (non-fatal) - {e}")
                         else:
                             # Record the attempt so we don't retry this ticker every run.
                             # Inserts a null sentinel row; ON CONFLICT updates fetched_at so

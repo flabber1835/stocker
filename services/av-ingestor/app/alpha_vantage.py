@@ -176,6 +176,38 @@ class AVClient:
             "sector": data.get("Sector") or None,
         }
 
+    async def get_earnings(self, ticker: str) -> list[dict] | None:
+        """Quarterly earnings surprises from AV EARNINGS — the PEAD signal inputs.
+
+        Returns a list of {fiscal_date_ending, reported_date, reported_eps,
+        estimated_eps, surprise, surprise_percentage}, newest-first, or None if the
+        symbol has no data. estimated_eps is the consensus AS OF the report (AV's
+        `estimatedEPS`) — point-in-time, so the factor's reported_date<=score_date
+        filter is a true no-look-ahead cut."""
+        if self.mock_mode:
+            return _mock_earnings(ticker)
+
+        data = await self._get({"function": "EARNINGS", "symbol": ticker})
+        if not data or not isinstance(data.get("quarterlyEarnings"), list):
+            return None
+
+        out: list[dict] = []
+        for q in data["quarterlyEarnings"]:
+            if not isinstance(q, dict):
+                continue
+            fde = q.get("fiscalDateEnding")
+            if not fde:
+                continue
+            out.append({
+                "fiscal_date_ending": fde,
+                "reported_date": q.get("reportedDate") or None,
+                "reported_eps": _to_float(q.get("reportedEPS")),
+                "estimated_eps": _to_float(q.get("estimatedEPS")),
+                "surprise": _to_float(q.get("surprise")),
+                "surprise_percentage": _to_float(q.get("surprisePercentage")),
+            })
+        return out
+
     async def get_balance_sheet(self, ticker: str) -> dict | None:
         """Balance-sheet fields: total assets (gross-profitability denominator) and
         common shares outstanding now vs ~1 fiscal year ago (net-issuance factor).
@@ -289,3 +321,29 @@ def _mock_balance_sheet(ticker: str) -> dict:
         "shares_outstanding": shares,
         "shares_outstanding_prior": shares_prior,
     }
+
+
+def _mock_earnings(ticker: str) -> list[dict]:
+    """8 quarters of mock earnings, newest-first, with a per-ticker stable surprise
+    sign/size so mock runs produce a spread of beats/misses for the factor."""
+    import datetime as _dt
+    rng = random.Random(_stable_seed(ticker) ^ 0x3C3C3C3C)
+    base_est = round(rng.uniform(0.20, 3.00), 2)
+    bias = rng.uniform(-0.15, 0.15)  # per-ticker chronic beat/miss tendency
+    today = _dt.date(2026, 6, 1)
+    out: list[dict] = []
+    for i in range(8):
+        rep_date = today - _dt.timedelta(days=90 * i + 5)
+        fde = today - _dt.timedelta(days=90 * i + 35)
+        est = round(base_est * (1.0 + rng.uniform(-0.05, 0.05)), 4)
+        surprise = round(est * (bias + rng.uniform(-0.10, 0.10)), 4)
+        rep = round(est + surprise, 4)
+        out.append({
+            "fiscal_date_ending": fde.isoformat(),
+            "reported_date": rep_date.isoformat(),
+            "reported_eps": rep,
+            "estimated_eps": est,
+            "surprise": surprise,
+            "surprise_percentage": round(100.0 * surprise / abs(est), 4) if est else None,
+        })
+    return out
