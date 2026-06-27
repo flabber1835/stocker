@@ -699,11 +699,17 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
             if rej is not None:
                 return rej
 
-    # Daily sell-side turnover cap: reject exits/sell_trims once today's sell
-    # notional exceeds max_daily_turnover_pct of portfolio value. Only sells
-    # (exits + sell_trims) count — buys deploying idle cash are not portfolio
-    # churn. This prevents flipping half the portfolio in one day on a regime
-    # change while allowing unconstrained initial capital deployment.
+    # Daily sell-side turnover cap: throttle DISCRETIONARY churn. ONLY `sell_trim`
+    # counts and is capped — EXITS ARE EXEMPT (policy: a de-risking close / a
+    # builder-dropped rotation must NEVER be blocked by a turnover throttle; you
+    # always want to be able to fully exit a name). Buys deploying idle cash are
+    # not churn either. So the cap only limits how much DISCRETIONARY trimming
+    # happens in a day, preventing churn without ever wedging a needed exit. This
+    # also closes the planner/gate divergence (F1): the delta engine doesn't model
+    # turnover, so if exits were capped a big rotation (mostly exits) would emit
+    # exits the gate then rejected ("failed" rows, multi-day silent completion).
+    # Exempting exits removes that class; only sell_trims remain capped, and a
+    # single build rarely trims > the cap.
     #
     # sim_date: when provided (e.g. from a compressed harness simulation where
     # multiple pipeline dates are processed on the same wall-clock day), scope
@@ -730,7 +736,7 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
     _TURNOVER_STATUSES = TURNOVER_STATUSES
     _turnover_status_sql = ", ".join(f"'{s}'" for s in _TURNOVER_STATUSES)
     max_daily_pct = env["max_daily_turnover_pct"]
-    if req.action in ("exit", "sell_trim") and engine is not None and max_daily_pct < 1.0:
+    if req.action == "sell_trim" and engine is not None and max_daily_pct < 1.0:
         try:
             async with engine.connect() as conn:
                 if req.sim_date:
@@ -748,14 +754,14 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
                         "JOIN delta_intents di ON di.id = ao.intent_id "
                         "JOIN delta_runs dr ON dr.run_id = di.run_id "
                         "WHERE dr.run_date::text = :sim_date "
-                        "AND ao.action IN ('exit', 'sell_trim') "
+                        "AND ao.action = 'sell_trim' "
                         f"AND ao.status IN ({_turnover_status_sql})"
                     ), {"sim_date": req.sim_date})).first()
                 else:
                     today_row = (await conn.execute(text(
                         "SELECT COALESCE(SUM(notional), 0) FROM alpaca_orders "
                         "WHERE DATE(COALESCE(submitted_at, created_at) AT TIME ZONE 'UTC') = CURRENT_DATE "
-                        "AND action IN ('exit', 'sell_trim') "
+                        "AND action = 'sell_trim' "
                         f"AND status IN ({_turnover_status_sql})"
                     ))).first()
                 acct_row = (await conn.execute(text(

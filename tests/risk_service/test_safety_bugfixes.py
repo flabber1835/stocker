@@ -143,21 +143,37 @@ class TestDailyLossNoBaseline:
 
 
 class TestTurnoverCountsPendingSells:
-    def test_pending_sell_notional_counts_toward_cap(self, mock_engine, monkeypatch):
-        """A prior 'pending' (recorded-but-not-yet-submitted) sell must count, so a
-        concurrent second sell that would breach the cap is rejected."""
+    def test_pending_sell_trim_notional_counts_toward_cap(self, mock_engine, monkeypatch):
+        """A prior 'pending' (recorded-but-not-yet-submitted) sell_trim must count, so a
+        concurrent second sell_trim that would breach the cap is rejected. (Only
+        sell_trims are capped now — exits are exempt; see test_exit_is_exempt below.)"""
         monkeypatch.setenv("MAX_DAILY_TURNOVER_PCT", "0.50")
-        # Exits are exempt from sync_staleness + daily_loss (closing always allowed),
-        # so a close only reads the turnover rows: SUM so far, then account_value.
+        # sell_trims are exempt from sync_staleness + daily_loss (closing/trimming
+        # always allowed), so a trim only reads the turnover rows: SUM so far, account_value.
         mock_engine.responses = [
-            (45_000.0,),                       # turnover SUM so far (incl pending sells)
+            (45_000.0,),                       # turnover SUM so far (incl pending sell_trims)
             (100_000.0,),                      # account_value for turnover limit
         ]
         # limit = 0.5 * 100k = 50k. 45k prior + 10k this = 55k > 50k → reject.
-        r = client.post("/check", json=_payload(action="exit", side="sell", notional=10_000.0))
+        r = client.post("/check", json=_payload(action="sell_trim", side="sell", notional=10_000.0))
         body = r.json()
         assert body["approved"] is False
         assert body["rule_triggered"] == "daily_turnover_limit"
+
+    def test_exit_is_exempt_from_turnover_cap(self, mock_engine, monkeypatch):
+        """F1 policy: a full EXIT is NEVER blocked by the turnover cap — a de-risking
+        close / builder-dropped rotation must always be allowed. The exit must not even
+        run the turnover query, so even with the cap already breached it is approved."""
+        monkeypatch.setenv("MAX_DAILY_TURNOVER_PCT", "0.50")
+        # Provide turnover rows that WOULD breach the cap if they were read.
+        mock_engine.responses = [
+            (1_000_000.0,),                    # huge prior sell notional (would breach)
+            (100_000.0,),
+        ]
+        r = client.post("/check", json=_payload(action="exit", side="sell", notional=50_000.0))
+        body = r.json()
+        assert body["approved"] is True, body
+        assert body["rule_triggered"] == "ok"
 
     def test_turnover_sql_uses_positive_status_list_including_pending(self, mock_engine, monkeypatch):
         """The turnover query must filter on a positive status IN-list that
@@ -169,7 +185,7 @@ class TestTurnoverCountsPendingSells:
         # ONE shared responses list across all connect() blocks (each /check uses
         # several separate `async with engine.connect()` scopes).
         responses = [
-            (0.0,),                            # turnover SUM (exit only reads turnover rows now)
+            (0.0,),                            # turnover SUM (sell_trim reads turnover rows)
             (100_000.0,),                      # account_value
         ]
 
@@ -190,9 +206,9 @@ class TestTurnoverCountsPendingSells:
             return ctx
 
         eng.connect = connect
-        r = client.post("/check", json=_payload(action="exit", side="sell", notional=1_000.0))
+        r = client.post("/check", json=_payload(action="sell_trim", side="sell", notional=1_000.0))
         assert r.json()["approved"] is True
-        turnover_sql = " ".join(s for s in captured["sqls"] if "exit" in s and "sell_trim" in s).lower()
+        turnover_sql = " ".join(s for s in captured["sqls"] if "sell_trim" in s).lower()
         assert "'pending'" in turnover_sql, "pending sells must count toward turnover"
         assert "'submitted'" in turnover_sql
         # positive list, not a NOT-IN exclusion

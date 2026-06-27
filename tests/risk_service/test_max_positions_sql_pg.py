@@ -283,3 +283,146 @@ def test_decide_control_outage_never_blocks_a_close(pg_url):
     approved, reason, rule, _ = asyncio.run(
         _decide_against(pg_url, seed, **_entry(action="exit", side="sell")))
     assert approved is True, f"close must not be blocked; got rule={rule}"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# F5 — planner/gate PARITY on a real DB (the cross-seam invariant that would have
+#      caught the capacity bug). Asserts the gate's real projected-positions SQL
+#      and the planner's shared pure rule compute the SAME number on the SAME
+#      seeded broker state — so "the planner admits an entry" ⇔ "the gate
+#      approves it" can never silently drift again.
+# ══════════════════════════════════════════════════════════════════════════════
+
+from stock_strategy_shared.capacity import (  # noqa: E402
+    projected_book_count,
+    select_entries_within_capacity,
+)
+
+
+def _seed_capacity(run_date: str, held: int, inflight_entries: list[str],
+                   exit_intents: int) -> str:
+    """Held H1..H{held}; `inflight_entries` open NEW-ticker entry orders (not held);
+    `exit_intents` exit INTENTS (H1..) on the delta run. Mirrors the inputs the
+    gate's projected SQL reads."""
+    entry_orders = "".join(
+        f"INSERT INTO alpaca_orders(ticker, action, status, notional) "
+        f"VALUES ('{t}', 'entry', 'submitted', 3000);\n"
+        for t in inflight_entries
+    )
+    return f"""
+    INSERT INTO pipeline_runs(status, completed_at) VALUES ('success', NOW());
+    WITH s AS (INSERT INTO alpaca_sync_runs(status, completed_at, account_value)
+               VALUES ('success', NOW(), 100000) RETURNING run_id)
+    INSERT INTO live_positions(sync_run_id, ticker, market_value)
+    SELECT (SELECT run_id FROM s), 'H'||g, 2000 FROM generate_series(1,{held}) g;
+    WITH d AS (INSERT INTO delta_runs(run_date) VALUES ('{run_date}') RETURNING run_id)
+    INSERT INTO delta_intents(run_id, ticker, action)
+    SELECT (SELECT run_id FROM d), 'H'||g, 'exit' FROM generate_series(1,{exit_intents}) g;
+    {entry_orders}
+    """
+
+
+async def _projected_and_sets(url, seed_sql, sim_date, held, inflight_entries, exit_intents):
+    """Return (sql_count, helper_count) for the SAME seeded state."""
+    eng = create_async_engine(url)
+    try:
+        await _run_schema_seed(eng, seed_sql)
+        async with eng.connect() as c:
+            row = (await c.execute(text(_PROJECTED_POSITIONS_SQL),
+                                   {"sim_date": sim_date})).first()
+        sql_count = int(row[0]) if row and row[0] is not None else None
+    finally:
+        await eng.dispose()
+    held_set = {f"H{i}" for i in range(1, held + 1)}
+    exiting = {f"H{i}" for i in range(1, exit_intents + 1)}
+    entering = set(inflight_entries)
+    helper_count = projected_book_count(held_set, exiting, entering)
+    return sql_count, helper_count
+
+
+def test_parity_gate_sql_equals_shared_rule_inflight_entry(pg_url):
+    # 34 held + 1 in-flight (queued, unfilled) entry → both must say 35.
+    seed = _seed_capacity("2026-06-16", held=34, inflight_entries=["NEW"], exit_intents=0)
+    sql_count, helper = asyncio.run(
+        _projected_and_sets(pg_url, seed, "2026-06-16", 34, ["NEW"], 0))
+    assert sql_count == helper == 35, (sql_count, helper)
+
+
+def test_parity_gate_sql_equals_shared_rule_with_exits(pg_url):
+    # 34 held − 2 exit intents + 1 in-flight entry → both must say 33.
+    seed = _seed_capacity("2026-06-16", held=34, inflight_entries=["NEW"], exit_intents=2)
+    sql_count, helper = asyncio.run(
+        _projected_and_sets(pg_url, seed, "2026-06-16", 34, ["NEW"], 2))
+    assert sql_count == helper == 33, (sql_count, helper)
+
+
+def test_parity_planner_defers_exactly_what_gate_would_reject(pg_url):
+    """End-to-end: an in-flight entry has consumed the last slot. The gate (real
+    SQL) reports the book already at the cap, AND the planner (shared selector)
+    defers a fresh candidate — so the planner does NOT emit an order the gate
+    would reject at the open. This is the capacity bug, now impossible."""
+    MAX = 35
+    seed = _seed_capacity("2026-06-16", held=34, inflight_entries=["Q1"], exit_intents=0)
+    sql_count, _ = asyncio.run(
+        _projected_and_sets(pg_url, seed, "2026-06-16", 34, ["Q1"], 0))
+    assert sql_count == MAX  # gate: book already full (34 held + 1 queued)
+    # planner sees the same in-flight entry → must defer a new candidate B
+    admitted, deferred = select_entries_within_capacity(
+        held={f"H{i}" for i in range(1, 35)}, exiting=set(),
+        ranked_entries=["B"], max_positions=MAX, inflight_entries={"Q1"},
+    )
+    assert admitted == set() and deferred == {"B"}
+
+
+# ── F1 end-to-end: exits exempt from turnover, sell_trims still capped ─────────
+def _seed_turnover(run_date: str, prior_sell_trim: float) -> str:
+    """Account 100k; a prior pending sell_trim of `prior_sell_trim` on the run."""
+    return f"""
+    INSERT INTO pipeline_runs(status, completed_at) VALUES ('success', NOW());
+    INSERT INTO alpaca_sync_runs(status, completed_at, account_value)
+      VALUES ('success', NOW() - interval '6 hours', 100000);
+    INSERT INTO alpaca_sync_runs(status, completed_at, account_value)
+      VALUES ('success', NOW(), 100000);
+    WITH d AS (INSERT INTO delta_runs(run_date) VALUES ('{run_date}') RETURNING run_id),
+         i AS (INSERT INTO delta_intents(run_id, ticker, action)
+               VALUES ((SELECT run_id FROM d), 'TRIMMED', 'sell_trim') RETURNING id)
+    INSERT INTO alpaca_orders(intent_id, ticker, action, status, notional)
+      VALUES ((SELECT id FROM i), 'TRIMMED', 'sell_trim', 'pending', {prior_sell_trim});
+    """
+
+
+def test_exit_exempt_from_turnover_real_db(pg_url):
+    # 45k of prior sell_trims on the day (limit 50k). A 10k EXIT must be APPROVED —
+    # exits are exempt — even though 45k+10k would breach the cap for a trim.
+    seed = _seed_turnover(TODAY_ET, prior_sell_trim=45000.0)
+    approved, reason, rule, _ = asyncio.run(_decide_against(
+        pg_url, seed, **_entry(action="exit", side="sell", notional=10000.0)))
+    assert approved is True, f"exit must be exempt from turnover; got {rule}: {reason}"
+
+
+def test_sell_trim_still_capped_real_db(pg_url):
+    # Same 45k prior; a 10k sell_trim breaches 50k → rejected (cap still bites trims).
+    seed = _seed_turnover(TODAY_ET, prior_sell_trim=45000.0)
+    approved, reason, rule, _ = asyncio.run(_decide_against(
+        pg_url, seed, **_entry(action="sell_trim", side="sell", notional=10000.0)))
+    assert approved is False and rule == "daily_turnover_limit", (rule, reason)
+
+
+def test_exit_does_not_count_toward_trim_budget_real_db(pg_url):
+    # A prior 60k EXIT on the day must NOT consume the trim budget: a fresh 10k
+    # sell_trim with 0 prior TRIMS is well under 50k → approved (exits don't count).
+    seed = f"""
+    INSERT INTO pipeline_runs(status, completed_at) VALUES ('success', NOW());
+    INSERT INTO alpaca_sync_runs(status, completed_at, account_value)
+      VALUES ('success', NOW() - interval '6 hours', 100000);
+    INSERT INTO alpaca_sync_runs(status, completed_at, account_value)
+      VALUES ('success', NOW(), 100000);
+    WITH d AS (INSERT INTO delta_runs(run_date) VALUES ('{TODAY_ET}') RETURNING run_id),
+         i AS (INSERT INTO delta_intents(run_id, ticker, action)
+               VALUES ((SELECT run_id FROM d), 'GONE', 'exit') RETURNING id)
+    INSERT INTO alpaca_orders(intent_id, ticker, action, status, notional)
+      VALUES ((SELECT id FROM i), 'GONE', 'exit', 'filled', 60000);
+    """
+    approved, reason, rule, _ = asyncio.run(_decide_against(
+        pg_url, seed, **_entry(action="sell_trim", side="sell", notional=10000.0)))
+    assert approved is True, f"prior exits must not consume trim budget; got {rule}: {reason}"

@@ -777,11 +777,17 @@ KILL_SWITCH                 — rejects all checks
 LIVE_TRADING_ENABLED        — gate for trade_type="live"
 PAPER_ONLY                  — rejects any live trade
 MAX_ORDER_NOTIONAL          — per-order dollar cap
-MAX_DAILY_TURNOVER_PCT      — default 0.50; sell-side cumulative cap per
+MAX_DAILY_TURNOVER_PCT      — default 0.50; DISCRETIONARY-churn cap per
                               simulation day (delta_runs.run_date when
                               trade-executor passes sim_date, else CURRENT_DATE).
-                              Only exits + sell_trims count; entries are not
-                              portfolio churn. Set to 1.0 to disable.
+                              ONLY sell_trims count and are capped — EXITS ARE
+                              EXEMPT (a de-risking close / builder-dropped rotation
+                              must never be throttled). Entries aren't churn either.
+                              (F1 fix: exits were formerly counted+capped, so a big
+                              rotation — mostly exits — emitted exits the gate then
+                              rejected; the planner doesn't model turnover, so
+                              exempting exits removes that planner/gate divergence.)
+                              Set to 1.0 to disable.
 MAX_DAILY_LOSS_PCT          — default 0.10 (10%); halts ALL trades when the
                               account is down > X% vs the day's first sync.
                               Automated complement to KILL_SWITCH.

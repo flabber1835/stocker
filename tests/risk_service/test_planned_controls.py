@@ -108,8 +108,11 @@ def _scripted_responses(*, sync_row, pl_row=None, baseline_row=None,
       daily_turnover_limit: turnover_row, turnover_acct_row  (sells only — exit, sell_trim)
     """
     # Exits / sell_trims are EXEMPT from sync_staleness + daily_loss (closing must
-    # always be allowed), so a close only reads the turnover rows.
-    if action in ("exit", "sell_trim"):
+    # always be allowed). sell_trim then reads the turnover rows; EXIT is now fully
+    # exempt from turnover too (F1) → it runs NO turnover query, reading no rows.
+    if action == "exit":
+        return []
+    if action == "sell_trim":
         return [turnover_row, turnover_acct_row]
     rows = [sync_row]
     if action in ("entry", "buy_add"):

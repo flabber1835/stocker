@@ -134,15 +134,23 @@ already vetted is never re-vetted unless `force=true`. Pure DATE columns
 directly. Orphaned `running` `scheduler_runs` rows from prior days are closed on
 startup (`_close_stale_running_chains`).
 
-### MAX_DAILY_TURNOVER_PCT — sell-side daily turnover cap
+### MAX_DAILY_TURNOVER_PCT — discretionary-trim daily cap
 
-Rejects an `exit` or `sell_trim` once today's cumulative sell notional plus
-this order would exceed `account_value × MAX_DAILY_TURNOVER_PCT`. Default is
-0.50 (50% of portfolio). Entries and buy_adds are NOT counted — they deploy
-idle cash, not portfolio churn. The cap is designed to prevent flipping
-half the portfolio in a single day on a regime change (15 exits × $3.3K
-= $49.5K ≈ 50% of $100K), while leaving cold-boot capital deployment
-unconstrained.
+Rejects a **`sell_trim`** once today's cumulative `sell_trim` notional plus this
+order would exceed `account_value × MAX_DAILY_TURNOVER_PCT`. Default is 0.50.
+**`exit` is EXEMPT** (F1): a full close — a de-risking exit or a builder-dropped
+rotation — must never be throttled, and an exit doesn't run the turnover query or
+count toward the budget. Entries and buy_adds aren't counted either (they deploy
+idle cash, not churn). So the cap now bounds only DISCRETIONARY trimming.
+
+Why exits became exempt: exits were formerly counted AND capped. The delta engine
+(planner) does not model turnover, so on a big rotation — which is mostly exits —
+it would emit more exits than the cap allowed, the gate rejected the overflow
+("failed" rows), and the rotation silently completed over several days. That is
+the same planner/gate-divergence class as the capacity bug. Exempting exits both
+removes the divergence and honors the policy that a close is always allowed; only
+`sell_trim` (genuinely discretionary) remains capped, and a single build rarely
+trims more than the cap.
 
 Scoping uses the simulation date when available (trade-executor passes
 `sim_date` derived from `delta_runs.run_date` for the intent's run), and
