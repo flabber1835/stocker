@@ -30,6 +30,7 @@ from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.tracing import log_step, write_trace_file, mark_orphaned_runs_failed
 from stock_strategy_shared.db import wait_for_db
 from stock_strategy_shared.drawdown import recent_drawdown, scaled_excess_threshold
+from stock_strategy_shared.order_status import open_status_sql
 # Backward-compat alias: the drawdown math now lives in the shared package (one source
 # of truth with the vetter's veto). _recent_drawdown is kept as a name so existing
 # imports/tests resolve; it IS the shared function.
@@ -2382,6 +2383,28 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                      if not (v.action == "entry" and v.ticker in vetter_excluded)}
         mode_used = "confirmation_days_fallback"
     else:
+        # In-flight (open, unfilled) broker orders the gate's MAX_POSITIONS check
+        # counts but a live_positions snapshot does NOT: a queued-but-unfilled ENTRY
+        # already claims a slot, and an open EXIT frees one. Feeding the SAME sets to
+        # the planner's capacity gate makes "planner admits" ⇔ "gate approves" by
+        # construction, so the planner stops proposing entries the gate rejects at the
+        # open ("Portfolio at capacity"). Scoped to NEW-ticker entries not already
+        # held, mirroring the risk-service projected-positions SQL. (cancel-deferred
+        # runs pre-delta, so 'deferred' rows are already purged; this catches the
+        # submitted/accepted/new/partial_fill remainder.)
+        inflight_entries: set[str] = set()
+        inflight_exits: set[str] = set()
+        async with engine.connect() as _conn:
+            _rows = (await _conn.execute(text(
+                f"SELECT DISTINCT ticker, action FROM alpaca_orders "
+                f"WHERE status IN ({open_status_sql()}) AND action IN ('entry','exit')"
+            ))).fetchall()
+        for _r in _rows:
+            if _r.action == "exit":
+                inflight_exits.add(_r.ticker)
+            elif _r.ticker not in live_positions_set:
+                inflight_entries.add(_r.ticker)
+
         # Target-vs-live diff: portfolio_holdings is target, live_positions is actual
         # Pure CPU compute — offload so /runs/progress stays answerable (see note above).
         decisions = await asyncio.to_thread(
@@ -2399,6 +2422,8 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             orphan_confirmation_days=orphan_confirmation_days,
             dedup_survivors=dedup_survivors,
             unranked_below_floor=unranked_below_floor,
+            inflight_entries=inflight_entries,
+            inflight_exits=inflight_exits,
             # Put actual (sums to ~1.0) and target (scaled to ~1-cash_reserve) on the
             # same basis for the drift comparison, so the cash reserve isn't misread as
             # universal overweight → phantom sell_trims. Does NOT change persisted/sized

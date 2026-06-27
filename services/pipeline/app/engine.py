@@ -10,6 +10,7 @@ from datetime import date
 from typing import Optional
 
 from stock_strategy_shared.investability import below_investability_floor
+from stock_strategy_shared.capacity import select_entries_within_capacity
 
 
 @dataclass(frozen=True)
@@ -237,6 +238,8 @@ def evaluate_target_vs_live(
     dedup_survivors: dict[str, str] | None = None,
     cash_fraction: float | None = None,
     unranked_below_floor: set[str] | None = None,
+    inflight_entries: set[str] | None = None,
+    inflight_exits: set[str] | None = None,
 ) -> dict[str, DeltaDecision]:
     """Diff portfolio_holdings (target) against live_positions (actual broker state).
 
@@ -591,7 +594,10 @@ def evaluate_target_vs_live(
 
     # Capacity: defer entries that don't fit the position book (never force-exits a
     # held position — orphans leave only via the time-based orphan path).
-    _allocate_capacity(decisions, live_positions, target_portfolio, max_positions)
+    _allocate_capacity(
+        decisions, live_positions, target_portfolio, max_positions,
+        inflight_entries=inflight_entries, inflight_exits=inflight_exits,
+    )
 
     # Buying-power: defer any buys the available cash (incl. sell proceeds) can't fund.
     _cap_buys(
@@ -688,17 +694,30 @@ def _allocate_capacity(
     live_positions: set[str],
     target_portfolio: dict[str, float],
     max_positions: int,
+    inflight_entries: set[str] | None = None,
+    inflight_exits: set[str] | None = None,
 ) -> None:
     """Defer new entries that don't fit the position book (max_positions slots).
     Mutates ``decisions`` in place. Capacity only — the cash gate runs after, in
     _cap_buys.
 
-    Slot accounting:
-      - Occupied slots = every held name NOT already exiting this run (in-target
-        holds, buy_adds, at_risk orphans counting down, data-gap orphans) PLUS any
-        orphan confirmed-exiting (those free their slot and are excluded).
-      - Free slots = max_positions − occupied. New entries fill free slots best
-        rank first; entries that don't fit are demoted to ``watch``.
+    Slot accounting (uses the SHARED canonical rule in
+    ``stock_strategy_shared.capacity`` — the SAME rule the risk gate's
+    MAX_POSITIONS check applies, so "the planner admits it" ⇔ "the gate approves
+    it" by construction):
+      - held      = live_positions
+      - exiting   = names with an ``exit`` decision this run PLUS in-flight exit
+        orders (open sell/exit orders at the broker) — both free their slot.
+      - entering  = this run's new entries PLUS in-flight entry orders (open buy
+        orders already queued, not yet filled → not yet in live_positions). The
+        in-flight set is the fix for the "planner proposed, gate rejected" class:
+        a queued-but-unfilled entry already claims a slot in the gate's count, so
+        the planner must count it too or it over-admits and the gate rejects at
+        the open.
+      - at_risk orphans (timer counting down) have action ``at_risk`` (NOT
+        ``exit``), so they remain OCCUPIED here — identical to the gate, which
+        still sees them held. They free a slot only once confirmed-exiting.
+      - Free slots are filled best rank first; entries that don't fit → ``watch``.
 
     Why instant rotation was retired
     --------------------------------
@@ -712,18 +731,24 @@ def _allocate_capacity(
     times out and frees its slot. Deterministic, no whipsaw — the trade-off is
     higher latency to rank-align the book, accepted per the orphan-exit redesign.
     """
+    # exiting = confirmed exits this run + in-flight (open) exit orders at broker
     exiting = {d.ticker for d in decisions.values() if d.action == "exit"}
-    occupied = len([t for t in live_positions if t not in exiting])
+    exiting |= (inflight_exits or set())
 
-    free_slots = max(0, max_positions - occupied)
     entries = sorted(
         [d for d in decisions.values() if d.action == "entry"],
         key=lambda d: d.rank,   # best (lowest rank number) first
     )
-    winners = {d.ticker for d in entries[:free_slots]}
+    _admitted, _deferred = select_entries_within_capacity(
+        held=set(live_positions),
+        exiting=exiting,
+        ranked_entries=[d.ticker for d in entries],
+        max_positions=max_positions,
+        inflight_entries=(inflight_entries or set()),
+    )
 
     for d in entries:
-        if d.ticker in winners:
+        if d.ticker in _admitted:
             continue  # entry fits a free slot
         decisions[d.ticker] = replace(
             d, action="watch", current_weight=None,

@@ -96,6 +96,11 @@ _OPEN_STATUS_SQL = open_status_sql()
 
 # Projected post-rotation position count for the MAX_POSITIONS gate:
 #   held_distinct − held names being EXITED this cycle + queued new-ticker entries.
+# This SQL is the DB-side implementation of the canonical rule in
+# shared/stock_strategy_shared/capacity.py (projected_book_count). The delta
+# engine's _allocate_capacity applies the SAME rule (in Python) using the SAME
+# in-flight order inputs, so "the planner admits an entry" ⇔ "this gate approves
+# it" — keep the two in sync if either changes.
 # Bound param :sim_date (ISO string, may be NULL). NOTE run_date::text = :sim_date,
 # NOT run_date = :sim_date — asyncpg infers a bare `run_date = $1` placeholder as a
 # DATE and raises DataError on a str ("'str' has no attribute 'toordinal'"); the

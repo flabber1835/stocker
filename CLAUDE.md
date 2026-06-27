@@ -240,6 +240,22 @@ converge to the cap as they confirm — a deterministic, no-whipsaw trade-off
 higher-ranked entry) was reversed because it raced the orphan-exit timer and
 reintroduced churn.
 
+Capacity is computed with the SHARED canonical rule
+`shared/stock_strategy_shared/capacity.py` (`projected_book_count` /
+`select_entries_within_capacity`) — the SAME rule the risk-service MAX_POSITIONS
+gate applies (its `_PROJECTED_POSITIONS_SQL` is the DB-side implementation). The
+planner counts the SAME IN-FLIGHT broker orders the gate does: a queued-but-
+unfilled ENTRY order already claims a slot (so the planner must too), and an open
+EXIT order frees one. The delta step loads these open-order ticker sets and passes
+`inflight_entries`/`inflight_exits` into `evaluate_target_vs_live`. This closes the
+"planner proposed, gate rejected at the open (Portfolio at capacity)" class:
+"the planner admits an entry" ⇔ "the gate approves it" by construction, so a
+build-time over-admit no longer becomes a failed order at the open. (at_risk
+orphans whose timer is still counting down have action `at_risk`, NOT `exit`, so
+they stay OCCUPIED in both the planner and the gate — they free a slot only once
+confirmed-exiting.) Residual rejections can still arise only from genuine fill
+races DURING the open drain, which remain the gate's job.
+
 Two initial strategy styles:
 
 ```text
