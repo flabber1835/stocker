@@ -579,6 +579,22 @@ is the sole driver of the chain.
 
 Must be deterministic given the same inputs.
 
+Config is RELOADED PER RUN (seam fix), not cached at startup. The pipeline,
+portfolio-builder and llm-vetter each re-read `STRATEGY_CONFIG_PATH` at the start
+of every job (under the job lock) via `_reload_strategy()`. ROOT CAUSE this fixes:
+each service used to `load_strategy()` once at startup and cache it, so a deployed
+config change (git pull of the bind-mounted YAML) + a staggered/partial restart
+left services running DIFFERENT strategy versions — observed as divergent
+`config_hash` across one chain's steps (pipeline=cd66…, builder/vetter=66b9…),
+i.e. a portfolio built under different assumptions than its ranking. Reloading per
+run makes all services converge on the CURRENT file every run, AND means a config
+change takes effect on the next chain run with NO rebuild/restart. As a safety
+net, the delta step runs `_detect_config_skew()` — it compares the upstream
+ranking/portfolio/vetter `config_hash` to its own and surfaces any mismatch
+(loud log + `config_skew` in the load_ranking_run step output) so a residual skew
+(e.g. a config edit MID-chain) is never silent. Non-fatal (a transient deploy must
+not halt the chain).
+
 ## portfolio-builder
 
 Turns ranked stocks into target portfolio weights.
@@ -871,6 +887,17 @@ Risk service is deterministic and heavily tested.
 Only service allowed to place Alpaca orders. Full orchestrator of the
 approval click — no other service does sizing or risk-checking.
 
+Per-ticker dedup is ATOMIC (seam fix). The in-flight buy/sell guards
+(`_open_buy_order_for_ticker` / `_open_sell_order_for_ticker`) run twice: an
+out-of-lock FAST PATH (skip work for the common duplicate) AND an atomic RE-CHECK
+inside `with_submit_lock` right before the reservation. Same-intent dups are
+DB-enforced (the `idx_alpaca_orders_intent_open` partial unique index on
+intent_id), but there is NO unique index on ticker — so two concurrent
+same-ticker / different-intent approvals could both pass the out-of-lock check
+before either recorded (a doubled position). The in-lock re-check closes that
+race: the submit lock serializes all account submits, so the loser sees the
+winner's committed order and returns `duplicate`.
+
 Endpoint: `POST /jobs/submit {intent_id, mode}` → `TradeAttemptResponse`.
 
 Per-click steps (each logged to execution_steps under one trace_id):
@@ -1034,6 +1061,17 @@ vet               → llm-vetter        /jobs/vet          (mandatory; exclusion
 portfolio-builder → portfolio-builder /jobs/build        (refused if no vetter run for today)
 delta             → pipeline          /jobs/delta
 ```
+
+Pre-delta stale-order purge is FAIL-CLOSED (seam fix). Before the delta step the
+supervisor POSTs `/jobs/cancel-deferred` to purge the prior cycle's un-sent
+deferred orders (so they can't fire stale at the open or pollute the new delta's
+capacity view). `_cancel_deferred_orders` now RETRIES transient failures
+(CANCEL_DEFERRED_RETRIES, default 3; backoff CANCEL_DEFERRED_BACKOFF_SECS) and
+returns a bool; if the purge can't be confirmed the delta step is NOT triggered
+this tick (returns idle) and the supervisor retries next tick. This replaced the
+old fail-OPEN behaviour ("error — proceeding anyway") that let a silent purge
+failure leak stale deferred orders into the new cycle. It self-heals once the
+trade-executor is reachable again.
 
 The chain is triggered in exactly two ways:
 1. **Daily schedule** — scheduler fires after market close (SCHEDULE_TIME_ET, default 16:15)

@@ -100,6 +100,10 @@ _restart_abort_seen: dict[tuple[str, str], set[str]] = {}
 # re-triggering a step that was triggered within the cooldown, giving the prior
 # trigger time to land. Set to 0 to disable.
 TRIGGER_COOLDOWN_SECS = float(os.getenv("TRIGGER_COOLDOWN_SECS", "30"))
+# Pre-delta stale-order purge: retry transient failures, then fail CLOSED (defer
+# the delta to the next tick) rather than building proposals on un-purged orders.
+CANCEL_DEFERRED_RETRIES = int(os.getenv("CANCEL_DEFERRED_RETRIES", "3"))
+CANCEL_DEFERRED_BACKOFF_SECS = float(os.getenv("CANCEL_DEFERRED_BACKOFF_SECS", "1.0"))
 # step name -> monotonic time of its last trigger. Reset when a new chain opens.
 _last_trigger_at: dict[str, float] = {}
 
@@ -578,23 +582,38 @@ async def _get_latest_run_id(
     return None
 
 
-async def _cancel_deferred_orders(client: httpx.AsyncClient, context: str = "pre-delta") -> None:
+async def _cancel_deferred_orders(client: httpx.AsyncClient, context: str = "pre-delta") -> bool:
     """Purge un-sent (deferred) orders so a freshly-built target supersedes the
     previous cycle's queued-but-unsent orders. Local-only cancel in trade-executor
     (no broker call). Called before EVERY delta step (cron, run-now, manual) — a
     deferred order left over from a prior run (e.g. after a config change or
-    re-run) would otherwise fire wrongly at the open and block the new delta's
-    correct decision. Non-fatal: a failure is logged and the chain proceeds."""
-    try:
-        r = await client.post(f"{TRADE_EXECUTOR_URL}/jobs/cancel-deferred", timeout=15.0)
-        if r.status_code in (200, 201):
-            n = (r.json() or {}).get("cancelled", 0)
-            if n:
-                _log(f"cancel-deferred ({context}): purged {n} un-sent order(s)")
-        else:
+    re-run) would otherwise FIRE WRONGLY at the open (the new target dropped it)
+    and pollute the new delta's capacity view.
+
+    Returns True when the purge is CONFIRMED (HTTP 2xx — incl. "nothing to purge"),
+    False when it could not be confirmed. Retries transient failures with backoff;
+    the caller treats a False as a fail-CLOSED precondition (defer the delta to the
+    next tick rather than building proposals on top of un-purged stale orders).
+    This replaced the old fail-OPEN behaviour ("error — proceeding anyway"), which
+    let a silent purge failure leak stale deferred orders into the new cycle."""
+    attempts = CANCEL_DEFERRED_RETRIES
+    for attempt in range(attempts):
+        try:
+            r = await client.post(f"{TRADE_EXECUTOR_URL}/jobs/cancel-deferred", timeout=15.0)
+            if r.status_code in (200, 201):
+                n = (r.json() or {}).get("cancelled", 0)
+                if n:
+                    _log(f"cancel-deferred ({context}): purged {n} un-sent order(s)")
+                return True
             _log(f"cancel-deferred ({context}): HTTP {r.status_code}", body=r.text[:200])
-    except Exception as exc:
-        _log(f"cancel-deferred ({context}): error — proceeding anyway", error=str(exc))
+        except Exception as exc:
+            _log(f"cancel-deferred ({context}): attempt {attempt + 1}/{attempts} failed",
+                 error=str(exc))
+        if attempt < attempts - 1:
+            await asyncio.sleep(CANCEL_DEFERRED_BACKOFF_SECS * (2 ** attempt))
+    _log(f"cancel-deferred ({context}): could not confirm purge after {attempts} attempts — "
+         "DEFERRING delta this tick (fail-closed); will retry next tick")
+    return False
 
 
 async def _trigger_alpaca_sync(
@@ -914,7 +933,13 @@ async def _trigger_step(client: httpx.AsyncClient, step: _StepDef, force: bool =
             # Before re-syncing the target to the broker, purge the prior cycle's
             # un-sent (deferred) orders so they can't fire stale at the open or block
             # the new delta's correct decisions (the builder/delta is source of truth).
-            await _cancel_deferred_orders(client, context="pre-delta")
+            # FAIL-CLOSED: if the purge can't be confirmed (after retries), do NOT
+            # trigger delta this tick — a new proposal set built on top of un-purged
+            # stale orders is exactly the split we must avoid. Returning False leaves
+            # the step idle so the supervisor retries the purge+delta next tick (it
+            # self-heals once the trade-executor is reachable again).
+            if not await _cancel_deferred_orders(client, context="pre-delta"):
+                return False
             if _chain_status.get("origin") == "manual":
                 # Tag the standalone delta as manual so the dashboard does not auto-approve
                 # the resulting proposals — a human must click. triggered_by stays

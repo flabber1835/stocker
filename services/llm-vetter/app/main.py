@@ -87,6 +87,15 @@ _system_prompt_override: str | None = None
 
 _job_lock = asyncio.Lock()
 
+
+def _reload_strategy() -> None:
+    """Re-read the strategy config at the start of each vet so a deployed config
+    change takes effect without a restart and all chain services converge on the
+    same version — root-cause fix for the startup-cache config-version skew
+    (divergent config_hash across a chain's steps). Reassigned under _job_lock."""
+    global strategy, config_hash
+    strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
+
 # Cross-process check-and-claim lock (same namespace as av-ingestor's
 # INGEST_RESERVE_LOCK_KEY / pipeline's PIPELINE_*_LOCK_KEY). The in-process
 # _job_lock only serializes WITHIN one process; this transaction-scoped advisory
@@ -1138,6 +1147,7 @@ async def start_vet(
         print("[llm-vetter] VETTER_LLM_ENABLED=false — drawdown-only mode; skipping LLM gateway pre-flight")
 
     async with _job_lock:
+        _reload_strategy()  # pick up any deployed config change; converge across services
         # Atomic check-and-claim (advisory lock): re-checks already-vetted +
         # no-running and INSERTs the 'running' rows in ONE transaction, so the
         # early idempotency read above (a fast-path) can't race a concurrent

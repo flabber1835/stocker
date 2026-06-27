@@ -112,6 +112,15 @@ app = FastAPI(title="portfolio-builder", lifespan=lifespan)
 _job_lock = asyncio.Lock()
 
 
+def _reload_strategy() -> None:
+    """Re-read the strategy config at the start of each build so a deployed config
+    change takes effect without a restart and all chain services converge on the
+    same version — root-cause fix for the startup-cache config-version skew
+    (divergent config_hash across a chain's steps). Reassigned under _job_lock."""
+    global strategy, config_hash
+    strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
+
+
 async def _assert_no_running_job(conn) -> None:
     row = await conn.execute(
         text("SELECT run_id FROM portfolio_runs WHERE status='running' LIMIT 1")
@@ -1116,6 +1125,7 @@ async def start_build(
             vetter_run_id = str(vauto_row.run_id)
 
     async with _job_lock:
+        _reload_strategy()  # pick up any deployed config change; converge across services
         async with engine.connect() as inner_conn:
             await _assert_no_running_job(inner_conn)
         run_id = str(uuid.uuid4())

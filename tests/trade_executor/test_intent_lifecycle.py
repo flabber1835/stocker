@@ -230,6 +230,7 @@ async def test_concurrent_submit_handled_by_integrity_error():
         {"current_price": 150.0},             # 7: _size_entry: live_positions price
         None,                                 # 8: log_step size_order
         None,                                 # 9: log_step risk_check
+        None,                                 # 10: in-lock re-check _open_buy_order_for_ticker: no same-ticker dup
         # INSERT alpaca_orders → IntegrityError raised (call_idx still consumed)
         # fallback SELECT finds the winning order (after the raise)
         None,                                 # placeholder for the INSERT that raises

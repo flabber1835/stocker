@@ -1622,6 +1622,46 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
                         )
                     raise HTTPException(status_code=502, detail=err)
 
+                # ── Step 4b (ATOMIC per-ticker dedup re-check) ────────────────
+                # The Step 2b2/2c in-flight guards above run OUTSIDE this lock — a
+                # fast path that avoids sizing/risk work for the common duplicate.
+                # But that check-then-act is racy: two concurrent same-ticker /
+                # different-intent approvals both pass it before either records, and
+                # (unlike intent_id) there is NO DB unique index on ticker to catch
+                # the loser. Re-check HERE, under the submit lock, which serializes
+                # ALL account submits: a concurrent same-ticker approval has either
+                # already committed its order (we see it and skip) or has not yet
+                # acquired the lock (it will see OURS). This makes the per-ticker
+                # dedup atomic with the reservation. Only matters when we're about
+                # to create an OPEN order (approved → 'pending'); a 'risk_rejected'
+                # row is not open and can't duplicate a live position.
+                if approved:
+                    async with engine.connect() as conn:
+                        dup = (await _open_buy_order_for_ticker(conn, ticker, req.intent_id)
+                               if side == "buy"
+                               else await _open_sell_order_for_ticker(conn, ticker, req.intent_id))
+                    if dup is not None:
+                        async with engine.begin() as conn:
+                            await _log_step(
+                                conn, trace_id, "inflight_recheck", "skipped", t0,
+                                input_summary={"ticker": ticker, "action": action},
+                                output_summary={"existing_order_id": str(dup["id"]),
+                                                "existing_status": dup["status"]},
+                            )
+                            await conn.execute(
+                                text("UPDATE execution_traces SET status='success', "
+                                     "completed_at=:now, notes='duplicate_inflight_recheck' "
+                                     "WHERE trace_id=:tid"),
+                                {"tid": trace_id, "now": datetime.now(timezone.utc)},
+                            )
+                        return TradeAttemptResponse(
+                            status="duplicate", order_id=str(dup["id"]), trace_id=trace_id,
+                            ticker=ticker, action=action, side=side,
+                            reason=(f"{ticker} already has an open {side} order "
+                                    f"({dup['status']}, order {dup['id']}); concurrent "
+                                    f"duplicate {action} skipped (atomic in-lock re-check)."),
+                        )
+
                 # ── Step 5: persist alpaca_orders row (THE reservation) ───────
                 t0 = datetime.now(timezone.utc)
                 order_type = "market"

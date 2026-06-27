@@ -110,7 +110,7 @@ class TestTriggerStepManualTag:
 class TestCancelDeferredOrders:
 
     @pytest.mark.asyncio
-    async def test_posts_to_cancel_deferred_endpoint(self):
+    async def test_posts_to_cancel_deferred_endpoint_and_returns_true(self):
         captured = {}
 
         async def fake_post(url, timeout=None, params=None):
@@ -118,16 +118,35 @@ class TestCancelDeferredOrders:
             return _mock_resp(200, {"status": "ok", "cancelled": 4})
 
         client = MagicMock(); client.post = fake_post
-        await _cancel_deferred_orders(client, "pre-delta")
+        ok = await _cancel_deferred_orders(client, "pre-delta")
         assert captured["url"].endswith("/jobs/cancel-deferred")
+        assert ok is True  # confirmed purge
 
     @pytest.mark.asyncio
-    async def test_non_fatal_on_error(self):
+    async def test_returns_false_after_retries_on_persistent_error(self, monkeypatch):
+        # Fail-CLOSED: a purge that never confirms returns False (so the caller
+        # defers the delta). Still must NOT raise. Patch backoff to keep it fast.
+        import app.main as _m
+        monkeypatch.setattr(_m, "CANCEL_DEFERRED_BACKOFF_SECS", 0.0)
+        calls = {"n": 0}
+
         async def fake_post(url, timeout=None, params=None):
+            calls["n"] += 1
             raise RuntimeError("boom")
         client = MagicMock(); client.post = fake_post
-        # Must not raise — the chain proceeds even if the purge call fails.
-        await _cancel_deferred_orders(client, "pre-delta")
+        ok = await _cancel_deferred_orders(client, "pre-delta")
+        assert ok is False
+        assert calls["n"] == _m.CANCEL_DEFERRED_RETRIES  # retried, not one-shot
+
+    @pytest.mark.asyncio
+    async def test_returns_false_on_persistent_non_2xx(self, monkeypatch):
+        import app.main as _m
+        monkeypatch.setattr(_m, "CANCEL_DEFERRED_BACKOFF_SECS", 0.0)
+
+        async def fake_post(url, timeout=None, params=None):
+            return _mock_resp(503, text="executor down")
+        client = MagicMock(); client.post = fake_post
+        assert await _cancel_deferred_orders(client, "pre-delta") is False
 
 
 class TestDeltaPurgesDeferredFirst:
@@ -148,6 +167,28 @@ class TestDeltaPurgesDeferredFirst:
         dl = [i for i, u in enumerate(posts) if u.endswith("/jobs/delta")]
         assert cd and dl, f"expected both cancel-deferred and delta posts, got {posts}"
         assert cd[0] < dl[0], "cancel-deferred must run BEFORE the delta trigger"
+
+    @pytest.mark.asyncio
+    async def test_delta_NOT_triggered_when_purge_fails(self, monkeypatch):
+        # Fail-CLOSED: if the pre-delta purge can't be confirmed, the delta trigger
+        # must NOT be posted (don't build proposals on un-purged stale orders), and
+        # _trigger_step returns False so the supervisor retries next tick.
+        import app.main as _m
+        monkeypatch.setattr(_m, "CANCEL_DEFERRED_BACKOFF_SECS", 0.0)
+        posts = []
+
+        async def fake_post(url, timeout=None, params=None):
+            posts.append(url)
+            if url.endswith("/jobs/cancel-deferred"):
+                raise RuntimeError("executor unreachable")
+            return _mock_resp(200, {"status": "started"})
+
+        client = MagicMock(); client.post = fake_post
+        _trigger_step.__globals__["_chain_status"]["origin"] = "scheduled"
+        ok = await _trigger_step(client, _delta_step())
+        assert ok is False, "delta trigger must fail-closed when purge can't be confirmed"
+        assert not any(u.endswith("/jobs/delta") for u in posts), (
+            "delta must NOT be triggered after a failed purge")
 
     @pytest.mark.asyncio
     async def test_non_delta_step_does_not_purge(self):

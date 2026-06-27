@@ -1943,7 +1943,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     async with engine.connect() as conn:
         row = await conn.execute(
             text(
-                "SELECT run_id, rank_date, regime, ranked_count "
+                "SELECT run_id, rank_date, regime, ranked_count, config_hash "
                 "FROM ranking_runs WHERE status='success' "
                 "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
             )
@@ -1956,6 +1956,20 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     source_ranking_run_id = str(latest_rank.run_id)
     run_date = latest_rank.rank_date
     regime = latest_rank.regime
+
+    # ── Cross-step config-hash consistency (seam guard) ───────────────────────
+    # The delta consumes the ranking (and, via the target, the portfolio/vetter).
+    # Those are produced by SEPARATE services that each load the strategy config.
+    # If a service is running a different config version (the startup-cache skew
+    # this reload-per-run fix targets, or a config edit mid-chain), the portfolio
+    # was built under different assumptions than the ranking — a silent split
+    # brain. Detect it by comparing the upstream runs' config_hash to ours and
+    # surface it loudly (audit + delta output). Non-fatal: a transient deploy must
+    # not halt the chain, but the skew is no longer invisible.
+    config_skew = await _detect_config_skew(latest_rank.config_hash)
+    if config_skew:
+        print(f"[delta-engine] WARNING: config_hash skew across chain steps: {config_skew}",
+              flush=True)
 
     async with engine.begin() as conn:
         await conn.execute(
@@ -1974,6 +1988,8 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 "run_date": str(run_date),
                 "regime": regime,
                 "ranked_count": latest_rank.ranked_count,
+                "config_hash": config_hash,
+                "config_skew": config_skew or None,
             },
         )
 
@@ -2726,6 +2742,45 @@ async def _run_pipeline_steps(
             _job_lock.release()
 
 
+def _reload_strategy() -> None:
+    """Re-read the strategy config from disk at the START of each run.
+
+    ROOT-CAUSE fix for cross-service config-version skew: each service used to load
+    the config ONCE at startup and cache it for its lifetime, so a deployed config
+    change (git pull of the bind-mounted file) plus a partial/staggered restart left
+    services running DIFFERENT strategy versions — observed as divergent config_hash
+    across one chain's steps (pipeline vs builder/vetter), i.e. a portfolio built
+    under different assumptions than the ranking it consumed. Reloading per run makes
+    every step use the CURRENT file, so all services converge each run regardless of
+    restart timing (and config edits take effect with no rebuild/restart). Reassigned
+    under _job_lock so it can't race an in-flight run.
+    """
+    global strategy, config_hash
+    strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
+
+
+async def _detect_config_skew(ranking_config_hash: str | None) -> dict:
+    """Compare the config_hash of the upstream runs the delta consumes (ranking +
+    latest successful portfolio + vetter) against THIS run's config_hash. Returns a
+    {step: that_step's_hash} dict of any that DIFFER (empty when consistent). A
+    non-empty result means services ran different strategy versions — a config
+    split-brain (see _reload_strategy). Best-effort: never raises."""
+    skew: dict = {}
+    try:
+        if ranking_config_hash and ranking_config_hash != config_hash:
+            skew["ranking"] = ranking_config_hash
+        async with engine.connect() as conn:
+            for label, tbl in (("portfolio", "portfolio_runs"), ("vetter", "vetter_runs")):
+                row = (await conn.execute(text(
+                    f"SELECT config_hash FROM {tbl} WHERE status='success' "
+                    "ORDER BY completed_at DESC NULLS LAST LIMIT 1"))).first()
+                if row and row[0] and row[0] != config_hash:
+                    skew[label] = row[0]
+    except Exception as exc:  # detection must never break the chain
+        print(f"[delta-engine] config-skew check skipped: {exc}", flush=True)
+    return skew
+
+
 async def _do_run_pipeline(triggered_by: str = "manual", force: bool = False) -> dict:
     """Reserve a pipeline run: acquire the global job lock, run the
     already-ran-today guard, and insert the pipeline_runs / execution_traces
@@ -2742,6 +2797,7 @@ async def _do_run_pipeline(triggered_by: str = "manual", force: bool = False) ->
 
     await _job_lock.acquire()
     try:
+        _reload_strategy()  # pick up any deployed config change; converge across services
         run_id = str(uuid.uuid4())
         trace_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
@@ -2870,6 +2926,7 @@ async def start_delta_only(background_tasks: BackgroundTasks, manual: bool = Fal
     if _job_lock.locked():
         return {"status": "already_running"}
     await _job_lock.acquire()
+    _reload_strategy()  # pick up any deployed config change; converge across services
 
     # Pre-generate IDs and insert the delta_runs row synchronously so the row
     # exists in the DB before the response is returned to the caller.
@@ -2955,6 +3012,7 @@ async def start_calculate_only(background_tasks: BackgroundTasks):
     if _job_lock.locked():
         return {"status": "already_running"}
     await _job_lock.acquire()
+    _reload_strategy()  # pick up any deployed config change; converge across services
 
     try:
         run_id = str(uuid.uuid4())
