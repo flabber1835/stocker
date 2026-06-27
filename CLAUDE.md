@@ -599,6 +599,16 @@ not halt the chain).
 
 Turns ranked stocks into target portfolio weights.
 
+Vetter binding (seam guard): the vetter run whose exclusions are applied MUST be
+bound to the SAME ranking run being built. The auto-select path (chain default,
+no `vetter_run_id`) already scopes by `source_ranking_run_id`; the EXPLICIT
+`vetter_run_id` path (manual API) now also verifies
+`vetter_runs.source_ranking_run_id == source_ranking_run_id` and rejects a
+mismatch with HTTP 400 — previously it only checked existence+status, so a
+mismatched id would apply exclusions computed against a different candidate pool
+(a silent vetter/builder split). Candidates the chosen vetter never scanned are
+surfaced as `vetter_unvetted_remaining` (a warning, not a silent gap).
+
 Handles:
 
 ```text

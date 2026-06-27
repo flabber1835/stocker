@@ -131,3 +131,55 @@ class TestPortfolioBuilderAutoPickVetterRun:
         """Cold start with no vetter runs at all must fall through (skip exclusions)."""
         picked = await _run_auto_pick(db, "rank-A")
         assert picked is None
+
+
+# ── Seam fix: explicit vetter_run_id must be bound to the build's ranking run ──
+
+# The query + binding rule the explicit-path check in start_build now applies.
+EXPLICIT_CHECK_QUERY = "SELECT status, source_ranking_run_id FROM vetter_runs WHERE run_id=:rid"
+
+
+async def _explicit_binding_ok(engine, vetter_run_id, building_ranking_run_id):
+    """Mirror start_build's explicit-path guard: the vetter run must exist, be
+    'success', AND be bound to the ranking run being built. Returns (ok, reason)."""
+    async with engine.connect() as conn:
+        row = (await conn.execute(text(EXPLICIT_CHECK_QUERY), {"rid": vetter_run_id})).fetchone()
+    if row is None:
+        return False, "not_found"
+    if row.status != "success":
+        return False, "not_success"
+    if str(row.source_ranking_run_id) != building_ranking_run_id:
+        return False, "ranking_mismatch"
+    return True, "ok"
+
+
+@pytest.mark.asyncio
+class TestExplicitVetterRunBinding:
+    """A manually-passed vetter_run_id must belong to the SAME ranking being built —
+    else exclusions computed against a different candidate pool would be applied."""
+
+    async def test_matching_ranking_accepted(self, db):
+        t0 = datetime(2026, 5, 23, 10, 0, tzinfo=timezone.utc)
+        vid = await _insert_vetter_run(db, status="success", source_ranking_run_id="rank-A",
+                                       started_at=t0, completed_at=t0 + timedelta(minutes=10))
+        ok, reason = await _explicit_binding_ok(db, vid, "rank-A")
+        assert ok and reason == "ok"
+
+    async def test_mismatched_ranking_rejected(self, db):
+        t0 = datetime(2026, 5, 23, 10, 0, tzinfo=timezone.utc)
+        vid = await _insert_vetter_run(db, status="success", source_ranking_run_id="rank-A",
+                                       started_at=t0, completed_at=t0 + timedelta(minutes=10))
+        ok, reason = await _explicit_binding_ok(db, vid, "rank-B")
+        assert not ok and reason == "ranking_mismatch", (
+            "a vetter run from a different ranking must be rejected on the explicit path")
+
+    async def test_nonexistent_rejected(self, db):
+        ok, reason = await _explicit_binding_ok(db, str(uuid.uuid4()), "rank-A")
+        assert not ok and reason == "not_found"
+
+    async def test_unsuccessful_rejected(self, db):
+        t0 = datetime(2026, 5, 23, 10, 0, tzinfo=timezone.utc)
+        vid = await _insert_vetter_run(db, status="running", source_ranking_run_id="rank-A",
+                                       started_at=t0)
+        ok, reason = await _explicit_binding_ok(db, vid, "rank-A")
+        assert not ok and reason == "not_success"

@@ -1089,7 +1089,7 @@ async def start_build(
 
         if vetter_run_id:
             vchk = await conn.execute(
-                text("SELECT status FROM vetter_runs WHERE run_id=:rid"),
+                text("SELECT status, source_ranking_run_id FROM vetter_runs WHERE run_id=:rid"),
                 {"rid": vetter_run_id},
             )
             vrow = vchk.fetchone()
@@ -1099,6 +1099,22 @@ async def start_build(
                 raise HTTPException(
                     status_code=400,
                     detail=f"Vetter run status is '{vrow.status}', must be 'success'",
+                )
+            # Seam guard: the explicit vetter_run_id MUST be bound to the SAME ranking
+            # run we're building from. The auto-select path below scopes by
+            # source_ranking_run_id; the explicit path used to skip that check, so a
+            # mismatched id (manual API call) would apply exclusions computed against a
+            # DIFFERENT ranking's candidate pool — a silent vetter/builder split brain.
+            v_src = str(vrow.source_ranking_run_id) if vrow.source_ranking_run_id else None
+            if v_src != source_ranking_run_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Vetter run {vetter_run_id} was produced for ranking run "
+                        f"{v_src}, not the ranking run being built ({source_ranking_run_id}). "
+                        "Pass a vetter run bound to this ranking, or omit vetter_run_id "
+                        "to auto-select the correct one."
+                    ),
                 )
         else:
             # Auto-select the latest successful vetter run for this same ranking run.
