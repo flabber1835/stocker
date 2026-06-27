@@ -355,14 +355,28 @@ async def _enrich_total_assets(client, ticker: str, overview: dict) -> None:
         print(f"[fundamentals] {ticker}: balance-sheet fetch failed (non-fatal) - {e}")
 
 
+def _as_date(v):
+    """Parse an AV ISO date string ('YYYY-MM-DD') to a date object, or None.
+
+    asyncpg binds DATE columns from Python date OBJECTS, not strings — a raw str
+    raises DataError "'str' object has no attribute 'toordinal'". AV returns dates
+    as strings (and sometimes the literal "None"), so convert at the DB boundary."""
+    if not v or str(v).strip().lower() in ("none", ""):
+        return None
+    try:
+        return date.fromisoformat(str(v)[:10])
+    except ValueError:
+        return None
+
+
 async def _upsert_earnings(session, ticker: str, quarters: list[dict]) -> int:
     """Upsert quarterly earnings rows (AV EARNINGS) for a ticker. Idempotent on
-    (ticker, fiscal_date_ending). Skips rows without a fiscal_date_ending. Returns
-    the number of rows written. Non-fatal data: bad numerics become NULL."""
+    (ticker, fiscal_date_ending). Skips rows without a parseable fiscal_date_ending.
+    Returns the number of rows written. Non-fatal data: bad numerics/dates → NULL."""
     written = 0
     for q in quarters or []:
-        fde = q.get("fiscal_date_ending")
-        if not fde:
+        fde = _as_date(q.get("fiscal_date_ending"))
+        if fde is None:                      # PK column — must be a real date
             continue
         await session.execute(
             text(
@@ -378,7 +392,7 @@ async def _upsert_earnings(session, ticker: str, quarters: list[dict]) -> int:
                 "  surprise_percentage=COALESCE(EXCLUDED.surprise_percentage, earnings.surprise_percentage), "
                 "  updated_at=NOW()"
             ),
-            {"t": ticker, "fde": fde, "rd": q.get("reported_date"),
+            {"t": ticker, "fde": fde, "rd": _as_date(q.get("reported_date")),
              "rep": q.get("reported_eps"), "est": q.get("estimated_eps"),
              "sur": q.get("surprise"), "surp": q.get("surprise_percentage")},
         )
