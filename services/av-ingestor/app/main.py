@@ -400,6 +400,41 @@ async def _upsert_earnings(session, ticker: str, quarters: list[dict]) -> int:
     return written
 
 
+async def _upsert_analyst_snapshot(session, ticker: str, analyst: dict, snapshot_date: date) -> None:
+    """Snapshot AV OVERVIEW's forward-looking analyst fields, point-in-time keyed by
+    snapshot_date (the fetch session date). Idempotent on (ticker, snapshot_date).
+
+    COALESCE-preserve on conflict so a degraded same-day re-fetch (AV returns "None"
+    → NULL fields) does not blank an already-good snapshot — mirrors _upsert_fundamentals.
+    The accumulated snapshots are the history a future REVISION factor diffs across."""
+    if not analyst:
+        return
+    await session.execute(
+        text(
+            "INSERT INTO analyst_snapshots "
+            "(ticker, snapshot_date, target_price, rating_strong_buy, rating_buy, "
+            " rating_hold, rating_sell, rating_strong_sell, forward_pe, peg_ratio, fetched_at) "
+            "VALUES (:t, :d, :tp, :rsb, :rb, :rh, :rs, :rss, :fpe, :peg, NOW()) "
+            "ON CONFLICT (ticker, snapshot_date) DO UPDATE SET "
+            "  target_price=COALESCE(EXCLUDED.target_price, analyst_snapshots.target_price), "
+            "  rating_strong_buy=COALESCE(EXCLUDED.rating_strong_buy, analyst_snapshots.rating_strong_buy), "
+            "  rating_buy=COALESCE(EXCLUDED.rating_buy, analyst_snapshots.rating_buy), "
+            "  rating_hold=COALESCE(EXCLUDED.rating_hold, analyst_snapshots.rating_hold), "
+            "  rating_sell=COALESCE(EXCLUDED.rating_sell, analyst_snapshots.rating_sell), "
+            "  rating_strong_sell=COALESCE(EXCLUDED.rating_strong_sell, analyst_snapshots.rating_strong_sell), "
+            "  forward_pe=COALESCE(EXCLUDED.forward_pe, analyst_snapshots.forward_pe), "
+            "  peg_ratio=COALESCE(EXCLUDED.peg_ratio, analyst_snapshots.peg_ratio), "
+            "  fetched_at=NOW()"
+        ),
+        {"t": ticker, "d": snapshot_date,
+         "tp": analyst.get("target_price"),
+         "rsb": analyst.get("rating_strong_buy"), "rb": analyst.get("rating_buy"),
+         "rh": analyst.get("rating_hold"), "rs": analyst.get("rating_sell"),
+         "rss": analyst.get("rating_strong_sell"),
+         "fpe": analyst.get("forward_pe"), "peg": analyst.get("peg_ratio")},
+    )
+
+
 async def _upsert_fundamentals(session, ticker: str, overview: dict, today: date) -> None:
     """Upsert fundamental data for a single ticker. Pops 'sector' from overview dict.
 
@@ -407,6 +442,9 @@ async def _upsert_fundamentals(session, ticker: str, overview: dict, today: date
     caller that didn't fetch the balance sheet) by defaulting them to NULL.
     """
     sector = overview.pop("sector", None)
+    # The analyst sub-dict (forward-looking fields) is snapshotted separately by the
+    # caller; drop it here so it can't leak into the **overview spread as a stray bind.
+    overview.pop("analyst", None)
     params = {
         "ticker": ticker,
         "as_of_date": today,
@@ -1199,11 +1237,25 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                                     _ticker_avg_dv[ticker] = float(dv_val) if dv_val is not None else None
                             overview["avg_volume"] = _ticker_avg_dv.get(ticker)
                             await _enrich_total_assets(client, ticker, overview)
+                            # Capture the forward-looking analyst block before
+                            # _upsert_fundamentals pops it off the overview dict.
+                            analyst = overview.get("analyst")
                             async with SessionLocal() as session:
                                 async with session.begin():
                                     await _upsert_fundamentals(session, ticker, overview, today)
                             fund_ok += 1
                             print(f"[fetch-data] {ticker} fundamentals: upserted {label}")
+                            # Analyst snapshot (forward-looking factor inputs) — same
+                            # OVERVIEW payload, no extra API call. Point-in-time keyed by
+                            # snapshot_date=today. Fully non-fatal: a miss just leaves a
+                            # gap in this ticker's revision history.
+                            if analyst:
+                                try:
+                                    async with SessionLocal() as session:
+                                        async with session.begin():
+                                            await _upsert_analyst_snapshot(session, ticker, analyst, today)
+                                except Exception as e:  # noqa: BLE001 — snapshot is optional
+                                    print(f"[fetch-data] {ticker} analyst snapshot failed (non-fatal) - {e}")
                             # Earnings (PEAD factor inputs) — same quarterly cadence as
                             # fundamentals, fetched here to share the rate-limit budget.
                             # Fully non-fatal: a miss leaves the factor neutral for this name.

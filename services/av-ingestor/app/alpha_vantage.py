@@ -174,6 +174,20 @@ class AVClient:
             "avg_volume": None,  # AV OVERVIEW has no reliable avg_volume field; calculated from daily_prices locally
             "gross_profit": _to_float(data.get("GrossProfitTTM")),  # Novy-Marx gross-profitability numerator
             "sector": data.get("Sector") or None,
+            # Forward-looking analyst fields — ride in the SAME OVERVIEW payload (no
+            # extra API call). Nested so the dict can be spread into the fundamentals
+            # upsert untouched; the caller snapshots `analyst` separately (point-in-time
+            # store for the revision factor). See _upsert_analyst_snapshot / migration 0029.
+            "analyst": {
+                "target_price": _to_float(data.get("AnalystTargetPrice")),
+                "rating_strong_buy": _to_int(data.get("AnalystRatingStrongBuy")),
+                "rating_buy": _to_int(data.get("AnalystRatingBuy")),
+                "rating_hold": _to_int(data.get("AnalystRatingHold")),
+                "rating_sell": _to_int(data.get("AnalystRatingSell")),
+                "rating_strong_sell": _to_int(data.get("AnalystRatingStrongSell")),
+                "forward_pe": _to_float(data.get("ForwardPE")),
+                "peg_ratio": _to_float(data.get("PEGRatio")),
+            },
         }
 
     async def get_earnings(self, ticker: str) -> list[dict] | None:
@@ -306,6 +320,17 @@ def _mock_overview(ticker: str) -> dict:
         "avg_volume": rng.randint(1_000_000, 50_000_000),
         "gross_profit": round(rng.uniform(1e8, 5e10), 2),
         "sector": rng.choice(_MOCK_SECTORS),
+        # Mock analyst block so mock-mode fetches + tests exercise the snapshot path.
+        "analyst": {
+            "target_price": round(rng.uniform(10.0, 500.0), 2),
+            "rating_strong_buy": rng.randint(0, 10),
+            "rating_buy": rng.randint(0, 15),
+            "rating_hold": rng.randint(0, 15),
+            "rating_sell": rng.randint(0, 8),
+            "rating_strong_sell": rng.randint(0, 5),
+            "forward_pe": round(rng.uniform(8.0, 45.0), 4),
+            "peg_ratio": round(rng.uniform(0.5, 4.0), 4),
+        },
     }
 
 

@@ -90,6 +90,58 @@ news
 thematic overlays
 ```
 
+## Forward-Looking (Leading) Signals
+
+The core factor stack (momentum, quality, value, growth, low-vol, liquidity,
+earnings-surprise) is built entirely from realized price and already-reported
+fundamentals — i.e. TRAILING data. A forward-looking factor taps a different
+information set (expectations / text), so it is low-correlation to the trailing
+stack and anticipatory at fundamental inflections. The benefit is incremental
+risk-adjusted return ≈ IC × (1 − correlation to existing factors): even a modest
+leading signal can beat an eighth trailing factor because the trailing factors
+co-move through the price/business cycle.
+
+### Decision: snapshot AV OVERVIEW analyst fields (Phase 1, deterministic)
+
+The first forward signal is built from data we ALREADY pay for. Alpha Vantage's
+`OVERVIEW` payload — already fetched per ticker for fundamentals — carries analyst
+fields the ingestor previously discarded:
+
+```text
+AnalystTargetPrice
+AnalystRatingStrongBuy / Buy / Hold / Sell / StrongSell
+ForwardPE
+PEGRatio
+```
+
+These are captured at NO extra API call (same payload) into the `analyst_snapshots`
+table (migration 0029), point-in-time keyed by `snapshot_date`. The eventual factor
+is a REVISION: latest snapshot vs a prior snapshot (target-price change,
+rating-upgrade breadth).
+
+Critical point-in-time constraint: AV exposes only the CURRENT consensus, so there
+is NO clean free historical backfill. We accumulate our own history by snapshotting
+each fetch. Consequence — the revision factor must be evaluated FORWARD /
+out-of-sample (paper), NOT backtested over dates before snapshots existed. Same
+honesty constraint applies even more strongly to any LLM-generated leading factor
+(a frozen-knowledge model scoring a historical date has look-ahead).
+
+This migration lands ONLY the raw snapshot store + ingest. The derived factor
+column + scoring weight are a separate change once enough history accumulates.
+
+### Free forward-looking sources (evaluated; for later phases)
+
+```text
+SEC EDGAR        free, no key, ToS-clean; 8-K Item 2.02 + Ex-99.1 (guidance),
+                 10-Q/10-K MD&A/Outlook — best feedstock for an LLM outlook score
+Finnhub (free)   eps/revenue estimates, recommendation trends, price targets;
+                 ~60 req/min covers the universe (some endpoints now paid — verify)
+FMP (free)       transcripts + estimates, but ~250 req/day → scope to the vetter
+                 candidate pool only, not the full universe
+yfinance/Yahoo   free forward estimates/revisions but unofficial/ToS-gray/fragile
+                 — research/prototyping only, do not productionize
+```
+
 ### Polygon/Massive
 
 Potential use:
