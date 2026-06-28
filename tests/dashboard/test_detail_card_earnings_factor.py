@@ -25,3 +25,14 @@ def test_detail_card_factor_list_includes_earnings_surprise():
     start = DASH_JS.index("const FACTORS = [")
     body = DASH_JS[start: DASH_JS.index("];", start)]
     assert "earnings_surprise" in body, "detail card must list the earnings_surprise factor"
+
+
+def test_lazy_overlay_projects_earnings_surprise():
+    # The detail card's factor chips are populated from the lazily-fetched overlay
+    # object (_ensureOverlay), which explicitly enumerates the factor fields it copies
+    # off the with-overlays response. If earnings_surprise is omitted there, the chip
+    # reads undefined → "—" even when the api returns the value. Guard that projection.
+    start = DASH_JS.index("const overlay = {")
+    body = DASH_JS[start: DASH_JS.index("};", start)]
+    assert "earnings_surprise: match.earnings_surprise" in body, \
+        "lazy overlay must project earnings_surprise onto the cached detail row"

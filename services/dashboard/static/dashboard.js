@@ -35,11 +35,16 @@ const RANK_BUFFER  = 12;   // extra rows rendered above/below the viewport
 let   _sortedRank  = [];   // the currently-sorted full array renderRankings windows over
 let   _overlayCache = {};  // ticker → merged heavy overlay fields (session cache)
 let   _overlayInflight = {}; // ticker → Promise (dedupe concurrent lazy fetches)
-let   _loadedRankDate = null; // rank_date the overlay cache was populated against —
-                              // when a NEW ranking run lands, the cached prior_rank/
-                              // rank_slope (the ▲▼ arrow inputs) are stale and must be
-                              // dropped, else the Screener shows a stale arrow while
-                              // the Target tab (always fresh) shows the current one.
+let   _loadedRunId = null;    // run_id the overlay cache was populated against — when a
+                              // NEW ranking run lands the cached overlays (prior_rank /
+                              // rank_slope arrow inputs AND factor_scores like
+                              // earnings_surprise) are stale and must be dropped, else the
+                              // Screener shows stale values while the Target tab (always
+                              // fresh) shows the current one. Keyed on run_id, NOT rank_date:
+                              // a same-date RE-RUN (e.g. a fresh build after an earnings
+                              // ingest, same rank_date) changes the run_id but not the date,
+                              // so a date-keyed check would never invalidate (the bug that
+                              // left earnings_surprise showing "—" on a same-day re-run).
 let   _flashTicker  = null; // ticker whose row should currently carry the flash class
                             // (re-applied on each window repaint — a virtualized row
                             //  is destroyed/recreated on scroll, so the class can't
@@ -673,17 +678,21 @@ async function loadRankings() {
     _rankingsLoadState = 'ok';
     rankData = (d.rankings || []).map(_mapRankRow);
     // Invalidate the per-ticker overlay cache when the ranking RUN changes. The
-    // cache is keyed only by ticker, so without this the Screener keeps showing the
-    // arrow (prior_rank / rank_slope) computed against the PRIOR run while the
-    // Target tab — which always re-fetches fresh — shows the current one, so the
-    // same ticker disagrees across tabs. Clearing forces a re-enrich against the new
-    // run; both tabs then agree.
-    const _newRankDate = (rankData[0] && rankData[0].rank_date) || null;
-    if (_newRankDate && _newRankDate !== _loadedRankDate) {
+    // cache is keyed only by ticker, so without this the Screener keeps showing
+    // overlays (prior_rank / rank_slope arrows AND lazy-loaded factor_scores such as
+    // earnings_surprise) computed against the PRIOR run while the Target tab — which
+    // always re-fetches fresh — shows the current one, so the same ticker disagrees
+    // across tabs. Keyed on run_id, NOT rank_date: a same-date re-run (a fresh build
+    // after e.g. an earnings ingest, same rank_date) changes run_id but not the date,
+    // so a date-keyed check would never invalidate and the stale overlay would persist
+    // (the "earnings_surprise shows — after a same-day re-run" bug). Clearing forces a
+    // re-enrich against the new run; both tabs then agree.
+    const _newRunId = (d.run && d.run.run_id) || null;
+    if (_newRunId && _newRunId !== _loadedRunId) {
       _overlayCache = {};
       _fullRankByTicker = {};   // Target store too (rebuilt fresh on next open)
       rankData.forEach(r => { r._overlayLoaded = false; });
-      _loadedRankDate = _newRankDate;
+      _loadedRunId = _newRunId;
     }
     _expandedTicker = null;
     renderRankings();
@@ -910,6 +919,7 @@ async function _ensureOverlay(ticker) {
           market_cap: match.market_cap, beta: match.beta,
           momentum: match.momentum, quality: match.quality, value: match.value,
           growth: match.growth, low_volatility: match.low_volatility, liquidity: match.liquidity,
+          earnings_surprise: match.earnings_surprise,
           drawdown_21d: match.drawdown_21d, excess_dd_21d: match.excess_dd_21d,
           idio_vol: match.idio_vol, excess_dd_limit: match.excess_dd_limit,
           vetter_excluded: match.vetter_excluded, vetter_confidence: match.vetter_confidence,
