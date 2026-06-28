@@ -1525,6 +1525,43 @@ async def get_trace(trace_id: str):
 
 # ── Portfolio ─────────────────────────────────────────────────────────────────────────────────
 
+def _portfolio_risk_summary(holdings: list[dict], beta_map: dict[str, float]) -> dict:
+    """Compute the Target-tab risk numbers from target holdings + per-name betas.
+
+      sleeve_beta       — weight-weighted beta over beta-COVERED holdings, normalized
+                          (÷ their weight sum). The beta of the STOCKS as if fully
+                          invested — EXCLUDES the cash buffer.
+      coverage          — how many holdings had a beta (so a missing-beta name
+                          doesn't silently drag the average toward 0).
+      invested_fraction — Σ ALL target weights (= 1 − cash_reserve − any vol-target
+                          de-lever; the target weights already encode the cash buffer).
+      cash_pct          — 1 − invested_fraction (clamped ≥ 0): the target cash buffer.
+      effective_beta    — sleeve_beta × invested_fraction: the book's REAL market
+                          sensitivity (cash contributes zero beta) — what tracks SPY.
+
+    Pure (no DB) so it's unit-tested directly.
+    """
+    covered = [h for h in holdings if h["ticker"] in beta_map]
+    wsum = sum(float(h["weight"]) for h in covered)
+    sleeve_beta = (
+        sum(float(h["weight"]) * beta_map[h["ticker"]] for h in covered) / wsum
+        if wsum > 0 else None
+    )
+    invested_fraction = sum(float(h["weight"]) for h in holdings) if holdings else None
+    cash_pct = max(0.0, 1.0 - invested_fraction) if invested_fraction is not None else None
+    effective_beta = (
+        sleeve_beta * invested_fraction
+        if (sleeve_beta is not None and invested_fraction is not None) else None
+    )
+    return {
+        "sleeve_beta": sleeve_beta,
+        "coverage": len(covered),
+        "invested_fraction": invested_fraction,
+        "cash_pct": cash_pct,
+        "effective_beta": effective_beta,
+    }
+
+
 @app.get("/portfolio")
 async def get_portfolio(run_id: str | None = None):
     async with engine.connect() as conn:
@@ -1585,14 +1622,12 @@ async def get_portfolio(run_id: str | None = None):
                 if r["beta"] is not None
             }
 
-    # Weight-weighted portfolio beta, normalized over only the holdings that have
-    # a beta (so a missing-beta name doesn't silently drag the average toward 0).
-    covered = [h for h in holdings if h["ticker"] in beta_map]
-    wsum = sum(float(h["weight"]) for h in covered)
-    portfolio_beta = (
-        sum(float(h["weight"]) * beta_map[h["ticker"]] for h in covered) / wsum
-        if wsum > 0 else None
-    )
+    risk = _portfolio_risk_summary(holdings, beta_map)
+    portfolio_beta = risk["sleeve_beta"]
+    effective_beta = risk["effective_beta"]
+    invested_fraction = risk["invested_fraction"]
+    cash_pct = risk["cash_pct"]
+    covered = risk["coverage"]
 
     return {
         "run": {
@@ -1610,7 +1645,10 @@ async def get_portfolio(run_id: str | None = None):
             "avg_pairwise_correlation": float(run["avg_pairwise_correlation"]) if run["avg_pairwise_correlation"] is not None else None,
             "portfolio_estimated_vol": float(run["portfolio_estimated_vol"]) if run["portfolio_estimated_vol"] is not None else None,
             "portfolio_beta": round(portfolio_beta, 3) if portfolio_beta is not None else None,
-            "portfolio_beta_coverage": len(covered),
+            "portfolio_beta_coverage": covered,
+            "effective_beta": round(effective_beta, 3) if effective_beta is not None else None,
+            "invested_fraction": round(invested_fraction, 4) if invested_fraction is not None else None,
+            "cash_pct": round(cash_pct, 4) if cash_pct is not None else None,
             "error_message": run["error_message"],
             "started_at": run["started_at"].isoformat() if run["started_at"] else None,
             "completed_at": run["completed_at"].isoformat() if run["completed_at"] else None,

@@ -1815,7 +1815,19 @@ function renderTargetTable() {
     if (pr && pr.portfolio_beta != null) {
       const cov = (pr.portfolio_beta_coverage != null && pr.selected_count)
         ? ' (' + pr.portfolio_beta_coverage + '/' + pr.selected_count + ')' : '';
-      s += ' &middot; <strong>target &beta; ' + (+pr.portfolio_beta).toFixed(2) + '</strong>' + cov;
+      // Sleeve β = beta of the stocks (cash EXCLUDED). Effective β = sleeve β ×
+      // invested fraction = the book's real market sensitivity (cash drag included).
+      s += ' &middot; <strong title="beta of the holdings, as if fully invested (excludes the cash buffer)">sleeve &beta; '
+        + (+pr.portfolio_beta).toFixed(2) + '</strong>' + cov;
+      if (pr.effective_beta != null) {
+        s += ' &middot; <strong title="effective market beta = sleeve β × invested fraction; what the book actually tracks SPY by, after the cash buffer">eff &beta; '
+          + (+pr.effective_beta).toFixed(2) + '</strong>';
+      }
+    }
+    if (pr && pr.cash_pct != null) {
+      // Target cash = 1 − Σ target weights (cash_reserve + any vol-target de-lever).
+      s += ' &middot; <span title="target cash buffer = cash reserve + vol-target de-lever (1 − invested fraction)">cash '
+        + (pr.cash_pct * 100).toFixed(1) + '%</span>';
     }
     if (pr && pr.portfolio_estimated_vol != null) {
       s += ' &middot; est vol ' + (pr.portfolio_estimated_vol * 100).toFixed(1) + '%';
