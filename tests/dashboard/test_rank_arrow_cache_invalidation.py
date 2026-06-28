@@ -34,3 +34,25 @@ def test_arrow_function_is_shared_by_both_tabs():
     # Sanity: the arrow is computed by one shared function (so once the cached inputs
     # agree, the rendered arrows agree by construction).
     assert "function rankArrowHtml(" in DASH_JS
+
+
+def test_table_arrow_uses_only_prior_rank_delta_on_both_tabs():
+    """2a fix: the shared table arrow must use ONLY the 1-day prior_rank delta —
+    prior_rank is returned by BOTH /universe (screener) and /with-overlays (target),
+    so the same ticker can't show different arrows. It must NOT branch on rank_slope
+    (only the Target had it → the Screener/Target disagreement)."""
+    start = DASH_JS.index("function rankArrowHtml(")
+    body = DASH_JS[start: DASH_JS.index("\n}", start)]
+    assert "prior_rank" in body and "r.rank" in body
+    # The arrow LOGIC must not read rank_slope (the field access); the comment may
+    # mention it. r.rank_slope is the actual branch that caused the disagreement.
+    assert "r.rank_slope" not in body, "table arrow must not branch on rank_slope (target-only field)"
+
+
+def test_five_run_slope_preserved_in_detail_card():
+    """The richer 5-run slope isn't lost — it moves to the detail card so it's still
+    visible (where rank_slope is loaded with the overlay)."""
+    assert "Rank trend (5-run)" in DASH_JS
+    start = DASH_JS.index("function _buildDetailHtml(")
+    body = DASH_JS[start: start + 6000]
+    assert "r.rank_slope != null" in body, "detail card must surface the 5-run slope"

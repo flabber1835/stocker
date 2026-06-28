@@ -724,21 +724,20 @@ function clearSort(pfx) {
 }
 
 function rankArrowHtml(r) {
-  // Red/green rank-trend arrow — shared by the Screener and Target tabs.
-  // 5-run REGR slope (negative = rank number falling = improving) preferred;
-  // falls back to the 1-day prior_rank delta; flat dash when neither moves.
+  // Red/green rank-trend arrow — shared by the Screener and Target tabs. Uses the
+  // 1-day delta (prior run → this run) on BOTH tabs so the SAME ticker can never
+  // show different arrows. prior_rank is returned by BOTH /rankings/universe (the
+  // screener's light list) and /rankings/with-overlays (the Target tab); rank_slope
+  // is only on the latter, so preferring it made the screener (1-day) and Target
+  // (5-run slope) disagree for the same name. The richer 5-run slope still shows in
+  // the detail card (see _buildDetailHtml "Rank trend").
   let arrow = '';
-  if (r.rank_slope != null && Math.abs(r.rank_slope) >= 1) {
-    const mag = Math.round(Math.abs(r.rank_slope));
-    arrow = r.rank_slope < 0
-      ? '<span class="rank-up" title="trending up ~' + mag + '/run (5-run slope)">&#9650;' + mag + '</span>'
-      : '<span class="rank-dn" title="trending down ~' + mag + '/run (5-run slope)">&#9660;' + mag + '</span>';
-  } else if (r.prior_rank != null && r.rank != null) {
-    const delta = r.prior_rank - r.rank;
+  if (r.prior_rank != null && r.rank != null) {
+    const delta = r.prior_rank - r.rank;   // +ve = rank number fell = improved
     if (delta >= 2)       arrow = '<span class="rank-up" title="up ' + delta + ' since last run">&#9650;' + delta + '</span>';
     else if (delta <= -2) arrow = '<span class="rank-dn" title="down ' + (-delta) + ' since last run">&#9660;' + (-delta) + '</span>';
   }
-  if (!arrow) arrow = '<span class="rank-flat" title="no movement">&ndash;</span>';
+  if (!arrow) arrow = '<span class="rank-flat" title="no movement vs last run">&ndash;</span>';
   return arrow;
 }
 
@@ -766,7 +765,7 @@ function renderRankings() {
 // Map a sorted-array index → that row's <tr> HTML (data row only; the expanded
 // detail card is injected separately, OUTSIDE the spacer math — see below).
 function _rankRowHtml(r) {
-  const arrow = rankArrowHtml(r);   // 5-run slope / prior-rank fallback / flat dash
+  const arrow = rankArrowHtml(r);   // 1-day prior_rank delta (same metric on both tabs)
   // SIZE / drawdown / vetter-warning badges live in the detail card now (compact
   // row keeps only rank · ticker · company · cluster). See _buildDetailHtml.
   const heldCls     = r.held ? ' row-held' : '';
@@ -991,6 +990,20 @@ function _buildDetailHtml(r) {
     excessSub = '<div class="dc-sub' + cls + '" title="Beta-adjusted excess drawdown (raw minus beta×SPY move) vs this ticker\'s falling-knife trigger. The veto fires if excess ≤ -limit. limit = vol-scaled per σ (idiosyncratic vol). A separate flat 25% raw-drawdown floor also applies.">excess ' + exPct + lim + sig + '</div>';
   }
 
+  // 5-run rank trend (REGR slope; negative = rank number falling = improving). The
+  // compact table arrow uses the 1-day delta for cross-tab consistency; the smoothed
+  // multi-run trend lives here, where rank_slope is loaded with the detail overlay.
+  let trendVal = '—';
+  if (r.rank_slope != null) {
+    const mag = Math.round(Math.abs(r.rank_slope));
+    if (mag >= 1) {
+      trendVal = r.rank_slope < 0
+        ? '<span class="rank-up" title="improving ~' + mag + ' places/run over the last 5 runs">&#9650; ' + mag + '/run</span>'
+        : '<span class="rank-dn" title="slipping ~' + mag + ' places/run over the last 5 runs">&#9660; ' + mag + '/run</span>';
+    } else {
+      trendVal = '<span class="rank-flat" title="flat over the last 5 runs">&ndash; flat</span>';
+    }
+  }
   const grid = '<div class="detail-grid">'
     + '<div class="detail-cell"><div class="dc-lbl">Rank</div><div class="dc-val">' + r.rank + '</div></div>'
     + '<div class="detail-cell"><div class="dc-lbl">Score</div><div class="dc-val">' + fmtScore(r.composite_score) + '</div></div>'
@@ -998,6 +1011,7 @@ function _buildDetailHtml(r) {
     + '<div class="detail-cell"><div class="dc-lbl">Size</div><div class="dc-val">' + sizeVal + '</div></div>'
     + '<div class="detail-cell"><div class="dc-lbl">21d Drawdown</div><div class="dc-val">' + ddVal + excessSub + '</div></div>'
     + '<div class="detail-cell"><div class="dc-lbl">Beta (120d vs SPY)</div><div class="dc-val">' + (r.beta != null ? r.beta.toFixed(2) : '—') + '</div></div>'
+    + '<div class="detail-cell"><div class="dc-lbl">Rank trend (5-run)</div><div class="dc-val">' + trendVal + '</div></div>'
     + '<div class="detail-cell"><div class="dc-lbl">Cluster</div><div class="dc-val">' + (r.cluster_id ? esc(r.cluster_id) : '—') + '</div></div>'
     + '</div>';
 
