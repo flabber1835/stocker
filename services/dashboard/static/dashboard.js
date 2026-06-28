@@ -412,7 +412,7 @@ function _mapRankRow(r) {
     composite_score: r.composite_score, percentile: r.percentile,
     momentum: fs.momentum, quality: fs.quality, value: fs.value,
     growth: fs.growth, low_volatility: fs.low_volatility, liquidity: fs.liquidity,
-    earnings_surprise: fs.earnings_surprise,
+    earnings_surprise: fs.earnings_surprise, near_high: fs.near_high,
     drawdown_21d: fs.drawdown_21d != null ? +fs.drawdown_21d : null,
     excess_dd_21d: fs.excess_dd_21d != null ? +fs.excess_dd_21d : null,
     idio_vol: fs.idio_vol != null ? +fs.idio_vol : null,
@@ -919,7 +919,7 @@ async function _ensureOverlay(ticker) {
           market_cap: match.market_cap, beta: match.beta,
           momentum: match.momentum, quality: match.quality, value: match.value,
           growth: match.growth, low_volatility: match.low_volatility, liquidity: match.liquidity,
-          earnings_surprise: match.earnings_surprise,
+          earnings_surprise: match.earnings_surprise, near_high: match.near_high,
           drawdown_21d: match.drawdown_21d, excess_dd_21d: match.excess_dd_21d,
           idio_vol: match.idio_vol, excess_dd_limit: match.excess_dd_limit,
           vetter_excluded: match.vetter_excluded, vetter_confidence: match.vetter_confidence,
@@ -1030,7 +1030,7 @@ function _buildDetailHtml(r) {
     { key: 'momentum', lbl: 'Momentum' }, { key: 'quality', lbl: 'Quality' },
     { key: 'value', lbl: 'Value' }, { key: 'growth', lbl: 'Growth' },
     { key: 'low_volatility', lbl: 'Low Vol' }, { key: 'liquidity', lbl: 'Liquidity' },
-    { key: 'earnings_surprise', lbl: 'Earn Surprise' },
+    { key: 'earnings_surprise', lbl: 'Earn Surprise' }, { key: 'near_high', lbl: 'Near High' },
   ];
   const chips = FACTORS.map(f => {
     const v = r[f.key];

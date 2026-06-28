@@ -97,14 +97,15 @@ regime_weighting_enabled: false
 # quality 0.22 (was 0.20 — KEPT as the leader-friendly crash filter), liquidity 0.06,
 # growth 0.06. Sums to 1.0.
 static_factor_weights:
-  momentum:          0.42   # DOMINANT — price momentum (12-1/6-1 residual). Trimmed from 0.50 to fund earnings_surprise.
-  earnings_surprise: 0.12   # NEW — PEAD ("buy beats / sell misses"). Point-in-time SUE, partially ORTHOGONAL to 12-1 price momentum (which skips the last ~21d and misses a fresh report). This is the fundamental-momentum / leadership leg.
+  momentum:          0.36   # DOMINANT — price momentum (12-1/6-1 residual). Trimmed 0.42→0.36 to fund near_high (the freed 0.06 stays in the TREND family, just split into a fresher variant).
+  earnings_surprise: 0.12   # PEAD ("buy beats / sell misses"). Point-in-time SUE, partially ORTHOGONAL to 12-1 price momentum (which skips the last ~21d and misses a fresh report). Fundamental-momentum / leadership leg.
   quality:           0.20   # KEPT high — junk-momentum filter that does NOT penalize trend leaders (trimmed 0.22→0.20)
   low_volatility:    0.08   # was demoting high-vol semis at the rank stage; kept as light ballast
   value:             0.08   # was demoting expensive semis at the rank stage; kept light
+  near_high:         0.06   # NEW — proximity to trailing high (52-wk-high effect, George & Hwang 2004). FRESHER trend slice than 12-1 momentum (captures names making highs NOW). Funded FROM momentum (highly correlated) so net trend exposure ≈ unchanged; small weight because it over-laps momentum and adds top-chasing/crash tail (the falling-knife veto backstops it).
   liquidity:         0.06   # turnover is high → liquidity earns its keep
   growth:            0.04   # residual (trimmed 0.06→0.04)
-  # Sum = 0.42 + 0.12 + 0.20 + 0.08 + 0.08 + 0.06 + 0.04 = 1.00
+  # Sum = 0.36 + 0.12 + 0.20 + 0.08 + 0.08 + 0.06 + 0.06 + 0.04 = 1.00
 
 factor_weights:
   # RETAINED for reference / easy re-enable (unused while regime_weighting_enabled

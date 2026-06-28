@@ -36,3 +36,18 @@ def test_lazy_overlay_projects_earnings_surprise():
     body = DASH_JS[start: DASH_JS.index("};", start)]
     assert "earnings_surprise: match.earnings_surprise" in body, \
         "lazy overlay must project earnings_surprise onto the cached detail row"
+
+
+def test_near_high_shown_on_detail_card():
+    # near_high is now a weighted scoring factor (momentum_rotation_v2) so it must be
+    # visible on the card — same full path as earnings_surprise: row mapper, chip list,
+    # and the lazy overlay projection.
+    mapper = DASH_JS[DASH_JS.index("function _mapRankRow("):]
+    mapper = mapper[: mapper.index("\n}")]
+    assert "near_high: fs.near_high" in mapper
+    chips = DASH_JS[DASH_JS.index("const FACTORS = ["):]
+    chips = chips[: chips.index("];")]
+    assert "near_high" in chips
+    overlay = DASH_JS[DASH_JS.index("const overlay = {"):]
+    overlay = overlay[: overlay.index("};")]
+    assert "near_high: match.near_high" in overlay
