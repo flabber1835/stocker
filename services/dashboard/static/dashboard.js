@@ -35,6 +35,11 @@ const RANK_BUFFER  = 12;   // extra rows rendered above/below the viewport
 let   _sortedRank  = [];   // the currently-sorted full array renderRankings windows over
 let   _overlayCache = {};  // ticker → merged heavy overlay fields (session cache)
 let   _overlayInflight = {}; // ticker → Promise (dedupe concurrent lazy fetches)
+let   _loadedRankDate = null; // rank_date the overlay cache was populated against —
+                              // when a NEW ranking run lands, the cached prior_rank/
+                              // rank_slope (the ▲▼ arrow inputs) are stale and must be
+                              // dropped, else the Screener shows a stale arrow while
+                              // the Target tab (always fresh) shows the current one.
 let   _flashTicker  = null; // ticker whose row should currently carry the flash class
                             // (re-applied on each window repaint — a virtualized row
                             //  is destroyed/recreated on scroll, so the class can't
@@ -666,6 +671,19 @@ async function loadRankings() {
     }
     _rankingsLoadState = 'ok';
     rankData = (d.rankings || []).map(_mapRankRow);
+    // Invalidate the per-ticker overlay cache when the ranking RUN changes. The
+    // cache is keyed only by ticker, so without this the Screener keeps showing the
+    // arrow (prior_rank / rank_slope) computed against the PRIOR run while the
+    // Target tab — which always re-fetches fresh — shows the current one, so the
+    // same ticker disagrees across tabs. Clearing forces a re-enrich against the new
+    // run; both tabs then agree.
+    const _newRankDate = (rankData[0] && rankData[0].rank_date) || null;
+    if (_newRankDate && _newRankDate !== _loadedRankDate) {
+      _overlayCache = {};
+      _fullRankByTicker = {};   // Target store too (rebuilt fresh on next open)
+      rankData.forEach(r => { r._overlayLoaded = false; });
+      _loadedRankDate = _newRankDate;
+    }
     _expandedTicker = null;
     renderRankings();
   } catch (e) {
