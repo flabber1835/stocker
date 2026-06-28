@@ -1146,15 +1146,30 @@ function _sectionFor(r) {
   return 'completed';
 }
 
+// An already-held / duplicate dedup block is a PERMANENT failure: the position is
+// already at the broker, so re-approving just hits the executor's dedup and blocks
+// again. Distinguish it from a TRANSIENT failure (insufficient buying power, risk
+// blip) which legitimately stays retryable. The signal is the executor's 'duplicate'
+// status or the "already held"/"Duplicate entry" message it writes on the failed row.
+function _isAlreadyHeldBlock(r) {
+  if (r.order_status !== 'failed' && r.order_status !== 'duplicate') return false;
+  if (r.order_status === 'duplicate') return true;
+  const m = (r.order_error_message || '').toLowerCase();
+  return m.includes('already held') || m.includes('duplicate entry');
+}
+
 function _isApprovable(r) {
   if (!['entry', 'exit', 'buy_add', 'sell_trim'].includes(r.action)) return false;
   if (_approvalState[r.id]) return false;
+  // Permanent dedup block — never approvable (retry just re-blocks). MUST come before
+  // the generic-failed fall-through below, which keeps transient failures retryable.
+  if (_isAlreadyHeldBlock(r)) return false;
   const os = r.order_status;
   // Block only orders that are genuinely OPEN or already DONE — re-approving those
-  // would double-submit. A DEAD attempt (risk_rejected / failed / expired / canceled)
-  // placed NO live broker order, so it must stay manually re-approvable: the operator
-  // can retry after the cause is fixed (e.g. the risk-service exit bug). NOTE: the
-  // server-side cron auto-approve deliberately still SKIPS risk_rejected/failed
+  // would double-submit. A TRANSIENT DEAD attempt (risk_rejected / failed / expired /
+  // canceled) placed NO live broker order, so it must stay manually re-approvable: the
+  // operator can retry after the cause is fixed (e.g. the risk-service exit bug). NOTE:
+  // the server-side cron auto-approve deliberately still SKIPS risk_rejected/failed
   // (see dashboard app.main _auto_approve_once) so a persistent failure can't loop;
   // only this manual UI path allows the retry.
   if (os === 'submitted' || os === 'pending' || os === 'deferred' || os === 'filled' || os === 'partial_fill') return false;
@@ -1173,9 +1188,14 @@ function renderTrader() {
   // and any orders are untouched; clearing survives the polling refresh and
   // resets automatically when a new delta run appears).
   const visible = deltaData.filter(r => !_clearedTrades.has(String(r.id)));
-  // Order blotter: show only actionable orders (buy open / buy add / sell close /
-  // sell trim). hold / watch / at_risk are informational and excluded here.
-  const orders = visible.filter(r => TRADE_ACTIONS.includes(r.action));
+  // Blotter = actionable orders (buy open / buy add / sell close / sell trim) PLUS
+  // informational intents (hold / watch / at_risk). The actionable ones drive the
+  // Needs Attention / In Progress sections and approvals; the informational ones are
+  // never approvable but DO belong in the "Completed & Holds" section (and the DONE
+  // count) — _sectionFor routes them to 'completed'. Excluding them entirely made the
+  // "& Holds" header and DONE chip lie, and hid the toolbar on a hold-only cycle.
+  const INFO_ACTIONS = ['hold', 'watch', 'at_risk'];
+  const orders = visible.filter(r => TRADE_ACTIONS.includes(r.action) || INFO_ACTIONS.includes(r.action));
   const sorted = [...orders]
     .sort((a, b) => {
       const ao = ACTION_ORDER[a.action] ?? 99;
@@ -1196,7 +1216,11 @@ function renderTrader() {
 
   // Update live-count chips (reflect the order blotter)
   const hasData = orders.length > 0;
-  const pendEl = $('ds-pending');  if (pendEl)  pendEl.textContent  = hasData ? attentionItems.length : '—';
+  // PENDING = items needing a human decision: approvable attention items + transient
+  // failures (retryable). Already-held blocks sit in the failures section for
+  // visibility but are NOT counted (nothing to do about them).
+  const pendingCount = attentionItems.filter(r => !_isAlreadyHeldBlock(r)).length;
+  const pendEl = $('ds-pending');  if (pendEl)  pendEl.textContent  = hasData ? pendingCount          : '—';
   const flEl   = $('ds-inflight'); if (flEl)    flEl.textContent    = hasData ? progressItems.length  : '—';
   const doneEl = $('ds-done');     if (doneEl)  doneEl.textContent  = hasData ? completedItems.length : '—';
 

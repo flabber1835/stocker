@@ -956,9 +956,11 @@ INTENTS: list[Intent] = [
         panel="trader",
         description="Completed section is collapsed by default when attention/progress "
                     "sections are non-empty — filled NVDA and hold TSLA are not shown "
-                    "until user expands the section.",
+                    "in the BLOTTER until the user expands the section. (Scoped to "
+                    "#trader-body: the held name also legitimately appears in the "
+                    "separate holdings-status panel, so a body-wide check is wrong.)",
         must_contain_text=["Completed"],
-        must_not_contain_text=["TSLA"],  # hold/completed item not shown while collapsed
+        custom_check=lambda page: _check_collapsed_hides(page, ["TSLA", "NVDA"]),
     ),
 
     Intent(
@@ -1086,6 +1088,19 @@ INTENTS: list[Intent] = [
 
 
 # ── Custom-check helpers ──────────────────────────────────────────────────────
+
+def _check_collapsed_hides(page, tickers: list[str]) -> tuple[bool, str]:
+    """Return (ok, msg) — ok if NONE of `tickers` appear in the order BLOTTER
+    (#trader-body) while the Completed section is collapsed. Scoped to the blotter on
+    purpose: a held name also shows in the separate holdings-status panel, so a
+    body-wide check would false-positive."""
+    blotter = page.locator("#trader-body").inner_text()
+    leaked = [t for t in tickers if t in blotter]
+    if not leaked:
+        return True, f"  ✓ blotter hides collapsed rows {tickers}"
+    return False, (f"  ✗ collapsed completed section leaked {leaked} into the blotter "
+                   f"(#trader-body); should be hidden until expanded")
+
 
 def _check_count(page, selector: str, expected: int, why: str) -> tuple[bool, str]:
     """Return (ok, message) — ok if page has exactly `expected` instances of selector."""

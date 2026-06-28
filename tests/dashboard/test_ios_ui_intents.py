@@ -142,9 +142,19 @@ def _check(page, intent) -> list[str]:
             failures.append(f"must_be_enabled {sel} but it's disabled")
 
     body_text = page.locator("body").inner_text()
+    # must_contain is matched CASE-INSENSITIVELY: section headers (Needs Attention /
+    # In Progress / Completed / Order Failures) render UPPERCASE via CSS
+    # `text-transform`, and Playwright's inner_text() returns the CSS-transformed
+    # (visible) text — a mixed-case needle would never match. The intents assert
+    # content *presence*, not casing.
+    body_lower = body_text.lower()
     for needle in intent.must_contain_text:
-        if needle not in body_text:
+        if needle.lower() not in body_lower:
             failures.append(f"must_contain_text {needle!r} — not found")
+    # must_not_contain stays CASE-SENSITIVE on purpose: row-level status cells use
+    # mixed case (e.g. "✓ Submitted"), so a case-sensitive check catches a real row
+    # bug WITHOUT false-matching an all-caps section header (e.g. "… ORDERS SUBMITTED
+    # TO BROKER"), which is legitimately present.
     for needle in intent.must_not_contain_text:
         if needle in body_text:
             failures.append(f"must_not_contain_text {needle!r} — found")
