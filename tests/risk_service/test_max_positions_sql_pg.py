@@ -195,12 +195,15 @@ def _entry(**kw):
 
 
 # ── direct query-constant tests (headline regression: the sim_date DataError) ──
-async def _projected(url, sim_date):
+async def _projected(url, sim_date, ticker="__no_such_ticker__"):
     eng = create_async_engine(url)
     try:
         await _run_schema_seed(eng, _seed_healthy("2026-06-16"))
         async with eng.connect() as c:
-            row = (await c.execute(text(_PROJECTED_POSITIONS_SQL), {"sim_date": sim_date})).first()
+            row = (await c.execute(
+                text(_PROJECTED_POSITIONS_SQL),
+                {"sim_date": sim_date, "ticker": ticker},
+            )).first()
             return int(row[0]) if row and row[0] is not None else None
     finally:
         await eng.dispose()
@@ -322,14 +325,21 @@ def _seed_capacity(run_date: str, held: int, inflight_entries: list[str],
     """
 
 
-async def _projected_and_sets(url, seed_sql, sim_date, held, inflight_entries, exit_intents):
-    """Return (sql_count, helper_count) for the SAME seeded state."""
+async def _projected_and_sets(url, seed_sql, sim_date, held, inflight_entries, exit_intents,
+                              ticker="__no_such_ticker__"):
+    """Return (sql_count, helper_count) for the SAME seeded state.
+
+    `ticker` is the candidate the gate is checking; the SQL excludes its own queued
+    row (see _PROJECTED_POSITIONS_SQL). The default sentinel matches nothing, so the
+    SQL count equals the full projected book (the helper computes the same book
+    without the candidate, since projected_book_count is passed `entering` = inflight
+    only, candidate-excluded)."""
     eng = create_async_engine(url)
     try:
         await _run_schema_seed(eng, seed_sql)
         async with eng.connect() as c:
             row = (await c.execute(text(_PROJECTED_POSITIONS_SQL),
-                                   {"sim_date": sim_date})).first()
+                                   {"sim_date": sim_date, "ticker": ticker})).first()
         sql_count = int(row[0]) if row and row[0] is not None else None
     finally:
         await eng.dispose()
@@ -354,6 +364,24 @@ def test_parity_gate_sql_equals_shared_rule_with_exits(pg_url):
     sql_count, helper = asyncio.run(
         _projected_and_sets(pg_url, seed, "2026-06-16", 34, ["NEW"], 2))
     assert sql_count == helper == 33, (sql_count, helper)
+
+
+def test_deferred_recheck_excludes_own_order_no_off_by_one(pg_url):
+    """REGRESSION (the '35 positions cap' flakiness): a deferred ENTRY re-checked at
+    the drain must NOT count its OWN queued row. 34 held + the candidate 'NEW' already
+    sitting as a deferred entry → the projection for 'NEW' must be 34 (the book WITHOUT
+    NEW), so a cap of 35 approves it. Before the fix the SQL counted NEW's own deferred
+    row → 35 → '35 >= 35' → rejected an entry the planner + the first check had
+    approved (it fills the book to exactly the cap)."""
+    seed = _seed_capacity("2026-06-16", held=34, inflight_entries=["NEW"], exit_intents=0)
+    # checking candidate 'NEW' whose own deferred row exists → must be excluded → 34
+    sql_count, _ = asyncio.run(
+        _projected_and_sets(pg_url, seed, "2026-06-16", 34, ["NEW"], 0, ticker="NEW"))
+    assert sql_count == 34, f"deferred re-check must exclude own row; got {sql_count}"
+    # sanity: a DIFFERENT candidate still sees NEW occupying its slot → 35
+    sql_other, _ = asyncio.run(
+        _projected_and_sets(pg_url, seed, "2026-06-16", 34, ["NEW"], 0, ticker="OTHER"))
+    assert sql_other == 35
 
 
 def test_parity_planner_defers_exactly_what_gate_would_reject(pg_url):

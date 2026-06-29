@@ -134,6 +134,16 @@ _PROJECTED_POSITIONS_SQL = (
     "+ "
     "  (SELECT COUNT(DISTINCT ao.ticker) FROM alpaca_orders ao "
     f"   WHERE ao.status IN ({_OPEN_STATUS_SQL}) AND ao.action = 'entry' "
+    # EXCLUDE the candidate being checked. At the FIRST risk check its order row does
+    # not exist yet, so it is naturally absent from this count; at the DEFERRED
+    # RE-CHECK its own 'deferred' row DOES exist and would be counted here — making the
+    # re-check one stricter than the admission check (and than the planner, which
+    # admits when projected-INCLUDING-candidate <= max). That off-by-one rejected an
+    # entry that legitimately fills the book to exactly max_positions ("Portfolio at
+    # capacity" on the 35th). Excluding the candidate makes projected mean "the book
+    # WITHOUT this entry", so `projected >= max` ⇔ "no room", consistent across both
+    # checks and with the planner's `projected_with_candidate <= max` rule.
+    "   AND ao.ticker <> :ticker "
     "   AND ao.ticker NOT IN ("
     "     SELECT lp2.ticker FROM live_positions lp2 "
     "     JOIN alpaca_sync_runs sr2 ON sr2.run_id = lp2.sync_run_id "
@@ -622,7 +632,8 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
             if req.action == "entry" and max_positions > 0:
                 async with engine.connect() as conn:
                     pos_row = (await conn.execute(
-                        text(_PROJECTED_POSITIONS_SQL), {"sim_date": req.sim_date}
+                        text(_PROJECTED_POSITIONS_SQL),
+                        {"sim_date": req.sim_date, "ticker": req.ticker},
                     )).first()
                     held = (await conn.execute(text(
                         "SELECT 1 FROM live_positions lp "
