@@ -72,6 +72,48 @@ DRAWDOWN_EXCESS_MAX   = float(os.getenv("DRAWDOWN_EXCESS_MAX", "0.30"))
 # pipeline's value (wired to both services in docker-compose) so card == veto.
 DRAWDOWN_BASELINE_WINDOW = int(os.getenv("DRAWDOWN_BASELINE_WINDOW", "3"))
 
+# ── Falling-knife thresholds: env = the FALLBACK default; the strategy file's
+# vetter.falling_knife block (when present) overrides per run. Snapshot the env
+# values so each run re-resolves deterministically as (config value OR env default) —
+# a config that OMITS the block behaves byte-identically to the pre-migration setup.
+# Applied in _reload_strategy under the job lock (one run at a time), so updating
+# these module globals keeps every downstream reference in sync without threading a
+# context object through the whole vet flow. (DRAWDOWN_BASELINE_WINDOW stays env-only:
+# it must match the pipeline and is not part of the migrated tunable set.)
+_ENV_FK = {
+    "backstop_pct":  DRAWDOWN_BACKSTOP_PCT,
+    "window_days":   DRAWDOWN_WINDOW_DAYS,
+    "excess_pct":    DRAWDOWN_EXCESS_PCT,
+    "beta_lookback": DRAWDOWN_BETA_LOOKBACK,
+    "vol_scaling":   DRAWDOWN_VOL_SCALING,
+    "vol_anchor":    DRAWDOWN_VOL_ANCHOR,
+    "excess_min":    DRAWDOWN_EXCESS_MIN,
+    "excess_max":    DRAWDOWN_EXCESS_MAX,
+}
+
+
+def _apply_falling_knife_config(fk) -> None:
+    """Resolve the ACTIVE falling-knife thresholds for this run: use the strategy
+    file's vetter.falling_knife value where set (not None), else the env-default
+    snapshot. The pipeline's display mirror resolves identically, preserving the
+    card == veto parity."""
+    global DRAWDOWN_BACKSTOP_PCT, DRAWDOWN_WINDOW_DAYS, DRAWDOWN_EXCESS_PCT
+    global DRAWDOWN_BETA_LOOKBACK, DRAWDOWN_VOL_SCALING, DRAWDOWN_VOL_ANCHOR
+    global DRAWDOWN_EXCESS_MIN, DRAWDOWN_EXCESS_MAX
+
+    def pick(attr):
+        v = getattr(fk, attr, None) if fk is not None else None
+        return _ENV_FK[attr] if v is None else v
+
+    DRAWDOWN_BACKSTOP_PCT  = pick("backstop_pct")
+    DRAWDOWN_WINDOW_DAYS   = pick("window_days")
+    DRAWDOWN_EXCESS_PCT    = pick("excess_pct")
+    DRAWDOWN_BETA_LOOKBACK = pick("beta_lookback")
+    DRAWDOWN_VOL_SCALING   = pick("vol_scaling")
+    DRAWDOWN_VOL_ANCHOR    = pick("vol_anchor")
+    DRAWDOWN_EXCESS_MIN    = pick("excess_min")
+    DRAWDOWN_EXCESS_MAX    = pick("excess_max")
+
 # Drawdown-only mode. When false, the vetter skips ALL LLM + Tavily + AV-news
 # work and every candidate defaults to keep — the deterministic falling-knife
 # drawdown backstop becomes the ONLY entry block. The chain step and the
@@ -95,6 +137,9 @@ def _reload_strategy() -> None:
     (divergent config_hash across a chain's steps). Reassigned under _job_lock."""
     global strategy, config_hash
     strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
+    # Resolve falling-knife thresholds from the (just-loaded) strategy file, falling
+    # back to env where unset — so a deployed config change takes effect this run.
+    _apply_falling_knife_config(getattr(strategy.vetter, "falling_knife", None))
 
 # Cross-process check-and-claim lock (same namespace as av-ingestor's
 # INGEST_RESERVE_LOCK_KEY / pipeline's PIPELINE_*_LOCK_KEY). The in-process

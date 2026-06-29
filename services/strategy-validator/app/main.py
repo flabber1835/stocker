@@ -5,7 +5,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from stock_strategy_shared.schemas.strategy import StrategyConfig
+from stock_strategy_shared.schemas.strategy import (
+    StrategyConfig,
+    PROTECTED_PATHS,
+    validate_llm_tunable_diff,
+)
 
 app = FastAPI(title="strategy-validator")
 
@@ -56,6 +60,21 @@ def _check_safety(cfg: StrategyConfig) -> list[str]:
     return violations
 
 
+def _validate_raw(raw: dict) -> tuple[StrategyConfig | None, list[str]]:
+    """Run full schema + hard-safety validation on a raw config mapping.
+    Returns (cfg, []) when valid, or (None, [errors]) otherwise."""
+    try:
+        cfg = StrategyConfig(**raw)
+    except ValidationError as exc:
+        return None, [f"{'.'.join(str(l) for l in e['loc'])}: {e['msg']}" for e in exc.errors()]
+    except Exception as exc:  # noqa: BLE001
+        return None, [str(exc)]
+    violations = _check_safety(cfg)
+    if violations:
+        return None, violations
+    return cfg, []
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "strategy-validator"}
@@ -99,31 +118,76 @@ async def validate(request: Request):
             content={"valid": False, "errors": ["Body must be a JSON object or YAML mapping"], "warnings": []},
         )
 
-    try:
-        cfg = StrategyConfig(**raw)
-    except ValidationError as exc:
-        errors = [f"{'.'.join(str(l) for l in e['loc'])}: {e['msg']}" for e in exc.errors()]
+    cfg, errors = _validate_raw(raw)
+    if errors:
         return JSONResponse(
             status_code=422,
             content={"valid": False, "errors": errors, "warnings": []},
         )
-    except Exception as exc:
-        return JSONResponse(
-            status_code=422,
-            content={"valid": False, "errors": [str(exc)], "warnings": []},
-        )
-
-    safety_violations = _check_safety(cfg)
-    if safety_violations:
-        return JSONResponse(
-            status_code=422,
-            content={"valid": False, "errors": safety_violations, "warnings": []},
-        )
-
-    warnings: list[str] = []
 
     return {
         "valid": True,
         "strategy_id": cfg.strategy_id,
-        "warnings": warnings,
+        "warnings": [],
+    }
+
+
+@app.post("/validate-llm-change")
+async def validate_llm_change(request: Request):
+    """Gate an automated/LLM-PROPOSED strategy change against an approved BASELINE.
+
+    This is what makes direct LLM edits to the strategy file safe: the proposal must
+    (a) pass full schema + hard-safety validation, AND (b) change ONLY LLM-tunable
+    fields — it may NOT touch protected identity / data-source / crash-protection
+    fields (PROTECTED_PATHS).
+
+    Body (application/json):
+        {"baseline": {<approved strategy config>},
+         "proposed": {<LLM-proposed strategy config>}}
+
+    Returns:
+        200 {valid:true, strategy_id, changed_protected_fields:[], warnings:[]}
+        422 {valid:false, errors:[...], changed_protected_fields:[...]}
+              — schema/safety failure on `proposed`, OR a protected field changed.
+    """
+    import json
+    try:
+        body = json.loads(await request.body())
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(status_code=422, content={
+            "valid": False, "errors": [f"Could not parse JSON body: {exc}"],
+            "changed_protected_fields": []})
+
+    if not isinstance(body, dict) or "baseline" not in body or "proposed" not in body:
+        return JSONResponse(status_code=422, content={
+            "valid": False,
+            "errors": ["Body must be a JSON object with 'baseline' and 'proposed' keys"],
+            "changed_protected_fields": []})
+
+    baseline, proposed = body["baseline"], body["proposed"]
+    if not isinstance(baseline, dict) or not isinstance(proposed, dict):
+        return JSONResponse(status_code=422, content={
+            "valid": False, "errors": ["'baseline' and 'proposed' must be mappings"],
+            "changed_protected_fields": []})
+
+    # (a) the proposal must itself be a valid, safe config
+    cfg, errors = _validate_raw(proposed)
+    if errors:
+        return JSONResponse(status_code=422, content={
+            "valid": False, "errors": errors, "changed_protected_fields": []})
+
+    # (b) the proposal may only change LLM-tunable fields
+    changed = validate_llm_tunable_diff(baseline, proposed)
+    if changed:
+        return JSONResponse(status_code=422, content={
+            "valid": False,
+            "errors": [f"LLM-protected field(s) changed (human approval required): {', '.join(changed)}"],
+            "changed_protected_fields": changed})
+
+    return {
+        "valid": True,
+        "strategy_id": cfg.strategy_id,
+        "changed_protected_fields": [],
+        "protected_paths": sorted(PROTECTED_PATHS),
+        "warnings": [],
     }

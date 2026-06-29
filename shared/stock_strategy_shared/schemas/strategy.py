@@ -224,6 +224,51 @@ class FactorEngineConfig(BaseModel):
         return v
 
 
+class FallingKnifeConfig(BaseModel):
+    """Falling-knife veto thresholds (the vetter's crash-protection backstop).
+
+    MIGRATED from per-service env (DRAWDOWN_* on llm-vetter + the pipeline's display
+    mirror) into the validated, version-tagged strategy file. Every field is OPTIONAL
+    and defaults to None: a None field falls back to the service's env value, so a
+    config WITHOUT this block — or with a field omitted — behaves BYTE-IDENTICALLY to
+    the pre-migration env-only setup. Both the vetter (real veto) and the pipeline
+    (display `excess_dd_limit`) resolve the SAME way, preserving their parity.
+
+    PROTECTED in the LLM-tunable partition (see PROTECTED_PATHS): these are
+    crash-protection safety controls, so an automated/LLM-proposed diff may NOT change
+    them — only a human may. They live in the file for validation + versioning, not so
+    a tuning loop can loosen them.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    backstop_pct: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0,
+        description="Absolute raw peak-to-now drawdown floor (env DRAWDOWN_BACKSTOP_PCT, "
+                    "default 0.25). 0 disables the absolute floor.")
+    window_days: Optional[int] = Field(
+        default=None, ge=5, le=126,
+        description="Peak-to-now lookback window in trading days (env DRAWDOWN_WINDOW_DAYS, default 21).")
+    excess_pct: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0,
+        description="Beta-adjusted excess-drawdown limit — the PRIMARY trigger "
+                    "(env DRAWDOWN_EXCESS_PCT, default 0.15). 0 disables the beta path.")
+    beta_lookback: Optional[int] = Field(
+        default=None, ge=20, le=504,
+        description="OLS beta regression lookback vs SPY (env DRAWDOWN_BETA_LOOKBACK, default 120).")
+    vol_scaling: Optional[bool] = Field(
+        default=None,
+        description="Vol-scale the excess limit per ticker (env DRAWDOWN_VOL_SCALING, default true).")
+    vol_anchor: Optional[float] = Field(
+        default=None, gt=0.0, le=2.0,
+        description="Idio-vol anchor for vol scaling (env DRAWDOWN_VOL_ANCHOR, default 0.35).")
+    excess_min: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0,
+        description="Lower clamp on the vol-scaled excess limit (env DRAWDOWN_EXCESS_MIN, default 0.10).")
+    excess_max: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0,
+        description="Upper clamp on the vol-scaled excess limit (env DRAWDOWN_EXCESS_MAX, default 0.30).")
+
+
 class VetterConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -232,6 +277,12 @@ class VetterConfig(BaseModel):
         description="Set false to skip LLM vetting entirely for this strategy."
     )
     candidate_count: int = Field(default=50, ge=5, le=200)
+    falling_knife: FallingKnifeConfig = Field(
+        default_factory=FallingKnifeConfig,
+        description="Falling-knife veto thresholds. PROTECTED (human-only) in the "
+                    "LLM-tunable partition — see PROTECTED_PATHS. Omitted fields fall "
+                    "back to the service env defaults (byte-identical to pre-migration)."
+    )
     risk_horizon_days: int = Field(
         default=90, ge=1, le=365,
         description="Risk assessment horizon passed to the LLM. Events beyond this window are treated as "
@@ -656,3 +707,61 @@ class StrategyConfig(BaseModel):
                 f"— vetter will not have enough candidates to fill the portfolio"
             )
         return self
+
+
+# ── LLM-tunable partition ──────────────────────────────────────────────────────
+# The strategy file is the surface an automated (LLM) tuner is allowed to edit — but
+# NOT every field. PROTECTED_PATHS are the identity / data-source / crash-protection
+# fields that only a HUMAN may change; everything else (factor weights, factor-engine
+# params, universe filters, portfolio caps, vetter scope, delta timings, ...) is
+# LLM-tunable. A path here protects itself AND its entire subtree (prefix match), so
+# "vetter.falling_knife" guards every threshold under it.
+#
+# The HARD risk gates (risk-service env limits: kill switch, daily-loss, max-position,
+# turnover, staleness) live OUTSIDE the strategy file entirely and are unreachable
+# from here BY CONSTRUCTION — this partition is the second line for the few
+# safety-relevant knobs that DO live in the file.
+PROTECTED_PATHS: frozenset[str] = frozenset({
+    "strategy_id",          # identity — changing it forks/confuses the strategy registry
+    "universe.source",      # structural data-source switch (e.g. av_listing) — not an alpha knob
+    "vetter.falling_knife",  # crash-protection thresholds — must not be loosened by a tuner
+})
+
+
+def _flatten_config(d: object, prefix: str = "") -> dict:
+    """Flatten a nested config dict to {dotted_path: leaf_value}. Lists/scalars are
+    leaves (compared whole); only dicts recurse. Used to diff two configs path-by-path."""
+    out: dict = {}
+    if isinstance(d, dict):
+        for k, v in d.items():
+            child = f"{prefix}.{k}" if prefix else str(k)
+            out.update(_flatten_config(v, child))
+    else:
+        out[prefix] = d
+    return out
+
+
+def is_protected_path(path: str) -> bool:
+    """True if `path` is a protected field or sits under a protected subtree."""
+    return any(path == p or path.startswith(p + ".") for p in PROTECTED_PATHS)
+
+
+def validate_llm_tunable_diff(baseline: dict, proposed: dict) -> list[str]:
+    """Return the sorted list of PROTECTED paths that DIFFER between an approved
+    `baseline` config and an automated/LLM-`proposed` one.
+
+    Empty list  → the proposal only touched LLM-tunable fields (safe to consider).
+    Non-empty   → the proposal tried to change an identity / data-source / safety
+                  field and MUST be rejected.
+
+    Both inputs are plain dicts as loaded from YAML/JSON (defaults NOT materialised),
+    so omitting a protected subtree on one side and populating it on the other is
+    correctly flagged as a change. Schema validity is checked separately.
+    """
+    fb = _flatten_config(baseline)
+    fp = _flatten_config(proposed)
+    violations = [
+        path for path in (set(fb) | set(fp))
+        if is_protected_path(path) and fb.get(path) != fp.get(path)
+    ]
+    return sorted(violations)

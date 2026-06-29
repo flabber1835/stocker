@@ -70,6 +70,39 @@ DRAWDOWN_VOL_ANCHOR = float(os.getenv("DRAWDOWN_VOL_ANCHOR", "0.35"))
 DRAWDOWN_EXCESS_MIN = float(os.getenv("DRAWDOWN_EXCESS_MIN", "0.10"))
 DRAWDOWN_EXCESS_MAX = float(os.getenv("DRAWDOWN_EXCESS_MAX", "0.30"))
 
+# Env snapshot = the FALLBACK; the strategy file's vetter.falling_knife block
+# overrides per run (resolved identically to the vetter so card == veto). Only the
+# fields the display limit depends on are mirrored here. Applied in _reload_strategy.
+_ENV_FK = {
+    "window_days":   DRAWDOWN_WINDOW_DAYS,
+    "beta_lookback": BETA_LOOKBACK_DAYS,
+    "excess_pct":    DRAWDOWN_EXCESS_PCT,
+    "vol_scaling":   DRAWDOWN_VOL_SCALING,
+    "vol_anchor":    DRAWDOWN_VOL_ANCHOR,
+    "excess_min":    DRAWDOWN_EXCESS_MIN,
+    "excess_max":    DRAWDOWN_EXCESS_MAX,
+}
+
+
+def _apply_falling_knife_config(fk) -> None:
+    """Resolve the display falling-knife params from the strategy file's
+    vetter.falling_knife (where set) else the env snapshot — same resolution the
+    vetter uses, so the card's `excess_dd_limit` never drifts from the real trigger."""
+    global DRAWDOWN_WINDOW_DAYS, BETA_LOOKBACK_DAYS, DRAWDOWN_EXCESS_PCT
+    global DRAWDOWN_VOL_SCALING, DRAWDOWN_VOL_ANCHOR, DRAWDOWN_EXCESS_MIN, DRAWDOWN_EXCESS_MAX
+
+    def pick(attr):
+        v = getattr(fk, attr, None) if fk is not None else None
+        return _ENV_FK[attr] if v is None else v
+
+    DRAWDOWN_WINDOW_DAYS = pick("window_days")
+    BETA_LOOKBACK_DAYS   = pick("beta_lookback")
+    DRAWDOWN_EXCESS_PCT  = pick("excess_pct")
+    DRAWDOWN_VOL_SCALING = pick("vol_scaling")
+    DRAWDOWN_VOL_ANCHOR  = pick("vol_anchor")
+    DRAWDOWN_EXCESS_MIN  = pick("excess_min")
+    DRAWDOWN_EXCESS_MAX  = pick("excess_max")
+
 
 def _excess_dd_limit(idio_vol: float | None) -> float:
     """Per-ticker excess-drawdown trigger magnitude (positive). Delegates to the
@@ -2785,6 +2818,9 @@ def _reload_strategy() -> None:
     """
     global strategy, config_hash
     strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
+    # Mirror the vetter: resolve the display falling-knife params from the strategy
+    # file (falling back to env) so the screener card's excess_dd_limit tracks the veto.
+    _apply_falling_knife_config(getattr(strategy.vetter, "falling_knife", None))
 
 
 async def _detect_config_skew(ranking_config_hash: str | None) -> dict:
