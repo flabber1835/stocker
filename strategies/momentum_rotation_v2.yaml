@@ -1,7 +1,7 @@
 # momentum_rotation_v2 — momentum_rotation_v1 with low-vol/value CUT (leadership tilt)
 #
 # Identical to momentum_rotation_v1 in EVERY respect (universe, factor engine incl.
-# residual_riskadj momentum, regime detection, portfolio builder, theme-overlay-OFF,
+# residual_riskadj momentum, regime detection, portfolio builder,
 # vetter, delta engine, caps) EXCEPT the static factor weights.
 #
 # WHY: the v1 first run produced ZERO semiconductors despite the semis basket

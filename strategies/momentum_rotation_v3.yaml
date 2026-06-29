@@ -7,8 +7,8 @@
 # leadership capture (semis/tech) at the cost of a fatter momentum crash tail.
 #
 # Identical to v1/v2 in every other respect (universe, factor engine incl.
-# residual_riskadj momentum, regime detection OFF, portfolio builder, theme-overlay
-# OFF, vetter, delta engine, caps) EXCEPT static_factor_weights.
+# residual_riskadj momentum, regime detection OFF, portfolio builder,
+# vetter, delta engine, caps) EXCEPT static_factor_weights.
 #
 # CRASH-PROTECTION TRADE-OFF (read before trusting live): with low_vol at 0.06 and
 # value at 0.04, the ballast that historically tamed momentum's left tail (the 2009-

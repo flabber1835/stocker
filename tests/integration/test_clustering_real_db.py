@@ -1,15 +1,15 @@
 """Correlation clustering — end-to-end against a REAL migrated Postgres.
 
 Reproduces the "only a few tickers clustered" question. Seeds daily_prices with
-three genuinely correlated groups — two 'in-theme', one 'out-of-theme' — plus two
-uncorrelated singletons, reads them back with the portfolio-builder's own query,
-and runs the ACTUAL build_covariance + correlation_clusters. Proves:
+three genuinely correlated groups plus two uncorrelated singletons, reads them back
+with the portfolio-builder's own query, and runs the ACTUAL build_covariance +
+correlation_clusters. Proves:
 
-  - the clustering code clusters in-theme AND out-of-theme groups correctly when
-    they are in the candidate pool (so the code is NOT regressed), and
-  - RESTRICT theme mode scopes the candidate pool to theme members, so
-    out-of-theme names are never candidates and correctly show no cluster — which
-    is why the live screener (restrict mode) shows '—' for out-of-theme names.
+  - the clustering code clusters all correlated groups correctly when they are in
+    the candidate pool (so the code is NOT regressed), and
+  - clustering scopes to the candidate pool: a group absent from the pool is never a
+    candidate and correctly shows no cluster — which is why the screener shows '—'
+    for names outside the ranked candidate set.
 """
 from __future__ import annotations
 
@@ -29,9 +29,9 @@ from app.select import build_covariance, correlation_clusters  # noqa: E402
 
 pytestmark = pytest.mark.asyncio
 
-SEMIS = ["AMAT", "LRCX", "MU", "NVDA"]    # in-theme (AI infra)
-POWER = ["CEG", "VST", "NRG"]             # in-theme (AI power buildout)
-ENERGY = ["XOM", "CVX", "COP"]            # OUT-of-theme (oil & gas)
+SEMIS = ["AMAT", "LRCX", "MU", "NVDA"]    # correlated group A (semis)
+POWER = ["CEG", "VST", "NRG"]             # correlated group B (power)
+ENERGY = ["XOM", "CVX", "COP"]            # correlated group C (oil & gas)
 SINGLETONS = ["AAPL", "KO"]               # uncorrelated loners
 N = 200
 
@@ -90,7 +90,7 @@ def _multi_member_clusters(raw_corr):
 
 
 class TestClusteringRealDB:
-    async def test_full_pool_clusters_in_and_out_of_theme(self, engine):
+    async def test_full_pool_clusters_all_correlated_groups(self, engine):
         df = await _prices_df(engine)
         cov, dropped, raw_corr = build_covariance(df, window_days=252,
                                                   min_observations=126, shrinkage=0.20)
@@ -99,18 +99,18 @@ class TestClusteringRealDB:
         # all three correlated groups form their own multi-member cluster
         assert frozenset(SEMIS) in clusters
         assert frozenset(POWER) in clusters
-        assert frozenset(ENERGY) in clusters       # OUT-of-theme clusters too
+        assert frozenset(ENERGY) in clusters
         assert singles == set(SINGLETONS)          # loners get no cluster → '—'
 
-    async def test_restrict_mode_scopes_out_the_out_of_theme_group(self, engine):
-        theme_members = SEMIS + POWER              # restrict pool = theme only
-        df = await _prices_df(engine, only=theme_members)
+    async def test_clustering_scopes_to_candidate_pool(self, engine):
+        candidate_pool = SEMIS + POWER             # only these are candidates
+        df = await _prices_df(engine, only=candidate_pool)
         cov, dropped, raw_corr = build_covariance(df, window_days=252,
                                                   min_observations=126, shrinkage=0.20)
         clusters, _ = _multi_member_clusters(raw_corr)
         assert frozenset(SEMIS) in clusters
         assert frozenset(POWER) in clusters
-        # the out-of-theme energy group is NOT a candidate → cannot cluster (the
-        # live screener's '—' on out-of-theme names in restrict mode, by design).
+        # a group absent from the candidate pool is never a candidate → cannot cluster
+        # (the screener's '—' on names outside the ranked candidate set, by design).
         assert all(t not in raw_corr.index for t in ENERGY)
         assert not any(c & set(ENERGY) for c in clusters)

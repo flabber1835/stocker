@@ -163,6 +163,7 @@ services:
       # Excess-drawdown limit params — MUST match llm-vetter (same .env) so the
       # display-only "limit" on the screener card equals the vetter's real trigger.
       DRAWDOWN_EXCESS_PCT: ${DRAWDOWN_EXCESS_PCT:-0.15}
+      DRAWDOWN_BETA_LOOKBACK: ${DRAWDOWN_BETA_LOOKBACK:-120}
       DRAWDOWN_VOL_SCALING: ${DRAWDOWN_VOL_SCALING:-true}
       DRAWDOWN_VOL_ANCHOR: ${DRAWDOWN_VOL_ANCHOR:-0.35}
       DRAWDOWN_EXCESS_MIN: ${DRAWDOWN_EXCESS_MIN:-0.10}

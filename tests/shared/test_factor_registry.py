@@ -14,11 +14,15 @@ from stock_strategy_shared.factor_registry import (
 from stock_strategy_shared.schemas.strategy import FactorWeights, StrategyConfig
 
 
-def test_registry_has_twelve_unique_factors():
-    assert FACTOR_COUNT == 12
+def test_registry_is_internally_consistent():
+    # No magic count: adding a factor must NOT require editing this test. Assert the
+    # registry's internal invariants instead (uniqueness, label coverage, a sanity
+    # floor). The fields-vs-FactorWeights drift is guarded separately below.
+    assert FACTOR_COUNT == len(FACTOR_NAMES) == len(FACTOR_REGISTRY)
     assert len(set(FACTOR_NAMES)) == FACTOR_COUNT          # no dupes
     assert set(FACTOR_LABELS) == set(FACTOR_NAMES)
     assert all(f.name and f.label for f in FACTOR_REGISTRY)
+    assert FACTOR_COUNT >= 6                                # sanity floor, not a tripwire
 
 
 def test_factor_weights_fields_match_registry_exactly():

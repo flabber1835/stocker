@@ -58,7 +58,11 @@ DRAWDOWN_WINDOW_DAYS = int(os.getenv("DRAWDOWN_WINDOW_DAYS", "21"))
 DRAWDOWN_BASELINE_WINDOW = int(os.getenv("DRAWDOWN_BASELINE_WINDOW", "3"))
 # Display-only market beta surfaced on the screener detail card. 120d vs SPY to
 # match the falling-knife (vetter) beta the user sees in drawdown exclusion reasons.
-BETA_LOOKBACK_DAYS = int(os.getenv("BETA_LOOKBACK_DAYS", "120"))
+# Prefer the canonical falling-knife env name (shared with the vetter) so setting it
+# via env keeps the screener card's beta == the vetter's veto beta; fall back to the
+# legacy pipeline name, then 120. (The falling_knife.beta_lookback CONFIG field also
+# unifies both — this just removes the env-only drift footgun.)
+BETA_LOOKBACK_DAYS = int(os.getenv("DRAWDOWN_BETA_LOOKBACK", os.getenv("BETA_LOOKBACK_DAYS", "120")))
 # Market proxy for regime detection, beta, and drawdown-excess. Configurable (default
 # SPY) so the engine isn't hardcoded to one index; must be a ticker av-ingestor fetches
 # (it's in BENCHMARK_TICKERS). Default SPY = unchanged behavior.
