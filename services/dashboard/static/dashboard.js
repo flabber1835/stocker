@@ -33,6 +33,7 @@ let _flashTimer     = null;    // setTimeout handle for clearing the row-flash h
 const RANK_ROW_H   = 38;   // px — MUST match #screen-screener tr.rank-row height in CSS
 const RANK_BUFFER  = 12;   // extra rows rendered above/below the viewport
 let   _sortedRank  = [];   // the currently-sorted full array renderRankings windows over
+let   _factorWeights = null; // active strategy's {factor: weight} — annotates detail-card chips
 let   _overlayCache = {};  // ticker → merged heavy overlay fields (session cache)
 let   _overlayInflight = {}; // ticker → Promise (dedupe concurrent lazy fetches)
 let   _loadedRunId = null;    // run_id the overlay cache was populated against — when a
@@ -402,6 +403,18 @@ async function loadRegime() {
   }
 }
 
+// Active strategy factor weights — annotate every (generic-engine) factor chip with
+// its current weight so a dormant (0-weight) factor reads as "computed, not weighted"
+// rather than missing. Best-effort: on failure the chips simply omit the annotation.
+async function loadFactorWeights() {
+  try {
+    const d = await fetch('/api/strategy/factor-weights', {cache:'no-store'}).then(r => r.json());
+    _factorWeights = (d && d.weights) ? d.weights : null;
+  } catch (e) {
+    _factorWeights = null;
+  }
+}
+
 /* ── Rankings search ─────────────────────────────────────────────────── */
 function _mapRankRow(r) {
   const fs = r.factor_scores || {};
@@ -413,6 +426,8 @@ function _mapRankRow(r) {
     momentum: fs.momentum, quality: fs.quality, value: fs.value,
     growth: fs.growth, low_volatility: fs.low_volatility, liquidity: fs.liquidity,
     earnings_surprise: fs.earnings_surprise, near_high: fs.near_high,
+    issuance: fs.issuance, small_cap: fs.small_cap,
+    volume_surge: fs.volume_surge, high_volatility: fs.high_volatility,
     drawdown_21d: fs.drawdown_21d != null ? +fs.drawdown_21d : null,
     excess_dd_21d: fs.excess_dd_21d != null ? +fs.excess_dd_21d : null,
     idio_vol: fs.idio_vol != null ? +fs.idio_vol : null,
@@ -920,6 +935,8 @@ async function _ensureOverlay(ticker) {
           momentum: match.momentum, quality: match.quality, value: match.value,
           growth: match.growth, low_volatility: match.low_volatility, liquidity: match.liquidity,
           earnings_surprise: match.earnings_surprise, near_high: match.near_high,
+          issuance: match.issuance, small_cap: match.small_cap,
+          volume_surge: match.volume_surge, high_volatility: match.high_volatility,
           drawdown_21d: match.drawdown_21d, excess_dd_21d: match.excess_dd_21d,
           idio_vol: match.idio_vol, excess_dd_limit: match.excess_dd_limit,
           vetter_excluded: match.vetter_excluded, vetter_confidence: match.vetter_confidence,
@@ -1026,16 +1043,29 @@ function _buildDetailHtml(r) {
     + '<div class="detail-cell"><div class="dc-lbl">Cluster</div><div class="dc-val">' + (r.cluster_id ? esc(r.cluster_id) : '—') + '</div></div>'
     + '</div>';
 
+  // ALL 12 generic-engine factors are shown — including dormant (0-weight) ones —
+  // since the engine computes every factor every run regardless of weight. Each chip
+  // is annotated with the active strategy's weight; a 0-weight factor is dimmed so it
+  // reads as "computed, not currently weighted" rather than broken.
   const FACTORS = [
     { key: 'momentum', lbl: 'Momentum' }, { key: 'quality', lbl: 'Quality' },
     { key: 'value', lbl: 'Value' }, { key: 'growth', lbl: 'Growth' },
     { key: 'low_volatility', lbl: 'Low Vol' }, { key: 'liquidity', lbl: 'Liquidity' },
     { key: 'earnings_surprise', lbl: 'Earn Surprise' }, { key: 'near_high', lbl: 'Near High' },
+    { key: 'issuance', lbl: 'Issuance' }, { key: 'small_cap', lbl: 'Small Cap' },
+    { key: 'volume_surge', lbl: 'Vol Surge' }, { key: 'high_volatility', lbl: 'High Vol' },
   ];
   const chips = FACTORS.map(f => {
     const v = r[f.key];
+    const w = (_factorWeights && _factorWeights[f.key] != null) ? +_factorWeights[f.key] : null;
+    const dormant = (w != null && w === 0);
     const cls = v == null ? 'fc-neu' : +v > 0.5 ? 'fc-pos' : +v < -0.5 ? 'fc-neg' : 'fc-neu';
-    return '<span class="factor-chip"><span class="fc-lbl">' + f.lbl + '</span><span class="fc-val ' + cls + '">' + (v != null ? (+v).toFixed(3) : '—') + '</span></span>';
+    const wlbl = w != null ? '<span class="fc-wt">' + (w * 100).toFixed(0) + '%</span>' : '';
+    return '<span class="factor-chip' + (dormant ? ' fc-dormant' : '') + '" title="weight '
+      + (w != null ? (w * 100).toFixed(0) + '%' : 'n/a') + '">'
+      + '<span class="fc-lbl">' + f.lbl + '</span>'
+      + '<span class="fc-val ' + cls + '">' + (v != null ? (+v).toFixed(3) : '—') + '</span>'
+      + wlbl + '</span>';
   }).join('');
   const factorSection = '<div class="detail-section-label">Factor Z-Scores</div><div class="factor-chips">' + chips + '</div>';
 
@@ -2180,6 +2210,7 @@ async function _safeStep(label, fn) {
 (async () => {
   _safeStep('updateClock', () => updateClock());
   await _safeStep('loadRegime', () => loadRegime());
+  await _safeStep('loadFactorWeights', () => loadFactorWeights());
   _safeStep('loadRankings', () => loadRankings());
   _safeStep('loadDelta', () => loadDelta());
   _initialLoadDone = true;

@@ -536,6 +536,9 @@ tr.detail-row td { padding: 0; white-space: normal; }
 .fc-pos { color: var(--green); }
 .fc-neg { color: var(--red); }
 .fc-neu { color: var(--text2); }
+/* weight annotation on each factor chip; dormant = 0-weight (computed, not weighted) */
+.factor-chip .fc-wt { color: var(--text3); font-size: 9px; opacity: .8; margin-left: 2px; }
+.factor-chip.fc-dormant { opacity: .45; }
 
 .detail-llm { margin-top: 12px; padding: 12px 14px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; }
 .llm-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }

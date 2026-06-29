@@ -51,3 +51,35 @@ def test_near_high_shown_on_detail_card():
     overlay = DASH_JS[DASH_JS.index("const overlay = {"):]
     overlay = overlay[: overlay.index("};")]
     assert "near_high: match.near_high" in overlay
+
+
+# All 12 generic-engine factors (incl. dormant 0-weight ones) must show on the card.
+ALL_FACTORS = ["momentum", "quality", "value", "growth", "low_volatility", "liquidity",
+               "earnings_surprise", "near_high", "issuance", "small_cap",
+               "volume_surge", "high_volatility"]
+
+
+def test_all_twelve_factors_in_detail_card_list():
+    chips = DASH_JS[DASH_JS.index("const FACTORS = ["):]
+    chips = chips[: chips.index("];")]
+    for f in ALL_FACTORS:
+        assert f in chips, f
+
+
+def test_mapper_and_overlay_project_all_twelve():
+    mapper = DASH_JS[DASH_JS.index("function _mapRankRow("):]
+    mapper = mapper[: mapper.index("\n}")]
+    overlay = DASH_JS[DASH_JS.index("const overlay = {"):]
+    overlay = overlay[: overlay.index("};")]
+    for f in ALL_FACTORS:
+        assert f"{f}: fs.{f}" in mapper, f"_mapRankRow missing {f}"
+        assert f"{f}: match.{f}" in overlay, f"overlay missing {f}"
+
+
+def test_chips_annotated_with_weight_and_dormant_dimming():
+    # Each chip shows the active weight (from _factorWeights) and dims 0-weight factors.
+    assert "_factorWeights" in DASH_JS
+    assert "loadFactorWeights" in DASH_JS
+    assert "/api/strategy/factor-weights" in DASH_JS
+    assert "fc-dormant" in DASH_JS
+    assert "fc-wt" in DASH_JS

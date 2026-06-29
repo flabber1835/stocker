@@ -21,8 +21,13 @@ from stock_strategy_shared.ai_universe import (
     AI_BUILDOUT_UNIVERSE,
 )
 from stock_strategy_shared.order_status import open_status_sql, turnover_status_sql
+from stock_strategy_shared.loader import load_strategy
 
 DATABASE_URL          = os.getenv("DATABASE_URL", "")
+# Active strategy file (read-only) — exposes the live factor weights so the screener
+# detail card can annotate every (generic-engine) factor with its current weight.
+# Mounted into the api the same way as the other strategy consumers.
+STRATEGY_CONFIG_PATH  = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/momentum_rotation_v2.yaml")
 TRADE_EXECUTOR_URL    = os.getenv("TRADE_EXECUTOR_URL",    "http://trade-executor:8000")
 ALPACA_SYNC_URL       = os.getenv("ALPACA_SYNC_URL",       "http://alpaca-sync:8000")
 PIPELINE_URL          = os.getenv("PIPELINE_URL",          "http://pipeline:8000")
@@ -148,6 +153,36 @@ async def get_regime():
     if result is None:
         return {"regime": None}
     return fmt_row(result)
+
+
+@app.get("/strategy/factor-weights")
+async def get_factor_weights():
+    """Active strategy's effective factor weights — lets the detail card annotate
+    EVERY generic-engine factor with its current weight (a 0 reads as 'computed,
+    not weighted', not broken). regime rotation off → the single static vector;
+    on → the latest detected regime's vector. Degrades to {weights:null} if the
+    strategy file isn't mounted, so the card just omits the annotation."""
+    try:
+        cfg, _ = load_strategy(STRATEGY_CONFIG_PATH)
+    except Exception:  # noqa: BLE001 — file missing/unreadable → annotation simply absent
+        return {"weights": None, "strategy_id": None, "regime_weighting_enabled": None, "regime": None}
+
+    regime = None
+    if cfg.regime_weighting_enabled:
+        async with engine.connect() as conn:
+            r = await conn.execute(text(
+                "SELECT regime FROM regime_snapshots ORDER BY snapshot_date DESC, calculated_at DESC LIMIT 1"))
+            row = r.fetchone()
+        regime = row[0] if row else None
+        if regime not in cfg.factor_weights:        # guard against a stale/missing regime key
+            regime = next(iter(cfg.factor_weights))
+    weights = cfg.effective_factor_weights(regime or "").model_dump()
+    return {
+        "weights": weights,
+        "strategy_id": cfg.strategy_id,
+        "regime_weighting_enabled": cfg.regime_weighting_enabled,
+        "regime": regime,
+    }
 
 
 # ── Rankings ─────────────────────────────────────────────────────────────────────────────────
