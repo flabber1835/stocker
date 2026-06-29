@@ -91,7 +91,11 @@ engine = create_async_engine(DATABASE_URL, pool_pre_ping=True, pool_size=3, max_
                              connect_args={"timeout": 60})
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
-BENCHMARK_TICKERS = ("SPY", "QQQ", "IWM", "SOXX")
+# SPY stays the session-timing anchor (always ingested). MARKET_BENCHMARK (default
+# SPY) is the pipeline's configurable analytical market proxy — ensure it's fetched
+# too. dict.fromkeys dedups while preserving order (benchmark first, then SPY anchor).
+MARKET_BENCHMARK = os.getenv("MARKET_BENCHMARK", "SPY")
+BENCHMARK_TICKERS = tuple(dict.fromkeys((MARKET_BENCHMARK, "SPY", "QQQ", "IWM", "SOXX")))
 
 
 # ── Pure deterministic helpers (importable for tests) ─────────────────────────

@@ -114,6 +114,7 @@ services:
       # to the US market day on any host, regardless of the box's locale/TZ.
       TZ: America/New_York
       DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
+      MARKET_BENCHMARK: ${MARKET_BENCHMARK:-SPY}
       REDIS_URL: redis://redis:6379
       AV_API_KEY: ${AV_API_KEY:-demo}
       AV_RATE_LIMIT_RPM: ${AV_RATE_LIMIT_RPM:-75}
@@ -153,6 +154,7 @@ services:
       - "8018:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
+      MARKET_BENCHMARK: ${MARKET_BENCHMARK:-SPY}
       REDIS_URL: redis://redis:6379
       STRATEGY_CONFIG_PATH: /strategies/momentum_rotation_v2.yaml  # hardcoded active strategy — pinned so a deploy (git pull + up) always uses it regardless of any .env override. To switch strategies, edit this value (in all four consumers: pipeline, portfolio-builder, llm-vetter, backtester).
       ARTIFACTS_PATH: /artifacts

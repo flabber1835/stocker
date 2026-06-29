@@ -59,6 +59,10 @@ DRAWDOWN_BASELINE_WINDOW = int(os.getenv("DRAWDOWN_BASELINE_WINDOW", "3"))
 # Display-only market beta surfaced on the screener detail card. 120d vs SPY to
 # match the falling-knife (vetter) beta the user sees in drawdown exclusion reasons.
 BETA_LOOKBACK_DAYS = int(os.getenv("BETA_LOOKBACK_DAYS", "120"))
+# Market proxy for regime detection, beta, and drawdown-excess. Configurable (default
+# SPY) so the engine isn't hardcoded to one index; must be a ticker av-ingestor fetches
+# (it's in BENCHMARK_TICKERS). Default SPY = unchanged behavior.
+MARKET_BENCHMARK = os.getenv("MARKET_BENCHMARK", "SPY")
 
 # Display-only: the per-ticker excess-drawdown LIMIT the falling-knife veto uses, so
 # the card can show "excess -6% / limit -12%" and the user sees how close a name is.
@@ -755,12 +759,12 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
                 # back-test and harness runs (which use historical dates) work
                 # correctly when the wallclock is ahead of the data dates.
                 "SELECT date, adjusted_close FROM daily_prices "
-                "WHERE ticker = 'SPY' "
-                "  AND date >= (SELECT MAX(date) FROM daily_prices WHERE ticker = 'SPY') "
+                "WHERE ticker = :bench "
+                "  AND date >= (SELECT MAX(date) FROM daily_prices WHERE ticker = :bench) "
                 "              - (:lookback * INTERVAL '1 day') "
                 "ORDER BY date ASC"
             ),
-            {"lookback": spy_lookback},
+            {"lookback": spy_lookback, "bench": MARKET_BENCHMARK},
         )
         spy_df = pd.DataFrame(spy_rows.fetchall(), columns=["date", "adjusted_close"])
 
@@ -1497,10 +1501,10 @@ async def _do_rank(
                     "SELECT ticker, date, adjusted_close FROM ("
                     "  SELECT ticker, date, adjusted_close, "
                     "         ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) AS rn "
-                    "  FROM daily_prices WHERE ticker = 'SPY'"
+                    "  FROM daily_prices WHERE ticker = :bench"
                     ") s WHERE rn <= :w ORDER BY date ASC"
                 ),
-                {"w": BETA_LOOKBACK_DAYS + 1},
+                {"w": BETA_LOOKBACK_DAYS + 1, "bench": MARKET_BENCHMARK},
             )
             _bt_rows = bt_rows.fetchall()
             _spy_rows = spy_rows.fetchall()
@@ -2875,7 +2879,8 @@ async def _do_run_pipeline(triggered_by: str = "manual", force: bool = False) ->
                 {"key": PIPELINE_RUN_LOCK_KEY},
             )
             spy_row = await conn.execute(
-                text("SELECT MAX(date) FROM daily_prices WHERE ticker = 'SPY'")
+                text("SELECT MAX(date) FROM daily_prices WHERE ticker = :bench"),
+                {"bench": MARKET_BENCHMARK},
             )
             spy_max = spy_row.scalar()
             if force:
