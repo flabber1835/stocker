@@ -303,6 +303,7 @@ services:
       # windows) resolves to the US market day on any host locale/TZ.
       TZ: America/New_York
       DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
+      MARKET_BENCHMARK: ${MARKET_BENCHMARK:-SPY}
       LLM_GATEWAY_URL: http://llm-gateway:8000
       AV_API_KEY: ${AV_API_KEY:-demo}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}

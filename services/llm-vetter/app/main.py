@@ -121,6 +121,11 @@ def _apply_falling_knife_config(fk) -> None:
 # way to run without the LLM. Flip back to true (or unset) to re-enable the LLM.
 VETTER_LLM_ENABLED = _env_bool("VETTER_LLM_ENABLED", True)
 
+# Market proxy for the falling-knife veto's beta/excess-drawdown. MUST match the
+# pipeline's MARKET_BENCHMARK so the screener card's excess_dd == the vetter's real
+# veto (card==veto parity). Default SPY = unchanged. Wired to both services in compose.
+MARKET_BENCHMARK = os.getenv("MARKET_BENCHMARK", "SPY")
+
 engine: Optional[AsyncEngine] = None
 strategy: Optional[StrategyConfig] = None
 config_hash: str = ""
@@ -626,16 +631,16 @@ async def _do_vet(
     dd_detail_map: dict[str, dict] = {}        # full {raw_dd, spy_move, beta, excess_dd}
     _hist_days = max(DRAWDOWN_WINDOW_DAYS, DRAWDOWN_BETA_LOOKBACK + 5)
     async with engine.connect() as conn:
-        # SPY series (the market benchmark), date -> adjusted_close.
+        # Market-benchmark series (configurable; default SPY), date -> adjusted_close.
         spy_rows = await conn.execute(
             text(
                 "SELECT date, adjusted_close FROM ("
                 "  SELECT date, adjusted_close, "
                 "         ROW_NUMBER() OVER (ORDER BY date DESC) AS rn "
-                "  FROM daily_prices WHERE ticker = 'SPY'"
+                "  FROM daily_prices WHERE ticker = :bench"
                 ") s WHERE rn <= :w ORDER BY date ASC"
             ),
-            {"w": _hist_days},
+            {"w": _hist_days, "bench": MARKET_BENCHMARK},
         )
         spy_by_date: dict = {}
         for row in spy_rows.fetchall():

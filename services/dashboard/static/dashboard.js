@@ -34,6 +34,7 @@ const RANK_ROW_H   = 38;   // px — MUST match #screen-screener tr.rank-row hei
 const RANK_BUFFER  = 12;   // extra rows rendered above/below the viewport
 let   _sortedRank  = [];   // the currently-sorted full array renderRankings windows over
 let   _factorWeights = null; // active strategy's {factor: weight} — annotates detail-card chips
+let   _factorMeta = null;    // registry [{key,label}] from the api — drives the chip list generically
 let   _overlayCache = {};  // ticker → merged heavy overlay fields (session cache)
 let   _overlayInflight = {}; // ticker → Promise (dedupe concurrent lazy fetches)
 let   _loadedRunId = null;    // run_id the overlay cache was populated against — when a
@@ -410,8 +411,10 @@ async function loadFactorWeights() {
   try {
     const d = await fetch('/api/strategy/factor-weights', {cache:'no-store'}).then(r => r.json());
     _factorWeights = (d && d.weights) ? d.weights : null;
+    _factorMeta = (d && Array.isArray(d.factors) && d.factors.length) ? d.factors : null;
   } catch (e) {
     _factorWeights = null;
+    _factorMeta = null;
   }
 }
 
@@ -428,6 +431,7 @@ function _mapRankRow(r) {
     earnings_surprise: fs.earnings_surprise, near_high: fs.near_high,
     issuance: fs.issuance, small_cap: fs.small_cap,
     volume_surge: fs.volume_surge, high_volatility: fs.high_volatility,
+    factor_scores: fs,  // raw JSONB → chips read any registry factor generically
     drawdown_21d: fs.drawdown_21d != null ? +fs.drawdown_21d : null,
     excess_dd_21d: fs.excess_dd_21d != null ? +fs.excess_dd_21d : null,
     idio_vol: fs.idio_vol != null ? +fs.idio_vol : null,
@@ -937,6 +941,7 @@ async function _ensureOverlay(ticker) {
           earnings_surprise: match.earnings_surprise, near_high: match.near_high,
           issuance: match.issuance, small_cap: match.small_cap,
           volume_surge: match.volume_surge, high_volatility: match.high_volatility,
+          factor_scores: match.factor_scores,  // raw JSONB for generic chip rendering
           drawdown_21d: match.drawdown_21d, excess_dd_21d: match.excess_dd_21d,
           idio_vol: match.idio_vol, excess_dd_limit: match.excess_dd_limit,
           vetter_excluded: match.vetter_excluded, vetter_confidence: match.vetter_confidence,
@@ -1047,6 +1052,8 @@ function _buildDetailHtml(r) {
   // since the engine computes every factor every run regardless of weight. Each chip
   // is annotated with the active strategy's weight; a 0-weight factor is dimmed so it
   // reads as "computed, not currently weighted" rather than broken.
+  // Offline fallback only — the live list comes from _factorMeta (the api's registry
+  // list) so a new factor appears automatically with no JS edit.
   const FACTORS = [
     { key: 'momentum', lbl: 'Momentum' }, { key: 'quality', lbl: 'Quality' },
     { key: 'value', lbl: 'Value' }, { key: 'growth', lbl: 'Growth' },
@@ -1055,8 +1062,12 @@ function _buildDetailHtml(r) {
     { key: 'issuance', lbl: 'Issuance' }, { key: 'small_cap', lbl: 'Small Cap' },
     { key: 'volume_surge', lbl: 'Vol Surge' }, { key: 'high_volatility', lbl: 'High Vol' },
   ];
-  const chips = FACTORS.map(f => {
-    const v = r[f.key];
+  const factorList = (_factorMeta && _factorMeta.length)
+    ? _factorMeta.map(f => ({ key: f.key, lbl: f.label }))
+    : FACTORS;
+  const fsRaw = r.factor_scores || {};
+  const chips = factorList.map(f => {
+    const v = (fsRaw[f.key] != null) ? fsRaw[f.key] : r[f.key];   // generic: any registry factor
     const w = (_factorWeights && _factorWeights[f.key] != null) ? +_factorWeights[f.key] : null;
     const dormant = (w != null && w === 0);
     const cls = v == null ? 'fc-neu' : +v > 0.5 ? 'fc-pos' : +v < -0.5 ? 'fc-neg' : 'fc-neu';

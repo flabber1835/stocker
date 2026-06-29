@@ -322,7 +322,7 @@ def build_covariance(
     window_days: int,
     min_observations: int = 126,
     shrinkage: float = 0.20,
-) -> tuple[pd.DataFrame, list[str]]:
+) -> tuple[pd.DataFrame, list[str], pd.DataFrame]:   # (cov, dropped_tickers, corr)
     """
     Build an annualised daily-return covariance matrix from a long-format
     price DataFrame with columns [ticker, date, adjusted_close].

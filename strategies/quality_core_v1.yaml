@@ -145,17 +145,11 @@ portfolio_builder:
   max_tickers_per_cluster: 3         # core name-concentration cap (theme sleeve retired)
   do_not_buy: []                     # hard-exclude list: ESG screens, legal holds, insider restrictions
   cash_reserve: 0.025                # keep 2.5% uninvested (day orders don't batch-reserve buying power, so OPG buffer no longer needed)
-  # Thematic overlay — DEFAULT OFF (set enabled: true to activate). The quant rank
-  # always owns selection; the theme only filters/tilts the candidate pool, fed
-  # read-only from the standalone theme_exposures table. Missing table → no-op.
+  # (Thematic overlay RETIRED — the engine is theme-agnostic; sector concentration is
+  # bounded by max_sector_weight + the correlation-cluster caps above.)
 vetter:
   enabled: true
-  candidate_count: 200         # schema max (le=200). Vets top-200 by rank + all held. In
-                               # RESTRICT mode the builder selects from the theme pool, whose
-                               # members span deeper ranks (seen down to ~626), so 200 covers
-                               # theme names ranked <=200 but cannot reach the deepest — full
-                               # restrict-mode coverage needs theme-aware vetting (vet the
-                               # builder's theme pool), not a rank-based count. Non-restrict: 200 >> builder horizon (100).
+  candidate_count: 200         # vets top-200 by rank + all held (200 >> the builder's 100 horizon)
   risk_horizon_days: 90        # risk assessment window — holding is variable (weeks to months)
   system_prompt_file: /strategies/quality_core_v1.vetter_prompt.txt
   max_searches_per_ticker: 3   # agentic web searches allowed per ticker

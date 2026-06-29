@@ -781,7 +781,9 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
         )
 
     if len(spy_df) < strategy.regime_detection.slow_sma:
-        msg = f"insufficient SPY history: {len(spy_df)} rows, need {strategy.regime_detection.slow_sma}"
+        msg = (f"insufficient market-benchmark ({MARKET_BENCHMARK}) history: {len(spy_df)} rows, "
+               f"need {strategy.regime_detection.slow_sma} — is MARKET_BENCHMARK a ticker "
+               f"av-ingestor fetches (it must be in BENCHMARK_TICKERS)?")
         raise RuntimeError(msg)
 
     score_date: date = pd.to_datetime(spy_df["date"]).max().date()

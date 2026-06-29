@@ -19,6 +19,7 @@ from stock_strategy_shared.db import warm_up_db_in_background
 from stock_strategy_shared.tracing import fmt_row
 from stock_strategy_shared.order_status import open_status_sql, turnover_status_sql
 from stock_strategy_shared.loader import load_strategy
+from stock_strategy_shared.factor_registry import FACTOR_NAMES, FACTOR_LABELS
 
 DATABASE_URL          = os.getenv("DATABASE_URL", "")
 # Active strategy file (read-only) — exposes the live factor weights so the screener
@@ -176,6 +177,9 @@ async def get_factor_weights():
     weights = cfg.effective_factor_weights(regime or "").model_dump()
     return {
         "weights": weights,
+        # registry-ordered (key,label) list so the dashboard derives its factor chips
+        # from the single source — a new factor appears automatically, no JS edit.
+        "factors": [{"key": n, "label": FACTOR_LABELS[n]} for n in FACTOR_NAMES],
         "strategy_id": cfg.strategy_id,
         "regime_weighting_enabled": cfg.regime_weighting_enabled,
         "regime": regime,

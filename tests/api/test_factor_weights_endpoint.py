@@ -25,6 +25,11 @@ async def test_static_weights_returned_for_regime_off(monkeypatch):
         assert f in w, f
     assert w["momentum"] == 0.36 and w["near_high"] == 0.06
     assert w["issuance"] == 0.0 and w["small_cap"] == 0.0   # dormant
+    # registry-ordered (key,label) list drives the dashboard chips generically
+    from stock_strategy_shared.factor_registry import FACTOR_NAMES, FACTOR_LABELS
+    factors = res["factors"]
+    assert [f["key"] for f in factors] == list(FACTOR_NAMES)
+    assert all(f["label"] == FACTOR_LABELS[f["key"]] for f in factors)
 
 
 @pytest.mark.asyncio

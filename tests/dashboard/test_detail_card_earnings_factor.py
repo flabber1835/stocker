@@ -76,6 +76,19 @@ def test_mapper_and_overlay_project_all_twelve():
         assert f"{f}: match.{f}" in overlay, f"overlay missing {f}"
 
 
+def test_chip_list_derives_from_registry_endpoint():
+    """Generic intent: the detail-card chip list is built from _factorMeta (the api's
+    registry list) so a new factor appears with NO JS edit; the hardcoded FACTORS list
+    is only an offline fallback. Chip values read the raw factor_scores JSONB generically."""
+    assert "_factorMeta" in DASH_JS
+    assert "d.factors" in DASH_JS                              # populated from the endpoint
+    assert "factorList" in DASH_JS and "_factorMeta && _factorMeta.length" in DASH_JS
+    assert "fsRaw[f.key]" in DASH_JS                           # generic value read
+    # row + overlay carry the raw JSONB so the generic read works
+    assert "factor_scores: fs" in DASH_JS
+    assert "factor_scores: match.factor_scores" in DASH_JS
+
+
 def test_chips_annotated_with_weight_and_dormant_dimming():
     # Each chip shows the active weight (from _factorWeights) and dims 0-weight factors.
     assert "_factorWeights" in DASH_JS
