@@ -89,11 +89,6 @@ services:
       - ./shared:/shared
       - ./services/backtester/app:/app/app
 
-  theme-classifier:
-    volumes:
-      - ./shared:/shared
-      - ./services/theme-classifier/app:/app/app
-
   scheduler:
     volumes:
       - ./shared:/shared
