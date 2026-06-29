@@ -1179,27 +1179,22 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     def _val(v):
         return None if pd.isna(v) else float(v)
 
-    factor_score_rows = [
-        {
+    # Build each row generically from the registry: every factor value goes into the
+    # `scores` JSONB (the canonical, future-proof store — a new factor needs NO
+    # migration) AND, for the factors that still have a legacy column, into that
+    # column too (dual-write for back-compat / rollback). A factor added to the
+    # registry beyond the legacy columns simply lands in JSONB only.
+    factor_score_rows = []
+    for _, row in factors_df.iterrows():
+        vals = {f: _val(row.get(f)) for f in FACTORS}
+        factor_score_rows.append({
             "run_id": run_id,
             "ticker": str(row["ticker"]),
             "score_date": score_date,
-            "momentum": _val(row.get("momentum")),
-            "quality": _val(row.get("quality")),
-            "value": _val(row.get("value")),
-            "growth": _val(row.get("growth")),
-            "low_volatility": _val(row.get("low_volatility")),
-            "liquidity": _val(row.get("liquidity")),
-            "issuance": _val(row.get("issuance")),
-            "small_cap": _val(row.get("small_cap")),
-            "volume_surge": _val(row.get("volume_surge")),
-            "near_high": _val(row.get("near_high")),
-            "high_volatility": _val(row.get("high_volatility")),
-            "earnings_surprise": _val(row.get("earnings_surprise")),
+            "scores": json.dumps(vals),
             "calculated_at": calculated_at,
-        }
-        for _, row in factors_df.iterrows()
-    ]
+            **vals,   # legacy per-factor column params (extra keys are ignored by the SQL)
+        })
 
     async with engine.begin() as conn:
         # ── Step 7: write regime snapshot ─────────────────────────────────────
@@ -1239,10 +1234,11 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             "INSERT INTO factor_scores "
             "(run_id, ticker, score_date, momentum, quality, value, growth, "
             " low_volatility, liquidity, issuance, small_cap, volume_surge, near_high, "
-            " high_volatility, earnings_surprise, calculated_at) "
+            " high_volatility, earnings_surprise, scores, calculated_at) "
             "VALUES (:run_id, :ticker, :score_date, :momentum, :quality, :value, "
             "        :growth, :low_volatility, :liquidity, :issuance, :small_cap, "
-            "        :volume_surge, :near_high, :high_volatility, :earnings_surprise, :calculated_at) "
+            "        :volume_surge, :near_high, :high_volatility, :earnings_surprise, "
+            "        CAST(:scores AS jsonb), :calculated_at) "
             "ON CONFLICT (run_id, ticker) DO UPDATE SET "
             "  momentum      = EXCLUDED.momentum, "
             "  quality       = EXCLUDED.quality, "
@@ -1256,6 +1252,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             "  near_high     = EXCLUDED.near_high, "
             "  high_volatility = EXCLUDED.high_volatility, "
             "  earnings_surprise = EXCLUDED.earnings_surprise, "
+            "  scores        = EXCLUDED.scores, "
             "  calculated_at = EXCLUDED.calculated_at"
         )
         for _i in range(0, len(factor_score_rows), _FACTOR_BATCH):
@@ -1402,8 +1399,11 @@ async def _do_rank(
     async with engine.begin() as conn:
         rows = await conn.execute(
             text(
-                "SELECT ticker, momentum, quality, value, growth, low_volatility, liquidity, issuance, "
-                "small_cap, volume_surge, near_high, high_volatility, earnings_surprise "
+                # `scores` JSONB is canonical (generic — a new factor needs no column);
+                # the legacy per-factor columns are also selected as a fallback for any
+                # pre-migration row whose `scores` is still null.
+                "SELECT ticker, scores, momentum, quality, value, growth, low_volatility, liquidity, "
+                "issuance, small_cap, volume_surge, near_high, high_volatility, earnings_surprise "
                 "FROM factor_scores WHERE run_id = :run_id"
             ),
             {"run_id": source_factor_run_id},
@@ -1424,25 +1424,19 @@ async def _do_rank(
             )
         return
 
+    def _factor_dict_from_row(r):
+        # Prefer the canonical `scores` JSONB (covers every registry factor, including
+        # any added beyond the legacy columns); fall back to the per-factor columns for
+        # a pre-migration row whose `scores` is null.
+        raw = getattr(r, "scores", None)
+        if raw:
+            d = raw if isinstance(raw, dict) else json.loads(raw)
+            return {f: (float(d[f]) if d.get(f) is not None else float("nan")) for f in FACTORS}
+        return {f: (float(getattr(r, f)) if getattr(r, f, None) is not None else float("nan"))
+                for f in FACTORS}
+
     factor_scores_df = pd.DataFrame(
-        [
-            {
-                "ticker": r.ticker,
-                "momentum": float(r.momentum) if r.momentum is not None else float("nan"),
-                "quality": float(r.quality) if r.quality is not None else float("nan"),
-                "value": float(r.value) if r.value is not None else float("nan"),
-                "growth": float(r.growth) if r.growth is not None else float("nan"),
-                "low_volatility": float(r.low_volatility) if r.low_volatility is not None else float("nan"),
-                "liquidity": float(r.liquidity) if r.liquidity is not None else float("nan"),
-                "issuance": float(r.issuance) if r.issuance is not None else float("nan"),
-                "small_cap": float(r.small_cap) if r.small_cap is not None else float("nan"),
-                "volume_surge": float(r.volume_surge) if r.volume_surge is not None else float("nan"),
-                "near_high": float(r.near_high) if r.near_high is not None else float("nan"),
-                "high_volatility": float(r.high_volatility) if r.high_volatility is not None else float("nan"),
-                "earnings_surprise": float(r.earnings_surprise) if r.earnings_surprise is not None else float("nan"),
-            }
-            for r in records
-        ]
+        [{"ticker": r.ticker, **_factor_dict_from_row(r)} for r in records]
     )
     universe_count = len(factor_scores_df)
 

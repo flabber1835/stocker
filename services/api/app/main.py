@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import json
 import os
 import re
 import traceback
@@ -1328,13 +1329,23 @@ async def get_factors(ticker: str):
     async with engine.connect() as conn:
         rows = await conn.execute(
             text(
-                "SELECT run_id, ticker, score_date, momentum, quality, value, growth, "
-                "low_volatility, liquidity, calculated_at "
+                # Canonical `scores` JSONB carries ALL factors (generic); legacy columns
+                # are still selected as a fallback for any pre-migration row.
+                "SELECT run_id, ticker, score_date, scores, momentum, quality, value, growth, "
+                "low_volatility, liquidity, issuance, small_cap, volume_surge, near_high, "
+                "high_volatility, earnings_surprise, calculated_at "
                 "FROM factor_scores WHERE ticker = :ticker ORDER BY calculated_at DESC LIMIT 5"
             ),
             {"ticker": ticker.upper()},
         )
-        results = [dict(r) for r in rows.mappings()]
+        results = []
+        for r in rows.mappings():
+            d = dict(r)
+            scores = d.pop("scores", None)
+            if scores:
+                s = scores if isinstance(scores, dict) else json.loads(scores)
+                d.update(s)   # all factors top-level from the canonical store
+            results.append(d)
     if not results:
         raise HTTPException(404, f"No factor scores for {ticker}")
     return results
