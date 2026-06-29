@@ -230,18 +230,14 @@ def test_config_field_present_and_validates():
         PortfolioBuilderConfig(max_tickers_per_cluster=0)
 
 
-def test_active_strategy_cluster_cap_matches_sleeve():
-    """The active config runs the AI restrict sleeve (theme_overlay enabled, mode=restrict),
-    which deliberately RELAXES max_tickers_per_cluster to null — a tech-heavy single-theme
-    sleeve would be strangled by a 3-name/cluster cap (PURE CORE = 3). This asserts the
-    intent either way: relaxed (null) while the restrict sleeve is on, else the core cap of 3."""
+def test_core_strategy_has_pure_core_cluster_cap():
+    """Theme sleeve RETIRED → quality_core_v1 is pure-core: the name-concentration cap
+    is restored to 3/cluster (was relaxed to null for the AI restrict sleeve). Also
+    guards that no theme_overlay block lingers in the config."""
     import yaml
     from pathlib import Path
     root = Path(__file__).resolve().parents[2]
     cfg = yaml.safe_load((root / "strategies" / "quality_core_v1.yaml").read_text())
     pb = cfg["portfolio_builder"]
-    overlay = pb.get("theme_overlay") or {}
-    if overlay.get("enabled") and overlay.get("mode") == "restrict":
-        assert pb["max_tickers_per_cluster"] is None     # relaxed for the AI restrict sleeve
-    else:
-        assert pb["max_tickers_per_cluster"] == 3         # pure-core diversification cap
+    assert "theme_overlay" not in pb                  # theme retired entirely
+    assert pb["max_tickers_per_cluster"] == 3          # pure-core diversification cap

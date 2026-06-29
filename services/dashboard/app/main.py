@@ -300,13 +300,6 @@ async def _proxy_post(url: str, params: dict | None = None):
         return JSONResponse(content={"error": str(exc)}, status_code=502)
 
 
-@app.get("/api/rankings/theme")
-async def proxy_rankings_theme():
-    # Full-universe filter to the hardcoded AI-buildout theme set (no row limit);
-    # like with-overlays it can run long on the larger universe, so give it room.
-    return await _proxy("/rankings/theme", timeout=60.0)
-
-
 @app.get("/api/regime")
 async def proxy_regime():
     return await _proxy("/regime")

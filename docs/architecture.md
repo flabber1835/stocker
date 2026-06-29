@@ -579,41 +579,25 @@ order is unchanged. The screener shows a ▼ badge from -10% (red at -25%, match
 the backstop default) purely for human visibility. The same 21-day window is used
 by the vetter backstop so the badge agrees with the entry block.
 
-## Design Decision: Theme tab → Screener "Theme" filter, hardcoded AI-buildout universe
+## Design Decision: AI theme concept RETIRED (theme-agnostic engine)
 
-**What changed.** The standalone **Theme tab** (a read-only view of the
-`theme-classifier` service's dynamically-computed AI-infra exposures) was retired.
-The theme is now a **filter on the Screener tab** — a checkbox ("Theme") alongside
-"Holdings". When checked, the screener shows ONLY the theme universe; unchecked, the
-normal top-N. The `theme-classifier` service was moved to the `optional` compose
-profile (kept for reference, not launched by default).
+**What changed.** The thematic overlay and the hardcoded AI-buildout universe were
+removed entirely — the engine is now theme-agnostic. Removed: the `theme_overlay`
+config block (`ThemeOverlayConfig`), `shared/ai_universe.py` (`AI_BUILDOUT_UNIVERSE`),
+the portfolio-builder tilt/restrict overlay, the llm-vetter theme augmentation, the
+api `/rankings/theme` endpoint + dashboard proxy, and the `theme-classifier` service.
 
-**Why.** The theme is most useful as a *lens on the same ranked universe the rest of
-the screener shows* (same rank, detail card, vetter/held/cluster overlays), not as a
-separate table with its own ranking semantics. Folding it into the screener filter
-removes a whole parallel UI + data path.
+**Why.** A hot sector should be *discovered organically* by the factors (momentum,
+earnings-surprise, near-high, …) and bounded by the correlation-cluster caps, not
+hard-wired to a named, hand-maintained ticker list. A single hardcoded theme was the
+largest sleeve-specific, non-generic surface; retiring it is part of the move to one
+agnostic engine the (future) LLM evaluator tunes. If a thematic tilt is ever wanted
+again it should come back as *data* (a populated members table referenced by config),
+not code.
 
-**Universe source (hardcoded, for now).** The theme set is a hardcoded list of 108
-US-listed "picks-and-shovels" names —
-`shared/stock_strategy_shared/ai_universe.py` (`AI_BUILDOUT_UNIVERSE`). It was
-compiled 2026-06-13 from current ETF holdings (SMH, SOXX, SRVR, DTCR, GRID, XLU/VPU,
-NLR, NUKZ, URNM, URA) cross-referenced with analyst notes and data-center
-supply-chain maps, grouped by buildout layer (compute, memory, networking/optical,
-servers, REITs, cooling, power & electrical, generation/utilities, nuclear/uranium,
-construction/EPC). It deliberately excludes the demand-side hyperscaler sleeve and
-foreign/ADR-only names (the equity universe is built from AV LISTING_STATUS = US
-exchanges). **This is intentionally static for now; it will be replaced LATER by a
-dynamic, Anthropic-API-generated universe.** Keeping it behind one shared module
-means that swap touches one file.
-
-**Data path.** `api` exposes `GET /rankings/theme` — same overlay schema as
-`/rankings/with-overlays` / `/rankings/search`, but filtered to the theme ticker SET
-over the FULL ranked universe (theme names sit anywhere, not just the top-100), with
-no row limit. `inject_unranked=False`: only ranked theme names appear (with the usual
-held/vetter/cluster overlays); non-theme broker positions are never pulled in, and a
-theme name with a data gap (absent from the latest run) simply doesn't show — exactly
-as in the normal screener. The dashboard proxies it at `/api/rankings/theme`. Source
-precedence in the screener: explicit ticker search > Theme filter > default top-N.
+**Migration note.** Existing strategy files had their `theme_overlay:` block stripped;
+`quality_core_v1`/`quality_momentum_v1` had their sleeve-relaxed caps restored to
+pure-core (sector 0.25 / cluster-weight 0.15 / 3 names per cluster).
 
 ## Trade Approval Flow
 

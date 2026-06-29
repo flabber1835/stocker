@@ -136,13 +136,6 @@ portfolio_builder:
   max_tickers_per_cluster: 3
   do_not_buy: []
   cash_reserve: 0.025
-  theme_overlay:
-    enabled: false
-    theme: ai_infra
-    mode: tilt
-    min_exposure: 0.35
-    tilt_lambda: 0.25
-
 vetter:
   enabled: true
   candidate_count: 200

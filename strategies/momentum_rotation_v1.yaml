@@ -140,13 +140,6 @@ portfolio_builder:
   max_tickers_per_cluster: 3         # TIGHT — keep it a count cap, not null
   do_not_buy: []
   cash_reserve: 0.025
-  theme_overlay:
-    enabled: false                   # OFF — a pure momentum rotation should DISCOVER the hot sector organically (then be capped), not be hard-wired to one theme
-    theme: ai_infra
-    mode: tilt
-    min_exposure: 0.35
-    tilt_lambda: 0.25
-
 vetter:
   enabled: true
   candidate_count: 200

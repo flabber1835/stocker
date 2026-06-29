@@ -126,19 +126,12 @@ portfolio_builder:
   require_positive_composite_score: false  # set true to exclude negative-score names pre-selection
   weighting: adj_score_proportional  # equal_weight | adj_score_proportional | score_proportional | inverse_vol
   max_position_weight: 0.10          # hard cap per position; excess redistributed to others
-  max_sector_weight: 1.00            # RELAXED for the AI-infra restrict sleeve (PURE CORE = 0.25). The sleeve is intentionally tech-heavy; 0.25 would strangle it.
+  max_sector_weight: 0.25            # core sector cap (theme sleeve retired)
   cluster_correlation_threshold: 0.70  # |corr| >= this groups two names into one correlation cluster
-  max_cluster_weight: 0.50           # RELAXED for the AI restrict sleeve (PURE CORE = 0.15)
-  max_tickers_per_cluster: null      # RELAXED for the AI restrict sleeve (PURE CORE = 3)
+  max_cluster_weight: 0.15           # core correlation-cluster weight cap (theme sleeve retired)
+  max_tickers_per_cluster: 3         # core name-concentration cap (theme sleeve retired)
   do_not_buy: []                     # hard-exclude list: ESG screens, legal holds, insider restrictions
   cash_reserve: 0.025                # keep 2.5% uninvested (day orders don't batch-reserve buying power, so OPG buffer no longer needed)
-  theme_overlay:
-    enabled: true                    # AI thematic overlay ON (same as quality_core_v1). For PURE CORE set false AND restore caps above to 0.25 / 0.15 / 3.
-    theme: ai_infra
-    mode: restrict                   # restrict = AI-infra-only sleeve. Set 'tilt' for the milder full-book AI boost.
-    min_exposure: 0.35               # membership cutoff (seeds always members)
-    tilt_lambda: 0.25                # tilt mode: score *= (1 + tilt_lambda * exposure); 0 = no tilt
-
 vetter:
   enabled: true
   candidate_count: 200         # schema max (le=200). Vets top-200 by rank + all held.

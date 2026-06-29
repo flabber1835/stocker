@@ -90,9 +90,6 @@ portfolio_builder:
   max_tickers_per_cluster: 5
   do_not_buy: []
   cash_reserve: 0.025
-  theme_overlay:
-    enabled: false                   # standalone speculative model; theme overlay off
-
 vetter:
   enabled: true                      # falling-knife veto is ESPECIALLY important for this cohort
   candidate_count: 200               # cover the portfolio-builder horizon (200)

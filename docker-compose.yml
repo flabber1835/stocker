@@ -473,38 +473,6 @@ services:
       retries: 5
       start_period: 20s
 
-  # ── theme-classifier: standalone thematic universe (AI-infra). Fully decoupled
-  # from the trading pipeline — reads daily_prices/fundamentals read-only, writes
-  # ONLY theme_exposures. RETIRED from the default graph: the dashboard's standalone
-  # Theme tab was replaced by the Screener's "Theme" filter, which reads a hardcoded
-  # universe (shared/stock_strategy_shared/ai_universe.py) via api /rankings/theme.
-  # Kept behind the `optional` profile for reference until the planned Anthropic-API
-  # dynamic universe supersedes it. Nothing in the live chain references it.
-  theme-classifier:
-    profiles: [optional]
-    build:
-      context: .
-      dockerfile: services/theme-classifier/Dockerfile
-      network: host
-    restart: unless-stopped
-    ports:
-      - "8025:8000"
-    environment:
-      DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
-      THEME_REFRESH_DAYS: ${THEME_REFRESH_DAYS:-30}
-      THEME_MIN_EXPOSURE: ${THEME_MIN_EXPOSURE:-0.35}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      db-migrator:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-
   evaluator:
     profiles: [optional]
     build:

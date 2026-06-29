@@ -19,7 +19,6 @@ from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 from stock_strategy_shared.tracing import fmt_row, log_step, write_trace_file, mark_orphaned_runs_failed
 from stock_strategy_shared.db import wait_for_db
-from stock_strategy_shared.ai_universe import ai_theme_members
 
 _fmt_row = fmt_row
 
@@ -605,64 +604,7 @@ async def _do_vet(
         state.candidates_total = len(candidates)
         print(f"[llm-vetter] augmented with {len(extra_held)} held tickers outside top-N: {extra_held}")
 
-    # Augment candidates with THEME members ranked outside top-N. When a theme
-    # overlay is active (e.g. restrict mode to the AI-buildout sleeve) the builder
-    # selects theme names from deep in the ranking — well past candidate_count — so
-    # without this a theme pick ranked > N is never vetted (no falling-knife veto,
-    # and the Screener's Theme view shows a verdict for some names but not others).
-    # We vet every RANKED theme name; theme names absent from the ranking are not
-    # shown in the Theme view and the builder can't pick them, so they're skipped.
-    # Theme membership comes from the SAME shared source the builder uses
-    # (ai_theme_members → AI_BUILDOUT_SET) so the two can't drift.
-    theme_set = None
-    overlay = strategy.portfolio_builder.theme_overlay if strategy else None
-    if overlay is not None and overlay.enabled:
-        theme_set = ai_theme_members(overlay.theme)
-    if theme_set:
-        in_candidates = {c["ticker"] for c in candidates}
-        extra_theme = [t for t in theme_set if t not in in_candidates]
-        if extra_theme:
-            async with engine.connect() as conn:
-                th_rank_rows = await conn.execute(
-                    text(
-                        "SELECT ticker, rank, composite_score, percentile, factor_scores, regime "
-                        "FROM rankings WHERE run_id = :rid AND ticker = ANY(:tickers)"
-                    ),
-                    {"rid": source_ranking_run_id, "tickers": extra_theme},
-                )
-                ranked_theme_map = {r.ticker: r for r in th_rank_rows.fetchall()}
-                present = list(ranked_theme_map.keys())
-                if present:
-                    th_sector_rows = await conn.execute(
-                        text(
-                            "SELECT DISTINCT ON (ut.ticker) ut.ticker, ut.sector, ut.name "
-                            "FROM universe_tickers ut "
-                            "JOIN universe_snapshots us ON ut.snapshot_id = us.id "
-                            "WHERE ut.ticker = ANY(:tickers) "
-                            "ORDER BY ut.ticker, us.snapshot_date DESC"
-                        ),
-                        {"tickers": present},
-                    )
-                    for sr in th_sector_rows.fetchall():
-                        sector_map.setdefault(sr.ticker, sr.sector)
-                        if sr.name:
-                            company_name_map.setdefault(sr.ticker, sr.name)
-            added = []
-            for t, r in ranked_theme_map.items():
-                candidates.append({
-                    "ticker": t,
-                    "rank": r.rank,
-                    "composite_score": float(r.composite_score) if r.composite_score is not None else None,
-                    "percentile": float(r.percentile) if r.percentile is not None else None,
-                    "factor_scores": dict(r.factor_scores) if r.factor_scores else {},
-                    "regime": r.regime,
-                })
-                added.append(t)
-            tickers = [c["ticker"] for c in candidates]
-            state.candidates_total = len(candidates)
-            print(f"[llm-vetter] augmented with {len(added)} ranked theme tickers "
-                  f"outside top-N (theme={overlay.theme}): {added}")
-
+    # (Theme-overlay candidate augmentation RETIRED — the engine is theme-agnostic.)
     async with engine.begin() as conn:
         await _log_step(
             conn, trace_id, "load_candidates", "success",

@@ -172,13 +172,6 @@ portfolio_builder:
   vol_target_enabled: true
   vol_target: 0.18                   # annualised target book vol; binds only above this
   vol_target_min_exposure: 0.30      # never de-lever below 30% invested even in extreme vol
-  theme_overlay:
-    enabled: false                   # OFF — a pure momentum rotation should DISCOVER the hot sector organically (then be capped), not be hard-wired to one theme
-    theme: ai_infra
-    mode: tilt
-    min_exposure: 0.35
-    tilt_lambda: 0.25
-
 vetter:
   enabled: true
   candidate_count: 200
