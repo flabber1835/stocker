@@ -1101,8 +1101,7 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     del prices_df
     null_quality_count = int(factors_df["quality"].isna().sum()) if "quality" in factors_df.columns else 0
 
-    _factor_cols = ["momentum", "quality", "value", "growth", "low_volatility", "liquidity", "issuance",
-                    "small_cap", "volume_surge", "near_high", "high_volatility", "earnings_surprise"]
+    _factor_cols = list(FACTORS)   # single source of truth (shared/factor_registry.py)
     factor_stats = {}
     clipped_by_factor: dict[str, list] = {}
     for col in _factor_cols:

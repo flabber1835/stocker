@@ -2,6 +2,8 @@ from __future__ import annotations
 from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from stock_strategy_shared.factor_registry import FACTOR_NAMES, FACTOR_COUNT
+
 
 class FactorWeights(BaseModel):
     momentum: float = Field(ge=0, le=1)
@@ -26,12 +28,9 @@ class FactorWeights(BaseModel):
 
     @model_validator(mode="after")
     def weights_sum_to_one(self) -> FactorWeights:
-        total = (
-            self.momentum + self.quality + self.value
-            + self.growth + self.low_volatility + self.liquidity + self.issuance
-            + self.small_cap + self.volume_surge + self.near_high + self.high_volatility
-            + self.earnings_surprise
-        )
+        # Sum over the canonical registry so adding a factor can't silently drop out
+        # of the sum check (the fields-vs-registry drift is guarded by a test).
+        total = sum(getattr(self, f) for f in FACTOR_NAMES)
         if abs(total - 1.0) > 1e-6:
             raise ValueError(f"Factor weights must sum to 1.0, got {total:.6f}")
         return self
@@ -603,7 +602,7 @@ class StrategyConfig(BaseModel):
     # top-level max_positions is a convenience alias; portfolio_builder.max_positions takes precedence
     max_positions: int = Field(default=30, ge=1, le=500)
     min_score_percentile: float = Field(default=0.0, ge=0, le=1)
-    min_non_null_factors: int = Field(default=3, ge=1, le=11)
+    min_non_null_factors: int = Field(default=3, ge=1, le=FACTOR_COUNT)
     required_factors: list[str] = Field(default_factory=list)
     deduplicate_share_classes: bool = Field(
         default=True,

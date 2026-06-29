@@ -1,8 +1,10 @@
 import pandas as pd
 from stock_strategy_shared.schemas.strategy import StrategyConfig
+from stock_strategy_shared.factor_registry import FACTOR_NAMES
 
-FACTORS = ["momentum", "quality", "value", "growth", "low_volatility", "liquidity", "issuance",
-           "small_cap", "volume_surge", "near_high", "high_volatility", "earnings_surprise"]
+# Single source of truth — shared/factor_registry.py. list() preserves the prior
+# mutable-list type for any caller that relied on it.
+FACTORS = list(FACTOR_NAMES)
 
 
 def rank_universe(
