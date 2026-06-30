@@ -2713,6 +2713,11 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
         from stock_strategy_shared.health_record import write_health_record
         await write_health_record(engine, ARTIFACTS_PATH, run_date)
 
+    # Phase-1 evaluator evidence: build the deterministic WEEKLY packet (IC over all
+    # factors + correlation + book/regret) once per ISO week. Idempotent + best-effort.
+    from app.evaluator_packet import maybe_write_weekly_packet
+    await maybe_write_weekly_packet(engine, run_date, ARTIFACTS_PATH)
+
 
 # ── Core pipeline orchestration ───────────────────────────────────────────────
 
