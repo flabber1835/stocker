@@ -226,8 +226,8 @@ async def _submit_deferred_order(row: dict) -> tuple[str, Optional[str]]:
         # blocked broker-side instead of placing a real second order.
         "client_order_id": order_id,
     }
-    if not (ALPACA_API_KEY and ALPACA_SECRET_KEY):
-        return "failed", "Alpaca credentials not configured"
+    if not _has_broker_credentials():
+        return "failed", "Broker credentials not configured"
 
     # ── Re-run the FULL risk gate before submitting a deferred order ──────────
     # The order was risk-approved at approval time, possibly hours earlier; the
@@ -306,20 +306,34 @@ def _parse_alpaca_dt(raw) -> Optional[datetime]:
 
 
 def _broker():
-    """Build the deployment's broker adapter from CURRENT module config.
+    """Build the deployment's active broker adapter (BROKER env) — broker-agnostic.
 
-    Built per-call so tests that patch ALPACA_* / te_main attrs take effect, and
-    http_provider routes transport through this module's `httpx` so the existing
-    `patch.object(te_main, "httpx")` mocking keeps intercepting adapter calls.
-    Used by the READ helpers below; the order-submission/close/cancel paths keep
-    their own inline transport (the safety-critical, transport-tested code).
+    The executor's business logic never names a broker; it goes through this seam and
+    `_has_broker_credentials()`. Only the Alpaca BRANCH here injects Alpaca config
+    (from the module globals, so test patches of te_main.ALPACA_* still take effect);
+    a future IBKR adapter self-reads its own IBKR_* env, so adding it is purely
+    "implement IBKRBrokerAdapter + a factory branch" — no change to the trader.
+
+    Built per-call so test patches take effect, and http_provider routes transport
+    through this module's `httpx` so `patch.object(te_main, "httpx")` keeps
+    intercepting adapter calls.
     """
-    return get_broker_adapter(
-        api_key=ALPACA_API_KEY,
-        secret_key=ALPACA_SECRET_KEY,
-        base_url=ALPACA_BASE_URL,
-        http_provider=lambda: httpx,
-    )
+    broker = os.getenv("BROKER", "alpaca").strip().lower()
+    kwargs: dict = {}
+    if broker in ("", "alpaca"):
+        kwargs = dict(
+            api_key=ALPACA_API_KEY,
+            secret_key=ALPACA_SECRET_KEY,
+            base_url=ALPACA_BASE_URL,
+        )
+    return get_broker_adapter(http_provider=lambda: httpx, **kwargs)
+
+
+def _has_broker_credentials() -> bool:
+    """Broker-agnostic credential gate. Delegates to the active adapter's
+    has_credentials() so the executor never hard-codes a broker's env var names —
+    an IBKR deployment with IBKR creds (and no ALPACA_*) is correctly 'has creds'."""
+    return _broker().has_credentials()
 
 
 async def _get_alpaca_clock() -> Optional[dict]:
@@ -331,7 +345,7 @@ async def _get_alpaca_clock() -> Optional[dict]:
     drain (never an inline real order) when the clock is unknown, so a buy can't
     fire ahead of its funding sell / outside hours. Sells are still allowed inline
     (a de-risking close must never be trapped by a clock outage)."""
-    if not (ALPACA_API_KEY and ALPACA_SECRET_KEY):
+    if not _has_broker_credentials():
         return None
     try:
         return await _broker().get_clock()
@@ -385,7 +399,7 @@ def _route_to_drain(mode: str, clock: Optional[dict], side: Optional[str] = None
 
 async def _get_alpaca_buying_power() -> Optional[float]:
     """GET /v2/account → buying_power (float). None on failure."""
-    if not (ALPACA_API_KEY and ALPACA_SECRET_KEY):
+    if not _has_broker_credentials():
         return None
     try:
         acct = await _broker().get_account()
@@ -700,7 +714,7 @@ async def lifespan(application: FastAPI):
                                  pool_size=5, max_overflow=10, connect_args={"timeout": 60})
     asyncio.create_task(_trade_executor_warm_up())
     worker_task = asyncio.create_task(_deferred_order_worker())
-    has_creds = bool(ALPACA_API_KEY and ALPACA_SECRET_KEY)
+    has_creds = _has_broker_credentials()
     logger.info(
         "Alpaca credentials: %s", "present" if has_creds else "NOT SET — orders will be rejected"
     )
@@ -1889,9 +1903,9 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
                 deferred_until=_iso(deferred_until), reason="queued for market open",
             )
 
-        # ── Step 6: submit to Alpaca ──────────────────────────────────────────
-        if not (ALPACA_API_KEY and ALPACA_SECRET_KEY):
-            err = "Alpaca credentials not configured"
+        # ── Step 6: submit to the broker ──────────────────────────────────────
+        if not _has_broker_credentials():
+            err = "Broker credentials not configured"
             async with engine.begin() as conn:
                 await conn.execute(
                     text("UPDATE alpaca_orders SET status='failed', error_message=:err "
@@ -2235,7 +2249,7 @@ async def cancel_all_orders(confirm: str = "") -> CancelAllResponse:
 
     Safety:
       - Requires `?confirm=yes` query param to avoid accidental wipes
-      - Short-circuits with `no_credentials` if ALPACA_API_KEY is unset
+      - Short-circuits with `no_credentials` if the active broker has none
       - Records one execution_traces row + one execution_steps audit
 
     Returns 207-style summary: how many Alpaca cancels, how many local rows
@@ -2259,11 +2273,11 @@ async def cancel_all_orders(confirm: str = "") -> CancelAllResponse:
         )
 
     # Short-circuit when credentials are missing (test / paper-trade-only setups)
-    if not (ALPACA_API_KEY and ALPACA_SECRET_KEY):
+    if not _has_broker_credentials():
         async with engine.begin() as conn:
             await _log_step(
                 conn, trace_id, "alpaca_cancel_all", "skipped", t0,
-                error_message="Alpaca credentials not configured",
+                error_message="Broker credentials not configured",
             )
             await conn.execute(
                 text("UPDATE execution_traces SET status='failed', completed_at=:now, "
@@ -2448,7 +2462,7 @@ async def recent_orders() -> list[dict[str, Any]]:
 
 @app.get("/health")
 async def health() -> dict:
-    has_credentials = bool(ALPACA_API_KEY and ALPACA_SECRET_KEY)
+    has_credentials = _has_broker_credentials()
     return {
         "status": "ok",
         "service": "trade-executor",

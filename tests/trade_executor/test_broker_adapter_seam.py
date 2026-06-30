@@ -133,3 +133,31 @@ def test_close_position_404_maps_to_sentinel_through_adapter():
         oid, status, err = asyncio.run(ex._close_position_alpaca("AAPL"))
     assert oid is None and err is None
     assert status == ex._ALREADY_CLOSED_ALPACA_STATUS == "position_already_closed"
+
+
+# --- Broker-agnostic credential gate -----------------------------------------
+# The executor's credential gate must delegate to the ACTIVE broker adapter, not
+# hard-code Alpaca env-var names — so an IBKR (or future) deployment with its own
+# creds is correctly "has credentials" and an Alpaca one without is not.
+
+def test_has_broker_credentials_delegates_to_adapter():
+    # real keys → True; the 'demo' placeholder and empty → False (adapter's rule).
+    with patch.object(ex, "ALPACA_API_KEY", "k"), patch.object(ex, "ALPACA_SECRET_KEY", "s"):
+        assert ex._has_broker_credentials() is True
+    with patch.object(ex, "ALPACA_API_KEY", "demo"), patch.object(ex, "ALPACA_SECRET_KEY", "s"):
+        assert ex._has_broker_credentials() is False
+    with patch.object(ex, "ALPACA_API_KEY", ""), patch.object(ex, "ALPACA_SECRET_KEY", ""):
+        assert ex._has_broker_credentials() is False
+
+
+def test_no_broker_specific_credential_gates_in_source():
+    """Regression guard: the trader's BUSINESS LOGIC must not gate on Alpaca-specific
+    env vars. The only ALPACA_* references allowed are the env-var definitions and the
+    Alpaca BRANCH inside _broker() (the broker-specific injection point). A new
+    `ALPACA_API_KEY and ALPACA_SECRET_KEY` gate would re-couple the module to Alpaca."""
+    import inspect
+    src = inspect.getsource(ex)
+    assert "ALPACA_API_KEY and ALPACA_SECRET_KEY" not in src, (
+        "found an Alpaca-specific credential gate — use _has_broker_credentials() so "
+        "the trader stays broker-agnostic"
+    )

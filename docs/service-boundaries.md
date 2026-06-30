@@ -293,6 +293,18 @@ So the entire order path (submit / close / cancel / reads) is now broker-portabl
 an IBKR adapter implementing the same `BrokerAdapter` methods makes trade-executor
 work against IBKR with no changes to its decision logic.
 
+**Credential gating is broker-driven too.** trade-executor no longer gates on
+Alpaca-specific env vars; every "do we have credentials?" check goes through
+`_has_broker_credentials()` → `adapter.has_credentials()`, and `_broker()` only
+injects Alpaca config in its `BROKER=alpaca` branch (a future IBKR adapter
+self-reads its own `IBKR_*` env). So an IBKR deployment with IBKR creds (and no
+`ALPACA_*`) is correctly "has credentials" — the trader's business logic contains
+no broker name. A regression guard
+(`test_no_broker_specific_credential_gates_in_source`) fails CI if an
+`ALPACA_API_KEY and ALPACA_SECRET_KEY` gate is reintroduced. Adding IBKR is now
+purely: implement `IBKRBrokerAdapter` + one `get_broker_adapter` branch — no edit
+to trade-executor.
+
 **The `http_provider` seam keeps transport patchable:** trade-executor's existing
 tests `patch.object(te_main, "httpx")`; because the adapter resolves transport via
 `http_provider=lambda: te_main.httpx` at call time, those patches still intercept
