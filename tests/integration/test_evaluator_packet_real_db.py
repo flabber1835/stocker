@@ -77,15 +77,20 @@ async def _cleanup(conn):
     await conn.execute(text("DELETE FROM evaluator_weekly WHERE as_of_date = :d"), {"d": AS_OF})
 
 
-async def test_weekly_packet_ic_and_book(engine):
+async def test_weekly_packet_ic_and_book(engine, monkeypatch):
+    monkeypatch.setenv("STRATEGY_CONFIG_PATH",
+                       os.path.join(_ROOT, "strategies", "momentum_rotation_v2.yaml"))
     async with engine.begin() as conn:
         await _cleanup(conn); await _seed(conn)
     try:
         pkt = await ep.build_weekly_packet(engine, AS_OF)
         assert pkt is not None and "7d" in pkt["horizons"]
+        assert "momentum" in pkt["weighted_factors"]      # the book set, for marginal IC
         h = pkt["horizons"]["7d"]
         assert h["universe_n"] == 12
         assert h["factor_ic"]["momentum"]["ic"] > 0.5    # rises with momentum
+        assert "marginal_ic" in h["factor_ic"]["momentum"]   # computed vs the book
+        assert "marginal_ic" not in h["factor_ic"]["composite"]  # composite IS the book
         assert h["factor_ic"]["value"]["ic"] < 0          # value is inversely seeded
         assert h["factor_ic"]["momentum"]["n"] == 12
         # correlation inputs present (momentum vs composite, both rise with i → ~+1)

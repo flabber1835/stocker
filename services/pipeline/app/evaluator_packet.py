@@ -17,13 +17,16 @@ Persisted one row per ISO week in evaluator_weekly. Best-effort; never raises.
 from __future__ import annotations
 
 import json
+import os
 import traceback
 from datetime import date, datetime, timedelta, timezone
 
+import numpy as np
 import pandas as pd
 from sqlalchemy import text
 
 from stock_strategy_shared.factor_registry import FACTOR_NAMES
+from stock_strategy_shared.loader import load_strategy
 
 # display-only indicators carried in rankings.factor_scores (not scored, but their IC
 # tells the evaluator whether to PROMOTE one to a factor — e.g. falling-knife).
@@ -35,6 +38,44 @@ _REGRET_TOP = 10         # how many top non-selected movers to surface
 def _spearman(a: pd.Series, b: pd.Series):
     """Spearman rank correlation as Pearson-on-ranks (no scipy dependency)."""
     return a.rank().corr(b.rank())
+
+
+def _active_weighted_factors() -> set[str]:
+    """The currently-weighted factor set (the 'existing book') — marginal IC is computed
+    relative to THIS. Best-effort: empty set if the config can't be loaded → marginal IC
+    falls back to None (no controls)."""
+    try:
+        cfg, _ = load_strategy(os.getenv("STRATEGY_CONFIG_PATH", ""))
+        w = cfg.static_factor_weights
+        if w is None:  # regime rotation on → use the bull_calm vector as a representative book
+            w = next(iter(cfg.factor_weights.values()))
+        return {f for f, val in w.model_dump().items() if (val or 0) > 0}
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+def _marginal_ic(fs: pd.DataFrame, factor: str, controls: list[str], fwd: pd.Series):
+    """IC of `factor` AFTER residualizing it on `controls` (the weighted book) via OLS —
+    i.e. the signal it adds BEYOND what's already traded. A factor that duplicates a
+    control (e.g. drawdown vs near_high) residualizes to ~0 → low marginal IC, even when
+    its raw IC and its corr_to_composite both look favourable."""
+    ctrl = [c for c in controls if c != factor and c in fs.columns]
+    if not ctrl:
+        return None, 0
+    d = pd.concat([fs[[factor, *ctrl]], fwd.rename("fwd")], axis=1).dropna()
+    if len(d) < _MIN_OBS:
+        return None, len(d)
+    X = np.column_stack([np.ones(len(d)), d[ctrl].to_numpy(dtype=float)])
+    y = d[factor].to_numpy(dtype=float)
+    beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+    resid = y - X @ beta
+    ysd = float(np.std(y))
+    # Fully explained by the controls (collinear) → residual is numerical noise; ranking
+    # that noise yields a SPURIOUS IC. Treat it as zero marginal signal (adds nothing).
+    if ysd == 0.0 or float(np.std(resid)) / ysd < 1e-6:
+        return 0.0, len(d)
+    ic = _spearman(pd.Series(resid, index=d.index), d["fwd"])
+    return (None if pd.isna(ic) else round(float(ic), 4)), len(d)
 
 
 def _spearman_ic(scores: pd.Series, fwd: pd.Series) -> tuple[float | None, int]:
@@ -71,7 +112,7 @@ async def _forward_returns(conn, tickers, base_date, as_of) -> pd.Series:
     return pd.Series({r["ticker"]: float(r["now"]) / float(r["base"]) - 1.0 for r in rows}, dtype=float)
 
 
-async def _horizon_block(conn, as_of: date, lookback_days: int) -> dict | None:
+async def _horizon_block(conn, as_of: date, lookback_days: int, weighted: set[str]) -> dict | None:
     base = await _base_ranking_run(conn, as_of, lookback_days)
     if not base:
         return None
@@ -94,12 +135,19 @@ async def _horizon_block(conn, as_of: date, lookback_days: int) -> dict | None:
     spy = await _forward_returns(conn, ["SPY"], base_date, as_of)
     bench = float(spy.get("SPY")) if not spy.empty and pd.notna(spy.get("SPY")) else None
 
-    # per-factor IC (+composite); only columns with data
+    # per-factor IC (+composite); only columns with data. marginal_ic = IC after
+    # residualizing on the weighted book (controls drop any all-null weighted factor,
+    # e.g. earnings_surprise before its ingest). composite has no marginal (it IS the book).
     cols = [c for c in fs.columns if fs[c].notna().any()]
+    controls = [c for c in weighted if c in fs.columns and fs[c].notna().any()]
     ic = {}
     for c in cols:
         val, n = _spearman_ic(fs[c], fwd)
-        ic[c] = {"ic": val, "n": n}
+        entry = {"ic": val, "n": n}
+        if c != "composite":
+            mic, _mn = _marginal_ic(fs, c, controls, fwd)
+            entry["marginal_ic"] = mic
+        ic[c] = entry
 
     # correlation to composite + a compact pairwise factor-correlation matrix
     corr_to_composite, corr_matrix = {}, {}
@@ -148,11 +196,12 @@ async def _horizon_block(conn, as_of: date, lookback_days: int) -> dict | None:
 
 async def build_weekly_packet(engine, as_of_date: date, lookbacks=(7, 30)) -> dict | None:
     """Assemble the weekly evidence packet; None if no horizon has a base run + forward data."""
+    weighted = _active_weighted_factors()
     horizons: dict = {}
     async with engine.connect() as conn:
         for lb in lookbacks:
             try:
-                blk = await _horizon_block(conn, as_of_date, lb)
+                blk = await _horizon_block(conn, as_of_date, lb, weighted)
             except Exception:  # noqa: BLE001 — one horizon failing must not sink the packet
                 blk = None
             if blk:
@@ -160,13 +209,17 @@ async def build_weekly_packet(engine, as_of_date: date, lookbacks=(7, 30)) -> di
     if not horizons:
         return None
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "as_of_date": str(as_of_date),
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "weighted_factors": sorted(weighted),
         "horizons": horizons,
         "notes": "Deterministic evidence (Phase 1). IC = cross-sectional Spearman of factor "
-                 "score vs realized forward return; covers weighted, dormant, and display "
-                 "factors. Incremental value ≈ IC × (1 − corr_to_composite).",
+                 "score vs realized forward return (weighted, dormant, display factors). "
+                 "marginal_ic = IC after residualizing on the weighted book — the signal a "
+                 "factor adds BEYOND what's already traded (use THIS, not IC×(1−corr_to_"
+                 "composite), to judge adding a factor: a factor can be ~orthogonal to the "
+                 "blended composite yet duplicate one weighted factor, e.g. drawdown↔near_high).",
     }
 
 

@@ -50,3 +50,43 @@ async def test_backfill_iterates_distinct_prior_weeks(monkeypatch):
     assert calls == [date(2026, 7, 3), date(2026, 6, 26), date(2026, 6, 19), date(2026, 6, 12)]
     assert len({c.isocalendar().week for c in calls}) == 4
     assert n == 4
+
+
+import os
+_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
+
+
+def test_marginal_ic_redundant_factor_drops_to_zero():
+    n = 50
+    a = pd.Series(range(n), dtype=float)            # a control
+    dup = a.copy()                                  # factor identical to the control
+    fwd = pd.Series(range(n), dtype=float)          # fwd correlates with a
+    fs = pd.DataFrame({"a": a, "dup": dup})
+    raw, _ = _spearman_ic(fs["dup"], fwd)
+    mic, k = ep._marginal_ic(fs, "dup", ["a"], fwd)
+    assert raw == 1.0                               # raw IC looks perfect…
+    assert k == n and (mic is None or abs(mic) < 0.2)   # …but it ADDS nothing beyond `a`
+
+
+def test_marginal_ic_independent_factor_survives():
+    import numpy as np
+    n = 60
+    a = pd.Series(np.arange(n), dtype=float)
+    indep = pd.Series(np.arange(n) % 7, dtype=float)    # ~uncorrelated with the ramp `a`
+    fs = pd.DataFrame({"a": a, "indep": indep})
+    mic, _ = ep._marginal_ic(fs, "indep", ["a"], fwd=indep)
+    assert mic is not None and mic > 0.5               # genuine incremental signal kept
+
+
+def test_marginal_ic_no_controls_returns_none():
+    fs = pd.DataFrame({"x": pd.Series(range(20), dtype=float)})
+    mic, k = ep._marginal_ic(fs, "x", [], fwd=pd.Series(range(20), dtype=float))
+    assert mic is None and k == 0
+
+
+def test_active_weighted_factors_from_live_config(monkeypatch):
+    monkeypatch.setenv("STRATEGY_CONFIG_PATH",
+                       os.path.join(_ROOT, "strategies", "momentum_rotation_v2.yaml"))
+    w = ep._active_weighted_factors()
+    assert "momentum" in w and "near_high" in w   # weighted in v2
+    assert "issuance" not in w                     # weight 0 → not in the book
