@@ -68,6 +68,11 @@ BETA_LOOKBACK_DAYS = int(os.getenv("DRAWDOWN_BETA_LOOKBACK", os.getenv("BETA_LOO
 # (it's in BENCHMARK_TICKERS). Default SPY = unchanged behavior.
 MARKET_BENCHMARK = os.getenv("MARKET_BENCHMARK", "SPY")
 
+# G7: fail the delta step CLOSED on cross-step config_hash skew (a config edit
+# mid-chain → portfolio built under different assumptions than the delta diffs).
+# Default true; set false to revert to advisory-only (log + delta output field).
+DELTA_FAIL_ON_CONFIG_SKEW = os.getenv("DELTA_FAIL_ON_CONFIG_SKEW", "true").strip().lower() not in ("false", "0", "no")
+
 # Display-only: the per-ticker excess-drawdown LIMIT the falling-knife veto uses, so
 # the card can show "excess -6% / limit -12%" and the user sees how close a name is.
 # MUST mirror the vetter's scaled_excess_threshold + the same env (wired to both
@@ -1992,6 +1997,61 @@ def _broker_state_unreliable(
     return False, ""
 
 
+async def _resolve_delta_lineage(conn) -> dict:
+    """G1: resolve the delta's chain LINEAGE — the builder is the source of truth.
+
+    Anchor on the latest non-superseded successful portfolio_run and derive the
+    ranking + vetter from ITS back-pointers, so the delta always diffs the portfolio
+    that was built from the ranking it reads (vetted by the vetter that build fed) —
+    by construction, not by "newest ranking by completed_at" (which could be NEWER
+    than the portfolio when an interleaved pipeline run lands a fresh ranking with no
+    build yet). Cold start (no portfolio at all) falls back to the latest ranking.
+
+    Returns {latest_rank (Row|None), anchor_port_run_id, bound_vetter_run_id,
+    anchor_degraded}. latest_rank is None only when no successful ranking exists.
+    anchor_port_run_id/bound_vetter_run_id are None on cold start; anchor_degraded is
+    the bound portfolio's degraded flag (G2)."""
+    anchor_port = (await conn.execute(text(
+        "SELECT run_id, source_ranking_run_id, vetter_run_id, degraded "
+        "FROM portfolio_runs WHERE status='success' AND superseded_at IS NULL "
+        "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+    ))).fetchone()
+
+    latest_rank = None
+    anchor_port_run_id: Optional[str] = None
+    bound_vetter_run_id: Optional[str] = None
+    anchor_degraded = False
+    if anchor_port is not None:
+        anchor_port_run_id = str(anchor_port.run_id)
+        bound_vetter_run_id = (str(anchor_port.vetter_run_id)
+                               if anchor_port.vetter_run_id is not None else None)
+        anchor_degraded = bool(anchor_port.degraded)
+        latest_rank = (await conn.execute(text(
+            "SELECT run_id, rank_date, regime, ranked_count, config_hash "
+            "FROM ranking_runs WHERE run_id = :rid AND status='success'"
+        ), {"rid": str(anchor_port.source_ranking_run_id)})).fetchone()
+        if latest_rank is None:
+            # Lineage break (portfolio's bound ranking missing/not-success) — keep the
+            # portfolio anchor but fall back to the latest ranking for run_date/regime
+            # so the chain isn't wedged. Unexpected; surfaced loudly.
+            print("[delta-engine] WARNING: portfolio's bound ranking not found — "
+                  "falling back to latest ranking", flush=True)
+
+    if latest_rank is None:
+        latest_rank = (await conn.execute(text(
+            "SELECT run_id, rank_date, regime, ranked_count, config_hash "
+            "FROM ranking_runs WHERE status='success' "
+            "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+        ))).fetchone()
+
+    return {
+        "latest_rank": latest_rank,
+        "anchor_port_run_id": anchor_port_run_id,
+        "bound_vetter_run_id": bound_vetter_run_id,
+        "anchor_degraded": anchor_degraded,
+    }
+
+
 async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) -> None:
     """The complete delta logic from delta-engine/app/main.py _do_delta."""
     _set_pct("delta", 3)
@@ -2002,17 +2062,22 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     max_positions = de_cfg.max_positions
     drift_threshold = de_cfg.rebalance_drift_threshold
 
-    # ── Step 1: load ranking run ──────────────────────────────────────────────
+    # ── Step 1: resolve the chain LINEAGE (G1: builder is the source of truth) ──
+    # Anchor on the latest successful portfolio_run and derive the ranking + vetter
+    # from ITS back-pointers, so the delta always diffs the portfolio that was built
+    # from the ranking it reads, vetted by the vetter that build fed — by
+    # construction, not by "newest row by completed_at" (which could pick a ranking
+    # NEWER than the portfolio when an interleaved pipeline run lands a fresh ranking
+    # with no build yet). Cold start (no portfolio at all) falls back to the latest
+    # ranking. anchor_port / bound_vetter_run_id are reused by steps 4 and the vetter
+    # load below.
     t0 = datetime.now(timezone.utc)
     async with engine.connect() as conn:
-        row = await conn.execute(
-            text(
-                "SELECT run_id, rank_date, regime, ranked_count, config_hash "
-                "FROM ranking_runs WHERE status='success' "
-                "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
-            )
-        )
-        latest_rank = row.fetchone()
+        lineage = await _resolve_delta_lineage(conn)
+    latest_rank = lineage["latest_rank"]
+    anchor_port_run_id = lineage["anchor_port_run_id"]
+    bound_vetter_run_id = lineage["bound_vetter_run_id"]
+    anchor_degraded = lineage["anchor_degraded"]
 
     if latest_rank is None:
         raise RuntimeError("No successful ranking run found — run: make rank first")
@@ -2034,6 +2099,17 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     if config_skew:
         print(f"[delta-engine] WARNING: config_hash skew across chain steps: {config_skew}",
               flush=True)
+        # G7: fail CLOSED on config skew. A skew means the portfolio/ranking the delta
+        # diffs was built under a DIFFERENT config than this delta reloaded (a config
+        # edit mid-chain — observed in production). Emitting trade intents on
+        # mismatched assumptions is unsafe; refuse rather than proceed. Set
+        # DELTA_FAIL_ON_CONFIG_SKEW=false to revert to advisory-only.
+        if DELTA_FAIL_ON_CONFIG_SKEW:
+            raise RuntimeError(
+                f"config_hash skew across chain steps: {config_skew} — refusing to "
+                "generate trade intents on mismatched config (set "
+                "DELTA_FAIL_ON_CONFIG_SKEW=false to override)"
+            )
 
     async with engine.begin() as conn:
         await conn.execute(
@@ -2130,27 +2206,22 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     source_portfolio_run_id: Optional[str] = None
     cold_start = False
 
-    async with engine.connect() as conn:
-        port_row = await conn.execute(
-            text(
-                "SELECT run_id FROM portfolio_runs WHERE status='success' "
-                "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
-            )
-        )
-        port_run = port_row.fetchone()
+    # G1: reuse the LINEAGE anchor resolved in step 1 (the portfolio whose ranking we
+    # diff), instead of independently re-querying "latest portfolio". This is the same
+    # run, so the target, ranking, and vetter are one consistent chain.
+    source_portfolio_run_id = anchor_port_run_id
 
     # Target membership over the last `confirmation_days` successful builds,
     # most-recent-first. Element 0 is the current build's target ticker set.
     # Used by the delta engine to confirm orphan exits over consecutive builds.
     target_history: list[set[str]] = []
-    if port_run is None:
+    if source_portfolio_run_id is None:
         cold_start = True
         print(
             f"[delta-engine] WARNING: No portfolio run found — falling back to "
             f"confirmation-days mode. Run portfolio-builder first for immediate entry intents."
         )
     else:
-        source_portfolio_run_id = str(port_run.run_id)
         async with engine.connect() as conn:
             holdings_rows = await conn.execute(
                 text(
@@ -2161,6 +2232,19 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             )
             for h in holdings_rows.fetchall():
                 target_portfolio[h.ticker] = float(h.weight) if h.weight is not None else 0.0
+
+        # G2: a DEGRADED build (selected_count below min_selected — a transiently thin
+        # ranking) is treated like an EMPTY target: clear it so evaluate_target_vs_live
+        # hits its hold-all / suppress-below-floor branch. A one-off bad-data day then
+        # holds the whole book instead of orphan-exiting every dropped name (exits are
+        # exempt from the turnover cap, so the orphan timer was the only other brake).
+        if anchor_degraded and target_portfolio:
+            print(
+                f"[delta-engine] WARNING: portfolio run {source_portfolio_run_id} is "
+                f"DEGRADED ({len(target_portfolio)} names) — holding the book this "
+                f"cycle (target treated as empty, no exits/entries).", flush=True
+            )
+            target_portfolio = {}
 
         # Build target_history from the most recent confirmation_days successful
         # builds, one run per portfolio_date (the latest completed_at on that date,
@@ -2324,17 +2408,16 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
         else None
     )
 
-    # Load per-position actual weights for drift detection
+    # Load per-position actual weights for drift detection.
+    # G4: positions AND account_value come from the SAME pinned sync run (sync_run,
+    # resolved once above) — no second "latest sync" subquery — so a concurrent
+    # alpaca-sync commit mid-delta can't produce a torn read (positions from sync A,
+    # account_value from sync B). account_value is taken straight off the pinned row.
     live_weights: dict[str, float] = {}
     account_value_for_drift: Optional[float] = None
     if sync_run:
-        async with engine.connect() as conn:
-            acct_row = await conn.execute(text(
-                "SELECT account_value FROM alpaca_sync_runs WHERE run_id = :rid"
-            ), {"rid": str(sync_run.run_id)})
-            acct = acct_row.fetchone()
-            if acct and acct[0]:
-                account_value_for_drift = float(acct[0])
+        if sync_run.account_value is not None:
+            account_value_for_drift = float(sync_run.account_value)
         if account_value_for_drift and account_value_for_drift > 0:
             async with engine.connect() as conn:
                 mktval_rows = await conn.execute(text(
@@ -2425,16 +2508,26 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     # from the most recent successful vetter run. (The earlier query referenced an
     # excluded_until column that does not exist in the schema and always errored,
     # silently leaving vetter_excluded empty.)
+    # G1: bind exclusions to the vetter run the BUILDER used (anchor portfolio's
+    # vetter_run_id), not "the latest vetter run". Otherwise a vetter run from a
+    # different ranking could shape delta entries (the same silent split the builder
+    # guards against). Fall back to "latest successful vetter" only on cold start
+    # (no anchor portfolio → bound_vetter_run_id is None).
     vetter_excluded: set[str] = set()
     try:
         async with engine.connect() as conn:
-            excl_rows = await conn.execute(text(
-                "SELECT DISTINCT ve.ticker FROM vetter_exclusions ve "
-                "WHERE ve.run_id = ("
-                "  SELECT run_id FROM vetter_runs WHERE status='success' "
-                "  ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
-                ")"
-            ))
+            if bound_vetter_run_id is not None:
+                excl_rows = await conn.execute(text(
+                    "SELECT DISTINCT ticker FROM vetter_exclusions WHERE run_id = :rid"
+                ), {"rid": bound_vetter_run_id})
+            else:
+                excl_rows = await conn.execute(text(
+                    "SELECT DISTINCT ve.ticker FROM vetter_exclusions ve "
+                    "WHERE ve.run_id = ("
+                    "  SELECT run_id FROM vetter_runs WHERE status='success' "
+                    "  ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
+                    ")"
+                ))
             vetter_excluded = {r[0] for r in excl_rows.fetchall()}
     except Exception as ve_exc:
         print(f"[delta] warning: could not load vetter exclusions: {ve_exc}")
@@ -2643,6 +2736,18 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 "bac": len(buy_adds),
                 "stc": len(sell_trims),
             },
+        )
+
+        # G5 supersede: this delta is the authoritative diff for its session. Stamp any
+        # PRIOR successful delta for the SAME run_date as superseded, so a manual re-run
+        # that replaces a cron run is explicit rather than implied by completed_at.
+        await conn.execute(
+            text(
+                "UPDATE delta_runs SET superseded_at=:now "
+                "WHERE run_date=:rd AND run_id<>:rid "
+                "AND status='success' AND superseded_at IS NULL"
+            ),
+            {"now": completed_at, "rd": run_date, "rid": run_id},
         )
 
         # Discard unsubmitted intents from all previous delta runs so the

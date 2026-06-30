@@ -246,6 +246,74 @@ positions), all buy-side intents are suppressed because sizing against a wrong
 account snapshot would be unsafe. Exits are never suppressed (closing is always
 allowed). See `docs/risk-safety-rules.md` for the full guard description.
 
+## Design Decision: builder/delta chain hardening (lineage + degraded gate)
+
+Architecture delta on the ranking → vetter → portfolio-builder → delta chain. The
+*vetter↔ranking↔builder* leg was already tightly bound (explicit seam guards,
+mandatory vetter, per-run config reload). The weak seam was **delta**, which
+re-resolved the ranking, portfolio, and vetter **independently** by "newest
+successful row (by completed_at)" — relying on chain *ordering* for correctness
+rather than enforcing the binding. Two failure clusters followed; this hardens both.
+
+**G1/G7 — delta binds to the builder's lineage (the builder IS the source of truth).**
+Delta now ANCHORS on the latest successful `portfolio_runs` row and derives its other
+inputs from that row's back-pointers:
+```text
+port_run            = latest successful portfolio_run (the target to diff)
+ranking it diffs    = ranking_runs[ port_run.source_ranking_run_id ]   (NOT "latest ranking")
+vetter exclusions   = vetter_exclusions[ port_run.vetter_run_id ]      (NOT "latest vetter")
+run_date            = that ranking's rank_date
+```
+So delta always diffs the portfolio that was built from the ranking it reads, vetted
+by the vetter that built fed — by construction, not by timing. A manual pipeline run
+that produces a newer ranking with no build yet can no longer make delta diff today's
+book against a portfolio from a different ranking. The cold-start fallback (no
+portfolio at all) still picks the latest ranking. Config skew is now **fail-closed**
+for the delta step (`DELTA_FAIL_ON_CONFIG_SKEW`, default true): if the delta's
+reloaded `config_hash` disagrees with the chain it's diffing, it refuses to emit trade
+intents rather than acting on mismatched assumptions (this skew has actually occurred
+— see the config-reload decision). Set the env false to revert to advisory-only.
+
+**G2 — degraded-build gate (no silent thin target → no bad-data mass rotation).**
+The builder builds a fresh holdings-agnostic target each day; a *transiently thin*
+ranking (many factors momentarily NULL) used to yield a small but `status='success'`
+target that the delta engine then diffed — orphan-exiting every dropped name after
+`orphan_confirmation_days` (default 2). Because exits are exempt from
+`MAX_DAILY_TURNOVER_PCT`, the orphan timer was the ONLY brake on a bad-data rotation.
+Now `PortfolioBuilderConfig.min_selected` (default 0 = off) sets a floor: a build that
+selects fewer names is still recorded `success` but flagged `portfolio_runs.degraded =
+true`, and the delta engine treats a degraded target exactly like an EMPTY one —
+hold the whole book, suppress the below-floor split — so a one-off thin ranking can
+never mass-liquidate. (Fail-safe by HOLDING, never by selling.)
+
+**G5 — supersede marker (unambiguous "latest").** Every build/delta mints a fresh
+run row and downstream readers pick "latest by completed_at". On a re-run (manual +
+cron for the same session) that left two success rows ordered only by timestamp. A
+successful build/delta now stamps `superseded_at` on the prior success row for the
+same lineage (builder: same `source_ranking_run_id`; delta: same `run_date`), so the
+authoritative run is explicit.
+
+**G6 — builder stale-running reclaim.** The builder runs in a BackgroundTask; an
+in-request crash (e.g. OOM in universe-scale covariance) left a `running`
+`portfolio_runs` row that 409-wedged ALL future builds until a restart. The
+no-running-job check now reclaims a `running` row older than `STALE_BUILD_HOURS`
+(default 3) as `failed` (mirrors av-ingestor's `STALE_INGEST_HOURS`), so the chain
+self-heals without a restart.
+
+**G8 — immutable config snapshot through the build.** `_reload_strategy()` reassigns
+module globals (`strategy`, `config_hash`) under the job lock, but `_do_build` runs
+detached afterwards and re-read those globals mid-build. The bound strategy +
+config_hash are now captured into an immutable snapshot at trigger time and threaded
+through `_do_build`, so a concurrent reload can never switch a build's assumptions
+partway through (the persisted config_hash always matches the universe/strategy used).
+
+**G3/G4 — invariant + snapshot integrity.** A contract test asserts the Python
+capacity rule (`capacity.projected_book_count`) agrees with the risk-service
+projected-positions SQL, so the "planner admits ⇔ gate approves" equivalence can't
+silently drift. The delta reads broker positions and `account_value` from ONE pinned
+`sync_run_id` instead of two independent "latest sync" subqueries (closes the torn-read
+where positions came from sync A and account_value from sync B).
+
 ## Strategy Flow
 
 ```text

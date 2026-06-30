@@ -1445,7 +1445,8 @@ async def get_portfolio(run_id: str | None = None):
                     "       regime, portfolio_date, status, candidate_count, selected_count, "
                     "       covariance_window_days, avg_pairwise_correlation, portfolio_estimated_vol, "
                     "       error_message, started_at, completed_at "
-                    "FROM portfolio_runs WHERE status = 'success' "
+                    # G5: skip a build superseded by a newer one for the same ranking.
+                    "FROM portfolio_runs WHERE status = 'success' AND superseded_at IS NULL "
                     "ORDER BY portfolio_date DESC, completed_at DESC NULLS LAST LIMIT 1"
                 )
             )
@@ -1629,6 +1630,9 @@ async def get_delta_latest():
                 "at_risk_count, buy_add_count, sell_trim_count, "
                 "triggered_by, manual, started_at, completed_at, error_message "
                 "FROM delta_runs "
+                # G5: a superseded run was replaced by a newer one for the same session
+                # (e.g. manual re-run over a cron run) — never surface it as "latest".
+                "WHERE superseded_at IS NULL "
                 "ORDER BY run_date DESC, started_at DESC LIMIT 1"
             ))).mappings().first()
 

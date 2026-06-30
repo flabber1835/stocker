@@ -141,6 +141,23 @@ def test_universe_config_defaults():
     assert cfg.universe.source == "av_listing"
 
 
+# ── PortfolioBuilderConfig.min_selected (G2 degraded gate) ──────────────────────
+
+def test_portfolio_builder_min_selected_default_off():
+    cfg = make_config()
+    assert cfg.portfolio_builder.min_selected == 0  # disabled by default
+
+
+def test_portfolio_builder_min_selected_configurable():
+    cfg = make_config(portfolio_builder={"min_selected": 15})
+    assert cfg.portfolio_builder.min_selected == 15
+
+
+def test_portfolio_builder_min_selected_rejects_negative():
+    with pytest.raises(ValidationError):
+        make_config(portfolio_builder={"min_selected": -1})
+
+
 # ── VetterConfig ──────────────────────────────────────────────────────────────
 
 def test_vetter_config_defaults():

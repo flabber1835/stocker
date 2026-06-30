@@ -379,6 +379,19 @@ class PortfolioBuilderConfig(BaseModel):
     )
     candidate_count: int = Field(default=100, ge=10, le=500)
     max_positions: int = Field(default=30, ge=1, le=100)
+    min_selected: int = Field(
+        default=0, ge=0, le=100,
+        description=(
+            "Degraded-build floor (G2). When a build selects FEWER than this many "
+            "names — the signature of a transiently thin ranking (factors momentarily "
+            "NULL upstream) — the run is still recorded success but flagged "
+            "portfolio_runs.degraded, and the delta engine treats the target like an "
+            "EMPTY one (holds the book, suppresses the below-floor exit split) so a "
+            "one-off bad-data day cannot mass-orphan-exit good holdings. 0 disables "
+            "the gate (default). Set well below max_positions (e.g. half) so it trips "
+            "only on a genuinely degraded build, not a legitimately small target."
+        ),
+    )
     covariance_window_days: int = Field(default=252, ge=20, le=504)
     min_covariance_observations: int = Field(default=126, ge=20, le=504)
     covariance_shrinkage: float = Field(default=0.20, ge=0.0, le=1.0)

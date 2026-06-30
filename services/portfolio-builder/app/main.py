@@ -32,6 +32,16 @@ ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
 REDIS_URL = os.getenv("REDIS_URL", "")
 PIPELINE_STREAM = "stocker:pipeline_events"
 
+# G6: a build runs in a detached BackgroundTask; an in-request crash (e.g. OOM in
+# universe-scale covariance) leaves a 'running' portfolio_runs row that 409-wedges
+# ALL future builds until a restart. _assert_no_running_job reclaims a 'running' row
+# older than this as 'failed' so the chain self-heals (mirrors av-ingestor's
+# STALE_INGEST_HOURS). A real build completes in well under this.
+try:
+    STALE_BUILD_HOURS = max(0.0, float(os.getenv("STALE_BUILD_HOURS", "3")))
+except ValueError:
+    STALE_BUILD_HOURS = 3.0
+
 _MIN_EIGENVALUE = 1e-8  # numerical zero threshold for PSD matrix repair
 
 
@@ -86,6 +96,26 @@ def _reload_strategy() -> None:
 
 
 async def _assert_no_running_job(conn) -> None:
+    # G6: reclaim a STALE 'running' row first — an in-request crash (no except clause
+    # fired, e.g. OOM mid-build) leaves a 'running' row that would otherwise 409-wedge
+    # every future build until a manual restart. A row older than STALE_BUILD_HOURS is
+    # an orphan (a real build finishes in minutes); mark it failed so the chain
+    # self-heals. Startup mark_orphaned_runs_failed only covers process restarts.
+    if STALE_BUILD_HOURS > 0:
+        reclaimed = await conn.execute(
+            text(
+                "UPDATE portfolio_runs SET status='failed', completed_at=NOW(), "
+                "error_message='RECLAIMED: running longer than STALE_BUILD_HOURS "
+                "(orphaned in-request build)' "
+                "WHERE status='running' "
+                "AND started_at < NOW() - (:h * interval '1 hour') "
+                "RETURNING run_id"
+            ),
+            {"h": STALE_BUILD_HOURS},
+        )
+        for r in reclaimed.fetchall():
+            print(f"[portfolio-builder] reclaimed stale running build {r.run_id}", flush=True)
+
     row = await conn.execute(
         text("SELECT run_id FROM portfolio_runs WHERE status='running' LIMIT 1")
     )
@@ -112,12 +142,16 @@ async def _log_step(conn, trace_id, step_name, status, *, started_at=None,
                    output_summary=output_summary, warnings=warnings, error_message=error_message)
 
 
-async def _write_trace_file(trace_id: str, run_id: str, status: str, started_at: datetime, **extra) -> None:
+async def _write_trace_file(trace_id: str, run_id: str, status: str, started_at: datetime,
+                            *, strategy_id: Optional[str] = None,
+                            cfg_hash: Optional[str] = None, **extra) -> None:
+    # G8: prefer the build's CAPTURED snapshot (strategy_id/cfg_hash) over the module
+    # globals — a concurrent _reload_strategy must not change what this build records.
     await write_trace_file(
         engine, ARTIFACTS_PATH, trace_id, run_id, "portfolio_run", status, started_at,
         service_label="portfolio-builder",
-        strategy_id=strategy.strategy_id,
-        config_hash=config_hash,
+        strategy_id=strategy_id if strategy_id is not None else (strategy.strategy_id if strategy else None),
+        config_hash=cfg_hash if cfg_hash is not None else config_hash,
         **extra,
     )
 
@@ -132,13 +166,19 @@ async def _run_build(
     regime: str,
     portfolio_date,
     started_at: datetime,
+    strat: StrategyConfig,
+    cfg_hash: str,
 ) -> None:
     # DB rows (portfolio_runs + execution_traces) were inserted by the handler inside
     # _job_lock before add_task was called — no lookup or INSERT needed here.
-    pb_cfg = strategy.portfolio_builder
+    # G8: `strat`/`cfg_hash` are the snapshot captured under the lock; use them (not
+    # the module globals) so a concurrent _reload_strategy can't switch this build's
+    # assumptions mid-flight.
+    pb_cfg = strat.portfolio_builder
 
     try:
-        await _do_build(run_id, trace_id, started_at, source_ranking_run_id, regime, portfolio_date, pb_cfg, vetter_run_id)
+        await _do_build(run_id, trace_id, started_at, source_ranking_run_id, regime,
+                        portfolio_date, pb_cfg, vetter_run_id, strat, cfg_hash)
     except Exception as exc:
         err = str(exc)[:1000]
         print(f"[portfolio-builder] run {run_id} FAILED: {exc}")
@@ -151,7 +191,8 @@ async def _run_build(
                 text("UPDATE execution_traces SET status='failed', completed_at=:now, notes=:err WHERE trace_id=:tid"),
                 {"tid": trace_id, "now": datetime.now(timezone.utc), "err": err},
             )
-        await _write_trace_file(trace_id, run_id, "failed", started_at, error=err)
+        await _write_trace_file(trace_id, run_id, "failed", started_at,
+                                strategy_id=strat.strategy_id, cfg_hash=cfg_hash, error=err)
         raise
 
 
@@ -164,7 +205,13 @@ async def _do_build(
     portfolio_date,
     pb_cfg,
     vetter_run_id: Optional[str] = None,
+    strat: Optional[StrategyConfig] = None,
+    cfg_hash: Optional[str] = None,
 ) -> None:
+    # G8: bind to the captured snapshot; fall back to the global only if a caller
+    # (older test) didn't pass one.
+    strat = strat if strat is not None else strategy
+    cfg_hash = cfg_hash if cfg_hash is not None else config_hash
     # ranking run already resolved and both DB rows already inserted by _run_build
 
     # ── Step 1: log ranking run context ──────────────────────────────────────────────────────────────────────────────────────
@@ -360,7 +407,7 @@ async def _do_build(
 
     # ── Step 3b: apply universe filters before covariance (min_price, min_avg_dollar_volume) ──────────────────────────
     t0 = datetime.now(timezone.utc)
-    universe_cfg = strategy.universe
+    universe_cfg = strat.universe
     min_price = universe_cfg.min_price
     min_avg_dv = universe_cfg.min_avg_dollar_volume_20d
 
@@ -806,7 +853,7 @@ async def _do_build(
                 {
                     "run_id": run_id,
                     "src": source_ranking_run_id,
-                    "sid": strategy.strategy_id,
+                    "sid": strat.strategy_id,
                     "regime": regime,
                     "pd": portfolio_date,
                     "ticker": ticker,
@@ -843,11 +890,22 @@ async def _do_build(
                 {"rid": run_id, "pd": portfolio_date, "ticker": _t, "cid": _cid},
             )
 
+        # G2 degraded gate: a build that selects FEWER than min_selected names is the
+        # signature of a transiently thin ranking. Record success (don't halt the
+        # chain) but FLAG it degraded so the delta engine treats the target like an
+        # empty one (holds the book) — a bad-data day can never mass-orphan-exit.
+        min_selected = getattr(pb_cfg, "min_selected", 0) or 0
+        degraded = bool(min_selected > 0 and len(selected) < min_selected)
+        if degraded:
+            print(
+                f"[portfolio-builder] run {run_id} DEGRADED: selected {len(selected)} "
+                f"< min_selected {min_selected} — delta will hold the book", flush=True
+            )
         await conn.execute(
             text(
                 "UPDATE portfolio_runs SET "
                 "  status='success', completed_at=:now, "
-                "  candidate_count=:cc, selected_count=:sc, "
+                "  candidate_count=:cc, selected_count=:sc, degraded=:deg, "
                 "  covariance_window_days=:cw, "
                 "  avg_pairwise_correlation=:apc, "
                 "  portfolio_estimated_vol=:pvol "
@@ -858,10 +916,24 @@ async def _do_build(
                 "now": completed_at,
                 "cc": len(available_tickers),
                 "sc": len(selected),
+                "deg": degraded,
                 "cw": pb_cfg.covariance_window_days,
                 "apc": round(avg_pairwise_corr, 6),
                 "pvol": round(portfolio_vol, 6),
             },
+        )
+
+        # G5 supersede: this build is now the authoritative target for its ranking.
+        # Stamp any PRIOR successful build for the SAME source_ranking_run_id as
+        # superseded so "latest" is explicit (a manual re-run supersedes a cron run)
+        # rather than implied by completed_at ordering alone.
+        await conn.execute(
+            text(
+                "UPDATE portfolio_runs SET superseded_at=:now "
+                "WHERE source_ranking_run_id=:src AND run_id<>:rid "
+                "AND status='success' AND superseded_at IS NULL"
+            ),
+            {"now": completed_at, "src": source_ranking_run_id, "rid": run_id},
         )
         await conn.execute(
             text(
@@ -899,8 +971,10 @@ async def _do_build(
 
     await _write_trace_file(
         trace_id, run_id, "success", started_at,
+        strategy_id=strat.strategy_id, cfg_hash=cfg_hash,
         regime=regime,
         portfolio_date=str(portfolio_date),
+        degraded=degraded,
         selected_count=len(selected),
         selected_negative_score_count=selected_negative_score_count,
         tickers_dropped_insufficient_obs=len(tickers_dropped_obs),
@@ -1054,6 +1128,12 @@ async def start_build(
 
     async with _job_lock:
         _reload_strategy()  # pick up any deployed config change; converge across services
+        # G8: snapshot the reloaded config under the lock and thread it through the
+        # detached build, so a concurrent _reload_strategy can never switch this
+        # build's strategy/config_hash mid-flight (the globals are no longer read
+        # inside _do_build).
+        strat_snap = strategy
+        cfg_hash_snap = config_hash
         async with engine.connect() as inner_conn:
             await _assert_no_running_job(inner_conn)
         run_id = str(uuid.uuid4())
@@ -1066,7 +1146,7 @@ async def start_build(
                     "(trace_id, job_type, status, root_run_id, strategy_id, config_hash, started_at) "
                     "VALUES (:tid, 'portfolio_run', 'running', :rid, :sid, :ch, :now)"
                 ),
-                {"tid": trace_id, "rid": run_id, "sid": strategy.strategy_id, "ch": config_hash, "now": started_at},
+                {"tid": trace_id, "rid": run_id, "sid": strat_snap.strategy_id, "ch": cfg_hash_snap, "now": started_at},
             )
             await conn.execute(
                 text(
@@ -1078,7 +1158,7 @@ async def start_build(
                 {
                     "rid": run_id, "tid": trace_id, "src": source_ranking_run_id,
                     "vrid": vetter_run_id,
-                    "sid": strategy.strategy_id, "ch": config_hash,
+                    "sid": strat_snap.strategy_id, "ch": cfg_hash_snap,
                     "regime": regime, "pd": portfolio_date, "now": started_at,
                 },
             )
@@ -1086,6 +1166,7 @@ async def start_build(
             _run_build, run_id, trace_id,
             source_ranking_run_id, vetter_run_id,
             regime, portfolio_date, started_at,
+            strat_snap, cfg_hash_snap,
         )
     return {
         "status": "started",
