@@ -51,3 +51,29 @@ def test_submit_invalid_mode_422(client):
     )
     # Pydantic Literal["immediate","scheduled"] rejects "bogus" at the schema layer.
     assert resp.status_code == 422
+
+
+def test_enqueue_invalid_mode_422(client):
+    """The durable approval enqueue rejects a bad mode at the schema layer."""
+    resp = client.post(
+        "/jobs/enqueue",
+        json={"intent_id": "11111111-1111-1111-1111-111111111111", "mode": "bogus"},
+    )
+    assert resp.status_code == 422
+
+
+def test_enqueue_batch_invalid_mode_422(client):
+    resp = client.post(
+        "/jobs/enqueue-batch",
+        json={"intent_ids": ["11111111-1111-1111-1111-111111111111"], "mode": "bogus"},
+    )
+    assert resp.status_code == 422
+
+
+def test_enqueue_batch_requires_list(client):
+    """intent_ids must be a list (schema-level)."""
+    resp = client.post(
+        "/jobs/enqueue-batch",
+        json={"intent_ids": "not-a-list", "mode": "immediate"},
+    )
+    assert resp.status_code == 422

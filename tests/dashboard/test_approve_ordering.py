@@ -1,12 +1,13 @@
-"""approveSelected enqueues every selected intent as mode='immediate'.
+"""approveSelected sends the whole selection as ONE durable batch enqueue.
 
-Single approval rule (manual or auto): submit to the broker NOW if the market is
-open, else queue for the next open. The executor's `_route_to_drain('immediate')`
-does exactly that — open → submit now; closed → fill-gated drain (sells first,
-buys one at a time within buying power). So there is one approve action, and every
-approvable selection is sent via approveTrade with mode 'immediate'. This extracts
-the REAL approveSelected() from dashboard.js so a regression (reverting to the old
-two-mode 'scheduled' greenlight) fails CI.
+Approval is now a durable batch: the dashboard POSTs the entire approvable selection
+to /api/trade/approve-batch in a SINGLE request, and the trade-executor's
+single-consumer worker sizes/risk-checks/submits each off the request path. This
+replaces the old client-side loop — Promise.all (→ submit-lock timeouts on big
+rotations) and its for-await successor (→ a browser refresh stranded the tail).
+
+These extract the REAL approveSelected() from dashboard.js so a regression (going
+back to per-intent client submission, or dropping the batch endpoint) fails CI.
 """
 import json
 import re
@@ -31,23 +32,29 @@ _HARNESS_TMPL = r"""
 // --- stubs for approveSelected's dependencies ---
 let deltaData = __DATA__;
 let _selectedIntents = new Set(__SELECTED__);
+let _approvalState = {};
+function renderTrader() {}
+function _enqueueState(res) { return { status: (res && res.status) || 'err' }; }
 
 function _isApprovable(r) {
   return ['entry','exit','buy_add','sell_trim'].includes(r.action)
-      && !r.order_status && !r.rejected_at && !(r.vetter_excluded && (r.action==='entry'||r.action==='buy_add'));
+      && !r.order_status && !r.approved_at && !r.rejected_at
+      && !(r.vetter_excluded && (r.action==='entry'||r.action==='buy_add'));
 }
 
-// record (id, mode) for every approveTrade call
-const calls = [];
-async function approveTrade(intentId, mode) {
-  for (let k = 0; k < ((calls.length % 3) + 2); k++) await Promise.resolve();
-  calls.push({ id: intentId, mode });
+// record every fetch call (url + parsed body)
+const fetchCalls = [];
+async function fetch(url, opts) {
+  fetchCalls.push({ url, body: JSON.parse(opts.body) });
+  return { ok: true, json: async () => ({ results:
+    JSON.parse(opts.body).intent_ids.map(id => ({ intent_id: id, status: 'queued' })),
+    queued: JSON.parse(opts.body).intent_ids.length }) };
 }
 
 // --- the real shipped function ---
 __APPROVE_SELECTED__
 
-(async () => { await approveSelected(); console.log(JSON.stringify(calls)); })();
+(async () => { await approveSelected(); console.log(JSON.stringify(fetchCalls)); })();
 """
 
 
@@ -64,7 +71,7 @@ def _run(data, selected, tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_all_selected_enqueued_as_immediate(tmp_path):
+def test_whole_selection_sent_as_one_batch(tmp_path):
     data = [
         {"id": "B1", "action": "entry",     "order_status": None, "rejected_at": None, "vetter_excluded": False},
         {"id": "S1", "action": "exit",      "order_status": None, "rejected_at": None, "vetter_excluded": False},
@@ -72,73 +79,34 @@ def test_all_selected_enqueued_as_immediate(tmp_path):
         {"id": "S2", "action": "sell_trim", "order_status": None, "rejected_at": None, "vetter_excluded": False},
     ]
     calls = _run(data, ["B1", "S1", "B2", "S2"], tmp_path)
-    assert {c["id"] for c in calls} == {"B1", "S1", "B2", "S2"}, f"not all enqueued: {calls}"
-    # Single rule: submit now if open, else queue — the executor decides via the clock.
-    assert all(c["mode"] == "immediate" for c in calls), f"every approval must be 'immediate': {calls}"
-
-
-_CONCURRENCY_TMPL = r"""
-// --- stubs ---
-let deltaData = __DATA__;
-let _selectedIntents = new Set(__SELECTED__);
-
-function _isApprovable(r) {
-  return ['entry','exit','buy_add','sell_trim'].includes(r.action)
-      && !r.order_status && !r.rejected_at && !(r.vetter_excluded && (r.action==='entry'||r.action==='buy_add'));
-}
-
-// Track concurrent in-flight calls. The trade-executor serializes every submit on a
-// single per-account lock (SUBMIT_LOCK_TIMEOUT_SECS); firing approvals concurrently
-// makes the tail of a large rotation time out. approveSelected MUST submit one at a
-// time. Each approveTrade yields across several microtasks while "in flight"; if two
-// overlap, _inflight exceeds 1 — that is the bug this guards against.
-let _inflight = 0, _maxInflight = 0;
-async function approveTrade(intentId, mode) {
-  _inflight++; _maxInflight = Math.max(_maxInflight, _inflight);
-  for (let k = 0; k < 4; k++) await Promise.resolve();
-  _inflight--;
-}
-
-// --- the real shipped function ---
-__APPROVE_SELECTED__
-
-(async () => { await approveSelected(); console.log(JSON.stringify({maxInflight: _maxInflight})); })();
-"""
+    # EXACTLY ONE request (not one-per-intent — that was the lock-timeout/refresh bug).
+    assert len(calls) == 1, f"expected a single batch request, got {len(calls)}"
+    assert calls[0]["url"] == "/api/trade/approve-batch"
+    assert set(calls[0]["body"]["intent_ids"]) == {"B1", "S1", "B2", "S2"}
+    assert calls[0]["body"]["mode"] == "immediate"
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_approvals_submitted_sequentially_not_concurrently(tmp_path):
-    """A large rotation must submit one approval at a time (no Promise.all).
-
-    Concurrent submission piles every request onto the executor's single per-account
-    submit lock; on a 15-exit + 15-entry rotation the tail waits past
-    SUBMIT_LOCK_TIMEOUT_SECS and fails with "submit serialization lock timed out".
-    """
+def test_one_request_regardless_of_count(tmp_path):
+    """A large rotation still produces exactly ONE request (no client-side fan-out)."""
     data = [{"id": f"I{i}", "action": "entry", "order_status": None,
              "rejected_at": None, "vetter_excluded": False} for i in range(30)]
-    js = (_CONCURRENCY_TMPL
-          .replace("__DATA__", json.dumps(data))
-          .replace("__SELECTED__", json.dumps([d["id"] for d in data]))
-          .replace("__APPROVE_SELECTED__", _extract_approve_selected()))
-    harness = tmp_path / "c.js"
-    harness.write_text(js)
-    out = subprocess.run(["node", str(harness)], capture_output=True, text=True, timeout=20)
-    assert out.returncode == 0, f"node failed: {out.stderr[:600]}"
-    res = json.loads(out.stdout.strip().splitlines()[-1])
-    assert res["maxInflight"] == 1, (
-        f"approvals must be submitted sequentially, saw {res['maxInflight']} concurrent "
-        "(reverting to Promise.all causes submit-lock timeouts on large rotations)")
+    calls = _run(data, [d["id"] for d in data], tmp_path)
+    assert len(calls) == 1, f"30 approvals must be ONE batch request, got {len(calls)}"
+    assert len(calls[0]["body"]["intent_ids"]) == 30
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_non_approvable_intents_skipped(tmp_path):
-    """Already-ordered / rejected / vetter-excluded-buy intents are not enqueued."""
+def test_non_approvable_intents_excluded(tmp_path):
+    """Already-ordered / rejected / vetter-excluded-buy / already-queued intents are
+    not included in the batch."""
     data = [
-        {"id": "OK",   "action": "entry",     "order_status": None,       "rejected_at": None,   "vetter_excluded": False},
-        {"id": "DONE", "action": "entry",     "order_status": "deferred", "rejected_at": None,   "vetter_excluded": False},
-        {"id": "REJ",  "action": "sell_trim", "order_status": None,       "rejected_at": "x",    "vetter_excluded": False},
-        {"id": "VEX",  "action": "buy_add",   "order_status": None,       "rejected_at": None,   "vetter_excluded": True},
+        {"id": "OK",   "action": "entry",     "order_status": None,       "rejected_at": None, "vetter_excluded": False},
+        {"id": "DONE", "action": "entry",     "order_status": "deferred", "rejected_at": None, "vetter_excluded": False},
+        {"id": "REJ",  "action": "sell_trim", "order_status": None,       "rejected_at": "x",  "vetter_excluded": False},
+        {"id": "VEX",  "action": "buy_add",   "order_status": None,       "rejected_at": None, "vetter_excluded": True},
+        {"id": "QUE",  "action": "entry",     "order_status": None,       "rejected_at": None, "vetter_excluded": False, "approved_at": "2026-06-30T00:00:00Z"},
     ]
-    calls = _run(data, ["OK", "DONE", "REJ", "VEX"], tmp_path)
-    assert {c["id"] for c in calls} == {"OK"}, f"only OK should enqueue: {calls}"
-    assert calls[0]["mode"] == "immediate"
+    calls = _run(data, ["OK", "DONE", "REJ", "VEX", "QUE"], tmp_path)
+    assert len(calls) == 1
+    assert calls[0]["body"]["intent_ids"] == ["OK"], f"only OK should enqueue: {calls}"

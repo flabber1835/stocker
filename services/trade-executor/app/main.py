@@ -159,6 +159,28 @@ _OPEN_STATUS_SQL = open_status_sql()
 _ALREADY_CLOSED_ALPACA_STATUS = ALREADY_CLOSED_STATUS
 _CLOSED_NOOP_STATUS = "closed"
 
+# Event signalled by /jobs/enqueue(-batch) so the single-consumer approval worker
+# drains a fresh approval immediately instead of waiting a full
+# DEFERRED_WORKER_INTERVAL_SECS tick. Created lazily (must be bound to the running
+# loop) — see _queue_kick_event(). Best-effort: a missed kick is recovered by the
+# next periodic tick, so correctness never depends on the signal landing.
+_queue_kick: Optional[asyncio.Event] = None
+
+
+def _queue_kick_event() -> asyncio.Event:
+    global _queue_kick
+    if _queue_kick is None:
+        _queue_kick = asyncio.Event()
+    return _queue_kick
+
+
+# Cap on how many approved intents one worker pass drains, so a single pass can't
+# run unbounded; the loop re-enters immediately while work remains.
+try:
+    APPROVAL_QUEUE_BATCH = max(1, int(os.getenv("APPROVAL_QUEUE_BATCH", "200")))
+except ValueError:
+    APPROVAL_QUEUE_BATCH = 200
+
 
 # ── Lifespan ─────────────────────────────────────────────────────────────────
 
@@ -559,21 +581,107 @@ async def _reap_orphaned_pending() -> None:
                        len(reaped), [str(r[0]) for r in reaped])
 
 
+# SQL for the worker's hot scan, at module scope so the integration tier runs THIS
+# exact query against the real schema (a column typo / mis-scoped predicate fails in
+# CI, not production). Selects approved-but-unprocessed intents OF THE LATEST delta
+# run that have no OPEN order yet, oldest approval first.
+_APPROVED_PENDING_SQL = (
+    "SELECT di.id, di.approval_mode "
+    "FROM delta_intents di "
+    "WHERE di.approved_at IS NOT NULL "
+    "  AND (di.approval_processed_at IS NULL "
+    "       OR di.approval_processed_at < di.approved_at) "
+    "  AND di.run_id = ("
+    "      SELECT run_id FROM delta_runs ORDER BY run_date DESC, started_at DESC LIMIT 1"
+    "  ) "
+    "  AND NOT EXISTS ("
+    "      SELECT 1 FROM alpaca_orders ao "
+    f"     WHERE ao.intent_id = di.id AND ao.status IN ({_OPEN_STATUS_SQL})"
+    "  ) "
+    "ORDER BY di.approved_at ASC "
+    "LIMIT :lim"
+)
+
+
+async def _select_approved_pending(conn, limit: int):
+    """Rows the approval worker should process this pass (see _APPROVED_PENDING_SQL)."""
+    return (await conn.execute(text(_APPROVED_PENDING_SQL), {"lim": limit})).mappings().fetchall()
+
+
+async def _process_approved_queue() -> int:
+    """Drain durable approvals (delta_intents.approved_at) — the SINGLE CONSUMER.
+
+    Approval is a fast, durable enqueue (/jobs/enqueue marks approved_at); this
+    worker is the only thing that turns an approval into an order, ONE AT A TIME, by
+    calling the unchanged per-intent orchestration (submit_order). Single consumer ⇒
+    the per-(account,trading_day) submit lock is never contended ⇒ never times out
+    (the trader-flakiness root cause). See docs/architecture.md "Design Decision:
+    approval = durable enqueue + single-consumer drain".
+
+    Scoped to the LATEST delta run so a superseded proposal is never executed; skips
+    intents that already have an OPEN order (idempotency). Each processed approval is
+    stamped approval_processed_at REGARDLESS of outcome, so a DEAD result doesn't
+    loop — a re-approval (new approved_at > processed_at) is what retries it.
+    Returns the number of approvals processed this pass."""
+    async with engine.connect() as conn:
+        rows = await _select_approved_pending(conn, APPROVAL_QUEUE_BATCH)
+
+    processed = 0
+    for r in rows:
+        intent_id = str(r["id"])
+        mode = r["approval_mode"] if r["approval_mode"] in ("immediate", "scheduled") else "immediate"
+        try:
+            resp = await submit_order(SubmitOrderRequest(intent_id=intent_id, mode=mode))
+            logger.info("Approval worker processed intent %s → %s", intent_id, resp.status)
+        except HTTPException as exc:
+            # submit_order records its own 'failed' order row before raising (e.g.
+            # risk-service unreachable); treat as processed so it doesn't loop.
+            logger.warning("Approval worker: intent %s failed (%s)", intent_id, exc.detail)
+        except Exception as exc:
+            logger.exception("Approval worker: intent %s errored: %s", intent_id, exc)
+        # Stamp processed regardless of outcome — retry is an explicit re-approval.
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    "UPDATE delta_intents SET approval_processed_at = NOW() WHERE id = :id"
+                ), {"id": intent_id})
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.exception("Approval worker: could not stamp processed for %s: %s",
+                             intent_id, exc)
+        processed += 1
+    return processed
+
+
 async def _deferred_order_worker() -> None:
-    """Background worker: runs one fill-gated drain pass every
-    DEFERRED_WORKER_INTERVAL_SECS. Stateless across restarts (state lives in
-    alpaca_orders)."""
+    """Background worker (SINGLE CONSUMER): drains durable approvals, then runs one
+    fill-gated drain pass, every DEFERRED_WORKER_INTERVAL_SECS — or immediately when
+    /jobs/enqueue kicks the queue event. Stateless across restarts (all state lives
+    in delta_intents.approved_at + alpaca_orders)."""
     await asyncio.sleep(5)
+    kick = _queue_kick_event()
     while True:
+        # Clear BEFORE processing so a kick that arrives WHILE we work is preserved
+        # for the next wait (clearing after would erase it → the new approval would
+        # wait a full interval). A spurious extra pass is a cheap no-op.
+        kick.clear()
         try:
             if engine is not None:
+                # Drain approvals first; loop the queue phase while a full batch keeps
+                # coming back so a big rotation clears in one wake rather than one-per-tick.
+                while await _process_approved_queue() >= APPROVAL_QUEUE_BATCH:
+                    pass
                 await _drain_pass()
                 await _reap_orphaned_pending()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             logger.exception("Deferred order worker error: %s", exc)
-        await asyncio.sleep(DEFERRED_WORKER_INTERVAL_SECS)
+        # Wake on the next enqueue kick OR after the periodic interval (whichever
+        # first). The timeout keeps the fill-gated drain ticking with no new approvals.
+        try:
+            await asyncio.wait_for(kick.wait(), timeout=DEFERRED_WORKER_INTERVAL_SECS)
+        except asyncio.TimeoutError:
+            pass
 
 
 @asynccontextmanager
@@ -1937,6 +2045,90 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
                 {"tid": trace_id, "now": datetime.now(timezone.utc)},
             )
         raise HTTPException(status_code=500, detail=f"Trade approval failed: {exc}")
+
+
+# ── Durable approval enqueue (the dashboard/api fast path) ────────────────────
+# Approval is a fast, durable marker on delta_intents drained by the single-consumer
+# worker (_process_approved_queue) — NOT a synchronous size→risk→submit on the
+# request path. This is the trader-flakiness root-cause fix: no lock contention, no
+# HTTP-timeout cascade, refresh-durable. See docs/architecture.md "Design Decision:
+# approval = durable enqueue + single-consumer drain".
+
+
+class EnqueueRequest(BaseModel):
+    intent_id: str
+    mode: Literal["immediate", "scheduled"]
+
+
+class EnqueueBatchRequest(BaseModel):
+    intent_ids: list[str]
+    mode: Literal["immediate", "scheduled"]
+
+
+class EnqueueResult(BaseModel):
+    intent_id: str
+    status: str                 # 'queued' | 'duplicate' | 'not_found' | 'invalid'
+    reason: Optional[str] = None
+
+
+class EnqueueBatchResponse(BaseModel):
+    results: list[EnqueueResult]
+    queued: int
+
+
+async def _enqueue_one(conn, intent_id: str, mode: str) -> EnqueueResult:
+    """Mark a single intent approved (idempotent). Caller owns the txn so a batch is
+    atomic. Does NOT size/risk/submit — the worker does, one at a time."""
+    try:
+        uuid.UUID(intent_id)
+    except (ValueError, AttributeError):
+        return EnqueueResult(intent_id=intent_id, status="invalid",
+                             reason="intent_id must be a UUID")
+    # Idempotency: a pre-existing OPEN order means this intent is already in flight.
+    existing = (await conn.execute(text(
+        "SELECT status FROM alpaca_orders "
+        f"WHERE intent_id = :iid AND status IN ({_OPEN_STATUS_SQL}) LIMIT 1"
+    ), {"iid": intent_id})).mappings().first()
+    if existing:
+        return EnqueueResult(intent_id=intent_id, status="duplicate",
+                             reason=f"intent already has an open order ({existing['status']})")
+    # Mark approved. approval_processed_at reset to NULL so the worker (re)processes
+    # exactly once; re-approving a dead attempt is a legitimate retry.
+    updated = (await conn.execute(text(
+        "UPDATE delta_intents SET approved_at = NOW(), approval_mode = :mode, "
+        "approval_processed_at = NULL WHERE id = :iid RETURNING id"
+    ), {"iid": intent_id, "mode": mode})).first()
+    if updated is None:
+        return EnqueueResult(intent_id=intent_id, status="not_found",
+                             reason="no such delta_intent")
+    return EnqueueResult(intent_id=intent_id, status="queued")
+
+
+@app.post("/jobs/enqueue", response_model=EnqueueResult)
+async def enqueue_order(req: EnqueueRequest) -> EnqueueResult:
+    """Durably approve ONE intent and wake the worker. Returns in milliseconds."""
+    async with engine.begin() as conn:
+        result = await _enqueue_one(conn, req.intent_id, req.mode)
+    if result.status == "queued":
+        _queue_kick_event().set()
+    return result
+
+
+@app.post("/jobs/enqueue-batch", response_model=EnqueueBatchResponse)
+async def enqueue_orders(req: EnqueueBatchRequest) -> EnqueueBatchResponse:
+    """Durably approve a SET of intents atomically and wake the worker ONCE.
+
+    Refresh-durable: the whole selection is persisted before any risk/broker work, so
+    a browser refresh mid-batch can't strand the tail (the old client-side
+    Promise.all / for-await failure mode)."""
+    results: list[EnqueueResult] = []
+    async with engine.begin() as conn:
+        for iid in req.intent_ids:
+            results.append(await _enqueue_one(conn, iid, req.mode))
+    queued = sum(1 for r in results if r.status == "queued")
+    if queued:
+        _queue_kick_event().set()
+    return EnqueueBatchResponse(results=results, queued=queued)
 
 
 async def _record_order(

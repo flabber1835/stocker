@@ -7,7 +7,7 @@ import traceback
 import uuid
 from contextlib import asynccontextmanager
 from datetime import date
-from typing import Literal
+from typing import Literal, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -1647,7 +1647,7 @@ async def get_delta_latest():
             intent_rows = (await conn.execute(text(
                 "SELECT di.id, di.ticker, di.action, di.rank, di.composite_score, "
                 "di.confirmation_days_met, di.current_weight, di.actual_weight, "
-                "di.weight_drift, di.reason, di.rejected_at, "
+                "di.weight_drift, di.reason, di.rejected_at, di.approved_at, "
                 "ao.status AS order_status, ao.error_message AS order_error_message, "
                 "ao.deferred_until AS order_deferred_until "
                 "FROM delta_intents di "
@@ -1739,6 +1739,7 @@ async def get_delta_latest():
                     "order_error_message":   r["order_error_message"],
                     "order_deferred_until":  _iso(r["order_deferred_until"]) if r["order_deferred_until"] else None,
                     "rejected_at":           _iso(r["rejected_at"]) if r["rejected_at"] else None,
+                    "approved_at":           _iso(r["approved_at"]) if r["approved_at"] else None,
                     "vetter_excluded":       vetter_by_ticker.get(r["ticker"], {}).get("exclude"),
                     "vetter_confidence":     vetter_by_ticker.get(r["ticker"], {}).get("confidence"),
                     "vetter_risk_type":      vetter_by_ticker.get(r["ticker"], {}).get("risk_type"),
@@ -1845,8 +1846,51 @@ class TradeApproveRequest(BaseModel):
     mode: Literal["immediate", "scheduled"]
 
 
+class TradeApproveBatchRequest(BaseModel):
+    intent_ids: list[str]
+    mode: Literal["immediate", "scheduled"]
+
+
+async def _approval_ineligibility(conn, intent_id: str) -> Optional[tuple[int, str]]:
+    """Return (http_status, detail) if the intent may NOT be approved, else None.
+
+    Two gates, shared by the single- and batch-approve paths:
+      - an OPEN order already exists (idempotency). A DEAD attempt
+        (risk_rejected/failed/expired/canceled) placed no live order, so it does NOT
+        block — the operator retries once the cause is fixed (see docs).
+      - the ticker was excluded by the latest successful vetter run AND this is a
+        buy-side action (entry/buy_add). Exits/sells are never blocked — closing a
+        position must always be allowed."""
+    existing = (await conn.execute(text(
+        "SELECT status FROM alpaca_orders "
+        f"WHERE intent_id = :iid AND status IN ({open_status_sql()}) LIMIT 1"
+    ), {"iid": intent_id})).mappings().first()
+    if existing:
+        return (409, f"Intent {intent_id} already has an open order ({existing['status']})")
+
+    excluded = (await conn.execute(text(
+        "SELECT di.ticker, ve.reason "
+        "FROM delta_intents di "
+        "JOIN vetter_exclusions ve ON ve.ticker = di.ticker "
+        "JOIN vetter_runs vr ON vr.run_id = ve.run_id "
+        "WHERE di.id = :iid "
+        "  AND di.action IN ('entry', 'buy_add') "
+        "  AND vr.status = 'success' "
+        "  AND vr.started_at = ("
+        "    SELECT MAX(started_at) FROM vetter_runs WHERE status='success'"
+        "  ) "
+        "LIMIT 1"
+    ), {"iid": intent_id})).mappings().first()
+    if excluded:
+        return (409, f"{excluded['ticker']} excluded by LLM vetter: {excluded['reason'] or 'no reason'}")
+    return None
+
+
 @app.post("/trade/approve")
 async def approve_trade(req: TradeApproveRequest):
+    """Durably enqueue ONE approval (fast). The trade-executor's single-consumer
+    worker sizes/risk-checks/submits it off the request path — so this returns in
+    milliseconds and no HTTP-timeout cascade can strand it."""
     try:
         uuid.UUID(req.intent_id)
     except (ValueError, AttributeError):
@@ -1854,50 +1898,13 @@ async def approve_trade(req: TradeApproveRequest):
 
     try:
         async with engine.connect() as conn:
-            # Block re-approval only when a genuinely OPEN order exists. A DEAD
-            # attempt (risk_rejected / failed / expired / canceled) placed no live
-            # broker order, so it must NOT 409 the retry — otherwise a transient or
-            # bug-induced rejection (e.g. the risk-service exit bug) permanently
-            # wedges the intent. The trade-executor's own idempotency guard
-            # (OPEN_ORDER_STATUSES) likewise excludes the dead statuses.
-            existing = (await conn.execute(text(
-                "SELECT id, status FROM alpaca_orders "
-                f"WHERE intent_id = :iid AND status IN ({open_status_sql()}) "
-                "LIMIT 1"
-            ), {"iid": req.intent_id})).mappings().first()
-            if existing:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Intent {req.intent_id} already has an open order ({existing['status']})",
-                )
+            bad = await _approval_ineligibility(conn, req.intent_id)
+        if bad:
+            raise HTTPException(status_code=bad[0], detail=bad[1])
 
-            # Vetter exclusion gate — for entry/buy_add actions, refuse if the
-            # ticker was excluded by the most recent successful vetter run.
-            # delta_intents is created by the pipeline before the vetter speaks,
-            # so an excluded ticker can still appear with action='entry'.
-            # Exits/sells are never blocked — closing a position must always be allowed.
-            excluded = (await conn.execute(text(
-                "SELECT di.ticker, ve.reason "
-                "FROM delta_intents di "
-                "JOIN vetter_exclusions ve ON ve.ticker = di.ticker "
-                "JOIN vetter_runs vr ON vr.run_id = ve.run_id "
-                "WHERE di.id = :iid "
-                "  AND di.action IN ('entry', 'buy_add') "
-                "  AND vr.status = 'success' "
-                "  AND vr.started_at = ("
-                "    SELECT MAX(started_at) FROM vetter_runs WHERE status='success'"
-                "  ) "
-                "LIMIT 1"
-            ), {"iid": req.intent_id})).mappings().first()
-            if excluded:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"{excluded['ticker']} excluded by LLM vetter: {excluded['reason'] or 'no reason'}",
-                )
-
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             r = await client.post(
-                f"{TRADE_EXECUTOR_URL}/jobs/submit",
+                f"{TRADE_EXECUTOR_URL}/jobs/enqueue",
                 json={"intent_id": req.intent_id, "mode": req.mode},
             )
         return JSONResponse(content=r.json(), status_code=r.status_code)
@@ -1907,6 +1914,49 @@ async def approve_trade(req: TradeApproveRequest):
     except Exception:
         print(f"[api] approve_trade error: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Trade approval failed")
+
+
+@app.post("/trade/approve-batch")
+async def approve_trade_batch(req: TradeApproveBatchRequest):
+    """Durably enqueue a SET of approvals in one call (the dashboard "Approve
+    Selected" path). Per-intent eligibility is checked here; only eligible intents
+    are forwarded to the executor's atomic enqueue-batch. Refresh-durable: the whole
+    selection is persisted server-side, so a browser refresh can't strand the tail."""
+    results: list[dict] = []
+    eligible: list[str] = []
+    try:
+        async with engine.connect() as conn:
+            for iid in req.intent_ids:
+                try:
+                    uuid.UUID(iid)
+                except (ValueError, AttributeError):
+                    results.append({"intent_id": iid, "status": "invalid",
+                                    "reason": "intent_id must be a UUID"})
+                    continue
+                bad = await _approval_ineligibility(conn, iid)
+                if bad:
+                    results.append({"intent_id": iid, "status": "rejected",
+                                    "reason": bad[1]})
+                else:
+                    eligible.append(iid)
+
+        enqueued: list[dict] = []
+        if eligible:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                r = await client.post(
+                    f"{TRADE_EXECUTOR_URL}/jobs/enqueue-batch",
+                    json={"intent_ids": eligible, "mode": req.mode},
+                )
+            enqueued = (r.json() or {}).get("results", [])
+        results.extend(enqueued)
+        return {"results": results,
+                "queued": sum(1 for x in results if x.get("status") == "queued")}
+
+    except HTTPException:
+        raise
+    except Exception:
+        print(f"[api] approve_trade_batch error: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Batch trade approval failed")
 
 
 class TradeRejectRequest(BaseModel):

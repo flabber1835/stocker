@@ -370,8 +370,30 @@ The ONLY service permitted to submit Alpaca orders. Owns the full approval
 lifecycle: loads the intent, sizes the order, calls risk-service, records the
 audit row, and submits to Alpaca.
 
-**Endpoint:**
-- `POST /jobs/submit {intent_id, mode}` → `TradeAttemptResponse`
+**Approval is a durable enqueue drained by a single-consumer worker** (trader
+flakiness root-cause fix — see docs/architecture.md "Design Decision: approval =
+durable enqueue + single-consumer drain"). The dashboard/api no longer call
+`/jobs/submit` synchronously per click; they mark the intent approved and a
+background worker is the SOLE consumer that runs the per-intent orchestration below,
+one at a time. This removes the per-(account,trading_day) submit-lock contention and
+the HTTP-timeout cascade that made large rotations fail.
+
+**Endpoints:**
+- `POST /jobs/enqueue {intent_id, mode}` → `EnqueueResult` — durably mark ONE intent
+  approved (sets `delta_intents.approved_at`), kick the worker; returns in ms.
+  Idempotent: a pre-existing OPEN order → `duplicate`.
+- `POST /jobs/enqueue-batch {intent_ids, mode}` → `EnqueueBatchResponse` — the same,
+  for a whole selection, atomically (the dashboard "Approve Selected" path;
+  refresh-durable).
+- `POST /jobs/submit {intent_id, mode}` → `TradeAttemptResponse` — the synchronous
+  per-intent orchestration below. Still the unit of work the worker invokes; kept
+  for direct/manual/test use. The submit lock is retained here as a backstop but,
+  with a single consumer, is never contended.
+
+The background worker scans `delta_intents` for approved-but-unprocessed intents OF
+THE LATEST delta run with no open order, processes each via `/jobs/submit` logic, and
+stamps `approval_processed_at` (so a DEAD outcome doesn't loop — a re-approval
+retries). It wakes on an enqueue kick or every `DEFERRED_WORKER_INTERVAL_SECS`.
 
 **Steps (each one writes an `execution_steps` row tied to a single trace):**
 1. `idempotency_check` — refuse if `alpaca_orders` already has a row for this
@@ -600,10 +622,11 @@ tickers first so the query stays fast on a Russell-3000-scale table (an unscoped
 version timed out behind the dashboard's 10s proxy and silently fell back to
 filtering only the loaded top-100).
 
-`/trade/approve` is a thin proxy: it validates the intent_id UUID, runs an
-early idempotency check against `alpaca_orders`, then POSTs `{intent_id, mode}`
-to `trade-executor /jobs/submit`. All sizing, risk-checking, audit logging, and
-Alpaca submission live in `trade-executor`.
+`/trade/approve` and `/trade/approve-batch` validate each intent_id (UUID), run the
+eligibility checks (open-order idempotency 409, latest-vetter buy-side exclusion
+409), then POST the eligible set to `trade-executor /jobs/enqueue[-batch]` — a fast,
+durable mark, NOT the synchronous submit. The executor's single-consumer worker does
+all sizing, risk-checking, audit logging, and Alpaca submission off the request path.
 
 ### dashboard
 

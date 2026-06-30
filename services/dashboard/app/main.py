@@ -438,6 +438,20 @@ async def proxy_trade_approve(request: Request):
         return JSONResponse(content={"error": str(exc)}, status_code=502)
 
 
+@app.post("/api/trade/approve-batch")
+async def proxy_trade_approve_batch(request: Request):
+    """Forward a whole selection to the api's durable batch enqueue. One request →
+    the entire selection is persisted server-side, so a browser refresh mid-batch
+    can't strand the tail (replaces the old client-side per-intent loop)."""
+    try:
+        body = await request.json()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(f"{API_URL}/trade/approve-batch", json=body)
+            return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=502)
+
+
 @app.post("/api/trade/reject")
 async def proxy_trade_reject(request: Request):
     try:

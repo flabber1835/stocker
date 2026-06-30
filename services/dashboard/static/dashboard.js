@@ -1214,6 +1214,11 @@ function _isApprovable(r) {
   // (see dashboard app.main _auto_approve_once) so a persistent failure can't loop;
   // only this manual UI path allows the retry.
   if (os === 'submitted' || os === 'pending' || os === 'deferred' || os === 'filled' || os === 'partial_fill') return false;
+  // Durably enqueued but the single-consumer worker hasn't produced an order row
+  // yet (the brief queued window). approved_at persists in delta_intents, so this
+  // survives a browser refresh — the intent must NOT be re-offered. Once an order
+  // row exists, the os check above (open/done) or the DEAD-retry fall-through governs.
+  if (r.approved_at && !os) return false;
   if (r.rejected_at) return false;
   if ((r.action === 'entry' || r.action === 'buy_add') && r.vetter_excluded) return false;
   return true;
@@ -1473,6 +1478,9 @@ function _buildTradeRow(r) {
     statusHtml = '<span class="tc-submitted">&#10003; ' + esc(st.msg || 'Submitted') + '</span>';
   } else if (st.status === 'queued') {
     statusHtml = '<span class="tc-queued">&#9203; ' + esc(st.msg || 'Queued') + '</span>';
+  } else if (r.approved_at && !r.order_status) {
+    // Durably enqueued (survives refresh); worker will size/risk/submit shortly.
+    statusHtml = '<span class="tc-queued">&#9203; Queued</span>';
   } else if (r.order_status === 'submitted') {
     statusHtml = '<span class="tc-submitted">&#10003; Submitted</span>';
   } else if (r.order_status === 'pending') {
@@ -1566,21 +1574,45 @@ async function approveSelected() {
   if (!toApprove.length) return;
   _selectedIntents.clear();
 
-  // Single approval rule: submit to the broker NOW if the market is open, else
-  // queue for the next open. Market-closed approvals (the usual after-close path)
-  // go to the fill-gated drain (sells first, buys one at a time within buying
-  // power); market-open approvals submit immediately. See docs/architecture.md.
-  //
-  // Submit SEQUENTIALLY, not via Promise.all. The trade-executor serializes every
-  // submit on a single per-account lock (SUBMIT_LOCK_TIMEOUT_SECS, default 30s), so
-  // firing N approvals concurrently buys nothing — they queue on that lock anyway,
-  // and on a large rotation (e.g. 15 exits + 15 entries) the tail of the batch waits
-  // past the lock timeout and fails with "submit serialization lock timed out after
-  // 30s" (and the browser drops the slowest connections → "TypeError: Load failed").
-  // Awaiting each call in turn means every request acquires the lock uncontended.
-  for (const id of toApprove) {
-    await approveTrade(id, 'immediate');
+  // Durable BATCH enqueue: ONE request persists the whole selection server-side, and
+  // the trade-executor's single-consumer worker then sizes/risk-checks/submits each
+  // intent off the request path, one at a time. This replaces the old client-side
+  // loop (Promise.all → submit-lock timeouts; for-await → a browser refresh stranded
+  // the tail). Now nothing runs in the browser: the selection survives a refresh and
+  // there is no lock to contend. See docs/architecture.md "approval = durable enqueue
+  // + single-consumer drain". Mode 'immediate' = the worker submits during market
+  // hours, else queues for the next open (the executor's clock decides).
+  toApprove.forEach(id => { _approvalState[id] = { status: 'pending' }; });
+  renderTrader();
+  try {
+    const r = await fetch('/api/trade/approve-batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ intent_ids: toApprove, mode: 'immediate' }),
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) {
+      const msg = d.error || d.detail || 'Failed';
+      toApprove.forEach(id => { _approvalState[id] = { status: 'err', msg }; });
+    } else {
+      const byId = {};
+      (d.results || []).forEach(x => { byId[x.intent_id] = x; });
+      toApprove.forEach(id => { _approvalState[id] = _enqueueState(byId[id]); });
+    }
+  } catch (e) {
+    const msg = String(e);
+    toApprove.forEach(id => { _approvalState[id] = { status: 'err', msg }; });
   }
+  renderTrader();
+}
+
+// Map an enqueue result {status, reason} to the per-row client state. The order's
+// real outcome (submitted/deferred/failed) appears later via order_status polling.
+function _enqueueState(res) {
+  if (!res) return { status: 'err', msg: 'No response' };
+  if (res.status === 'queued') return { status: 'queued', msg: 'Queued' };
+  if (res.status === 'duplicate') return { status: 'ok', msg: 'Already in flight' };
+  return { status: 'err', msg: res.reason || res.status || 'Failed' };
 }
 
 async function approveTrade(intentId, mode) {
@@ -1596,16 +1628,10 @@ async function approveTrade(intentId, mode) {
     const d = await r.json();
     if (!r.ok || d.error) {
       _approvalState[intentId] = { status: 'err', msg: d.error || d.detail || 'Failed' };
-    } else if (d.status === 'duplicate') {
-      _approvalState[intentId] = { status: 'ok', msg: 'Already submitted' };
-    } else if (!d.risk_approved) {
-      _approvalState[intentId] = { status: 'err', msg: 'Risk rejected: ' + (d.risk_reason || '') };
-    } else if (d.status === 'deferred') {
-      _approvalState[intentId] = { status: 'queued', msg: _fmtDeferred(d.deferred_until) };
-    } else if (d.status === 'failed') {
-      _approvalState[intentId] = { status: 'err', msg: _parseAlpacaError(d.reason || d.error_message || 'Order failed') };
     } else {
-      _approvalState[intentId] = { status: 'ok', msg: 'Submitted' + (d.alpaca_order_id ? ' (' + d.alpaca_order_id.substring(0, 8) + '…)' : '') };
+      // Enqueue response: {intent_id, status:'queued'|'duplicate'|...}. The worker
+      // submits off the request path; the real outcome shows via order_status polling.
+      _approvalState[intentId] = _enqueueState(d);
     }
   } catch (e) {
     _approvalState[intentId] = { status: 'err', msg: String(e) };

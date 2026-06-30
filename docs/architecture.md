@@ -608,10 +608,19 @@ a human approves it on the dashboard.
 ```text
 delta-engine → delta_intents (entry / exit / hold / watch / at_risk / buy_add / sell_trim)
   → dashboard "Trade Proposal" tab (human review)
-  → human clicks "Execute Now" (mode=immediate) or "Schedule for Open" (mode=scheduled)
-  → dashboard POST /api/trade/approve
-  → api POST /trade/approve  [thin proxy: UUID + idempotency check, then forward]
-  → trade-executor POST /jobs/submit  [the orchestrator]
+  → human clicks "Approve Selected" (mode=immediate) — or cron auto-approve after timeout
+  → dashboard POST /api/trade/approve-batch {intent_ids:[...], mode}   (one request, returns in ms)
+  → api POST /trade/approve-batch  [per-intent: UUID + open-order + vetter-exclusion checks]
+  → trade-executor POST /jobs/enqueue-batch  [marks delta_intents.approved_at; kicks worker; returns]
+  → (background) trade-executor approval worker — SINGLE CONSUMER, one intent at a time:
+    for each approved & unprocessed intent of the LATEST delta run with no open order:
+      run the existing /jobs/submit orchestration (load_intent → guards → size_order →
+      risk_check → record_order → route), then stamp approval_processed_at.
+```
+
+The per-intent orchestration (`/jobs/submit`, still the unit of work) is unchanged:
+
+```text
     1. load_intent       — read delta_intents row
     2. size_order        — entry:    floor(account_value × weight / last_price)
                           exit:     full position qty from latest live_positions
@@ -619,7 +628,7 @@ delta-engine → delta_intents (entry / exit / hold / watch / at_risk / buy_add 
                           sell_trim:floor(account_value × abs(weight_drift) / last_price)
     3. risk_check        — call risk-service POST /check
     4. record_order      — INSERT alpaca_orders (pending or risk_rejected)
-    5. submit_alpaca     — POST /v2/orders if approved + credentials present
+    5. submit_alpaca / enqueue for the fill-gated open drain (Option B)
 ```
 
 Every approval click writes one `execution_traces` row plus an `execution_steps`
@@ -637,6 +646,73 @@ All four safety env vars are re-read on every `/check` call. The KILL_SWITCH can
 be hot-flipped at runtime without restarting the container by touching or removing
 a control file: `docker exec stocker-risk-service-1 touch /tmp/kill_switch` (ON)
 / `rm /tmp/kill_switch` (OFF). The file takes precedence over the env var.
+
+### Design Decision: approval = durable enqueue + single-consumer drain (trader flakiness root-cause fix)
+
+**Problem.** Approval was modelled as N synchronous size→risk→submit RPCs. The
+dashboard fired every selected approval at once (`Promise.all`), each hitting
+`/jobs/submit`, which serialized `[risk-check → record reservation]` on a single
+per-`(account, trading_day)` Postgres advisory lock (`with_submit_lock`,
+`SUBMIT_LOCK_TIMEOUT_SECS=30`). Two structural faults made a large rotation
+(e.g. 15 exits + 15 entries) flaky:
+
+- The lock was held **across `_call_risk`** — an inter-service HTTP call that
+  itself retries (`RISK_CALL_RETRIES=3` × 10s + backoff ≈ up to ~30s). One slow
+  risk call could hold the lock for the entire 30s budget, so every other waiter
+  timed out → `"submit serialization lock timed out after 30s"` recorded `failed`.
+- **Three mis-ordered HTTP timeouts** (dashboard proxy 30s < executor lock 30s <
+  api proxy 60s): the *outermost* (browser→dashboard) was the *shortest*, so the
+  dashboard gave up first and the browser showed `TypeError: Load failed` while
+  the executor was still working — an indeterminate outcome from the UI's view.
+
+Both symptoms were the **same event** seen from two layers, and both existed only
+because there were **multiple concurrent submitters** (the browser ×N, plus the
+cron auto-approve worker). The lock was a band-aid for that concurrency.
+
+**Decision.** Approval is a **durable enqueue**, and a **single background worker
+is the sole consumer** that drains approvals sequentially through the existing
+per-intent orchestration. This matches the system's own rules — *the dashboard
+requests approval (does not execute); only the trade-executor submits; state lives
+in Postgres; services advance via non-blocking workers* — and reuses the exact
+pattern already proven by the fill-gated open drain.
+
+```text
+- The approval marker lives on delta_intents (approved_at, approval_mode,
+  approval_processed_at), NOT a new alpaca_orders status — so the risk projection,
+  turnover accounting, idempotency index, and the whole /jobs/submit test surface
+  are untouched.
+- /jobs/enqueue {intent_id, mode} and /jobs/enqueue-batch {intent_ids,mode} set
+  approved_at (idempotent: a pre-existing OPEN order → duplicate; an already-marked
+  intent → already-queued), then kick the worker. They return in milliseconds —
+  no risk/broker work on the request path, so the HTTP-timeout cascade is gone.
+- The worker (a single asyncio task) waits on an asyncio.Event with a periodic
+  timeout (DEFERRED_WORKER_INTERVAL_SECS). Each pass it processes approved &
+  unprocessed intents OF THE LATEST delta run that have no open order, ONE AT A
+  TIME, by calling the unchanged submit_order(); then stamps approval_processed_at.
+  Single consumer ⇒ the advisory lock is never contended ⇒ never times out. The
+  lock is KEPT as a cheap backstop against a stray direct /jobs/submit, but it is
+  no longer load-bearing.
+- Sequential processing is MORE consistent with the risk gate than the old
+  concurrent model: each entry becomes an alpaca_orders row before the next is
+  processed, so the MAX_POSITIONS projection (which counts entries from
+  alpaca_orders) sees prior admissions exactly as the planner intended.
+- LATEST-run guard: the worker only acts on intents whose run_id is the most recent
+  delta run, so a superseded proposal (a new chain landed) is never executed — the
+  same supersede principle the cron auto-approve already applies.
+- Refresh-durable: approval is persisted the instant the POST returns. A browser
+  refresh/close (which previously stranded the tail of a client-side `for…await`
+  batch) now changes nothing — the browser is a pure status viewer that polls
+  order_status (and approved_at) from the durable rows. /delta/latest surfaces
+  approved_at so an already-approved intent is non-approvable after a refresh.
+- Event-kick: enqueue signals the worker so an intraday "approve now" drains in
+  sub-second rather than waiting up to DEFERRED_WORKER_INTERVAL_SECS.
+```
+
+Retry semantics are preserved (see next section): `approval_processed_at` is
+stamped once per approval, so a DEAD outcome does not loop — a human (or the cron
+timer) re-approves, which sets `approved_at` afresh and lets the worker run it once
+more. The legacy synchronous `/jobs/submit` endpoint remains for direct/manual/test
+use and is the shared per-intent unit of work the worker invokes.
 
 ### Design Decision: a DEAD order never wedges its intent (retry semantics)
 
