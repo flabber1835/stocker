@@ -384,6 +384,69 @@ there is no run date).
   for run vs delta. Run exactly one pipeline replica. Cross-replica execution exclusion
   would require holding an advisory lock for the whole run — out of scope.
 
+## Design Decision: av-ingestor hardening (slow-fetch, rate limit, durable progress)
+
+Architecture delta on the data front of the chain. The "slow fetch / stuck on
+calculating / UI says READY" symptom traced to three compounding causes, plus the
+usual silent-degraded-success class at the data source.
+
+**G1 — throttle circuit-breaker.** Under an AV throttle every one of ~6,600 tickers
+retried 4× with 2/4/8s backoff (plus a second cleanup pass) → a multiplicative
+wall-clock blowup (the slow fetch). `AVError` now carries a `rate_limited` flag; the
+fetch loop counts CONSECUTIVE rate-limit errors and, past `AV_THROTTLE_CIRCUIT_BREAK`
+(default 25), ABORTS the run. Coverage then falls below the floor → the chain-advance
+gate withholds `session_date` → the scheduler retries next cycle when the budget has
+recovered. Far better than grinding the whole universe.
+
+**G3 — account-wide rate limiter.** The per-process sliding window rebuilt its budget
+every run and was blind to other AV consumers (the LISTING path bypassed it; llm-vetter
+is a second consumer), so the documented 75 rpm could be breached and a degraded day
+re-ran the full fetch without the budget recovering. A shared Redis sliding-window
+limiter (`shared/stock_strategy_shared/rate_limit.py`, atomic via a Lua script on the
+Redis server clock) is now the account-wide source of truth, wired into every `AVClient`
+and the LISTING path; it **fails open** on a Redis outage (the per-process limiter
+remains the floor) so a Redis blip can't wedge ingestion.
+
+**G2 — durable progress + watchdog.** Fetch progress was in-memory only, so a redeploy
+mid-fetch froze the dashboard bar (stuck-READY). Progress is now checkpointed to
+`ingest_runs.tickers_done/tickers_total` (migration 0036) and `/runs/latest` falls back
+to it when the live counters are gone. And the scheduler's fetch-data step gains
+`max_running_minutes=240` — a HUNG (not crashed) fetch is now coerced to failed and
+re-triggered, where before it reported `running` forever and the 6h ingestor reclaim
+never fired (the scheduler won't re-POST a `running` step).
+
+**G4 — degraded as first-class status.** A withheld chain-advance was signalled only by
+a NULL `session_date` while the row still read `success`. `ingest_runs.degraded`
+(migration 0036) is now set whenever the gate withholds (low coverage / SPY didn't
+advance / throttle abort), surfaced on `/runs/latest`.
+
+**G8 — gap-force-full.** A `compact` fetch returns ~100 trading days; a ticker dormant
+longer (e.g. a probation-readmitted name) would get a permanent hole. The loop now
+forces a `full` fetch when the last DB bar is older than `AV_COMPACT_MAX_GAP_DAYS`
+(default 130).
+
+**G6 — LISTING resilience.** The universe fetch (the single most important AV call) was
+a bare GET with no retry; a transient blip failed the whole `fetch-universe`. It now
+retries transient failures (5xx/transport/in-band throttle) with the same exponential
+backoff as the per-ticker client; a non-rate-limit key/plan body stays terminal.
+
+**Documented contracts (deliberately not code changes):**
+- **G5 — throughput.** The per-ticker loop is serial, but at 75 rpm the fetch is
+  *rate-bound, not latency-bound*, so concurrency would only parallelize waiting — it
+  doesn't speed a rate-limited fetch. The real levers are the circuit-breaker (G1) and
+  warm-run skip-if-current (already present); resume is implicit (a re-trigger skips
+  already-current tickers). No concurrency added by design.
+- **G6 (raw payload) / news / macro.** Raw-payload persistence and AV NEWS_SENTIMENT /
+  macro endpoints remain unbuilt; news is sourced via Tavily in llm-vetter. See
+  docs/data-sources.md — the docs are reconciled to match the code rather than the code
+  rushed to match the docs.
+- **G7 — point-in-time fundamentals / survivorship.** `fundamentals.as_of_date` is the
+  fetch date (overwrite-latest), and the universe keeps no delisting record — a known
+  backtest-validity limitation (live trading uses latest data, so it's not a live-risk).
+  Changing `as_of` to the fiscal period is a data-model change with factor-read
+  implications and is deferred deliberately. `earnings` + `analyst_snapshots` ARE
+  point-in-time.
+
 ## Strategy Flow
 
 ```text

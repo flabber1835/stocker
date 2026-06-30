@@ -14,10 +14,15 @@ AV_BASE_URL = os.getenv("AV_BASE_URL", "https://www.alphavantage.co/query")
 class AVError(Exception):
     """Alpha Vantage failure. `retryable` distinguishes transient faults (network /
     timeout / 5xx / in-band rate-limit) from permanent ones (bad symbol, invalid key,
-    no data) so the client can back off and retry only the former (audit P1)."""
-    def __init__(self, message: str, *, retryable: bool = False):
+    no data) so the client can back off and retry only the former (audit P1).
+    `rate_limited` is True specifically for an in-band AV throttle (Note / rate-limit
+    Information) — the fetch loop uses it to trip a circuit-breaker (G1): once AV is
+    clearly throttling, retrying every one of ~6,600 tickers just multiplies wall-clock
+    (the slow-fetch symptom), so the run fails fast and the scheduler retries later."""
+    def __init__(self, message: str, *, retryable: bool = False, rate_limited: bool = False):
         super().__init__(message)
         self.retryable = retryable
+        self.rate_limited = rate_limited
 
 
 # AV signals rate-limit IN-BAND (HTTP 200 + a JSON "Note"/"Information" body), not via
@@ -35,10 +40,17 @@ def _is_rate_limit_msg(msg: str) -> bool:
 
 
 class AVClient:
-    def __init__(self, api_key: str, rate_limit_rpm: int = 75, mock_mode: bool = False):
+    def __init__(self, api_key: str, rate_limit_rpm: int = 75, mock_mode: bool = False,
+                 limiter=None):
         self.api_key = api_key
         self.rate_limit_rpm = rate_limit_rpm
         self.mock_mode = mock_mode
+        # G3: optional SHARED (Redis) rate limiter. When provided, it is the
+        # account-wide source of truth for the 75 rpm budget — shared across runs,
+        # restarts, and every AV consumer (this client, the LISTING path, llm-vetter) —
+        # so two consumers can't jointly breach the cap and the budget survives a
+        # restart. When None, fall back to the per-process sliding window below.
+        self._limiter = limiter
         self._sleep_interval = 60.0 / rate_limit_rpm
         self._last_call_time: float = 0.0
         self._call_times: deque[float] = deque()  # monotonic stamps in the trailing 60s
@@ -59,6 +71,13 @@ class AVClient:
         past the per-minute budget on resume. This enforces BOTH a hard cap of
         rate_limit_rpm calls per trailing 60s AND the ~0.8s smoothing gap, so neither a
         post-idle burst nor an instant rate_limit_rpm-call spike can occur."""
+        # G3: when a shared limiter is wired, IT enforces the account-wide budget across
+        # processes; defer to it (the per-process window below would double-count). The
+        # local min-gap smoothing still applies as a cheap jitter guard.
+        if self._limiter is not None:
+            await self._limiter.acquire()
+            self._last_call_time = time.monotonic()
+            return
         window = 60.0
         now = time.monotonic()
         # Sliding-window cap: drop calls older than the window; if we're at the cap,
@@ -85,9 +104,9 @@ class AVClient:
         note = data.get("Note")
         info = data.get("Information")
         if note:
-            raise AVError(f"AV rate limit (Note): {note}", retryable=True)
+            raise AVError(f"AV rate limit (Note): {note}", retryable=True, rate_limited=True)
         if info and _is_rate_limit_msg(info):
-            raise AVError(f"AV rate limit (Information): {info}", retryable=True)
+            raise AVError(f"AV rate limit (Information): {info}", retryable=True, rate_limited=True)
         if info:
             raise AVError(f"AV API key/plan issue: {info}", retryable=False)
         if data.get("Error Message"):

@@ -112,17 +112,48 @@ async def download_av_listing(session: httpx.AsyncClient, api_key: str) -> tuple
     counts for each filter stage so callers can log what was dropped and why.
     """
     url = _AV_LISTING_URL.format(api_key=api_key)
-    response = await session.get(url, follow_redirects=True, timeout=30.0)
-    response.raise_for_status()
 
-    # AV signals throttle/error IN-BAND as a JSON body (HTTP 200), not CSV (audit P2).
-    # Detect it before pd.read_csv parses the throttle text into garbage columns (which
-    # would silently yield ~0 rows and a confusing "universe shrank" failure).
-    _head = response.text.lstrip()[:500]
-    if _head.startswith("{") or '"Information"' in _head or '"Note"' in _head:
-        raise ValueError(
-            f"AV LISTING_STATUS returned a non-CSV body (likely rate-limit/error): {_head[:200]}"
-        )
+    # G6: the LISTING fetch is the single most important AV call (the whole universe),
+    # but it used to be a bare GET with no retry — a transient 5xx/timeout/throttle
+    # failed the entire fetch-universe run. Retry transient failures (5xx, transport,
+    # in-band rate-limit body) with exponential backoff, matching the per-ticker
+    # client's resilience. A non-CSV body that is NOT rate-limit-ish (key/plan error)
+    # is terminal and not retried.
+    import asyncio as _asyncio
+    _max_retries = int(os.getenv("AV_MAX_RETRIES", "3"))
+    _backoff_base = float(os.getenv("AV_BACKOFF_BASE_SECS", "2.0"))
+    _backoff_max = float(os.getenv("AV_BACKOFF_MAX_SECS", "30.0"))
+    response = None
+    last_err: Exception | None = None
+    for _attempt in range(_max_retries + 1):
+        try:
+            response = await session.get(url, follow_redirects=True, timeout=30.0)
+            response.raise_for_status()
+            _head = response.text.lstrip()[:500]
+            # AV signals throttle/error IN-BAND as a JSON body (HTTP 200), not CSV.
+            if _head.startswith("{") or '"Information"' in _head or '"Note"' in _head:
+                _rl = ("note" in _head.lower() or "rate" in _head.lower()
+                       or "call frequency" in _head.lower() or "thank you" in _head.lower()
+                       or "premium" in _head.lower())
+                err = ValueError(
+                    f"AV LISTING_STATUS returned a non-CSV body "
+                    f"({'rate-limit' if _rl else 'key/plan error'}): {_head[:200]}"
+                )
+                if not _rl:
+                    raise err          # terminal — retrying won't help
+                last_err = err         # transient throttle — retry
+            else:
+                break                  # got CSV
+        except (httpx.TimeoutException, httpx.TransportError) as e:
+            last_err = e
+        except httpx.HTTPStatusError as e:
+            code = e.response.status_code if e.response is not None else 0
+            if code < 500:
+                raise              # 4xx — terminal
+            last_err = e
+        if _attempt >= _max_retries:
+            raise last_err if last_err else ValueError("AV LISTING_STATUS failed")
+        await _asyncio.sleep(min(_backoff_base * (2 ** _attempt), _backoff_max))
 
     df = pd.read_csv(io.StringIO(response.text), dtype=str, keep_default_na=False)
     df.columns = [c.strip() for c in df.columns]

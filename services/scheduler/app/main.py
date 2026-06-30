@@ -233,6 +233,13 @@ _STEPS: list[_StepDef] = [
     # session_date matches the session, even though its started_at date does not).
     _StepDef("fetch-data", AV_INGESTOR_URL, "/jobs/fetch-data", "session_date",
              job_type="fetch-data", extra_ok=("partial_success",),
+             # G2 watchdog: a HUNG (not crashed) fetch reports 'running' forever and the
+             # ingestor's STALE_INGEST_HOURS reclaim only fires on the NEXT POST (which
+             # the scheduler won't send while it sees 'running'). Without a timeout here
+             # a stall wedges the chain invisibly. 240m comfortably covers a legit cold
+             # full rebuild (~3h) while letting a true hang self-heal (coerced failed →
+             # re-triggered). vet=90 / delta=30 set the same guard.
+             max_running_minutes=240,
              date_anchor=DateAnchor.SESSION),
     # run_date = score_date = MAX SPY date (the data session the pipeline scored).
     # Anchored on SESSION (the latest closed session), NOT wall-clock chain_date.

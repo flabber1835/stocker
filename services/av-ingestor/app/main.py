@@ -19,6 +19,7 @@ from .universe import download_av_universe, get_benchmark_tickers, save_universe
 from stock_strategy_shared.db import wait_for_db
 from stock_strategy_shared.tracing import RESTART_ABORT_MARKER, mark_orphaned_runs_failed
 from stock_strategy_shared.corporate_actions import apply_corporate_actions
+from stock_strategy_shared.rate_limit import make_av_limiter, AV_RATE_LIMIT_KEY
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 if not DATABASE_URL:
@@ -31,6 +32,33 @@ if AV_API_KEY in ("", "demo"):
     print("[av-ingestor] WARNING: AV_API_KEY is 'demo' — using Alpha Vantage demo key, data will be very limited")
 AV_RATE_LIMIT_RPM = int(os.getenv("AV_RATE_LIMIT_RPM", "75"))
 MOCK_DATA = os.getenv("MOCK_DATA", "false").lower() == "true"
+
+# G1: throttle circuit-breaker. After this many CONSECUTIVE rate-limit errors, abort
+# the fetch fast instead of grinding through ~6,600 tickers each retrying 4× (the
+# slow-fetch symptom). Coverage then falls below the floor → the chain-advance gate
+# withholds session_date → the scheduler retries later when the budget has recovered.
+AV_THROTTLE_CIRCUIT_BREAK = int(os.getenv("AV_THROTTLE_CIRCUIT_BREAK", "25"))
+# G8: a `compact` fetch only returns ~100 trading days. A ticker dormant longer than
+# this (calendar days) would get a permanent hole between its last DB bar and the
+# compact window, so force a `full` fetch instead.
+AV_COMPACT_MAX_GAP_DAYS = int(os.getenv("AV_COMPACT_MAX_GAP_DAYS", "130"))
+
+# G3: account-wide AV rate limiter (Redis sliding window) shared by every AVClient and
+# the LISTING path, so the 75 rpm budget is enforced across runs/restarts/consumers.
+# Built once, lazily; None when REDIS_URL is unset (clients fall back to per-process).
+_av_limiter_singleton = None
+_av_limiter_built = False
+
+
+def _av_limiter():
+    global _av_limiter_singleton, _av_limiter_built
+    if not _av_limiter_built:
+        _av_limiter_singleton = (
+            None if MOCK_DATA
+            else make_av_limiter(REDIS_URL, AV_RATE_LIMIT_RPM, key=AV_RATE_LIMIT_KEY)
+        )
+        _av_limiter_built = True
+    return _av_limiter_singleton
 # When true, the fundamentals path also fetches AV BALANCE_SHEET for total_assets
 # (the gross-profitability denominator). This ~doubles AV calls on the
 # fundamentals refresh; turn off to save rate-limit budget if the gross-profit
@@ -548,6 +576,7 @@ async def _finish_run(
     price_coverage_pct: Optional[float] = None,
     fundamental_coverage_pct: Optional[float] = None,
     session_date: Optional[date] = None,
+    degraded: bool = False,
 ) -> None:
     async with engine.begin() as conn:
         await conn.execute(
@@ -556,7 +585,7 @@ async def _finish_run(
                 "ticker_count=:tc, price_rows=:pr, fund_rows=:fr, "
                 "error_count=:ec, error_message=:err, "
                 "price_coverage_pct=:pcp, fundamental_coverage_pct=:fcp, "
-                "session_date=:sd "
+                "session_date=:sd, degraded=:deg "
                 "WHERE run_id=:rid"
             ),
             {
@@ -566,6 +595,7 @@ async def _finish_run(
                 "pcp": round(price_coverage_pct, 4) if price_coverage_pct is not None else None,
                 "fcp": round(fundamental_coverage_pct, 4) if fundamental_coverage_pct is not None else None,
                 "sd": session_date,
+                "deg": bool(degraded),
                 "rid": run_id,
             },
         )
@@ -609,6 +639,22 @@ async def _write_trace_file(
 
 async def _checkpoint(run_id: str, job_type: str, started_at: datetime, **progress) -> None:
     await _write_trace_file(run_id, job_type, "running", started_at, **progress)
+    # G2 durable progress: persist tickers_done/total to ingest_runs so /runs/latest
+    # (and the dashboard) keep a real percentage even after the in-memory
+    # _fetch_data_progress is lost to a restart mid-fetch. Best-effort — a progress
+    # write must never fail the fetch.
+    done = progress.get("tickers_done")
+    total = progress.get("total_tickers")
+    if job_type == "fetch-data" and done is not None and total is not None:
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text("UPDATE ingest_runs SET tickers_done=:d, tickers_total=:t "
+                         "WHERE run_id=:rid"),
+                    {"d": int(done), "t": int(total), "rid": run_id},
+                )
+        except Exception as exc:  # noqa: BLE001
+            print(f"[fetch-data] progress persist skipped: {exc}", flush=True)
 
 
 # ── Redis Streams publishing ─────────────────────────────────────────────────
@@ -790,7 +836,8 @@ async def get_latest_run():
         row = await conn.execute(
             text(
                 "SELECT run_id, job_type, status, ticker_count, price_rows, fund_rows, "
-                "       error_count, error_message, session_date, started_at, completed_at "
+                "       error_count, error_message, session_date, started_at, completed_at, "
+                "       tickers_done, tickers_total, degraded "
                 "FROM ingest_runs ORDER BY started_at DESC LIMIT 1"
             )
         )
@@ -802,6 +849,7 @@ async def get_latest_run():
         "run_id": run_id,
         "job_type": result["job_type"],
         "status": result["status"],
+        "degraded": bool(result["degraded"]),
         "error_message": result["error_message"],
         # The trading session this fetch advanced to (MAX SPY date). The scheduler
         # compares this against the target session to decide if fetch-data is done.
@@ -809,10 +857,15 @@ async def get_latest_run():
         "started_at": result["started_at"].isoformat() if result["started_at"] else None,
         "completed_at": result["completed_at"].isoformat() if result["completed_at"] else None,
     }
-    # Attach live progress if this is the currently running fetch-data job.
+    # Progress: prefer LIVE in-memory counters for the running job; otherwise fall back
+    # to the DURABLE checkpoint in ingest_runs (G2) so a fetch interrupted by a restart
+    # still reports a real percentage instead of a blank/stuck bar.
     if _fetch_data_progress.get("run_id") == run_id:
         resp["tickers_done"] = _fetch_data_progress["tickers_done"]
         resp["total_tickers"] = _fetch_data_progress["total_tickers"]
+    elif result["tickers_done"] is not None:
+        resp["tickers_done"] = result["tickers_done"]
+        resp["total_tickers"] = result["tickers_total"]
     return resp
 
 
@@ -1130,7 +1183,9 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
     # gives the true current trading date for universe-ticker skip evaluation.
     _spy_max_reloaded = False
     _spy_fetch_failed = False  # BUG 8: if SPY fails, invalidate spy_max after reload
-    client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA)
+    consecutive_rate_limited = 0   # G1 circuit-breaker counter
+    throttled_abort = False
+    client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA, limiter=_av_limiter())
     try:
         for i, ticker in enumerate(price_tickers):
             if not _TICKER_RE.match(ticker):
@@ -1160,8 +1215,14 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                 # avg_dv will be read from DB if this ticker needs a fundamentals update
             else:
                 try:
-                    # Use compact (last 100 days) if we already have a price history; full otherwise.
-                    use_compact = ticker_latest.get(ticker) is not None
+                    # Use compact (last 100 days) if we already have a RECENT price
+                    # history; full otherwise. G8: if the last DB bar is older than the
+                    # compact window can reach (e.g. a probation-readmitted dormant
+                    # ticker), force `full` so we don't leave a permanent gap.
+                    _latest = ticker_latest.get(ticker)
+                    use_compact = _latest is not None
+                    if use_compact and spy_max is not None and (spy_max - _latest).days > AV_COMPACT_MAX_GAP_DAYS:
+                        use_compact = False
                     rows = await client.get_daily_prices(ticker, compact=use_compact)
                     if rows:
                         # Filter to only rows newer than what's already in the DB.
@@ -1195,6 +1256,8 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                         print(f"[fetch-data] {ticker} prices: {len(new_rows)}/{len(rows)} new rows [{mode}] {label}")
                     else:
                         print(f"[fetch-data] {ticker} prices: no data {label}")
+                    consecutive_rate_limited = 0   # G1: a reachable AV call clears the streak
+
                     # Record the consultation regardless of whether AV returned
                     # data — used by fetch-universe to pick oldest-consulted
                     # tickers for probation re-probing.
@@ -1211,11 +1274,29 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                     if is_benchmark and ticker == "SPY":
                         _spy_fetch_failed = True
                     print(f"[fetch-data] {ticker} prices: error - {e}")
+                    # G1 circuit-breaker: count CONSECUTIVE rate-limit errors; a
+                    # non-throttle error resets the streak (it's not AV throttling).
+                    if getattr(e, "rate_limited", False):
+                        consecutive_rate_limited += 1
+                    else:
+                        consecutive_rate_limited = 0
                     if not is_benchmark:
                         try:
                             await _mark_consulted(ticker, today)
                         except Exception as fs_exc:
                             print(f"[fetch-data] {ticker} fetch_state update failed: {fs_exc}")
+
+            # G1: AV is clearly throttling — stop grinding the whole universe (each
+            # ticker would retry 4× with backoff = the slow-fetch symptom). Abort fast;
+            # low coverage → the chain-advance gate withholds session_date → the
+            # scheduler retries later when the budget has recovered.
+            if consecutive_rate_limited >= AV_THROTTLE_CIRCUIT_BREAK:
+                throttled_abort = True
+                print(f"[fetch-data] THROTTLE CIRCUIT-BREAKER tripped after "
+                      f"{consecutive_rate_limited} consecutive rate-limit errors at "
+                      f"{i+1}/{len(price_tickers)} — aborting fetch (will retry next cycle)",
+                      flush=True)
+                break
 
             if ticker in fundamental_set:
                 # Investable tickers: 7-day window (AV OVERVIEW is quarterly, weekly is plenty).
@@ -1314,7 +1395,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
         # shouldn't sit in the error list for a flake. A persistent failure
         # (delisted/odd ticker) errors again and stays counted. Bounded to the
         # handful that failed, and the client throttles internally.
-        if price_error_tickers:
+        if price_error_tickers and not throttled_abort:
             retry_list = list(price_error_tickers)
             print(f"[fetch-data] cleanup: retrying {len(retry_list)} price errors once")
             recovered: list[str] = []
@@ -1363,6 +1444,12 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
         # This does NOT fail the run (that would halt the chain) — it makes it retry.
         chain_ready, degraded_reason = _chain_advance_decision(
             spy_max, pcp, MIN_PRICE_COVERAGE_PCT)
+        # G1: a throttle abort must never advance the chain even if coverage somehow
+        # cleared (e.g. most tickers were skip-as-current and a late throttle tripped).
+        if throttled_abort:
+            chain_ready = False
+            degraded_reason = ((degraded_reason + "; " if degraded_reason else "")
+                               + "AV throttle circuit-breaker tripped")
         if not chain_ready:
             print(f"[fetch-data] WITHHOLDING chain advance — {degraded_reason}; "
                   "session_date not recorded, complete event suppressed (will retry).")
@@ -1374,6 +1461,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                           fund_rows=fund_ok, error_count=err_count,
                           price_coverage_pct=pcp, fundamental_coverage_pct=fcp,
                           session_date=(spy_max if chain_ready else None),
+                          degraded=(not chain_ready),
                           error_message=(f"degraded: {degraded_reason}" if degraded_reason else None))
         await _write_trace_file(run_id, "fetch-data", status, started_at,
                                 tickers_done=len(price_tickers), total_tickers=len(price_tickers),
@@ -1422,7 +1510,7 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
     error_tickers: list[str] = []
     _spy_max_reloaded = False
     _spy_fetch_failed = False  # BUG 8: if SPY fails, invalidate spy_max after reload
-    client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA)
+    client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA, limiter=_av_limiter())
     try:
         for i, ticker in enumerate(all_tickers):
             if not _TICKER_RE.match(ticker):
@@ -1524,7 +1612,7 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
 
     fund_ok = err_count = skipped = 0
     error_tickers: list[str] = []
-    client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA)
+    client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA, limiter=_av_limiter())
     try:
         for i, ticker in enumerate(investable):
             if not _TICKER_RE.match(ticker):

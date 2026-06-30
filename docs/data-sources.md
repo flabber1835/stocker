@@ -18,13 +18,18 @@ Use for:
 daily prices
 adjusted prices
 volume
-fundamentals
+fundamentals (OVERVIEW)
 company overview
-financial statements
-earnings
-news sentiment
-macro/economic data
-listing status
+earnings (point-in-time)
+listing status (universe)
+balance sheet (total assets, shares outstanding — issuance factor)
+```
+
+NOT currently ingested from AV (doc/code reconciliation — av-ingestor audit):
+```text
+news sentiment        — sourced via Tavily in llm-vetter instead, not AV NEWS_SENTIMENT
+macro/economic data   — unbuilt (no REAL_GDP/CPI/etc. calls)
+financial statements  — only BALANCE_SHEET; income statement & cash flow unbuilt
 ```
 
 Limitations:
