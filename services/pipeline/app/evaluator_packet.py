@@ -170,6 +170,22 @@ async def build_weekly_packet(engine, as_of_date: date, lookbacks=(7, 30)) -> di
     }
 
 
+async def backfill_weekly_packets(engine, latest_as_of: date, weeks: int = 8,
+                                  artifacts_path: str = "") -> int:
+    """Backfill prior weeks' packets from EXISTING history (no look-ahead — each as_of's
+    forward returns only read prices <= that as_of). Steps back one ISO week at a time
+    from `latest_as_of`; each week is idempotent (skipped if already present) and weeks
+    with no base run / insufficient forward data simply don't write. Returns the count
+    actually written. Lets you stand up real evidence immediately instead of waiting."""
+    written = 0
+    for k in range(1, weeks + 1):
+        as_of = latest_as_of - timedelta(days=7 * k)   # k weeks ago (distinct ISO weeks)
+        if await maybe_write_weekly_packet(engine, as_of, artifacts_path):
+            written += 1
+    print(f"[evaluator] backfill wrote {written} weekly packet(s) over the last {weeks} weeks")
+    return written
+
+
 async def maybe_write_weekly_packet(engine, as_of_date: date, artifacts_path: str = "") -> bool:
     """Build + persist the weekly packet ONCE per ISO week (idempotent). Returns True if
     a packet was written this call. Best-effort: logs and returns False on any failure."""
