@@ -2706,6 +2706,13 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             cold_start=cold_start,
         )
 
+    # Delta is the LAST chain step → write the consolidated per-run health record
+    # (one blob/run: evaluator input + health-audit artifact, replacing per-step
+    # trace files). Best-effort; never blocks the chain.
+    if ARTIFACTS_PATH:
+        from stock_strategy_shared.health_record import write_health_record
+        await write_health_record(engine, ARTIFACTS_PATH, run_date)
+
 
 # ── Core pipeline orchestration ───────────────────────────────────────────────
 

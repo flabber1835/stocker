@@ -582,6 +582,10 @@ async def _write_trace_file(
 ) -> None:
     if not ARTIFACTS_PATH:
         return
+    # Per-step trace files RETIRED (consolidated per-run health record supersedes
+    # them); DB rows remain. Set WRITE_STEP_TRACE_FILES=true to restore.
+    if os.getenv("WRITE_STEP_TRACE_FILES", "false").lower() not in ("1", "true", "yes", "on"):
+        return
     try:
         traces_dir = os.path.join(ARTIFACTS_PATH, "traces")
         os.makedirs(traces_dir, exist_ok=True)

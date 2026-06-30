@@ -76,12 +76,18 @@ async def write_trace_file(
     service_label: str,
     **extra,
 ) -> None:
-    """Write a trace artifact JSON file using asyncio.to_thread for the file write.
+    """Write a per-step trace artifact JSON file (legacy; default OFF).
 
     Fetches execution_steps from DB, writes JSON to artifacts_path/traces/.
-    Silently skips if artifacts_path is empty.
+    RETIRED in favour of the consolidated per-run health record
+    (shared.health_record.write_health_record) — one blob/run instead of ~5 per-step
+    files. The DB rows (execution_traces/execution_steps) remain the source of truth;
+    only the FILES are gated off. Set WRITE_STEP_TRACE_FILES=true to restore the old
+    per-step files (e.g. for ad-hoc debugging).
     """
     if not artifacts_path:
+        return
+    if os.getenv("WRITE_STEP_TRACE_FILES", "false").lower() not in ("1", "true", "yes", "on"):
         return
     try:
         from sqlalchemy import text
