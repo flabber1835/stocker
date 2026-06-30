@@ -1570,7 +1570,17 @@ async function approveSelected() {
   // queue for the next open. Market-closed approvals (the usual after-close path)
   // go to the fill-gated drain (sells first, buys one at a time within buying
   // power); market-open approvals submit immediately. See docs/architecture.md.
-  await Promise.all(toApprove.map(id => approveTrade(id, 'immediate')));
+  //
+  // Submit SEQUENTIALLY, not via Promise.all. The trade-executor serializes every
+  // submit on a single per-account lock (SUBMIT_LOCK_TIMEOUT_SECS, default 30s), so
+  // firing N approvals concurrently buys nothing — they queue on that lock anyway,
+  // and on a large rotation (e.g. 15 exits + 15 entries) the tail of the batch waits
+  // past the lock timeout and fails with "submit serialization lock timed out after
+  // 30s" (and the browser drops the slowest connections → "TypeError: Load failed").
+  // Awaiting each call in turn means every request acquires the lock uncontended.
+  for (const id of toApprove) {
+    await approveTrade(id, 'immediate');
+  }
 }
 
 async function approveTrade(intentId, mode) {

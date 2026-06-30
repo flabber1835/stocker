@@ -77,6 +77,59 @@ def test_all_selected_enqueued_as_immediate(tmp_path):
     assert all(c["mode"] == "immediate" for c in calls), f"every approval must be 'immediate': {calls}"
 
 
+_CONCURRENCY_TMPL = r"""
+// --- stubs ---
+let deltaData = __DATA__;
+let _selectedIntents = new Set(__SELECTED__);
+
+function _isApprovable(r) {
+  return ['entry','exit','buy_add','sell_trim'].includes(r.action)
+      && !r.order_status && !r.rejected_at && !(r.vetter_excluded && (r.action==='entry'||r.action==='buy_add'));
+}
+
+// Track concurrent in-flight calls. The trade-executor serializes every submit on a
+// single per-account lock (SUBMIT_LOCK_TIMEOUT_SECS); firing approvals concurrently
+// makes the tail of a large rotation time out. approveSelected MUST submit one at a
+// time. Each approveTrade yields across several microtasks while "in flight"; if two
+// overlap, _inflight exceeds 1 — that is the bug this guards against.
+let _inflight = 0, _maxInflight = 0;
+async function approveTrade(intentId, mode) {
+  _inflight++; _maxInflight = Math.max(_maxInflight, _inflight);
+  for (let k = 0; k < 4; k++) await Promise.resolve();
+  _inflight--;
+}
+
+// --- the real shipped function ---
+__APPROVE_SELECTED__
+
+(async () => { await approveSelected(); console.log(JSON.stringify({maxInflight: _maxInflight})); })();
+"""
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_approvals_submitted_sequentially_not_concurrently(tmp_path):
+    """A large rotation must submit one approval at a time (no Promise.all).
+
+    Concurrent submission piles every request onto the executor's single per-account
+    submit lock; on a 15-exit + 15-entry rotation the tail waits past
+    SUBMIT_LOCK_TIMEOUT_SECS and fails with "submit serialization lock timed out".
+    """
+    data = [{"id": f"I{i}", "action": "entry", "order_status": None,
+             "rejected_at": None, "vetter_excluded": False} for i in range(30)]
+    js = (_CONCURRENCY_TMPL
+          .replace("__DATA__", json.dumps(data))
+          .replace("__SELECTED__", json.dumps([d["id"] for d in data]))
+          .replace("__APPROVE_SELECTED__", _extract_approve_selected()))
+    harness = tmp_path / "c.js"
+    harness.write_text(js)
+    out = subprocess.run(["node", str(harness)], capture_output=True, text=True, timeout=20)
+    assert out.returncode == 0, f"node failed: {out.stderr[:600]}"
+    res = json.loads(out.stdout.strip().splitlines()[-1])
+    assert res["maxInflight"] == 1, (
+        f"approvals must be submitted sequentially, saw {res['maxInflight']} concurrent "
+        "(reverting to Promise.all causes submit-lock timeouts on large rotations)")
+
+
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_non_approvable_intents_skipped(tmp_path):
     """Already-ordered / rejected / vetter-excluded-buy intents are not enqueued."""
