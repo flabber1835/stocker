@@ -589,6 +589,20 @@ class StrategyConfig(BaseModel):
     max_positions: int = Field(default=30, ge=1, le=500)
     min_score_percentile: float = Field(default=0.0, ge=0, le=1)
     min_non_null_factors: int = Field(default=3, ge=1, le=FACTOR_COUNT)
+    min_ranked: int = Field(
+        default=0, ge=0,
+        description=(
+            "Degraded-ranking floor (pipeline-core P2). When a ranking run produces "
+            "FEWER than this many ranked tickers — the signature of a degraded factor "
+            "set (e.g. a fundamentals-ingest failure, or too few names clearing "
+            "min_non_null_factors) — the run is recorded success but flagged "
+            "ranking_runs.degraded. The portfolio-builder propagates that into "
+            "portfolio_runs.degraded and the delta engine holds the book, so a "
+            "bad-data day cannot mass-orphan-exit at the source. 0 disables (default). "
+            "Set well below the normal universe size (e.g. a few hundred for a "
+            "Russell-3000-scale book) so it trips only on a genuinely broken run."
+        ),
+    )
     required_factors: list[str] = Field(default_factory=list)
     deduplicate_share_classes: bool = Field(
         default=True,

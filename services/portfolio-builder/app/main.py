@@ -168,6 +168,7 @@ async def _run_build(
     started_at: datetime,
     strat: StrategyConfig,
     cfg_hash: str,
+    ranking_degraded: bool = False,
 ) -> None:
     # DB rows (portfolio_runs + execution_traces) were inserted by the handler inside
     # _job_lock before add_task was called — no lookup or INSERT needed here.
@@ -178,7 +179,8 @@ async def _run_build(
 
     try:
         await _do_build(run_id, trace_id, started_at, source_ranking_run_id, regime,
-                        portfolio_date, pb_cfg, vetter_run_id, strat, cfg_hash)
+                        portfolio_date, pb_cfg, vetter_run_id, strat, cfg_hash,
+                        ranking_degraded)
     except Exception as exc:
         err = str(exc)[:1000]
         print(f"[portfolio-builder] run {run_id} FAILED: {exc}")
@@ -207,6 +209,7 @@ async def _do_build(
     vetter_run_id: Optional[str] = None,
     strat: Optional[StrategyConfig] = None,
     cfg_hash: Optional[str] = None,
+    ranking_degraded: bool = False,
 ) -> None:
     # G8: bind to the captured snapshot; fall back to the global only if a caller
     # (older test) didn't pass one.
@@ -895,11 +898,13 @@ async def _do_build(
         # chain) but FLAG it degraded so the delta engine treats the target like an
         # empty one (holds the book) — a bad-data day can never mass-orphan-exit.
         min_selected = getattr(pb_cfg, "min_selected", 0) or 0
-        degraded = bool(min_selected > 0 and len(selected) < min_selected)
+        degraded = bool(min_selected > 0 and len(selected) < min_selected) or bool(ranking_degraded)
         if degraded:
+            _why = ("source ranking degraded" if ranking_degraded
+                    else f"selected {len(selected)} < min_selected {min_selected}")
             print(
-                f"[portfolio-builder] run {run_id} DEGRADED: selected {len(selected)} "
-                f"< min_selected {min_selected} — delta will hold the book", flush=True
+                f"[portfolio-builder] run {run_id} DEGRADED ({_why}) — delta will hold the book",
+                flush=True
             )
         await conn.execute(
             text(
@@ -1056,12 +1061,12 @@ async def start_build(
     async with engine.connect() as conn:
         if ranking_run_id:
             chk = await conn.execute(
-                text("SELECT run_id, regime, rank_date FROM ranking_runs WHERE run_id=:rid AND status='success'"),
+                text("SELECT run_id, regime, rank_date, degraded FROM ranking_runs WHERE run_id=:rid AND status='success'"),
                 {"rid": ranking_run_id},
             )
         else:
             chk = await conn.execute(
-                text("SELECT run_id, regime, rank_date FROM ranking_runs WHERE status='success' ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1")
+                text("SELECT run_id, regime, rank_date, degraded FROM ranking_runs WHERE status='success' ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1")
             )
         rr = chk.fetchone()
         if rr is None:
@@ -1072,6 +1077,9 @@ async def start_build(
         source_ranking_run_id = str(rr.run_id)
         regime = rr.regime
         portfolio_date = rr.rank_date
+        # P2: propagate a degraded ranking into the portfolio so the delta engine holds
+        # the book (the degraded gate at its source — a thin ranking must not rotate).
+        ranking_degraded = bool(rr.degraded)
 
         if vetter_run_id:
             vchk = await conn.execute(
@@ -1166,7 +1174,7 @@ async def start_build(
             _run_build, run_id, trace_id,
             source_ranking_run_id, vetter_run_id,
             regime, portfolio_date, started_at,
-            strat_snap, cfg_hash_snap,
+            strat_snap, cfg_hash_snap, ranking_degraded,
         )
     return {
         "status": "started",

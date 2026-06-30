@@ -314,6 +314,76 @@ silently drift. The delta reads broker positions and `account_value` from ONE pi
 `sync_run_id` instead of two independent "latest sync" subqueries (closes the torn-read
 where positions came from sync A and account_value from sync B).
 
+## Design Decision: pipeline-core hardening (determinism, degraded gate, integrity)
+
+Architecture delta on the pipeline service's OWN engine (factor + rank steps and
+`/jobs/run` orchestration) — distinct from the delta engine it also hosts. The core
+finding: `success` was treated as binary, ignoring DATA QUALITY, and several
+documented invariants (determinism, single-source factors, cross-step audit) were
+guaranteed by prose rather than by construction.
+
+**P1 — determinism enforced.** `rank_universe` sorted composites with pandas' default
+(unstable) quicksort and **no secondary key**, so equal-composite tickers — realistic
+with percentile/z-score inputs — got a nondeterministic relative rank → a different
+top-N → a different vetter pool/portfolio across identical runs, violating "rankings
+are reproducible". Now it sorts `["composite_score", "ticker"]` ascending `[False,
+True]` with a STABLE `mergesort` (ties break alphabetically). Backed by
+reproducibility tests (run-twice identity, input-order invariance, tie ordering) and
+a factor-registry sync test (every `FACTOR_REGISTRY` name is actually produced by
+`compute_all_factors` and matches the persisted columns — a registry-only factor that
+would silently persist all-NaN now fails CI).
+
+**P2 — degraded-ranking gate at the SOURCE.** A thin ranking (fundamentals outage, or
+too few names clearing `min_non_null_factors`) used to be plain `success` and flow
+downstream — the UPSTREAM root of the mass-rotation risk the builder's G2 only caught
+at the symptom. Now `StrategyConfig.min_ranked` (default 0=off): a `ranked_count`
+below it flags `ranking_runs.degraded` (migration 0035); the builder propagates that
+into `portfolio_runs.degraded`; the delta engine already holds the book on a degraded
+target. So `degraded factor set → degraded ranking → degraded portfolio → delta holds
+the book` — gated where the bad data enters.
+
+**P4 — cross-step integrity.** (a) The standalone-delta `delta_status` backfill now
+targets the pipeline_run whose RANKING the delta consumed (`delta_runs.
+source_ranking_run_id → pipeline_runs.ranking_run_id`), not "latest by started_at"
+(which mis-attributed when a newer run started meanwhile). (b) `_format_pipeline_run`
+no longer spoofs `run_date := chain_date` for a FAILED run (only a still-`running`
+one), so a failed run can't surface today's date to the SESSION anchor. (c) A CI test
+forbids any real step using the legacy `TODAY`/`TRADING_DAY` wall-clock anchors (the
+`_StepDef` default), and the stale `start_run` docstring (claiming it runs delta) is
+corrected.
+
+**P5 — honest progress.** The eased progress bar already caps just below the next
+milestone, but a hung step shows a frozen-but-nonzero value implying progress.
+`/runs/progress` now also returns `stalled` / `stale_secs` (no real-milestone advance
+for > `PROGRESS_STALL_SECS`, default 180) so the dashboard can label a stall instead
+of a creeping bar.
+
+**P6a — proportionate regime resilience.** The factor step hard-halted the entire
+chain on a missing/short benchmark window — disproportionate, since with
+`regime_weighting_enabled=false` the regime doesn't drive scoring at all. Now, when
+weighting is OFF and at least one benchmark bar exists (for a score_date), it proceeds
+with a sentinel regime `'unknown'` (safe: `effective_factor_weights` ignores the
+regime when disabled) and a null-metric snapshot, instead of halting. With weighting
+ENABLED, or no benchmark at all, it still halts (weights genuinely need the regime /
+there is no run date).
+
+**Documented contracts (deliberately not code changes):**
+- **P6b — OOM headroom.** `PIPELINE_MEM_LIMIT` (default 2g) makes the factor step the
+  predictable OOM victim; the crash-loop breaker turns a deterministic OOM into one
+  visible suspension. The limit is a manual knob — on a growing universe (or
+  `residual` momentum, which allocates extra arrays) raise it rather than letting the
+  chain suspend daily. There is intentionally no automated headroom check yet.
+- **P7a — the Redis `pipeline_events` consumer is a stream JANITOR, not a trigger.**
+  The scheduler is the sole driver; the consumer only ACKs/drains the stream so it
+  can't grow unbounded. It is NOT removed because producers (av-ingestor,
+  portfolio-builder) still `XADD` to the stream — deleting the consumer without
+  bounding the producers would leak memory. Treat it as a drain-only janitor.
+- **P7b — single-worker contract.** The pipeline assumes ONE worker/replica: `_job_lock`
+  (in-process) serializes `/jobs/run` vs `/jobs/delta` only within a process; the
+  per-claim advisory lock guards only the claim, not execution, and uses distinct keys
+  for run vs delta. Run exactly one pipeline replica. Cross-replica execution exclusion
+  would require holding an advisory lock for the whole run — out of scope.
+
 ## Strategy Flow
 
 ```text

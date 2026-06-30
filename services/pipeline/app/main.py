@@ -68,6 +68,12 @@ BETA_LOOKBACK_DAYS = int(os.getenv("DRAWDOWN_BETA_LOOKBACK", os.getenv("BETA_LOO
 # (it's in BENCHMARK_TICKERS). Default SPY = unchanged behavior.
 MARKET_BENCHMARK = os.getenv("MARKET_BENCHMARK", "SPY")
 
+# P6a: sentinel regime used when the benchmark history is too short to detect a real
+# regime AND regime weighting is OFF (so the regime doesn't drive scoring). Lets the
+# chain proceed instead of hard-halting on a missing benchmark window. Safe ONLY when
+# regime_weighting_enabled is False — effective_factor_weights ignores the regime then.
+_REGIME_UNKNOWN = "unknown"
+
 # G7: fail the delta step CLOSED on cross-step config_hash skew (a config edit
 # mid-chain → portfolio built under different assumptions than the delta diffs).
 # Default true; set false to revert to advisory-only (log + delta output field).
@@ -357,6 +363,12 @@ _STEP_MILESTONES = {
 }
 _CREEP_STEP = 5            # display increment (→ 5, 10, 15, 20, …)
 _CREEP_INTERVAL_SECS = 2.0  # advance one step per this many seconds
+# P5: a step with no real-milestone advance for longer than this is flagged `stalled`
+# in /runs/progress so the UI can stop implying progress on a hung run.
+try:
+    PROGRESS_STALL_SECS = float(os.getenv("PROGRESS_STALL_SECS", "180"))
+except ValueError:
+    PROGRESS_STALL_SECS = 180.0
 
 
 def _set_pct(step: str, pct: int) -> None:
@@ -789,46 +801,62 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
             },
         )
 
-    if len(spy_df) < strategy.regime_detection.slow_sma:
+    # ── Step 3: detect regime ─────────────────────────────────────────────────
+    t0 = datetime.now(timezone.utc)
+    insufficient_bench = len(spy_df) < strategy.regime_detection.slow_sma
+    if insufficient_bench:
         msg = (f"insufficient market-benchmark ({MARKET_BENCHMARK}) history: {len(spy_df)} rows, "
                f"need {strategy.regime_detection.slow_sma} — is MARKET_BENCHMARK a ticker "
                f"av-ingestor fetches (it must be in BENCHMARK_TICKERS)?")
-        raise RuntimeError(msg)
-
-    score_date: date = pd.to_datetime(spy_df["date"]).max().date()
-    print(f"[calculate] score_date={score_date}")
-
-    # ── Step 3: detect regime ─────────────────────────────────────────────────
-    t0 = datetime.now(timezone.utc)
-    regime_info = detect_regime(spy_df, strategy.regime_detection)
-    raw_regime = regime_info["raw_regime"]
-
-    async with engine.connect() as conn:
-        history_rows = await conn.execute(
-            text(
-                "SELECT raw_regime, regime FROM ("
-                "  SELECT DISTINCT ON (snapshot_date) snapshot_date, raw_regime, regime, calculated_at"
-                "  FROM regime_snapshots"
-                "  WHERE snapshot_date < :score_date"
-                "  ORDER BY snapshot_date DESC, calculated_at DESC"
-                ") x ORDER BY snapshot_date DESC LIMIT :n"
-            ),
-            {"n": strategy.regime_detection.confirmation_days, "score_date": score_date},
-        )
-        history = history_rows.fetchall()
-
-    prior_raw_regimes = [r[0] for r in history]
-    prior_confirmed = history[0][1] if history else None
-    confirmed_regime = resolve_confirmed_regime(
-        raw_regime, prior_raw_regimes, prior_confirmed,
-        strategy.regime_detection.confirmation_days,
-    )
-
-    switched = prior_confirmed != confirmed_regime
-    if switched:
-        print(f"[calculate] regime SWITCHED: {prior_confirmed} → {confirmed_regime}")
+        # P6a: a missing/short benchmark window must NOT hard-halt the whole chain when
+        # regime weighting is OFF — the regime doesn't drive scoring then (static
+        # weights are used regardless), so it is disproportionate to block all trading
+        # on it. Proceed with a sentinel regime IF we still have at least one benchmark
+        # bar (for a score_date). With weighting ENABLED, or NO benchmark at all, we
+        # still halt (weights genuinely need the regime / there is no run date).
+        if strategy.regime_weighting_enabled or spy_df.empty:
+            raise RuntimeError(msg)
+        print(f"[calculate] WARNING: {msg} — regime weighting disabled, proceeding with "
+              f"sentinel regime '{_REGIME_UNKNOWN}'", flush=True)
+        score_date = pd.to_datetime(spy_df["date"]).max().date()
+        raw_regime = confirmed_regime = _REGIME_UNKNOWN
+        regime_info = {"raw_regime": _REGIME_UNKNOWN, "spy_price": None,
+                       "spy_sma_slow": None, "spy_vs_sma": None, "realized_vol": None}
+        prior_confirmed = None
+        switched = False
     else:
-        print(f"[calculate] regime={confirmed_regime} (raw={raw_regime})")
+        score_date = pd.to_datetime(spy_df["date"]).max().date()
+        print(f"[calculate] score_date={score_date}")
+
+        regime_info = detect_regime(spy_df, strategy.regime_detection)
+        raw_regime = regime_info["raw_regime"]
+
+        async with engine.connect() as conn:
+            history_rows = await conn.execute(
+                text(
+                    "SELECT raw_regime, regime FROM ("
+                    "  SELECT DISTINCT ON (snapshot_date) snapshot_date, raw_regime, regime, calculated_at"
+                    "  FROM regime_snapshots"
+                    "  WHERE snapshot_date < :score_date"
+                    "  ORDER BY snapshot_date DESC, calculated_at DESC"
+                    ") x ORDER BY snapshot_date DESC LIMIT :n"
+                ),
+                {"n": strategy.regime_detection.confirmation_days, "score_date": score_date},
+            )
+            history = history_rows.fetchall()
+
+        prior_raw_regimes = [r[0] for r in history]
+        prior_confirmed = history[0][1] if history else None
+        confirmed_regime = resolve_confirmed_regime(
+            raw_regime, prior_raw_regimes, prior_confirmed,
+            strategy.regime_detection.confirmation_days,
+        )
+
+        switched = prior_confirmed != confirmed_regime
+        if switched:
+            print(f"[calculate] regime SWITCHED: {prior_confirmed} → {confirmed_regime}")
+        else:
+            print(f"[calculate] regime={confirmed_regime} (raw={raw_regime})")
 
     async with engine.begin() as conn:
         await _log_step_factor(
@@ -1228,10 +1256,12 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
                 "snapshot_date": score_date,
                 "raw_regime": raw_regime,
                 "regime": confirmed_regime,
-                "spy_price": float(regime_info["spy_price"]),
-                "spy_sma_slow": float(regime_info["spy_sma_slow"]),
-                "spy_vs_sma": float(regime_info["spy_vs_sma"]),
-                "realized_vol": float(regime_info["realized_vol"]),
+                # None-tolerant: the P6a sentinel-regime path (insufficient benchmark,
+                # regime weighting off) has no SPY metrics to record.
+                "spy_price": (None if regime_info.get("spy_price") is None else float(regime_info["spy_price"])),
+                "spy_sma_slow": (None if regime_info.get("spy_sma_slow") is None else float(regime_info["spy_sma_slow"])),
+                "spy_vs_sma": (None if regime_info.get("spy_vs_sma") is None else float(regime_info["spy_vs_sma"])),
+                "realized_vol": (None if regime_info.get("realized_vol") is None else float(regime_info["realized_vol"])),
                 "calculated_at": calculated_at,
             },
         )
@@ -1823,6 +1853,17 @@ async def _do_rank(
         for _i in range(0, len(ranking_rows), _RANK_BATCH):
             await conn.execute(_rank_sql, ranking_rows[_i:_i + _RANK_BATCH])
 
+    # P2 degraded-ranking gate: a ranked_count below min_ranked is the signature of a
+    # degraded factor set (fundamentals outage, mass min_non_null_factors drops). Flag
+    # the run so the builder propagates degraded → portfolio → delta holds the book.
+    _min_ranked = getattr(strategy, "min_ranked", 0) or 0
+    _ranking_degraded = bool(_min_ranked > 0 and ranked_count < _min_ranked)
+    if _ranking_degraded:
+        print(
+            f"[ranker] run {ranking_run_id} DEGRADED: ranked {ranked_count} "
+            f"< min_ranked {_min_ranked} — builder will propagate degraded", flush=True
+        )
+
         await _log_step_ranker(
             conn, trace_id, "write_rankings", "success",
             started_at=t0,
@@ -1837,7 +1878,8 @@ async def _do_rank(
             text(
                 "UPDATE ranking_runs SET "
                 "  status='success', completed_at=:now, "
-                "  universe_count=:uc, ranked_count=:rc, dropped_count=:dc "
+                "  universe_count=:uc, ranked_count=:rc, dropped_count=:dc, "
+                "  degraded=:deg "
                 "WHERE run_id=:rid"
             ),
             {
@@ -1846,6 +1888,7 @@ async def _do_rank(
                 "uc": universe_count,
                 "rc": ranked_count,
                 "dc": dropped_count,
+                "deg": _ranking_degraded,
             },
         )
 
@@ -3073,7 +3116,8 @@ async def health():
 
 @app.post("/jobs/run")
 async def start_run(background_tasks: BackgroundTasks, triggered_by: str = "manual", force: bool = False):
-    """Run the full pipeline: factors → rank → delta.
+    """Run the pipeline's FACTOR → RANK steps (this endpoint does NOT run delta —
+    delta is a dedicated scheduler step via /jobs/delta; see _run_pipeline_steps).
 
     _do_run_pipeline acquires _job_lock; _run_pipeline_steps releases it in
     finally so a duplicate HTTP request gets {"status":"already_running"} for
@@ -3162,20 +3206,25 @@ async def start_delta_only(background_tasks: BackgroundTasks, manual: bool = Fal
                 manual=manual,
             )
             print(f"[pipeline] standalone delta {delta_run_id_result} SUCCESS", flush=True)
-            # Backfill delta_status on the latest pipeline_run so /runs/latest reflects
-            # the complete chain state (factor+ranking+delta all succeeded).
+            # P4a: backfill delta_status onto the pipeline_run whose RANKING this delta
+            # actually consumed (delta_runs.source_ranking_run_id → pipeline_runs.
+            # ranking_run_id), NOT "latest pipeline_run by started_at" — a newer
+            # /jobs/run started meanwhile would otherwise get the wrong delta_status,
+            # corrupting the cross-step audit. No match (e.g. cold-start) → 0 rows, fine.
             async with engine.begin() as conn:
                 await conn.execute(text(
                     "UPDATE pipeline_runs SET delta_status='success', delta_run_id=:rid "
-                    "WHERE run_id = (SELECT run_id FROM pipeline_runs ORDER BY started_at DESC LIMIT 1)"
+                    "WHERE ranking_run_id = ("
+                    "  SELECT source_ranking_run_id FROM delta_runs WHERE run_id=:rid)"
                 ), {"rid": delta_run_id_result})
         except Exception as exc:
             print(f"[pipeline] standalone delta FAILED: {exc}", flush=True)
             async with engine.begin() as conn:
                 await conn.execute(text(
                     "UPDATE pipeline_runs SET delta_status='failed' "
-                    "WHERE run_id = (SELECT run_id FROM pipeline_runs ORDER BY started_at DESC LIMIT 1)"
-                ))
+                    "WHERE ranking_run_id = ("
+                    "  SELECT source_ranking_run_id FROM delta_runs WHERE run_id=:rid)"
+                ), {"rid": delta_run_id})
         finally:
             if _job_lock.locked():
                 _job_lock.release()
@@ -3248,7 +3297,11 @@ def _format_pipeline_run(d: dict) -> dict:
             d[k] = v.isoformat()
         elif hasattr(v, 'hex'):
             d[k] = str(v)
-    if d.get("run_date") is None and d.get("chain_date"):
+    # P4b: only fall back run_date→chain_date for a still-RUNNING row (which hasn't
+    # written its data-date yet) so the UI shows something. A FAILED run must NOT
+    # surface today's chain_date as a data-date — the scheduler's SESSION anchor could
+    # misread a failed run as having processed today's session.
+    if d.get("run_date") is None and d.get("chain_date") and d.get("status") == "running":
         d["run_date"] = d["chain_date"]
     return d
 
@@ -3269,6 +3322,13 @@ async def get_progress():
     out = dict(_current_progress)
     if out.get("step"):
         out["pct"] = _eased_pct()
+        # P5 honest observability: the eased bar caps just below the next milestone, so
+        # a HUNG step shows a frozen-but-nonzero value that still implies progress.
+        # Surface `stalled` (no real milestone advance for > PROGRESS_STALL_SECS) so the
+        # dashboard can label it "stalled" instead of a creeping bar. Purely advisory.
+        elapsed = time.monotonic() - (out.get("ts") or 0.0)
+        out["stalled"] = bool(elapsed > PROGRESS_STALL_SECS)
+        out["stale_secs"] = round(elapsed, 1)
     return out
 
 

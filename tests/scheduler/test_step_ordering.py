@@ -141,6 +141,19 @@ class TestStepOrdering:
                 f"source_rank_date, portfolio_date) so the step is stable across midnight."
             )
 
+    def test_no_real_step_uses_legacy_wallclock_anchor(self):
+        """P4c: TODAY / TRADING_DAY are legacy wall-clock anchors retained only for
+        back-compat — NO real step may use them (comparing a data-date against a
+        wall-clock date is the re-trigger-loop bug class). The dataclass default is
+        TODAY, so a new step that forgets `date_anchor=` would silently regress; this
+        catches it in CI.
+        """
+        for step in _STEPS:
+            assert step.date_anchor not in (DateAnchor.TODAY, DateAnchor.TRADING_DAY), (
+                f"Step '{step.name}' uses legacy wall-clock anchor {step.date_anchor} — "
+                f"forbidden. Anchor on a DATA-session date (SESSION or UPSTREAM_RANK)."
+            )
+
     def test_front_steps_use_session_anchor(self):
         """fetch-data and pipeline are SESSION-anchored on their data-session date."""
         fetch = next(s for s in _STEPS if s.name == "fetch-data")

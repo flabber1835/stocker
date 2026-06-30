@@ -32,9 +32,15 @@ def rank_universe(
 
     df["composite_score"] = df.apply(compute_score, axis=1)
 
-    # Only rank tickers with a valid composite score; drop unrankable rows entirely
+    # Only rank tickers with a valid composite score; drop unrankable rows entirely.
+    # P1a determinism: break composite-score TIES on ticker (ascending) with a STABLE
+    # sort. The default quicksort is unstable and has no secondary key, so two tickers
+    # with equal composite scores — realistic when inputs are percentiles/z-scores —
+    # got a nondeterministic relative rank → a different top-N → a different vetter
+    # pool / portfolio across otherwise-identical runs. "rankings are reproducible"
+    # (CLAUDE.md) requires a fully-specified, repeatable order.
     df_ranked = df[df["composite_score"].notna()].sort_values(
-        "composite_score", ascending=False
+        ["composite_score", "ticker"], ascending=[False, True], kind="mergesort"
     ).reset_index(drop=True)
     df_ranked["rank"] = range(1, len(df_ranked) + 1)
 

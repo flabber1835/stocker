@@ -158,6 +158,16 @@ def test_portfolio_builder_min_selected_rejects_negative():
         make_config(portfolio_builder={"min_selected": -1})
 
 
+def test_min_ranked_default_off_and_configurable():
+    assert make_config().min_ranked == 0          # degraded-ranking gate off by default
+    assert make_config(min_ranked=250).min_ranked == 250
+
+
+def test_min_ranked_rejects_negative():
+    with pytest.raises(ValidationError):
+        make_config(min_ranked=-5)
+
+
 # ── VetterConfig ──────────────────────────────────────────────────────────────
 
 def test_vetter_config_defaults():
