@@ -267,21 +267,47 @@ class TestStepState:
         assert result == "idle"
 
     @pytest.mark.asyncio
-    async def test_idle_on_http_error(self):
-        """Service returns 500 → 'idle'."""
+    async def test_blocked_on_http_5xx_when_no_prior_state(self):
+        """SG2: a 5xx transport-ish error with no prior state → 'blocked' (WAIT), not
+        'idle' — 'idle' would re-trigger a step whose true state is unknown."""
         today = "2026-05-21"
         step = self._make_step()
         client = _async_client_returning({}, status_code=500)
         result = await _step_state(client, step, today, today, "2026-05-20")
-        assert result == "idle"
+        assert result == "blocked"
 
     @pytest.mark.asyncio
-    async def test_idle_on_exception(self):
-        """Network exception → 'idle'."""
+    async def test_blocked_on_exception_when_no_prior_state(self):
+        """SG2: a network exception with no prior state → 'blocked', not 'idle'."""
         today = "2026-05-21"
         step = self._make_step()
         client = MagicMock()
         client.get = AsyncMock(side_effect=Exception("connection refused"))
+        result = await _step_state(client, step, today, today, "2026-05-20")
+        assert result == "blocked"
+
+    @pytest.mark.asyncio
+    async def test_done_step_holds_done_on_transport_error(self):
+        """SG2 core: a step already 'done' this session must NOT regress to idle on a
+        transient blip (which re-ran fetch/pipeline and re-billed the vetter) — it holds
+        'done' so the supervisor doesn't re-trigger it."""
+        today = "2026-05-21"
+        step = self._make_step()
+        _chain_status.setdefault("steps", {})[step.name] = "done"
+        try:
+            client = MagicMock()
+            client.get = AsyncMock(side_effect=Exception("connection refused"))
+            result = await _step_state(client, step, today, today, "2026-05-20")
+            assert result == "done"
+        finally:
+            _chain_status.get("steps", {}).pop(step.name, None)
+
+    @pytest.mark.asyncio
+    async def test_idle_on_404_no_run_yet(self):
+        """SG2: a genuine 404 (no run row yet) stays 'idle' so the FIRST trigger fires."""
+        today = "2026-05-21"
+        step = self._make_step()
+        client = _async_client_returning({}, status_code=404)
         result = await _step_state(client, step, today, today, "2026-05-20")
         assert result == "idle"
 

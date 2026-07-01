@@ -2055,17 +2055,19 @@ async def _resolve_delta_lineage(conn) -> dict:
     anchor_port_run_id/bound_vetter_run_id are None on cold start; anchor_degraded is
     the bound portfolio's degraded flag (G2)."""
     anchor_port = (await conn.execute(text(
-        "SELECT run_id, source_ranking_run_id, vetter_run_id, degraded "
+        "SELECT run_id, source_ranking_run_id, vetter_run_id, degraded, config_hash "
         "FROM portfolio_runs WHERE status='success' AND superseded_at IS NULL "
         "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
     ))).fetchone()
 
     latest_rank = None
     anchor_port_run_id: Optional[str] = None
+    anchor_port_config_hash: Optional[str] = None
     bound_vetter_run_id: Optional[str] = None
     anchor_degraded = False
     if anchor_port is not None:
         anchor_port_run_id = str(anchor_port.run_id)
+        anchor_port_config_hash = anchor_port.config_hash
         bound_vetter_run_id = (str(anchor_port.vetter_run_id)
                                if anchor_port.vetter_run_id is not None else None)
         anchor_degraded = bool(anchor_port.degraded)
@@ -2090,6 +2092,7 @@ async def _resolve_delta_lineage(conn) -> dict:
     return {
         "latest_rank": latest_rank,
         "anchor_port_run_id": anchor_port_run_id,
+        "anchor_port_config_hash": anchor_port_config_hash,
         "bound_vetter_run_id": bound_vetter_run_id,
         "anchor_degraded": anchor_degraded,
     }
@@ -2119,6 +2122,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
         lineage = await _resolve_delta_lineage(conn)
     latest_rank = lineage["latest_rank"]
     anchor_port_run_id = lineage["anchor_port_run_id"]
+    anchor_port_config_hash = lineage["anchor_port_config_hash"]
     bound_vetter_run_id = lineage["bound_vetter_run_id"]
     anchor_degraded = lineage["anchor_degraded"]
 
@@ -2129,28 +2133,26 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     run_date = latest_rank.rank_date
     regime = latest_rank.regime
 
-    # ── Cross-step config-hash consistency (seam guard) ───────────────────────
-    # The delta consumes the ranking (and, via the target, the portfolio/vetter).
-    # Those are produced by SEPARATE services that each load the strategy config.
-    # If a service is running a different config version (the startup-cache skew
-    # this reload-per-run fix targets, or a config edit mid-chain), the portfolio
-    # was built under different assumptions than the ranking — a silent split
-    # brain. Detect it by comparing the upstream runs' config_hash to ours and
-    # surface it loudly (audit + delta output). Non-fatal: a transient deploy must
-    # not halt the chain, but the skew is no longer invisible.
-    config_skew = await _detect_config_skew(latest_rank.config_hash)
+    # ── LINEAGE config-hash consistency (SG1) ─────────────────────────────────
+    # The delta DIFFS the builder's target (portfolio) against the live book; it does
+    # NOT re-score, so the delta's own reloaded config is irrelevant to the diff. What
+    # matters is that the ranking and the PORTFOLIO the delta anchors on were built
+    # under the SAME config — an internally-consistent lineage. (The earlier check
+    # compared each vs the delta's freshly-reloaded config, which FALSE-deadlocked the
+    # delta whenever the config file was edited AFTER the chain built — the config
+    # changed but the just-built chain is perfectly self-consistent.) The builder's
+    # cross-config guard makes ranking.config == portfolio.config by construction, so
+    # this now only trips on a genuine cross-config lineage (an old pre-guard build).
+    config_skew = _detect_lineage_skew(latest_rank.config_hash, anchor_port_config_hash)
     if config_skew:
-        print(f"[delta-engine] WARNING: config_hash skew across chain steps: {config_skew}",
-              flush=True)
-        # G7: fail CLOSED on config skew. A skew means the portfolio/ranking the delta
-        # diffs was built under a DIFFERENT config than this delta reloaded (a config
-        # edit mid-chain — observed in production). Emitting trade intents on
-        # mismatched assumptions is unsafe; refuse rather than proceed. Set
-        # DELTA_FAIL_ON_CONFIG_SKEW=false to revert to advisory-only.
+        print(f"[delta-engine] WARNING: cross-config lineage — {config_skew}", flush=True)
+        # Fail CLOSED: diffing a portfolio built under a different config than its
+        # ranking means the target reflects mismatched assumptions. Refuse rather than
+        # trade on it. DELTA_FAIL_ON_CONFIG_SKEW=false reverts to advisory-only.
         if DELTA_FAIL_ON_CONFIG_SKEW:
             raise RuntimeError(
-                f"config_hash skew across chain steps: {config_skew} — refusing to "
-                "generate trade intents on mismatched config (set "
+                f"cross-config lineage — {config_skew} — refusing to generate trade "
+                "intents (re-run the chain so ranking+portfolio share one config; set "
                 "DELTA_FAIL_ON_CONFIG_SKEW=false to override)"
             )
 
@@ -2986,31 +2988,20 @@ def _reload_strategy() -> None:
     _apply_falling_knife_config(getattr(strategy.vetter, "falling_knife", None))
 
 
-async def _detect_config_skew(ranking_config_hash: str | None) -> dict:
-    """Compare the config_hash of the upstream runs the delta consumes (ranking +
-    latest successful portfolio + vetter) against THIS run's config_hash. Returns a
-    {step: that_step's_hash} dict of any that DIFFER (empty when consistent). A
-    non-empty result means services ran different strategy versions — a config
-    split-brain (see _reload_strategy). Best-effort: never raises."""
-    skew: dict = {}
-    try:
-        if ranking_config_hash and ranking_config_hash != config_hash:
-            skew["ranking"] = ranking_config_hash
-        async with engine.connect() as conn:
-            # BUG FIX: only portfolio_runs carries config_hash. vetter_runs has NO
-            # config_hash column, so querying it threw UndefinedColumnError every run
-            # ("config-skew check skipped"), which aborted the loop BEFORE the portfolio
-            # check and left the skew comparison incomplete. (The ranking hash is passed
-            # in and compared above; the vetter's config isn't tracked, so it can't be
-            # checked here.)
-            row = (await conn.execute(text(
-                "SELECT config_hash FROM portfolio_runs WHERE status='success' "
-                "AND superseded_at IS NULL ORDER BY completed_at DESC NULLS LAST LIMIT 1"))).first()
-            if row and row[0] and row[0] != config_hash:
-                skew["portfolio"] = row[0]
-    except Exception as exc:  # detection must never break the chain
-        print(f"[delta-engine] config-skew check skipped: {exc}", flush=True)
-    return skew
+def _detect_lineage_skew(ranking_config_hash: str | None,
+                         portfolio_config_hash: str | None) -> str | None:
+    """SG1: is the delta's LINEAGE internally consistent — were the ranking and the
+    portfolio the delta anchors on built under the SAME config? Returns a description
+    string if they differ (a cross-config lineage), else None. Pure (no DB, no compare
+    against the delta's own reloaded config — that would false-deadlock on a config
+    edit AFTER a perfectly self-consistent chain built). Cold start (no portfolio) →
+    None. The builder's cross-config guard makes this consistent by construction, so a
+    non-None result means an old pre-guard cross-config portfolio is still 'latest'."""
+    if (ranking_config_hash and portfolio_config_hash
+            and ranking_config_hash != portfolio_config_hash):
+        return (f"ranking config {ranking_config_hash} != portfolio config "
+                f"{portfolio_config_hash}")
+    return None
 
 
 async def _do_run_pipeline(triggered_by: str = "manual", force: bool = False) -> dict:

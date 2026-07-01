@@ -248,8 +248,13 @@ _STEPS: list[_StepDef] = [
     # pipeline produces run_date=S, which matches session S regardless of the wall
     # clock. (Previously this used chain_date vs TODAY as a workaround for the
     # weekend wedge; session-keying removes the need for the wall-clock stamp.)
+    # max_running_minutes (SG3): factor+rank on the full universe finishes in minutes;
+    # a run still 'running' after 60m is hung (OOM mid-factor, deadlock) and would wedge
+    # the chain invisibly with no self-heal (the pipeline is the heaviest step and was
+    # the ONLY front step without a watchdog). After 60m treat it as failed so the chain
+    # advances / run-now can re-trigger.
     _StepDef("pipeline", PIPELINE_URL, "/jobs/run", "run_date",
-             date_anchor=DateAnchor.SESSION),
+             date_anchor=DateAnchor.SESSION, max_running_minutes=60),
     # Vetter runs before portfolio-builder so exclusions feed the same-cycle build.
     # Not optional: if the vetter fails, the chain fails. The portfolio must never
     # be built without vetter exclusions applied.
@@ -271,8 +276,11 @@ _STEPS: list[_StepDef] = [
     # infinite retrigger loop the comment block above describes for the pipeline
     # step. Once a fresher ranking lands, portfolio_date != latest rank_date again
     # and the step correctly re-runs.
+    # max_running_minutes (SG3): a build (covariance + greedy on the candidate pool)
+    # finishes in a few minutes; 30m 'running' means it hung (OOM in covariance, a wedged
+    # DB txn). Watchdog so it self-heals instead of wedging the chain.
     _StepDef("portfolio-builder", PORTFOLIO_BUILDER_URL, "/jobs/build", "portfolio_date",
-             date_anchor=DateAnchor.UPSTREAM_RANK),
+             date_anchor=DateAnchor.UPSTREAM_RANK, max_running_minutes=30),
     # delta_runs.run_date is set from ranking_runs.rank_date in _do_delta_step
     # (see services/pipeline/app/main.py: `run_date = latest_rank.rank_date`).
     # Same data-date semantics as portfolio_date, same fix.
@@ -750,6 +758,19 @@ def _comparable_run_date(raw) -> str:
     return dt.astimezone().date().isoformat()
 
 
+def _hold_last_known(step: _StepDef) -> StepState:
+    """SG2: on a TRANSPORT error (timeout / 5xx / connection refused) the step's true
+    state is UNKNOWN, not "not started". Returning "idle" here made the supervisor
+    REGRESS an already-`done` step and re-trigger it (re-running fetch/pipeline,
+    re-billing the LLM vetter) on a momentary blip of a service that had finished.
+    Instead HOLD the last-known state: keep a `done` step done; otherwise report
+    "blocked" so the supervisor WAITS rather than churning a trigger it can't confirm.
+    (A genuine 404 "no run yet" is handled separately → idle, so first triggers still
+    fire.)"""
+    prev = (_chain_status.get("steps") or {}).get(step.name)
+    return "done" if prev == "done" else "blocked"
+
+
 async def _step_state(
     client: httpx.AsyncClient,
     step: _StepDef,
@@ -761,8 +782,10 @@ async def _step_state(
 ) -> StepState:
     try:
         r = await client.get(f"{step.url}{step.status_path}", timeout=10.0)
+        if r.status_code == 404:
+            return "idle"                 # genuinely no run yet → allow the first trigger
         if r.status_code != 200:
-            return "idle"
+            return _hold_last_known(step)  # 5xx/other transport-ish → don't regress a done step
         data = r.json()
         if step.job_type and data.get("job_type") != step.job_type:
             return "idle"
@@ -922,7 +945,7 @@ async def _step_state(
             return "failed"
         return "idle"
     except Exception:
-        return "idle"
+        return _hold_last_known(step)  # SG2: transport error → hold, don't regress a done step
 
 
 async def _trigger_step(client: httpx.AsyncClient, step: _StepDef, force: bool = False) -> bool:
@@ -976,14 +999,17 @@ def _is_after_scheduled_time() -> bool:
     the scheduled chain start time parsed from RANK_SCHEDULE_CRON.
     Prevents the 5-minute interval ticker from firing the chain before market
     close — without this guard it would trigger at midnight ET on prior-day data.
-    Falls back to True (don't block) if the cron string can't be parsed.
+    SG9: a malformed RANK_SCHEDULE_CRON falls back to a CONSERVATIVE default gate
+    (17:00 ET) rather than fail-OPEN (return True) — fail-open disabled the floor
+    entirely, letting the interval ticker fire the chain at any hour (e.g. midnight
+    on prior-day data), reintroducing the exact bug the floor exists to prevent.
     """
     try:
         parts = RANK_SCHEDULE_CRON.split()
         gate_minute = int(parts[0])
         gate_hour   = int(parts[1])
     except (IndexError, ValueError):
-        return True
+        gate_minute, gate_hour = 0, 17   # safe default: don't run before ~market close+
     now = _local_now()  # explicit SCHEDULE_TZ, not the implicit container zone
     return now.hour > gate_hour or (now.hour == gate_hour and now.minute >= gate_minute)
 
@@ -1648,6 +1674,23 @@ async def run_now(background_tasks: BackgroundTasks):
     # reset atomic w.r.t. ticks: any in-flight tick finishes first, then our
     # reset lands as one indivisible unit before the next tick can observe it.
     async with _chain_lock:
+        # SG6: if a cron chain is mid-flight, CLOSE its scheduler_runs row before we
+        # drop the in-memory pointer — otherwise run_now orphans it as status='running'
+        # forever (the same-session sweep only closes PRIOR-session rows), polluting
+        # /runs/latest and /health/chain. Mirror the session-rollover close.
+        prev_run_id = _chain_status.get("current_run_id")
+        if prev_run_id:
+            prev_status = _chain_status.get("status") or "failed"
+            if prev_status not in ("success", "failed"):
+                prev_status = "failed"
+            try:
+                await _db_close_run(prev_run_id, prev_status,
+                                    _chain_status.get("steps") or {},
+                                    _chain_status.get("run_ids") or {})
+                _log("run_now: closed in-flight chain run before manual restart",
+                     db_run_id=prev_run_id, status=prev_status)
+            except Exception as exc:
+                _log("run_now: failed to close in-flight chain run", error=str(exc))
         _chain_status.update({
             "date": session, "status": None, "steps": {}, "run_ids": {},
             "current_run_id": None, "origin": "manual",

@@ -500,6 +500,60 @@ expose ONE authoritative, ordered, monotonic progress object with a high-water m
 and the dashboard should render it verbatim. The client latch is the pragmatic
 first step toward that; U3/U4/U7 move the rest of the way.
 
+## Design Decision: scheduler hardening (watchdogs, no-regress, lineage skew)
+
+Architecture delta on the orchestrator, driven by the incidents it caused (the
+config-skew deadlock, the "stuck" states, done-step re-triggers). The scheduler's
+core weakness was the same "coordinate via global-latest + no durable done-state"
+pattern seen elsewhere, at the orchestration layer.
+
+**SG1 — config skew is now a LINEAGE check, not a compare-vs-reloaded-config.** The
+delta DIFFS the builder's target; it doesn't re-score, so its own freshly-reloaded
+config is irrelevant to the diff. `_detect_lineage_skew(ranking_hash, portfolio_hash)`
+(pure) checks only that the ranking and the PORTFOLIO the delta anchors on were built
+under the SAME config. The old check compared each vs the delta's reloaded config,
+which **false-deadlocked** the delta whenever the config file was edited AFTER a
+perfectly self-consistent chain built (the `selection_vol_aversion` incident). Paired
+with the builder's cross-config guard (ranking.config == portfolio.config by
+construction), skew now only trips on a genuine old pre-guard cross-config lineage.
+(This also removed the old `_detect_config_skew`, which queried the nonexistent
+`vetter_runs.config_hash` column and threw `UndefinedColumnError` every run.)
+
+**SG2 — `_step_state` no longer regresses a done step on a transport blip.** A non-200
+(non-404) or exception used to return `idle`, which made the supervisor **re-trigger an
+already-`done` step** (re-running fetch/pipeline, re-billing the vetter) whenever a
+finished service momentarily blipped. It now HOLDS the last-known state
+(`_hold_last_known`): a `done` step stays `done`, otherwise `blocked` (WAIT). A genuine
+404 "no run yet" still returns `idle` so first triggers fire.
+
+**SG3 — watchdogs on the pipeline (60m) and portfolio-builder (30m) steps.** These were
+the only steps without `max_running_minutes`; a hung (not crashed) run reported
+`running` forever and wedged the chain invisibly. Now they self-heal like fetch/vet/delta.
+
+**SG6 — run-now closes the in-flight cron chain row** (`_db_close_run`) before dropping
+the in-memory pointer, so a manual restart no longer orphans a `running` scheduler_runs
+row that polluted `/health/chain` and audit until a future-session sweep.
+
+**SG9 — the scheduled-time floor falls back to a conservative default (17:00 ET) on a
+malformed cron**, instead of fail-OPEN (which disabled the floor entirely and let the
+interval ticker fire the chain at any hour on prior-day data).
+
+**Documented (deliberately not code changes):**
+- **SG4 — run-now "ran too early → stale session"** is now mitigated by the av-ingestor
+  chain-advance withhold (a fetch that finds no new AV data withholds `session_date`, so
+  the SESSION-anchored steps stay not-done rather than scoring a stale session). run-now
+  no longer manufactures a stale chain; it just waits for the data.
+- **SG5 — bounded auto-retry on a genuine step failure** is intentionally NOT added.
+  SG2 already absorbs transient TRANSPORT blips (they no longer surface as `failed`); a
+  step whose service returns `status='failed'` is a REAL job failure that should halt
+  fail-closed for inspection rather than blindly re-run an expensive/broken step
+  (re-billing the vetter, re-OOMing the factor step). run-now provides the one manual retry.
+- **SG7 (cancel-all barrier before delta + a bound on the fail-closed cancel-deferred
+  wedge), SG8 (scheduler emits the single authoritative monotonic progress object —
+  the UI-delta end-state), SG10 (`/health/chain` visibility of a currently-wedged
+  chain; multi-day catch-up replays only the frontier), SG11 (single-instance
+  contract / leader election)** — scoped follow-ups.
+
 ## Strategy Flow
 
 ```text
