@@ -1864,6 +1864,14 @@ async def _do_rank(
             f"< min_ranked {_min_ranked} — builder will propagate degraded", flush=True
         )
 
+    # Finalize the ranking run for BOTH healthy and degraded rankings. These
+    # writes MUST NOT be nested under `if _ranking_degraded:` — doing so leaves a
+    # healthy run's ranking_runs row stuck 'running' (zombie), which wedges the
+    # scheduler (it keys the pipeline step on ranking_runs.status) so the chain
+    # never advances to vet/build/delta. `degraded=:deg` records the flag; the
+    # status transition to 'success' is unconditional. A fresh connection is
+    # opened because the batch-insert `conn` above is already closed.
+    async with engine.begin() as conn:
         await _log_step_ranker(
             conn, trace_id, "write_rankings", "success",
             started_at=t0,
