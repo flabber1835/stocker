@@ -1061,12 +1061,12 @@ async def start_build(
     async with engine.connect() as conn:
         if ranking_run_id:
             chk = await conn.execute(
-                text("SELECT run_id, regime, rank_date, degraded FROM ranking_runs WHERE run_id=:rid AND status='success'"),
+                text("SELECT run_id, regime, rank_date, degraded, config_hash FROM ranking_runs WHERE run_id=:rid AND status='success'"),
                 {"rid": ranking_run_id},
             )
         else:
             chk = await conn.execute(
-                text("SELECT run_id, regime, rank_date, degraded FROM ranking_runs WHERE status='success' ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1")
+                text("SELECT run_id, regime, rank_date, degraded, config_hash FROM ranking_runs WHERE status='success' ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1")
             )
         rr = chk.fetchone()
         if rr is None:
@@ -1077,6 +1077,7 @@ async def start_build(
         source_ranking_run_id = str(rr.run_id)
         regime = rr.regime
         portfolio_date = rr.rank_date
+        ranking_config_hash = rr.config_hash
         # P2: propagate a degraded ranking into the portfolio so the delta engine holds
         # the book (the degraded gate at its source — a thin ranking must not rotate).
         ranking_degraded = bool(rr.degraded)
@@ -1142,6 +1143,25 @@ async def start_build(
         # inside _do_build).
         strat_snap = strategy
         cfg_hash_snap = config_hash
+        # Config-consistency guard (root-cause fix for the delta config-skew deadlock):
+        # NEVER build a portfolio under one config from a ranking scored under a
+        # DIFFERENT config. That cross-config portfolio (new-config caps/weights applied
+        # to an old-config ranking) is exactly what made the delta's config-skew guard
+        # fail-close (ranking d9630 vs delta a1bffda) — a silent deadlock after a config
+        # edit while an old ranking was still "latest". Refuse LOUDLY instead so the
+        # operator re-ranks under the current config first. In a normal chain the rank
+        # step runs under the same current config, so this only trips on a stale-ranking
+        # race / mid-chain edit.
+        if ranking_config_hash and cfg_hash_snap and ranking_config_hash != cfg_hash_snap:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"ranking {source_ranking_run_id} was scored under config "
+                    f"{ranking_config_hash} but the builder's current config is "
+                    f"{cfg_hash_snap} — refusing to build a cross-config portfolio "
+                    "(re-run the pipeline rank step under the current config first)."
+                ),
+            )
         async with engine.connect() as inner_conn:
             await _assert_no_running_job(inner_conn)
         run_id = str(uuid.uuid4())

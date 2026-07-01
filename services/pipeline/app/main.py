@@ -2997,12 +2997,17 @@ async def _detect_config_skew(ranking_config_hash: str | None) -> dict:
         if ranking_config_hash and ranking_config_hash != config_hash:
             skew["ranking"] = ranking_config_hash
         async with engine.connect() as conn:
-            for label, tbl in (("portfolio", "portfolio_runs"), ("vetter", "vetter_runs")):
-                row = (await conn.execute(text(
-                    f"SELECT config_hash FROM {tbl} WHERE status='success' "
-                    "ORDER BY completed_at DESC NULLS LAST LIMIT 1"))).first()
-                if row and row[0] and row[0] != config_hash:
-                    skew[label] = row[0]
+            # BUG FIX: only portfolio_runs carries config_hash. vetter_runs has NO
+            # config_hash column, so querying it threw UndefinedColumnError every run
+            # ("config-skew check skipped"), which aborted the loop BEFORE the portfolio
+            # check and left the skew comparison incomplete. (The ranking hash is passed
+            # in and compared above; the vetter's config isn't tracked, so it can't be
+            # checked here.)
+            row = (await conn.execute(text(
+                "SELECT config_hash FROM portfolio_runs WHERE status='success' "
+                "AND superseded_at IS NULL ORDER BY completed_at DESC NULLS LAST LIMIT 1"))).first()
+            if row and row[0] and row[0] != config_hash:
+                skew["portfolio"] = row[0]
     except Exception as exc:  # detection must never break the chain
         print(f"[delta-engine] config-skew check skipped: {exc}", flush=True)
     return skew
