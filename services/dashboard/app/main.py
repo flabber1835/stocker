@@ -27,6 +27,17 @@ RANK_CHAIN_MAX_CONSEC_ERRORS = 30
 _intent_first_seen: dict[str, float] = {}
 _intent_approved: set[str] = set()
 
+# U2: last scheduler-authoritative phase (+ monotonic timestamp). When the scheduler
+# /status poll blips (times out on one fan-out) the phase would otherwise fall back to
+# the divergent per-service blended inference → the "vetter ↔ calculating factors"
+# flip. If the scheduler was driving moments ago (within SCHED_PHASE_HOLD_SECS) we hold
+# its last phase instead. Bounded so a real scheduler outage can't freeze it forever.
+_last_sched_phase: dict | None = None
+try:
+    SCHED_PHASE_HOLD_SECS = float(os.getenv("SCHED_PHASE_HOLD_SECS", "45"))
+except ValueError:
+    SCHED_PHASE_HOLD_SECS = 45.0
+
 _JOB_SERVICES = {
     "universe":  AV_INGESTOR_URL,
     "data":      AV_INGESTOR_URL,
@@ -852,6 +863,7 @@ async def pipeline_status():
     # collapsing the cross-service races the blended inference above is prone to
     # (see docs/architecture.md). The per-service inference above is kept only as
     # the fallback for when the scheduler is unreachable / not driving.
+    global _last_sched_phase
     if _sched_current_step is not None:
         _phase = derive_scheduler_phase(
             steps=_sched_steps,
@@ -865,6 +877,20 @@ async def pipeline_status():
             av_total_tickers=(d5.get("total_tickers") if isinstance(d5, dict) else None),
             rank_date=rank_date,
         )
+        rank_status      = _phase["rank_status"]
+        rank_step        = _phase["rank_step"]
+        rank_step_label  = _phase["rank_step_label"]
+        rank_pct         = _phase["rank_pct"]
+        vetter_status    = _phase["vetter_status"]
+        portfolio_status = _phase["portfolio_status"]
+        _last_sched_phase = {"phase": _phase, "ts": time.monotonic()}
+    elif _last_sched_phase is not None and (
+        time.monotonic() - _last_sched_phase["ts"] < SCHED_PHASE_HOLD_SECS
+    ):
+        # U2: scheduler unreachable THIS poll but was driving moments ago — hold its
+        # last authoritative phase instead of the divergent blended inference computed
+        # above, so a single /status blip can't flip the phase backwards.
+        _phase = _last_sched_phase["phase"]
         rank_status      = _phase["rank_status"]
         rank_step        = _phase["rank_step"]
         rank_step_label  = _phase["rank_step_label"]

@@ -447,6 +447,59 @@ backoff as the per-ticker client; a non-rate-limit key/plan body stays terminal.
   implications and is deferred deliberately. `earnings` + `analyst_snapshots` ARE
   point-in-time.
 
+## Design Decision: dashboard progress hardening (monotonic view)
+
+Architecture delta on the UI. The progress bar jumped backwards ("vetter →
+calculating factors", "100% → 99%") because the displayed phase is recomputed every
+poll from ~8 unsynchronized, non-monotonic, resettable sources (scheduler `/status`,
+pipeline `/runs/latest` + `/runs/progress`, av-ingestor `/runs/latest`, api panels)
+with **no high-water mark anywhere** — not in the contract, the backend, or the
+frontend. The fix is at the VIEW layer (display-only; no engine/trade change):
+
+**U1/U6 — client-side monotonic phase latch (`dashboard.js:_latchPhase`).** Holds the
+furthest-reached phase (and, within a phase, the highest pct) for the current run and
+refuses to render a regression. Resets on a terminal state or a genuine new run (a
+drop back to a FETCH phase while past fetch). This is the primary fix — it makes the
+bar monotonic regardless of what the racing backend emits.
+
+**U5 — single-flight polling.** An issue-sequence counter (`_pipelineSeq` /
+`_pipelineApplied`) so a slower OLDER `/api/pipeline-status` response can't overwrite
+a newer applied one (the 5s + 30s pollers were last-writer-wins).
+
+**U6 — keep-last-good.** `loadDelta` no longer blanks `deltaData` on a failed poll
+(was flickering the trader/holdings tab to "all clear").
+
+**U8 — selection durability.** The multi-select + optimistic approval state reset ONLY
+when the delta run changes (was wiped every poll/tab-switch), and the selection is
+persisted to `localStorage` keyed by run so a refresh doesn't strand it.
+
+**U2 — backend hold-last-good phase.** When the scheduler `/status` poll blips (times
+out on one fan-out) the backend held the last scheduler-authoritative phase for
+`SCHED_PHASE_HOLD_SECS` (default 45) instead of falling back to the divergent
+per-service blended inference — reducing the flip at the source (the client latch is
+the backstop).
+
+**Scoped follow-ups (deliberately NOT done here — documented, not rushed):**
+- **U3 — the dashboard directly initiates trades** (a server-side auto-approve loop
+  POSTs `/trade/approve` on timers) and holds supervision state (`_rank_chain_running`,
+  approval timers). This violates "dashboard is a stateless view that may *request*
+  approval, not execute." Relocating auto-approve into the scheduler/risk domain is a
+  trade-execution-path change with its own test surface — scoped separately rather than
+  moved blind at the end of a display-layer batch.
+- **U4 — pipeline `/runs/progress` is in-memory** (resets to `{}` between runs and on
+  restart, unlike av-ingestor's durable checkpoint). The client latch + `_resolveRankPct`
+  now hold last-good across a restart blip, so the visible symptom is mitigated; adding
+  a durable pipeline-progress column (mirroring av-ingestor G2) is the follow-up if the
+  latch proves insufficient.
+- **U7 — the phase reconciliation is duplicated** (`derive_scheduler_phase` vs the inline
+  blended fallback) and the step order is hardcoded in three places. A DRY pass is
+  cosmetic and deferred.
+
+The end state (target): the scheduler — the documented single chain driver — should
+expose ONE authoritative, ordered, monotonic progress object with a high-water mark,
+and the dashboard should render it verbatim. The client latch is the pragmatic
+first step toward that; U3/U4/U7 move the rest of the way.
+
 ## Strategy Flow
 
 ```text
