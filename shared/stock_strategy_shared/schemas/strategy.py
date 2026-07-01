@@ -500,6 +500,47 @@ class PortfolioBuilderConfig(BaseModel):
         ),
     )
 
+    beta_target_enabled: bool = Field(
+        default=False,
+        description=(
+            "Portfolio-level market-beta targeting (risk-shaping overlay). When True, "
+            "AFTER selection + base weighting + caps, the builder reweights the "
+            "invested book toward `beta_target` — portfolio beta is LINEAR in the "
+            "weights (β = Σ wᵢβᵢ), so this is a deterministic minimal tilt, not a "
+            "re-selection. It shifts weight toward higher- (or lower-) beta names "
+            "within the SAME holdings, then re-applies the position + sector + cluster "
+            "caps, so it never breaches a concentration limit. Per-name betas are the "
+            "120d OLS-vs-SPY values already computed in the pipeline (rankings."
+            "factor_scores.beta); a missing beta is imputed 1.0 (market). Default "
+            "False → the overlay is INERT and weighting is exactly as before "
+            "(fully reversible: flip this to False to restore current behaviour). "
+            "Exposed here so a future evaluator/LLM can tune the book's market "
+            "sensitivity via config without code changes."
+        ),
+    )
+    beta_target: float = Field(
+        default=1.3, gt=0.0, le=3.0,
+        description=(
+            "Target market beta for the fully-invested book when beta_target_enabled "
+            "is True (e.g. 1.3 = ~30% more market-sensitive than SPY). Only reachable "
+            "within the range the position/sector/cluster caps and the selected names' "
+            "own betas allow — if the target is infeasible under the caps the builder "
+            "gets as close as possible and flags beta_target_infeasible (it never "
+            "breaches a cap to chase the number). Applies to the invested relative "
+            "weights; if vol-targeting also de-levers, effective beta vs total equity "
+            "is exposure × beta_target. Ignored when beta_target_enabled is False."
+        ),
+    )
+    beta_tolerance: float = Field(
+        default=0.10, gt=0.0, le=1.0,
+        description=(
+            "Band (in beta units) around beta_target within which the achieved book "
+            "beta is considered on-target. Outside it the build is flagged "
+            "beta_target_infeasible (a warning, not a failure — the closest feasible "
+            "book is still used). Ignored when beta_target_enabled is False."
+        ),
+    )
+
     @model_validator(mode="after")
     def vol_target_min_exposure_feasible(self) -> "PortfolioBuilderConfig":
         if self.vol_target_enabled:

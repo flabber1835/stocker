@@ -606,6 +606,56 @@ portfolio level instead of the signal level).
   (reactive, idiosyncratic) and the correlation-cluster / sector / position caps
   (cross-sectional concentration). Vol-targeting governs **gross exposure over time**.
 
+## Design Decision: portfolio-level market-beta targeting (risk-shaping overlay)
+
+The portfolio-builder optionally reweights the invested book toward a **target
+market beta** (`β_portfolio = Σ wᵢβᵢ`). Off by default (`beta_target_enabled:
+false`, so weighting is exactly as before — fully reversible); enabled on
+`momentum_rotation_v2` at `beta_target: 1.3`.
+
+**Why a separate lever.** `selection_vol_aversion` (greedy) is an *indirect* dial —
+it changes *which* names win, and empirically only nudged book beta (0.12 → 0.30
+across successive cuts). Beta targeting is the *direct* lever: because portfolio
+beta is **linear in the weights**, hitting a setpoint is a deterministic reweight
+of the *already-selected* names, not a re-selection or a search. It answers "size
+the book to a beta of X," which the selection knob structurally cannot.
+
+**Mechanism** (`solve_beta_target_weights` in `services/portfolio-builder/app/select.py`).
+Applied AFTER base weighting + caps, on the sum-to-1 relative weights, BEFORE
+exposure scaling (so the target is on the invested composition; if vol-targeting
+also de-levers, effective beta vs total equity is `exposure × beta_target`). A
+single-parameter **exponential (Boltzmann) tilt** `raw_i = w_base_i · exp(λ·βᵢ)`
+is renormalized under the position cap (water-fill, `_cap_normalize`) and λ found by
+**bisection**: λ=0 is the base weighting, λ→+∞ concentrates on the highest-beta
+name, λ→−∞ on the lowest, so `book_beta(λ)` is monotone across the full feasible
+range. (A *linear* tilt `w_base + λ·β` saturates at `Σβ²/Σβ` — proportional-to-β
+weights — and cannot reach the higher betas, so the exponential form is required.)
+Per-name betas are the 120d OLS-vs-SPY values the pipeline already stores
+display-only in `rankings.factor_scores.beta`; a missing beta is imputed 1.0
+(market). After each tilt the position + cluster + sector caps are re-applied
+(iterated to a fixpoint), so **the overlay never breaches a concentration limit**.
+
+**Properties / guardrails.**
+- **Caps win over the target.** If the target needs concentrating a capped group
+  (or the selected names' betas can't span it), the achieved beta falls short; the
+  builder ships the **closest feasible** book and flags `beta_target_infeasible`
+  (a warning in the run + dashboard, never a failed build). It will not breach a
+  cap to chase the number. Example: a decoupled, low-beta selection (an energy-heavy
+  book) cannot be levered to 1.3 by reweighting alone under a 0.08 position cap —
+  that is a *selection* problem, surfaced honestly rather than forced.
+- **Reversible.** `beta_target_enabled: false` → the overlay is inert and weights
+  are byte-for-byte the pre-overlay result. This is the single revert switch.
+- **Config-exposed for the evaluator.** `beta_target` / `beta_tolerance` live in the
+  strategy YAML so a future evaluator/LLM can tune market sensitivity via config,
+  within the deterministic Python engine (the LLM never sizes positions directly).
+- **Complementary** to vol-targeting (governs gross *exposure over time*), the
+  falling-knife veto (per-name, reactive), and the concentration caps
+  (cross-sectional). Beta targeting shapes the book's *market sensitivity*; the
+  caps still bound *how* it gets there.
+- Shares the exact same cap primitives as `compute_weights` (`_apply_position_cap` /
+  `_apply_group_cap` / `_apply_all_caps`, extracted to module level) so the two
+  weighting paths can never drift on what a cap means.
+
 ## Design Decision: correlation-cluster cap replaces the sector cap
 
 The portfolio-builder caps concentration by **correlation cluster**, not by the

@@ -172,6 +172,17 @@ portfolio_builder:
   vol_target_enabled: true
   vol_target: 0.18                   # annualised target book vol; binds only above this
   vol_target_min_exposure: 0.30      # never de-lever below 30% invested even in extreme vol
+  # Portfolio-level MARKET-BETA TARGETING (risk-shaping overlay). After selection +
+  # weighting + caps, reweight the invested book toward beta_target (β = Σ wᵢβᵢ is
+  # linear in weights → deterministic minimal tilt within the SAME holdings, caps
+  # re-applied so no concentration limit is breached). This is the direct lever for
+  # book beta, complementing the indirect selection_vol_aversion knob: that one only
+  # nudges WHICH names win, this one sizes them to hit a number. Uses the 120d
+  # OLS-vs-SPY beta already computed per name. TO REVERT to pre-beta-target
+  # behaviour, set beta_target_enabled: false (weights untouched).
+  beta_target_enabled: true
+  beta_target: 1.3                   # aim the invested book at ~1.3x SPY sensitivity
+  beta_tolerance: 0.10               # on-target band; outside it → beta_target_infeasible warning (closest feasible book still shipped)
 vetter:
   enabled: true
   candidate_count: 200

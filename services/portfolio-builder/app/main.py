@@ -15,7 +15,8 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy import text
 
 from app.select import (greedy_select, build_covariance, compute_weights, correlation_clusters,
-                        compute_excluded_set, book_volatility, vol_target_exposure)
+                        compute_excluded_set, book_volatility, vol_target_exposure,
+                        solve_beta_target_weights, _apply_all_caps)
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 from stock_strategy_shared.investability import (
@@ -235,7 +236,7 @@ async def _do_build(
     async with engine.connect() as conn:
         rows = await conn.execute(
             text(
-                "SELECT ticker, rank, composite_score FROM rankings "
+                "SELECT ticker, rank, composite_score, factor_scores FROM rankings "
                 "WHERE run_id = :rid ORDER BY rank ASC LIMIT :n"
             ),
             {"rid": source_ranking_run_id, "n": pb_cfg.candidate_count},
@@ -248,6 +249,25 @@ async def _do_build(
     candidate_tickers = [r.ticker for r in candidates]
     scores_map = {r.ticker: float(r.composite_score) for r in candidates}
     rank_map = {r.ticker: int(r.rank) for r in candidates}
+
+    # Per-name market beta (120d OLS vs SPY) for the optional beta-target overlay.
+    # Stored display-only in rankings.factor_scores JSONB by the pipeline rank step.
+    # Missing/unparseable beta is simply absent here → the solver imputes 1.0.
+    beta_map: dict[str, float] = {}
+    for r in candidates:
+        fs = getattr(r, "factor_scores", None)
+        if not fs:
+            continue
+        try:
+            d = fs if isinstance(fs, dict) else json.loads(fs)
+        except (ValueError, TypeError):
+            continue
+        bv = d.get("beta")
+        if bv is not None:
+            try:
+                beta_map[r.ticker] = float(bv)
+            except (ValueError, TypeError):
+                pass
 
     async with engine.begin() as conn:
         await _log_step(
@@ -690,6 +710,51 @@ async def _do_build(
         if not any(w > max_pw + 1e-9 for w in weights.values()):
             break
 
+    # ── Beta-target overlay (optional, reversible via beta_target_enabled) ────────
+    # Reweight the sum-to-1 invested book toward a target market beta. Runs AFTER
+    # base weighting + caps so it tilts within the SELECTED names only; re-applies
+    # the position + cluster + sector caps after each tilt so no concentration limit
+    # is breached. Default-OFF → weights are untouched (current behaviour). Placed
+    # BEFORE exposure scaling so the target is on the invested relative composition.
+    beta_target_enabled = bool(getattr(pb_cfg, "beta_target_enabled", False))
+    beta_target_info: dict | None = None
+    if beta_target_enabled and len(weights) > 1:
+        _beta_constraints: list[tuple[dict[str, str], float]] = []
+        if pb_cfg.max_cluster_weight < 1.0:
+            _beta_constraints.append((cluster_map, pb_cfg.max_cluster_weight))
+        if pb_cfg.max_sector_weight < 1.0:
+            _beta_constraints.append((sector_map, pb_cfg.max_sector_weight))
+        # Iterate tilt → re-cap to a fixpoint: the caps can pull beta back off target
+        # (if the target needs concentrating a capped group), so a few passes settle
+        # on the closest cap-respecting book.
+        for _bpass in range(3):
+            weights, beta_target_info = solve_beta_target_weights(
+                weights, beta_map, pb_cfg.beta_target,
+                max_position_weight=max_pw,
+            )
+            if _beta_constraints:
+                weights = _apply_all_caps(weights, max_pw, _beta_constraints)
+                _s = sum(weights.values())
+                if _s > 0:
+                    weights = {t: w / _s for t, w in weights.items()}
+        # Achieved beta AFTER caps (the number that actually ships).
+        _achieved = sum(weights[t] * beta_map.get(t, 1.0) for t in weights)
+        _infeasible = abs(_achieved - pb_cfg.beta_target) > pb_cfg.beta_tolerance
+        beta_target_info = {
+            **(beta_target_info or {}),
+            "achieved_beta": round(_achieved, 4),
+            "target": pb_cfg.beta_target,
+            "tolerance": pb_cfg.beta_tolerance,
+            "infeasible": bool(_infeasible),
+        }
+        print(
+            f"[portfolio-builder] beta_target={pb_cfg.beta_target:.3f} "
+            f"base_beta={beta_target_info.get('base_beta')} achieved={_achieved:.3f} "
+            f"tol={pb_cfg.beta_tolerance:.2f} "
+            f"{'INFEASIBLE (closest feasible shipped)' if _infeasible else 'on-target'}",
+            flush=True,
+        )
+
     # Exposure scaling = fixed cash_reserve buffer + optional volatility targeting.
     # `weights` sums to 1.0 here (fully-invested relative weights), so its vol IS the
     # book vol we target. cash_reserve sets the max investable exposure (a buffer so
@@ -790,6 +855,12 @@ async def _do_build(
             f"{len(negative_excluded)} candidates excluded: negative composite score "
             f"(require_positive_composite_score=true)"
         )
+    if beta_target_info and beta_target_info.get("infeasible"):
+        sel_warnings.append(
+            f"beta_target_infeasible: target {pb_cfg.beta_target:.2f} not reachable "
+            f"under caps/selected names — shipped closest feasible book "
+            f"(achieved {beta_target_info.get('achieved_beta')})"
+        )
 
     weight_values = [weights[t] for t in selected_tickers]
     async with engine.begin() as conn:
@@ -819,6 +890,9 @@ async def _do_build(
                 "vol_target": pb_cfg.vol_target if vol_target_enabled else None,
                 "book_vol_full_invested": round(book_vol_full_invested, 4) if book_vol_full_invested is not None else None,
                 "vol_target_exposure": round(exposure, 4),
+                "beta_target_enabled": beta_target_enabled,
+                "beta_target": pb_cfg.beta_target if beta_target_enabled else None,
+                "beta_target_info": beta_target_info,
                 "invested_fraction": round(sum(weights.values()), 4),
                 "avg_candidate_pool_correlation": round(avg_pairwise_corr, 4),
                 "highest_corr_pair": highest_corr_pair,

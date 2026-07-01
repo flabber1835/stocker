@@ -395,6 +395,233 @@ def build_covariance(
     return cov, dropped, corr
 
 
+# ── Weight-cap primitives (module-level so the beta-target overlay reuses the
+#    SAME risk-cap logic as compute_weights — no drift between the two paths) ────
+
+def _apply_position_cap(w: dict[str, float], max_position_weight: float) -> dict[str, float]:
+    """Redistribute excess from over-cap positions to under-cap ones (iterative).
+
+    Once a position is capped it never receives redistributed weight again
+    (ever_capped), preventing oscillation. Does NOT renormalize — the caller does.
+    """
+    w = dict(w)
+    n = max(len(w), 1)
+    ever_capped: set[str] = set()
+    for _ in range(n):
+        over = {t: v for t, v in w.items()
+                if v > max_position_weight + 1e-9 and t not in ever_capped}
+        if not over:
+            break
+        ever_capped.update(over.keys())
+        excess = sum(v - max_position_weight for v in over.values())
+        for t in over:
+            w[t] = max_position_weight
+        under = {t: v for t, v in w.items() if t not in ever_capped}
+        total_under = sum(under.values())
+        if total_under < 1e-12:
+            break
+        for t in under:
+            w[t] += excess * (w[t] / total_under)
+    return w
+
+
+def _apply_group_cap(w: dict[str, float], group_map: dict[str, str],
+                     max_group_weight: float, max_position_weight: float) -> dict[str, float]:
+    """Redistribute weight away from over-cap groups (one grouping dimension).
+
+    ever_capped: once a group is at max_group_weight it never receives redistributed
+    weight again, preventing oscillation when two groups take turns pushing each
+    other over. Re-applies the position cap after each round (group redistribution
+    can push a name over its per-name cap).
+    """
+    w = dict(w)
+    n = max(len(w), 1)
+    ever_capped: set[str] = set()
+    for _round in range(n * 2):
+        totals: dict[str, float] = {}
+        for t, wt in w.items():
+            g = group_map.get(t, "")
+            if g:
+                totals[g] = totals.get(g, 0.0) + wt
+        over = {g for g, tot in totals.items()
+                if tot > max_group_weight + 1e-9 and g not in ever_capped}
+        if not over:
+            break
+        ever_capped.update(over)
+        total_excess = 0.0
+        for t in list(w.keys()):
+            g = group_map.get(t, "")
+            if g in over:
+                scale = max_group_weight / totals[g]
+                total_excess += w[t] * (1.0 - scale)
+                w[t] *= scale
+        under = {t: wt for t, wt in w.items() if group_map.get(t, "") not in ever_capped}
+        total_under = sum(under.values())
+        if total_under < 1e-12:
+            break
+        for t in under:
+            w[t] += total_excess * (w[t] / total_under)
+        if max_position_weight < 1.0:
+            w = _apply_position_cap(w, max_position_weight)
+    return w
+
+
+def _apply_all_caps(w: dict[str, float], max_position_weight: float,
+                    constraints: list[tuple[dict[str, str], float]]) -> dict[str, float]:
+    """Apply the position cap + every group cap to a mutual fixpoint (capping one
+    grouping redistributes weight that may violate another). Bounded and convergent
+    because each group, once capped, never receives weight back. Does NOT renormalize.
+    """
+    if max_position_weight < 1.0:
+        w = _apply_position_cap(w, max_position_weight)
+    for _outer in range(2 * len(constraints) + 1):
+        changed = False
+        for gmap, gmax in constraints:
+            new_w = _apply_group_cap(w, gmap, gmax, max_position_weight)
+            if any(abs(new_w[t] - w[t]) > 1e-9 for t in new_w):
+                changed = True
+            w = new_w
+        if not changed:
+            break
+    return w
+
+
+def _cap_normalize(raw: dict[str, float], cap: float, total: float) -> dict[str, float]:
+    """Allocate `total` across names proportional to `raw`, capping each at `cap`
+    via water-filling (excess from would-be-over-cap names spills to the rest, and
+    they cap in turn). Conserves the total when feasible (cap·N >= total) and is the
+    mass-safe replacement for cap-then-renormalize, which re-inflates capped names
+    when the proportional receivers have underflowed to ~0 (the exponential tilt).
+    Deterministic.
+    """
+    tickers = list(raw)
+    n = len(tickers)
+    if n == 0:
+        return {}
+    if cap >= 1.0:
+        s = sum(raw.values())
+        return ({t: raw[t] * total / s for t in tickers} if s > 0
+                else {t: total / n for t in tickers})
+    if cap * n < total - 1e-12:
+        # Infeasible: even all-capped can't reach total. Return all-at-cap (caller
+        # renormalizes / flags); should not occur when base weights are cap-feasible.
+        return {t: cap for t in tickers}
+    w = {t: 0.0 for t in tickers}
+    capped: set[str] = set()
+    for _ in range(n + 2):
+        free = [t for t in tickers if t not in capped]
+        budget = total - sum(w[t] for t in capped)
+        tot = sum(raw[t] for t in free)
+        if tot <= 0:
+            share = budget / len(free) if free else 0.0
+            for t in free:
+                w[t] = min(cap, share)
+            break
+        overflow = [t for t in free if budget * raw[t] / tot >= cap]
+        if not overflow:
+            for t in free:
+                w[t] = budget * raw[t] / tot
+            break
+        for t in overflow:
+            w[t] = cap
+            capped.add(t)
+    return w
+
+
+def solve_beta_target_weights(
+    weights: dict[str, float],
+    betas: dict[str, float] | None,
+    beta_target: float,
+    max_position_weight: float = 1.0,
+    max_iter: int = 80,
+) -> tuple[dict[str, float], dict]:
+    """Reweight the book toward a target market beta (β = Σ wᵢβᵢ over the invested book).
+
+    Portfolio beta is LINEAR in the weights, so hitting a setpoint is a deterministic
+    tilt, not a search over holdings. Method: a single-parameter exponential
+    (Boltzmann) tilt `raw_i = w_base_i · exp(λ·βᵢ)`, renormalized to the base
+    weight-sum and position-capped, with λ found by bisection. λ=0 → base weights;
+    λ→+∞ concentrates on the highest-beta name (→ max reachable beta), λ→−∞ on the
+    lowest, so book_beta(λ) is monotone across the FULL feasible range and bisection
+    converges. (A linear tilt `w_base + λ·β` saturates at Σβ²/Σβ — proportional-to-β
+    weights — and can't reach the higher betas, so the exponential form is required.)
+    The tilt is minimal when the base is already near target and respects the
+    per-name cap by construction.
+
+    Names with a missing / non-finite beta are imputed β=1.0 (market) so the beta
+    identity stays well-defined (beta is computed for ~all ranked names; this is an
+    edge case). Sector/cluster caps are NOT enforced here — the caller re-applies
+    them via `_apply_all_caps` (they may pull the achieved beta off target when the
+    target would require concentrating a capped group; that is the feasible reality).
+
+    Returns (weights, info) with info = {base_beta, achieved_beta, target,
+    infeasible, reason}. `infeasible` means the target lies outside the range
+    reachable under the position cap. Deterministic.
+    """
+    import math
+
+    tickers = list(weights.keys())
+    n = len(tickers)
+    S = sum(weights.values())
+    if n == 0 or S <= 0:
+        return dict(weights), {"base_beta": 0.0, "achieved_beta": 0.0,
+                               "target": beta_target, "infeasible": True, "reason": "empty book"}
+
+    beta = {}
+    for t in tickers:
+        b = betas.get(t) if betas else None
+        beta[t] = float(b) if (b is not None and math.isfinite(float(b))) else 1.0
+
+    cap = max_position_weight if (max_position_weight and max_position_weight < 1.0) else 1.0
+    wb = dict(weights)
+
+    def _book_beta(w: dict[str, float]) -> float:
+        s = sum(w.values())
+        return (sum(w[t] * beta[t] for t in tickers) / s) if s > 0 else 0.0
+
+    base_beta = _book_beta(wb)
+
+    def _weights_at(lam: float) -> dict[str, float]:
+        # Exponential tilt with max-subtraction for numerical stability (standard
+        # softmax trick — exact ratios, no overflow, no clamping distortion).
+        z = {t: lam * beta[t] for t in tickers}
+        zmax = max(z.values())
+        raw = {t: wb[t] * math.exp(z[t] - zmax) for t in tickers}
+        if sum(raw.values()) <= 0:
+            return {t: S / n for t in tickers}
+        return _cap_normalize(raw, cap, S)
+
+    # Bracket λ so book_beta(lo) <= target <= book_beta(hi), expanding geometrically.
+    lo, hi = -1.0, 1.0
+    for _ in range(60):
+        if _book_beta(_weights_at(hi)) >= beta_target:
+            break
+        hi *= 2.0
+    for _ in range(60):
+        if _book_beta(_weights_at(lo)) <= beta_target:
+            break
+        lo *= 2.0
+    b_lo = _book_beta(_weights_at(lo))
+    b_hi = _book_beta(_weights_at(hi))
+    infeasible = not (b_lo - 1e-6 <= beta_target <= b_hi + 1e-6)
+
+    for _ in range(max_iter):
+        mid = 0.5 * (lo + hi)
+        if _book_beta(_weights_at(mid)) < beta_target:
+            lo = mid
+        else:
+            hi = mid
+
+    w = _weights_at(0.5 * (lo + hi))
+    return w, {
+        "base_beta": round(base_beta, 4),
+        "achieved_beta": round(_book_beta(w), 4),
+        "target": beta_target,
+        "infeasible": bool(infeasible),
+        "reason": "beta target outside cap-feasible range" if infeasible else "",
+    }
+
+
 def compute_weights(
     selected: list[dict],
     cov: pd.DataFrame,
@@ -468,93 +695,17 @@ def compute_weights(
     else:
         raise ValueError(f"Unknown weighting method: {method!r}")
 
-    def _apply_position_cap(w: dict[str, float]) -> dict[str, float]:
-        """Redistribute excess from over-cap positions to under-cap ones (iterative)."""
-        w = dict(w)
-        ever_capped: set[str] = set()
-        for _ in range(n):
-            over = {t: v for t, v in w.items() if v > max_position_weight + 1e-9 and t not in ever_capped}
-            if not over:
-                break
-            ever_capped.update(over.keys())
-            excess = sum(v - max_position_weight for v in over.values())
-            for t in over:
-                w[t] = max_position_weight
-            under = {t: v for t, v in w.items() if t not in ever_capped}
-            total_under = sum(under.values())
-            if total_under < 1e-12:
-                break
-            for t in under:
-                w[t] += excess * (w[t] / total_under)
-        return w
-
-    weights = _apply_position_cap(raw)
-
-    def _apply_group_cap(w: dict[str, float], group_map: dict[str, str],
-                         max_group_weight: float) -> dict[str, float]:
-        """Redistribute weight away from over-cap groups (one grouping dimension).
-
-        The greedy_select count cap prevents too many picks from one group but doesn't
-        bound the combined weight when adj_score_proportional gives high-conviction
-        names in the same group much larger weights. This loop is the hard weight gate.
-
-        ever_capped tracking: once a group is brought to max_group_weight it never
-        receives redistributed weight again, preventing oscillation when two groups
-        take turns pushing each other over. If the constraint is infeasible
-        (n_groups * max < 1.0) the loop breaks when no uncapped receivers remain; the
-        caller's final normalization restores sum-to-1.
-        """
-        w = dict(w)
-        ever_capped: set[str] = set()
-        for _round in range(n * 2):
-            totals: dict[str, float] = {}
-            for t, wt in w.items():
-                g = group_map.get(t, "")
-                if g:
-                    totals[g] = totals.get(g, 0.0) + wt
-            over = {g for g, tot in totals.items()
-                    if tot > max_group_weight + 1e-9 and g not in ever_capped}
-            if not over:
-                break
-            ever_capped.update(over)
-            total_excess = 0.0
-            for t in list(w.keys()):
-                g = group_map.get(t, "")
-                if g in over:
-                    scale = max_group_weight / totals[g]
-                    total_excess += w[t] * (1.0 - scale)
-                    w[t] *= scale
-            under = {t: wt for t, wt in w.items() if group_map.get(t, "") not in ever_capped}
-            total_under = sum(under.values())
-            if total_under < 1e-12:
-                break
-            for t in under:
-                w[t] += total_excess * (w[t] / total_under)
-            # Group redistribution can push positions above max_position_weight;
-            # re-apply the position cap before the next group check.
-            if max_position_weight < 1.0:
-                w = _apply_position_cap(w)
-        return w
+    weights = _apply_position_cap(raw, max_position_weight)
 
     # Active group constraints: the correlation-cluster cap and the independent
-    # AV-sector cap. With two groupings, iterate them to a mutual fixpoint (capping
-    # one redistributes weight that may violate the other) — bounded and convergent
-    # because each group, once capped, never receives weight back.
+    # AV-sector cap (see _apply_all_caps — iterated to a mutual fixpoint).
     constraints: list[tuple[dict[str, str], float]] = []
     if sector_map is not None and max_sector_weight < 1.0:
         constraints.append((sector_map, max_sector_weight))
     if av_sector_map is not None and max_av_sector_weight < 1.0:
         constraints.append((av_sector_map, max_av_sector_weight))
 
-    for _outer in range(2 * len(constraints) + 1):
-        changed = False
-        for gmap, gmax in constraints:
-            new_w = _apply_group_cap(weights, gmap, gmax)
-            if any(abs(new_w[t] - weights[t]) > 1e-9 for t in new_w):
-                changed = True
-            weights = new_w
-        if not changed:
-            break
+    weights = _apply_all_caps(weights, max_position_weight, constraints)
 
     # Normalise to exactly 1.0 (guard against floating-point drift)
     total = sum(weights.values())
