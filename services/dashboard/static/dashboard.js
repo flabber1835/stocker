@@ -67,6 +67,9 @@ let _rankingsLoadState = 'pending';  // 'pending' | 'ok' | 'empty' — drives st
 
 const RUN_LOCK_MS = 30000;     // keep button disabled for 30 s after clicking Run
 let _selectedIntents = new Set();
+let _deltaRunKey = null;        // U8: current delta run identity — selection/approval reset only on change
+let _pipelineSeq = 0;          // U5: issue order of /api/pipeline-status polls
+let _pipelineApplied = 0;      // U5: highest issue-seq already applied — a slower older poll can't overwrite a newer one
 let _completedExpanded = false; // trader tab: whether the Completed section is open
 
 const REFRESH_SECS = 30;
@@ -215,6 +218,47 @@ function _resolveRankPct(rank) {
   return null;
 }
 
+// U1/U6: client-side MONOTONIC phase latch. The backend recomputes the phase every
+// poll from ~8 unsynchronized sources, so a transient source blip makes the label
+// jump BACKWARDS ("vetter → calculating factors", "100% → 99%"). This latch holds the
+// furthest-reached phase (and, within a phase, the highest pct) for the current run
+// and refuses to render a regression — UNLESS the phase drops all the way back to a
+// FETCH phase (rank ≤ 2), which is a legitimate NEW run, or a terminal state, either
+// of which RESETS the latch. Display-only; the underlying data is unchanged.
+let _phaseLatch = null;   // { rank, pct, text, textCls }
+const _PHASE_RANK = {
+  'FETCHING UNIVERSE': 1, 'FETCHING DATA': 2, 'CALCULATING FACTORS': 3,
+  'PIPELINE RUNNING': 3, 'RANKING STOCKS': 4, 'VETTER': 5,
+  'BUILDING PORTFOLIO': 6, 'DELTA EVAL': 7,
+};
+
+function _latchPhase(text, textCls) {
+  // Parse "<PHASE>  NN%" → prefix + pct.
+  const m = text.match(/\s(\d+)%\s*$/);
+  const pct = m ? parseInt(m[1], 10) : null;
+  const prefix = text.replace(/\s\d+%\s*$/, '').trim();
+  const rank = _PHASE_RANK[prefix];
+
+  if (rank === undefined) {          // terminal / idle / pending-countdown → reset
+    _phaseLatch = null;
+    return { text, textCls };
+  }
+  // A drop back to a FETCH phase while we were PAST fetch = a legitimate new run → reset
+  // to it. (A same-phase fetch wobble like 100%→99% is NOT this — it's handled by the
+  // pct clamp below, since latch.rank is still the fetch rank.)
+  if (rank <= 2 && _phaseLatch && _phaseLatch.rank > 2) {
+    _phaseLatch = { rank, pct, text, textCls };
+    return { text, textCls };
+  }
+  if (_phaseLatch) {
+    if (rank < _phaseLatch.rank) return { text: _phaseLatch.text, textCls: _phaseLatch.textCls };  // hold higher phase
+    if (rank === _phaseLatch.rank && pct != null && _phaseLatch.pct != null && pct < _phaseLatch.pct)
+      return { text: _phaseLatch.text, textCls: _phaseLatch.textCls };  // pct can't go down within a phase
+  }
+  _phaseLatch = { rank, pct, text, textCls };
+  return { text, textCls };
+}
+
 function updateStatusBar(d) {
   const rank      = d.rank      || {};
   const vetter    = d.vetter    || {};
@@ -288,6 +332,10 @@ function updateStatusBar(d) {
       subCls = urgentRemaining < 600 ? 'sb-red' : 'sb-amber';
     }
   }
+
+  // U1/U6: pass the computed phase through the monotonic latch so a transient
+  // multi-source blip can't render the phase/percent going backwards within a run.
+  ({ text, textCls } = _latchPhase(text, textCls));
 
   const sbText = $('sb-text');
   sbText.textContent = text;
@@ -1118,22 +1166,50 @@ function _buildDetailHtml(r) {
 let deltaRun = {};   // latest delta run meta (confirmation_days, etc.) for holdings-status
 
 async function loadDelta() {
+  let d;
   try {
-    const d = await fetch('/api/delta/latest', {cache:'no-store'}).then(r => r.json());
-    const run = d.run || {};
-    deltaRun = run;
-    deltaData = d.intents || [];
-    _loadClearedTrades(run.run_id || run.run_date || null);
-    const dateEl = $('ds-date');
-    if (dateEl) dateEl.textContent = run.run_date || '—';
-    _approvalState = {};
-    _selectedIntents.clear();
-    renderTrader();
-    updateTraderBadge();
+    d = await fetch('/api/delta/latest', {cache:'no-store'}).then(r => r.json());
   } catch (e) {
-    deltaData = [];
-    renderTrader();
+    // U6/keep-last-good: a single failed poll must NOT blank the trader/holdings tab
+    // (was setting deltaData=[] → flicker to "all clear" and back). Keep last-good.
+    return;
   }
+  const run = d.run || {};
+  deltaRun = run;
+  deltaData = d.intents || [];
+  const runKey = run.run_id || run.run_date || null;
+  _loadClearedTrades(runKey);
+  const dateEl = $('ds-date');
+  if (dateEl) dateEl.textContent = run.run_date || '—';
+  // U8: only reset optimistic approval state + the user's in-progress multi-select
+  // when the RUN actually changed. Previously this ran every poll (every 5-30s and on
+  // tab switch), wiping a selection before the user could click Approve. On the same
+  // run, keep both across polls; on a new run, load any persisted selection.
+  if (runKey !== _deltaRunKey) {
+    _deltaRunKey = runKey;
+    _approvalState = {};
+    _selectedIntents = _loadSelection(runKey);
+  }
+  renderTrader();
+  updateTraderBadge();
+}
+
+// U8: persist the multi-select to localStorage keyed by run so a page refresh mid-
+// selection doesn't strand it (mirrors the _clearedTrades pattern).
+function _selKey(runKey) { return 'selectedIntents:' + (runKey || 'none'); }
+function _persistSelection() {
+  try {
+    Object.keys(localStorage).forEach(k => {
+      if (k.startsWith('selectedIntents:') && k !== _selKey(_deltaRunKey)) localStorage.removeItem(k);
+    });
+    localStorage.setItem(_selKey(_deltaRunKey), JSON.stringify([..._selectedIntents]));
+  } catch (e) { /* localStorage unavailable — selection stays in-memory only */ }
+}
+function _loadSelection(runKey) {
+  try {
+    const raw = localStorage.getItem(_selKey(runKey));
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch (e) { return new Set(); }
 }
 
 /* ── Action metadata maps ────────────────────────────────────────────── */
@@ -1544,12 +1620,14 @@ function toggleSelectAll() {
     if (checked) _selectedIntents.add(String(r.id));
     else         _selectedIntents.delete(String(r.id));
   });
+  _persistSelection();
   renderTrader();
 }
 
 function toggleSelectIntent(id, checked) {
   if (checked) _selectedIntents.add(String(id));
   else         _selectedIntents.delete(String(id));
+  _persistSelection();
   _syncSelectAllState();
 }
 
@@ -1573,6 +1651,7 @@ async function approveSelected() {
   );
   if (!toApprove.length) return;
   _selectedIntents.clear();
+  _persistSelection();
 
   // Durable BATCH enqueue: ONE request persists the whole selection server-side, and
   // the trade-executor's single-consumer worker then sizes/risk-checks/submits each
@@ -2159,13 +2238,15 @@ async function startJob(tab) {
 /* ── Main refresh loop ───────────────────────────────────────────────── */
 async function refresh() {
   _lastRefreshAt = Date.now();
+  const myseq = ++_pipelineSeq;   // U5: single-flight — reject this response if a newer poll already applied
   try {
     const [pipelineRes, aaRes] = await Promise.all([
       fetch('/api/pipeline-status').then(r => r.json()).catch(() => null),
       fetch('/api/auto-approve-status').then(r => r.json()).catch(() => null),
     ]);
 
-    if (pipelineRes) {
+    if (pipelineRes && myseq > _pipelineApplied) {
+      _pipelineApplied = myseq;
       const prev = _pipelineData;
       _pipelineData = pipelineRes;
       updateStatusBar(pipelineRes);
@@ -2213,9 +2294,11 @@ setInterval(() => {
 // Catches running→idle transitions quickly without reloading all data.
 setInterval(async () => {
   if (document.hidden) return;
+  const myseq = ++_pipelineSeq;   // U5: single-flight guard (shared with refresh())
   try {
     const r = await fetch('/api/pipeline-status').then(res => res.json()).catch(() => null);
-    if (r) {
+    if (r && myseq > _pipelineApplied) {
+      _pipelineApplied = myseq;
       const prevRank = (_pipelineData.rank || {}).status;
       _pipelineData = r;
       updateStatusBar(r);

@@ -33,6 +33,8 @@ _HARNESS_TMPL = r"""
 let deltaData = __DATA__;
 let _selectedIntents = new Set(__SELECTED__);
 let _approvalState = {};
+let _deltaRunKey = null;
+function _persistSelection() {}
 function renderTrader() {}
 function _enqueueState(res) { return { status: (res && res.status) || 'err' }; }
 
