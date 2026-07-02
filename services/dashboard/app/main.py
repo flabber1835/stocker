@@ -16,6 +16,7 @@ PIPELINE_URL        = os.getenv("PIPELINE_URL",        "http://pipeline:8000")
 VETTER_URL          = os.getenv("VETTER_URL",          "http://llm-vetter:8000")
 PORTFOLIO_URL       = os.getenv("PORTFOLIO_URL",       "http://portfolio-builder:8000")
 SCHEDULER_URL       = os.getenv("SCHEDULER_URL",       "http://scheduler:8000")
+EVALUATOR_URL       = os.getenv("EVALUATOR_URL",       "http://evaluator:8000")
 TRADE_AUTO_APPROVE_MINUTES = int(os.getenv("TRADE_AUTO_APPROVE_MINUTES", "60"))
 
 _rank_chain_running: bool = False
@@ -507,6 +508,38 @@ async def vetter_ticker_results(run_id: str):
             return JSONResponse(content=r.json(), status_code=r.status_code)
     except Exception as exc:
         return JSONResponse(content={"error": str(exc)}, status_code=502)
+
+
+# ── Evaluator (Phase 1: weekly read-only LLM report) ─────────────────────────
+
+async def _evaluator_get(path: str, timeout: float = 10.0):
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.get(f"{EVALUATOR_URL}{path}")
+            return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=502)
+
+
+@app.get("/api/evaluator/latest")
+async def evaluator_latest():
+    return await _evaluator_get("/reports/latest", timeout=15.0)
+
+
+@app.get("/api/evaluator/reports")
+async def evaluator_reports(limit: int = 12):
+    return await _evaluator_get(f"/reports?limit={int(limit)}")
+
+
+@app.get("/api/evaluator/report/{run_id}")
+async def evaluator_report(run_id: str):
+    return await _evaluator_get(f"/reports/{run_id}", timeout=15.0)
+
+
+@app.post("/api/evaluator/run")
+async def evaluator_run():
+    # Manual dashboard run: force a fresh report even if this week already has one.
+    return await _proxy_post(f"{EVALUATOR_URL}/jobs/evaluate", {"manual": "true", "force": "true"})
 
 
 @app.get("/api/auto-approve-status")
@@ -1150,6 +1183,23 @@ _HTML = r"""<!DOCTYPE html>
     </div>
   </section>
 
+  <!-- EVALUATOR — weekly read-only LLM strategy review -->
+  <section id="screen-evaluator" class="screen">
+    <div class="screen-inner">
+      <div class="filter-bar sticky-bar">
+        <span class="count-badge" id="eval-sub">Weekly strategy review</span>
+        <select id="eval-history" onchange="loadEvaluatorReport(this.value)" style="max-width:180px"></select>
+        <button class="btn-sm" id="eval-run-btn" onclick="runEvaluator()">&#9654; RUN REVIEW</button>
+      </div>
+      <div class="tbl-scroll">
+        <div id="eval-status" class="tbl-empty">Loading&#8230;</div>
+        <div id="eval-recs"></div>
+        <div id="eval-narrative" class="eval-md"></div>
+        <div id="eval-meta" style="opacity:.6;font-size:11px;padding:8px 12px"></div>
+      </div>
+    </div>
+  </section>
+
 </main>
 
 <!-- ── Bottom nav ───────────────────────────────────────────────────────── -->
@@ -1179,6 +1229,12 @@ _HTML = r"""<!DOCTYPE html>
       <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>
     </svg>
     <span>Target</span>
+  </button>
+  <button class="nav-btn" id="nav-evaluator" onclick="showScreen('evaluator',this)">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9 11l3 3 8-8"/><path d="M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11"/>
+    </svg>
+    <span>Review</span>
   </button>
 </nav>
 

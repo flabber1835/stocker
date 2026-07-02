@@ -99,3 +99,8 @@ services:
       - ./shared:/shared
       - ./services/dashboard/app:/app/app
       - ./services/dashboard/static:/app/static
+
+  evaluator:
+    volumes:
+      - ./shared:/shared
+      - ./services/evaluator/app:/app/app

@@ -20,7 +20,15 @@ VETTER_URL            = os.getenv("VETTER_URL",             "http://llm-vetter:8
 PORTFOLIO_BUILDER_URL = os.getenv("PORTFOLIO_BUILDER_URL",  "http://portfolio-builder:8000")
 ALPACA_SYNC_URL       = os.getenv("ALPACA_SYNC_URL",        "http://alpaca-sync:8000")
 TRADE_EXECUTOR_URL    = os.getenv("TRADE_EXECUTOR_URL",     "http://trade-executor:8000")
+EVALUATOR_URL         = os.getenv("EVALUATOR_URL",          "http://evaluator:8000")
 DATABASE_URL          = os.getenv("DATABASE_URL", "")
+
+# Weekly LLM evaluator (Phase 1, read-only report). The scheduler is the sole
+# trigger authority: on weekend days (ET) it POSTs /jobs/evaluate once per hour;
+# the evaluator itself dedupes per ISO week (already_done), so this is safe to
+# fire repeatedly and self-heals if the evaluator was down on the first attempt.
+EVALUATOR_ENABLED = os.getenv("EVALUATOR_ENABLED", "true").lower() in ("1", "true", "yes")
+EVALUATOR_TRIGGER_COOLDOWN_SECS = int(os.getenv("EVALUATOR_TRIGGER_COOLDOWN_SECS", "3600"))
 
 # Default: 10:30 pm ET weekdays. Alpha Vantage publishes the day's DAILY_ADJUSTED
 # close bar in the evening (~7-11pm ET), HOURS after the 4pm close — so an
@@ -1014,6 +1022,36 @@ def _is_after_scheduled_time() -> bool:
     return now.hour > gate_hour or (now.hour == gate_hour and now.minute >= gate_minute)
 
 
+_evaluator_last_attempt: float = 0.0
+
+
+async def _maybe_trigger_evaluator() -> None:
+    """Fire the weekly LLM evaluator on weekend days (ET), throttled to one
+    attempt per EVALUATOR_TRIGGER_COOLDOWN_SECS. Idempotency lives in the
+    evaluator itself (one report per ISO week; non-forced calls return
+    already_done), so repeated POSTs are harmless. Best-effort: any failure is
+    logged and retried on a later tick — the daily chain is never affected."""
+    global _evaluator_last_attempt
+    if not EVALUATOR_ENABLED:
+        return
+    now = _local_now()
+    if now.weekday() < 5:  # Mon-Fri: the weekly review runs on the weekend
+        return
+    import time as _time
+    if _time.monotonic() - _evaluator_last_attempt < EVALUATOR_TRIGGER_COOLDOWN_SECS:
+        return
+    _evaluator_last_attempt = _time.monotonic()
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(f"{EVALUATOR_URL}/jobs/evaluate",
+                                  params={"manual": "false", "force": "false"})
+            body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+            _log("evaluator weekly trigger", status_code=r.status_code,
+                 result=body.get("status"))
+    except Exception as exc:  # noqa: BLE001 — evaluator down must not affect the chain
+        _log("evaluator weekly trigger failed (will retry next window)", error=str(exc))
+
+
 async def _supervisor_tick() -> None:
     """
     Non-blocking state-machine supervisor. Reads each step's status from its
@@ -1024,6 +1062,9 @@ async def _supervisor_tick() -> None:
     rather than relying on in-process memory, so a restarted scheduler always
     resumes from the correct position without any recovery logic.
     """
+    # Weekly evaluator trigger — independent of the daily chain, never blocks it.
+    await _maybe_trigger_evaluator()
+
     today = _local_today().isoformat()
     trading_day = last_trading_day(_local_today()).isoformat()
     prev_trading_day = last_trading_day(_local_today() - timedelta(days=1)).isoformat()

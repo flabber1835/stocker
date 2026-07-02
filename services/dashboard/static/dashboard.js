@@ -165,6 +165,7 @@ function showScreen(name, btnEl) {
   if (name === 'portfolio') { loadLivePortfolio(); fetchOrders(); }
   if (name === 'trader')    renderTrader();
   if (name === 'target')    loadTargetPortfolio();
+  if (name === 'evaluator') loadEvaluator();
 }
 
 /* ── Clock ───────────────────────────────────────────────────────────── */
@@ -2347,3 +2348,165 @@ async function _safeStep(label, fn) {
   const rh = $('rh-rank'); if (rh) rh.classList.add('asc');
   _safeStep('refresh', () => refresh());
 })();
+
+/* ── Evaluator tab — weekly read-only LLM strategy review ─────────────── */
+// Renders the latest evaluator report: verdict pill, recommendation cards
+// (config_field_valid=false renders greyed — the model referenced a knob that
+// doesn't exist in the schema, so it is shown but flagged non-actionable),
+// then the markdown narrative via a minimal renderer (headers/bold/lists/code
+// only — no external lib, no HTML passthrough: everything is escaped first).
+let _evalReports = [];   // history [{run_id, status, as_of_date, ...}]
+
+function _esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function _mdToHtml(md) {
+  const lines = _esc(md).split('\n');
+  let html = '', inList = false, inCode = false;
+  const inline = (s) => s
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+  for (const raw of lines) {
+    const line = raw;
+    if (line.trim().startsWith('```')) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += inCode ? '</pre>' : '<pre>';
+      inCode = !inCode;
+      continue;
+    }
+    if (inCode) { html += line + '\n'; continue; }
+    const m = line.match(/^(#{1,4})\s+(.*)$/);
+    if (m) {
+      if (inList) { html += '</ul>'; inList = false; }
+      const lvl = Math.min(m[1].length + 2, 5);
+      html += '<h' + lvl + '>' + inline(m[2]) + '</h' + lvl + '>';
+      continue;
+    }
+    if (/^\s*[-*]\s+/.test(line)) {
+      if (!inList) { html += '<ul>'; inList = true; }
+      html += '<li>' + inline(line.replace(/^\s*[-*]\s+/, '')) + '</li>';
+      continue;
+    }
+    if (inList) { html += '</ul>'; inList = false; }
+    if (line.trim() === '') { html += '<br>'; continue; }
+    html += '<p>' + inline(line) + '</p>';
+  }
+  if (inList) html += '</ul>';
+  if (inCode) html += '</pre>';
+  return html;
+}
+
+const _EVAL_VERDICT_COLOR = {
+  healthy: '#3fb950', mixed: '#d29922', concerning: '#f85149',
+  insufficient_data: '#8b949e',
+};
+
+function _renderEvalReport(rep) {
+  const st = $('eval-status'), recs = $('eval-recs'),
+        nar = $('eval-narrative'), meta = $('eval-meta');
+  if (!rep) {
+    st.textContent = 'No evaluator reports yet — press RUN REVIEW to generate the first one.';
+    recs.innerHTML = ''; nar.innerHTML = ''; meta.textContent = '';
+    return;
+  }
+  if (rep.status === 'running') {
+    st.innerHTML = 'Review in progress&#8230; (an Opus-class model is reading the week — this can take several minutes)';
+    recs.innerHTML = ''; nar.innerHTML = ''; meta.textContent = '';
+    return;
+  }
+  if (rep.status === 'failed') {
+    st.innerHTML = '<span style="color:#f85149">Review failed:</span> ' + _esc(rep.error_message || 'unknown error');
+    recs.innerHTML = ''; nar.innerHTML = ''; meta.textContent = '';
+    return;
+  }
+  const rj = rep.recommendations || {};
+  const verdict = rj.overall_assessment || 'insufficient_data';
+  const color = _EVAL_VERDICT_COLOR[verdict] || '#8b949e';
+  st.innerHTML =
+    '<div style="text-align:left;padding:10px 12px">' +
+    '<span style="display:inline-block;padding:3px 12px;border-radius:12px;font-weight:700;' +
+    'background:' + color + '22;color:' + color + ';border:1px solid ' + color + '">' +
+    _esc(verdict.toUpperCase().replace('_', ' ')) + '</span>' +
+    ' <span style="opacity:.7;margin-left:8px">week ' + _esc(rep.iso_year) + '-W' + _esc(rep.iso_week) +
+    ' &middot; as of ' + _esc(rep.as_of_date) + (rep.manual ? ' &middot; manual run' : '') + '</span></div>';
+
+  const items = rj.items || [];
+  recs.innerHTML = items.length
+    ? items.map(it => {
+        const invalid = it.config_field_valid === false;
+        return '<div style="margin:8px 12px;padding:10px 12px;border:1px solid #30363d;border-radius:8px;' +
+          (invalid ? 'opacity:.55' : '') + '">' +
+          '<div style="font-weight:700">' + _esc(it.config_field) +
+          ' <span style="opacity:.7">&rarr; ' + _esc(it.suggested_value) + '</span>' +
+          ' <span class="eval-chip">' +
+          _esc(it.direction || '') + ' &middot; ' + _esc(it.confidence || '') + '</span>' +
+          (invalid ? ' <span class="eval-chip eval-chip-bad">unknown config field — not actionable</span>' : '') +
+          '</div>' +
+          '<div style="margin-top:4px">' + _esc(it.observation) + '</div>' +
+          (it.expected_effect ? '<div style="margin-top:4px;opacity:.8">Expected: ' + _esc(it.expected_effect) + '</div>' : '') +
+          ((it.evidence || []).length
+            ? '<ul style="margin:6px 0 0 16px;opacity:.8">' + it.evidence.map(e => '<li>' + _esc(e) + '</li>').join('') + '</ul>'
+            : '') +
+          '</div>';
+      }).join('')
+    : '<div style="margin:8px 12px;opacity:.7">No config changes recommended this week.</div>';
+
+  nar.innerHTML = '<div style="padding:4px 12px">' + _mdToHtml(rep.report_markdown || '') + '</div>';
+
+  const gaps = rep.data_gaps || [];
+  meta.innerHTML =
+    (gaps.length ? 'Data gaps: ' + _esc(gaps.join(' · ')) + '<br>' : '') +
+    _esc((rep.model || '') + ' · ' + (rep.input_tokens || 0) + ' in / ' + (rep.output_tokens || 0) +
+    ' out tokens · prompt ' + (rep.prompt_hash || '') + ' · config ' + (rep.config_hash || ''));
+}
+
+async function loadEvaluator() {
+  try {
+    const [latest, hist] = await Promise.all([
+      fetch('/api/evaluator/latest').then(r => r.json()),
+      fetch('/api/evaluator/reports').then(r => r.json()),
+    ]);
+    _evalReports = hist.reports || [];
+    const sel = $('eval-history');
+    sel.innerHTML = _evalReports.map(r =>
+      '<option value="' + _esc(r.run_id) + '">' +
+      _esc(r.iso_year + '-W' + String(r.iso_week).padStart(2, '0') + ' · ' + r.status) +
+      '</option>').join('');
+    _renderEvalReport(latest.report);
+    if (latest.report && latest.report.status === 'running') {
+      setTimeout(() => {
+        if (document.getElementById('screen-evaluator').classList.contains('active')) loadEvaluator();
+      }, 15000);
+    }
+  } catch (e) {
+    $('eval-status').textContent = 'Evaluator unreachable: ' + e;
+  }
+}
+
+async function loadEvaluatorReport(runId) {
+  if (!runId) return;
+  try {
+    const data = await fetch('/api/evaluator/report/' + encodeURIComponent(runId)).then(r => r.json());
+    _renderEvalReport(data.report);
+  } catch (e) {
+    $('eval-status').textContent = 'Failed to load report: ' + e;
+  }
+}
+
+async function runEvaluator() {
+  const btn = $('eval-run-btn');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/evaluator/run', { method: 'POST' }).then(r => r.json());
+    $('eval-status').textContent = res.status === 'started'
+      ? 'Review started — the model is reading the week…'
+      : 'Evaluator: ' + JSON.stringify(res);
+    setTimeout(loadEvaluator, 4000);
+  } catch (e) {
+    $('eval-status').textContent = 'Failed to start review: ' + e;
+  } finally {
+    setTimeout(() => { btn.disabled = false; }, 5000);
+  }
+}

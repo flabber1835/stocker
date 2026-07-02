@@ -132,7 +132,7 @@ RESTART_ABORT_MARKER = "RESTART_ABORTED:"  # prefix in error_message for restart
 
 _ALLOWED_RUN_TABLES = frozenset({
     "ingest_runs", "pipeline_runs", "portfolio_runs", "ranking_runs",
-    "factor_runs", "delta_runs", "scheduler_runs",
+    "factor_runs", "delta_runs", "scheduler_runs", "evaluator_reports",
 })
 
 

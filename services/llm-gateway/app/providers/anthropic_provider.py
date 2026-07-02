@@ -14,6 +14,22 @@ from app.providers.base import BaseProvider
 from app.schemas import ChatRequest, ChatResponse, ToolCall
 
 
+# Models that REJECT sampling parameters (temperature/top_p/top_k return HTTP 400):
+# the Opus 4.7+ / Sonnet 5 / Fable-Mythos families removed them. For these, the
+# request's temperature is silently omitted (prompting is the steering mechanism).
+_NO_SAMPLING_PREFIXES = (
+    "claude-opus-4-7",
+    "claude-opus-4-8",
+    "claude-sonnet-5",
+    "claude-fable",
+    "claude-mythos",
+)
+
+
+def _accepts_sampling_params(model: str) -> bool:
+    return not model.startswith(_NO_SAMPLING_PREFIXES)
+
+
 class AnthropicProvider(BaseProvider):
     def __init__(self, api_key: str, model: str) -> None:
         base_url = os.getenv("ANTHROPIC_BASE_URL") or None
@@ -101,8 +117,13 @@ class AnthropicProvider(BaseProvider):
             "model": model,
             "max_tokens": request.max_tokens,
             "messages": anthropic_messages,
-            "temperature": request.temperature,
         }
+        if _accepts_sampling_params(model):
+            kwargs["temperature"] = request.temperature
+        if getattr(request, "thinking", False):
+            # Adaptive thinking (4.6+ models). budget_tokens is deprecated/removed —
+            # adaptive is the only supported on-mode on Opus 4.7+/Sonnet 5.
+            kwargs["thinking"] = {"type": "adaptive"}
         if system_blocks:
             kwargs["system"] = system_blocks
         if tools:

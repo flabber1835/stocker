@@ -356,8 +356,8 @@ doesn't drag in mock APIs or unbuilt placeholders.
                     trade-executor, backtester, scheduler, dashboard
 --profile test      alpaca-sim, av-sim, anthropic-sim, tavily-sim
                     (mock APIs used by tests/harness/)
---profile optional  strategy-config-service, intraday-monitor, evaluator
-                    (currently unbuilt stubs)
+--profile optional  strategy-config-service, intraday-monitor
+                    (currently unbuilt stubs; evaluator moved to core in Phase 8)
 --profile ollama    ollama, ollama-init (local LLM)
 --profile monitor   playwright-monitor (dashboard screenshot service)
 ```
@@ -476,7 +476,7 @@ db-migrator          ← built (Phase 7) — run-once alembic upgrade head
 llm-gateway          ← partially built (provider abstraction skeleton in services/llm-gateway/)
 intraday-monitor     ← not yet built
 strategy-config-service ← not yet built
-evaluator            ← not yet built
+evaluator            ← built (Phase 8) — weekly read-only LLM strategy review (Opus via llm-gateway)
 
 Legacy: factor-engine, ranker, delta-engine were consolidated into `pipeline`
 in Phase 7. The original service folders still build and run but the
@@ -1050,23 +1050,32 @@ Backtester should be deterministic and reproducible.
 
 ## evaluator
 
-Reviews backtest, paper-trading, and live results.
-
-Can summarize:
+Weekly LLM strategy review — Phase 1 BUILT (read-only). See
+docs/architecture.md "Design Decision: weekly LLM evaluator loop".
 
 ```text
-what worked
-what failed
-factor contribution
-drawdown causes
-turnover issues
-risk violations
-suggested improvements
+1. Python assembles a deterministic evidence packet (packet.py): active
+   strategy YAML + hash, evaluator_weekly factor IC/marginal-IC evidence,
+   account equity vs SPY since inception, per-trade realized P&L,
+   counterfactual audits (what vetter-excluded / exited names did AFTERWARD),
+   current target book (weighted beta, sector weights), config-hash history,
+   system-health caveats. Best-effort per section; persisted verbatim.
+2. An Opus-class model (EVALUATOR_MODEL, default claude-opus-4-8, adaptive
+   thinking) reviews it VIA THE LLM-GATEWAY and returns structured JSON:
+   narrative markdown + recommendation objects.
+3. Each recommendation's config_field is validated against the real
+   StrategyConfig schema — unknown fields are flagged non-actionable.
+4. Stored in evaluator_reports (migration 0037); dashboard Review tab renders
+   verdict, recommendation cards, narrative, history; manual RUN REVIEW button.
 ```
 
-May ask the LLM for improvement suggestions.
+Trigger: scheduler POSTs /jobs/evaluate hourly on weekend days (ET); the
+evaluator dedupes to one report per ISO week. EVALUATOR_ENABLED=false disables.
 
-Cannot deploy changes directly.
+Phase 2 (planned): backtester as a tool to confirm a thesis before recommending.
+Phase 3 (planned): human-approved config changes via strategy-validator.
+
+Cannot deploy changes directly. Never submits trades, never bypasses risk.
 
 ## scheduler
 
@@ -1600,7 +1609,7 @@ stocker/
     llm-gateway/         ← partially built: provider abstraction skeleton
 
     intraday-monitor/    ← not yet built
-    evaluator/           ← not yet built
+    evaluator/           ← built: weekly LLM strategy review (packet + Opus report + Review tab)
     strategy-config-service/ ← not yet built
 
   tests/

@@ -478,16 +478,35 @@ services:
       start_period: 20s
 
   evaluator:
-    profiles: [optional]
     build:
       context: .
-      dockerfile: services/stub/Dockerfile
+      dockerfile: services/evaluator/Dockerfile
       network: host
     restart: unless-stopped
     ports:
       - "8014:8000"
     environment:
       SERVICE_NAME: evaluator
+      DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
+      STRATEGY_CONFIG_PATH: /strategies/momentum_rotation_v2.yaml  # keep in sync with pipeline/portfolio-builder/llm-vetter/backtester
+      LLM_GATEWAY_URL: http://llm-gateway:8000
+      EVALUATOR_PROVIDER: ${EVALUATOR_PROVIDER:-anthropic}
+      EVALUATOR_MODEL: ${EVALUATOR_MODEL:-claude-opus-4-8}
+      ARTIFACTS_PATH: /artifacts
+    volumes:
+      - ./artifacts:/artifacts
+      - ./strategies:/strategies:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-migrator:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   scheduler:
     build:
@@ -504,6 +523,7 @@ services:
       PORTFOLIO_BUILDER_URL:    http://portfolio-builder:8000
       ALPACA_SYNC_URL:          http://alpaca-sync:8000
       TRADE_EXECUTOR_URL:       http://trade-executor:8000
+      EVALUATOR_URL:            http://evaluator:8000
       # 17:30 ET: ~1.5h after the 4pm close. Session-keying means fetch-data is
       # "done" only once AV has actually published the close bar (session_date
       # advances to the target session); if AV is not ready yet at 17:30 the chain
@@ -540,6 +560,7 @@ services:
       VETTER_URL: http://llm-vetter:8000
       PORTFOLIO_URL: http://portfolio-builder:8000
       SCHEDULER_URL: http://scheduler:8000
+      EVALUATOR_URL: http://evaluator:8000
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
       interval: 5s

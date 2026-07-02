@@ -37,6 +37,7 @@ class ChatRequest(BaseModel):
     temperature: float = 0.1
     max_tokens: int = 1024
     response_schema: dict | None = None  # JSON schema for structured output
+    thinking: bool = False            # adaptive thinking (Anthropic 4.6+ models; ignored by Ollama)
 
 
 class ChatResponse(BaseModel):

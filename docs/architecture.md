@@ -1629,6 +1629,67 @@ The bar to claim alpha: DSR > 0.95 AND FF5+momentum alpha t ≥ 3 net of realist
 costs, established out-of-sample with low PBO, stable across regimes, then paper
 (≥ MinTRL) then small live. Pre-register the thresholds before looking at results.
 
+## Design Decision: weekly LLM evaluator loop (Phase 1 — read-only)
+
+The `evaluator` service closes the improvement loop: every week a frontier model
+reviews what the system actually did and recommends strategy-config tweaks. The
+goal is a system that measurably PICKS MORE WINNERS over time. Three phases:
+
+```text
+Phase 1 (BUILT)   — read-only weekly report in the dashboard's Review tab
+Phase 2 (planned) — the LLM may call the backtester as a TOOL to test a thesis
+                    before recommending it
+Phase 3 (planned) — human-approved application of recommendations to the
+                    strategy YAML (via strategy-validator, never direct)
+```
+
+**Boundary (per docs/llm-boundaries.md).** The evaluator is advisory-only: it
+never writes config, never creates trade intents, never touches the broker path.
+It calls the LLM exclusively through the llm-gateway (the system's single LLM
+interface), with `EVALUATOR_PROVIDER`/`EVALUATOR_MODEL` (default
+anthropic / claude-opus-4-8) — deliberately independent of the vetter's
+`LLM_PROVIDER`, so the nightly vetting can run on a cheap/local model while the
+weekly review uses a frontier model with adaptive thinking.
+
+**Deterministic packet (services/evaluator/app/packet.py).** Python assembles
+the evidence; the LLM only interprets. Sections: the active strategy YAML
+verbatim + config_hash; the accumulated `evaluator_weekly` factor evidence
+(realized IC, MARGINAL IC — the standard for factor changes — and factor
+correlations); realized account equity vs SPY (1w/4w/12w/inception); per-trade
+realized P&L (average-cost); counterfactual decision audits (what
+vetter-excluded names and exited names did AFTERWARD — the "did the veto/exit
+add value?" ground truth); the current target book with weighted beta and
+sector weights; config-hash change history (attribute behavior changes to
+config changes); and system-health caveats so an ops outage is not misread as
+alpha decay. Every section is best-effort (degrades to an error marker), and
+the packet is persisted verbatim on the report row so every recommendation is
+auditable against exactly what the model saw.
+
+**Structured output contract.** The report is JSON: `narrative_markdown`,
+`overall_assessment` (healthy/mixed/concerning/insufficient_data), and
+`recommendations[]` with `{observation, evidence[], config_field,
+suggested_value, direction, expected_effect, confidence}`. Each
+`config_field` is validated against the REAL StrategyConfig schema
+(dotted-path whitelist); an unknown field is flagged
+`config_field_valid=false` and rendered non-actionable — a hallucinated knob
+can never flow into Phase 3. Parse failures degrade to a narrative-only report
+(raw text preserved), never a crash.
+
+**Persistence + trigger.** One row per run in `evaluator_reports` (migration
+0037) with packet, narrative, recommendations, model, prompt_hash, and token
+counts. The scheduler is the trigger authority: on weekend days (ET) it POSTs
+`/jobs/evaluate` hourly; the evaluator dedupes to ONE report per ISO week
+(`already_done`), so retries are free and a Saturday outage self-heals on
+Sunday. The dashboard's Review tab shows the verdict, recommendation cards,
+narrative, and history, with a manual RUN REVIEW button (force=true re-runs
+the week).
+
+**Gateway change this required.** The Anthropic provider used to pass
+`temperature` on every request; the Opus 4.7+/Sonnet 5/Fable families REJECT
+sampling parameters (HTTP 400), so the provider now omits them for those
+models and supports `thinking: true` → adaptive thinking (the only supported
+on-mode there). Guarded by tests/llm_gateway/test_sampling_params.py.
+
 ## Design Decision Rule
 
 Whenever a design decision is made, it must be documented in the design docs before implementation begins.
