@@ -646,9 +646,17 @@ turnover penalty (default 0 — DISABLED) — the builder is the SOURCE OF TRUTH
 
 ## llm-vetter
 
-LLM-powered stock vetting layer, sits between ranking and portfolio-builder.
-A mandatory step in the daily chain — the portfolio will not be built until
-the vetter has successfully completed for today's ranking run.
+Stock vetting layer, sits between ranking and portfolio-builder. A mandatory
+step in the daily chain — the portfolio will not be built until the vetter has
+successfully completed for today's ranking run.
+
+**MODE (architecture decision 2026-07): `vetter.mode: drawdown_only` is the
+default and the active config's setting — the vet step is DETERMINISTIC (no
+LLM/Tavily/news in the daily chain); the beta-adjusted, vol-scaled
+falling-knife veto is the sole entry block. The LLM description below applies
+only when `mode: llm` is set (and VETTER_LLM_ENABLED is not false — both gates
+must allow it). Chain contract identical in both modes. See
+docs/architecture.md "vetter runs deterministic".**
 
 The vetter's exclusions are binding: tickers marked for exclusion are removed
 from the candidate pool before portfolio construction. The deterministic ranker

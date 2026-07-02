@@ -121,6 +121,17 @@ def _apply_falling_knife_config(fk) -> None:
 # way to run without the LLM. Flip back to true (or unset) to re-enable the LLM.
 VETTER_LLM_ENABLED = _env_bool("VETTER_LLM_ENABLED", True)
 
+
+def _llm_active() -> bool:
+    """Effective LLM switch for the CURRENT strategy: the env gate AND the
+    strategy YAML's vetter.mode must both allow the LLM; either alone forces
+    drawdown-only. Config-driven (vetter.mode, default 'drawdown_only') is the
+    going-forward architecture decision — the YAML is versioned and hash-tracked,
+    so a mode flip shows up in config_hash history and evaluator packets; the env
+    var survives as a deploy-level kill switch."""
+    mode = getattr(getattr(strategy, "vetter", None), "mode", "llm") if strategy else "llm"
+    return VETTER_LLM_ENABLED and mode == "llm"
+
 # Market proxy for the falling-knife veto's beta/excess-drawdown. MUST match the
 # pipeline's MARKET_BENCHMARK so the screener card's excess_dd == the vetter's real
 # veto (card==veto parity). Default SPY = unchanged. Wired to both services in compose.
@@ -691,7 +702,8 @@ async def _do_vet(
     # agentic loop has context before it runs its own targeted searches.
     _prefetch_results = vcfg.max_searches_per_ticker + 2
     t0 = datetime.now(timezone.utc)
-    if VETTER_LLM_ENABLED:
+    llm_active = _llm_active()
+    if llm_active:
         av_news, earnings_calendar, tavily_results, data_sources = await fetch_ticker_data(
             tickers, AV_API_KEY, TAVILY_API_KEY,
             related_tickers_map=related_tickers_map or None,
@@ -711,7 +723,7 @@ async def _do_vet(
             conn, trace_id, "fetch_data", "success",
             started_at=t0,
             input_summary={
-                "llm_enabled": VETTER_LLM_ENABLED,
+                "llm_enabled": llm_active,
                 "news_lookback_days": vcfg.news_lookback_days,
                 "max_articles_per_ticker": vcfg.max_articles_per_ticker,
                 "earnings_horizon_days": vcfg.earnings_horizon_days,
@@ -726,7 +738,7 @@ async def _do_vet(
 
     async def _vet_fn(t: str) -> dict:
         _c = candidate_map[t]
-        if not VETTER_LLM_ENABLED:
+        if not llm_active:
             # Drawdown-only mode: default every candidate to keep. The deterministic
             # falling-knife backstop below is the sole entry block. No LLM/Tavily call.
             return {
@@ -1040,7 +1052,9 @@ async def health():
         "gateway_provider": gateway_info.get("default_provider"),
         "av_configured": bool(AV_API_KEY and AV_API_KEY != "demo"),
         "tavily_configured": bool(TAVILY_API_KEY),
-        "llm_enabled": VETTER_LLM_ENABLED,
+        "llm_enabled": _llm_active(),
+        "llm_env_gate": VETTER_LLM_ENABLED,
+        "vetter_mode": (strategy.vetter.mode if strategy else None),
         "drawdown_backstop_pct": DRAWDOWN_BACKSTOP_PCT,
         "drawdown_excess_pct": DRAWDOWN_EXCESS_PCT,
         "drawdown_beta_lookback": DRAWDOWN_BETA_LOOKBACK,
@@ -1125,7 +1139,7 @@ async def start_vet(
 
     # quick gateway pre-flight — fail fast rather than silently failing after a long timeout.
     # Skipped in drawdown-only mode: the LLM gateway is intentionally not used.
-    if VETTER_LLM_ENABLED:
+    if _llm_active():
         try:
             async with httpx.AsyncClient(timeout=5.0) as gw_client:
                 r = await gw_client.get(f"{LLM_GATEWAY_URL}/health")
@@ -1136,7 +1150,7 @@ async def start_vet(
                 detail=f"LLM gateway is not available at {LLM_GATEWAY_URL}: {exc}",
             )
     else:
-        print("[llm-vetter] VETTER_LLM_ENABLED=false — drawdown-only mode; skipping LLM gateway pre-flight")
+        print("[llm-vetter] drawdown-only mode (vetter.mode or VETTER_LLM_ENABLED) — skipping LLM gateway pre-flight")
 
     async with _job_lock:
         _reload_strategy()  # pick up any deployed config change; converge across services

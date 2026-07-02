@@ -185,6 +185,15 @@ portfolio_builder:
   beta_tolerance: 0.10               # on-target band; outside it → beta_target_infeasible warning (closest feasible book still shipped)
 vetter:
   enabled: true
+  # ARCHITECTURE DECISION (2026-07): the vet step is DETERMINISTIC — no LLM in the
+  # daily trading chain. The beta-adjusted, vol-scaled falling-knife veto is the
+  # sole entry block (and the only vetter signal that can push a held name out,
+  # via the orphan-exit path). Rationale: the LLM layer's value was unmeasured,
+  # it was the slowest/flakiest mandatory chain step, and it can't be backtested;
+  # the crash guard — the proven part — never needed an LLM. The evaluator's
+  # vetter_outcomes counterfactuals judge this choice on data. Set mode: llm to
+  # restore the per-ticker LLM judgment layer (also needs VETTER_LLM_ENABLED).
+  mode: drawdown_only
   candidate_count: 200
   risk_horizon_days: 90
   system_prompt_file: /strategies/quality_core_v1.vetter_prompt.txt  # reuse core prompt (weighting change only)

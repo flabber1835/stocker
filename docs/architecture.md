@@ -1690,6 +1690,36 @@ sampling parameters (HTTP 400), so the provider now omits them for those
 models and supports `thinking: true` → adaptive thinking (the only supported
 on-mode there). Guarded by tests/llm_gateway/test_sampling_params.py.
 
+## Design Decision: vetter runs deterministic (drawdown-only) — no LLM in the daily chain
+
+`vetter.mode: drawdown_only` (schema default, set explicitly in the active config)
+makes the vet step pure Python: the beta-adjusted, vol-scaled falling-knife veto is
+the SOLE entry block, and no LLM/Tavily/AV-news calls happen in the daily trading
+chain. `mode: llm` restores the per-ticker LLM judgment layer; the
+`VETTER_LLM_ENABLED` env var remains as a deploy-level kill switch (BOTH must
+allow the LLM for it to run — either alone forces drawdown-only).
+
+**Why.** The LLM-in-the-chain was judged a poor architectural fit in hindsight:
+it violated the system's core boundary (deterministic Python decides; LLM
+interprets), it was the slowest and least reliable MANDATORY chain step, its
+judgments required hallucination guards, and — decisively — it cannot be
+backtested, while the falling-knife veto (the demonstrably load-bearing part of
+the vetter) is already deterministic. Removing the LLM makes the entire daily
+decision path deterministic, reproducible, and backtestable. LLMs remain where
+they fit the boundary: the weekly evaluator (interpretation) and strategy config
+generation.
+
+**What is unchanged.** The chain contract is identical in both modes: the vet
+step still runs, a vetter_runs row is still written, exclusions still bind the
+portfolio-builder, and the drawdown veto still applies to held names via the
+orphan-exit path. The mode lives in the strategy YAML, so a flip is
+config_hash-tracked and visible in evaluator packets.
+
+**The empirical check.** The evaluator's `vetter_outcomes` counterfactuals keep
+measuring what excluded names did afterward. If future evidence shows the LLM's
+exclusions (beyond the drawdown rule) systematically preceded declines, the flip
+back is one line (`mode: llm`).
+
 ## Design Decision Rule
 
 Whenever a design decision is made, it must be documented in the design docs before implementation begins.

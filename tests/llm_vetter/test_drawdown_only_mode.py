@@ -71,3 +71,55 @@ def test_drawdown_only_mild_pullback_kept():
 def test_drawdown_only_held_position_never_excluded():
     out = _apply_backstop(_neutral_keep(), dd=-0.50, held=True)
     assert out["exclude"] is False
+
+
+# ── vetter.mode (strategy-YAML) × VETTER_LLM_ENABLED (env) resolution ───────────
+# Architecture decision: mode defaults to drawdown_only; the LLM runs ONLY when
+# BOTH the YAML mode is 'llm' AND the env gate allows it. Either alone forces
+# drawdown-only, so a deploy-level kill switch survives the config-driven mode.
+
+class _FakeStrategy:
+    def __init__(self, mode):
+        from types import SimpleNamespace
+        self.vetter = SimpleNamespace(mode=mode)
+
+
+def test_llm_active_requires_both_gates(monkeypatch):
+    monkeypatch.setenv("VETTER_LLM_ENABLED", "true")
+    m = _import_vetter()
+    m.strategy = _FakeStrategy("llm")
+    assert m._llm_active() is True
+    m.strategy = _FakeStrategy("drawdown_only")
+    assert m._llm_active() is False          # YAML alone forces drawdown-only
+
+
+def test_env_gate_overrides_yaml_llm_mode(monkeypatch):
+    monkeypatch.setenv("VETTER_LLM_ENABLED", "false")
+    m = _import_vetter()
+    m.strategy = _FakeStrategy("llm")
+    assert m._llm_active() is False          # env kill switch wins
+
+
+def test_no_strategy_loaded_defers_to_env(monkeypatch):
+    monkeypatch.setenv("VETTER_LLM_ENABLED", "true")
+    m = _import_vetter()
+    m.strategy = None
+    assert m._llm_active() is True           # pre-load fallback = old behavior
+
+
+def test_schema_mode_defaults_to_drawdown_only():
+    from stock_strategy_shared.schemas.strategy import VetterConfig
+    assert VetterConfig().mode == "drawdown_only"
+    assert VetterConfig(mode="llm").mode == "llm"
+    import pytest as _pytest
+    with _pytest.raises(Exception):
+        VetterConfig(mode="hybrid")          # unknown mode rejected
+
+
+def test_active_config_is_drawdown_only():
+    """The deployed strategy file pins the decision explicitly."""
+    import os
+    from stock_strategy_shared.loader import load_strategy
+    path = os.path.join(os.path.dirname(__file__), "..", "..", "strategies", "momentum_rotation_v2.yaml")
+    cfg, _ = load_strategy(path)
+    assert cfg.vetter.mode == "drawdown_only"

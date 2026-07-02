@@ -275,6 +275,21 @@ class VetterConfig(BaseModel):
         default=True,
         description="Set false to skip LLM vetting entirely for this strategy."
     )
+    mode: Literal["drawdown_only", "llm"] = Field(
+        default="drawdown_only",
+        description=(
+            "What the vet step actually runs. 'drawdown_only' (default — the "
+            "going-forward architecture): NO LLM/Tavily/news calls; the "
+            "deterministic beta-adjusted, vol-scaled falling-knife veto is the "
+            "sole entry block, making the entire daily chain deterministic, "
+            "reproducible, and backtestable. 'llm' re-enables the per-ticker LLM "
+            "judgment layer on top of the backstop (requires VETTER_LLM_ENABLED "
+            "env not be false — BOTH the env gate and this mode must allow the "
+            "LLM for it to run; either alone forces drawdown-only). The chain "
+            "contract is identical in both modes: a vetter run row is always "
+            "written and exclusions always feed the portfolio-builder."
+        ),
+    )
     candidate_count: int = Field(default=50, ge=5, le=200)
     falling_knife: FallingKnifeConfig = Field(
         default_factory=FallingKnifeConfig,
