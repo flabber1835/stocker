@@ -744,7 +744,7 @@ async def _do_vet(
             return {
                 "ticker":            t,
                 "exclude":           False,
-                "reason":            "LLM vetting disabled (drawdown-only mode); deferred to falling-knife backstop.",
+                "reason":            "Deterministic vetting (drawdown-only mode): the falling-knife drawdown rule is the only check — no trigger, keep.",
                 "confidence":        "low",
                 "risk_type":         "none",
                 "positive_catalyst": False,
@@ -867,11 +867,21 @@ async def _do_vet(
             else:
                 trigger_desc = f"raw {raw_dd:+.1%} vs {DRAWDOWN_WINDOW_DAYS}d peak (floor -{DRAWDOWN_BACKSTOP_PCT:.0%})"
                 flag = f"DRAWDOWN_BACKSTOP: forced exclude on {raw_dd:+.1%} 21d drawdown (absolute floor)"
-            note = (
-                f"[DRAWDOWN BACKSTOP: {_action} — {trigger_desc}; deterministic "
-                f"falling-knife guard overrode the LLM keep.] "
-            )
-            result["reason"] = note + (result.get("reason") or "")
+            # Mode-aware wording: in drawdown-only mode there was no LLM verdict to
+            # override — the veto IS the decision, and the placeholder keep-reason
+            # ("LLM vetting disabled...") is replaced, not appended, so the card
+            # doesn't claim an LLM keep that never happened.
+            if llm_active:
+                note = (
+                    f"[DRAWDOWN BACKSTOP: {_action} — {trigger_desc}; deterministic "
+                    f"falling-knife guard overrode the LLM keep.] "
+                )
+                result["reason"] = note + (result.get("reason") or "")
+            else:
+                result["reason"] = (
+                    f"FALLING-KNIFE VETO: {_action} — {trigger_desc}. "
+                    f"Deterministic drawdown rule (drawdown-only mode, no LLM)."
+                )
             result.setdefault("hallucination_flags", []).append(flag)
             print(f"[llm-vetter] {ticker}: DRAWDOWN BACKSTOP — {_action} ({trigger_desc})")
 
