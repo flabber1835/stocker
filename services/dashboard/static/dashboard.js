@@ -1019,7 +1019,14 @@ function _rerenderOpenCard(rec) {
   if (td) td.innerHTML = _buildDetailHtml(rec);
 }
 
-function _insertDetailRow(rowEl, rec, colSpan = 4) {
+// colSpan MUST equal the host table's real column count. The screener has 3
+// columns (# · TICKER · COMPANY — default); the Target tab passes 5. A colspan
+// LARGER than the column count makes table-layout:fixed manufacture a phantom
+// extra column while the card is open, stealing width from COMPANY and visibly
+// truncating the text of every row above/below the card (the "text above the
+// card gets truncated on expand" bug — the default was a stale 4 from when the
+// row still had a CLUSTER cell).
+function _insertDetailRow(rowEl, rec, colSpan = 3) {
   const tr = document.createElement('tr');
   tr.className = 'detail-row';
   tr.id = 'detail-row-' + rec.ticker;
