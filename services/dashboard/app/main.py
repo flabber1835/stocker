@@ -994,17 +994,25 @@ async def _run_rank_chain_bg():
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
-    # Cache-bust dashboard.js by its file mtime so a git-pull + restart deploy is
+    # Cache-bust BOTH static assets by file mtime so a git-pull + restart deploy is
     # picked up on the next page load without a manual hard-refresh (StaticFiles
-    # serves the file with no versioned URL, so browsers — mobile Safari especially —
-    # otherwise keep the stale cached copy).
-    js_path = os.path.join(os.path.dirname(__file__), "..", "static", "dashboard.js")
-    try:
-        ver = int(os.path.getmtime(js_path))
-    except OSError:
-        ver = 0
-    return HTMLResponse(content=_HTML.replace(
-        "/static/dashboard.js", f"/static/dashboard.js?v={ver}"))
+    # serves the files with no versioned URL, so browsers — mobile Safari especially —
+    # otherwise keep the stale cached copy). The CSS was originally NOT busted, so
+    # style-only fixes silently "didn't take" on phones while JS fixes did.
+    static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
+
+    def _ver(fname: str) -> int:
+        try:
+            return int(os.path.getmtime(os.path.join(static_dir, fname)))
+        except OSError:
+            return 0
+
+    html = _HTML.replace(
+        "/static/dashboard.js", f"/static/dashboard.js?v={_ver('dashboard.js')}"
+    ).replace(
+        "/static/dashboard.css", f"/static/dashboard.css?v={_ver('dashboard.css')}"
+    )
+    return HTMLResponse(content=html)
 
 
 _HTML = r"""<!DOCTYPE html>
