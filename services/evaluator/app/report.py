@@ -45,7 +45,14 @@ REPORT_SCHEMA: dict = {
                 "properties": {
                     "observation": {"type": "string"},
                     "evidence": {"type": "array", "items": {"type": "string"}},
-                    "config_field": {"type": "string"},
+                    "config_field": {
+                        "type": "string",
+                        "description": ("EXACTLY ONE dotted path copied from the strategy YAML "
+                                        "(e.g. portfolio_builder.beta_target). No wildcards, no "
+                                        "slashes, no multi-field expressions. Use the literal "
+                                        "string 'none' for advice that is not a single-field edit "
+                                        "(e.g. 'make no changes', process recommendations)."),
+                    },
                     "current_value": {"type": "string"},
                     "suggested_value": {"type": "string"},
                     "direction": {"type": "string", "enum": ["increase", "decrease", "enable", "disable", "change", "investigate"]},
@@ -78,7 +85,12 @@ Rules:
 confidence — with only weeks of live history, most findings are "watch", not "act".
 - Recommendations must target REAL fields of the strategy YAML you were given (e.g. \
 factor weights in static_factor_weights, portfolio_builder.selection_vol_aversion, \
-portfolio_builder.beta_target, vetter thresholds, universe floors). Use dotted paths.
+portfolio_builder.beta_target, vetter thresholds, universe floors). config_field must \
+be EXACTLY ONE dotted path copied from the YAML — never multiple fields, wildcards, \
+slashes, or prose. For advice that is not a single-field edit (e.g. "make no config \
+changes for N weeks", process/discipline recommendations), set config_field to the \
+literal string "none" — such recommendations are welcome and rendered as general \
+advice. One recommendation per field; use separate recommendations for separate fields.
 - Prefer FEW, well-evidenced recommendations (0-4) over many speculative ones. "No change \
 warranted" is a valid, often correct conclusion — churn in strategy config is itself a cost.
 - Distinguish alpha problems from ops problems: check system_health first; a data outage \
@@ -136,7 +148,15 @@ def validate_recommendations(recs: list[dict]) -> list[dict]:
         if not isinstance(rec, dict):
             continue
         field = str(rec.get("config_field", "")).strip()
-        rec["config_field_valid"] = field in known
+        # 'none' is the documented sentinel for advice that isn't a single-field
+        # edit (hold everything / process discipline) — valid, but not an edit.
+        if field.lower() in ("none", ""):
+            rec["config_field"] = "none"
+            rec["config_field_valid"] = True
+            rec["is_edit"] = False
+        else:
+            rec["config_field_valid"] = field in known
+            rec["is_edit"] = True
         out.append(rec)
     return out
 

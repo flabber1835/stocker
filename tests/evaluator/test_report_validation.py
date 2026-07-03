@@ -43,12 +43,10 @@ def test_unknown_fields_flagged_not_dropped():
     recs = validate_recommendations([
         {"config_field": "portfolio_builder.beta_target", "suggested_value": "1.2"},
         {"config_field": "portfolio_builder.momentum_boost", "suggested_value": "9000"},
-        {"config_field": "", "suggested_value": "x"},
     ])
-    assert len(recs) == 3  # nothing silently dropped — the UI shows flagged items greyed
-    assert recs[0]["config_field_valid"] is True
-    assert recs[1]["config_field_valid"] is False
-    assert recs[2]["config_field_valid"] is False
+    assert len(recs) == 2  # nothing silently dropped — the UI shows flagged items greyed
+    assert recs[0]["config_field_valid"] is True and recs[0]["is_edit"] is True
+    assert recs[1]["config_field_valid"] is False  # hallucinated knob stays flagged
 
 
 def test_non_dict_recommendations_skipped():
@@ -98,3 +96,18 @@ def test_report_schema_requires_the_contract_keys():
     for k in ("observation", "evidence", "config_field", "suggested_value",
               "direction", "expected_effect", "confidence"):
         assert k in rec_props
+
+
+def test_none_sentinel_is_valid_general_advice():
+    recs = validate_recommendations([
+        {"config_field": "none", "suggested_value": "hold all values 3 weeks"},
+        {"config_field": "NONE", "suggested_value": "x"},
+        {"config_field": "", "suggested_value": "y"},
+        {"config_field": "static_factor_weights / portfolio_builder.*", "suggested_value": "z"},
+    ])
+    # 'none'/'NONE'/'' → valid general advice (not an edit), normalized to 'none'
+    for r in recs[:3]:
+        assert r["config_field"] == "none"
+        assert r["config_field_valid"] is True and r["is_edit"] is False
+    # a compound/wildcard expression is still an invalid EDIT target
+    assert recs[3]["config_field_valid"] is False and recs[3]["is_edit"] is True

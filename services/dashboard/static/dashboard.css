@@ -918,10 +918,12 @@ tr.cash-row .t-ticker { color: var(--text2); }
 .eval-md h3, .eval-md h4, .eval-md h5 { margin: 14px 0 4px; }
 .eval-md p { margin: 4px 0; }
 .eval-md ul { margin: 4px 0 4px 18px; }
-.eval-md pre { background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+.eval-md pre { background: var(--card2); border: 1px solid var(--border); border-radius: 6px;
                padding: 8px; overflow-x: auto; font-size: 12px; }
-.eval-md code { background: #161b22; border-radius: 4px; padding: 0 4px; }
-#eval-history { background: #161b22; color: inherit; border: 1px solid #30363d;
-                border-radius: 6px; padding: 3px 6px; font-size: 12px; }
-.eval-chip { font-size: 11px; padding: 1px 8px; border-radius: 10px; background: #30363d; }
-.eval-chip-bad { background: transparent; color: #f85149; }
+.eval-md code { background: var(--card2); border-radius: 4px; padding: 0 4px; }
+#eval-history { background: var(--card); color: var(--text); border: 1px solid var(--border);
+                border-radius: 6px; padding: 3px 6px; font-size: 12px; max-width: 180px; }
+.eval-chip { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 10px;
+             background: var(--blue-lt); color: var(--blue); border: 1px solid rgba(59,130,246,.3);
+             white-space: nowrap; }
+.eval-chip-bad { background: rgba(220,38,38,.08); color: var(--red); border-color: rgba(220,38,38,.3); }

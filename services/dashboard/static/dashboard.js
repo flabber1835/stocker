@@ -2406,8 +2406,8 @@ function _mdToHtml(md) {
 }
 
 const _EVAL_VERDICT_COLOR = {
-  healthy: '#3fb950', mixed: '#d29922', concerning: '#f85149',
-  insufficient_data: '#8b949e',
+  healthy: '#059669', mixed: '#D97706', concerning: '#DC2626',
+  insufficient_data: '#6B7280',
 };
 
 function _renderEvalReport(rep) {
@@ -2424,13 +2424,13 @@ function _renderEvalReport(rep) {
     return;
   }
   if (rep.status === 'failed') {
-    st.innerHTML = '<span style="color:#f85149">Review failed:</span> ' + _esc(rep.error_message || 'unknown error');
+    st.innerHTML = '<span style="color:var(--red)">Review failed:</span> ' + _esc(rep.error_message || 'unknown error');
     recs.innerHTML = ''; nar.innerHTML = ''; meta.textContent = '';
     return;
   }
   const rj = rep.recommendations || {};
   const verdict = rj.overall_assessment || 'insufficient_data';
-  const color = _EVAL_VERDICT_COLOR[verdict] || '#8b949e';
+  const color = _EVAL_VERDICT_COLOR[verdict] || '#6B7280';
   st.innerHTML =
     '<div style="text-align:left;padding:10px 12px">' +
     '<span style="display:inline-block;padding:3px 12px;border-radius:12px;font-weight:700;' +
@@ -2442,15 +2442,23 @@ function _renderEvalReport(rep) {
   const items = rj.items || [];
   recs.innerHTML = items.length
     ? items.map(it => {
-        const invalid = it.config_field_valid === false;
-        return '<div style="margin:8px 12px;padding:10px 12px;border:1px solid #30363d;border-radius:8px;' +
+        // Three header shapes: a single-field edit (field → value), general
+        // advice (config_field 'none' — no field header, chip only), and an
+        // unknown field (greyed + flagged; the model referenced a knob that
+        // doesn't exist in the schema).
+        const isAdvice = !it.config_field || it.config_field === 'none' || it.is_edit === false;
+        const invalid = !isAdvice && it.config_field_valid === false;
+        const chip = ' <span class="eval-chip">' +
+          _esc(it.direction || '') + ' &middot; ' + _esc(it.confidence || '') + '</span>';
+        const head = isAdvice
+          ? '<div style="font-weight:700">General advice' + chip + '</div>'
+          : '<div style="font-weight:700">' + _esc(it.config_field) +
+            ' <span style="opacity:.7">&rarr; ' + _esc(it.suggested_value) + '</span>' + chip +
+            (invalid ? ' <span class="eval-chip eval-chip-bad">unknown config field — not actionable</span>' : '') +
+            '</div>';
+        return '<div style="margin:8px 12px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;' +
           (invalid ? 'opacity:.55' : '') + '">' +
-          '<div style="font-weight:700">' + _esc(it.config_field) +
-          ' <span style="opacity:.7">&rarr; ' + _esc(it.suggested_value) + '</span>' +
-          ' <span class="eval-chip">' +
-          _esc(it.direction || '') + ' &middot; ' + _esc(it.confidence || '') + '</span>' +
-          (invalid ? ' <span class="eval-chip eval-chip-bad">unknown config field — not actionable</span>' : '') +
-          '</div>' +
+          head +
           '<div style="margin-top:4px">' + _esc(it.observation) + '</div>' +
           (it.expected_effect ? '<div style="margin-top:4px;opacity:.8">Expected: ' + _esc(it.expected_effect) + '</div>' : '') +
           ((it.evidence || []).length
