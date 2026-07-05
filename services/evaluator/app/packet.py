@@ -74,12 +74,22 @@ def _r(v, nd=4) -> float | None:
     return None if v is None else round(float(v), nd)
 
 
-async def _section(fn: Callable[[], Awaitable[Any]]) -> Any:
-    """Run one packet section; degrade to an error marker instead of raising."""
+async def _section(fn: Callable[[], Awaitable[Any]], conn=None) -> Any:
+    """Run one packet section; degrade to an error marker instead of raising.
+
+    ROLLS BACK the shared connection on failure: sections share one connection,
+    and without the rollback a single SQL error aborts the transaction and every
+    subsequent section dies with InFailedSQLTransactionError — one bug blanked an
+    entire live packet (the W27 'largely non-functional' report)."""
     try:
         return await fn()
     except Exception as exc:  # noqa: BLE001 — a missing table must not sink the packet
         traceback.print_exc()
+        if conn is not None:
+            try:
+                await conn.rollback()
+            except Exception:  # noqa: BLE001
+                pass
         return {"error": f"{type(exc).__name__}: {exc}"}
 
 
@@ -391,16 +401,40 @@ def classify_candidates(candidates: list[dict], selected: set[str],
     return out
 
 
+FWD_MIN_DAYS = int(os.getenv("EVALUATOR_FWD_MIN_DAYS", "5"))
+
+
+async def _latest_price_date(conn) -> date | None:
+    return (await conn.execute(text(
+        "SELECT MAX(date) FROM daily_prices WHERE ticker='SPY'"))).scalar()
+
+
 async def _selection_audit(conn) -> dict:
     """Picked vs not-picked, with WHY and what each did afterward — the evidence
     that separates 'the rank missed winners' from 'the builder's caps rejected
-    winners the rank found'."""
-    run = (await conn.execute(text(
-        "SELECT run_id, source_ranking_run_id, portfolio_date FROM ("
-        "  SELECT pr.run_id, ph.source_ranking_run_id, pr.portfolio_date, pr.started_at "
-        "  FROM portfolio_runs pr JOIN portfolio_holdings ph ON ph.run_id = pr.run_id "
-        "  WHERE pr.status='success' ORDER BY pr.started_at DESC LIMIT 1) x"
-    ))).mappings().first()
+    winners the rank found'.
+
+    Anchored on the newest build with a REAL forward window (>= FWD_MIN_DAYS of
+    prices after it), falling back to the newest build. Auditing yesterday's
+    build gives fwd_return == 0.0 for every name (zero elapsed sessions) — the
+    W27 report correctly read that as 'no realized-outcome signal'."""
+    px_date = await _latest_price_date(conn)
+    run = None
+    if px_date:
+        run = (await conn.execute(text(
+            "SELECT run_id, source_ranking_run_id, portfolio_date FROM ("
+            "  SELECT pr.run_id, ph.source_ranking_run_id, pr.portfolio_date, pr.started_at "
+            "  FROM portfolio_runs pr JOIN portfolio_holdings ph ON ph.run_id = pr.run_id "
+            "  WHERE pr.status='success' AND pr.portfolio_date <= :cutoff "
+            "  ORDER BY pr.started_at DESC LIMIT 1) x"
+        ), {"cutoff": px_date - timedelta(days=FWD_MIN_DAYS)})).mappings().first()
+    if not run:
+        run = (await conn.execute(text(
+            "SELECT run_id, source_ranking_run_id, portfolio_date FROM ("
+            "  SELECT pr.run_id, ph.source_ranking_run_id, pr.portfolio_date, pr.started_at "
+            "  FROM portfolio_runs pr JOIN portfolio_holdings ph ON ph.run_id = pr.run_id "
+            "  WHERE pr.status='success' ORDER BY pr.started_at DESC LIMIT 1) x"
+        ))).mappings().first()
     if not run:
         return {"note": "no successful portfolio run yet"}
 
@@ -440,6 +474,7 @@ async def _selection_audit(conn) -> dict:
 
     return {
         "portfolio_date": str(run["portfolio_date"]),
+        "fwd_window_days": (px_date - run["portfolio_date"]).days if px_date else None,
         "candidate_count": len(audit),
         "selected_count": len(selected),
         "worst_selected_rank": worst_rank,
@@ -480,10 +515,19 @@ async def _gate_audit(conn) -> dict:
     null-factor lists, forward returns since rank_date, and first-price dates
     (a recent first-price date on a big dropped mover = the young-listing /
     recent-IPO blind spot: history-hungry factors exclude it for ~a year)."""
-    run = (await conn.execute(text(
-        "SELECT run_id, source_factor_run_id, rank_date FROM ranking_runs "
-        "WHERE status='success' ORDER BY started_at DESC LIMIT 1"
-    ))).mappings().first()
+    px_date = await _latest_price_date(conn)
+    run = None
+    if px_date:
+        run = (await conn.execute(text(
+            "SELECT run_id, source_factor_run_id, rank_date FROM ranking_runs "
+            "WHERE status='success' AND rank_date <= :cutoff "
+            "ORDER BY started_at DESC LIMIT 1"
+        ), {"cutoff": px_date - timedelta(days=FWD_MIN_DAYS)})).mappings().first()
+    if not run:
+        run = (await conn.execute(text(
+            "SELECT run_id, source_factor_run_id, rank_date FROM ranking_runs "
+            "WHERE status='success' ORDER BY started_at DESC LIMIT 1"
+        ))).mappings().first()
     if not run:
         return {"note": "no successful ranking run yet"}
 
@@ -523,6 +567,7 @@ async def _gate_audit(conn) -> dict:
 
     return {
         "rank_date": str(run["rank_date"]),
+        "fwd_window_days": (px_date - run["rank_date"]).days if px_date else None,
         "dropped_after_scoring": len(dropped),
         "no_factor_row_count": no_factor_row,
         "dropped_with_price_data": len(scored),
@@ -573,14 +618,18 @@ async def _factor_coverage(conn) -> dict:
     ))).mappings().first()
     if not run:
         return {"note": "no factor run yet"}
+    # NB: jsonb_each outputs columns (key, value) and factor_scores ALSO has a
+    # `value` column (the value factor) — unqualified refs are ambiguous, so the
+    # lateral MUST be aliased and every ref qualified (the W27 packet-killer).
     rows = (await conn.execute(text(
-        "SELECT key, COUNT(*) FILTER (WHERE value <> 'null'::jsonb) AS non_null, "
+        "SELECT kv.key AS factor, "
+        "       COUNT(*) FILTER (WHERE kv.value <> 'null'::jsonb) AS non_null, "
         "       COUNT(*) AS total "
-        "FROM factor_scores, LATERAL jsonb_each(scores) "
-        "WHERE run_id = :rid GROUP BY key ORDER BY key"
+        "FROM factor_scores fs, LATERAL jsonb_each(fs.scores) AS kv "
+        "WHERE fs.run_id = :rid GROUP BY kv.key ORDER BY kv.key"
     ), {"rid": run["run_id"]})).mappings().all()
-    return {k["key"]: {"coverage": round(k["non_null"] / k["total"], 3) if k["total"] else None,
-                       "non_null": k["non_null"], "total": k["total"]} for k in rows}
+    return {k["factor"]: {"coverage": round(k["non_null"] / k["total"], 3) if k["total"] else None,
+                          "non_null": k["non_null"], "total": k["total"]} for k in rows}
 
 
 def _system_architecture() -> dict:
@@ -691,21 +740,21 @@ async def build_packet(engine, as_of: date | None = None) -> dict:
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "system_architecture": await _section(lambda: _async_wrap(_system_architecture)),
             "strategy_config": await _section(lambda: _async_wrap(_strategy_config_section)),
-            "universe_snapshot": await _section(lambda: _universe_snapshot(conn)),
-            "gate_audit": await _section(lambda: _gate_audit(conn)),
-            "selection_audit": await _section(lambda: _selection_audit(conn)),
-            "factor_coverage": await _section(lambda: _factor_coverage(conn)),
-            "risk_gate_stats": await _section(lambda: _risk_gate_stats(conn)),
-            "factor_evidence_weekly": await _section(lambda: _weekly_evidence(conn)),
-            "prior_reviews": await _section(lambda: _prior_reviews(conn)),
-            "account_performance": await _section(lambda: _account_performance(conn)),
-            "closed_trades": await _section(lambda: _closed_trades(conn)),
-            "open_positions": await _section(lambda: _open_positions(conn)),
-            "vetter_outcomes": await _section(lambda: _vetter_outcomes(conn)),
-            "exit_outcomes": await _section(lambda: _exit_outcomes(conn)),
-            "current_target_book": await _section(lambda: _current_book(conn)),
-            "config_history": await _section(lambda: _config_history(conn)),
-            "system_health": await _section(lambda: _system_health(conn)),
+            "universe_snapshot": await _section(lambda: _universe_snapshot(conn), conn),
+            "gate_audit": await _section(lambda: _gate_audit(conn), conn),
+            "selection_audit": await _section(lambda: _selection_audit(conn), conn),
+            "factor_coverage": await _section(lambda: _factor_coverage(conn), conn),
+            "risk_gate_stats": await _section(lambda: _risk_gate_stats(conn), conn),
+            "factor_evidence_weekly": await _section(lambda: _weekly_evidence(conn), conn),
+            "prior_reviews": await _section(lambda: _prior_reviews(conn), conn),
+            "account_performance": await _section(lambda: _account_performance(conn), conn),
+            "closed_trades": await _section(lambda: _closed_trades(conn), conn),
+            "open_positions": await _section(lambda: _open_positions(conn), conn),
+            "vetter_outcomes": await _section(lambda: _vetter_outcomes(conn), conn),
+            "exit_outcomes": await _section(lambda: _exit_outcomes(conn), conn),
+            "current_target_book": await _section(lambda: _current_book(conn), conn),
+            "config_history": await _section(lambda: _config_history(conn), conn),
+            "system_health": await _section(lambda: _system_health(conn), conn),
         }
     return packet
 
