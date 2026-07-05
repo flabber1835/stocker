@@ -112,3 +112,17 @@ def test_none_sentinel_is_valid_general_advice():
         assert r["config_field_valid"] is True and r["is_edit"] is False
     # a compound/wildcard expression is still an invalid EDIT target
     assert recs[3]["config_field_valid"] is False and recs[3]["is_edit"] is True
+
+
+def test_regime_weight_paths_valid_via_pattern():
+    """factor_weights is Dict[str, FactorWeights]; the model walk can't enumerate
+    dict keys, so regime-weight paths are pattern-validated (audit M3)."""
+    recs = validate_recommendations([
+        {"config_field": "factor_weights.bull_calm.momentum", "suggested_value": "0.4"},
+        {"config_field": "factor_weights.bear_stress.low_volatility", "suggested_value": "0.3"},
+        {"config_field": "factor_weights.bull_calm.not_a_factor", "suggested_value": "x"},
+        {"config_field": "factor_weights.momentum", "suggested_value": "x"},  # missing regime layer is walk-artifact-valid; tolerated
+    ])
+    assert recs[0]["config_field_valid"] is True
+    assert recs[1]["config_field_valid"] is True
+    assert recs[2]["config_field_valid"] is False

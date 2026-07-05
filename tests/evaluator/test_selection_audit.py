@@ -80,3 +80,23 @@ def test_prior_reviews_feedback_loop_wired():
     from app.report import SYSTEM_PROMPT
     for kw in ("prior_reviews", "ITERATE", "retract", "consecutive week"):
         assert kw in SYSTEM_PROMPT, f"prompt missing iteration rule: {kw}"
+
+
+def test_week_stamp_uses_trading_timezone():
+    """Audit H1: a Sunday-evening ET run is already Monday UTC — stamping the ISO
+    week in UTC filed it under NEXT week, pre-consuming that week's one-report
+    slot so the genuine next-weekend review silently skipped."""
+    import sys, os as _os
+    sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), "..", "..", "services", "evaluator"))
+    from datetime import datetime
+    from app.main import week_stamp, TRADING_TZ
+
+    # Sunday 2026-07-05 21:00 ET == Monday 01:00 UTC
+    sunday_evening_et = datetime(2026, 7, 5, 21, 0, tzinfo=TRADING_TZ)
+    as_of, iso_year, iso_week = week_stamp(sunday_evening_et)
+    assert as_of.isoformat() == "2026-07-05"
+    # ISO week of Sunday July 5 2026 (ET) — same week as Saturday July 4, NOT the
+    # week that starts Monday July 6.
+    assert (iso_year, iso_week) == (2026, 27)
+    monday_utc_view = datetime(2026, 7, 6, 1, 0)   # what UTC stamping would have used
+    assert monday_utc_view.date().isocalendar().week == 28  # the bug this guards against

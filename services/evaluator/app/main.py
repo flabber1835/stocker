@@ -29,12 +29,34 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from app.packet import build_packet
 from app.report import EVALUATOR_MODEL, EVALUATOR_PROVIDER, generate_report
 from stock_strategy_shared.tracing import mark_orphaned_runs_failed
+from stock_strategy_shared.trading_tz import resolve_trading_tz
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
 
+# The week a report belongs to is stamped in the TRADING timezone (same resolver
+# as the scheduler), NOT UTC. The scheduler's weekend trigger gates on ET
+# weekdays; stamping in UTC meant a Sunday-evening ET run (already Monday UTC)
+# was filed under NEXT ISO week — pre-consuming that week's one-report slot so
+# the genuine next-weekend review silently skipped (audit finding H1).
+TRADING_TZ = resolve_trading_tz("SCHEDULE_TZ")
+
+
+def week_stamp(now=None) -> tuple:
+    """(as_of_date, iso_year, iso_week) in the trading timezone."""
+    local = now if now is not None else datetime.now(TRADING_TZ)
+    d = local.date()
+    iso = d.isocalendar()
+    return d, iso.year, iso.week
+
+
 engine: AsyncEngine | None = None
 _job_lock = asyncio.Lock()
+# Short-lived admission lock: serializes the dedup-check + INSERT in
+# /jobs/evaluate so two near-simultaneous POSTs (scheduler tick + RUN REVIEW
+# click) can't both pass dedup and create two same-week 'running' rows that then
+# execute back-to-back (double Opus spend). Never held during the run itself.
+_admission_lock = asyncio.Lock()
 
 
 @asynccontextmanager
@@ -134,24 +156,28 @@ async def evaluate(background_tasks: BackgroundTasks, manual: bool = True, force
     if _job_lock.locked():
         return {"status": "already_running"}
 
-    now = datetime.now(timezone.utc)
-    iso = now.date().isocalendar()
-    async with engine.connect() as conn:
-        existing = (await conn.execute(text(
-            "SELECT run_id::text, status FROM evaluator_reports "
-            "WHERE iso_year=:y AND iso_week=:w AND status IN ('running','success') "
-            "ORDER BY started_at DESC LIMIT 1"
-        ), {"y": iso.year, "w": iso.week})).fetchone()
-    if existing and not force:
-        return {"status": "already_done", "run_id": existing[0], "existing_status": existing[1]}
+    as_of, iso_year, iso_week = week_stamp()
+    async with _admission_lock:
+        async with engine.connect() as conn:
+            existing = (await conn.execute(text(
+                "SELECT run_id::text, status FROM evaluator_reports "
+                "WHERE iso_year=:y AND iso_week=:w AND status IN ('running','success') "
+                "ORDER BY started_at DESC LIMIT 1"
+            ), {"y": iso_year, "w": iso_week})).fetchone()
+        if existing and not force:
+            return {"status": "already_done", "run_id": existing[0], "existing_status": existing[1]}
+        # A concurrent non-forced caller re-checks under the same lock and sees the
+        # row this INSERT creates; forced re-runs are allowed through by design.
+        if existing and force and existing[1] == "running":
+            return {"status": "already_running", "run_id": existing[0]}
 
-    run_id = str(uuid.uuid4())
-    async with engine.begin() as conn:
-        await conn.execute(text(
-            "INSERT INTO evaluator_reports (run_id, status, as_of_date, iso_year, iso_week, manual, started_at) "
-            "VALUES (:rid, 'running', :asof, :y, :w, :manual, :now)"
-        ), {"rid": run_id, "asof": now.date(), "y": iso.year, "w": iso.week,
-            "manual": manual, "now": now})
+        run_id = str(uuid.uuid4())
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "INSERT INTO evaluator_reports (run_id, status, as_of_date, iso_year, iso_week, manual, started_at) "
+                "VALUES (:rid, 'running', :asof, :y, :w, :manual, :now)"
+            ), {"rid": run_id, "asof": as_of, "y": iso_year, "w": iso_week,
+                "manual": manual, "now": datetime.now(timezone.utc)})
 
     background_tasks.add_task(_run_locked, run_id, manual)
     return {"status": "started", "run_id": run_id}

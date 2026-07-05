@@ -2366,7 +2366,8 @@ let _evalReports = [];   // history [{run_id, status, as_of_date, ...}]
 
 function _esc(s) {
   return String(s == null ? '' : s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function _mdToHtml(md) {
@@ -2501,6 +2502,10 @@ async function loadEvaluator() {
       fetch('/api/evaluator/latest').then(r => r.json()),
       fetch('/api/evaluator/reports').then(r => r.json()),
     ]);
+    if (latest && latest.error) {
+      $('eval-status').textContent = 'Evaluator unreachable: ' + latest.error;
+      return;
+    }
     _evalReports = hist.reports || [];
     const sel = $('eval-history');
     sel.innerHTML = _evalReports.map(r =>
