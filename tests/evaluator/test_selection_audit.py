@@ -49,3 +49,22 @@ def test_architecture_brief_covers_the_chain():
     for kw in ("INGEST", "FACTORS", "RANK", "VET", "BUILD", "DELTA", "RISK",
                "KNOWN NON-FEATURES", "greedy_select", "orphan"):
         assert kw in ARCHITECTURE_BRIEF, f"brief missing: {kw}"
+
+
+def test_funnel_sections_wired_into_packet():
+    """The full decision funnel must be evidenced: gates -> rank -> build -> risk.
+    (The gate_audit is the 'what did the filters cost us' counterfactual — the
+    recent-IPO blind spot is invisible without it.)"""
+    import inspect
+    from app import packet
+    src = inspect.getsource(packet.build_packet)
+    for section in ("gate_audit", "selection_audit", "factor_coverage",
+                    "risk_gate_stats", "universe_snapshot", "system_architecture"):
+        assert f'"{section}"' in src, f"packet missing section: {section}"
+
+
+def test_prompt_teaches_the_new_sections():
+    from app.report import SYSTEM_PROMPT
+    for kw in ("GATE AUDIT", "FACTOR COVERAGE", "RISK-GATE STATS",
+               "first-price", "filter mechanism"):
+        assert kw in SYSTEM_PROMPT, f"prompt missing: {kw}"

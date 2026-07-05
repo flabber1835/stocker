@@ -446,6 +446,116 @@ async def _universe_snapshot(conn) -> dict:
     }
 
 
+async def _gate_audit(conn) -> dict:
+    """What the universe FILTERS cost us — the stage BEFORE selection_audit.
+    Names that were factor-scored but never ranked (dropped by
+    min_non_null_factors / required_factors / investability gates), with their
+    null-factor lists, forward returns since rank_date, and first-price dates
+    (a recent first-price date on a big dropped mover = the young-listing /
+    recent-IPO blind spot: history-hungry factors exclude it for ~a year)."""
+    run = (await conn.execute(text(
+        "SELECT run_id, source_factor_run_id, rank_date FROM ranking_runs "
+        "WHERE status='success' ORDER BY started_at DESC LIMIT 1"
+    ))).mappings().first()
+    if not run:
+        return {"note": "no successful ranking run yet"}
+
+    dropped_rows = (await conn.execute(text(
+        "SELECT fs.ticker, fs.scores FROM factor_scores fs "
+        "WHERE fs.run_id = :frid AND fs.ticker NOT IN "
+        "  (SELECT ticker FROM rankings WHERE run_id = :rrid)"
+    ), {"frid": run["source_factor_run_id"], "rrid": run["run_id"]})).mappings().all()
+
+    no_factor_row = (await conn.execute(text(
+        "SELECT COUNT(*) FROM universe_tickers ut "
+        "WHERE ut.snapshot_id = (SELECT MAX(id) FROM universe_snapshots) "
+        "  AND ut.ticker NOT IN (SELECT ticker FROM factor_scores WHERE run_id = :frid)"
+    ), {"frid": run["source_factor_run_id"]})).scalar()
+
+    dropped = []
+    for r in dropped_rows:
+        scores = r["scores"] or {}
+        nulls = sorted(k for k, v in scores.items() if v is None)
+        dropped.append({"ticker": r["ticker"], "null_factors": nulls})
+
+    fwd = await _forward_returns_bulk(conn, [d["ticker"] for d in dropped], run["rank_date"])
+    for d in dropped:
+        d["fwd_return"] = fwd.get(d["ticker"])
+    scored = [d["fwd_return"] for d in dropped if d["fwd_return"] is not None]
+
+    top = sorted((d for d in dropped if d["fwd_return"] is not None),
+                 key=lambda d: -d["fwd_return"])[:15]
+    if top:
+        fp = (await conn.execute(text(
+            "SELECT ticker, MIN(date) AS first_d FROM daily_prices "
+            "WHERE ticker = ANY(:tk) GROUP BY ticker"
+        ), {"tk": [d["ticker"] for d in top]})).mappings().all()
+        first_price = {r["ticker"]: str(r["first_d"]) for r in fp}
+        for d in top:
+            d["first_price_date"] = first_price.get(d["ticker"])
+
+    return {
+        "rank_date": str(run["rank_date"]),
+        "dropped_after_scoring": len(dropped),
+        "no_factor_row_count": no_factor_row,
+        "dropped_with_price_data": len(scored),
+        "avg_fwd_return_of_dropped": round(sum(scored) / len(scored), 4) if scored else None,
+        "top_dropped_movers": top,
+        "note": ("Names the gates excluded BEFORE ranking. null_factors shows which "
+                 "factor(s) were missing (momentum/low_volatility null on a name with a "
+                 "recent first_price_date = young listing starved of history). Big "
+                 "positive fwd_return here = the filter mechanism cost us a winner; "
+                 "no_factor_row_count = names with no price/fundamental coverage at all."),
+    }
+
+
+async def _risk_gate_stats(conn) -> dict:
+    """How the hard safety gate actually behaved (last 30d) — evidence for
+    critiquing risk limits (e.g. a cap that repeatedly blocks planned entries)."""
+    totals = (await conn.execute(text(
+        "SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE approved) AS approved "
+        "FROM risk_decisions WHERE created_at >= NOW() - INTERVAL '30 days'"
+    ))).mappings().first()
+    by_rule = (await conn.execute(text(
+        "SELECT rule_triggered, COUNT(*) AS n, COUNT(DISTINCT ticker) AS tickers "
+        "FROM risk_decisions "
+        "WHERE NOT approved AND created_at >= NOW() - INTERVAL '30 days' "
+        "GROUP BY rule_triggered ORDER BY n DESC"
+    ))).mappings().all()
+    samples = (await conn.execute(text(
+        "SELECT ticker, action, rule_triggered, reason, created_at::date AS d "
+        "FROM risk_decisions WHERE NOT approved "
+        "ORDER BY created_at DESC LIMIT 5"
+    ))).mappings().all()
+    return {
+        "window_days": 30,
+        "checks": totals["total"], "approved": totals["approved"],
+        "rejected": (totals["total"] or 0) - (totals["approved"] or 0),
+        "rejections_by_rule": [dict(r) for r in by_rule],
+        "recent_rejections": [{**dict(s), "d": str(s["d"]),
+                               "reason": (s["reason"] or "")[:150]} for s in samples],
+    }
+
+
+async def _factor_coverage(conn) -> dict:
+    """Per-factor non-null coverage in the latest factor run — evidence for
+    ingestion gaps (a factor can't earn IC on names where its inputs are missing)."""
+    run = (await conn.execute(text(
+        "SELECT run_id FROM factor_runs WHERE status='success' "
+        "ORDER BY started_at DESC LIMIT 1"
+    ))).mappings().first()
+    if not run:
+        return {"note": "no factor run yet"}
+    rows = (await conn.execute(text(
+        "SELECT key, COUNT(*) FILTER (WHERE value <> 'null'::jsonb) AS non_null, "
+        "       COUNT(*) AS total "
+        "FROM factor_scores, LATERAL jsonb_each(scores) "
+        "WHERE run_id = :rid GROUP BY key ORDER BY key"
+    ), {"rid": run["run_id"]})).mappings().all()
+    return {k["key"]: {"coverage": round(k["non_null"] / k["total"], 3) if k["total"] else None,
+                       "non_null": k["non_null"], "total": k["total"]} for k in rows}
+
+
 def _system_architecture() -> dict:
     """The static brief + the LIVE factor surface (registry vs actually-weighted),
     so 'missing factor' findings are grounded in what exists vs what is dormant."""
@@ -555,7 +665,10 @@ async def build_packet(engine, as_of: date | None = None) -> dict:
             "system_architecture": await _section(lambda: _async_wrap(_system_architecture)),
             "strategy_config": await _section(lambda: _async_wrap(_strategy_config_section)),
             "universe_snapshot": await _section(lambda: _universe_snapshot(conn)),
+            "gate_audit": await _section(lambda: _gate_audit(conn)),
             "selection_audit": await _section(lambda: _selection_audit(conn)),
+            "factor_coverage": await _section(lambda: _factor_coverage(conn)),
+            "risk_gate_stats": await _section(lambda: _risk_gate_stats(conn)),
             "factor_evidence_weekly": await _section(lambda: _weekly_evidence(conn)),
             "hypotheses_ledger": await _section(lambda: _hypotheses(conn)),
             "account_performance": await _section(lambda: _account_performance(conn)),
