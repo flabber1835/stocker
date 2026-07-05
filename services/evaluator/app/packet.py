@@ -22,6 +22,48 @@ from stock_strategy_shared.loader import load_strategy
 TRADE_LOOKBACK_DAYS = int(os.getenv("EVALUATOR_TRADE_LOOKBACK_DAYS", "365"))
 WEEKLY_PACKETS = int(os.getenv("EVALUATOR_WEEKLY_PACKETS", "12"))
 VETTER_LOOKBACK_DAYS = int(os.getenv("EVALUATOR_VETTER_LOOKBACK_DAYS", "90"))
+SELECTION_AUDIT_CANDIDATES = int(os.getenv("EVALUATOR_SELECTION_AUDIT_CANDIDATES", "150"))
+
+# ── System-architecture brief ─────────────────────────────────────────────────
+# A concise, versioned description of HOW the system works, given to the LLM so
+# it can critique STRUCTURE — missing factors, illogical steps, selection
+# pathologies — not just tune knobs. Hand-maintained; update when the pipeline
+# changes materially (it is part of the prompt, so edits change prompt_hash).
+ARCHITECTURE_BRIEF = """\
+PIPELINE (daily, after US close; fully deterministic — no LLM in the chain):
+1. INGEST: Alpha Vantage daily adjusted prices + fundamentals for all active US
+   equities (universe from AV LISTING_STATUS). Also earnings; news NOT ingested.
+2. FACTORS (cross-sectional, per ticker): momentum (12-1 and 6-1 residual,
+   market-stripped, NOT vol-scaled), quality, value, growth, low_volatility,
+   liquidity, beta, drawdown, issuance; optional (weight-0 unless configured):
+   small_cap, volume_surge, near_high, high_volatility, earnings_surprise (PEAD).
+   Factors are percentile-scored; composite = weighted sum over non-null factors
+   (renormalized); min_non_null_factors gate; investability floors (min_price,
+   min 20d dollar volume).
+3. RANK: composite ranking of the investable universe. Regime detection exists
+   but regime WEIGHT ROTATION IS OFF — one static weight vector.
+4. VET (deterministic, drawdown-only mode): beta-adjusted, vol-scaled falling-
+   knife veto — excludes any candidate whose idiosyncratic 21d drawdown breaches
+   a per-name limit, plus a 25% absolute floor. No news/LLM judgment in-chain.
+5. BUILD (the greedy selector = source of truth for membership): from the top
+   candidate_count ranked names minus vetter exclusions, greedy_select picks
+   max_positions names maximizing score/portfolio-vol^selection_vol_aversion,
+   subject to: correlation-cluster weight cap AND count cap, AV-sector weight
+   cap, max_position_weight. Weights = score_proportional, then optional
+   BETA-TARGET tilt (reweight toward beta_target within caps), then optional
+   VOL-TARGET de-leverage (scale gross exposure when ex-ante vol > target).
+6. DELTA: diff target vs broker book. Entries = in target, not held (capacity-
+   gated to free slots). A held name exits ONLY when the builder drops it from
+   the target for orphan_confirmation_days consecutive builds (rank itself never
+   forces an exit). Weight drift produces trims/adds.
+7. RISK GATE + EXECUTION: deterministic risk service (kill switch, notional/
+   turnover/position/count/staleness limits) approves each intent; day orders
+   queue for the next open; paper trading via Alpaca.
+KNOWN NON-FEATURES (candidates for structural findings): no news/sentiment
+input anywhere (vetter is price-only now); no earnings-proximity entry gate; no
+intraday layer; no shorting; no position-level stop-loss (exit hysteresis is
+the orphan timer only); backtester exists but is not yet in the weekly loop.
+"""
 
 
 def _f(v) -> float | None:
@@ -279,6 +321,152 @@ async def _exit_outcomes(conn) -> dict:
     }
 
 
+async def _forward_returns_bulk(conn, tickers: list[str], since: date) -> dict[str, float]:
+    """{ticker: return from last close <= since to latest close} in ONE query."""
+    if not tickers:
+        return {}
+    rows = (await conn.execute(text(
+        "WITH b AS (SELECT DISTINCT ON (ticker) ticker, adjusted_close FROM daily_prices "
+        "           WHERE ticker = ANY(:tk) AND date <= :d ORDER BY ticker, date DESC), "
+        "     n AS (SELECT DISTINCT ON (ticker) ticker, adjusted_close FROM daily_prices "
+        "           WHERE ticker = ANY(:tk) ORDER BY ticker, date DESC) "
+        "SELECT b.ticker, b.adjusted_close AS base, n.adjusted_close AS now "
+        "FROM b JOIN n USING (ticker) WHERE b.adjusted_close > 0"
+    ), {"tk": list(tickers), "d": since})).mappings().all()
+    return {r["ticker"]: round(float(r["now"]) / float(r["base"]) - 1.0, 4) for r in rows}
+
+
+def classify_candidates(candidates: list[dict], selected: set[str],
+                        excluded: dict[str, str], worst_selected_rank: int | None) -> list[dict]:
+    """Pure classification of the builder's candidate pool. Reasons:
+      selected        — in the target book
+      vetter_excluded — vetoed before selection (risk_type attached)
+      cap_blocked     — ranked BETTER than the worst selected name yet not picked:
+                        greedy skipped it for diversification (cluster/sector/count
+                        cap or vol-adjusted score) — a BUILDER decision
+      out_ranked      — ranked worse than the last pick: never reached — a RANK
+                        decision
+    The selected-vs-class forward-return spreads built on this are the evidence
+    for whether misses are factor problems or construction problems."""
+    out = []
+    for c in candidates:
+        t = c["ticker"]
+        if t in selected:
+            reason = "selected"
+        elif t in excluded:
+            reason = "vetter_excluded"
+        elif worst_selected_rank is not None and c["rank"] < worst_selected_rank:
+            reason = "cap_blocked"
+        else:
+            reason = "out_ranked"
+        out.append({**c, "outcome": reason,
+                    **({"risk_type": excluded[t]} if t in excluded else {})})
+    return out
+
+
+async def _selection_audit(conn) -> dict:
+    """Picked vs not-picked, with WHY and what each did afterward — the evidence
+    that separates 'the rank missed winners' from 'the builder's caps rejected
+    winners the rank found'."""
+    run = (await conn.execute(text(
+        "SELECT run_id, source_ranking_run_id, portfolio_date FROM ("
+        "  SELECT pr.run_id, ph.source_ranking_run_id, pr.portfolio_date, pr.started_at "
+        "  FROM portfolio_runs pr JOIN portfolio_holdings ph ON ph.run_id = pr.run_id "
+        "  WHERE pr.status='success' ORDER BY pr.started_at DESC LIMIT 1) x"
+    ))).mappings().first()
+    if not run:
+        return {"note": "no successful portfolio run yet"}
+
+    cands = (await conn.execute(text(
+        "SELECT r.ticker, r.rank, r.composite_score, n.sector "
+        "FROM rankings r "
+        "LEFT JOIN (SELECT DISTINCT ON (ticker) ticker, sector FROM universe_tickers "
+        "           WHERE snapshot_id = (SELECT MAX(id) FROM universe_snapshots) "
+        "           ORDER BY ticker, id ASC) n ON n.ticker = r.ticker "
+        "WHERE r.run_id = :rid ORDER BY r.rank ASC LIMIT :n"
+    ), {"rid": run["source_ranking_run_id"], "n": SELECTION_AUDIT_CANDIDATES})).mappings().all()
+    candidates = [{"ticker": c["ticker"], "rank": c["rank"],
+                   "score": _r(c["composite_score"]), "sector": c["sector"]} for c in cands]
+
+    sel_rows = (await conn.execute(text(
+        "SELECT ticker, original_rank FROM portfolio_holdings WHERE run_id = :rid"
+    ), {"rid": run["run_id"]})).mappings().all()
+    selected = {r["ticker"] for r in sel_rows}
+    ranks = [r["original_rank"] for r in sel_rows if r["original_rank"] is not None]
+    worst_rank = max(ranks) if ranks else None
+
+    exc_rows = (await conn.execute(text(
+        "SELECT ve.ticker, ve.risk_type FROM vetter_exclusions ve "
+        "JOIN vetter_runs vr ON vr.run_id = ve.run_id "
+        "WHERE vr.source_ranking_run_id = :srid"
+    ), {"srid": run["source_ranking_run_id"]})).mappings().all()
+    excluded = {r["ticker"]: r["risk_type"] for r in exc_rows}
+
+    audit = classify_candidates(candidates, selected, excluded, worst_rank)
+    fwd = await _forward_returns_bulk(conn, [a["ticker"] for a in audit], run["portfolio_date"])
+    for a in audit:
+        a["fwd_return"] = fwd.get(a["ticker"])
+
+    def _avg(cls):
+        v = [a["fwd_return"] for a in audit if a["outcome"] == cls and a["fwd_return"] is not None]
+        return round(sum(v) / len(v), 4) if v else None
+
+    return {
+        "portfolio_date": str(run["portfolio_date"]),
+        "candidate_count": len(audit),
+        "selected_count": len(selected),
+        "worst_selected_rank": worst_rank,
+        "avg_fwd_return_by_outcome": {c: _avg(c) for c in
+                                      ("selected", "cap_blocked", "vetter_excluded", "out_ranked")},
+        "note": ("cap_blocked = ranked above the last pick but skipped by the builder "
+                 "(diversification caps / vol-adjusted score) — if this class beats "
+                 "'selected', construction is rejecting winners the rank found. "
+                 "out_ranked beating selected implicates the FACTOR MODEL instead."),
+        "candidates": audit,
+    }
+
+
+async def _universe_snapshot(conn) -> dict:
+    """Shape of the investable universe feeding the rank — so pool-size or
+    coverage problems are visible (a great rank over a broken pool still loses)."""
+    rr = (await conn.execute(text(
+        "SELECT universe_count, ranked_count, dropped_count, rank_date "
+        "FROM ranking_runs WHERE status='success' ORDER BY started_at DESC LIMIT 1"
+    ))).mappings().first()
+    snap = (await conn.execute(text(
+        "SELECT COUNT(*) AS n FROM universe_tickers "
+        "WHERE snapshot_id = (SELECT MAX(id) FROM universe_snapshots)"
+    ))).mappings().first()
+    return {
+        "active_listed_tickers": snap["n"] if snap else None,
+        "latest_rank_date": str(rr["rank_date"]) if rr else None,
+        "scored_universe": rr["universe_count"] if rr else None,
+        "ranked_after_gates": rr["ranked_count"] if rr else None,
+        "dropped_by_gates": rr["dropped_count"] if rr else None,
+    }
+
+
+def _system_architecture() -> dict:
+    """The static brief + the LIVE factor surface (registry vs actually-weighted),
+    so 'missing factor' findings are grounded in what exists vs what is dormant."""
+    from stock_strategy_shared.factor_registry import FACTOR_NAMES
+    weights = {}
+    try:
+        cfg, _ = load_strategy(os.getenv("STRATEGY_CONFIG_PATH", ""))
+        w = cfg.static_factor_weights
+        if w is None:
+            w = next(iter(cfg.factor_weights.values()))
+        weights = {k: v for k, v in w.model_dump().items() if v}
+    except Exception:  # noqa: BLE001
+        pass
+    return {
+        "brief": ARCHITECTURE_BRIEF,
+        "factors_computed": sorted(FACTOR_NAMES),
+        "factors_weighted": weights,
+        "factors_dormant": sorted(set(FACTOR_NAMES) - set(weights)),
+    }
+
+
 async def _current_book(conn) -> dict:
     """Latest successful target portfolio: holdings + per-name beta/sector +
     weighted book beta. What the strategy WANTS to hold right now."""
@@ -364,7 +552,10 @@ async def build_packet(engine, as_of: date | None = None) -> dict:
             "schema_version": 1,
             "as_of_date": str(as_of),
             "generated_at": datetime.now(timezone.utc).isoformat(),
+            "system_architecture": await _section(lambda: _async_wrap(_system_architecture)),
             "strategy_config": await _section(lambda: _async_wrap(_strategy_config_section)),
+            "universe_snapshot": await _section(lambda: _universe_snapshot(conn)),
+            "selection_audit": await _section(lambda: _selection_audit(conn)),
             "factor_evidence_weekly": await _section(lambda: _weekly_evidence(conn)),
             "hypotheses_ledger": await _section(lambda: _hypotheses(conn)),
             "account_performance": await _section(lambda: _account_performance(conn)),

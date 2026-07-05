@@ -1632,8 +1632,20 @@ costs, established out-of-sample with low PBO, stable across regimes, then paper
 ## Design Decision: weekly LLM evaluator loop (Phase 1 — read-only)
 
 The `evaluator` service closes the improvement loop: every week a frontier model
-reviews what the system actually did and recommends strategy-config tweaks. The
-goal is a system that measurably PICKS MORE WINNERS over time. Three phases:
+reviews what the system actually did and (a) recommends strategy-config tweaks,
+(b) surfaces STRUCTURAL gaps the knobs cannot fix — missing factors (and the data
+they'd need), un-ingested data sources, and selection/exit/vetting logic that
+systematically leaves winners on the table. To critique structure honestly the
+packet carries a hand-maintained SYSTEM-ARCHITECTURE BRIEF (pipeline stages +
+known non-features; update it when the pipeline changes materially) and a
+SELECTION AUDIT of the latest build: every candidate classified
+selected / cap_blocked / vetter_excluded / out_ranked with per-class forward
+returns — the spread that separates "the rank missed winners" (factor problem)
+from "the builder's caps rejected winners the rank found" (construction problem).
+Structural findings are a separate schema-validated output channel
+(category ∈ missing_factor, missing_data_source, selection_logic, exit_logic,
+vetting, risk_logic, process, other) rendered as amber cards on the Review tab.
+The goal is a system that measurably PICKS MORE WINNERS over time. Three phases:
 
 ```text
 Phase 1 (BUILT)   — read-only weekly report in the dashboard's Review tab

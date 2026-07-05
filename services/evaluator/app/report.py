@@ -63,20 +63,50 @@ REPORT_SCHEMA: dict = {
                              "direction", "expected_effect", "confidence"],
             },
         },
+        "structural_findings": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "finding": {"type": "string"},
+                    "category": {"type": "string",
+                                 "enum": ["missing_factor", "missing_data_source",
+                                          "selection_logic", "exit_logic", "vetting",
+                                          "risk_logic", "process", "other"]},
+                    "evidence": {"type": "array", "items": {"type": "string"}},
+                    "suggested_approach": {"type": "string"},
+                    "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+                },
+                "required": ["finding", "category", "evidence", "suggested_approach", "confidence"],
+            },
+        },
         "data_gaps": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["narrative_markdown", "overall_assessment", "recommendations", "data_gaps"],
+    "required": ["narrative_markdown", "overall_assessment", "recommendations",
+                 "structural_findings", "data_gaps"],
 }
 
-SYSTEM_PROMPT = """You are the weekly strategy evaluator for a systematic equity trading system \
-(daily factor ranking -> LLM vetting -> portfolio construction -> buffer-zone rebalancing -> \
-paper trading at the broker). Your single goal: make the system PICK MORE WINNERS.
+SYSTEM_PROMPT = """You are the weekly strategy evaluator for a systematic equity trading system. \
+Your single goal: make the system PICK MORE WINNERS. You have TWO jobs, output separately:
 
-You receive a deterministic evidence packet: the active strategy YAML, per-factor realized \
-IC and MARGINAL IC (signal a factor adds beyond the weighted book), factor correlations, \
-realized account performance vs SPY, per-trade realized P&L, counterfactual audits (what \
-vetter-excluded names and exited names did AFTERWARD), the current target book, config-change \
-history, and system-health caveats.
+1. TUNE — recommend changes to existing strategy-YAML knobs (recommendations[]).
+2. AUDIT THE MACHINE — surface STRUCTURAL gaps the knobs cannot fix \
+(structural_findings[]): factors that should exist but don't (say what data they need), \
+data sources not ingested, pipeline steps that add no value or actively hurt, selection/\
+exit/vetting logic that systematically leaves winners on the table, missing safeguards. \
+The packet's system_architecture section describes exactly how the machine works today \
+(including a KNOWN NON-FEATURES list) — ground structural critique in that description \
+plus the evidence, never in guesses about how it might work.
+
+You receive a deterministic evidence packet: the system-architecture brief; the active \
+strategy YAML; the investable-universe snapshot; a SELECTION AUDIT of the latest build \
+(every candidate classified selected / cap_blocked / vetter_excluded / out_ranked, with \
+forward returns per class — cap_blocked beating selected implicates CONSTRUCTION; \
+out_ranked beating selected implicates the FACTOR MODEL); per-factor realized IC and \
+MARGINAL IC (signal a factor adds beyond the weighted book), factor correlations; realized \
+account performance vs SPY; per-trade realized P&L; counterfactual audits (what vetter-\
+excluded names and exited names did AFTERWARD); the current target book; config-change \
+history; and system-health caveats.
 
 Rules:
 - You are READ-ONLY and advisory. You recommend config tweaks; a human applies them.
@@ -97,8 +127,13 @@ warranted" is a valid, often correct conclusion — churn in strategy config is 
 week is not evidence against a factor.
 - Marginal IC (not raw IC, not correlation-to-composite) is the standard for adding or \
 up-weighting a factor. A factor can look good raw and add nothing beyond the book.
+- structural_findings are for gaps that need CODE or NEW DATA, not a YAML edit; keep them \
+few and evidence-grounded (0-3 typical). A structural finding needs a mechanism ("momentum \
+has no vol-scaling, so high-sigma names dominate the top ranks and their fwd returns lag — \
+see selection_audit") not a wish list. Recurring evidence across weeks > one week's noise.
 - Structure narrative_markdown with: ## Verdict, ## What worked, ## What hurt, \
-## Decision audits (vetter/exits), ## Recommendations, ## Watch list.
+## Decision audits (vetter/exits/selection), ## Recommendations, ## Structural findings, \
+## Watch list.
 
 Respond ONLY with the JSON object matching the response schema."""
 
@@ -107,6 +142,7 @@ class ReportResult(BaseModel):
     narrative_markdown: str
     overall_assessment: str = "insufficient_data"
     recommendations: list[dict] = []
+    structural_findings: list[dict] = []
     data_gaps: list[str] = []
     provider: str = ""
     model: str = ""
@@ -211,6 +247,7 @@ async def generate_report(packet: dict) -> ReportResult:
         narrative_markdown=str(parsed.get("narrative_markdown", "")),
         overall_assessment=str(parsed.get("overall_assessment", "insufficient_data")),
         recommendations=validate_recommendations(list(parsed.get("recommendations") or [])),
+        structural_findings=[f for f in (parsed.get("structural_findings") or []) if isinstance(f, dict)],
         data_gaps=[str(g) for g in (parsed.get("data_gaps") or [])],
         **meta,
     )

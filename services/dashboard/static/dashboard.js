@@ -2468,6 +2468,24 @@ function _renderEvalReport(rep) {
       }).join('')
     : '<div style="margin:8px 12px;opacity:.7">No config changes recommended this week.</div>';
 
+  // Structural findings — gaps that need CODE or NEW DATA (missing factors,
+  // selection/exit logic, data sources), distinct from YAML tweaks above.
+  const structural = rj.structural || [];
+  if (structural.length) {
+    recs.innerHTML += '<div style="margin:14px 12px 4px;font-size:10px;font-weight:700;' +
+      'letter-spacing:.12em;text-transform:uppercase;color:var(--text2)">Structural findings</div>' +
+      structural.map(f =>
+        '<div style="margin:8px 12px;padding:10px 12px;border:1px solid rgba(217,119,6,.35);' +
+        'border-left-width:3px;border-radius:8px">' +
+        '<div style="font-weight:700">' + _esc(f.finding) +
+        ' <span class="eval-chip">' + _esc(f.category || '') + ' &middot; ' + _esc(f.confidence || '') + '</span></div>' +
+        (f.suggested_approach ? '<div style="margin-top:4px;opacity:.85">Approach: ' + _esc(f.suggested_approach) + '</div>' : '') +
+        ((f.evidence || []).length
+          ? '<ul style="margin:6px 0 0 16px;opacity:.8">' + f.evidence.map(e => '<li>' + _esc(e) + '</li>').join('') + '</ul>'
+          : '') +
+        '</div>').join('');
+  }
+
   nar.innerHTML = '<div style="padding:4px 12px">' + _mdToHtml(rep.report_markdown || '') + '</div>';
 
   const gaps = rep.data_gaps || [];

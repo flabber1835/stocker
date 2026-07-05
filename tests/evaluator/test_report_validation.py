@@ -90,7 +90,8 @@ def test_user_prompt_deterministic():
 
 def test_report_schema_requires_the_contract_keys():
     assert set(REPORT_SCHEMA["required"]) == {
-        "narrative_markdown", "overall_assessment", "recommendations", "data_gaps",
+        "narrative_markdown", "overall_assessment", "recommendations",
+        "structural_findings", "data_gaps",
     }
     rec_props = REPORT_SCHEMA["properties"]["recommendations"]["items"]["properties"]
     for k in ("observation", "evidence", "config_field", "suggested_value",

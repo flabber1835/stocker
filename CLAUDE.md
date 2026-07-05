@@ -1062,19 +1062,29 @@ Weekly LLM strategy review — Phase 1 BUILT (read-only). See
 docs/architecture.md "Design Decision: weekly LLM evaluator loop".
 
 ```text
-1. Python assembles a deterministic evidence packet (packet.py): active
-   strategy YAML + hash, evaluator_weekly factor IC/marginal-IC evidence,
-   account equity vs SPY since inception, per-trade realized P&L,
-   counterfactual audits (what vetter-excluded / exited names did AFTERWARD),
-   current target book (weighted beta, sector weights), config-hash history,
-   system-health caveats. Best-effort per section; persisted verbatim.
+1. Python assembles a deterministic evidence packet (packet.py): a SYSTEM-
+   ARCHITECTURE BRIEF (how the machine works + known non-features, so the LLM
+   can critique structure, not just knobs), active strategy YAML + hash,
+   universe snapshot, SELECTION AUDIT (every builder candidate classified
+   selected / cap_blocked / vetter_excluded / out_ranked with forward returns
+   per class — cap_blocked beating selected implicates CONSTRUCTION;
+   out_ranked beating selected implicates the FACTOR MODEL),
+   evaluator_weekly factor IC/marginal-IC evidence, account equity vs SPY
+   since inception, per-trade realized P&L, counterfactual audits (what
+   vetter-excluded / exited names did AFTERWARD), current target book
+   (weighted beta, sector weights), config-hash history, system-health
+   caveats. Best-effort per section; persisted verbatim.
 2. An Opus-class model (EVALUATOR_MODEL, default claude-opus-4-8, adaptive
    thinking) reviews it VIA THE LLM-GATEWAY and returns structured JSON:
-   narrative markdown + recommendation objects.
+   narrative markdown + recommendation objects (YAML-knob tweaks) +
+   STRUCTURAL FINDINGS (gaps needing code/new data: missing factors, missing
+   data sources, selection/exit/vetting logic flaws — categorized, evidenced).
 3. Each recommendation's config_field is validated against the real
-   StrategyConfig schema — unknown fields are flagged non-actionable.
+   StrategyConfig schema — unknown fields are flagged non-actionable;
+   config_field 'none' = general advice (valid, non-edit).
 4. Stored in evaluator_reports (migration 0037); dashboard Review tab renders
-   verdict, recommendation cards, narrative, history; manual RUN REVIEW button.
+   verdict, recommendation cards, structural-finding cards, narrative,
+   history; manual RUN REVIEW button.
 ```
 
 Trigger: scheduler POSTs /jobs/evaluate hourly on weekend days (ET); the

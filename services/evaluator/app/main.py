@@ -91,6 +91,7 @@ async def _run_evaluation(run_id: str, manual: bool) -> None:
                 "recs": json.dumps({
                     "overall_assessment": result.overall_assessment,
                     "items": result.recommendations,
+                    "structural": result.structural_findings,
                     "parse_fallback": result.parse_fallback,
                 }),
                 "gaps": json.dumps(result.data_gaps),
