@@ -68,3 +68,15 @@ def test_prompt_teaches_the_new_sections():
     for kw in ("GATE AUDIT", "FACTOR COVERAGE", "RISK-GATE STATS",
                "first-price", "filter mechanism"):
         assert kw in SYSTEM_PROMPT, f"prompt missing: {kw}"
+
+
+def test_prior_reviews_feedback_loop_wired():
+    """The evaluator must see its own prior output (iterate, don't restart)."""
+    import inspect
+    from app import packet
+    src = inspect.getsource(packet.build_packet)
+    assert '"prior_reviews"' in src
+    assert '"hypotheses_ledger"' not in src  # dead placeholder replaced, not shipped as noise
+    from app.report import SYSTEM_PROMPT
+    for kw in ("prior_reviews", "ITERATE", "retract", "consecutive week"):
+        assert kw in SYSTEM_PROMPT, f"prompt missing iteration rule: {kw}"

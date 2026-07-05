@@ -115,13 +115,40 @@ async def _weekly_evidence(conn) -> list[dict]:
              "as_of_date": str(r["as_of_date"]), **(r["packet"] or {})} for r in rows]
 
 
-async def _hypotheses(conn) -> list[dict]:
+async def _prior_reviews(conn) -> dict:
+    """The evaluator's own memory: the last few reports it produced, so this
+    week's review can ITERATE — check whether last week's recommendations were
+    adopted (compare each suggested_value to the CURRENT yaml it also receives),
+    self-correct ones that aged badly, and escalate structural findings that
+    recur instead of re-discovering them cold every week."""
     rows = (await conn.execute(text(
-        "SELECT id, statement, status, config_diff, economic_rationale, "
-        "weeks_supported, weeks_total, confidence FROM evaluator_hypotheses "
-        "ORDER BY last_updated DESC LIMIT 50"
+        "SELECT as_of_date, iso_year, iso_week, config_hash, report_markdown, "
+        "       recommendations, data_gaps "
+        "FROM evaluator_reports WHERE status='success' "
+        "ORDER BY started_at DESC LIMIT 4"
     ))).mappings().all()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        rj = r["recommendations"] or {}
+        out.append({
+            "as_of_date": str(r["as_of_date"]),
+            "iso_week": f"{r['iso_year']}-W{r['iso_week']:02d}",
+            "config_hash_at_review": r["config_hash"],
+            "overall_assessment": rj.get("overall_assessment"),
+            "recommendations": rj.get("items") or [],
+            "structural_findings": rj.get("structural") or [],
+            "data_gaps": r["data_gaps"] or [],
+            "narrative_excerpt": (r["report_markdown"] or "")[:1500],
+        })
+    return {
+        "reports": out,
+        "note": ("Your own prior output, newest first. For each prior recommendation: "
+                 "compare its suggested_value to the CURRENT strategy YAML in this packet "
+                 "— adopted, ignored, or superseded? Say so, and judge how adopted ones "
+                 "played out. Re-raise unadopted recommendations only if the evidence "
+                 "still supports them (stronger claim: 'recommended N weeks running'). "
+                 "Escalate structural findings that recur; retract ones that aged badly."),
+    }
 
 
 async def _spy_closes(conn) -> list[tuple[date, float]]:
@@ -670,7 +697,7 @@ async def build_packet(engine, as_of: date | None = None) -> dict:
             "factor_coverage": await _section(lambda: _factor_coverage(conn)),
             "risk_gate_stats": await _section(lambda: _risk_gate_stats(conn)),
             "factor_evidence_weekly": await _section(lambda: _weekly_evidence(conn)),
-            "hypotheses_ledger": await _section(lambda: _hypotheses(conn)),
+            "prior_reviews": await _section(lambda: _prior_reviews(conn)),
             "account_performance": await _section(lambda: _account_performance(conn)),
             "closed_trades": await _section(lambda: _closed_trades(conn)),
             "open_positions": await _section(lambda: _open_positions(conn)),
