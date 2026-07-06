@@ -90,3 +90,28 @@ def test_active_weighted_factors_from_live_config(monkeypatch):
     w = ep._active_weighted_factors()
     assert "momentum" in w and "near_high" in w   # weighted in v2
     assert "issuance" not in w                     # weight 0 → not in the book
+
+
+def test_regret_entries_carry_rank_and_fingerprint():
+    """A deep-ranked missed winner (e.g. rank 509) must arrive with its rank and
+    factor fingerprint, or the evaluator can notice it but never induce a
+    codifiable thesis from recurring misses."""
+    fs = pd.DataFrame(
+        {"composite": [0.1, 0.9], "momentum": [0.2, 0.8],
+         "near_high": [0.95, None], "volume_surge": [0.88, 0.1]},
+        index=["DEEP", "NEAR"],
+    )
+    non_fwd = pd.Series({"DEEP": 0.42, "NEAR": 0.05, "GONE": 0.30})  # GONE not in fs
+    rank_map = {"DEEP": 509, "NEAR": 12}
+
+    entries = ep._regret_entries(non_fwd, rank_map, fs, top_n=3)
+
+    assert [e["ticker"] for e in entries] == ["DEEP", "GONE", "NEAR"]  # sorted by fwd desc
+    deep = entries[0]
+    assert deep["rank"] == 509 and deep["fwd_return"] == 0.42
+    fp = deep["factor_fingerprint"]
+    assert fp["near_high"] == 0.95 and fp["volume_surge"] == 0.88  # dormant factors visible
+    gone = entries[1]
+    assert gone["rank"] is None and "factor_fingerprint" not in gone  # absent name degrades sanely
+    near = entries[2]
+    assert "near_high" not in near["factor_fingerprint"]  # nulls dropped, not zero-filled

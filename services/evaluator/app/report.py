@@ -145,6 +145,12 @@ warranted" is a valid, often correct conclusion — churn in strategy config is 
 week is not evidence against a factor.
 - Marginal IC (not raw IC, not correlation-to-composite) is the standard for adding or \
 up-weighting a factor. A factor can look good raw and add nothing beyond the book.
+- MISSED-WINNER INDUCTION: each weekly regret_top_non_selected entry carries the name's \
+rank and factor fingerprint (incl. dormant factors and display indicators). When missed \
+winners RECUR with a shared fingerprint — e.g. high near_high + volume_surge, both dormant \
+— recommend activating those dormant factors (a YAML edit). Recurring misses with NO \
+shared fingerprint in the computed set = a missing-factor structural finding: name the \
+data a capturing factor would need. One week's regret list alone is noise, not a thesis.
 - structural_findings are for gaps that need CODE or NEW DATA, not a YAML edit; keep them \
 few and evidence-grounded (0-3 typical). A structural finding needs a mechanism ("momentum \
 has no vol-scaling, so high-sigma names dominate the top ranks and their fwd returns lag — \

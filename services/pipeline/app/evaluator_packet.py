@@ -32,7 +32,30 @@ from stock_strategy_shared.loader import load_strategy
 # tells the evaluator whether to PROMOTE one to a factor — e.g. falling-knife).
 DISPLAY_KEYS = ("drawdown_21d", "excess_dd_21d", "idio_vol", "beta")
 _MIN_OBS = 10            # minimum tickers for a meaningful cross-sectional IC
-_REGRET_TOP = 10         # how many top non-selected movers to surface
+_REGRET_TOP = 15         # how many top non-selected movers to surface
+
+
+def _regret_entries(non_fwd, rank_map: dict, fs, top_n: int = _REGRET_TOP) -> list[dict]:
+    """Top non-selected movers WITH their rank and factor fingerprint.
+
+    A bare {ticker, fwd_return} regret entry lets the evaluator NOTICE a missed
+    winner (even one ranked 509) but not induce anything from it. The rank shows
+    how deep the miss was; the fingerprint (this name's factor percentiles at the
+    base run, incl. dormant factors and display indicators) is what makes the
+    misses PATTERN-MATCHABLE across weeks — e.g. "missed winners consistently
+    score high on near_high + volume_surge (both dormant)" is one YAML edit away
+    from being captured."""
+    out = []
+    for t, v in non_fwd.sort_values(ascending=False).head(top_n).items():
+        entry = {"ticker": t, "fwd_return": round(float(v), 4),
+                 "rank": rank_map.get(t)}
+        if t in fs.index:
+            row = fs.loc[t]
+            entry["factor_fingerprint"] = {
+                k: round(float(x), 2) for k, x in row.items() if pd.notna(x)
+            }
+        out.append(entry)
+    return out
 
 
 def _spearman(a: pd.Series, b: pd.Series):
@@ -118,11 +141,14 @@ async def _horizon_block(conn, as_of: date, lookback_days: int, weighted: set[st
         return None
     base_date = base["rank_date"]
     rk = (await conn.execute(text(
-        "SELECT ticker, composite_score, factor_scores FROM rankings WHERE run_id = CAST(:rid AS uuid)"
+        "SELECT ticker, rank, composite_score, factor_scores FROM rankings WHERE run_id = CAST(:rid AS uuid)"
     ), {"rid": base["rid"]})).mappings().all()
     if not rk:
         return None
 
+    # rank kept OUT of fs (it feeds the regret fingerprints, not the IC loop —
+    # an "IC of rank" row would be composite noise).
+    rank_map = {r["ticker"]: r["rank"] for r in rk}
     fs = pd.DataFrame([{
         "ticker": r["ticker"],
         "composite": (None if r["composite_score"] is None else float(r["composite_score"])),
@@ -178,10 +204,7 @@ async def _horizon_block(conn, as_of: date, lookback_days: int, weighted: set[st
         book["hit_rate"] = round(float((sel_fwd > 0).mean()), 4) if len(sel_fwd) else None
         book["excess_vs_benchmark"] = (round(book["book_fwd_return"] - bench, 4)
                                        if book.get("book_fwd_return") is not None and bench is not None else None)
-        book["regret_top_non_selected"] = [
-            {"ticker": t, "fwd_return": round(float(v), 4)}
-            for t, v in non_fwd.sort_values(ascending=False).head(_REGRET_TOP).items()
-        ]
+        book["regret_top_non_selected"] = _regret_entries(non_fwd, rank_map, fs)
 
     return {
         "base_rank_date": str(base_date),
@@ -219,7 +242,12 @@ async def build_weekly_packet(engine, as_of_date: date, lookbacks=(7, 30)) -> di
                  "marginal_ic = IC after residualizing on the weighted book — the signal a "
                  "factor adds BEYOND what's already traded (use THIS, not IC×(1−corr_to_"
                  "composite), to judge adding a factor: a factor can be ~orthogonal to the "
-                 "blended composite yet duplicate one weighted factor, e.g. drawdown↔near_high).",
+                 "blended composite yet duplicate one weighted factor, e.g. drawdown↔near_high). "
+                 "regret_top_non_selected entries carry the name's RANK and FACTOR "
+                 "FINGERPRINT: a recurring fingerprint across weeks' missed winners (e.g. "
+                 "high near_high + volume_surge, both dormant) is the codifiable signal — "
+                 "recommend activating the dormant factor(s); no shared fingerprint across "
+                 "recurring misses = a missing-factor structural finding.",
     }
 
 
