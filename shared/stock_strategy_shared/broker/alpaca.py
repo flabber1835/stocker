@@ -103,6 +103,18 @@ class AlpacaBrokerAdapter(BrokerAdapter):
     def normalize_status(self, raw_status: str) -> Optional[str]:
         return _ALPACA_TO_STATUS.get(raw_status)
 
+    # -- symbology -----------------------------------------------------------
+    # Alpaca uses DOT notation for share classes / preferreds / units (PBR.A,
+    # BRK.B); the system form is Alpha Vantage's HYPHEN (PBR-A, BRK-B). US
+    # symbols contain no legitimate hyphens or dots outside these suffixes, so a
+    # blanket swap is a bijection. Discovered live: entry intent for PBR-A →
+    # Alpaca 'asset "PBR-A" not found'.
+    def to_broker_symbol(self, ticker: str) -> str:
+        return (ticker or "").replace("-", ".")
+
+    def from_broker_symbol(self, symbol: str) -> str:
+        return (symbol or "").replace(".", "-")
+
     # -- reads --------------------------------------------------------------
     async def get_account(self) -> Optional[AccountSnapshot]:
         async with self._httpx.AsyncClient(timeout=self.timeout) as client:
@@ -127,7 +139,9 @@ class AlpacaBrokerAdapter(BrokerAdapter):
                 continue
             out.append(
                 BrokerPosition(
-                    ticker=pos.get("symbol", ""),
+                    # broker → SYSTEM symbology (PBR.A → PBR-A) so live_positions
+                    # matches rankings/targets and held-detection can't miss.
+                    ticker=self.from_broker_symbol(pos.get("symbol", "")),
                     qty=_f(pos.get("qty")),
                     avg_entry_price=_f(pos.get("avg_entry_price")),
                     current_price=_f(pos.get("current_price")),
@@ -197,7 +211,11 @@ class AlpacaBrokerAdapter(BrokerAdapter):
         self, payload: dict
     ) -> tuple[Optional[str], Optional[str], Optional[str]]:
         """POST an order to Alpaca. Returns (alpaca_order_id, alpaca_status, error).
-        Transport errors propagate (caller wraps them)."""
+        Transport errors propagate (caller wraps them). The payload's symbol is
+        translated SYSTEM → broker form here (PBR-A → PBR.A); callers keep the
+        system form everywhere (intents, alpaca_orders rows, risk checks)."""
+        if payload.get("symbol"):
+            payload = {**payload, "symbol": self.to_broker_symbol(payload["symbol"])}
         async with self._httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(
                 f"{self.base_url}/v2/orders", json=payload, headers=self.headers()
@@ -219,7 +237,8 @@ class AlpacaBrokerAdapter(BrokerAdapter):
         since the last sync."""
         async with self._httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.delete(
-                f"{self.base_url}/v2/positions/{symbol}", headers=self.headers()
+                f"{self.base_url}/v2/positions/{self.to_broker_symbol(symbol)}",
+                headers=self.headers(),
             )
         if resp.status_code in (200, 201):
             data = resp.json()

@@ -102,6 +102,19 @@ class BrokerAdapter(abc.ABC):
     #: Single source: trade-executor imports this instead of redefining it.
     ALREADY_CLOSED_STATUS: str = "position_already_closed"
 
+    # -- symbology ------------------------------------------------------------
+    # The SYSTEM ticker form is Alpha Vantage's: share classes / preferreds use a
+    # HYPHEN (PBR-A, BRK-B, HEI-A). Brokers differ (Alpaca uses dots: PBR.A —
+    # "asset not found" when sent the hyphen form). Adapters translate at the
+    # transport boundary in BOTH directions so every other service — rankings,
+    # builder, delta, risk-service, live_positions — speaks ONLY the system form.
+    # Defaults are identity (a broker that uses AV symbology needs no override).
+    def to_broker_symbol(self, ticker: str) -> str:
+        return ticker
+
+    def from_broker_symbol(self, symbol: str) -> str:
+        return symbol
+
     def __init__(self, http_provider: Optional[Callable[[], object]] = None) -> None:
         self._http_provider = http_provider
 

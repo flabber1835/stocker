@@ -508,7 +508,11 @@ async def test_position_values_stored_with_full_precision():
     assert len(lp_inserts) == 1, f"Expected 1 insert, got {len(lp_inserts)}"
 
     params = lp_inserts[0]["params"]
-    assert params.get("ticker") == "BRK.B"
+    # Broker dot-symbology is translated to the SYSTEM (Alpha Vantage hyphen)
+    # form at the adapter boundary: live_positions must store BRK-B so it
+    # matches rankings/targets. (Storing the broker's BRK.B verbatim was the
+    # held-detection mismatch behind the live PBR-A "asset not found" incident.)
+    assert params.get("ticker") == "BRK-B"
 
     # Qty must be stored as a float, not truncated to int
     stored_qty = params.get("qty")
