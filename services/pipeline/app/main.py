@@ -6,7 +6,7 @@ import time
 import traceback
 import uuid
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 import pandas as pd
@@ -23,6 +23,7 @@ from app.engine import (
     evaluate_all,
     evaluate_target_vs_live,
     below_floor_unranked,
+    meets_floor_fresh,
     RankObservation,
 )
 from stock_strategy_shared.schemas.strategy import StrategyConfig
@@ -40,6 +41,39 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
 ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
+
+# Last-known-good window for the factor step's fundamentals read: each field
+# independently takes its latest non-null value among a ticker's rows inside
+# this window, bridging a degraded vendor refresh (see the Step 5 comment).
+FUND_LKG_WINDOW_DAYS = int(os.getenv("FUND_LKG_WINDOW_DAYS", "45"))
+
+# Numeric fundamentals fields the factor step consumes; each gets the
+# latest-non-null treatment. Kept as a module constant so the SQL builder and
+# tests share one source.
+FUND_FIELDS = (
+    "pe_ratio", "pb_ratio", "roe", "debt_to_equity",
+    "revenue_growth", "eps_growth", "gross_profit", "total_assets",
+    "shares_outstanding", "shares_outstanding_prior", "market_cap",
+)
+
+
+def _lkg_fundamentals_sql() -> str:
+    """Per-ticker, PER-FIELD latest non-null fundamentals within the window.
+
+    (ARRAY_REMOVE(ARRAY_AGG(col ORDER BY as_of_date DESC), NULL))[1] is the
+    newest non-null value of `col` for the group — one degraded row no longer
+    nulls a field that the previous week's row still carries. as_of_date is the
+    ticker's newest row date (staleness accounting unchanged)."""
+    field_exprs = ", ".join(
+        f"(ARRAY_REMOVE(ARRAY_AGG({f} ORDER BY as_of_date DESC), NULL))[1] AS {f}"
+        for f in FUND_FIELDS
+    )
+    return (
+        "SELECT ticker, MAX(as_of_date) AS as_of_date, " + field_exprs + " "
+        "FROM fundamentals "
+        "WHERE ticker = ANY(:tickers) AND source != 'no_data' AND as_of_date >= :cutoff "
+        "GROUP BY ticker"
+    )
 
 PIPELINE_STREAM = "stocker:pipeline_events"
 CONSUMER_GROUP = "pipeline-consumers"
@@ -1035,20 +1069,40 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
     _set_pct("calc_factors", 58)
     async with engine.connect() as conn:
-        # ── Step 5: load fundamentals ─────────────────────────────────────────
+        # ── Step 5: load fundamentals — LAST-KNOWN-GOOD per field ─────────────
+        # The old `DISTINCT ON (ticker) ... ORDER BY as_of_date DESC` took the
+        # latest row VERBATIM, so a single degraded vendor refresh (the PBR
+        # incident: AV nulled total_assets in one weekly row while every other
+        # field was fine) poisoned that field for ~a week — quality went null,
+        # the required_factors gate ejected both Petrobras listings, and the held
+        # one started an orphan-exit countdown. Now each FIELD independently takes
+        # its latest non-null value within FUND_LKG_WINDOW_DAYS, so a one-row blip
+        # is bridged by the previous good row. Tickers with NO row inside the
+        # window fall back to the old latest-row-verbatim behavior (no regression
+        # for rarely-refreshed names; the >90d staleness warning still applies).
         t0 = datetime.now(timezone.utc)
+        _fund_cutoff = score_date - timedelta(days=FUND_LKG_WINDOW_DAYS)
         fund_rows = await conn.execute(
-            text(
-                "SELECT DISTINCT ON (ticker) ticker, as_of_date, pe_ratio, pb_ratio, roe, debt_to_equity, "
-                "revenue_growth, eps_growth, gross_profit, total_assets, "
-                "shares_outstanding, shares_outstanding_prior, market_cap FROM fundamentals "
-                "WHERE ticker = ANY(:tickers) AND source != 'no_data' "
-                "ORDER BY ticker, as_of_date DESC"
-            ),
-            {"tickers": universe_tickers},
+            text(_lkg_fundamentals_sql()),
+            {"tickers": universe_tickers, "cutoff": _fund_cutoff},
         )
+        _fund_records = fund_rows.fetchall()
+        _lkg_tickers = {r[0] for r in _fund_records}
+        _leftover = [t for t in universe_tickers if t not in _lkg_tickers]
+        if _leftover:
+            older_rows = await conn.execute(
+                text(
+                    "SELECT DISTINCT ON (ticker) ticker, as_of_date, pe_ratio, pb_ratio, roe, debt_to_equity, "
+                    "revenue_growth, eps_growth, gross_profit, total_assets, "
+                    "shares_outstanding, shares_outstanding_prior, market_cap FROM fundamentals "
+                    "WHERE ticker = ANY(:tickers) AND source != 'no_data' "
+                    "ORDER BY ticker, as_of_date DESC"
+                ),
+                {"tickers": _leftover},
+            )
+            _fund_records = list(_fund_records) + older_rows.fetchall()
         fund_df = pd.DataFrame(
-            fund_rows.fetchall(),
+            _fund_records,
             columns=["ticker", "as_of_date", "pe_ratio", "pb_ratio", "roe", "debt_to_equity",
                      "revenue_growth", "eps_growth", "gross_profit", "total_assets",
                      "shares_outstanding", "shares_outstanding_prior", "market_cap"],
@@ -2454,6 +2508,86 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 flush=True,
             )
 
+    # ── Factor-gate gap detection (fix C — the PBR-A incident) ────────────────
+    # A held name can be absent from the CURRENT ranking while still carrying
+    # stale obs from prior runs (so `t not in universe` misses it). If it was
+    # factor-SCORED in the current run but ejected by the rank gate (NULL
+    # required factor), has a fresh price and MEETS the floor, its target-absence
+    # is a vendor data gap, not a builder decision → the engine holds it without
+    # advancing the orphan action. Newest run = recent_run_ids[0].
+    factor_gate_gap: set[str] = set()
+    if recent_run_ids and live_positions_set:
+        async with engine.connect() as conn:
+            _curr_ranked = {
+                r.ticker for r in (await conn.execute(
+                    text("SELECT ticker FROM rankings WHERE run_id = CAST(:rid AS uuid) "
+                         "AND ticker = ANY(:held)"),
+                    {"rid": recent_run_ids[0], "held": list(live_positions_set)},
+                )).fetchall()
+            }
+            gate_candidates = [
+                t for t in live_positions_set
+                if t not in _curr_ranked
+                and t not in dedup_survivors
+                and t not in unranked_below_floor
+            ]
+            if gate_candidates:
+                _sfr = (await conn.execute(
+                    text("SELECT source_factor_run_id FROM ranking_runs "
+                         "WHERE run_id = CAST(:rid AS uuid)"),
+                    {"rid": recent_run_ids[0]},
+                )).scalar()
+                _scored = set()
+                if _sfr is not None:
+                    _scored = {
+                        r.ticker for r in (await conn.execute(
+                            text("SELECT ticker FROM factor_scores "
+                                 "WHERE run_id = :sfr AND ticker = ANY(:cands)"),
+                            {"sfr": _sfr, "cands": gate_candidates},
+                        )).fetchall()
+                    }
+                gate_candidates = [t for t in gate_candidates if t in _scored]
+            if gate_candidates:
+                _gref = (await conn.execute(
+                    text("SELECT MAX(date) FROM daily_prices")
+                )).scalar()
+                _gpr = await conn.execute(
+                    text(
+                        "SELECT ticker, "
+                        "  (array_agg(adjusted_close ORDER BY date DESC))[1] AS last_px, "
+                        "  MAX(date) AS last_date, "
+                        "  AVG(close::double precision * volume::double precision) AS avg_dv "
+                        "FROM (SELECT ticker, date, adjusted_close, close, volume, "
+                        "        ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) AS rn "
+                        "      FROM daily_prices WHERE ticker = ANY(:tickers)) x "
+                        "WHERE rn <= 20 GROUP BY ticker"
+                    ),
+                    {"tickers": gate_candidates},
+                )
+                _gate_price_rows = {
+                    r.ticker: (
+                        float(r.last_px) if r.last_px is not None else None,
+                        r.last_date,
+                        float(r.avg_dv) if r.avg_dv is not None else None,
+                    )
+                    for r in _gpr.fetchall()
+                }
+                if _gref is not None:
+                    factor_gate_gap = meets_floor_fresh(
+                        _gate_price_rows,
+                        min_price=float(strategy.universe.min_price),
+                        min_avg_dollar_volume=float(strategy.universe.min_avg_dollar_volume_20d),
+                        ref_date=_gref,
+                        stale_days=int(os.getenv("DELTA_PRICED_STALE_DAYS", "7")),
+                    )
+    if factor_gate_gap:
+        print(
+            f"[delta] {len(factor_gate_gap)} held name(s) dropped from the current "
+            f"ranking by the factor gate (fresh price, meets floor) → holding, "
+            f"orphan timer not advanced: {sorted(factor_gate_gap)}",
+            flush=True,
+        )
+
     # Buying power for the delta entry-cap gate (None when no sync / not recorded).
     buying_power_for_cap: Optional[float] = (
         float(sync_run.buying_power)
@@ -2648,6 +2782,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             orphan_confirmation_days=orphan_confirmation_days,
             dedup_survivors=dedup_survivors,
             unranked_below_floor=unranked_below_floor,
+            factor_gate_gap=factor_gate_gap,
             inflight_entries=inflight_entries,
             inflight_exits=inflight_exits,
             # Put actual (sums to ~1.0) and target (scaled to ~1-cash_reserve) on the

@@ -395,10 +395,19 @@ def compute_quality(
     artificially high.
     """
     fund = fundamentals.set_index("ticker")
+    all_tickers = fund.index
 
-    # Profitability leg: gross-profits-to-assets when enabled and the inputs exist,
-    # else ROE. Computed as a per-ticker raw series before winsorize+percentile.
-    prof = pd.Series(dtype=float)
+    # Profitability leg: gross-profits-to-assets when enabled, with a PER-TICKER
+    # ROE fallback. Each candidate series is winsorized + percentile-ranked over
+    # its OWN population (both land on [0,1]), then the ROE percentile fills the
+    # tickers whose GPA inputs are missing — mixing raw GPA and raw ROE in one
+    # percentile would corrupt the ordering (different scales).
+    # ROOT CAUSE this fixes (the PBR incident): the old fallback was
+    # POPULATION-level (`if prof.dropna().empty`) — one ticker whose total_assets
+    # a vendor blip nulled got NaN profitability even though its ROE was present
+    # in the same row, so quality went null, the required_factors gate ejected
+    # BOTH Petrobras listings, and the held one started an orphan-exit countdown.
+    prof_pct = pd.Series(np.nan, index=all_tickers)
     if (
         use_gross_profitability
         and "gross_profit" in fund.columns
@@ -406,22 +415,23 @@ def compute_quality(
     ):
         gp = fund["gross_profit"].astype(float)
         ta = fund["total_assets"].astype(float)
-        gpa = gp / ta.where(ta > 0)  # assets <= 0 is corrupt data -> NaN
-        prof = gpa.replace([float("inf"), float("-inf")], float("nan"))
-    if prof.dropna().empty and "roe" in fund.columns:
-        # Either the flag is off, or gross-profitability had no usable data —
-        # fall back to ROE so the profitability leg is never silently dropped.
-        prof = fund["roe"].astype(float)
+        gpa = (gp / ta.where(ta > 0)).replace(  # assets <= 0 is corrupt data -> NaN
+            [float("inf"), float("-inf")], float("nan")
+        )
+        if gpa.notna().any():
+            prof_pct = cross_section_percentile(_winsorize(gpa[gpa.notna()]).reindex(all_tickers))
+    if "roe" in fund.columns:
+        roe = fund["roe"].astype(float)
+        if roe.notna().any() and prof_pct.isna().any():
+            roe_pct = cross_section_percentile(_winsorize(roe[roe.notna()]).reindex(all_tickers))
+            prof_pct = prof_pct.fillna(roe_pct)
 
     dte = fund["debt_to_equity"].astype(float) if "debt_to_equity" in fund.columns else pd.Series(dtype=float)
-
-    has_prof = prof.notna()
     has_dte = dte.notna()
 
-    all_tickers = fund.index
     components = pd.DataFrame(index=all_tickers)
-    if has_prof.any():
-        components["profitability"] = cross_section_percentile(_winsorize(prof[has_prof]).reindex(all_tickers))
+    if prof_pct.notna().any():
+        components["profitability"] = prof_pct
     if has_dte.any():
         components["neg_dte"] = cross_section_percentile(_winsorize(-dte[has_dte]).reindex(all_tickers))
 

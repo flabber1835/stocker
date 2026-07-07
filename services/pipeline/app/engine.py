@@ -223,6 +223,28 @@ def below_floor_unranked(
     return out
 
 
+def meets_floor_fresh(
+    price_rows: dict[str, tuple[Optional[float], Optional[date], Optional[float]]],
+    *,
+    min_price: float,
+    min_avg_dollar_volume: float,
+    ref_date: date,
+    stale_days: int = 7,
+) -> set[str]:
+    """Complement of `below_floor_unranked` for the SAME price_rows: tickers with a
+    FRESH price that MEET the investability floor. Used to identify a held name
+    that vanished from the current ranking for a NON-price reason — i.e. the
+    factor gate (a transiently NULL required factor) — the PBR case. Pure."""
+    out: set[str] = set()
+    for ticker, (last_px, last_date, avg_dv) in price_rows.items():
+        if last_date is None or (ref_date - last_date).days > stale_days:
+            continue  # stale/no price → genuine data gap, not a gate drop
+        if not below_investability_floor(last_px, avg_dv, min_price=min_price,
+                                         min_avg_dollar_volume=min_avg_dollar_volume):
+            out.add(ticker)
+    return out
+
+
 def evaluate_target_vs_live(
     target_portfolio: dict[str, float],
     live_positions: set[str],
@@ -238,6 +260,7 @@ def evaluate_target_vs_live(
     dedup_survivors: dict[str, str] | None = None,
     cash_fraction: float | None = None,
     unranked_below_floor: set[str] | None = None,
+    factor_gate_gap: set[str] | None = None,
     inflight_entries: set[str] | None = None,
     inflight_exits: set[str] | None = None,
 ) -> dict[str, DeltaDecision]:
@@ -304,6 +327,19 @@ def evaluate_target_vs_live(
     # MEET the floor but are unranked for a transient factor/data reason (a null
     # required factor) — exiting those would be a false-exit of a legit holding.
     unranked_below_floor = unranked_below_floor or set()
+    # Held names absent from the CURRENT ranking because the FACTOR GATE dropped
+    # them (factor row exists this run, fresh price, MEETS the floor — i.e. a
+    # transiently NULL required factor, the PBR incident): a data gap on a held
+    # name, per the documented rule, is HELD and does NOT advance the orphan
+    # timer. Computed by the delta step against the newest run specifically —
+    # a name can carry stale obs from prior runs and still be gate-dropped today,
+    # which previously routed it into the normal orphan countdown (the code/docs
+    # divergence this parameter closes). NOTE: gate-gap builds still appear as
+    # target-absence in target_history, so if the gate heals and the builder then
+    # DROPS the name by choice, the orphan counter can already be at/over the
+    # threshold — an immediate exit. Intentional: after multiple absent builds the
+    # exit is no longer whipsaw, and the target is binding.
+    factor_gate_gap = factor_gate_gap or set()
 
     # Drift-comparison basis fix: gross the target back up to the sum-to-1 basis
     # the actual broker weights live on, so the cash_reserve hold-back is not
@@ -454,6 +490,29 @@ def evaluate_target_vs_live(
                 reason=(
                     "Held at broker but absent from ranking universe with no recent "
                     "price data — awaiting price/fundamentals data from av-ingestor"
+                ),
+                actual_weight=actual_weights.get(ticker) if actual_weights else None,
+                weight_drift=None,
+            )
+            continue
+
+        if ticker in factor_gate_gap:
+            # Transient factor-gate drop on a HELD name (fresh price, meets the
+            # floor, factor-scored this run but ejected by a NULL required
+            # factor): a vendor data blip, not a builder decision. Hold without
+            # advancing the orphan action — never sell a legit holding over a
+            # fundamentals hiccup (the documented rule; the PBR-A regression).
+            decisions[ticker] = DeltaDecision(
+                ticker=ticker,
+                action="hold",
+                rank=latest.rank if latest else 9999,
+                composite_score=latest.composite_score if latest else 0.0,
+                confirmation_days_met=0,
+                current_weight=0.0,
+                reason=(
+                    "Held at broker; dropped from the current ranking by the factor "
+                    "gate (required factor transiently NULL — fresh price, meets "
+                    "floor) — data gap, holding without advancing the orphan timer"
                 ),
                 actual_weight=actual_weights.get(ticker) if actual_weights else None,
                 weight_drift=None,
