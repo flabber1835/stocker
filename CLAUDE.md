@@ -501,6 +501,13 @@ deduplicate requests
 store raw responses when useful
 store prices/fundamentals/news/macro in Postgres
 record ingestion job status
+detect fundamentals FIELD REGRESSIONS (a fetch that nulls a previously-
+  populated field, e.g. AV serving totalAssets=None once — the PBR incident)
+  and queue the ticker in fundamentals_repair_queue (migration 0038) for a
+  targeted re-fetch next run, bypassing the weekly skip window; capped at
+  FUND_REPAIR_MAX_ATTEMPTS (default 3), resolved when the queued fields
+  return non-null. Complements (not replaces) the factor step's
+  last-known-good read and the delta engine's factor-gate hold.
 ```
 
 Should not calculate investment factors.

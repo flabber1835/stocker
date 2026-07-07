@@ -138,6 +138,12 @@ def _should_use_compact(ticker: str, ticker_latest: dict) -> bool:
     return ticker_latest.get(ticker) is not None
 
 
+# Repair re-fetch attempt cap: a regression that survives this many targeted
+# re-fetches is treated as legitimately-lost coverage (e.g. delisting) and no
+# longer scheduled — it stays visible in fundamentals_repair_queue unresolved.
+FUND_REPAIR_MAX_ATTEMPTS = int(os.getenv("FUND_REPAIR_MAX_ATTEMPTS", "3"))
+
+
 def _should_skip_fundamentals(ticker: str, fund_latest: dict, today: date, max_age_days: int = 7) -> bool:
     """Return True if fundamentals were fetched within max_age_days (AV OVERVIEW is quarterly data)."""
     last = fund_latest.get(ticker)
@@ -486,6 +492,29 @@ async def _upsert_fundamentals(session, ticker: str, overview: dict, today: date
         "shares_outstanding_prior": None,
         **overview,
     }
+
+    # Field-regression detection (repair queue, layer 4 of the PBR armor): diff
+    # this fetch against the ticker's PREVIOUS row; a populated→null field means
+    # the vendor served a degraded snapshot → enqueue for a targeted re-fetch
+    # next run instead of waiting out the weekly cadence. Also resolves an open
+    # queue entry once its regressed fields come back. Best-effort: a queue
+    # failure must never fail the fundamentals write itself.
+    try:
+        prev = (await session.execute(text(
+            "SELECT " + ", ".join(repair_queue.REGRESSION_FIELDS) + " "
+            "FROM fundamentals WHERE ticker = :t AND as_of_date < :today "
+            "ORDER BY as_of_date DESC LIMIT 1"
+        ), {"t": ticker, "today": today})).mappings().first()
+        outcome = await repair_queue.record_check(
+            session, ticker, dict(prev) if prev else None, params
+        )
+        if outcome == "enqueued":
+            print(f"[fetch-data] {ticker} fundamentals REGRESSION detected "
+                  f"(field went populated→null) — queued for repair re-fetch")
+        elif outcome == "resolved":
+            print(f"[fetch-data] {ticker} fundamentals repair RESOLVED — regressed fields restored")
+    except Exception as exc:  # noqa: BLE001 — repair bookkeeping is never fatal
+        print(f"[fetch-data] {ticker} repair-queue check failed (non-fatal): {exc}")
     await session.execute(
         text(
             "INSERT INTO fundamentals "
@@ -1137,6 +1166,20 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
     fund_latest = await _load_fund_staleness()
     investable_tickers = await _load_investable_tickers()
 
+    # Repair set: tickers whose last fetch REGRESSED a fundamentals field —
+    # force-refresh them this run (bypass the weekly skip window) and count the
+    # attempt. Best-effort: table may predate migration 0038 on a fresh deploy.
+    repair_set: set[str] = set()
+    try:
+        repair_set = await repair_queue.load_repair_set(engine, FUND_REPAIR_MAX_ATTEMPTS)
+        repair_set &= fundamental_set
+        if repair_set:
+            await repair_queue.bump_attempts(engine, repair_set)
+            print(f"[fetch-data] repair queue: force-refreshing fundamentals for "
+                  f"{len(repair_set)} ticker(s): {sorted(repair_set)[:15]}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[fetch-data] repair-queue load failed (non-fatal): {exc}")
+
     price_skip = sum(
         1 for t in price_tickers
         if t not in benchmark_set and spy_max and ticker_latest.get(t) == spy_max
@@ -1303,7 +1346,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                 # Non-investable tickers (failed price/liquidity in last factor run): 30-day window.
                 # Cold start (investable_tickers is None): always use 7-day window.
                 fund_max_age = 7 if (investable_tickers is None or ticker in investable_tickers) else 30
-                if _should_skip_fundamentals(ticker, fund_latest, today, max_age_days=fund_max_age):
+                if ticker not in repair_set and _should_skip_fundamentals(ticker, fund_latest, today, max_age_days=fund_max_age):
                     fund_ok += 1
                     fund_skipped += 1
                 else:
@@ -1612,6 +1655,15 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
 
     fund_ok = err_count = skipped = 0
     error_tickers: list[str] = []
+    repair_set: set[str] = set()
+    try:
+        repair_set = await repair_queue.load_repair_set(engine, FUND_REPAIR_MAX_ATTEMPTS)
+        repair_set &= set(investable)
+        if repair_set:
+            await repair_queue.bump_attempts(engine, repair_set)
+            print(f"[fetch-fundamentals] repair queue: force-refreshing {len(repair_set)} ticker(s)")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[fetch-fundamentals] repair-queue load failed (non-fatal): {exc}")
     client = AVClient(api_key=AV_API_KEY, rate_limit_rpm=AV_RATE_LIMIT_RPM, mock_mode=MOCK_DATA, limiter=_av_limiter())
     try:
         for i, ticker in enumerate(investable):
@@ -1619,7 +1671,7 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
                 print(f"[fetch-fundamentals] skipping invalid ticker: {ticker!r}")
                 continue
             fund_max_age = 7 if (investable_tickers is None or ticker in investable_tickers) else 30
-            if _should_skip_fundamentals(ticker, fund_latest, today, max_age_days=fund_max_age):
+            if ticker not in repair_set and _should_skip_fundamentals(ticker, fund_latest, today, max_age_days=fund_max_age):
                 fund_ok += 1
                 skipped += 1
                 continue
