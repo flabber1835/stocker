@@ -1,5 +1,6 @@
 import asyncio
 import json
+import math
 import os
 import traceback
 import uuid
@@ -17,6 +18,24 @@ from app.simulate import run_backtest
 from app import validation
 from app.postprocess import build_validation
 from app.config_replay import replay_history
+
+
+def _json_sanitize(obj):
+    """Replace non-finite floats (NaN/±Inf) with None, recursively. Python's
+    json.dumps emits BARE `NaN`/`Infinity` tokens (allow_nan default), which
+    Postgres jsonb REJECTS with `invalid input syntax for type json` — observed
+    in production when a short sample made distribution std / DSR math NaN and
+    the persist step (backtest_runs.summary/validation, backtest_monthly,
+    log_step output summaries) killed the whole run. Sanitizing at the boundary
+    keeps every downstream JSONB write safe regardless of which stat went NaN.
+    numpy floats subclass float, so they're covered."""
+    if isinstance(obj, dict):
+        return {k: _json_sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_sanitize(v) for v in obj]
+    if isinstance(obj, float) and not math.isfinite(obj):
+        return None
+    return obj
 
 
 def _reload_strategy() -> None:
@@ -228,8 +247,10 @@ async def _run_backtest_bg(
 
         # ── Step 3: run backtest ──────────────────────────────────────────────
         result = run_backtest(portfolio_runs, prices_df, tx_cost_bps=tx_cost_bps)
-        summary = result["summary"]
-        periods = result["periods"]
+        # Sanitize IMMEDIATELY: NaN/Inf from short-sample stats would otherwise
+        # kill every downstream JSONB write (run row, monthly rows, log_step).
+        summary = _json_sanitize(result["summary"])
+        periods = _json_sanitize(result["periods"])
 
         async with engine.begin() as conn:
             await _log_step(conn, trace_id, "run_simulation", "success",
@@ -295,7 +316,8 @@ async def _run_backtest_bg(
         # their Sharpes. Record THIS run as a trial first so the count includes it.
         validation: dict = {}
         try:
-            excess = [p["excess_return"] for p in periods]
+            # periods are sanitized (NaN→None); a None excess must not reach the stats
+            excess = [p["excess_return"] for p in periods if p["excess_return"] is not None]
             ppy = summary.get("periods_per_year") or 12.0
             span_years = sum(p["n_days"] for p in periods) / 365.25
             async with engine.begin() as conn:
@@ -312,10 +334,10 @@ async def _run_backtest_bg(
                 ))).mappings().first()
             n_trials = int(trow["n"]) if trow else 1
             var_trial_sr = float(trow["v"]) if trow and trow["v"] is not None else 0.0
-            validation = build_validation(
+            validation = _json_sanitize(build_validation(
                 excess, ppy, n_trials=n_trials, var_trial_sr=var_trial_sr,
                 span_years=span_years, n_rebalances=summary.get("n_rebalances") or 0,
-            )
+            ))
         except Exception as exc:  # noqa: BLE001 — validation is advisory, never fatal
             print(f"[backtester] validation step failed (non-fatal): {exc}")
             validation = {"error": str(exc)}
@@ -535,8 +557,11 @@ async def _run_config_replay_bg(
 
         # run_backtest needs adjusted_close only; pass the frame as-is.
         result = run_backtest(portfolio_runs, prices_df, tx_cost_bps=tx_cost_bps)
-        summary = result["summary"]
-        periods = result["periods"]
+        # Sanitize IMMEDIATELY (NaN/Inf → null) — short-sample stats otherwise
+        # kill the JSONB persists (the observed "invalid input syntax for type
+        # json" that failed the evaluator's run_backtest tool call).
+        summary = _json_sanitize(result["summary"])
+        periods = _json_sanitize(result["periods"])
         summary["config_replay_caveats"] = caveats
         async with engine.begin() as conn:
             await _log_step(conn, trace_id, "run_simulation", "success", started_at=t0,
@@ -550,7 +575,8 @@ async def _run_config_replay_bg(
         # ── Step 4: validation + honest trials count (same as persisted path) ────
         validation_out: dict = {}
         try:
-            excess = [p["excess_return"] for p in periods]
+            # periods are sanitized (NaN→None); a None excess must not reach the stats
+            excess = [p["excess_return"] for p in periods if p["excess_return"] is not None]
             ppy = summary.get("periods_per_year") or 12.0
             span_years = sum(p["n_days"] for p in periods) / 365.25
             async with engine.begin() as conn:
@@ -567,9 +593,9 @@ async def _run_config_replay_bg(
                 ))).mappings().first()
             n_trials = int(trow["n"]) if trow else 1
             var_trial_sr = float(trow["v"]) if trow and trow["v"] is not None else 0.0
-            validation_out = build_validation(
+            validation_out = _json_sanitize(build_validation(
                 excess, ppy, n_trials=n_trials, var_trial_sr=var_trial_sr,
-                span_years=span_years, n_rebalances=summary.get("n_rebalances") or 0)
+                span_years=span_years, n_rebalances=summary.get("n_rebalances") or 0))
         except Exception as exc:  # noqa: BLE001 — advisory, never fatal
             print(f"[backtester] config-replay validation failed (non-fatal): {exc}")
             validation_out = {"error": str(exc)}
