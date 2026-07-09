@@ -96,7 +96,11 @@ def _transcript_entry(turn: int, name: str, args: dict, result: str, elapsed_ms:
 
 async def _gateway_chat(client: httpx.AsyncClient, payload: dict) -> dict:
     r = await client.post(f"{LLM_GATEWAY_URL}/v1/chat", json=payload)
-    r.raise_for_status()
+    if r.status_code >= 400:
+        # Include the BODY: the gateway puts the real upstream reason in detail
+        # (e.g. "anthropic 400: …"); raise_for_status alone would reduce it to an
+        # opaque status line in evaluator_reports.error_message.
+        raise RuntimeError(f"llm-gateway {r.status_code}: {r.text[:500]}")
     return r.json()
 
 
@@ -121,7 +125,12 @@ async def generate_report_with_tools(packet: dict, engine) -> tuple[ReportResult
             payload = {
                 "system": system,
                 "messages": messages,
-                "tools": [] if final_turn else tools,
+                # Tools stay DECLARED even on the forced-final turn — the
+                # conversation already contains tool_use blocks and the API
+                # rejects such a request without a tools param. tool_choice=none
+                # is the correct "no more tools, answer in text" mechanism.
+                "tools": tools,
+                "tool_choice": "none" if final_turn else "auto",
                 "provider": EVALUATOR_PROVIDER,
                 "model": EVALUATOR_MODEL,
                 "max_tokens": EVALUATOR_MAX_TOKENS,
@@ -138,8 +147,13 @@ async def generate_report_with_tools(packet: dict, engine) -> tuple[ReportResult
             tool_calls = data.get("tool_calls") or []
 
             if data.get("stop_reason") == "tool_use" and tool_calls and not final_turn:
+                # raw_content = the provider's verbatim blocks (incl. SIGNED
+                # thinking blocks). Echoing them back is REQUIRED by Anthropic
+                # when thinking + tools are combined — without it the next call
+                # 400s ("expected thinking block") and the whole review dies.
                 messages.append({"role": "assistant", "content": content,
-                                 "tool_calls": tool_calls})
+                                 "tool_calls": tool_calls,
+                                 "raw_content": data.get("raw_content")})
                 for tc in tool_calls:
                     name = tc.get("name", "")
                     args = tc.get("arguments") or {}
@@ -166,7 +180,8 @@ async def generate_report_with_tools(packet: dict, engine) -> tuple[ReportResult
                                   tot_in, tot_out, tot_latency, transcript), transcript
             # One nudge: model produced prose instead of the JSON contract.
             if not final_turn:
-                messages.append({"role": "assistant", "content": content})
+                messages.append({"role": "assistant", "content": content,
+                                 "raw_content": data.get("raw_content")})
                 messages.append({"role": "user",
                                  "content": "Respond ONLY with the report JSON object "
                                             "matching the response schema."})

@@ -50,6 +50,30 @@ class AnthropicProvider(BaseProvider):
         # billed API call. Actual auth errors surface on the first chat() call.
         return bool(self._api_key)
 
+    async def _create_with_drift_guard(self, kwargs: dict):
+        """messages.create with a one-shot degrade for SDK parameter drift.
+
+        The `anthropic` pin is a floor (>=0.25.0), so an image rebuild can pull an
+        SDK whose client-side validation no longer accepts an optional kwarg we
+        send (observed risk: `thinking` / `tool_choice` shapes). A client-side
+        TypeError on such a kwarg would otherwise fail EVERY call — including the
+        packet-only fallback — turning a param rename into a total outage. Retry
+        once without the optional kwargs, loudly logged; the review survives with
+        thinking disabled rather than dying."""
+        try:
+            return await self._client.messages.create(**kwargs)
+        except TypeError as exc:
+            msg = str(exc)
+            degraded = {k: v for k, v in kwargs.items()
+                        if k not in ("thinking", "tool_choice")}
+            if degraded.keys() == kwargs.keys() or not any(
+                    w in msg for w in ("thinking", "tool_choice", "unexpected keyword")):
+                raise
+            print(f"[llm-gateway] WARNING: SDK rejected optional kwargs ({msg}) — "
+                  f"retrying once without thinking/tool_choice (SDK drift guard)",
+                  flush=True)
+            return await self._client.messages.create(**degraded)
+
     async def chat(self, request: ChatRequest) -> ChatResponse:
         model = request.model or self._model
         t0 = time.monotonic()
@@ -87,6 +111,13 @@ class AnthropicProvider(BaseProvider):
                         }
                     ],
                 })
+            elif msg.role == "assistant" and msg.raw_content:
+                # Verbatim echo of a prior assistant turn (ChatResponse.raw_content).
+                # With extended thinking + tools the API REQUIRES the signed
+                # thinking blocks be resent after a tool call — rebuilding the turn
+                # from text+tool_calls drops them and the request 400s.
+                anthropic_messages.append({"role": "assistant",
+                                           "content": msg.raw_content})
             elif msg.role == "assistant" and msg.tool_calls:
                 # Assistant message with tool calls → mixed content blocks
                 content_blocks = []
@@ -128,20 +159,40 @@ class AnthropicProvider(BaseProvider):
             kwargs["system"] = system_blocks
         if tools:
             kwargs["tools"] = tools
+            if request.tool_choice == "none":
+                # Tools stay DECLARED (required when the conversation already
+                # contains tool_use blocks) but the model must answer in text.
+                kwargs["tool_choice"] = {"type": "none"}
 
         try:
-            response = await self._client.messages.create(**kwargs)
+            response = await self._create_with_drift_guard(kwargs)
         except (anthropic.RateLimitError, anthropic.InternalServerError) as exc:
             # 429 rate-limit and 529 overloaded are transient — re-raise as
             # httpx.ConnectError so the gateway retry loop handles them.
             raise httpx.ConnectError(str(exc)) from exc
+        except anthropic.APIStatusError as exc:
+            # Non-transient API rejection (400 invalid request, 401/403 auth, …).
+            # Surface the REAL upstream status + message instead of letting a bare
+            # exception become an opaque "500 Internal Server Error" downstream —
+            # the caller records this text in its error_message (diagnosable).
+            raise RuntimeError(
+                f"anthropic {exc.status_code}: {getattr(exc, 'message', str(exc))[:500]}"
+            ) from exc
 
         latency_ms = round((time.monotonic() - t0) * 1000)
 
-        # Parse response content
+        # Parse response content. raw_content keeps the VERBATIM blocks (incl.
+        # signed thinking blocks) so a tool-loop caller can echo them back via
+        # Message.raw_content on the next turn — required by the API when
+        # thinking + tools are combined.
         content_text = ""
         tool_calls: list[ToolCall] = []
+        raw_content: list = []
         for block in response.content:
+            try:
+                raw_content.append(block.model_dump(exclude_none=True))
+            except Exception:  # noqa: BLE001 — raw echo is best-effort
+                pass
             if block.type == "text":
                 content_text += block.text
             elif block.type == "tool_use":
@@ -175,4 +226,5 @@ class AnthropicProvider(BaseProvider):
             output_tokens=output_tokens,
             cached_tokens=cached_tokens,
             latency_ms=latency_ms,
+            raw_content=raw_content or None,
         )

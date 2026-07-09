@@ -259,7 +259,11 @@ async def generate_report(packet: dict) -> ReportResult:
     }
     async with httpx.AsyncClient(timeout=GATEWAY_TIMEOUT_SECS) as client:
         r = await client.post(f"{LLM_GATEWAY_URL}/v1/chat", json=payload)
-        r.raise_for_status()
+        if r.status_code >= 400:
+            # Surface the gateway's detail (the real upstream reason, e.g.
+            # "anthropic 400: …") — raise_for_status reduces it to a bare status
+            # line in evaluator_reports.error_message.
+            raise RuntimeError(f"llm-gateway {r.status_code}: {r.text[:500]}")
         data = r.json()
 
     raw = data.get("content", "") or ""

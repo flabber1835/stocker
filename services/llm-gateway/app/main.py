@@ -155,6 +155,11 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 await asyncio.sleep(backoff)
         except HTTPException:
             raise
+        except RuntimeError as exc:
+            # Provider-wrapped UPSTREAM rejection (e.g. "anthropic 400: <reason>").
+            # 502 + the real message so the caller's error_message is diagnosable
+            # instead of an opaque "500 Internal Server Error".
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"Provider error: {exc}") from exc
 

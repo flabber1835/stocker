@@ -23,10 +23,11 @@ _REPORT = {
 }
 
 
-def _resp(content="", tool_calls=None, stop="end_turn"):
+def _resp(content="", tool_calls=None, stop="end_turn", raw=None):
     return {"content": content, "tool_calls": tool_calls or [], "stop_reason": stop,
             "provider": "anthropic", "model": "m", "input_tokens": 10,
-            "output_tokens": 5, "cached_tokens": 0, "latency_ms": 3}
+            "output_tokens": 5, "cached_tokens": 0, "latency_ms": 3,
+            "raw_content": raw}
 
 
 def _run(scripted_responses, executed):
@@ -55,8 +56,11 @@ def _run(scripted_responses, executed):
 
 def test_tool_turn_then_report():
     executed = []
+    raw = [{"type": "thinking", "thinking": "…", "signature": "sig"},
+           {"type": "tool_use", "id": "t1", "name": "sql_query",
+            "input": {"query": "SELECT 1"}}]
     scripted = [
-        _resp(content="checking", stop="tool_use", tool_calls=[
+        _resp(content="checking", stop="tool_use", raw=raw, tool_calls=[
             {"id": "t1", "name": "sql_query", "arguments": {"query": "SELECT 1"}}]),
         _resp(content=json.dumps(_REPORT)),
     ]
@@ -66,9 +70,12 @@ def test_tool_turn_then_report():
     assert not result.parse_fallback
     assert result.input_tokens == 20 and result.output_tokens == 10  # summed
     assert len(transcript) == 1 and transcript[0]["tool"] == "sql_query"
-    # second gateway call carries assistant tool_calls + tool result message
+    # second gateway call carries assistant tool_calls + tool result message,
+    # AND echoes the provider's verbatim blocks (signed thinking) back —
+    # required by Anthropic when thinking + tools are combined.
     msgs = payloads[1]["messages"]
     assert msgs[1]["role"] == "assistant" and msgs[1]["tool_calls"]
+    assert msgs[1]["raw_content"] == raw
     assert msgs[2]["role"] == "tool" and msgs[2]["tool_call_id"] == "t1"
 
 
@@ -93,7 +100,12 @@ def test_turn_cap_strips_tools_and_degrades_gracefully(monkeypatch):
         _resp(content="still prose, never json"),   # final turn, tools stripped
     ]
     result, transcript, payloads = _run(scripted, executed)
-    assert payloads[-1]["tools"] == []               # forced-final call has no tools
+    # Forced-final call: tools stay DECLARED (the conversation contains tool_use
+    # blocks — the API rejects a toolless request then); tool_choice=none is the
+    # correct "answer in text now" mechanism.
+    assert payloads[-1]["tools"], "tools must remain declared on the final turn"
+    assert payloads[-1]["tool_choice"] == "none"
+    assert all(p["tool_choice"] == "auto" for p in payloads[:-1])
     assert result.parse_fallback                     # degraded like Phase 1
     assert "still prose" in result.narrative_markdown
     assert len(transcript) == 2
