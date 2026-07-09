@@ -93,3 +93,62 @@ async def test_reaper_sets_diagnostic_error_message(engine, monkeypatch):
         msg = (await conn.execute(text(
             "SELECT error_message FROM alpaca_orders WHERE id=:id"), {"id": oid})).scalar()
     assert msg and "REAPED" in msg
+
+
+class _FakeBrokerOrder:
+    """Minimal stand-in for shared BrokerOrder as the reaper reads it."""
+    def __init__(self, client_order_id, broker_order_id, status, raw_status):
+        self.broker_order_id = broker_order_id
+        self.status = status
+        self.raw_status = raw_status
+        self.raw = {"client_order_id": client_order_id}
+
+
+async def test_reaper_recovers_live_order_instead_of_failing(engine, monkeypatch):
+    """F2: a stale 'pending' whose order the broker ACTUALLY has (the lost
+    pending->submitted UPDATE) must be RECOVERED to the broker's status with its
+    alpaca_order_id set — not falsely reaped 'failed'."""
+    monkeypatch.setattr(te_main, "PENDING_REAP_MINUTES", 15.0)
+    async with engine.begin() as conn:
+        live = await _insert(conn, status="pending", age_min=30)      # broker HAS it
+        dead = await _insert(conn, status="pending", age_min=30, ticker="BBB")  # broker doesn't
+
+    # Broker reports the 'live' order (keyed by client_order_id = the row id).
+    class _FakeBroker:
+        async def list_orders(self, *, status="all", limit=500):
+            return [_FakeBrokerOrder(live, "alp-123", "submitted", "accepted")]
+
+    monkeypatch.setattr(te_main, "_has_broker_credentials", lambda: True)
+    monkeypatch.setattr(te_main, "_broker", lambda: _FakeBroker())
+
+    await te_main._reap_orphaned_pending()
+
+    async with engine.connect() as conn:
+        row = (await conn.execute(text(
+            "SELECT status, alpaca_order_id, alpaca_status, error_message "
+            "FROM alpaca_orders WHERE id=:id"), {"id": live})).mappings().first()
+        assert row["status"] == "submitted"                # recovered, not failed
+        assert row["alpaca_order_id"] == "alp-123"         # broker id now recorded
+        assert row["alpaca_status"] == "accepted"
+        assert "RECOVERED" in (row["error_message"] or "")
+        # The order the broker never heard of is still reaped.
+        assert await _status(conn, dead) == "failed"
+
+
+async def test_reaper_reaps_all_when_broker_list_fails(engine, monkeypatch):
+    """If the broker list call errors, reconcile is best-effort → fall through to the
+    safe reap (an unreconcilable pending is still failed, never left limbo)."""
+    monkeypatch.setattr(te_main, "PENDING_REAP_MINUTES", 15.0)
+    async with engine.begin() as conn:
+        oid = await _insert(conn, status="pending", age_min=30)
+
+    class _BoomBroker:
+        async def list_orders(self, *, status="all", limit=500):
+            raise RuntimeError("broker unreachable")
+
+    monkeypatch.setattr(te_main, "_has_broker_credentials", lambda: True)
+    monkeypatch.setattr(te_main, "_broker", lambda: _BoomBroker())
+
+    await te_main._reap_orphaned_pending()
+    async with engine.connect() as conn:
+        assert await _status(conn, oid) == "failed"

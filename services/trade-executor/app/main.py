@@ -571,28 +571,81 @@ async def _drain_pass() -> None:
 
 
 async def _reap_orphaned_pending() -> None:
-    """Fail 'pending' alpaca_orders older than PENDING_REAP_MINUTES (audit P1).
+    """Reconcile-or-fail 'pending' alpaca_orders older than PENDING_REAP_MINUTES
+    (audit P1 + F2).
 
     A 'pending' row is the committed reservation written inside the submit lock just
-    before the broker submit. If the process dies (or the request is abandoned)
-    between that commit and the submit/defer transition, the row never advances and —
-    until the next restart's warm-up — counts as an open order: it blocks re-proposal
-    of the ticker (in-flight guard) and consumes a projected MAX_POSITIONS slot. This
-    periodic reaper bounds that limbo without needing a restart. 'deferred'/'submitted'
-    rows are NOT touched (the drain owns their lifecycle)."""
+    before the broker submit. It can become orphaned in TWO ways:
+      (a) the process died BEFORE the broker POST → the order never existed at the
+          broker → it is genuinely failed and should be reaped; OR
+      (b) the broker ACCEPTED the order but the pending→submitted UPDATE lost its
+          transaction (a DB blip in that window) → the row is 'pending' with a NULL
+          alpaca_order_id while a LIVE order works at the broker. Blindly failing it
+          (the old behaviour) mislabels a live order as 'failed' and, because the
+          broker id was never recorded, alpaca-sync can never reconcile it.
+
+    Every submit sets client_order_id = the alpaca_orders row id, so we can tell the
+    two apart: list the broker's orders and, for each orphan, recover it to the
+    broker's real status (case b) instead of failing it; only orphans the broker has
+    NEVER heard of are reaped 'failed' (case a). 'deferred'/'submitted' rows are NOT
+    touched (the drain owns their lifecycle)."""
     if PENDING_REAP_MINUTES <= 0:
         return
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=PENDING_REAP_MINUTES)
-    async with engine.begin() as conn:
-        reaped = (await conn.execute(text(
-            "UPDATE alpaca_orders SET status='failed', "
-            "error_message='REAPED: pending older than threshold (orphaned pre-submit)' "
-            "WHERE status='pending' AND created_at < :cutoff "
-            "RETURNING id"
-        ), {"cutoff": cutoff})).fetchall()
+    async with engine.connect() as conn:
+        candidates = (await conn.execute(text(
+            "SELECT id FROM alpaca_orders WHERE status='pending' AND created_at < :cutoff"
+        ), {"cutoff": cutoff})).mappings().fetchall()
+    if not candidates:
+        return
+
+    # Reconcile by client_order_id (= the row id). No credentials → the order could
+    # never have been submitted (submit short-circuits without them), so every
+    # candidate is a genuine case (a) and is safely reaped below.
+    by_client: dict[str, object] = {}
+    if _has_broker_credentials():
+        try:
+            for o in await _broker().list_orders(status="all", limit=500):
+                coid = (getattr(o, "raw", None) or {}).get("client_order_id")
+                if coid:
+                    by_client[str(coid)] = o
+        except Exception as exc:  # noqa: BLE001 — reconcile is best-effort; fall through to reap
+            logger.warning("reaper: broker list_orders failed, cannot reconcile: %s", exc)
+
+    recovered: list[str] = []
+    reaped: list[str] = []
+    now = datetime.now(timezone.utc)
+    for c in candidates:
+        oid = str(c["id"])
+        bo = by_client.get(oid)
+        if bo is not None:
+            # Case (b): the broker HAS our order — recover the lost transition to the
+            # broker's real (canonical) status instead of falsely killing a live order.
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    "UPDATE alpaca_orders SET status=:st, alpaca_order_id=:aid, "
+                    "alpaca_status=:astatus, submitted_at=COALESCE(submitted_at, :now), "
+                    "error_message='RECOVERED: broker had order; pending->submitted UPDATE was lost' "
+                    "WHERE id=:id AND status='pending'"
+                ), {"id": oid, "st": (getattr(bo, "status", None) or "submitted"),
+                    "aid": getattr(bo, "broker_order_id", None),
+                    "astatus": getattr(bo, "raw_status", None), "now": now})
+            recovered.append(oid)
+        else:
+            # Case (a): the broker never heard of it → genuine pre-submit orphan.
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    "UPDATE alpaca_orders SET status='failed', "
+                    "error_message='REAPED: pending older than threshold "
+                    "(orphaned pre-submit; broker had no such order)' "
+                    "WHERE id=:id AND status='pending'"
+                ), {"id": oid})
+            reaped.append(oid)
+    if recovered:
+        logger.warning("Reaper RECOVERED %d live order(s) mislabeled 'pending': %s",
+                       len(recovered), recovered)
     if reaped:
-        logger.warning("Reaped %d orphaned pending order(s): %s",
-                       len(reaped), [str(r[0]) for r in reaped])
+        logger.warning("Reaped %d orphaned pending order(s): %s", len(reaped), reaped)
 
 
 # SQL for the worker's hot scan, at module scope so the integration tier runs THIS
@@ -970,9 +1023,11 @@ async def _size_entry(conn, ticker: str, intent_weight: Optional[float]) -> tupl
     # Account funds from latest successful sync. Refuse if older than
     # EXIT_SYNC_MAX_AGE_HOURS so a stale snapshot can't size a wildly
     # wrong order (same threshold as _size_exit's position-staleness check).
-    # buying_power is used for entry sizing (Alpaca already deducts cash
-    # reserved for pending orders); account_value is kept in the summary
-    # for audit/observability.
+    # account_value (total equity) is the sizing basis — see `sizing_basis` below
+    # and the docstring: qty = floor(account_value × weight / last_price). A
+    # fully-invested book replacing an exited name has ~0 buying_power, so sizing on
+    # buying_power would under-size the replacement; the same-open MOO nets the cash.
+    # buying_power is loaded only as a fallback when account_value is missing.
     acct = (await conn.execute(text(
         "SELECT account_value, buying_power, completed_at FROM alpaca_sync_runs "
         "WHERE status='success' ORDER BY completed_at DESC NULLS LAST LIMIT 1"
@@ -1803,21 +1858,48 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
                             conn, trace_id, "record_order", "success", t0,
                             input_summary={"order_id": order_id, "initial_status": initial_status},
                         )
-                except IntegrityError:
-                    # A concurrent submit raced and won the DB unique constraint
-                    # idx_alpaca_orders_intent_open. Treat as duplicate — same as the
-                    # idempotency check above, just caught at the DB layer.
-                    async with engine.connect() as conn:
-                        dupe = (await conn.execute(text(
-                            "SELECT id, status FROM alpaca_orders "
-                            f"WHERE intent_id=:iid AND status IN ({_OPEN_STATUS_SQL}) "
-                            "LIMIT 1"
-                        ), {"iid": req.intent_id})).mappings().first()
+                except IntegrityError as exc:
+                    # ONLY the intent-open partial unique index (idx_alpaca_orders_
+                    # intent_open) means "a concurrent submit for this intent already
+                    # reserved an open order" → a legitimate duplicate. Any OTHER
+                    # integrity violation (an FK on risk_check_id, a NOT NULL/CHECK,
+                    # etc.) is a REAL error and must NOT be masked as 'duplicate' —
+                    # that would hide the fault and skip the failed audit row. F3.
+                    if "idx_alpaca_orders_intent_open" in str(getattr(exc, "orig", exc)):
+                        async with engine.connect() as conn:
+                            dupe = (await conn.execute(text(
+                                "SELECT id, status FROM alpaca_orders "
+                                f"WHERE intent_id=:iid AND status IN ({_OPEN_STATUS_SQL}) "
+                                "LIMIT 1"
+                            ), {"iid": req.intent_id})).mappings().first()
+                        return TradeAttemptResponse(
+                            status="duplicate",
+                            order_id=str(dupe["id"]) if dupe else order_id,
+                            trace_id=trace_id,
+                            reason=f"Concurrent submit: intent {req.intent_id} already has an open order",
+                        )
+                    # Non-dup integrity error: record a failed audit row (risk_check_id
+                    # NULL so an FK-on-risk_check_id failure can't recur) and surface the
+                    # real error. Nothing was submitted — the reservation INSERT rolled
+                    # back — so this is fail-safe, just correctly labeled 'failed'.
+                    err = f"record_order integrity error (not a duplicate): {getattr(exc, 'orig', exc)}"[:1000]
+                    async with engine.begin() as conn:
+                        await _record_order(
+                            conn, order_id=order_id, intent_id=req.intent_id,
+                            ticker=ticker, action=action, side=side, qty=qty,
+                            notional=notional, mode=req.mode, trace_id=trace_id,
+                            risk_approved=False, risk_reason=err,
+                            risk_check_id=None, status="failed", error_message=err,
+                        )
+                        await conn.execute(
+                            text("UPDATE execution_traces SET status='failed', completed_at=:now, "
+                                 "notes='record_order_integrity_error' WHERE trace_id=:tid"),
+                            {"tid": trace_id, "now": datetime.now(timezone.utc)},
+                        )
                     return TradeAttemptResponse(
-                        status="duplicate",
-                        order_id=str(dupe["id"]) if dupe else order_id,
-                        trace_id=trace_id,
-                        reason=f"Concurrent submit: intent {req.intent_id} already has an open order",
+                        status="failed", order_id=order_id, trace_id=trace_id,
+                        ticker=ticker, action=action, side=side, qty=qty, notional=notional,
+                        risk_approved=False, risk_reason=err, risk_check_id=None, reason=err,
                     )
         except SubmitLockTimeout as exc:
             # Could not serialize within the timeout — fail CLOSED: record the attempt

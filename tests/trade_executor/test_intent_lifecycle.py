@@ -255,7 +255,12 @@ async def test_concurrent_submit_handled_by_integrity_error():
         sql_str = str(sql)
         if "alpaca_orders" in sql_str and "INSERT" in sql_str.upper():
             alpaca_orders_insert_count[0] += 1
-            raise IntegrityError("duplicate key", {}, Exception("unique constraint"))
+            # The orig MUST name the intent-open partial unique index — that specific
+            # violation is what the handler treats as a legitimate duplicate (F3).
+            raise IntegrityError(
+                "duplicate key", {},
+                Exception('duplicate key value violates unique constraint '
+                          '"idx_alpaca_orders_intent_open"'))
 
         row = rows_losing_racer[idx] if idx < len(rows_losing_racer) else None
         m = MagicMock()
@@ -297,3 +302,90 @@ async def test_concurrent_submit_handled_by_integrity_error():
     )
     # Should reference the winning order so the caller can track it
     assert body["order_id"] == winning_order_id
+
+
+@pytest.mark.asyncio
+async def test_non_dup_integrity_error_records_failed_not_duplicate():
+    """F3: an integrity violation that is NOT the intent-open unique index (e.g. an
+    FK on risk_check_id) must NOT be masked as 'duplicate'. The handler records a
+    'failed' audit row and returns 'failed', surfacing the real fault. Nothing was
+    submitted (the reservation INSERT rolled back), so this is fail-safe."""
+    rows = [
+        None,                                 # 0: INSERT execution_traces
+        None,                                 # 1: idempotency SELECT → nothing
+        {                                     # 2: load_intent
+            "id": str(uuid.uuid4()), "ticker": "AAPL", "action": "entry",
+            "rank": 5, "composite_score": 0.8,
+            "current_weight": 0.05, "actual_weight": 0.05, "weight_drift": 0.0,
+        },
+        None,                                 # 3: log_step load_intent
+        None,                                 # 4: _is_already_held → not held
+        None,                                 # 5: _open_buy_order_for_ticker → none
+        {                                     # 6: _size_entry: alpaca_sync_runs
+            "account_value": 100_000.0, "buying_power": 100_000.0,
+            "completed_at": datetime.now(timezone.utc),
+        },
+        {"current_price": 150.0},             # 7: _size_entry: live_positions price
+        None,                                 # 8: log_step size_order
+        None,                                 # 9: log_step risk_check
+        None,                                 # 10: in-lock re-check → no dup
+        # 11: first alpaca_orders INSERT (reservation) → raises non-index IntegrityError
+        # then the failed-record INSERT + trace UPDATE succeed (return None)
+    ]
+
+    call_idx = [0]
+    ao_insert = [0]
+
+    async def _exec(sql, params=None):
+        if "advisory" in str(sql).lower():
+            r = MagicMock()
+            r.scalar = MagicMock(return_value=True)
+            return r
+        sql_str = str(sql)
+        if "alpaca_orders" in sql_str and "INSERT" in sql_str.upper():
+            ao_insert[0] += 1
+            if ao_insert[0] == 1:
+                # A DIFFERENT constraint — NOT the intent-open unique index.
+                raise IntegrityError(
+                    "fk violation", {},
+                    Exception('insert or update on table "alpaca_orders" violates '
+                              'foreign key constraint "alpaca_orders_risk_check_id_fkey"'))
+            # The failed-audit-row INSERT succeeds.
+            r = MagicMock(); r.rowcount = 1
+            return r
+        idx = call_idx[0]; call_idx[0] += 1
+        row = rows[idx] if idx < len(rows) else None
+        r = MagicMock()
+        m = MagicMock()
+        m.first = MagicMock(return_value=row)
+        m.fetchall = MagicMock(return_value=[row] if row else [])
+        r.mappings = MagicMock(return_value=m)
+        r.rowcount = 0 if row is None else 1
+        return r
+
+    conn = AsyncMock()
+    conn.execute = _exec
+
+    def _ctx():
+        ctx = MagicMock()
+        ctx.__aenter__ = AsyncMock(return_value=conn)
+        ctx.__aexit__ = AsyncMock(return_value=None)
+        return ctx
+
+    engine = MagicMock()
+    engine.begin = MagicMock(side_effect=lambda: _ctx())
+    engine.connect = MagicMock(side_effect=lambda: _ConnHandle(conn))
+
+    with patch.object(te_main, "engine", engine), \
+         patch.object(te_main, "_call_risk",
+                      new=AsyncMock(return_value=(True, "ok", str(uuid.uuid4()), "ok"))):
+        from fastapi.testclient import TestClient
+        client = TestClient(te_main.app, raise_server_exceptions=False)
+        resp = client.post("/jobs/submit",
+                           json={"intent_id": str(uuid.uuid4()), "mode": "immediate"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "failed", (
+        f"non-index IntegrityError must be 'failed', not 'duplicate' — got {body}")
+    assert ao_insert[0] == 2, "expected a second INSERT for the failed audit row"

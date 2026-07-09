@@ -408,9 +408,15 @@ stamps `approval_processed_at` (so a DEAD outcome doesn't loop — a re-approval
 retries). It wakes on an enqueue kick or every `DEFERRED_WORKER_INTERVAL_SECS`.
 
 **Steps (each one writes an `execution_steps` row tied to a single trace):**
-1. `idempotency_check` — refuse if `alpaca_orders` already has a row for this
-   `intent_id` with status `pending`, `submitted`, or `risk_rejected`. This
-   prevents duplicate submissions after approval clicks and after risk rejections.
+1. `idempotency_check` — refuse if `alpaca_orders` already has an OPEN order for
+   this `intent_id` (status ∈ `OPEN_ORDER_STATUSES`: `pending`, `submitted`,
+   `deferred`, `accepted`, `new`, `partial_fill`). This prevents duplicate
+   submissions after repeated approval clicks. Note: `risk_rejected` is NOT an open
+   status and is deliberately NOT blocked — a re-approval of a previously rejected
+   intent is a legitimate retry (a `risk_rejected` order never reached the broker,
+   so re-submitting it is safe). The check keys on the shared `OPEN_ORDER_STATUSES`
+   token set (`shared/stock_strategy_shared/order_status.py`), the same set the
+   in-flight ticker guards and the risk-service projected-count SQL use.
 2. `load_intent` — fetch `delta_intents` row
 3. `size_order` — routing by action:
    - `entry`:     `floor(account_value × weight / last_price)`; refuses if qty < 1
