@@ -87,9 +87,12 @@ R2. **Confidence & sample size on everything.** N, t-stats, rolling stability �
 distinguish signal from a lucky window and say "not enough evidence yet."
 
 R3. **Memory via the hypothesis ledger** (not re-deciding weekly): `evaluator_hypotheses`
-rows {statement, status candidate→ready→confirmed/rejected, weeks_supported/total,
-confidence, economic_rationale}. Counters accumulate; a hypothesis graduates only on
-sustained evidence.
+rows {hypothesis, planned_test, status open→confirmed/refuted/abandoned, outcome,
+created_iso_year/week} (migration 0041 — replaced the never-wired 0032 stub schema).
+Written by the evaluator's `hypothesis_ledger` tool (its one write, own table only)
+and read back as a deterministic packet section every review, so a thesis that needs
+future data persists across weeks instead of being re-derived. See
+docs/architecture.md "Design Decision: evaluator tools (Phase 2)".
 
 R4. **The action map** — it must know what it can act on vs only recommend:
 - **Activate a dormant registry factor** (weight 0 → weight): **config-only** → can drive
