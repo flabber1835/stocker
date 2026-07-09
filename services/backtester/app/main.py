@@ -13,6 +13,20 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.simulate import run_backtest
 from app import validation
+from app.postprocess import build_validation
+
+
+def _reload_strategy() -> None:
+    """Re-read the strategy config at the start of each job (G6). The old startup
+    cache meant a YAML edit (git pull of the bind-mounted file) silently
+    backtested under a STALE strategy_id/config_hash until a restart — diverging
+    from the per-run reload the rest of the chain adopted. Reloading per job makes
+    a config change take effect on the next backtest with no restart."""
+    global strategy, config_hash
+    try:
+        strategy, config_hash = load_strategy(STRATEGY_CONFIG_PATH)
+    except Exception as exc:  # noqa: BLE001 — keep the last-good config on a bad edit
+        print(f"[backtester] config reload failed, keeping cached: {exc}")
 from pydantic import BaseModel
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
@@ -99,6 +113,7 @@ async def _run_backtest_bg(
     started_at: datetime,
 ) -> None:
     try:
+        _reload_strategy()  # G6: pick up any deployed config change for this run
         # ── Step 1: load portfolio runs from DB ───────────────────────────────
         async with engine.connect() as conn:
             rows = await conn.execute(
@@ -271,7 +286,38 @@ async def _run_backtest_bg(
                     monthly_rows,
                 )
 
-        # ── Step 5: update backtest_runs with summary ─────────────────────────
+        # ── Step 4b: validation verdict + sample-adequacy (G2/G4) ─────────────
+        # Honest multiple-testing count: how many DISTINCT configs have been
+        # backtested (the search breadth DSR/PBO deflate by), and the variance of
+        # their Sharpes. Record THIS run as a trial first so the count includes it.
+        validation: dict = {}
+        try:
+            excess = [p["excess_return"] for p in periods]
+            ppy = summary.get("periods_per_year") or 12.0
+            span_years = sum(p["n_days"] for p in periods) / 365.25
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    "INSERT INTO backtest_trials (config_hash, strategy_id, date_from, "
+                    " date_to, tx_cost_bps, sim_mode, run_id, sharpe) "
+                    "VALUES (:ch,:sid,:df,:dt,:tx,:mode,:rid,:sh)"
+                ), {"ch": config_hash, "sid": strategy.strategy_id, "df": date_from,
+                    "dt": date_to, "tx": tx_cost_bps, "mode": "persisted_replay",
+                    "rid": run_id, "sh": summary.get("sharpe_ratio")})
+                trow = (await conn.execute(text(
+                    "SELECT COUNT(DISTINCT config_hash) AS n, "
+                    "       COALESCE(VAR_SAMP(sharpe), 0) AS v FROM backtest_trials"
+                ))).mappings().first()
+            n_trials = int(trow["n"]) if trow else 1
+            var_trial_sr = float(trow["v"]) if trow and trow["v"] is not None else 0.0
+            validation = build_validation(
+                excess, ppy, n_trials=n_trials, var_trial_sr=var_trial_sr,
+                span_years=span_years, n_rebalances=summary.get("n_rebalances") or 0,
+            )
+        except Exception as exc:  # noqa: BLE001 — validation is advisory, never fatal
+            print(f"[backtester] validation step failed (non-fatal): {exc}")
+            validation = {"error": str(exc)}
+
+        # ── Step 5: update backtest_runs with summary + validation ────────────
         async with engine.begin() as conn:
             await conn.execute(
                 text(
@@ -287,7 +333,10 @@ async def _run_backtest_bg(
                     "  avg_monthly_turnover=:avg_monthly_turnover, "
                     "  win_rate=:win_rate, "
                     "  benchmark_total_return=:benchmark_total_return, "
-                    "  benchmark_annualized_return=:benchmark_annualized_return "
+                    "  benchmark_annualized_return=:benchmark_annualized_return, "
+                    "  summary=CAST(:summary AS jsonb), "
+                    "  validation=CAST(:validation AS jsonb), "
+                    "  sim_mode='persisted_replay' "
                     "WHERE run_id=:rid"
                 ),
                 {
@@ -303,6 +352,8 @@ async def _run_backtest_bg(
                     "win_rate": summary.get("win_rate"),
                     "benchmark_total_return": summary.get("benchmark_total_return"),
                     "benchmark_annualized_return": summary.get("benchmark_annualized_return"),
+                    "summary": json.dumps(summary, default=str),
+                    "validation": json.dumps(validation, default=str),
                 },
             )
 

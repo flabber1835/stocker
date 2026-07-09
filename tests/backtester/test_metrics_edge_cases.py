@@ -15,14 +15,15 @@ from app.simulate import run_backtest
 # ── Helper factories (same pattern as test_simulate.py) ──────────────────────
 
 def _make_prices(tickers: list[str], dates: list[str], prices: dict[str, list[float]]) -> pd.DataFrame:
+    # Emit a t+1 carry per date so the simulator's next-close (no look-ahead) fill
+    # resolves (see the note in tests/backtester/test_simulate.py::_make_prices).
     rows = []
     for ticker in tickers:
         for i, d in enumerate(dates):
-            rows.append({
-                "ticker": ticker,
-                "date": pd.Timestamp(d),
-                "adjusted_close": prices[ticker][i],
-            })
+            ts = pd.Timestamp(d)
+            px = prices[ticker][i]
+            rows.append({"ticker": ticker, "date": ts, "adjusted_close": px})
+            rows.append({"ticker": ticker, "date": ts + pd.Timedelta(days=1), "adjusted_close": px})
     return pd.DataFrame(rows)
 
 

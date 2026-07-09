@@ -190,6 +190,10 @@ def _safety_env() -> dict:
         "max_positions":          _safe_int(  "MAX_POSITIONS",       35),
         "max_data_age_hours":     _safe_float("MAX_DATA_AGE_HOURS",  96.0),
         "max_sync_age_hours":     _safe_float("MAX_SYNC_AGE_HOURS",  24.0),
+        # R2 backstop: cumulative BUY-side notional deployed in a single cycle
+        # (sim_date, else today). MAX_ORDER_NOTIONAL only caps one order — a
+        # rotation of many just-under-cap buys has no aggregate ceiling. 0 = off.
+        "max_cycle_buy_notional": _safe_float("MAX_CYCLE_BUY_NOTIONAL", 0.0),
     }
 
 
@@ -441,7 +445,37 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
     # risk (entry / buy_add) stays fail-closed. The kill switch + qty/notional
     # validity above still apply to everything.
     # (is_close already computed above for the notional_zero close-exemption.)
+    # Shared IN-FLIGHT+FILLED status list for the notional caps (R2 buy-side,
+    # sell-side turnover): a queued-but-unfilled order still counts, closing the
+    # window where two orders both pass. Computed before the DB block so R2 can use it.
+    _turnover_status_sql = ", ".join(f"'{sx}'" for sx in TURNOVER_STATUSES)
+
     if engine is not None:
+        try:
+            # R1 — sim_date authenticity: sim_date scopes BOTH the turnover cap and
+            # the daily-loss baseline. A caller-supplied value that matches no real
+            # delta_runs.run_date would silently zero those scoped counts and void
+            # the caps. A legitimate sim_date always corresponds to a processed
+            # delta run, so reject an unknown one rather than trust it. (Null
+            # sim_date = live wall-clock scoping, always allowed.)
+            if req.sim_date:
+                async with engine.connect() as conn:
+                    known = (await conn.execute(text(
+                        "SELECT 1 FROM delta_runs WHERE run_date::text = :sd LIMIT 1"
+                    ), {"sd": req.sim_date})).first()
+                if known is None:
+                    return (
+                        False,
+                        f"Unknown sim_date {req.sim_date!r} — no delta run on that date; "
+                        "refusing (a spoofed sim_date would void turnover/daily-loss scoping)",
+                        "invalid_sim_date",
+                        env,
+                    )
+        except Exception as exc:
+            rej = _control_error("sim_date_validation", exc, is_close=is_close, env=env)
+            if rej is not None:
+                return rej
+
         try:
             # Alpaca-availability: refuse ALL actions if the last successful sync
             # is too old. A stale broker view means qty / buying_power / live
@@ -710,6 +744,50 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
             if rej is not None:
                 return rej
 
+        try:
+            # R2 — cumulative BUY-side notional backstop for the cycle. MAX_ORDER_
+            # NOTIONAL caps a single order; a rotation of many just-under-cap buys
+            # has no aggregate ceiling. Sum entry+buy_add notional deployed this
+            # cycle (scoped by sim_date via delta_runs, else today's wall-clock date)
+            # and reject an opening buy that would push the total past the cap.
+            # Exits/sell_trims are exempt (already via is_close). 0 = disabled.
+            max_cycle_buy = env["max_cycle_buy_notional"]
+            if req.action in ("entry", "buy_add") and max_cycle_buy > 0:
+                async with engine.connect() as conn:
+                    if req.sim_date:
+                        buy_row = (await conn.execute(text(
+                            "SELECT COALESCE(SUM(ao.notional), 0) FROM alpaca_orders ao "
+                            "JOIN delta_intents di ON di.id = ao.intent_id "
+                            "JOIN delta_runs dr ON dr.run_id = di.run_id "
+                            "WHERE dr.run_date::text = :sim_date "
+                            "AND ao.action IN ('entry','buy_add') "
+                            f"AND ao.status IN ({_turnover_status_sql})"
+                        ), {"sim_date": req.sim_date})).first()
+                    else:
+                        buy_row = (await conn.execute(text(
+                            "SELECT COALESCE(SUM(notional), 0) FROM alpaca_orders "
+                            "WHERE DATE(COALESCE(submitted_at, created_at) AT TIME ZONE 'UTC') = CURRENT_DATE "
+                            "AND action IN ('entry','buy_add') "
+                            f"AND status IN ({_turnover_status_sql})"
+                        ))).first()
+                cycle_buy = float(buy_row[0]) if buy_row else 0.0
+                if cycle_buy + req.notional > max_cycle_buy:
+                    date_ref = req.sim_date or "today (wall clock)"
+                    return (
+                        False,
+                        (
+                            f"Cycle buy-notional limit [{date_ref}]: buys so far "
+                            f"${cycle_buy:.0f} + this ${req.notional:.0f} = "
+                            f"${cycle_buy + req.notional:.0f} exceeds cap ${max_cycle_buy:.0f}"
+                        ),
+                        "cycle_buy_notional_limit",
+                        env,
+                    )
+        except Exception as exc:
+            rej = _control_error("cycle_buy_notional", exc, is_close=is_close, env=env)
+            if rej is not None:
+                return rej
+
     # Daily sell-side turnover cap: throttle DISCRETIONARY churn. ONLY `sell_trim`
     # counts and is capped — EXITS ARE EXEMPT (policy: a de-risking close / a
     # builder-dropped rotation must NEVER be blocked by a turnover throttle; you
@@ -744,8 +822,6 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
     # excluded so they don't inflate the sum.
     #
     # Skipped when DB is unavailable.
-    _TURNOVER_STATUSES = TURNOVER_STATUSES
-    _turnover_status_sql = ", ".join(f"'{s}'" for s in _TURNOVER_STATUSES)
     max_daily_pct = env["max_daily_turnover_pct"]
     if req.action == "sell_trim" and engine is not None and max_daily_pct < 1.0:
         try:
