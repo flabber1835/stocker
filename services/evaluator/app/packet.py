@@ -755,8 +755,33 @@ async def build_packet(engine, as_of: date | None = None) -> dict:
             "current_target_book": await _section(lambda: _current_book(conn), conn),
             "config_history": await _section(lambda: _config_history(conn), conn),
             "system_health": await _section(lambda: _system_health(conn), conn),
+            "hypothesis_ledger": await _section(lambda: _hypothesis_ledger(conn), conn),
         }
     return packet
+
+
+async def _hypothesis_ledger(conn) -> dict:
+    """The evaluator's own cross-week memory (written by its hypothesis_ledger
+    tool): open theses + recently resolved ones. Read deterministically here so
+    every review starts from the same ledger state without needing a tool call."""
+    open_rows = (await conn.execute(text(
+        "SELECT id, status, hypothesis, planned_test, outcome, "
+        "created_iso_year, created_iso_week, created_at::date AS created, "
+        "updated_at::date AS updated FROM evaluator_hypotheses "
+        "WHERE status = 'open' ORDER BY created_at ASC LIMIT 20"
+    ))).mappings().all()
+    closed_rows = (await conn.execute(text(
+        "SELECT id, status, hypothesis, outcome, updated_at::date AS resolved "
+        "FROM evaluator_hypotheses WHERE status <> 'open' "
+        "ORDER BY updated_at DESC LIMIT 10"
+    ))).mappings().all()
+    return {
+        "open": [dict(r) for r in open_rows],
+        "recently_resolved": [dict(r) for r in closed_rows],
+        "note": ("your durable memory — resolve open entries this week's evidence "
+                 "settles (hypothesis_ledger tool, action=update); open new ones for "
+                 "theses that need future data instead of re-deriving them next week"),
+    }
 
 
 async def _async_wrap(fn):

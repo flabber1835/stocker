@@ -130,6 +130,58 @@ def tool_definitions() -> list[dict]:
             },
         },
     ]
+    tools.append({
+        "name": "preview_ranking",
+        "description": (
+            "FAST thesis triage (seconds, cheap — use BEFORE spending a run_backtest "
+            "slot): re-rank the latest scored universe under a candidate config "
+            "(config_changes = {dotted.path: value} DIFF over the active config, same "
+            "shape as run_backtest) and diff it against the ACTIVE ranking. Returns "
+            "the top-N membership changes (entered/left), the biggest rank movers, "
+            "and rank-correlation. RANK-LEVEL ONLY: the builder's covariance/cluster/"
+            "sector caps and the vetter are NOT applied — if the preview looks "
+            "promising, confirm with run_backtest."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "config_changes": {
+                    "type": "object",
+                    "description": "dotted.path -> new value, applied to the active config",
+                },
+                "top_n": {"type": "integer", "default": 30,
+                          "description": "membership window to compare (default max_positions-ish)"},
+            },
+            "required": ["config_changes"],
+        },
+    })
+    tools.append({
+        "name": "hypothesis_ledger",
+        "description": (
+            "Your durable cross-week memory: thesis -> planned test -> outcome. The "
+            "packet's hypothesis_ledger section shows current entries; this tool "
+            "WRITES them (the only write you have; its own table, nothing else). "
+            "action='create' opens a new hypothesis (hypothesis + planned_test). "
+            "action='update' resolves/annotates one by id (status: open|confirmed|"
+            "refuted|abandoned, plus outcome text citing the evidence). Discipline: "
+            "check the packet's open entries FIRST each review; resolve what this "
+            "week's evidence settles; open entries for theses that need future data "
+            "instead of re-deriving them next week."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["create", "update"]},
+                "id": {"type": "integer", "description": "required for update"},
+                "hypothesis": {"type": "string"},
+                "planned_test": {"type": "string"},
+                "status": {"type": "string",
+                           "enum": ["open", "confirmed", "refuted", "abandoned"]},
+                "outcome": {"type": "string"},
+            },
+            "required": ["action"],
+        },
+    })
     if TAVILY_API_KEY:
         tools.append({
             "name": "web_search",
@@ -177,16 +229,38 @@ def apply_config_changes(base: dict, changes: dict[str, Any]) -> tuple[dict | No
     return validated.model_dump(mode="json"), None
 
 
+MAX_LEDGER_WRITES = int(os.getenv("EVALUATOR_MAX_LEDGER_WRITES", "6"))
+MAX_PREVIEWS = int(os.getenv("EVALUATOR_MAX_PREVIEWS", "8"))
+
+
 class BacktestBudget:
-    """Per-review backtest counter (the agent loop owns one instance)."""
+    """Per-review tool budgets (the agent loop owns one instance). Name kept from
+    the original backtest-only version; it now also carries the cheap-tool caps
+    (ledger writes, rank previews) so a looping model stays bounded."""
     def __init__(self, limit: int = MAX_BACKTESTS):
         self.limit = limit
         self.used = 0
+        self.ledger_limit = MAX_LEDGER_WRITES
+        self.ledger_used = 0
+        self.preview_limit = MAX_PREVIEWS
+        self.preview_used = 0
 
     def take(self) -> bool:
         if self.used >= self.limit:
             return False
         self.used += 1
+        return True
+
+    def take_ledger(self) -> bool:
+        if self.ledger_used >= self.ledger_limit:
+            return False
+        self.ledger_used += 1
+        return True
+
+    def take_preview(self) -> bool:
+        if self.preview_used >= self.preview_limit:
+            return False
+        self.preview_used += 1
         return True
 
 
@@ -395,6 +469,188 @@ async def web_search(args: dict) -> str:
     return _truncate(json.dumps({"query": query, "results": results}))
 
 
+# ── preview_ranking ───────────────────────────────────────────────────────────
+
+def rank_delta(active_df, candidate_df, top_n: int) -> dict:
+    """Pure comparison of two rank_universe outputs. Unit-testable."""
+    a = {r.ticker: int(r.rank) for r in active_df.itertuples()}
+    c = {r.ticker: int(r.rank) for r in candidate_df.itertuples()}
+    top_a = {t for t, r in a.items() if r <= top_n}
+    top_c = {t for t, r in c.items() if r <= top_n}
+    entered = sorted(top_c - top_a, key=lambda t: c[t])
+    left = sorted(top_a - top_c, key=lambda t: a[t])
+    movers = sorted(
+        ({"ticker": t, "rank_active": a[t], "rank_candidate": c[t],
+          "delta": a[t] - c[t]}
+         for t in (set(a) & set(c)) if a[t] != c[t]),
+        key=lambda m: -abs(m["delta"]))[:20]
+    # Spearman-ish agreement over the common set (rank correlation without scipy).
+    common = list(set(a) & set(c))
+    corr = None
+    if len(common) > 2:
+        import statistics
+        ra = [a[t] for t in common]
+        rc = [c[t] for t in common]
+        sa, sc = statistics.pstdev(ra), statistics.pstdev(rc)
+        if sa > 0 and sc > 0:
+            ma, mc = statistics.fmean(ra), statistics.fmean(rc)
+            cov = sum((x - ma) * (y - mc) for x, y in zip(ra, rc)) / len(common)
+            corr = round(cov / (sa * sc), 4)
+    return {
+        "top_n": top_n,
+        "entered_top_n": [{"ticker": t, "rank_candidate": c[t],
+                           "rank_active": a.get(t)} for t in entered[:25]],
+        "left_top_n": [{"ticker": t, "rank_active": a[t],
+                        "rank_candidate": c.get(t)} for t in left[:25]],
+        "membership_change_count": len(entered),
+        "biggest_movers": movers,
+        "rank_correlation": corr,
+        "ranked_active": len(a), "ranked_candidate": len(c),
+    }
+
+
+async def preview_ranking(args: dict, *, engine, budget: BacktestBudget) -> str:
+    """Re-rank the latest scored universe under (active config + diff) with the
+    vendored production rank_universe, and diff against the active ranking."""
+    if not budget.take_preview():
+        return f"PREVIEW BUDGET EXHAUSTED ({budget.preview_limit} per review)."
+    try:
+        base_cfg, _h = load_strategy(STRATEGY_CONFIG_PATH)
+    except Exception as exc:  # noqa: BLE001
+        return f"error: could not load active strategy config: {exc}"
+    candidate_dict, err = apply_config_changes(base_cfg.model_dump(mode="json"),
+                                               args.get("config_changes") or {})
+    if err:
+        budget.preview_used -= 1
+        return err
+
+    import asyncio as _asyncio
+    import pandas as pd
+    from app._vendor.rank import FACTORS, rank_universe
+
+    from sqlalchemy import text as _sql
+    async with engine.connect() as conn:
+        run_row = (await conn.execute(_sql(
+            "SELECT run_id, score_date FROM factor_runs WHERE status='success' "
+            "ORDER BY score_date DESC, completed_at DESC NULLS LAST LIMIT 1"
+        ))).mappings().first()
+        if not run_row:
+            return "error: no successful factor run to preview against"
+        rows = (await conn.execute(_sql(
+            "SELECT ticker, scores FROM factor_scores WHERE run_id = :rid"
+        ), {"rid": run_row["run_id"]})).mappings().fetchall()
+        regime_row = (await conn.execute(_sql(
+            "SELECT regime FROM regime_snapshots ORDER BY snapshot_date DESC LIMIT 1"
+        ))).first()
+    if not rows:
+        return "error: latest factor run has no factor_scores rows"
+    regime = regime_row[0] if regime_row else next(iter(base_cfg.regime_detection.regimes))
+
+    def _df():
+        recs = []
+        for r in rows:
+            s = r["scores"]
+            if isinstance(s, str):
+                s = _loads_json(s)
+            s = s or {}
+            recs.append({"ticker": r["ticker"],
+                         **{f: (float(s[f]) if s.get(f) is not None else float("nan"))
+                            for f in FACTORS}})
+        return pd.DataFrame(recs)
+
+    candidate_cfg = StrategyConfig(**candidate_dict)
+    try:
+        df = await _asyncio.to_thread(_df)
+        active_ranked = await _asyncio.to_thread(rank_universe, df, regime, base_cfg)
+        cand_ranked = await _asyncio.to_thread(rank_universe, df, regime, candidate_cfg)
+    except Exception as exc:  # noqa: BLE001
+        return f"preview error: {str(exc)[:500]}"
+    top_n = max(5, min(100, int(args.get("top_n") or
+                                base_cfg.portfolio_builder.max_positions)))
+    out = rank_delta(active_ranked, cand_ranked, top_n)
+    out["score_date"] = str(run_row["score_date"])
+    out["regime"] = regime
+    out["note"] = ("rank-level only — builder caps/covariance and vetter NOT applied; "
+                   "confirm a promising diff with run_backtest")
+    return _truncate(json.dumps(out, default=str))
+
+
+def _loads_json(raw):
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+
+
+# ── hypothesis_ledger ─────────────────────────────────────────────────────────
+
+_LEDGER_STATUSES = ("open", "confirmed", "refuted", "abandoned")
+_LEDGER_TEXT_CAP = 1200
+
+
+def ledger_validate(args: dict) -> str | None:
+    """Static validation of a ledger write. Returns error or None. Pure."""
+    action = args.get("action")
+    if action not in ("create", "update"):
+        return "action must be 'create' or 'update'"
+    if action == "create" and not (args.get("hypothesis") or "").strip():
+        return "create requires a non-empty hypothesis"
+    if action == "update":
+        try:
+            int(args.get("id"))
+        except (TypeError, ValueError):
+            return "update requires an integer id"
+        if not any((args.get(k) or "").strip()
+                   for k in ("status", "outcome", "hypothesis", "planned_test")):
+            return "update must change at least one of status/outcome/hypothesis/planned_test"
+    status = args.get("status")
+    if status is not None and status not in _LEDGER_STATUSES:
+        return f"status must be one of {_LEDGER_STATUSES}"
+    return None
+
+
+async def hypothesis_ledger(args: dict, *, engine, budget: BacktestBudget) -> str:
+    """The evaluator's ONE write tool — INSERT/UPDATE on evaluator_hypotheses only."""
+    err = ledger_validate(args)
+    if err:
+        return f"ledger write rejected: {err}"
+    if not budget.take_ledger():
+        return f"LEDGER BUDGET EXHAUSTED ({budget.ledger_limit} writes per review)."
+
+    def _cap(v):
+        return (str(v).strip()[:_LEDGER_TEXT_CAP]) if v is not None else None
+
+    from datetime import datetime, timezone
+    from sqlalchemy import text as _sql
+    now = datetime.now(timezone.utc)
+    iso = now.date().isocalendar()
+    try:
+        if args["action"] == "create":
+            async with engine.begin() as conn:
+                new_id = (await conn.execute(_sql(
+                    "INSERT INTO evaluator_hypotheses "
+                    "(status, hypothesis, planned_test, created_iso_year, created_iso_week) "
+                    "VALUES ('open', :h, :t, :y, :w) RETURNING id"
+                ), {"h": _cap(args.get("hypothesis")), "t": _cap(args.get("planned_test")),
+                    "y": iso.year, "w": iso.week})).scalar()
+            return json.dumps({"created": True, "id": new_id})
+        sets, params = ["updated_at = :now"], {"now": now, "id": int(args["id"])}
+        for col in ("status", "outcome", "hypothesis", "planned_test"):
+            if (args.get(col) or "").strip():
+                sets.append(f"{col} = :{col}")
+                params[col] = _cap(args[col])
+        async with engine.begin() as conn:
+            res = await conn.execute(_sql(
+                f"UPDATE evaluator_hypotheses SET {', '.join(sets)} WHERE id = :id"
+            ), params)
+        if res.rowcount == 0:
+            budget.ledger_used -= 1
+            return f"no hypothesis with id {args['id']} — check the packet's ledger section"
+        return json.dumps({"updated": True, "id": int(args["id"])})
+    except Exception as exc:  # noqa: BLE001
+        return f"ledger error: {str(exc)[:400]}"
+
+
 # ── dispatch ──────────────────────────────────────────────────────────────────
 
 def _truncate(s: str, cap: int = RESULT_CHAR_CAP) -> str:
@@ -413,6 +669,10 @@ async def execute_tool(name: str, args: dict, *, engine, budget: BacktestBudget)
             return await sql_query(args, engine=engine)
         if name == "read_file":
             return await read_file(args)
+        if name == "preview_ranking":
+            return await preview_ranking(args, engine=engine, budget=budget)
+        if name == "hypothesis_ledger":
+            return await hypothesis_ledger(args, engine=engine, budget=budget)
         if name == "web_search":
             return await web_search(args)
         return f"unknown tool: {name}"

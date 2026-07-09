@@ -1147,6 +1147,14 @@ tools are for drill-down and testing a thesis BEFORE recommending it:
     services/shared/docs/strategies/db READ-ONLY — never the repo root, so .env
     is unreachable); traversal-guarded, credential-shaped basenames blocked.
   web_search  — Tavily (absent when TAVILY_API_KEY unset).
+  preview_ranking — FAST rank-level triage of a config diff (vendored
+    rank_universe in services/evaluator/app/_vendor/, sync-guarded): top-N
+    membership changes + movers vs the active ranking, before spending a
+    run_backtest slot. No builder caps/vetter. Budget EVALUATOR_MAX_PREVIEWS (8).
+  hypothesis_ledger — durable cross-week memory (evaluator_hypotheses, migration
+    0041): thesis → planned test → status/outcome. The ONE write tool, scoped to
+    its own table; read back as a deterministic packet section every review.
+    Budget EVALUATOR_MAX_LEDGER_WRITES (6).
 Loop budget EVALUATOR_MAX_TOOL_TURNS (default 24); exhaustion strips tools and
 demands the final report JSON. EVALUATOR_TOOLS_ENABLED=false → Phase-1
 packet-only (also the automatic fallback on a hard tool-loop failure). Every

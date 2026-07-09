@@ -55,11 +55,21 @@ TOOLS. You can now INVESTIGATE before concluding. Available tools:
   baseline replay of the ACTIVE config (empty diff) for comparison. The budget is small;
   spend it on your top thesis, not a parameter sweep. The DSR you see already deflates
   by every config tried, so cherry-picking the best run is self-defeating.
+- preview_ranking: FAST (seconds) rank-level triage of a config diff — top-N membership
+  changes + biggest movers vs the active ranking. Use it BEFORE spending a run_backtest
+  slot; a diff that barely moves the ranking is not worth a backtest. Rank-level only
+  (no builder caps / vetter) — a promising preview still needs run_backtest to confirm.
 - sql_query: read-only SELECTs on the live DB — drill into any packet anomaly (a factor's
   IC, a specific trade, what a dropped name did next) instead of speculating.
 - read_file: read the actual source/docs/strategies — ground structural findings in the
   REAL implementation (e.g. read services/pipeline/app/factors.py before claiming a
   factor computation is flawed).
+- hypothesis_ledger: your DURABLE cross-week memory (the packet's hypothesis_ledger
+  section shows current entries). START each review by checking open entries: resolve
+  the ones this week's evidence settles (action=update, status confirmed/refuted/
+  abandoned, outcome citing the evidence). When a thesis needs future data — "watch
+  momentum IC two more weeks", "re-test beta_target once 4w of live equity exists" —
+  CREATE an entry instead of re-deriving it next week. Your only write; its own table.
 - web_search: external context (macro, factor literature). Sparing use; packet/SQL
   evidence outranks it.
 

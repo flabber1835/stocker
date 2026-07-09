@@ -1721,7 +1721,7 @@ LLM only chooses which tool to call): `services/evaluator/app/tools.py` +
 execute each call → append tool_result → continue; on end_turn parse the same
 report JSON contract as Phase 1. Hard caps force a final answer when exhausted.
 
-**The four tools (all read-only):**
+**The tools (read-only except the ledger, which writes ONLY its own table):**
 
 ```text
 run_backtest   — config-replay a CANDIDATE config expressed as a DIFF
@@ -1743,6 +1743,25 @@ read_file      — repo source/docs/config read, rooted at /repo (docker-compose
                  returns a listing.
 web_search     — Tavily (same key as the vetter), results logged verbatim in the
                  transcript; absent when TAVILY_API_KEY is unset.
+preview_ranking— FAST thesis triage (seconds): re-rank the latest scored universe
+                 under a config diff with the VENDORED production rank_universe
+                 (services/evaluator/app/_vendor/rank.py, byte-identical to the
+                 pipeline's, sync-guarded in CI) and diff vs the active ranking —
+                 top-N membership changes, biggest movers, rank correlation.
+                 Rank-level only (no builder caps / vetter); a promising preview
+                 still needs run_backtest. Budget EVALUATOR_MAX_PREVIEWS (8).
+hypothesis_ledger — the evaluator's durable CROSS-WEEK MEMORY and its ONE write
+                 tool, scoped to the evaluator_hypotheses table (migration 0041)
+                 and nothing else: thesis → planned test → status/outcome.
+                 The read side is a deterministic PACKET section
+                 (hypothesis_ledger: open + recently-resolved entries), so every
+                 review starts from the same ledger state without a tool call.
+                 Closes the gap prior_reviews leaves: past CONCLUSIONS were
+                 remembered, open EXPERIMENTS were not — a "watch momentum IC two
+                 more weeks" thesis now persists instead of being re-derived.
+                 Budget EVALUATOR_MAX_LEDGER_WRITES (6); status ∈ open/confirmed/
+                 refuted/abandoned; text capped. Still advisory-only: the ledger
+                 never touches config or the trading path.
 ```
 
 **Budgets (env-tunable):** `EVALUATOR_MAX_TOOL_TURNS` (default 24 gateway calls)
