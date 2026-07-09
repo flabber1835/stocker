@@ -642,7 +642,12 @@ cash reserve
 liquidity constraints
 minimum score thresholds
 do-not-buy list
-vetter exclusions (soft — does not block if vetter hasn't run)
+vetter exclusions (binding on the candidate pool; held-aware — only a drawdown
+  veto drops a HELD name). NOTE: the vetter is a MANDATORY chain step — the
+  `/jobs/build` endpoint returns HTTP 409 if no successful vetter run exists for
+  the ranking, so a normal build never proceeds without it. "Soft" survives only
+  INSIDE `_do_build` (it tolerates `vetter_run_id=None` without crashing); it is
+  not a way to skip vetting in the daily chain.
 turnover penalty (default 0 — DISABLED) — the builder is the SOURCE OF TRUTH
   and builds a fresh, holdings-agnostic target each day; churn-damping is owned
   by the delta engine's orphan timer (orphan_confirmation_days), not by

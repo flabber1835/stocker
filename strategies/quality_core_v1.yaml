@@ -133,6 +133,7 @@ portfolio_builder:
   method: greedy_score_per_port_vol  # score / hypothetical equal-weight portfolio vol (total, not marginal delta)
   candidate_count: 100               # top N from ranker fed into greedy selection
   max_positions: 30                  # final portfolio size
+  min_selected: 15                   # ~half max_positions. A build selecting fewer is flagged degraded so the delta engine HOLDS the book rather than orphan-exiting the rest over a thin target. Also keeps n above 1/max_position_weight (10) so the position cap stays feasible (PB-1/PB-3).
   covariance_window_days: 252        # trading days used to build covariance matrix
   min_covariance_observations: 126   # drop tickers with fewer non-NaN return observations (~6 months)
   covariance_shrinkage: 0.20         # Ledoit-Wolf-style: 80% sample + 20% diagonal

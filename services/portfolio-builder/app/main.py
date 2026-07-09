@@ -710,6 +710,25 @@ async def _do_build(
         if not any(w > max_pw + 1e-9 for w in weights.values()):
             break
 
+    # PB-1: the position cap is INFEASIBLE when the selected book has fewer than
+    # 1/max_position_weight names — clipping every name to the cap sums to < 1, and
+    # the sum-to-1 renormalization above then re-inflates them back OVER the cap.
+    # The loop exits after 10 rounds with weights at 1/n > max_pw. Per decision we
+    # KEEP the full-investment 1/n weights (rather than hold cash), but this must
+    # never be SILENT: surface it loudly so a thin, over-concentrated target is
+    # visible (and so risk-service's MAX_POSITION_PCT rejecting the over-cap entries
+    # is explainable). The min_selected degraded gate is the primary guard — a book
+    # this thin should normally be flagged degraded so the delta holds instead.
+    _cap_breach = {t: round(w, 4) for t, w in weights.items() if w > max_pw + 1e-9}
+    if _cap_breach:
+        print(
+            f"[portfolio-builder] WARNING: max_position_weight cap {max_pw:.2%} is "
+            f"INFEASIBLE for {len(weights)} selected names (need >= "
+            f"{int(np.ceil(1.0 / max_pw))} for the cap to hold); shipping over-cap "
+            f"weights at ~{1.0 / len(weights):.2%} each. Over-cap positions: "
+            f"{_cap_breach}. Consider raising min_selected or widening the universe."
+        )
+
     # ── Beta-target overlay (optional, reversible via beta_target_enabled) ────────
     # Reweight the sum-to-1 invested book toward a target market beta. Runs AFTER
     # base weighting + caps so it tilts within the SELECTED names only; re-applies

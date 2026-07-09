@@ -147,6 +147,7 @@ portfolio_builder:
   selection_vol_aversion: 0.2        # exponent on the port-vol divisor in greedy selection. 1.0 = classic score-per-vol (vol-minimising, suppresses beta); 0.0 = pure score/momentum. Lowered 0.3 → 0.2 to RAISE portfolio beta (less vol-minimisation in selection lets higher-beta leaders in); still keeps a mild diversification pull. Book risk is handled by vol_target, not by minimising vol in selection.
   candidate_count: 120               # a touch wider than core: more momentum names to select 35 from
   max_positions: 35                  # more names → dilute the higher per-name idiosyncratic risk of momentum
+  min_selected: 17                   # ~half max_positions. A build selecting fewer is flagged degraded so the delta engine HOLDS the book rather than orphan-exiting the rest over a thin target. Also keeps n above 1/max_position_weight (12.5) so the position cap stays feasible (PB-1/PB-3).
   covariance_window_days: 252
   min_covariance_observations: 126
   covariance_shrinkage: 0.20
