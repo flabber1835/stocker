@@ -165,3 +165,19 @@ def test_fetch_paths_bypass_skip_window_for_repair_set():
 def test_attempt_cap_default():
     import app.main as m
     assert m.FUND_REPAIR_MAX_ATTEMPTS == 3
+
+
+def test_repair_queue_module_is_actually_imported_in_main():
+    """Regression guard: main.py USES repair_queue.record_check / load_repair_set /
+    bump_attempts / REGRESSION_FIELDS, but for a long time never IMPORTED the module —
+    so every call raised NameError, which the surrounding try/except swallowed as
+    'non-fatal'. The whole field-regression repair (layer 4 of the PBR armor) was
+    silently DEAD in production. The prior wiring test only grepped source TEXT, so it
+    couldn't see the missing binding. This asserts the name actually RESOLVES to the
+    module with its real interface — a used-but-not-imported reference fails here."""
+    import app.main as m
+    assert hasattr(m, "repair_queue"), \
+        "main.py references repair_queue.* but never imports it (silent NameError, dead feature)"
+    for fn in ("record_check", "load_repair_set", "bump_attempts", "REGRESSION_FIELDS"):
+        assert hasattr(m.repair_queue, fn), f"repair_queue missing {fn} used by main.py"
+    assert callable(m.repair_queue.record_check)

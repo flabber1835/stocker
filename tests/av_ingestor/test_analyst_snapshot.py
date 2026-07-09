@@ -105,13 +105,22 @@ async def test_fundamentals_upsert_does_not_leak_analyst_block():
     # analyst dict (it's snapshotted separately). _upsert_fundamentals pops it.
     captured = []
 
+    class _Result:
+        # repair_queue.record_check reads the prev row via .mappings().first()
+        def mappings(self): return self
+        def first(self): return None
+
     class _Sess:
         async def execute(self, _sql, params=None):
             captured.append(params)
+            return _Result()
 
     c = AVClient(api_key="k")
     c._get = AsyncMock(return_value=_AV_OVERVIEW)
     ov = await c.get_overview("ACME")
     await _upsert_fundamentals(_Sess(), "ACME", ov, date(2026, 6, 28))
-    assert "analyst" not in captured[0]
-    assert captured[0]["market_cap"] == 1000000000   # real fundamentals still bind
+    # The fundamentals UPSERT — not the repair_queue prev-row SELECT that now also
+    # runs inside _upsert_fundamentals (identify by the fundamentals param shape).
+    upsert = next(p for p in captured if p and "market_cap" in p)
+    assert "analyst" not in upsert
+    assert upsert["market_cap"] == 1000000000   # real fundamentals still bind

@@ -199,12 +199,31 @@ def test_mock_client_methods_round_trip():
 
 # ── _upsert_fundamentals param tolerance ──────────────────────────────────────
 
+class _FakeResult:
+    """Minimal result supporting the repair-queue prev-row read (.mappings().first())
+    and returning no prior row so record_check sees a fresh ticker (no regression)."""
+    def mappings(self):
+        return self
+    def first(self):
+        return None
+
+
 class _FakeSession:
     def __init__(self):
         self.calls = []
 
     async def execute(self, stmt, params=None):
         self.calls.append((stmt, params))
+        return _FakeResult()
+
+
+def _upsert_params(sess):
+    """The fundamentals UPSERT call — NOT the repair_queue prev-row SELECT that now
+    also runs inside _upsert_fundamentals. Identify it by its param shape."""
+    for _stmt, params in sess.calls:
+        if params and "gross_profit" in params:
+            return params
+    raise AssertionError(f"no fundamentals upsert call found in {len(sess.calls)} calls")
 
 
 def _base_overview(**extra):
@@ -222,7 +241,7 @@ def test_upsert_defaults_new_keys_when_absent():
     sheet disabled) must still upsert, with those columns defaulting to NULL."""
     sess = _FakeSession()
     _run(_upsert_fundamentals(sess, "AAA", _base_overview(), date(2024, 1, 1)))
-    _, params = sess.calls[0]
+    params = _upsert_params(sess)
     assert params["gross_profit"] is None
     assert params["total_assets"] is None
     assert params["ticker"] == "AAA"
@@ -233,6 +252,6 @@ def test_upsert_uses_supplied_gross_profit_and_total_assets():
     sess = _FakeSession()
     ov = _base_overview(gross_profit=5e9, total_assets=1e11)
     _run(_upsert_fundamentals(sess, "BBB", ov, date(2024, 1, 1)))
-    _, params = sess.calls[0]
+    params = _upsert_params(sess)
     assert params["gross_profit"] == pytest.approx(5e9)
     assert params["total_assets"] == pytest.approx(1e11)
