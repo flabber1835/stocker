@@ -884,6 +884,25 @@ async def _do_vet(
                 )
             result.setdefault("hallucination_flags", []).append(flag)
             print(f"[llm-vetter] {ticker}: DRAWDOWN BACKSTOP — {_action} ({trigger_desc})")
+        elif (excess_hit or absolute_hit) and ticker in held_tickers \
+                and result.get("risk_type") != "drawdown":
+            # Finding 1 (LLM-mode): the name is ALREADY excluded — an LLM-judgement
+            # veto with a non-drawdown risk_type (e.g. 'earnings') — AND it trips the
+            # falling-knife on a HELD position. The block above was skipped because
+            # `exclude` was already set, leaving risk_type non-drawdown. The builder's
+            # compute_excluded_set treats a non-drawdown exclusion of a held name as
+            # buy-side-only, so the held knife would NOT be sold. Escalate risk_type
+            # to 'drawdown' (do NOT touch the exclude decision) so the builder drops it
+            # from the target and the delta engine orphan-exits it. Held-only: a
+            # non-held name's existing exclude already blocks entry, so risk_type is
+            # immaterial there. Inert in drawdown_only mode (no prior LLM exclude).
+            _prior_rt = result.get("risk_type")
+            result["risk_type"] = "drawdown"
+            _flag = (f"DRAWDOWN_BACKSTOP: upgraded risk_type {_prior_rt!r}→'drawdown' on a "
+                     f"HELD falling-knife already excluded as {_prior_rt!r}, so the builder sells it")
+            result.setdefault("hallucination_flags", []).append(_flag)
+            print(f"[llm-vetter] {ticker}: DRAWDOWN BACKSTOP — held falling-knife re-tagged "
+                  f"{_prior_rt!r}→drawdown (drives a sale)")
 
         ticker_results.append(result)
 

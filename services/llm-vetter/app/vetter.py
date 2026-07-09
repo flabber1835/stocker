@@ -593,9 +593,11 @@ def _parse_llm_response(
 ) -> dict:
     """Parse the raw LLM response string into a structured vetter result dict.
 
-    Handles JSON extraction from code fences and bare prose, returns exclude=True
-    on parse failure so unvetted stocks are held for manual review rather than
-    silently passed through.
+    Handles JSON extraction from code fences and bare prose. On parse failure it
+    returns exclude=FALSE (KEEP), NOT a forced exclude: a transient LLM/parse glitch
+    must not force-sell a name, and the deterministic falling-knife backstop still
+    runs afterward on the kept result, so a genuine crash is still caught. (The
+    exclusion authority is the deterministic veto, not a parse error.)
     """
     if news_titles is None:
         news_titles = []

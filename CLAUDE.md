@@ -675,14 +675,15 @@ from the candidate pool before portfolio construction. The deterministic ranker
 still owns the final score; the vetter does not apply positive-conviction boosts.
 
 Candidate pool = top `candidate_count` by rank, PLUS all currently-held tickers
-(a held name approaching exit must be vetted even if ranked outside top-N), PLUS —
-when a `theme_overlay` is enabled — every RANKED theme member (resolved from the
-SAME shared source the builder uses, `ai_theme_members` → `AI_BUILDOUT_SET`). The
-theme augmentation is required because in restrict mode the builder selects theme
-names from deep in the ranking (well past candidate_count); without it a theme pick
-ranked > N gets no falling-knife veto and the Screener's Theme view shows a verdict
-for some theme names but not others. Theme names absent from the ranking are skipped
-(the Theme view doesn't show them and the builder can't pick them).
+(a held name approaching exit must be vetted even if ranked outside top-N).
+
+Theme-overlay candidate augmentation is RETIRED — the engine is theme-agnostic
+(both the vetter, `services/llm-vetter/app/main.py`, and the portfolio-builder no
+longer resolve a named theme universe; a hot sector is discovered organically by
+the factors and bounded by the correlation-cluster caps). The former rule (augment
+the pool with every RANKED `ai_theme_members`/`AI_BUILDOUT_SET` member so a theme
+pick ranked past `candidate_count` still got a falling-knife veto) no longer
+applies; there is no active `theme_overlay`.
 
 Responsibilities:
 
