@@ -1224,9 +1224,16 @@ RESTART_ABORTED orphan recovers a *transient* restart, but a *deterministic*
 crash (e.g. the factor step OOM-killing on a RAM-constrained host) reproduces on
 every retry — an infinite crash loop that shows as "stuck on calculating
 factors". The supervisor counts distinct crash cycles per (step, run_date),
-deduped by `started_at` so re-seeing the same orphan across fast ticks counts
-once, and SUSPENDS the chain (returns "failed") once the count exceeds the limit.
-A clean success clears the counter. Paired with the pipeline's `mem_limit`
+deduped by the orphaned run's `run_id` (unique per attempt, so re-seeing the SAME
+orphan across fast ticks counts once, while each fresh re-triggered run — a new
+run_id — is a new cycle; a NULL token counts anyway, over-counting toward the safe
+"trip sooner" direction). The count is the DURABLE `_persist_restart_cycle` value
+(the in-memory dict resets on the very restart an OOM triggers, so a memory-only
+counter would re-arm from 0 and loop forever). It SUSPENDS the chain (returns
+"failed") once the count exceeds the limit. A clean success clears the counter.
+(The earlier `started_at`/`run_date` dedup token collapsed to `run_date` when
+started_at was missing — identical every cycle — so the counter capped at 1 and
+the breaker never tripped; `run_id` fixed that.) Paired with the pipeline's `mem_limit`
 (PIPELINE_MEM_LIMIT, default 2g in docker-compose.yml): the cap makes the
 pipeline the predictable OOM victim instead of postgres/redis, and the breaker
 turns the resulting restart into one visible failure instead of a loop. The

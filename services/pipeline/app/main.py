@@ -2701,6 +2701,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     # guards against). Fall back to "latest successful vetter" only on cold start
     # (no anchor portfolio → bound_vetter_run_id is None).
     vetter_excluded: set[str] = set()
+    vetter_load_failed = False
     try:
         async with engine.connect() as conn:
             if bound_vetter_run_id is not None:
@@ -2717,9 +2718,28 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 ))
             vetter_excluded = {r[0] for r in excl_rows.fetchall()}
     except Exception as ve_exc:
+        # DELTA-3: distinguish "vetter has no exclusions" (legitimately empty — the
+        # vetter is soft in the NORMAL path because the builder already baked
+        # exclusions into the target) from "we FAILED TO READ exclusions" (a DB
+        # error). The flag lets the cold-start path fail-closed on the latter, since
+        # in cold-start (no builder target) this exclusion set is the ONLY entry-side
+        # falling-knife veto — silently entering with an empty set could buy a vetoed
+        # name. In the normal target-vs-live path an empty/failed load is harmless.
+        vetter_load_failed = True
         print(f"[delta] warning: could not load vetter exclusions: {ve_exc}")
 
     if cold_start or no_sync_data:
+        # DELTA-3: in cold-start the vetter exclusion set is the ONLY entry-side
+        # falling-knife veto (there is no builder target to have baked it in). If the
+        # load ERRORED (not merely "no exclusions"), fail-closed rather than risk
+        # entering a vetoed name with an empty set — the next chain retries once the
+        # DB is healthy. (The normal target-vs-live path below does not need this: the
+        # builder already applied exclusions to the target.)
+        if vetter_load_failed:
+            raise RuntimeError(
+                "cold-start delta: vetter-exclusion load failed — refusing to build "
+                "entry intents without the falling-knife veto (fail-closed; retry next chain)"
+            )
         # cold_start: no portfolio target yet.
         # no_sync_data: broker state unknown (alpaca-sync never completed).
         # Use confirmation-days mode. Seed current_portfolio from live_positions_set

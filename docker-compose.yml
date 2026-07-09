@@ -529,7 +529,7 @@ services:
       # advances to the target session); if AV is not ready yet at 17:30 the chain
       # waits and retries, so an early start is safe and gives the long fetch
       # plenty of time to finish well before midnight (no cross-midnight rollover).
-      RANK_SCHEDULE_CRON:       ${RANK_SCHEDULE_CRON:-30 17 * * 1-5}
+      RANK_SCHEDULE_CRON:       ${RANK_SCHEDULE_CRON:-30 17 * * 1-5}  # 5:30pm ET cron FIRE time; SESSION anchor makes fetch-data wait for AV's EOD bar (~7-11pm ET) rather than rank stale data. Set later (e.g. 30 22) to avoid pre-publish re-fetches.
       TZ:                       America/New_York
       DATABASE_URL:             postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       SUPERVISOR_INTERVAL_SECS: ${SUPERVISOR_INTERVAL_SECS:-300}

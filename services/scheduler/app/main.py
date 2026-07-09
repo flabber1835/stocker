@@ -30,13 +30,19 @@ DATABASE_URL          = os.getenv("DATABASE_URL", "")
 EVALUATOR_ENABLED = os.getenv("EVALUATOR_ENABLED", "true").lower() in ("1", "true", "yes")
 EVALUATOR_TRIGGER_COOLDOWN_SECS = int(os.getenv("EVALUATOR_TRIGGER_COOLDOWN_SECS", "3600"))
 
-# Default: 10:30 pm ET weekdays. Alpha Vantage publishes the day's DAILY_ADJUSTED
-# close bar in the evening (~7-11pm ET), HOURS after the 4pm close — so an
-# after-close run at 16:15 would fetch nothing new and rank on the PRIOR session's
-# data (observed: a 16:15 run produced a ranking dated the previous day because no
-# fresh price bar existed yet). 22:30 ET runs after AV has published, so fetch-data
-# pulls today's close and the ranking reflects today's data. Day orders queue for
-# the next open regardless, so the late run does not delay execution.
+# Default: 5:30 pm ET weekdays. This is the CRON FIRE time (when the supervisor is
+# ALLOWED to open a chain), NOT when the chain necessarily does useful work.
+# Alpha Vantage publishes the day's DAILY_ADJUSTED close bar in the evening
+# (~7-11pm ET), HOURS after the 4pm close, so at 17:30 today's bar may not exist
+# yet. That does NOT corrupt the ranking: fetch-data is anchored on the trading
+# SESSION (av-ingestor withholds session_date until today's bar lands), so until AV
+# publishes, fetch-data reads "not done" and the supervisor simply RE-TRIGGERS it on
+# later ticks (throttled by TRIGGER_COOLDOWN_SECS) rather than ranking stale data.
+# The chain converges to today's session once the bar arrives. Trade-off of the
+# early fire: some redundant fetch attempts between 17:30 and AV publish time; the
+# benefit is the chain starts as soon as data is available instead of waiting for a
+# late fixed time. Set later (e.g. "30 22 * * 1-5", 10:30pm ET) to fire only after
+# AV has reliably published and avoid the redundant fetches.
 # Cron is interpreted in SCHEDULE_TZ (America/New_York) so DST shifts are handled.
 # Override via env var using standard cron syntax, e.g. "0 23 * * 1-5".
 RANK_SCHEDULE_CRON = os.getenv("RANK_SCHEDULE_CRON", "30 17 * * 1-5")
@@ -1115,6 +1121,11 @@ async def _supervisor_tick() -> None:
             # and skips the cancel-all pre-step. run_now overwrites this to 'manual'.
             _chain_status.update({"date": session, "status": None, "steps": {}, "run_ids": {},
                                   "current_run_id": None, "origin": "scheduled"})
+            # A new chain (new session) opens → drop stale trigger-cooldown stamps so
+            # the cooldown reasons only about THIS chain's triggers (SCH-F2). Harmless
+            # either way — old monotonic stamps are already far past the window — but
+            # this keeps the dict bounded and makes its "reset on chain open" contract true.
+            _last_trigger_at.clear()
 
         # If this session's chain already completed (success/failed), skip — don't
         # re-open a redundant scheduler_runs row on every tick for the rest of the
@@ -1337,8 +1348,21 @@ async def _supervisor_tick() -> None:
                     await _db_update_run(run_id, "running", _chain_status["steps"], _chain_status["run_ids"],
                                          force_pending=_force_pending)
                     return
+                ok = await _trigger_step(client, step)
+                if not ok:
+                    # The step DECLINED to fire — e.g. the delta step's pre-delta
+                    # stale-order purge failed fail-closed (_cancel_deferred_orders
+                    # couldn't confirm), so _trigger_step returned False WITHOUT
+                    # POSTing. Do NOT arm the cooldown or clear _force_pending: leave
+                    # the step idle so the next tick retries promptly, symmetric with
+                    # the force paths which already check the return (SCH-F3).
+                    # Self-heals once the trade-executor is reachable again.
+                    _log(f"supervisor: {step.name} trigger deferred "
+                         f"(fail-closed pre-step) — retrying next tick")
+                    await _db_update_run(run_id, "running", _chain_status["steps"],
+                                         _chain_status["run_ids"], force_pending=_force_pending)
+                    return
                 _last_trigger_at[step.name] = _now
-                await _trigger_step(client, step)
                 # Discard from _force_pending: triggering an "idle" step IS the
                 # re-run for that step, so when it eventually becomes "done" the
                 # supervisor must not force-trigger it a second time.  Without this,
@@ -1536,14 +1560,16 @@ async def lifespan(app: FastAPI):
     global _scheduler
     _scheduler = AsyncIOScheduler(timezone="UTC")
 
-    # Cron trigger: daily at market close (default 4:15pm ET weekdays, DST-aware).
+    # Cron trigger: daily FIRE time for opening the chain (default 5:30pm ET
+    # weekdays, DST-aware — see the RANK_SCHEDULE_CRON rationale above; the SESSION
+    # anchor makes fetch-data wait for AV's EOD bar rather than rank stale data).
     # Uses the SAME explicit zone (SCHEDULE_TZ_NAME) as _local_today()/_local_now()
     # so the cron fire time and the date-comparison logic can never disagree.
     try:
         cron_trigger = CronTrigger.from_crontab(RANK_SCHEDULE_CRON, timezone=SCHEDULE_TZ_NAME)
     except Exception as exc:
         _log(f"Invalid RANK_SCHEDULE_CRON {RANK_SCHEDULE_CRON!r}: {exc} — using default")
-        cron_trigger = CronTrigger.from_crontab("30 22 * * 1-5", timezone=SCHEDULE_TZ_NAME)
+        cron_trigger = CronTrigger.from_crontab("30 17 * * 1-5", timezone=SCHEDULE_TZ_NAME)
     _scheduler.add_job(
         _heartbeat_tick,
         cron_trigger,
@@ -1736,6 +1762,7 @@ async def run_now(background_tasks: BackgroundTasks):
             "date": session, "status": None, "steps": {}, "run_ids": {},
             "current_run_id": None, "origin": "manual",
         })
+        _last_trigger_at.clear()  # new chain opens → drop stale cooldown stamps (SCH-F2)
         _force_pending.update(s.name for s in _STEPS)
         forced = sorted(_force_pending)
     background_tasks.add_task(_run_supervised_fast)
