@@ -1698,11 +1698,69 @@ The goal is a system that measurably PICKS MORE WINNERS over time. Three phases:
 
 ```text
 Phase 1 (BUILT)   — read-only weekly report in the dashboard's Review tab
-Phase 2 (planned) — the LLM may call the backtester as a TOOL to test a thesis
-                    before recommending it
+Phase 2 (BUILT)   — the LLM calls read-only TOOLS mid-review (backtester, SQL,
+                    source/docs read, web search) to test a thesis before
+                    recommending it — see "Phase 2: evaluator tools" below
 Phase 3 (planned) — human-approved application of recommendations to the
                     strategy YAML (via strategy-validator, never direct)
 ```
+
+## Design Decision: evaluator tools (Phase 2)
+
+The packet is NOT replaced — it stays the deterministic opening brief every
+review sees (reproducible, comparable week-over-week). Tools are for what the
+packet cannot do: drill into anomalies and TEST a thesis before recommending it.
+Packet = opening evidence; tools = investigation.
+
+**Where the pieces live.** The llm-gateway already carries tool-use end-to-end
+(ToolDef pass-through, tool_use/tool_result content blocks, stop_reason) — it
+stays a pure provider abstraction and is unchanged. The TOOL IMPLEMENTATIONS and
+the agentic loop live in the evaluator (deterministic Python owns execution; the
+LLM only chooses which tool to call): `services/evaluator/app/tools.py` +
+`agent.py`. The loop: send packet + tool defs → while stop_reason == tool_use →
+execute each call → append tool_result → continue; on end_turn parse the same
+report JSON contract as Phase 1. Hard caps force a final answer when exhausted.
+
+**The four tools (all read-only):**
+
+```text
+run_backtest   — config-replay a CANDIDATE config expressed as a DIFF
+                 ({dotted.path: value} applied to the ACTIVE config, validated
+                 through StrategyConfig; invalid → the validation error is
+                 returned to the LLM, nothing runs). POSTs the backtester's
+                 /jobs/backtest-config, polls to completion, returns
+                 summary + validation (DSR/PBO verdict) + caveats read from
+                 backtest_runs. Every run auto-registers a backtest_trials row,
+                 so the DSR the LLM sees deflates by ITS OWN search breadth —
+                 it cannot run N configs and cite the best unpenalized.
+sql_query      — read-only Postgres: single statement, must start SELECT/WITH,
+                 executed inside SET TRANSACTION READ ONLY (the hard guarantee —
+                 any write fails at the DB) with statement_timeout and a row cap.
+read_file      — repo source/docs/config read, rooted at /repo (docker-compose
+                 mounts services/, shared/, docs/, strategies/, db/ READ-ONLY —
+                 deliberately NOT the repo root, so .env/secrets are never
+                 mounted); path-traversal guarded, size-capped; a directory path
+                 returns a listing.
+web_search     — Tavily (same key as the vetter), results logged verbatim in the
+                 transcript; absent when TAVILY_API_KEY is unset.
+```
+
+**Budgets (env-tunable):** `EVALUATOR_MAX_TOOL_TURNS` (default 24 gateway calls)
+and `EVALUATOR_MAX_BACKTESTS` (default 3 per review — each takes minutes and
+each is a trial that deflates DSR). On budget exhaustion the loop strips the
+tools and demands the final report JSON. `EVALUATOR_TOOLS_ENABLED=false` reverts
+to the Phase-1 packet-only call (also the automatic fallback if the tool loop
+fails hard — a review is never lost to a tool bug).
+
+**Audit.** Every tool call (name, arguments, truncated result, elapsed ms,
+error) is persisted verbatim in `evaluator_reports.tool_transcript` (migration
+0040), so any number the narrative cites can be traced to the exact query or
+backtest that produced it.
+
+**Boundary unchanged:** tools are read-only over already-ingested point-in-time
+data (web search is the one documented exception — external context, logged);
+the evaluator still never writes config, never creates trade intents, never
+touches the broker path, and reaches the LLM only through the llm-gateway.
 
 **Boundary (per docs/llm-boundaries.md).** The evaluator is advisory-only: it
 never writes config, never creates trade intents, never touches the broker path.

@@ -493,9 +493,23 @@ services:
       EVALUATOR_PROVIDER: ${EVALUATOR_PROVIDER:-anthropic}
       EVALUATOR_MODEL: ${EVALUATOR_MODEL:-claude-opus-4-8}
       ARTIFACTS_PATH: /artifacts
+      # Phase 2 tools (read-only; see docs/architecture.md "evaluator tools")
+      EVALUATOR_TOOLS_ENABLED: ${EVALUATOR_TOOLS_ENABLED:-true}
+      BACKTESTER_URL: http://backtester:8000
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      EVALUATOR_MAX_TOOL_TURNS: ${EVALUATOR_MAX_TOOL_TURNS:-24}
+      EVALUATOR_MAX_BACKTESTS: ${EVALUATOR_MAX_BACKTESTS:-3}
     volumes:
       - ./artifacts:/artifacts
       - ./strategies:/strategies:ro
+      # read_file tool roots — SELECTIVE read-only mounts, deliberately NOT the
+      # repo root so .env / secrets are never reachable by the LLM.
+      - ./services:/repo/services:ro
+      - ./shared:/repo/shared:ro
+      - ./docs:/repo/docs:ro
+      - ./strategies:/repo/strategies:ro
+      - ./db:/repo/db:ro
+      - ./CLAUDE.md:/repo/CLAUDE.md:ro
     depends_on:
       postgres:
         condition: service_healthy

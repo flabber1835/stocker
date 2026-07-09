@@ -1132,7 +1132,25 @@ docs/architecture.md "Design Decision: weekly LLM evaluator loop".
 Trigger: scheduler POSTs /jobs/evaluate hourly on weekend days (ET); the
 evaluator dedupes to one report per ISO week. EVALUATOR_ENABLED=false disables.
 
-Phase 2 (planned): backtester as a tool to confirm a thesis before recommending.
+Phase 2 (BUILT): read-only TOOLS mid-review (app/tools.py + app/agent.py; the
+llm-gateway already carried tool-use — tool EXECUTION stays in deterministic
+Python). The packet is NOT replaced — it remains the deterministic opening brief;
+tools are for drill-down and testing a thesis BEFORE recommending it:
+  run_backtest — config-replay a candidate config expressed as a {dotted.path:
+    value} DIFF over the ACTIVE config, schema-validated before anything runs;
+    returns summary + DSR/PBO validation; each run auto-registers a trial so the
+    DSR the LLM sees deflates by its own search breadth. Budget
+    EVALUATOR_MAX_BACKTESTS (default 3/review).
+  sql_query   — ONE SELECT/WITH inside SET TRANSACTION READ ONLY (DB-level hard
+    guarantee) + statement_timeout + row cap.
+  read_file   — repo source/docs/strategies rooted at /repo (compose mounts
+    services/shared/docs/strategies/db READ-ONLY — never the repo root, so .env
+    is unreachable); traversal-guarded, credential-shaped basenames blocked.
+  web_search  — Tavily (absent when TAVILY_API_KEY unset).
+Loop budget EVALUATOR_MAX_TOOL_TURNS (default 24); exhaustion strips tools and
+demands the final report JSON. EVALUATOR_TOOLS_ENABLED=false → Phase-1
+packet-only (also the automatic fallback on a hard tool-loop failure). Every
+call persisted in evaluator_reports.tool_transcript (migration 0040) for audit.
 Phase 3 (planned): human-approved config changes via strategy-validator.
 
 Cannot deploy changes directly. Never submits trades, never bypasses risk.

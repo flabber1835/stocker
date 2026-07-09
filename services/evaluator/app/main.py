@@ -9,8 +9,10 @@ Every week (scheduler-triggered, or manually via the dashboard) this service:
      evaluator_reports for the dashboard's Evaluator tab.
 
 LLM boundary: advisory only. This service never writes strategy config, never
-creates trade intents, never calls the broker. Phase 2 adds the backtester as a
-verification tool; Phase 3 adds human-approved config changes.
+creates trade intents, never calls the broker. Phase 2 (BUILT — app/tools.py +
+app/agent.py) gives the LLM read-only tools mid-review: backtester config-replay,
+SQL, source/docs read, web search, each call audited in
+evaluator_reports.tool_transcript. Phase 3 adds human-approved config changes.
 """
 from __future__ import annotations
 
@@ -26,6 +28,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
+from app.agent import generate_report_with_tools
 from app.packet import build_packet
 from app.report import EVALUATOR_MODEL, EVALUATOR_PROVIDER, generate_report
 from stock_strategy_shared.tracing import mark_orphaned_runs_failed
@@ -33,6 +36,11 @@ from stock_strategy_shared.trading_tz import resolve_trading_tz
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
+# Phase 2: tool-use review is the default everywhere (weekly cron + manual).
+# false → Phase-1 packet-only call; also the automatic fallback if the tool
+# loop fails hard, so a review is never lost to a tool bug.
+EVALUATOR_TOOLS_ENABLED = os.getenv("EVALUATOR_TOOLS_ENABLED", "true").lower() not in (
+    "0", "false", "no", "off")
 
 # The week a report belongs to is stamped in the TRADING timezone (same resolver
 # as the scheduler), NOT UTC. The scheduler's weekend trigger gates on ET
@@ -97,7 +105,17 @@ async def _run_evaluation(run_id: str, manual: bool) -> None:
             ), {"rid": run_id, "p": json.dumps(packet, default=str),
                 "sid": cfg.get("strategy_id"), "ch": cfg.get("config_hash")})
 
-        result = await generate_report(packet)
+        tool_transcript: list[dict] = []
+        if EVALUATOR_TOOLS_ENABLED:
+            try:
+                result, tool_transcript = await generate_report_with_tools(packet, engine)
+            except Exception as tool_exc:  # noqa: BLE001 — degrade, never lose the review
+                traceback.print_exc()
+                print(f"[evaluator] tool loop failed ({tool_exc}) — "
+                      f"falling back to packet-only review")
+                result = await generate_report(packet)
+        else:
+            result = await generate_report(packet)
 
         async with engine.begin() as conn:
             await conn.execute(text(
@@ -105,9 +123,10 @@ async def _run_evaluation(run_id: str, manual: bool) -> None:
                 "  report_markdown=:md, recommendations=CAST(:recs AS jsonb), "
                 "  data_gaps=CAST(:gaps AS jsonb), provider=:prov, model=:model, "
                 "  prompt_hash=:ph, input_tokens=:itok, output_tokens=:otok, "
-                "  latency_ms=:lat "
+                "  latency_ms=:lat, tool_transcript=CAST(:tools AS jsonb) "
                 "WHERE run_id=:rid"
             ), {
+                "tools": json.dumps(tool_transcript, default=str),
                 "rid": run_id, "now": datetime.now(timezone.utc),
                 "md": result.narrative_markdown,
                 "recs": json.dumps({
@@ -132,7 +151,8 @@ async def _run_evaluation(run_id: str, manual: bool) -> None:
                 print(f"[evaluator] artifact write failed: {exc}")
         print(f"[evaluator] run {run_id} SUCCESS "
               f"({result.model}, {result.output_tokens} out-tokens, "
-              f"{len(result.recommendations)} recommendations)")
+              f"{len(result.recommendations)} recommendations, "
+              f"{len(tool_transcript)} tool calls)")
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
         async with engine.begin() as conn:
@@ -187,7 +207,7 @@ _REPORT_COLS = (
     "run_id::text AS run_id, status, as_of_date, iso_year, iso_week, manual, "
     "strategy_id, config_hash, report_markdown, recommendations, data_gaps, "
     "provider, model, prompt_hash, input_tokens, output_tokens, latency_ms, "
-    "error_message, started_at, completed_at"
+    "error_message, started_at, completed_at, tool_transcript"
 )
 
 
