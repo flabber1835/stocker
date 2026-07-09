@@ -11,9 +11,12 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
+import hashlib
+
 from app.simulate import run_backtest
 from app import validation
 from app.postprocess import build_validation
+from app.config_replay import replay_history
 
 
 def _reload_strategy() -> None:
@@ -414,6 +417,220 @@ async def _run_backtest_bg(
             print(f"[backtester] WARNING: failed to update DB with failure status for run {run_id}")
 
 
+_FACTOR_COLS = ("momentum", "quality", "value", "growth", "low_volatility",
+                "liquidity", "issuance", "small_cap", "volume_surge", "near_high",
+                "high_volatility", "earnings_surprise")
+
+
+def _resolve_replay_config(config_path: str | None, config_inline: dict | None):
+    """Return (StrategyConfig, config_hash) for a config-replay request. Inline
+    config (from the evaluator) takes precedence; else load the given path; else
+    the service's active config. The hash is content-derived so the trials
+    registry counts DISTINCT candidate configs honestly."""
+    if config_inline is not None:
+        cfg = StrategyConfig(**config_inline)
+        raw = json.dumps(config_inline, sort_keys=True, default=str)
+        return cfg, hashlib.sha256(raw.encode()).hexdigest()[:16]
+    path = config_path or STRATEGY_CONFIG_PATH
+    return load_strategy(path)
+
+
+async def _run_config_replay_bg(
+    run_id: str,
+    trace_id: str,
+    date_from: date,
+    date_to: date,
+    tx_cost_bps: int,
+    cfg: StrategyConfig,
+    cfg_hash: str,
+    started_at: datetime,
+) -> None:
+    """G1 background job: re-rank + re-select every historical rebalance date under
+    `cfg` (config-replay), then score the synthetic book with the de-biased
+    run_backtest. Persists sim_mode='config_replay' + the config that produced it."""
+    try:
+        pb = cfg.portfolio_builder
+        cov_win = getattr(pb, "covariance_window_days", 120)
+        # History needed BEFORE date_from: the longest trailing lookback any step
+        # uses (slow SMA for regime, covariance window) so the earliest rebalance
+        # date still has a full window with NO look-ahead. Forward pad AFTER date_to
+        # so the last period has a real exit price (run_backtest fills ~21d out).
+        hist_days = max(cfg.regime_detection.slow_sma, cov_win) + 40
+        px_from = date_from - pd.Timedelta(days=int(hist_days * 1.6)).to_pytimedelta()
+        px_to = date_to + pd.Timedelta(days=45).to_pytimedelta()
+
+        # ── Step 1: persisted point-in-time factor scores, one run per date ──────
+        async with engine.connect() as conn:
+            frows = (await conn.execute(text(
+                "WITH latest AS ("
+                "  SELECT DISTINCT ON (score_date) run_id, score_date "
+                "  FROM factor_runs "
+                "  WHERE status='success' AND score_date BETWEEN :df AND :dt "
+                "  ORDER BY score_date, completed_at DESC NULLS LAST"
+                ") "
+                "SELECT l.score_date, fs.ticker, fs.scores, "
+                + ", ".join(f"fs.{c}" for c in _FACTOR_COLS) + " "
+                "FROM latest l JOIN factor_scores fs ON fs.run_id = l.run_id"
+            ), {"df": date_from, "dt": date_to})).fetchall()
+
+        factor_rows_by_date: dict[str, list[dict]] = {}
+        tickers: set[str] = set()
+        for r in frows:
+            d = str(r.score_date)
+            row = {"ticker": r.ticker, "scores": getattr(r, "scores", None)}
+            for c in _FACTOR_COLS:
+                row[c] = getattr(r, c, None)
+            factor_rows_by_date.setdefault(d, []).append(row)
+            tickers.add(r.ticker)
+
+        if not factor_rows_by_date:
+            await _fail_run(run_id, trace_id,
+                            "no persisted factor_scores in range — cannot config-replay")
+            return
+
+        tickers.add("SPY")
+        async with engine.begin() as conn:
+            await _log_step(conn, trace_id, "load_factor_history", "success",
+                            started_at=started_at,
+                            output_summary={"rebalance_dates": len(factor_rows_by_date),
+                                            "tickers": len(tickers)})
+
+        # ── Step 2: prices (with pre-history + forward pad) and sector labels ────
+        t0 = datetime.now(timezone.utc)
+        async with engine.connect() as conn:
+            prows = (await conn.execute(text(
+                "SELECT ticker, date, adjusted_close, close, volume FROM daily_prices "
+                "WHERE ticker = ANY(:tk) AND date BETWEEN :pf AND :pt "
+                "ORDER BY ticker, date ASC"
+            ), {"tk": list(tickers), "pf": px_from, "pt": px_to})).fetchall()
+            srows = (await conn.execute(text(
+                "SELECT DISTINCT ON (ut.ticker) ut.ticker, ut.sector "
+                "FROM universe_tickers ut JOIN universe_snapshots us ON ut.snapshot_id = us.id "
+                "WHERE ut.ticker = ANY(:tk) AND us.snapshot_date <= :dt "
+                "ORDER BY ut.ticker, us.snapshot_date DESC"
+            ), {"tk": list(tickers), "dt": date_to})).fetchall()
+
+        prices_df = pd.DataFrame([{
+            "ticker": r.ticker, "date": r.date,
+            "adjusted_close": float(r.adjusted_close) if r.adjusted_close is not None else None,
+            "close": float(r.close) if r.close is not None else None,
+            "volume": float(r.volume) if r.volume is not None else None,
+        } for r in prows])
+        sector_map = {r.ticker: r.sector for r in srows if r.sector}
+        if prices_df.empty:
+            await _fail_run(run_id, trace_id, "no price history for config-replay tickers")
+            return
+        async with engine.begin() as conn:
+            await _log_step(conn, trace_id, "load_prices", "success", started_at=t0,
+                            output_summary={"price_rows": len(prows), "sectors": len(sector_map)})
+
+        # ── Step 3: replay every rebalance date, then score ──────────────────────
+        t0 = datetime.now(timezone.utc)
+        portfolio_runs, caveats = replay_history(
+            factor_rows_by_date, prices_df, cfg, sector_map, beta_lookback=cov_win)
+        if not portfolio_runs:
+            await _fail_run(run_id, trace_id,
+                            "config-replay produced no feasible portfolios in range")
+            return
+
+        # run_backtest needs adjusted_close only; pass the frame as-is.
+        result = run_backtest(portfolio_runs, prices_df, tx_cost_bps=tx_cost_bps)
+        summary = result["summary"]
+        periods = result["periods"]
+        summary["config_replay_caveats"] = caveats
+        async with engine.begin() as conn:
+            await _log_step(conn, trace_id, "run_simulation", "success", started_at=t0,
+                            output_summary={"periods": len(periods),
+                                            "rebalances": len(portfolio_runs),
+                                            "sharpe_ratio": summary.get("sharpe_ratio")})
+        if not periods:
+            await _fail_run(run_id, trace_id, "config-replay produced no valid periods")
+            return
+
+        # ── Step 4: validation + honest trials count (same as persisted path) ────
+        validation_out: dict = {}
+        try:
+            excess = [p["excess_return"] for p in periods]
+            ppy = summary.get("periods_per_year") or 12.0
+            span_years = sum(p["n_days"] for p in periods) / 365.25
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    "INSERT INTO backtest_trials (config_hash, strategy_id, date_from, "
+                    " date_to, tx_cost_bps, sim_mode, run_id, sharpe) "
+                    "VALUES (:ch,:sid,:df,:dt,:tx,:mode,:rid,:sh)"
+                ), {"ch": cfg_hash, "sid": cfg.strategy_id, "df": date_from, "dt": date_to,
+                    "tx": tx_cost_bps, "mode": "config_replay", "rid": run_id,
+                    "sh": summary.get("sharpe_ratio")})
+                trow = (await conn.execute(text(
+                    "SELECT COUNT(DISTINCT config_hash) AS n, "
+                    "       COALESCE(VAR_SAMP(sharpe), 0) AS v FROM backtest_trials"
+                ))).mappings().first()
+            n_trials = int(trow["n"]) if trow else 1
+            var_trial_sr = float(trow["v"]) if trow and trow["v"] is not None else 0.0
+            validation_out = build_validation(
+                excess, ppy, n_trials=n_trials, var_trial_sr=var_trial_sr,
+                span_years=span_years, n_rebalances=summary.get("n_rebalances") or 0)
+        except Exception as exc:  # noqa: BLE001 — advisory, never fatal
+            print(f"[backtester] config-replay validation failed (non-fatal): {exc}")
+            validation_out = {"error": str(exc)}
+
+        # ── Step 5: persist ──────────────────────────────────────────────────────
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "UPDATE backtest_runs SET status='success', completed_at=:now, "
+                "  n_rebalances=:n, total_return=:tr, annualized_return=:ar, "
+                "  sharpe_ratio=:sh, max_drawdown=:mdd, avg_monthly_turnover=:to, "
+                "  win_rate=:wr, benchmark_total_return=:btr, "
+                "  benchmark_annualized_return=:bar, summary=CAST(:summary AS jsonb), "
+                "  validation=CAST(:validation AS jsonb), sim_mode='config_replay', "
+                "  config_json=CAST(:cfg AS jsonb) WHERE run_id=:rid"
+            ), {
+                "rid": run_id, "now": datetime.now(timezone.utc),
+                "n": summary.get("n_rebalances"),
+                "tr": summary.get("total_return"), "ar": summary.get("annualized_return"),
+                "sh": summary.get("sharpe_ratio"), "mdd": summary.get("max_drawdown"),
+                "to": summary.get("avg_monthly_turnover"), "wr": summary.get("win_rate"),
+                "btr": summary.get("benchmark_total_return"),
+                "bar": summary.get("benchmark_annualized_return"),
+                "summary": json.dumps(summary, default=str),
+                "validation": json.dumps(validation_out, default=str),
+                "cfg": json.dumps(cfg.model_dump(), default=str),
+            })
+            await conn.execute(text(
+                "UPDATE execution_traces SET status='success', completed_at=:now WHERE trace_id=:tid"),
+                {"tid": trace_id, "now": datetime.now(timezone.utc)})
+        print(f"[backtester] config-replay {run_id} SUCCESS: {len(periods)} periods, "
+              f"sharpe={summary.get('sharpe_ratio')}, total_return={summary.get('total_return')}")
+
+    except Exception as exc:
+        traceback.print_exc()
+        await _fail_run(run_id, trace_id, str(exc)[:1000])
+
+
+async def _fail_run(run_id: str, trace_id: str, err_msg: str) -> None:
+    """Mark a backtest run + its trace failed with a diagnostic (shared by both paths)."""
+    print(f"[backtester] run {run_id} FAILED: {err_msg}")
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "UPDATE backtest_runs SET status='failed', completed_at=:now, "
+                "error_message=:err WHERE run_id=:rid"),
+                {"rid": run_id, "now": datetime.now(timezone.utc), "err": err_msg})
+            await conn.execute(text(
+                "UPDATE execution_traces SET status='failed', completed_at=NOW(), "
+                "notes=:err WHERE trace_id=:tid"), {"tid": trace_id, "err": err_msg})
+    except Exception:
+        traceback.print_exc()
+
+
+class ConfigReplayRequest(BaseModel):
+    date_from: str | None = None
+    date_to: str | None = None
+    tx_cost_bps: int = 10
+    config_path: str | None = None          # a /strategies/*.yaml to replay
+    config: dict | None = None              # OR an inline config (evaluator tool)
+
+
 class ValidateRequest(BaseModel):
     period_returns: list[float]            # strategy per-period EXCESS returns
     n_trials: int = 1                      # how many configs were tried (HONEST count)
@@ -512,6 +729,59 @@ async def start_backtest_job(
         )
 
     return {"status": "started", "run_id": run_id, "trace_id": trace_id}
+
+
+@app.post("/jobs/backtest-config")
+async def start_config_replay_job(req: ConfigReplayRequest, background_tasks: BackgroundTasks):
+    """G1 — replay a CANDIDATE config over history (config-replay). Unlike
+    /jobs/backtest (which re-scores portfolio_runs already built under some past
+    config), this re-ranks and re-selects every historical rebalance date under the
+    supplied config using the live chain's own deterministic code, so the evaluator
+    can ask "what would THIS config have done?" with no look-ahead. Accepts an
+    inline `config` (evaluator tool) or a `config_path`; defaults to the active
+    config over the last 3 years."""
+    today = date.today()
+    date_from = req.date_from or f"{today.year - 3}-01-01"
+    date_to = req.date_to or today.isoformat()
+    try:
+        date_from_parsed = date.fromisoformat(date_from)
+        date_to_parsed = date.fromisoformat(date_to)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="date_from/date_to must be ISO dates")
+
+    try:
+        cfg, cfg_hash = _resolve_replay_config(req.config_path, req.config)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"invalid config: {exc}")
+
+    async with _job_lock:
+        async with engine.connect() as conn:
+            await _assert_no_running_job(conn)
+        started_at = datetime.now(timezone.utc)
+        trace_id = str(uuid.uuid4())
+        run_id = str(uuid.uuid4())
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "INSERT INTO execution_traces "
+                "(trace_id, job_type, status, root_run_id, strategy_id, config_hash, started_at) "
+                "VALUES (:tid, 'backtest_run', 'running', :rid, :sid, :ch, :now)"
+            ), {"tid": trace_id, "rid": run_id, "sid": cfg.strategy_id,
+                "ch": cfg_hash, "now": started_at})
+            await conn.execute(text(
+                "INSERT INTO backtest_runs "
+                "(run_id, trace_id, strategy_id, config_hash, status, date_from, date_to, "
+                " tx_cost_bps, sim_mode, started_at) "
+                "VALUES (:rid, :tid, :sid, :ch, 'running', :df, :dt, :tx, 'config_replay', :now)"
+            ), {"rid": run_id, "tid": trace_id, "sid": cfg.strategy_id, "ch": cfg_hash,
+                "df": date_from_parsed, "dt": date_to_parsed, "tx": req.tx_cost_bps,
+                "now": started_at})
+
+        background_tasks.add_task(
+            _run_config_replay_bg, run_id, trace_id, date_from_parsed, date_to_parsed,
+            req.tx_cost_bps, cfg, cfg_hash, started_at)
+
+    return {"status": "started", "run_id": run_id, "trace_id": trace_id,
+            "sim_mode": "config_replay", "config_hash": cfg_hash}
 
 
 @app.get("/runs/latest")

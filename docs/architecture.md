@@ -1629,6 +1629,55 @@ The bar to claim alpha: DSR > 0.95 AND FF5+momentum alpha t ≥ 3 net of realist
 costs, established out-of-sample with low PBO, stable across regimes, then paper
 (≥ MinTRL) then small live. Pre-register the thresholds before looking at results.
 
+## Design Decision: backtester as a trustworthy evaluator tool (G1–G6)
+
+The backtester will be a TOOL the evaluator LLM calls (Phase 2 below), so its
+numbers must be faithful — an optimistic or config-blind backtest would launder
+an overfit config into a "recommend" verdict. Two backtest MODES now exist, both
+scored by the same de-biased simulator and the same validation verdict:
+
+```text
+persisted_replay  (POST /jobs/backtest)         — re-scores portfolio_runs that
+                    were ALREADY built (under whatever config produced them).
+                    Answers "how did what we actually held do?".
+config_replay     (POST /jobs/backtest-config)  — G1. Re-RANKS and re-SELECTS
+                    every historical rebalance date under a CANDIDATE config
+                    (inline `config` or a `config_path`), using the live chain's
+                    OWN deterministic code. Answers "what would THIS config have
+                    done?" — the question the evaluator needs to test a thesis.
+```
+
+**Faithfulness (config_replay / G1).** The re-rank uses the SAME `rank_universe`
+(pipeline) and the SAME builder `select.py` composition (covariance → correlation
+clusters → greedy_select → compute_weights → position/cluster/sector caps →
+optional beta-target / vol-target / cash_reserve). Those modules are vendored
+BYTE-IDENTICAL into `services/backtester/app/_vendor/` (a re-implementation would
+drift); `tests/backtester/test_vendor_sync.py` fails CI on any divergence. No
+look-ahead by construction: factor values are the PERSISTED point-in-time
+`factor_scores` for each date; covariance / regime / beta for date D use only
+prices ≤ D; the simulator fills at D+1 (G3). Deliberately NOT modelled (surfaced
+as `config_replay_caveats` on the result): vetter exclusions (a run-time signal,
+not a config knob), turnover-penalty continuity (replay is holdings-agnostic,
+matching the builder's default), and per-date as-of sector labels (near-static;
+latest-as-of is used for the sector cap).
+
+**No-bias simulation (G3/G5).** Entry = first close STRICTLY AFTER the rebalance
+date (removes the same-close look-ahead); a delisted/halted name exits at its own
+last real price, not renormalized away; a held name with no usable price stays in
+the FULL-WEIGHT denominator at 0% return (no survivor boost); 10 bps default
+round-trip cost. The summary carries the DISTRIBUTION (percentiles, skew, excess
+kurtosis, pct_positive), not just the mean, so a right-tail sleeve isn't judged on
+its (poor) average alone.
+
+**Honest multiple-testing (G2/G4).** Every run — either mode — records a
+`backtest_trials` row first, so the DSR/PBO in `build_validation` deflate the best
+Sharpe by the HONEST `COUNT(DISTINCT config_hash)` actually tried (running 20
+configs and citing the best carries the full multiple-testing penalty). Short
+samples (< 24 rebalances / < 2y / below MinTRL) are flagged DIRECTIONAL-not-
+conclusive. `backtest_runs` gains `summary`/`validation`/`sim_mode`/`config_json`
+(migration 0039) so a result is self-describing. Config is reloaded per job (G6)
+so a deployed YAML edit takes effect with no restart.
+
 ## Design Decision: weekly LLM evaluator loop (Phase 1 — read-only)
 
 The `evaluator` service closes the improvement loop: every week a frontier model

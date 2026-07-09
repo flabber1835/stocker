@@ -1063,6 +1063,35 @@ period-by-period holdings history
 
 Backtester should be deterministic and reproducible.
 
+Two MODES, both scored by the same de-biased simulator + validation verdict
+(it will be a TOOL the evaluator LLM calls, so the numbers must be faithful):
+
+```text
+persisted_replay  POST /jobs/backtest         — re-scores portfolio_runs ALREADY
+                    built (under whatever config produced them): "how did what we
+                    actually held do?".
+config_replay     POST /jobs/backtest-config  — G1. Re-RANKS + re-SELECTS every
+                    historical rebalance date under a CANDIDATE config (inline
+                    `config` or a `config_path`) using the live chain's OWN
+                    deterministic code: "what would THIS config have done?".
+```
+
+config_replay reuses `rank_universe` + builder `select.py`, vendored
+BYTE-IDENTICAL into `services/backtester/app/_vendor/` (sync-guarded by
+`tests/backtester/test_vendor_sync.py`). No look-ahead: factors are the PERSISTED
+point-in-time `factor_scores` per date; covariance/regime/beta for date D use only
+prices ≤ D; the simulator fills at D+1. NOT modelled (surfaced as
+`config_replay_caveats`): vetter exclusions (run-time, not config), turnover-
+penalty continuity (replay is holdings-agnostic = builder default), per-date
+as-of sector labels (latest-as-of used). De-bias (G3/G5): t+1 fills, delisted
+exits at last real price, missing prices held at 0% in the full-weight denominator
+(no survivor boost), 10 bps default cost, DISTRIBUTION stats (skew/kurtosis/pctls)
+not just the mean. Honest multiple-testing (G2/G4): every run records a
+`backtest_trials` row first so DSR/PBO deflate by `COUNT(DISTINCT config_hash)`
+tried; short samples flagged DIRECTIONAL. `backtest_runs` gains
+summary/validation/sim_mode/config_json (migration 0039). Config reloaded per job
+(G6). See docs/architecture.md "backtester as a trustworthy evaluator tool".
+
 ## evaluator
 
 Weekly LLM strategy review — Phase 1 BUILT (read-only). See
