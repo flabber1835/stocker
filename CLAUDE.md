@@ -1712,6 +1712,10 @@ stocker/
     bt-engine/           ← built: day-stepping strategy simulator reusing the LIVE
                            factor/rank/select/delta modules (COPYied at image build —
                            zero drift); deterministic, truncation-proven no-look-ahead.
+                           Also hosts the Phase-5 WALK-FORWARD PARAMETER SWEEP
+                           (POST /sweeps/run: deterministic grid, seeded sampling,
+                           mandatory out-of-sample validate window, leaderboard by
+                           OOS Sharpe with overfit_gap). No AI in the loop.
                            See docs/backtester-v2-plan.md.
     llm-gateway/         ← partially built: provider abstraction skeleton
 

@@ -130,3 +130,40 @@ CREATE TABLE IF NOT EXISTS bt_trades (
     reason          TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_bt_trades_run_date ON bt_trades(run_id, date);
+
+-- ── Phase 5: walk-forward parameter sweep ─────────────────────────────────────
+-- One bt_sweeps row per sweep; one bt_sweep_results row per (config, both
+-- windows). Sweep legs deliberately do NOT write bt_runs (that table stays the
+-- interactive-run history); each result row is self-contained.
+CREATE TABLE IF NOT EXISTS bt_sweeps (
+    sweep_id        UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    spec            JSONB        NOT NULL,       -- grid + windows + base config + params
+    status          VARCHAR(20)  NOT NULL DEFAULT 'running'
+                        CHECK (status IN ('running','success','failed')),
+    n_configs       INTEGER      NOT NULL,
+    n_done          INTEGER      NOT NULL DEFAULT 0,
+    tune_start      DATE         NOT NULL,
+    tune_end        DATE         NOT NULL,
+    validate_start  DATE         NOT NULL,
+    validate_end    DATE         NOT NULL,
+    started_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    completed_at    TIMESTAMPTZ,
+    error_message   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS bt_sweep_results (
+    sweep_id        UUID         NOT NULL REFERENCES bt_sweeps(sweep_id) ON DELETE CASCADE,
+    config_idx      INTEGER      NOT NULL,
+    config_diff     JSONB        NOT NULL,       -- {dotted.path: value} over the base config
+    in_sample       JSONB,                       -- full sim summary, tune window
+    out_sample      JSONB,                       -- full sim summary, validate window
+    is_sharpe       NUMERIC(10,4),
+    oos_sharpe      NUMERIC(10,4),
+    oos_return      NUMERIC(12,6),
+    oos_max_drawdown NUMERIC(10,4),
+    overfit_gap     NUMERIC(10,4),               -- is_sharpe − oos_sharpe (large = fit, not robust)
+    error_message   TEXT,
+    PRIMARY KEY (sweep_id, config_idx)
+);
+CREATE INDEX IF NOT EXISTS idx_bt_sweep_results_oos
+    ON bt_sweep_results (sweep_id, oos_sharpe DESC NULLS LAST);

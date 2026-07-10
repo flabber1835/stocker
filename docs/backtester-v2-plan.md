@@ -1,7 +1,16 @@
 # Backtester v2 — Time-Stepping Strategy Simulator
 
-Status: APPROVED ARCHITECTURE — Phase 1 (bt-data) BUILT, Phase 2 (bt-engine) BUILT;
-Phases 3 (bt-ui) / 5 (sweep) pending. Phase 4 compose wiring done for bt-postgres+bt-data+bt-engine.
+Status: Phases 1 (bt-data), 2 (bt-engine), 5 (walk-forward sweep) BUILT;
+Phase 3 (bt-ui) pending. Phase 4 compose wiring done for bt-postgres+bt-data+bt-engine.
+Phase 5 implementation decisions: lives INSIDE bt-engine (drives run_simulation
+in-process; one shared data load serves both windows — safe because the sim is
+truncation-proven to never read past its end); sweep legs write bt_sweep_results
+only (bt_runs stays the interactive-run history); grid overflow beyond max_configs
+is a SEEDED random sample (reproducible); PROTECTED_PATHS are NOT enforced in the
+wind tunnel (human-launched offline research — the plan's own example grids sweep
+drawdown thresholds); validate_start >= tune_end is REJECTED otherwise (walk-forward
+mandatory). Endpoints: POST /sweeps/run, GET /sweeps/latest,
+GET /sweeps/{id}/leaderboard (ranked by OOS Sharpe, overfit_gap = IS−OOS alongside).
 Supersedes the existing `backtester` service (which only replays already-built
 `portfolio_runs` forward). v2 re-runs the pipeline logic **day by day** from a past
 start date, builds portfolios as the live system would have, and compares the

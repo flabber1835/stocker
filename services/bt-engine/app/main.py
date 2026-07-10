@@ -27,6 +27,7 @@ from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 from app.data import load_fundamentals, load_prices, load_universe
 from app.sim import SimParams, run_simulation
+from app.sweep import SweepWindows, enumerate_grid, run_config_both_windows
 
 BT_DATABASE_URL = os.environ.get("BT_DATABASE_URL", "")
 if not BT_DATABASE_URL:
@@ -52,16 +53,48 @@ def _json_sanitize(obj):
     return obj
 
 
+_SWEEP_DDL = [
+    """CREATE TABLE IF NOT EXISTS bt_sweeps (
+        sweep_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        spec JSONB NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'running'
+            CHECK (status IN ('running','success','failed')),
+        n_configs INTEGER NOT NULL,
+        n_done INTEGER NOT NULL DEFAULT 0,
+        tune_start DATE NOT NULL, tune_end DATE NOT NULL,
+        validate_start DATE NOT NULL, validate_end DATE NOT NULL,
+        started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        completed_at TIMESTAMPTZ, error_message TEXT)""",
+    """CREATE TABLE IF NOT EXISTS bt_sweep_results (
+        sweep_id UUID NOT NULL REFERENCES bt_sweeps(sweep_id) ON DELETE CASCADE,
+        config_idx INTEGER NOT NULL,
+        config_diff JSONB NOT NULL,
+        in_sample JSONB, out_sample JSONB,
+        is_sharpe NUMERIC(10,4), oos_sharpe NUMERIC(10,4),
+        oos_return NUMERIC(12,6), oos_max_drawdown NUMERIC(10,4),
+        overfit_gap NUMERIC(10,4), error_message TEXT,
+        PRIMARY KEY (sweep_id, config_idx))""",
+    """CREATE INDEX IF NOT EXISTS idx_bt_sweep_results_oos
+        ON bt_sweep_results (sweep_id, oos_sharpe DESC NULLS LAST)""",
+]
+
+
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     try:
         async with engine.begin() as conn:
+            for ddl in _SWEEP_DDL:
+                await conn.execute(text(ddl))
             await conn.execute(text(
                 "UPDATE bt_runs SET status='failed', completed_at=NOW(), "
                 "error_message='RESTART_ABORTED: engine restarted mid-run' "
                 "WHERE status='running'"))
+            await conn.execute(text(
+                "UPDATE bt_sweeps SET status='failed', completed_at=NOW(), "
+                "error_message='RESTART_ABORTED: engine restarted mid-sweep' "
+                "WHERE status='running'"))
     except Exception as exc:  # noqa: BLE001 — tables may predate init on first boot
-        print(f"[bt-engine] startup orphan sweep skipped: {exc}")
+        print(f"[bt-engine] startup sweep-DDL/orphan pass skipped: {exc}")
     yield
     await engine.dispose()
 
@@ -273,3 +306,155 @@ def _fmt(row) -> dict:
         elif hasattr(v, "quantize"):   # Decimal
             d[k] = float(v)
     return d
+
+
+# ── Phase 5: walk-forward parameter sweep ─────────────────────────────────────
+
+_sweep_lock = asyncio.Lock()
+
+
+class SweepRequest(BaseModel):
+    grid: dict                            # {dotted.path: [values]} over the base config
+    tune_start: date
+    tune_end: date
+    validate_start: date                  # must be >= tune_end (walk-forward mandatory)
+    validate_end: date
+    config_path: str | None = None        # base config (default: active strategy)
+    config: dict | None = None            # OR inline base config
+    tx_cost_bps: int = 10
+    fill_timing: str = "next_open"
+    starting_capital: float = 100_000.0
+    rebalance_every: int = 5              # sweeps favor tractability; 1 = live-faithful
+    universe_limit: int | None = None
+    max_configs: int = 200                # grid cap; overflow → seeded random sample
+    sample_seed: int = 0
+
+
+@app.post("/sweeps/run")
+async def start_sweep(req: SweepRequest, background_tasks: BackgroundTasks):
+    from app.sweep import SweepWindows, enumerate_grid  # noqa: F811 — explicit here
+    windows = SweepWindows(req.tune_start, req.tune_end,
+                           req.validate_start, req.validate_end)
+    werr = windows.validate()
+    if werr:
+        raise HTTPException(status_code=422, detail=werr)
+    try:
+        if req.config is not None:
+            base_cfg = StrategyConfig(**req.config)
+        else:
+            base_cfg, _h = load_strategy(req.config_path or STRATEGY_CONFIG_PATH)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"invalid base config: {exc}")
+    diffs = enumerate_grid(req.grid, max_configs=req.max_configs,
+                           sample_seed=req.sample_seed)
+
+    async with _sweep_lock:
+        async with engine.begin() as conn:
+            busy = (await conn.execute(text(
+                "SELECT sweep_id FROM bt_sweeps WHERE status='running' LIMIT 1"))).first()
+            if busy:
+                raise HTTPException(status_code=409, detail="a sweep is already running")
+            sweep_id = str(uuid.uuid4())
+            await conn.execute(text(
+                "INSERT INTO bt_sweeps (sweep_id, spec, status, n_configs, "
+                " tune_start, tune_end, validate_start, validate_end) "
+                "VALUES (CAST(:sid AS uuid), CAST(:spec AS jsonb), 'running', :n, "
+                "        :ts, :te, :vs, :ve)"
+            ), {"sid": sweep_id,
+                "spec": json.dumps(_json_sanitize({
+                    "grid": req.grid, "base_strategy": base_cfg.strategy_id,
+                    "request": req.model_dump(mode="json")}), default=str),
+                "n": len(diffs), "ts": req.tune_start, "te": req.tune_end,
+                "vs": req.validate_start, "ve": req.validate_end})
+    background_tasks.add_task(_sweep_bg, sweep_id, req, base_cfg, diffs, windows)
+    return {"status": "started", "sweep_id": sweep_id, "n_configs": len(diffs)}
+
+
+async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig,
+                    diffs: list[dict], windows: "SweepWindows") -> None:
+    try:
+        tickers, sector_map = await load_universe(engine, limit=req.universe_limit)
+        if not tickers:
+            raise RuntimeError("bt_universe is empty — run bt-data /jobs/backfill first")
+        # ONE load spans tune−lookback → validate_end; safe for both windows because
+        # the sim is truncation-proven to never read past its own end date.
+        prices = await load_prices(engine, tickers, windows.tune_start,
+                                   windows.validate_end)
+        if prices.empty:
+            raise RuntimeError("bt_prices empty for range — run bt-data /jobs/backfill first")
+        fundamentals = await load_fundamentals(engine, tickers, windows.validate_end)
+
+        base_dict = base_cfg.model_dump(mode="json")
+        sim_kwargs = dict(tx_cost_bps=req.tx_cost_bps, fill_timing=req.fill_timing,
+                          starting_capital=req.starting_capital,
+                          rebalance_every=req.rebalance_every)
+        for idx, diff in enumerate(diffs):
+            row = await asyncio.to_thread(
+                run_config_both_windows, prices, fundamentals, sector_map,
+                base_dict, diff, windows, sim_kwargs)
+            row = _json_sanitize(row)
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    "INSERT INTO bt_sweep_results (sweep_id, config_idx, config_diff, "
+                    " in_sample, out_sample, is_sharpe, oos_sharpe, oos_return, "
+                    " oos_max_drawdown, overfit_gap, error_message) "
+                    "VALUES (CAST(:sid AS uuid), :idx, CAST(:diff AS jsonb), "
+                    "        CAST(:ins AS jsonb), CAST(:oos AS jsonb), :ish, :osh, "
+                    "        :oret, :odd, :gap, :err)"
+                ), {"sid": sweep_id, "idx": idx,
+                    "diff": json.dumps(row.get("config_diff") or {}, default=str),
+                    "ins": json.dumps(row.get("in_sample"), default=str)
+                           if row.get("in_sample") is not None else None,
+                    "oos": json.dumps(row.get("out_sample"), default=str)
+                           if row.get("out_sample") is not None else None,
+                    "ish": row.get("is_sharpe"), "osh": row.get("oos_sharpe"),
+                    "oret": row.get("oos_return"), "odd": row.get("oos_max_drawdown"),
+                    "gap": row.get("overfit_gap"), "err": row.get("error_message")})
+                await conn.execute(text(
+                    "UPDATE bt_sweeps SET n_done=:d WHERE sweep_id=CAST(:sid AS uuid)"
+                ), {"d": idx + 1, "sid": sweep_id})
+            print(f"[bt-engine] sweep {sweep_id}: {idx + 1}/{len(diffs)} done "
+                  f"(diff={diff}, oos_sharpe={row.get('oos_sharpe')})")
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "UPDATE bt_sweeps SET status='success', completed_at=NOW() "
+                "WHERE sweep_id=CAST(:sid AS uuid)"), {"sid": sweep_id})
+        print(f"[bt-engine] sweep {sweep_id} SUCCESS ({len(diffs)} configs)")
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    "UPDATE bt_sweeps SET status='failed', completed_at=NOW(), "
+                    "error_message=:e WHERE sweep_id=CAST(:sid AS uuid)"
+                ), {"sid": sweep_id, "e": str(exc)[:1500]})
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+        print(f"[bt-engine] sweep {sweep_id} FAILED: {exc}")
+
+
+@app.get("/sweeps/latest")
+async def latest_sweep():
+    async with engine.connect() as conn:
+        row = (await conn.execute(text(
+            "SELECT sweep_id::text AS sweep_id, status, n_configs, n_done, "
+            "tune_start, tune_end, validate_start, validate_end, started_at, "
+            "completed_at, error_message FROM bt_sweeps ORDER BY started_at DESC LIMIT 1"
+        ))).mappings().first()
+    return {"sweep": _fmt(row)} if row else {"sweep": None}
+
+
+@app.get("/sweeps/{sweep_id}/leaderboard")
+async def sweep_leaderboard(sweep_id: str, limit: int = 25):
+    """Configs ranked by OUT-OF-SAMPLE Sharpe (the walk-forward verdict), with the
+    in-sample number and overfit_gap alongside — a big gap means the config fit
+    the tune window, not the market. Error rows (invalid/failed configs) last."""
+    _uuid(sweep_id)
+    async with engine.connect() as conn:
+        rows = (await conn.execute(text(
+            "SELECT config_idx, config_diff, is_sharpe, oos_sharpe, oos_return, "
+            "oos_max_drawdown, overfit_gap, error_message "
+            "FROM bt_sweep_results WHERE sweep_id=CAST(:sid AS uuid) "
+            "ORDER BY oos_sharpe DESC NULLS LAST LIMIT :n"
+        ), {"sid": sweep_id, "n": min(limit, 500)})).mappings().all()
+    return {"leaderboard": [_fmt(r) for r in rows]}
