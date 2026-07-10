@@ -181,9 +181,19 @@ portfolio_builder:
   # nudges WHICH names win, this one sizes them to hit a number. Uses the 120d
   # OLS-vs-SPY beta already computed per name. TO REVERT to pre-beta-target
   # behaviour, set beta_target_enabled: false (weights untouched).
-  beta_target_enabled: true
-  beta_target: 1.3                   # aim the invested book at ~1.3x SPY sensitivity
-  beta_tolerance: 0.10               # on-target band; outside it → beta_target_infeasible warning (closest feasible book still shipped)
+  # DISABLED 2026-07-10 (evaluator W28, 4th distinct week flagged, backtest-confirmed
+  # directionally): 1.3 was chronically infeasible vs a realized book beta of ~0.5 —
+  # the solver degenerated into maxing the single highest-beta name (MU pinned at the
+  # 0.08 position cap, β3.0) while all other names sat at the uniform average: forced
+  # single-name concentration into the most crash-prone name, not a leadership tilt.
+  # Any target materially above the achievable book corner-solves the same way, so
+  # disable rather than lower. Leadership lean stays with the factor weights +
+  # selection_vol_aversion. Config-replay (6wk, DIRECTIONAL — DSR fails): disabling
+  # gave -2.97%/Sharpe -1.29 vs -4.37%/-1.46 active, equal max drawdown.
+  # Re-enable by flipping beta_target_enabled: true (values below kept for revert).
+  beta_target_enabled: false
+  beta_target: 1.3                   # kept for easy revert; ignored while disabled
+  beta_tolerance: 0.10               # kept for easy revert; ignored while disabled
 vetter:
   enabled: true
   # ARCHITECTURE DECISION (2026-07): the vet step is DETERMINISTIC — no LLM in the
