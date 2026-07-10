@@ -1100,7 +1100,10 @@ summary/validation/sim_mode/config_json (migration 0039). Config reloaded per jo
 
 ## evaluator
 
-Weekly LLM strategy review — Phase 1 BUILT (read-only). See
+Weekly LLM strategy review. OBJECTIVE (owner-set, in its system prompt + docs):
+maximize long-run compounded ABSOLUTE return — SPY is the hurdle not the target;
+risk limits are constraints not goals; prefer expected return over Sharpe within
+the constraints. Phase 1 BUILT (read-only). See
 docs/architecture.md "Design Decision: weekly LLM evaluator loop".
 
 ```text

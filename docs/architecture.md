@@ -1694,7 +1694,17 @@ from "the builder's caps rejected winners the rank found" (construction problem)
 Structural findings are a separate schema-validated output channel
 (category ∈ missing_factor, missing_data_source, selection_logic, exit_logic,
 vetting, risk_logic, process, other) rendered as amber cards on the Review tab.
-The goal is a system that measurably PICKS MORE WINNERS over time. Three phases:
+**Objective function (design decision 2026-07-10, explicit by owner instruction):
+maximize long-run compounded ABSOLUTE return (terminal wealth).** SPY is the
+hurdle, not the target — beating it at half the return is failure. The
+risk-service limits and drawdown guards are CONSTRAINTS, not goals: the evaluator
+must not recommend de-risking to flatter Sharpe unless it protects compounding
+(i.e. avoids deep drawdowns arithmetic can't recover from). When expected return
+and risk-adjusted return conflict, prefer expected return within the constraints.
+"Picks more winners" means winners compounding ABSOLUTE dollars — not hit-rate,
+not benchmark-hugging, not Sharpe for its own sake. (Before this was explicit,
+the evaluator's metric diet — Sharpe/DSR/excess-vs-SPY — silently biased its
+recommendations toward defensive, risk-adjusted choices.) Three phases:
 
 ```text
 Phase 1 (BUILT)   — read-only weekly report in the dashboard's Review tab

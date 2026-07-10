@@ -6,6 +6,12 @@ partition gate, backtester, strategy registry.
 
 ## Purpose & boundary
 
+**Objective function (explicit, owner-set 2026-07-10): maximize long-run compounded
+ABSOLUTE return.** SPY is the hurdle, not the target; the risk limits are constraints,
+not goals — do not optimize Sharpe at the expense of expected return unless deep-drawdown
+protection of compounding demands it. See docs/architecture.md "weekly LLM evaluator loop"
+for the full statement (mirrored in the evaluator's system prompt).
+
 The evaluator closes a **human-gated learning loop** around the generic quant ranker:
 observe outcomes → form evidence-scored hypotheses → (optionally) test them in a walled
 backtester → propose a config diff → validate → backtest on a holdout → **human approves**
