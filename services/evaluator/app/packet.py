@@ -131,11 +131,21 @@ async def _prior_reviews(conn) -> dict:
     adopted (compare each suggested_value to the CURRENT yaml it also receives),
     self-correct ones that aged badly, and escalate structural findings that
     recur instead of re-discovering them cold every week."""
+    # ONE report per ISO week (the latest success). Forced manual re-runs create
+    # several same-week reports; feeding them all in made the model count REPORTS
+    # as WEEKS ("4th consecutive week flagging beta" after 4 same-week re-runs).
+    # Collapsing to the newest per week makes streak arithmetic correct by
+    # construction; rerun_count keeps the collapse visible.
     rows = (await conn.execute(text(
-        "SELECT as_of_date, iso_year, iso_week, config_hash, report_markdown, "
-        "       recommendations, data_gaps "
+        "SELECT DISTINCT ON (iso_year, iso_week) "
+        "       as_of_date, iso_year, iso_week, config_hash, report_markdown, "
+        "       recommendations, data_gaps, "
+        "       (SELECT COUNT(*) FROM evaluator_reports r2 "
+        "        WHERE r2.status='success' AND r2.iso_year=evaluator_reports.iso_year "
+        "        AND r2.iso_week=evaluator_reports.iso_week) AS week_report_count "
         "FROM evaluator_reports WHERE status='success' "
-        "ORDER BY started_at DESC LIMIT 4"
+        "ORDER BY iso_year DESC, iso_week DESC, started_at DESC "
+        "LIMIT 4"
     ))).mappings().all()
     out = []
     for r in rows:
@@ -143,6 +153,7 @@ async def _prior_reviews(conn) -> dict:
         out.append({
             "as_of_date": str(r["as_of_date"]),
             "iso_week": f"{r['iso_year']}-W{r['iso_week']:02d}",
+            "same_week_rerun_count": int(r["week_report_count"]),
             "config_hash_at_review": r["config_hash"],
             "overall_assessment": rj.get("overall_assessment"),
             "recommendations": rj.get("items") or [],
@@ -152,11 +163,16 @@ async def _prior_reviews(conn) -> dict:
         })
     return {
         "reports": out,
-        "note": ("Your own prior output, newest first. For each prior recommendation: "
-                 "compare its suggested_value to the CURRENT strategy YAML in this packet "
-                 "— adopted, ignored, or superseded? Say so, and judge how adopted ones "
-                 "played out. Re-raise unadopted recommendations only if the evidence "
-                 "still supports them (stronger claim: 'recommended N weeks running'). "
+        "distinct_weeks_covered": len(out),
+        "note": ("Your own prior output — ONE entry per ISO week (the latest report of "
+                 "that week; same_week_rerun_count shows collapsed manual re-runs). "
+                 "Streaks MUST be counted in DISTINCT ISO WEEKS from these entries — "
+                 "never in report count; several same-week re-runs are ONE week of "
+                 "evidence. For each prior recommendation: compare its suggested_value "
+                 "to the CURRENT strategy YAML in this packet — adopted, ignored, or "
+                 "superseded? Say so, and judge how adopted ones played out. Re-raise "
+                 "unadopted recommendations only if the evidence still supports them "
+                 "(claim 'recommended N weeks running' only with N distinct weeks). "
                  "Escalate structural findings that recur; retract ones that aged badly."),
     }
 
