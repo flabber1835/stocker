@@ -136,6 +136,15 @@ async def _prior_reviews(conn) -> dict:
     # as WEEKS ("4th consecutive week flagging beta" after 4 same-week re-runs).
     # Collapsing to the newest per week makes streak arithmetic correct by
     # construction; rerun_count keeps the collapse visible.
+    # Authoritative history bounds: the TOTAL distinct review weeks that exist and
+    # the first review date. Streak claims are capped by these; without them the
+    # model inherited inflated streaks from its OWN prior narratives (pre-dedup
+    # reports contain sentences like "4th consecutive week" that re-enter via
+    # narrative_excerpt and self-perpetuate).
+    hist = (await conn.execute(text(
+        "SELECT COUNT(DISTINCT (iso_year, iso_week)) AS weeks, MIN(as_of_date) AS first "
+        "FROM evaluator_reports WHERE status='success'"
+    ))).mappings().first()
     rows = (await conn.execute(text(
         "SELECT DISTINCT ON (iso_year, iso_week) "
         "       as_of_date, iso_year, iso_week, config_hash, report_markdown, "
@@ -164,16 +173,23 @@ async def _prior_reviews(conn) -> dict:
     return {
         "reports": out,
         "distinct_weeks_covered": len(out),
+        # HARD BOUNDS — no streak or "N weeks" claim may exceed these.
+        "total_distinct_review_weeks_ever": int(hist["weeks"]) if hist else len(out),
+        "first_review_as_of": str(hist["first"]) if hist and hist["first"] else None,
         "note": ("Your own prior output — ONE entry per ISO week (the latest report of "
                  "that week; same_week_rerun_count shows collapsed manual re-runs). "
-                 "Streaks MUST be counted in DISTINCT ISO WEEKS from these entries — "
-                 "never in report count; several same-week re-runs are ONE week of "
-                 "evidence. For each prior recommendation: compare its suggested_value "
-                 "to the CURRENT strategy YAML in this packet — adopted, ignored, or "
-                 "superseded? Say so, and judge how adopted ones played out. Re-raise "
-                 "unadopted recommendations only if the evidence still supports them "
-                 "(claim 'recommended N weeks running' only with N distinct weeks). "
-                 "Escalate structural findings that recur; retract ones that aged badly."),
+                 "Streaks MUST be counted in DISTINCT ISO WEEKS from these entries and "
+                 "may NEVER exceed total_distinct_review_weeks_ever. WARNING: prior "
+                 "narrative excerpts may contain INFLATED streak counts written before "
+                 "same-week re-runs were collapsed — treat any streak number found "
+                 "inside prior narrative TEXT as unreliable and RECOUNT from the "
+                 "entries listed here; never copy it forward. For each prior "
+                 "recommendation: compare its suggested_value to the CURRENT strategy "
+                 "YAML in this packet — adopted, ignored, or superseded? Say so, and "
+                 "judge how adopted ones played out. Re-raise unadopted recommendations "
+                 "only if the evidence still supports them (claim 'recommended N weeks "
+                 "running' only with N distinct weeks). Escalate structural findings "
+                 "that recur; retract ones that aged badly."),
     }
 
 
