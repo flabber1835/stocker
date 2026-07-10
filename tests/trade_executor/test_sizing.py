@@ -33,6 +33,12 @@ def _mock_conn_returning(rows_by_query):
         mappings_result = MagicMock()
         mappings_result.first = MagicMock(return_value=row)
         result.mappings = MagicMock(return_value=mappings_result)
+        # scalar() support (e.g. the book-size COUNT in the sizing fallback):
+        # dict row -> its first value; scalar row -> itself; None -> None.
+        if isinstance(row, dict):
+            result.scalar = MagicMock(return_value=next(iter(row.values()), None))
+        else:
+            result.scalar = MagicMock(return_value=row)
         return result
 
     conn.execute = _execute
@@ -90,11 +96,12 @@ async def test_size_entry_falls_back_to_portfolio_holdings():
 async def test_size_entry_falls_back_to_default_when_all_missing():
     conn = _mock_conn_returning([
         None,                               # no portfolio_holdings row
+        None,                               # book-size COUNT → no book yet (cold start)
         {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
         {"current_price": 50.0},
     ])
     _, _, summary = await _size_entry(conn, "AAPL", intent_weight=None)
-    # DEFAULT_MAX_POSITIONS=30 → 1/30
+    # cold start (no book) → DEFAULT_MAX_POSITIONS=30 → 1/30
     assert summary["weight"] == pytest.approx(1.0 / 30)
     assert summary["weight_source"] == "default"
 
@@ -320,9 +327,11 @@ async def test_size_entry_nan_weight_falls_back_to_default(bad_weight):
         # idempotency check skipped — this goes straight to _size_entry
         # query 0: portfolio_holdings fallback (NaN triggered the fallback)
         None,
-        # query 1: alpaca_sync_runs account
+        # query 1: book-size COUNT → no book (cold start) → default weight
+        None,
+        # query 2: alpaca_sync_runs account
         {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
-        # query 2: live_positions price
+        # query 3: live_positions price
         {"current_price": 150.0},
     ])
     qty, notional, summary = await _size_entry(conn, "AAPL", bad_weight)
@@ -337,14 +346,33 @@ async def test_size_entry_nan_from_portfolio_holdings_uses_default():
     conn = _mock_conn_returning([
         # query 0: portfolio_holdings returns a NaN weight (corrupt DB row)
         {"weight": float("nan")},
-        # query 1: alpaca_sync_runs
+        # query 1: book-size COUNT → none (cold start) → default weight
+        None,
+        # query 2: alpaca_sync_runs
         {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
-        # query 2: live_positions price
+        # query 3: live_positions price
         {"current_price": 150.0},
     ])
     qty, notional, summary = await _size_entry(conn, "AAPL", None)
     assert qty >= 1.0
     assert summary["weight_source"] == "default"
+
+
+@pytest.mark.asyncio
+async def test_size_entry_fallback_uses_book_equal_weight():
+    """L2: the last-resort weight derives from the ACTUAL latest book size
+    (1/COUNT of the newest successful portfolio run) instead of the hardcoded
+    DEFAULT_MAX_POSITIONS=30, which had drifted from the active config (35)."""
+    conn = _mock_conn_returning([
+        None,          # no portfolio_holdings row for the ticker
+        35,            # book-size COUNT → active book has 35 names
+        {"account_value": 100_000.0, "buying_power": 100_000.0, "completed_at": _now()},
+        {"current_price": 50.0},
+    ])
+    qty, _, summary = await _size_entry(conn, "AAPL", intent_weight=None)
+    assert summary["weight"] == pytest.approx(1.0 / 35)
+    assert summary["weight_source"] == "book_equal_weight"
+    assert qty == 57.0   # floor(100000 * (1/35) / 50)
 
 
 # ── FIX F: BUY-side daily_prices fallback must be freshness-bounded ────────────

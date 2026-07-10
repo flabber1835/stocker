@@ -184,6 +184,10 @@ def _safety_env() -> dict:
             os.getenv("LIVE_TRADING_ENABLED", "false").lower() == "true",
         "paper_only": os.getenv("PAPER_ONLY", "true").lower() == "true",
         "max_order_notional":     _safe_float("MAX_ORDER_NOTIONAL", 50000.0),
+        # Scale-aware companion to the absolute cap: effective per-order cap =
+        # max(MAX_ORDER_NOTIONAL, MAX_ORDER_PCT × account_value). 0 disables the
+        # percentage rescue (absolute-only, pre-scaling behavior).
+        "max_order_pct":          _safe_float("MAX_ORDER_PCT", 0.20),
         "max_daily_turnover_pct": _safe_float("MAX_DAILY_TURNOVER_PCT", 0.50),
         "max_daily_loss_pct":     _safe_float("MAX_DAILY_LOSS_PCT",  0.10),
         "max_position_pct":       _safe_float("MAX_POSITION_PCT",    0.15),
@@ -413,7 +417,18 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
     is_close = req.action in ("exit", "sell_trim")
     if req.notional <= 0 and not is_close:
         return False, "Invalid notional: must be > 0", "notional_zero", env
-    if req.notional > env["max_order_notional"]:
+    # Per-order notional cap. The ABSOLUTE cap (MAX_ORDER_NOTIONAL) alone is a
+    # scaling landmine: at equity > cap/position_weight (~$625k at 0.08/$50k),
+    # EVERY entry exceeds it and the system silently stops rotating precisely
+    # because it grew. MAX_ORDER_PCT rescues an over-absolute order that is still
+    # a sane fraction of the CURRENT account — effective cap =
+    # max(MAX_ORDER_NOTIONAL, MAX_ORDER_PCT × account_value), resolved in the DB
+    # block below where account_value is available. Small accounts see no change
+    # (the absolute cap dominates: max(50k, 0.20×100k)=50k); the fat-finger
+    # protection intent is preserved at every scale. MAX_ORDER_PCT=0 restores the
+    # absolute-only behavior; no DB available → fail-closed exactly as before.
+    notional_over_absolute = req.notional > env["max_order_notional"]
+    if notional_over_absolute and (env["max_order_pct"] <= 0 or engine is None):
         return (
             False,
             f"Order notional ${req.notional:.2f} exceeds limit ${env['max_order_notional']:.2f}",
@@ -451,6 +466,40 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
     _turnover_status_sql = ", ".join(f"'{sx}'" for sx in TURNOVER_STATUSES)
 
     if engine is not None:
+        try:
+            # Scale-aware order-notional rescue (see notional_over_absolute above):
+            # an order past the absolute cap is allowed only when it fits
+            # MAX_ORDER_PCT of the latest synced account_value. Rejection keeps the
+            # 'notional_limit' rule name so audit queries stay uniform.
+            if notional_over_absolute:
+                async with engine.connect() as conn:
+                    acct_row = (await conn.execute(text(
+                        "SELECT account_value FROM alpaca_sync_runs "
+                        "WHERE status='success' "
+                        "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+                    ))).first()
+                account_value = (float(acct_row[0])
+                                 if acct_row and acct_row[0] is not None else None)
+                effective_cap = env["max_order_notional"]
+                if account_value and account_value > 0:
+                    effective_cap = max(effective_cap,
+                                        env["max_order_pct"] * account_value)
+                if req.notional > effective_cap:
+                    return (
+                        False,
+                        (f"Order notional ${req.notional:.2f} exceeds effective cap "
+                         f"${effective_cap:.2f} (max of MAX_ORDER_NOTIONAL "
+                         f"${env['max_order_notional']:.0f} and MAX_ORDER_PCT "
+                         f"{env['max_order_pct']:.0%} × account "
+                         f"${account_value or 0:.0f})"),
+                        "notional_limit",
+                        env,
+                    )
+        except Exception as exc:
+            rej = _control_error("order_notional", exc, is_close=is_close, env=env)
+            if rej is not None:
+                return rej
+
         try:
             # R1 — sim_date authenticity: sim_date scopes BOTH the turnover cap and
             # the daily-loss baseline. A caller-supplied value that matches no real

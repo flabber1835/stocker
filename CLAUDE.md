@@ -833,7 +833,11 @@ Implemented controls (Phase 6):
 KILL_SWITCH                 — rejects all checks
 LIVE_TRADING_ENABLED        — gate for trade_type="live"
 PAPER_ONLY                  — rejects any live trade
-MAX_ORDER_NOTIONAL          — per-order dollar cap
+MAX_ORDER_NOTIONAL          — per-order dollar cap; scale-aware: effective cap =
+                              max(MAX_ORDER_NOTIONAL, MAX_ORDER_PCT × account_value)
+                              (MAX_ORDER_PCT default 0.20; 0 = absolute-only), so a
+                              grown account keeps rotating instead of silently
+                              rejecting every entry once weight×equity > the fixed cap
 MAX_DAILY_TURNOVER_PCT      — default 0.50; DISCRETIONARY-churn cap per
                               simulation day (delta_runs.run_date when
                               trade-executor passes sim_date, else CURRENT_DATE).

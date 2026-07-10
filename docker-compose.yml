@@ -411,6 +411,7 @@ services:
       KILL_SWITCH: ${KILL_SWITCH:-false}
       LIVE_TRADING_ENABLED: ${LIVE_TRADING_ENABLED:-false}
       MAX_ORDER_NOTIONAL: ${MAX_ORDER_NOTIONAL:-50000.0}
+      MAX_ORDER_PCT: ${MAX_ORDER_PCT:-0.20}   # effective per-order cap = max(absolute, pct × account) — defuses the fixed-cap scaling landmine
       PAPER_ONLY: ${PAPER_ONLY:-true}
       PYTHONUNBUFFERED: "1"
     depends_on:

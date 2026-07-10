@@ -1002,7 +1002,8 @@ async def _size_entry(conn, ticker: str, intent_weight: Optional[float]) -> tupl
     share — silently rounding up to 1 share would massively overweight the
     position.
     """
-    # Target weight: intent.current_weight (preferred) → portfolio_holdings → 1/DEFAULT_MAX_POSITIONS
+    # Target weight: intent.current_weight (preferred) → portfolio_holdings →
+    # equal share of the CURRENT book → 1/DEFAULT_MAX_POSITIONS (last resort)
     weight = intent_weight
     if weight is None or not math.isfinite(weight) or weight <= 0:
         ph = (await conn.execute(text(
@@ -1018,7 +1019,21 @@ async def _size_entry(conn, ticker: str, intent_weight: Optional[float]) -> tupl
         else ("portfolio_holdings" if weight and math.isfinite(weight) and weight > 0 else "default")
     )
     if weight is None or not math.isfinite(weight) or weight <= 0:
-        weight = 1.0 / DEFAULT_MAX_POSITIONS
+        # L2: derive the fallback from the ACTUAL latest target book size instead
+        # of the hardcoded DEFAULT_MAX_POSITIONS (=30), which silently drifted from
+        # the active config (max_positions: 35) — a fallback-path entry was sized
+        # 1/30 instead of ~1/35. Equal share of the book the strategy is actually
+        # running; the constant remains only as the cold-start last resort.
+        book_n = (await conn.execute(text(
+            "SELECT COUNT(*) FROM portfolio_holdings WHERE run_id = ("
+            "  SELECT run_id FROM portfolio_runs WHERE status='success' "
+            "  ORDER BY completed_at DESC NULLS LAST LIMIT 1)"
+        ))).scalar()
+        if book_n and int(book_n) > 0:
+            weight = 1.0 / int(book_n)
+            weight_source = "book_equal_weight"
+        else:
+            weight = 1.0 / DEFAULT_MAX_POSITIONS
 
     # Account funds from latest successful sync. Refuse if older than
     # EXIT_SYNC_MAX_AGE_HOURS so a stale snapshot can't size a wildly
