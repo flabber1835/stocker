@@ -108,7 +108,25 @@ async def health():
     }
 
 
+# A 'running' backtest older than this is a zombie (bg task died without
+# _fail_run — e.g. an OOM-killed container) and would 409-wedge EVERY future
+# job until a restart. Same self-heal pattern as av-ingestor's STALE_INGEST_HOURS.
+STALE_BACKTEST_HOURS = float(os.getenv("STALE_BACKTEST_HOURS", "2"))
+
+
 async def _assert_no_running_job(conn) -> None:
+    if STALE_BACKTEST_HOURS > 0:
+        reclaimed = (await conn.execute(text(
+            "UPDATE backtest_runs SET status='failed', completed_at=NOW(), "
+            "error_message='STALE_RECLAIMED: running longer than threshold "
+            "(orphaned by a dead worker); reclaimed so new jobs are not wedged' "
+            "WHERE status='running' AND started_at < NOW() - INTERVAL '1 hour' * :h "
+            "RETURNING run_id"
+        ), {"h": STALE_BACKTEST_HOURS})).fetchall()
+        if reclaimed:
+            await conn.commit()
+            print(f"[backtester] reclaimed {len(reclaimed)} zombie running run(s): "
+                  f"{[str(r[0]) for r in reclaimed]}")
     row = await conn.execute(
         text("SELECT run_id FROM backtest_runs WHERE status='running' LIMIT 1")
     )
@@ -245,8 +263,9 @@ async def _run_backtest_bg(
                                             "price_rows": len(price_records)})
         t0 = datetime.now(timezone.utc)
 
-        # ── Step 3: run backtest ──────────────────────────────────────────────
-        result = run_backtest(portfolio_runs, prices_df, tx_cost_bps=tx_cost_bps)
+        # ── Step 3: run backtest (worker thread — keep the event loop serving) ──
+        result = await asyncio.to_thread(
+            run_backtest, portfolio_runs, prices_df, tx_cost_bps=tx_cost_bps)
         # Sanitize IMMEDIATELY: NaN/Inf from short-sample stats would otherwise
         # kill every downstream JSONB write (run row, monthly rows, log_step).
         summary = _json_sanitize(result["summary"])
@@ -473,13 +492,6 @@ async def _run_config_replay_bg(
     try:
         pb = cfg.portfolio_builder
         cov_win = getattr(pb, "covariance_window_days", 120)
-        # History needed BEFORE date_from: the longest trailing lookback any step
-        # uses (slow SMA for regime, covariance window) so the earliest rebalance
-        # date still has a full window with NO look-ahead. Forward pad AFTER date_to
-        # so the last period has a real exit price (run_backtest fills ~21d out).
-        hist_days = max(cfg.regime_detection.slow_sma, cov_win) + 40
-        px_from = date_from - pd.Timedelta(days=int(hist_days * 1.6)).to_pytimedelta()
-        px_to = date_to + pd.Timedelta(days=45).to_pytimedelta()
 
         # ── Step 1: persisted point-in-time factor scores, one run per date ──────
         async with engine.connect() as conn:
@@ -509,6 +521,19 @@ async def _run_config_replay_bg(
             await _fail_run(run_id, trace_id,
                             "no persisted factor_scores in range — cannot config-replay")
             return
+
+        # Price window from the ACTUAL rebalance dates present, not the requested
+        # range. The naive "3 years back from date_from" loaded years of universe-
+        # scale prices the replay could never use (factor history bounds the
+        # rebalances anyway) — observed grinding the NAS for 15+ minutes while
+        # blocking the event loop. Pre-history: the longest trailing lookback any
+        # step uses (slow SMA for regime, covariance window), calendar-padded;
+        # forward pad so the last period has a real exit price (~21 trading days).
+        hist_days = max(cfg.regime_detection.slow_sma, cov_win) + 40
+        _dates = sorted(factor_rows_by_date.keys())
+        d_min, d_max = date.fromisoformat(_dates[0]), date.fromisoformat(_dates[-1])
+        px_from = d_min - pd.Timedelta(days=int(hist_days * 1.6)).to_pytimedelta()
+        px_to = d_max + pd.Timedelta(days=45).to_pytimedelta()
 
         tickers.add("SPY")
         async with engine.begin() as conn:
@@ -547,16 +572,23 @@ async def _run_config_replay_bg(
                             output_summary={"price_rows": len(prows), "sectors": len(sector_map)})
 
         # ── Step 3: replay every rebalance date, then score ──────────────────────
+        # BOTH stages are universe-scale pandas/numpy — offload to a worker thread
+        # so the event loop keeps serving /health and new /jobs POSTs. Running them
+        # inline blocked the loop for the whole replay (observed: the evaluator's
+        # second run_backtest call timed out at 60s because the service couldn't
+        # even ACCEPT the POST while job 1 computed).
         t0 = datetime.now(timezone.utc)
-        portfolio_runs, caveats = replay_history(
-            factor_rows_by_date, prices_df, cfg, sector_map, beta_lookback=cov_win)
+        portfolio_runs, caveats = await asyncio.to_thread(
+            replay_history, factor_rows_by_date, prices_df, cfg, sector_map,
+            beta_lookback=cov_win)
         if not portfolio_runs:
             await _fail_run(run_id, trace_id,
                             "config-replay produced no feasible portfolios in range")
             return
 
         # run_backtest needs adjusted_close only; pass the frame as-is.
-        result = run_backtest(portfolio_runs, prices_df, tx_cost_bps=tx_cost_bps)
+        result = await asyncio.to_thread(
+            run_backtest, portfolio_runs, prices_df, tx_cost_bps=tx_cost_bps)
         # Sanitize IMMEDIATELY (NaN/Inf → null) — short-sample stats otherwise
         # kill the JSONB persists (the observed "invalid input syntax for type
         # json" that failed the evaluator's run_backtest tool call).

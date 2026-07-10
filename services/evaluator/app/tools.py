@@ -68,9 +68,11 @@ def tool_definitions() -> list[dict]:
                 "Returns summary (returns/sharpe/drawdown/distribution) + validation "
                 "(Deflated Sharpe, sample-adequacy warnings) + caveats. Each run counts as a "
                 "TRIAL: the DSR you see already deflates by how many configs have been tried, "
-                "so running many and citing the best is self-penalizing. Takes minutes; "
-                f"budget: {MAX_BACKTESTS} per review. An empty config_changes replays the "
-                "active config as a baseline."
+                "so running many and citing the best is self-penalizing. The date range is "
+                "CLAMPED to the available persisted factor history (a young deployment may "
+                "only have weeks — expect DIRECTIONAL small-sample warnings, not 3y of "
+                f"results). Takes minutes; budget: {MAX_BACKTESTS} per review. An empty "
+                "config_changes replays the active config as a baseline."
             ),
             "parameters": {
                 "type": "object",
