@@ -13,6 +13,12 @@
 # Without SHARADAR_API_KEY the bt-data service runs in MOCK mode (BT_MOCK_DATA),
 # so the stack is exercisable end-to-end before the subscription is live.
 
+# Own compose PROJECT NAME: co-locating this stack on the live host (e.g. a
+# dormant pre-subscription deploy) must not share the default directory-derived
+# project with the live compose — otherwise `docker compose down --remove-orphans`
+# on either file would evict the other's containers.
+name: stocker-bt
+
 services:
 
   bt-postgres:
