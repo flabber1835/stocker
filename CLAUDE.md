@@ -1702,6 +1702,13 @@ stocker/
     trade-executor/      ← built: only service permitted to submit Alpaca orders; writes alpaca_orders
     scheduler/           ← built: daily chain + startup catch-up
     backtester/          ← built: replays portfolio_runs against forward daily_prices
+    bt-data/             ← built: Sharadar SEP/SF1 fetcher for the SEPARATE backtest
+                           machine (docker-compose.backtest.yml, own bt-postgres —
+                           never in the live compose). Point-in-time fundamentals.
+    bt-engine/           ← built: day-stepping strategy simulator reusing the LIVE
+                           factor/rank/select/delta modules (COPYied at image build —
+                           zero drift); deterministic, truncation-proven no-look-ahead.
+                           See docs/backtester-v2-plan.md.
     llm-gateway/         ← partially built: provider abstraction skeleton
 
     intraday-monitor/    ← not yet built

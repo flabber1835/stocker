@@ -1,6 +1,7 @@
 # Backtester v2 — Time-Stepping Strategy Simulator
 
-Status: APPROVED ARCHITECTURE (decisions locked; phased implementation pending go-ahead)
+Status: APPROVED ARCHITECTURE — Phase 1 (bt-data) BUILT, Phase 2 (bt-engine) BUILT;
+Phases 3 (bt-ui) / 5 (sweep) pending. Phase 4 compose wiring done for bt-postgres+bt-data+bt-engine.
 Supersedes the existing `backtester` service (which only replays already-built
 `portfolio_runs` forward). v2 re-runs the pipeline logic **day by day** from a past
 start date, builds portfolios as the live system would have, and compares the
@@ -103,11 +104,16 @@ bt_trades        (run_id, date, ticker, action, qty, price, tx_cost)
 
 ## Phasing (each independently shippable)
 
-1. **bt-data + Sharadar backfill** — fetch service, schema, one-time backfill,
-   data-depth report (earliest viable start date). GO/NO-GO on history.
-2. **bt-engine (headless)** — day-stepping replay calling the real pipeline
-   functions + falling-knife backstop; writes bt_* results. Deterministic; unit +
-   integration + no-look-ahead tests.
+1. **bt-data + Sharadar backfill** — BUILT (services/bt-data; mock mode for tests;
+   /jobs/backfill, /jobs/topup, /data/coverage GO/NO-GO report).
+2. **bt-engine (headless)** — BUILT (services/bt-engine). Day-stepping replay; the
+   LIVE modules (pipeline factors/rank/regime/engine + builder select) are loaded
+   via app/live: the Dockerfile COPYs the real source files at build time (zero
+   drift, no vendoring); tests fall back to repo paths. Deterministic + truncation
+   no-look-ahead + falling-knife + fill-timing + tx-cost + delist tests
+   (tests/bt_engine). Fills in ADJUSTED price space: next_open = open(D+1) ×
+   adj_close(D+1)/close(D+1); close = adj_close(D). rebalance_every param
+   (default 1 = live-faithful) for tractable long runs.
 3. **bt-ui** — separate configure/run/view interface; equity-vs-SPY; explorer.
 4. **bt-compose** — `docker-compose.backtest.yml` wiring bt-postgres + bt-data +
    bt-engine + bt-ui for the separate machine.

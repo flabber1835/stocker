@@ -48,7 +48,24 @@ services:
       bt-postgres:
         condition: service_healthy
 
-  # bt-engine and bt-ui are added in later phases.
+  bt-engine:
+    build:
+      context: .
+      dockerfile: services/bt-engine/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8031:8000"
+    environment:
+      BT_DATABASE_URL: postgresql+asyncpg://btuser:${BT_POSTGRES_PASSWORD:-btpass}@bt-postgres:5432/backtest
+      STRATEGY_CONFIG_PATH: /strategies/momentum_rotation_v2.yaml
+      STALE_BT_RUN_HOURS: ${STALE_BT_RUN_HOURS:-12}
+    volumes:
+      - ./strategies:/strategies:ro
+    depends_on:
+      bt-postgres:
+        condition: service_healthy
+
+  # bt-ui is added in Phase 3.
 
 volumes:
   bt_pgdata:
