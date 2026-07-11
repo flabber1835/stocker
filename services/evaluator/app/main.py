@@ -149,6 +149,29 @@ async def _run_evaluation(run_id: str, manual: bool) -> None:
                     f.write(result.narrative_markdown)
             except OSError as exc:
                 print(f"[evaluator] artifact write failed: {exc}")
+
+        # Experiment queue (Phase 6b): deterministically harvest this review's
+        # actionable recommendations into artifacts/bt/proposals.json — the
+        # bt-scheduler adds pending ones to the next weekly sweep as extra
+        # configs. Best-effort: a queue failure must never fail the review.
+        try:
+            from stock_strategy_shared.loader import load_strategy
+
+            from app.proposals import (harvest_proposals, read_proposals_file,
+                                       write_proposals_file)
+            active_cfg, _h = load_strategy(os.getenv("STRATEGY_CONFIG_PATH", ""))
+            _, iso_year, iso_week = week_stamp()
+            content, added = harvest_proposals(
+                result.recommendations, active_cfg.model_dump(mode="json"),
+                read_proposals_file(), run_id=run_id,
+                iso_week=f"{iso_year}-W{iso_week:02d}",
+                now_iso=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+            if added:
+                write_proposals_file(content)
+                print(f"[evaluator] queued {len(added)} wind-tunnel proposal(s): "
+                      + ", ".join(p["config_field"] for p in added))
+        except Exception as exc:  # noqa: BLE001
+            print(f"[evaluator] proposal harvest failed (non-fatal): {exc}")
         print(f"[evaluator] run {run_id} SUCCESS "
               f"({result.model}, {result.output_tokens} out-tokens, "
               f"{len(result.recommendations)} recommendations, "

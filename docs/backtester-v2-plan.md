@@ -154,6 +154,45 @@ earliest_viable_start) so the spec never goes stale; gated on /data/coverage go.
 A failed weekly sweep is NOT auto-retried (deterministic failures would loop —
 human looks).
 
+## Phase 6b — experiment queue + skip-if-unchanged (BUILT)
+
+Design decision (2026-07): the weekly sweep is only re-fired when it can learn
+something new, and the evaluator's recommendations feed it AUTOMATICALLY as
+extra experiments. Automation boundary: proposals are EXPERIMENTS (backtests),
+not config changes — running one is harmless, so the queue needs no human gate.
+Human approval remains exactly where it was: deploying a config change to the
+live book.
+
+EXPERIMENT QUEUE (live → bt direction of the same one-way-per-file bridge;
+still zero network path between the stacks):
+
+```text
+1. After every successful review the evaluator DETERMINISTICALLY harvests its
+   own recommendations (config_field_valid, != 'none', suggested_value parses,
+   and the single-field diff validates through StrategyConfig against the
+   active config) into artifacts/bt/proposals.json — status 'pending', deduped
+   by (field, value) against every entry still in the file, pending capped.
+   The LLM gets no new write tool; harvesting is pure Python from the already-
+   validated report. A recommendation the schema rejects never reaches the file.
+2. bt-scheduler includes pending proposals in the next weekly sweep as
+   extra_configs — each a SINGLE-FIELD diff appended AFTER grid enumeration
+   (never cross-multiplied with the standing grid, so proposals can't explode
+   the config count), marks them 'testing' (with sweep_id) at fire time and
+   'tested' when that sweep's leaderboard exports.
+3. The exported leaderboard tags rows whose diff came from the queue
+   ("proposal": true), and the evaluator's backtest_lab packet section carries
+   the queue state — so next week's review scores its own past proposals
+   against out-of-sample evidence instead of re-arguing them.
+```
+
+SKIP-IF-UNCHANGED: on the weekly due-day the sweep actually fires only if
+(a) the spec file hash changed since the last fired sweep, OR (b) pending
+proposals exist, OR (c) the last successful sweep is older than
+BT_SWEEP_FORCE_REFRESH_DAYS (default 28 — the monthly refresh that keeps the
+windows sliding and catches regime drift). Otherwise it skips with a once-a-day
+note. Fire-state (spec hash, sweep id) persists in artifacts/bt/sweep_state.json
+so a restart doesn't re-fire. Decision logic stays pure in app/logic.py.
+
 RUNTIME CAVEAT (verify on the first real run): the standing grid is ~27 configs
 × 8 years × ~1500 names on NAS-class hardware. If a full sweep takes longer than
 Friday 19:00 ET → Saturday ~00:00 ET (~5h), the export lands AFTER that week's

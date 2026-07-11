@@ -27,7 +27,8 @@ from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 from app.data import load_fundamentals, load_prices, load_universe
 from app.sim import SimParams, run_simulation
-from app.sweep import SweepWindows, enumerate_grid, run_config_both_windows
+from app.sweep import (SweepWindows, enumerate_grid, merge_extra_configs,
+                       run_config_both_windows)
 
 BT_DATABASE_URL = os.environ.get("BT_DATABASE_URL", "")
 if not BT_DATABASE_URL:
@@ -328,6 +329,11 @@ class SweepRequest(BaseModel):
     universe_limit: int | None = None
     max_configs: int = 200                # grid cap; overflow → seeded random sample
     sample_seed: int = 0
+    # Experiment queue (Phase 6b): extra single-diff configs appended AFTER grid
+    # enumeration — never cross-multiplied with the grid, so proposals can't
+    # explode the config count. Invalid diffs are dropped (logged), not fatal:
+    # one bad proposal must not kill the standing sweep.
+    extra_configs: list[dict] = []
 
 
 @app.post("/sweeps/run")
@@ -346,6 +352,11 @@ async def start_sweep(req: SweepRequest, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=400, detail=f"invalid base config: {exc}")
     diffs = enumerate_grid(req.grid, max_configs=req.max_configs,
                            sample_seed=req.sample_seed)
+    diffs, extra_dropped = merge_extra_configs(
+        diffs, req.extra_configs, base_cfg.model_dump(mode="json"))
+    if extra_dropped:
+        print(f"[bt-engine] dropped {extra_dropped} invalid/duplicate extra "
+              f"config(s) from sweep request", flush=True)
 
     async with _sweep_lock:
         async with engine.begin() as conn:
@@ -366,7 +377,9 @@ async def start_sweep(req: SweepRequest, background_tasks: BackgroundTasks):
                 "n": len(diffs), "ts": req.tune_start, "te": req.tune_end,
                 "vs": req.validate_start, "ve": req.validate_end})
     background_tasks.add_task(_sweep_bg, sweep_id, req, base_cfg, diffs, windows)
-    return {"status": "started", "sweep_id": sweep_id, "n_configs": len(diffs)}
+    return {"status": "started", "sweep_id": sweep_id, "n_configs": len(diffs),
+            "n_extra": len(req.extra_configs or []) - extra_dropped,
+            "n_extra_dropped": extra_dropped}
 
 
 async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig,

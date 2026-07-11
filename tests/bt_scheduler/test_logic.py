@@ -2,7 +2,8 @@
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from app.logic import artifact_needed, derive_windows, sweep_due, topup_due
+from app.logic import (artifact_needed, derive_windows, sweep_due, sweep_needed,
+                       topup_due)
 
 ET = ZoneInfo("America/New_York")
 
@@ -62,6 +63,37 @@ def test_failed_sweep_this_week_not_retried():
     sat_later = _dt(2026, 7, 11, 9)
     assert not sweep_due(sat_later, {"status": "failed",
                                      "started_at": "2026-07-11T02:00:00"})
+
+
+# ── sweep_needed (skip-if-unchanged, Phase 6b) ────────────────────────────────
+
+def test_sweep_needed_first_run_and_spec_change():
+    ok, why = sweep_needed("h1", None, 0, date(2026, 7, 11))
+    assert ok and why == "first run"
+    state = {"last_spec_hash": "h0", "last_fired_at": "2026-07-10T19:00:00"}
+    ok, why = sweep_needed("h1", state, 0, date(2026, 7, 11))
+    assert ok and why == "spec changed"
+
+
+def test_sweep_needed_pending_proposals_fire():
+    state = {"last_spec_hash": "h1", "last_fired_at": "2026-07-10T19:00:00"}
+    ok, why = sweep_needed("h1", state, 2, date(2026, 7, 11))
+    assert ok and "2 pending" in why
+
+
+def test_sweep_needed_skips_unchanged_until_forced_refresh():
+    state = {"last_spec_hash": "h1", "last_fired_at": "2026-07-04T19:00:00"}
+    ok, why = sweep_needed("h1", state, 0, date(2026, 7, 11))
+    assert not ok and "refresh not due" in why
+    # 28 days later the monthly refresh fires even with nothing new
+    ok, why = sweep_needed("h1", state, 0, date(2026, 8, 1))
+    assert ok and "forced refresh" in why
+
+
+def test_sweep_needed_bad_state_fails_open():
+    assert sweep_needed("h1", {"last_spec_hash": "h1"}, 0, date(2026, 7, 11))[0]
+    assert sweep_needed("h1", {"last_spec_hash": "h1",
+                               "last_fired_at": "garbage"}, 0, date(2026, 7, 11))[0]
 
 
 # ── artifact_needed ───────────────────────────────────────────────────────────

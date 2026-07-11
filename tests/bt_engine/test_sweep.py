@@ -7,7 +7,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app.sweep import SweepWindows, apply_diff, enumerate_grid, run_config_both_windows
+from app.sweep import (SweepWindows, apply_diff, enumerate_grid,
+                       merge_extra_configs, run_config_both_windows)
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 _REGIMES = {
@@ -56,7 +57,9 @@ def _flip_data(n_days=560, flip_at=470):
             dr = drift
             if t == "HOT" and i >= flip_at:
                 dr = -0.004
-            wiggle = 0.002 * np.sin(i / 7.0 + hash(t) % 10)
+            # NOT hash(): string hashing is PYTHONHASHSEED-randomized per process,
+            # which made this "deterministic" dataset differ run-to-run (flaky).
+            wiggle = 0.002 * np.sin(i / 7.0 + sum(map(ord, t)) % 10)
             px = px * (1.0 + dr + wiggle)
             rows.append({"ticker": t, "date": d, "open": px * 0.999, "close": px,
                          "adjusted_close": px, "volume": 1_000_000.0})
@@ -99,6 +102,29 @@ def test_apply_diff_valid_and_invalid():
     assert err is None and out["portfolio_builder"]["max_positions"] == 4
     out, err = apply_diff(base, {"portfolio_builder.max_position_weight": 9.0})
     assert out is None and "invalid config" in err
+
+
+# ── merge_extra_configs (experiment queue, Phase 6b) ──────────────────────────
+
+def test_extra_configs_appended_not_multiplied():
+    grid_diffs = enumerate_grid({"portfolio_builder.max_positions": [3, 4]})
+    merged, dropped = merge_extra_configs(
+        grid_diffs, [{"portfolio_builder.max_position_weight": 0.5}], _base_cfg())
+    assert len(merged) == 3 and dropped == 0           # 2 grid + 1 extra, no product
+    assert merged[-1] == {"portfolio_builder.max_position_weight": 0.5}
+
+
+def test_extra_configs_drop_invalid_dup_and_junk_without_killing_sweep():
+    grid_diffs = enumerate_grid({"portfolio_builder.max_positions": [3]})
+    merged, dropped = merge_extra_configs(grid_diffs, [
+        {"portfolio_builder.max_positions": 3},          # dup of grid diff
+        {"portfolio_builder.max_position_weight": 9.0},  # schema-invalid
+        {},                                              # empty
+        "not-a-dict",                                    # junk
+        {"portfolio_builder.max_positions": 5},          # valid — survives
+    ], _base_cfg())
+    assert dropped == 4
+    assert merged == grid_diffs[:1] + [{"portfolio_builder.max_positions": 5}]
 
 
 # ── walk-forward window guard ─────────────────────────────────────────────────

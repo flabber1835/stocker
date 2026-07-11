@@ -5,12 +5,22 @@ the versioned spec (sweeps/standing_sweep.json, relative windows), and the
 results bridge — exporting the latest completed sweep's leaderboard to
 artifacts/bt/latest_sweep.json, which the LIVE evaluator's packet reads
 (co-located: shared ./artifacts mount; separate machines: any file transport).
-The bridge is ONE-WAY files — no network path between the stacks, preserving the
-isolation decision. Decision logic is pure (app/logic.py); this file is I/O.
+
+Phase 6b: the sweep is SKIP-IF-UNCHANGED (fires on the due day only when the
+spec hash changed, evaluator proposals are pending, or the periodic forced
+refresh is due — sweep_needed in logic.py; fire-state persists in
+artifacts/bt/sweep_state.json), and the EXPERIMENT QUEUE
+(artifacts/bt/proposals.json, written by the live evaluator) rides each sweep
+as extra single-diff configs: pending → testing at fire, → tested at export,
+with matching leaderboard rows tagged proposal=true.
+
+The bridge is per-file one-way — no network path between the stacks, preserving
+the isolation decision. Decision logic is pure (app/logic.py); this file is I/O.
 """
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import traceback
@@ -21,7 +31,8 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import FastAPI
 
-from app.logic import artifact_needed, derive_windows, sweep_due, topup_due
+from app.logic import (artifact_needed, derive_windows, sweep_due, sweep_needed,
+                       topup_due)
 
 BT_DATA_URL = os.getenv("BT_DATA_URL", "http://bt-data:8000")
 BT_ENGINE_URL = os.getenv("BT_ENGINE_URL", "http://bt-engine:8000")
@@ -32,6 +43,7 @@ TOPUP_HOUR = int(os.getenv("BT_TOPUP_HOUR", "23"))
 SWEEP_WEEKDAY = int(os.getenv("BT_SWEEP_WEEKDAY", "4"))   # Mon=0 … Fri=4: sweep runs Fri evening,
                                                           # exporting BEFORE the Sat ~00-01 ET weekend review
 SWEEP_HOUR = int(os.getenv("BT_SWEEP_HOUR", "19"))
+FORCE_REFRESH_DAYS = int(os.getenv("BT_SWEEP_FORCE_REFRESH_DAYS", "28"))
 LOCAL_TZ = ZoneInfo(os.getenv("SCHEDULE_TZ", "America/New_York"))
 
 _status: dict = {"last_tick": None, "last_topup": None, "last_sweep_fire": None,
@@ -54,6 +66,53 @@ def _read_artifact() -> dict | None:
             return json.load(f)
     except (OSError, ValueError):
         return None
+
+
+def _bt_json(name: str) -> dict | None:
+    try:
+        with open(os.path.join(ARTIFACTS_PATH, "bt", name)) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def _write_bt_json(name: str, content: dict) -> None:
+    path = os.path.join(ARTIFACTS_PATH, "bt", name)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(content, f, indent=1, default=str)
+    os.replace(tmp, path)
+
+
+def _pending_proposals() -> list[dict]:
+    """Evaluator-fed experiment queue (artifacts/bt/proposals.json, written by
+    the LIVE evaluator over the same one-way-per-file bridge)."""
+    entries = (_bt_json("proposals.json") or {}).get("proposals") or []
+    return [e for e in entries
+            if e.get("status") == "pending" and e.get("config_field")]
+
+
+def _mark_proposals(from_status: str, to_status: str, sweep_id: str,
+                    *, only_pending_ids: set[str] | None = None) -> None:
+    """Move queue entries between lifecycle states, atomically rewriting the
+    file. pending→testing stamps the sweep_id at fire time;
+    testing→tested fires when that sweep's leaderboard exports."""
+    content = _bt_json("proposals.json") or {"proposals": []}
+    changed = False
+    for e in content.get("proposals") or []:
+        if e.get("status") != from_status:
+            continue
+        if only_pending_ids is not None and e.get("id") not in only_pending_ids:
+            continue
+        if from_status == "testing" and e.get("sweep_id") != sweep_id:
+            continue
+        e["status"] = to_status
+        if to_status == "testing":
+            e["sweep_id"] = sweep_id
+        changed = True
+    if changed:
+        _write_bt_json("proposals.json", content)
 
 
 def _write_status_artifact(snapshot: dict) -> None:
@@ -109,20 +168,30 @@ async def _tick() -> None:
         except Exception as exc:  # noqa: BLE001
             _note(f"coverage check failed: {exc}")
 
-        # ── weekly standing sweep ─────────────────────────────────────────────
+        # ── weekly standing sweep (skip-if-unchanged + experiment queue) ──────
         try:
             if os.path.exists(SPEC_PATH):
                 latest = (await client.get(f"{BT_ENGINE_URL}/sweeps/latest")).json().get("sweep")
                 if sweep_due(now, latest, weekday=SWEEP_WEEKDAY, hour=SWEEP_HOUR):
-                    if not cov or not cov.get("go"):
-                        # skipping creates no sweep row, so sweep_due stays true
-                        # all evening — note the NO-GO once per day, not per tick
+                    with open(SPEC_PATH, "rb") as f:
+                        spec_bytes = f.read()
+                    spec_hash = hashlib.sha256(spec_bytes).hexdigest()[:16]
+                    pending = _pending_proposals()
+                    needed, why = sweep_needed(
+                        spec_hash, _bt_json("sweep_state.json"), len(pending),
+                        now.date(), force_refresh_days=FORCE_REFRESH_DAYS)
+                    if not needed:
+                        # skipping creates no sweep row, so due-ness persists all
+                        # evening — note once per day, not per tick
+                        if _status.get("last_skip_note", "")[:10] != now.date().isoformat():
+                            _status["last_skip_note"] = now.isoformat(timespec="seconds")
+                            _note(f"sweep due but skipped: {why}")
+                    elif not cov or not cov.get("go"):
                         if _status.get("last_nogo_note", "")[:10] != now.date().isoformat():
                             _status["last_nogo_note"] = now.isoformat(timespec="seconds")
                             _note("sweep due but coverage NO-GO — skipped (backfill first)")
                     else:
-                        with open(SPEC_PATH) as f:
-                            spec = json.load(f)
+                        spec = json.loads(spec_bytes)
                         evs = cov.get("earliest_viable_start")
                         windows = derive_windows(
                             spec, now.date(),
@@ -131,10 +200,27 @@ async def _tick() -> None:
                             _note("sweep due but derived tune window too short — skipped")
                         else:
                             payload = {"grid": spec.get("grid", {}), **windows,
-                                       **(spec.get("params") or {})}
+                                       **(spec.get("params") or {}),
+                                       "extra_configs": [
+                                           {p["config_field"]: p.get("value")}
+                                           for p in pending]}
                             r = await client.post(f"{BT_ENGINE_URL}/sweeps/run", json=payload)
                             _status["last_sweep_fire"] = now.isoformat(timespec="seconds")
-                            _note(f"standing sweep fired → {r.status_code} {r.text[:120]}")
+                            _note(f"standing sweep fired ({why}) → "
+                                  f"{r.status_code} {r.text[:120]}")
+                            if r.status_code == 200:
+                                sid = r.json().get("sweep_id", "")
+                                _write_bt_json("sweep_state.json", {
+                                    "last_spec_hash": spec_hash,
+                                    "last_fired_at": now.isoformat(timespec="seconds"),
+                                    "last_sweep_id": sid,
+                                    "reason": why,
+                                })
+                                if pending:
+                                    _mark_proposals(
+                                        "pending", "testing", sid,
+                                        only_pending_ids={p["id"] for p in pending})
+                                    _note(f"{len(pending)} proposal(s) riding sweep {sid[:8]}")
         except Exception as exc:  # noqa: BLE001
             _note(f"sweep check failed: {exc}")
 
@@ -146,6 +232,15 @@ async def _tick() -> None:
                 lb = (await client.get(
                     f"{BT_ENGINE_URL}/sweeps/{latest['sweep_id']}/leaderboard",
                     params={"limit": 25})).json().get("leaderboard", [])
+                # Tag rows that came from the evaluator's experiment queue so the
+                # next review recognizes its own past proposals in the results.
+                proposal_diffs = [
+                    {e["config_field"]: e.get("value")}
+                    for e in (_bt_json("proposals.json") or {}).get("proposals") or []
+                    if e.get("sweep_id") == latest["sweep_id"]]
+                for row in lb:
+                    if row.get("config_diff") in proposal_diffs:
+                        row["proposal"] = True
                 artifact = {
                     "generated_at": now.isoformat(timespec="seconds"),
                     "sweep_id": latest["sweep_id"],
@@ -165,6 +260,7 @@ async def _tick() -> None:
                     json.dump(artifact, f, indent=1, default=str)
                 os.replace(tmp, path)
                 _status["last_export"] = now.isoformat(timespec="seconds")
+                _mark_proposals("testing", "tested", latest["sweep_id"])
                 _note(f"exported leaderboard for sweep {latest['sweep_id']}")
         except Exception as exc:  # noqa: BLE001
             _note(f"export check failed: {exc}")

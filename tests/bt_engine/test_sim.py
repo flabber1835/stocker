@@ -53,7 +53,9 @@ def _make_data(n_days=520, crash_ticker=None, delist_ticker=None, delist_at=None
     for t, drift in spec.items():
         px = 100.0
         for i, d in enumerate(days):
-            wiggle = 0.002 * np.sin(i / 7.0 + hash(t) % 10)   # deterministic
+            # NOT hash(): string hashing is PYTHONHASHSEED-randomized per process,
+            # which made this "deterministic" dataset differ run-to-run (flaky).
+            wiggle = 0.002 * np.sin(i / 7.0 + sum(map(ord, t)) % 10)
             px = px * (1.0 + drift + wiggle)
             if crash_ticker == t and i >= n_days - 15:
                 px *= 0.96                                     # ~45% crash over 15d

@@ -807,6 +807,7 @@ def _backtest_lab() -> dict:
             art = json.load(f)
     except (OSError, ValueError):
         return {"available": False,
+                "experiment_queue": _experiment_queue(),
                 "note": ("no wind-tunnel results yet (backtest stack not run / "
                          "bridge artifact absent) — deep-history validation "
                          "unavailable this review")}
@@ -826,13 +827,37 @@ def _backtest_lab() -> dict:
         "windows": art.get("windows"),
         "n_configs": art.get("n_configs"),
         "leaderboard_top": (art.get("leaderboard") or [])[:15],
+        "experiment_queue": _experiment_queue(),
         "note": ("walk-forward sweep from the isolated Sharadar backtester — ranked "
                  "by OUT-OF-SAMPLE sharpe; overfit_gap = in-sample − out-of-sample "
                  "(large gap = fit the tune window, not the market). Decision-grade "
-                 "relative to the live replay's short history."
+                 "relative to the live replay's short history. Leaderboard rows "
+                 "tagged proposal=true are YOUR past recommendations, auto-queued "
+                 "as experiments — score them against their OOS results before "
+                 "re-recommending or retracting."
                  + (" WARNING: results are STALE (>21d old) — weigh accordingly."
                     if stale else "")),
     }
+
+
+def _experiment_queue() -> dict:
+    """State of the auto-fed proposal queue (artifacts/bt/proposals.json):
+    every actionable recommendation from past reviews and where it is in the
+    pipeline — pending (awaiting the weekly sweep), testing (in the running
+    sweep), tested (results in the leaderboard)."""
+    path = os.path.join(os.getenv("ARTIFACTS_PATH", "/artifacts"), "bt", "proposals.json")
+    try:
+        with open(path) as f:
+            entries = (json.load(f) or {}).get("proposals") or []
+    except (OSError, ValueError):
+        return {"available": False}
+    by_status: dict[str, int] = {}
+    for e in entries:
+        by_status[str(e.get("status"))] = by_status.get(str(e.get("status")), 0) + 1
+    recent = [{k: e.get(k) for k in
+               ("config_field", "value", "status", "iso_week", "confidence")}
+              for e in entries[-15:]]
+    return {"available": True, "counts": by_status, "recent": recent}
 
 
 async def _hypothesis_ledger(conn) -> dict:
