@@ -927,3 +927,16 @@ tr.cash-row .t-ticker { color: var(--text2); }
              background: var(--blue-lt); color: var(--blue); border: 1px solid rgba(59,130,246,.3);
              white-space: nowrap; }
 .eval-chip-bad { background: rgba(220,38,38,.08); color: var(--red); border-color: rgba(220,38,38,.3); }
+
+/* ── Lab tab (read-only backtest-stack status) ─────────────────────────── */
+.lab-h{padding:10px 12px 4px;margin:0;font-size:14px}
+.lab-line{padding:2px 12px;font-size:13px}
+.lab-note{padding:4px 12px;font-size:11px;opacity:.65}
+.lab-note-inline{font-weight:400;opacity:.6;font-size:11px}
+.lab-meta{padding:6px 12px;font-size:11px;opacity:.6}
+.lab-dim{opacity:.6}
+.lab-warn{color:#e2b93b}
+.lab-bad{color:#e25b5b}
+.lab-ok{color:#3ecf8e}
+.lab-tbl{width:100%;font-size:12px;border-collapse:collapse}
+.lab-tbl th,.lab-tbl td{padding:3px 12px;text-align:left}

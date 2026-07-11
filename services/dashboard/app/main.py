@@ -992,6 +992,24 @@ async def _run_rank_chain_bg():
         _rank_chain_running = False
 
 
+@app.get("/api/bt/status")
+async def bt_status():
+    """Read-only Lab tab data: the backtest stack's one-way status/leaderboard
+    artifacts (written by bt-scheduler). File-based, so it works whether the bt
+    stack is co-located (shared ./artifacts mount) or on a separate machine
+    (file copied across). No network path to the bt stack — isolation intact."""
+    import json as _json
+    base = os.path.join(os.getenv("ARTIFACTS_PATH", "/artifacts"), "bt")
+    out: dict = {"status": None, "sweep": None}
+    for key, fname in (("status", "status.json"), ("sweep", "latest_sweep.json")):
+        try:
+            with open(os.path.join(base, fname)) as f:
+                out[key] = _json.load(f)
+        except (OSError, ValueError):
+            pass
+    return JSONResponse(out)
+
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     # Cache-bust BOTH static assets by file mtime so a git-pull + restart deploy is
@@ -1208,6 +1226,18 @@ _HTML = r"""<!DOCTYPE html>
     </div>
   </section>
 
+  <!-- LAB — read-only backtest-stack status (one-way artifact bridge) -->
+  <section id="screen-lab" class="screen">
+    <div class="screen-inner">
+      <div class="filter-bar sticky-bar">
+        <span class="count-badge" id="lab-sub">Backtest lab (read-only)</span>
+      </div>
+      <div class="tbl-scroll">
+        <div id="lab-body" class="tbl-empty">Loading&#8230;</div>
+      </div>
+    </div>
+  </section>
+
 </main>
 
 <!-- ── Bottom nav ───────────────────────────────────────────────────────── -->
@@ -1243,6 +1273,12 @@ _HTML = r"""<!DOCTYPE html>
       <path d="M9 11l3 3 8-8"/><path d="M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11"/>
     </svg>
     <span>Review</span>
+  </button>
+  <button class="nav-btn" id="nav-lab" onclick="showScreen('lab',this)">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M10 2v6L4 20a1.5 1.5 0 0 0 1.4 2h13.2a1.5 1.5 0 0 0 1.4-2L14 8V2"/><line x1="8" y1="2" x2="16" y2="2"/><line x1="7" y1="15" x2="17" y2="15"/>
+    </svg>
+    <span>Lab</span>
   </button>
 </nav>
 

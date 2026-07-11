@@ -33,7 +33,13 @@ def test_screener_row_has_no_cluster_or_size_cell():
     js = _read(DASH_JS)
     # the row no longer renders a cluster or size cell — both moved to the card
     assert "t-cluster" not in js
-    assert "t-size" not in js
+    # NOTE: a raw `"t-size" not in js` is over-broad — it matches the substring
+    # inside any inline `font-size:` style (which is what this test is NOT about).
+    # The guard's intent is "no CSS class / cell named t-size": match the token
+    # only when delimited like a class name.
+    import re
+    assert not re.search(r"""["'\s.]t-size["'\s]""", js), \
+        "a t-size class/cell reappeared in dashboard.js"
 
 
 def test_screener_detail_card_carries_cluster_size_drawdown():

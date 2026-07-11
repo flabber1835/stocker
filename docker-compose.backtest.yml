@@ -85,8 +85,8 @@ services:
       STANDING_SWEEP_SPEC: /sweeps/standing_sweep.json
       BT_SCHED_TICK_SECS: ${BT_SCHED_TICK_SECS:-300}
       BT_TOPUP_HOUR: ${BT_TOPUP_HOUR:-23}
-      BT_SWEEP_WEEKDAY: ${BT_SWEEP_WEEKDAY:-5}   # Mon=0 … Sat=5: finishes before the weekend evaluator review
-      BT_SWEEP_HOUR: ${BT_SWEEP_HOUR:-2}
+      BT_SWEEP_WEEKDAY: ${BT_SWEEP_WEEKDAY:-4}   # Fri=4, 19:00 ET (Sat 02:00 Helsinki) — exports BEFORE the Sat ~00-01 ET (07-08 Helsinki) weekend review
+      BT_SWEEP_HOUR: ${BT_SWEEP_HOUR:-19}
       SCHEDULE_TZ: America/New_York
     volumes:
       # Results bridge: co-located deploys share ./artifacts with the live stack,

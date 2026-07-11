@@ -584,6 +584,11 @@ services:
       PORTFOLIO_URL: http://portfolio-builder:8000
       SCHEDULER_URL: http://scheduler:8000
       EVALUATOR_URL: http://evaluator:8000
+      ARTIFACTS_PATH: /artifacts
+    volumes:
+      # Read-only Lab tab: bt-scheduler's one-way status/leaderboard artifacts
+      # (artifacts/bt/*.json). Same file bridge the evaluator packet uses.
+      - ./artifacts:/artifacts:ro
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
       interval: 5s

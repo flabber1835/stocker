@@ -166,6 +166,7 @@ function showScreen(name, btnEl) {
   if (name === 'trader')    renderTrader();
   if (name === 'target')    loadTargetPortfolio();
   if (name === 'evaluator') loadEvaluator();
+  if (name === 'lab')       loadLab();
 }
 
 /* ── Clock ───────────────────────────────────────────────────────────── */
@@ -2547,4 +2548,103 @@ async function runEvaluator() {
   } finally {
     setTimeout(() => { btn.disabled = false; }, 5000);
   }
+}
+
+
+/* ── Lab tab: read-only backtest-stack status (one-way artifact bridge) ───── */
+async function loadLab() {
+  const body = document.getElementById('lab-body');
+  try {
+    const r = await fetch('/api/bt/status');
+    const d = await r.json();
+    body.classList.remove('tbl-empty');
+    body.innerHTML = renderLab(d);
+  } catch (e) {
+    body.textContent = 'Lab status unavailable: ' + e;
+  }
+}
+
+function _labAge(iso) {
+  if (!iso) return null;
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 90) return mins + 'm ago';
+  if (mins < 60 * 36) return Math.round(mins / 60) + 'h ago';
+  return Math.round(mins / 1440) + 'd ago';
+}
+
+function renderLab(d) {
+  const esc = t => String(t == null ? '—' : t).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+  const st = d.status, sw = d.sweep;
+  if (!st && !sw) {
+    return '<div class="lab-line lab-dim">No backtest-lab artifacts yet.<br>' +
+           'The bt stack has not written <code>artifacts/bt/status.json</code> — deploy it ' +
+           '(<code>docker compose -f docker-compose.backtest.yml up -d</code>) and wait one tick (~5 min).</div>';
+  }
+  let h = '';
+  const genAge = st ? _labAge(st.generated_at) : null;
+  const staleWarn = st && genAge && genAge.endsWith('d ago')
+      ? ' <span class="lab-warn">⚠ stale</span>' : '';
+  h += `<div class="lab-note">bridge updated ${esc(genAge)}${staleWarn}</div>`;
+
+  const cov = st && st.coverage;
+  h += '<h3 class="lab-h">Data (Sharadar)</h3>';
+  if (cov) {
+    const go = cov.go ? '<span class="lab-ok">GO</span>'
+                      : '<span class="lab-bad">NO-GO (backfill needed)</span>';
+    h += `<div class="lab-line">${go} · prices ${esc(cov.prices && cov.prices.rows)} rows / ` +
+         `${esc(cov.prices && cov.prices.tickers)} tickers (${esc(cov.prices && cov.prices.date_min)} → ` +
+         `${esc(cov.prices && cov.prices.date_max)}) · fundamentals ${esc(cov.fundamentals && cov.fundamentals.rows)} rows · ` +
+         `earliest viable start ${esc(cov.earliest_viable_start)}</div>`;
+  } else {
+    h += '<div class="lab-line lab-dim">no coverage info</div>';
+  }
+
+  const sch = st && st.scheduler;
+  h += '<h3 class="lab-h">Automation</h3>';
+  if (sch) {
+    h += `<div class="lab-line">last tick ${esc(_labAge(sch.last_tick))} · ` +
+         `last topup ${esc(sch.last_topup ? _labAge(sch.last_topup) : 'never')} · ` +
+         `last sweep fired ${esc(sch.last_sweep_fire ? _labAge(sch.last_sweep_fire) : 'never')} · ` +
+         `last export ${esc(sch.last_export ? _labAge(sch.last_export) : 'never')}</div>`;
+    const notes = (sch.notes || []).slice(0, 6);
+    if (notes.length)
+      h += '<div class="lab-note">' + notes.map(esc).join('<br>') + '</div>';
+  }
+
+  const live = st && st.sweep_latest;
+  h += '<h3 class="lab-h">Sweep</h3>';
+  if (live) {
+    const prog = (live.n_done != null && live.n_configs)
+        ? ` · ${live.n_done}/${live.n_configs} configs` : '';
+    h += `<div class="lab-line">status <b>${esc(live.status)}</b>${prog} · ` +
+         `windows ${esc(live.tune_start)}→${esc(live.tune_end)} | validate ` +
+         `${esc(live.validate_start)}→${esc(live.validate_end)}` +
+         (live.error_message ? `<br><span class="lab-bad">${esc(live.error_message)}</span>` : '') +
+         '</div>';
+  } else {
+    h += '<div class="lab-line lab-dim">no sweep has run yet</div>';
+  }
+
+  if (sw && sw.leaderboard && sw.leaderboard.length) {
+    h += '<h3 class="lab-h">Latest leaderboard ' +
+         '<span class="lab-note-inline">(ranked by OOS sharpe; big gap = overfit)</span></h3>';
+    h += '<table class="lab-tbl">' +
+         '<tr class="lab-dim"><th>#</th><th>config diff</th>' +
+         '<th>OOS shp</th><th>OOS ret</th><th>OOS maxDD</th><th>gap</th></tr>';
+    sw.leaderboard.slice(0, 15).forEach((r, i) => {
+      const diff = r.config_diff ? Object.entries(
+          typeof r.config_diff === 'string' ? JSON.parse(r.config_diff) : r.config_diff)
+          .map(([k, v]) => `${k.split('.').pop()}=${v === null ? 'off' : v}`).join(' ') : '(baseline)';
+      const gap = r.overfit_gap;
+      const gapCls = gap != null && gap > 0.5 ? ' class="lab-warn"' : '';
+      h += `<tr><td>${i + 1}</td><td>${esc(diff || '(baseline)')}</td>` +
+           `<td>${r.oos_sharpe != null ? Number(r.oos_sharpe).toFixed(2) : '—'}</td>` +
+           `<td>${r.oos_return != null ? (Number(r.oos_return) * 100).toFixed(1) + '%' : '—'}</td>` +
+           `<td>${r.oos_max_drawdown != null ? (Number(r.oos_max_drawdown) * 100).toFixed(1) + '%' : '—'}</td>` +
+           `<td${gapCls}>${gap != null ? Number(gap).toFixed(2) : '—'}</td></tr>`;
+    });
+    h += '</table>';
+    h += `<div class="lab-meta">sweep ${esc(sw.sweep_id)} · exported ${esc(_labAge(sw.generated_at))}</div>`;
+  }
+  return h;
 }

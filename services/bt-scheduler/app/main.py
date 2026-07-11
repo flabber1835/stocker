@@ -29,8 +29,9 @@ ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "/artifacts")
 SPEC_PATH = os.getenv("STANDING_SWEEP_SPEC", "/sweeps/standing_sweep.json")
 TICK_SECS = float(os.getenv("BT_SCHED_TICK_SECS", "300"))
 TOPUP_HOUR = int(os.getenv("BT_TOPUP_HOUR", "23"))
-SWEEP_WEEKDAY = int(os.getenv("BT_SWEEP_WEEKDAY", "5"))   # Mon=0 … Sat=5
-SWEEP_HOUR = int(os.getenv("BT_SWEEP_HOUR", "2"))
+SWEEP_WEEKDAY = int(os.getenv("BT_SWEEP_WEEKDAY", "4"))   # Mon=0 … Fri=4: sweep runs Fri evening,
+                                                          # exporting BEFORE the Sat ~00-01 ET weekend review
+SWEEP_HOUR = int(os.getenv("BT_SWEEP_HOUR", "19"))
 LOCAL_TZ = ZoneInfo(os.getenv("SCHEDULE_TZ", "America/New_York"))
 
 _status: dict = {"last_tick": None, "last_topup": None, "last_sweep_fire": None,
@@ -55,13 +56,32 @@ def _read_artifact() -> dict | None:
         return None
 
 
+def _write_status_artifact(snapshot: dict) -> None:
+    """artifacts/bt/status.json — the read-only Lab tab's data source (same
+    one-way file bridge as the sweep leaderboard; works co-located and across
+    machines)."""
+    try:
+        path = os.path.join(ARTIFACTS_PATH, "bt", "status.json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(snapshot, f, indent=1, default=str)
+        os.replace(tmp, path)
+    except OSError as exc:
+        _note(f"status artifact write failed: {exc}")
+
+
 async def _tick() -> None:
     now = datetime.now(LOCAL_TZ)
     _status["last_tick"] = now.isoformat(timespec="seconds")
+    snapshot: dict = {"generated_at": now.isoformat(timespec="seconds"),
+                      "scheduler": None, "data_runs": None, "coverage": None,
+                      "sweep_latest": None}
     async with httpx.AsyncClient(timeout=30.0) as client:
         # ── daily topup ───────────────────────────────────────────────────────
         try:
             runs = (await client.get(f"{BT_DATA_URL}/runs/latest")).json().get("runs", [])
+            snapshot["data_runs"] = runs[:3]
             running = any(r.get("status") == "running" for r in runs)
             last_ok = next((r for r in runs if r.get("status") == "success"), None)
             last_date = (datetime.fromisoformat(
@@ -74,13 +94,20 @@ async def _tick() -> None:
         except Exception as exc:  # noqa: BLE001
             _note(f"topup check failed: {exc}")
 
+        # ── coverage snapshot (Lab tab + sweep gate) ─────────────────────────
+        cov = None
+        try:
+            cov = (await client.get(f"{BT_DATA_URL}/data/coverage")).json()
+            snapshot["coverage"] = cov
+        except Exception as exc:  # noqa: BLE001
+            _note(f"coverage check failed: {exc}")
+
         # ── weekly standing sweep ─────────────────────────────────────────────
         try:
             if os.path.exists(SPEC_PATH):
                 latest = (await client.get(f"{BT_ENGINE_URL}/sweeps/latest")).json().get("sweep")
                 if sweep_due(now, latest, weekday=SWEEP_WEEKDAY, hour=SWEEP_HOUR):
-                    cov = (await client.get(f"{BT_DATA_URL}/data/coverage")).json()
-                    if not cov.get("go"):
+                    if not cov or not cov.get("go"):
                         _note("sweep due but coverage NO-GO — skipped (backfill first)")
                     else:
                         with open(SPEC_PATH) as f:
@@ -103,6 +130,7 @@ async def _tick() -> None:
         # ── results bridge export ─────────────────────────────────────────────
         try:
             latest = (await client.get(f"{BT_ENGINE_URL}/sweeps/latest")).json().get("sweep")
+            snapshot["sweep_latest"] = latest
             if artifact_needed(latest, _read_artifact()):
                 lb = (await client.get(
                     f"{BT_ENGINE_URL}/sweeps/{latest['sweep_id']}/leaderboard",
@@ -129,6 +157,9 @@ async def _tick() -> None:
                 _note(f"exported leaderboard for sweep {latest['sweep_id']}")
         except Exception as exc:  # noqa: BLE001
             _note(f"export check failed: {exc}")
+
+    snapshot["scheduler"] = dict(_status)
+    _write_status_artifact(snapshot)
 
 
 async def _loop() -> None:
