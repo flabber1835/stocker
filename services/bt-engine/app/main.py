@@ -332,7 +332,6 @@ class SweepRequest(BaseModel):
 
 @app.post("/sweeps/run")
 async def start_sweep(req: SweepRequest, background_tasks: BackgroundTasks):
-    from app.sweep import SweepWindows, enumerate_grid  # noqa: F811 — explicit here
     windows = SweepWindows(req.tune_start, req.tune_end,
                            req.validate_start, req.validate_end)
     werr = windows.validate()

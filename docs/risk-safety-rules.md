@@ -50,7 +50,18 @@ These are actually enforced in code today.
 KILL_SWITCH              — if active, risk-service rejects all checks (see hot-flip below)
 LIVE_TRADING_ENABLED     — must be "true" for trade_type=="live" to pass; default "false"
 PAPER_ONLY               — when "true", any live trade is rejected; default "true"
-MAX_ORDER_NOTIONAL       — default $50,000 per order
+MAX_ORDER_NOTIONAL       — default $50,000 per order; SCALE-AWARE: effective cap =
+                           max(MAX_ORDER_NOTIONAL, MAX_ORDER_PCT × account_value), so a
+                           grown account keeps rotating instead of silently rejecting
+                           every entry once weight × equity exceeds the fixed dollar cap
+MAX_ORDER_PCT            — default 0.20 (20% of account_value); the scale-aware leg of
+                           the order-notional cap above. Set 0 to revert to absolute-only.
+                           Nuance (deliberate, fail-open on the SELL side only): if the
+                           account-value DB read fails while an order exceeds the absolute
+                           cap, a BUY is rejected (cannot verify the pct leg) but a CLOSE
+                           (full exit) is allowed through — de-risking must never be
+                           blocked by a telemetry outage, same philosophy as the is_close
+                           exemptions elsewhere in this file.
 MAX_DAILY_TURNOVER_PCT   — default 0.50 (50%); per-day sell-side cap (see below)
 MAX_DAILY_LOSS_PCT       — default 0.10 (10%); halts ALL trades after a daily drawdown
 MAX_POSITION_PCT         — default 0.15 (15%); per-ticker concentration cap on buys

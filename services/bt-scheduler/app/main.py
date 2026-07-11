@@ -87,10 +87,17 @@ async def _tick() -> None:
             last_date = (datetime.fromisoformat(
                 str(last_ok["started_at"]).replace("Z", "+00:00")).date()
                 if last_ok and last_ok.get("started_at") else None)
-            if not running and topup_due(now, last_date, hour=TOPUP_HOUR):
+            # topup_due dedupes on bt-data's own success rows; a REFUSED topup
+            # (404/409, e.g. empty DB pre-backfill) never writes one, so without
+            # this in-memory guard every tick from TOPUP_HOUR to midnight would
+            # re-POST. One attempt per local day is enough — upserts are
+            # idempotent, so the once-per-restart re-fire is harmless.
+            fired_today = (_status["last_topup"] is not None and
+                           datetime.fromisoformat(_status["last_topup"]).date() == now.date())
+            if not running and not fired_today and topup_due(now, last_date, hour=TOPUP_HOUR):
                 r = await client.post(f"{BT_DATA_URL}/jobs/topup")
                 _status["last_topup"] = now.isoformat(timespec="seconds")
-                _note(f"topup fired → {r.status_code}")
+                _note(f"topup fired → {r.status_code} {r.text[:120]}")
         except Exception as exc:  # noqa: BLE001
             _note(f"topup check failed: {exc}")
 
@@ -108,7 +115,11 @@ async def _tick() -> None:
                 latest = (await client.get(f"{BT_ENGINE_URL}/sweeps/latest")).json().get("sweep")
                 if sweep_due(now, latest, weekday=SWEEP_WEEKDAY, hour=SWEEP_HOUR):
                     if not cov or not cov.get("go"):
-                        _note("sweep due but coverage NO-GO — skipped (backfill first)")
+                        # skipping creates no sweep row, so sweep_due stays true
+                        # all evening — note the NO-GO once per day, not per tick
+                        if _status.get("last_nogo_note", "")[:10] != now.date().isoformat():
+                            _status["last_nogo_note"] = now.isoformat(timespec="seconds")
+                            _note("sweep due but coverage NO-GO — skipped (backfill first)")
                     else:
                         with open(SPEC_PATH) as f:
                             spec = json.load(f)

@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 import uuid
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -162,9 +162,10 @@ async def _upsert_universe(rows: list[dict]) -> int:
 
 # ── Backfill ───────────────────────────────────────────────────────────────────
 
-async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str]) -> None:
+async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
+                        job_type: str = "backfill") -> None:
     # Prices (SEP)
-    rid = await _open_run("backfill", "bt_prices")
+    rid = await _open_run(job_type, "bt_prices")
     try:
         params = {"date.gte": date_from, "date.lte": date_to}
         if tickers:
@@ -186,7 +187,7 @@ async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str]) ->
         raise
 
     # Fundamentals (SF1, ARQ) — compute YoY growth across successive filings.
-    rid = await _open_run("backfill", "bt_fundamentals")
+    rid = await _open_run(job_type, "bt_fundamentals")
     try:
         params = {"dimension": "ARQ", "datekey.gte": date_from, "datekey.lte": date_to}
         if tickers:
@@ -216,7 +217,7 @@ async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str]) ->
 
     # Universe snapshot (TICKERS, as-of date_to). One snapshot for the backfill end;
     # the engine treats it as the listed set (delisted names still in bt_prices).
-    rid = await _open_run("backfill", "bt_universe")
+    rid = await _open_run(job_type, "bt_universe")
     try:
         rows, total = [], 0
         async for raw in fetch_table("TICKERS"):
@@ -243,6 +244,29 @@ async def start_backfill(background_tasks: BackgroundTasks,
     background_tasks.add_task(_run_backfill, date_from, date_to, tickers)
     return {"status": "started", "date_from": date_from, "date_to": date_to,
             "tickers": tickers or "ALL", "mock": is_mock()}
+
+
+# Re-fetch this many days behind MAX(date) on topup: upserts make the overlap
+# free, and it picks up Sharadar restatements/late-published rows near the edge.
+TOPUP_OVERLAP_DAYS = int(os.getenv("TOPUP_OVERLAP_DAYS", "5"))
+
+
+@app.post("/jobs/topup")
+async def start_topup(background_tasks: BackgroundTasks):
+    """Incremental load: resume from the latest stored price date (minus a small
+    restatement overlap) through today. Refused (409) while the DB is empty —
+    topup extends a backfill, it cannot substitute for one; run /jobs/backfill
+    first. bt-scheduler fires this nightly."""
+    async with engine.connect() as conn:
+        max_date = (await conn.execute(text("SELECT MAX(date) FROM bt_prices"))).scalar()
+    if max_date is None:
+        raise HTTPException(status_code=409,
+                            detail="bt_prices is empty — run /jobs/backfill first")
+    date_from = (max_date - timedelta(days=TOPUP_OVERLAP_DAYS)).isoformat()
+    date_to = date.today().isoformat()
+    background_tasks.add_task(_run_backfill, date_from, date_to, None, "topup")
+    return {"status": "started", "job_type": "topup", "date_from": date_from,
+            "date_to": date_to, "mock": is_mock()}
 
 
 # ── Data-depth report (GO/NO-GO gate) ──────────────────────────────────────────

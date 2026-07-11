@@ -106,3 +106,45 @@ def test_fundamentals_are_point_in_time(bt_async_dsn):
     # YoY growth filled where >=4 prior filings exist (mock has 5 per ticker → the
     # 5th has a year-ago comparator)
     assert any(r["revenue_growth"] is not None for r in rows)
+
+
+def test_topup_refused_empty_then_resumes_from_max(bt_async_dsn):
+    """The endpoint bt-scheduler fires nightly: 409 while bt_prices is empty
+    (topup extends a backfill, never substitutes for one), and after a backfill
+    it queues an incremental load from MAX(date) minus the restatement overlap,
+    tagged job_type='topup'."""
+    os.environ["BT_DATABASE_URL"] = bt_async_dsn
+    for k in list(sys.modules):
+        if k == "app" or k.startswith("app."):
+            del sys.modules[k]
+    import app.main as btmain
+    from datetime import timedelta
+    from fastapi import BackgroundTasks, HTTPException
+    from sqlalchemy import text
+
+    async def run():
+        await btmain._ensure_schema()
+        async with btmain.engine.begin() as conn:
+            await conn.execute(text("TRUNCATE bt_prices"))
+        # empty DB → refused, loud
+        try:
+            await btmain.start_topup(BackgroundTasks())
+            raise AssertionError("expected 409 on empty bt_prices")
+        except HTTPException as exc:
+            assert exc.status_code == 409
+
+        await btmain._run_backfill("2022-01-01", "2023-03-31", None)
+        async with btmain.engine.connect() as conn:
+            max_date = (await conn.execute(
+                text("SELECT MAX(date) FROM bt_prices"))).scalar()
+        bg = BackgroundTasks()
+        resp = await btmain.start_topup(bg)
+        return resp, max_date, bg
+
+    resp, max_date, bg = asyncio.run(run())
+    assert resp["status"] == "started" and resp["job_type"] == "topup"
+    expected_from = (max_date - timedelta(days=btmain.TOPUP_OVERLAP_DAYS)).isoformat()
+    assert resp["date_from"] == expected_from
+    # the queued background job is the shared backfill runner tagged 'topup'
+    assert len(bg.tasks) == 1
+    assert bg.tasks[0].args[-1] == "topup"

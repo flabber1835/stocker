@@ -143,12 +143,25 @@ bt_trades        (run_id, date, ticker, action, qty, price, tx_cost)
 ## Phase 6 — automation + results bridge (BUILT)
 
 bt-scheduler (backtest stack only): daily Sharadar TOPUP on weekdays after
-BT_TOPUP_HOUR (23 ET); ONE standing sweep per ISO week (Saturday 02 ET default,
-finishing before the weekend evaluator review) from the VERSIONED spec
-sweeps/standing_sweep.json — grid + RELATIVE windows (tune_years/validate_years
-anchored to run day, clamped to bt-data's earliest_viable_start) so the spec
-never goes stale; gated on /data/coverage go. A failed weekly sweep is NOT
-auto-retried (deterministic failures would loop — human looks).
+BT_TOPUP_HOUR (23 ET) — POSTs bt-data /jobs/topup, which resumes from
+MAX(bt_prices.date) minus a small restatement overlap and 409s while the DB is
+empty (topup extends a backfill, never substitutes for one); ONE standing sweep
+per ISO week (default Friday 19:00 ET = Saturday 02:00 Helsinki, so the export
+lands before the Saturday ~00–01 ET weekend evaluator review) from the VERSIONED
+spec sweeps/standing_sweep.json — grid + RELATIVE windows
+(tune_years/validate_years anchored to run day, clamped to bt-data's
+earliest_viable_start) so the spec never goes stale; gated on /data/coverage go.
+A failed weekly sweep is NOT auto-retried (deterministic failures would loop —
+human looks).
+
+RUNTIME CAVEAT (verify on the first real run): the standing grid is ~27 configs
+× 8 years × ~1500 names on NAS-class hardware. If a full sweep takes longer than
+Friday 19:00 ET → Saturday ~00:00 ET (~5h), the export lands AFTER that week's
+review and the evaluator consumes the PREVIOUS week's leaderboard — a one-week
+evidence latency (not wrong, just stale; the packet's staleness flag only trips
+at >21d). Time the first Sharadar-backed sweep; if it overruns, either move
+BT_SWEEP_WEEKDAY earlier (e.g. 3 = Thursday) or trim the spec's universe_limit /
+grid.
 
 RESULTS BRIDGE (one-way file, preserving isolation): after a sweep completes,
 bt-scheduler exports the leaderboard to artifacts/bt/latest_sweep.json. The LIVE

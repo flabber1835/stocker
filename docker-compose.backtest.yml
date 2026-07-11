@@ -50,6 +50,12 @@ services:
       BT_DATABASE_URL: postgresql+asyncpg://btuser:${BT_POSTGRES_PASSWORD:-btpass}@bt-postgres:5432/backtest
       SHARADAR_API_KEY: ${SHARADAR_API_KEY:-}
       BT_MOCK_DATA: ${BT_MOCK_DATA:-}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     depends_on:
       bt-postgres:
         condition: service_healthy
@@ -67,6 +73,12 @@ services:
       STALE_BT_RUN_HOURS: ${STALE_BT_RUN_HOURS:-12}
     volumes:
       - ./strategies:/strategies:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     depends_on:
       bt-postgres:
         condition: service_healthy
@@ -94,6 +106,12 @@ services:
       # Separate-machine deploys copy that one file across (rsync/scp/manual).
       - ./artifacts:/artifacts
       - ./sweeps:/sweeps:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     depends_on:
       bt-postgres:
         condition: service_healthy
