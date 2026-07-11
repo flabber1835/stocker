@@ -1635,6 +1635,10 @@ rankings are reproducible
 backtest output is reproducible
 risk-service blocks unsafe trades
 trade-executor cannot run without risk approval
+image-layout import smoke: services whose images assemble code via build-time
+  COPY (bt-engine, backtester, evaluator, …) must `import app.main` under the
+  IMAGE's directory layout, not just the checkout's (tests/smoke/ — CI twin of
+  scripts/smoke-image-imports.sh, which checks the real built images)
 ```
 
 ---
