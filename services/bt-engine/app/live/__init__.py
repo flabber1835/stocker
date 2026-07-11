@@ -21,8 +21,15 @@ import sys
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-# repo root when running from a checkout: services/bt-engine/app/live → up 4
-_REPO = _HERE.parents[3]
+# Repo root when running from a checkout: services/bt-engine/app/live → up 4.
+# INSIDE THE IMAGE the path is /app/app/live — only 3 parents — so parents[3]
+# raises IndexError AT IMPORT TIME (crash-looped the container while tests, which
+# run from the deeper checkout path, stayed green). The repo fallback is only for
+# checkouts; in the image the sibling copies are always present, so None is fine.
+try:
+    _REPO = _HERE.parents[3]
+except IndexError:
+    _REPO = None
 
 _SOURCES = {
     "factors": ("factors.py", "services/pipeline/app/factors.py"),
@@ -35,7 +42,10 @@ _SOURCES = {
 
 def _load(name: str):
     sibling, repo_rel = _SOURCES[name]
-    for candidate in (_HERE / sibling, _REPO / repo_rel):
+    candidates = [_HERE / sibling]
+    if _REPO is not None:
+        candidates.append(_REPO / repo_rel)
+    for candidate in candidates:
         if candidate.exists():
             modname = f"bt_live_{name}"
             if modname in sys.modules:
