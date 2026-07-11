@@ -1162,6 +1162,10 @@ tools are for drill-down and testing a thesis BEFORE recommending it:
     0041): thesis → planned test → status/outcome. The ONE write tool, scoped to
     its own table; read back as a deterministic packet section every review.
     Budget EVALUATOR_MAX_LEDGER_WRITES (6).
+The packet also carries `backtest_lab` — the one-way results bridge from the
+isolated backtest stack (artifacts/bt/latest_sweep.json, written by
+bt-scheduler): the latest walk-forward sweep leaderboard, decision-grade
+evidence the prompt tells the model to prefer over the short-history replay.
 Loop budget EVALUATOR_MAX_TOOL_TURNS (default 24); exhaustion strips tools and
 demands the final report JSON. EVALUATOR_TOOLS_ENABLED=false → Phase-1
 packet-only (also the automatic fallback on a hard tool-loop failure). Every

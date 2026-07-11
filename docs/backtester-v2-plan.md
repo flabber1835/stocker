@@ -140,6 +140,25 @@ bt_trades        (run_id, date, ticker, action, qty, price, tx_cost)
 - Isolation: backtest compose file shares NO service/DB/port with the live compose;
   asserted in a compose test.
 
+## Phase 6 — automation + results bridge (BUILT)
+
+bt-scheduler (backtest stack only): daily Sharadar TOPUP on weekdays after
+BT_TOPUP_HOUR (23 ET); ONE standing sweep per ISO week (Saturday 02 ET default,
+finishing before the weekend evaluator review) from the VERSIONED spec
+sweeps/standing_sweep.json — grid + RELATIVE windows (tune_years/validate_years
+anchored to run day, clamped to bt-data's earliest_viable_start) so the spec
+never goes stale; gated on /data/coverage go. A failed weekly sweep is NOT
+auto-retried (deterministic failures would loop — human looks).
+
+RESULTS BRIDGE (one-way file, preserving isolation): after a sweep completes,
+bt-scheduler exports the leaderboard to artifacts/bt/latest_sweep.json. The LIVE
+evaluator's packet reads it as the `backtest_lab` section (top-15 by OOS sharpe,
+overfit_gap alongside, >21d staleness flagged) — so every weekly review opens
+with decision-grade wind-tunnel evidence and the loop closes with the human
+approval as the only manual step. Co-located deploys share ./artifacts; separate
+machines copy the single file by any transport (rsync/scp) — still no network
+path between the stacks.
+
 ## Out of scope (v1)
 
 - Intraday simulation (daily bars only). LLM/news vetting (excluded by decision).

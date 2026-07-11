@@ -71,6 +71,33 @@ services:
       bt-postgres:
         condition: service_healthy
 
+  bt-scheduler:
+    build:
+      context: .
+      dockerfile: services/bt-scheduler/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8032:8000"
+    environment:
+      BT_DATA_URL: http://bt-data:8000
+      BT_ENGINE_URL: http://bt-engine:8000
+      ARTIFACTS_PATH: /artifacts
+      STANDING_SWEEP_SPEC: /sweeps/standing_sweep.json
+      BT_SCHED_TICK_SECS: ${BT_SCHED_TICK_SECS:-300}
+      BT_TOPUP_HOUR: ${BT_TOPUP_HOUR:-23}
+      BT_SWEEP_WEEKDAY: ${BT_SWEEP_WEEKDAY:-5}   # Mon=0 … Sat=5: finishes before the weekend evaluator review
+      BT_SWEEP_HOUR: ${BT_SWEEP_HOUR:-2}
+      SCHEDULE_TZ: America/New_York
+    volumes:
+      # Results bridge: co-located deploys share ./artifacts with the live stack,
+      # so the evaluator's packet reads artifacts/bt/latest_sweep.json directly.
+      # Separate-machine deploys copy that one file across (rsync/scp/manual).
+      - ./artifacts:/artifacts
+      - ./sweeps:/sweeps:ro
+    depends_on:
+      bt-postgres:
+        condition: service_healthy
+
   # bt-ui is added in Phase 3.
 
 volumes:

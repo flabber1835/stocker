@@ -1,0 +1,18 @@
+{
+  "_comment": "Canonical weekly wind-tunnel grid — the money-flow audit's top questions (V1 cluster caps, V5 universe floor, V2 falling-knife). Versioned; edit + git push to change what the weekly sweep tests. Windows are RELATIVE (anchored to run day) so this never goes stale. 27 configs at rebalance_every=5.",
+  "grid": {
+    "portfolio_builder.max_tickers_per_cluster": [3, 5, null],
+    "universe.min_avg_dollar_volume_20d": [2000000, 5000000, 20000000],
+    "vetter.falling_knife.backstop_pct": [0.15, 0.25, 0]
+  },
+  "tune_years": 6,
+  "validate_years": 2,
+  "params": {
+    "tx_cost_bps": 10,
+    "fill_timing": "next_open",
+    "rebalance_every": 5,
+    "universe_limit": 1500,
+    "max_configs": 30,
+    "sample_seed": 0
+  }
+}

@@ -10,6 +10,7 @@ every recommendation can be audited against exactly the data the model saw.
 """
 from __future__ import annotations
 
+import json
 import os
 import traceback
 from datetime import date, datetime, timedelta, timezone
@@ -788,8 +789,50 @@ async def build_packet(engine, as_of: date | None = None) -> dict:
             "config_history": await _section(lambda: _config_history(conn), conn),
             "system_health": await _section(lambda: _system_health(conn), conn),
             "hypothesis_ledger": await _section(lambda: _hypothesis_ledger(conn), conn),
+            "backtest_lab": await _section(lambda: _async_wrap(_backtest_lab)),
         }
     return packet
+
+
+def _backtest_lab() -> dict:
+    """Results bridge from the ISOLATED deep-history backtest stack: the latest
+    walk-forward sweep leaderboard, exported by bt-scheduler to
+    artifacts/bt/latest_sweep.json (one-way file — no network path between the
+    stacks). This is the DECISION-GRADE evidence channel: multi-year Sharadar
+    data, point-in-time fundamentals, out-of-sample scoring. Prefer it over the
+    short live-history config replay when both speak to a thesis."""
+    path = os.path.join(os.getenv("ARTIFACTS_PATH", "/artifacts"), "bt", "latest_sweep.json")
+    try:
+        with open(path) as f:
+            art = json.load(f)
+    except (OSError, ValueError):
+        return {"available": False,
+                "note": ("no wind-tunnel results yet (backtest stack not run / "
+                         "bridge artifact absent) — deep-history validation "
+                         "unavailable this review")}
+    gen = str(art.get("generated_at", ""))
+    stale = False
+    try:
+        age_days = (datetime.now(timezone.utc)
+                    - datetime.fromisoformat(gen).astimezone(timezone.utc)).days
+        stale = age_days > 21
+    except ValueError:
+        age_days = None
+    return {
+        "available": True,
+        "generated_at": gen,
+        "age_days": age_days,
+        "stale": stale,
+        "windows": art.get("windows"),
+        "n_configs": art.get("n_configs"),
+        "leaderboard_top": (art.get("leaderboard") or [])[:15],
+        "note": ("walk-forward sweep from the isolated Sharadar backtester — ranked "
+                 "by OUT-OF-SAMPLE sharpe; overfit_gap = in-sample − out-of-sample "
+                 "(large gap = fit the tune window, not the market). Decision-grade "
+                 "relative to the live replay's short history."
+                 + (" WARNING: results are STALE (>21d old) — weigh accordingly."
+                    if stale else "")),
+    }
 
 
 async def _hypothesis_ledger(conn) -> dict:

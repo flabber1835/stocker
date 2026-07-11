@@ -120,7 +120,11 @@ recent = a young listing the history-hungry factors structurally exclude; recurr
 justify recommending a different filter mechanism); a SELECTION AUDIT of the latest build \
 (every candidate classified selected / cap_blocked / vetter_excluded / out_ranked, with \
 forward returns per class — cap_blocked beating selected implicates CONSTRUCTION; \
-out_ranked beating selected implicates the FACTOR MODEL); FACTOR COVERAGE (per-factor \
+out_ranked beating selected implicates the FACTOR MODEL); a BACKTEST LAB section when \
+available (walk-forward OUT-OF-SAMPLE sweep leaderboard from the isolated deep-history \
+backtester — DECISION-GRADE config evidence; prefer it over the short-history live \
+replay when both speak to a thesis; treat a large overfit_gap as disqualifying); \
+FACTOR COVERAGE (per-factor \
 non-null share — a low-coverage factor points at an ingestion gap, not a weak signal); \
 RISK-GATE STATS (approvals/rejections by rule — a rule repeatedly blocking planned \
 entries is evidence for retuning a limit); per-factor realized IC and MARGINAL IC (signal \
