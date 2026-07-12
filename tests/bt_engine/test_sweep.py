@@ -110,7 +110,7 @@ def test_extra_configs_appended_not_multiplied():
     grid_diffs = enumerate_grid({"portfolio_builder.max_positions": [3, 4]})
     merged, dropped = merge_extra_configs(
         grid_diffs, [{"portfolio_builder.max_position_weight": 0.5}], _base_cfg())
-    assert len(merged) == 3 and dropped == 0           # 2 grid + 1 extra, no product
+    assert len(merged) == 3 and dropped == []          # 2 grid + 1 extra, no product
     assert merged[-1] == {"portfolio_builder.max_position_weight": 0.5}
 
 
@@ -123,7 +123,11 @@ def test_extra_configs_drop_invalid_dup_and_junk_without_killing_sweep():
         "not-a-dict",                                    # junk
         {"portfolio_builder.max_positions": 5},          # valid — survives
     ], _base_cfg())
-    assert dropped == 4
+    # dropped returns the rejected extras VERBATIM so bt-scheduler can mark
+    # exactly those proposals 'invalid' (audit F2)
+    assert dropped == [{"portfolio_builder.max_positions": 3},
+                       {"portfolio_builder.max_position_weight": 9.0},
+                       {}, "not-a-dict"]
     assert merged == grid_diffs[:1] + [{"portfolio_builder.max_positions": 5}]
 
 

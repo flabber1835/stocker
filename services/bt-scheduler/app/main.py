@@ -96,23 +96,28 @@ def _pending_proposals() -> list[dict]:
 def _mark_proposals(from_status: str, to_status: str, sweep_id: str,
                     *, only_pending_ids: set[str] | None = None) -> None:
     """Move queue entries between lifecycle states, atomically rewriting the
-    file. pending→testing stamps the sweep_id at fire time;
-    testing→tested fires when that sweep's leaderboard exports."""
-    content = _bt_json("proposals.json") or {"proposals": []}
-    changed = False
-    for e in content.get("proposals") or []:
-        if e.get("status") != from_status:
-            continue
-        if only_pending_ids is not None and e.get("id") not in only_pending_ids:
-            continue
-        if from_status == "testing" and e.get("sweep_id") != sweep_id:
-            continue
-        e["status"] = to_status
-        if to_status == "testing":
-            e["sweep_id"] = sweep_id
-        changed = True
-    if changed:
-        _write_bt_json("proposals.json", content)
+    file. pending→testing stamps the sweep_id at fire time; testing→tested
+    fires when that sweep's leaderboard exports; pending→invalid records an
+    engine-rejected proposal (stale against the current active config) so the
+    queue never shows it as tested-with-no-results. The flock serializes this
+    read-modify-write against the evaluator's harvest (audit F1)."""
+    from stock_strategy_shared.filelock import file_lock
+    with file_lock(os.path.join(ARTIFACTS_PATH, "bt", "proposals.json.lock")):
+        content = _bt_json("proposals.json") or {"proposals": []}
+        changed = False
+        for e in content.get("proposals") or []:
+            if e.get("status") != from_status:
+                continue
+            if only_pending_ids is not None and e.get("id") not in only_pending_ids:
+                continue
+            if from_status == "testing" and e.get("sweep_id") != sweep_id:
+                continue
+            e["status"] = to_status
+            if to_status == "testing":
+                e["sweep_id"] = sweep_id
+            changed = True
+        if changed:
+            _write_bt_json("proposals.json", content)
 
 
 def _write_status_artifact(snapshot: dict) -> None:
@@ -209,7 +214,8 @@ async def _tick() -> None:
                             _note(f"standing sweep fired ({why}) → "
                                   f"{r.status_code} {r.text[:120]}")
                             if r.status_code == 200:
-                                sid = r.json().get("sweep_id", "")
+                                rbody = r.json()
+                                sid = rbody.get("sweep_id", "")
                                 _write_bt_json("sweep_state.json", {
                                     "last_spec_hash": spec_hash,
                                     "last_fired_at": now.isoformat(timespec="seconds"),
@@ -217,10 +223,26 @@ async def _tick() -> None:
                                     "reason": why,
                                 })
                                 if pending:
-                                    _mark_proposals(
-                                        "pending", "testing", sid,
-                                        only_pending_ids={p["id"] for p in pending})
-                                    _note(f"{len(pending)} proposal(s) riding sweep {sid[:8]}")
+                                    # Audit F2: the engine reports which extras it
+                                    # DROPPED (stale/invalid vs the current active
+                                    # config, e.g. after a one-click apply mid-week).
+                                    # Only accepted proposals go 'testing'; dropped
+                                    # ones go 'invalid' — never tested-with-no-rows.
+                                    dropped = rbody.get("extra_dropped_diffs") or []
+                                    accepted = {p["id"] for p in pending
+                                                if {p["config_field"]: p.get("value")}
+                                                not in dropped}
+                                    rejected = {p["id"] for p in pending} - accepted
+                                    if accepted:
+                                        _mark_proposals("pending", "testing", sid,
+                                                        only_pending_ids=accepted)
+                                    if rejected:
+                                        _mark_proposals("pending", "invalid", sid,
+                                                        only_pending_ids=rejected)
+                                    _note(f"{len(accepted)} proposal(s) riding sweep "
+                                          f"{sid[:8]}"
+                                          + (f", {len(rejected)} invalid (stale vs "
+                                             f"active config)" if rejected else ""))
         except Exception as exc:  # noqa: BLE001
             _note(f"sweep check failed: {exc}")
 

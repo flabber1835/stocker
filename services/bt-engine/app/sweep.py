@@ -53,22 +53,24 @@ def enumerate_grid(grid: dict[str, list], max_configs: int = 200,
 
 
 def merge_extra_configs(diffs: list[dict], extras: list[dict] | None,
-                        base: dict) -> tuple[list[dict], int]:
+                        base: dict) -> tuple[list[dict], list]:
     """Experiment queue (Phase 6b): append evaluator-proposed single-diff
     configs AFTER grid enumeration — never cross-multiplied, so proposals can't
     explode the config count. Drops (never fatal — one bad proposal must not
     kill the standing sweep): non-dicts, empties, duplicates of a grid diff or
     an earlier extra, and diffs that fail StrategyConfig validation against the
-    base. Returns (merged_diffs, n_dropped)."""
+    base. Returns (merged_diffs, dropped) — dropped is the LIST of rejected
+    extras verbatim, so the caller (bt-scheduler) can mark exactly those
+    proposals 'invalid' instead of falsely 'testing' (audit F2)."""
     merged = list(diffs)
-    dropped = 0
+    dropped: list = []
     for extra in extras or []:
         if not isinstance(extra, dict) or not extra or extra in merged:
-            dropped += 1
+            dropped.append(extra)
             continue
         _validated, err = apply_diff(base, extra)
         if err is not None:
-            dropped += 1
+            dropped.append(extra)
             continue
         merged.append(extra)
     return merged, dropped

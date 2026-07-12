@@ -263,7 +263,11 @@ async def start_topup(background_tasks: BackgroundTasks):
         raise HTTPException(status_code=409,
                             detail="bt_prices is empty — run /jobs/backfill first")
     date_from = (max_date - timedelta(days=TOPUP_OVERLAP_DAYS)).isoformat()
-    date_to = date.today().isoformat()
+    # Trading-calendar date, not container-UTC (audit F5): after the ET close,
+    # UTC is already tomorrow — harmless with upserts, but ET keeps run rows
+    # and Sharadar date params speaking the same calendar.
+    from zoneinfo import ZoneInfo
+    date_to = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
     background_tasks.add_task(_run_backfill, date_from, date_to, None, "topup")
     return {"status": "started", "job_type": "topup", "date_from": date_from,
             "date_to": date_to, "mock": is_mock()}

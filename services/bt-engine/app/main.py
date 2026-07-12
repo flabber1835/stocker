@@ -355,8 +355,8 @@ async def start_sweep(req: SweepRequest, background_tasks: BackgroundTasks):
     diffs, extra_dropped = merge_extra_configs(
         diffs, req.extra_configs, base_cfg.model_dump(mode="json"))
     if extra_dropped:
-        print(f"[bt-engine] dropped {extra_dropped} invalid/duplicate extra "
-              f"config(s) from sweep request", flush=True)
+        print(f"[bt-engine] dropped {len(extra_dropped)} invalid/duplicate extra "
+              f"config(s) from sweep request: {extra_dropped}", flush=True)
 
     async with _sweep_lock:
         async with engine.begin() as conn:
@@ -378,8 +378,11 @@ async def start_sweep(req: SweepRequest, background_tasks: BackgroundTasks):
                 "vs": req.validate_start, "ve": req.validate_end})
     background_tasks.add_task(_sweep_bg, sweep_id, req, base_cfg, diffs, windows)
     return {"status": "started", "sweep_id": sweep_id, "n_configs": len(diffs),
-            "n_extra": len(req.extra_configs or []) - extra_dropped,
-            "n_extra_dropped": extra_dropped}
+            "n_extra": len(req.extra_configs or []) - len(extra_dropped),
+            "n_extra_dropped": len(extra_dropped),
+            # verbatim rejected diffs — bt-scheduler marks those proposals
+            # 'invalid' instead of 'testing' (audit F2)
+            "extra_dropped_diffs": extra_dropped}
 
 
 async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig,

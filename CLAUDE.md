@@ -393,9 +393,25 @@ docker compose up -d --build <changed-services...>
 
 Rebuild only the services whose code (or the `shared/` package they bundle)
 changed. A change under `shared/` requires rebuilding EVERY service that imports it.
-After pulling a new `docker-compose.yml`, run `docker compose down --remove-orphans`
-once (see above). NEVER pass `--volumes` to any `docker compose down` / prune — it
-deletes the Postgres data volume.
+A brand-NEW module file under `shared/` additionally requires rebuilding
+`stocker-base` first (`docker build --network host -t stocker-base:latest -f
+Dockerfile.base .`) — the editable install caches the module file list, and the
+backtest stack has no bind-mount override, so its services import the BAKED
+copy (this stale-base gap crash-looped bt-engine on the factor_registry
+import). After pulling a new `docker-compose.yml`, run
+`docker compose down --remove-orphans` once (see above). NEVER pass
+`--volumes` to any `docker compose down` / prune — it deletes the Postgres
+data volume.
+
+**One-click config applies dirty the NAS tree (evaluator Phase 3).** After an
+Apply click, `strategies/<active>.yaml` differs from origin and the NEXT
+`git pull` will refuse to merge. Before pulling, check
+`git status --porcelain strategies/`; if dirty, the applied change must first
+be mirrored into git (the byte-canonical copy is in
+`artifacts/config/applied/` — commit it upstream verbatim, then
+`git checkout -- strategies/ && git pull`). Never discard the local file
+without confirming the same change is already committed upstream (compare
+config_hash from the `config_changes` audit row).
 
 ---
 

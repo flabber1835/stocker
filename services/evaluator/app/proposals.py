@@ -87,6 +87,13 @@ def proposals_path() -> str:
                         "bt", "proposals.json")
 
 
+def proposals_lock():
+    """Serializes the read→harvest→write against bt-scheduler's lifecycle
+    marking (same lock file, same host inode — works across containers)."""
+    from stock_strategy_shared.filelock import file_lock
+    return file_lock(proposals_path() + ".lock")
+
+
 def read_proposals_file() -> dict | None:
     try:
         with open(proposals_path()) as f:

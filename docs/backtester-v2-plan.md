@@ -185,6 +185,12 @@ still zero network path between the stacks):
    against out-of-sample evidence instead of re-arguing them.
 ```
 
+EXPECTED LATENCY (not a defect): a recommendation harvested at Saturday's
+review rides the FOLLOWING Friday's sweep, whose leaderboard reaches the review
+after that — hypothesis → deep out-of-sample verdict is ~2 weeks end-to-end.
+The mid-review run_backtest tool (short live history) is the fast path when a
+thesis can't wait.
+
 SKIP-IF-UNCHANGED: on the weekly due-day the sweep actually fires only if
 (a) the spec file hash changed since the last fired sweep, OR (b) pending
 proposals exist, OR (c) the last successful sweep is older than
