@@ -145,7 +145,9 @@ precise literal suggested_values ("0.12", "null", "true") — prose values canno
 auto-tested.
 - ITERATE, don't restart: the packet's prior_reviews section is your own recent output. \
 Open the narrative by scoring last week's calls — for each prior recommendation, was it \
-adopted (compare suggested_value to the current YAML)? If adopted, did it help? If wrong, \
+adopted? The packet's applied_config_changes section is GROUND TRUTH for adoption \
+(one-click applies with source report + old/new values); fall back to comparing \
+suggested_value to the current YAML for manual edits. If adopted, did it help? If wrong, \
 retract it explicitly. Re-raise unadopted ones only when evidence still supports them, \
 noting the streak ("3rd consecutive week"). Streaks are RECOUNTED every review from the \
 prior_reviews per-week entries and are capped by total_distinct_review_weeks_ever — \

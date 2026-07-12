@@ -18,36 +18,14 @@ import json
 import os
 from typing import Any
 
+# SHARED parser (also used by the api service's one-click apply) — "what value
+# does this recommendation mean" cannot diverge between testing and applying.
+from stock_strategy_shared.config_values import parse_suggested_value  # noqa: F401
+
 from app.tools import apply_config_changes
 
 PENDING_CAP = int(os.getenv("EVALUATOR_PROPOSALS_PENDING_CAP", "8"))
 RETAIN = int(os.getenv("EVALUATOR_PROPOSALS_RETAIN", "40"))
-
-_NULL_TOKENS = {"none", "null", "off", "disabled", "disable"}
-
-
-def parse_suggested_value(raw: Any) -> tuple[Any, bool]:
-    """LLM suggested_value (a string per the report schema) → JSON value.
-    Returns (value, ok). Not every recommendation is a testable literal —
-    prose like 'reduce by half' fails parsing and is skipped, not guessed at."""
-    if isinstance(raw, (int, float, bool)) or raw is None:
-        return raw, True
-    s = str(raw).strip()
-    if not s:
-        return None, False
-    try:
-        return json.loads(s), True
-    except ValueError:
-        pass
-    low = s.lower()
-    if low in _NULL_TOKENS:
-        return None, True
-    if low == "true":
-        return True, True
-    if low == "false":
-        return False, True
-    # bare numbers with stray chars ("0.15 (15%)") or prose → not testable
-    return None, False
 
 
 def proposal_id(field: str, value: Any) -> str:

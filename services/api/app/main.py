@@ -186,6 +186,160 @@ async def get_factor_weights():
     }
 
 
+# ── Config apply (evaluator Phase 3 — one-click HUMAN-APPROVED apply) ──────────
+# The dashboard's Apply click is the human approval. This endpoint is
+# deterministic transport: parse the recommendation's literal value, apply the
+# SINGLE dotted-path diff, validate the ENTIRE new config through the
+# strategy-validator SERVICE (fail-closed: unreachable/invalid → no write),
+# archive before+after under /artifacts/config/, atomically replace the active
+# YAML, and record a config_changes audit row. The LLM never reaches this path.
+# See docs/architecture.md "evaluator Phase 3 — one-click apply".
+
+STRATEGY_VALIDATOR_URL = os.getenv("STRATEGY_VALIDATOR_URL", "http://strategy-validator:8000")
+ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "/artifacts")
+
+_config_apply_lock = asyncio.Lock()
+
+
+class ConfigApplyRequest(BaseModel):
+    config_field: str
+    suggested_value: str | float | int | bool | None = None
+    source_report_run_id: Optional[str] = None
+    recommendation_index: Optional[int] = None
+    confirm: bool = False
+
+
+def _hash_raw(raw: str) -> str:
+    import hashlib
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _archive_config(subdir: str, stamp: str, cfg_hash: str, raw: str) -> Optional[str]:
+    try:
+        d = os.path.join(ARTIFACTS_PATH, "config", subdir)
+        os.makedirs(d, exist_ok=True)
+        path = os.path.join(d, f"{stamp}_{cfg_hash}.yaml")
+        with open(path, "w") as f:
+            f.write(raw)
+        return path
+    except OSError:
+        return None
+
+
+@app.post("/config/apply")
+async def config_apply(req: ConfigApplyRequest):
+    import yaml as _yaml
+    from datetime import datetime as _dt, timezone as _tz
+
+    from stock_strategy_shared.config_values import (get_dotted, parse_suggested_value,
+                                                     set_dotted)
+
+    if not req.confirm:
+        raise HTTPException(status_code=400, detail="confirm=true required — this edits the live strategy config")
+    value, ok = parse_suggested_value(req.suggested_value)
+    if not ok:
+        raise HTTPException(status_code=422, detail=(
+            f"suggested_value {req.suggested_value!r} is not a literal — prose "
+            "recommendations cannot be one-click applied; edit the YAML manually"))
+
+    async with _config_apply_lock:
+        try:
+            with open(STRATEGY_CONFIG_PATH) as f:
+                old_raw = f.read()
+            cfg = _yaml.safe_load(old_raw)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=f"cannot read active config: {exc}")
+        old_value = get_dotted(cfg, req.config_field)
+        if old_value == value:
+            raise HTTPException(status_code=409, detail=(
+                f"{req.config_field} is already {value!r} — nothing to apply"))
+        err = set_dotted(cfg, req.config_field, value)
+        if err:
+            raise HTTPException(status_code=422, detail=err)
+
+        # Hard gate: the WHOLE new config through the strategy-validator service.
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                vr = await client.post(f"{STRATEGY_VALIDATOR_URL}/validate", json=cfg)
+        except Exception as exc:  # noqa: BLE001 — fail-closed, no write
+            raise HTTPException(status_code=503, detail=(
+                f"strategy-validator unreachable ({exc}) — config NOT applied"))
+        vbody = {}
+        try:
+            vbody = vr.json()
+        except Exception:  # noqa: BLE001
+            pass
+        if vr.status_code != 200 or not vbody.get("valid"):
+            raise HTTPException(status_code=422, detail={
+                "message": "strategy-validator rejected the new config — NOT applied",
+                "errors": vbody.get("errors") or [vr.text[:500]]})
+
+        new_raw = _yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False)
+        hash_before, hash_after = _hash_raw(old_raw), _hash_raw(new_raw)
+        stamp = _dt.now(_tz.utc).strftime("%Y%m%dT%H%M%SZ")
+        _archive_config("history", stamp, hash_before, old_raw)
+        applied_path = _archive_config("applied", stamp, hash_after, new_raw)
+
+        tmp = STRATEGY_CONFIG_PATH + ".tmp"
+        try:
+            with open(tmp, "w") as f:
+                f.write(new_raw)
+            os.replace(tmp, STRATEGY_CONFIG_PATH)
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=(
+                f"config write failed ({exc}) — active file unchanged"))
+
+        audit_ok = True
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    "INSERT INTO config_changes (id, config_path, config_field, old_value, "
+                    " new_value, config_hash_before, config_hash_after, source_report_run_id, "
+                    " recommendation_index, applied_by, validator_status) "
+                    "VALUES (CAST(:id AS uuid), :path, :field, CAST(:old AS jsonb), "
+                    "        CAST(:new AS jsonb), :hb, :ha, CAST(:rid AS uuid), :ridx, "
+                    "        'dashboard', :vst)"
+                ), {"id": str(uuid.uuid4()), "path": STRATEGY_CONFIG_PATH,
+                    "field": req.config_field, "old": json.dumps(old_value),
+                    "new": json.dumps(value), "hb": hash_before, "ha": hash_after,
+                    "rid": req.source_report_run_id, "ridx": req.recommendation_index,
+                    "vst": f"valid ({vr.status_code})"})
+        except Exception:  # noqa: BLE001 — file already applied; surface, don't unwind
+            traceback.print_exc()
+            audit_ok = False
+
+    return {
+        "applied": True,
+        "config_field": req.config_field,
+        "old_value": old_value,
+        "new_value": value,
+        "config_hash_before": hash_before,
+        "config_hash_after": hash_after,
+        "applied_artifact": applied_path,
+        "audit_row_written": audit_ok,
+        "note": ("takes effect on the NEXT chain run (config reloaded per run). "
+                 "Active file is now ahead of git — mirror the applied artifact "
+                 "into the repo before the next git-pull deploy."),
+    }
+
+
+@app.get("/config/changes")
+async def config_changes(limit: int = 50):
+    """Recent one-click config applies (audit) — dashboard badges + evaluator packet."""
+    try:
+        async with engine.connect() as conn:
+            rows = (await conn.execute(text(
+                "SELECT id::text AS id, applied_at, config_field, old_value, new_value, "
+                "       config_hash_before, config_hash_after, "
+                "       source_report_run_id::text AS source_report_run_id, "
+                "       recommendation_index, applied_by "
+                "FROM config_changes ORDER BY applied_at DESC LIMIT :lim"
+            ), {"lim": max(1, min(limit, 200))})).mappings().fetchall()
+    except Exception:  # noqa: BLE001 — table may predate migration 0042 on old DBs
+        return {"changes": []}
+    return {"changes": [fmt_row(r) for r in rows]}
+
+
 # ── Rankings ─────────────────────────────────────────────────────────────────────────────────
 
 @app.get("/rankings")

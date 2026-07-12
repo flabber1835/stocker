@@ -1170,7 +1170,20 @@ Loop budget EVALUATOR_MAX_TOOL_TURNS (default 24); exhaustion strips tools and
 demands the final report JSON. EVALUATOR_TOOLS_ENABLED=false → Phase-1
 packet-only (also the automatic fallback on a hard tool-loop failure). Every
 call persisted in evaluator_reports.tool_transcript (migration 0040) for audit.
-Phase 3 (planned): human-approved config changes via strategy-validator.
+Phase 3 (BUILT): one-click HUMAN-APPROVED apply. Review-tab recommendation
+cards carry an Apply button → api `POST /config/apply` (the ONLY service with
+a read-write strategies mount): parses the literal suggested_value (shared
+config_values.py — same parser as the experiment queue), applies the single
+dotted-path diff, validates the WHOLE new config through the
+strategy-validator SERVICE (fail-closed: unreachable/invalid → no write),
+archives before/after under artifacts/config/{history,applied}/, atomically
+replaces the active YAML (normalized — comments stripped; the applied/
+artifact is the canonical new version to mirror into git verbatim), and
+records a `config_changes` audit row (migration 0042). Takes effect next
+chain run (per-run config reload; mid-chain applies surface via the skew
+detector). The packet's `applied_config_changes` section is the ground truth
+for "was my recommendation adopted". The evaluator service itself stays
+read-only; the LLM never reaches the write path — the human click does.
 
 Cannot deploy changes directly. Never submits trades, never bypasses risk.
 

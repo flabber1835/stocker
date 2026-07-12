@@ -2412,7 +2412,11 @@ const _EVAL_VERDICT_COLOR = {
   insufficient_data: '#6B7280',
 };
 
+let _evalCurrent = null;      // report shown now (Apply needs its run_id)
+let _appliedChanges = [];     // config_changes audit rows (applied badges)
+
 function _renderEvalReport(rep) {
+  _evalCurrent = rep;
   const st = $('eval-status'), recs = $('eval-recs'),
         nar = $('eval-narrative'), meta = $('eval-meta');
   if (!rep) {
@@ -2443,20 +2447,30 @@ function _renderEvalReport(rep) {
 
   const items = rj.items || [];
   recs.innerHTML = items.length
-    ? items.map(it => {
+    ? items.map((it, idx) => {
         // Three header shapes: a single-field edit (field → value), general
         // advice (config_field 'none' — no field header, chip only), and an
         // unknown field (greyed + flagged; the model referenced a knob that
         // doesn't exist in the schema).
         const isAdvice = !it.config_field || it.config_field === 'none' || it.is_edit === false;
         const invalid = !isAdvice && it.config_field_valid === false;
+        // Phase 3 one-click apply: valid single-field edits get an Apply button;
+        // an audit row for this field+report renders as an APPLIED badge instead.
+        const applied = !isAdvice && !invalid && _appliedChanges.find(c =>
+          c.config_field === it.config_field && c.source_report_run_id === rep.run_id);
+        const applyUi = isAdvice || invalid ? ''
+          : applied
+            ? ' <span class="eval-chip" style="background:rgba(5,150,105,.15);color:#059669;border-color:#059669">APPLIED ' + _esc(applied.config_hash_after || '') + '</span>'
+            : ' <button class="eval-apply-btn" onclick="applyRecommendation(' + idx + ')" ' +
+              'style="margin-left:6px;padding:2px 10px;font-size:11px;cursor:pointer;border-radius:6px;' +
+              'border:1px solid var(--border)">Apply</button>';
         const chip = ' <span class="eval-chip">' +
           _esc(it.direction || '') + ' &middot; ' + _esc(it.confidence || '') + '</span>';
         const head = isAdvice
           ? '<div style="font-weight:700">General advice' + chip + '</div>'
           : '<div style="font-weight:700">' + _esc(it.config_field) +
             ' <span style="opacity:.7">&rarr; ' + _esc(it.suggested_value) + '</span>' + chip +
-            (invalid ? ' <span class="eval-chip eval-chip-bad">unknown config field — not actionable</span>' : '') +
+            (invalid ? ' <span class="eval-chip eval-chip-bad">unknown config field — not actionable</span>' : applyUi) +
             '</div>';
         return '<div style="margin:8px 12px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;' +
           (invalid ? 'opacity:.55' : '') + '">' +
@@ -2497,11 +2511,55 @@ function _renderEvalReport(rep) {
     ' out tokens · prompt ' + (rep.prompt_hash || '') + ' · config ' + (rep.config_hash || ''));
 }
 
+async function _loadAppliedChanges() {
+  try {
+    const d = await fetch('/api/config/changes').then(r => r.json());
+    _appliedChanges = d.changes || [];
+  } catch (e) { _appliedChanges = []; }
+}
+
+// Phase 3 one-click apply: the click IS the human approval. Server-side the
+// api validates the whole new config through strategy-validator before any
+// write; the dashboard only confirms intent and shows the result.
+async function applyRecommendation(idx) {
+  const rep = _evalCurrent;
+  if (!rep) return;
+  const it = (((rep.recommendations || {}).items) || [])[idx];
+  if (!it) return;
+  if (!confirm('Apply to the LIVE strategy config?\n\n' +
+               it.config_field + ' → ' + it.suggested_value +
+               '\n\nValidated by strategy-validator first; takes effect on the next chain run.')) return;
+  try {
+    const res = await fetch('/api/config/apply', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        config_field: it.config_field, suggested_value: it.suggested_value,
+        source_report_run_id: rep.run_id, recommendation_index: idx, confirm: true,
+      }),
+    }).then(r => r.json());
+    if (res.applied) {
+      alert('Applied ✓  config ' + res.config_hash_before + ' → ' + res.config_hash_after +
+            '\n\nTakes effect on the next chain run. The active file is now ahead of git — ' +
+            'mirror the applied artifact into the repo before the next deploy.');
+      await _loadAppliedChanges();
+      _renderEvalReport(rep);
+    } else {
+      const d = res.detail;
+      alert('NOT applied: ' + (typeof d === 'string' ? d
+        : d && d.message ? d.message + '\n' + (d.errors || []).join('\n')
+        : JSON.stringify(res)));
+    }
+  } catch (e) {
+    alert('Apply failed: ' + e);
+  }
+}
+
 async function loadEvaluator() {
   try {
     const [latest, hist] = await Promise.all([
       fetch('/api/evaluator/latest').then(r => r.json()),
       fetch('/api/evaluator/reports').then(r => r.json()),
+      _loadAppliedChanges(),
     ]);
     if (latest && latest.error) {
       $('eval-status').textContent = 'Evaluator unreachable: ' + latest.error;

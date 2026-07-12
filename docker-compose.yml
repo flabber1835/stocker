@@ -82,11 +82,16 @@ services:
       AV_INGESTOR_URL:       http://av-ingestor:8000
       PORTFOLIO_BUILDER_URL: http://portfolio-builder:8000
       SCHEDULER_URL:         http://scheduler:8000
-      # Read-only: lets /strategy/factor-weights expose the live weights for the
-      # detail-card annotation. Keep in sync with the other strategy consumers.
+      # Keep in sync with the other strategy consumers. Mounted READ-WRITE
+      # (only service with write access): the evaluator-Phase-3 one-click apply
+      # (POST /config/apply) atomically rewrites the active YAML after the
+      # strategy-validator gate — see docs/architecture.md "one-click apply".
       STRATEGY_CONFIG_PATH: /strategies/momentum_rotation_v2.yaml
+      STRATEGY_VALIDATOR_URL: http://strategy-validator:8000
+      ARTIFACTS_PATH: /artifacts
     volumes:
-      - ./strategies:/strategies:ro
+      - ./strategies:/strategies
+      - ./artifacts:/artifacts
     depends_on:
       postgres:
         condition: service_healthy

@@ -742,6 +742,24 @@ async def _config_history(conn) -> list[dict]:
              "last_seen": str(r["last_d"]), "runs": r["runs"]} for r in rows]
 
 
+async def _applied_config_changes(conn) -> list[dict]:
+    """One-click applies (evaluator Phase 3, config_changes audit): which of
+    YOUR past recommendations the human actually applied, when, and what
+    changed — ground truth for the 'was it adopted' scoring, no YAML-diff
+    guessing needed."""
+    rows = (await conn.execute(text(
+        "SELECT applied_at, config_field, old_value, new_value, "
+        "       config_hash_before, config_hash_after, "
+        "       source_report_run_id::text AS source_report_run_id "
+        "FROM config_changes ORDER BY applied_at DESC LIMIT 20"
+    ))).mappings().all()
+    return [{"applied_at": str(r["applied_at"]), "config_field": r["config_field"],
+             "old_value": r["old_value"], "new_value": r["new_value"],
+             "config_hash_before": r["config_hash_before"],
+             "config_hash_after": r["config_hash_after"],
+             "source_report_run_id": r["source_report_run_id"]} for r in rows]
+
+
 async def _system_health(conn) -> dict:
     """Ops caveats so the LLM doesn't misread an outage as alpha decay."""
     out: dict[str, Any] = {}
@@ -787,6 +805,7 @@ async def build_packet(engine, as_of: date | None = None) -> dict:
             "exit_outcomes": await _section(lambda: _exit_outcomes(conn), conn),
             "current_target_book": await _section(lambda: _current_book(conn), conn),
             "config_history": await _section(lambda: _config_history(conn), conn),
+            "applied_config_changes": await _section(lambda: _applied_config_changes(conn), conn),
             "system_health": await _section(lambda: _system_health(conn), conn),
             "hypothesis_ledger": await _section(lambda: _hypothesis_ledger(conn), conn),
             "backtest_lab": await _section(lambda: _async_wrap(_backtest_lab)),

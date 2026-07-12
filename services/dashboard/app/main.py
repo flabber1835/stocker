@@ -439,6 +439,30 @@ async def proxy_delta_latest():
     return await _proxy("/delta/latest")
 
 
+@app.post("/api/config/apply")
+async def proxy_config_apply(request: Request):
+    """Evaluator Phase 3: forward the human's Apply click to the api's one-click
+    config apply (validator-gated, audited). The dashboard adds nothing — the
+    click IS the approval; all safety lives server-side."""
+    try:
+        body = await request.json()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(f"{API_URL}/config/apply", json=body)
+            return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=502)
+
+
+@app.get("/api/config/changes")
+async def proxy_config_changes():
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(f"{API_URL}/config/changes")
+            return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=502)
+
+
 @app.post("/api/trade/approve")
 async def proxy_trade_approve(request: Request):
     try:

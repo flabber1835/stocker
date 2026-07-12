@@ -1711,9 +1711,52 @@ Phase 1 (BUILT)   — read-only weekly report in the dashboard's Review tab
 Phase 2 (BUILT)   — the LLM calls read-only TOOLS mid-review (backtester, SQL,
                     source/docs read, web search) to test a thesis before
                     recommending it — see "Phase 2: evaluator tools" below
-Phase 3 (planned) — human-approved application of recommendations to the
-                    strategy YAML (via strategy-validator, never direct)
+Phase 3 (BUILT)   — one-click HUMAN-APPROVED apply of a recommendation to the
+                    strategy YAML — see "Phase 3: one-click apply" below
 ```
+
+## Design Decision: evaluator Phase 3 — one-click apply (BUILT)
+
+The Review tab's actionable recommendation cards carry an **Apply** button. The
+click is the human approval — the LLM boundary is unchanged (the evaluator
+service stays read-only/advisory; the LLM never touches the file; a
+deterministic, human-triggered endpoint does).
+
+Flow (api service, `POST /config/apply`, single writer via an in-process lock):
+
+```text
+dashboard Apply click (confirm dialog)
+  → api parses the recommendation's suggested_value to a literal
+      (shared/stock_strategy_shared/config_values.py — same parser the
+       experiment queue uses; prose values are rejected, never guessed)
+  → applies the SINGLE dotted-path diff to the active YAML
+  → validates the ENTIRE new config through the strategy-validator SERVICE
+      (HTTP /validate; unreachable or invalid → HTTP error, NO write —
+       fail-closed, honoring "no config reaches the trading system unless it
+       passes validation")
+  → archives: pre-change file → artifacts/config/history/<ts>_<oldhash>.yaml,
+              exact new bytes  → artifacts/config/applied/<ts>_<newhash>.yaml
+  → atomically replaces the active YAML (tmp + rename)
+  → INSERT config_changes row (migration 0042): field, old/new value,
+      config_hash before/after, source report run_id + recommendation index
+```
+
+Consequences, deliberate:
+- **Takes effect next chain run** (services reload config per run); a mid-chain
+  apply is safe — the delta step's config-skew detector surfaces it non-fatally
+  and the next run converges.
+- **The written YAML is NORMALIZED** (PyYAML re-dump: comments stripped,
+  canonical key order). config_hash is a hash of raw file bytes, so the archived
+  `applied/` copy IS the canonical new version — mirroring it into git verbatim
+  reproduces the same hash. The pre-change file (with comments) is preserved in
+  `history/`.
+- **Git reconciliation is a follow-up, not a blocker**: after an apply, the NAS
+  working tree differs from origin (the dashboard shows the applied badge; the
+  repo is still the source of truth). Mirror the applied file into git before
+  the next `git pull` deploy (`git checkout -- strategies/ && git pull` AFTER
+  committing the mirrored change upstream, or commit from the NAS).
+- The experiment queue (Phase 6b) and one-click apply compose: test in the wind
+  tunnel first, apply what survives.
 
 ## Design Decision: evaluator tools (Phase 2)
 
