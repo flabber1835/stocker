@@ -252,6 +252,6 @@ def test_factory_default_is_alpaca(monkeypatch):
 
 
 def test_factory_rejects_unknown(monkeypatch):
-    monkeypatch.setenv("BROKER", "ibkr")
+    monkeypatch.setenv("BROKER", "robinhood")
     with pytest.raises(ValueError):
         get_broker_adapter()

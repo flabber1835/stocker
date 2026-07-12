@@ -375,6 +375,13 @@ services:
       ALPACA_API_KEY: ${ALPACA_API_KEY:-}
       ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
       ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+      # Broker selection (default alpaca). The IBKR vars are INERT until
+      # BROKER=ibkr AND the --profile ibkr gateway sidecar runs — see
+      # docs/service-boundaries.md "Broker abstraction — IBKR".
+      BROKER: ${BROKER:-alpaca}
+      IBKR_GATEWAY_URL: ${IBKR_GATEWAY_URL:-}
+      IBKR_ACCOUNT_ID: ${IBKR_ACCOUNT_ID:-}
+      IBKR_TLS_VERIFY: ${IBKR_TLS_VERIFY:-false}
       PYTHONUNBUFFERED: "1"
     depends_on:
       postgres:
@@ -385,6 +392,20 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+
+  # IBKR Client Portal session gateway (DORMANT — starts only with
+  # `--profile ibkr`). ibeam automates the CP gateway's headless login/2FA/
+  # keepalive; it is the ONLY container holding IBKR username/password. The
+  # adapter reaches it at IBKR_GATEWAY_URL=https://ibkr-gateway:5000 (self-signed
+  # TLS → IBKR_TLS_VERIFY=false). No host port on purpose: nothing outside the
+  # compose network can reach the session.
+  ibkr-gateway:
+    profiles: [ibkr]
+    image: voyz/ibeam:latest
+    restart: unless-stopped
+    environment:
+      IBEAM_ACCOUNT: ${IBKR_USERNAME:-}
+      IBEAM_PASSWORD: ${IBKR_PASSWORD:-}
 
   intraday-monitor:
     profiles: [optional]
@@ -437,6 +458,11 @@ services:
       ALPACA_API_KEY: ${ALPACA_API_KEY:-}
       ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
       ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+      # Broker selection — same inert-by-default IBKR block as alpaca-sync.
+      BROKER: ${BROKER:-alpaca}
+      IBKR_GATEWAY_URL: ${IBKR_GATEWAY_URL:-}
+      IBKR_ACCOUNT_ID: ${IBKR_ACCOUNT_ID:-}
+      IBKR_TLS_VERIFY: ${IBKR_TLS_VERIFY:-false}
       RISK_SERVICE_URL: http://risk-service:8000
       EXIT_SYNC_MAX_AGE_HOURS: ${EXIT_SYNC_MAX_AGE_HOURS:-24}
       DEFAULT_MAX_POSITIONS: ${DEFAULT_MAX_POSITIONS:-30}

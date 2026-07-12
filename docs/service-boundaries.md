@@ -313,11 +313,64 @@ mocking strategy and is behavior-identical (verified:
 `tests/trade_executor/test_broker_adapter_seam.py`,
 `test_cancel_all_partial.py`, `test_close_position_404.py`).
 
-**Adding IBKR (future):** implement `IBKRBrokerAdapter` (the read + write methods
-above), add a `BROKER=ibkr` branch in `factory.py`, and run IBKR's stateful
-session process (IB Gateway / Client Portal Gateway) as a sidecar gated behind a
-`--profile ibkr` compose profile (Alpaca machines never start it). No risk-math
-or decision-logic changes — provided each machine keeps its own DB.
+### Broker abstraction — IBKR (`broker/ibkr.py`, BUILT · DORMANT)
+
+`IBKRBrokerAdapter` targets the **Client Portal Web API** through a session
+gateway sidecar. Dormant by three independent defaults — activation requires ALL
+of: `BROKER=ibkr`, `docker compose --profile ibkr up` (starts the `ibkr-gateway`
+ibeam sidecar), and `IBKR_GATEWAY_URL`/`IBKR_ACCOUNT_ID` set (unset →
+`has_credentials()` False → the same no-op short-circuit as an empty
+`ALPACA_API_KEY`). A default deployment never constructs, starts, or reaches any
+of it.
+
+Design decisions:
+
+- **Session auth lives in the sidecar, not the adapter.** IBKR CP requires a
+  logged-in browser-like session (username/password + 2FA, expiry, keepalive).
+  The `ibkr-gateway` compose service (ibeam image, `--profile ibkr`) owns that
+  lifecycle and is the ONLY container holding `IBKR_USERNAME`/`IBKR_PASSWORD`;
+  the adapter speaks plain REST to it. No host port is published — the session
+  is reachable only inside the compose network. Self-signed gateway TLS →
+  `IBKR_TLS_VERIFY=false` by default.
+- **conid resolution**: CP orders take contract ids. The adapter resolves
+  system ticker → conid via `/iserver/secdef/search` (exact-symbol STK match
+  preferred), cached per process.
+- **Reply confirmations**: order submission may return "question" prompts that
+  must be acknowledged before the order exists; the adapter auto-confirms via
+  `/iserver/reply/{id}` in a bounded loop (5), then fails loudly.
+- **Synthesized close / cancel-all**: CP has neither endpoint. `close_position`
+  reads the LIVE gateway position and submits a full-qty MKT order (flat →
+  `ALREADY_CLOSED_STATUS`); `cancel_all_orders` cancels working orders one by
+  one and synthesizes the same `(207, [{id, status}], text)` multi-status shape
+  trade-executor's confirmed/failed split already consumes.
+- **Consumer-contract normalization**: `get_order` returns the ALPACA-SHAPED
+  dict the fill reconciler reads (`status`/`filled_qty`/`filled_avg_price`/
+  `filled_at`); `list_orders` injects CP's `order_ref` into
+  `raw["client_order_id"]` for the reaper's reconcile-by-client_order_id.
+- **Status map**: Filled→`filled`, Cancelled/ApiCancelled→`cancelled`,
+  Inactive (rejected/not eligible)→`failed`; PendingSubmit/PreSubmitted/
+  Submitted/PendingCancel→open (None). CP reports partial fills as
+  still-Submitted with a filledQuantity, so `partial_fill` is never emitted —
+  a partially-filled order stays open until terminal.
+- **Symbology**: system hyphen ↔ IBKR space (`BRK-B` ↔ `BRK B`), mirroring the
+  Alpaca dot swap.
+- **get_clock**: CP has no clock endpoint; regular NYSE hours are computed
+  locally in ET **without a holiday calendar**. Contained risk (a holiday
+  misread as open submits inline instead of draining; DAY orders queue at the
+  broker either way) but on the activation checklist regardless.
+
+**Pre-activation checklist (must be done BEFORE `BROKER=ibkr` on a real book):**
+1. Holiday calendar for `get_clock` (or a CP trading-schedule lookup).
+2. Verify ibeam 2FA setup allows unattended re-auth on the deploy host.
+3. Confirm after-close DAY market orders queue for the next open on the PAPER
+   account (the rotation design depends on it) and that fill-gated-drain
+   buying-power reads behave on an IBKR margin account.
+4. ≥1 week paper-account shakedown (`IBKR_ACCOUNT_ID=DU…`) with `KILL_SWITCH`
+   ready and `PAPER_ONLY=true`.
+
+No risk-math or decision-logic changes — each machine keeps its own DB; the
+`alpaca_*` table names on an IBKR box hold IBKR data (naming carry-over, not a
+coupling).
 
 ### alpaca-sync
 

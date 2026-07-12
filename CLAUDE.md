@@ -1696,7 +1696,10 @@ stocker/
         strategy.py      ← StrategyConfig, RegimeDetectionConfig, FactorWeights, etc.
       order_status.py    ← canonical alpaca_orders.status tokens (single source)
       broker/            ← BrokerAdapter abstraction (one active broker per deploy,
-                           BROKER env; AlpacaBrokerAdapter built, IBKR planned).
+                           BROKER env; AlpacaBrokerAdapter built; IBKRBrokerAdapter
+                           BUILT but DORMANT — activation needs BROKER=ibkr + the
+                           --profile ibkr ibeam sidecar + IBKR_* env + the
+                           pre-activation checklist in service-boundaries.md).
                            See docs/service-boundaries.md "Broker abstraction".
 
   services/
