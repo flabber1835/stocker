@@ -7,7 +7,7 @@ import traceback
 import uuid
 from contextlib import asynccontextmanager
 from datetime import date
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -202,8 +202,15 @@ _config_apply_lock = asyncio.Lock()
 
 
 class ConfigApplyRequest(BaseModel):
-    config_field: str
+    config_field: Optional[str] = None
     suggested_value: str | float | int | bool | None = None
+    # PAIRED/BATCH apply: {dotted.field: suggested_value, ...} applied in ONE
+    # atomic validate+write. Needed for coupled edits that are individually
+    # schema-invalid — e.g. the W29 factor reweight (near_high 0.06→0 funds
+    # low_volatility 0.08→0.14): either field alone breaks the weights-sum-to-1
+    # invariant and is rightly rejected; together they validate. When `changes`
+    # is set, config_field/suggested_value are ignored.
+    changes: Optional[dict[str, str | float | int | bool | None]] = None
     source_report_run_id: Optional[str] = None
     recommendation_index: Optional[int] = None
     confirm: bool = False
@@ -236,11 +243,18 @@ async def config_apply(req: ConfigApplyRequest):
 
     if not req.confirm:
         raise HTTPException(status_code=400, detail="confirm=true required — this edits the live strategy config")
-    value, ok = parse_suggested_value(req.suggested_value)
-    if not ok:
-        raise HTTPException(status_code=422, detail=(
-            f"suggested_value {req.suggested_value!r} is not a literal — prose "
-            "recommendations cannot be one-click applied; edit the YAML manually"))
+    raw_changes = (req.changes if req.changes
+                   else {req.config_field or "": req.suggested_value})
+    edits: dict[str, Any] = {}
+    for field, raw in raw_changes.items():
+        if not field:
+            raise HTTPException(status_code=422, detail="config_field (or changes) required")
+        value, ok = parse_suggested_value(raw)
+        if not ok:
+            raise HTTPException(status_code=422, detail=(
+                f"suggested_value {raw!r} for {field} is not a literal — prose "
+                "recommendations cannot be one-click applied; edit the YAML manually"))
+        edits[field] = value
 
     async with _config_apply_lock:
         try:
@@ -249,13 +263,14 @@ async def config_apply(req: ConfigApplyRequest):
             cfg = _yaml.safe_load(old_raw)
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=500, detail=f"cannot read active config: {exc}")
-        old_value = get_dotted(cfg, req.config_field)
-        if old_value == value:
+        old_values = {f: get_dotted(cfg, f) for f in edits}
+        if all(old_values[f] == v for f, v in edits.items()):
             raise HTTPException(status_code=409, detail=(
-                f"{req.config_field} is already {value!r} — nothing to apply"))
-        err = set_dotted(cfg, req.config_field, value)
-        if err:
-            raise HTTPException(status_code=422, detail=err)
+                f"{list(edits)} already at the suggested value(s) — nothing to apply"))
+        for field, value in edits.items():
+            err = set_dotted(cfg, field, value)
+            if err:
+                raise HTTPException(status_code=422, detail=err)
 
         # Hard gate: the WHOLE new config through the strategy-validator service.
         try:
@@ -292,27 +307,29 @@ async def config_apply(req: ConfigApplyRequest):
         audit_ok = True
         try:
             async with engine.begin() as conn:
-                await conn.execute(text(
-                    "INSERT INTO config_changes (id, config_path, config_field, old_value, "
-                    " new_value, config_hash_before, config_hash_after, source_report_run_id, "
-                    " recommendation_index, applied_by, validator_status) "
-                    "VALUES (CAST(:id AS uuid), :path, :field, CAST(:old AS jsonb), "
-                    "        CAST(:new AS jsonb), :hb, :ha, CAST(:rid AS uuid), :ridx, "
-                    "        'dashboard', :vst)"
-                ), {"id": str(uuid.uuid4()), "path": STRATEGY_CONFIG_PATH,
-                    "field": req.config_field, "old": json.dumps(old_value),
-                    "new": json.dumps(value), "hb": hash_before, "ha": hash_after,
-                    "rid": req.source_report_run_id, "ridx": req.recommendation_index,
-                    "vst": f"valid ({vr.status_code})"})
+                for field, value in edits.items():
+                    await conn.execute(text(
+                        "INSERT INTO config_changes (id, config_path, config_field, old_value, "
+                        " new_value, config_hash_before, config_hash_after, source_report_run_id, "
+                        " recommendation_index, applied_by, validator_status) "
+                        "VALUES (CAST(:id AS uuid), :path, :field, CAST(:old AS jsonb), "
+                        "        CAST(:new AS jsonb), :hb, :ha, CAST(:rid AS uuid), :ridx, "
+                        "        'dashboard', :vst)"
+                    ), {"id": str(uuid.uuid4()), "path": STRATEGY_CONFIG_PATH,
+                        "field": field, "old": json.dumps(old_values[field]),
+                        "new": json.dumps(value), "hb": hash_before, "ha": hash_after,
+                        "rid": req.source_report_run_id, "ridx": req.recommendation_index,
+                        "vst": f"valid ({vr.status_code})"})
         except Exception:  # noqa: BLE001 — file already applied; surface, don't unwind
             traceback.print_exc()
             audit_ok = False
 
     return {
         "applied": True,
-        "config_field": req.config_field,
-        "old_value": old_value,
-        "new_value": value,
+        "changes": {f: {"old": old_values[f], "new": v} for f, v in edits.items()},
+        "config_field": next(iter(edits)),
+        "old_value": old_values[next(iter(edits))],
+        "new_value": edits[next(iter(edits))],
         "config_hash_before": hash_before,
         "config_hash_after": hash_after,
         "applied_artifact": applied_path,

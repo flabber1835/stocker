@@ -156,6 +156,68 @@ async def test_validator_unreachable_fails_closed(sandbox):
 
 
 @pytest.mark.asyncio
+async def test_paired_apply_atomic_where_singles_are_invalid(sandbox):
+    """The W29 case: near_high→0 and low_volatility→0.14 each break the
+    weights-sum-to-1 invariant ALONE but validate TOGETHER. The batch path must
+    apply both atomically; the audit gets one row per field."""
+    fake = _FakeHttpx(_Resp({"valid": True}))
+    with patch.object(main, "httpx", fake):
+        res = await main.config_apply(main.ConfigApplyRequest(
+            changes={"static_factor_weights.near_high": "0.0",
+                     "static_factor_weights.low_volatility": "0.14"},
+            confirm=True))
+    assert res["applied"] is True
+    assert res["changes"]["static_factor_weights.near_high"]["new"] == 0.0
+    assert res["changes"]["static_factor_weights.low_volatility"]["new"] == 0.14
+    new_cfg = yaml.safe_load(open(sandbox))
+    w = new_cfg["static_factor_weights"]
+    assert w["near_high"] == 0.0 and w["low_volatility"] == 0.14
+    assert abs(sum(w.values()) - 1.0) < 1e-6
+    # validator saw ONE whole config carrying BOTH edits
+    posted = fake.last_posted["static_factor_weights"]
+    assert posted["near_high"] == 0.0 and posted["low_volatility"] == 0.14
+    # one audit row per field
+    inserts = [p for sql, p in main.engine.executed if "config_changes" in sql]
+    assert {p["field"] for p in inserts} == {
+        "static_factor_weights.near_high", "static_factor_weights.low_volatility"}
+
+
+@pytest.mark.asyncio
+async def test_single_field_of_a_coupled_pair_is_rejected_no_write(sandbox):
+    """Locks WHY the batch path exists: one leg alone must be refused by the
+    real schema (weights sum 0.94) and leave the file untouched."""
+    from stock_strategy_shared.schemas.strategy import StrategyConfig
+    before = open(sandbox).read()
+
+    class _RealValidatorHttpx(_FakeHttpx):
+        def __init__(self):
+            super().__init__()
+            outer = self
+
+            class _Client:
+                def __init__(self, *a, **k): ...
+                async def __aenter__(self): return self
+                async def __aexit__(self, *a): return False
+                async def post(self, url, json=None, **k):
+                    outer.last_posted = json
+                    try:
+                        StrategyConfig(**json)
+                        return _Resp({"valid": True})
+                    except Exception as exc:
+                        return _Resp({"valid": False, "errors": [str(exc)]}, 422)
+            self.AsyncClient = _Client
+
+    with patch.object(main, "httpx", _RealValidatorHttpx()):
+        with pytest.raises(HTTPException) as ei:
+            await main.config_apply(_req(
+                config_field="static_factor_weights.near_high",
+                suggested_value="0.0"))
+    assert ei.value.status_code == 422
+    assert "sum" in str(ei.value.detail).lower()
+    assert open(sandbox).read() == before
+
+
+@pytest.mark.asyncio
 async def test_null_literal_disables_nullable_knob(sandbox):
     fake = _FakeHttpx(_Resp({"valid": True}))
     with patch.object(main, "httpx", fake):

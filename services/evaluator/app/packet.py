@@ -765,9 +765,13 @@ async def _system_health(conn) -> dict:
     out: dict[str, Any] = {}
     for tbl, datecol in (("ranking_runs", "started_at"), ("portfolio_runs", "started_at"),
                          ("ingest_runs", "started_at"), ("delta_runs", "started_at")):
+        # 'partial_success' counts as ok: av-ingestor stamps it whenever ANY
+        # ticker errored during a fetch, which is nearly every night on a
+        # full-universe run. Counting only 'success' made ingest read 0/0 while
+        # the chain ran fine (the W29 report's "run-accounting artifact").
         row = (await conn.execute(text(
             f"SELECT COUNT(*) FILTER (WHERE status='failed') AS failed, "
-            f"       COUNT(*) FILTER (WHERE status='success') AS ok "
+            f"       COUNT(*) FILTER (WHERE status IN ('success','partial_success')) AS ok "
             f"FROM {tbl} WHERE {datecol} >= NOW() - INTERVAL '14 days'"
         ))).fetchone()
         out[tbl] = {"failed_14d": row[0], "success_14d": row[1]}
