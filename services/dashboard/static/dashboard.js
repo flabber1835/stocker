@@ -2542,6 +2542,13 @@ async function _loadAppliedChanges() {
 async function applyRecommendation(idx) {
   const rep = _evalCurrent;
   if (!rep) return;
+  // If the user has ticked "pair" boxes, a per-card Apply is a doomed
+  // single-field request (a coupled edit alone fails schema validation) —
+  // their intent is clearly the pair, so delegate to the atomic batch flow.
+  const ticked = document.querySelectorAll('.eval-rec-cb:checked').length;
+  if (ticked >= 2) {
+    return applySelectedRecommendations();
+  }
   const it = (((rep.recommendations || {}).items) || [])[idx];
   if (!it) return;
   if (!confirm('Apply to the LIVE strategy config?\n\n' +

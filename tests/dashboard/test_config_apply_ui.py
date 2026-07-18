@@ -24,6 +24,10 @@ def test_apply_sends_confirm_and_source_report():
     m = re.search(r"async function applyRecommendation\(idx\)\s*\{(.*?)\n\}", JS, re.S)
     assert m, "applyRecommendation() missing"
     body = m.group(1)
+    # per-card Apply with pair boxes ticked delegates to the atomic batch —
+    # never fires the doomed single-field request (live UX finding)
+    assert "return applySelectedRecommendations()" in body
+    assert re.search(r"ticked >= 2", body)
     assert "confirm: true" in body
     assert "source_report_run_id: rep.run_id" in body
     assert "recommendation_index: idx" in body
