@@ -96,6 +96,26 @@ def latest_closed_session(now_local: datetime, close: _time = REGULAR_CLOSE) -> 
     return sess
 
 
+def universe_refresh_due(now_local: datetime, last_fetched: datetime | None,
+                         threshold_days: float = 7.0) -> bool:
+    """Weekly universe (LISTING_STATUS) refresh gate — PURE.
+
+    fetch-universe used to fire ONLY on cold start (empty table), so the
+    listed-equity universe was frozen at first boot: new listings (IPOs) never
+    entered and delistings never dropped. Due when it is a WEEKEND locally (no
+    chain contention, AV quota idle) and the newest snapshot is older than
+    `threshold_days`. last_fetched=None (no snapshot) is NOT due here — the
+    supervisor's cold-start branch owns the empty case. threshold<=0 disables."""
+    if threshold_days <= 0 or last_fetched is None:
+        return False
+    if now_local.weekday() < 5:
+        return False
+    lf = last_fetched if last_fetched.tzinfo else last_fetched.replace(
+        tzinfo=now_local.tzinfo)
+    age_days = (now_local - lf.astimezone(now_local.tzinfo)).total_seconds() / 86400.0
+    return age_days >= threshold_days
+
+
 def should_run_chain(today: date, last_processed_session: date | None) -> bool:
     """Trading-calendar-aware decision: should the daily chain START today?
 

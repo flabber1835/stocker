@@ -587,6 +587,9 @@ services:
       TZ:                       America/New_York
       DATABASE_URL:             postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       SUPERVISOR_INTERVAL_SECS: ${SUPERVISOR_INTERVAL_SECS:-300}
+      # Weekly LISTING_STATUS refresh (weekend-only): keeps the universe current
+      # — new listings enter, delistings drop. 0 disables (frozen-at-boot).
+      UNIVERSE_REFRESH_DAYS: ${UNIVERSE_REFRESH_DAYS:-7}
     depends_on:
       postgres:
         condition: service_healthy

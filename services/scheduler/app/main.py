@@ -12,7 +12,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import BackgroundTasks, FastAPI
 
-from app.staleness import last_trading_day, latest_closed_session
+from app.staleness import last_trading_day, latest_closed_session, universe_refresh_due
 
 AV_INGESTOR_URL       = os.getenv("AV_INGESTOR_URL",       "http://av-ingestor:8000")
 PIPELINE_URL          = os.getenv("PIPELINE_URL",           "http://pipeline:8000")
@@ -1065,6 +1065,46 @@ async def _maybe_trigger_evaluator() -> None:
         _log("evaluator weekly trigger failed (will retry next window)", error=str(exc))
 
 
+# Weekly universe (LISTING_STATUS) refresh. fetch-universe used to fire ONLY on
+# cold start (empty table), freezing the listed-equity world at first boot: new
+# listings (IPOs) never entered, delistings never dropped — invisible even to
+# the invisible_bench, whose cohorts derive from the universe snapshot.
+# Weekend-only (no chain contention, AV quota idle), once-per-day attempt,
+# age-gated by the pure universe_refresh_due. 0 disables.
+UNIVERSE_REFRESH_DAYS = float(os.getenv("UNIVERSE_REFRESH_DAYS", "7"))
+_universe_refresh_attempted: str | None = None   # local ISO date of last attempt
+
+
+async def _maybe_refresh_universe() -> None:
+    """Best-effort weekly universe refresh — never blocks or fails the chain."""
+    global _universe_refresh_attempted
+    now = _local_now()
+    today = now.date().isoformat()
+    if UNIVERSE_REFRESH_DAYS <= 0 or _universe_refresh_attempted == today:
+        return
+    conn = await _db_connect()
+    if conn is None:
+        return
+    try:
+        last = await conn.fetchval("SELECT MAX(fetched_at) FROM universe_snapshots")
+    except Exception as exc:  # noqa: BLE001
+        _log("universe refresh: age check failed", error=str(exc))
+        return
+    finally:
+        await conn.close()
+    if not universe_refresh_due(now, last, threshold_days=UNIVERSE_REFRESH_DAYS):
+        return
+    _universe_refresh_attempted = today
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(f"{AV_INGESTOR_URL}/jobs/fetch-universe")
+            _log("universe weekly refresh triggered",
+                 status_code=r.status_code,
+                 snapshot_age_last_fetched=str(last))
+    except Exception as exc:  # noqa: BLE001 — av-ingestor down must not affect the chain
+        _log("universe weekly refresh failed (will retry next weekend day)", error=str(exc))
+
+
 async def _supervisor_tick() -> None:
     """
     Non-blocking state-machine supervisor. Reads each step's status from its
@@ -1077,6 +1117,8 @@ async def _supervisor_tick() -> None:
     """
     # Weekly evaluator trigger — independent of the daily chain, never blocks it.
     await _maybe_trigger_evaluator()
+    # Weekly universe refresh — same independence, weekend-gated inside.
+    await _maybe_refresh_universe()
 
     today = _local_today().isoformat()
     trading_day = last_trading_day(_local_today()).isoformat()
