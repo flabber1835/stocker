@@ -1,5 +1,18 @@
 """Shared tracing utilities: execution step logging, trace file artifacts, row serialization."""
 from __future__ import annotations
+
+
+def exc_text(exc: BaseException, limit: int = 1000) -> str:
+    """Exception → persistable error text that is NEVER empty.
+
+    `str(exc)` alone is "" for several real exception types (notably httpx's
+    ConnectTimeout/ReadTimeout — exactly what a broker/API blip raises), which
+    persisted BLANK error_message rows: the failure was recorded but the reason
+    was unknowable afterwards (found via the evaluator's error_digest — three
+    empty-text alpaca-sync failures). Always lead with the class name."""
+    msg = str(exc).strip()
+    text = f"{type(exc).__name__}: {msg}" if msg else type(exc).__name__
+    return text[:limit]
 import asyncio
 import json
 import os

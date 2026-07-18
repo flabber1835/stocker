@@ -28,7 +28,7 @@ from app.engine import (
 )
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 from stock_strategy_shared.loader import load_strategy
-from stock_strategy_shared.tracing import log_step, write_trace_file, mark_orphaned_runs_failed
+from stock_strategy_shared.tracing import log_step, write_trace_file, mark_orphaned_runs_failed, exc_text
 from stock_strategy_shared.db import wait_for_db
 from stock_strategy_shared.drawdown import recent_drawdown, scaled_excess_threshold
 from stock_strategy_shared.order_status import open_status_sql
@@ -725,7 +725,7 @@ async def _do_factor_step(today: date) -> tuple[str, str, date]:
     try:
         score_date = await _do_calculate(factor_run_id, trace_id, today, started_at)
     except Exception as exc:
-        err = str(exc)[:1000]
+        err = exc_text(exc, 1000)
         async with engine.begin() as conn:
             await conn.execute(
                 text(
@@ -1438,7 +1438,7 @@ async def _do_rank_step(source_factor_run_id: str, regime: str, rank_date: date)
     try:
         await _do_rank(ranking_run_id, trace_id, started_at, source_factor_run_id, regime, rank_date)
     except Exception as exc:
-        err_msg = str(exc)[:1000]
+        err_msg = exc_text(exc, 1000)
         traceback.print_exc()
         print(f"[ranker] run {ranking_run_id} FAILED: {err_msg}")
         async with engine.begin() as conn:
@@ -2035,7 +2035,7 @@ async def _do_delta_step(
     try:
         await _do_delta(delta_run_id, trace_id, started_at, de_cfg)
     except Exception as exc:
-        err = str(exc)[:1000]
+        err = exc_text(exc, 1000)
         traceback.print_exc()
         print(f"[delta-engine] run {delta_run_id} FAILED: {err}")
         async with engine.begin() as conn:
@@ -3123,7 +3123,7 @@ async def _run_pipeline_steps(
             )
 
     except Exception as exc:
-        err = str(exc)[:1000]
+        err = exc_text(exc, 1000)
         traceback.print_exc()
         print(f"[pipeline] run {run_id} FAILED: {err}", flush=True)
         async with engine.begin() as conn:
@@ -3444,7 +3444,7 @@ async def start_calculate_only(background_tasks: BackgroundTasks):
             score_date = await _do_calculate(run_id, trace_id, today, now)
             print(f"[pipeline] calculate-only run {run_id} done, score_date={score_date}")
         except Exception as exc:
-            err = str(exc)[:1000]
+            err = exc_text(exc, 1000)
             async with engine.begin() as conn:
                 await conn.execute(
                     text("UPDATE factor_runs SET status='failed', completed_at=:now, error_message=:err WHERE run_id=:rid"),

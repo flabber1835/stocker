@@ -52,7 +52,7 @@ def _reload_strategy() -> None:
 from pydantic import BaseModel
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
-from stock_strategy_shared.tracing import log_step, write_trace_file, mark_orphaned_runs_failed
+from stock_strategy_shared.tracing import log_step, write_trace_file, mark_orphaned_runs_failed, exc_text
 from stock_strategy_shared.db import wait_for_db
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
@@ -436,7 +436,7 @@ async def _run_backtest_bg(
 
     except Exception as exc:
         traceback.print_exc()
-        err_msg = str(exc)[:1000]
+        err_msg = exc_text(exc, 1000)
         print(f"[backtester] run {run_id} FAILED: {err_msg}")
         try:
             async with engine.begin() as conn:
@@ -670,7 +670,7 @@ async def _run_config_replay_bg(
 
     except Exception as exc:
         traceback.print_exc()
-        await _fail_run(run_id, trace_id, str(exc)[:1000])
+        await _fail_run(run_id, trace_id, exc_text(exc, 1000))
 
 
 async def _fail_run(run_id: str, trace_id: str, err_msg: str) -> None:

@@ -17,7 +17,7 @@ from app.drawdown import recent_drawdown, excess_drawdown, scaled_excess_thresho
 from app.vetter import fetch_ticker_data, vet_single_ticker
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
-from stock_strategy_shared.tracing import fmt_row, log_step, write_trace_file, mark_orphaned_runs_failed
+from stock_strategy_shared.tracing import fmt_row, log_step, write_trace_file, mark_orphaned_runs_failed, exc_text
 from stock_strategy_shared.db import wait_for_db
 
 _fmt_row = fmt_row
@@ -390,7 +390,7 @@ async def _run_vet(
     try:
         await _do_vet(run_id, trace_id, started_at, source_ranking_run_id, ticker_results, state, candidate_count=candidate_count, source_strategy_id=source_strategy_id)
     except Exception as exc:
-        err = str(exc)[:1000]
+        err = exc_text(exc, 1000)
         tb = _traceback.format_exc()
         failed_at_ticker: str | None = None
         if ticker_results:

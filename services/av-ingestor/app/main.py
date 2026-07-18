@@ -18,7 +18,7 @@ from . import repair_queue
 from .alpha_vantage import AVClient
 from .universe import download_av_universe, get_benchmark_tickers, save_universe_snapshot
 from stock_strategy_shared.db import wait_for_db
-from stock_strategy_shared.tracing import RESTART_ABORT_MARKER, mark_orphaned_runs_failed
+from stock_strategy_shared.tracing import RESTART_ABORT_MARKER, mark_orphaned_runs_failed, exc_text
 from stock_strategy_shared.corporate_actions import apply_corporate_actions
 from stock_strategy_shared.rate_limit import make_av_limiter, AV_RATE_LIMIT_KEY
 
@@ -1068,7 +1068,7 @@ async def _run_fetch_universe(run_id: str) -> None:
                                 listing_stats=trace_stats)
     except Exception as exc:
         traceback.print_exc()
-        err = str(exc)[:1000]
+        err = exc_text(exc, 1000)
         print(f"[fetch-universe] FAILED: {exc}")
         await _finish_run(run_id, "failed", error_message=err)
         await _write_trace_file(run_id, "fetch-universe", "failed", started_at, error_message=err)
@@ -1530,7 +1530,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
             asyncio.create_task(_publish_fetch_complete(str(spy_max), run_id))
     except Exception as exc:
         traceback.print_exc()
-        err = str(exc)[:1000]
+        err = exc_text(exc, 1000)
         print(f"[fetch-data] FATAL: {exc}")
         await _finish_run(run_id, "failed", error_message=err)
         await _write_trace_file(run_id, "fetch-data", "failed", started_at, error_message=err)
@@ -1625,7 +1625,7 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
         print(f"[fetch-prices] done — {skipped} tickers skipped (already current)")
     except Exception as exc:
         traceback.print_exc()
-        err = str(exc)[:1000]
+        err = exc_text(exc, 1000)
         print(f"[fetch-prices] FATAL: {exc}")
         await _finish_run(run_id, "failed", error_message=err)
         await _write_trace_file(run_id, "fetch-prices", "failed", started_at, error_message=err)
@@ -1740,7 +1740,7 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
         print(f"[fetch-fundamentals] done — {skipped} tickers skipped (already current)")
     except Exception as exc:
         traceback.print_exc()
-        err = str(exc)[:1000]
+        err = exc_text(exc, 1000)
         print(f"[fetch-fundamentals] FATAL: {exc}")
         await _finish_run(run_id, "failed", error_message=err)
         await _write_trace_file(run_id, "fetch-fundamentals", "failed", started_at, error_message=err)

@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from stock_strategy_shared.tracing import exc_text
 from stock_strategy_shared.db import wait_for_db, warm_up_db_in_background  # noqa: F401
 from stock_strategy_shared.broker import get_broker_adapter
 
@@ -319,7 +320,7 @@ async def _do_sync(
             async with SessionLocal() as db2:
                 await _log_step(
                     db2, trace_id, "sync_orders", "failed", t0,
-                    error_message=str(ord_exc)[:500],
+                    error_message=exc_text(ord_exc, 500),
                 )
                 await db2.commit()
 
@@ -369,7 +370,7 @@ async def _do_sync(
 
     except Exception as exc:
         # Mark sync run + trace as failed
-        error_msg = str(exc)[:500]
+        error_msg = exc_text(exc, 500)
         print(f"[alpaca-sync] Sync failed: run_id={run_id}, error={error_msg}")
         async with SessionLocal() as db:
             await _log_step(

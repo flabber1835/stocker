@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from app.agent import generate_report_with_tools
 from app.packet import build_packet
 from app.report import EVALUATOR_MODEL, EVALUATOR_PROVIDER, generate_report
-from stock_strategy_shared.tracing import mark_orphaned_runs_failed
+from stock_strategy_shared.tracing import mark_orphaned_runs_failed, exc_text
 from stock_strategy_shared.trading_tz import resolve_trading_tz
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
@@ -186,7 +186,7 @@ async def _run_evaluation(run_id: str, manual: bool) -> None:
             await conn.execute(text(
                 "UPDATE evaluator_reports SET status='failed', completed_at=:now, "
                 "error_message=:err WHERE run_id=:rid"
-            ), {"rid": run_id, "now": datetime.now(timezone.utc), "err": str(exc)[:2000]})
+            ), {"rid": run_id, "now": datetime.now(timezone.utc), "err": exc_text(exc, 2000)})
         print(f"[evaluator] run {run_id} FAILED: {exc}")
 
 

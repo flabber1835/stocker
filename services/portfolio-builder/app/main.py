@@ -24,7 +24,7 @@ from stock_strategy_shared.investability import (
     below_investability_floor,
     DOLLAR_VOLUME_WINDOW,
 )
-from stock_strategy_shared.tracing import fmt_row, log_step, write_trace_file, mark_orphaned_runs_failed
+from stock_strategy_shared.tracing import fmt_row, log_step, write_trace_file, mark_orphaned_runs_failed, exc_text
 from stock_strategy_shared.db import wait_for_db
 
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
@@ -183,7 +183,7 @@ async def _run_build(
                         portfolio_date, pb_cfg, vetter_run_id, strat, cfg_hash,
                         ranking_degraded)
     except Exception as exc:
-        err = str(exc)[:1000]
+        err = exc_text(exc, 1000)
         print(f"[portfolio-builder] run {run_id} FAILED: {exc}")
         async with engine.begin() as conn:
             await conn.execute(
