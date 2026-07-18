@@ -2527,6 +2527,32 @@ function _renderEvalReport(rep) {
     (gaps.length ? 'Data gaps: ' + _esc(gaps.join(' · ')) + '<br>' : '') +
     _esc((rep.model || '') + ' · ' + (rep.input_tokens || 0) + ' in / ' + (rep.output_tokens || 0) +
     ' out tokens · prompt ' + (rep.prompt_hash || '') + ' · config ' + (rep.config_hash || ''));
+
+  // Tool audit: which tools the review actually ran, and each call on demand —
+  // how the model reached its conclusions, without a psql session.
+  let tt = rep.tool_transcript || [];
+  if (typeof tt === 'string') { try { tt = JSON.parse(tt); } catch (e) { tt = []; } }
+  if (Array.isArray(tt) && tt.length) {
+    const counts = {};
+    tt.forEach(c => { counts[c.tool] = (counts[c.tool] || 0) + 1; });
+    const summary = Object.entries(counts).sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => _esc(k) + ' ×' + v).join(' · ');
+    const budgetNote = tt.length >= 24
+      ? ' <span style="color:var(--red)">(turn budget reached)</span>' : '';
+    meta.innerHTML +=
+      '<br>tools: ' + tt.length + ' calls — ' + summary + budgetNote +
+      '<details style="margin-top:4px;text-align:left"><summary style="cursor:pointer;opacity:.8">show calls</summary>' +
+      tt.map(c =>
+        '<div style="margin:6px 0;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px">' +
+        '<div style="font-weight:700">#' + _esc(c.turn) + ' ' + _esc(c.tool) +
+        ' <span style="opacity:.6;font-weight:400">' + _esc(c.elapsed_ms) + 'ms · ' +
+        _esc(c.result_chars) + ' chars</span></div>' +
+        (c.arguments ? '<div style="opacity:.75;word-break:break-all">args: ' +
+          _esc(String(c.arguments).slice(0, 240)) + '</div>' : '') +
+        '<div style="opacity:.7;word-break:break-all">' +
+        _esc(String(c.result || '').slice(0, 240)) + '</div></div>').join('') +
+      '</details>';
+  }
 }
 
 async function _loadAppliedChanges() {
