@@ -97,6 +97,35 @@ async def _seed(engine) -> None:
                  "VALUES (:p, :r, 's1', 'bull_calm', :d, 'A00', 1, 0.5, 1)",
                  [{"p": PORTFOLIO_RUN, "r": RANKING_RUN, "d": D(1)}])
 
+        # ── OLDER chain at D-8 (>=7d old): the invisible-bench anchor ─────────
+        # ranked {A00, A01}; selected {A00}; universe additionally carries Z99
+        # (priced, never ranked) → the unranked_priced cohort.
+        f2, r2, p2 = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+        await ex("INSERT INTO factor_runs (run_id, strategy_id, config_hash, score_date, "
+                 " regime, status, started_at, completed_at) "
+                 "VALUES (:id, 's1', 'h0', :d, 'bull_calm', 'success', :st, :st)",
+                 [{"id": f2, "d": D(8), "st": _ts(D(8))}])
+        await ex("INSERT INTO ranking_runs (run_id, source_factor_run_id, strategy_id, "
+                 " config_hash, regime, rank_date, status, started_at, completed_at) "
+                 "VALUES (:id, :f, 's1', 'h0', 'bull_calm', :d, 'success', :st, :st)",
+                 [{"id": r2, "f": f2, "d": D(8), "st": _ts(D(8))}])
+        await ex("INSERT INTO rankings (run_id, source_factor_run_id, strategy_id, regime, "
+                 " rank_date, ticker, rank, composite_score) "
+                 "VALUES (:r, :f, 's1', 'bull_calm', :d, :t, :rk, 0.8)",
+                 [{"r": r2, "f": f2, "d": D(8), "t": t, "rk": i + 1}
+                  for i, t in enumerate(("A00", "A01"))])
+        await ex("INSERT INTO portfolio_runs (run_id, source_ranking_run_id, strategy_id, "
+                 " config_hash, regime, portfolio_date, status, started_at, completed_at) "
+                 "VALUES (:id, :r, 's1', 'h0', 'bull_calm', :d, 'success', :st, :st)",
+                 [{"id": p2, "r": r2, "d": D(8), "st": _ts(D(8))}])
+        await ex("INSERT INTO portfolio_holdings (run_id, source_ranking_run_id, strategy_id, "
+                 " regime, portfolio_date, ticker, position, weight, original_rank) "
+                 "VALUES (:p, :r, 's1', 'bull_calm', :d, 'A00', 1, 0.5, 1)",
+                 [{"p": p2, "r": r2, "d": D(8)}])
+        await ex("INSERT INTO daily_prices (ticker, date, adjusted_close, close) "
+                 "VALUES ('Z99', :d, :px, :px)",
+                 [{"d": D(10), "px": 100}, {"d": D(0), "px": 90}])
+
         # ── exits: two names exited on D-5 (base price 100 @ D-10 → +10%) ────
         await ex("INSERT INTO delta_runs (run_id, strategy_id, status, run_date, "
                  " started_at, completed_at) "
@@ -105,6 +134,10 @@ async def _seed(engine) -> None:
         await ex("INSERT INTO delta_intents (run_id, ticker, action, reason) "
                  "VALUES (:r, :t, 'exit', 'orphan timer')",
                  [{"r": DELTA_RUN, "t": t} for t in ("A00", "A01")])
+        # a capacity-deferred entry (invisible-bench deferred_watch cohort)
+        await ex("INSERT INTO delta_intents (run_id, ticker, action, reason) "
+                 "VALUES (:r, 'A01', 'watch', 'capacity: deferred')",
+                 [{"r": DELTA_RUN}])
 
         # ── account curve: D-21 100k → today 103k (sync gap in between) ──────
         await ex("INSERT INTO alpaca_sync_runs (run_id, status, account_value, "
@@ -158,7 +191,7 @@ async def _seed(engine) -> None:
             "VALUES ('AV', :d, 2) RETURNING id"), {"d": D(1)})).scalar()
         await ex("INSERT INTO universe_tickers (snapshot_id, ticker, sector) "
                  "VALUES (:s, :t, 'Tech')",
-                 [{"s": sid, "t": t} for t in ("A00", "A01")])
+                 [{"s": sid, "t": t} for t in ("A00", "A01", "Z99")])
 
 
 @pytest.fixture(scope="module")
@@ -218,6 +251,7 @@ def test_full_packet_builds_with_no_section_errors(db_engine, monkeypatch):
         "closed_trades", "open_positions", "vetter_outcomes", "exit_outcomes",
         "current_target_book", "config_history", "applied_config_changes",
         "system_health", "hypothesis_ledger", "backtest_lab", "error_digest",
+        "invisible_bench", "benchmark_coverage",
     }
     assert expected <= set(packet)
     broken = {k: v for k, v in packet.items()
@@ -278,6 +312,34 @@ def test_error_digest_surfaces_failure_text_deduped(db_engine):
     assert risk["source"] == "risk_rejection:max_positions_limit"
     assert "capacity" in risk["message"]
     assert out["distinct_errors"] >= 3
+
+
+def test_invisible_bench_cohorts_and_math(db_engine):
+    """Absence-blindness: the bench anchors on the >=7d-old ranking run (D-8),
+    puts priced-but-never-ranked Z99 in unranked_priced (−10% realized), the
+    selected book A00 at +10%, and the capacity-deferred watch A01 at +10%."""
+    from app.packet import _invisible_bench
+    out = _call(db_engine, _invisible_bench)
+    assert out["anchor_rank_date"] == str(D(8))
+    ub = out["unranked_priced"]
+    assert ub["count"] == 1 and ub["scored"] == 1
+    assert ub["avg_fwd_return"] == pytest.approx(-0.10, abs=1e-3)
+    assert ub["worst"][0]["ticker"] == "Z99"
+    assert out["selected"]["avg_fwd_return"] == pytest.approx(0.10, abs=1e-3)
+    dw = out["deferred_watch"]
+    assert dw["count"] == 1
+    assert dw["avg_fwd_return"] == pytest.approx(0.10, abs=1e-3)
+
+
+def test_benchmark_coverage_marks_index_leaders_unranked(db_engine):
+    """None of the pinned SPY top-25 exist in the seeded ranking → all 25
+    unranked, zero in top-100, as-of stamp surfaced (staleness is evidence)."""
+    from app.packet import _SPY_TOP, _benchmark_coverage
+    out = _call(db_engine, _benchmark_coverage)
+    assert len(out["constituents"]) == len(_SPY_TOP) == 25
+    assert out["unranked_count"] == 25 and out["ranked_in_top100"] == 0
+    assert all(r["rank"] is None and r["held"] is False for r in out["constituents"])
+    assert out["spy_top_as_of"]
 
 
 def test_prior_reviews_one_entry_per_iso_week_latest_wins(db_engine):

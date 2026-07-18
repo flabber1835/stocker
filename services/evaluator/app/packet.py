@@ -408,6 +408,129 @@ async def _exit_outcomes(conn) -> dict:
     }
 
 
+async def _invisible_bench(conn) -> dict:
+    """Absence-blindness fix: forward returns of the cohorts that never enter
+    the evidence funnel, so a costly gate can be SEEN instead of suspected.
+
+      unranked_priced — in the universe with fresh prices at rank time, but
+        absent from that ranking run entirely (below the investability floor or
+        factor-gapped). If this bench persistently beats `selected`, a
+        universe/factor gate is excluding winners.
+      deferred_watch — capacity-deferred entries (delta action='watch'): the
+        planner WANTED them but the book was full. Their forward return is the
+        realized cost/benefit of defer-don't-rotate.
+      selected — the book cohort over the same window, as the baseline.
+
+    Anchored on the newest ranking run ≥7 days old so returns are realized
+    (same convention as the selection audit). Averages are over the WHOLE
+    cohort; only display lists are truncated."""
+    anchor = (await conn.execute(text(
+        "SELECT run_id, rank_date FROM ranking_runs "
+        "WHERE status='success' AND rank_date <= CURRENT_DATE - 7 "
+        "ORDER BY rank_date DESC, completed_at DESC NULLS LAST LIMIT 1"
+    ))).mappings().first()
+    if not anchor:
+        return {"note": "no ranking run >=7 days old yet — bench needs realized forward returns"}
+    rid, rdate = anchor["run_id"], anchor["rank_date"]
+
+    unranked = [r[0] for r in (await conn.execute(text(
+        "SELECT ut.ticker FROM universe_tickers ut "
+        "WHERE ut.snapshot_id = (SELECT MAX(id) FROM universe_snapshots) "
+        "  AND ut.ticker <> 'SPY' "
+        "  AND ut.ticker NOT IN (SELECT ticker FROM rankings WHERE run_id = :rid) "
+        "  AND EXISTS (SELECT 1 FROM daily_prices dp WHERE dp.ticker = ut.ticker "
+        "              AND dp.date BETWEEN CAST(:rd AS date) - 7 AND CAST(:rd AS date))"
+    ), {"rid": rid, "rd": rdate})).fetchall()]
+
+    selected = [r[0] for r in (await conn.execute(text(
+        "SELECT ph.ticker FROM portfolio_holdings ph "
+        "JOIN portfolio_runs pr ON pr.run_id = ph.run_id "
+        "WHERE pr.source_ranking_run_id = :rid AND pr.status = 'success'"
+    ), {"rid": rid})).fetchall()]
+
+    def _agg(fwd: dict) -> dict:
+        vals = [v for v in fwd.values() if v is not None]
+        ranked_names = sorted(((t, v) for t, v in fwd.items() if v is not None),
+                              key=lambda x: x[1])
+        return {
+            "count": len(fwd), "scored": len(vals),
+            "avg_fwd_return": round(sum(vals) / len(vals), 4) if vals else None,
+            "worst": [{"ticker": t, "fwd": round(v, 4)} for t, v in ranked_names[:5]],
+            "best": [{"ticker": t, "fwd": round(v, 4)} for t, v in ranked_names[-5:][::-1]],
+        }
+
+    out = {
+        "anchor_rank_date": str(rdate),
+        "unranked_priced": _agg(await _forward_returns_bulk(conn, unranked, rdate)),
+        "selected": _agg(await _forward_returns_bulk(conn, selected, rdate)),
+    }
+
+    # capacity-deferred entries: per-ticker dates, latest watch per ticker (90d)
+    watch_rows = (await conn.execute(text(
+        "SELECT DISTINCT ON (di.ticker) di.ticker, dr.run_date AS d "
+        "FROM delta_intents di JOIN delta_runs dr ON dr.run_id = di.run_id "
+        "WHERE di.action = 'watch' "
+        "  AND dr.run_date >= CURRENT_DATE - make_interval(days => :lb) "
+        "ORDER BY di.ticker, dr.run_date DESC"
+    ), {"lb": VETTER_LOOKBACK_DAYS})).mappings().all()
+    watch_fwd = {}
+    for r in watch_rows:
+        watch_fwd[r["ticker"]] = await _forward_return_since(conn, r["ticker"], r["d"])
+    out["deferred_watch"] = _agg(watch_fwd)
+    out["note"] = (
+        "cohorts the funnel never audits elsewhere. unranked_priced beating "
+        "`selected` persistently implicates a universe/factor GATE (cross-check "
+        "the wind tunnel's liquidity-floor dimension before recommending a "
+        "floor change); deferred_watch beating selected = capacity defer-don't-"
+        "rotate is leaving returns on the table. One window is noise — trend it.")
+    return out
+
+
+# SPY's largest weights — PINNED list (holdings are not ingested anywhere).
+# Update occasionally; the as-of is surfaced so staleness is visible evidence.
+_SPY_TOP_AS_OF = "2026-07"
+_SPY_TOP = [
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "AVGO", "TSLA", "BRK-B",
+    "LLY", "JPM", "V", "XOM", "UNH", "MA", "COST", "HD", "PG", "NFLX", "JNJ",
+    "WMT", "ABBV", "CRM", "BAC", "ORCL",
+]
+
+
+async def _benchmark_coverage(conn) -> dict:
+    """Where do the INDEX's engines sit in OUR funnel? A mega-cap-led SPY rally
+    the book structurally cannot participate in shows up here as index leaders
+    ranked deep or unranked — separating benchmark-composition drag from
+    stock-picking error when judging the SPY hurdle."""
+    run = (await conn.execute(text(
+        "SELECT run_id FROM ranking_runs WHERE status='success' "
+        "ORDER BY rank_date DESC, completed_at DESC NULLS LAST LIMIT 1"
+    ))).mappings().first()
+    if not run:
+        return {"note": "no ranking run yet"}
+    rank_map = {r["ticker"]: r["rank"] for r in (await conn.execute(text(
+        "SELECT ticker, rank FROM rankings WHERE run_id = :rid AND ticker = ANY(:tk)"
+    ), {"rid": run["run_id"], "tk": _SPY_TOP})).mappings().all()}
+    held = {r[0] for r in (await conn.execute(text(
+        "SELECT lp.ticker FROM live_positions lp "
+        "WHERE lp.sync_run_id = (SELECT run_id FROM alpaca_sync_runs "
+        "  WHERE status='success' ORDER BY completed_at DESC NULLS LAST LIMIT 1)"
+    ))).fetchall()}
+    rows = [{"ticker": t, "rank": rank_map.get(t), "held": t in held}
+            for t in _SPY_TOP]
+    ranked_in_top100 = sum(1 for r in rows if r["rank"] is not None and r["rank"] <= 100)
+    return {
+        "spy_top_as_of": _SPY_TOP_AS_OF,
+        "constituents": rows,
+        "ranked_in_top100": ranked_in_top100,
+        "unranked_count": sum(1 for r in rows if r["rank"] is None),
+        "note": (
+            "static SPY top-25 list (as-of above; update if stale). Many index "
+            "leaders unranked/deep-ranked means SPY-hurdle gaps in index-led "
+            "rallies are partly COMPOSITION, not stock-picking — weigh that "
+            "before blaming the factor model, and vice versa."),
+    }
+
+
 async def _forward_returns_bulk(conn, tickers: list[str], since: date) -> dict[str, float]:
     """{ticker: return from last close <= since to latest close} in ONE query."""
     if not tickers:
@@ -897,6 +1020,8 @@ async def build_packet(engine, as_of: date | None = None) -> dict:
             "open_positions": await _section(lambda: _open_positions(conn), conn),
             "vetter_outcomes": await _section(lambda: _vetter_outcomes(conn), conn),
             "exit_outcomes": await _section(lambda: _exit_outcomes(conn), conn),
+            "invisible_bench": await _section(lambda: _invisible_bench(conn), conn),
+            "benchmark_coverage": await _section(lambda: _benchmark_coverage(conn), conn),
             "current_target_book": await _section(lambda: _current_book(conn), conn),
             "config_history": await _section(lambda: _config_history(conn), conn),
             "applied_config_changes": await _section(lambda: _applied_config_changes(conn), conn),
