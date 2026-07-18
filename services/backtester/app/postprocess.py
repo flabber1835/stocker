@@ -23,9 +23,11 @@ def build_validation(
     """Roll the multiple-testing-aware verdict (DSR/PSR/MinTRL) together with
     plain-language sample-adequacy warnings (G4). `n_trials` is the honest count
     of distinct configs tried (breadth of the search that produced this one);
-    var_trial_sr is the variance of those trials' Sharpes. Both come from the
-    backtest_trials registry so DSR deflates by the real search size — without
-    it, running many configs and citing the best is unpenalized overfitting."""
+    var_trial_sr is the variance of those trials' Sharpes AS STORED — i.e. in
+    ANNUALIZED units (backtest_trials.sharpe is the annualized summary Sharpe).
+    Both come from the backtest_trials registry so DSR deflates by the real
+    search size — without it, running many configs and citing the best is
+    unpenalized overfitting."""
     warnings: list[str] = []
     if n_rebalances < MIN_PERIODS_FOR_CLAIM:
         warnings.append(
@@ -39,9 +41,22 @@ def build_validation(
         warnings.append(
             "Trial-Sharpe variance is zero/unknown — DSR deflation may be optimistic.")
 
+    # UNITS (audit finding, confirmed): deflated_sharpe_ratio consumes the
+    # trial-Sharpe variance in PER-OBSERVATION units (the same units as the sr it
+    # deflates — see validation.py's module contract), but the registry stores
+    # ANNUALIZED Sharpes, whose variance is periods_per_year × the per-obs
+    # variance. Feeding it raw inflated the expected-max-Sharpe null bar by
+    # ~sqrt(ppy) (≈3.5x at monthly), so decent strategies were reported as
+    # failing DSR. Convert here — the single choke point both endpoints use.
+    # The zero fallback is 0.0, NOT 1.0: zero/unknown trial variance means no
+    # measurable selection spread, so the deflation comes from n_trials alone
+    # (sr0=0); the old 1.0 (huge in per-obs units) crushed DSR to ~0 for any
+    # real strategy — the warning above already flags the residual optimism.
+    var_per_obs = (var_trial_sr / periods_per_year
+                   if var_trial_sr > 0 and periods_per_year > 0 else 0.0)
     verdict = validation_summary(
         excess_returns, n_trials=max(n_trials, 1),
-        var_trial_sr=var_trial_sr if var_trial_sr > 0 else 1.0,
+        var_trial_sr=var_per_obs,
         periods_per_year=periods_per_year,
     )
 

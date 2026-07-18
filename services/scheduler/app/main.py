@@ -795,7 +795,14 @@ async def _step_state(
     session: str | None = None,
 ) -> StepState:
     try:
-        r = await client.get(f"{step.url}{step.status_path}", timeout=10.0)
+        # Scope the poll to the step's job_type server-side (audit finding): the
+        # unscoped /runs/latest returned whatever ingest job ran MOST RECENTLY,
+        # so a later fetch-universe/fetch-prices run masked the day's completed
+        # fetch-data (NULL session_date + job_type mismatch → 'idle' → redundant
+        # full re-fetch). Older ingestors ignore the param; the mismatch check
+        # below stays as the back-compat guard.
+        params = {"job_type": step.job_type} if step.job_type else None
+        r = await client.get(f"{step.url}{step.status_path}", params=params, timeout=10.0)
         if r.status_code == 404:
             return "idle"                 # genuinely no run yet → allow the first trigger
         if r.status_code != 200:

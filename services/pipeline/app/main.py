@@ -2245,10 +2245,19 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     t0 = datetime.now(timezone.utc)
     history_limit = confirmation_days
     async with engine.connect() as conn:
+        # DISTINCT ON (rank_date) BEFORE the LIMIT (audit finding): a forced
+        # same-day ranking re-run used to consume a history slot, leaving the
+        # window with fewer than confirmation_days DISTINCT dates — so
+        # _consecutive_in_zone could never reach the bar and the cold-start
+        # evaluate_all path stopped confirming entries/exits entirely. Mirrors
+        # the target_history dedup, which already did this pre-LIMIT.
         runs_row = await conn.execute(
             text(
-                "SELECT run_id, rank_date FROM ranking_runs WHERE status='success' "
-                "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT :lim"
+                "SELECT run_id, rank_date FROM ("
+                "  SELECT DISTINCT ON (rank_date) run_id, rank_date, completed_at, started_at "
+                "  FROM ranking_runs WHERE status='success' "
+                "  ORDER BY rank_date DESC, completed_at DESC NULLS LAST, started_at DESC"
+                ") d ORDER BY rank_date DESC LIMIT :lim"
             ),
             {"lim": history_limit},
         )

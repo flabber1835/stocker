@@ -347,10 +347,15 @@ async def _run_backtest_bg(
                 ), {"ch": config_hash, "sid": strategy.strategy_id, "df": date_from,
                     "dt": date_to, "tx": tx_cost_bps, "mode": "persisted_replay",
                     "rid": run_id, "sh": summary.get("sharpe_ratio")})
+                # Scoped to THIS strategy's trials (audit finding): the global
+                # pool mixed Sharpes from unrelated strategies/windows, making
+                # the deflation magnitude arbitrary rather than reflecting the
+                # search that produced this config.
                 trow = (await conn.execute(text(
                     "SELECT COUNT(DISTINCT config_hash) AS n, "
-                    "       COALESCE(VAR_SAMP(sharpe), 0) AS v FROM backtest_trials"
-                ))).mappings().first()
+                    "       COALESCE(VAR_SAMP(sharpe), 0) AS v FROM backtest_trials "
+                    "WHERE strategy_id = :sid"
+                ), {"sid": strategy.strategy_id})).mappings().first()
             n_trials = int(trow["n"]) if trow else 1
             var_trial_sr = float(trow["v"]) if trow and trow["v"] is not None else 0.0
             validation = _json_sanitize(build_validation(
@@ -619,10 +624,13 @@ async def _run_config_replay_bg(
                 ), {"ch": cfg_hash, "sid": cfg.strategy_id, "df": date_from, "dt": date_to,
                     "tx": tx_cost_bps, "mode": "config_replay", "rid": run_id,
                     "sh": summary.get("sharpe_ratio")})
+                # Scoped to THIS strategy's trials — same rationale as the
+                # persisted-replay twin above (audit finding).
                 trow = (await conn.execute(text(
                     "SELECT COUNT(DISTINCT config_hash) AS n, "
-                    "       COALESCE(VAR_SAMP(sharpe), 0) AS v FROM backtest_trials"
-                ))).mappings().first()
+                    "       COALESCE(VAR_SAMP(sharpe), 0) AS v FROM backtest_trials "
+                    "WHERE strategy_id = :sid"
+                ), {"sid": cfg.strategy_id})).mappings().first()
             n_trials = int(trow["n"]) if trow else 1
             var_trial_sr = float(trow["v"]) if trow and trow["v"] is not None else 0.0
             validation_out = _json_sanitize(build_validation(

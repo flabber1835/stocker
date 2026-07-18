@@ -232,16 +232,26 @@ async def _account_performance(conn) -> dict:
         return round(end["equity"] / start["equity"] - 1.0, 4)
 
     def _spy_ret(days: int | None) -> float | None:
+        """SPY leg anchored EXACTLY like the account leg — start at the LAST
+        close on-or-before the cutoff (audit finding: it previously used the
+        first close on-or-AFTER the cutoff while the account used last-≤, so
+        for the same label the account window was weakly longer than SPY's and
+        'excess vs SPY' — the headline ground truth — biased upward in an
+        uptrend, materially so across sync gaps)."""
         if not spy or len(curve) < 2:
             return None
+        items = sorted(spy.items())
         end_d = date.fromisoformat(curve[-1]["date"])
-        start_d = date.fromisoformat(curve[0]["date"])
-        if days is not None:
-            start_d = max(start_d, end_d - timedelta(days=days))
-        s = [c for d, c in sorted(spy.items()) if start_d <= d <= end_d]
-        if len(s) < 2:
+        cutoff = (end_d - timedelta(days=days) if days is not None
+                  else date.fromisoformat(curve[0]["date"]))
+        start_px = next((c for d, c in reversed(items) if d <= cutoff), None)
+        end_px = next((c for d, c in reversed(items) if d <= end_d), None)
+        if days is None and start_px is None:
+            # inception predates SPY history — fall back to first available
+            start_px = items[0][1] if items else None
+        if not start_px or not end_px:
             return None
-        return round(s[-1] / s[0] - 1.0, 4)
+        return round(end_px / start_px - 1.0, 4)
 
     horizons = {}
     for label, days in (("1w", 7), ("4w", 28), ("12w", 84), ("inception", None)):
@@ -347,8 +357,12 @@ async def _vetter_outcomes(conn) -> dict:
         "WHERE ve.created_at >= NOW() - make_interval(days => :lb) "
         "ORDER BY ve.ticker, ve.created_at ASC"
     ), {"lb": VETTER_LOOKBACK_DAYS})).mappings().all()
+    # Aggregate over ALL exclusions; truncate only the per-name DISPLAY list.
+    # (Audit finding: slicing rows[:80] BEFORE aggregating biased
+    # pct_fell_after_veto to an alphabetical head of the ticker list and
+    # misreported excluded_count whenever >80 names were vetoed.)
     out = []
-    for r in rows[:80]:
+    for r in rows:
         fwd = await _forward_return_since(conn, r["ticker"], r["d"])
         out.append({"ticker": r["ticker"], "risk_type": r["risk_type"],
                     "confidence": r["confidence"], "excluded_on": str(r["d"]),
@@ -362,7 +376,8 @@ async def _vetter_outcomes(conn) -> dict:
         "pct_fell_after_veto": round(len(saved) / len(scored), 3) if scored else None,
         "avg_fwd_return_of_excluded": (
             round(sum(o["fwd_return_since"] for o in scored) / len(scored), 4) if scored else None),
-        "exclusions": out,
+        "exclusions": out[:80],
+        "exclusions_truncated": len(out) > 80,
     }
 
 
@@ -376,8 +391,9 @@ async def _exit_outcomes(conn) -> dict:
         "  AND dr.run_date >= CURRENT_DATE - make_interval(days => :lb) "
         "ORDER BY di.ticker, dr.run_date DESC"
     ), {"lb": VETTER_LOOKBACK_DAYS})).mappings().all()
+    # Same aggregate-then-truncate rule as _vetter_outcomes (audit finding).
     out = []
-    for r in rows[:60]:
+    for r in rows:
         fwd = await _forward_return_since(conn, r["ticker"], r["d"])
         out.append({"ticker": r["ticker"], "exited_on": str(r["d"]),
                     "fwd_return_since": fwd, "reason": (r["reason"] or "")[:200]})
@@ -387,7 +403,8 @@ async def _exit_outcomes(conn) -> dict:
         "exit_count": len(out),
         "avg_fwd_return_after_exit": (
             round(sum(o["fwd_return_since"] for o in scored) / len(scored), 4) if scored else None),
-        "exits": out,
+        "exits": out[:60],
+        "exits_truncated": len(out) > 60,
     }
 
 
@@ -669,21 +686,34 @@ def _system_architecture() -> dict:
     """The static brief + the LIVE factor surface (registry vs actually-weighted),
     so 'missing factor' findings are grounded in what exists vs what is dormant."""
     from stock_strategy_shared.factor_registry import FACTOR_NAMES
-    weights = {}
+    weights: dict | None = {}
+    weights_error: str | None = None
     try:
         cfg, _ = load_strategy(os.getenv("STRATEGY_CONFIG_PATH", ""))
         w = cfg.static_factor_weights
         if w is None:
             w = next(iter(cfg.factor_weights.values()))
         weights = {k: v for k, v in w.model_dump().items() if v}
-    except Exception:  # noqa: BLE001
-        pass
-    return {
+    except Exception as exc:  # noqa: BLE001
+        # Audit finding: a swallowed load failure used to leave weights={} and
+        # therefore report EVERY factor as dormant — fabricated structural
+        # evidence the prompt explicitly reasons from ("candidates for
+        # activation"). Surface the failure; never claim dormancy we can't know.
+        weights = None
+        weights_error = str(exc)[:300]
+    out = {
         "brief": ARCHITECTURE_BRIEF,
         "factors_computed": sorted(FACTOR_NAMES),
         "factors_weighted": weights,
-        "factors_dormant": sorted(set(FACTOR_NAMES) - set(weights)),
+        "factors_dormant": (sorted(set(FACTOR_NAMES) - set(weights))
+                            if weights is not None else None),
     }
+    if weights_error:
+        out["factor_weights_error"] = (
+            f"active strategy config failed to load ({weights_error}) — "
+            "weighted/dormant factor lists UNAVAILABLE this review, do not "
+            "infer dormancy")
+    return out
 
 
 async def _current_book(conn) -> dict:

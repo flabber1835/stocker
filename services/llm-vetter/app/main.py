@@ -1182,7 +1182,6 @@ async def start_vet(
         print("[llm-vetter] drawdown-only mode (vetter.mode or VETTER_LLM_ENABLED) — skipping LLM gateway pre-flight")
 
     async with _job_lock:
-        _reload_strategy()  # pick up any deployed config change; converge across services
         # Atomic check-and-claim (advisory lock): re-checks already-vetted +
         # no-running and INSERTs the 'running' rows in ONE transaction, so the
         # early idempotency read above (a fast-path) can't race a concurrent
@@ -1191,6 +1190,15 @@ async def start_vet(
             source_ranking_run_id, source_strategy_id, force,
             model=f"gateway:{LLM_GATEWAY_URL}",
         )
+        # Config reload only AFTER the reservation succeeds (audit finding):
+        # _do_vet runs as a background task with this lock RELEASED, reading the
+        # module globals (strategy / config_hash / DRAWDOWN_* thresholds)
+        # per-ticker. A concurrent trigger that was going to be REJECTED used to
+        # reload first and mutate those globals mid-run — flipping falling-knife
+        # thresholds under the in-flight vet after a YAML edit. A rejected
+        # request must be a pure no-op.
+        if status != "already_vetted":
+            _reload_strategy()
         if status == "already_vetted":
             print(
                 f"[llm-vetter] already_vetted (atomic recheck): ranking "

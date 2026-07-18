@@ -861,15 +861,23 @@ async def fetch_fundamentals(background_tasks: BackgroundTasks):
 
 
 @app.get("/runs/latest")
-async def get_latest_run():
+async def get_latest_run(job_type: Optional[str] = None):
+    """Latest ingest run, optionally scoped to one job_type. The scheduler MUST
+    scope to job_type=fetch-data (audit finding): unscoped, a later
+    fetch-universe/fetch-prices run became the latest row — its NULL
+    session_date masked the session fetch-data had actually advanced to, and
+    the scheduler's job_type-mismatch → 'idle' read re-triggered a redundant
+    full fetch-data."""
+    where = "WHERE job_type = :jt " if job_type else ""
     async with engine.connect() as conn:
         row = await conn.execute(
             text(
                 "SELECT run_id, job_type, status, ticker_count, price_rows, fund_rows, "
                 "       error_count, error_message, session_date, started_at, completed_at, "
                 "       tickers_done, tickers_total, degraded "
-                "FROM ingest_runs ORDER BY started_at DESC LIMIT 1"
-            )
+                f"FROM ingest_runs {where}ORDER BY started_at DESC LIMIT 1"
+            ),
+            ({"jt": job_type} if job_type else {}),
         )
         result = row.mappings().first()
     if result is None:

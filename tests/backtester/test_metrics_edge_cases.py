@@ -86,8 +86,34 @@ class TestLastPeriodEdgeCases:
         result = run_backtest(runs, prices)
         assert len(result["periods"]) >= 2
 
-
-# ── Sharpe ratio edge cases ───────────────────────────────────────────────────
+    def test_final_truncated_period_is_scored_not_dropped(self):
+        """Audit finding: the final rebalance used to be SILENTLY DROPPED whenever
+        it ended within ~21 trading days of the data edge (exit = first date
+        strictly after the truncated period_end, which never exists). The most
+        recent period must be scored — exiting at the last available close."""
+        dates = [
+            "2023-01-03", "2023-02-01", "2023-03-01",
+            "2023-03-05", "2023-03-10", "2023-03-15",
+            "2023-03-20", "2023-03-25",
+        ]
+        prices = _make_prices(
+            ["AAPL"], dates,
+            {"AAPL": [100.0, 110.0, 121.0, 122.0, 123.0, 124.0, 125.0, 130.0]},
+        )
+        runs = [
+            _make_run("r1", "2023-01-03", [("AAPL", 1.0)]),
+            _make_run("r2", "2023-02-01", [("AAPL", 1.0)]),
+            _make_run("r3", "2023-03-01", [("AAPL", 1.0)]),
+        ]
+        result = run_backtest(runs, prices)
+        # ALL THREE periods present — r3's truncated forward window included
+        assert len(result["periods"]) == 3
+        last = result["periods"][-1]
+        assert last["run_id"] == "r3"
+        # entry = first close STRICTLY AFTER 03-01 (the t+1 carry at 121.0) →
+        # exit at the last available close (130.0): the truncated window's
+        # realized move is captured, not zeroed
+        assert last["portfolio_return"] == pytest.approx(130.0 / 121.0 - 1, rel=1e-4)
 
 class TestSharpeEdgeCases:
 

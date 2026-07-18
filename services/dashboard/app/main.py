@@ -298,7 +298,14 @@ async def _proxy(path: str, params: dict | None = None, timeout: float = 30.0):
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.get(f"{API_URL}{path}", params=params or {})
-            return JSONResponse(content=r.json(), status_code=r.status_code)
+            try:
+                body = r.json()
+            except Exception:  # noqa: BLE001 — non-JSON upstream error (raw 500/404
+                # text). Preserve the TRUE status + body instead of letting the
+                # json() raise turn every such error into a masked 504 (audit).
+                body = {"error": f"upstream {path} returned non-JSON "
+                                 f"({r.status_code}): {r.text[:300]}"}
+            return JSONResponse(content=body, status_code=r.status_code)
     except Exception as exc:
         return JSONResponse(content={"error": f"upstream {path} failed: {exc}"}, status_code=504)
 

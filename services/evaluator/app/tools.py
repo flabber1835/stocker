@@ -624,8 +624,13 @@ async def hypothesis_ledger(args: dict, *, engine, budget: BacktestBudget) -> st
 
     from datetime import datetime, timezone
     from sqlalchemy import text as _sql
+
+    from stock_strategy_shared.trading_tz import resolve_trading_tz
     now = datetime.now(timezone.utc)
-    iso = now.date().isocalendar()
+    # Week stamped in the TRADING timezone, same as evaluator_reports (the H1
+    # fix) — UTC stamping filed a Sunday-evening-ET hypothesis under NEXT ISO
+    # week, disagreeing with the report it was opened by (audit finding).
+    iso = datetime.now(resolve_trading_tz("SCHEDULE_TZ")).date().isocalendar()
     try:
         if args["action"] == "create":
             async with engine.begin() as conn:

@@ -570,8 +570,10 @@ _overlay_locks: dict[int, asyncio.Lock] = {}
 
 async def _current_overlay_run_key(conn) -> tuple:
     """The identity of the data the overlay payload depends on: latest successful
-    ranking run + latest vetter run + latest successful sync. When any changes the
-    cache is invalidated. All three are cheap indexed LIMIT-1 reads."""
+    ranking run + latest vetter run + latest successful sync + latest successful
+    PORTFOLIO run (cluster_id overlays come from its candidate_clusters — omitting
+    it served stale cluster columns after a manual rebuild until some other run
+    changed; audit finding). All four are cheap indexed LIMIT-1 reads."""
     rk = (await conn.execute(text(
         "SELECT run_id FROM ranking_runs WHERE status='success' "
         "ORDER BY rank_date DESC, completed_at DESC NULLS LAST LIMIT 1"))).fetchone()
@@ -581,10 +583,14 @@ async def _current_overlay_run_key(conn) -> tuple:
     sy = (await conn.execute(text(
         "SELECT run_id FROM alpaca_sync_runs WHERE status='success' "
         "ORDER BY completed_at DESC NULLS LAST LIMIT 1"))).fetchone()
+    pf = (await conn.execute(text(
+        "SELECT run_id FROM portfolio_runs WHERE status='success' "
+        "ORDER BY completed_at DESC NULLS LAST LIMIT 1"))).fetchone()
     return (
         str(rk.run_id) if rk else None,
         str(vt.run_id) if vt else None,
         str(sy.run_id) if sy else None,
+        str(pf.run_id) if pf else None,
     )
 
 
@@ -2043,16 +2049,21 @@ async def _approval_ineligibility(conn, intent_id: str) -> Optional[tuple[int, s
     if existing:
         return (409, f"Intent {intent_id} already has an open order ({existing['status']})")
 
+    # Canonical latest-vetter selector (completed_at DESC NULLS LAST, started_at
+    # DESC) — the SAME ordering /delta/latest and the overlay endpoints use. It
+    # previously keyed on MAX(started_at) alone, so when two successful runs'
+    # started/completed orderings diverged (retry, overlap) the UI showed run
+    # A's exclusions while this gate enforced run B's — an intent presented as
+    # vetter-excluded could pass approval, or vice versa (audit finding).
     excluded = (await conn.execute(text(
         "SELECT di.ticker, ve.reason "
         "FROM delta_intents di "
         "JOIN vetter_exclusions ve ON ve.ticker = di.ticker "
-        "JOIN vetter_runs vr ON vr.run_id = ve.run_id "
         "WHERE di.id = :iid "
         "  AND di.action IN ('entry', 'buy_add') "
-        "  AND vr.status = 'success' "
-        "  AND vr.started_at = ("
-        "    SELECT MAX(started_at) FROM vetter_runs WHERE status='success'"
+        "  AND ve.run_id = ("
+        "    SELECT run_id FROM vetter_runs WHERE status='success' "
+        "    ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
         "  ) "
         "LIMIT 1"
     ), {"iid": intent_id})).mappings().first()

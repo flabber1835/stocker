@@ -200,9 +200,12 @@ async def evaluate(background_tasks: BackgroundTasks, manual: bool = True, force
     """Start a weekly evaluation. Idempotent per ISO week for scheduled runs:
     a non-forced call is refused when this week already has a success/running
     report. Manual runs (dashboard button) pass force=true to re-run."""
-    if _job_lock.locked():
-        return {"status": "already_running"}
-
+    # NO pre-dedup lock short-circuit (audit finding): returning already_running
+    # while a PREVIOUS week's run still holds _job_lock dropped the tick without
+    # creating the new week's row — if the weekend trigger window then closed,
+    # the week was silently skipped. The per-week dedup below is the real
+    # idempotency guard; a new week's run row is created immediately and its
+    # background task simply WAITS on _job_lock until the in-flight run ends.
     as_of, iso_year, iso_week = week_stamp()
     async with _admission_lock:
         async with engine.connect() as conn:

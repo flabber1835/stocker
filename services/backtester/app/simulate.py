@@ -78,6 +78,15 @@ def run_backtest(
         # entry and exit share the t+1 convention and the window is clean.
         entry_date = _first_after(all_dates, period_start)
         exit_date = _first_after(all_dates, period_end)
+        if exit_date is None and entry_date is not None and period_end in all_dates:
+            # Truncated FINAL period (audit finding): when period_end is the last
+            # available trading day, nothing lies strictly after it, so the
+            # "use last available date" branch above never actually produced a
+            # period — the sim silently dropped its MOST RECENT rebalance
+            # whenever it ended within ~21 trading days of the data edge. Exit
+            # AT the last close instead (window is honest, just shorter; still
+            # no look-ahead — everything used is ≤ period_end).
+            exit_date = period_end
         if entry_date is None or exit_date is None or exit_date <= entry_date:
             continue
 
