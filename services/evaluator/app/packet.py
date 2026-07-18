@@ -790,6 +790,66 @@ async def _applied_config_changes(conn) -> list[dict]:
              "source_report_run_id": r["source_report_run_id"]} for r in rows]
 
 
+async def _error_digest(conn) -> dict:
+    """Actual failure TEXT from the last 14 days, deduped — not just counts.
+    system_health tells the model THAT runs failed; this tells it WHY without
+    spending a sql_query tool call. Only DB-persisted errors appear (container
+    stdout is ingested nowhere); a run that dies before writing its row is
+    still invisible — treat absence of errors here as weak evidence only."""
+    rows = (await conn.execute(text(
+        "SELECT source, msg, ts FROM ("
+        "  SELECT 'ingest_runs' AS source, error_message AS msg, started_at AS ts "
+        "    FROM ingest_runs WHERE error_message IS NOT NULL "
+        "  UNION ALL "
+        "  SELECT 'factor_runs', error_message, started_at FROM factor_runs "
+        "    WHERE error_message IS NOT NULL "
+        "  UNION ALL "
+        "  SELECT 'ranking_runs', error_message, started_at FROM ranking_runs "
+        "    WHERE error_message IS NOT NULL "
+        "  UNION ALL "
+        "  SELECT 'portfolio_runs', error_message, started_at FROM portfolio_runs "
+        "    WHERE error_message IS NOT NULL "
+        "  UNION ALL "
+        "  SELECT 'vetter_runs', error_message, started_at FROM vetter_runs "
+        "    WHERE error_message IS NOT NULL "
+        "  UNION ALL "
+        "  SELECT 'delta_runs', error_message, started_at FROM delta_runs "
+        "    WHERE error_message IS NOT NULL "
+        "  UNION ALL "
+        "  SELECT 'alpaca_sync_runs', error_message, started_at FROM alpaca_sync_runs "
+        "    WHERE error_message IS NOT NULL "
+        "  UNION ALL "
+        "  SELECT 'alpaca_orders:' || status, COALESCE(error_message, risk_reason), "
+        "         created_at FROM alpaca_orders "
+        "    WHERE status IN ('failed', 'risk_rejected') "
+        "      AND COALESCE(error_message, risk_reason) IS NOT NULL "
+        "  UNION ALL "
+        "  SELECT 'risk_rejection:' || COALESCE(rule_triggered, '?'), reason, "
+        "         created_at FROM risk_decisions "
+        "    WHERE approved = FALSE AND reason IS NOT NULL"
+        ") e WHERE ts >= NOW() - INTERVAL '14 days' ORDER BY ts DESC LIMIT 300"
+    ))).mappings().all()
+    seen: dict[tuple, dict] = {}
+    for r in rows:
+        key = (r["source"], str(r["msg"])[:200])
+        if key in seen:
+            seen[key]["occurrences"] += 1
+        else:
+            seen[key] = {"source": r["source"], "last_seen": str(r["ts"]),
+                         "occurrences": 1, "message": str(r["msg"])[:400]}
+    digest = list(seen.values())[:20]
+    return {
+        "window_days": 14,
+        "distinct_errors": len(seen),
+        "errors": digest,
+        "note": ("DB-persisted failure text only (deduped, newest first; "
+                 "RESTART_ABORTED: prefixes are recovered restarts, usually "
+                 "benign). Container-log-only exceptions are NOT captured — "
+                 "absence of errors here is weak evidence of health; "
+                 "cross-check system_health counts."),
+    }
+
+
 async def _system_health(conn) -> dict:
     """Ops caveats so the LLM doesn't misread an outage as alpha decay."""
     out: dict[str, Any] = {}
@@ -841,6 +901,7 @@ async def build_packet(engine, as_of: date | None = None) -> dict:
             "config_history": await _section(lambda: _config_history(conn), conn),
             "applied_config_changes": await _section(lambda: _applied_config_changes(conn), conn),
             "system_health": await _section(lambda: _system_health(conn), conn),
+            "error_digest": await _section(lambda: _error_digest(conn), conn),
             "hypothesis_ledger": await _section(lambda: _hypothesis_ledger(conn), conn),
             "backtest_lab": await _section(lambda: _async_wrap(_backtest_lab)),
         }

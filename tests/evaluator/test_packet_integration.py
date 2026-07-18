@@ -114,11 +114,23 @@ async def _seed(engine) -> None:
                   {"id": str(uuid.uuid4()), "v": 103000, "st": _ts(D(0))}])
 
         # ── ingest health: nightly partial_success is the NORMAL success ─────
-        await ex("INSERT INTO ingest_runs (run_id, job_type, status, started_at, completed_at) "
-                 "VALUES (:id, 'fetch-data', :s, :st, :st)",
-                 [{"id": str(uuid.uuid4()), "s": s, "st": _ts(D(i + 1))}
+        await ex("INSERT INTO ingest_runs (run_id, job_type, status, started_at, "
+                 " completed_at, error_message) "
+                 "VALUES (:id, 'fetch-data', :s, :st, :st, :err)",
+                 [{"id": str(uuid.uuid4()), "s": s, "st": _ts(D(i + 1)),
+                   "err": "AV throttle: rate limit hit" if s == "failed" else None}
                   for i, s in enumerate(["partial_success", "partial_success",
                                          "partial_success", "failed"])])
+        # a REPEATED error (twice) + a risk rejection → error_digest fodder
+        await ex("INSERT INTO delta_runs (run_id, strategy_id, status, run_date, "
+                 " started_at, completed_at, error_message) "
+                 "VALUES (:id, 's1', 'failed', :d, :st, :st, 'boom: same failure')",
+                 [{"id": str(uuid.uuid4()), "d": D(3), "st": _ts(D(3))},
+                  {"id": str(uuid.uuid4()), "d": D(4), "st": _ts(D(4))}])
+        await ex("INSERT INTO risk_decisions (ticker, action, side, approved, "
+                 " rule_triggered, reason) "
+                 "VALUES ('AAA', 'entry', 'buy', FALSE, 'max_positions_limit', "
+                 " 'Portfolio at capacity')", [{}])
 
         # ── prior reviews: one week reviewed 3x (re-runs), one week once ─────
         wk_old = D(9).isocalendar()
@@ -205,7 +217,7 @@ def test_full_packet_builds_with_no_section_errors(db_engine, monkeypatch):
         "factor_evidence_weekly", "prior_reviews", "account_performance",
         "closed_trades", "open_positions", "vetter_outcomes", "exit_outcomes",
         "current_target_book", "config_history", "applied_config_changes",
-        "system_health", "hypothesis_ledger", "backtest_lab",
+        "system_health", "hypothesis_ledger", "backtest_lab", "error_digest",
     }
     assert expected <= set(packet)
     broken = {k: v for k, v in packet.items()
@@ -250,6 +262,22 @@ def test_account_vs_spy_windows_symmetric(db_engine):
     # day). Pre-fix used the first close AFTER the cutoff (D-6 = 424).
     assert h["spy_return"] == pytest.approx(430 / 422 - 1, abs=1e-4)
     assert h["excess"] == pytest.approx(0.03 - (430 / 422 - 1), abs=1e-3)
+
+
+def test_error_digest_surfaces_failure_text_deduped(db_engine):
+    """The digest gives the review actual failure TEXT (not just counts):
+    ingest failure, a REPEATED delta failure collapsed to one entry with
+    occurrences=2, and a risk rejection with its rule."""
+    from app.packet import _error_digest
+    out = _call(db_engine, _error_digest)
+    by_msg = {e["message"]: e for e in out["errors"]}
+    assert "AV throttle: rate limit hit" in by_msg
+    assert by_msg["boom: same failure"]["occurrences"] == 2      # deduped
+    assert by_msg["boom: same failure"]["source"] == "delta_runs"
+    risk = next(e for e in out["errors"] if e["source"].startswith("risk_rejection:"))
+    assert risk["source"] == "risk_rejection:max_positions_limit"
+    assert "capacity" in risk["message"]
+    assert out["distinct_errors"] >= 3
 
 
 def test_prior_reviews_one_entry_per_iso_week_latest_wins(db_engine):
