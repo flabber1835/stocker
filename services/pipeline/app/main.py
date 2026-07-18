@@ -57,6 +57,23 @@ FUND_FIELDS = (
 )
 
 
+def enrich_drop_cause(action: str, reason: str | None,
+                      vetter_cause: str | None) -> str:
+    """Append WHY a held name left the target to an orphan-exit reason (pure).
+
+    Orphan reasons record THAT the builder dropped a name, not WHY — a rank-6
+    MU exiting read only "dropped from target"; the falling-knife veto behind
+    it took two manual SQL queries to find (audit/UX finding). With the bound
+    vetter run's exclusion detail the sale is explainable from the dashboard
+    alone; absent an exclusion, the drop was the builder's own selection."""
+    reason = reason or ""
+    if action in ("exit", "at_risk") and "dropped from target" in reason:
+        if vetter_cause:
+            return f"{reason} | drop cause: vetter {vetter_cause}"
+        return f"{reason} | drop cause: not selected by builder (score/caps)"
+    return reason
+
+
 def _lkg_fundamentals_sql() -> str:
     """Per-ticker, PER-FIELD latest non-null fundamentals within the window.
 
@@ -2710,22 +2727,32 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     # guards against). Fall back to "latest successful vetter" only on cold start
     # (no anchor portfolio → bound_vetter_run_id is None).
     vetter_excluded: set[str] = set()
+    # ticker → "risk_type: reason" for the SAME bound run — used to enrich the
+    # orphan-exit reason with WHY the builder dropped a held name (a rank-6 MU
+    # exiting read only "dropped from target"; the falling-knife veto that
+    # caused it took two manual SQL queries to find — audit/UX finding).
+    vetter_excl_detail: dict[str, str] = {}
     vetter_load_failed = False
     try:
         async with engine.connect() as conn:
             if bound_vetter_run_id is not None:
                 excl_rows = await conn.execute(text(
-                    "SELECT DISTINCT ticker FROM vetter_exclusions WHERE run_id = :rid"
+                    "SELECT DISTINCT ON (ticker) ticker, risk_type, reason "
+                    "FROM vetter_exclusions WHERE run_id = :rid ORDER BY ticker"
                 ), {"rid": bound_vetter_run_id})
             else:
                 excl_rows = await conn.execute(text(
-                    "SELECT DISTINCT ve.ticker FROM vetter_exclusions ve "
+                    "SELECT DISTINCT ON (ve.ticker) ve.ticker, ve.risk_type, ve.reason "
+                    "FROM vetter_exclusions ve "
                     "WHERE ve.run_id = ("
                     "  SELECT run_id FROM vetter_runs WHERE status='success' "
                     "  ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
-                    ")"
+                    ") ORDER BY ve.ticker"
                 ))
-            vetter_excluded = {r[0] for r in excl_rows.fetchall()}
+            for r in excl_rows.fetchall():
+                vetter_excluded.add(r[0])
+                vetter_excl_detail[r[0]] = (
+                    f"{r[1] or 'veto'}: {(r[2] or '').strip()[:110]}".rstrip(": "))
     except Exception as ve_exc:
         # DELTA-3: distinguish "vetter has no exclusions" (legitimately empty — the
         # vetter is soft in the NORMAL path because the builder already baked
@@ -2893,7 +2920,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     t0 = datetime.now(timezone.utc)
     completed_at = datetime.now(timezone.utc)
 
-    def _is_actionable(d) -> bool:
+    def _is_actionable(d) -> bool:  # noqa: ANN001 — engine decision rows
         if d.action in ("entry", "exit", "hold", "at_risk", "buy_add", "sell_trim"):
             return True
         if d.action == "watch" and d.confirmation_days_met >= confirmation_days:
@@ -2902,6 +2929,10 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
 
     actionable = [d for d in decisions.values() if _is_actionable(d)]
     skipped_watch = len(decisions) - len(actionable)
+
+    def _enrich_drop_cause(d) -> str:
+        return enrich_drop_cause(d.action, d.reason,
+                                 vetter_excl_detail.get(d.ticker))
 
     async with engine.begin() as conn:
         for d in actionable:
@@ -2923,7 +2954,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                     "weight": d.current_weight,
                     "actual_weight": round(d.actual_weight, 6) if d.actual_weight is not None else None,
                     "weight_drift":  round(d.weight_drift, 6)  if d.weight_drift is not None else None,
-                    "reason": d.reason,
+                    "reason": _enrich_drop_cause(d),
                 },
             )
 
