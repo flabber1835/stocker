@@ -1348,6 +1348,7 @@ async def get_factors(ticker: str):
 
 @app.get("/factor-runs")
 async def list_factor_runs(limit: int = 20):
+    limit = max(1, min(limit, 200))   # clamp: negative/huge input must not 500
     async with engine.connect() as conn:
         rows = await conn.execute(
             text(
@@ -1384,6 +1385,7 @@ async def list_factor_runs(limit: int = 20):
 
 @app.get("/ranking-runs")
 async def list_ranking_runs(limit: int = 20):
+    limit = max(1, min(limit, 200))   # clamp: negative/huge input must not 500
     async with engine.connect() as conn:
         rows = await conn.execute(
             text(
@@ -1420,6 +1422,7 @@ async def list_ranking_runs(limit: int = 20):
 
 @app.get("/traces")
 async def list_traces(limit: int = 20):
+    limit = max(1, min(limit, 200))   # clamp: negative/huge input must not 500
     async with engine.connect() as conn:
         rows = await conn.execute(
             text(

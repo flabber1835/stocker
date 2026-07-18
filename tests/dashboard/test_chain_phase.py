@@ -10,7 +10,26 @@ redesign:
   - vet/portfolio phases ⇒ rank reads success (pipeline done), countdown not blocked
   - per-step done/running follows the scheduler step map exactly
 """
+import re
+from pathlib import Path
+
 from app.chain_phase import derive_scheduler_phase, SCHED_LABEL_MAP
+
+_MAIN_SRC = (Path(__file__).resolve().parents[2]
+             / "services" / "dashboard" / "app" / "main.py").read_text()
+
+
+def test_confirmed_terminal_suppressed_while_any_chain_is_running():
+    """Audit finding D3: at the first polls of a CRON chain the scheduler is
+    running but its steps map is empty (authoritative override skipped) while
+    pipeline /runs/latest still shows the PRIOR run's success — the bar briefly
+    claimed the previous cycle was complete. confirmed_terminal must require
+    BOTH supervisors idle (dashboard run-now AND scheduler cron)."""
+    m = re.search(r"confirmed_terminal = \((.*?)\n    \)", _MAIN_SRC, re.S)
+    assert m, "confirmed_terminal assignment not found"
+    cond = m.group(1)
+    assert "not _rank_chain_running" in cond
+    assert "not scheduler_chain_running" in cond
 
 
 def _steps(**kw):

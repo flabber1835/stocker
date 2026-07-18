@@ -811,9 +811,15 @@ async def pipeline_status():
     # run has been requested.  If _rank_chain_running is True the dashboard
     # background task is actively supervising a freshly-started chain, so
     # "success" from the *last* run must not mask the new run as already-done.
+    # scheduler_chain_running is included for the same reason (audit finding):
+    # at the FIRST polls of a cron chain the scheduler reports running but its
+    # steps map is still empty (so the authoritative override below is skipped)
+    # while pipeline /runs/latest still returns the PRIOR cycle's success —
+    # without this the bar transiently showed the previous run as complete.
     confirmed_terminal = (
         pipeline_status_raw in ("success", "partial_success", "skipped", "failed")
         and not _rank_chain_running
+        and not scheduler_chain_running
     )
 
     # Pipeline check runs FIRST: when the pipeline auto-triggers from the Redis
