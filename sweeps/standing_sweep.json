@@ -1,9 +1,10 @@
 {
-  "_comment": "Canonical weekly wind-tunnel grid — the money-flow audit's top questions (V1 cluster caps, V5 universe floor, V2 falling-knife). Versioned; edit + git push to change what the weekly sweep tests. Windows are RELATIVE (anchored to run day) so this never goes stale. 27 configs at rebalance_every=5.",
+  "_comment": "Canonical weekly wind-tunnel grid — the money-flow audit's top questions (V1 cluster caps, V5 universe floor, V2 falling-knife) PLUS the W27-W29 recurring structural finding: momentum vol-scaling (residual vs residual_riskadj — does dividing by formation vol cut the high-sigma-leader loss tail without costing return?). Versioned; edit + git push to change what the weekly sweep tests. Windows are RELATIVE (anchored to run day) so this never goes stale. 54 configs at rebalance_every=5 — TIME THE FIRST REAL RUN (see backtester-v2-plan runtime caveat); trim a dimension if it overruns the Fri-evening → Sat-morning window.",
   "grid": {
     "portfolio_builder.max_tickers_per_cluster": [3, 5, null],
     "universe.min_avg_dollar_volume_20d": [2000000, 5000000, 20000000],
-    "vetter.falling_knife.backstop_pct": [0.15, 0.25, 0]
+    "vetter.falling_knife.backstop_pct": [0.15, 0.25, 0],
+    "factor_engine.momentum_method": ["residual", "residual_riskadj"]
   },
   "tune_years": 6,
   "validate_years": 2,
@@ -12,7 +13,7 @@
     "fill_timing": "next_open",
     "rebalance_every": 5,
     "universe_limit": 1500,
-    "max_configs": 30,
+    "max_configs": 60,
     "sample_seed": 0
   }
 }
