@@ -41,7 +41,12 @@ REPO_ROOT = os.getenv("EVALUATOR_REPO_ROOT", "/repo")
 
 MAX_BACKTESTS = int(os.getenv("EVALUATOR_MAX_BACKTESTS", "3"))
 BACKTEST_POLL_SECS = float(os.getenv("EVALUATOR_BACKTEST_POLL_SECS", "5"))
+# Submit-phase deadline (waiting out a 409-busy backtester before giving up).
 BACKTEST_TIMEOUT_SECS = float(os.getenv("EVALUATOR_BACKTEST_TIMEOUT_SECS", "900"))
+# Inline result wait — deliberately SHORT (fast runs return synchronously; slow
+# runs return a non-error 'running' handoff with poll instructions instead of
+# wedging a tool turn for 15 min; see run_backtest).
+BACKTEST_RESULT_WAIT_SECS = float(os.getenv("EVALUATOR_BACKTEST_RESULT_WAIT_SECS", "180"))
 SQL_STATEMENT_TIMEOUT_MS = int(os.getenv("EVALUATOR_SQL_TIMEOUT_MS", "15000"))
 SQL_MAX_ROWS = int(os.getenv("EVALUATOR_SQL_MAX_ROWS", "200"))
 # Per-tool-result cap fed back to the LLM (a runaway SELECT * must not blow the
@@ -311,8 +316,14 @@ async def run_backtest(args: dict, *, engine, budget: BacktestBudget) -> str:
         run_id = started["run_id"]
 
     # Poll the DB row (summary/validation live there; the HTTP run view omits them).
+    # SHORT inline wait only: a full config-replay takes ~10-20 min on the NAS
+    # (universe-scale re-rank per rebalance date), so waiting for completion here
+    # burned a 900s turn and still returned an "error" the model had to recover
+    # from by hand-polling (observed in the W29 transcript — twice). Waiting
+    # briefly catches fast runs; otherwise the DESIGNED contract is async: return
+    # the run_id with poll instructions as a NORMAL (non-error) result.
     from sqlalchemy import text as _sql
-    deadline = time.monotonic() + BACKTEST_TIMEOUT_SECS
+    deadline = time.monotonic() + BACKTEST_RESULT_WAIT_SECS
     while time.monotonic() < deadline:
         await asyncio.sleep(BACKTEST_POLL_SECS)
         async with engine.connect() as conn:
@@ -334,7 +345,16 @@ async def run_backtest(args: dict, *, engine, budget: BacktestBudget) -> str:
                 "config_changes_applied": args.get("config_changes") or {},
             }
             return _truncate(json.dumps(out, default=str))
-    return f"error: backtest {run_id} still running after {BACKTEST_TIMEOUT_SECS:.0f}s — check backtest_runs later"
+    return json.dumps({
+        "status": "running",
+        "run_id": run_id,
+        "config_changes_applied": args.get("config_changes") or {},
+        "note": (f"NOT an error — a full replay takes ~10-20 min on this host. The run "
+                 f"continues in the background. Do OTHER investigation now, then read the "
+                 f"result with sql_query: SELECT status, n_rebalances, summary, validation "
+                 f"FROM backtest_runs WHERE run_id = '{run_id}' (status 'success' when done). "
+                 "Submitting another backtest before this finishes will queue behind it."),
+    })
 
 
 # ── sql_query ─────────────────────────────────────────────────────────────────

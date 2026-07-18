@@ -144,3 +144,76 @@ def test_tool_definitions_shape_and_websearch_gating(monkeypatch):
     assert "web_search" in names
     for d in t.tool_definitions():   # gateway ToolDef contract
         assert d["name"] and d["description"] and d["parameters"]["type"] == "object"
+
+
+# ── run_backtest async handoff (the 900s-timeout-as-error fix) ────────────────
+
+def test_slow_backtest_returns_running_handoff_not_error(monkeypatch):
+    """A replay outlasting the inline wait must return a NON-error 'running'
+    payload with the run_id and poll instructions (the W29 transcript showed
+    the old behavior burning two 900s turns on 'error: still running')."""
+    import asyncio
+    import json as _json
+    from contextlib import asynccontextmanager
+
+    from app import tools as t
+
+    monkeypatch.setattr(t, "STRATEGY_CONFIG_PATH", os.path.join(
+        os.path.dirname(__file__), "..", "..", "strategies", "quality_core_v1.yaml"))
+    monkeypatch.setattr(t, "BACKTEST_RESULT_WAIT_SECS", 0.02)
+    monkeypatch.setattr(t, "BACKTEST_POLL_SECS", 0.005)
+
+    class _Resp:
+        status_code = 200
+        text = ""
+        def json(self):
+            return {"run_id": "11111111-2222-3333-4444-555555555555"}
+        def raise_for_status(self):
+            pass
+
+    class _Client:
+        def __init__(self, *a, **k): ...
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, url, json=None):
+            return _Resp()
+
+    class _FakeHttpx:
+        AsyncClient = _Client
+    monkeypatch.setattr(t, "httpx", _FakeHttpx())
+
+    class _Conn:
+        async def execute(self, stmt, params=None):
+            class _R:
+                def mappings(self):
+                    return self
+                def first(self):
+                    return {"status": "running", "error_message": None,
+                            "summary": None, "validation": None, "sim_mode": None,
+                            "n_rebalances": None, "date_from": None, "date_to": None}
+            return _R()
+
+    class _Engine:
+        @asynccontextmanager
+        async def connect(self):
+            yield _Conn()
+
+    out = asyncio.run(t.run_backtest(
+        {"config_changes": {}}, engine=_Engine(), budget=BacktestBudget()))
+    assert not out.startswith("error")
+    payload = _json.loads(out)
+    assert payload["status"] == "running"
+    assert payload["run_id"] == "11111111-2222-3333-4444-555555555555"
+    assert "NOT an error" in payload["note"]
+    assert "SELECT status, n_rebalances, summary, validation" in payload["note"]
+
+
+def test_tools_addendum_carries_investigation_guidance():
+    """Prompt-level fixes from the W29 transcript audit: async-backtest contract,
+    live_positions snapshot scoping, schema cheat-sheet, and no wasted pings."""
+    from app.agent import TOOLS_ADDENDUM as A
+    assert "run_backtest is ASYNC" in A
+    assert "SNAPSHOT PER SYNC RUN" in A
+    assert "WHERE sync_run_id = (SELECT run_id FROM alpaca_sync_runs" in A
+    assert "SCHEMA CHEAT-SHEET" in A and "backtest_runs(" in A
+    assert "no connectivity pings (SELECT 1)" in A
