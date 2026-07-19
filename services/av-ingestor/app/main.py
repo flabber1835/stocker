@@ -21,6 +21,7 @@ from stock_strategy_shared.db import wait_for_db
 from stock_strategy_shared.tracing import RESTART_ABORT_MARKER, mark_orphaned_runs_failed, exc_text
 from stock_strategy_shared.corporate_actions import apply_corporate_actions
 from stock_strategy_shared.rate_limit import make_av_limiter, AV_RATE_LIMIT_KEY
+from stock_strategy_shared.trading_tz import market_today
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 if not DATABASE_URL:
@@ -1003,7 +1004,7 @@ async def _run_fetch_universe(run_id: str) -> None:
         # successful fetch.
         ticker_latest, spy_max = await _load_price_staleness()
         fetch_state = await _load_ticker_fetch_state()
-        today = datetime.now(timezone.utc).date()
+        today = market_today()  # market-tz, not UTC (audit finding #10)
         tickers, dropped_stale = _filter_stale_max_date(
             tickers, ticker_latest, spy_max,
         )
@@ -1168,7 +1169,7 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
     price_tickers = _build_benchmarks_first(tickers)
     fundamental_tickers = [t for t in tickers if t not in benchmark_set]
     fundamental_set = set(fundamental_tickers)
-    today = datetime.now(timezone.utc).date()
+    today = market_today()  # market-tz, not UTC (audit finding #10)
 
     # Check what's already in the DB so we can skip up-to-date tickers.
     ticker_latest, spy_max = await _load_price_staleness()
@@ -1639,7 +1640,7 @@ async def _run_fetch_fundamentals(run_id: str, tickers: list[str]) -> None:
     # The 'running' ingest_runs row was already INSERTed atomically by
     # _reserve_run under _job_lock (Bug C1 fix) — do not re-insert here.
     investable = [t for t in tickers if t not in set(BENCHMARK_TICKERS)]
-    today = datetime.now(timezone.utc).date()
+    today = market_today()  # market-tz, not UTC (audit finding #10)
 
     fund_latest = await _load_fund_staleness()
     investable_tickers = await _load_investable_tickers()

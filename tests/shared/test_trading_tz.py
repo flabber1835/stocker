@@ -50,3 +50,46 @@ def test_helpers_return_aware_now_and_date(monkeypatch):
     tz = resolve_trading_tz("SCHEDULE_TZ")
     assert trading_now(tz).tzinfo is not None
     assert trading_today(tz) == trading_now(tz).date()
+
+
+# ── market_today + weekday_sessions_between (audit findings #1/#2/#9) ─────────
+
+def test_market_today_uses_trading_zone(monkeypatch):
+    from stock_strategy_shared.trading_tz import market_today
+    monkeypatch.setenv("STOCKER_TZ", "America/New_York")
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    assert market_today() == datetime.now(ZoneInfo("America/New_York")).date()
+
+
+def test_weekday_sessions_friday_close_on_monday_is_one():
+    from datetime import date
+    from stock_strategy_shared.trading_tz import weekday_sessions_between
+    fri, mon = date(2026, 7, 17), date(2026, 7, 20)
+    assert weekday_sessions_between(fri, mon) == 1     # not 3 calendar days
+
+
+@pytest.mark.parametrize("earlier,later,expected", [
+    ((2026, 7, 17), (2026, 7, 17), 0),   # same day
+    ((2026, 7, 17), (2026, 7, 18), 0),   # Fri → Sat: no session elapsed
+    ((2026, 7, 17), (2026, 7, 19), 0),   # Fri → Sun
+    ((2026, 7, 16), (2026, 7, 17), 1),   # Thu → Fri
+    ((2026, 7, 13), (2026, 7, 20), 5),   # Mon → next Mon: one full week
+    ((2026, 7, 3),  (2026, 7, 20), 11),  # long span incl. two weekends
+    ((2026, 7, 20), (2026, 7, 17), 0),   # reversed → 0, never negative
+])
+def test_weekday_sessions_between_cases(earlier, later, expected):
+    from datetime import date
+    from stock_strategy_shared.trading_tz import weekday_sessions_between
+    assert weekday_sessions_between(date(*earlier), date(*later)) == expected
+
+
+def test_weekday_sessions_matches_bruteforce():
+    from datetime import date, timedelta
+    from stock_strategy_shared.trading_tz import weekday_sessions_between
+    start = date(2026, 1, 1)
+    for span in range(0, 40):
+        end = start + timedelta(days=span)
+        brute = sum(1 for i in range(1, span + 1)
+                    if (start + timedelta(days=i)).weekday() < 5)
+        assert weekday_sessions_between(start, end) == brute, span

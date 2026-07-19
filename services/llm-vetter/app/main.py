@@ -16,6 +16,7 @@ from sqlalchemy import text
 from app.drawdown import recent_drawdown, excess_drawdown, scaled_excess_threshold
 from app.vetter import fetch_ticker_data, vet_single_ticker
 from stock_strategy_shared.loader import load_strategy
+from stock_strategy_shared.trading_tz import market_today
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 from stock_strategy_shared.tracing import fmt_row, log_step, write_trace_file, mark_orphaned_runs_failed, exc_text
 from stock_strategy_shared.db import wait_for_db
@@ -465,7 +466,8 @@ async def _do_vet(
     candidate_count: int,
     source_strategy_id: str = "unknown",
 ) -> None:
-    today = date.today().isoformat()
+    # Market-tz date (UTC flips to tomorrow at 20:00 ET — audit finding #2).
+    today = market_today().isoformat()
 
     # Defensive: the handler inserts vetter_runs + execution_traces before scheduling
     # this background task. If the handler's commit was lost (transient DB error,

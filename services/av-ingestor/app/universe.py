@@ -286,7 +286,8 @@ def _is_investable_equity(t: dict) -> bool:
 async def save_universe_snapshot(conn, etf_ticker: str, tickers: list[dict]) -> int:
     from sqlalchemy import text
 
-    today = date.today()
+    from stock_strategy_shared.trading_tz import market_today
+    today = market_today()  # snapshot_date in market tz, not container tz
     investable = [t for t in tickers if _is_investable_equity(t)]
     dropped = len(tickers) - len(investable)
     if dropped:

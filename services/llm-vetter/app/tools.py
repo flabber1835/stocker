@@ -16,6 +16,8 @@ import logging
 import os
 from datetime import date, timedelta
 
+from stock_strategy_shared.trading_tz import market_today
+
 import httpx
 
 log = logging.getLogger("llm-vetter.tools")
@@ -57,7 +59,7 @@ async def fetch_av_news(
     if not api_key or api_key == "demo":
         return {}
 
-    since = (date.today() - timedelta(days=lookback_days)).strftime("%Y%m%dT0000")
+    since = (market_today() - timedelta(days=lookback_days)).strftime("%Y%m%dT0000")
     result: dict[str, list[dict]] = {t: [] for t in tickers}
     sem = asyncio.Semaphore(concurrency)
     start_lock = asyncio.Lock()
@@ -145,7 +147,7 @@ async def fetch_av_earnings_calendar(
 
     ticker_set = set(tickers)
     result: dict[str, str | None] = {t: None for t in tickers}
-    cutoff = date.today() + timedelta(days=earnings_horizon_days)
+    cutoff = market_today() + timedelta(days=earnings_horizon_days)
 
     async with httpx.AsyncClient(timeout=30) as client:
         try:
@@ -167,7 +169,7 @@ async def fetch_av_earnings_calendar(
                     continue
                 try:
                     report_date = date.fromisoformat(report_date_str)
-                    if date.today() <= report_date <= cutoff:
+                    if market_today() <= report_date <= cutoff:
                         result[symbol] = report_date_str
                 except ValueError:
                     pass

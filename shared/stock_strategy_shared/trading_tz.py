@@ -57,3 +57,32 @@ def trading_now(tz: ZoneInfo) -> datetime:
 def trading_today(tz: ZoneInfo) -> date:
     """Today's calendar date in the trading zone."""
     return datetime.now(tz).date()
+
+
+def market_today(*override_env_names: str) -> date:
+    """CANONICAL "today" for any market-coupled decision (audit findings #1/#2).
+
+    Containers run in UTC, so `date.today()` / `datetime.now(timezone.utc).date()`
+    flip to the NEXT calendar day at 20:00 ET — splitting one US trading evening
+    (chain at 22:30 ET, auto-approve, ingest rotation) across two "days". Every
+    service that needs a market-day should call THIS instead of its own clock.
+    Same resolution rules as resolve_trading_tz (STOCKER_TZ → overrides → ET).
+    """
+    return trading_today(resolve_trading_tz(*override_env_names))
+
+
+def weekday_sessions_between(earlier: date, later: date) -> int:
+    """Approximate market sessions elapsed: weekdays in the half-open (earlier,
+    later]. Friday close checked on Monday = 1, not 3 — so session-freshness
+    thresholds don't mis-fire over weekends (audit finding #9). Holidays are
+    still counted (no exchange calendar here); thresholds should keep a small
+    margin for them. 0 when later <= earlier."""
+    if later <= earlier:
+        return 0
+    full_weeks, rem = divmod((later - earlier).days, 7)
+    count = full_weeks * 5
+    start_wd = earlier.weekday()
+    for i in range(1, rem + 1):
+        if (start_wd + i) % 7 < 5:
+            count += 1
+    return count

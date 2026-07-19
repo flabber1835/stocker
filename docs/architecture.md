@@ -1918,3 +1918,28 @@ Whenever a design decision is made, it must be documented in the design docs bef
 This applies to: architecture choices, communication patterns, data ownership, safety rules, service boundaries, sequencing decisions, and any explicit choice between two or more reasonable options.
 
 The docs are the source of truth for intent. If code diverges from the docs, update the docs or the code — not just a comment.
+
+## Design Decision: canonical market date for all market-coupled decisions (2026-07)
+
+External audit findings #1/#2/#9/#10: containers run in UTC, so `date.today()` /
+`datetime.now(timezone.utc).date()` flip to the NEXT calendar day at 20:00 ET —
+splitting one US trading evening (chain at 22:30 ET, auto-approve, ingest
+rotation, submit-lock day keys) across two "days", and letting services disagree
+about "today".
+
+Rule: any market-coupled decision date comes from
+`stock_strategy_shared.trading_tz.market_today()` (STOCKER_TZ → service
+override envs → America/New_York, failing fast on a broken tz database), never
+from a service's own clock. Chain lineage was already data-session anchored
+(the DateAnchor consolidation); this extends the same discipline to the leaf
+uses: trade-executor's submit-lock trading-day fallback and stale-price check,
+llm-vetter's vet date + news/earnings windows, av-ingestor's fetch/probation
+rotation and universe snapshot_date. UTC remains correct for audit TIMESTAMPS
+(started_at/completed_at etc.) — this rule is about calendar DATES that select
+market behavior.
+
+Price-freshness ages are measured in WEEKDAY SESSIONS
+(`weekday_sessions_between`), not calendar days — Friday's close checked on
+Monday is 1 session old, not 3 days — so thresholds don't mis-fire over
+weekends. Holidays are not modeled (no exchange calendar); thresholds keep
+margin for them (MAX_PRICE_AGE_DAYS default 7).

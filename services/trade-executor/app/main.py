@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from stock_strategy_shared.db import wait_for_db
 from stock_strategy_shared.order_status import OPEN_ORDER_STATUSES, open_status_sql
 from stock_strategy_shared.broker import ALREADY_CLOSED_STATUS, get_broker_adapter
+from stock_strategy_shared.trading_tz import market_today, weekday_sessions_between
 
 from app.drain import DeferredOrder, plan_drain
 from app.submit_lock import (
@@ -907,29 +908,33 @@ def _refuse_if_stale_buy_price(ticker: str, price_row, action: str) -> None:
     """Refuse (HTTP 422) to size a BUY off a stale daily_prices fallback close.
 
     `price_row` is the `{close, date}` mapping (or None) from the daily_prices
-    fallback. When MAX_PRICE_AGE_DAYS > 0 and the row's date is older than that many
-    calendar days, raise — sizing a buy on a price that no longer reflects the
-    market (a delisted/halted name with only an old print) would place a wrong-sized
-    order. No-op when MAX_PRICE_AGE_DAYS <= 0, the row is missing (the caller's own
-    'no price' guard handles that), or the date is absent. Sells never call this.
+    fallback. When MAX_PRICE_AGE_DAYS > 0 and the row's date is older than that
+    many MARKET SESSIONS (weekday count in the market timezone — Friday's close
+    on Monday is 1 session old, not 3 calendar days; audit findings #1/#9),
+    raise — sizing a buy on a price that no longer reflects the market
+    (a delisted/halted name with only an old print) would place a wrong-sized
+    order. No-op when MAX_PRICE_AGE_DAYS <= 0, the row is missing (the caller's
+    own 'no price' guard handles that), or the date is absent. Sells never call
+    this.
     """
     if MAX_PRICE_AGE_DAYS <= 0 or price_row is None:
         return
     px_date = price_row.get("date") if hasattr(price_row, "get") else None
     if px_date is None:
         return
-    today = datetime.now(timezone.utc).date()
+    today = market_today()
     # px_date may be a date or datetime depending on the column; normalize.
     if hasattr(px_date, "date") and not isinstance(px_date, type(today)):
         px_date = px_date.date()
-    age_days = (today - px_date).days
-    if age_days > MAX_PRICE_AGE_DAYS:
+    age_sessions = weekday_sessions_between(px_date, today)
+    if age_sessions > MAX_PRICE_AGE_DAYS:
         raise HTTPException(
             status_code=422,
             detail=(
                 f"Refusing to size {action} for {ticker}: only a stale daily price "
-                f"is available ({px_date}, {age_days}d old > {MAX_PRICE_AGE_DAYS}d "
-                f"MAX_PRICE_AGE_DAYS). A buy must not be sized off a stale close."
+                f"is available ({px_date}, {age_sessions} sessions old > "
+                f"{MAX_PRICE_AGE_DAYS} MAX_PRICE_AGE_DAYS). A buy must not be "
+                f"sized off a stale close."
             ),
         )
 
@@ -1769,7 +1774,11 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
         # SubmitLockTimeout → fail CLOSED (record 'failed', never submit).
         # See submit_lock.py / docs/risk-safety-rules.md.
         sim_date = intent.get("sim_date")
-        trading_day = str(sim_date) if sim_date else datetime.now(timezone.utc).date().isoformat()
+        # Market-tz date, NOT UTC: after 20:00 ET a UTC date has already flipped
+        # to tomorrow, splitting one trading evening's lock/reservation cycle
+        # across two "days" (audit finding #1). Chain intents carry sim_date and
+        # never hit this fallback.
+        trading_day = str(sim_date) if sim_date else market_today().isoformat()
         try:
             async with with_submit_lock(engine, DEFAULT_ACCOUNT, trading_day):
                 # ── Step 4: risk check ────────────────────────────────────────
