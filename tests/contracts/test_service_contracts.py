@@ -151,6 +151,11 @@ def test_av_ingestor_runs_latest_contract():
         "session_date": _now().date(),
         "started_at": _now(),
         "completed_at": _now(),
+        # progress/degraded columns the endpoint reads since the coverage-gate
+        # work — the fake row must track the real SELECT list
+        "tickers_done": 3000,
+        "tickers_total": 3000,
+        "degraded": False,
     }
     engine = _mock_engine_returning(fake_row)
 

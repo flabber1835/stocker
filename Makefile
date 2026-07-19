@@ -46,9 +46,12 @@ shell-pipeline:
 # ── Tests ──────────────────────────────────────────────────────────────────────────────────────────────────
 # Unit tests: runs without Docker.
 
+# Runs every suite in its OWN pytest process — the service packages all being
+# named `app` makes a single cross-suite process order-dependent (see
+# scripts/run-tests.sh). One-liner per suite; green here = every suite green.
 test:
 	pip install --quiet -e shared pytest pandas numpy pydantic pyyaml hypothesis
-	pytest tests/ -v
+	bash scripts/run-tests.sh
 
 # Integration test: spins up Docker Compose with MOCK_DATA=true, runs full pipeline,
 # verifies results, then tears down. Requires Docker.

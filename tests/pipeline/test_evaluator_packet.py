@@ -88,8 +88,9 @@ def test_active_weighted_factors_from_live_config(monkeypatch):
     monkeypatch.setenv("STRATEGY_CONFIG_PATH",
                        os.path.join(_ROOT, "strategies", "momentum_rotation_v2.yaml"))
     w = ep._active_weighted_factors()
-    assert "momentum" in w and "near_high" in w   # weighted in v2
-    assert "issuance" not in w                     # weight 0 → not in the book
+    # W29 applied reweight: near_high zeroed → no longer an active weighted factor.
+    assert "momentum" in w and "low_volatility" in w
+    assert "near_high" not in w and "issuance" not in w   # weight 0 → not in the book
 
 
 def test_regret_entries_carry_rank_and_fingerprint():
