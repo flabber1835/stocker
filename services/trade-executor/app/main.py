@@ -56,6 +56,33 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 ALPACA_API_KEY = os.getenv("ALPACA_API_KEY", "")
 ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
 ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+
+# The real-money Alpaca trading endpoint. Anything else — paper-api, the test
+# harness's alpaca-sim, localhost — cannot reach a live account.
+_LIVE_ALPACA_HOSTS = {"api.alpaca.markets"}
+
+
+def trade_type_for_base_url(base_url: str | None) -> str:
+    """'live' iff the configured endpoint is the REAL Alpaca trading API.
+
+    This label — not the endpoint — is what risk-service's LIVE_TRADING_ENABLED
+    and PAPER_ONLY gates key off. It used to be hardcoded 'paper' on every risk
+    check, which made those gates decorative: pointing ALPACA_BASE_URL at the
+    live API traded real money straight through the paper-labeled path. Deriving
+    it from the endpoint makes going live a deliberate two-key turn: switch the
+    URL *and* flip LIVE_TRADING_ENABLED=true / PAPER_ONLY=false, or every order
+    is rejected. Unknown hosts stay 'paper' — they can't reach the real broker,
+    and labeling the sim 'live' would wedge the test harness.
+    """
+    from urllib.parse import urlparse
+    host = (urlparse(base_url or "").hostname or "").lower()
+    return "live" if host in _LIVE_ALPACA_HOSTS else "paper"
+
+
+def _current_trade_type() -> str:
+    # Env re-read per call (same philosophy as risk-service's per-/check re-read).
+    return trade_type_for_base_url(
+        os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets"))
 RISK_SERVICE_URL = os.getenv("RISK_SERVICE_URL", "http://risk-service:8000")
 # Retry the risk-service /check call on TRANSIENT transport errors / 5xx so a brief
 # blip (e.g. risk-service restarting on a redeploy mid-approval) does not fail the
@@ -243,7 +270,7 @@ async def _submit_deferred_order(row: dict) -> tuple[str, Optional[str]]:
     risk_payload = {
         "ticker": row["ticker"], "action": row.get("action"), "side": row["side"],
         "qty": float(row["qty"]), "notional": float(row["notional"]),
-        "mode": row.get("mode") or "scheduled", "trade_type": "paper",
+        "mode": row.get("mode") or "scheduled", "trade_type": _current_trade_type(),
         **({"sim_date": str(row["sim_date"])} if row.get("sim_date") else {}),
     }
     try:
@@ -1750,7 +1777,7 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
                 risk_payload = {
                     "ticker": ticker, "action": action, "side": side,
                     "qty": qty, "notional": notional,
-                    "mode": req.mode, "trade_type": "paper",
+                    "mode": req.mode, "trade_type": _current_trade_type(),
                     **({"sim_date": str(sim_date)} if sim_date else {}),
                 }
                 try:

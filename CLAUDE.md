@@ -1029,6 +1029,14 @@ redeploy) doesn't fail a close; a real risk REJECTION (HTTP 200) is never retrie
 
 Short-circuits when ALPACA_API_KEY is empty (records a failed row, no HTTP call).
 
+`trade_type` on every risk check is DERIVED from ALPACA_BASE_URL
+(`trade_type_for_base_url`): "live" iff the host is api.alpaca.markets, else
+"paper" (paper-api, alpaca-sim, anything else). So pointing the executor at the
+real broker requires ALSO setting LIVE_TRADING_ENABLED=true + PAPER_ONLY=false
+or the risk-service rejects every order — going live is a two-key turn, never a
+single env-var slip. (Previously hardcoded "paper", which made those gates
+decorative.) See docs/risk-safety-rules.md.
+
 No other service should contain Alpaca order-submission credentials.
 alpaca-sync also has Alpaca credentials but only performs read calls
 (`GET /v2/account`, `GET /v2/positions`, and `GET /v2/orders` to reconcile

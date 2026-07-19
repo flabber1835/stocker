@@ -50,6 +50,16 @@ These are actually enforced in code today.
 KILL_SWITCH              — if active, risk-service rejects all checks (see hot-flip below)
 LIVE_TRADING_ENABLED     — must be "true" for trade_type=="live" to pass; default "false"
 PAPER_ONLY               — when "true", any live trade is rejected; default "true"
+
+trade_type is DERIVED FROM THE ENDPOINT by the trade-executor
+(trade_type_for_base_url): "live" iff ALPACA_BASE_URL's host is
+api.alpaca.markets (the only endpoint that can reach real money); paper-api,
+the alpaca-sim harness, and anything else stay "paper". It was previously
+hardcoded "paper" on every risk check, which made the two gates above
+decorative — pointing ALPACA_BASE_URL at the live API traded real money
+through the paper-labeled path. Going live is now a deliberate two-key turn:
+switch the URL *and* set LIVE_TRADING_ENABLED=true + PAPER_ONLY=false, or the
+risk-service rejects every order.
 MAX_ORDER_NOTIONAL       — default $50,000 per order; SCALE-AWARE: effective cap =
                            max(MAX_ORDER_NOTIONAL, MAX_ORDER_PCT × account_value), so a
                            grown account keeps rotating instead of silently rejecting
