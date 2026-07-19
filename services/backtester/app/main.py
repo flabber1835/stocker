@@ -555,10 +555,13 @@ async def _run_config_replay_bg(
                 "WHERE ticker = ANY(:tk) AND date BETWEEN :pf AND :pt "
                 "ORDER BY ticker, date ASC"
             ), {"tk": list(tickers), "pf": px_from, "pt": px_to})).fetchall()
+            # sector IS NOT NULL: a fresh weekly snapshot inserts sector=NULL for
+            # every row, so newest-row-wins would blank the sector cap after a refresh.
             srows = (await conn.execute(text(
                 "SELECT DISTINCT ON (ut.ticker) ut.ticker, ut.sector "
                 "FROM universe_tickers ut JOIN universe_snapshots us ON ut.snapshot_id = us.id "
                 "WHERE ut.ticker = ANY(:tk) AND us.snapshot_date <= :dt "
+                "  AND ut.sector IS NOT NULL "
                 "ORDER BY ut.ticker, us.snapshot_date DESC"
             ), {"tk": list(tickers), "dt": date_to})).fetchall()
 

@@ -787,15 +787,26 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
 
         snapshot_id = snap[0]
         ticker_rows = await conn.execute(
-            text("SELECT ticker, sector FROM universe_tickers WHERE snapshot_id = :sid"),
+            text("SELECT ticker FROM universe_tickers WHERE snapshot_id = :sid"),
             {"sid": snapshot_id},
         )
-        fetched_rows = ticker_rows.fetchall()
-        raw_tickers = [r[0] for r in fetched_rows]
+        raw_tickers = [r[0] for r in ticker_rows.fetchall()]
         # ticker -> sector label (AV `Sector`) for industry-neutral factor ranking.
-        # NULL/empty sectors are dropped; neutralized_percentile falls back to
-        # universe-wide ranking for any ticker absent from this map.
-        sector_map = {r[0]: r[1] for r in fetched_rows if r[1]}
+        # Membership comes from the current snapshot (above); the sector LABEL is the
+        # latest non-null across snapshots — a fresh weekly snapshot inserts
+        # sector=NULL for every row (LISTING_STATUS has no sector), so reading the
+        # current snapshot's sector would silently degrade neutralization to
+        # universe-wide right after each refresh. neutralized_percentile still falls
+        # back to universe-wide for any ticker absent from this map.
+        sector_rows = await conn.execute(
+            text(
+                "SELECT DISTINCT ON (ticker) ticker, sector FROM universe_tickers "
+                "WHERE ticker = ANY(:tickers) AND sector IS NOT NULL "
+                "ORDER BY ticker, snapshot_id DESC"
+            ),
+            {"tickers": raw_tickers},
+        )
+        sector_map = {r[0]: r[1] for r in sector_rows.fetchall()}
 
         universe_tickers = list(dict.fromkeys(raw_tickers))
         duplicates_removed = len(raw_tickers) - len(universe_tickers)

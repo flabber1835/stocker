@@ -206,6 +206,36 @@ Limitations to keep in mind:
 - For clean historical universe data, evaluate Sharadar in a future phase
 ```
 
+### Design Decision: sector provenance — OVERVIEW trickle + snapshot carry-forward, latest-non-null reads
+
+`universe_tickers.sector` has a two-source lifecycle, and every consumer must
+respect it (this closed the W29 "sector cap inert" finding):
+
+```text
+1. LISTING_STATUS carries NO sector — every fresh universe snapshot inserts
+   sector=NULL for all rows.
+2. The AV OVERVIEW (fundamentals) fetch backfills sector per ticker as it
+   trickles through the universe (investable names weekly, the rest on a
+   ~30-day rotation). The UPDATE is unscoped by snapshot, so all snapshots
+   converge on the latest label.
+3. save_universe_snapshot CARRIES FORWARD the latest known non-null sector
+   from prior snapshots into each new snapshot at creation, so a weekly
+   refresh never resets coverage to zero.
+4. READERS must never scope sector to "the newest snapshot" — they take the
+   latest NON-NULL sector per ticker across snapshots
+   (DISTINCT ON (ticker) ... ORDER BY ticker, (sector IS NULL), snapshot_id DESC).
+   Universe MEMBERSHIP still comes from the newest snapshot; only the sector
+   LABEL reads across snapshots. Applied in: portfolio-builder (max_sector_weight
+   cap), pipeline (sector-neutralized factors), llm-vetter, api/dashboard,
+   evaluator packet, backtester config-replay.
+```
+
+Residual nulls (~half the universe) are names whose OVERVIEW has not been
+fetched yet or for which AV has no OVERVIEW data (micro-caps). They are
+overwhelmingly outside the investable/ranked set — ranked candidates need
+fundamentals, whose fetch is exactly what writes the sector — so a mass
+OVERVIEW backfill of the tail is not warranted.
+
 ## Current Design Choice
 
 Start with:

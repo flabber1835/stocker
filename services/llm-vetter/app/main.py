@@ -524,13 +524,15 @@ async def _do_vet(
     # Fetch sector and related share-class siblings per ticker from universe_tickers.
     ticker_set_pg = tickers  # already a list
     async with engine.connect() as conn:
+        # Prefer the latest row with a NON-NULL sector: fresh weekly universe
+        # snapshots insert sector=NULL for every row (LISTING_STATUS has no sector),
+        # so "newest snapshot wins" would blank all sectors right after a refresh.
         sector_rows = await conn.execute(
             text(
                 "SELECT DISTINCT ON (ut.ticker) ut.ticker, ut.sector, ut.name "
                 "FROM universe_tickers ut "
-                "JOIN universe_snapshots us ON ut.snapshot_id = us.id "
                 "WHERE ut.ticker = ANY(:tickers) "
-                "ORDER BY ut.ticker, us.snapshot_date DESC"
+                "ORDER BY ut.ticker, (ut.sector IS NULL), ut.snapshot_id DESC"
             ),
             {"tickers": ticker_set_pg},
         )
@@ -595,9 +597,8 @@ async def _do_vet(
                 text(
                     "SELECT DISTINCT ON (ut.ticker) ut.ticker, ut.sector, ut.name "
                     "FROM universe_tickers ut "
-                    "JOIN universe_snapshots us ON ut.snapshot_id = us.id "
                     "WHERE ut.ticker = ANY(:tickers) "
-                    "ORDER BY ut.ticker, us.snapshot_date DESC"
+                    "ORDER BY ut.ticker, (ut.sector IS NULL), ut.snapshot_id DESC"
                 ),
                 {"tickers": extra_held},
             )

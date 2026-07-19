@@ -582,17 +582,20 @@ async def _do_build(
     # ── Step 4c: load sector data (INFORMATIONAL ONLY — no longer gates selection) ───────────────────────────────
     t0 = datetime.now(timezone.utc)
     async with engine.connect() as conn:
+        # Latest NON-NULL sector per ticker across snapshots: a fresh weekly universe
+        # snapshot inserts sector=NULL for every row (LISTING_STATUS has no sector), so
+        # "newest row wins" would empty this map right after a refresh and silently
+        # disable the max_sector_weight cap (the W29 inert-sector-cap finding).
         sector_rows = await conn.execute(
             text(
                 "SELECT DISTINCT ON (ut.ticker) ut.ticker, ut.sector "
                 "FROM universe_tickers ut "
-                "JOIN universe_snapshots us ON ut.snapshot_id = us.id "
-                "WHERE ut.ticker = ANY(:tickers) "
-                "ORDER BY ut.ticker, us.snapshot_date DESC"
+                "WHERE ut.ticker = ANY(:tickers) AND ut.sector IS NOT NULL "
+                "ORDER BY ut.ticker, ut.snapshot_id DESC"
             ),
             {"tickers": available_tickers},
         )
-        sector_map = {r.ticker: r.sector for r in sector_rows.fetchall() if r.sector}
+        sector_map = {r.ticker: r.sector for r in sector_rows.fetchall()}
 
     # ── Step 4d: load current portfolio holdings for turnover penalty ─────────────────────────────────────────────────
     # Merge both sources: previous portfolio target AND actual broker positions.

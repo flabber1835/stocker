@@ -298,6 +298,39 @@ def test_account_vs_spy_windows_symmetric(db_engine):
     assert h["excess"] == pytest.approx(0.03 - (430 / 422 - 1), abs=1e-3)
 
 
+# ── W29 sector finding: a fresh weekly universe snapshot inserts sector=NULL ──
+# for every row (LISTING_STATUS carries no sector), so any reader scoped to the
+# NEWEST snapshot went sector-blind right after a refresh — the packet showed the
+# whole book as 'Unknown' and the selection audit all-null. Sector must resolve
+# to the latest NON-NULL value across snapshots. Runs LAST: it mutates the seed
+# by adding a newer snapshot.
+
+def test_sector_survives_null_sector_snapshot_refresh(db_engine):
+    from sqlalchemy import text
+    from app.packet import _current_book, _selection_audit
+
+    async def _add_null_snapshot(engine):
+        async with engine.begin() as conn:
+            sid = (await conn.execute(text(
+                "INSERT INTO universe_snapshots (etf_ticker, snapshot_date, ticker_count) "
+                "VALUES ('AV', :d, 3) RETURNING id"), {"d": D(0)})).scalar()
+            await conn.execute(
+                text("INSERT INTO universe_tickers (snapshot_id, ticker, sector) "
+                     "VALUES (:s, :t, NULL)"),
+                [{"s": sid, "t": t} for t in ("A00", "A01", "Z99")])
+    asyncio.run(_run_with_engine(db_engine, _add_null_snapshot))
+
+    book = _call(db_engine, _current_book)
+    assert book["sector_weights"] == {"Tech": 0.5}          # not {'Unknown': 0.5}
+    assert all(h["sector"] == "Tech" for h in book["holdings"])
+
+    audit = _call(db_engine, _selection_audit)
+    # Every candidate (A00/A01, seeded 'Tech' in the OLD snapshot) must still
+    # resolve its sector — pre-fix the newest-snapshot scope made them all null.
+    assert audit["candidates"], "selection audit returned no candidates"
+    assert all(c["sector"] == "Tech" for c in audit["candidates"])
+
+
 def test_error_digest_surfaces_failure_text_deduped(db_engine):
     """The digest gives the review actual failure TEXT (not just counts):
     ingest failure, a REPEATED delta failure collapsed to one entry with

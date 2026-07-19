@@ -321,4 +321,25 @@ async def save_universe_snapshot(conn, etf_ticker: str, tickers: list[dict]) -> 
             ],
         )
 
+        # Sector CARRY-FORWARD: AV LISTING_STATUS carries no sector, so every fresh
+        # snapshot inserts sector=NULL and would blind all sector consumers (builder
+        # max_sector_weight cap, pipeline sector-neutralized factors, dashboards,
+        # evaluator packet) until the OVERVIEW fundamentals trickle re-labels each
+        # ticker. Inherit the latest known non-null sector per ticker from prior
+        # snapshots; the next OVERVIEW fetch still overwrites with fresh data.
+        carried = await conn.execute(
+            text(
+                "UPDATE universe_tickers ut SET sector = prev.sector "
+                "FROM (SELECT DISTINCT ON (ticker) ticker, sector "
+                "      FROM universe_tickers "
+                "      WHERE snapshot_id <> :sid AND sector IS NOT NULL "
+                "      ORDER BY ticker, snapshot_id DESC) prev "
+                "WHERE ut.snapshot_id = :sid AND ut.ticker = prev.ticker "
+                "  AND ut.sector IS NULL"
+            ),
+            {"sid": snapshot_id},
+        )
+        if carried.rowcount:
+            print(f"[universe] carried forward sector for {carried.rowcount} tickers from prior snapshots")
+
     return snapshot_id

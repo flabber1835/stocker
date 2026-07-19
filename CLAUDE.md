@@ -526,6 +526,14 @@ detect fundamentals FIELD REGRESSIONS (a fetch that nulls a previously-
   last-known-good read and the delta engine's factor-gate hold.
 ```
 
+Sector provenance: LISTING_STATUS has NO sector, so a fresh universe snapshot
+inserts sector=NULL everywhere; the OVERVIEW fundamentals fetch backfills it
+per ticker (unscoped by snapshot). `save_universe_snapshot` CARRIES FORWARD the
+latest non-null sector from prior snapshots, and all sector readers take the
+latest NON-NULL label across snapshots (never "newest snapshot only" — that
+went sector-blind after the first weekly refresh: the W29 inert-sector-cap
+finding). See docs/data-sources.md "sector provenance".
+
 Should not calculate investment factors.
 
 Lifespan calls the shared `mark_orphaned_runs_failed("ingest_runs", ...)` on

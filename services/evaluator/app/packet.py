@@ -612,11 +612,14 @@ async def _selection_audit(conn) -> dict:
         return {"note": "no successful portfolio run yet"}
 
     cands = (await conn.execute(text(
+        # Latest NON-NULL sector per ticker across snapshots — a fresh weekly
+        # snapshot inserts sector=NULL everywhere, so scoping to the newest snapshot
+        # showed the whole book as sector-unknown right after a refresh (W29 finding).
         "SELECT r.ticker, r.rank, r.composite_score, n.sector "
         "FROM rankings r "
         "LEFT JOIN (SELECT DISTINCT ON (ticker) ticker, sector FROM universe_tickers "
-        "           WHERE snapshot_id = (SELECT MAX(id) FROM universe_snapshots) "
-        "           ORDER BY ticker, id ASC) n ON n.ticker = r.ticker "
+        "           WHERE sector IS NOT NULL "
+        "           ORDER BY ticker, snapshot_id DESC) n ON n.ticker = r.ticker "
         "WHERE r.run_id = :rid ORDER BY r.rank ASC LIMIT :n"
     ), {"rid": run["source_ranking_run_id"], "n": SELECTION_AUDIT_CANDIDATES})).mappings().all()
     candidates = [{"ticker": c["ticker"], "rank": c["rank"],
@@ -854,8 +857,8 @@ async def _current_book(conn) -> dict:
         "FROM portfolio_holdings ph "
         "LEFT JOIN rankings r ON r.run_id = ph.source_ranking_run_id AND r.ticker = ph.ticker "
         "LEFT JOIN (SELECT DISTINCT ON (ticker) ticker, sector FROM universe_tickers "
-        "           WHERE snapshot_id = (SELECT MAX(id) FROM universe_snapshots) "
-        "           ORDER BY ticker, id ASC) n ON n.ticker = ph.ticker "
+        "           WHERE sector IS NOT NULL "
+        "           ORDER BY ticker, snapshot_id DESC) n ON n.ticker = ph.ticker "
         "WHERE ph.run_id = :rid ORDER BY ph.weight DESC"
     ), {"rid": run["run_id"]})).mappings().all()
 
