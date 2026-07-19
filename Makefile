@@ -1,5 +1,5 @@
 .PHONY: up down logs build build-base test integration-test migrate-fresh-test init shell-api shell-db shell-pipeline \
-        universe data prices fundamentals run-pipeline vet portfolio pipeline pull-model
+        universe data prices fundamentals run-pipeline vet portfolio pipeline pull-model deploy
 
 # ── Compose lifecycle ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -18,6 +18,11 @@ build-base:
 
 build: build-base
 	docker compose build
+
+# NAS deploy: mirrors one-click-applied config into git, rebases, pushes, then
+# rebuilds SERVICES. Example: make deploy SERVICES="api pipeline"
+deploy:
+	./scripts/deploy.sh $(SERVICES)
 
 logs:
 	docker compose logs -f

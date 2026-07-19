@@ -382,12 +382,22 @@ services short-circuit to no-op (no credentials in repo).
 The live deployment repo on the NAS is at **`/volume1/docker/github/stocker`**
 (NOT `/volume1/docker/docker/github/stocker` — that path does not exist; cd-ing to
 it silently leaves the shell in the wrong dir so the subsequent `git pull` /
-`docker compose` run against the wrong tree). Always use:
+`docker compose` run against the wrong tree). The canonical deploy is the
+wrapper script (it automates the dirty-strategies mirror below, rebases,
+pushes, and rebuilds):
 
 ```bash
 cd /volume1/docker/github/stocker
+scripts/deploy.sh <changed-services...>     # or: make deploy SERVICES="api pipeline"
+```
+
+Manual equivalent (what the script does):
+
+```bash
+cd /volume1/docker/github/stocker
+git status --porcelain strategies/   # if dirty → mirror first (see below)
 git pull origin main
-git log --oneline -1          # confirm HEAD is the commit you expect
+git log --oneline -1                 # confirm HEAD is the commit you expect
 docker compose up -d --build <changed-services...>
 ```
 
@@ -405,11 +415,13 @@ data volume.
 
 **One-click config applies dirty the NAS tree (evaluator Phase 3).** After an
 Apply click, `strategies/<active>.yaml` differs from origin and the NEXT
-`git pull` will refuse to merge. Before pulling, check
-`git status --porcelain strategies/`; if dirty, the applied change must first
-be mirrored into git (the byte-canonical copy is in
-`artifacts/config/applied/` — commit it upstream verbatim, then
-`git checkout -- strategies/ && git pull`). Never discard the local file
+`git pull` will refuse to merge. `scripts/deploy.sh` handles this: a dirty
+strategies file that byte-matches an `artifacts/config/applied/` artifact is
+auto-committed ("mirror applied config change", config_hash in the message)
+and pushed before the rebase; a dirty file matching NO artifact aborts the
+deploy (stray manual edit — resolve by hand). If mirroring manually instead:
+commit the byte-canonical `artifacts/config/applied/` copy upstream verbatim,
+then `git checkout -- strategies/ && git pull`. Never discard the local file
 without confirming the same change is already committed upstream (compare
 config_hash from the `config_changes` audit row).
 
