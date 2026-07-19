@@ -54,7 +54,10 @@ def _load(name: str):
             mod = importlib.util.module_from_spec(spec)
             sys.modules[modname] = mod
             spec.loader.exec_module(mod)
-            return mod
+            # rank.py/select.py are re-export shims that REPLACE their own
+            # sys.modules entry with the canonical shared module (audit #3) —
+            # return the post-exec entry, not the shell we created.
+            return sys.modules.get(modname, mod)
     raise ImportError(f"live module {name!r} not found (looked at {sibling} and {repo_rel})")
 
 

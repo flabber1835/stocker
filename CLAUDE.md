@@ -1130,9 +1130,11 @@ config_replay     POST /jobs/backtest-config  — G1. Re-RANKS + re-SELECTS ever
                     deterministic code: "what would THIS config have done?".
 ```
 
-config_replay reuses `rank_universe` + builder `select.py`, vendored
-BYTE-IDENTICAL into `services/backtester/app/_vendor/` (sync-guarded by
-`tests/backtester/test_vendor_sync.py`). No look-ahead: factors are the PERSISTED
+config_replay reuses `rank_universe` + builder `select.py` via
+`shared/stock_strategy_shared/strategy_engine/` — the CANONICAL module both
+production and backtest import (the former byte-synced `_vendor` copies are
+now re-export shims; `tests/backtester/test_vendor_sync.py` asserts module
+IDENTITY). No look-ahead: factors are the PERSISTED
 point-in-time `factor_scores` per date; covariance/regime/beta for date D use only
 prices ≤ D; the simulator fills at D+1. NOT modelled (surfaced as
 `config_replay_caveats`): vetter exclusions (run-time, not config), turnover-
@@ -1198,8 +1200,8 @@ tools are for drill-down and testing a thesis BEFORE recommending it:
     services/shared/docs/strategies/db READ-ONLY — never the repo root, so .env
     is unreachable); traversal-guarded, credential-shaped basenames blocked.
   web_search  — Tavily (absent when TAVILY_API_KEY unset).
-  preview_ranking — FAST rank-level triage of a config diff (vendored
-    rank_universe in services/evaluator/app/_vendor/, sync-guarded): top-N
+  preview_ranking — FAST rank-level triage of a config diff (imports the
+    canonical shared strategy_engine.rank via the _vendor shim): top-N
     membership changes + movers vs the active ranking, before spending a
     run_backtest slot. No builder caps/vetter. Budget EVALUATOR_MAX_PREVIEWS (8).
   hypothesis_ledger — durable cross-week memory (evaluator_hypotheses, migration
@@ -1752,6 +1754,12 @@ stocker/
       schemas/
         strategy.py      ← StrategyConfig, RegimeDetectionConfig, FactorWeights, etc.
       order_status.py    ← canonical alpaca_orders.status tokens (single source)
+      strategy_engine/   ← THE canonical rank.py + select.py (audit #3): pipeline,
+                           portfolio-builder, backtester, evaluator, bt-engine all
+                           import THIS; their local rank/select files are re-export
+                           shims (sys.modules replacement — one module object).
+                           NEW shared module dir ⇒ deploys touching it need
+                           `make build-base` FIRST.
       broker/            ← BrokerAdapter abstraction (one active broker per deploy,
                            BROKER env; AlpacaBrokerAdapter built; IBKRBrokerAdapter
                            BUILT but DORMANT — activation needs BROKER=ibkr + the

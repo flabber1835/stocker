@@ -1964,3 +1964,24 @@ off when the strategies mount is absent (services skip the check); the delta
 skew detector remains as the residual net. fetch-data is not pinned — it does
 not consume strategy config. Session rollover and run-now clear the pin so
 every new chain pins the then-current config.
+
+## Design Decision: one canonical strategy_engine (2026-07, audit finding #3)
+
+`rank.py` (ranking) and `select.py` (portfolio selection) existed as
+byte-identical copies in pipeline, portfolio-builder, backtester `_vendor/`,
+and evaluator `_vendor/`, held together by CI byte-equality tests. The copies
+are now re-export shims onto `shared/stock_strategy_shared/strategy_engine/`
+— each shim replaces its own sys.modules entry with the canonical module, so
+every import path (`app.rank`, `app.select`, `app._vendor.rank`, bt-engine's
+`app.live` loader) yields the SAME module object. A bug fix lands everywhere
+by construction; the sync tests now assert module identity (stronger than
+byte equality). regime.py remains a real vendored copy in the backtester
+(byte-sync still enforced) — next candidate to move. This is also the first
+concrete step toward the planned modular-monolith restructuring: the
+duplicated strategy math now has a single import path that a merged codebase
+inherits unchanged.
+
+Deploy caveat: strategy_engine is a NEW module directory under shared/ — the
+stale-base trap applies. `make build-base` BEFORE rebuilding pipeline,
+portfolio-builder, backtester, evaluator (and the bt stack next time it is
+rebuilt).
