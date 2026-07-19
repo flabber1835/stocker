@@ -1,13 +1,22 @@
-"""Experiment queue — auto-feed the evaluator's recommendations to the isolated
-backtest stack as wind-tunnel EXPERIMENTS (docs/backtester-v2-plan.md Phase 6b).
+"""Experiment queue — feed the isolated backtest stack wind-tunnel EXPERIMENTS
+(docs/backtester-v2-plan.md Phase 6b).
 
 Boundary: proposals are backtests, not config changes — running one is harmless,
-so no human gate here; human approval still guards live config deployment. The
-LLM gets NO write tool for this: after each successful review, deterministic
-Python harvests the already-schema-validated recommendations into
-artifacts/bt/proposals.json. bt-scheduler picks pending ones up as extra
-single-field configs in the next weekly sweep (file bridge only — no network
-path between the stacks).
+so no human gate here; human approval still guards live config deployment.
+Two producers, identical validation and caps:
+
+1. HARVEST (deterministic Python, no LLM write): after each successful review,
+   the already-schema-validated recommendations are harvested into
+   artifacts/bt/proposals.json.
+2. queue_experiment TOOL (LLM-invoked, enqueue-only): lets the evaluator test a
+   thesis in the wind tunnel WITHOUT putting a recommendation in front of the
+   human — entries are tagged origin="exploratory" and carry the stated
+   hypothesis. The tool can only append pending entries to this one file
+   (same single-field diff, same StrategyConfig validation, same PENDING_CAP);
+   it cannot run anything, touch config, or alter existing entries.
+
+bt-scheduler picks pending entries up as extra single-diff configs in the next
+weekly sweep (file bridge only — no network path between the stacks).
 
 Everything here is pure except write_proposals_file's atomic replace.
 """
@@ -80,6 +89,44 @@ def harvest_proposals(recommendations: list[dict], active_config: dict,
 
     entries = (entries + added)[-RETAIN:]
     return {"proposals": entries}, added
+
+
+def queue_exploratory(field: str, value: Any, hypothesis: str,
+                      existing: dict | None, *, run_id: str | None,
+                      iso_week: str, now_iso: str) -> tuple[dict, dict]:
+    """Append ONE exploratory (tool-queued, not recommended) experiment.
+    Returns (new_file_dict, result) where result reports queued/duplicate/cap.
+    Same dedupe rule as harvest: an id already in the file — ANY status —
+    is never re-queued, so a tested thesis must be argued from its results.
+    Pure; caller validates the diff and holds proposals_lock()."""
+    entries: list[dict] = list((existing or {}).get("proposals") or [])
+    pid = proposal_id(field, value)
+    for e in entries:
+        if e.get("id") == pid:
+            return {"proposals": entries}, {
+                "queued": False, "reason": "already in queue", "id": pid,
+                "status": e.get("status"), "origin": e.get("origin", "recommendation"),
+            }
+    n_pending = sum(1 for e in entries if e.get("status") == "pending")
+    if n_pending >= PENDING_CAP:
+        return {"proposals": entries}, {
+            "queued": False, "reason": f"pending cap reached ({PENDING_CAP})",
+            "pending": n_pending,
+        }
+    entry = {
+        "id": pid,
+        "config_field": field,
+        "value": value,
+        "status": "pending",
+        "origin": "exploratory",
+        "hypothesis": str(hypothesis or "").strip()[:300],
+        "source_run_id": run_id,
+        "iso_week": iso_week,
+        "created_at": now_iso,
+        "sweep_id": None,
+    }
+    entries = (entries + [entry])[-RETAIN:]
+    return {"proposals": entries}, {"queued": True, "id": pid, "pending": n_pending + 1}
 
 
 def proposals_path() -> str:

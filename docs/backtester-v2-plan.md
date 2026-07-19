@@ -172,8 +172,23 @@ still zero network path between the stacks):
    and the single-field diff validates through StrategyConfig against the
    active config) into artifacts/bt/proposals.json — status 'pending', deduped
    by (field, value) against every entry still in the file, pending capped.
-   The LLM gets no new write tool; harvesting is pure Python from the already-
-   validated report. A recommendation the schema rejects never reaches the file.
+   Harvesting is pure Python from the already-validated report. A
+   recommendation the schema rejects never reaches the file.
+1b. queue_experiment TOOL (design revision 2026-07, supersedes "the LLM gets
+   no write tool for the queue"): the evaluator may ALSO queue EXPLORATORY
+   experiments mid-review — theses it wants tested WITHOUT recommending them
+   (refuting its own hunches, knob-sensitivity probes). Previously the only
+   way to get a wind-tunnel test was to emit a recommendation, which put every
+   half-baked thesis in front of the human. The tool is ENQUEUE-ONLY: same
+   single-field diff shape, same shared literal parser, same StrategyConfig
+   validation against the active config, same (field,value) dedupe (any
+   status — a tested thesis must be argued from its results, not re-queued)
+   and the same PENDING_CAP, executed under the same cross-container file
+   lock. Entries carry origin='exploratory' + the stated hypothesis (the
+   harvest path's entries are recommendation-origin). Per-review budget
+   EVALUATOR_MAX_QUEUED_EXPERIMENTS (default 4). The automation boundary is
+   unchanged: queueing a BACKTEST is harmless, so no human gate; the tool
+   cannot run anything, alter existing entries, or touch config.
 2. bt-scheduler includes pending proposals in the next weekly sweep as
    extra_configs — each a SINGLE-FIELD diff appended AFTER grid enumeration
    (never cross-multiplied with the standing grid, so proposals can't explode

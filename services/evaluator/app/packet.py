@@ -1096,8 +1096,12 @@ def _experiment_queue() -> dict:
     by_status: dict[str, int] = {}
     for e in entries:
         by_status[str(e.get("status"))] = by_status.get(str(e.get("status")), 0) + 1
-    recent = [{k: e.get(k) for k in
-               ("config_field", "value", "status", "iso_week", "confidence")}
+    # origin/hypothesis: exploratory entries queued by the queue_experiment tool
+    # carry the thesis they test — shown so results can be scored against it.
+    recent = [{k: v for k in
+               ("config_field", "value", "status", "iso_week", "confidence",
+                "origin", "hypothesis")
+               if (v := e.get(k)) is not None}
               for e in entries[-15:]]
     return {"available": True, "counts": by_status, "recent": recent}
 

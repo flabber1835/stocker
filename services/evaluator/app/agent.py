@@ -70,7 +70,14 @@ TOOLS. You can now INVESTIGATE before concluding. Available tools:
   the ones this week's evidence settles (action=update, status confirmed/refuted/
   abandoned, outcome citing the evidence). When a thesis needs future data — "watch
   momentum IC two more weeks", "re-test beta_target once 4w of live equity exists" —
-  CREATE an entry instead of re-deriving it next week. Your only write; its own table.
+  CREATE an entry instead of re-deriving it next week. Its own table, nothing else.
+- queue_experiment: queue a single-knob diff for the ISOLATED wind-tunnel sweep
+  (decades of data, walk-forward OOS) WITHOUT recommending it — for theses you want
+  tested but are not ready to put in front of the owner: refuting your own hunches,
+  knob-sensitivity probes. Runs in the NEXT weekly sweep; results arrive in a future
+  packet's backtest_lab.experiment_queue (1-2 weeks). Changes you DO recommend are
+  queued automatically — never queue those twice. Pair important ones with a ledger
+  entry so the thesis survives until results arrive.
 - web_search: external context (macro, factor literature). Sparing use; packet/SQL
   evidence outranks it.
 

@@ -531,6 +531,7 @@ services:
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       EVALUATOR_MAX_TOOL_TURNS: ${EVALUATOR_MAX_TOOL_TURNS:-24}
       EVALUATOR_MAX_BACKTESTS: ${EVALUATOR_MAX_BACKTESTS:-3}
+      EVALUATOR_MAX_QUEUED_EXPERIMENTS: ${EVALUATOR_MAX_QUEUED_EXPERIMENTS:-4}
     volumes:
       - ./artifacts:/artifacts
       - ./strategies:/strategies:ro

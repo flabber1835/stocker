@@ -138,7 +138,7 @@ def test_tool_definitions_shape_and_websearch_gating(monkeypatch):
     monkeypatch.setattr(t, "TAVILY_API_KEY", "")
     names = {d["name"] for d in t.tool_definitions()}
     assert names == {"run_backtest", "sql_query", "read_file",
-                     "preview_ranking", "hypothesis_ledger"}
+                     "preview_ranking", "hypothesis_ledger", "queue_experiment"}
     monkeypatch.setattr(t, "TAVILY_API_KEY", "tvly-x")
     names = {d["name"] for d in t.tool_definitions()}
     assert "web_search" in names

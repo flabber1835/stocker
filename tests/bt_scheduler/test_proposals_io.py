@@ -59,3 +59,24 @@ def test_missing_file_is_a_noop(tmp_path, monkeypatch):
     m = _main(tmp_path, monkeypatch)
     m._mark_proposals("pending", "testing", "s1")     # no proposals.json → no crash
     assert not os.path.exists(tmp_path / "bt" / "proposals.json")
+
+
+def test_exploratory_entries_ride_the_sweep_like_harvest_entries(tmp_path, monkeypatch):
+    """queue_experiment entries carry extra fields (origin, hypothesis) — the
+    scheduler must pick them up as pending experiments and lifecycle-mark them
+    exactly like recommendation-origin entries, preserving the extra fields."""
+    m = _main(tmp_path, monkeypatch)
+    _write(tmp_path, [
+        {"id": "rec", "config_field": "x", "value": 1, "status": "pending",
+         "sweep_id": None},
+        {"id": "exp", "config_field": "y", "value": 2, "status": "pending",
+         "sweep_id": None, "origin": "exploratory",
+         "hypothesis": "y=2 reduces churn without hurting OOS sharpe"},
+    ])
+    pending = m._pending_proposals()
+    assert {p["id"] for p in pending} == {"rec", "exp"}
+    m._mark_proposals("pending", "testing", "s1", only_pending_ids={"rec", "exp"})
+    got = _read(tmp_path)
+    assert got["exp"]["status"] == "testing" and got["exp"]["sweep_id"] == "s1"
+    assert got["exp"]["origin"] == "exploratory"      # extra fields preserved
+    assert got["exp"]["hypothesis"].startswith("y=2")

@@ -15,6 +15,10 @@ the model asks for:
                  root — and therefore .env — is deliberately never mounted),
                  path-traversal guarded, size-capped.
   web_search   — Tavily; absent from the toolset when TAVILY_API_KEY is unset.
+  queue_experiment — enqueue-only append to the wind-tunnel experiment queue
+                 (artifacts/bt/proposals.json): a schema-validated single-field
+                 diff tagged origin='exploratory', same caps/dedupe as the
+                 recommendation harvest; runs in the NEXT weekly sweep, never now.
 
 Every call is recorded in the transcript by the agent loop (agent.py) for audit.
 Tools never raise to the loop — errors come back as strings so the LLM can adapt.
@@ -163,11 +167,43 @@ def tool_definitions() -> list[dict]:
         },
     })
     tools.append({
+        "name": "queue_experiment",
+        "description": (
+            "Queue a SINGLE-FIELD config diff as an EXPLORATORY experiment for the "
+            "isolated wind-tunnel sweep (decades of point-in-time data, walk-forward "
+            "with a mandatory out-of-sample window) WITHOUT recommending the change "
+            "to the owner. Use it for curiosity-driven tests: 'what if X' theses you "
+            "are NOT ready to recommend, refuting your own hunches, mapping a knob's "
+            "sensitivity. Do NOT use it for changes you are recommending this review "
+            "— those are queued automatically from recommendations[]. The experiment "
+            "runs in the NEXT weekly sweep (results appear in backtest_lab."
+            "experiment_queue in a future review, typically 1-2 weeks; nothing runs "
+            "now). state the hypothesis precisely — future-you reads it cold. Pair "
+            "important ones with a hypothesis_ledger entry so the thesis survives "
+            "until the results arrive. The diff is schema-validated before queueing; "
+            "an id already queued/tested is never re-queued (argue from its results "
+            f"instead). Budget: {MAX_QUEUED_EXPERIMENTS} per review; the queue also "
+            "has a global pending cap shared with recommendation-fed entries."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "config_field": {"type": "string",
+                                 "description": "dotted path, e.g. static_factor_weights.momentum"},
+                "suggested_value": {"description": "literal value (number/bool/null or JSON string)"},
+                "hypothesis": {"type": "string",
+                               "description": "what you expect and WHY — the thesis this experiment tests"},
+            },
+            "required": ["config_field", "suggested_value", "hypothesis"],
+        },
+    })
+    tools.append({
         "name": "hypothesis_ledger",
         "description": (
             "Your durable cross-week memory: thesis -> planned test -> outcome. The "
             "packet's hypothesis_ledger section shows current entries; this tool "
-            "WRITES them (the only write you have; its own table, nothing else). "
+            "WRITES them (its own table, nothing else; your only other write is "
+            "queue_experiment, which only appends to the experiment queue). "
             "action='create' opens a new hypothesis (hypothesis + planned_test). "
             "action='update' resolves/annotates one by id (status: open|confirmed|"
             "refuted|abandoned, plus outcome text citing the evidence). Discipline: "
@@ -238,12 +274,14 @@ def apply_config_changes(base: dict, changes: dict[str, Any]) -> tuple[dict | No
 
 MAX_LEDGER_WRITES = int(os.getenv("EVALUATOR_MAX_LEDGER_WRITES", "6"))
 MAX_PREVIEWS = int(os.getenv("EVALUATOR_MAX_PREVIEWS", "8"))
+MAX_QUEUED_EXPERIMENTS = int(os.getenv("EVALUATOR_MAX_QUEUED_EXPERIMENTS", "4"))
 
 
 class BacktestBudget:
     """Per-review tool budgets (the agent loop owns one instance). Name kept from
     the original backtest-only version; it now also carries the cheap-tool caps
-    (ledger writes, rank previews) so a looping model stays bounded."""
+    (ledger writes, rank previews, queued experiments) so a looping model stays
+    bounded."""
     def __init__(self, limit: int = MAX_BACKTESTS):
         self.limit = limit
         self.used = 0
@@ -251,6 +289,8 @@ class BacktestBudget:
         self.ledger_used = 0
         self.preview_limit = MAX_PREVIEWS
         self.preview_used = 0
+        self.experiment_limit = MAX_QUEUED_EXPERIMENTS
+        self.experiment_used = 0
 
     def take(self) -> bool:
         if self.used >= self.limit:
@@ -268,6 +308,12 @@ class BacktestBudget:
         if self.preview_used >= self.preview_limit:
             return False
         self.preview_used += 1
+        return True
+
+    def take_experiment(self) -> bool:
+        if self.experiment_used >= self.experiment_limit:
+            return False
+        self.experiment_used += 1
         return True
 
 
@@ -678,6 +724,76 @@ async def hypothesis_ledger(args: dict, *, engine, budget: BacktestBudget) -> st
         return f"ledger error: {str(exc)[:400]}"
 
 
+# ── queue_experiment ──────────────────────────────────────────────────────────
+
+async def queue_experiment(args: dict, *, budget: BacktestBudget) -> str:
+    """Enqueue-only write to the wind-tunnel experiment queue: validate a
+    single-field diff against the ACTIVE config, then append a pending entry
+    tagged origin='exploratory' to artifacts/bt/proposals.json under the same
+    cross-container lock the harvest and bt-scheduler use. Nothing runs now —
+    the next weekly sweep picks it up."""
+    field = str(args.get("config_field") or "").strip()
+    if not field or field.lower() == "none":
+        return "queue rejected: config_field must be a dotted strategy-config path"
+    hypothesis = str(args.get("hypothesis") or "").strip()
+    if not hypothesis:
+        return ("queue rejected: state the hypothesis this experiment tests — "
+                "future reviews read it cold next to the results")
+    # Shared parser (same one the harvest and one-click apply use).
+    from stock_strategy_shared.config_values import parse_suggested_value
+    value, ok = parse_suggested_value(args.get("suggested_value"))
+    if not ok:
+        return (f"queue rejected: suggested_value {args.get('suggested_value')!r} "
+                "is not a literal (number/bool/null/JSON) — prose is never guessed at")
+
+    if not budget.take_experiment():
+        return (f"EXPERIMENT BUDGET EXHAUSTED ({budget.experiment_limit} per review). "
+                "Note remaining theses in the hypothesis_ledger for next week instead.")
+
+    try:
+        base_cfg, _hash = load_strategy(STRATEGY_CONFIG_PATH)
+    except Exception as exc:  # noqa: BLE001
+        budget.experiment_used -= 1
+        return f"error: could not load active strategy config: {exc}"
+    _validated, err = apply_config_changes(base_cfg.model_dump(mode="json"),
+                                           {field: value})
+    if err:
+        budget.experiment_used -= 1  # a rejected diff was never queued
+        return err
+
+    from datetime import datetime, timezone
+
+    from stock_strategy_shared.trading_tz import resolve_trading_tz
+
+    # Late import: proposals.py imports apply_config_changes from this module.
+    from app import proposals as _props
+
+    iso = datetime.now(resolve_trading_tz("SCHEDULE_TZ")).date().isocalendar()
+    try:
+        with _props.proposals_lock():
+            content, result = _props.queue_exploratory(
+                field, value, hypothesis,
+                _props.read_proposals_file(),
+                run_id=None,
+                iso_week=f"{iso.year}-W{iso.week:02d}",
+                now_iso=datetime.now(timezone.utc).isoformat(),
+            )
+            if result.get("queued"):
+                _props.write_proposals_file(content)
+    except Exception as exc:  # noqa: BLE001
+        budget.experiment_used -= 1
+        return f"queue error: {str(exc)[:400]}"
+
+    if not result.get("queued"):
+        budget.experiment_used -= 1  # duplicates / cap don't burn the budget
+    result["note"] = ("runs in the NEXT weekly wind-tunnel sweep; results appear in "
+                     "backtest_lab.experiment_queue in a future review — nothing runs now"
+                     if result.get("queued") else
+                     "not queued — see reason; if already tested, read its results in "
+                     "backtest_lab.experiment_queue instead of re-queueing")
+    return json.dumps(result)
+
+
 # ── dispatch ──────────────────────────────────────────────────────────────────
 
 def _truncate(s: str, cap: int = RESULT_CHAR_CAP) -> str:
@@ -700,6 +816,8 @@ async def execute_tool(name: str, args: dict, *, engine, budget: BacktestBudget)
             return await preview_ranking(args, engine=engine, budget=budget)
         if name == "hypothesis_ledger":
             return await hypothesis_ledger(args, engine=engine, budget=budget)
+        if name == "queue_experiment":
+            return await queue_experiment(args, budget=budget)
         if name == "web_search":
             return await web_search(args)
         return f"unknown tool: {name}"

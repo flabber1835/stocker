@@ -1,6 +1,8 @@
 """Experiment queue (Phase 6b) — deterministic harvest of the evaluator's own
-recommendations into artifacts/bt/proposals.json. No LLM write tool: the
-recommendations are already schema-validated; harvesting is pure Python."""
+recommendations into artifacts/bt/proposals.json. The harvest path involves no
+LLM write: recommendations are already schema-validated and harvesting is pure
+Python. (The separate queue_experiment TOOL — tests in test_queue_experiment.py
+— appends exploratory entries to the same file under the same caps.)"""
 import os
 
 import pytest
