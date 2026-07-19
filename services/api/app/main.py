@@ -293,7 +293,34 @@ async def config_apply(req: ConfigApplyRequest):
         hash_before, hash_after = _hash_raw(old_raw), _hash_raw(new_raw)
         stamp = _dt.now(_tz.utc).strftime("%Y%m%dT%H%M%SZ")
         _archive_config("history", stamp, hash_before, old_raw)
-        applied_path = _archive_config("applied", stamp, hash_after, new_raw)
+
+        # Transactional ordering (audit finding #4): PENDING audit rows FIRST —
+        # if the DB can't record the change, the live config is NOT touched
+        # (fail closed). Then the atomic file replace, then the applied/
+        # artifact, then the rows are finalized to 'applied'. The one residual
+        # window (file replaced, finalize fails) leaves 'pending' rows — an
+        # honest signal, surfaced in the response — instead of NO record.
+        row_ids = {field: str(uuid.uuid4()) for field in edits}
+        try:
+            async with engine.begin() as conn:
+                for field, value in edits.items():
+                    await conn.execute(text(
+                        "INSERT INTO config_changes (id, status, config_path, config_field, "
+                        " old_value, new_value, config_hash_before, config_hash_after, "
+                        " source_report_run_id, recommendation_index, applied_by, validator_status) "
+                        "VALUES (CAST(:id AS uuid), 'pending', :path, :field, CAST(:old AS jsonb), "
+                        "        CAST(:new AS jsonb), :hb, :ha, CAST(:rid AS uuid), :ridx, "
+                        "        'dashboard', :vst)"
+                    ), {"id": row_ids[field], "path": STRATEGY_CONFIG_PATH,
+                        "field": field, "old": json.dumps(old_values[field]),
+                        "new": json.dumps(value), "hb": hash_before, "ha": hash_after,
+                        "rid": req.source_report_run_id, "ridx": req.recommendation_index,
+                        "vst": f"valid ({vr.status_code})"})
+        except Exception as exc:  # noqa: BLE001 — no audit trail → no apply
+            traceback.print_exc()
+            raise HTTPException(status_code=503, detail=(
+                f"audit record could not be written ({str(exc)[:200]}) — "
+                "config NOT applied"))
 
         tmp = STRATEGY_CONFIG_PATH + ".tmp"
         try:
@@ -301,26 +328,30 @@ async def config_apply(req: ConfigApplyRequest):
                 f.write(new_raw)
             os.replace(tmp, STRATEGY_CONFIG_PATH)
         except OSError as exc:
+            # best-effort: mark the pending rows failed so they can't read as applied
+            try:
+                async with engine.begin() as conn:
+                    await conn.execute(text(
+                        "UPDATE config_changes SET status = 'failed' "
+                        "WHERE id = ANY(CAST(:ids AS uuid[]))"
+                    ), {"ids": list(row_ids.values())})
+            except Exception:  # noqa: BLE001
+                traceback.print_exc()
             raise HTTPException(status_code=500, detail=(
                 f"config write failed ({exc}) — active file unchanged"))
+
+        # applied/ artifact only AFTER the replace succeeded — it must never
+        # claim an apply that didn't happen (audit finding #4).
+        applied_path = _archive_config("applied", stamp, hash_after, new_raw)
 
         audit_ok = True
         try:
             async with engine.begin() as conn:
-                for field, value in edits.items():
-                    await conn.execute(text(
-                        "INSERT INTO config_changes (id, config_path, config_field, old_value, "
-                        " new_value, config_hash_before, config_hash_after, source_report_run_id, "
-                        " recommendation_index, applied_by, validator_status) "
-                        "VALUES (CAST(:id AS uuid), :path, :field, CAST(:old AS jsonb), "
-                        "        CAST(:new AS jsonb), :hb, :ha, CAST(:rid AS uuid), :ridx, "
-                        "        'dashboard', :vst)"
-                    ), {"id": str(uuid.uuid4()), "path": STRATEGY_CONFIG_PATH,
-                        "field": field, "old": json.dumps(old_values[field]),
-                        "new": json.dumps(value), "hb": hash_before, "ha": hash_after,
-                        "rid": req.source_report_run_id, "ridx": req.recommendation_index,
-                        "vst": f"valid ({vr.status_code})"})
-        except Exception:  # noqa: BLE001 — file already applied; surface, don't unwind
+                await conn.execute(text(
+                    "UPDATE config_changes SET status = 'applied' "
+                    "WHERE id = ANY(CAST(:ids AS uuid[]))"
+                ), {"ids": list(row_ids.values())})
+        except Exception:  # noqa: BLE001 — file IS applied; pending rows are the honest state
             traceback.print_exc()
             audit_ok = False
 
@@ -333,7 +364,8 @@ async def config_apply(req: ConfigApplyRequest):
         "config_hash_before": hash_before,
         "config_hash_after": hash_after,
         "applied_artifact": applied_path,
-        "audit_row_written": audit_ok,
+        "audit_row_written": True,          # rows exist by construction now
+        "audit_finalized": audit_ok,        # False → rows left 'pending', file applied
         "note": ("takes effect on the NEXT chain run (config reloaded per run). "
                  "Active file is now ahead of git — mirror the applied artifact "
                  "into the repo before the next git-pull deploy."),

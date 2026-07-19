@@ -178,8 +178,10 @@ async def test_paired_apply_atomic_where_singles_are_invalid(sandbox):
     # validator saw ONE whole config carrying BOTH edits
     posted = fake.last_posted["static_factor_weights"]
     assert posted["near_high"] == 0.06 and posted["low_volatility"] == 0.08
-    # one audit row per field
-    inserts = [p for sql, p in main.engine.executed if "config_changes" in sql]
+    # one audit row per field (INSERTs only — the status-finalize UPDATE also
+    # touches config_changes but carries no field param)
+    inserts = [p for sql, p in main.engine.executed
+               if "INSERT INTO config_changes" in sql]
     assert {p["field"] for p in inserts} == {
         "static_factor_weights.near_high", "static_factor_weights.low_volatility"}
 
@@ -228,3 +230,53 @@ async def test_null_literal_disables_nullable_knob(sandbox):
             suggested_value="null"))
     assert res["applied"] is True and res["new_value"] is None
     assert yaml.safe_load(open(sandbox))["portfolio_builder"]["max_tickers_per_cluster"] is None
+
+
+# ── transactional ordering (audit finding #4) ────────────────────────────────
+
+class _FailingInsertEngine(_FakeEngine):
+    """execute() raises on INSERT — simulates the DB being down at apply time."""
+    def __init__(self):
+        super().__init__()
+        outer = self
+
+        class _Conn:
+            async def execute(self, stmt, params=None):
+                outer.executed.append((str(stmt), params))
+                if "INSERT INTO config_changes" in str(stmt):
+                    raise RuntimeError("db down")
+        self._conn = _Conn()
+
+
+@pytest.mark.asyncio
+async def test_audit_insert_failure_aborts_before_any_file_change(sandbox, monkeypatch):
+    """No durable audit record → NO apply. The live file must be byte-identical
+    and the applied/ artifact must not exist (pre-fix: file changed first,
+    audit best-effort after)."""
+    before = open(sandbox).read()
+    monkeypatch.setattr(main, "engine", _FailingInsertEngine())
+    with patch.object(main, "httpx", _FakeHttpx(_Resp({"valid": True}))):
+        with pytest.raises(HTTPException) as ei:
+            await main.config_apply(_req())
+    assert ei.value.status_code == 503
+    assert "NOT applied" in ei.value.detail
+    assert open(sandbox).read() == before
+    applied_dir = os.path.join(main.ARTIFACTS_PATH, "config", "applied")
+    assert not os.path.isdir(applied_dir) or not os.listdir(applied_dir)
+
+
+@pytest.mark.asyncio
+async def test_happy_path_pending_then_applied(sandbox):
+    """Rows go in as 'pending' BEFORE the file write and are finalized to
+    'applied' after; the response reports audit_finalized."""
+    with patch.object(main, "httpx", _FakeHttpx(_Resp({"valid": True}))):
+        res = await main.config_apply(_req())
+    assert res["applied"] is True
+    assert res["audit_row_written"] is True and res["audit_finalized"] is True
+    sqls = [s for s, _ in main.engine.executed]
+    ins = [s for s in sqls if "INSERT INTO config_changes" in s]
+    upd = [s for s in sqls if "SET status = 'applied'" in s]
+    assert ins and "'pending'" in ins[0]
+    assert upd and sqls.index(upd[0]) > sqls.index(ins[0])
+    # applied/ artifact exists only because the replace succeeded
+    assert res["applied_artifact"] and os.path.exists(res["applied_artifact"])
