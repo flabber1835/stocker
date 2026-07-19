@@ -28,9 +28,11 @@ def _git(cwd, *args, check=True):
                           capture_output=True, text=True)
 
 
-def _run_deploy(repo, *services):
+def _run_deploy(repo, *services, env=None):
+    import os
+    full_env = {**os.environ, "DEPLOY_BACKOFF": "0", **(env or {})}
     return subprocess.run(["bash", str(repo / "scripts" / "deploy.sh"), *services],
-                          cwd=repo, capture_output=True, text=True)
+                          cwd=repo, capture_output=True, text=True, env=full_env)
 
 
 @pytest.fixture
@@ -120,3 +122,28 @@ def test_refuses_to_run_off_main(repo):
     r = _run_deploy(repo)
     assert r.returncode != 0
     assert "main only" in r.stderr
+
+
+def test_nothing_to_push_skips_push(repo):
+    r = _run_deploy(repo)
+    assert r.returncode == 0, r.stderr
+    assert "nothing to push" in r.stdout
+
+
+def test_push_failure_warns_but_does_not_block_deploy(repo, tmp_path):
+    """A pull-only clone (no write credentials) must still deploy: the mirror
+    commit stays local with a loud warning instead of hanging at a credential
+    prompt or aborting before the build step."""
+    new_yaml = "strategy_id: v1\nmax_positions: 20\n"
+    (repo / "strategies" / "active.yaml").write_text(new_yaml)
+    (repo / "artifacts" / "config" / "applied" / "20260719T083000_active.yaml").write_text(new_yaml)
+    # fetch keeps working (origin url), but pushes go to a nonexistent path → fail fast
+    _git(repo, "remote", "set-url", "--push", "origin", str(tmp_path / "no-such-remote.git"))
+
+    r = _run_deploy(repo)
+    assert r.returncode == 0, r.stderr
+    assert "mirroring 'strategies/active.yaml'" in r.stdout
+    assert "WARNING: git push failed" in r.stdout
+    # the mirror commit exists locally even though origin never got it
+    assert "mirror applied config change" in _git(repo, "log", "-1", "--format=%s").stdout
+    assert _head(repo) != _origin_head(repo)

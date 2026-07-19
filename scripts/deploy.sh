@@ -28,13 +28,18 @@ cd "$REPO_ROOT"
 
 APPLIED_DIR="artifacts/config/applied"
 
+# Never prompt for credentials — an interactive username/password prompt hangs
+# the deploy (and swallows pasted commands). A push without credentials should
+# FAIL FAST and be reported, not block.
+export GIT_TERMINAL_PROMPT=0
+
 info() { echo "deploy: $*"; }
 err()  { echo "deploy: ERROR: $*" >&2; exit 1; }
 
-retry() { # retry <cmd...> — 4 retries with 2/4/8/16s backoff (network flake)
-    local delays=(2 4 8 16) n=0
+retry() { # retry <cmd...> — retries with backoff (network flake); DEPLOY_BACKOFF overridable for tests
+    local delays=(${DEPLOY_BACKOFF:-2 4 8 16}) n=0
     until "$@"; do
-        [ "$n" -ge 4 ] && return 1
+        [ "$n" -ge "${#delays[@]}" ] && return 1
         info "'$*' failed — retrying in ${delays[$n]}s..."
         sleep "${delays[$n]}"
         n=$((n + 1))
@@ -91,7 +96,23 @@ fi
 compose_before="$(git rev-parse HEAD:docker-compose.yml 2>/dev/null || echo none)"
 retry git fetch origin main || err "git fetch failed after retries"
 git rebase origin/main || err "rebase failed — resolve conflicts by hand (git rebase --abort to back out)"
-retry git push -u origin main || err "git push failed after retries"
+
+# Push only when there is something local to push; a failed push (e.g. a
+# pull-only NAS clone without a write key) warns LOUDLY but never blocks the
+# deploy — local commits rebase cleanly on future pulls until credentials exist.
+ahead="$(git rev-list --count origin/main..HEAD)"
+if [ "$ahead" -gt 0 ]; then
+    if retry git push -u origin main; then
+        info "pushed $ahead local commit(s) to origin/main"
+    else
+        info "WARNING: git push failed ($ahead local commit(s) remain unpushed —"
+        info "         likely no write credentials on this clone). Deploy continues;"
+        info "         the commit(s) rebase cleanly on future pulls. Add a write"
+        info "         deploy key to make the mirror land on GitHub automatically."
+    fi
+else
+    info "nothing to push (local main == origin/main)"
+fi
 compose_after="$(git rev-parse HEAD:docker-compose.yml 2>/dev/null || echo none)"
 
 info "HEAD is now: $(git log --oneline -1)"
