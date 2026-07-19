@@ -2033,6 +2033,18 @@ function renderTargetTable() {
     if (pr && pr.portfolio_estimated_vol != null) {
       s += ' &middot; est vol ' + (pr.portfolio_estimated_vol * 100).toFixed(1) + '%';
     }
+    // Target-book sector weights (AV labels via the api's latest-non-null
+    // lookup). "Unknown" dominating here is the sector-data regression signal
+    // the W29 evaluator caught — it should show real sectors.
+    if (pr && pr.sector_weights && Object.keys(pr.sector_weights).length) {
+      const entries = Object.entries(pr.sector_weights);
+      const shown = entries.slice(0, 6)
+        .map(([k, v]) => _esc(String(k).toLowerCase()) + ' ' + (v * 100).toFixed(0) + '%')
+        .join(' &middot; ');
+      const more = entries.length > 6 ? ' &middot; +' + (entries.length - 6) + ' more' : '';
+      s += '<br><span class="target-sectors" title="target-book sector weights (data-provider labels; the builder additionally caps any single sector at max_sector_weight)">'
+        + shown + more + '</span>';
+    }
     sub.innerHTML = s;
   }
   if (!targetRows.length) {

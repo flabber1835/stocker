@@ -197,6 +197,26 @@ def test_read_endpoint_long_tail_shapes(db):
     portfolio = _endpoint(db, m.get_portfolio)
     assert str(portfolio["run"]["run_id"]) == PORTFOLIO_RUN
     assert portfolio["holdings"][0]["ticker"] == "AAA"
+    # Target-book sector weights (Target-tab header): AAA @0.5 in 'Tech'.
+    assert portfolio["run"]["sector_weights"] == {"Tech": 0.5}
+    assert portfolio["holdings"][0]["sector"] == "Tech"
+
+    # W29 sector regression guard: a fresh (weekly-refresh-style) snapshot with
+    # sector=NULL everywhere must NOT blank the sector weights — the lookup is
+    # latest-NON-NULL across snapshots.
+    async def _null_snapshot(engine):
+        from sqlalchemy import text as _sql
+        async with engine.begin() as conn:
+            sid = (await conn.execute(_sql(
+                "INSERT INTO universe_snapshots (etf_ticker, snapshot_date, ticker_count) "
+                "VALUES ('AV', :d, 2) RETURNING id"), {"d": D(0)})).scalar()
+            await conn.execute(
+                _sql("INSERT INTO universe_tickers (snapshot_id, ticker, name, sector) "
+                     "VALUES (:s, :t, :n, NULL)"),
+                [{"s": sid, "t": t, "n": t} for t in ("AAA", "BBB")])
+    asyncio.run(_with(db, _null_snapshot))
+    portfolio = _endpoint(db, m.get_portfolio)
+    assert portfolio["run"]["sector_weights"] == {"Tech": 0.5}
 
     orders = _endpoint(db, m.get_recent_orders)
     orows = orders if isinstance(orders, list) else orders[

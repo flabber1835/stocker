@@ -157,25 +157,27 @@ async def test_validator_unreachable_fails_closed(sandbox):
 
 @pytest.mark.asyncio
 async def test_paired_apply_atomic_where_singles_are_invalid(sandbox):
-    """The W29 case: near_high→0 and low_volatility→0.14 each break the
-    weights-sum-to-1 invariant ALONE but validate TOGETHER. The batch path must
-    apply both atomically; the audit gets one row per field."""
+    """The W29 case (values reversed — the repo config now CARRIES the W29
+    reweight, so the test pair goes the other way): near_high→0.06 and
+    low_volatility→0.08 each break the weights-sum-to-1 invariant ALONE but
+    validate TOGETHER. The batch path must apply both atomically; the audit
+    gets one row per field."""
     fake = _FakeHttpx(_Resp({"valid": True}))
     with patch.object(main, "httpx", fake):
         res = await main.config_apply(main.ConfigApplyRequest(
-            changes={"static_factor_weights.near_high": "0.0",
-                     "static_factor_weights.low_volatility": "0.14"},
+            changes={"static_factor_weights.near_high": "0.06",
+                     "static_factor_weights.low_volatility": "0.08"},
             confirm=True))
     assert res["applied"] is True
-    assert res["changes"]["static_factor_weights.near_high"]["new"] == 0.0
-    assert res["changes"]["static_factor_weights.low_volatility"]["new"] == 0.14
+    assert res["changes"]["static_factor_weights.near_high"]["new"] == 0.06
+    assert res["changes"]["static_factor_weights.low_volatility"]["new"] == 0.08
     new_cfg = yaml.safe_load(open(sandbox))
     w = new_cfg["static_factor_weights"]
-    assert w["near_high"] == 0.0 and w["low_volatility"] == 0.14
+    assert w["near_high"] == 0.06 and w["low_volatility"] == 0.08
     assert abs(sum(w.values()) - 1.0) < 1e-6
     # validator saw ONE whole config carrying BOTH edits
     posted = fake.last_posted["static_factor_weights"]
-    assert posted["near_high"] == 0.0 and posted["low_volatility"] == 0.14
+    assert posted["near_high"] == 0.06 and posted["low_volatility"] == 0.08
     # one audit row per field
     inserts = [p for sql, p in main.engine.executed if "config_changes" in sql]
     assert {p["field"] for p in inserts} == {
@@ -211,7 +213,7 @@ async def test_single_field_of_a_coupled_pair_is_rejected_no_write(sandbox):
         with pytest.raises(HTTPException) as ei:
             await main.config_apply(_req(
                 config_field="static_factor_weights.near_high",
-                suggested_value="0.0"))
+                suggested_value="0.06"))
     assert ei.value.status_code == 422
     assert "sum" in str(ei.value.detail).lower()
     assert open(sandbox).read() == before

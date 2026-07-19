@@ -1671,6 +1671,28 @@ async def get_portfolio(run_id: str | None = None):
                 if r["beta"] is not None
             }
 
+        # Per-holding sector (latest NON-NULL across snapshots — fresh weekly
+        # snapshots insert sector=NULL everywhere) → target-book sector weights
+        # for the Target-tab header, mirroring the evaluator packet's view.
+        sector_map: dict[str, str] = {}
+        if holdings:
+            sec_rows = await conn.execute(
+                text(
+                    "SELECT DISTINCT ON (ticker) ticker, sector FROM universe_tickers "
+                    "WHERE ticker = ANY(:tickers) AND sector IS NOT NULL "
+                    "ORDER BY ticker, snapshot_id DESC"
+                ),
+                {"tickers": [h["ticker"] for h in holdings]},
+            )
+            sector_map = {r["ticker"]: r["sector"] for r in sec_rows.mappings()}
+
+    sector_weights: dict[str, float] = {}
+    for h in holdings:
+        sec = sector_map.get(h["ticker"]) or "Unknown"
+        sector_weights[sec] = sector_weights.get(sec, 0.0) + float(h["weight"])
+    sector_weights = {k: round(v, 4) for k, v in
+                      sorted(sector_weights.items(), key=lambda kv: -kv[1])}
+
     risk = _portfolio_risk_summary(holdings, beta_map)
     portfolio_beta = risk["sleeve_beta"]
     effective_beta = risk["effective_beta"]
@@ -1698,6 +1720,7 @@ async def get_portfolio(run_id: str | None = None):
             "effective_beta": round(effective_beta, 3) if effective_beta is not None else None,
             "invested_fraction": round(invested_fraction, 4) if invested_fraction is not None else None,
             "cash_pct": round(cash_pct, 4) if cash_pct is not None else None,
+            "sector_weights": sector_weights or None,
             "error_message": run["error_message"],
             "started_at": run["started_at"].isoformat() if run["started_at"] else None,
             "completed_at": run["completed_at"].isoformat() if run["completed_at"] else None,
@@ -1708,6 +1731,7 @@ async def get_portfolio(run_id: str | None = None):
                 "position": h["position"],
                 "weight": float(h["weight"]),
                 "beta": beta_map.get(h["ticker"]),
+                "sector": sector_map.get(h["ticker"]),
                 "composite_score": float(h["composite_score"]) if h["composite_score"] is not None else None,
                 "original_rank": h["original_rank"],
                 "adj_score": float(h["adj_score"]) if h["adj_score"] is not None else None,

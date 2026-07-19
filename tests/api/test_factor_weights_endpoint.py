@@ -23,7 +23,9 @@ async def test_static_weights_returned_for_regime_off(monkeypatch):
               "earnings_surprise", "near_high", "issuance", "small_cap",
               "volume_surge", "high_volatility"):
         assert f in w, f
-    assert w["momentum"] == 0.36 and w["near_high"] == 0.06
+    # W29 applied reweight: near_high zeroed, weight moved to low_volatility.
+    assert w["momentum"] == 0.36 and w["near_high"] == 0.0
+    assert w["low_volatility"] == 0.14
     assert w["issuance"] == 0.0 and w["small_cap"] == 0.0   # dormant
     # registry-ordered (key,label) list drives the dashboard chips generically
     from stock_strategy_shared.factor_registry import FACTOR_NAMES, FACTOR_LABELS
