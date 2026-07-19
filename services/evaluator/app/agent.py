@@ -38,6 +38,7 @@ from app.report import (
     build_user_prompt,
     validate_recommendations,
 )
+import app.tools as _tools_mod
 from app.tools import BacktestBudget, MAX_BACKTESTS, execute_tool, tool_definitions
 
 MAX_TOOL_TURNS = int(os.getenv("EVALUATOR_MAX_TOOL_TURNS", "24"))
@@ -112,6 +113,26 @@ Discipline:
   run the real query; if it errors, the error text tells you how to fix it.
 - Budgets are enforced; when told the budget is exhausted, finalize with what you have."""
 
+# Appended when a tool exists but is disabled — the model can't miss what it was
+# never told about, so disabled tools are named explicitly and routed to the
+# "tooling_gap" structural-finding channel instead of disappearing silently.
+WEB_SEARCH_UNAVAILABLE_NOTE = """
+
+NOTE: web_search EXISTS but is UNAVAILABLE this run (no TAVILY_API_KEY configured) —
+it is not in your tool list and cannot be called. If external/web evidence would have
+materially improved this review, say so in a structural finding with category
+"tooling_gap" (name the question it would have answered) rather than working around
+it silently."""
+
+
+def build_system_prompt() -> str:
+    """SYSTEM_PROMPT + tool addendum + availability notes for disabled tools.
+    Module-attribute read (not a cached import) so tests/env changes are honored."""
+    system = SYSTEM_PROMPT + TOOLS_ADDENDUM
+    if not _tools_mod.TAVILY_API_KEY:
+        system += WEB_SEARCH_UNAVAILABLE_NOTE
+    return system
+
 
 def _transcript_entry(turn: int, name: str, args: dict, result: str, elapsed_ms: int) -> dict:
     args_s = json.dumps(args, default=str)
@@ -138,7 +159,7 @@ async def _gateway_chat(client: httpx.AsyncClient, payload: dict) -> dict:
 async def generate_report_with_tools(packet: dict, engine) -> tuple[ReportResult, list[dict]]:
     """Tool-use review. Returns (ReportResult, tool_transcript). Raises only on a
     hard gateway failure — the caller falls back to the packet-only Phase-1 path."""
-    system = SYSTEM_PROMPT + TOOLS_ADDENDUM
+    system = build_system_prompt()
     user_prompt = build_user_prompt(packet)
     prompt_hash = hashlib.sha256((system + user_prompt).encode()).hexdigest()[:16]
     tools = tool_definitions()

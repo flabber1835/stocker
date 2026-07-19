@@ -75,7 +75,8 @@ REPORT_SCHEMA: dict = {
                     "category": {"type": "string",
                                  "enum": ["missing_factor", "missing_data_source",
                                           "selection_logic", "exit_logic", "vetting",
-                                          "risk_logic", "process", "other"]},
+                                          "risk_logic", "process", "tooling_gap",
+                                          "other"]},
                     "evidence": {"type": "array", "items": {"type": "string"}},
                     "suggested_approach": {"type": "string"},
                     "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
@@ -188,6 +189,12 @@ data a capturing factor would need. One week's regret list alone is noise, not a
 few and evidence-grounded (0-3 typical). A structural finding needs a mechanism ("momentum \
 has no vol-scaling, so high-sigma names dominate the top ranks and their fwd returns lag — \
 see selection_audit") not a wish list. Recurring evidence across weeks > one week's noise.
+- TOOLING GAPS: if a tool, data access, or budget limit materially constrained THIS \
+review — a question you could not answer with the tools you have, a tool listed as \
+unavailable that would have settled a thesis, a budget that cut an investigation short — \
+emit a structural finding with category "tooling_gap" naming the capability and the \
+specific question it would have answered. The owner reads these to decide what to build \
+next. If nothing constrained you, emit none — do not invent one.
 - Structure narrative_markdown with: ## Verdict, ## What worked, ## What hurt, \
 ## Decision audits (vetter/exits/selection), ## Recommendations, ## Structural findings, \
 ## Watch list.
