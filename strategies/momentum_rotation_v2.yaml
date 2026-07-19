@@ -1,76 +1,31 @@
-# momentum_rotation_v2 — momentum_rotation_v1 with low-vol/value CUT (leadership tilt)
-#
-# Identical to momentum_rotation_v1 in EVERY respect (universe, factor engine incl.
-# residual_riskadj momentum, regime detection, portfolio builder,
-# vetter, delta engine, caps) EXCEPT the static factor weights.
-#
-# WHY: the v1 first run produced ZERO semiconductors despite the semis basket
-# (SOXX) ranking momentum percentile 0.92 near its highs. Per-name diagnosis showed
-# the strong-momentum semis (SNDK 1.00, MU 0.99, STX 0.99, WDC 0.98) were filtered
-# at the RANK stage — not by the builder or vetter — by the composite's 30%
-# anti-volatility/anti-expensive weight (low_volatility 0.16 + value 0.14). They
-# landed rank ~185–360, outside the top-120 candidate pool. That is a low-vol/value
-# momentum book, not leadership-capture momentum.
-#
-# THE CUT (the "Moderate" reweight): low_volatility 0.16 → 0.08 and value 0.14 →
-# 0.08; the freed 0.14 goes mostly to momentum (0.42 → 0.50), with small bumps to
-# liquidity (0.05 → 0.06) and growth (0.03 → 0.06). quality is KEPT high (0.20 →
-# 0.22) ON PURPOSE: it is the one defensive factor that does NOT structurally
-# penalize trend leaders (NVDA quality 0.95, STX 0.88, LRCX 0.89), so it preserves
-# junk-momentum crash protection WITHOUT re-excluding the semis. Estimated effect:
-# SNDK composite ~0.68 → ~0.81 (rank ~244 → ~top-25); MU/STX/WDC similar → the
-# strongest semis re-enter the builder pool.
-#
-# TRADE-OFF (read before trusting live): cutting low-vol + value re-arms momentum's
-# crash tail. The remaining crash protection is the quality weight (0.22) + the
-# vetter's beta-adjusted, vol-scaled falling-knife veto — NOT a low-vol/value
-# ballast. Backtest Sharpe, MAX DRAWDOWN / left tail, turnover, and realized semi
-# exposure vs v1 before activating.
-#
-# This config has been iterated toward leadership capture in four steps (each cut one
-# of the stacked low-vol tilts that were dragging book beta to ~0.1):
-#   1. low_volatility/value weights cut (0.16/0.14 → 0.08/0.08), momentum → 0.50
-#   2. weighting inverse_vol → score_proportional (sizing no longer up-weights low-vol)
-#   3. selection_vol_aversion 1.0 → 0.3 (greedy no longer minimises vol)
-#   4. momentum_method residual_riskadj → residual (signal no longer vol-demotes
-#      high-beta leaders like NVDA; market-strip retained)
-# Observed effect: target book beta climbed 0.12 → 0.19 → 0.30 → (expected higher).
-# Crash protection now lives at the BOOK level (vol_target) + quality 0.22 + the
-# falling-knife veto, not in four name-level vol penalties. Backtest drawdown/turnover.
-#
-# Live config (hardcoded in docker-compose.yml). To revert a step, flip the relevant
-# line back (momentum_method → residual_riskadj, weighting → inverse_vol, etc.).
-
 strategy_id: momentum_rotation_v2
-description: >
-  momentum_rotation_v1 with the low-vol/value weight CUT to stop mechanically
-  filtering out high-momentum semis. momentum 0.42→0.50, low_volatility 0.16→0.08,
-  value 0.14→0.08, quality kept at 0.22 (junk-momentum crash filter that doesn't
-  penalize leaders). Weighting switched inverse_vol→score_proportional (removes a
-  low-vol SIZING tilt that was dragging book beta to ~0.1); portfolio risk is now
-  controlled at the book level by vol_target instead. Leadership-capture tilt;
-  re-arms the momentum crash tail — backtest drawdown/turnover/semi-exposure.
-
+description: "momentum_rotation_v1 with the low-vol/value weight CUT to stop mechanically\
+  \ filtering out high-momentum semis. momentum 0.42\u21920.50, low_volatility 0.16\u2192\
+  0.08, value 0.14\u21920.08, quality kept at 0.22 (junk-momentum crash filter that\
+  \ doesn't penalize leaders). Weighting switched inverse_vol\u2192score_proportional\
+  \ (removes a low-vol SIZING tilt that was dragging book beta to ~0.1); portfolio\
+  \ risk is now controlled at the book level by vol_target instead. Leadership-capture\
+  \ tilt; re-arms the momentum crash tail \u2014 backtest drawdown/turnover/semi-exposure.\n"
 universe:
   source: av_listing
   min_price: 5.0
-  min_avg_dollar_volume_20d: 20000000   # momentum turns over fast → liquidity matters
-
+  min_avg_dollar_volume_20d: 20000000
 factor_engine:
-  momentum_short_window: 21  # KEEP the ~1-month skip: the last month is short-term REVERSAL, not momentum
-  momentum_long_window: 252  # ~12-month formation
+  momentum_short_window: 21
+  momentum_long_window: 252
   volatility_window: 252
   liquidity_window: 20
   pe_pb_cap: 50.0
   spy_price_lookback_days: 600
   quality_use_gross_profitability: true
-  momentum_method: residual  # REVERTED from residual_tstat: the t-stat standardization divides the cumulative residual by the residual STD — a signal-level volatility penalty (same family as residual_riskadj's ÷total-vol) that re-demoted high-vol/high-beta leaders and dropped book beta 0.93 → ~0.29. 'residual' is market-stripped but NOT vol-scaled, preserving the leadership/high-beta tilt (lever #2). residual_tstat/residual_riskadj/raw remain selectable; book risk handled by vol_target.
-  momentum_blend_windows: [252, 126]  # 12-1 + 6-1 (both skip the last month) → reacts to emerging trends sooner without chasing 1-month reversals.
-
+  momentum_method: residual
+  momentum_blend_windows:
+  - 252
+  - 126
 regime_detection:
   slow_sma: 200
   vol_window: 20
-  vol_threshold: 0.20
+  vol_threshold: 0.2
   confirmation_days: 5
   regimes:
     bull_calm:
@@ -85,135 +40,80 @@ regime_detection:
     bear_calm:
       spy_above_slow_sma: false
       vol_above_threshold: false
-
-# Regime ROTATION stays OFF (overfits out-of-sample — Asness; Cederburg). The regime
-# is still detected for the dashboard but does not change weights. Momentum's crash
-# protection comes from the quality weight + the falling-knife veto, NOT from
-# switching weight vectors (and, in v2, NO LONGER from a heavy low-vol/value ballast).
 regime_weighting_enabled: false
-
-# Static MOMENTUM-DOMINANT weights — the "Moderate" CUT of low-vol/value vs v1.
-# momentum 0.50 (was 0.42), low_volatility 0.08 (was 0.16), value 0.08 (was 0.14),
-# quality 0.22 (was 0.20 — KEPT as the leader-friendly crash filter), liquidity 0.06,
-# growth 0.06. Sums to 1.0.
 static_factor_weights:
-  momentum:          0.36   # DOMINANT — price momentum (12-1/6-1 residual). Trimmed 0.42→0.36 to fund near_high (the freed 0.06 stays in the TREND family, just split into a fresher variant).
-  earnings_surprise: 0.12   # PEAD ("buy beats / sell misses"). Point-in-time SUE, partially ORTHOGONAL to 12-1 price momentum (which skips the last ~21d and misses a fresh report). Fundamental-momentum / leadership leg.
-  quality:           0.20   # KEPT high — junk-momentum filter that does NOT penalize trend leaders (trimmed 0.22→0.20)
-  low_volatility:    0.08   # was demoting high-vol semis at the rank stage; kept as light ballast
-  value:             0.08   # was demoting expensive semis at the rank stage; kept light
-  near_high:         0.06   # NEW — proximity to trailing high (52-wk-high effect, George & Hwang 2004). FRESHER trend slice than 12-1 momentum (captures names making highs NOW). Funded FROM momentum (highly correlated) so net trend exposure ≈ unchanged; small weight because it over-laps momentum and adds top-chasing/crash tail (the falling-knife veto backstops it).
-  liquidity:         0.06   # turnover is high → liquidity earns its keep
-  growth:            0.04   # residual (trimmed 0.06→0.04)
-  # Sum = 0.36 + 0.12 + 0.20 + 0.08 + 0.08 + 0.06 + 0.06 + 0.04 = 1.00
-
+  momentum: 0.36
+  earnings_surprise: 0.12
+  quality: 0.2
+  low_volatility: 0.14
+  value: 0.08
+  near_high: 0.0
+  liquidity: 0.06
+  growth: 0.04
 factor_weights:
-  # RETAINED for reference / easy re-enable (unused while regime_weighting_enabled
-  # is false). Identical to quality_core_v1 / momentum_rotation_v1.
   bull_calm:
-    momentum:       0.30
-    growth:         0.20
-    quality:        0.17
-    value:          0.12
-    liquidity:      0.11
-    low_volatility: 0.10
-
+    momentum: 0.3
+    growth: 0.2
+    quality: 0.17
+    value: 0.12
+    liquidity: 0.11
+    low_volatility: 0.1
   bull_stress:
     low_volatility: 0.24
-    quality:        0.23
-    value:          0.17
-    momentum:       0.16
-    liquidity:      0.10
-    growth:         0.10
-
+    quality: 0.23
+    value: 0.17
+    momentum: 0.16
+    liquidity: 0.1
+    growth: 0.1
   bear_stress:
     low_volatility: 0.35
-    quality:        0.27
-    liquidity:      0.14
-    value:          0.10
-    growth:         0.07
-    momentum:       0.07
-
+    quality: 0.27
+    liquidity: 0.14
+    value: 0.1
+    growth: 0.07
+    momentum: 0.07
   bear_calm:
-    value:          0.30
-    quality:        0.26
+    value: 0.3
+    quality: 0.26
     low_volatility: 0.18
-    momentum:       0.12
-    growth:         0.07
-    liquidity:      0.07
-
+    momentum: 0.12
+    growth: 0.07
+    liquidity: 0.07
 portfolio_builder:
   method: greedy_score_per_port_vol
-  selection_vol_aversion: 0.2        # exponent on the port-vol divisor in greedy selection. 1.0 = classic score-per-vol (vol-minimising, suppresses beta); 0.0 = pure score/momentum. Lowered 0.3 → 0.2 to RAISE portfolio beta (less vol-minimisation in selection lets higher-beta leaders in); still keeps a mild diversification pull. Book risk is handled by vol_target, not by minimising vol in selection.
-  candidate_count: 120               # a touch wider than core: more momentum names to select 35 from
-  max_positions: 35                  # more names → dilute the higher per-name idiosyncratic risk of momentum
-  min_selected: 17                   # ~half max_positions. A build selecting fewer is flagged degraded so the delta engine HOLDS the book rather than orphan-exiting the rest over a thin target. Also keeps n above 1/max_position_weight (12.5) so the position cap stays feasible (PB-1/PB-3).
+  selection_vol_aversion: 0.2
+  candidate_count: 120
+  max_positions: 35
+  min_selected: 17
   covariance_window_days: 252
   min_covariance_observations: 126
-  covariance_shrinkage: 0.20
+  covariance_shrinkage: 0.2
   require_positive_composite_score: false
-  weighting: score_proportional      # weight by composite conviction (momentum-coherent). REPLACED inverse_vol, which up-weighted the lowest-vol names and was one of FOUR stacked low-vol tilts dragging the book's beta toward ~0.1 — defensive, not leadership-capturing. Portfolio risk is now controlled at the book level by vol_target (below), not by penalising vol again in sizing. equal_weight is the neutral alternative.
-  max_position_weight: 0.08          # <= 3x equal-weight (3/35 = 8.57%, schema cap); also tighter single-name risk for a broad momentum book
-  max_sector_weight: 0.30            # TIGHT — momentum over-concentrates into whatever is hot; cap it
-  cluster_correlation_threshold: 0.70
-  max_cluster_weight: 0.15           # TIGHT (core value, NOT the relaxed AI-sleeve 0.50)
-  max_tickers_per_cluster: 3         # TIGHT — keep it a count cap, not null
+  weighting: score_proportional
+  max_position_weight: 0.08
+  max_sector_weight: 0.3
+  cluster_correlation_threshold: 0.7
+  max_cluster_weight: 0.15
+  max_tickers_per_cluster: 3
   do_not_buy: []
   cash_reserve: 0.025
-  # Portfolio-level CONSTANT-VOLATILITY TARGETING (Barroso & Santa-Clara 2015) — the
-  # literature's highest-Sharpe momentum crash control and the intended substitute for
-  # the low-vol/value ballast cut in v2. Only DE-levers (raises cash) when the selected
-  # book's ex-ante annualised vol exceeds vol_target; never levers up (long-only).
-  # NOTE: this momentum book runs HOT — a recent live build measured
-  # book_vol_full_invested ≈ 0.188, so at vol_target 0.12 the overlay was de-levering
-  # to ~64% invested (~36% cash), chronically capping upside/beta. Raised to 0.18 so
-  # the book stays ~fully invested in calm/normal regimes (0.18/0.188 ≈ 96%) and the
-  # overlay only bites in a genuine vol spike / correlation cluster-up. Lower it back
-  # toward 0.12 to trade upside for a thicker crash cushion.
   vol_target_enabled: true
-  vol_target: 0.18                   # annualised target book vol; binds only above this
-  vol_target_min_exposure: 0.30      # never de-lever below 30% invested even in extreme vol
-  # Portfolio-level MARKET-BETA TARGETING (risk-shaping overlay). After selection +
-  # weighting + caps, reweight the invested book toward beta_target (β = Σ wᵢβᵢ is
-  # linear in weights → deterministic minimal tilt within the SAME holdings, caps
-  # re-applied so no concentration limit is breached). This is the direct lever for
-  # book beta, complementing the indirect selection_vol_aversion knob: that one only
-  # nudges WHICH names win, this one sizes them to hit a number. Uses the 120d
-  # OLS-vs-SPY beta already computed per name. TO REVERT to pre-beta-target
-  # behaviour, set beta_target_enabled: false (weights untouched).
-  # DISABLED 2026-07-10 (evaluator W28, 4th distinct week flagged, backtest-confirmed
-  # directionally): 1.3 was chronically infeasible vs a realized book beta of ~0.5 —
-  # the solver degenerated into maxing the single highest-beta name (MU pinned at the
-  # 0.08 position cap, β3.0) while all other names sat at the uniform average: forced
-  # single-name concentration into the most crash-prone name, not a leadership tilt.
-  # Any target materially above the achievable book corner-solves the same way, so
-  # disable rather than lower. Leadership lean stays with the factor weights +
-  # selection_vol_aversion. Config-replay (6wk, DIRECTIONAL — DSR fails): disabling
-  # gave -2.97%/Sharpe -1.29 vs -4.37%/-1.46 active, equal max drawdown.
-  # Re-enable by flipping beta_target_enabled: true (values below kept for revert).
+  vol_target: 0.18
+  vol_target_min_exposure: 0.3
   beta_target_enabled: false
-  beta_target: 1.3                   # kept for easy revert; ignored while disabled
-  beta_tolerance: 0.10               # kept for easy revert; ignored while disabled
+  beta_target: 1.3
+  beta_tolerance: 0.1
 vetter:
   enabled: true
-  # ARCHITECTURE DECISION (2026-07): the vet step is DETERMINISTIC — no LLM in the
-  # daily trading chain. The beta-adjusted, vol-scaled falling-knife veto is the
-  # sole entry block (and the only vetter signal that can push a held name out,
-  # via the orphan-exit path). Rationale: the LLM layer's value was unmeasured,
-  # it was the slowest/flakiest mandatory chain step, and it can't be backtested;
-  # the crash guard — the proven part — never needed an LLM. The evaluator's
-  # vetter_outcomes counterfactuals judge this choice on data. Set mode: llm to
-  # restore the per-ticker LLM judgment layer (also needs VETTER_LLM_ENABLED).
   mode: drawdown_only
   candidate_count: 200
   risk_horizon_days: 90
-  system_prompt_file: /strategies/quality_core_v1.vetter_prompt.txt  # reuse core prompt (weighting change only)
+  system_prompt_file: /strategies/quality_core_v1.vetter_prompt.txt
   max_searches_per_ticker: 3
   news_lookback_days: 7
   max_articles_per_ticker: 4
   earnings_horizon_days: 90
   strictness: moderate
-
 intraday:
   enabled: false
   benchmark_ticker: SPY
@@ -224,21 +124,19 @@ intraday:
   delay_buys_after_spike_enabled: false
   delay_buy_spike_threshold_pct: 15.0
   risk_event_action: reduce
-
 delta_engine:
-  entry_rank: 25        # cold-start fallback only (evaluate_all) — rank-based entry when there's no target to diff against
-  exit_rank: 40         # cold-start fallback only
-  confirmation_days: 3  # cold-start fallback only
-  orphan_confirmation_days: 2  # FASTER rotation: a name the builder drops leaves the live book after 2 builds (core uses 3). This is the real rotation-speed dial.
+  entry_rank: 25
+  exit_rank: 40
+  confirmation_days: 3
+  orphan_confirmation_days: 2
   max_positions: 35
-
 max_positions: 35
 min_score_percentile: 0.0
-min_non_null_factors: 6   # all 6 weighted factors must be present
+min_non_null_factors: 6
 required_factors:
-  - momentum
-  - quality
-  - value
-  - growth
-  - low_volatility
-  - liquidity
+- momentum
+- quality
+- value
+- growth
+- low_volatility
+- liquidity
