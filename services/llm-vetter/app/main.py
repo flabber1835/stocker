@@ -10,6 +10,7 @@ from typing import Optional
 
 import httpx
 from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy import text
 
@@ -30,6 +31,26 @@ AV_API_KEY           = os.getenv("AV_API_KEY", "")
 TAVILY_API_KEY       = os.getenv("TAVILY_API_KEY", "")
 ARTIFACTS_PATH       = os.getenv("ARTIFACTS_PATH", "")
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
+
+def config_pin_mismatch(expected_config_hash):
+    """Chain-level config pinning (audit finding #5): the scheduler pins the
+    active strategy hash at chain open and passes it with every strategy-
+    consuming trigger. If the file has changed since (mid-chain one-click
+    apply), refuse the job so the supervisor re-pins and re-runs the whole
+    strategy segment under ONE config instead of mixing two. Returns the 409
+    body dict on mismatch, None when the pin matches / is absent. Pure-ish
+    (reads the config file); unit-tested directly."""
+    if not expected_config_hash:
+        return None
+    try:
+        _, live_hash = load_strategy(STRATEGY_CONFIG_PATH)
+    except Exception:  # noqa: BLE001 — unreadable file counts as a mismatch
+        live_hash = None
+    if live_hash != expected_config_hash:
+        return {"status": "config_mismatch",
+                "expected": expected_config_hash, "loaded": live_hash}
+    return None
+
 def _env_bool(name: str, default: bool) -> bool:
     v = os.getenv(name)
     return default if v is None else v.strip().lower() in ("1", "true", "yes", "on")
@@ -1109,7 +1130,11 @@ async def start_vet(
     ranking_run_id: Optional[str] = None,
     candidate_count: Optional[int] = None,
     force: bool = False,
+    expected_config_hash: Optional[str] = None,
 ):
+    mismatch = config_pin_mismatch(expected_config_hash)
+    if mismatch:
+        return JSONResponse(status_code=409, content=mismatch)
     if not strategy.vetter.enabled:
         raise HTTPException(
             status_code=409,

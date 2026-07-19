@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import redis.asyncio as aioredis
 from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy import text
 
@@ -28,6 +29,26 @@ from stock_strategy_shared.tracing import fmt_row, log_step, write_trace_file, m
 from stock_strategy_shared.db import wait_for_db
 
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
+
+def config_pin_mismatch(expected_config_hash):
+    """Chain-level config pinning (audit finding #5): the scheduler pins the
+    active strategy hash at chain open and passes it with every strategy-
+    consuming trigger. If the file has changed since (mid-chain one-click
+    apply), refuse the job so the supervisor re-pins and re-runs the whole
+    strategy segment under ONE config instead of mixing two. Returns the 409
+    body dict on mismatch, None when the pin matches / is absent. Pure-ish
+    (reads the config file); unit-tested directly."""
+    if not expected_config_hash:
+        return None
+    try:
+        _, live_hash = load_strategy(STRATEGY_CONFIG_PATH)
+    except Exception:  # noqa: BLE001 — unreadable file counts as a mismatch
+        live_hash = None
+    if live_hash != expected_config_hash:
+        return {"status": "config_mismatch",
+                "expected": expected_config_hash, "loaded": live_hash}
+    return None
+
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
 REDIS_URL = os.getenv("REDIS_URL", "")
@@ -1140,7 +1161,11 @@ async def start_build(
     background_tasks: BackgroundTasks,
     ranking_run_id: Optional[str] = None,
     vetter_run_id: Optional[str] = None,
+    expected_config_hash: Optional[str] = None,
 ):
+    mismatch = config_pin_mismatch(expected_config_hash)
+    if mismatch:
+        return JSONResponse(status_code=409, content=mismatch)
     # Pre-validate UUIDs before touching the DB.
     if ranking_run_id:
         try:

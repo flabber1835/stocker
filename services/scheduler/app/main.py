@@ -138,12 +138,41 @@ _chain_status: dict = {
     "next_run": None,
     "origin": "scheduled",   # 'scheduled' (cron) | 'manual' (run-now). Drives delta
                              # manual-tagging + cancel-all pre-step. Defaults scheduled.
+    "config_hash": None,     # strategy-config hash PINNED for this chain (audit #5):
+                             # every strategy-consuming step must run under this hash.
 }
 
 # Set of step names that the next supervisor tick must force-trigger even when
 # /runs/latest shows status='done' today. Populated by manual /jobs/run-now and
 # drained as each step is re-triggered. Cron-driven ticks ignore it.
 _force_pending: set[str] = set()
+
+# ── chain-level config pinning (audit finding #5) ────────────────────────────
+# Services reload the strategy YAML per run (the seam fix for divergent cached
+# configs), which leaves ONE race: a one-click apply landing MID-CHAIN makes
+# later steps run under a different config than the ranking (skew — detected by
+# the delta step, but only after the fact). The supervisor now PINS the active
+# config hash at the first strategy-consuming trigger of each chain and passes
+# it as expected_config_hash; services refuse (409 config_mismatch) instead of
+# silently proceeding under a different config. On a mismatch the supervisor
+# re-pins to the new file and force-re-runs the whole strategy segment
+# (pipeline → vet → build → delta), so the chain CONVERGES on the new config
+# instead of mixing two. Pinning degrades to off when the file is unreadable
+# (no strategies mount / cold image) — services then skip the check.
+STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
+_STRATEGY_STEPS = ("pipeline", "vet", "portfolio-builder", "delta")
+
+
+def _active_config_hash() -> str | None:
+    """Hash of the active strategy YAML — MUST match shared loader's config_hash
+    (sha256 of the raw text, first 16 hex chars)."""
+    try:
+        with open(STRATEGY_CONFIG_PATH, "r") as f:
+            raw = f.read()
+    except OSError:
+        return None
+    import hashlib
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 # Set of optional step names permanently skipped by _startup_catch_up after
 # MAX_IDLE_RETRIES consecutive idle ticks (i.e. the service is unreachable).
@@ -977,6 +1006,14 @@ async def _trigger_step(client: httpx.AsyncClient, step: _StepDef, force: bool =
     instead of marking the trigger as 'done'."""
     try:
         params = dict(step.params or {})
+        if step.name in _STRATEGY_STEPS:
+            # Pin lazily at the FIRST strategy-consuming trigger of this chain
+            # (covers cron open, run-now, and scheduler restarts alike); the
+            # session-rollover reset clears the pin for the next chain.
+            if _chain_status.get("config_hash") is None:
+                _chain_status["config_hash"] = _active_config_hash()
+            if _chain_status.get("config_hash"):
+                params["expected_config_hash"] = _chain_status["config_hash"]
         if force and step.name == "pipeline":
             # Only pipeline has an already_ran_today guard; passing force=true bypasses it.
             params["force"] = "true"
@@ -998,6 +1035,25 @@ async def _trigger_step(client: httpx.AsyncClient, step: _StepDef, force: bool =
                 params["manual"] = "true"
         r = await client.post(f"{step.url}{step.start_path}", timeout=15.0, params=params)
         if r.status_code == 409:
+            try:
+                body = r.json()
+            except Exception:  # noqa: BLE001
+                body = {}
+            if body.get("status") == "config_mismatch":
+                # The active config changed under the chain (mid-chain apply).
+                # Re-pin to the CURRENT file and force-re-run the whole strategy
+                # segment so the chain converges on ONE config instead of mixing
+                # two (audit finding #5). Earlier steps' runs under the old hash
+                # are superseded by the re-run's fresh runs.
+                new_hash = _active_config_hash()
+                _log(
+                    f"supervisor: {step.name}: CONFIG CHANGED MID-CHAIN "
+                    f"(pinned {_chain_status.get('config_hash')}, live {new_hash}) "
+                    "— re-pinning and re-running pipeline→vet→build→delta under the new config",
+                )
+                _chain_status["config_hash"] = new_hash
+                _force_pending.update(_STRATEGY_STEPS)
+                return False
             _log(f"supervisor: {step.name}: already running (409) — will check next tick")
             return True
         elif r.status_code in (200, 201, 202):
@@ -1169,7 +1225,8 @@ async def _supervisor_tick() -> None:
             # start is cron-driven (the after-close schedule), which auto-approves
             # and skips the cancel-all pre-step. run_now overwrites this to 'manual'.
             _chain_status.update({"date": session, "status": None, "steps": {}, "run_ids": {},
-                                  "current_run_id": None, "origin": "scheduled"})
+                                  "current_run_id": None, "origin": "scheduled",
+                                  "config_hash": None})  # re-pin for the new chain
             # A new chain (new session) opens → drop stale trigger-cooldown stamps so
             # the cooldown reasons only about THIS chain's triggers (SCH-F2). Harmless
             # either way — old monotonic stamps are already far past the window — but
@@ -1810,6 +1867,7 @@ async def run_now(background_tasks: BackgroundTasks):
         _chain_status.update({
             "date": session, "status": None, "steps": {}, "run_ids": {},
             "current_run_id": None, "origin": "manual",
+            "config_hash": None,   # re-pin: a manual run must use the CURRENT config
         })
         _last_trigger_at.clear()  # new chain opens → drop stale cooldown stamps (SCH-F2)
         _force_pending.update(s.name for s in _STEPS)

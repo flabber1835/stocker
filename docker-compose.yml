@@ -588,9 +588,15 @@ services:
       TZ:                       America/New_York
       DATABASE_URL:             postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       SUPERVISOR_INTERVAL_SECS: ${SUPERVISOR_INTERVAL_SECS:-300}
+      # Chain-level config pinning (audit #5): the supervisor reads the active
+      # strategy YAML to pin its hash for the whole chain — same path the
+      # strategy-consuming services use. Read-only mount below.
+      STRATEGY_CONFIG_PATH:     /strategies/momentum_rotation_v2.yaml
       # Weekly LISTING_STATUS refresh (weekend-only): keeps the universe current
       # — new listings enter, delistings drop. 0 disables (frozen-at-boot).
       UNIVERSE_REFRESH_DAYS: ${UNIVERSE_REFRESH_DAYS:-7}
+    volumes:
+      - ./strategies:/strategies:ro   # config-pin hash source (never written here)
     depends_on:
       postgres:
         condition: service_healthy

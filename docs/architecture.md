@@ -1943,3 +1943,24 @@ Price-freshness ages are measured in WEEKDAY SESSIONS
 Monday is 1 session old, not 3 days — so thresholds don't mis-fire over
 weekends. Holidays are not modeled (no exchange calendar); thresholds keep
 margin for them (MAX_PRICE_AGE_DAYS default 7).
+
+## Design Decision: chain-level config pinning (2026-07, audit finding #5)
+
+Per-run config reload (the seam fix) left ONE race: a one-click apply landing
+MID-CHAIN made later steps run under a different config than the ranking —
+detected after the fact by the delta step's skew detector, but the chain still
+mixed two configs.
+
+The scheduler now PINS the active strategy hash at the first strategy-consuming
+trigger of each chain (`_chain_status.config_hash`, computed from the same
+read-only /strategies mount and identical to the shared loader's config_hash)
+and passes `expected_config_hash` on every pipeline/vet/build/delta trigger.
+Each of those services re-reads its file and REFUSES the job (HTTP 409
+`config_mismatch`) when the live hash differs — before reserving any run row.
+On a mismatch the supervisor re-pins to the new file and force-re-runs the
+whole strategy segment (pipeline → vet → build → delta), so the chain
+CONVERGES on the new config instead of wedging or mixing. Pinning degrades to
+off when the strategies mount is absent (services skip the check); the delta
+skew detector remains as the residual net. fetch-data is not pinned — it does
+not consume strategy config. Session rollover and run-now clear the pin so
+every new chain pins the then-current config.

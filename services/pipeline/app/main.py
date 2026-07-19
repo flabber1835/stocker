@@ -11,6 +11,7 @@ from typing import Optional
 
 import pandas as pd
 from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy import text
 import redis.asyncio as aioredis
@@ -40,6 +41,26 @@ _recent_drawdown = recent_drawdown
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
+
+def config_pin_mismatch(expected_config_hash):
+    """Chain-level config pinning (audit finding #5): the scheduler pins the
+    active strategy hash at chain open and passes it with every strategy-
+    consuming trigger. If the file has changed since (mid-chain one-click
+    apply), refuse the job so the supervisor re-pins and re-runs the whole
+    strategy segment under ONE config instead of mixing two. Returns the 409
+    body dict on mismatch, None when the pin matches / is absent. Pure-ish
+    (reads the config file); unit-tested directly."""
+    if not expected_config_hash:
+        return None
+    try:
+        _, live_hash = load_strategy(STRATEGY_CONFIG_PATH)
+    except Exception:  # noqa: BLE001 — unreadable file counts as a mismatch
+        live_hash = None
+    if live_hash != expected_config_hash:
+        return {"status": "config_mismatch",
+                "expected": expected_config_hash, "loaded": live_hash}
+    return None
+
 ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "")
 
 # Last-known-good window for the factor step's fundamentals read: each field
@@ -3325,7 +3346,8 @@ async def health():
 
 
 @app.post("/jobs/run")
-async def start_run(background_tasks: BackgroundTasks, triggered_by: str = "manual", force: bool = False):
+async def start_run(background_tasks: BackgroundTasks, triggered_by: str = "manual",
+                    force: bool = False, expected_config_hash: str | None = None):
     """Run the pipeline's FACTOR → RANK steps (this endpoint does NOT run delta —
     delta is a dedicated scheduler step via /jobs/delta; see _run_pipeline_steps).
 
@@ -3335,6 +3357,9 @@ async def start_run(background_tasks: BackgroundTasks, triggered_by: str = "manu
 
     force=true bypasses the once-per-day guard so manual UI re-runs work.
     """
+    mismatch = config_pin_mismatch(expected_config_hash)
+    if mismatch:
+        return JSONResponse(status_code=409, content=mismatch)
     result = await _do_run_pipeline(triggered_by=triggered_by, force=force)
     if result.get("status") in ("already_ran_today", "already_running"):
         return result
@@ -3346,7 +3371,8 @@ async def start_run(background_tasks: BackgroundTasks, triggered_by: str = "manu
 
 
 @app.post("/jobs/delta")
-async def start_delta_only(background_tasks: BackgroundTasks, manual: bool = False):
+async def start_delta_only(background_tasks: BackgroundTasks, manual: bool = False,
+                           expected_config_hash: str | None = None):
     """Run only the delta evaluation step (standalone, not part of a full pipeline run).
 
     Called by the scheduler after portfolio-builder updates the target portfolio.
@@ -3362,6 +3388,9 @@ async def start_delta_only(background_tasks: BackgroundTasks, manual: bool = Fal
     Pre-creates the delta_runs row synchronously so the run_id is committed before
     the HTTP response is sent — the caller can query the row immediately.
     """
+    mismatch = config_pin_mismatch(expected_config_hash)
+    if mismatch:
+        return JSONResponse(status_code=409, content=mismatch)
     if _job_lock.locked():
         return {"status": "already_running"}
     await _job_lock.acquire()
