@@ -33,7 +33,8 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
-from stock_strategy_shared.drawdown import excess_drawdown, recent_drawdown, scaled_excess_threshold
+from stock_strategy_shared.drawdown import (
+    excess_drawdown, recent_drawdown, falling_knife_verdict)
 from stock_strategy_shared.investability import (
     DOLLAR_VOLUME_WINDOW,
     avg_dollar_volume,
@@ -101,21 +102,19 @@ def falling_knife_excluded(closes_by_ticker: dict[str, list[float]],
         detail = excess_drawdown(closes, spy_closes, window=window,
                                  beta_lookback=int(fk["beta_lookback"]))
         if detail is None:
-            # not enough aligned history for the beta path — absolute floor only
-            raw = recent_drawdown(closes, window=window)
-            if raw is not None and fk["backstop_pct"] > 0 and raw <= -fk["backstop_pct"]:
-                excluded.add(t)
-            continue
-        raw = detail.get("raw_dd")
-        exc = detail.get("excess_dd")
-        idio = detail.get("idio_vol")
-        limit = (scaled_excess_threshold(idio, fk["excess_pct"], anchor=fk["vol_anchor"],
-                                         lo=fk["excess_min"], hi=fk["excess_max"])
-                 if fk["vol_scaling"] and fk["excess_pct"] > 0 else fk["excess_pct"])
-        excess_hit = fk["excess_pct"] > 0 and exc is not None and exc <= -limit
-        absolute_hit = (fk["backstop_pct"] > 0 and raw is not None
-                        and raw <= -fk["backstop_pct"])
-        if excess_hit or absolute_hit:
+            # No beta path (insufficient aligned history) → absolute floor only,
+            # off the stock-only raw drawdown (mirrors the vetter's raw_dd source).
+            raw, exc, idio = recent_drawdown(closes, window=window), None, None
+        else:
+            raw, exc, idio = detail.get("raw_dd"), detail.get("excess_dd"), detail.get("idio_vol")
+        # ONE shared decision — provably the live vetter's veto (audit-pattern:
+        # the two-trigger logic used to be duplicated here and in llm-vetter).
+        if falling_knife_verdict(
+            raw, exc, idio,
+            excess_pct=fk["excess_pct"], backstop_pct=fk["backstop_pct"],
+            vol_scaling=fk["vol_scaling"], vol_anchor=fk["vol_anchor"],
+            excess_min=fk["excess_min"], excess_max=fk["excess_max"],
+        )["excluded"]:
             excluded.add(t)
     return excluded
 

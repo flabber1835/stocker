@@ -119,6 +119,49 @@ def estimate_beta(
     return beta_and_idio_vol(stock_closes, spy_closes, lookback, min_observations)[0]
 
 
+def falling_knife_verdict(
+    raw_dd: float | None,
+    excess_dd: float | None,
+    idio_vol: float | None,
+    *,
+    excess_pct: float,
+    backstop_pct: float,
+    vol_scaling: bool,
+    vol_anchor: float = 0.35,
+    excess_min: float = 0.10,
+    excess_max: float = 0.30,
+) -> dict:
+    """THE falling-knife exclude/keep decision — one definition shared by the live
+    vetter (the real veto) and the backtest engine (the wind-tunnel veto), so the two
+    can never disagree about who is a knife. Callers supply the already-computed
+    drawdown numbers (raw_dd from recent_drawdown / excess_drawdown; excess_dd + idio_vol
+    from excess_drawdown); the DECISION lives here.
+
+    Two OR'd triggers (either fires → excluded):
+      1. EXCESS (primary): beta-adjusted, market-stripped drop past a per-ticker limit.
+         The limit is vol-scaled (scaled_excess_threshold) when vol_scaling is on and
+         excess_pct > 0, else the flat excess_pct. Skipped when excess_dd is None
+         (no beta path — insufficient aligned history).
+      2. ABSOLUTE FLOOR: raw peak-to-now drop past backstop_pct, market-blind. The
+         only trigger available to a data-poor name.
+    A name with neither number (all None) trips nothing — the data-gap exemption.
+    Set excess_pct=0 or backstop_pct=0 to disable that trigger.
+
+    Returns {excluded, trigger, excess_limit}: trigger ∈ 'excess' | 'absolute' | None
+    (excess wins ties, matching the vetter's reason-string precedence); excess_limit is
+    the realized per-ticker limit (for display/reason strings)."""
+    excess_limit = (
+        scaled_excess_threshold(idio_vol, excess_pct, anchor=vol_anchor,
+                                lo=excess_min, hi=excess_max)
+        if (vol_scaling and excess_pct > 0) else excess_pct
+    )
+    excess_hit = excess_pct > 0 and excess_dd is not None and excess_dd <= -excess_limit
+    absolute_hit = backstop_pct > 0 and raw_dd is not None and raw_dd <= -backstop_pct
+    trigger = "excess" if excess_hit else ("absolute" if absolute_hit else None)
+    return {"excluded": excess_hit or absolute_hit,
+            "trigger": trigger, "excess_limit": excess_limit}
+
+
 def scaled_excess_threshold(
     idio_vol: float | None,
     base: float,

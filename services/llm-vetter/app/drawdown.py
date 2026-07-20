@@ -11,6 +11,7 @@ from stock_strategy_shared.drawdown import (  # noqa: F401
     estimate_beta,
     scaled_excess_threshold,
     excess_drawdown,
+    falling_knife_verdict,
 )
 
 __all__ = [
@@ -19,4 +20,5 @@ __all__ = [
     "estimate_beta",
     "scaled_excess_threshold",
     "excess_drawdown",
+    "falling_knife_verdict",
 ]

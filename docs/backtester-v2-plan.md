@@ -21,6 +21,13 @@ equity curve to SPY.
 1. **Vetter** — NO LLM/news. Only the **deterministic falling-knife drawdown
    backstop**, applied at **portfolio-builder selection** (excluded from the target,
    exactly as live). Fully point-in-time: drawdown computed from `daily_prices ≤ D`.
+   The exclude/keep DECISION is the shared `stock_strategy_shared.drawdown.
+   falling_knife_verdict` — the SAME function the live vetter calls (2026-07
+   consolidation, audit-pattern): the two-trigger logic (vol-scaled beta-adjusted
+   excess OR absolute floor) used to be duplicated in bt-engine `sim.py` and
+   llm-vetter `main.py`; both now call one function, so the wind-tunnel veto is
+   provably the live veto. Only the LLM-mode judgment (news/earnings/Tavily) is
+   un-modelled — it is run-time, not config-deterministic.
 2. **Isolation** — runs on a **SEPARATE MACHINE with its OWN database**. Not a
    docker-compose profile in the live stack. The live trading system is never
    reachable or mutated by the backtester. (See "Deployment" below.)

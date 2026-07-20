@@ -14,7 +14,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy import text
 
-from app.drawdown import recent_drawdown, excess_drawdown, scaled_excess_threshold
+from app.drawdown import (
+    recent_drawdown, excess_drawdown, scaled_excess_threshold, falling_knife_verdict)
 from app.vetter import fetch_ticker_data, vet_single_ticker
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.trading_tz import market_today
@@ -855,20 +856,21 @@ async def _do_vet(
         raw_dd = drawdown_map.get(ticker)
         exc_dd = excess_dd_map.get(ticker)
         _detail = dd_detail_map.get(ticker, {})
-        # Per-ticker excess limit. With vol-scaling ON (default) it tightens for
-        # calm names and loosens for wild ones via the stock's idiosyncratic vol;
-        # otherwise it's the flat DRAWDOWN_EXCESS_PCT. Falls back to the flat base
-        # automatically when idio_vol is unavailable (insufficient history).
-        if DRAWDOWN_VOL_SCALING and DRAWDOWN_EXCESS_PCT > 0:
-            excess_limit = scaled_excess_threshold(
-                _detail.get("idio_vol"), DRAWDOWN_EXCESS_PCT,
-                anchor=DRAWDOWN_VOL_ANCHOR, lo=DRAWDOWN_EXCESS_MIN, hi=DRAWDOWN_EXCESS_MAX,
-            )
-        else:
-            excess_limit = DRAWDOWN_EXCESS_PCT
-        excess_hit = (DRAWDOWN_EXCESS_PCT > 0 and exc_dd is not None and exc_dd <= -excess_limit)
-        absolute_hit = (DRAWDOWN_BACKSTOP_PCT > 0 and raw_dd is not None and raw_dd <= -DRAWDOWN_BACKSTOP_PCT)
-        if (excess_hit or absolute_hit) and not result.get("exclude"):
+        # ONE shared exclude/keep decision — the SAME function the backtest engine's
+        # wind-tunnel veto calls, so "who is a knife" can never differ between live
+        # and backtest (audit-pattern: the two-trigger logic used to be duplicated
+        # here and in bt-engine sim.py). Per-ticker excess limit is vol-scaled inside
+        # the verdict (tighter for calm names, looser for wild) with a flat fallback.
+        _verdict = falling_knife_verdict(
+            raw_dd, exc_dd, _detail.get("idio_vol"),
+            excess_pct=DRAWDOWN_EXCESS_PCT, backstop_pct=DRAWDOWN_BACKSTOP_PCT,
+            vol_scaling=DRAWDOWN_VOL_SCALING, vol_anchor=DRAWDOWN_VOL_ANCHOR,
+            excess_min=DRAWDOWN_EXCESS_MIN, excess_max=DRAWDOWN_EXCESS_MAX,
+        )
+        excess_limit = _verdict["excess_limit"]
+        excess_hit = _verdict["trigger"] == "excess"
+        knife_hit = _verdict["excluded"]
+        if knife_hit and not result.get("exclude"):
             result["exclude"] = True
             result["risk_type"] = "drawdown"
             _action = "drops from target (delta will exit)" if ticker in held_tickers else "entry blocked"
@@ -908,7 +910,7 @@ async def _do_vet(
                 )
             result.setdefault("hallucination_flags", []).append(flag)
             print(f"[llm-vetter] {ticker}: DRAWDOWN BACKSTOP — {_action} ({trigger_desc})")
-        elif (excess_hit or absolute_hit) and ticker in held_tickers \
+        elif knife_hit and ticker in held_tickers \
                 and result.get("risk_type") != "drawdown":
             # Finding 1 (LLM-mode): the name is ALREADY excluded — an LLM-judgement
             # veto with a non-drawdown risk_type (e.g. 'earnings') — AND it trips the
