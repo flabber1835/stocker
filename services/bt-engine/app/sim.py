@@ -43,6 +43,13 @@ from stock_strategy_shared.investability import (
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 from app import live
+from app.calibration import (aggregate_calibration, decile_forward_returns,
+                             sample_evenly)
+
+# Score calibration (closed-loop item 3): decile-of-score → forward return over
+# this many sessions, on up to CALIB_MAX_DATES evenly-sampled rebalance dates.
+CALIB_HORIZON_SESSIONS = 20
+CALIB_MAX_DATES = 12
 
 # Env-default falling-knife thresholds (mirror the vetter's DRAWDOWN_* defaults);
 # a config's vetter.falling_knife overrides field-by-field, exactly like live.
@@ -148,6 +155,10 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
     ranked = live.rank_universe(fdf, regime, config)
     if ranked.empty:
         return {}, None
+    # full_ranked (whole scored universe) is what callers get back — the score-
+    # calibration diagnostic needs the full spectrum, not just the investable
+    # head; selection below still works on the candidate_count head.
+    full_ranked = ranked
     ranked = ranked.head(pb.candidate_count)
     candidates = ranked["ticker"].tolist()
     scores_map = dict(zip(ranked["ticker"], ranked["composite_score"].astype(float)))
@@ -203,7 +214,7 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
         av_sector_map=sector_map, max_av_sector_weight=pb.max_sector_weight,
         selection_vol_aversion=pb.selection_vol_aversion)
     if not selected:
-        return {}, ranked
+        return {}, full_ranked
     weights = live.compute_weights(
         selected, cov, method=pb.weighting,
         max_position_weight=pb.max_position_weight,
@@ -256,7 +267,7 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
         exposure = max_exposure
     if exposure < 1.0 - 1e-12:
         weights = {t: w * exposure for t, w in weights.items()}
-    return {t: float(w) for t, w in weights.items()}, ranked
+    return {t: float(w) for t, w in weights.items()}, full_ranked
 
 
 def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
@@ -377,6 +388,13 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
     prev_spy = spy_start
     peak = params.starting_capital
 
+    # Score calibration: which rebalance indices to sample (their forward
+    # window must fit inside the sim range — no partial horizons).
+    calib_eligible = [j for j in range(0, len(all_days), max(1, params.rebalance_every))
+                      if j + CALIB_HORIZON_SESSIONS < len(all_days)]
+    calib_idx = set(sample_evenly(calib_eligible, CALIB_MAX_DATES))
+    calib_samples: list[tuple[int, dict[str, float]]] = []
+
     for i, D in enumerate(all_days):
         # 1. fill pending next_open trades at today's open
         if pending:
@@ -416,12 +434,17 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
 
             if ranked is not None:
                 obs_date = D.date()
-                for r in ranked.itertuples():
+                # rank_history stays scoped to the investable head (unchanged
+                # delta-engine input); the FULL ranked frame feeds calibration.
+                for r in ranked.head(config.portfolio_builder.candidate_count).itertuples():
                     rank_history.setdefault(r.ticker, []).insert(
                         0, live.RankObservation(run_date=obs_date, rank=int(r.rank),
                                                 composite_score=float(r.composite_score)))
                 for t in rank_history:
                     del rank_history[t][8:]
+                if i in calib_idx:
+                    calib_samples.append((i, dict(zip(
+                        ranked["ticker"], ranked["composite_score"].astype(float)))))
 
             if target:      # empty target = degraded build → hold (mirrors live)
                 target_history.insert(0, set(target))
@@ -536,5 +559,17 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
         "fill_timing": params.fill_timing,
         "tx_cost_bps": params.tx_cost_bps,
     }
+    # Score calibration (closed-loop item 3): decile-of-score → mean forward
+    # return over the sampled rebalance dates. null when the range is too short
+    # for a single full horizon or too few names were scored.
+    calib_rows = []
+    for j, scores in calib_samples:
+        d0, d1 = all_days[j], all_days[j + CALIB_HORIZON_SESSIONS]
+        calib_rows.append(decile_forward_returns(
+            scores,
+            lambda t, _d=d0: _price(t, _d, opens=False),
+            lambda t, _d=d1: _price(t, _d, opens=False)))
+    summary["score_calibration"] = aggregate_calibration(
+        calib_rows, CALIB_HORIZON_SESSIONS)
     return SimResult(summary=summary, equity=equity_rows, trades=trade_rows,
                      positions=position_rows, caveats=caveats)

@@ -347,6 +347,99 @@ async def _forward_return_since(conn, ticker: str, since: date) -> float | None:
     return round(float(row[1]) / float(row[0]) - 1.0, 4)
 
 
+CALIB_HORIZON_SESSIONS = 20
+CALIB_MAX_RUNS = 6
+
+
+def _calibration_deciles(pairs: list[tuple[int, float]], n_bins: int = 10) -> list[float | None]:
+    """pairs = (rank, fwd_excess_return); contiguous rank bins best-first →
+    per-decile mean. [] when fewer scored names than bins."""
+    if len(pairs) < n_bins:
+        return []
+    pairs = sorted(pairs, key=lambda x: x[0])
+    n = len(pairs)
+    out = []
+    for d in range(n_bins):
+        chunk = [r for _, r in pairs[(d * n) // n_bins:((d + 1) * n) // n_bins]]
+        out.append(sum(chunk) / len(chunk) if chunk else None)
+    return out
+
+
+async def _score_calibration(conn) -> dict:
+    """Closed-loop item 3: does a better rank actually predict a better forward
+    return, and is the relationship monotone? Decile-of-rank (decile 1 = best)
+    → mean forward EXCESS return vs SPY over 20 sessions, averaged over up to
+    CALIB_MAX_RUNS persisted ranking runs old enough (21–90d) to have forward
+    data. A flat/non-monotone curve = the ordering carries no information in
+    that band; top-decile-only lift with a flat middle supports concentration."""
+    spy = await _spy_closes(conn)
+    if len(spy) < CALIB_HORIZON_SESSIONS + 2:
+        return {"note": "insufficient SPY history"}
+    sessions = [d for d, _ in spy]
+    spy_px = dict(spy)
+    runs = (await conn.execute(text(
+        "SELECT DISTINCT ON (rank_date) rank_date, run_id, regime "
+        "FROM ranking_runs WHERE status='success' "
+        "AND rank_date BETWEEN CURRENT_DATE - 90 AND CURRENT_DATE - 21 "
+        "ORDER BY rank_date, started_at DESC"))).all()
+    if not runs:
+        return {"note": "no ranking runs 21-90 days old yet — needs history to accrue"}
+    if len(runs) > CALIB_MAX_RUNS:
+        step = (len(runs) - 1) / (CALIB_MAX_RUNS - 1)
+        runs = [runs[round(i * step)] for i in range(CALIB_MAX_RUNS)]
+
+    from bisect import bisect_right
+    per_run, sampled = [], []
+    for rank_date, run_id, regime in runs:
+        i = bisect_right(sessions, rank_date) - 1
+        if i < 0 or i + CALIB_HORIZON_SESSIONS >= len(sessions):
+            continue
+        d0, d1 = sessions[i], sessions[i + CALIB_HORIZON_SESSIONS]
+        if d0 not in spy_px or d1 not in spy_px or spy_px[d0] <= 0:
+            continue
+        spy_ret = spy_px[d1] / spy_px[d0] - 1.0
+        rows = (await conn.execute(text(
+            "WITH r AS (SELECT ticker, rank FROM rankings WHERE run_id=CAST(:rid AS uuid)), "
+            "b AS (SELECT DISTINCT ON (ticker) ticker, adjusted_close AS p0 FROM daily_prices "
+            "      WHERE ticker IN (SELECT ticker FROM r) AND date <= :d0 AND date >= :d0f "
+            "      ORDER BY ticker, date DESC), "
+            "f AS (SELECT DISTINCT ON (ticker) ticker, adjusted_close AS p1 FROM daily_prices "
+            "      WHERE ticker IN (SELECT ticker FROM r) AND date <= :d1 "
+            "      ORDER BY ticker, date DESC) "
+            "SELECT r.rank, b.p0, f.p1 FROM r "
+            "JOIN b USING (ticker) JOIN f USING (ticker) WHERE b.p0 > 0"
+        ), {"rid": str(run_id), "d0": d0, "d1": d1,
+            "d0f": d0 - timedelta(days=14)})).all()
+        pairs = [(int(rk), float(p1) / float(p0) - 1.0 - spy_ret)
+                 for rk, p0, p1 in rows if p0 and p1]
+        deciles = _calibration_deciles(pairs)
+        if deciles:
+            per_run.append(deciles)
+            sampled.append({"rank_date": str(rank_date), "regime": regime,
+                            "n_tickers": len(pairs),
+                            "spy_ret_20d": round(spy_ret, 4)})
+    if not per_run:
+        return {"note": "no sampled run produced a usable decile curve"}
+    n_bins = 10
+    avg = []
+    for d in range(n_bins):
+        vals = [run[d] for run in per_run if run[d] is not None]
+        avg.append(round(sum(vals) / len(vals), 6) if vals else None)
+    adj = [(a, b) for a, b in zip(avg, avg[1:]) if a is not None and b is not None]
+    return {
+        "description": (
+            "Decile 1 = best-ranked tenth. avg_excess_20d = mean forward return "
+            "minus SPY over the same 20 sessions, averaged across sampled runs."),
+        "horizon_sessions": CALIB_HORIZON_SESSIONS,
+        "deciles": [{"decile": i + 1, "avg_excess_20d": avg[i]} for i in range(n_bins)],
+        "top_minus_bottom": (round(avg[0] - avg[-1], 6)
+                             if avg[0] is not None and avg[-1] is not None else None),
+        "monotone_fraction": (round(sum(1 for a, b in adj if a >= b) / len(adj), 4)
+                              if adj else None),
+        "sampled_runs": sampled,
+    }
+
+
 async def _decision_outcomes(conn) -> dict:
     """Decision-ledger aggregates (decision_outcomes, closed-loop item 1):
     per-action fixed-horizon outcome stats over the ledgered history. How to
@@ -1062,6 +1155,7 @@ async def build_packet(engine, as_of: date | None = None) -> dict:
             "closed_trades": await _section(lambda: _closed_trades(conn), conn),
             "open_positions": await _section(lambda: _open_positions(conn), conn),
             "decision_outcomes": await _section(lambda: _decision_outcomes(conn), conn),
+            "score_calibration": await _section(lambda: _score_calibration(conn), conn),
             "vetter_outcomes": await _section(lambda: _vetter_outcomes(conn), conn),
             "exit_outcomes": await _section(lambda: _exit_outcomes(conn), conn),
             "invisible_bench": await _section(lambda: _invisible_bench(conn), conn),
