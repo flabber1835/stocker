@@ -403,10 +403,19 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
         sim_kwargs = dict(tx_cost_bps=req.tx_cost_bps, fill_timing=req.fill_timing,
                           starting_capital=req.starting_capital,
                           rebalance_every=req.rebalance_every)
+        # Cross-config factor memo (audit perf #12): one dataset serves every
+        # config, so per-date factor frames are cached by factor-config identity —
+        # the 54-config grid computes factors ~2× per date instead of 54×.
+        # BT_FACTOR_CACHE=false disables; any cache failure degrades to recompute.
+        factor_cache = None
+        if os.getenv("BT_FACTOR_CACHE", "true").lower() not in ("0", "false", "no"):
+            from app.factor_cache import FactorCache, data_fingerprint
+            factor_cache = FactorCache(
+                data_fingerprint(prices, fundamentals, len(tickers)))
         for idx, diff in enumerate(diffs):
             row = await asyncio.to_thread(
                 run_config_both_windows, prices, fundamentals, sector_map,
-                base_dict, diff, windows, sim_kwargs)
+                base_dict, diff, windows, sim_kwargs, factor_cache)
             row = _json_sanitize(row)
             async with engine.begin() as conn:
                 await conn.execute(text(

@@ -121,18 +121,30 @@ def falling_knife_excluded(closes_by_ticker: dict[str, list[float]],
 
 def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
                  sector_map: dict[str, str], config: StrategyConfig, regime: str,
-                 fk: dict, spy_closes: list[float]) -> dict[str, float]:
+                 fk: dict, spy_closes: list[float],
+                 factor_cache=None, factor_key: str | None = None) -> dict[str, float]:
     """One rebalance: factors → rank → falling-knife → builder composition.
     Returns ({ticker: weight}, ranked_df) — weights sum ≤ 1 (cash_reserve /
     vol-target de-lever); ({}, None|df) when no feasible target.
     Faithful to portfolio-builder _do_build ordering (cluster on the full pool,
-    exclusions dropped from the selectable pool AFTER clustering)."""
+    exclusions dropped from the selectable pool AFTER clustering).
+
+    factor_cache/factor_key (sweeps): the factor frame depends only on
+    (as_of_date, factor_engine config, loaded data), so across a sweep's many
+    configs it is memoized per (date, factor-config) — see factor_cache.py."""
     pb = config.portfolio_builder
-    fdf = live.compute_all_factors(
-        day_prices, fundamentals_asof, cfg=config.factor_engine,
-        copy_input=True, sector_map=sector_map,
-        as_of_date=day_prices["date"].max().date(),
-    )
+    as_of = day_prices["date"].max().date()
+    fdf = None
+    if factor_cache is not None and factor_key is not None:
+        fdf = factor_cache.get(as_of, factor_key)
+    if fdf is None:
+        fdf = live.compute_all_factors(
+            day_prices, fundamentals_asof, cfg=config.factor_engine,
+            copy_input=True, sector_map=sector_map,
+            as_of_date=as_of,
+        )
+        if factor_cache is not None and factor_key is not None:
+            factor_cache.put(as_of, factor_key, fdf)
     ranked = live.rank_universe(fdf, regime, config)
     if ranked.empty:
         return {}, None
@@ -249,7 +261,7 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
 
 def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                    sector_map: dict[str, str], config: StrategyConfig,
-                   params: SimParams, progress_cb=None) -> SimResult:
+                   params: SimParams, progress_cb=None, factor_cache=None) -> SimResult:
     """prices: long [ticker, date, open, close, adjusted_close, volume] covering
     [start − FACTOR_LOOKBACK_DAYS, end] incl. SPY. fundamentals: long
     [ticker, as_of_date, pe_ratio, pb_ratio, roe, debt_to_equity, revenue_growth,
@@ -280,6 +292,10 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
         raise ValueError("fewer than 2 trading days in range")
 
     fk = _fk_params(config, params.drawdown_backstop_pct)
+    factor_key = None
+    if factor_cache is not None:
+        from app.factor_cache import factor_cfg_key
+        factor_key = factor_cfg_key(config.factor_engine)
     rd_cfg = config.regime_detection
 
     # ── state ────────────────────────────────────────────────────────────────
@@ -395,7 +411,8 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
             spy_closes = spy_upto["close"].astype(float).tolist()
             target, ranked = build_target(
                 day_prices[day_prices["ticker"] != "SPY"], fnd_asof, sector_map,
-                config, confirmed_regime, fk, spy_closes)
+                config, confirmed_regime, fk, spy_closes,
+                factor_cache=factor_cache, factor_key=factor_key)
 
             if ranked is not None:
                 obs_date = D.date()
