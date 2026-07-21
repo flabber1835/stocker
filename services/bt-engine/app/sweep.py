@@ -118,6 +118,88 @@ class SweepWindows:
         return None
 
 
+def shift_months(d: date, months: int) -> date:
+    """Calendar-month shift with day-of-month clamping (Jan 31 − 1mo → Dec 31,
+    Mar 31 − 1mo → Feb 28). Deterministic, no external deps."""
+    total = d.year * 12 + (d.month - 1) + months
+    year, month = divmod(total, 12)
+    month += 1
+    # clamp day to the target month's length
+    if month == 12:
+        next_first = date(year + 1, 1, 1)
+    else:
+        next_first = date(year, month + 1, 1)
+    from datetime import timedelta
+    last_day = (next_first - timedelta(days=1)).day
+    return date(year, month, min(d.day, last_day))
+
+
+def rolling_windows(base: SweepWindows, n_windows: int, step_months: int,
+                    holdout_months: int
+                    ) -> tuple[list[SweepWindows], tuple[date, date] | None, str | None]:
+    """Phase 5b: derive n_windows rolling tune→validate windows from the base
+    request. Window LENGTHS come from the base (tune_end−tune_start,
+    validate_end−validate_start); windows are anchored backward from
+    validate_end − holdout_months in steps of step_months, each window's tune
+    block immediately preceding its validate block (walk-forward preserved per
+    window). Returns (windows oldest-first, holdout span or None, error).
+    The holdout is UNTOUCHED during the sweep — only the aggregate champion is
+    replayed on it afterward."""
+    if n_windows < 2:
+        return [], None, "rolling_n_windows must be >= 2"
+    if step_months < 1:
+        return [], None, "rolling_step_months must be >= 1"
+    if holdout_months < 0:
+        return [], None, "holdout_months must be >= 0"
+    tune_len = base.tune_end - base.tune_start
+    val_len = base.validate_end - base.validate_start
+    if tune_len.days <= 0 or val_len.days <= 0:
+        return [], None, "base windows must have positive length"
+
+    holdout: tuple[date, date] | None = None
+    final_end = base.validate_end
+    if holdout_months > 0:
+        holdout_start = shift_months(base.validate_end, -holdout_months)
+        if holdout_start <= base.validate_start:
+            return [], None, ("holdout_months consumes the whole validate span — "
+                              "shrink it or extend validate_end")
+        holdout = (holdout_start, base.validate_end)
+        final_end = holdout_start
+
+    windows: list[SweepWindows] = []
+    for i in range(n_windows):
+        ve = shift_months(final_end, -i * step_months)
+        vs = ve - val_len
+        te = vs
+        ts = te - tune_len
+        w = SweepWindows(ts, te, vs, ve)
+        err = w.validate()
+        if err:
+            return [], None, f"derived window {i} invalid: {err}"
+        windows.append(w)
+    windows.reverse()  # oldest-first; window_idx is chronological
+    return windows, holdout, None
+
+
+def aggregate_rolling(rows: list[dict]) -> dict:
+    """Aggregate one config's per-window result rows into the robustness
+    verdict. Error legs are EXCLUDED from the stats but REPORTED as n_failed —
+    a config that crashes on half its windows must not look clean."""
+    import statistics
+    ok = [r for r in rows if not r.get("error_message")]
+    sharpes = [r["oos_sharpe"] for r in ok if r.get("oos_sharpe") is not None]
+    gaps = [r["overfit_gap"] for r in ok if r.get("overfit_gap") is not None]
+    return {
+        "n_windows": len(rows),
+        "n_failed": len(rows) - len(ok),
+        "median_oos_sharpe": (round(statistics.median(sharpes), 4) if sharpes else None),
+        "worst_oos_sharpe": (round(min(sharpes), 4) if sharpes else None),
+        "consistency": (round(sum(1 for s in sharpes if s > 0) / len(sharpes), 4)
+                        if sharpes else None),
+        "mean_overfit_gap": (round(sum(gaps) / len(gaps), 4) if gaps else None),
+    }
+
+
 def run_config_both_windows(prices, fundamentals, sector_map, base_config: dict,
                             diff: dict, windows: SweepWindows,
                             sim_kwargs: dict, factor_cache=None) -> dict:

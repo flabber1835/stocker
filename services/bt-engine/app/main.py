@@ -27,8 +27,9 @@ from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 from app.data import load_fundamentals, load_prices, load_universe
 from app.sim import SimParams, run_simulation
-from app.sweep import (SweepWindows, enumerate_grid, merge_extra_configs,
-                       run_config_both_windows)
+from app.sweep import (SweepWindows, aggregate_rolling, apply_diff,
+                       enumerate_grid, merge_extra_configs,
+                       rolling_windows, run_config_both_windows)
 
 BT_DATABASE_URL = os.environ.get("BT_DATABASE_URL", "")
 if not BT_DATABASE_URL:
@@ -334,6 +335,16 @@ class SweepRequest(BaseModel):
     # explode the config count. Invalid diffs are dropped (logged), not fatal:
     # one bad proposal must not kill the standing sweep.
     extra_configs: list[dict] = []
+    # Phase 5b — rolling multi-window walk-forward (0 = off → classic
+    # two-window sweep, unchanged behavior). ≥2 derives that many rolling
+    # tune→validate windows from the base window lengths, anchored backward
+    # from validate_end − holdout_months in rolling_step_months steps; each
+    # config is scored per window and aggregated (median/worst OOS Sharpe,
+    # consistency). holdout_months reserves the FINAL months untouched — only
+    # the aggregate champion is replayed on them.
+    rolling_n_windows: int = 0
+    rolling_step_months: int = 6
+    holdout_months: int = 0
 
 
 @app.post("/sweeps/run")
@@ -343,6 +354,16 @@ async def start_sweep(req: SweepRequest, background_tasks: BackgroundTasks):
     werr = windows.validate()
     if werr:
         raise HTTPException(status_code=422, detail=werr)
+    # Phase 5b: derive the rolling windows (and holdout span) up front so a bad
+    # spec fails the request, not the background job.
+    windows_list: list[SweepWindows] = [windows]
+    holdout: tuple[date, date] | None = None
+    if req.rolling_n_windows:
+        windows_list, holdout, rerr = rolling_windows(
+            windows, req.rolling_n_windows, req.rolling_step_months,
+            req.holdout_months)
+        if rerr:
+            raise HTTPException(status_code=422, detail=rerr)
     try:
         if req.config is not None:
             base_cfg = StrategyConfig(**req.config)
@@ -376,8 +397,11 @@ async def start_sweep(req: SweepRequest, background_tasks: BackgroundTasks):
                     "request": req.model_dump(mode="json")}), default=str),
                 "n": len(diffs), "ts": req.tune_start, "te": req.tune_end,
                 "vs": req.validate_start, "ve": req.validate_end})
-    background_tasks.add_task(_sweep_bg, sweep_id, req, base_cfg, diffs, windows)
+    background_tasks.add_task(_sweep_bg, sweep_id, req, base_cfg, diffs,
+                              windows_list, holdout)
     return {"status": "started", "sweep_id": sweep_id, "n_configs": len(diffs),
+            "n_windows": len(windows_list),
+            "holdout": [str(holdout[0]), str(holdout[1])] if holdout else None,
             "n_extra": len(req.extra_configs or []) - len(extra_dropped),
             "n_extra_dropped": len(extra_dropped),
             # verbatim rejected diffs — bt-scheduler marks those proposals
@@ -386,18 +410,22 @@ async def start_sweep(req: SweepRequest, background_tasks: BackgroundTasks):
 
 
 async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig,
-                    diffs: list[dict], windows: "SweepWindows") -> None:
+                    diffs: list[dict], windows_list: list["SweepWindows"],
+                    holdout: tuple[date, date] | None) -> None:
+    rolling = len(windows_list) > 1
     try:
         tickers, sector_map = await load_universe(engine, limit=req.universe_limit)
         if not tickers:
             raise RuntimeError("bt_universe is empty — run bt-data /jobs/backfill first")
-        # ONE load spans tune−lookback → validate_end; safe for both windows because
-        # the sim is truncation-proven to never read past its own end date.
-        prices = await load_prices(engine, tickers, windows.tune_start,
-                                   windows.validate_end)
+        # ONE load spans earliest tune−lookback → validate_end (incl. any
+        # holdout); safe for every window because the sim is truncation-proven
+        # to never read past its own end date.
+        earliest_start = min(w.tune_start for w in windows_list)
+        prices = await load_prices(engine, tickers, earliest_start,
+                                   req.validate_end)
         if prices.empty:
             raise RuntimeError("bt_prices empty for range — run bt-data /jobs/backfill first")
-        fundamentals = await load_fundamentals(engine, tickers, windows.validate_end)
+        fundamentals = await load_fundamentals(engine, tickers, req.validate_end)
 
         base_dict = base_cfg.model_dump(mode="json")
         sim_kwargs = dict(tx_cost_bps=req.tx_cost_bps, fill_timing=req.fill_timing,
@@ -413,37 +441,62 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
             factor_cache = FactorCache(
                 data_fingerprint(prices, fundamentals, len(tickers)))
         for idx, diff in enumerate(diffs):
-            row = await asyncio.to_thread(
-                run_config_both_windows, prices, fundamentals, sector_map,
-                base_dict, diff, windows, sim_kwargs, factor_cache)
-            row = _json_sanitize(row)
+            cfg_rows = []
+            for widx, windows in enumerate(windows_list):
+                row = await asyncio.to_thread(
+                    run_config_both_windows, prices, fundamentals, sector_map,
+                    base_dict, diff, windows, sim_kwargs, factor_cache)
+                row = _json_sanitize(row)
+                cfg_rows.append(row)
+                async with engine.begin() as conn:
+                    await conn.execute(text(
+                        "INSERT INTO bt_sweep_results (sweep_id, config_idx, window_idx, "
+                        " config_diff, in_sample, out_sample, is_sharpe, oos_sharpe, "
+                        " oos_return, oos_max_drawdown, overfit_gap, error_message) "
+                        "VALUES (CAST(:sid AS uuid), :idx, :widx, CAST(:diff AS jsonb), "
+                        "        CAST(:ins AS jsonb), CAST(:oos AS jsonb), :ish, :osh, "
+                        "        :oret, :odd, :gap, :err)"
+                    ), {"sid": sweep_id, "idx": idx, "widx": widx,
+                        "diff": json.dumps(row.get("config_diff") or {}, default=str),
+                        "ins": json.dumps(row.get("in_sample"), default=str)
+                               if row.get("in_sample") is not None else None,
+                        "oos": json.dumps(row.get("out_sample"), default=str)
+                               if row.get("out_sample") is not None else None,
+                        "ish": row.get("is_sharpe"), "osh": row.get("oos_sharpe"),
+                        "oret": row.get("oos_return"), "odd": row.get("oos_max_drawdown"),
+                        "gap": row.get("overfit_gap"), "err": row.get("error_message")})
             async with engine.begin() as conn:
-                await conn.execute(text(
-                    "INSERT INTO bt_sweep_results (sweep_id, config_idx, config_diff, "
-                    " in_sample, out_sample, is_sharpe, oos_sharpe, oos_return, "
-                    " oos_max_drawdown, overfit_gap, error_message) "
-                    "VALUES (CAST(:sid AS uuid), :idx, CAST(:diff AS jsonb), "
-                    "        CAST(:ins AS jsonb), CAST(:oos AS jsonb), :ish, :osh, "
-                    "        :oret, :odd, :gap, :err)"
-                ), {"sid": sweep_id, "idx": idx,
-                    "diff": json.dumps(row.get("config_diff") or {}, default=str),
-                    "ins": json.dumps(row.get("in_sample"), default=str)
-                           if row.get("in_sample") is not None else None,
-                    "oos": json.dumps(row.get("out_sample"), default=str)
-                           if row.get("out_sample") is not None else None,
-                    "ish": row.get("is_sharpe"), "osh": row.get("oos_sharpe"),
-                    "oret": row.get("oos_return"), "odd": row.get("oos_max_drawdown"),
-                    "gap": row.get("overfit_gap"), "err": row.get("error_message")})
+                if rolling:
+                    agg = aggregate_rolling(cfg_rows)
+                    await conn.execute(text(
+                        "INSERT INTO bt_sweep_aggregates (sweep_id, config_idx, "
+                        " config_diff, n_windows, n_failed, median_oos_sharpe, "
+                        " worst_oos_sharpe, consistency, mean_overfit_gap) "
+                        "VALUES (CAST(:sid AS uuid), :idx, CAST(:diff AS jsonb), "
+                        "        :nw, :nf, :med, :worst, :cons, :gap)"
+                    ), {"sid": sweep_id, "idx": idx,
+                        "diff": json.dumps(diff, default=str),
+                        "nw": agg["n_windows"], "nf": agg["n_failed"],
+                        "med": agg["median_oos_sharpe"],
+                        "worst": agg["worst_oos_sharpe"],
+                        "cons": agg["consistency"],
+                        "gap": agg["mean_overfit_gap"]})
                 await conn.execute(text(
                     "UPDATE bt_sweeps SET n_done=:d WHERE sweep_id=CAST(:sid AS uuid)"
                 ), {"d": idx + 1, "sid": sweep_id})
             print(f"[bt-engine] sweep {sweep_id}: {idx + 1}/{len(diffs)} done "
-                  f"(diff={diff}, oos_sharpe={row.get('oos_sharpe')})")
+                  f"(diff={diff}, windows={len(windows_list)}, "
+                  f"oos_sharpe={cfg_rows[-1].get('oos_sharpe')})")
+
+        if rolling:
+            await _finalize_rolling(sweep_id, base_dict, sim_kwargs, prices,
+                                    fundamentals, sector_map, holdout)
         async with engine.begin() as conn:
             await conn.execute(text(
                 "UPDATE bt_sweeps SET status='success', completed_at=NOW() "
                 "WHERE sweep_id=CAST(:sid AS uuid)"), {"sid": sweep_id})
-        print(f"[bt-engine] sweep {sweep_id} SUCCESS ({len(diffs)} configs)")
+        print(f"[bt-engine] sweep {sweep_id} SUCCESS ({len(diffs)} configs × "
+              f"{len(windows_list)} window(s))")
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
         try:
@@ -455,6 +508,55 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
         except Exception:  # noqa: BLE001
             traceback.print_exc()
         print(f"[bt-engine] sweep {sweep_id} FAILED: {exc}")
+
+
+async def _finalize_rolling(sweep_id: str, base_dict: dict, sim_kwargs: dict,
+                            prices, fundamentals, sector_map,
+                            holdout: tuple[date, date] | None) -> None:
+    """Mark the aggregate champion (max median_oos_sharpe; ties broken by
+    worst_oos_sharpe then config_idx — deterministic) and, if a holdout span
+    was reserved, replay ONLY the champion on it. Running every config on the
+    holdout would just turn it into a second validate window."""
+    async with engine.begin() as conn:
+        champ = (await conn.execute(text(
+            "SELECT config_idx, config_diff FROM bt_sweep_aggregates "
+            "WHERE sweep_id=CAST(:sid AS uuid) "
+            "ORDER BY median_oos_sharpe DESC NULLS LAST, "
+            "         worst_oos_sharpe DESC NULLS LAST, config_idx "
+            "LIMIT 1"), {"sid": sweep_id})).mappings().first()
+        if champ is None:
+            return
+        await conn.execute(text(
+            "UPDATE bt_sweep_aggregates SET is_champion=TRUE "
+            "WHERE sweep_id=CAST(:sid AS uuid) AND config_idx=:idx"
+        ), {"sid": sweep_id, "idx": champ["config_idx"]})
+
+    if holdout is None:
+        return
+    diff = champ["config_diff"]
+    if isinstance(diff, str):
+        diff = json.loads(diff)
+    cfg_dict, err = apply_diff(base_dict, diff or {})
+    if err:
+        summary = {"error": f"champion config invalid on holdout: {err}"}
+    else:
+        try:
+            params = SimParams(start=holdout[0], end=holdout[1], **sim_kwargs)
+            summary = (await asyncio.to_thread(
+                run_simulation, prices, fundamentals, sector_map,
+                StrategyConfig(**cfg_dict), params)).summary
+        except Exception as exc:  # noqa: BLE001 — holdout failure must not fail the sweep
+            summary = {"error": f"holdout sim failed: {str(exc)[:400]}"}
+    summary = _json_sanitize({"start": str(holdout[0]), "end": str(holdout[1]),
+                              **(summary or {})})
+    async with engine.begin() as conn:
+        await conn.execute(text(
+            "UPDATE bt_sweep_aggregates SET holdout=CAST(:h AS jsonb) "
+            "WHERE sweep_id=CAST(:sid AS uuid) AND config_idx=:idx"
+        ), {"sid": sweep_id, "idx": champ["config_idx"],
+            "h": json.dumps(summary, default=str)})
+    print(f"[bt-engine] sweep {sweep_id}: champion config_idx="
+          f"{champ['config_idx']} holdout={summary.get('sharpe_ratio')}", flush=True)
 
 
 @app.get("/sweeps/latest")
@@ -472,13 +574,30 @@ async def latest_sweep():
 async def sweep_leaderboard(sweep_id: str, limit: int = 25):
     """Configs ranked by OUT-OF-SAMPLE Sharpe (the walk-forward verdict), with the
     in-sample number and overfit_gap alongside — a big gap means the config fit
-    the tune window, not the market. Error rows (invalid/failed configs) last."""
+    the tune window, not the market. Error rows (invalid/failed configs) last.
+
+    Phase 5b auto-detect: when the sweep ran in rolling mode (aggregate rows
+    exist) the leaderboard is the AGGREGATE view — median OOS Sharpe across the
+    rolling windows, with worst-window and consistency alongside, champion
+    first-ranked and carrying the untouched-holdout summary. bt-scheduler's
+    results bridge (latest_sweep.json → evaluator packet) inherits this
+    upgrade unchanged."""
     _uuid(sweep_id)
     async with engine.connect() as conn:
+        aggs = (await conn.execute(text(
+            "SELECT config_idx, config_diff, n_windows, n_failed, "
+            "median_oos_sharpe, worst_oos_sharpe, consistency, "
+            "mean_overfit_gap, is_champion, holdout "
+            "FROM bt_sweep_aggregates WHERE sweep_id=CAST(:sid AS uuid) "
+            "ORDER BY median_oos_sharpe DESC NULLS LAST, "
+            "         worst_oos_sharpe DESC NULLS LAST, config_idx LIMIT :n"
+        ), {"sid": sweep_id, "n": min(limit, 500)})).mappings().all()
+        if aggs:
+            return {"mode": "rolling", "leaderboard": [_fmt(r) for r in aggs]}
         rows = (await conn.execute(text(
             "SELECT config_idx, config_diff, is_sharpe, oos_sharpe, oos_return, "
             "oos_max_drawdown, overfit_gap, error_message "
             "FROM bt_sweep_results WHERE sweep_id=CAST(:sid AS uuid) "
             "ORDER BY oos_sharpe DESC NULLS LAST LIMIT :n"
         ), {"sid": sweep_id, "n": min(limit, 500)})).mappings().all()
-    return {"leaderboard": [_fmt(r) for r in rows]}
+    return {"mode": "two_window", "leaderboard": [_fmt(r) for r in rows]}

@@ -151,9 +151,14 @@ CREATE TABLE IF NOT EXISTS bt_sweeps (
     error_message   TEXT
 );
 
+-- Uniqueness lives in uq_bt_sweep_results_cfg_win below (NOT a PK): Phase 5b
+-- rolling mode writes one row per (config, window). Existing DBs are migrated
+-- by the idempotent ALTERs that follow — bt-data re-runs this whole file on
+-- every startup, which is the bt stack's schema-evolution channel.
 CREATE TABLE IF NOT EXISTS bt_sweep_results (
     sweep_id        UUID         NOT NULL REFERENCES bt_sweeps(sweep_id) ON DELETE CASCADE,
     config_idx      INTEGER      NOT NULL,
+    window_idx      INTEGER      NOT NULL DEFAULT 0,  -- chronological rolling window (0 = classic two-window)
     config_diff     JSONB        NOT NULL,       -- {dotted.path: value} over the base config
     in_sample       JSONB,                       -- full sim summary, tune window
     out_sample      JSONB,                       -- full sim summary, validate window
@@ -162,8 +167,33 @@ CREATE TABLE IF NOT EXISTS bt_sweep_results (
     oos_return      NUMERIC(12,6),
     oos_max_drawdown NUMERIC(10,4),
     overfit_gap     NUMERIC(10,4),               -- is_sharpe − oos_sharpe (large = fit, not robust)
-    error_message   TEXT,
-    PRIMARY KEY (sweep_id, config_idx)
+    error_message   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_bt_sweep_results_oos
     ON bt_sweep_results (sweep_id, oos_sharpe DESC NULLS LAST);
+-- Phase 5b migration for pre-rolling DBs (no-ops once applied / on fresh DBs):
+ALTER TABLE bt_sweep_results ADD COLUMN IF NOT EXISTS window_idx INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE bt_sweep_results DROP CONSTRAINT IF EXISTS bt_sweep_results_pkey;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bt_sweep_results_cfg_win
+    ON bt_sweep_results (sweep_id, config_idx, window_idx);
+
+-- Phase 5b: per-config aggregates across the rolling windows. Rows exist only
+-- for rolling-mode sweeps; the leaderboard endpoint auto-detects them. The
+-- champion (max median_oos_sharpe; ties broken by worst_oos_sharpe then
+-- config_idx) is the ONLY config replayed on the untouched holdout.
+CREATE TABLE IF NOT EXISTS bt_sweep_aggregates (
+    sweep_id          UUID        NOT NULL REFERENCES bt_sweeps(sweep_id) ON DELETE CASCADE,
+    config_idx        INTEGER     NOT NULL,
+    config_diff       JSONB       NOT NULL,
+    n_windows         INTEGER     NOT NULL,
+    n_failed          INTEGER     NOT NULL DEFAULT 0,   -- error legs (excluded from stats, reported)
+    median_oos_sharpe NUMERIC(10,4),
+    worst_oos_sharpe  NUMERIC(10,4),
+    consistency       NUMERIC(6,4),                     -- fraction of windows with OOS Sharpe > 0
+    mean_overfit_gap  NUMERIC(10,4),
+    is_champion       BOOLEAN     NOT NULL DEFAULT FALSE,
+    holdout           JSONB,                            -- champion only: untouched-holdout sim summary
+    PRIMARY KEY (sweep_id, config_idx)
+);
+CREATE INDEX IF NOT EXISTS idx_bt_sweep_aggregates_median
+    ON bt_sweep_aggregates (sweep_id, median_oos_sharpe DESC NULLS LAST);

@@ -284,3 +284,53 @@ Optional later: an "analyst export" (JSON/CSV of a run or the leaderboard) that 
 human pastes into a Claude session for INTERPRETATION — strictly separate from the
 sweep, never driving config selection.
 
+
+## Phase 5b — rolling multi-window walk-forward + untouched holdout (BUILT)
+
+Closed-loop adoption item 2 (see docs/architecture.md "closed-loop evaluation
+upgrades" for the batch). A single tune/validate split can be won by luck: one
+OOS window is one draw. Rolling evaluation asks the harder question — does the
+config win REPEATEDLY across market regimes — and the untouched holdout keeps
+one final period no config was ever selected on.
+
+Opt-in via three SweepRequest fields (0 = off → the classic two-window sweep,
+byte-identical behavior):
+
+```text
+rolling_n_windows    ≥2 enables rolling mode: that many tune→validate windows
+rolling_step_months  spacing between consecutive windows (default 6)
+holdout_months       final months of [validate_start, validate_end] RESERVED —
+                     no config sees them during the sweep; only the aggregate
+                     champion is replayed on the holdout at the end
+```
+
+Window construction (pure, sweep.py `rolling_windows`): window lengths are
+taken from the base request (tune_end−tune_start, validate_end−validate_start).
+Windows are anchored backward from `validate_end − holdout_months` in steps of
+`rolling_step_months`, each window's tune block immediately preceding its
+validate block (walk-forward preserved per window). Windows are returned
+oldest-first; window_idx is chronological.
+
+Persistence: `bt_sweep_results.window_idx` (idempotent ALTER in init_bt.sql;
+the old (sweep_id, config_idx) PK becomes a UNIQUE index over
+(sweep_id, config_idx, window_idx) — bt-data re-runs init_bt.sql on every
+startup, which is the bt stack's schema-evolution channel). Per-config
+aggregates land in `bt_sweep_aggregates`:
+
+```text
+median_oos_sharpe   the headline (robust to one lucky window)
+worst_oos_sharpe    the stress answer
+consistency         fraction of windows with OOS Sharpe > 0
+mean_overfit_gap    average in−out gap across windows
+is_champion         max median_oos_sharpe (ties: worst_oos_sharpe, then idx)
+holdout             champion only: sim summary over the untouched holdout
+```
+
+`/sweeps/{id}/leaderboard` auto-detects: aggregates exist → rolling
+leaderboard ordered by median_oos_sharpe (mode: "rolling"); else the classic
+per-config OOS ordering (mode: "two_window"). bt-scheduler's results bridge
+(latest_sweep.json → evaluator packet) inherits the upgrade unchanged.
+
+Honesty rules carried over: aggregation excludes error legs but REPORTS
+n_failed; the holdout is run exactly once per sweep (champion only) — running
+every config on it would just turn the holdout into a second validate window.
