@@ -1985,3 +1985,85 @@ Deploy caveat: strategy_engine is a NEW module directory under shared/ — the
 stale-base trap applies. `make build-base` BEFORE rebuilding pipeline,
 portfolio-builder, backtester, evaluator (and the bt stack next time it is
 rebuilt).
+
+## Design Decision: closed-loop evaluation upgrades (2026-07, optimizer-essay adoption)
+
+Four measurement/feedback features adopted from the external "closed-loop
+optimizer" analysis. All four are READ-side: they change what the system can
+*see about itself*, never what it trades. No new write path to orders or
+config; the human-approved apply flow remains the only config mutation.
+
+### 1. Decision ledger + multi-horizon outcome labeling (BUILT)
+
+Problem: the system makes discrete decisions daily (enter, exit, defer-to-watch,
+orphan-flag, trim, vetter-exclude) but only ad-hoc counterfactuals existed
+(packet `_vetter_outcomes` / `_exit_outcomes` — one open-ended horizon, computed
+on the fly, never persisted). There was no durable, uniformly-labeled record
+answering "what happened AFTER each decision, at fixed horizons".
+
+Design:
+
+```text
+decision_outcomes (migration 0045) — one row per harvested decision:
+  source        'delta_intent' | 'vetter_exclusion'  (+ source_id UUID, UNIQUE pair)
+  decision_date session date of the decision (delta_runs.run_date /
+                ranking_runs.rank_date via the vetter run's source ranking)
+  ticker, action  entry/exit/buy_add/sell_trim/at_risk/watch/vetter_exclude
+                  ('hold' intents are NOT harvested — pure position-keeping,
+                   volume without information; realized P&L already covers held names)
+  base_price    ticker adjusted close at the decision session (last price ≤ that
+                session within a small staleness window)
+  fwd_1d/5d/20d/60d   forward returns at 1/5/20/60 TRADING SESSIONS
+  spy_fwd_*           SPY over the same session spans (excess = fwd − spy_fwd)
+  mfe_20d/mae_20d     max favorable / adverse excursion over the 20-session window
+  complete      TRUE once the 60-session horizon has elapsed and labeling ran
+                (also TRUE with null labels when no price data exists by then —
+                 give-up rule so unpriceable rows don't retry forever)
+```
+
+The session grid is the SPY date series from daily_prices (same convention as
+the factor stack). Forward prices use last-available-≤-session (delisted/halted
+names hold at last real price — consistent with the backtester's de-bias rules).
+Labeling is IDEMPOTENT and RETROACTIVE: `POST pipeline /jobs/label-outcomes`
+harvests any not-yet-ledgered decisions (INSERT … ON CONFLICT DO NOTHING over
+the full history), then (re)labels incomplete rows whose horizons have newly
+elapsed. Pure math lives in `services/pipeline/app/outcomes.py`; the endpoint
+holds its OWN lock (never the pipeline `_job_lock` — labeling must not block
+the chain, and vice versa). The scheduler fires it once per day as a
+best-effort side job (`_maybe_label_outcomes`, same pattern as the weekly
+universe refresh; OUTCOME_LABELING_ENABLED=false disables).
+
+Consumers: evaluator packet section `decision_outcomes` (per-action aggregates:
+n, avg 20d/60d excess vs SPY, hit rate, avg MAE). Read it as: positive excess
+on `exit`/`vetter_exclude` rows means the names we shed OUTPERFORMED — the
+decision cost money; `watch` (capacity-deferred entries) beating `entry` means
+the capacity gate defers the wrong names.
+
+### 3. Score calibration diagnostics (Item 3)
+
+Does a better composite score actually predict a better forward return, and is
+the relationship monotone? Two views, same math: (a) bt-engine simulations
+record decile-of-score → forward-20-session-return on sampled rebalance dates
+(`summary["score_calibration"]`); (b) the evaluator packet computes the same
+decile curve from PERSISTED ranking runs old enough to have forward data
+(21–90 days), per current regime, vs SPY. A flat or non-monotone curve says
+the model's ordering carries no information in that band — evidence for
+factor-weight or construction changes; top-decile-only lift with a flat middle
+supports concentrated books.
+
+### 4. Shadow champion/challenger (Item 4)
+
+An optional CHALLENGER config (`CHALLENGER_CONFIG_PATH`, e.g.
+`strategies/challenger.yaml`) is built into a THEORETICAL daily target by the
+pipeline right after each successful delta step — fire-and-forget background
+task, reusing the pipeline's own persisted factor scores plus the shared
+canonical rank/select (no second factor computation, no vetter, no orders,
+no risk checks — shadow_runs rows only, migration 0046). The evaluator packet
+compares champion vs challenger theoretical forward returns over the
+accumulated shadow history. Promotion stays HUMAN: the packet is evidence; the
+Apply click (or a config swap) is the only way a challenger becomes champion.
+Absent CHALLENGER_CONFIG_PATH the feature is fully inert.
+
+(Item 2 of the same adoption batch — rolling multi-window walk-forward +
+untouched holdout — lives in the backtest stack; see
+docs/backtester-v2-plan.md.)

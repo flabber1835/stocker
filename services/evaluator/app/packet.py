@@ -347,6 +347,46 @@ async def _forward_return_since(conn, ticker: str, since: date) -> float | None:
     return round(float(row[1]) / float(row[0]) - 1.0, 4)
 
 
+async def _decision_outcomes(conn) -> dict:
+    """Decision-ledger aggregates (decision_outcomes, closed-loop item 1):
+    per-action fixed-horizon outcome stats over the ledgered history. How to
+    read: excess = ticker fwd return − SPY over the SAME session span. Positive
+    avg excess on 'exit'/'vetter_exclude' means the names we SHED went on to
+    OUTPERFORM (the decision cost money). 'watch' (capacity-deferred entries)
+    beating 'entry' means the capacity gate defers the wrong names. mae_20d is
+    the average worst drawdown within 20 sessions of the decision."""
+    rows = (await conn.execute(text(
+        "SELECT action, COUNT(*) AS n, COUNT(fwd_20d) AS n_labeled_20d, "
+        "       AVG(fwd_20d)              AS avg_fwd_20d, "
+        "       AVG(fwd_20d - spy_fwd_20d) AS avg_excess_20d, "
+        "       AVG(fwd_60d - spy_fwd_60d) AS avg_excess_60d, "
+        "       AVG(CASE WHEN fwd_20d > spy_fwd_20d THEN 1.0 ELSE 0.0 END) "
+        "           FILTER (WHERE fwd_20d IS NOT NULL AND spy_fwd_20d IS NOT NULL) "
+        "           AS hit_rate_20d, "
+        "       AVG(mae_20d) AS avg_mae_20d, "
+        "       MIN(decision_date) AS first_decision, MAX(decision_date) AS last_decision "
+        "FROM decision_outcomes GROUP BY action ORDER BY action"
+    ))).mappings().all()
+    if not rows:
+        return {"note": "ledger empty — /jobs/label-outcomes has not harvested yet"}
+    return {
+        "description": (
+            "Durable decision ledger: every entry/exit/trim/at_risk/watch intent and "
+            "vetter exclusion, labeled with forward returns at fixed session horizons. "
+            "excess = ticker − SPY over the same span."),
+        "by_action": [{
+            "action": r["action"], "n": r["n"], "n_labeled_20d": r["n_labeled_20d"],
+            "avg_fwd_20d": _r(r["avg_fwd_20d"]),
+            "avg_excess_20d": _r(r["avg_excess_20d"]),
+            "avg_excess_60d": _r(r["avg_excess_60d"]),
+            "hit_rate_20d_vs_spy": _r(r["hit_rate_20d"], 3),
+            "avg_mae_20d": _r(r["avg_mae_20d"]),
+            "first_decision": str(r["first_decision"]),
+            "last_decision": str(r["last_decision"]),
+        } for r in rows],
+    }
+
+
 async def _vetter_outcomes(conn) -> dict:
     """Counterfactual audit of vetter exclusions: what did the excluded names do
     AFTER the veto? Negative forward return = the veto added value."""
@@ -1021,6 +1061,7 @@ async def build_packet(engine, as_of: date | None = None) -> dict:
             "account_performance": await _section(lambda: _account_performance(conn), conn),
             "closed_trades": await _section(lambda: _closed_trades(conn), conn),
             "open_positions": await _section(lambda: _open_positions(conn), conn),
+            "decision_outcomes": await _section(lambda: _decision_outcomes(conn), conn),
             "vetter_outcomes": await _section(lambda: _vetter_outcomes(conn), conn),
             "exit_outcomes": await _section(lambda: _exit_outcomes(conn), conn),
             "invisible_bench": await _section(lambda: _invisible_bench(conn), conn),

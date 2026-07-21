@@ -602,6 +602,9 @@ services:
       # Weekly LISTING_STATUS refresh (weekend-only): keeps the universe current
       # — new listings enter, delistings drop. 0 disables (frozen-at-boot).
       UNIVERSE_REFRESH_DAYS: ${UNIVERSE_REFRESH_DAYS:-7}
+      # Daily decision-ledger labeling (pipeline /jobs/label-outcomes):
+      # idempotent harvest+label of decision_outcomes. false disables.
+      OUTCOME_LABELING_ENABLED: ${OUTCOME_LABELING_ENABLED:-true}
     volumes:
       - ./strategies:/strategies:ro   # config-pin hash source (never written here)
     depends_on:

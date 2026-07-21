@@ -3485,6 +3485,117 @@ async def start_delta_only(background_tasks: BackgroundTasks, manual: bool = Fal
     return {"status": "started", "job": "delta", "run_id": delta_run_id}
 
 
+# ── Decision ledger: outcome labeling (closed-loop item 1) ────────────────────
+# Harvests decisions (delta intents except 'hold' — pure position-keeping —
+# plus vetter exclusions) into decision_outcomes, then labels incomplete rows
+# whose session horizons have elapsed. Idempotent + retroactive: safe to call
+# any number of times, catches up the whole history. Holds its OWN lock, never
+# _job_lock — labeling must not block the chain and vice versa. See
+# docs/architecture.md "closed-loop evaluation upgrades".
+
+_outcomes_lock = asyncio.Lock()
+OUTCOME_LABEL_BATCH = int(os.getenv("OUTCOME_LABEL_BATCH", "1000"))
+
+_HARVEST_INTENTS_SQL = (
+    "INSERT INTO decision_outcomes (source, source_id, decision_date, ticker, action) "
+    "SELECT 'delta_intent', di.id, dr.run_date, di.ticker, di.action "
+    "FROM delta_intents di "
+    "JOIN delta_runs dr ON dr.run_id = di.run_id "
+    "WHERE dr.status = 'success' "
+    "  AND dr.run_date > DATE '2000-01-01' "  # skip the 1970 pre-create sentinel
+    "  AND di.action IN ('entry','exit','buy_add','sell_trim','at_risk','watch') "
+    "ON CONFLICT (source, source_id) DO NOTHING"
+)
+
+_HARVEST_VETTER_SQL = (
+    "INSERT INTO decision_outcomes (source, source_id, decision_date, ticker, action) "
+    "SELECT 'vetter_exclusion', ve.id, rr.rank_date, ve.ticker, 'vetter_exclude' "
+    "FROM vetter_exclusions ve "
+    "JOIN vetter_runs vr ON vr.run_id = ve.run_id "
+    "JOIN ranking_runs rr ON rr.run_id = vr.source_ranking_run_id "
+    "WHERE vr.status = 'success' "
+    "ON CONFLICT (source, source_id) DO NOTHING"
+)
+
+
+async def _do_label_outcomes() -> dict:
+    from app.outcomes import label_decision
+
+    async with engine.begin() as conn:
+        harvested = (await conn.execute(text(_HARVEST_INTENTS_SQL))).rowcount or 0
+        harvested += (await conn.execute(text(_HARVEST_VETTER_SQL))).rowcount or 0
+
+    async with engine.connect() as conn:
+        rows = (await conn.execute(text(
+            "SELECT id, ticker, decision_date FROM decision_outcomes "
+            "WHERE NOT complete ORDER BY decision_date ASC, ticker LIMIT :lim"),
+            {"lim": OUTCOME_LABEL_BATCH})).mappings().all()
+        if not rows:
+            return {"harvested": harvested, "labeled": 0}
+        spy_rows = (await conn.execute(text(
+            "SELECT date, adjusted_close FROM daily_prices "
+            "WHERE ticker = :bench AND adjusted_close IS NOT NULL ORDER BY date"),
+            {"bench": MARKET_BENCHMARK})).all()
+        sessions = [r[0] for r in spy_rows]
+        spy_series = {r[0]: float(r[1]) for r in spy_rows}
+        tickers = sorted({r["ticker"] for r in rows})
+        min_d = min(r["decision_date"] for r in rows) - timedelta(days=14)
+        px_rows = (await conn.execute(text(
+            "SELECT ticker, date, adjusted_close FROM daily_prices "
+            "WHERE ticker = ANY(:ts) AND date >= :d0 AND adjusted_close IS NOT NULL"),
+            {"ts": tickers, "d0": min_d})).all()
+
+    series: dict[str, dict] = {}
+    for t, d, px in px_rows:
+        series.setdefault(t, {})[d] = float(px)
+
+    now = datetime.now(timezone.utc)
+    updates = []
+    for r in rows:
+        lab = label_decision(r["decision_date"], series.get(r["ticker"], {}),
+                             spy_series, sessions)
+        if lab is None:
+            # Decision predates the session calendar entirely — unlabelable
+            # garbage; close it out so it never retries.
+            lab = {"base_price": None, "mfe_20d": None, "mae_20d": None,
+                   "complete": True,
+                   **{f"fwd_{h}d": None for h in (1, 5, 20, 60)},
+                   **{f"spy_fwd_{h}d": None for h in (1, 5, 20, 60)}}
+        updates.append({"id": r["id"], "now": now, **lab})
+
+    if updates:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "UPDATE decision_outcomes SET "
+                "  base_price=:base_price, "
+                "  fwd_1d=:fwd_1d, fwd_5d=:fwd_5d, fwd_20d=:fwd_20d, fwd_60d=:fwd_60d, "
+                "  spy_fwd_1d=:spy_fwd_1d, spy_fwd_5d=:spy_fwd_5d, "
+                "  spy_fwd_20d=:spy_fwd_20d, spy_fwd_60d=:spy_fwd_60d, "
+                "  mfe_20d=:mfe_20d, mae_20d=:mae_20d, "
+                "  complete=:complete, labeled_at=:now "
+                "WHERE id=:id"), updates)
+    completed = sum(1 for u in updates if u["complete"])
+    return {"harvested": harvested, "labeled": len(updates), "completed": completed}
+
+
+@app.post("/jobs/label-outcomes")
+async def label_outcomes_job(background_tasks: BackgroundTasks):
+    """Harvest + label the decision ledger (best-effort daily side job)."""
+    if _outcomes_lock.locked():
+        return {"status": "already_running"}
+
+    async def _run():
+        async with _outcomes_lock:
+            try:
+                result = await _do_label_outcomes()
+                print(f"[pipeline] label-outcomes {result}", flush=True)
+            except Exception as exc:  # noqa: BLE001 — side job; next daily attempt retries
+                print(f"[pipeline] label-outcomes FAILED: {exc}", flush=True)
+
+    background_tasks.add_task(_run)
+    return {"status": "started", "job": "label-outcomes"}
+
+
 @app.post("/jobs/calculate")
 async def start_calculate_only(background_tasks: BackgroundTasks):
     """Run only factor calculation (for debugging/manual use). Holds _job_lock

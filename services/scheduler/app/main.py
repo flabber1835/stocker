@@ -1161,6 +1161,32 @@ async def _maybe_refresh_universe() -> None:
         _log("universe weekly refresh failed (will retry next weekend day)", error=str(exc))
 
 
+# Daily decision-ledger labeling (closed-loop item 1). The pipeline endpoint is
+# idempotent + retroactive (harvest ON CONFLICT DO NOTHING, relabel-incomplete),
+# so a once-per-day best-effort POST is all the orchestration needed. Runs any
+# time of day: labeling only fills horizons that have ALREADY elapsed, so firing
+# before today's chain simply labels yesterday's backlog.
+OUTCOME_LABELING_ENABLED = os.getenv("OUTCOME_LABELING_ENABLED", "true").lower() in ("1", "true", "yes")
+_outcome_labeling_attempted: str | None = None   # local ISO date of last attempt
+
+
+async def _maybe_label_outcomes() -> None:
+    """Best-effort daily decision-outcome labeling — never blocks the chain."""
+    global _outcome_labeling_attempted
+    if not OUTCOME_LABELING_ENABLED:
+        return
+    today = _local_now().date().isoformat()
+    if _outcome_labeling_attempted == today:
+        return
+    _outcome_labeling_attempted = today
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(f"{PIPELINE_URL}/jobs/label-outcomes")
+            _log("decision-outcome labeling triggered", status_code=r.status_code)
+    except Exception as exc:  # noqa: BLE001 — pipeline down must not affect the chain
+        _log("decision-outcome labeling trigger failed (will retry tomorrow)", error=str(exc))
+
+
 async def _supervisor_tick() -> None:
     """
     Non-blocking state-machine supervisor. Reads each step's status from its
@@ -1175,6 +1201,8 @@ async def _supervisor_tick() -> None:
     await _maybe_trigger_evaluator()
     # Weekly universe refresh — same independence, weekend-gated inside.
     await _maybe_refresh_universe()
+    # Daily decision-ledger labeling — same independence, daily-gated inside.
+    await _maybe_label_outcomes()
 
     today = _local_today().isoformat()
     trading_day = last_trading_day(_local_today()).isoformat()
