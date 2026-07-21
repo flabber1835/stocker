@@ -606,6 +606,26 @@ class DeltaEngineConfig(BaseModel):
             "Drift rebalance is skipped when no successful alpaca-sync exists."
         )
     )
+    rebalance_min_relative_drift: float = Field(
+        default=0.0, ge=0, le=1.0,
+        description=(
+            "Optional drift-materiality gate (audit finding #7): in addition to the "
+            "absolute threshold, |drift| / target_weight must be at least this "
+            "fraction. Makes a 2pp drift on a 20% position (10% relative) NOT "
+            "equivalent to 2pp on a 2% position (100% relative). 0 disables (default "
+            "— behavior unchanged)."
+        )
+    )
+    rebalance_min_trade_value: float = Field(
+        default=0.0, ge=0,
+        description=(
+            "Optional dollar-materiality gate (audit finding #7): |drift| x "
+            "account_value must be at least this many dollars before a buy_add/"
+            "sell_trim fires — stops economically meaningless micro-rebalances "
+            "(fees/spread exceed the correction). 0 disables (default). Skipped "
+            "when account value is unknown."
+        )
+    )
 
     @model_validator(mode="after")
     def exit_rank_exceeds_entry_rank(self) -> "DeltaEngineConfig":

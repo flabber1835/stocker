@@ -263,6 +263,9 @@ def evaluate_target_vs_live(
     factor_gate_gap: set[str] | None = None,
     inflight_entries: set[str] | None = None,
     inflight_exits: set[str] | None = None,
+    min_relative_drift: float = 0.0,
+    min_trade_value: float = 0.0,
+    risk_degraded: bool = False,
 ) -> dict[str, DeltaDecision]:
     """Diff portfolio_holdings (target) against live_positions (actual broker state).
 
@@ -371,14 +374,26 @@ def evaluate_target_vs_live(
             continue  # handled in holds below
         obs = universe.get(ticker, [])
         latest = obs[0] if obs else None
+        if risk_degraded:
+            # Hold-safe / BUY-CLOSED failure mode (audit finding #8): the builder
+            # could not estimate book volatility this build (vol targeting enabled,
+            # covariance/book-vol invalid). A broken risk estimate must not ADD
+            # risk: new entries wait; exits/trims (de-risking) proceed normally.
+            e_action, e_reason = "watch", (
+                f"In target (weight={weight:.2%}) but book risk estimate degraded "
+                f"this build — entry deferred (buy-closed); de-risking unaffected"
+            )
+        else:
+            e_action = "entry"
+            e_reason = f"In target portfolio (weight={weight:.2%}) but not held at broker"
         decisions[ticker] = DeltaDecision(
             ticker=ticker,
-            action="entry",
+            action=e_action,
             rank=latest.rank if latest else 9999,
             composite_score=latest.composite_score if latest else 0.0,
             confirmation_days_met=confirmation_days,
             current_weight=weight,  # target weight → trade-executor sizes from this
-            reason=f"In target portfolio (weight={weight:.2%}) but not held at broker",
+            reason=e_reason,
             actual_weight=None,
             weight_drift=None,
         )
@@ -609,9 +624,39 @@ def evaluate_target_vs_live(
             and target_weight > 0
             and target_weight == target_weight  # NaN-safe
         )
-        if has_real_target and drift is not None and abs(drift) > drift_threshold:
+        # Drift materiality (audit finding #7): the absolute threshold alone
+        # treats 2pp on a 20% position (10% relative) like 2pp on a 2% position
+        # (100% relative), and can fire economically meaningless micro-trades.
+        # Both gates are opt-in (0 = disabled → original behavior); the dollar
+        # gate is skipped when account value is unknown (never blocks blindly).
+        cmp_target = target_weight / drift_basis
+        drift_material = (
+            has_real_target and drift is not None and abs(drift) > drift_threshold
+        )
+        immaterial_why = None
+        if drift_material and min_relative_drift > 0 and cmp_target > 0:
+            if abs(drift) / cmp_target < min_relative_drift:
+                drift_material = False
+                immaterial_why = (
+                    f"relative drift {abs(drift) / cmp_target:.1%} < "
+                    f"{min_relative_drift:.0%} materiality floor"
+                )
+        if drift_material and min_trade_value > 0 and account_value:
+            if abs(drift) * account_value < min_trade_value:
+                drift_material = False
+                immaterial_why = (
+                    f"trade value ${abs(drift) * account_value:,.0f} < "
+                    f"${min_trade_value:,.0f} materiality floor"
+                )
+        if drift_material:
             if drift < 0:
-                action = "buy_add"
+                # buy_add is risk-INCREASING: under a degraded book-risk estimate
+                # it is deferred exactly like a new entry (buy-closed); sell_trim
+                # (de-risking) below is never deferred.
+                action = "hold" if risk_degraded else "buy_add"
+                if risk_degraded:
+                    immaterial_why = ("book risk estimate degraded this build — "
+                                      "buy_add deferred (buy-closed)")
             else:
                 action = "sell_trim"
         else:
@@ -619,7 +664,6 @@ def evaluate_target_vs_live(
 
         # Build reason. When a cash reserve grosses the comparison basis up, show
         # the grossed-up target so actual − target visibly equals the drift.
-        cmp_target = target_weight / drift_basis
         if action == "buy_add":
             reason = (
                 f"Held and in target (rank={current_rank}), underweight: "
@@ -631,6 +675,11 @@ def evaluate_target_vs_live(
                 f"Held and in target (rank={current_rank}), overweight: "
                 f"actual={actual_w:.2%} target={cmp_target:.2%} "
                 f"drift={drift:+.2%}"
+            )
+        elif immaterial_why is not None:
+            reason = (
+                f"Held and in target (rank={current_rank}), drift {drift:+.2%} "
+                f"suppressed: {immaterial_why}"
             )
         else:
             reason = f"Held at broker and in target portfolio (target weight={target_weight:.2%})"

@@ -2166,7 +2166,8 @@ async def _resolve_delta_lineage(conn) -> dict:
     anchor_port_run_id/bound_vetter_run_id are None on cold start; anchor_degraded is
     the bound portfolio's degraded flag (G2)."""
     anchor_port = (await conn.execute(text(
-        "SELECT run_id, source_ranking_run_id, vetter_run_id, degraded, config_hash "
+        "SELECT run_id, source_ranking_run_id, vetter_run_id, degraded, config_hash, "
+        "       risk_estimate_degraded "
         "FROM portfolio_runs WHERE status='success' AND superseded_at IS NULL "
         "ORDER BY completed_at DESC NULLS LAST, started_at DESC LIMIT 1"
     ))).fetchone()
@@ -2176,12 +2177,14 @@ async def _resolve_delta_lineage(conn) -> dict:
     anchor_port_config_hash: Optional[str] = None
     bound_vetter_run_id: Optional[str] = None
     anchor_degraded = False
+    anchor_risk_degraded = False
     if anchor_port is not None:
         anchor_port_run_id = str(anchor_port.run_id)
         anchor_port_config_hash = anchor_port.config_hash
         bound_vetter_run_id = (str(anchor_port.vetter_run_id)
                                if anchor_port.vetter_run_id is not None else None)
         anchor_degraded = bool(anchor_port.degraded)
+        anchor_risk_degraded = bool(getattr(anchor_port, "risk_estimate_degraded", False))
         latest_rank = (await conn.execute(text(
             "SELECT run_id, rank_date, regime, ranked_count, config_hash "
             "FROM ranking_runs WHERE run_id = :rid AND status='success'"
@@ -2206,6 +2209,7 @@ async def _resolve_delta_lineage(conn) -> dict:
         "anchor_port_config_hash": anchor_port_config_hash,
         "bound_vetter_run_id": bound_vetter_run_id,
         "anchor_degraded": anchor_degraded,
+        "anchor_risk_degraded": anchor_risk_degraded,
     }
 
 
@@ -2236,6 +2240,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     anchor_port_config_hash = lineage["anchor_port_config_hash"]
     bound_vetter_run_id = lineage["bound_vetter_run_id"]
     anchor_degraded = lineage["anchor_degraded"]
+    anchor_risk_degraded = lineage.get("anchor_risk_degraded", False)
 
     if latest_rank is None:
         raise RuntimeError("No successful ranking run found — run: make rank first")
@@ -2864,6 +2869,9 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             max_positions=max_positions,
             actual_weights=live_weights,
             drift_threshold=drift_threshold,
+            min_relative_drift=de_cfg.rebalance_min_relative_drift,
+            min_trade_value=de_cfg.rebalance_min_trade_value,
+            risk_degraded=anchor_risk_degraded,
             account_value=account_value_for_drift,
             buying_power=buying_power_for_cap,
             target_history=target_history,

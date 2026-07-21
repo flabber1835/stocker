@@ -807,6 +807,22 @@ async def _do_build(
     max_exposure = 1.0 - cash_reserve
     vol_target_enabled = bool(getattr(pb_cfg, "vol_target_enabled", False))
     book_vol_full_invested = book_volatility(weights, cov) if vol_target_enabled else None
+    # Hold-safe / buy-closed failure signal (audit finding #8): vol targeting was
+    # asked to manage book risk but the estimate is unusable — exposure stays at
+    # max (never dump the book on a covariance glitch) but the flag makes the
+    # delta engine defer risk-INCREASING trades (entries/buy_adds) this cycle.
+    import math as _math
+    risk_estimate_degraded = bool(
+        vol_target_enabled and (
+            book_vol_full_invested is None
+            or not _math.isfinite(book_vol_full_invested)
+            or book_vol_full_invested <= 0.0
+        )
+    )
+    if risk_estimate_degraded:
+        print("[portfolio-builder] WARNING: vol targeting enabled but book vol "
+              "could not be estimated — exposure stays at max (hold-safe); "
+              "risk-increasing trades deferred by delta (buy-closed)")
     if vol_target_enabled:
         exposure = vol_target_exposure(
             book_vol_full_invested, pb_cfg.vol_target,
@@ -1030,7 +1046,8 @@ async def _do_build(
                 "  candidate_count=:cc, selected_count=:sc, degraded=:deg, "
                 "  covariance_window_days=:cw, "
                 "  avg_pairwise_correlation=:apc, "
-                "  portfolio_estimated_vol=:pvol "
+                "  portfolio_estimated_vol=:pvol, "
+                "  risk_estimate_degraded=:rdeg "
                 "WHERE run_id=:rid"
             ),
             {
@@ -1042,6 +1059,7 @@ async def _do_build(
                 "cw": pb_cfg.covariance_window_days,
                 "apc": round(avg_pairwise_corr, 6),
                 "pvol": round(portfolio_vol, 6),
+                "rdeg": risk_estimate_degraded,
             },
         )
 
