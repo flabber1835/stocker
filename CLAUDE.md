@@ -576,6 +576,22 @@ Delta evaluation (`/jobs/delta`) runs as step 5 of the scheduler chain, after
 the vetter (step 3) and portfolio-builder (step 4) have completed. This ensures
 proposals always reflect today's vetter exclusions and target weights.
 
+Closed-loop side jobs hosted by the pipeline (2026-07, see architecture.md
+"closed-loop evaluation upgrades" — read-side only, never trade):
+- `POST /jobs/label-outcomes` — decision ledger: idempotent harvest of every
+  delta intent (except 'hold') + vetter exclusion into `decision_outcomes`
+  (migration 0045), labeled with 1/5/20/60-session forward returns, SPY spans,
+  20-session MFE/MAE (pure math in app/outcomes.py). Scheduler triggers it
+  daily (`_maybe_label_outcomes`, OUTCOME_LABELING_ENABLED). Own lock — never
+  blocks the chain.
+- Shadow champion/challenger: when CHALLENGER_CONFIG_PATH is set, a successful
+  delta fires a fire-and-forget shadow build (app/shadow.py) — re-rank the
+  day's persisted factor scores under the challenger config, compose a
+  theoretical target via the shared canonical select, persist to `shadow_runs`
+  (migration 0046). No vetter/orders/risk checks. The evaluator packet's
+  `shadow_vs_champion` section compares forward returns; promotion is a human
+  config change. Unset path (default) = inert.
+
 `pipeline_runs` is the cross-step audit row; `factor_status`,
 `ranking_status`, and `delta_status` columns surface sub-step progress
 for the dashboard. `chain_date` is written at run start so the

@@ -3464,6 +3464,10 @@ async def start_delta_only(background_tasks: BackgroundTasks, manual: bool = Fal
                     "WHERE ranking_run_id = ("
                     "  SELECT source_ranking_run_id FROM delta_runs WHERE run_id=:rid)"
                 ), {"rid": delta_run_id_result})
+            # Shadow challenger (closed-loop item 4): fire-and-forget after the
+            # chain's delta completes — observational only, never blocks/fails
+            # the chain. Inert unless CHALLENGER_CONFIG_PATH is configured.
+            asyncio.create_task(_run_shadow_build())
         except Exception as exc:
             print(f"[pipeline] standalone delta FAILED: {exc}", flush=True)
             async with engine.begin() as conn:
@@ -3576,6 +3580,100 @@ async def _do_label_outcomes() -> dict:
                 "WHERE id=:id"), updates)
     completed = sum(1 for u in updates if u["complete"])
     return {"harvested": harvested, "labeled": len(updates), "completed": completed}
+
+
+# ── Shadow champion/challenger (closed-loop item 4) ──────────────────────────
+# When CHALLENGER_CONFIG_PATH names a valid strategy YAML, each successful
+# delta step fires a fire-and-forget shadow build: re-rank the day's persisted
+# factor scores under the CHALLENGER config and compose a THEORETICAL target
+# via the shared canonical select (no vetter, no orders, no risk checks —
+# shadow_runs rows only). The evaluator packet compares champion vs challenger
+# forward returns; promotion stays a human config change. Unset path → inert.
+
+CHALLENGER_CONFIG_PATH = os.getenv("CHALLENGER_CONFIG_PATH", "")
+SHADOW_PRICE_BUFFER_DAYS = 30
+
+
+async def _run_shadow_build() -> None:
+    """Best-effort; never raises into the delta path that spawned it."""
+    from app.shadow import build_challenger_target
+
+    path = CHALLENGER_CONFIG_PATH
+    if not path or not os.path.exists(path):
+        return
+    try:
+        challenger, ch_hash = load_strategy(path)
+        async with engine.connect() as conn:
+            rr = (await conn.execute(text(
+                "SELECT run_id, source_factor_run_id, regime, rank_date "
+                "FROM ranking_runs WHERE status='success' "
+                "ORDER BY started_at DESC LIMIT 1"))).mappings().first()
+            if rr is None:
+                return
+            dup = (await conn.execute(text(
+                "SELECT 1 FROM shadow_runs WHERE run_date=:d AND config_hash=:h"),
+                {"d": rr["rank_date"], "h": ch_hash})).first()
+            if dup:
+                return
+            frows = (await conn.execute(text(
+                "SELECT ticker, scores, momentum, quality, value, growth, low_volatility, "
+                "liquidity, issuance, small_cap, volume_surge, near_high, high_volatility, "
+                "earnings_surprise FROM factor_scores WHERE run_id = :rid"),
+                {"rid": str(rr["source_factor_run_id"])})).fetchall()
+        if not frows:
+            return
+
+        def _fdict(r):
+            raw = getattr(r, "scores", None)
+            if raw:
+                d = raw if isinstance(raw, dict) else json.loads(raw)
+                return {f: (float(d[f]) if d.get(f) is not None else float("nan"))
+                        for f in FACTORS}
+            return {f: (float(getattr(r, f)) if getattr(r, f, None) is not None
+                        else float("nan")) for f in FACTORS}
+
+        fdf = pd.DataFrame([{"ticker": r.ticker, **_fdict(r)} for r in frows])
+        ranked = await asyncio.to_thread(rank_universe, fdf, rr["regime"], challenger)
+        if ranked.empty:
+            raise RuntimeError("challenger ranking empty")
+
+        head = ranked.head(challenger.portfolio_builder.candidate_count)
+        cand = head["ticker"].tolist()
+        window = (challenger.portfolio_builder.covariance_window_days
+                  + SHADOW_PRICE_BUFFER_DAYS)
+        async with engine.connect() as conn:
+            prows = (await conn.execute(text(
+                "SELECT ticker, date, adjusted_close FROM daily_prices "
+                "WHERE ticker = ANY(:ts) AND adjusted_close IS NOT NULL "
+                "AND date >= :d0 AND date <= :d1"),
+                {"ts": cand, "d0": rr["rank_date"] - timedelta(days=window),
+                 "d1": rr["rank_date"]})).fetchall()
+            srows = (await conn.execute(text(
+                "SELECT DISTINCT ON (ticker) ticker, sector FROM universe_tickers "
+                "WHERE ticker = ANY(:ts) AND sector IS NOT NULL "
+                "ORDER BY ticker, snapshot_id DESC"), {"ts": cand})).fetchall()
+        price_df = pd.DataFrame(prows, columns=["ticker", "date", "adjusted_close"])
+        price_df["adjusted_close"] = price_df["adjusted_close"].astype(float)
+        sector_map = {r[0]: r[1] for r in srows}
+
+        target, terr = await asyncio.to_thread(
+            build_challenger_target, ranked, price_df, sector_map, challenger)
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "INSERT INTO shadow_runs (run_date, strategy_id, config_hash, "
+                " config_path, source_ranking_run_id, regime, status, target, "
+                " n_positions, error_message) "
+                "VALUES (:d, :sid, :h, :p, :rrid, :rg, :st, CAST(:t AS jsonb), :n, :e) "
+                "ON CONFLICT (run_date, config_hash) DO NOTHING"),
+                {"d": rr["rank_date"], "sid": challenger.strategy_id, "h": ch_hash,
+                 "p": path, "rrid": str(rr["run_id"]), "rg": rr["regime"],
+                 "st": "success" if target else "failed",
+                 "t": json.dumps({t: round(w, 6) for t, w in target.items()}),
+                 "n": len(target), "e": terr})
+        print(f"[pipeline] shadow build {rr['rank_date']} config={ch_hash} "
+              f"n={len(target)} err={terr}", flush=True)
+    except Exception as exc:  # noqa: BLE001 — shadow is observational, never fatal
+        print(f"[pipeline] shadow build FAILED: {exc}", flush=True)
 
 
 @app.post("/jobs/label-outcomes")

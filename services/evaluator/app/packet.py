@@ -347,6 +347,82 @@ async def _forward_return_since(conn, ticker: str, since: date) -> float | None:
     return round(float(row[1]) / float(row[0]) - 1.0, 4)
 
 
+SHADOW_LOOKBACK_DAYS = 90
+SHADOW_MAX_ROWS = 40
+
+
+async def _shadow_vs_champion(conn) -> dict:
+    """Closed-loop item 4: theoretical forward returns of the CHALLENGER's
+    daily shadow targets vs the CHAMPION's built targets on the same dates.
+    Both are paper targets scored identically (weighted forward return to the
+    latest close), so the comparison isolates the CONFIG difference — no fill
+    costs, no vetter on either side of the shadow. Positive avg edge for the
+    challenger across a meaningful sample is promotion evidence; promotion
+    itself stays a human config change."""
+    srows = (await conn.execute(text(
+        "SELECT run_date, config_hash, strategy_id, target, n_positions "
+        "FROM shadow_runs WHERE status='success' AND target IS NOT NULL "
+        "AND run_date >= CURRENT_DATE - make_interval(days => :lb) "
+        "ORDER BY run_date"), {"lb": SHADOW_LOOKBACK_DAYS})).mappings().all()
+    if not srows:
+        return {"note": ("no shadow runs — set CHALLENGER_CONFIG_PATH on the "
+                         "pipeline to enable the shadow challenger")}
+    crows = (await conn.execute(text(
+        "WITH latest AS ("
+        "  SELECT DISTINCT ON (portfolio_date) run_id, portfolio_date "
+        "  FROM portfolio_runs WHERE status='success' "
+        "    AND portfolio_date >= CURRENT_DATE - make_interval(days => :lb) "
+        "  ORDER BY portfolio_date, started_at DESC) "
+        "SELECT l.portfolio_date AS run_date, "
+        "       json_object_agg(ph.ticker, ph.weight) AS target "
+        "FROM latest l JOIN portfolio_holdings ph ON ph.run_id = l.run_id "
+        "GROUP BY l.portfolio_date"),
+        {"lb": SHADOW_LOOKBACK_DAYS})).mappings().all()
+    champ_by_date = {r["run_date"]: r["target"] for r in crows}
+
+    async def _weighted_fwd(target: dict, since: date) -> float | None:
+        if not target:
+            return None
+        fwd = await _forward_returns_bulk(conn, list(target), since)
+        pairs = [(float(w), fwd[t]) for t, w in target.items() if t in fwd]
+        wsum = sum(w for w, _ in pairs)
+        if wsum <= 0:
+            return None
+        return sum(w * r for w, r in pairs) / wsum
+
+    rows_out, edges = [], []
+    for s in srows:
+        st = s["target"] if isinstance(s["target"], dict) else json.loads(s["target"])
+        ct = champ_by_date.get(s["run_date"])
+        if isinstance(ct, str):
+            ct = json.loads(ct)
+        ch_ret = await _weighted_fwd(st, s["run_date"])
+        cp_ret = await _weighted_fwd(ct or {}, s["run_date"])
+        if ch_ret is None:
+            continue
+        edge = (ch_ret - cp_ret) if cp_ret is not None else None
+        if edge is not None:
+            edges.append(edge)
+        rows_out.append({"date": str(s["run_date"]),
+                         "challenger_fwd": round(ch_ret, 4),
+                         "champion_fwd": round(cp_ret, 4) if cp_ret is not None else None,
+                         "edge": round(edge, 4) if edge is not None else None,
+                         "challenger_n": s["n_positions"]})
+    return {
+        "description": (
+            "Weighted forward return (to latest close) of each day's challenger "
+            "shadow target vs the champion target built the same day. edge = "
+            "challenger − champion; consistent positive edge = promotion evidence."),
+        "challenger_strategy": srows[-1]["strategy_id"],
+        "challenger_config_hash": srows[-1]["config_hash"],
+        "n_days_compared": len(edges),
+        "avg_edge": round(sum(edges) / len(edges), 4) if edges else None,
+        "pct_days_challenger_ahead": (
+            round(sum(1 for e in edges if e > 0) / len(edges), 3) if edges else None),
+        "rows": rows_out[-SHADOW_MAX_ROWS:],
+    }
+
+
 CALIB_HORIZON_SESSIONS = 20
 CALIB_MAX_RUNS = 6
 
@@ -1156,6 +1232,7 @@ async def build_packet(engine, as_of: date | None = None) -> dict:
             "open_positions": await _section(lambda: _open_positions(conn), conn),
             "decision_outcomes": await _section(lambda: _decision_outcomes(conn), conn),
             "score_calibration": await _section(lambda: _score_calibration(conn), conn),
+            "shadow_vs_champion": await _section(lambda: _shadow_vs_champion(conn), conn),
             "vetter_outcomes": await _section(lambda: _vetter_outcomes(conn), conn),
             "exit_outcomes": await _section(lambda: _exit_outcomes(conn), conn),
             "invisible_bench": await _section(lambda: _invisible_bench(conn), conn),

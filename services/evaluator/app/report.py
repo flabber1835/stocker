@@ -131,7 +131,17 @@ RISK-GATE STATS (approvals/rejections by rule — a rule repeatedly blocking pla
 entries is evidence for retuning a limit); per-factor realized IC and MARGINAL IC (signal \
 a factor adds beyond the weighted book), factor correlations; realized account performance \
 vs SPY; per-trade realized P&L; counterfactual audits (what vetter-excluded names and \
-exited names did AFTERWARD); the current target book; config-change history; \
+exited names did AFTERWARD); a DECISION-OUTCOMES ledger (every entry/exit/trim/at_risk/\
+watch intent and vetter exclusion, labeled with fixed-horizon 1/5/20/60-session forward \
+returns and excess vs SPY — positive excess on exit/vetter_exclude rows means the shed \
+names outperformed, i.e. the decision cost money; 'watch' beating 'entry' means the \
+capacity gate defers the wrong names); SCORE CALIBRATION (decile-of-rank → forward \
+20-session excess return from persisted ranking runs 21-90d old — a flat or non-monotone \
+curve says the ordering carries no information in that band; top-decile-only lift \
+supports concentration); a SHADOW-VS-CHAMPION comparison when a challenger config is \
+configured (theoretical forward returns of the challenger's daily shadow targets vs the \
+champion's — consistent positive edge is promotion evidence, promotion itself is a human \
+config change); the current target book; config-change history; \
 system-health caveats; an error_digest (deduped DB-persisted failure TEXT from the \
 last 14 days — read it before attributing a weak week to alpha decay; note its coverage \
 limits: container-log-only exceptions never appear there); an invisible_bench (forward \

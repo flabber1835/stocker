@@ -169,6 +169,11 @@ services:
       MARKET_BENCHMARK: ${MARKET_BENCHMARK:-SPY}
       REDIS_URL: redis://redis:6379
       STRATEGY_CONFIG_PATH: /strategies/momentum_rotation_v2.yaml  # hardcoded active strategy — pinned so a deploy (git pull + up) always uses it regardless of any .env override. To switch strategies, edit this value (in all four consumers: pipeline, portfolio-builder, llm-vetter, backtester).
+      # Shadow champion/challenger (closed-loop item 4): point at a second
+      # strategy YAML (e.g. /strategies/challenger.yaml) to build a THEORETICAL
+      # daily target under it after each delta — shadow_runs rows only, no
+      # orders. Empty (default) = feature inert.
+      CHALLENGER_CONFIG_PATH: ${CHALLENGER_CONFIG_PATH:-}
       ARTIFACTS_PATH: /artifacts
       PYTHONUNBUFFERED: "1"
       LOG_LEVEL: ${LOG_LEVEL:-info}
