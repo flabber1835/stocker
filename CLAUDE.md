@@ -67,6 +67,7 @@ docs/llm-boundaries.md
 docs/risk-safety-rules.md
 docs/data-sources.md
 docs/build-phases.md
+docs/monolith-plan.md
 ```
 
 If a requested change conflicts with these docs, preserve the documented design unless explicitly instructed otherwise.

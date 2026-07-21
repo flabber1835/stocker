@@ -589,12 +589,19 @@ class DeltaEngineConfig(BaseModel):
     exit_rank: int = Field(default=40, ge=1, le=500,
         description="Stocks ranked > this for confirmation_days consecutive runs exit the portfolio.")
     confirmation_days: int = Field(default=3, ge=1, le=21,
-        description="Consecutive daily ranking runs required to confirm rank-based entry or exit.")
+        description=(
+            "Consecutive ranking RUNS required to confirm rank-based entry or exit "
+            "(cold-start fallback only). Counts runs, not trading sessions: a "
+            "skipped/failed session produces no observation and does not advance "
+            "the count (confirmation slows in wall-clock terms, never speeds up). "
+            "Name keeps the historical _days suffix for config back-compat."))
     orphan_confirmation_days: int = Field(default=2, ge=1, le=21,
         description=(
-            "Consecutive portfolio BUILDS a held name must be absent from the target "
-            "before it is orphan-exited (sold). Separate from confirmation_days so "
-            "orphan disposal can be tightened without loosening the rank buffer. "
+            "Consecutive portfolio BUILDS (runs, not trading sessions — a missed "
+            "session produces no build and does not advance the count) a held name "
+            "must be absent from the target before it is orphan-exited (sold). "
+            "Separate from confirmation_days so orphan disposal can be tightened "
+            "without loosening the rank buffer. "
             "Default 2: flagged at_risk on build 1, sold on build 2."))
     max_positions: int = Field(default=30, ge=1, le=100,
         description="Maximum portfolio size. New entries blocked when at capacity unless a simultaneous exit creates room.")

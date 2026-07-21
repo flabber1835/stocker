@@ -5,6 +5,13 @@ services:
   postgres:
     image: postgres:16
     restart: unless-stopped
+    # max_connections audited 2026-07 (external audit perf #14): worst-case sum of
+    # every live-stack service's pool_size+max_overflow ≈ 102 (api 20, pipeline 15,
+    # risk-service 30, av-ingestor 8, six services ~5 each, evaluator 4) plus a few
+    # transient connects (scheduler, db-migrator) — 200 leaves ~2x headroom. The
+    # bt stack uses its own bt-postgres (≈14 worst-case vs its default 100).
+    # Revisit only if pools grow or services multiply; the monolith consolidation
+    # (docs/monolith-plan.md) collapses most of these into one pool.
     command: >
       postgres
       -c max_connections=200

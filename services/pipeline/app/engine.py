@@ -41,8 +41,20 @@ def _consecutive_in_zone(
     """Count consecutive leading observations (most-recent first) satisfying predicate.
 
     Only the most recent ``required`` observations are examined (``observations[:required]``).
-    Callers must pass observations sorted most-recent-first so that the leading
-    slice corresponds to the most recent calendar days.
+    Callers must pass observations sorted most-recent-first.
+
+    SEMANTICS (external audit finding #6, documented deliberately): this counts
+    consecutive RUNS (ranking observations), NOT consecutive trading sessions.
+    If the chain skips sessions (outage, failed runs), the leading observations
+    can span a calendar gap — e.g. Mon/Thu/Fri counts as 3. Accepted by design:
+    each observation is a complete, self-contained decision against that run's
+    full data, so "the signal held for N consecutive DECISIONS" is the intended
+    confirmation unit — a missed session produces no observation and simply
+    doesn't advance the count (confirmation gets SLOWER in wall-clock terms,
+    never faster). The same run-count semantics applies to
+    orphan_confirmation_days, which counts consecutive portfolio BUILDS
+    (_orphan_confirm_days / CLAUDE.md "consecutive portfolio builds"). Config
+    names keep the historical ``*_days`` suffix for back-compat; read as "runs".
     """
     count = 0
     for obs in observations[:required]:
