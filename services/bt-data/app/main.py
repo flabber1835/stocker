@@ -162,28 +162,96 @@ async def _upsert_universe(rows: list[dict]) -> int:
 
 # ── Backfill ───────────────────────────────────────────────────────────────────
 
+def year_chunks(date_from: str, date_to: str) -> list[tuple[str, str]]:
+    """Pure: split [date_from, date_to] into calendar-year slices (inclusive).
+    The SEP price fetch is ~3000 cursor pages over hours; chunking makes each
+    slice a separately-committed, separately-resumable unit so a failure loses
+    ONE chunk, not the whole night."""
+    f, t = date.fromisoformat(date_from), date.fromisoformat(date_to)
+    out = []
+    y = f.year
+    while y <= t.year:
+        cf = max(f, date(y, 1, 1))
+        ct = min(t, date(y, 12, 31))
+        out.append((cf.isoformat(), ct.isoformat()))
+        y += 1
+    return out
+
+
+# Completed-chunk markers live in bt_data_runs as job_type='backfill_chunk'
+# success rows whose error_message carries 'CHUNK:<from>..<to>:<tickers|ALL>'
+# (zero schema change; error_message is unused on success rows). A re-POSTed
+# backfill skips chunks already marked complete — resume instead of
+# restart-from-zero. A skip additionally requires the DATA to actually be
+# present in the chunk's range, so a TRUNCATE (clean restart) self-invalidates
+# stale markers instead of skipping everything into an empty table.
+_CHUNK_PREFIX = "CHUNK:"
+
+
+async def _completed_chunks(table: str) -> set:
+    async with engine.connect() as conn:
+        rows = (await conn.execute(text(
+            "SELECT error_message FROM bt_data_runs "
+            "WHERE job_type='backfill_chunk' AND table_name=:t "
+            "AND status='success' AND error_message LIKE :pfx"),
+            {"t": table, "pfx": _CHUNK_PREFIX + "%"})).fetchall()
+    return {r[0] for r in rows}
+
+
+async def _chunk_has_data(cf: str, ct: str) -> bool:
+    async with engine.connect() as conn:
+        return bool((await conn.execute(text(
+            "SELECT EXISTS(SELECT 1 FROM bt_prices WHERE date BETWEEN :f AND :t)"),
+            {"f": _d(cf), "t": _d(ct)})).scalar())
+
+
 async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
                         job_type: str = "backfill") -> None:
-    # Prices (SEP)
+    # Prices (SEP) — chunked by calendar year, resumable. Each chunk commits
+    # and marks itself complete; a re-run after ANY failure skips completed
+    # chunks instead of re-downloading 20 years from scratch.
     rid = await _open_run(job_type, "bt_prices")
     try:
-        params = {"date.gte": date_from, "date.lte": date_to}
-        if tickers:
-            params["ticker"] = tickers
-        batch, total, dmin, dmax = [], 0, None, None
-        async for raw in fetch_table("SEP", params=params):
-            m = map_sep_row(raw)
-            if m["adjusted_close"] is None:
+        chunks = year_chunks(date_from, date_to)
+        done = await _completed_chunks("bt_prices") if job_type == "backfill" else set()
+        total, dmin, dmax = 0, None, None
+        for cf, ct in chunks:
+            marker = f"{_CHUNK_PREFIX}{cf}..{ct}:{tickers or 'ALL'}"
+            if marker in done and await _chunk_has_data(cf, ct):
+                print(f"[bt-data] prices chunk {cf}..{ct} already complete — skipped",
+                      flush=True)
                 continue
-            batch.append(m)
-            dmin = m["date"] if dmin is None or m["date"] < dmin else dmin
-            dmax = m["date"] if dmax is None or m["date"] > dmax else dmax
-            if len(batch) >= 5000:
-                total += await _upsert_prices(batch); batch = []
-        total += await _upsert_prices(batch)
+            crid = await _open_run("backfill_chunk", "bt_prices")
+            try:
+                params = {"date.gte": cf, "date.lte": ct}
+                if tickers:
+                    params["ticker"] = tickers
+                batch, ctotal, cdmin, cdmax = [], 0, None, None
+                async for raw in fetch_table("SEP", params=params):
+                    m = map_sep_row(raw)
+                    if m["adjusted_close"] is None:
+                        continue
+                    batch.append(m)
+                    cdmin = m["date"] if cdmin is None or m["date"] < cdmin else cdmin
+                    cdmax = m["date"] if cdmax is None or m["date"] > cdmax else cdmax
+                    if len(batch) >= 5000:
+                        ctotal += await _upsert_prices(batch); batch = []
+                ctotal += await _upsert_prices(batch)
+                await _close_run(crid, "success", ctotal, cdmin, cdmax, err=marker)
+                done.add(marker)
+                print(f"[bt-data] prices chunk {cf}..{ct} DONE ({ctotal} rows)",
+                      flush=True)
+            except Exception as exc:
+                await _close_run(crid, "failed", err=repr(exc)[:1500])
+                raise
+            total += ctotal
+            dmin = cdmin if dmin is None or (cdmin and cdmin < dmin) else dmin
+            dmax = cdmax if dmax is None or (cdmax and cdmax > dmax) else dmax
         await _close_run(rid, "success", total, dmin, dmax)
     except Exception as exc:
-        await _close_run(rid, "failed", err=str(exc))
+        # repr, not str: several exception types (ReadTimeout, MemoryError)
+        # stringify to '' — the "failed with no error message" mystery rows.
+        await _close_run(rid, "failed", err=repr(exc)[:1500])
         raise
 
     # Fundamentals (SF1, ARQ) — compute YoY growth across successive filings.
@@ -215,7 +283,7 @@ async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
             total += await _upsert_fundamentals(rows)
         await _close_run(rid, "success", total)
     except Exception as exc:
-        await _close_run(rid, "failed", err=str(exc))
+        await _close_run(rid, "failed", err=repr(exc)[:1500])
         raise
 
     # Universe snapshot (TICKERS, as-of date_to). One snapshot for the backfill end;
@@ -230,7 +298,7 @@ async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
         total = await _upsert_universe(rows)
         await _close_run(rid, "success", total)
     except Exception as exc:
-        await _close_run(rid, "failed", err=str(exc))
+        await _close_run(rid, "failed", err=repr(exc)[:1500])
         raise
 
 

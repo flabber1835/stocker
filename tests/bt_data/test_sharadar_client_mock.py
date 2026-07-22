@@ -69,6 +69,7 @@ def test_get_with_retry_retries_transient_then_succeeds(monkeypatch):
             self.status_code = status
             self.request = httpx.Request("GET", "http://x")
             self.response = self
+            self.headers = {}
         def raise_for_status(self):
             if self.status_code >= 400:
                 raise httpx.HTTPStatusError("e", request=self.request, response=self)
@@ -106,3 +107,17 @@ def test_get_with_retry_does_not_retry_client_error(monkeypatch):
     with pytest.raises(httpx.HTTPStatusError):
         asyncio.run(sc._get_with_retry(_Client(), "http://x", {}))
     assert calls["n"] == 1   # tried once, did not retry
+
+
+def test_retry_delay_429_honors_retry_after_and_caps():
+    from app.sharadar_client import _retry_delay, RATE_LIMIT_BACKOFF_CAP
+    # 429 default: 60s × attempt number
+    assert _retry_delay(0, 429, None) == 60.0
+    assert _retry_delay(2, 429, None) == 180.0
+    # Retry-After header wins when larger
+    assert _retry_delay(0, 429, "300") == 300.0
+    # capped
+    assert _retry_delay(0, 429, "99999") == RATE_LIMIT_BACKOFF_CAP
+    # non-429 keeps the fast generic backoff
+    assert _retry_delay(0, 503, None) == 2.0
+    assert _retry_delay(3, None, None) == 16.0

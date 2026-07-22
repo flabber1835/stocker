@@ -154,3 +154,15 @@ def test_topup_refused_empty_then_resumes_from_max(bt_async_dsn):
     assert len(bg.tasks) == 1
     # the duplicate call was refused by the in-process guard
     assert resp_dup["status"] == "already_running"
+
+
+# ── chunked, resumable backfill (root-cause fix for the all-or-nothing loads) ──
+
+def test_year_chunks_splits_and_clamps():
+    import app.main as btmain
+    chunks = btmain.year_chunks("2004-06-15", "2006-03-01")
+    assert chunks == [("2004-06-15", "2004-12-31"),
+                      ("2005-01-01", "2005-12-31"),
+                      ("2006-01-01", "2006-03-01")]
+    # single-year range stays one chunk with original bounds
+    assert btmain.year_chunks("2024-02-01", "2024-11-30") == [("2024-02-01", "2024-11-30")]

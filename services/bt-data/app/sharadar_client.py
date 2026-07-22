@@ -28,19 +28,45 @@ BT_MOCK_DATA = os.getenv("BT_MOCK_DATA", "").lower() in ("1", "true", "yes")
 # A full-universe backfill follows thousands of cursor pages over several hours.
 # WITHOUT retry, a single transient blip (network reset, Sharadar 429/5xx, read
 # timeout) raised out of fetch_table and failed the ENTIRE run — the "stuck at
-# 25M then frozen" symptom. Retry the SAME cursor page (idempotent GET) a few
-# times with exponential backoff so a hiccup self-heals instead of aborting the
-# load. Non-retryable 4xx (auth/bad-request) still fail fast.
+# 25M then frozen" symptom. Retry the SAME cursor page (idempotent GET) with
+# exponential backoff so a hiccup self-heals instead of aborting the load.
+# Non-retryable 4xx (auth/bad-request) still fail fast.
+#
+# 429 (rate-limit) gets SPECIAL treatment: Nasdaq throttles heavy usage (five
+# full re-downloads in one day will do it) and a throttle can last many
+# minutes — far longer than the generic 2..32s backoff, which gave up in ~1
+# minute and killed the run. For 429 we honor the Retry-After header when
+# present and otherwise wait 60s×attempt, tolerating up to ~15 min of
+# throttling before giving up. Every retry is LOGGED so docker logs finally
+# show what a "silent" stall actually is.
 FETCH_TIMEOUT_SECS = float(os.getenv("SHARADAR_FETCH_TIMEOUT", "120"))
 FETCH_MAX_RETRIES = int(os.getenv("SHARADAR_FETCH_RETRIES", "6"))
 FETCH_BACKOFF_BASE = float(os.getenv("SHARADAR_FETCH_BACKOFF", "2.0"))
+RATE_LIMIT_BACKOFF_CAP = float(os.getenv("SHARADAR_429_BACKOFF_CAP", "900"))
 _RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504}
 
 
+def _retry_delay(attempt: int, status: int | None, retry_after: str | None) -> float:
+    """Pure: seconds to wait before retry `attempt` (0-based). 429 honors
+    Retry-After and defaults to 60s×(attempt+1); everything else uses the
+    generic exponential backoff."""
+    if status == 429:
+        delay = 60.0 * (attempt + 1)
+        if retry_after:
+            try:
+                delay = max(delay, float(retry_after))
+            except ValueError:
+                pass  # HTTP-date form — keep the default
+        return min(delay, RATE_LIMIT_BACKOFF_CAP)
+    return FETCH_BACKOFF_BASE * (2 ** attempt)
+
+
 async def _get_with_retry(client: httpx.AsyncClient, url: str, params: dict) -> httpx.Response:
-    """GET with bounded exponential-backoff retry on transient failures."""
+    """GET with bounded backoff retry on transient failures (429-aware)."""
     last_exc: Exception | None = None
     for attempt in range(FETCH_MAX_RETRIES):
+        status: int | None = None
+        retry_after: str | None = None
         try:
             resp = await client.get(url, params=params)
             if resp.status_code in _RETRYABLE_STATUS:
@@ -51,14 +77,20 @@ async def _get_with_retry(client: httpx.AsyncClient, url: str, params: dict) -> 
             resp.raise_for_status()
             return resp
         except httpx.HTTPStatusError as exc:
-            code = exc.response.status_code if exc.response is not None else None
-            if code not in _RETRYABLE_STATUS:
+            status = exc.response.status_code if exc.response is not None else None
+            if status not in _RETRYABLE_STATUS:
                 raise  # 400/401/403/404 etc. — real error, don't retry
+            retry_after = exc.response.headers.get("Retry-After") if exc.response is not None else None
             last_exc = exc
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             last_exc = exc  # connection reset / read timeout / DNS blip
         if attempt < FETCH_MAX_RETRIES - 1:
-            await asyncio.sleep(FETCH_BACKOFF_BASE * (2 ** attempt))  # 2,4,8,16,32s
+            delay = _retry_delay(attempt, status, retry_after)
+            print(f"[bt-data] transient fetch failure "
+                  f"({status or type(last_exc).__name__}) attempt "
+                  f"{attempt + 1}/{FETCH_MAX_RETRIES} — retrying in {delay:.0f}s",
+                  flush=True)
+            await asyncio.sleep(delay)
     assert last_exc is not None
     raise last_exc
 
@@ -100,6 +132,9 @@ async def fetch_table(
                 yield dict(zip(cols, raw))
             cursor = (payload.get("meta") or {}).get("next_cursor_id")
             pages += 1
+            if pages % 25 == 0:   # heartbeat: fetch progress is visible in logs
+                print(f"[bt-data] {table} fetch: {pages} pages "
+                      f"({params or {}})", flush=True)
             if not cursor or (page_limit is not None and pages >= page_limit):
                 break
 
