@@ -2067,3 +2067,26 @@ Absent CHALLENGER_CONFIG_PATH the feature is fully inert.
 (Item 2 of the same adoption batch — rolling multi-window walk-forward +
 untouched holdout — lives in the backtest stack; see
 docs/backtester-v2-plan.md.)
+
+### Audit-3 refinements (2026-07, measurement-correctness fixes)
+
+Three fixes applied before trusting what the closed-loop layer measures:
+
+1. **Shadow comparison is FIXED-HORIZON** (packet `shadow_vs_champion`): each
+   day's challenger and champion targets are scored over the SAME 20-session
+   span from the same anchor session; days whose horizon hasn't elapsed are
+   excluded (`n_pending_horizon`), never averaged in at a shorter horizon.
+   The section's wording is honest about scope: the shadow is an *alternative
+   theoretical construction using the champion's factor inputs* (no vetter /
+   falling-knife / beta overlay on the shadow side), daily spans overlap
+   (trend, not t-stat), and the full turnover/cost-aware comparison is a
+   wind-tunnel run of the challenger config.
+2. **Outcome labels carry per-horizon staleness** (migration 0047,
+   `stale_1d/5d/20d/60d` = sessions between the print a label used and its
+   horizon session). Hold-at-last-price is correct for acquisitions but
+   optimistic for bankruptcy delistings; rather than pretending AV provides
+   delisting returns, stale labels are visible and the packet's headline
+   averages EXCLUDE labels > 5 sessions stale (reported as `n_stale_20d`).
+3. **Shadow lineage is pinned**: the delta step passes its own
+   `source_ranking_run_id` into `_run_shadow_build`, so the async shadow task
+   can no longer attach to a newer ranking that completed in between.

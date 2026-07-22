@@ -76,9 +76,9 @@ def test_decision_before_calendar_returns_none():
                           _flat_series(s, 1.0), s) is None
 
 
-# ── delisted / gappy names hold at last real price ────────────────────────────
+# ── delisted / gappy names hold at last real price, but flagged stale ─────────
 
-def test_delisted_name_holds_at_last_price():
+def test_delisted_name_holds_at_last_price_and_is_flagged_stale():
     s = _sessions(80)
     px = {d: 100.0 for d in s[:3]}              # trades 3 sessions then vanishes
     px[s[2]] = 50.0                             # last real print −50%
@@ -86,6 +86,25 @@ def test_delisted_name_holds_at_last_price():
     assert lab["fwd_20d"] == pytest.approx(-0.5)
     assert lab["fwd_60d"] == pytest.approx(-0.5)
     assert lab["complete"] is True
+    # audit-3 fix #2: the hold-at-last-price label is visibly stale — sessions
+    # between the print used (s[2]) and each horizon session
+    assert lab["stale_20d"] == 18
+    assert lab["stale_60d"] == 58
+    assert lab["stale_1d"] == 0                 # still printing at s[1] — fresh
+
+
+def test_fresh_series_has_zero_staleness():
+    s = _sessions(80)
+    lab = label_decision(s[0], _linear_series(s), _flat_series(s, 1.0), s)
+    for h in HORIZONS:
+        assert lab[f"stale_{h}d"] == 0
+
+
+def test_staleness_null_when_horizon_unlabeled():
+    s = _sessions(11)                           # only 1d/5d horizons reachable
+    lab = label_decision(s[0], _linear_series(s), _flat_series(s, 1.0), s)
+    assert lab["stale_1d"] == 0
+    assert lab["stale_20d"] is None and lab["stale_60d"] is None
 
 
 # ── base-price staleness cap and the give-up rule ─────────────────────────────

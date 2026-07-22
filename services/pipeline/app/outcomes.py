@@ -60,6 +60,7 @@ def label_decision(
 
     out: dict = {f"fwd_{h}d": None for h in horizons}
     out.update({f"spy_fwd_{h}d": None for h in horizons})
+    out.update({f"stale_{h}d": None for h in horizons})
     out.update({"base_price": None, "mfe_20d": None, "mae_20d": None,
                 "complete": calendar_done})
 
@@ -78,6 +79,12 @@ def label_decision(
             fp = price_at_or_before(prices, target)
             if fp is not None:
                 out[f"fwd_{h}d"] = fp[1] / base[1] - 1.0
+                # Staleness (audit-3 fix #2): sessions between the print this
+                # label actually used and the horizon session. 0 = fresh; a
+                # delisted/halted name held at its last real price is visibly
+                # stale instead of silently "valid". Consumers filter on this.
+                fp_i = bisect_right(sessions, fp[0]) - 1
+                out[f"stale_{h}d"] = max(0, (i + h) - fp_i)
         if spy_base is not None and spy_base[1] > 0:
             sp = price_at_or_before(spy_prices, target)
             if sp is not None:

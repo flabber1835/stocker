@@ -3464,10 +3464,16 @@ async def start_delta_only(background_tasks: BackgroundTasks, manual: bool = Fal
                     "WHERE ranking_run_id = ("
                     "  SELECT source_ranking_run_id FROM delta_runs WHERE run_id=:rid)"
                 ), {"rid": delta_run_id_result})
+                shadow_rank_id = (await conn.execute(text(
+                    "SELECT source_ranking_run_id FROM delta_runs WHERE run_id=:rid"
+                ), {"rid": delta_run_id_result})).scalar()
             # Shadow challenger (closed-loop item 4): fire-and-forget after the
             # chain's delta completes — observational only, never blocks/fails
             # the chain. Inert unless CHALLENGER_CONFIG_PATH is configured.
-            asyncio.create_task(_run_shadow_build())
+            # Pinned to THIS delta's ranking run (lineage fix) so an async race
+            # with a newer ranking can't mis-attach the shadow.
+            asyncio.create_task(_run_shadow_build(
+                str(shadow_rank_id) if shadow_rank_id else None))
         except Exception as exc:
             print(f"[pipeline] standalone delta FAILED: {exc}", flush=True)
             async with engine.begin() as conn:
@@ -3564,7 +3570,8 @@ async def _do_label_outcomes() -> dict:
             lab = {"base_price": None, "mfe_20d": None, "mae_20d": None,
                    "complete": True,
                    **{f"fwd_{h}d": None for h in (1, 5, 20, 60)},
-                   **{f"spy_fwd_{h}d": None for h in (1, 5, 20, 60)}}
+                   **{f"spy_fwd_{h}d": None for h in (1, 5, 20, 60)},
+                   **{f"stale_{h}d": None for h in (1, 5, 20, 60)}}
         updates.append({"id": r["id"], "now": now, **lab})
 
     if updates:
@@ -3575,6 +3582,8 @@ async def _do_label_outcomes() -> dict:
                 "  fwd_1d=:fwd_1d, fwd_5d=:fwd_5d, fwd_20d=:fwd_20d, fwd_60d=:fwd_60d, "
                 "  spy_fwd_1d=:spy_fwd_1d, spy_fwd_5d=:spy_fwd_5d, "
                 "  spy_fwd_20d=:spy_fwd_20d, spy_fwd_60d=:spy_fwd_60d, "
+                "  stale_1d=:stale_1d, stale_5d=:stale_5d, "
+                "  stale_20d=:stale_20d, stale_60d=:stale_60d, "
                 "  mfe_20d=:mfe_20d, mae_20d=:mae_20d, "
                 "  complete=:complete, labeled_at=:now "
                 "WHERE id=:id"), updates)
@@ -3594,8 +3603,14 @@ CHALLENGER_CONFIG_PATH = os.getenv("CHALLENGER_CONFIG_PATH", "")
 SHADOW_PRICE_BUFFER_DAYS = 30
 
 
-async def _run_shadow_build() -> None:
-    """Best-effort; never raises into the delta path that spawned it."""
+async def _run_shadow_build(ranking_run_id: str | None = None) -> None:
+    """Best-effort; never raises into the delta path that spawned it.
+
+    ranking_run_id pins the shadow to the EXACT ranking run the triggering
+    delta consumed (audit-3 lineage fix): this task runs async, so "latest
+    successful ranking" could otherwise attach to a newer run that completed
+    in between (e.g. a manual re-run). None falls back to latest (manual
+    invocation / older callers)."""
     from app.shadow import build_challenger_target
 
     path = CHALLENGER_CONFIG_PATH
@@ -3604,10 +3619,16 @@ async def _run_shadow_build() -> None:
     try:
         challenger, ch_hash = load_strategy(path)
         async with engine.connect() as conn:
-            rr = (await conn.execute(text(
-                "SELECT run_id, source_factor_run_id, regime, rank_date "
-                "FROM ranking_runs WHERE status='success' "
-                "ORDER BY started_at DESC LIMIT 1"))).mappings().first()
+            if ranking_run_id:
+                rr = (await conn.execute(text(
+                    "SELECT run_id, source_factor_run_id, regime, rank_date "
+                    "FROM ranking_runs WHERE run_id = CAST(:rid AS uuid) "
+                    "AND status='success'"), {"rid": ranking_run_id})).mappings().first()
+            else:
+                rr = (await conn.execute(text(
+                    "SELECT run_id, source_factor_run_id, regime, rank_date "
+                    "FROM ranking_runs WHERE status='success' "
+                    "ORDER BY started_at DESC LIMIT 1"))).mappings().first()
             if rr is None:
                 return
             dup = (await conn.execute(text(

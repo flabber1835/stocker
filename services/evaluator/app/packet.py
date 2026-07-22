@@ -349,15 +349,21 @@ async def _forward_return_since(conn, ticker: str, since: date) -> float | None:
 
 SHADOW_LOOKBACK_DAYS = 90
 SHADOW_MAX_ROWS = 40
+SHADOW_HORIZON_SESSIONS = 20
 
 
 async def _shadow_vs_champion(conn) -> dict:
-    """Closed-loop item 4: theoretical forward returns of the CHALLENGER's
-    daily shadow targets vs the CHAMPION's built targets on the same dates.
-    Both are paper targets scored identically (weighted forward return to the
-    latest close), so the comparison isolates the CONFIG difference — no fill
-    costs, no vetter on either side of the shadow. Positive avg edge for the
-    challenger across a meaningful sample is promotion evidence; promotion
+    """Closed-loop item 4 (audit-3 fixed-horizon redesign): each day's
+    CHALLENGER shadow target vs the CHAMPION target built the same day, both
+    scored as the weighted forward return over the SAME fixed 20-session span
+    from the same anchor session. Days whose horizon has not fully elapsed are
+    EXCLUDED (no mixed-horizon averaging; note consecutive daily spans still
+    overlap, so n_days_compared overstates the independent sample — read the
+    edge as a trend, not a t-stat). Honest scope: the shadow is an ALTERNATIVE
+    THEORETICAL CONSTRUCTION USING THE CHAMPION'S FACTOR INPUTS — it skips the
+    vetter, falling-knife veto and beta overlay that shaped the champion
+    target, so the edge includes those mechanism differences, not purely the
+    config knobs. Consistent positive edge = promotion evidence; promotion
     itself stays a human config change."""
     srows = (await conn.execute(text(
         "SELECT run_date, config_hash, strategy_id, target, n_positions "
@@ -380,43 +386,73 @@ async def _shadow_vs_champion(conn) -> dict:
         {"lb": SHADOW_LOOKBACK_DAYS})).mappings().all()
     champ_by_date = {r["run_date"]: r["target"] for r in crows}
 
-    async def _weighted_fwd(target: dict, since: date) -> float | None:
+    spy = await _spy_closes(conn)
+    sessions = [d for d, _ in spy]
+    from bisect import bisect_right
+
+    async def _weighted_span(target: dict, d0: date, d1: date) -> float | None:
+        """Weight-averaged return of `target` from last close ≤ d0 to last
+        close ≤ d1 (held-at-last-price for names that stop printing)."""
         if not target:
             return None
-        fwd = await _forward_returns_bulk(conn, list(target), since)
-        pairs = [(float(w), fwd[t]) for t, w in target.items() if t in fwd]
+        rows = (await conn.execute(text(
+            "WITH b AS (SELECT DISTINCT ON (ticker) ticker, adjusted_close AS p0 "
+            "           FROM daily_prices WHERE ticker = ANY(:ts) "
+            "           AND date <= :d0 AND date >= :d0f ORDER BY ticker, date DESC), "
+            "     f AS (SELECT DISTINCT ON (ticker) ticker, adjusted_close AS p1 "
+            "           FROM daily_prices WHERE ticker = ANY(:ts) AND date <= :d1 "
+            "           ORDER BY ticker, date DESC) "
+            "SELECT b.ticker, b.p0, f.p1 FROM b JOIN f USING (ticker) WHERE b.p0 > 0"
+        ), {"ts": list(target), "d0": d0, "d0f": d0 - timedelta(days=14),
+            "d1": d1})).all()
+        rets = {t: float(p1) / float(p0) - 1.0 for t, p0, p1 in rows if p0 and p1}
+        pairs = [(float(w), rets[t]) for t, w in target.items() if t in rets]
         wsum = sum(w for w, _ in pairs)
         if wsum <= 0:
             return None
         return sum(w * r for w, r in pairs) / wsum
 
     rows_out, edges = [], []
+    n_pending = 0
     for s in srows:
+        i = bisect_right(sessions, s["run_date"]) - 1
+        if i < 0 or i + SHADOW_HORIZON_SESSIONS >= len(sessions):
+            n_pending += 1          # horizon not elapsed — excluded, never mixed in
+            continue
+        d0, d1 = sessions[i], sessions[i + SHADOW_HORIZON_SESSIONS]
         st = s["target"] if isinstance(s["target"], dict) else json.loads(s["target"])
         ct = champ_by_date.get(s["run_date"])
         if isinstance(ct, str):
             ct = json.loads(ct)
-        ch_ret = await _weighted_fwd(st, s["run_date"])
-        cp_ret = await _weighted_fwd(ct or {}, s["run_date"])
+        ch_ret = await _weighted_span(st, d0, d1)
+        cp_ret = await _weighted_span(ct or {}, d0, d1)
         if ch_ret is None:
             continue
         edge = (ch_ret - cp_ret) if cp_ret is not None else None
         if edge is not None:
             edges.append(edge)
         rows_out.append({"date": str(s["run_date"]),
-                         "challenger_fwd": round(ch_ret, 4),
-                         "champion_fwd": round(cp_ret, 4) if cp_ret is not None else None,
-                         "edge": round(edge, 4) if edge is not None else None,
+                         "challenger_fwd_20d": round(ch_ret, 4),
+                         "champion_fwd_20d": round(cp_ret, 4) if cp_ret is not None else None,
+                         "edge_20d": round(edge, 4) if edge is not None else None,
                          "challenger_n": s["n_positions"]})
     return {
         "description": (
-            "Weighted forward return (to latest close) of each day's challenger "
-            "shadow target vs the champion target built the same day. edge = "
-            "challenger − champion; consistent positive edge = promotion evidence."),
+            "Fixed-horizon comparison: each day's challenger shadow target vs the "
+            "champion target built the same day, both scored over the SAME "
+            f"{SHADOW_HORIZON_SESSIONS}-session span. Scope caveat: the shadow is an "
+            "alternative theoretical construction using the champion's factor inputs "
+            "(no vetter / falling-knife / beta overlay on the shadow side), so the "
+            "edge includes those mechanism differences, not purely config knobs. "
+            "Daily spans overlap — treat the edge as a trend, not a t-stat. For a "
+            "full turnover/cost-aware equity curve, run the challenger config "
+            "through run_backtest (the wind tunnel)."),
+        "horizon_sessions": SHADOW_HORIZON_SESSIONS,
         "challenger_strategy": srows[-1]["strategy_id"],
         "challenger_config_hash": srows[-1]["config_hash"],
         "n_days_compared": len(edges),
-        "avg_edge": round(sum(edges) / len(edges), 4) if edges else None,
+        "n_pending_horizon": n_pending,
+        "avg_edge_20d": round(sum(edges) / len(edges), 4) if edges else None,
         "pct_days_challenger_ahead": (
             round(sum(1 for e in edges if e > 0) / len(edges), 3) if edges else None),
         "rows": rows_out[-SHADOW_MAX_ROWS:],
@@ -524,15 +560,25 @@ async def _decision_outcomes(conn) -> dict:
     OUTPERFORM (the decision cost money). 'watch' (capacity-deferred entries)
     beating 'entry' means the capacity gate defers the wrong names. mae_20d is
     the average worst drawdown within 20 sessions of the decision."""
+    # Staleness guard (audit-3 fix #2): a label whose forward price is > 5
+    # sessions stale (name stopped printing — delisted/halted) is EXCLUDED
+    # from the headline averages and COUNTED instead, so hold-at-last-price
+    # optimism can't silently leak into the stats the review reasons from.
     rows = (await conn.execute(text(
         "SELECT action, COUNT(*) AS n, COUNT(fwd_20d) AS n_labeled_20d, "
-        "       AVG(fwd_20d)              AS avg_fwd_20d, "
-        "       AVG(fwd_20d - spy_fwd_20d) AS avg_excess_20d, "
-        "       AVG(fwd_60d - spy_fwd_60d) AS avg_excess_60d, "
+        "       COUNT(*) FILTER (WHERE fwd_20d IS NOT NULL "
+        "                        AND COALESCE(stale_20d, 0) > 5) AS n_stale_20d, "
+        "       AVG(fwd_20d) FILTER (WHERE COALESCE(stale_20d, 0) <= 5) "
+        "           AS avg_fwd_20d, "
+        "       AVG(fwd_20d - spy_fwd_20d) FILTER (WHERE COALESCE(stale_20d, 0) <= 5) "
+        "           AS avg_excess_20d, "
+        "       AVG(fwd_60d - spy_fwd_60d) FILTER (WHERE COALESCE(stale_60d, 0) <= 5) "
+        "           AS avg_excess_60d, "
         "       AVG(CASE WHEN fwd_20d > spy_fwd_20d THEN 1.0 ELSE 0.0 END) "
-        "           FILTER (WHERE fwd_20d IS NOT NULL AND spy_fwd_20d IS NOT NULL) "
+        "           FILTER (WHERE fwd_20d IS NOT NULL AND spy_fwd_20d IS NOT NULL "
+        "                   AND COALESCE(stale_20d, 0) <= 5) "
         "           AS hit_rate_20d, "
-        "       AVG(mae_20d) AS avg_mae_20d, "
+        "       AVG(mae_20d) FILTER (WHERE COALESCE(stale_20d, 0) <= 5) AS avg_mae_20d, "
         "       MIN(decision_date) AS first_decision, MAX(decision_date) AS last_decision "
         "FROM decision_outcomes GROUP BY action ORDER BY action"
     ))).mappings().all()
@@ -542,9 +588,14 @@ async def _decision_outcomes(conn) -> dict:
         "description": (
             "Durable decision ledger: every entry/exit/trim/at_risk/watch intent and "
             "vetter exclusion, labeled with forward returns at fixed session horizons. "
-            "excess = ticker − SPY over the same span."),
+            "excess = ticker − SPY over the same span. Averages exclude labels whose "
+            "forward price was > 5 sessions stale (delisted/halted names held at last "
+            "print — counted in n_stale_20d; a large stale count on exit/vetter_exclude "
+            "means those counterfactuals are structurally optimistic, since names that "
+            "stopped trading usually did so badly)."),
         "by_action": [{
             "action": r["action"], "n": r["n"], "n_labeled_20d": r["n_labeled_20d"],
+            "n_stale_20d": r["n_stale_20d"],
             "avg_fwd_20d": _r(r["avg_fwd_20d"]),
             "avg_excess_20d": _r(r["avg_excess_20d"]),
             "avg_excess_60d": _r(r["avg_excess_60d"]),

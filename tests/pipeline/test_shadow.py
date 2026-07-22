@@ -105,3 +105,5 @@ def test_shadow_hook_inert_without_config_path(monkeypatch):
     # engine untouched: poison it so any DB access would blow up the test
     monkeypatch.setitem(g, "engine", None)
     asyncio.run(main._run_shadow_build())        # must return silently
+    # lineage param (audit-3 fix #3) accepted and equally inert without config
+    asyncio.run(main._run_shadow_build("11111111-1111-1111-1111-111111111111"))
