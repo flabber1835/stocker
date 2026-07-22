@@ -20,29 +20,52 @@
 CREATE TABLE IF NOT EXISTS bt_prices (
     ticker          VARCHAR(20)  NOT NULL,
     date            DATE         NOT NULL,
-    open            NUMERIC(16,6),
-    high            NUMERIC(16,6),
-    low             NUMERIC(16,6),
-    close           NUMERIC(16,6),
-    adjusted_close  NUMERIC(16,6),   -- Sharadar SEP closeadj (split+div adjusted)
+    -- NUMERIC(24,6): Sharadar closeadj is split+div adjusted BACKWARD, so a
+    -- heavily reverse-split (often delisted penny) stock's old adjusted prices
+    -- balloon into the billions+ — NUMERIC(16,6)'s ~10-billion ceiling
+    -- overflowed mid-backfill. 18 integer digits is ample headroom.
+    open            NUMERIC(24,6),
+    high            NUMERIC(24,6),
+    low             NUMERIC(24,6),
+    close           NUMERIC(24,6),
+    adjusted_close  NUMERIC(24,6),   -- Sharadar SEP closeadj (split+div adjusted)
     volume          NUMERIC(20,2),
     PRIMARY KEY (ticker, date)
 );
 CREATE INDEX IF NOT EXISTS idx_bt_prices_date ON bt_prices(date);
+-- Idempotent widen for pre-existing DBs (same-scale precision increase → no
+-- row rewrite; a no-op once already NUMERIC(24,6)). See the reverse-split note.
+ALTER TABLE bt_prices
+    ALTER COLUMN open TYPE NUMERIC(24,6),
+    ALTER COLUMN high TYPE NUMERIC(24,6),
+    ALTER COLUMN low TYPE NUMERIC(24,6),
+    ALTER COLUMN close TYPE NUMERIC(24,6),
+    ALTER COLUMN adjusted_close TYPE NUMERIC(24,6);
 
 CREATE TABLE IF NOT EXISTS bt_fundamentals (
     ticker          VARCHAR(20)  NOT NULL,
     as_of_date      DATE         NOT NULL,   -- Sharadar SF1 datekey (known-as-of)
     fiscal_period   VARCHAR(32),             -- e.g. 2023-03-31/ARQ (audit; not used in math)
-    pe_ratio        NUMERIC(16,6),
-    pb_ratio        NUMERIC(16,6),
-    roe             NUMERIC(16,6),
-    debt_to_equity  NUMERIC(16,6),
-    revenue_growth  NUMERIC(16,6),
-    eps_growth      NUMERIC(16,6),
+    -- NUMERIC(24,6): pe/pb from a near-zero denominator, and our compute_growth
+    -- dividing by abs(year_ago), can explode a ratio well past NUMERIC(16,6).
+    -- Widened alongside prices so the SF1 stage can't overflow the same way.
+    pe_ratio        NUMERIC(24,6),
+    pb_ratio        NUMERIC(24,6),
+    roe             NUMERIC(24,6),
+    debt_to_equity  NUMERIC(24,6),
+    revenue_growth  NUMERIC(24,6),
+    eps_growth      NUMERIC(24,6),
     PRIMARY KEY (ticker, as_of_date)
 );
 CREATE INDEX IF NOT EXISTS idx_bt_fundamentals_asof ON bt_fundamentals(as_of_date);
+-- Idempotent widen for pre-existing DBs (same-scale precision increase).
+ALTER TABLE bt_fundamentals
+    ALTER COLUMN pe_ratio TYPE NUMERIC(24,6),
+    ALTER COLUMN pb_ratio TYPE NUMERIC(24,6),
+    ALTER COLUMN roe TYPE NUMERIC(24,6),
+    ALTER COLUMN debt_to_equity TYPE NUMERIC(24,6),
+    ALTER COLUMN revenue_growth TYPE NUMERIC(24,6),
+    ALTER COLUMN eps_growth TYPE NUMERIC(24,6);
 
 -- Per-day investable universe snapshot (which tickers were tradeable / listed on D).
 -- Sharadar SEP includes delisted names, so a backtest can hold a name that later
