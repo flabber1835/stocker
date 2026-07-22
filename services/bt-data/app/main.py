@@ -192,15 +192,19 @@ async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
         params = {"dimension": "ARQ", "datekey.gte": date_from, "datekey.lte": date_to}
         if tickers:
             params["ticker"] = tickers
-        # collect per ticker to compute YoY growth (this quarter vs ~4 filings ago)
+        # Group by ticker to compute YoY growth (this quarter vs ~4 filings ago),
+        # but upsert PER TICKER and free each block as we go — never hold two
+        # full-universe copies in memory at once (the whole-universe SF1 buffer
+        # was an OOM risk after prices finished on a RAM-tight NAS).
         per_ticker: dict[str, list[dict]] = {}
         async for raw in fetch_table("SF1", params=params):
             m = map_sf1_row(raw)
             if m is None:
                 continue
             per_ticker.setdefault(m["ticker"], []).append(m)
-        out, total = [], 0
-        for t, rows in per_ticker.items():
+        total = 0
+        for t in list(per_ticker.keys()):
+            rows = per_ticker.pop(t)          # free this ticker's block after use
             rows.sort(key=lambda r: r["as_of_date"])
             for i, r in enumerate(rows):
                 prior = rows[i - 4] if i >= 4 else None  # ~year-ago quarter
@@ -208,8 +212,7 @@ async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
                     r.get("_revenue"), prior.get("_revenue") if prior else None)
                 r["eps_growth"] = compute_growth(
                     r.get("_eps"), prior.get("_eps") if prior else None)
-                out.append(r)
-        total = await _upsert_fundamentals(out)
+            total += await _upsert_fundamentals(rows)
         await _close_run(rid, "success", total)
     except Exception as exc:
         await _close_run(rid, "failed", err=str(exc))
