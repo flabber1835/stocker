@@ -184,14 +184,24 @@ def rolling_windows(base: SweepWindows, n_windows: int, step_months: int,
 def aggregate_rolling(rows: list[dict]) -> dict:
     """Aggregate one config's per-window result rows into the robustness
     verdict. Error legs are EXCLUDED from the stats but REPORTED as n_failed —
-    a config that crashes on half its windows must not look clean."""
+    a config that crashes on half its windows must not look clean.
+
+    Objective note: the leaderboard/champion now rank on median OOS COMPOUNDED
+    RETURN (the owner objective is long-run wealth, not risk-adjusted return).
+    All rolling validate windows share the same length, so per-window
+    total_return is comparable and its median is monotonic with CAGR over that
+    window. Sharpe/consistency/overfit_gap are retained as DIAGNOSTICS shown
+    beside the ranking, not as the ranking key."""
     import statistics
     ok = [r for r in rows if not r.get("error_message")]
     sharpes = [r["oos_sharpe"] for r in ok if r.get("oos_sharpe") is not None]
+    returns = [r["oos_return"] for r in ok if r.get("oos_return") is not None]
     gaps = [r["overfit_gap"] for r in ok if r.get("overfit_gap") is not None]
     return {
         "n_windows": len(rows),
         "n_failed": len(rows) - len(ok),
+        "median_oos_return": (round(statistics.median(returns), 6) if returns else None),
+        "worst_oos_return": (round(min(returns), 6) if returns else None),
         "median_oos_sharpe": (round(statistics.median(sharpes), 4) if sharpes else None),
         "worst_oos_sharpe": (round(min(sharpes), 4) if sharpes else None),
         "consistency": (round(sum(1 for s in sharpes if s > 0) / len(sharpes), 4)

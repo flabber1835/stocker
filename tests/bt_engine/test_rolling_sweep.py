@@ -83,8 +83,12 @@ def test_zero_length_base_window_rejected():
 
 # ── aggregation ───────────────────────────────────────────────────────────────
 
-def _row(oos, gap=0.1, error=None):
-    return {"oos_sharpe": oos, "overfit_gap": gap, "error_message": error}
+def _row(oos, ret=None, gap=0.1, error=None):
+    # ret defaults to a monotone function of sharpe so return-ranking tests that
+    # don't care about the exact number still get sensible values.
+    return {"oos_sharpe": oos,
+            "oos_return": ret if ret is not None else (oos * 0.1 if oos is not None else None),
+            "overfit_gap": gap, "error_message": error}
 
 
 def test_aggregate_median_worst_consistency():
@@ -96,9 +100,21 @@ def test_aggregate_median_worst_consistency():
     assert agg["mean_overfit_gap"] == pytest.approx(0.1)
 
 
+def test_aggregate_ranks_on_return_not_sharpe():
+    # median/worst OOS return are the ranking key now; assert they're computed
+    agg = aggregate_rolling([_row(1.0, ret=0.30), _row(0.5, ret=-0.10),
+                             _row(2.0, ret=0.50)])
+    assert agg["median_oos_return"] == pytest.approx(0.30)
+    assert agg["worst_oos_return"] == pytest.approx(-0.10)
+    # sharpe still reported as a diagnostic
+    assert agg["median_oos_sharpe"] == 1.0
+
+
 def test_aggregate_excludes_error_legs_but_reports_them():
-    agg = aggregate_rolling([_row(1.0), _row(None, error="sim failed"), _row(0.5)])
+    agg = aggregate_rolling([_row(1.0, ret=0.2), _row(None, error="sim failed"),
+                             _row(0.5, ret=0.4)])
     assert agg["n_windows"] == 3 and agg["n_failed"] == 1
+    assert agg["median_oos_return"] == pytest.approx(0.3)
     assert agg["median_oos_sharpe"] == pytest.approx(0.75)
     assert agg["consistency"] == 1.0
 
@@ -106,6 +122,8 @@ def test_aggregate_excludes_error_legs_but_reports_them():
 def test_aggregate_all_errors_yields_null_stats():
     agg = aggregate_rolling([_row(None, error="x"), _row(None, error="y")])
     assert agg["n_failed"] == 2
+    assert agg["median_oos_return"] is None
+    assert agg["worst_oos_return"] is None
     assert agg["median_oos_sharpe"] is None
     assert agg["worst_oos_sharpe"] is None
     assert agg["consistency"] is None

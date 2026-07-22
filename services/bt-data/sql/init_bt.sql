@@ -204,13 +204,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_bt_sweep_results_cfg_win
 -- for rolling-mode sweeps; the leaderboard endpoint auto-detects them. The
 -- champion (max median_oos_sharpe; ties broken by worst_oos_sharpe then
 -- config_idx) is the ONLY config replayed on the untouched holdout.
+-- Champion/leaderboard rank on median OOS COMPOUNDED RETURN (owner objective =
+-- long-run wealth). Sharpe/consistency/overfit_gap are retained as diagnostics.
 CREATE TABLE IF NOT EXISTS bt_sweep_aggregates (
     sweep_id          UUID        NOT NULL REFERENCES bt_sweeps(sweep_id) ON DELETE CASCADE,
     config_idx        INTEGER     NOT NULL,
     config_diff       JSONB       NOT NULL,
     n_windows         INTEGER     NOT NULL,
     n_failed          INTEGER     NOT NULL DEFAULT 0,   -- error legs (excluded from stats, reported)
-    median_oos_sharpe NUMERIC(10,4),
+    median_oos_return NUMERIC(12,6),                    -- RANKING KEY: median compounded return across windows
+    worst_oos_return  NUMERIC(12,6),
+    median_oos_sharpe NUMERIC(10,4),                    -- diagnostic only
     worst_oos_sharpe  NUMERIC(10,4),
     consistency       NUMERIC(6,4),                     -- fraction of windows with OOS Sharpe > 0
     mean_overfit_gap  NUMERIC(10,4),
@@ -218,5 +222,13 @@ CREATE TABLE IF NOT EXISTS bt_sweep_aggregates (
     holdout           JSONB,                            -- champion only: untouched-holdout sim summary
     PRIMARY KEY (sweep_id, config_idx)
 );
+-- Idempotent add for pre-existing DBs:
+ALTER TABLE bt_sweep_aggregates ADD COLUMN IF NOT EXISTS median_oos_return NUMERIC(12,6);
+ALTER TABLE bt_sweep_aggregates ADD COLUMN IF NOT EXISTS worst_oos_return  NUMERIC(12,6);
+CREATE INDEX IF NOT EXISTS idx_bt_sweep_aggregates_return
+    ON bt_sweep_aggregates (sweep_id, median_oos_return DESC NULLS LAST);
 CREATE INDEX IF NOT EXISTS idx_bt_sweep_aggregates_median
     ON bt_sweep_aggregates (sweep_id, median_oos_sharpe DESC NULLS LAST);
+-- Two-window results are ranked by oos_return (compounded return) too:
+CREATE INDEX IF NOT EXISTS idx_bt_sweep_results_return
+    ON bt_sweep_results (sweep_id, oos_return DESC NULLS LAST);

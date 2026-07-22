@@ -470,13 +470,16 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
                     agg = aggregate_rolling(cfg_rows)
                     await conn.execute(text(
                         "INSERT INTO bt_sweep_aggregates (sweep_id, config_idx, "
-                        " config_diff, n_windows, n_failed, median_oos_sharpe, "
-                        " worst_oos_sharpe, consistency, mean_overfit_gap) "
+                        " config_diff, n_windows, n_failed, median_oos_return, "
+                        " worst_oos_return, median_oos_sharpe, worst_oos_sharpe, "
+                        " consistency, mean_overfit_gap) "
                         "VALUES (CAST(:sid AS uuid), :idx, CAST(:diff AS jsonb), "
-                        "        :nw, :nf, :med, :worst, :cons, :gap)"
+                        "        :nw, :nf, :mret, :wret, :med, :worst, :cons, :gap)"
                     ), {"sid": sweep_id, "idx": idx,
                         "diff": json.dumps(diff, default=str),
                         "nw": agg["n_windows"], "nf": agg["n_failed"],
+                        "mret": agg["median_oos_return"],
+                        "wret": agg["worst_oos_return"],
                         "med": agg["median_oos_sharpe"],
                         "worst": agg["worst_oos_sharpe"],
                         "cons": agg["consistency"],
@@ -513,16 +516,18 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
 async def _finalize_rolling(sweep_id: str, base_dict: dict, sim_kwargs: dict,
                             prices, fundamentals, sector_map,
                             holdout: tuple[date, date] | None) -> None:
-    """Mark the aggregate champion (max median_oos_sharpe; ties broken by
-    worst_oos_sharpe then config_idx — deterministic) and, if a holdout span
-    was reserved, replay ONLY the champion on it. Running every config on the
-    holdout would just turn it into a second validate window."""
+    """Mark the aggregate champion (max median_oos_RETURN — owner objective is
+    long-run wealth; ties broken by worst_oos_return then median_oos_sharpe then
+    config_idx, deterministic) and, if a holdout span was reserved, replay ONLY
+    the champion on it. Running every config on the holdout would just turn it
+    into a second validate window."""
     async with engine.begin() as conn:
         champ = (await conn.execute(text(
             "SELECT config_idx, config_diff FROM bt_sweep_aggregates "
             "WHERE sweep_id=CAST(:sid AS uuid) "
-            "ORDER BY median_oos_sharpe DESC NULLS LAST, "
-            "         worst_oos_sharpe DESC NULLS LAST, config_idx "
+            "ORDER BY median_oos_return DESC NULLS LAST, "
+            "         worst_oos_return DESC NULLS LAST, "
+            "         median_oos_sharpe DESC NULLS LAST, config_idx "
             "LIMIT 1"), {"sid": sweep_id})).mappings().first()
         if champ is None:
             return
@@ -572,32 +577,37 @@ async def latest_sweep():
 
 @app.get("/sweeps/{sweep_id}/leaderboard")
 async def sweep_leaderboard(sweep_id: str, limit: int = 25):
-    """Configs ranked by OUT-OF-SAMPLE Sharpe (the walk-forward verdict), with the
-    in-sample number and overfit_gap alongside — a big gap means the config fit
-    the tune window, not the market. Error rows (invalid/failed configs) last.
+    """Configs ranked by OUT-OF-SAMPLE COMPOUNDED RETURN (owner objective =
+    long-run wealth). Sharpe, drawdown and overfit_gap ride ALONGSIDE every row
+    as diagnostics — a big overfit_gap means the config fit the tune window not
+    the market, and a high-return config with a big gap or deep drawdown should
+    be treated with suspicion even though it sorts to the top. Error rows
+    (invalid/failed configs) last.
 
     Phase 5b auto-detect: when the sweep ran in rolling mode (aggregate rows
-    exist) the leaderboard is the AGGREGATE view — median OOS Sharpe across the
-    rolling windows, with worst-window and consistency alongside, champion
-    first-ranked and carrying the untouched-holdout summary. bt-scheduler's
-    results bridge (latest_sweep.json → evaluator packet) inherits this
-    upgrade unchanged."""
+    exist) the leaderboard is the AGGREGATE view — median OOS return across the
+    rolling windows (ranking key), with worst-window return, median Sharpe,
+    consistency and overfit gap alongside, champion first-ranked and carrying
+    the untouched-holdout summary. bt-scheduler's results bridge
+    (latest_sweep.json → evaluator packet) inherits this unchanged."""
     _uuid(sweep_id)
     async with engine.connect() as conn:
         aggs = (await conn.execute(text(
             "SELECT config_idx, config_diff, n_windows, n_failed, "
-            "median_oos_sharpe, worst_oos_sharpe, consistency, "
-            "mean_overfit_gap, is_champion, holdout "
+            "median_oos_return, worst_oos_return, median_oos_sharpe, "
+            "worst_oos_sharpe, consistency, mean_overfit_gap, is_champion, holdout "
             "FROM bt_sweep_aggregates WHERE sweep_id=CAST(:sid AS uuid) "
-            "ORDER BY median_oos_sharpe DESC NULLS LAST, "
-            "         worst_oos_sharpe DESC NULLS LAST, config_idx LIMIT :n"
+            "ORDER BY median_oos_return DESC NULLS LAST, "
+            "         worst_oos_return DESC NULLS LAST, config_idx LIMIT :n"
         ), {"sid": sweep_id, "n": min(limit, 500)})).mappings().all()
         if aggs:
-            return {"mode": "rolling", "leaderboard": [_fmt(r) for r in aggs]}
+            return {"mode": "rolling", "ranked_by": "median_oos_return",
+                    "leaderboard": [_fmt(r) for r in aggs]}
         rows = (await conn.execute(text(
             "SELECT config_idx, config_diff, is_sharpe, oos_sharpe, oos_return, "
             "oos_max_drawdown, overfit_gap, error_message "
             "FROM bt_sweep_results WHERE sweep_id=CAST(:sid AS uuid) "
-            "ORDER BY oos_sharpe DESC NULLS LAST LIMIT :n"
+            "ORDER BY oos_return DESC NULLS LAST LIMIT :n"
         ), {"sid": sweep_id, "n": min(limit, 500)})).mappings().all()
-    return {"mode": "two_window", "leaderboard": [_fmt(r) for r in rows]}
+    return {"mode": "two_window", "ranked_by": "oos_return",
+            "leaderboard": [_fmt(r) for r in rows]}

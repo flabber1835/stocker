@@ -10,7 +10,8 @@ is a SEEDED random sample (reproducible); PROTECTED_PATHS are NOT enforced in th
 wind tunnel (human-launched offline research — the plan's own example grids sweep
 drawdown thresholds); validate_start >= tune_end is REJECTED otherwise (walk-forward
 mandatory). Endpoints: POST /sweeps/run, GET /sweeps/latest,
-GET /sweeps/{id}/leaderboard (ranked by OOS Sharpe, overfit_gap = IS−OOS alongside).
+GET /sweeps/{id}/leaderboard (ranked by OOS COMPOUNDED RETURN — owner objective
+  is long-run wealth; Sharpe + overfit_gap = IS−OOS ride alongside as diagnostics).
 Supersedes the existing `backtester` service (which only replays already-built
 `portfolio_runs` forward). v2 re-runs the pipeline logic **day by day** from a past
 start date, builds portfolios as the live system would have, and compares the
@@ -272,10 +273,11 @@ How it works (built on top of bt-engine, after Phases 1-4):
 - WALK-FORWARD / OUT-OF-SAMPLE is mandatory, not optional: each config is scored on
   a held-out period it was NOT selected on (e.g. tune on 2015-2021, validate on
   2022-2026, and/or rolling windows). The leaderboard ranks by OUT-OF-SAMPLE
-  risk-adjusted return (Sharpe / Calmar), with in-sample shown alongside so a large
-  in-vs-out gap flags overfitting. A config that only wins in-sample is rejected.
+  COMPOUNDED RETURN (owner objective = long-run wealth), with Sharpe/Calmar,
+  drawdown and the in-vs-out overfit gap shown alongside as diagnostics so a
+  high-return-but-overfit config is visibly flagged (a large gap is disqualifying).
 - Output: a ranked leaderboard (bt_sweeps / bt_sweep_results tables) viewable in
-  bt-ui — "here are the N best configs by out-of-sample Sharpe, with the in-sample
+  bt-ui — "here are the N best configs by out-of-sample compounded return, with the in-sample
   gap so you can see which are robust vs fit."
 - Determinism + anti-overfit are TESTED: same grid/data → identical leaderboard;
   a synthetic overfit case must show the in/out gap the report relies on.
@@ -318,19 +320,48 @@ startup, which is the bt stack's schema-evolution channel). Per-config
 aggregates land in `bt_sweep_aggregates`:
 
 ```text
-median_oos_sharpe   the headline (robust to one lucky window)
-worst_oos_sharpe    the stress answer
-consistency         fraction of windows with OOS Sharpe > 0
+median_oos_return   the HEADLINE RANKING KEY (owner objective = wealth; robust
+                    to one lucky window). All rolling validate windows are the
+                    same length, so per-window total_return is comparable and
+                    its median is monotone with CAGR over that window.
+worst_oos_return    the stress answer
+median_oos_sharpe   diagnostic (robustness), shown but NOT the ranking key
+worst_oos_sharpe    diagnostic
+consistency         fraction of windows with OOS Sharpe > 0 (diagnostic)
 mean_overfit_gap    average in−out gap across windows
-is_champion         max median_oos_sharpe (ties: worst_oos_sharpe, then idx)
+is_champion         max median_oos_return (ties: worst_oos_return, then
+                    median_oos_sharpe, then idx)
 holdout             champion only: sim summary over the untouched holdout
 ```
 
 `/sweeps/{id}/leaderboard` auto-detects: aggregates exist → rolling
-leaderboard ordered by median_oos_sharpe (mode: "rolling"); else the classic
+leaderboard ordered by median_oos_return (mode: "rolling"); else the classic
 per-config OOS ordering (mode: "two_window"). bt-scheduler's results bridge
 (latest_sweep.json → evaluator packet) inherits the upgrade unchanged.
 
 Honesty rules carried over: aggregation excludes error legs but REPORTS
 n_failed; the holdout is run exactly once per sweep (champion only) — running
 every config on it would just turn the holdout into a second validate window.
+
+## Ranking objective: compounded return, not Sharpe (2026-07, owner decision)
+
+The owner objective is LONG-RUN COMPOUNDED WEALTH; risk limits are constraints,
+not optimization targets. The sweep leaderboard and champion therefore rank on
+OUT-OF-SAMPLE COMPOUNDED RETURN (two-window: `oos_return`; rolling:
+`median_oos_return`, ties → `worst_oos_return` → `median_oos_sharpe` → idx), NOT
+Sharpe. Sharpe, drawdown, consistency and the in-vs-out `overfit_gap` remain in
+every leaderboard row as DIAGNOSTICS — the highest-return config can still be
+fragile, and a large overfit_gap or deep worst-window drawdown should disqualify
+it in the human read even though it sorts to the top.
+
+KNOWN RISK (documented, not yet mitigated in code): ranking on raw return is
+more overfit-prone than ranking on Sharpe — the config that got luckiest on a
+few big winners rises to the top. The rolling walk-forward + untouched holdout +
+DSR/PBO deflation already push back on this, and the `overfit_gap` / worst-window
+columns make it visible. The recommended NEXT layer is a deterministic
+promotion-eligibility gate (min trades, max drawdown, turnover ceiling, positive
+across enough windows, small overfit_gap) that filters the candidate set BEFORE
+the return sort — i.e. "highest return AMONG robust configs". That gate is not
+yet built; until it is, the human applies those constraints by eye using the
+diagnostic columns. Enabling it later changes only which configs are eligible,
+not the return-first ordering among them.
