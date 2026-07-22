@@ -7,7 +7,7 @@ pipeline factor functions expect:
                  revenue_growth, eps_growth   (as_of_date = POINT-IN-TIME datekey)
 """
 from app.sharadar_adapter import (  # noqa: E402
-    map_sep_row, map_sf1_row, map_tickers_row, compute_growth,
+    MAX_MAGNITUDE, map_sep_row, map_sf1_row, map_tickers_row, compute_growth,
 )
 
 
@@ -28,6 +28,27 @@ def test_sep_handles_missing_values():
     m = map_sep_row({"ticker": "X", "date": "2023-01-03", "closeadj": "", "volume": None})
     assert m["adjusted_close"] is None
     assert m["volume"] is None
+
+
+def test_sep_drops_reverse_split_artifact_prices():
+    # BINI-class reverse-split penny stock: backward-adjusted prices balloon to
+    # 1e17+, overflow the NUMERIC column, and are useless. They must map to None
+    # (adjusted_close None → the backfill skips the row) rather than crash-insert.
+    row = {"ticker": "BINI", "date": "2018-10-24",
+           "open": 4.5e17, "high": 4.68e17, "low": 4.21e17,
+           "close": 4.25e17, "closeadj": 4.25e17, "volume": 0}
+    m = map_sep_row(row)
+    assert m["adjusted_close"] is None
+    assert m["open"] is None and m["close"] is None
+
+
+def test_sep_keeps_high_but_legit_prices():
+    # a genuinely expensive stock (BRK.A-scale, ~$700k) is well under the cap
+    row = {"ticker": "BRK.A", "date": "2023-01-03", "close": 700000.0,
+           "closeadj": 700000.0, "volume": 100}
+    m = map_sep_row(row)
+    assert m["adjusted_close"] == 700000.0
+    assert MAX_MAGNITUDE > 700000.0
 
 
 def test_sep_contract_has_exactly_pipeline_columns():

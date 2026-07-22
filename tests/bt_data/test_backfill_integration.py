@@ -137,14 +137,20 @@ def test_topup_refused_empty_then_resumes_from_max(bt_async_dsn):
         async with btmain.engine.connect() as conn:
             max_date = (await conn.execute(
                 text("SELECT MAX(date) FROM bt_prices"))).scalar()
+        btmain._job_active = False            # clean slate for the guard
         bg = BackgroundTasks()
         resp = await btmain.start_topup(bg)
-        return resp, max_date, bg
+        # concurrency guard: a second call while one is "active" is refused,
+        # not spawned as a competing task (the 5-task pileup fix)
+        resp_dup = await btmain.start_topup(BackgroundTasks())
+        btmain._job_active = False            # don't leak into other tests
+        return resp, resp_dup, max_date, bg
 
-    resp, max_date, bg = asyncio.run(run())
+    resp, resp_dup, max_date, bg = asyncio.run(run())
     assert resp["status"] == "started" and resp["job_type"] == "topup"
     expected_from = (max_date - timedelta(days=btmain.TOPUP_OVERLAP_DAYS)).isoformat()
     assert resp["date_from"] == expected_from
-    # the queued background job is the shared backfill runner tagged 'topup'
+    # exactly one background job queued (the guarded backfill runner)
     assert len(bg.tasks) == 1
-    assert bg.tasks[0].args[-1] == "topup"
+    # the duplicate call was refused by the in-process guard
+    assert resp_dup["status"] == "already_running"

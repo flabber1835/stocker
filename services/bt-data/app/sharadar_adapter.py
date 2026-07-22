@@ -20,6 +20,17 @@ from __future__ import annotations
 from typing import Any, Optional
 
 
+# Values beyond this magnitude are data artifacts, not real figures, and are
+# dropped (→ None) rather than stored: a penny stock that reverse-split into
+# oblivion has BACKWARD-adjusted historical prices that balloon to 1e17+ (the
+# XTKG/BINI backfill crashes), and a growth ratio off a near-zero denominator
+# explodes similarly. Both overflow the NUMERIC columns and are useless for
+# backtesting; 1e12 sits far above any real price/ratio/revenue yet far below
+# the artifact scale, so nothing legitimate is lost. (Widening the columns just
+# moves the cliff — 24,6 held 1e18 and BINI still blew past it.)
+MAX_MAGNITUDE = 1e12
+
+
 def _f(v: Any) -> Optional[float]:
     if v is None or v == "":
         return None
@@ -29,6 +40,8 @@ def _f(v: Any) -> Optional[float]:
         return None
     # Sharadar uses blanks/None for N/A; guard against NaN sentinels too.
     if f != f:  # NaN
+        return None
+    if abs(f) > MAX_MAGNITUDE:  # reverse-split / bad-data artifact → drop
         return None
     return f
 
@@ -127,4 +140,7 @@ def compute_growth(curr: Optional[float], year_ago: Optional[float]) -> Optional
     successive SF1 filings (this quarter vs the same quarter a year earlier)."""
     if curr is None or year_ago is None or year_ago == 0:
         return None
-    return (curr - year_ago) / abs(year_ago)
+    g = (curr - year_ago) / abs(year_ago)
+    if g != g or abs(g) > MAX_MAGNITUDE:  # near-zero denominator → explosive ratio; drop
+        return None
+    return g

@@ -231,17 +231,43 @@ async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
         raise
 
 
+# In-process guard: a backfill/topup is a long single-writer job. Without this,
+# a repeated POST spawns ANOTHER background task, and N of them then starve the
+# 8-connection pool and lock each other row-by-row on bt_prices upserts — the
+# "five running tasks, zero progress" pileup. The flag lives in the process, so
+# a container restart (which kills all tasks) correctly clears it; stale
+# 'running' rows in bt_data_runs (orphaned by a restart) do NOT falsely block a
+# fresh job. Check-then-set is atomic under asyncio (no await between them).
+_job_active = False
+
+
 @app.post("/jobs/backfill")
 async def start_backfill(background_tasks: BackgroundTasks,
                          date_from: str, date_to: str,
                          tickers: Optional[str] = None):
     """Kick off a one-time historical load. date_from/date_to are ISO dates;
-    tickers is an optional comma-separated subset (default: full Sharadar universe)."""
+    tickers is an optional comma-separated subset (default: full Sharadar universe).
+
+    Refuses (returns already_running) if a backfill/topup is already in flight —
+    re-POSTing does NOT spawn a competing task."""
+    global _job_active
     try:
         date.fromisoformat(date_from); date.fromisoformat(date_to)
     except ValueError:
         raise HTTPException(status_code=400, detail="date_from/date_to must be ISO YYYY-MM-DD")
-    background_tasks.add_task(_run_backfill, date_from, date_to, tickers)
+    if _job_active:
+        return {"status": "already_running",
+                "detail": "a backfill/topup is already in progress — not spawning another"}
+    _job_active = True
+
+    async def _guarded():
+        global _job_active
+        try:
+            await _run_backfill(date_from, date_to, tickers)
+        finally:
+            _job_active = False
+
+    background_tasks.add_task(_guarded)
     return {"status": "started", "date_from": date_from, "date_to": date_to,
             "tickers": tickers or "ALL", "mock": is_mock()}
 
@@ -262,13 +288,26 @@ async def start_topup(background_tasks: BackgroundTasks):
     if max_date is None:
         raise HTTPException(status_code=409,
                             detail="bt_prices is empty — run /jobs/backfill first")
+    global _job_active
+    if _job_active:
+        return {"status": "already_running",
+                "detail": "a backfill/topup is already in progress — not spawning another"}
     date_from = (max_date - timedelta(days=TOPUP_OVERLAP_DAYS)).isoformat()
     # Trading-calendar date, not container-UTC (audit F5): after the ET close,
     # UTC is already tomorrow — harmless with upserts, but ET keeps run rows
     # and Sharadar date params speaking the same calendar.
     from zoneinfo import ZoneInfo
     date_to = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
-    background_tasks.add_task(_run_backfill, date_from, date_to, None, "topup")
+    _job_active = True
+
+    async def _guarded():
+        global _job_active
+        try:
+            await _run_backfill(date_from, date_to, None, "topup")
+        finally:
+            _job_active = False
+
+    background_tasks.add_task(_guarded)
     return {"status": "started", "job_type": "topup", "date_from": date_from,
             "date_to": date_to, "mock": is_mock()}
 
