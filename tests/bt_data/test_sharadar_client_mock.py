@@ -51,3 +51,58 @@ def test_mock_sep_has_spy_for_benchmark_and_regime():
     rows = _collect("SEP")
     spy = [r for r in rows if r["ticker"] == "SPY"]
     assert len(spy) > 200   # enough for the 200-day regime SMA
+
+
+# ── retry/backoff on transient failures (the "stuck at 25M" fragility) ─────────
+
+def test_get_with_retry_retries_transient_then_succeeds(monkeypatch):
+    """A 503 (retryable) is retried; a subsequent 200 succeeds. Backoff is
+    zeroed so the test doesn't actually sleep."""
+    import httpx
+    from app import sharadar_client as sc
+    monkeypatch.setattr(sc, "FETCH_BACKOFF_BASE", 0.0)
+
+    calls = {"n": 0}
+
+    class _Resp:
+        def __init__(self, status):
+            self.status_code = status
+            self.request = httpx.Request("GET", "http://x")
+            self.response = self
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise httpx.HTTPStatusError("e", request=self.request, response=self)
+
+    class _Client:
+        async def get(self, url, params=None):
+            calls["n"] += 1
+            return _Resp(503 if calls["n"] < 3 else 200)
+
+    resp = asyncio.run(sc._get_with_retry(_Client(), "http://x", {}))
+    assert resp.status_code == 200 and calls["n"] == 3
+
+
+def test_get_with_retry_does_not_retry_client_error(monkeypatch):
+    """A 403 (auth/bad-request) fails fast — no retry storm on a real error."""
+    import httpx
+    from app import sharadar_client as sc
+    monkeypatch.setattr(sc, "FETCH_BACKOFF_BASE", 0.0)
+    calls = {"n": 0}
+
+    class _Resp:
+        status_code = 403
+        def __init__(self):
+            self.request = httpx.Request("GET", "http://x")
+            self.response = self
+        def raise_for_status(self):
+            raise httpx.HTTPStatusError("403", request=self.request, response=self)
+
+    class _Client:
+        async def get(self, url, params=None):
+            calls["n"] += 1
+            return _Resp()
+
+    import pytest
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(sc._get_with_retry(_Client(), "http://x", {}))
+    assert calls["n"] == 1   # tried once, did not retry

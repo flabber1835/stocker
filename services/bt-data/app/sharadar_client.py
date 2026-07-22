@@ -14,6 +14,7 @@ build proceed in parallel while the real key is provisioned.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import date, timedelta
 from typing import AsyncIterator, Optional
@@ -23,6 +24,43 @@ import httpx
 NDL_BASE = os.getenv("NDL_BASE_URL", "https://data.nasdaq.com/api/v3/datatables/SHARADAR")
 SHARADAR_API_KEY = os.getenv("SHARADAR_API_KEY", "")
 BT_MOCK_DATA = os.getenv("BT_MOCK_DATA", "").lower() in ("1", "true", "yes")
+
+# A full-universe backfill follows thousands of cursor pages over several hours.
+# WITHOUT retry, a single transient blip (network reset, Sharadar 429/5xx, read
+# timeout) raised out of fetch_table and failed the ENTIRE run — the "stuck at
+# 25M then frozen" symptom. Retry the SAME cursor page (idempotent GET) a few
+# times with exponential backoff so a hiccup self-heals instead of aborting the
+# load. Non-retryable 4xx (auth/bad-request) still fail fast.
+FETCH_TIMEOUT_SECS = float(os.getenv("SHARADAR_FETCH_TIMEOUT", "120"))
+FETCH_MAX_RETRIES = int(os.getenv("SHARADAR_FETCH_RETRIES", "6"))
+FETCH_BACKOFF_BASE = float(os.getenv("SHARADAR_FETCH_BACKOFF", "2.0"))
+_RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504}
+
+
+async def _get_with_retry(client: httpx.AsyncClient, url: str, params: dict) -> httpx.Response:
+    """GET with bounded exponential-backoff retry on transient failures."""
+    last_exc: Exception | None = None
+    for attempt in range(FETCH_MAX_RETRIES):
+        try:
+            resp = await client.get(url, params=params)
+            if resp.status_code in _RETRYABLE_STATUS:
+                # synthesise a retryable error so the same backoff path applies
+                raise httpx.HTTPStatusError(
+                    f"retryable HTTP {resp.status_code}",
+                    request=resp.request, response=resp)
+            resp.raise_for_status()
+            return resp
+        except httpx.HTTPStatusError as exc:
+            code = exc.response.status_code if exc.response is not None else None
+            if code not in _RETRYABLE_STATUS:
+                raise  # 400/401/403/404 etc. — real error, don't retry
+            last_exc = exc
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            last_exc = exc  # connection reset / read timeout / DNS blip
+        if attempt < FETCH_MAX_RETRIES - 1:
+            await asyncio.sleep(FETCH_BACKOFF_BASE * (2 ** attempt))  # 2,4,8,16,32s
+    assert last_exc is not None
+    raise last_exc
 
 
 def is_mock() -> bool:
@@ -49,13 +87,12 @@ async def fetch_table(
 
     cursor: Optional[str] = None
     pages = 0
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=FETCH_TIMEOUT_SECS) as client:
         while True:
             q = {"api_key": SHARADAR_API_KEY, **(params or {})}
             if cursor:
                 q["qopts.cursor_id"] = cursor
-            resp = await client.get(f"{NDL_BASE}/{table}.json", params=q)
-            resp.raise_for_status()
+            resp = await _get_with_retry(client, f"{NDL_BASE}/{table}.json", q)
             payload = resp.json()
             dt = payload["datatable"]
             cols = [c["name"] for c in dt["columns"]]
