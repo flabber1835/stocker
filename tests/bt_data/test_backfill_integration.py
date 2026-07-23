@@ -216,3 +216,27 @@ def test_hung_chunk_trips_watchdog_and_fails_fast(bt_async_dsn):
     row = asyncio.run(check())
     assert row is not None and row[0] == "failed"
     assert "Timeout" in (row[1] or "")
+
+
+def test_benchmarks_loaded_from_sfp(bt_async_dsn):
+    """SPY is an ETF → lives in Sharadar SFP, not SEP. The benchmark loader
+    must pull it into bt_prices so coverage can reach GO."""
+    os.environ["BT_DATABASE_URL"] = bt_async_dsn
+    for k in list(sys.modules):
+        if k == "app" or k.startswith("app."):
+            del sys.modules[k]
+    import app.main as btmain
+    from sqlalchemy import text
+
+    async def run():
+        await btmain._ensure_schema()
+        async with btmain.engine.begin() as conn:
+            await conn.execute(text("TRUNCATE bt_prices"))
+        n = await btmain._load_benchmarks("2022-01-01", "2023-03-31")
+        async with btmain.engine.connect() as conn:
+            spy = (await conn.execute(text(
+                "SELECT COUNT(*) FROM bt_prices WHERE ticker='SPY'"))).scalar()
+        return n, spy
+
+    n, spy = asyncio.run(run())
+    assert n > 0 and spy > 0, "SPY benchmark rows must load from SFP"

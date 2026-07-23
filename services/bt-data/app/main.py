@@ -253,6 +253,42 @@ async def _load_price_chunk(cf: str, ct: str, tickers: Optional[str]):
     return ctotal, cdmin, cdmax
 
 
+# Benchmark ETFs (SPY etc.) are NOT in Sharadar SEP — that table is individual
+# EQUITIES only. Funds/ETFs live in the SFP (Sharadar Fund Prices) table. The
+# backtester needs SPY for regime detection + benchmark, so it is fetched
+# separately from SFP into the same bt_prices table (identical column shape, so
+# map_sep_row applies unchanged). Without this the full equity load still leaves
+# spy.rows=0 and coverage go=false.
+BENCHMARK_TICKERS = os.getenv("BT_BENCHMARK_TICKERS", "SPY,QQQ,IWM,SOXX")
+
+
+async def _load_benchmarks(date_from: str, date_to: str) -> int:
+    """Fetch benchmark ETFs from SFP → bt_prices. Fail-soft: a benchmark-fetch
+    problem (e.g. SFP not in the subscription) must NOT discard the equity load;
+    it's recorded as a failed bt_benchmarks run and re-tried by re-POST."""
+    rid = await _open_run("backfill", "bt_benchmarks")
+    try:
+        params = {"date.gte": date_from, "date.lte": date_to,
+                  "ticker": BENCHMARK_TICKERS}
+        batch, total = [], 0
+        async for raw in fetch_table("SFP", params=params):
+            m = map_sep_row(raw)          # SFP shares SEP's price column shape
+            if m["adjusted_close"] is None:
+                continue
+            batch.append(m)
+            if len(batch) >= 5000:
+                total += await _upsert_prices(batch); batch = []
+        total += await _upsert_prices(batch)
+        await _close_run(rid, "success", total, err=f"BENCHMARKS:{BENCHMARK_TICKERS}")
+        print(f"[bt-data] benchmarks {BENCHMARK_TICKERS} DONE ({total} rows)", flush=True)
+        return total
+    except Exception as exc:
+        await _close_run(rid, "failed", err=repr(exc)[:1500])
+        print(f"[bt-data] benchmark fetch FAILED (equity data intact): {exc}",
+              flush=True)
+        return 0
+
+
 async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
                         job_type: str = "backfill") -> None:
     # Prices (SEP) — chunked by calendar year, resumable. Each chunk commits
@@ -294,6 +330,9 @@ async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
         # stringify to '' — the "failed with no error message" mystery rows.
         await _close_run(rid, "failed", err=repr(exc)[:1500])
         raise
+
+    # Benchmark ETFs (SPY etc.) from SFP — the SEP load above is equities-only.
+    await _load_benchmarks(date_from, date_to)
 
     # Fundamentals (SF1, ARQ) — compute YoY growth across successive filings.
     rid = await _open_run(job_type, "bt_fundamentals")
@@ -387,6 +426,34 @@ async def start_backfill(background_tasks: BackgroundTasks,
 # Re-fetch this many days behind MAX(date) on topup: upserts make the overlap
 # free, and it picks up Sharadar restatements/late-published rows near the edge.
 TOPUP_OVERLAP_DAYS = int(os.getenv("TOPUP_OVERLAP_DAYS", "5"))
+
+
+@app.post("/jobs/fetch-benchmarks")
+async def start_fetch_benchmarks(background_tasks: BackgroundTasks,
+                                 date_from: str = "2004-01-01",
+                                 date_to: Optional[str] = None):
+    """Load ONLY the benchmark ETFs (SPY etc.) from SFP into bt_prices — the
+    fast fix for 'equities loaded but spy.rows=0 / go=false', without re-running
+    the full backfill. Idempotent (upserts)."""
+    global _job_active
+    if _job_active:
+        return {"status": "already_running",
+                "detail": "a backfill/topup is already in progress"}
+    from zoneinfo import ZoneInfo
+    dt = date_to or datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+    _job_active = True
+
+    async def _guarded():
+        global _job_active
+        try:
+            await _load_benchmarks(date_from, dt)
+        finally:
+            _job_active = False
+
+    background_tasks.add_task(_guarded)
+    return {"status": "started", "job": "fetch-benchmarks",
+            "tickers": BENCHMARK_TICKERS, "date_from": date_from, "date_to": dt,
+            "mock": is_mock()}
 
 
 @app.post("/jobs/topup")

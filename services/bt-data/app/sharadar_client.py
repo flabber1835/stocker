@@ -168,6 +168,19 @@ async def _mock_rows(table: str, params: dict) -> AsyncIterator[dict]:
                     "closeadj": round(px, 4), "closeunadj": round(px, 4),
                     "volume": 1_000_000 + (i % 5) * 50_000,
                 }
+    elif table == "SFP":
+        # Fund prices (ETFs) — mock SPY so the benchmark path is exercisable.
+        px = 400.0
+        for i in range(_MOCK_DAYS):
+            d = _MOCK_START + timedelta(days=i)
+            if d.weekday() >= 5:
+                continue
+            px = px * 1.0003 + ((i % 7) - 3) * 0.01
+            yield {"ticker": "SPY", "date": d.isoformat(),
+                   "open": round(px * 0.999, 4), "high": round(px * 1.01, 4),
+                   "low": round(px * 0.99, 4), "close": round(px, 4),
+                   "closeadj": round(px, 4), "closeunadj": round(px, 4),
+                   "volume": 80_000_000}
     elif table == "SF1":
         for t in ["AAA", "BBB", "CCC"]:
             for q, dk in enumerate(["2022-03-15", "2022-06-15", "2022-09-15",
