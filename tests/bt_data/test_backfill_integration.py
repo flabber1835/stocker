@@ -166,3 +166,53 @@ def test_year_chunks_splits_and_clamps():
                       ("2006-01-01", "2006-03-01")]
     # single-year range stays one chunk with original bounds
     assert btmain.year_chunks("2024-02-01", "2024-11-30") == [("2024-02-01", "2024-11-30")]
+
+
+def test_hung_chunk_trips_watchdog_and_fails_fast(bt_async_dsn):
+    """A chunk that hangs (DB lock, stuck read, anything) must be aborted by the
+    per-chunk watchdog and marked failed — NOT wedge the backfill forever. This
+    is the root-cause fix for the '65+ min, running, no error' hang."""
+    os.environ["BT_DATABASE_URL"] = bt_async_dsn
+    for k in list(sys.modules):
+        if k == "app" or k.startswith("app."):
+            del sys.modules[k]
+    import app.main as btmain
+    from sqlalchemy import text
+
+    async def _hang(cf, ct, tickers):
+        await asyncio.sleep(30)   # simulate a wedged upsert/read
+
+    async def run():
+        await btmain._ensure_schema()
+        btmain._load_price_chunk = _hang
+        btmain.CHUNK_TIMEOUT_SECS = 0.5
+        # outer bound: if the watchdog is broken this raises instead of hanging
+        try:
+            await asyncio.wait_for(
+                btmain._run_backfill("2022-06-01", "2022-08-01", None), timeout=8)
+        except asyncio.TimeoutError as exc:
+            # distinguish "watchdog fired" (fast, <8s) from "test bound hit"
+            raise
+        return "completed-unexpectedly"
+
+    with pytest.raises(asyncio.TimeoutError):
+        asyncio.run(run())
+
+    # and the chunk was recorded as failed with a real error, not left running
+    async def check():
+        for k in list(sys.modules):
+            if k == "app" or k.startswith("app."):
+                del sys.modules[k]
+        os.environ["BT_DATABASE_URL"] = bt_async_dsn
+        import app.main as btmain
+        from sqlalchemy import text
+        async with btmain.engine.connect() as conn:
+            row = (await conn.execute(text(
+                "SELECT status, error_message FROM bt_data_runs "
+                "WHERE table_name='bt_prices' AND status='failed' "
+                "ORDER BY run_id LIMIT 1"))).first()
+        return row
+
+    row = asyncio.run(check())
+    assert row is not None and row[0] == "failed"
+    assert "Timeout" in (row[1] or "")

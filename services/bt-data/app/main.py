@@ -15,6 +15,7 @@ Endpoints:
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import uuid
 from contextlib import asynccontextmanager
@@ -35,7 +36,29 @@ BT_DATABASE_URL = os.environ.get("BT_DATABASE_URL", "")
 if not BT_DATABASE_URL:
     raise RuntimeError("Missing required env var: BT_DATABASE_URL (backtester's own DB)")
 
-engine = create_async_engine(BT_DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5)
+# DB-side timeouts so a blocked/runaway query can NEVER hang the backfill
+# forever (root cause of the "chunk running for 65+ min, no error, no progress"
+# wedge): a Postgres lock-wait has no default timeout, so an INSERT…ON CONFLICT
+# blocked behind a stray/idle-in-transaction session awaited indefinitely with
+# nothing to raise or log. With these, a blocked upsert raises after
+# LOCK_TIMEOUT_MS (→ chunk fails with a real repr error → the resumable retry
+# self-heals) and any runaway statement dies after STATEMENT_TIMEOUT_MS. Both
+# are generous vs. real work (a 5k-row batch upsert is sub-second; the biggest
+# read is the coverage aggregate), so they only ever fire on a genuine stall.
+# asyncpg applies them as per-connection server settings.
+LOCK_TIMEOUT_MS = os.getenv("BT_DB_LOCK_TIMEOUT_MS", "60000")          # 60s
+STATEMENT_TIMEOUT_MS = os.getenv("BT_DB_STATEMENT_TIMEOUT_MS", "600000")  # 10 min
+IDLE_TX_TIMEOUT_MS = os.getenv("BT_DB_IDLE_TX_TIMEOUT_MS", "120000")   # 2 min
+
+engine = create_async_engine(
+    BT_DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5,
+    connect_args={"server_settings": {
+        "lock_timeout": LOCK_TIMEOUT_MS,
+        "statement_timeout": STATEMENT_TIMEOUT_MS,
+        # also reap a connection this service itself leaves idle-in-transaction
+        # (the classic lock holder that wedges the OTHER writer)
+        "idle_in_transaction_session_timeout": IDLE_TX_TIMEOUT_MS,
+    }})
 
 _INIT_SQL = Path(__file__).resolve().parent.parent / "sql" / "init_bt.sql"
 
@@ -205,6 +228,31 @@ async def _chunk_has_data(cf: str, ct: str) -> bool:
             {"f": _d(cf), "t": _d(ct)})).scalar())
 
 
+# Watchdog ceiling per year-chunk (~28 min typical). A hang trips this →
+# TimeoutError → chunk fails → resume. Never fires on legitimate work.
+CHUNK_TIMEOUT_SECS = float(os.getenv("BT_CHUNK_TIMEOUT_SECS", "2700"))  # 45 min
+
+
+async def _load_price_chunk(cf: str, ct: str, tickers: Optional[str]):
+    """Fetch+upsert one year of SEP prices. Returns (rows, dmin, dmax).
+    Pulled out so the caller can wrap it in asyncio.wait_for (the watchdog)."""
+    params = {"date.gte": cf, "date.lte": ct}
+    if tickers:
+        params["ticker"] = tickers
+    batch, ctotal, cdmin, cdmax = [], 0, None, None
+    async for raw in fetch_table("SEP", params=params):
+        m = map_sep_row(raw)
+        if m["adjusted_close"] is None:
+            continue
+        batch.append(m)
+        cdmin = m["date"] if cdmin is None or m["date"] < cdmin else cdmin
+        cdmax = m["date"] if cdmax is None or m["date"] > cdmax else cdmax
+        if len(batch) >= 5000:
+            ctotal += await _upsert_prices(batch); batch = []
+    ctotal += await _upsert_prices(batch)
+    return ctotal, cdmin, cdmax
+
+
 async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
                         job_type: str = "backfill") -> None:
     # Prices (SEP) — chunked by calendar year, resumable. Each chunk commits
@@ -223,20 +271,13 @@ async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
                 continue
             crid = await _open_run("backfill_chunk", "bt_prices")
             try:
-                params = {"date.gte": cf, "date.lte": ct}
-                if tickers:
-                    params["ticker"] = tickers
-                batch, ctotal, cdmin, cdmax = [], 0, None, None
-                async for raw in fetch_table("SEP", params=params):
-                    m = map_sep_row(raw)
-                    if m["adjusted_close"] is None:
-                        continue
-                    batch.append(m)
-                    cdmin = m["date"] if cdmin is None or m["date"] < cdmin else cdmin
-                    cdmax = m["date"] if cdmax is None or m["date"] > cdmax else cdmax
-                    if len(batch) >= 5000:
-                        ctotal += await _upsert_prices(batch); batch = []
-                ctotal += await _upsert_prices(batch)
+                # Per-chunk watchdog: a normal year is ~28 min, so this ceiling
+                # never trips on real work but GUARANTEES no chunk can hang the
+                # backfill forever, whatever the cause (DB lock, stuck read,
+                # anything). asyncio.wait_for cancels the coroutine on timeout →
+                # the chunk fails with a real error → the resume picks it up.
+                ctotal, cdmin, cdmax = await asyncio.wait_for(
+                    _load_price_chunk(cf, ct, tickers), timeout=CHUNK_TIMEOUT_SECS)
                 await _close_run(crid, "success", ctotal, cdmin, cdmax, err=marker)
                 done.add(marker)
                 print(f"[bt-data] prices chunk {cf}..{ct} DONE ({ctotal} rows)",
