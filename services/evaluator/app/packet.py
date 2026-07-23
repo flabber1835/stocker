@@ -1295,8 +1295,52 @@ async def build_packet(engine, as_of: date | None = None) -> dict:
             "error_digest": await _section(lambda: _error_digest(conn), conn),
             "hypothesis_ledger": await _section(lambda: _hypothesis_ledger(conn), conn),
             "backtest_lab": await _section(lambda: _async_wrap(_backtest_lab)),
+            "experiment_lane": await _section(lambda: _async_wrap(_experiment_lane)),
         }
     return packet
+
+
+def _experiment_lane() -> dict:
+    """Phase 6c results bridge: the daily full-config experiment lane
+    (artifacts/bt/experiments.json, written by bt-scheduler). Each entry is one
+    FULL-HISTORY backtest of either the BASELINE (active config — the 'switched
+    on 20 years ago' anchor, hindsight caveat applies) or an evaluator-authored
+    full-config candidate, with its hypothesis and auto-computed diff vs the
+    active config. Score your own past candidates here before authoring new
+    ones; promotion stays a human config change."""
+    path = os.path.join(os.getenv("ARTIFACTS_PATH", "/artifacts"),
+                        "bt", "experiments.json")
+    try:
+        with open(path) as f:
+            art = json.load(f)
+    except (OSError, ValueError):
+        return {"available": False,
+                "note": ("no experiment-lane results yet — the lane auto-runs the "
+                         "BASELINE (active config, full history) the first evening "
+                         "after backtest coverage goes GO; queue candidates with "
+                         "queue_strategy_experiment")}
+    exps = art.get("experiments") or []
+    view = [{k: e.get(k) for k in ("id", "kind", "status", "hypothesis",
+                                   "diff_vs_active", "fired_at", "completed_at",
+                                   "result")} for e in exps[-20:]]
+    baseline = next((e for e in reversed(exps)
+                     if e.get("kind") == "baseline"
+                     and e.get("status") == "success"), None)
+    return {
+        "available": True,
+        "updated_at": art.get("updated_at"),
+        "baseline": ({"result": baseline.get("result"),
+                      "note": ("active config over full history; designed with "
+                               "hindsight → closer to in-sample; rolling OOS "
+                               "remains the honest estimate")}
+                     if baseline else None),
+        "experiments": view,
+        "note": ("full-history single backtests (full universe, t+1 fills, "
+                 "costs); compare candidates against the baseline via CAGR "
+                 "(annualized_return), max_drawdown, alpha — and treat "
+                 "single-history wins as evidence to test in the walk-forward "
+                 "sweep, not proof"),
+    }
 
 
 def _backtest_lab() -> dict:

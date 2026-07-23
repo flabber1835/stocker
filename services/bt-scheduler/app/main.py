@@ -31,8 +31,8 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import FastAPI
 
-from app.logic import (artifact_needed, derive_windows, sweep_due, sweep_needed,
-                       topup_due)
+from app.logic import (artifact_needed, derive_windows, experiment_due,
+                       fired_this_week, sweep_due, sweep_needed, topup_due)
 
 BT_DATA_URL = os.getenv("BT_DATA_URL", "http://bt-data:8000")
 BT_ENGINE_URL = os.getenv("BT_ENGINE_URL", "http://bt-engine:8000")
@@ -44,6 +44,12 @@ SWEEP_WEEKDAY = int(os.getenv("BT_SWEEP_WEEKDAY", "4"))   # Mon=0 … Fri=4: swe
                                                           # exporting BEFORE the Sat ~00-01 ET weekend review
 SWEEP_HOUR = int(os.getenv("BT_SWEEP_HOUR", "19"))
 FORCE_REFRESH_DAYS = int(os.getenv("BT_SWEEP_FORCE_REFRESH_DAYS", "28"))
+# Phase 6c experiment lane: daily slot for evaluator-authored FULL-CONFIG
+# candidates (+ the one-time auto-baseline of the active config), one at a
+# time, capped per ISO week. 22 ET = 7pm PT (owner cadence).
+EXPERIMENT_HOUR = int(os.getenv("BT_EXPERIMENT_HOUR", "22"))
+EXPERIMENTS_PER_WEEK = int(os.getenv("BT_EXPERIMENTS_PER_WEEK", "5"))
+EXPERIMENT_REBALANCE_EVERY = int(os.getenv("BT_EXPERIMENT_REBALANCE_EVERY", "5"))
 LOCAL_TZ = ZoneInfo(os.getenv("SCHEDULE_TZ", "America/New_York"))
 
 _status: dict = {"last_tick": None, "last_topup": None, "last_sweep_fire": None,
@@ -120,6 +126,121 @@ def _mark_proposals(from_status: str, to_status: str, sweep_id: str,
             _write_bt_json("proposals.json", content)
 
 
+def _pending_full_experiments() -> list[dict]:
+    """Evaluator-authored FULL-CONFIG candidates (kind='full_config') waiting
+    in the same proposals.json queue the single-field diffs use."""
+    entries = (_bt_json("proposals.json") or {}).get("proposals") or []
+    return [e for e in entries
+            if e.get("status") == "pending" and e.get("kind") == "full_config"
+            and isinstance(e.get("config"), dict)]
+
+
+def _mark_full_proposal(pid: str | None, to_status: str) -> None:
+    if not pid:
+        return
+    from stock_strategy_shared.filelock import file_lock
+    with file_lock(os.path.join(ARTIFACTS_PATH, "bt", "proposals.json.lock")):
+        content = _bt_json("proposals.json") or {"proposals": []}
+        for e in content.get("proposals") or []:
+            if e.get("id") == pid:
+                e["status"] = to_status
+        _write_bt_json("proposals.json", content)
+
+
+async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
+                           cov: dict | None) -> None:
+    """Phase 6c: poll the in-flight experiment; fire the next one when the
+    daily slot opens. One at a time; weekly fire cap; auto-baseline first.
+    experiments.json doubles as durable state and the results bridge the
+    evaluator packet reads."""
+    state = _bt_json("experiments.json") or {"experiments": []}
+    exps = state["experiments"]
+    changed = False
+
+    # 1. Poll the running experiment (if any).
+    for e in exps:
+        if e.get("status") != "running" or not e.get("run_id"):
+            continue
+        try:
+            r = (await client.get(f"{BT_ENGINE_URL}/runs/{e['run_id']}")
+                 ).json().get("run") or {}
+        except Exception as exc:  # noqa: BLE001
+            _note(f"experiment poll failed: {exc}")
+            continue
+        if r.get("status") in ("success", "failed"):
+            e["status"] = r["status"]
+            e["completed_at"] = now.isoformat(timespec="seconds")
+            e["result"] = {k: r.get(k) for k in (
+                "total_return", "annualized_return", "sharpe_ratio",
+                "max_drawdown", "benchmark_total_return", "alpha",
+                "start_date", "end_date", "error_message")}
+            changed = True
+            _mark_full_proposal(e.get("proposal_id"),
+                                "tested" if r["status"] == "success" else "failed")
+            _note(f"experiment {e.get('id', '?')[:8]} {r['status']} "
+                  f"(CAGR={r.get('annualized_return')})")
+
+    running = any(e.get("status") == "running" for e in exps)
+
+    # 2. Fire the next one when the slot is open.
+    if (not running and experiment_due(now, EXPERIMENT_HOUR)
+            and cov and cov.get("go")
+            and fired_this_week(exps, now.date()) < EXPERIMENTS_PER_WEEK):
+        try:
+            sweep = (await client.get(f"{BT_ENGINE_URL}/sweeps/latest")
+                     ).json().get("sweep")
+        except Exception:  # noqa: BLE001
+            sweep = None
+        if sweep and sweep.get("status") == "running":
+            pass  # never contend with a sweep for the engine/host
+        else:
+            evs = cov.get("earliest_viable_start")
+            payload = {"start_date": evs, "end_date": now.date().isoformat(),
+                       "rebalance_every": EXPERIMENT_REBALANCE_EVERY}
+            pending = _pending_full_experiments()
+            entry = None
+            if pending:
+                p = pending[0]
+                payload["config"] = p["config"]
+                entry = {"id": p.get("id"), "kind": "full_config",
+                         "hypothesis": p.get("hypothesis"),
+                         "diff_vs_active": p.get("diff"),
+                         "proposal_id": p.get("id")}
+            elif not any(e.get("kind") == "baseline" for e in exps):
+                # One-time auto-baseline: the ACTIVE config over full history —
+                # the "switched on 20 years ago" anchor. bt-engine loads its
+                # own STRATEGY_CONFIG_PATH when no config is passed. Caveat:
+                # the active config was designed with hindsight → closer to
+                # in-sample; rolling OOS remains the honest estimate.
+                import uuid as _uuid
+                entry = {"id": str(_uuid.uuid4()), "kind": "baseline",
+                         "hypothesis": ("BASELINE: active config over full "
+                                        "history (hindsight caveat applies)"),
+                         "diff_vs_active": {}, "proposal_id": None}
+            if entry:
+                try:
+                    r = await client.post(f"{BT_ENGINE_URL}/jobs/run", json=payload)
+                    if r.status_code == 200:
+                        entry.update({"run_id": r.json().get("run_id"),
+                                      "status": "running",
+                                      "fired_at": now.isoformat(timespec="seconds")})
+                        exps.append(entry)
+                        changed = True
+                        _mark_full_proposal(entry.get("proposal_id"), "testing")
+                        _note(f"experiment fired ({entry['kind']}) run "
+                              f"{entry['run_id'][:8]}")
+                    else:
+                        _note(f"experiment fire refused → {r.status_code} "
+                              f"{r.text[:120]}")
+                except Exception as exc:  # noqa: BLE001
+                    _note(f"experiment fire failed: {exc}")
+
+    if changed:
+        state["experiments"] = exps[-60:]   # bounded history
+        state["updated_at"] = now.isoformat(timespec="seconds")
+        _write_bt_json("experiments.json", state)
+
+
 def _write_status_artifact(snapshot: dict) -> None:
     """artifacts/bt/status.json — the read-only Lab tab's data source (same
     one-way file bridge as the sweep leaderboard; works co-located and across
@@ -172,6 +293,12 @@ async def _tick() -> None:
             snapshot["coverage"] = cov
         except Exception as exc:  # noqa: BLE001
             _note(f"coverage check failed: {exc}")
+
+        # ── Phase 6c: daily full-config experiment lane (+ auto-baseline) ─────
+        try:
+            await _experiment_lane(client, now, cov)
+        except Exception as exc:  # noqa: BLE001
+            _note(f"experiment lane failed: {exc}")
 
         # ── weekly standing sweep (skip-if-unchanged + experiment queue) ──────
         try:

@@ -365,3 +365,43 @@ the return sort — i.e. "highest return AMONG robust configs". That gate is not
 yet built; until it is, the human applies those constraints by eye using the
 diagnostic columns. Enabling it later changes only which configs are eligible,
 not the return-first ordering among them.
+
+## Phase 6c — full-config experiment lane + auto-baseline (owner decision 2026-07)
+
+Supplements (not replaces) the weekly grid. The owner's design: the evaluator
+may author ENTIRE candidate strategy YAMLs — not just single-field diffs — and
+the wind tunnel runs ONE full-history backtest per candidate on a daily slot,
+capped per week. Rationale: single-field diffs exist for attribution, but real
+strategy differences live in interactions; attribution is preserved by
+attaching an AUTO-COMPUTED diff-vs-active to every candidate at queue time,
+plus a mandatory hypothesis.
+
+```text
+queue    evaluator tool queue_strategy_experiment(hypothesis, config):
+         full StrategyConfig JSON, schema-validated, diff-vs-active computed,
+         appended to artifacts/bt/proposals.json as kind='full_config'
+         (draws from the SAME per-review experiment budget as single-field
+         queues — the statistical budget is shared deliberately; dupes by
+         config hash and a pending cap are rejected without burning budget)
+run      bt-scheduler daily slot (BT_EXPERIMENT_HOUR, default 22 ET = 7pm PT):
+         if coverage is GO, no sweep and no experiment already running, and
+         fewer than BT_EXPERIMENTS_PER_WEEK (default 5) fired this ISO week →
+         POST bt-engine /jobs/run with the candidate config over the FULL
+         viable history (earliest_viable_start → today, full universe,
+         rebalance_every 5). One at a time.
+baseline the FIRST thing the lane ever runs (no queue needed): the ACTIVE
+         config over the full history — the owner's "if I had switched this
+         strategy on 20 years ago" anchor. Fires automatically the first
+         evening after coverage goes GO. Caveat recorded with the result: the
+         active config was designed with hindsight, so the number is closer to
+         in-sample; rolling OOS remains the honest estimate.
+results  bt-scheduler polls the run, appends
+         {hypothesis, diff, result: CAGR/total/sharpe/maxDD/benchmark/alpha}
+         to artifacts/bt/experiments.json (same one-way file bridge), marks
+         the proposal tested/failed. The evaluator packet reads it as the
+         experiment_lane section; next review scores its own past candidates.
+promote  unchanged — human Apply only.
+```
+
+The weekly grid sweep continues unchanged (skip-if-unchanged); the lane is for
+evaluator-authored whole-strategy candidates and the baseline.

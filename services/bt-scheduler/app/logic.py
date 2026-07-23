@@ -94,3 +94,29 @@ def artifact_needed(latest_sweep: dict | None, artifact: dict | None) -> bool:
     if artifact is None:
         return True
     return artifact.get("sweep_id") != latest_sweep.get("sweep_id")
+
+
+def experiment_due(now_local: datetime, hour: int = 22) -> bool:
+    """Phase 6c daily experiment slot: any day, at/after `hour` local (default
+    22 ET = 7pm PT, after the nightly topup window opens). The weekly cap and
+    one-at-a-time rule are enforced by the caller."""
+    return now_local.hour >= hour
+
+
+def fired_this_week(experiments: list[dict], today: date) -> int:
+    """How many experiment-lane runs were FIRED in `today`'s ISO week (the
+    weekly statistical budget). Counts fires, not completions — a failed run
+    still spent a draw against the one shared history."""
+    wk = today.isocalendar()[:2]
+    n = 0
+    for e in experiments or []:
+        fired = e.get("fired_at")
+        if not fired:
+            continue
+        try:
+            d = datetime.fromisoformat(str(fired)).date()
+        except ValueError:
+            continue
+        if d.isocalendar()[:2] == wk:
+            n += 1
+    return n

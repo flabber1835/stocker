@@ -198,6 +198,34 @@ def tool_definitions() -> list[dict]:
         },
     })
     tools.append({
+        "name": "queue_strategy_experiment",
+        "description": (
+            "Queue an ENTIRE candidate strategy config (full StrategyConfig JSON, "
+            "not a single-field diff) for the wind tunnel's DAILY experiment lane: "
+            "one full-history backtest per candidate (earliest viable start → today, "
+            "full universe), one at a time, capped per week. Use when your thesis "
+            "involves INTERACTING changes (e.g. concentration + knife threshold + "
+            "momentum variant together) that single-field diffs can't express. The "
+            "config is schema-validated and an AUTO-COMPUTED diff vs the active "
+            "config is stored with it, so results stay attributable; the hypothesis "
+            "is mandatory and read cold next to the results in a future review "
+            "(experiment_lane packet section, typically 1-3 days). Draws from the "
+            "SAME per-review experiment budget as queue_experiment — the statistical "
+            "budget against our one shared history is deliberate; prefer few, "
+            "well-motivated candidates over many draws."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "config": {"type": "object",
+                           "description": "complete StrategyConfig as JSON (start from the active config and modify)"},
+                "hypothesis": {"type": "string",
+                               "description": "what you expect and WHY — the thesis this candidate tests"},
+            },
+            "required": ["config", "hypothesis"],
+        },
+    })
+    tools.append({
         "name": "hypothesis_ledger",
         "description": (
             "Your durable cross-week memory: thesis -> planned test -> outcome. The "
@@ -724,6 +752,105 @@ async def hypothesis_ledger(args: dict, *, engine, budget: BacktestBudget) -> st
         return f"ledger error: {str(exc)[:400]}"
 
 
+# ── queue_strategy_experiment (Phase 6c full-config lane) ─────────────────────
+
+def config_diff(base: dict, cand: dict, prefix: str = "") -> dict:
+    """Pure recursive diff of two config dicts → {dotted.path: {'from': x, 'to': y}}.
+    Keys only in one side appear with the other side None. Keeps whole-config
+    experiments attributable: 'this candidate won, and it differed in these N
+    fields'."""
+    out: dict = {}
+    keys = set(base or {}) | set(cand or {})
+    for k in sorted(keys, key=str):
+        path = f"{prefix}.{k}" if prefix else str(k)
+        b, c = (base or {}).get(k), (cand or {}).get(k)
+        # Recurse when both are dicts, AND when one side is a dict and the
+        # other absent — so a removed/added subtree still diffs to LEAF dotted
+        # paths (universe.min_price: 5.0→None), not one opaque blob.
+        if (isinstance(b, dict) or isinstance(c, dict)) and (
+                isinstance(b, (dict, type(None))) and isinstance(c, (dict, type(None)))):
+            out.update(config_diff(b or {}, c or {}, path))
+        elif b != c:
+            out[path] = {"from": b, "to": c}
+    return out
+
+
+async def queue_strategy_experiment(args: dict, *, budget: BacktestBudget) -> str:
+    """Validate a FULL candidate StrategyConfig, compute its diff vs the active
+    config, and append it (kind='full_config') to the shared proposals queue.
+    The bt-scheduler's daily experiment lane runs it as one full-history
+    backtest. Same experiment budget pool as queue_experiment."""
+    hypothesis = str(args.get("hypothesis") or "").strip()
+    if not hypothesis:
+        return ("queue rejected: state the hypothesis this candidate tests — "
+                "future reviews read it cold next to the results")
+    cand = args.get("config")
+    if not isinstance(cand, dict) or not cand:
+        return "queue rejected: config must be a complete StrategyConfig JSON object"
+
+    from stock_strategy_shared.schemas.strategy import StrategyConfig
+    try:
+        validated = StrategyConfig(**cand).model_dump(mode="json")
+    except Exception as exc:  # noqa: BLE001
+        return f"queue rejected: config failed schema validation: {str(exc)[:600]}"
+
+    try:
+        base_cfg, _hash = load_strategy(STRATEGY_CONFIG_PATH)
+        base = base_cfg.model_dump(mode="json")
+    except Exception as exc:  # noqa: BLE001
+        return f"error: could not load active strategy config: {exc}"
+    diff = config_diff(base, validated)
+    if not diff:
+        return ("queue rejected: candidate is identical to the active config — "
+                "the baseline already covers it")
+
+    if not budget.take_experiment():
+        return (f"EXPERIMENT BUDGET EXHAUSTED ({budget.experiment_limit} per review). "
+                "Note remaining theses in the hypothesis_ledger for next week instead.")
+
+    import hashlib as _hashlib
+    import json as _json
+    import uuid as _uuid
+    from datetime import datetime, timezone
+
+    cfg_hash = _hashlib.sha256(
+        _json.dumps(validated, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+    from app import proposals as _props
+    try:
+        with _props.proposals_lock():
+            content = _props.read_proposals_file() or {"proposals": []}
+            entries = content.setdefault("proposals", [])
+            if any(e.get("kind") == "full_config" and e.get("config_hash") == cfg_hash
+                   and e.get("status") in ("pending", "testing", "tested")
+                   for e in entries):
+                budget.experiment_used -= 1  # dupes never burn budget
+                return ("already queued/tested: an identical candidate config "
+                        f"(hash {cfg_hash}) exists — argue from its results instead")
+            n_pending_full = sum(1 for e in entries
+                                 if e.get("kind") == "full_config"
+                                 and e.get("status") == "pending")
+            if n_pending_full >= 6:
+                budget.experiment_used -= 1
+                return "queue rejected: 6 full-config candidates already pending"
+            entries.append({
+                "id": str(_uuid.uuid4()), "kind": "full_config",
+                "status": "pending", "origin": "exploratory",
+                "hypothesis": hypothesis, "config": validated,
+                "config_hash": cfg_hash, "diff": diff,
+                "queued_at": datetime.now(timezone.utc).isoformat(),
+            })
+            _props.write_proposals_file(content)
+    except Exception as exc:  # noqa: BLE001
+        budget.experiment_used -= 1
+        return f"queue error: {str(exc)[:400]}"
+
+    return (f"queued full-config candidate {cfg_hash} ({len(diff)} field(s) differ "
+            "from active). Runs in the daily experiment lane (one full-history "
+            "backtest); results appear in the experiment_lane packet section, "
+            f"typically within days. diff: {_json.dumps(diff, default=str)[:800]}")
+
+
 # ── queue_experiment ──────────────────────────────────────────────────────────
 
 async def queue_experiment(args: dict, *, budget: BacktestBudget) -> str:
@@ -818,6 +945,8 @@ async def execute_tool(name: str, args: dict, *, engine, budget: BacktestBudget)
             return await hypothesis_ledger(args, engine=engine, budget=budget)
         if name == "queue_experiment":
             return await queue_experiment(args, budget=budget)
+        if name == "queue_strategy_experiment":
+            return await queue_strategy_experiment(args, budget=budget)
         if name == "web_search":
             return await web_search(args)
         return f"unknown tool: {name}"
