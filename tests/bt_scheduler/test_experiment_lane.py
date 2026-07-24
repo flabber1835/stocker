@@ -64,3 +64,27 @@ def test_config_diff_dotted_paths_and_asymmetry():
     assert d["universe.min_price"] == {"from": 5.0, "to": None}   # removed side
     assert d["vetter.candidate_count"] == {"from": None, "to": 50}  # added side
     assert config_diff(base, base) == {}
+
+
+# ── last-known-good coverage + next-fire (root-cause flaky-Lab fix) ───────────
+
+def test_next_experiment_fire_today_then_tomorrow(monkeypatch):
+    from app import main as m
+    monkeypatch.setattr(m, "EXPERIMENT_HOUR", 22)
+    before = datetime(2026, 7, 23, 18, 0, tzinfo=ET)   # before 22:00 → today
+    after = datetime(2026, 7, 23, 23, 0, tzinfo=ET)    # after 22:00 → tomorrow
+    assert m._next_experiment_fire(before).startswith("2026-07-23T22:00")
+    assert m._next_experiment_fire(after).startswith("2026-07-24T22:00")
+
+
+def test_remember_good_persists_and_survives(monkeypatch, tmp_path):
+    from app import main as m
+    monkeypatch.setattr(m, "ARTIFACTS_PATH", str(tmp_path))
+    m._last_good = {}
+    m._remember_good("coverage", {"go": True, "prices": {"rows": 35_000_000}},
+                     "2026-07-23T22:00:00")
+    # a fresh load (simulating a bt-scheduler restart) recovers last-good
+    m._last_good = {}
+    m._load_last_good()
+    assert m._last_good["coverage"]["go"] is True
+    assert m._last_good["coverage_as_of"] == "2026-07-23T22:00:00"

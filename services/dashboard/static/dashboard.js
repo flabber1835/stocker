@@ -2758,14 +2758,50 @@ function renderLab(d) {
   const cov = st && st.coverage;
   h += '<h3 class="lab-h">Data (Sharadar)</h3>';
   if (cov) {
-    const go = cov.go ? '<span class="lab-ok">GO</span>'
-                      : '<span class="lab-bad">NO-GO (backfill needed)</span>';
+    // Coverage is served last-known-good: a transient poll failure shows the
+    // real data stamped "as of Nm ago", never a false NO-GO. Only cov.go===false
+    // is a genuine no-go; a stale-but-GO snapshot stays GO.
+    const staleTag = st.coverage_stale && st.coverage_as_of
+        ? ` <span class="lab-warn">· data as of ${esc(_labAge(st.coverage_as_of))}</span>` : '';
+    const go = cov.go ? '<span class="lab-ok">GO</span>' + staleTag
+                      : '<span class="lab-bad">NO-GO (backfill needed)</span>' + staleTag;
     h += `<div class="lab-line">${go} · prices ${esc(cov.prices && cov.prices.rows)} rows / ` +
          `${esc(cov.prices && cov.prices.tickers)} tickers (${esc(cov.prices && cov.prices.date_min)} → ` +
          `${esc(cov.prices && cov.prices.date_max)}) · fundamentals ${esc(cov.fundamentals && cov.fundamentals.rows)} rows · ` +
          `earliest viable start ${esc(cov.earliest_viable_start)}</div>`;
   } else {
-    h += '<div class="lab-line lab-dim">no coverage info</div>';
+    h += '<div class="lab-line lab-dim">no coverage info yet — waiting for the ' +
+         'first successful bt-data poll (deploy the bt stack + wait one tick)</div>';
+  }
+
+  // ── Experiments (in-progress + scheduled theses) ──────────────────────────
+  const ex = st && st.experiments;
+  if (ex) {
+    h += '<h3 class="lab-h">Experiments</h3>';
+    if (ex.running) {
+      const p = ex.running.progress_pct;
+      const bar = p != null
+          ? `<div class="lab-prog"><div class="lab-prog-fill" style="width:${Math.max(2, Math.min(100, p))}%"></div></div>` : '';
+      h += `<div class="lab-line"><b>▶ running</b> · ${esc(ex.running.kind)} · ` +
+           `started ${esc(_labAge(ex.running.fired_at))}` +
+           (p != null ? ` · ${Math.round(p)}%` : ' · (running)') + '</div>' + bar +
+           `<div class="lab-note">thesis: ${esc(ex.running.hypothesis)}</div>`;
+    } else {
+      h += `<div class="lab-line lab-dim">none running · next slot ${esc(ex.next_fire_local)} ` +
+           `· ${esc(ex.fired_this_week)}/${esc(ex.week_cap)} fired this week</div>`;
+    }
+    if (ex.queued && ex.queued.length) {
+      h += '<div class="lab-note"><b>scheduled next:</b><br>' +
+           ex.queued.map(q => `· [${esc(q.kind)}] ${esc(q.hypothesis)}`).join('<br>') + '</div>';
+    }
+    if (ex.recent && ex.recent.length) {
+      h += '<div class="lab-note"><b>recent:</b><br>' +
+           ex.recent.slice().reverse().map(r =>
+             `· ${esc(r.kind)} <b>${esc(r.status)}</b>` +
+             (r.cagr != null ? ` — CAGR ${(Number(r.cagr) * 100).toFixed(1)}%` : '') +
+             (r.hypothesis ? ` — ${esc(String(r.hypothesis).slice(0, 80))}` : '')).join('<br>') +
+           '</div>';
+    }
   }
 
   const sch = st && st.scheduler;

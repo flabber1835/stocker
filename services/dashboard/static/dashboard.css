@@ -936,6 +936,8 @@ tr.cash-row .t-ticker { color: var(--text2); }
 .lab-meta{padding:6px 12px;font-size:11px;opacity:.6}
 .lab-dim{opacity:.6}
 .lab-warn{color:#e2b93b}
+.lab-prog{height:6px;margin:3px 12px 6px;background:rgba(255,255,255,.12);border-radius:3px;overflow:hidden}
+.lab-prog-fill{height:100%;background:#4caf82;transition:width .4s ease}
 .lab-bad{color:#e25b5b}
 .lab-ok{color:#3ecf8e}
 .lab-tbl{width:100%;font-size:12px;border-collapse:collapse}

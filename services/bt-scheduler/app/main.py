@@ -25,7 +25,7 @@ import json
 import os
 import traceback
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -241,6 +241,80 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
         _write_bt_json("experiments.json", state)
 
 
+# ── Last-known-good (root-cause fix for the flaky Lab) ────────────────────────
+# The Lab's freshness was 100% coupled to a tick's HTTP polls ALL succeeding: a
+# single coverage ReadTimeout / DNS blip during a container recreate blanked
+# coverage to None and the UI flipped to "NO-GO (backfill needed)" even with 35M
+# rows loaded. We now persist the last SUCCESSFUL coverage/sweep to disk and
+# always serve it (stamped with its age) so a transient poll failure degrades to
+# "data as of Nm ago", never to "no data". Survives a bt-scheduler restart too.
+_LAST_GOOD_FILE = "last_good.json"
+_last_good: dict = {}
+
+
+def _load_last_good() -> None:
+    global _last_good
+    _last_good = _bt_json(_LAST_GOOD_FILE) or {}
+
+
+def _remember_good(key: str, value, now_iso: str) -> None:
+    """Record a successful poll result as last-known-good (persisted)."""
+    _last_good[key] = value
+    _last_good[f"{key}_as_of"] = now_iso
+    _write_bt_json(_LAST_GOOD_FILE, _last_good)
+
+
+def _next_experiment_fire(now: datetime) -> str:
+    """Human 'when does the lane next fire' — daily at EXPERIMENT_HOUR local."""
+    fire = now.replace(hour=EXPERIMENT_HOUR, minute=0, second=0, microsecond=0)
+    if now >= fire:
+        fire = fire + timedelta(days=1)
+    return fire.isoformat(timespec="minutes")
+
+
+async def _experiment_snapshot(client: httpx.AsyncClient, now: datetime) -> dict:
+    """Live experiment-lane view for the Lab: the running experiment (with % if
+    available), the queued theses, recent results, and when the lane next fires.
+    Pure-ish: reads the artifact files the lane maintains; best-effort progress
+    poll for the running run."""
+    exps = (_bt_json("experiments.json") or {}).get("experiments") or []
+    running = next((e for e in reversed(exps) if e.get("status") == "running"), None)
+    progress = None
+    if running and running.get("run_id"):
+        try:
+            r = (await client.get(f"{BT_ENGINE_URL}/runs/{running['run_id']}")
+                 ).json().get("run") or {}
+            progress = r.get("progress_pct")
+        except Exception:  # noqa: BLE001 — progress is best-effort
+            progress = None
+    props = (_bt_json("proposals.json") or {}).get("proposals") or []
+    queued = [{"kind": e.get("kind", "single_field"),
+               "hypothesis": e.get("hypothesis")
+               or (f"{e.get('config_field')} → {e.get('value')}"
+                   if e.get("config_field") else "—")}
+              for e in props if e.get("status") == "pending"]
+    baseline_done = any(e.get("kind") == "baseline" for e in exps)
+    if not baseline_done and not any(q for q in queued):
+        queued.insert(0, {"kind": "baseline",
+                          "hypothesis": "BASELINE: active config over full history"})
+    recent = [{"kind": e.get("kind"), "status": e.get("status"),
+               "hypothesis": e.get("hypothesis"),
+               "cagr": (e.get("result") or {}).get("annualized_return"),
+               "completed_at": e.get("completed_at")}
+              for e in exps if e.get("status") in ("success", "failed")][-5:]
+    return {
+        "running": ({"kind": running.get("kind"),
+                     "hypothesis": running.get("hypothesis"),
+                     "fired_at": running.get("fired_at"),
+                     "progress_pct": progress} if running else None),
+        "queued": queued[:8],
+        "recent": recent,
+        "next_fire_local": _next_experiment_fire(now),
+        "fired_this_week": fired_this_week(exps, now.date()),
+        "week_cap": EXPERIMENTS_PER_WEEK,
+    }
+
+
 def _write_status_artifact(snapshot: dict) -> None:
     """artifacts/bt/status.json — the read-only Lab tab's data source (same
     one-way file bridge as the sweep leaderboard; works co-located and across
@@ -287,14 +361,24 @@ async def _tick() -> None:
             _note(f"topup check failed: {exc}")
 
         # ── coverage snapshot (Lab tab + sweep gate) ─────────────────────────
+        # Longer, coverage-specific timeout: even the fast stats path can be a
+        # few seconds on a loaded NAS, and a slow answer must not be treated as
+        # "no data". On ANY failure we fall back to last-known-good (below), so
+        # the Lab shows real coverage stamped with its age, never blank.
         cov = None
         try:
-            cov = (await client.get(f"{BT_DATA_URL}/data/coverage")).json()
+            cov = (await client.get(f"{BT_DATA_URL}/data/coverage",
+                                    timeout=60.0)).json()
             snapshot["coverage"] = cov
+            _remember_good("coverage", cov, now.isoformat(timespec="seconds"))
         except Exception as exc:  # noqa: BLE001
-            # repr, not str: httpx timeouts stringify to '' — the reasonless
-            # "coverage check failed:" notes that made the Lab look haunted.
-            _note(f"coverage check failed: {repr(exc)[:200]}")
+            _note(f"coverage check failed (serving last-good): {repr(exc)[:160]}")
+        # ALWAYS surface last-known-good coverage + its age, so a transient poll
+        # failure degrades to "as of Nm ago", not "NO-GO (backfill needed)".
+        if snapshot.get("coverage") is None and _last_good.get("coverage") is not None:
+            snapshot["coverage"] = _last_good["coverage"]
+            snapshot["coverage_stale"] = True
+        snapshot["coverage_as_of"] = _last_good.get("coverage_as_of")
 
         # ── Phase 6c: daily full-config experiment lane (+ auto-baseline) ─────
         try:
@@ -379,6 +463,8 @@ async def _tick() -> None:
         try:
             latest = (await client.get(f"{BT_ENGINE_URL}/sweeps/latest")).json().get("sweep")
             snapshot["sweep_latest"] = latest
+            if latest:
+                _remember_good("sweep_latest", latest, now.isoformat(timespec="seconds"))
             if artifact_needed(latest, _read_artifact()):
                 lb = (await client.get(
                     f"{BT_ENGINE_URL}/sweeps/{latest['sweep_id']}/leaderboard",
@@ -416,6 +502,16 @@ async def _tick() -> None:
         except Exception as exc:  # noqa: BLE001
             _note(f"export check failed: {exc}")
 
+        # ── experiment-lane view (progress + queued theses + next fire) ───────
+        try:
+            snapshot["experiments"] = await _experiment_snapshot(client, now)
+        except Exception as exc:  # noqa: BLE001
+            _note(f"experiment snapshot failed: {repr(exc)[:160]}")
+
+    # sweep_latest last-good fallback (same rationale as coverage)
+    if snapshot.get("sweep_latest") is None and _last_good.get("sweep_latest") is not None:
+        snapshot["sweep_latest"] = _last_good["sweep_latest"]
+        snapshot["sweep_stale"] = True
     snapshot["scheduler"] = dict(_status)
     _write_status_artifact(snapshot)
 
@@ -431,6 +527,7 @@ async def _loop() -> None:
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+    _load_last_good()   # serve real coverage immediately, before the first tick
     task = asyncio.create_task(_loop())
     yield
     task.cancel()
