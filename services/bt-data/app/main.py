@@ -493,7 +493,6 @@ async def start_topup(background_tasks: BackgroundTasks):
 
 # ── Data-depth report (GO/NO-GO gate) ──────────────────────────────────────────
 
-@app.get("/data/coverage")
 async def _approx_rows(conn, table: str) -> int:
     """Planner-statistics row estimate (milliseconds at any size). A COUNT(*)
     over the 35M-row corpus takes 30-60s — longer than bt-scheduler's 30s poll
@@ -527,6 +526,7 @@ async def _distinct_tickers(conn, table: str) -> int:
     ))).scalar() or 0
 
 
+@app.get("/data/coverage")
 async def coverage():
     """Report how deep the stored data goes — the GO/NO-GO gate for choosing a
     backtest start date. A backtest start needs ~1yr of prior price history for

@@ -271,3 +271,31 @@ def test_coverage_helpers_fast_and_exact(bt_async_dsn):
     assert approx > 0                                  # estimate present after ANALYZE
     assert distinct == exact                           # loose-index scan is EXACT
     assert cov["spy"]["rows"] > 200 and cov["go"] is True
+
+
+def test_coverage_route_reachable_over_http(bt_async_dsn):
+    """Regression guard: the /data/coverage ROUTE must bind to coverage() —
+    a helper accidentally inserted between the decorator and the function once
+    hijacked the route (422 'conn/table required' for every caller, Lab NO-GO).
+    Direct-call tests can't catch that; this exercises the real HTTP route."""
+    os.environ["BT_DATABASE_URL"] = bt_async_dsn
+    for k in list(sys.modules):
+        if k == "app" or k.startswith("app."):
+            del sys.modules[k]
+    import app.main as btmain
+    import httpx
+
+    async def run():
+        await btmain._ensure_schema()
+        transport = httpx.ASGITransport(app=btmain.app)
+        async with httpx.AsyncClient(transport=transport,
+                                     base_url="http://test") as client:
+            r = await client.get("/data/coverage")
+            h = await client.get("/health")
+        return r, h
+
+    r, h = asyncio.run(run())
+    assert r.status_code == 200, f"coverage route broken: {r.status_code} {r.text[:200]}"
+    body = r.json()
+    assert "go" in body and "prices" in body and "spy" in body
+    assert h.status_code == 200
