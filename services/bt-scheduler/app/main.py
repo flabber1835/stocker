@@ -381,8 +381,11 @@ async def _tick() -> None:
         snapshot["coverage_as_of"] = _last_good.get("coverage_as_of")
 
         # ── Phase 6c: daily full-config experiment lane (+ auto-baseline) ─────
+        # Use the EFFECTIVE coverage (live poll OR last-known-good) so a
+        # transient coverage blip on the firing tick can't silently skip the
+        # baseline/experiment — same root-cause decoupling as the display.
         try:
-            await _experiment_lane(client, now, cov)
+            await _experiment_lane(client, now, snapshot.get("coverage"))
         except Exception as exc:  # noqa: BLE001
             _note(f"experiment lane failed: {exc}")
 
