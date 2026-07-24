@@ -292,7 +292,9 @@ async def _tick() -> None:
             cov = (await client.get(f"{BT_DATA_URL}/data/coverage")).json()
             snapshot["coverage"] = cov
         except Exception as exc:  # noqa: BLE001
-            _note(f"coverage check failed: {exc}")
+            # repr, not str: httpx timeouts stringify to '' — the reasonless
+            # "coverage check failed:" notes that made the Lab look haunted.
+            _note(f"coverage check failed: {repr(exc)[:200]}")
 
         # ── Phase 6c: daily full-config experiment lane (+ auto-baseline) ─────
         try:

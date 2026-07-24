@@ -240,3 +240,34 @@ def test_benchmarks_loaded_from_sfp(bt_async_dsn):
 
     n, spy = asyncio.run(run())
     assert n > 0 and spy > 0, "SPY benchmark rows must load from SFP"
+
+
+def test_coverage_helpers_fast_and_exact(bt_async_dsn):
+    """Coverage row counts are planner estimates (fast at any size) but distinct
+    tickers and the SPY gate stay exact — the fix for the 35M-row COUNT that
+    outran bt-scheduler's poll timeout and made the Lab read 'no coverage'."""
+    os.environ["BT_DATABASE_URL"] = bt_async_dsn
+    for k in list(sys.modules):
+        if k == "app" or k.startswith("app."):
+            del sys.modules[k]
+    import app.main as btmain
+    from sqlalchemy import text
+
+    async def run():
+        await btmain._ensure_schema()
+        async with btmain.engine.begin() as conn:
+            await conn.execute(text("TRUNCATE bt_prices"))
+        await btmain._run_backfill("2022-01-01", "2023-03-31", None)   # mock: 4 tickers
+        await btmain._load_benchmarks("2022-01-01", "2023-03-31")       # + SPY via SFP
+        async with btmain.engine.connect() as conn:
+            approx = await btmain._approx_rows(conn, "bt_prices")
+            distinct = await btmain._distinct_tickers(conn, "bt_prices")
+            exact = (await conn.execute(text(
+                "SELECT COUNT(DISTINCT ticker) FROM bt_prices"))).scalar()
+        cov = await btmain.coverage()
+        return approx, distinct, exact, cov
+
+    approx, distinct, exact, cov = asyncio.run(run())
+    assert approx > 0                                  # estimate present after ANALYZE
+    assert distinct == exact                           # loose-index scan is EXACT
+    assert cov["spy"]["rows"] > 200 and cov["go"] is True

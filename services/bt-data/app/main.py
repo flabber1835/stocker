@@ -494,20 +494,64 @@ async def start_topup(background_tasks: BackgroundTasks):
 # ── Data-depth report (GO/NO-GO gate) ──────────────────────────────────────────
 
 @app.get("/data/coverage")
+async def _approx_rows(conn, table: str) -> int:
+    """Planner-statistics row estimate (milliseconds at any size). A COUNT(*)
+    over the 35M-row corpus takes 30-60s — longer than bt-scheduler's 30s poll
+    timeout, which made every Lab coverage check 'fail' and the UI read
+    'no coverage info' while go was true underneath. reltuples is -1 before the
+    first ANALYZE; self-heal by ANALYZE (samples, seconds) then fall back to an
+    exact count only for tiny/empty tables where it's cheap anyway."""
+    q = "SELECT reltuples::bigint FROM pg_class WHERE relname = :t"
+    est = (await conn.execute(text(q), {"t": table})).scalar()
+    if est is None or est <= 0:
+        try:
+            await conn.execute(text(f"ANALYZE {table}"))
+            est = (await conn.execute(text(q), {"t": table})).scalar()
+        except Exception:  # noqa: BLE001 — stats are best-effort
+            est = None
+    if est is None or est <= 0:
+        est = (await conn.execute(text(f"SELECT COUNT(*) FROM {table}"))).scalar() or 0
+    return int(est)
+
+
+async def _distinct_tickers(conn, table: str) -> int:
+    """Exact distinct-ticker count via a loose index scan (one index probe per
+    ticker, ~ms) instead of COUNT(DISTINCT ...) scanning all 35M rows."""
+    return (await conn.execute(text(
+        "WITH RECURSIVE t(tk) AS ("
+        f"  SELECT MIN(ticker) FROM {table} "
+        "  UNION ALL "
+        f"  SELECT (SELECT MIN(ticker) FROM {table} WHERE ticker > t.tk) "
+        "  FROM t WHERE t.tk IS NOT NULL) "
+        "SELECT COUNT(*) FROM t WHERE tk IS NOT NULL"
+    ))).scalar() or 0
+
+
 async def coverage():
     """Report how deep the stored data goes — the GO/NO-GO gate for choosing a
     backtest start date. A backtest start needs ~1yr of prior price history for
     momentum/low-vol/covariance, plus fundamentals coverage for value/quality/growth.
+
+    Row counts are planner ESTIMATES (see _approx_rows) so this endpoint answers
+    in milliseconds at any corpus size; dates and the SPY/GO gate are exact
+    (index-backed). The GO decision never depends on an estimated number.
     """
     async with engine.connect() as conn:
-        px = (await conn.execute(text(
-            "SELECT COUNT(*) n, COUNT(DISTINCT ticker) tickers, "
-            "       MIN(date) dmin, MAX(date) dmax FROM bt_prices"
-        ))).mappings().first()
-        fn = (await conn.execute(text(
-            "SELECT COUNT(*) n, COUNT(DISTINCT ticker) tickers, "
-            "       MIN(as_of_date) dmin, MAX(as_of_date) dmax FROM bt_fundamentals"
-        ))).mappings().first()
+        px = {
+            "n": await _approx_rows(conn, "bt_prices"),
+            "tickers": await _distinct_tickers(conn, "bt_prices"),
+            "dmin": (await conn.execute(text("SELECT MIN(date) FROM bt_prices"))).scalar(),
+            "dmax": (await conn.execute(text("SELECT MAX(date) FROM bt_prices"))).scalar(),
+        }
+        fn = {
+            "n": await _approx_rows(conn, "bt_fundamentals"),
+            "tickers": await _distinct_tickers(conn, "bt_fundamentals"),
+            "dmin": (await conn.execute(text(
+                "SELECT MIN(as_of_date) FROM bt_fundamentals"))).scalar(),
+            "dmax": (await conn.execute(text(
+                "SELECT MAX(as_of_date) FROM bt_fundamentals"))).scalar(),
+        }
+        # SPY is exact and fast: PK-prefix (ticker, date) index scan.
         spy = (await conn.execute(text(
             "SELECT MIN(date) dmin, MAX(date) dmax, COUNT(*) n "
             "FROM bt_prices WHERE ticker='SPY'"
