@@ -370,6 +370,14 @@ docker compose --profile test \
   -f docker-compose.yml -f tests/harness/docker-compose.yml up -d
 ```
 
+`docker compose up` starts ONLY the live stack. The backtest stack is a
+SEPARATE compose project (`docker-compose.backtest.yml`, own bt-postgres) so
+live deploys can never recreate bt containers mid-backtest and the bt data
+volume keeps its namespace. To bring up BOTH stacks with one command use
+`scripts/up.sh` (add `--build` to rebuild changed images). All bt services are
+`restart: unless-stopped`, so once up they survive NAS reboots; they only stay
+down after an explicit stop/down.
+
 Run `docker compose down --remove-orphans` once after pulling a new compose
 file to evict containers whose service definitions were removed/renamed —
 without this they stick around as ghost containers in `docker compose ps`.
