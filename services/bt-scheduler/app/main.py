@@ -206,7 +206,12 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
                          "hypothesis": p.get("hypothesis"),
                          "diff_vs_active": p.get("diff"),
                          "proposal_id": p.get("id")}
-            elif not any(e.get("kind") == "baseline" for e in exps):
+            elif not any(e.get("kind") == "baseline"
+                         and e.get("status") in ("running", "success")
+                         for e in exps):
+                # Only a RUNNING or SUCCEEDED baseline blocks re-firing — a
+                # failed/died attempt (bt-engine down, OOM, reclaim) must retry
+                # on a later slot, not permanently forfeit the anchor number.
                 # One-time auto-baseline: the ACTIVE config over full history —
                 # the "switched on 20 years ago" anchor. bt-engine loads its
                 # own STRATEGY_CONFIG_PATH when no config is passed. Caveat:
