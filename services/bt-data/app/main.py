@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.sharadar_client import fetch_table, is_mock
 from app.sharadar_adapter import (
-    map_sep_row, map_sf1_row, map_tickers_row, compute_growth,
+    map_sep_row, map_sf1_earnings_row, map_sf1_row, map_tickers_row, compute_growth,
 )
 
 BT_DATABASE_URL = os.environ.get("BT_DATABASE_URL", "")
@@ -157,15 +157,57 @@ async def _upsert_fundamentals(rows: list[dict]) -> int:
     async with engine.begin() as conn:
         await conn.execute(text(
             "INSERT INTO bt_fundamentals (ticker, as_of_date, fiscal_period, pe_ratio, "
-            "  pb_ratio, roe, debt_to_equity, revenue_growth, eps_growth) "
+            "  pb_ratio, roe, debt_to_equity, revenue_growth, eps_growth, "
+            "  market_cap, shares_outstanding, shares_outstanding_prior) "
             "VALUES (:ticker, :as_of_date, :fiscal_period, :pe_ratio, :pb_ratio, :roe, "
-            "  :debt_to_equity, :revenue_growth, :eps_growth) "
+            "  :debt_to_equity, :revenue_growth, :eps_growth, "
+            "  :market_cap, :shares_outstanding, :shares_outstanding_prior) "
             "ON CONFLICT (ticker, as_of_date) DO UPDATE SET "
             "  pe_ratio=EXCLUDED.pe_ratio, pb_ratio=EXCLUDED.pb_ratio, roe=EXCLUDED.roe, "
             "  debt_to_equity=EXCLUDED.debt_to_equity, revenue_growth=EXCLUDED.revenue_growth, "
-            "  eps_growth=EXCLUDED.eps_growth"
+            "  eps_growth=EXCLUDED.eps_growth, market_cap=EXCLUDED.market_cap, "
+            "  shares_outstanding=EXCLUDED.shares_outstanding, "
+            "  shares_outstanding_prior=EXCLUDED.shares_outstanding_prior"
         ), clean)
     return len(clean)
+
+
+async def _upsert_bt_earnings(rows: list[dict]) -> int:
+    """Point-in-time quarterly EPS. Separate table (not a bt_fundamentals column)
+    because its natural key is the FISCAL PERIOD, while bt_fundamentals is keyed
+    by the filing date — one restatement can publish two filings describing the
+    same quarter."""
+    if not rows:
+        return 0
+    for r in rows:
+        r["fiscal_date_ending"] = _d(r["fiscal_date_ending"])
+        r["reported_date"] = _d(r["reported_date"])
+    # Dedupe on the PK before the round-trip. A restatement publishes two filings
+    # describing the SAME quarter, and two rows with one PK inside a single
+    # ON CONFLICT statement is a Postgres error ("cannot affect row a second
+    # time") rather than an upsert. Keep the EARLIEST publication — same rule the
+    # LEAST() below applies across separate calls, so the outcome does not depend
+    # on how the rows happened to be batched.
+    dedup: dict[tuple, dict] = {}
+    for r in rows:
+        key = (r["ticker"], r["fiscal_date_ending"])
+        prev = dedup.get(key)
+        if prev is None or r["reported_date"] < prev["reported_date"]:
+            dedup[key] = r
+    rows = list(dedup.values())
+    async with engine.begin() as conn:
+        await conn.execute(text(
+            "INSERT INTO bt_earnings (ticker, fiscal_date_ending, reported_date, "
+            "  reported_eps) "
+            "VALUES (:ticker, :fiscal_date_ending, :reported_date, :reported_eps) "
+            "ON CONFLICT (ticker, fiscal_date_ending) DO UPDATE SET "
+            # Keep the EARLIEST known date for a period: a later restatement must
+            # not move the report backward in time and hand a backtest a figure
+            # before it was public.
+            "  reported_date=LEAST(bt_earnings.reported_date, EXCLUDED.reported_date), "
+            "  reported_eps=EXCLUDED.reported_eps"
+        ), rows)
+    return len(rows)
 
 
 async def _upsert_universe(rows: list[dict]) -> int:
@@ -351,16 +393,29 @@ async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
                 continue
             per_ticker.setdefault(m["ticker"], []).append(m)
         total = 0
+        earnings_total = 0
         for t in list(per_ticker.keys()):
             rows = per_ticker.pop(t)          # free this ticker's block after use
             rows.sort(key=lambda r: r["as_of_date"])
+            erows = []
             for i, r in enumerate(rows):
                 prior = rows[i - 4] if i >= 4 else None  # ~year-ago quarter
                 r["revenue_growth"] = compute_growth(
                     r.get("_revenue"), prior.get("_revenue") if prior else None)
                 r["eps_growth"] = compute_growth(
                     r.get("_eps"), prior.get("_eps") if prior else None)
+                # issuance = shares_now / shares_year_ago − 1, computed by the
+                # factor step; it needs the year-ago LEVEL, not a ratio, so the
+                # same rows[i-4] anchor the growth fields use is carried across.
+                r["shares_outstanding_prior"] = (
+                    prior.get("shares_outstanding") if prior else None)
+                er = map_sf1_earnings_row(r)
+                if er:
+                    erows.append(er)
             total += await _upsert_fundamentals(rows)
+            earnings_total += await _upsert_bt_earnings(erows)
+        print(f"[bt-data] SF1: {total} fundamentals rows, {earnings_total} "
+              f"earnings rows", flush=True)
         await _close_run(rid, "success", total)
     except Exception as exc:
         await _close_run(rid, "failed", err=repr(exc)[:1500])

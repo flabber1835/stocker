@@ -55,9 +55,40 @@ CREATE TABLE IF NOT EXISTS bt_fundamentals (
     debt_to_equity  NUMERIC(24,6),
     revenue_growth  NUMERIC(24,6),
     eps_growth      NUMERIC(24,6),
+    -- Coverage-contract fields (2026-07). SF1 always carried these; the mapper
+    -- discarded them, which made small_cap/issuance structurally null here and
+    -- narrowed the tunnel's rankable universe vs live (availability counts even
+    -- weight-0 factors toward min_non_null_factors). See docs/architecture.md
+    -- "factor-coverage contract between live and the wind tunnel".
+    market_cap               NUMERIC(24,2),   -- SF1 marketcap    → small_cap
+    shares_outstanding       NUMERIC(22,2),   -- SF1 sharesbas    → issuance
+    shares_outstanding_prior NUMERIC(22,2),   -- the ~year-ago filing
     PRIMARY KEY (ticker, as_of_date)
 );
 CREATE INDEX IF NOT EXISTS idx_bt_fundamentals_asof ON bt_fundamentals(as_of_date);
+-- Idempotent add for pre-existing DBs (bt-data re-applies this file on startup,
+-- so an existing bt-postgres picks the columns up without a manual migration —
+-- they stay NULL until the SF1 stage is re-backfilled).
+ALTER TABLE bt_fundamentals
+    ADD COLUMN IF NOT EXISTS market_cap               NUMERIC(24,2),
+    ADD COLUMN IF NOT EXISTS shares_outstanding       NUMERIC(22,2),
+    ADD COLUMN IF NOT EXISTS shares_outstanding_prior NUMERIC(22,2);
+
+-- Point-in-time quarterly EPS, the raw material for reproducing the
+-- earnings-surprise (PEAD) factor. POPULATED BUT NOT YET CONSUMED: Sharadar has
+-- no analyst estimates, so live's analyst-based SUE cannot be computed from it.
+-- `estimated_eps` is deliberately absent rather than fabricated.
+--   fiscal_date_ending = SF1 calendardate (the period described)
+--   reported_date      = SF1 datekey      (when it became PUBLIC — the
+--                        no-look-ahead key, same value as bt_fundamentals.as_of_date)
+CREATE TABLE IF NOT EXISTS bt_earnings (
+    ticker             VARCHAR(20)  NOT NULL,
+    fiscal_date_ending DATE         NOT NULL,
+    reported_date      DATE         NOT NULL,
+    reported_eps       NUMERIC(24,6),
+    PRIMARY KEY (ticker, fiscal_date_ending)
+);
+CREATE INDEX IF NOT EXISTS idx_bt_earnings_reported ON bt_earnings(reported_date);
 -- Idempotent widen for pre-existing DBs (same-scale precision increase).
 ALTER TABLE bt_fundamentals
     ALTER COLUMN pe_ratio TYPE NUMERIC(24,6),

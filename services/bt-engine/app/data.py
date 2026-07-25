@@ -143,14 +143,25 @@ async def load_fundamentals(engine, tickers: list[str], end: date) -> pd.DataFra
     async with engine.connect() as conn:
         rows = (await conn.execute(text(
             "SELECT ticker, as_of_date, pe_ratio, pb_ratio, roe, debt_to_equity, "
-            "       revenue_growth, eps_growth FROM bt_fundamentals "
+            "       revenue_growth, eps_growth, market_cap, shares_outstanding, "
+            "       shares_outstanding_prior FROM bt_fundamentals "
             "WHERE ticker = ANY(:tk) AND as_of_date <= :t ORDER BY ticker, as_of_date"
         ), {"tk": tickers, "t": end})).fetchall()
+    # market_cap / shares_outstanding[_prior] feed small_cap and issuance. They
+    # were absent until the coverage fix, which made those two factors
+    # structurally null here and — because availability counts weight-0 factors
+    # toward min_non_null_factors — narrowed the tunnel's rankable universe
+    # relative to live. Column names must match live's `fundamentals` table
+    # exactly: compute_small_cap/compute_issuance look them up BY NAME and return
+    # all-NaN for a missing column rather than raising.
     return pd.DataFrame([{
         "ticker": r.ticker, "as_of_date": r.as_of_date,
         "pe_ratio": _f(r.pe_ratio), "pb_ratio": _f(r.pb_ratio), "roe": _f(r.roe),
         "debt_to_equity": _f(r.debt_to_equity),
         "revenue_growth": _f(r.revenue_growth), "eps_growth": _f(r.eps_growth),
+        "market_cap": _f(r.market_cap),
+        "shares_outstanding": _f(r.shares_outstanding),
+        "shares_outstanding_prior": _f(r.shares_outstanding_prior),
     } for r in rows])
 
 

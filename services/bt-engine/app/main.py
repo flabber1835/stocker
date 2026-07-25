@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 
+from app.coverage import check_config_coverage, enforcement_enabled
 from app.data import load_fundamentals, load_prices, load_universe
 from app.sim import SimParams, run_simulation
 from app.sweep import (SweepWindows, aggregate_rolling, apply_diff,
@@ -125,6 +126,57 @@ async def health():
     return {"status": "ok", "service": "bt-engine"}
 
 
+def _enforce_coverage(cfg: StrategyConfig, what: str = "config") -> None:
+    """Fail-closed factor-coverage gate (see app/coverage.py).
+
+    422, not 400: the config is structurally VALID — it is this corpus that
+    cannot score it. A 400 would tell bt-scheduler the proposal was malformed."""
+    violations = check_config_coverage(cfg)
+    if not violations:
+        return
+    detail = f"factor coverage: {what} cannot be scored by this wind tunnel. " \
+             + " ".join(violations)
+    if not enforcement_enabled():
+        # Still say it loudly. A disabled gate that is also silent is the exact
+        # shape of the bug this was written for.
+        print(f"[bt-engine] COVERAGE VIOLATION (enforcement disabled): {detail}",
+              flush=True)
+        return
+    raise HTTPException(status_code=422, detail=detail)
+
+
+def _drop_uncoverable_diffs(diffs: list[dict], base: dict) -> tuple[list[dict], list]:
+    """Split candidate diffs into (scorable, dropped-for-coverage).
+
+    A violating diff must NOT 422 the whole request: candidates arrive from the
+    evaluator's experiment queue, and one proposal that weights an uncomputable
+    factor cannot be allowed to kill the standing sweep. Dropped diffs go back
+    through the existing `extra_dropped` channel, which bt-scheduler already
+    understands as 'invalid' rather than 'testing' (audit F2)."""
+    if not enforcement_enabled():
+        return list(diffs), []
+    keep, dropped = [], []
+    for diff in diffs:
+        merged, err = apply_diff(base, diff)
+        # A diff that fails validation is not ours to judge — merge_extra_configs
+        # already dropped those; grid diffs are validated at enumeration.
+        if err is not None or merged is None:
+            keep.append(diff)
+            continue
+        try:
+            violations = check_config_coverage(StrategyConfig(**merged))
+        except Exception:  # noqa: BLE001 — never let the gate itself break a sweep
+            keep.append(diff)
+            continue
+        if violations:
+            print(f"[bt-engine] dropped diff for factor coverage: {diff} — "
+                  f"{' '.join(violations)}", flush=True)
+            dropped.append(diff)
+        else:
+            keep.append(diff)
+    return keep, dropped
+
+
 @app.post("/jobs/run")
 async def start_run(req: BtRunRequest, background_tasks: BackgroundTasks):
     if req.end_date <= req.start_date:
@@ -138,6 +190,8 @@ async def start_run(req: BtRunRequest, background_tasks: BackgroundTasks):
             cfg, _h = load_strategy(req.config_path or STRATEGY_CONFIG_PATH)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"invalid config: {exc}")
+
+    _enforce_coverage(cfg, what="config")
 
     async with _job_lock:
         async with engine.begin() as conn:
@@ -385,10 +439,17 @@ async def start_sweep(req: SweepRequest, background_tasks: BackgroundTasks):
             base_cfg, _h = load_strategy(req.config_path or STRATEGY_CONFIG_PATH)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"invalid base config: {exc}")
+    # The BASE is fatal: every diff is scored relative to it, so a base the
+    # tunnel cannot compute makes the entire sweep meaningless.
+    _enforce_coverage(base_cfg, what="base config")
     diffs = enumerate_grid(req.grid, max_configs=req.max_configs,
                            sample_seed=req.sample_seed)
     diffs, extra_dropped = merge_extra_configs(
         diffs, req.extra_configs, base_cfg.model_dump(mode="json"))
+    # Individual candidates are NOT fatal — they join the dropped channel.
+    diffs, coverage_dropped = _drop_uncoverable_diffs(
+        diffs, base_cfg.model_dump(mode="json"))
+    extra_dropped = list(extra_dropped) + coverage_dropped
     if extra_dropped:
         print(f"[bt-engine] dropped {len(extra_dropped)} invalid/duplicate extra "
               f"config(s) from sweep request: {extra_dropped}", flush=True)

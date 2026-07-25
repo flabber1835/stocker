@@ -1198,6 +1198,66 @@ tried; short samples flagged DIRECTIONAL. `backtest_runs` gains
 summary/validation/sim_mode/config_json (migration 0039). Config reloaded per job
 (G6). See docs/architecture.md "backtester as a trustworthy evaluator tool".
 
+### Factor-coverage contract (wind tunnel ↔ live)
+
+```text
+The wind tunnel may not score a config that puts nonzero weight on a factor
+it cannot compute.
+```
+
+`composite_scores` renormalizes per row over the NON-NULL factors — correct for a
+factor missing on SOME tickers, catastrophic for one missing from the whole
+corpus: it silently redistributes the weight instead of erroring. bt-engine never
+passed `earnings=` and bt-data never ingested earnings, so `earnings_surprise`
+(weight 0.12 in momentum_rotation_v2) was null everywhere and momentum was
+effectively scored at 0.409 instead of 0.360. Every wind-tunnel run scored a
+config nobody supplied, and auto-promotion could act on it.
+
+Enforcement lives in `services/bt-engine/app/coverage.py`, fail-closed:
+
+```text
+check_config_coverage()  static, at request time. Judges every weight vector the
+                         config could USE, via effective_factor_weights() over
+                         all four regimes (so regime_weighting_enabled is
+                         honoured rather than re-derived).
+CoverageObserver         empirical backstop: was each weighted factor EVER seen
+                         non-null across the whole run? End-of-run, not first
+                         rebalance — a factor may legitimately be null during
+                         warm-up. Raises CoverageError; the sweep turns that into
+                         a per-config error row, never a fake score.
+/jobs/run                422 on violation.
+/sweeps/run              422 on a violating BASE config; violating CANDIDATE
+                         diffs join the existing extra_dropped channel so one bad
+                         evaluator proposal can't kill the standing sweep.
+BT_COVERAGE_ENFORCE=false disables (default on); violations are still LOGGED —
+                         a disabled gate that is also silent is the original bug.
+```
+
+Coverage closed in bt-data: SF1 `marketcap` → `market_cap` (small_cap),
+`sharesbas`/`shareswa` → `shares_outstanding` + `shares_outstanding_prior` from
+the rows[i-4] year-ago filing (issuance), and `bt_earnings` (per-filing EPS,
+POPULATED BUT NOT YET CONSUMED). NOTE: market cap and share counts go through
+`_level()`, not `_f()` — `_f`'s MAX_MAGNITUDE of 1e12 is a RATIO guard and would
+silently null a mega-cap's market cap. `init_bt.sql` is re-applied idempotently
+by bt-data on every startup, so an existing bt-postgres picks up the new columns
+without a manual migration; the SF1 stage must be RE-BACKFILLED to populate them
+(the ~35M-row price corpus is untouched).
+
+`earnings_surprise` remains UNSUPPORTED: Sharadar carries reported EPS but no
+analyst estimate, so live's analyst-based SUE cannot be reproduced verbatim.
+Until definitional parity lands, the active config is refused and AUTO-PROMOTION
+IS PAUSED — the intended state, since the alternative is promoting on evidence
+known to be wrong. Resolution is always to teach the tunnel; removing a factor
+from live because the test rig cannot see it lets the instrument dictate the
+strategy. See docs/architecture.md "factor-coverage contract between live and the
+wind tunnel".
+
+All pre-existing bt_sweeps / bt_sweep_results / bt_runs rows are VOID (this plus
+the `-96%` simulator bleed). The evaluator can read those tables, so purge them
+with `scripts/purge-void-bt-results.sh --yes` (dry-run by default; refuses while
+a job is in flight; deletes RESULTS tables only and clears the
+artifacts/bt/*.json bridge — never the source corpus).
+
 ## evaluator
 
 Weekly LLM strategy review. OBJECTIVE (owner-set, in its system prompt + docs):
@@ -1878,6 +1938,10 @@ stocker/
     bt-data/             ← built: Sharadar SEP/SF1 fetcher for the SEPARATE backtest
                            machine (docker-compose.backtest.yml, own bt-postgres —
                            never in the live compose). Point-in-time fundamentals.
+                           SF1 also supplies market_cap + shares_outstanding
+                           (→ small_cap / issuance) and bt_earnings (per-filing
+                           EPS, populated but NOT yet consumed) — see the factor-
+                           coverage contract below.
     bt-engine/           ← built: day-stepping strategy simulator reusing the LIVE
                            factor/rank/select/delta modules (COPYied at image build —
                            zero drift); deterministic, truncation-proven no-look-ahead.
@@ -1885,6 +1949,10 @@ stocker/
                            (POST /sweeps/run: deterministic grid, seeded sampling,
                            mandatory out-of-sample validate window, leaderboard by
                            OOS Sharpe with overfit_gap). No AI in the loop.
+                           Enforces the FACTOR-COVERAGE CONTRACT (app/coverage.py):
+                           it REFUSES (422) any config weighting a factor it cannot
+                           compute, instead of letting composite_scores renormalize
+                           the weight away and silently score a different strategy.
                            See docs/backtester-v2-plan.md.
     llm-gateway/         ← partially built: provider abstraction skeleton
 

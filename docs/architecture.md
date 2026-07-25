@@ -2496,3 +2496,129 @@ re-authors instead of waiting on them.
 Escape hatches (unchanged, deliberately manual): override = edit the YAML and
 deploy; revert = copy an `artifacts/config/history/` archive back over the
 active file. Both leave the git mirror as the audit trail.
+
+## Design Decision: factor-coverage contract between live and the wind tunnel (2026-07)
+
+### The bug this closes
+
+`momentum_rotation_v2` weights `earnings_surprise` at 0.12. The live pipeline
+loads the `earnings` table and passes it to `compute_all_factors(earnings=...)`.
+**bt-engine never passed the argument, and bt-data never ingested earnings at
+all.** Both stacks run the *same* factor code — `sim.py` calls
+`live.compute_all_factors(...)`, and `tests/backtester/test_vendor_sync.py`
+asserts module identity — so this was never a logic divergence. It was an input
+that one side supplied and the other silently omitted.
+
+The failure mode is what makes it dangerous. `composite_scores` renormalizes per
+row over the NON-NULL factors, so a missing factor does not score as zero — it
+redistributes its weight across the others:
+
+| factor | live | wind tunnel | drift |
+|---|---|---|---|
+| momentum | 0.360 | 0.409 | +13.6% |
+| earnings_surprise | 0.120 | 0.000 | dropped |
+| quality / low_vol / value / liquidity / growth | — | — | +13.6% each |
+
+Every wind-tunnel run of `momentum_rotation_v2` scored a config that was not
+`momentum_rotation_v2`: no PEAD signal, momentum over-weighted by a seventh. The
+renormalization is correct behaviour for a *transiently* null factor on a few
+tickers (that is why it exists) and exactly wrong for a factor that is
+structurally absent — it produces a plausible number instead of an error.
+
+Worse, the artifact is *weight-sensitive*: a candidate that moves
+`earnings_surprise` from 0.12 to 0.06 renormalizes over 0.94 instead of 0.88, so
+the tunnel reports a difference that is pure arithmetic. With auto-promotion
+enabled (Phase 6d), the loop could act on it.
+
+Two smaller instances of the same class: `bt_fundamentals` carried no
+`market_cap` and no shares outstanding, so `small_cap` and `issuance` were null
+too. Both are weight-0 in the active config so they never moved a score — but
+availability counts weight-0 factors toward `min_non_null_factors` (6), so live
+saw ~12 available factors per ticker and the tunnel ~9. Thin-coverage names that
+rank live were *unrankable* in backtest: a universe skew affecting every run
+regardless of weights.
+
+### The rule
+
+> The wind tunnel may not score a config that puts nonzero weight on a factor it
+> cannot compute.
+
+Enforcement is fail-closed and lives in `services/bt-engine/app/coverage.py`:
+
+```text
+SUPPORTED_FACTORS   declared per factor WITH the input it needs, so the
+                    declaration reads as a contract rather than a list
+check_config_coverage(cfg)  static, at request time. Checks every weight vector
+                    the config could actually USE — via effective_factor_weights()
+                    over all four regimes, so it honours regime_weighting_enabled
+                    instead of re-deriving that rule (which would drift)
+check_frame_coverage(...)   empirical backstop. Tracks, across the whole run,
+                    whether each weighted factor was EVER observed non-null. A
+                    factor declared supported but absent from the corpus fails
+                    the run instead of renormalizing away
+```
+
+`/jobs/run` rejects with 422. `/sweeps/run` rejects a violating BASE config with
+422, but routes violating candidate diffs into the existing `extra_dropped`
+channel — one bad evaluator proposal must not kill the standing sweep, and
+bt-scheduler already marks exactly those proposals `invalid` rather than
+`testing` (audit F2). `BT_COVERAGE_ENFORCE=false` disables, default on.
+
+The static check fails fast and cheap; the empirical check cannot lie. Both are
+needed: the declaration is hand-maintained and could go stale, and an ingest
+outage can empty a column the declaration honestly believes is populated.
+
+### Why teach the tunnel rather than drop the factor from live
+
+Deleting a factor because the test rig cannot see it lets the measuring
+instrument dictate the strategy. The resolution is always to close the coverage
+gap; removing the factor is the fallback only when the data genuinely cannot be
+obtained.
+
+The distinction that matters is **vendor divergence vs definitional
+divergence**. Live prices come from Alpha Vantage and wind-tunnel prices from
+Sharadar; that is accepted on every factor already. What cannot be accepted is
+the same factor NAME computed two different ways — or, as here, existing on one
+side only.
+
+### Coverage closed (bt-data)
+
+Sharadar SF1 rows were already being fetched with the needed fields; the mapper
+took six and discarded the rest. Now also mapped:
+
+```text
+market_cap              ← SF1 marketcap                → small_cap
+shares_outstanding      ← SF1 sharesbas (fallback shareswa)
+shares_outstanding_prior← the ~year-ago filing (rows[i-4]), the same
+                          successive-filing pattern revenue_growth/eps_growth
+                          already use                  → issuance
+bt_earnings             ← SF1 eps + calendardate + datekey (known-as-of)
+```
+
+`bt_earnings` is populated now but NOT yet consumed — it is the raw material for
+the SUE definitional-parity work, kept separate so the coverage fix can land and
+be verified on its own.
+
+`init_bt.sql` is applied idempotently by bt-data's `_ensure_schema()` on every
+startup, so the new columns and table reach an existing bt-postgres without a
+manual migration. The SF1 stage must be re-backfilled to populate them; the SEP
+price corpus (~35M rows) is untouched.
+
+A stale caveat in `run_simulation` claimed `volume_surge` was uncomputable. It
+never was — `compute_volume_surge` reads only `prices_long` volume, which
+bt_prices has always carried. Corrected rather than propagated.
+
+### Consequences, stated plainly
+
+* Until SUE parity lands, `earnings_surprise` is uncomputable in the tunnel, so
+  the active config fails the coverage check and **auto-promotion is paused**.
+  That is the intended state: the alternative is promoting on evidence now known
+  to be wrong.
+* Every pre-existing `bt_sweeps` / `bt_sweep_results` / `bt_runs` row is void —
+  for the `-96%` simulator bleed AND for this. The evaluator has read access to
+  those tables, so they must be purged or marked before the next weekly review
+  or it will reason over them.
+* Adding `market_cap` / issuance coverage CHANGES backtest results even for
+  configs that weight neither, by changing which tickers clear
+  `min_non_null_factors`. This is a correction, not a regression: the tunnel's
+  rankable universe now matches live's.

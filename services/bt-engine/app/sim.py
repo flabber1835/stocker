@@ -44,6 +44,8 @@ from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 from app import live
 from app.bootstrap import bootstrap_terminal_wealth, daily_returns
+from app.coverage import CoverageError, CoverageObserver
+from app.coverage import enforcement_enabled as coverage_enforcement_enabled
 from app.calibration import (aggregate_calibration, decile_forward_returns,
                              sample_evenly)
 
@@ -154,7 +156,8 @@ def falling_knife_excluded(closes_by_ticker: dict[str, list[float]],
 def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
                  sector_map: dict[str, str], config: StrategyConfig, regime: str,
                  fk: dict, spy_closes: list[float],
-                 factor_cache=None, factor_key: str | None = None) -> dict[str, float]:
+                 factor_cache=None, factor_key: str | None = None,
+                 coverage_observer=None) -> dict[str, float]:
     """One rebalance: factors → rank → falling-knife → builder composition.
     Returns ({ticker: weight}, ranked_df) — weights sum ≤ 1 (cash_reserve /
     vol-target de-lever); ({}, None|df) when no feasible target.
@@ -180,6 +183,11 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
         )
         if factor_cache is not None and factor_key is not None:
             factor_cache.put(as_of, factor_key, fdf)
+    # Observe the RAW factor frame, not `ranked`: rank_universe drops rows whose
+    # composite is NaN, so a factor could look "never present" merely because the
+    # rows carrying it were filtered out for an unrelated reason.
+    if coverage_observer is not None:
+        coverage_observer.observe(fdf)
     ranked = live.rank_universe(fdf, regime, config)
     if ranked.empty:
         return {}, None
@@ -306,10 +314,18 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
     [ticker, as_of_date, pe_ratio, pb_ratio, roe, debt_to_equity, revenue_growth,
     eps_growth] with as_of_date = point-in-time known date."""
     caveats = [
-        "bt_fundamentals carries PE/PB/ROE/D-E/growth only — issuance/small_cap/"
-        "volume_surge inputs absent → those factors are null and renormalized out",
+        # earnings_surprise is the ONE remaining gap; the coverage contract
+        # (app/coverage.py) refuses to score any config that weights it, so this
+        # is a statement of scope rather than a silent degradation. issuance /
+        # small_cap are now covered (bt_fundamentals carries market_cap and
+        # shares_outstanding[_prior]); volume_surge never needed fundamentals at
+        # all — it reads bt_prices.volume, and the old caveat claiming otherwise
+        # was simply wrong.
+        "earnings_surprise is not computable from the Sharadar corpus "
+        "(no analyst estimates) — configs weighting it are refused, not degraded",
         "sector labels are the latest bt_universe snapshot (static, not per-date)",
     ]
+    coverage = CoverageObserver(config)
     # Memory-lean input handling (full-history runs): data.load_prices already
     # delivers datetime64 dates, float price dtypes and (ticker, date) ordering,
     # so each of these full-frame copies is SKIPPED on the production path and
@@ -488,7 +504,8 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
             target, ranked = build_target(
                 day_prices[day_prices["ticker"] != "SPY"], fnd_asof, sector_map,
                 config, confirmed_regime, fk, spy_closes,
-                factor_cache=factor_cache, factor_key=factor_key)
+                factor_cache=factor_cache, factor_key=factor_key,
+                coverage_observer=coverage)
 
             if ranked is not None:
                 obs_date = D.date()
@@ -675,5 +692,16 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
             lambda t, _d=d1: _price(t, _d, opens=False)))
     summary["score_calibration"] = aggregate_calibration(
         calib_rows, CALIB_HORIZON_SESSIONS)
+
+    # Empirical coverage backstop. The static gate in main.py runs on a DECLARED
+    # capability list that could go stale, and a corpus can lose a column the
+    # declaration honestly believes is populated. Raising here (rather than
+    # returning a caveat) is deliberate: the run's numbers describe a config
+    # nobody asked for, so an error row is the honest result. run_config_both_windows
+    # turns this into a per-config error row; _run_bg marks a single run failed.
+    cov = coverage.violations()
+    if cov and coverage_enforcement_enabled():
+        raise CoverageError("factor coverage: " + " ".join(cov))
+    caveats.extend(cov)
     return SimResult(summary=summary, equity=equity_rows, trades=trade_rows,
                      positions=position_rows, caveats=caveats)

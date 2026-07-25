@@ -374,7 +374,10 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
                       f"→{windows['period_a_end']} B {windows['period_b_start']}"
                       f"→{windows['period_b_end']}")
             else:
-                _note(f"experiment fire refused → {r.status_code} {r.text[:120]}")
+                # 300, not 120: a coverage refusal names the offending FACTOR near
+                # the end of the message, and a truncated "refused → 422" tells
+                # an operator nothing actionable.
+                _note(f"experiment fire refused → {r.status_code} {r.text[:300]}")
         except Exception as exc:  # noqa: BLE001
             _note(f"experiment fire failed: {repr(exc)[:160]}")
 
@@ -646,7 +649,7 @@ async def _tick() -> None:
                             r = await client.post(f"{BT_ENGINE_URL}/sweeps/run", json=payload)
                             _status["last_sweep_fire"] = now.isoformat(timespec="seconds")
                             _note(f"standing sweep fired ({why}) → "
-                                  f"{r.status_code} {r.text[:120]}")
+                                  f"{r.status_code} {r.text[:300]}")
                             if r.status_code == 200:
                                 rbody = r.json()
                                 sid = rbody.get("sweep_id", "")
