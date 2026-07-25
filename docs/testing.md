@@ -152,25 +152,39 @@ Review tab, and the tab's catch reported it as "Evaluator unreachable", blaming
 a healthy service. Its pytest wrapper also RE-INJECTS the bug and requires the
 harness to fail: a guard that passes on broken code is worse than none.
 
-**`tests/ui/lab_iphone.py`** (Playwright, Chromium) renders the Lab tab at
-iPhone X (375x812, DPR 3) across idle / running / clock-skewed payloads and
-asserts what a phone actually cares about: the page never scrolls horizontally,
-nothing overflows the viewport outside a scroll container, the bottom nav and
-sticky bar stay on-screen, no sub-10px text, tap targets >= 36px, no empty
-section headings, no negative relative ages, and even stat-tile rows. Run it
-standalone with screenshots to eyeball the result:
+**`tests/ui/`** (Playwright, Chromium) renders the LAB and REVIEW tabs at
+iPhone X (375x812, DPR 3) across every payload variant each tab can show.
+`phone_audit.py` holds all the layout assertions so the tabs cannot drift apart
+in what they are held to; `lab_iphone.py` / `review_iphone.py` supply only
+payloads and tab-specific checks. Asserted: the page never scrolls
+horizontally, nothing overflows the viewport outside a scroll container, no
+TEXT-only container scrolls horizontally (that clips content), the bottom nav
+and sticky bar stay on-screen, no sub-10px text, tap targets >= 36px, no empty
+section headings, no negative relative ages, and even stat-tile rows.
 
 ```bash
 pip install playwright                      # chromium is preinstalled at /opt/pw-browsers
 python tests/ui/lab_iphone.py --shots ./screenshots
-python -m pytest tests/ui/                  # what CI runs (~4s)
+python tests/ui/review_iphone.py --shots ./screenshots
+python -m pytest tests/ui/                  # what CI runs (~11s)
 ```
 
-First run found four real defects: an uncaught `_aaStatus.pending is not
-iterable` (a non-200 JSON body wiped a default and killed the refresh loop's
-tail), a bare "Automation" heading with nothing under it, "-746m ago" from
-NAS/phone clock skew, and a date wrapping mid-value so one stat tile stood
-taller than its row.
+Six real defects came out of the first runs: an uncaught `_aaStatus.pending is
+not iterable` (a non-200 JSON body wiped a default and killed the refresh
+loop's tail), a bare "Automation" heading with nothing under it, "-746m ago"
+from NAS/phone clock skew, a date wrapping mid-value so one stat tile stood
+taller than its row, the Review tab's evidence text CLIPPED because long dotted
+config paths pushed its text-only `.tbl-scroll` into horizontal scrolling, and
+the Review verdict sitting in a 163px-tall empty box because the `tbl-empty`
+placeholder style was never removed once a report rendered.
+
+Two of those slipped past an earlier version of the audit, which is worth
+remembering when adding checks: the overflow check EXEMPTS anything inside a
+horizontal scroll container (correct for the Lab's wide leaderboard), and the
+Review tab's entire body sits in one — so the exemption silently disabled the
+check for that whole tab until a "text-only containers must not scroll" rule
+was added. Assertions are also matched against RENDERED text, so CSS
+`text-transform: uppercase` means a heading reads `CONFIG CHANGES APPLIED`.
 
 These assertions prove the layout EXECUTES and measures correctly. They do not
 prove it looks good — for that, read the screenshots or use the

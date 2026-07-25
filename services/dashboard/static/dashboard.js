@@ -2440,6 +2440,12 @@ let _appliedChanges = [];
 function _renderEvalReport(rep) {
   const st = $('eval-status'), recs = $('eval-recs'),
         nar = $('eval-narrative'), meta = $('eval-meta');
+  // `tbl-empty` is the centred 48px-padded PLACEHOLDER style for "Loading…".
+  // It was never removed once a report rendered, so the verdict chip sat in a
+  // 163px-tall empty box — a big dead gap above the cards on a phone. Keep it
+  // only while the pane really is a placeholder (the Lab does the same).
+  const placeholder = !rep || rep.status === 'running' || rep.status === 'failed';
+  st.classList.toggle('tbl-empty', placeholder);
   if (!rep) {
     st.textContent = 'No evaluator reports yet — press RUN REVIEW to generate the first one.';
     recs.innerHTML = ''; nar.innerHTML = ''; meta.textContent = '';

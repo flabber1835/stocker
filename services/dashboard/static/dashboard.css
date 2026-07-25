@@ -914,6 +914,17 @@ tr.cash-row .t-ticker { color: var(--text2); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
 /* ── Evaluator tab (weekly LLM review) ─────────────────────────────────── */
+/* The Review tab is all prose, and the evaluator is REQUIRED to cite dotted
+   config paths, config hashes and SQL — long unbreakable tokens. Without an
+   explicit break rule they forced #eval-* content wider than the 375px
+   viewport: the surrounding .tbl-scroll then scrolled sideways and CLIPPED the
+   evidence line ("selection_audit.avg_fwd_return_by_outcome" was cut off
+   mid-word on an iPhone X). Text must never require horizontal scrolling. */
+#eval-recs, #eval-narrative, #eval-meta, #eval-status {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .eval-md { line-height: 1.55; font-size: 13px; }
 .eval-md h3, .eval-md h4, .eval-md h5 { margin: 14px 0 4px; }
 .eval-md p { margin: 4px 0; }
