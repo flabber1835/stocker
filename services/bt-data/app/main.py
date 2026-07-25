@@ -210,11 +210,26 @@ async def _upsert_bt_earnings(rows: list[dict]) -> int:
     return len(rows)
 
 
+def coerce_universe_dates(rows: list[dict]) -> list[dict]:
+    """Coerce EVERY date-typed column to datetime.date before binding.
+
+    asyncpg rejects a str for a DATE column outright — `invalid input for query
+    argument $5 ... ('str' object)`. `snapshot_date` was coerced from the start;
+    when first_price_date/last_price_date were added to the INSERT they were
+    not, and the whole bt_universe stage failed at the end of a multi-hour
+    backfill. Split out as a pure function so the coercion is TESTABLE without a
+    database — the mapper tests passed happily while this path was broken."""
+    for r in rows:
+        for col in ("snapshot_date", "first_price_date", "last_price_date"):
+            if col in r:
+                r[col] = _d(r[col])
+    return rows
+
+
 async def _upsert_universe(rows: list[dict]) -> int:
     if not rows:
         return 0
-    for r in rows:
-        r["snapshot_date"] = _d(r["snapshot_date"])
+    coerce_universe_dates(rows)
     async with engine.begin() as conn:
         await conn.execute(text(
             "INSERT INTO bt_universe (snapshot_date, ticker, name, sector, "

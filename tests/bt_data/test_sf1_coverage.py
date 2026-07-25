@@ -211,3 +211,68 @@ def test_datetime_valued_dates_are_truncated_to_the_date():
 def test_the_existing_universe_filter_still_applies():
     assert map_tickers_row(_t(category="ETF"), "2026-07-25") is None
     assert map_tickers_row(_t(exchange="OTC"), "2026-07-25") is None
+
+
+# ── DATE binding (the bug that failed a multi-hour backfill) ────────────────
+# asyncpg rejects a str for a DATE column: "invalid input for query argument
+# $5 ... ('str' object)". map_tickers_row returns ISO STRINGS, and the upsert
+# must coerce every date column before binding. `snapshot_date` always was;
+# first_price_date/last_price_date were added to the INSERT and not to the
+# coercion, so bt_universe failed at the END of a full backfill.
+#
+# The mapper tests above all passed while this was broken — they check what the
+# mapper RETURNS, not what reaches the driver. This checks the seam.
+
+import datetime as _dt  # noqa: E402
+import os as _os  # noqa: E402
+
+# app.main refuses to import without a DSN (a deliberate fail-fast). These tests
+# touch only the PURE coercion helper, so a dummy value is enough — no DB is
+# opened at import time.
+_os.environ.setdefault("BT_DATABASE_URL", "postgresql+asyncpg://u:p@127.0.0.1:1/x")
+
+from app.main import coerce_universe_dates  # noqa: E402
+
+
+def test_every_date_column_is_a_date_object_after_coercion():
+    rows = [map_tickers_row(_t(), "2026-07-25")]
+    assert isinstance(rows[0]["first_price_date"], str), (
+        "precondition: the mapper emits ISO strings, which is why coercion exists")
+    coerce_universe_dates(rows)
+    for col in ("snapshot_date", "first_price_date", "last_price_date"):
+        assert isinstance(rows[0][col], _dt.date), col
+
+
+def test_coercion_preserves_nulls():
+    """An absent lastpricedate means 'still trading'. Coercing it into some
+    sentinel date would delist every live company."""
+    rows = [map_tickers_row(_t(lastpricedate=""), "2026-07-25")]
+    coerce_universe_dates(rows)
+    assert rows[0]["last_price_date"] is None
+    assert isinstance(rows[0]["first_price_date"], _dt.date)
+
+
+def test_coercion_is_idempotent():
+    """The upsert may be retried; feeding it already-coerced rows must not raise."""
+    rows = [map_tickers_row(_t(), "2026-07-25")]
+    coerce_universe_dates(rows)
+    coerce_universe_dates(rows)
+    assert isinstance(rows[0]["first_price_date"], _dt.date)
+
+
+def test_the_insert_and_the_coercion_cover_the_same_date_columns():
+    """THE regression. Adding a DATE column to the INSERT without adding it here
+    is exactly what broke the backfill; this fails the next time it happens."""
+    import inspect
+    import re
+
+    from app import main as bt_main
+    sql = inspect.getsource(bt_main._upsert_universe)
+    insert = re.search(r"INSERT INTO bt_universe \(([^)]*)\)", sql, re.S)
+    assert insert, "could not locate the bt_universe INSERT"
+    cols = {c.strip() for c in insert.group(1).replace('"', "").split(",") if c.strip()}
+    date_cols = {c for c in cols if c.endswith("_date")}
+    coerced = set(re.findall(r'"(\w+)"',
+                             inspect.getsource(bt_main.coerce_universe_dates)))
+    missing = date_cols - coerced
+    assert not missing, f"DATE column(s) in the INSERT are never coerced: {missing}"
