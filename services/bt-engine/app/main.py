@@ -133,6 +133,38 @@ async def health():
     return {"status": "ok", "service": "bt-engine"}
 
 
+@app.get("/gates/check")
+async def gates_check(config_path: str | None = None):
+    """Interrogate the coverage + parity gates WITHOUT starting anything.
+
+    Exists because the deploy verifier used to probe the gate by POSTing a real
+    /jobs/run and reading the status code. That worked only while the active
+    config was guaranteed to be REFUSED. The moment SUE parity made it scorable,
+    the same probe started an actual backtest — from `deploy-all.sh --verify`,
+    whose entire contract is that it changes nothing.
+
+    A gate you can only test by trying to trip it is not a gate you can safely
+    monitor. This answers the same question as a pure read."""
+    try:
+        cfg, _h = load_strategy(config_path or STRATEGY_CONFIG_PATH)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"invalid config: {exc}")
+    coverage = check_config_coverage(cfg)
+    parity = check_config_parity(cfg)
+    cov_on, par_on = coverage_enforcement_enabled(), parity_enforcement_enabled()
+    return {
+        "config": config_path or STRATEGY_CONFIG_PATH,
+        "strategy_id": cfg.strategy_id,
+        "coverage_violations": coverage,
+        "parity_violations": parity,
+        "coverage_enforcing": cov_on,
+        "parity_enforcing": par_on,
+        # What /jobs/run WOULD do with this config, without doing it.
+        "would_refuse": bool((coverage and cov_on) or (parity and par_on)),
+        "scorable": not coverage and not parity,
+    }
+
+
 def _enforce_coverage(cfg: StrategyConfig, what: str = "config") -> None:
     """Fail-closed factor-coverage gate (see app/coverage.py).
 

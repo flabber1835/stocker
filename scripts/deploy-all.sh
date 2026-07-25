@@ -134,30 +134,42 @@ echo
 # rather than merely present in the image. A gate that built but is not enforcing
 # looks identical to one that is, right up until it lets something through.
 echo "gates:"
-# NOT -f: --fail makes curl exit non-zero and print NOTHING on 4xx, so the 422
-# this is looking for would be indistinguishable from the service being down.
-gate_out="$(curl -s --max-time 10 -X POST http://localhost:8031/jobs/run \
-    -H 'Content-Type: application/json' \
-    -d '{"start_date":"2024-01-02","end_date":"2024-02-02"}' \
-    -w '\n%{http_code}' 2>/dev/null || true)"
-gate_code="$(printf '%s' "$gate_out" | tail -1)"
-case "$gate_code" in
-    422) echo "  bt-engine coverage/parity  ENFORCING (422 as expected — the active"
-         echo "                             config weights earnings_surprise, which the"
-         echo "                             corpus cannot compute)" ;;
-    200|202) echo "  bt-engine coverage/parity  NOT enforcing — a run STARTED for a config"
-             echo "                             it cannot faithfully score. Check"
-             echo "                             BT_COVERAGE_ENFORCE / BT_PARITY_ENFORCE."
-             rc=1 ;;
-    409) echo "  bt-engine coverage/parity  (busy — a run is in flight, gate unverified)" ;;
-    400) echo "  bt-engine coverage/parity  bt-engine REJECTED the active config (400)."
-         echo "                             Most likely an OLD bt-engine image whose bundled"
-         echo "                             schema does not know a newer config field"
-         echo "                             (e.g. sue_method) — expected while the backtest"
-         echo "                             stack is skipped. Re-run once it deploys."
-         rc=1 ;;
-    *)   echo "  bt-engine coverage/parity  unverified (HTTP '${gate_code:-none}')" ;;
-esac
+# READ-ONLY. The first version POSTed a real /jobs/run and read the status code,
+# which only worked while the active config was guaranteed to be REFUSED. Once
+# SUE parity made it scorable, the same probe STARTED A BACKTEST — from
+# `--verify`, whose entire contract is that it changes nothing. A gate you can
+# only test by trying to trip it is not a gate you can safely monitor.
+gate_json="$(curl -s --max-time 10 http://localhost:8031/gates/check 2>/dev/null || true)"
+gate_get() { printf '%s' "$gate_json" \
+    | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1',''))" 2>/dev/null; }
+if [ -z "$gate_json" ]; then
+    echo "  bt-engine gates            UNREACHABLE (/gates/check) — old image, or bt-engine down"
+    rc=1
+else
+    cov_on="$(gate_get coverage_enforcing)"; par_on="$(gate_get parity_enforcing)"
+    scorable="$(gate_get scorable)";         refuse="$(gate_get would_refuse)"
+    if [ "$cov_on" = "True" ] && [ "$par_on" = "True" ]; then
+        echo "  bt-engine gates            ENFORCING (coverage + parity)"
+    else
+        echo "  bt-engine gates            NOT fully enforcing — coverage=$cov_on parity=$par_on."
+        echo "                             Check BT_COVERAGE_ENFORCE / BT_PARITY_ENFORCE."
+        rc=1
+    fi
+    if [ "$scorable" = "True" ]; then
+        echo "  active config              SCORABLE — the wind tunnel can run it"
+    else
+        echo "  active config              REFUSED by the gates (would_refuse=$refuse):"
+        printf '%s' "$gate_json" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for v in (d.get('coverage_violations') or []) + (d.get('parity_violations') or []):
+    print('                             · ' + v[:150])
+" 2>/dev/null
+        # NOT an error. A refusal is the gate doing its job; it is a fact about
+        # the config, not a fault in the deploy.
+    fi
+fi
+echo
 
 ver="$(docker compose -p stocker-bt -f docker-compose.backtest.yml exec -T bt-postgres \
         psql -U btuser -d backtest -tAq \

@@ -96,19 +96,40 @@ def test_ports_are_asked_of_compose_not_hardcoded(code):
         "a hardcoded health port is back — ask compose instead"
 
 
-def test_the_gate_probe_does_not_use_curl_fail(src):
-    """`curl -f` exits non-zero and prints NOTHING on 4xx, so the 422 this looks
-    for would be indistinguishable from the service being down."""
-    gate = src[src.index("gate_out="):src.index("gate_code=")]
-    assert " -sf " not in gate and "-sf " not in gate.replace("curl -s ", "")
+def test_the_gate_probe_has_no_side_effects(code):
+    """THE bug this replaced. The first version POSTed a real /jobs/run and read
+    the status code — fine while the active config was guaranteed to be REFUSED,
+    but the moment SUE parity made it scorable the same probe STARTED A BACKTEST,
+    from --verify, whose contract is that it changes nothing."""
+    assert "/gates/check" in code, "the gate probe must be the read-only endpoint"
+    assert "POST http://localhost:8031/jobs/run" not in code
+    assert "-X POST" not in code, "verification must not POST anything"
 
 
 def test_a_non_enforcing_gate_is_reported_as_a_problem(src):
     """A gate that built but is not enforcing looks exactly like one that is,
     right up until it lets something through."""
-    assert "NOT enforcing" in src
-    non_enforcing = src[src.index("200|202"):src.index("409)")]
-    assert "rc=1" in non_enforcing
+    assert "NOT fully enforcing" in src
+    i = src.index("NOT fully enforcing")
+    # Search FORWARD from the message — "active config" also appears earlier, in
+    # the comment explaining why this probe is read-only, so an absolute index
+    # produced an empty slice and a vacuous pass.
+    block = src[i:i + 400]
+    assert "rc=1" in block
+
+
+def test_a_refused_config_is_not_treated_as_a_deploy_failure(src):
+    """A refusal is the gate WORKING — a fact about the config, not a fault in
+    the deploy. Counting it as an error would make a correct system look broken
+    every time the tunnel legitimately cannot score something."""
+    i = src.index("REFUSED by the gates")
+    assert "rc=1" not in src[i:i + 700]
+
+
+def test_an_unreachable_gate_endpoint_is_a_problem(src):
+    """An old bt-engine image has no /gates/check. Silence there would read as
+    'nothing to report' when it means 'the new code is not deployed'."""
+    assert "UNREACHABLE" in src
 
 
 def test_verification_reports_failure_through_the_exit_code(src):
