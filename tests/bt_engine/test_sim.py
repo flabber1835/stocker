@@ -175,3 +175,26 @@ def test_summary_shape():
               "n_rebalances", "n_trades"):
         assert k in res.summary, k
     assert res.summary["n_rebalances"] > 0 and res.summary["n_trades"] > 0
+
+
+def test_progress_callback_reports_interim_stats():
+    """A multi-hour run must be INFORMATIVE while it runs: the callback carries
+    interim return/CAGR/drawdown/trades, not just a percentage (the Lab renders
+    these as live tiles)."""
+    prices, fnd, days = _make_data()
+    seen = []
+
+    def cb(done, total, stats=None):
+        seen.append((done, total, stats))
+
+    run_simulation(prices, fnd, {}, _cfg(), _params(days), progress_cb=cb)
+
+    assert seen, "progress callback never fired"
+    done, total, stats = seen[-1]
+    assert 0 < done <= total
+    assert stats is not None
+    for k in ("as_of", "equity", "total_return", "annualized_return",
+              "max_drawdown", "benchmark_total_return", "n_trades", "n_positions"):
+        assert k in stats, k
+    assert stats["max_drawdown"] <= 0            # drawdown is negative-or-zero
+    assert isinstance(stats["n_trades"], int)

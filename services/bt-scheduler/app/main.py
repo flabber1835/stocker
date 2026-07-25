@@ -367,14 +367,19 @@ async def _experiment_snapshot(client: httpx.AsyncClient, now: datetime) -> dict
     outcome."""
     exps = (_bt_json("experiments.json") or {}).get("experiments") or []
     running = next((e for e in reversed(exps) if e.get("status") == "running"), None)
-    progress = None
+    progress, live = None, None
     if running and running.get("sweep_id"):
         try:
             sw = (await client.get(f"{BT_ENGINE_URL}/sweeps/latest")).json().get("sweep") or {}
-            if sw.get("sweep_id") == running["sweep_id"] and sw.get("n_configs"):
-                progress = 100.0 * (sw.get("n_done") or 0) / sw["n_configs"]
-        except Exception:  # noqa: BLE001 — progress is best-effort
-            progress = None
+            if sw.get("sweep_id") == running["sweep_id"]:
+                # progress_pct is per-SESSION within the config (n_done only
+                # moves 0->1 for a single-config experiment — no granularity).
+                progress = sw.get("progress_pct")
+                live = sw.get("live_stats")
+                if isinstance(live, str):
+                    live = json.loads(live)
+        except Exception:  # noqa: BLE001 — telemetry is best-effort
+            progress, live = None, None
     props = (_bt_json("proposals.json") or {}).get("proposals") or []
     queued = [{"kind": e.get("kind", "single_field"),
                "hypothesis": e.get("hypothesis")
@@ -399,7 +404,8 @@ async def _experiment_snapshot(client: httpx.AsyncClient, now: datetime) -> dict
                      "hypothesis": running.get("hypothesis"),
                      "fired_at": running.get("fired_at"),
                      "windows": running.get("windows"),
-                     "progress_pct": progress} if running else None),
+                     "progress_pct": progress,
+                     "live": live} if running else None),
         "queued": queued[:8],
         "schedule": build_schedule(queued, next_fire, n_fired, EXPERIMENTS_PER_WEEK),
         "recent": recent,

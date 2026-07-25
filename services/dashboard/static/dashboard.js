@@ -2678,8 +2678,24 @@ function renderLab(d) {
                                   ` · validate ${esc(w.validate_start)}→${esc(w.validate_end)}` : '';
       h += `<div class="lab-line"><b>▶ running</b> · ${esc(ex.running.kind)} · ` +
            `started ${esc(_labAge(ex.running.fired_at))}` +
-           (p != null ? ` · ${Math.round(p)}%` : ' · (running)') + wtxt + '</div>' + bar +
-           `<div class="lab-note">thesis: ${esc(ex.running.hypothesis)}</div>`;
+           (p != null ? ` · ${Math.round(p)}%` : ' · (running)') + wtxt + '</div>' + bar;
+      // Live interim stats — a multi-hour run should be INFORMATIVE, not just a %
+      const lv = ex.running.live;
+      if (lv) {
+        const pct = v => (v == null ? '—' : (Number(v) * 100).toFixed(1) + '%');
+        const sign = v => (v == null ? '' : (Number(v) >= 0 ? 'stat-up' : 'stat-down'));
+        h += '<div class="stat-row">' +
+          `<div class="stat"><div class="stat-k">phase</div><div class="stat-v">${esc(lv.phase || '—')}</div></div>` +
+          `<div class="stat"><div class="stat-k">as of</div><div class="stat-v">${esc(lv.as_of)}</div></div>` +
+          `<div class="stat"><div class="stat-k">return</div><div class="stat-v ${sign(lv.total_return)}">${pct(lv.total_return)}</div></div>` +
+          `<div class="stat"><div class="stat-k">CAGR</div><div class="stat-v ${sign(lv.annualized_return)}">${pct(lv.annualized_return)}</div></div>` +
+          `<div class="stat"><div class="stat-k">vs SPY</div><div class="stat-v ${sign(lv.total_return - lv.benchmark_total_return)}">${pct(lv.total_return - lv.benchmark_total_return)}</div></div>` +
+          `<div class="stat"><div class="stat-k">max DD</div><div class="stat-v stat-down">${pct(lv.max_drawdown)}</div></div>` +
+          `<div class="stat"><div class="stat-k">trades</div><div class="stat-v">${esc(lv.n_trades)}</div></div>` +
+          `<div class="stat"><div class="stat-k">held</div><div class="stat-v">${esc(lv.n_positions)}</div></div>` +
+          '</div>';
+      }
+      h += `<div class="lab-note">thesis: ${esc(ex.running.hypothesis)}</div>`;
     } else {
       h += `<div class="lab-line lab-dim">none running · next slot ${esc(ex.next_fire_local)} ` +
            `· ${esc(ex.fired_this_week)}/${esc(ex.week_cap)} fired this week · ` +

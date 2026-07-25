@@ -78,6 +78,9 @@ _SWEEP_DDL = [
         PRIMARY KEY (sweep_id, config_idx))""",
     """CREATE INDEX IF NOT EXISTS idx_bt_sweep_results_oos
         ON bt_sweep_results (sweep_id, oos_sharpe DESC NULLS LAST)""",
+    # live progress + interim stats for the config running right now
+    "ALTER TABLE bt_sweeps ADD COLUMN IF NOT EXISTS progress_pct INTEGER",
+    "ALTER TABLE bt_sweeps ADD COLUMN IF NOT EXISTS live_stats JSONB",
 ]
 
 
@@ -454,9 +457,42 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
         for idx, diff in enumerate(diffs):
             cfg_rows = []
             for widx, windows in enumerate(windows_list):
-                row = await asyncio.to_thread(
-                    run_config_both_windows, prices, fundamentals, sector_map,
-                    base_dict, diff, windows, sim_kwargs, factor_cache)
+                # Live progress/stats for the config being simulated right now.
+                # Written by the poller below, not per callback, so a fast sim
+                # can't hammer the DB.
+                live = {"pct": 0, "stats": None}
+
+                def _cb(phase, done, total, stats, _l=live, _i=idx, _n=len(diffs)):
+                    # two windows per config: tune is the first half of its bar
+                    frac = (done / max(total, 1)) * 0.5 + (0.5 if phase == "validate" else 0.0)
+                    _l["pct"] = int(100 * (_i + frac) / max(_n, 1))
+                    _l["stats"] = dict(stats or {}, phase=phase)
+
+                async def _poll(_l=live, _sid=sweep_id):
+                    last = None
+                    while True:
+                        await asyncio.sleep(5.0)
+                        snap = (_l["pct"], json.dumps(_l["stats"], default=str))
+                        if snap == last:
+                            continue
+                        last = snap
+                        try:
+                            async with engine.begin() as conn:
+                                await conn.execute(text(
+                                    "UPDATE bt_sweeps SET progress_pct=:p, "
+                                    "live_stats=CAST(:s AS jsonb) "
+                                    "WHERE sweep_id=CAST(:sid AS uuid)"),
+                                    {"p": _l["pct"], "s": snap[1], "sid": _sid})
+                        except Exception:  # noqa: BLE001 — telemetry only
+                            pass
+
+                poller = asyncio.create_task(_poll())
+                try:
+                    row = await asyncio.to_thread(
+                        run_config_both_windows, prices, fundamentals, sector_map,
+                        base_dict, diff, windows, sim_kwargs, factor_cache, _cb)
+                finally:
+                    poller.cancel()
                 row = _json_sanitize(row)
                 cfg_rows.append(row)
                 async with engine.begin() as conn:
@@ -579,9 +615,10 @@ async def _finalize_rolling(sweep_id: str, base_dict: dict, sim_kwargs: dict,
 async def latest_sweep():
     async with engine.connect() as conn:
         row = (await conn.execute(text(
-            "SELECT sweep_id::text AS sweep_id, status, n_configs, n_done, "
-            "tune_start, tune_end, validate_start, validate_end, started_at, "
-            "completed_at, error_message FROM bt_sweeps ORDER BY started_at DESC LIMIT 1"
+            "SELECT sweep_id::text AS sweep_id, status, n_configs, n_done, progress_pct, "
+            "live_stats, tune_start, tune_end, validate_start, validate_end, "
+            "started_at, completed_at, error_message "
+            "FROM bt_sweeps ORDER BY started_at DESC LIMIT 1"
         ))).mappings().first()
     return {"sweep": _fmt(row)} if row else {"sweep": None}
 

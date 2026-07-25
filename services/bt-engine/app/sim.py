@@ -580,7 +580,23 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                                       "weight": round(mv / equity, 6) if equity > 0 else 0.0,
                                       "market_value": round(mv, 2)})
         if progress_cb and (i % 5 == 0 or i == len(all_days) - 1):
-            progress_cb(i + 1, len(all_days))
+            # Interim stats so a long run is INFORMATIVE while it runs, not just
+            # a percentage: return so far, annualised, drawdown, trade count and
+            # how the benchmark is doing over the same elapsed span.
+            elapsed_days = (D - all_days[0]).days or 1
+            tot = equity / params.starting_capital - 1.0
+            ann = ((1.0 + tot) ** (365.25 / elapsed_days) - 1.0) if tot > -1 else -1.0
+            progress_cb(i + 1, len(all_days), {
+                "as_of": str(D.date()),
+                "equity": round(equity, 2),
+                "total_return": round(tot, 6),
+                "annualized_return": round(ann, 6),
+                "max_drawdown": round(min((r["drawdown"] for r in equity_rows),
+                                          default=0.0), 4),
+                "benchmark_total_return": round(spy_val / params.starting_capital - 1.0, 6),
+                "n_trades": len(trade_rows),
+                "n_positions": len(qty),
+            })
 
     # ── summary ──────────────────────────────────────────────────────────────
     total_return = equity_rows[-1]["portfolio_value"] / params.starting_capital - 1.0

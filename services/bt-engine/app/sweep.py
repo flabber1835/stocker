@@ -212,7 +212,8 @@ def aggregate_rolling(rows: list[dict]) -> dict:
 
 def run_config_both_windows(prices, fundamentals, sector_map, base_config: dict,
                             diff: dict, windows: SweepWindows,
-                            sim_kwargs: dict, factor_cache=None) -> dict:
+                            sim_kwargs: dict, factor_cache=None,
+                            progress_cb=None) -> dict:
     """Run ONE config over tune + validate windows. Returns a result-row dict
     (never raises — an invalid/failed config becomes an error row so one bad
     grid point can't kill the sweep)."""
@@ -221,14 +222,18 @@ def run_config_both_windows(prices, fundamentals, sector_map, base_config: dict,
         return {"config_diff": diff, "error_message": err}
     cfg = StrategyConfig(**cfg_dict)
 
-    def _one(start: date, end: date) -> dict:
+    def _one(start: date, end: date, phase: str) -> dict:
         params = SimParams(start=start, end=end, **sim_kwargs)
+        cb = None
+        if progress_cb is not None:
+            def cb(done, total, stats=None, _p=phase):   # noqa: E306
+                progress_cb(_p, done, total, stats)
         return run_simulation(prices, fundamentals, sector_map, cfg, params,
-                              factor_cache=factor_cache).summary
+                              progress_cb=cb, factor_cache=factor_cache).summary
 
     try:
-        in_sample = _one(windows.tune_start, windows.tune_end)
-        out_sample = _one(windows.validate_start, windows.validate_end)
+        in_sample = _one(windows.tune_start, windows.tune_end, "tune")
+        out_sample = _one(windows.validate_start, windows.validate_end, "validate")
     except Exception as exc:  # noqa: BLE001
         return {"config_diff": diff, "error_message": f"sim failed: {str(exc)[:400]}"}
 

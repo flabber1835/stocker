@@ -178,6 +178,13 @@ CREATE TABLE IF NOT EXISTS bt_sweeps (
 -- rolling mode writes one row per (config, window). Existing DBs are migrated
 -- by the idempotent ALTERs that follow — bt-data re-runs this whole file on
 -- every startup, which is the bt stack's schema-evolution channel.
+-- Live progress for the RUNNING config (a single-config experiment only moves
+-- n_done 0->1, which is no progress at all): fine-grained pct plus interim
+-- stats (return so far, drawdown, trades) so a multi-hour run is informative
+-- while it runs. Idempotent for existing DBs.
+ALTER TABLE bt_sweeps ADD COLUMN IF NOT EXISTS progress_pct INTEGER;
+ALTER TABLE bt_sweeps ADD COLUMN IF NOT EXISTS live_stats JSONB;
+
 CREATE TABLE IF NOT EXISTS bt_sweep_results (
     sweep_id        UUID         NOT NULL REFERENCES bt_sweeps(sweep_id) ON DELETE CASCADE,
     config_idx      INTEGER      NOT NULL,

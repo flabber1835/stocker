@@ -936,9 +936,67 @@ tr.cash-row .t-ticker { color: var(--text2); }
 .lab-meta{padding:6px 12px;font-size:11px;opacity:.6}
 .lab-dim{opacity:.6}
 .lab-warn{color:#e2b93b}
-.lab-prog{height:6px;margin:3px 12px 6px;background:rgba(255,255,255,.12);border-radius:3px;overflow:hidden}
-.lab-prog-fill{height:100%;background:#4caf82;transition:width .4s ease}
+.lab-prog{height:6px;margin:3px 12px 6px;background:var(--border);border-radius:3px;overflow:hidden}
+.lab-prog-fill{height:100%;background:var(--green);transition:width .4s ease}
 .lab-bad{color:#e25b5b}
 .lab-ok{color:#3ecf8e}
 .lab-tbl{width:100%;font-size:12px;border-collapse:collapse}
 .lab-tbl th,.lab-tbl td{padding:3px 12px;text-align:left}
+
+/* ── Stat tiles: compact numbers instead of a run-on text line ───────────── */
+.stat-row {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 8px 12px 10px;
+}
+.stat {
+  flex: 1 1 88px; min-width: 80px;
+  background: var(--card2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 9px;
+}
+.stat-k {
+  font-size: 10px; font-weight: 600;
+  color: var(--text2); letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.stat-v {
+  font-size: 15px; font-weight: 700;
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  color: var(--navy); margin-top: 2px;
+}
+.stat-up   { color: var(--green); }
+.stat-down { color: var(--red); }
+
+/* ── Trader: section bands + a coloured action edge per row ──────────────── */
+.tr-section-attention td,
+.tr-section-progress td,
+.tr-section-completed td {
+  font-size: 11px; font-weight: 700;
+  letter-spacing: .07em; text-transform: uppercase;
+  padding: 10px 12px 8px;
+  border-top: 1px solid var(--border);
+}
+.tr-section-attention td { color: var(--amber); background: var(--amber-lt); }
+.tr-section-progress  td { color: var(--blue);  background: var(--blue-lt); }
+.tr-section-completed td { color: var(--text2); background: var(--card2); }
+
+tr.tr-buy  td:first-child { box-shadow: inset 3px 0 0 var(--green); }
+tr.tr-sell td:first-child { box-shadow: inset 3px 0 0 var(--red); }
+tr.tr-hold td:first-child { box-shadow: inset 3px 0 0 var(--border); }
+tr.tr-buy:hover, tr.tr-sell:hover, tr.tr-hold:hover { background: var(--card2); }
+
+.t-ticker { font-weight: 700; letter-spacing: .02em; color: var(--navy); }
+.t-name   { font-size: 11px; color: var(--text2); margin-top: 1px; }
+.t-reason {
+  font-size: 11px; color: var(--text3); margin-top: 2px;
+  max-width: 44ch; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.t-num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+.tc-pill {
+  display: inline-block; padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 10px; font-weight: 700; letter-spacing: .05em;
+}
