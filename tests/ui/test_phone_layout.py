@@ -47,7 +47,7 @@ pytestmark = [
 
 # (driver, tab name as printed, variants that must have run)
 TABS = [
-    ("lab_iphone.py", "lab", ("idle", "running", "clock-skew")),
+    ("lab_iphone.py", "lab", ("idle", "engine-busy", "running", "clock-skew")),
     ("review_iphone.py", "review",
      ("full", "running", "failed", "none", "parse-fallback", "clock-skew")),
 ]

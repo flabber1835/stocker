@@ -2688,6 +2688,32 @@ function _labAge(iso) {
   return Math.round(mins / 1440) + 'd ago';
 }
 
+/* Progress bar + live interim stats for a running sweep. Shared so the
+   experiment lane's own run and a foreign (manual/leftover) sweep render
+   IDENTICALLY — the foreign case used to render nothing at all. */
+function _labProgress(p) {
+  return p == null ? ''
+    : `<div class="lab-prog"><div class="lab-prog-fill" style="width:${Math.max(2, Math.min(100, p))}%"></div></div>`;
+}
+
+function _labLiveStats(lv, esc) {
+  if (!lv) return '';
+  const pct = v => (v == null ? '—' : (Number(v) * 100).toFixed(1) + '%');
+  const sign = v => (v == null ? '' : (Number(v) >= 0 ? 'stat-up' : 'stat-down'));
+  const vsSpy = (lv.total_return == null || lv.benchmark_total_return == null)
+      ? null : lv.total_return - lv.benchmark_total_return;
+  return '<div class="stat-row">' +
+    `<div class="stat"><div class="stat-k">phase</div><div class="stat-v">${esc(lv.phase || '—')}</div></div>` +
+    `<div class="stat"><div class="stat-k">as of</div><div class="stat-v">${esc(lv.as_of)}</div></div>` +
+    `<div class="stat"><div class="stat-k">return</div><div class="stat-v ${sign(lv.total_return)}">${pct(lv.total_return)}</div></div>` +
+    `<div class="stat"><div class="stat-k">CAGR</div><div class="stat-v ${sign(lv.annualized_return)}">${pct(lv.annualized_return)}</div></div>` +
+    `<div class="stat"><div class="stat-k">vs SPY</div><div class="stat-v ${sign(vsSpy)}">${pct(vsSpy)}</div></div>` +
+    `<div class="stat"><div class="stat-k">max DD</div><div class="stat-v stat-down">${pct(lv.max_drawdown)}</div></div>` +
+    `<div class="stat"><div class="stat-k">trades</div><div class="stat-v">${esc(lv.n_trades)}</div></div>` +
+    `<div class="stat"><div class="stat-k">held</div><div class="stat-v">${esc(lv.n_positions)}</div></div>` +
+    '</div>';
+}
+
 function renderLab(d) {
   const esc = t => String(t == null ? '—' : t).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
   const st = d.status, sw = d.sweep;
@@ -2727,30 +2753,14 @@ function renderLab(d) {
     h += '<h3 class="lab-h">Experiments</h3>';
     if (ex.running) {
       const p = ex.running.progress_pct;
-      const bar = p != null
-          ? `<div class="lab-prog"><div class="lab-prog-fill" style="width:${Math.max(2, Math.min(100, p))}%"></div></div>` : '';
+      const bar = _labProgress(p);
       const w = ex.running.windows || {};
       const wtxt = w.tune_start ? ` · tune ${esc(w.tune_start)}→${esc(w.tune_end)}` +
                                   ` · validate ${esc(w.validate_start)}→${esc(w.validate_end)}` : '';
       h += `<div class="lab-line"><b>▶ running</b> · ${esc(ex.running.kind)} · ` +
            `started ${esc(_labAge(ex.running.fired_at))}` +
            (p != null ? ` · ${Math.round(p)}%` : ' · (running)') + wtxt + '</div>' + bar;
-      // Live interim stats — a multi-hour run should be INFORMATIVE, not just a %
-      const lv = ex.running.live;
-      if (lv) {
-        const pct = v => (v == null ? '—' : (Number(v) * 100).toFixed(1) + '%');
-        const sign = v => (v == null ? '' : (Number(v) >= 0 ? 'stat-up' : 'stat-down'));
-        h += '<div class="stat-row">' +
-          `<div class="stat"><div class="stat-k">phase</div><div class="stat-v">${esc(lv.phase || '—')}</div></div>` +
-          `<div class="stat"><div class="stat-k">as of</div><div class="stat-v">${esc(lv.as_of)}</div></div>` +
-          `<div class="stat"><div class="stat-k">return</div><div class="stat-v ${sign(lv.total_return)}">${pct(lv.total_return)}</div></div>` +
-          `<div class="stat"><div class="stat-k">CAGR</div><div class="stat-v ${sign(lv.annualized_return)}">${pct(lv.annualized_return)}</div></div>` +
-          `<div class="stat"><div class="stat-k">vs SPY</div><div class="stat-v ${sign(lv.total_return - lv.benchmark_total_return)}">${pct(lv.total_return - lv.benchmark_total_return)}</div></div>` +
-          `<div class="stat"><div class="stat-k">max DD</div><div class="stat-v stat-down">${pct(lv.max_drawdown)}</div></div>` +
-          `<div class="stat"><div class="stat-k">trades</div><div class="stat-v">${esc(lv.n_trades)}</div></div>` +
-          `<div class="stat"><div class="stat-k">held</div><div class="stat-v">${esc(lv.n_positions)}</div></div>` +
-          '</div>';
-      }
+      h += _labLiveStats(ex.running.live, esc);
       h += `<div class="lab-note">thesis: ${esc(ex.running.hypothesis)}</div>`;
     } else {
       // The engine can be busy with a sweep the LANE did not start (a manual
@@ -2765,12 +2775,18 @@ function renderLab(d) {
              (eb.started_at ? ` · started ${esc(_labAge(eb.started_at))}` : '') +
              ' <span class="lab-dim">(not started by the experiment lane —' +
              ' manual or leftover; the lane cannot fire until it finishes)</span></div>';
+        // Same bar + live tiles the lane's own runs get: a multi-hour job with
+        // no visible progress is indistinguishable from a stuck one.
+        h += _labProgress(eb.progress_pct) + _labLiveStats(eb.live, esc);
       }
       // The weekly cap counts CANDIDATES only — a baseline re-measures the live
       // config and spends no statistical budget. Show baseline fires alongside
       // so a busy lane never reads as "0/5 fired".
       const nb = ex.baselines_this_week || 0;
-      h += `<div class="lab-line lab-dim">none running · next slot ${esc(ex.next_fire_local)} ` +
+      // "none running" is about the LANE. Printed directly under "engine BUSY"
+      // it reads as a contradiction, so say which one is idle.
+      const laneState = ex.engine_busy ? 'lane idle (engine busy above)' : 'none running';
+      h += `<div class="lab-line lab-dim">${laneState} · next slot ${esc(ex.next_fire_local)} ` +
            `· ${esc(ex.fired_this_week)}/${esc(ex.week_cap)} candidates fired this week` +
            (nb ? ` (+${esc(nb)} baseline${nb > 1 ? 's' : ''})` : '') + ' · ' +
            `${esc(ex.window_years)}y tune + ${esc(ex.validate_months)}mo hold-out</div>`;

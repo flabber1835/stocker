@@ -144,6 +144,10 @@ SPEC = TabSpec(
         "idle": ["none running", "candidates fired this week", "baseline"],
         "running": ["running", "thesis:"],
         "clock-skew": ["none running", "just now"],
+        # the machine's state, not the lane's bookkeeping
+        "engine-busy": ["engine BUSY", "manual", "42%", "CAGR",
+                        # must NOT contradict itself with "none running"
+                        "lane idle (engine busy above)"],
     },
     extra=[lambda page, c, label: audit_leaderboard(page, c) if label == "idle" else None],
 )
@@ -176,8 +180,20 @@ def audit_leaderboard(page, c):
         c.check(True, f"[leaderboard] table fits the viewport ({info['tableW']}px)")
 
 
+# A sweep the LANE did not start: bt-engine pegged while the strip used to say
+# "none running". It must render the same bar + live tiles a lane run gets.
+BT_STATUS_FOREIGN = json.loads(json.dumps(BT_STATUS))
+BT_STATUS_FOREIGN["status"]["experiments"]["engine_busy"] = {
+    "sweep_id": "manual-1234-5678-9abc", "n_configs": 1, "n_done": 0,
+    "progress_pct": 42, "started_at": _ago(20), "owned_by_lane": False,
+    "live": {"phase": "tune", "as_of": "2024-11-08", "total_return": 0.3742,
+             "annualized_return": 0.1638, "max_drawdown": -0.2413,
+             "benchmark_total_return": 0.2510, "n_trades": 418, "n_positions": 17},
+}
+
 VARIANTS = [
     ("idle", {"/api/bt/status": BT_STATUS}),
+    ("engine-busy", {"/api/bt/status": BT_STATUS_FOREIGN}),
     ("running", {"/api/bt/status": BT_STATUS_RUNNING}),
     ("clock-skew", {"/api/bt/status": BT_STATUS_SKEWED}),
 ]

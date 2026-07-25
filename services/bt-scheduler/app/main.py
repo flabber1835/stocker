@@ -399,11 +399,20 @@ async def _experiment_snapshot(client: httpx.AsyncClient, now: datetime) -> dict
         sw = {}
     engine_busy = None
     if sw.get("status") == "running" and sw.get("sweep_id") != (running or {}).get("sweep_id"):
+        _live = sw.get("live_stats")
+        if isinstance(_live, str):
+            try:
+                _live = json.loads(_live)
+            except ValueError:
+                _live = None
+        # Same telemetry the lane's own runs get — a foreign sweep is still a
+        # multi-hour job, and a bare "busy" with no progress is why a stuck run
+        # is indistinguishable from a working one.
         engine_busy = {"sweep_id": sw.get("sweep_id"),
-                       "n_configs": sw.get("n_configs"),
+                       "n_configs": sw.get("n_configs"), "n_done": sw.get("n_done"),
                        "progress_pct": sw.get("progress_pct"),
                        "started_at": sw.get("started_at"),
-                       "owned_by_lane": False}
+                       "live": _live, "owned_by_lane": False}
     if running and running.get("sweep_id"):
         try:
             if sw.get("sweep_id") == running["sweep_id"]:
