@@ -2753,6 +2753,19 @@ function renderLab(d) {
       }
       h += `<div class="lab-note">thesis: ${esc(ex.running.hypothesis)}</div>`;
     } else {
+      // The engine can be busy with a sweep the LANE did not start (a manual
+      // POST, a leftover). Saying "none running" while bt-engine is pegged is
+      // how a broken lane hides — report the machine, not just the lane's
+      // bookkeeping.
+      if (ex.engine_busy) {
+        const eb = ex.engine_busy;
+        h += `<div class="lab-line"><b>▶ engine BUSY</b> · sweep ` +
+             `${esc(String(eb.sweep_id || '').slice(0, 8))} · ${esc(eb.n_configs)} config(s)` +
+             (eb.progress_pct != null ? ` · ${Math.round(eb.progress_pct)}%` : '') +
+             (eb.started_at ? ` · started ${esc(_labAge(eb.started_at))}` : '') +
+             ' <span class="lab-dim">(not started by the experiment lane —' +
+             ' manual or leftover; the lane cannot fire until it finishes)</span></div>';
+      }
       // The weekly cap counts CANDIDATES only — a baseline re-measures the live
       // config and spends no statistical budget. Show baseline fires alongside
       // so a busy lane never reads as "0/5 fired".

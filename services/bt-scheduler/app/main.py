@@ -385,9 +385,27 @@ async def _experiment_snapshot(client: httpx.AsyncClient, now: datetime) -> dict
     exps = (_bt_json("experiments.json") or {}).get("experiments") or []
     running = next((e for e in reversed(exps) if e.get("status") == "running"), None)
     progress, live = None, None
+    # Ask the ENGINE what it is doing, ALWAYS — not only when the lane already
+    # believes something of its own is running. A sweep started any other way
+    # (a manual POST, a leftover from a previous scheduler) left the Lab
+    # reporting "none running" while bt-engine sat pegged at 84% CPU. That is
+    # the same blind spot that let three aborted nightly runs go unnoticed for
+    # four weeks: the strip only ever described the lane's OWN bookkeeping,
+    # never the machine.
+    sw: dict = {}
+    try:
+        sw = (await client.get(f"{BT_ENGINE_URL}/sweeps/latest")).json().get("sweep") or {}
+    except Exception:  # noqa: BLE001 — telemetry is best-effort
+        sw = {}
+    engine_busy = None
+    if sw.get("status") == "running" and sw.get("sweep_id") != (running or {}).get("sweep_id"):
+        engine_busy = {"sweep_id": sw.get("sweep_id"),
+                       "n_configs": sw.get("n_configs"),
+                       "progress_pct": sw.get("progress_pct"),
+                       "started_at": sw.get("started_at"),
+                       "owned_by_lane": False}
     if running and running.get("sweep_id"):
         try:
-            sw = (await client.get(f"{BT_ENGINE_URL}/sweeps/latest")).json().get("sweep") or {}
             if sw.get("sweep_id") == running["sweep_id"]:
                 # progress_pct is per-SESSION within the config (n_done only
                 # moves 0->1 for a single-config experiment — no granularity).
@@ -430,6 +448,7 @@ async def _experiment_snapshot(client: httpx.AsyncClient, now: datetime) -> dict
         "queued": queued[:8],
         "schedule": build_schedule(queued, next_fire, n_fired, EXPERIMENTS_PER_WEEK),
         "recent": recent,
+        "engine_busy": engine_busy,
         "next_fire_local": next_fire,
         "fired_this_week": n_fired,
         "baselines_this_week": n_baseline,

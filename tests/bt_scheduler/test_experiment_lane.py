@@ -297,3 +297,57 @@ def test_pinned_baseline_is_retired_once_its_window_ages():
     assert ok is False and "re-running the yardstick" in why
     # no `today` given → age is not judged (back-compat for pure callers)
     assert baseline_is_valid(baseline, None)[0] is True
+
+
+# ── engine-busy visibility (the "UI said none running while CPU was 84%") ─────
+
+def test_engine_busy_is_reported_for_a_sweep_the_lane_did_not_start():
+    """_experiment_snapshot only asked the engine what it was doing when the
+    LANE already believed one of its own experiments was running. A sweep
+    started any other way — a manual POST, a leftover — left the Lab showing
+    'none running' while bt-engine sat pegged at 84% CPU. That is the same
+    blind spot that let three aborted nightly runs pass unnoticed for weeks:
+    the strip described the lane's bookkeeping, never the machine."""
+    import asyncio
+
+    from app import main as m
+
+    class _Resp:
+        def __init__(self, payload): self._p = payload
+        def json(self): return self._p
+
+    class _Client:
+        def __init__(self, sweep): self._sweep = sweep
+        async def get(self, url):
+            if url.endswith("/sweeps/latest"):
+                return _Resp({"sweep": self._sweep})
+            return _Resp({})
+
+    foreign = {"sweep_id": "manual-1234-5678", "status": "running",
+               "n_configs": 1, "progress_pct": 42, "started_at": "2026-07-25T12:00:00"}
+
+    snap = asyncio.run(m._experiment_snapshot(
+        _Client(foreign), datetime(2026, 7, 25, 13, 0, tzinfo=ET)))
+    assert snap["running"] is None, "the lane owns no experiment here"
+    eb = snap["engine_busy"]
+    assert eb and eb["sweep_id"] == "manual-1234-5678"
+    assert eb["owned_by_lane"] is False
+    assert eb["progress_pct"] == 42
+
+
+def test_engine_busy_is_none_when_the_engine_is_idle():
+    import asyncio
+
+    from app import main as m
+
+    class _Resp:
+        def __init__(self, payload): self._p = payload
+        def json(self): return self._p
+
+    class _Client:
+        async def get(self, url):
+            return _Resp({"sweep": {"sweep_id": "old", "status": "success"}})
+
+    snap = asyncio.run(m._experiment_snapshot(
+        _Client(), datetime(2026, 7, 25, 13, 0, tzinfo=ET)))
+    assert snap["engine_busy"] is None
