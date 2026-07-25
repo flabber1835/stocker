@@ -80,26 +80,17 @@ hr "4/4  verification"
 echo "commit:  $(git log --oneline -1 2>/dev/null)"
 echo
 
+# `ps --format '{{.Name}}...'` (a Go template) is NOT accepted by every Compose
+# build — on this NAS it errors, which printed "(could not read live stack
+# state)" for BOTH stacks while up.sh's own plain `ps` above worked fine. Use
+# the plain table, which every version supports.
 echo "live stack:"
-docker compose ps --format '  {{.Name}}\t{{.State}}\t{{.Status}}' 2>/dev/null \
-    || echo "  (could not read live stack state)"
+docker compose ps 2>/dev/null | sed 's/^/  /' || echo "  (could not read live stack state)"
 echo
 echo "backtest stack:"
-docker compose -p stocker-bt -f docker-compose.backtest.yml ps \
-    --format '  {{.Name}}\t{{.State}}\t{{.Status}}' 2>/dev/null \
-    || echo "  (could not read backtest stack state)"
+docker compose -p stocker-bt -f docker-compose.backtest.yml ps 2>/dev/null \
+    | sed 's/^/  /' || echo "  (could not read backtest stack state)"
 echo
-
-# Any container not running/healthy is the thing you actually want to see.
-bad="$( { docker compose ps --format '{{.Name}}\t{{.State}}';
-          docker compose -p stocker-bt -f docker-compose.backtest.yml ps \
-              --format '{{.Name}}\t{{.State}}'; } 2>/dev/null \
-        | grep -vE '\t(running|exited)$' || true)"
-if [ -n "$bad" ]; then
-    echo "!! containers not in a good state:"
-    printf '%s\n' "$bad" | sed 's/^/   /'
-    rc=1
-fi
 
 echo "health:"
 # Ports are asked of COMPOSE, never hardcoded. The first draft of this script
@@ -115,10 +106,22 @@ probe_stack() {   # probe_stack <label> [compose args...]
         # No :8000 mapping = infrastructure (postgres, redis) or a run-once
         # container (db-migrator). Not a fault, nothing to probe.
         [ -n "$host_port" ] || continue
-        if curl -sf --max-time 4 "http://${host_port/0.0.0.0/localhost}/health" >/dev/null 2>&1; then
+        # RETRY. A container that compose reports as Started can still be
+        # `health: starting` — uvicorn needs a moment, and services with a DB
+        # migration or a config load need several. The first version of this
+        # probed once and reported api/scheduler/evaluator as NOT RESPONDING
+        # seconds after they were created, which is a false alarm that trains
+        # you to ignore the check.
+        ok=0
+        for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -sf --max-time 4 "http://${host_port/0.0.0.0/localhost}/health" \
+                 >/dev/null 2>&1; then ok=1; break; fi
+            sleep 3
+        done
+        if [ "$ok" -eq 1 ]; then
             printf '  %-22s ok\n' "$svc"
         else
-            printf '  %-22s NOT RESPONDING (%s)\n' "$svc" "$host_port"
+            printf '  %-22s NOT RESPONDING after 30s (%s)\n' "$svc" "$host_port"
             rc=1
         fi
     done < <(docker compose "$@" ps --services --filter status=running 2>/dev/null)
@@ -147,6 +150,12 @@ case "$gate_code" in
              echo "                             BT_COVERAGE_ENFORCE / BT_PARITY_ENFORCE."
              rc=1 ;;
     409) echo "  bt-engine coverage/parity  (busy — a run is in flight, gate unverified)" ;;
+    400) echo "  bt-engine coverage/parity  bt-engine REJECTED the active config (400)."
+         echo "                             Most likely an OLD bt-engine image whose bundled"
+         echo "                             schema does not know a newer config field"
+         echo "                             (e.g. sue_method) — expected while the backtest"
+         echo "                             stack is skipped. Re-run once it deploys."
+         rc=1 ;;
     *)   echo "  bt-engine coverage/parity  unverified (HTTP '${gate_code:-none}')" ;;
 esac
 
