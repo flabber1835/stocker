@@ -1408,8 +1408,14 @@ def _experiment_lane() -> dict:
                                "remains the honest estimate")}
                      if baseline else None),
         "experiments": view,
-        "note": ("single backtests over the recent window, split into a TUNE and "
-                 "a HELD-OUT VALIDATE span (see each entry's `windows`); full "
+        "note": ("single backtests over the recent window, split into PERIOD A "
+                 "(earlier) and PERIOD B (later hold-out) — see each entry's "
+                 "`windows`. They were called tune/validate, which oversold "
+                 "them: NOTHING is tuned. The baseline is the active config "
+                 "measured as-is, and your candidate is authored from reasoning, "
+                 "not fitted to period A. What the split buys is STABILITY — the "
+                 "edge must show up in BOTH spans. For a stress regime the two "
+                 "spans are crash/recovery halves instead. Full "
                  "universe, t+1 fills, costs. Compare candidates against the "
                  "baseline via CAGR (annualized_return), max_drawdown, alpha. "
                  "`promotion.eligible`/`promotion.reason` is the deterministic "

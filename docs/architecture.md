@@ -2169,6 +2169,35 @@ real money): raise PROMOTE_MARGIN, add the full-history floor + minimum-trades
 restore human approval or a bounded-knob whitelist. Recorded here so going
 live forces this review.
 
+## Design Decision: period_a/period_b, not tune/validate (2026-07)
+
+The names oversold the rigour. NOTHING is tuned: the baseline is the active
+config measured as-is, and a candidate is authored by the evaluator from
+reasoning and the packet — never fitted to the first window. Nor is the second
+span a true hold-out; the model has read all of market history, so nothing it
+authors is genuinely out-of-sample (the shadow challenger is the honest verdict,
+this is the cheap pre-filter).
+
+What the split actually buys is STABILITY: the edge must appear in TWO different
+spans rather than one. For a stress regime the two spans are crash/recovery
+halves, where "tune/validate" was actively wrong.
+
+So the lane and everything a human or the evaluator reads now say `period_a`
+(earlier) / `period_b` (later hold-out).
+
+SCOPE, deliberately narrow. bt-engine's request schema still speaks
+`tune_start`/`validate_start` and its results `in_sample`/`out_sample`; those are
+the engine's own API. `_engine_window_keys()` in bt-scheduler is the ONE
+translation point. Renaming across that service boundary would widen the blast
+radius on a seam that has already produced a dead-loop bug from a key mismatch
+(`window` vs `windows`), for no gain — the engine's field names are not read by
+anyone the naming was misleading.
+
+The rename also caught a live trap: `derive_windows` (the legacy grid path) is
+splatted STRAIGHT into the /sweeps/run payload, so renaming its keys silently
+broke that path while every lane test stayed green. It keeps the engine
+vocabulary, and a test now pins that it must.
+
 ## Design Decision: terminal-wealth distributions in the promotion gate (2026-07)
 
 The gate compared two configs on CAGR and one realised `max_drawdown` — one

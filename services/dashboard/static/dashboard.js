@@ -2755,8 +2755,11 @@ function renderLab(d) {
       const p = ex.running.progress_pct;
       const bar = _labProgress(p);
       const w = ex.running.windows || {};
-      const wtxt = w.tune_start ? ` · tune ${esc(w.tune_start)}→${esc(w.tune_end)}` +
-                                  ` · validate ${esc(w.validate_start)}→${esc(w.validate_end)}` : '';
+      // period A / period B, not tune/validate: nothing is tuned (see
+      // docs/architecture.md). For a stress regime they are crash/recovery halves.
+      const wtxt = w.period_a_start
+          ? ` · A ${esc(w.period_a_start)}→${esc(w.period_a_end)}` +
+            ` · B ${esc(w.period_b_start)}→${esc(w.period_b_end)}` : '';
       h += `<div class="lab-line"><b>▶ running</b> · ${esc(ex.running.kind)} · ` +
            `started ${esc(_labAge(ex.running.fired_at))}` +
            (p != null ? ` · ${Math.round(p)}%` : ' · (running)') + wtxt + '</div>' + bar;

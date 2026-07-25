@@ -30,11 +30,11 @@ def _lane_entry(**over):
         "hypothesis": "fewer names concentrate the edge",
         "config_hash": "abc123", "diff_vs_active": {"portfolio_builder.max_positions":
                                                     {"from": 30, "to": 17}},
-        "windows": {"tune_start": "2023-07-25", "tune_end": "2025-07-25",
-                    "validate_start": "2025-07-25", "validate_end": "2026-07-25"},
+        "windows": {"period_a_start": "2023-07-25", "period_a_end": "2025-07-25",
+                    "period_b_start": "2025-07-25", "period_b_end": "2026-07-25"},
         "fired_at": "2026-07-20T22:00:00", "completed_at": "2026-07-20T23:10:00",
-        "result": {"tune": {"annualized_return": 0.21},
-                   "validate": {"annualized_return": 0.18}},
+        "result": {"period_a": {"annualized_return": 0.21},
+                   "period_b": {"annualized_return": 0.18}},
         "promotion": {"eligible": False,
                       "reason": "edge does NOT survive validation: out-of-sample "
                                 "CAGR -0.0300 vs baseline (tol 0.0000)"},
@@ -56,7 +56,7 @@ def test_lane_surfaces_the_promotion_verdict(tmp_path, monkeypatch):
     assert row["promotion"]["eligible"] is False
     assert "survive validation" in row["promotion"]["reason"]
     # and the windows it was judged on, and the join key back to the queue
-    assert row["windows"]["validate_end"] == "2026-07-25"
+    assert row["windows"]["period_b_end"] == "2026-07-25"
     assert row["config_hash"] == "abc123"
 
 

@@ -33,6 +33,10 @@ def derive_windows(spec: dict, today: date,
         tune_start = earliest_viable_start
     if (tune_end - tune_start).days < 180:
         return None
+    # ENGINE KEYS, deliberately: this dict is splatted straight into the
+    # /sweeps/run payload for the legacy grid path, so it must speak bt-engine's
+    # request vocabulary. The experiment lane's own windows use period_a/period_b
+    # (see experiment_windows) and are translated at the call site.
     return {"tune_start": tune_start.isoformat(), "tune_end": tune_end.isoformat(),
             "validate_start": validate_start.isoformat(),
             "validate_end": validate_end.isoformat()}
@@ -152,7 +156,7 @@ def score_prediction(predicted: float | None, cand: dict | None,
     its own ideas."""
     if predicted is None:
         return None
-    ct, bt = (cand or {}).get("tune"), (base or {}).get("tune")
+    ct, bt = (cand or {}).get("period_a"), (base or {}).get("period_a")
     if _cagr(ct) is None or _cagr(bt) is None:
         return None
     actual = _cagr(ct) - _cagr(bt)
@@ -225,8 +229,8 @@ def baseline_is_valid(baseline: dict | None, applied_promotion_hash: str | None,
     if baseline.get("applied_promotion") != applied_promotion_hash:
         return False, ("baseline predates the live config (promotion "
                        f"{applied_promotion_hash}) — re-running the yardstick")
-    # The pinned window is `windows` (tune_start/tune_end/validate_start/
-    # validate_end) — EXACTLY the dict _experiment_lane stores on the entry and
+    # The pinned window is `windows` (period_a_start/period_a_end/
+    # period_b_start/period_b_end) — EXACTLY the dict _experiment_lane stores and
     # compares for window-equality before gating. This used to read a
     # non-existent baseline["window"]["start"], so EVERY real baseline was
     # judged unpinned: the lane re-fired the yardstick on every daily slot and
@@ -235,7 +239,7 @@ def baseline_is_valid(baseline: dict | None, applied_promotion_hash: str | None,
     # shape. Keep this key list identical to what the lane writes.
     windows = baseline.get("windows") or {}
     if not all(windows.get(k) for k in
-               ("tune_start", "tune_end", "validate_start", "validate_end")):
+               ("period_a_start", "period_a_end", "period_b_start", "period_b_end")):
         return False, "baseline has no pinned comparison window"
     # Candidates are scored on the BASELINE's windows (experiment_windows is
     # derived from `today`, so recomputing them per fire made every candidate
@@ -244,9 +248,9 @@ def baseline_is_valid(baseline: dict | None, applied_promotion_hash: str | None,
     # the window ages, so retire the yardstick once it does and re-measure.
     if today is not None:
         try:
-            ve = date.fromisoformat(str(windows["validate_end"]))
+            ve = date.fromisoformat(str(windows["period_b_end"]))
         except (TypeError, ValueError):
-            return False, "baseline validate_end unparseable"
+            return False, "baseline period_b_end unparseable"
         if (today - ve).days > max_age_days:
             return False, (f"baseline window ends {ve} ({(today - ve).days}d ago) "
                            f"— past {max_age_days}d, re-running the yardstick")
@@ -266,7 +270,7 @@ def shift_months(d: date, months: int) -> date:
 
 def experiment_windows(today: date, recent_years: float, validate_months: int,
                        earliest: date | None = None) -> dict | None:
-    """Split the recent era into TUNE + VALIDATE for the experiment lane.
+    """Split the recent era into PERIOD A (earlier) + PERIOD B (later hold-out).
 
     The lane used to score a candidate on the SAME window the evaluator was
     looking at when it authored the config — in-sample selection with an
@@ -286,9 +290,10 @@ def experiment_windows(today: date, recent_years: float, validate_months: int,
         tune_start = earliest
     if (tune_end - tune_start).days < 180:
         return None
-    return {"tune_start": tune_start.isoformat(), "tune_end": tune_end.isoformat(),
-            "validate_start": validate_start.isoformat(),
-            "validate_end": validate_end.isoformat()}
+    return {"period_a_start": tune_start.isoformat(),
+            "period_a_end": tune_end.isoformat(),
+            "period_b_start": validate_start.isoformat(),
+            "period_b_end": validate_end.isoformat()}
 
 
 # ── Named stress regimes (docs/architecture.md "named stress regimes") ───────
@@ -349,8 +354,8 @@ def regime_windows(name: str, earliest: date | None = None
         return None, (f"regime {name} starts {start} but data only begins "
                       f"{earliest}; needs {REGIME_WARMUP_DAYS}d of factor "
                       "warm-up (12-1 momentum + 200d regime SMA)")
-    return {"tune_start": spec["start"], "tune_end": spec["split"],
-            "validate_start": spec["split"], "validate_end": spec["end"]}, "ok"
+    return {"period_a_start": spec["start"], "period_a_end": spec["split"],
+            "period_b_start": spec["split"], "period_b_end": spec["end"]}, "ok"
 
 
 def _cagr(summary: dict | None) -> float | None:
@@ -365,8 +370,17 @@ def promotion_eligible_2w(cand: dict | None, base: dict | None,
                           validate_tol: float = 0.0,
                           tail_tol: float = DEFAULT_TAIL_TOLERANCE
                           ) -> tuple[bool, str]:
-    """Two-window promotion gate. `cand`/`base` are {"tune": summary,
-    "validate": summary} from ONE sweep job each (same windows by construction).
+    """Two-window promotion gate. `cand`/`base` are {"period_a": summary,
+    "period_b": summary} from ONE sweep job each (same windows by construction).
+
+    NAMING: these were called tune/validate, which oversold them. NOTHING is
+    tuned — the baseline is the active config measured as-is, and a candidate is
+    authored by the evaluator from reasoning and the packet, not fitted to
+    period A. What the split actually buys is STABILITY: the edge must appear in
+    two different spans, not just one. (Nor is it a true hold-out — the model has
+    read all of market history; the shadow challenger is the honest verdict and
+    this is the cheap pre-filter.) For a stress regime the two spans are
+    crash/recovery halves instead of earlier/later.
 
     Promote only when the candidate:
       1. beats the baseline's TUNE CAGR by >= margin  (there is a real edge)
@@ -374,23 +388,23 @@ def promotion_eligible_2w(cand: dict | None, base: dict | None,
          validate_tol                                  (the edge survives OOS)
       3. does not blow past the baseline's VALIDATE drawdown by dd_tol
     Pure — the LLM authors candidates, this decides."""
-    ct, cv = (cand or {}).get("tune"), (cand or {}).get("validate")
-    bt, bv = (base or {}).get("tune"), (base or {}).get("validate")
+    ct, cv = (cand or {}).get("period_a"), (cand or {}).get("period_b")
+    bt, bv = (base or {}).get("period_a"), (base or {}).get("period_b")
     if _cagr(ct) is None or _cagr(cv) is None:
-        return False, "candidate missing tune/validate result"
+        return False, "candidate missing period_a/period_b result"
     if _cagr(bt) is None or _cagr(bv) is None:
         return False, "no two-window baseline to compare against"
 
     edge = _cagr(ct) - _cagr(bt)
     if edge < margin:
-        return False, f"tune CAGR edge {edge:+.4f} < margin {margin:+.4f}"
+        return False, f"period_a CAGR edge {edge:+.4f} < margin {margin:+.4f}"
     v_edge = _cagr(cv) - _cagr(bv)
     if v_edge < -validate_tol:
-        return False, (f"edge does NOT survive validation: out-of-sample CAGR "
+        return False, (f"edge does NOT persist into period_b: CAGR "
                        f"{v_edge:+.4f} vs baseline (tol {validate_tol:.4f})")
     cdd, bdd = (cv or {}).get("max_drawdown"), (bv or {}).get("max_drawdown")
     if cdd is not None and bdd is not None and float(cdd) < float(bdd) - dd_tol:
-        return False, (f"validate drawdown {float(cdd):.2%} worse than baseline "
+        return False, (f"period_b drawdown {float(cdd):.2%} worse than baseline "
                        f"{float(bdd):.2%} beyond {dd_tol:.0%}")
     # 4. LEFT TAIL. max_drawdown is one realised number from the single path
     # history happened to take; a candidate carrying a fat tail that simply did
@@ -403,6 +417,6 @@ def promotion_eligible_2w(cand: dict | None, base: dict | None,
                                            tail_tol)
     if not tail_ok:
         return False, tail_why
-    return True, (f"tune edge {edge:+.4f} >= {margin:+.4f} AND validate edge "
+    return True, (f"period_a edge {edge:+.4f} >= {margin:+.4f} AND period_b edge "
                   f"{v_edge:+.4f} holds (drawdown within {dd_tol:.0%}; "
                   f"{tail_why})")

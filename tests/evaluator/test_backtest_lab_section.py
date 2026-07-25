@@ -19,8 +19,8 @@ def test_artifact_read_and_shaped(tmp_path, monkeypatch):
     art = {
         "generated_at": "2026-07-11T03:00:00-04:00",
         "sweep_id": "s1", "status": "success", "n_configs": 27,
-        "windows": {"tune_start": "2018-07-11", "tune_end": "2024-07-11",
-                    "validate_start": "2024-07-11", "validate_end": "2026-07-11"},
+        "windows": {"period_a_start": "2018-07-11", "period_a_end": "2024-07-11",
+                    "period_b_start": "2024-07-11", "period_b_end": "2026-07-11"},
         "leaderboard": [{"config_idx": i, "config_diff": {"x": i},
                          "oos_sharpe": 1.0 - i * 0.01, "is_sharpe": 1.2,
                          "overfit_gap": 0.2 + i * 0.01} for i in range(20)],
@@ -31,7 +31,7 @@ def test_artifact_read_and_shaped(tmp_path, monkeypatch):
     assert out["available"] is True
     assert out["n_configs"] == 27
     assert len(out["leaderboard_top"]) == 15            # capped
-    assert out["windows"]["validate_end"] == "2026-07-11"
+    assert out["windows"]["period_b_end"] == "2026-07-11"
     assert "OUT-OF-SAMPLE" in out["note"]
 
 

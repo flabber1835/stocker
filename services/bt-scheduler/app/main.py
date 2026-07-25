@@ -173,6 +173,16 @@ def _mark_full_proposal(pid: str | None, to_status: str) -> None:
         _write_bt_json("proposals.json", content)
 
 
+def _engine_window_keys(w: dict) -> dict:
+    """lane vocabulary (period_a/period_b) -> bt-engine request vocabulary.
+
+    The engine's schema predates the rename and is its own API; translating in
+    one place is cheaper and safer than renaming across a service boundary that
+    has already produced one dead-loop bug from a key mismatch."""
+    return {"tune_start": w["period_a_start"], "tune_end": w["period_a_end"],
+            "validate_start": w["period_b_start"], "validate_end": w["period_b_end"]}
+
+
 async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
                            cov: dict | None) -> None:
     """Phase 6c/6d: the wind tunnel's ONE driver — everything it runs is either
@@ -211,14 +221,15 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
 
         e["status"] = sw.get("status")
         e["completed_at"] = now.isoformat(timespec="seconds")
-        e["result"] = {"tune": row.get("in_sample"), "validate": row.get("out_sample"),
+        e["result"] = {"period_a": row.get("in_sample"),
+                       "period_b": row.get("out_sample"),
                        "error_message": row.get("error_message") or sw.get("error_message")}
         changed = True
         _mark_full_proposal(e.get("proposal_id"),
                             "tested" if sw.get("status") == "success" else "failed")
         _note(f"experiment {str(e.get('id'))[:8]} {e['status']} "
-              f"(tune CAGR={(row.get('in_sample') or {}).get('annualized_return')}, "
-              f"validate CAGR={(row.get('out_sample') or {}).get('annualized_return')})")
+              f"(period_a CAGR={(row.get('in_sample') or {}).get('annualized_return')}, "
+              f"period_b CAGR={(row.get('out_sample') or {}).get('annualized_return')})")
 
         # 2. Deterministic auto-promotion (paper mode). Baseline never promotes,
         # and NEITHER DOES A STRESS-REGIME RUN: its windows are a fixed historical
@@ -276,7 +287,7 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
         windows = experiment_windows(now.date(), EXPERIMENT_RECENT_YEARS,
                                      EXPERIMENT_VALIDATE_MONTHS, evs)
         if windows is None:
-            _note("experiment slot: derived tune window too short — skipped")
+            _note("experiment slot: derived period A too short — skipped")
             return
 
         applied_promo = None
@@ -304,13 +315,19 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
             # structurally unreachable. baseline_is_valid retires the yardstick
             # once its window ages past BASELINE_MAX_AGE_DAYS.
             windows = live_baseline["windows"]
+        # THE ONE TRANSLATION. The lane speaks period_a/period_b (honest: nothing
+        # is tuned, and for a stress regime the spans are crash/recovery halves);
+        # bt-engine's request schema speaks tune_*/validate_*. Mapping here keeps
+        # the engine API untouched and the misleading vocabulary out of
+        # everything a human or the evaluator reads.
         payload = {"grid": {}, "max_configs": 1,
-                   "rebalance_every": EXPERIMENT_REBALANCE_EVERY, **windows}
+                   "rebalance_every": EXPERIMENT_REBALANCE_EVERY,
+                   **_engine_window_keys(windows)}
         if not base_ok:
             # (Re-)run the yardstick FIRST: candidates must be gated against the
             # config that is actually live, over the SAME windows.
             entry = {"id": str(_uuid.uuid4()), "kind": "baseline",
-                     "hypothesis": (f"BASELINE: active config, tune+validate "
+                     "hypothesis": (f"BASELINE: active config, period A+B "
                                     f"({base_why})"),
                      "diff_vs_active": {}, "proposal_id": None,
                      "windows": windows, "applied_promotion": applied_promo}
@@ -334,7 +351,7 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
                         _mark_full_proposal(p.get("id"), "invalid")
                         return
                     cand_windows = rw
-                    payload.update(rw)
+                    payload.update(_engine_window_keys(rw))
                 entry = {"id": p.get("id"), "kind": "full_config",
                          "hypothesis": p.get("hypothesis"),
                          "diff_vs_active": p.get("diff"), "regime": regime,
@@ -353,9 +370,9 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
                 changed = True
                 _mark_full_proposal(entry.get("proposal_id"), "testing")
                 _note(f"experiment fired ({entry['kind']}) sweep "
-                      f"{str(entry['sweep_id'])[:8]} tune {windows['tune_start']}"
-                      f"→{windows['tune_end']} validate {windows['validate_start']}"
-                      f"→{windows['validate_end']}")
+                      f"{str(entry['sweep_id'])[:8]} A {windows['period_a_start']}"
+                      f"→{windows['period_a_end']} B {windows['period_b_start']}"
+                      f"→{windows['period_b_end']}")
             else:
                 _note(f"experiment fire refused → {r.status_code} {r.text[:120]}")
         except Exception as exc:  # noqa: BLE001
@@ -474,7 +491,7 @@ async def _experiment_snapshot(client: httpx.AsyncClient, now: datetime) -> dict
                           "hypothesis": "BASELINE: active config (promotion yardstick)"})
     recent = [{"kind": e.get("kind"), "status": e.get("status"),
                "hypothesis": e.get("hypothesis"),
-               "cagr": ((e.get("result") or {}).get("validate") or {}).get("annualized_return"),
+               "cagr": ((e.get("result") or {}).get("period_b") or {}).get("annualized_return"),
                "promotion": (e.get("promotion") or {}).get("reason"),
                "completed_at": e.get("completed_at")}
               for e in exps if e.get("status") in ("success", "failed")][-5:]

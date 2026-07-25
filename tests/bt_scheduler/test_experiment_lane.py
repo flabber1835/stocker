@@ -192,12 +192,12 @@ def test_a_real_lane_baseline_entry_is_accepted():
     entry = {"id": "b1", "kind": "baseline", "hypothesis": "BASELINE: active config",
              "diff_vs_active": {}, "proposal_id": None, "windows": windows,
              "applied_promotion": None, "status": "success",
-             "result": {"tune": {"annualized_return": 0.1},
-                        "validate": {"annualized_return": 0.1}}}
+             "result": {"period_a": {"annualized_return": 0.1},
+                        "period_b": {"annualized_return": 0.1}}}
     ok, why = baseline_is_valid(entry, None)
     assert ok is True, f"the lane's own baseline entry was rejected: {why}"
     # …and a candidate slot therefore opens instead of another baseline re-run
-    for key in ("tune_start", "tune_end", "validate_start", "validate_end"):
+    for key in ("period_a_start", "period_a_end", "period_b_start", "period_b_end"):
         broken = {**entry, "windows": {k: v for k, v in windows.items() if k != key}}
         assert baseline_is_valid(broken, None)[0] is False
 
@@ -226,34 +226,34 @@ def _w(cagr, dd=-0.25):
 
 def test_two_window_gate_requires_edge_that_survives_validation():
     from app.logic import promotion_eligible_2w
-    base = {"tune": _w(0.12), "validate": _w(0.10)}
+    base = {"period_a": _w(0.12), "period_b": _w(0.10)}
     # edge on tune AND holds on validate → promote
-    ok, why = promotion_eligible_2w({"tune": _w(0.16), "validate": _w(0.11)}, base)
-    assert ok and "validate edge" in why
+    ok, why = promotion_eligible_2w({"period_a": _w(0.16), "period_b": _w(0.11)}, base)
+    assert ok and "period_b edge" in why
     # THE case this fix exists for: big in-sample edge that COLLAPSES OOS
-    ok, why = promotion_eligible_2w({"tune": _w(0.25), "validate": _w(0.02)}, base)
-    assert not ok and "does NOT survive validation" in why
+    ok, why = promotion_eligible_2w({"period_a": _w(0.25), "period_b": _w(0.02)}, base)
+    assert not ok and "does NOT persist into period_b" in why
     # no real edge on tune
-    ok, why = promotion_eligible_2w({"tune": _w(0.125), "validate": _w(0.20)}, base)
+    ok, why = promotion_eligible_2w({"period_a": _w(0.125), "period_b": _w(0.20)}, base)
     assert not ok and "margin" in why
     # validate drawdown blows the tolerance
-    ok, why = promotion_eligible_2w({"tune": _w(0.20), "validate": _w(0.11, -0.45)}, base)
+    ok, why = promotion_eligible_2w({"period_a": _w(0.20), "period_b": _w(0.11, -0.45)}, base)
     assert not ok and "drawdown" in why
     # missing pieces never promote
-    assert promotion_eligible_2w({"tune": _w(0.2)}, base)[0] is False
-    assert promotion_eligible_2w({"tune": _w(0.2), "validate": _w(0.2)}, None)[0] is False
+    assert promotion_eligible_2w({"period_a": _w(0.2)}, base)[0] is False
+    assert promotion_eligible_2w({"period_a": _w(0.2), "period_b": _w(0.2)}, None)[0] is False
 
 
 def test_experiment_windows_carve_holdout_off_the_end():
     from app.logic import experiment_windows
     w = experiment_windows(date(2026, 7, 25), recent_years=3, validate_months=12)
-    assert w["validate_end"] == "2026-07-25"
-    assert w["validate_start"] == "2025-07-25"          # 12mo hold-out
-    assert w["tune_end"] == w["validate_start"]         # contiguous, no overlap
-    assert w["tune_start"] == "2023-07-25"              # 3y back from today
+    assert w["period_b_end"] == "2026-07-25"
+    assert w["period_b_start"] == "2025-07-25"          # 12mo hold-out
+    assert w["period_a_end"] == w["period_b_start"]         # contiguous, no overlap
+    assert w["period_a_start"] == "2023-07-25"              # 3y back from today
     # clamped to available data, and refused when tune gets too short
     w2 = experiment_windows(date(2026, 7, 25), 3, 12, earliest=date(2024, 1, 1))
-    assert w2["tune_start"] == "2024-01-01"
+    assert w2["period_a_start"] == "2024-01-01"
     assert experiment_windows(date(2026, 7, 25), 3, 12,
                               earliest=date(2025, 6, 1)) is None
 
@@ -363,8 +363,8 @@ def test_regime_windows_are_fixed_and_split_into_two_spans():
     from app.logic import STRESS_REGIMES, regime_windows
     w, why = regime_windows("gfc_2008", date(2005, 1, 3))
     assert why == "ok"
-    assert w == {"tune_start": "2007-10-01", "tune_end": "2008-10-01",
-                 "validate_start": "2008-10-01", "validate_end": "2009-06-30"}
+    assert w == {"period_a_start": "2007-10-01", "period_a_end": "2008-10-01",
+                 "period_b_start": "2008-10-01", "period_b_end": "2009-06-30"}
     # every regime must be well-formed: start < split < end, no overlap
     for name, spec in STRESS_REGIMES.items():
         s, sp, e = (date.fromisoformat(spec[k]) for k in ("start", "split", "end"))
@@ -410,14 +410,14 @@ def test_a_regime_run_can_never_promote():
 
 def test_score_prediction_measures_signed_bias():
     from app.logic import score_prediction
-    base = {"tune": {"annualized_return": 0.12}}
+    base = {"period_a": {"annualized_return": 0.12}}
     # over-predicted: said +5pp, got +3pp
-    s = score_prediction(0.05, {"tune": {"annualized_return": 0.15}}, base)
+    s = score_prediction(0.05, {"period_a": {"annualized_return": 0.15}}, base)
     assert s["actual_edge"] == pytest.approx(0.03)
     assert s["error"] == pytest.approx(0.02)      # signed: positive = optimistic
     assert s["direction_correct"] is True
     # wrong direction entirely
-    s = score_prediction(0.05, {"tune": {"annualized_return": 0.10}}, base)
+    s = score_prediction(0.05, {"period_a": {"annualized_return": 0.10}}, base)
     assert s["actual_edge"] == pytest.approx(-0.02)
     assert s["direction_correct"] is False
 
@@ -425,12 +425,12 @@ def test_score_prediction_measures_signed_bias():
 def test_unscoreable_predictions_return_none():
     """No prediction, or no comparable baseline, must not fabricate a score."""
     from app.logic import score_prediction
-    base = {"tune": {"annualized_return": 0.12}}
-    assert score_prediction(None, {"tune": {"annualized_return": 0.15}}, base) is None
-    assert score_prediction(0.05, {"tune": {}}, base) is None
-    assert score_prediction(0.05, {"tune": {"annualized_return": 0.15}}, None) is None
+    base = {"period_a": {"annualized_return": 0.12}}
+    assert score_prediction(None, {"period_a": {"annualized_return": 0.15}}, base) is None
+    assert score_prediction(0.05, {"period_a": {}}, base) is None
+    assert score_prediction(0.05, {"period_a": {"annualized_return": 0.15}}, None) is None
     # a prediction of exactly zero has no direction to be right about
-    assert score_prediction(0.0, {"tune": {"annualized_return": 0.12}},
+    assert score_prediction(0.0, {"period_a": {"annualized_return": 0.12}},
                             base)["direction_correct"] is None
 
 
@@ -459,8 +459,8 @@ def test_gate_refuses_a_fat_left_tail_at_equal_cagr():
     base_w = {"annualized_return": 0.12, "max_drawdown": -0.25, **_tw(0.95)}
     cand_t = {"annualized_return": 0.15, "max_drawdown": -0.25, **_tw(0.95)}
     fat = {"annualized_return": 0.15, "max_drawdown": -0.25, **_tw(0.70)}
-    ok, why = promotion_eligible_2w({"tune": cand_t, "validate": fat},
-                                    {"tune": base_w, "validate": base_w})
+    ok, why = promotion_eligible_2w({"period_a": cand_t, "period_b": fat},
+                                    {"period_a": base_w, "period_b": base_w})
     assert ok is False and "left tail worse" in why
 
 
@@ -468,8 +468,8 @@ def test_gate_allows_an_equal_or_better_tail():
     from app.logic import promotion_eligible_2w
     base_w = {"annualized_return": 0.12, "max_drawdown": -0.25, **_tw(0.95)}
     good = {"annualized_return": 0.15, "max_drawdown": -0.25, **_tw(0.97)}
-    ok, why = promotion_eligible_2w({"tune": good, "validate": good},
-                                    {"tune": base_w, "validate": base_w})
+    ok, why = promotion_eligible_2w({"period_a": good, "period_b": good},
+                                    {"period_a": base_w, "period_b": base_w})
     assert ok is True and "left tail acceptable" in why
 
 
@@ -479,8 +479,8 @@ def test_tail_guard_is_inert_on_results_without_a_distribution():
     from app.logic import promotion_eligible_2w
     base_w = {"annualized_return": 0.12, "max_drawdown": -0.25}
     good = {"annualized_return": 0.15, "max_drawdown": -0.25}
-    ok, why = promotion_eligible_2w({"tune": good, "validate": good},
-                                    {"tune": base_w, "validate": base_w})
+    ok, why = promotion_eligible_2w({"period_a": good, "period_b": good},
+                                    {"period_a": base_w, "period_b": base_w})
     assert ok is True and "check skipped" in why
 
 
@@ -489,8 +489,8 @@ def test_tail_guard_cannot_rescue_a_candidate_that_fails_an_earlier_condition():
     from app.logic import promotion_eligible_2w
     base_w = {"annualized_return": 0.12, "max_drawdown": -0.25, **_tw(0.95)}
     weak = {"annualized_return": 0.121, "max_drawdown": -0.25, **_tw(1.50)}
-    ok, why = promotion_eligible_2w({"tune": weak, "validate": weak},
-                                    {"tune": base_w, "validate": base_w})
+    ok, why = promotion_eligible_2w({"period_a": weak, "period_b": weak},
+                                    {"period_a": base_w, "period_b": base_w})
     assert ok is False and "margin" in why
 
 
@@ -498,6 +498,52 @@ def test_tail_tolerance_is_configurable():
     from app.logic import promotion_eligible_2w
     base_w = {"annualized_return": 0.12, "max_drawdown": -0.25, **_tw(0.95)}
     cand = {"annualized_return": 0.15, "max_drawdown": -0.25, **_tw(0.80)}
-    args = ({"tune": cand, "validate": cand}, {"tune": base_w, "validate": base_w})
+    args = ({"period_a": cand, "period_b": cand}, {"period_a": base_w, "period_b": base_w})
     assert promotion_eligible_2w(*args, tail_tol=0.05)[0] is False
     assert promotion_eligible_2w(*args, tail_tol=0.20)[0] is True
+
+
+# ── period_a/period_b naming + the single engine translation ────────────────
+
+def test_lane_windows_use_the_honest_period_names():
+    """They were tune/validate, which oversold them: nothing is tuned. The
+    baseline is the active config measured as-is and a candidate is authored
+    from reasoning, not fitted to period A."""
+    from datetime import date
+
+    from app.logic import experiment_windows, regime_windows
+    w = experiment_windows(date(2026, 7, 25), 3, 12, date(2004, 1, 1))
+    assert set(w) == {"period_a_start", "period_a_end",
+                      "period_b_start", "period_b_end"}
+    r, _ = regime_windows("gfc_2008", date(2005, 1, 3))
+    assert set(r) == set(w)
+
+
+def test_engine_translation_is_exact_and_lossless():
+    """bt-engine's request schema still speaks tune_*/validate_*. ONE mapping
+    point keeps the misleading vocabulary out of everything a human or the
+    evaluator reads, without renaming across a service boundary that has
+    already produced one dead-loop bug from a key mismatch."""
+    from datetime import date
+
+    from app.logic import experiment_windows
+    from app.main import _engine_window_keys
+    w = experiment_windows(date(2026, 7, 25), 3, 12, date(2004, 1, 1))
+    eng = _engine_window_keys(w)
+    assert set(eng) == {"tune_start", "tune_end", "validate_start", "validate_end"}
+    assert eng["tune_start"] == w["period_a_start"]
+    assert eng["tune_end"] == w["period_a_end"]
+    assert eng["validate_start"] == w["period_b_start"]
+    assert eng["validate_end"] == w["period_b_end"]
+
+
+def test_legacy_grid_windows_keep_the_engine_vocabulary():
+    """derive_windows is splatted STRAIGHT into the /sweeps/run payload for the
+    legacy grid, so it must NOT be renamed — doing so silently broke that path
+    while every lane test stayed green."""
+    from datetime import date
+
+    from app.logic import derive_windows
+    w = derive_windows({"tune_years": 6, "validate_years": 2}, date(2026, 7, 25),
+                       date(2004, 1, 1))
+    assert set(w) == {"tune_start", "tune_end", "validate_start", "validate_end"}
