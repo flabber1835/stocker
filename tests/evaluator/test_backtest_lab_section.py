@@ -10,7 +10,7 @@ def test_absent_artifact_degrades_gracefully(tmp_path, monkeypatch):
     monkeypatch.setenv("ARTIFACTS_PATH", str(tmp_path))
     out = _backtest_lab()
     assert out["available"] is False
-    assert "no wind-tunnel results" in out["note"]
+    assert "RETIRED" in out["note"]
 
 
 def test_artifact_read_and_shaped(tmp_path, monkeypatch):

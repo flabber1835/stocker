@@ -121,10 +121,16 @@ recent = a young listing the history-hungry factors structurally exclude; recurr
 justify recommending a different filter mechanism); a SELECTION AUDIT of the latest build \
 (every candidate classified selected / cap_blocked / vetter_excluded / out_ranked, with \
 forward returns per class — cap_blocked beating selected implicates CONSTRUCTION; \
-out_ranked beating selected implicates the FACTOR MODEL); a BACKTEST LAB section when \
-available (walk-forward OUT-OF-SAMPLE sweep leaderboard from the isolated deep-history \
-backtester — DECISION-GRADE config evidence; prefer it over the short-history live \
-replay when both speak to a thesis; treat a large overfit_gap as disqualifying); \
+out_ranked beating selected implicates the FACTOR MODEL); an EXPERIMENT_LANE section \
+— THE RESULTS OF YOUR OWN CANDIDATES: each is a complete config you authored, scored by \
+the wind tunnel on a TUNE window and a HELD-OUT VALIDATE window, with the promotion \
+gate's verdict and reason. Read it FIRST every review: score your past candidates \
+(did the tune edge survive validation?) before authoring new ones, and note which were \
+auto-promoted. It also carries the BASELINE — the active config over the same windows, \
+the yardstick every candidate is measured against. An EXPERIMENT_QUEUE showing what you \
+have queued and where each stands (pending / testing / tested), including the exact \
+field-level changes each candidate makes. A BACKTEST_LAB section only if the legacy \
+grid sweep is deliberately re-enabled (it is RETIRED by default — do not expect it); \
 FACTOR COVERAGE (per-factor \
 non-null share — a low-coverage factor points at an ingestion gap, not a weak signal); \
 RISK-GATE STATS (approvals/rejections by rule — a rule repeatedly blocking planned \

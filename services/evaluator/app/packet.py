@@ -1357,9 +1357,11 @@ def _backtest_lab() -> dict:
     except (OSError, ValueError):
         return {"available": False,
                 "experiment_queue": _experiment_queue(),
-                "note": ("no wind-tunnel results yet (backtest stack not run / "
-                         "bridge artifact absent) — deep-history validation "
-                         "unavailable this review")}
+                "note": ("no GRID sweep results. The hand-written weekly grid is "
+                         "RETIRED (BT_STANDING_SWEEP_ENABLED=false): the daily "
+                         "experiment lane is now the single driver, so read "
+                         "experiment_lane for candidate results and this section "
+                         "only if the grid is deliberately re-enabled.")}
     gen = str(art.get("generated_at", ""))
     stale = False
     try:
@@ -1390,10 +1392,14 @@ def _backtest_lab() -> dict:
 
 
 def _experiment_queue() -> dict:
-    """State of the auto-fed proposal queue (artifacts/bt/proposals.json):
-    every actionable recommendation from past reviews and where it is in the
-    pipeline — pending (awaiting the weekly sweep), testing (in the running
-    sweep), tested (results in the leaderboard)."""
+    """State of the wind-tunnel queue (artifacts/bt/proposals.json) — the
+    candidates YOU queued and where each is: pending (awaiting a daily slot),
+    testing (running now), tested (results in experiment_lane), failed/invalid.
+
+    Entries are COMPLETE candidate configs, so the useful identity is
+    kind/config_hash plus the auto-computed DIFF vs the active config — without
+    the diff a future review cannot tell what its own candidate actually
+    changed."""
     path = os.path.join(os.getenv("ARTIFACTS_PATH", "/artifacts"), "bt", "proposals.json")
     try:
         with open(path) as f:
@@ -1403,13 +1409,19 @@ def _experiment_queue() -> dict:
     by_status: dict[str, int] = {}
     for e in entries:
         by_status[str(e.get("status"))] = by_status.get(str(e.get("status")), 0) + 1
-    # origin/hypothesis: exploratory entries queued by the queue_experiment tool
-    # carry the thesis they test — shown so results can be scored against it.
-    recent = [{k: v for k in
-               ("config_field", "value", "status", "iso_week", "confidence",
-                "origin", "hypothesis")
+    recent = []
+    for e in entries[-15:]:
+        row = {k: v for k in ("kind", "status", "origin", "hypothesis",
+                              "config_hash", "queued_at")
                if (v := e.get(k)) is not None}
-              for e in entries[-15:]]
+        diff = e.get("diff")
+        if isinstance(diff, dict) and diff:
+            # compact "field: from -> to" so the thesis can be read against the
+            # actual change without dumping a whole config into the packet
+            row["changes"] = {k: f"{v.get('from')} -> {v.get('to')}"
+                              for k, v in list(diff.items())[:12]}
+            row["n_changed_fields"] = len(diff)
+        recent.append(row)
     return {"available": True, "counts": by_status, "recent": recent}
 
 

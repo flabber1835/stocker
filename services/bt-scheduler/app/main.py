@@ -581,7 +581,17 @@ async def _tick() -> None:
             snapshot["sweep_latest"] = latest
             if latest:
                 _remember_good("sweep_latest", latest, now.isoformat(timespec="seconds"))
-            if artifact_needed(latest, _read_artifact()):
+            # The LANE also creates sweeps (one config, tune+validate). Those are
+            # NOT grid results and must not be exported as latest_sweep.json —
+            # the packet renders that as backtest_lab "decision-grade walk-forward
+            # sweep leaderboard", so exporting a 1-row experiment there would
+            # both mislabel it and duplicate the experiment_lane section.
+            lane_sweep_ids = {e.get("sweep_id") for e in
+                              ((_bt_json("experiments.json") or {}).get("experiments") or [])
+                              if e.get("sweep_id")}
+            if latest and latest.get("sweep_id") in lane_sweep_ids:
+                pass
+            elif artifact_needed(latest, _read_artifact()):
                 lb = (await client.get(
                     f"{BT_ENGINE_URL}/sweeps/{latest['sweep_id']}/leaderboard",
                     params={"limit": 25})).json().get("leaderboard", [])
