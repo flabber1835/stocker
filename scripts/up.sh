@@ -19,6 +19,10 @@ echo "── live stack ──"
 docker compose up -d "${ARGS[@]}"
 echo "── backtest stack ──"
 docker compose -f docker-compose.backtest.yml up -d "${ARGS[@]}"
-echo "── status ──"
-docker compose ps --format '{{.Name}}\t{{.Status}}' | head -20
-docker compose -f docker-compose.backtest.yml ps --format '{{.Name}}\t{{.Status}}'
+# Plain `ps` (default table): --format Go templates with \t are not parsed by
+# every compose version on the NAS, and a cosmetic status print must never make
+# the deploy look failed.
+echo "── status: live ──"
+docker compose ps || true
+echo "── status: backtest ──"
+docker compose -f docker-compose.backtest.yml ps || true
