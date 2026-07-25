@@ -65,6 +65,14 @@ services:
       context: .
       dockerfile: services/bt-engine/Dockerfile
     restart: unless-stopped
+    # HARD memory cap (same rationale as the live pipeline's mem_limit): a
+    # full-universe 20-year simulation loads a 35M-row frame + working copies —
+    # uncapped, that consumed ALL host RAM and took the whole NAS down (the
+    # 2026-07-24 overnight outage: every container gone by morning). With the
+    # cap, bt-engine is the predictable OOM victim (container dies, restarts,
+    # run marked failed by STALE_BT_RUN_HOURS) and the host + live stack SURVIVE.
+    # Tune to your NAS: must be well under total RAM minus the live stack.
+    mem_limit: ${BT_ENGINE_MEM_LIMIT:-4g}
     ports:
       - "8031:8000"
     environment:
