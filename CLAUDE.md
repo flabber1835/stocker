@@ -519,7 +519,13 @@ strategy-validator   ← built (Phase 2)
 api                  ← built (Phase 1)
 dashboard            ← built and extended (Phases 1, 4, 4.5, 6)
 backtester           ← built (Phase 5)
-db-migrator          ← built (Phase 7) — run-once alembic upgrade head
+db-migrator          ← built (Phase 7) — run-once alembic upgrade head, then a
+                       SCOPED ANALYZE (planner stats for the screener's
+                       plan-sensitive tables only — a bare ANALYZE walked
+                       daily_prices/live_positions and dominated every deploy
+                       while api+scheduler waited on this container). Each
+                       phase is timed in the log; ANALYZE_TABLES overrides the
+                       list, ANALYZE_SKIP=true skips the step.
 llm-gateway          ← partially built (provider abstraction skeleton in services/llm-gateway/)
 intraday-monitor     ← not yet built
 strategy-config-service ← not yet built
