@@ -61,3 +61,34 @@ def pytest_runtest_setup(item):
     """Before each test, re-activate the service in case a previous suite
     left a stale 'app' module in sys.modules."""
     _activate_service(Path(str(item.fspath)).parent.name)
+
+
+# ── Playwright browser resolution (shared by every browser-tier suite) ────────
+# `pip install playwright` alone is not enough: the wheel expects the browser
+# build IT was pinned to. This environment ships Chromium 1194 at
+# /opt/pw-browsers while a newer wheel looks for 1228, so a suite that only
+# checked "does playwright import?" ERRORED instead of skipping the moment
+# playwright was installed. Resolve an executable that actually exists, and let
+# the caller skip cleanly when none does.
+
+def playwright_chromium_path() -> str | None:
+    """Path to a usable Chromium, or None to fall back to the bundled build."""
+    import os as _os
+    for cand in (_os.getenv("PW_CHROMIUM"), "/opt/pw-browsers/chromium"):
+        if cand and _os.path.exists(cand):
+            return cand
+    return None
+
+
+def launch_chromium(playwright, **kwargs):
+    """chromium.launch() that prefers the bundled build and falls back to the
+    preinstalled one. Raises the ORIGINAL error if neither works."""
+    kwargs.setdefault("headless", True)
+    kwargs.setdefault("args", ["--no-sandbox", "--disable-dev-shm-usage"])
+    try:
+        return playwright.chromium.launch(**kwargs)
+    except Exception:
+        path = playwright_chromium_path()
+        if not path:
+            raise
+        return playwright.chromium.launch(executable_path=path, **kwargs)

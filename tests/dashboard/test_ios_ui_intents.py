@@ -38,10 +38,29 @@ else:
     _IMPORT_ERR = None
 
 
-pytestmark = pytest.mark.skipif(
-    not _HAVE_PW,
-    reason="Playwright not installed (pip install playwright + playwright install chromium)",
-)
+try:
+    import uvicorn  # noqa: F401
+    _HAVE_SERVER = True
+except ImportError:
+    _HAVE_SERVER = False
+
+
+# The guard must cover EVERY runtime prerequisite, not just the playwright
+# import. It checked the import alone, so the moment playwright was installed
+# without a matching browser build — or without uvicorn, which the mock
+# dashboard server needs — the whole suite ERRORED/FAILED instead of skipping,
+# turning an incomplete environment into a red build. The browser fixture skips
+# on an unusable Chromium; this covers the server side.
+pytestmark = [
+    pytest.mark.skipif(
+        not _HAVE_PW,
+        reason="Playwright not installed (pip install playwright + playwright install chromium)",
+    ),
+    pytest.mark.skipif(
+        not _HAVE_SERVER,
+        reason="uvicorn not installed — the mock dashboard server cannot start",
+    ),
+]
 
 
 PORT = 8771  # different from the runner so they don't collide
@@ -85,9 +104,18 @@ _current_server: dict = {"scenario": None, "proc": None}
 
 @pytest.fixture(scope="module")
 def browser():
+    """Launch via the shared resolver: `pip install playwright` does NOT
+    guarantee a matching browser build, and this fixture used to ERROR (not
+    skip) the moment playwright was installed without one — the skipif above
+    only checks that the module imports."""
     from playwright.sync_api import sync_playwright
+
+    from tests.conftest import launch_chromium
     with sync_playwright() as p:
-        b = p.chromium.launch(headless=True)
+        try:
+            b = launch_chromium(p)
+        except Exception as exc:  # noqa: BLE001
+            pytest.skip(f"no usable Chromium build: {str(exc)[:160]}")
         try:
             yield b
         finally:

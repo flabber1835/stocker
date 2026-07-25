@@ -2287,7 +2287,16 @@ async function refresh() {
     }
 
     if (aaRes) {
-      _aaStatus = { ...aaRes, fetchedAt: Date.now() };
+      // Normalize the SHAPE, don't just spread it. `.then(r => r.json())` does
+      // not check the status, so any non-200 JSON body — FastAPI's
+      // {"detail": ...}, a proxy error page — parses fine and, spread raw,
+      // wiped out the `pending: []` default. Every later `_aaStatus.pending`
+      // then threw "not iterable" OUTSIDE this try, killing the tail of the
+      // refresh loop and the trader re-render until a manual page reload.
+      _aaStatus = { ...aaRes,
+                    auto_approve_minutes: Number(aaRes.auto_approve_minutes) || 60,
+                    pending: Array.isArray(aaRes.pending) ? aaRes.pending : [],
+                    fetchedAt: Date.now() };
       // Re-render trader cards to pick up new countdown data
       if (document.getElementById('screen-trader').classList.contains('active')) {
         renderTrader();
@@ -2662,7 +2671,12 @@ async function loadLab() {
 
 function _labAge(iso) {
   if (!iso) return null;
-  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  // Clamp at 0: the timestamp comes from the bt stack (the NAS) while Date.now()
+  // is the PHONE's clock. A few minutes of skew — or a phone in a different
+  // timezone with a bad clock — rendered ages like "-746m ago", which reads as
+  // a broken bridge when everything is fine.
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (mins < 1) return 'just now';
   if (mins < 90) return mins + 'm ago';
   if (mins < 60 * 36) return Math.round(mins / 60) + 'h ago';
   return Math.round(mins / 1440) + 'd ago';
@@ -2784,6 +2798,13 @@ function renderLab(d) {
     const notes = (sch.notes || []).slice(0, 6);
     if (notes.length)
       h += '<div class="lab-note">' + notes.map(esc).join('<br>') + '</div>';
+  } else {
+    // Never leave a bare orphan heading: the section header was emitted
+    // unconditionally, so a status artifact without the scheduler block showed
+    // "Automation" with nothing under it — which reads as a broken render
+    // rather than "no data yet". Same explicit-placeholder pattern as Sweep.
+    h += '<div class="lab-line lab-dim">no bt-scheduler heartbeat in the status ' +
+         'artifact yet</div>';
   }
 
   const live = st && st.sweep_latest;

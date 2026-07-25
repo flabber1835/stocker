@@ -139,6 +139,43 @@ When you add a query that joins tables or compares typed columns (UUID FKs,
 DATE/TIMESTAMP, enums), add a contract test here — a green unit test is not
 enough.
 
+## Browser tier (layout only exists in a browser)
+
+Two suites drive the REAL dashboard assets — no running stack, no database.
+Both skip cleanly when their runtime is absent, so bare runners stay green.
+
+**`tests/dashboard/render_evaluator_tab.js`** (node vm + stub DOM) loads
+`dashboard.js` and calls `_renderEvalReport` across every report and
+config_changes shape. It exists because a leftover `applyUi` reference — in the
+branch taken *only* by a valid single-field recommendation — broke the whole
+Review tab, and the tab's catch reported it as "Evaluator unreachable", blaming
+a healthy service. Its pytest wrapper also RE-INJECTS the bug and requires the
+harness to fail: a guard that passes on broken code is worse than none.
+
+**`tests/ui/lab_iphone.py`** (Playwright, Chromium) renders the Lab tab at
+iPhone X (375x812, DPR 3) across idle / running / clock-skewed payloads and
+asserts what a phone actually cares about: the page never scrolls horizontally,
+nothing overflows the viewport outside a scroll container, the bottom nav and
+sticky bar stay on-screen, no sub-10px text, tap targets >= 36px, no empty
+section headings, no negative relative ages, and even stat-tile rows. Run it
+standalone with screenshots to eyeball the result:
+
+```bash
+pip install playwright                      # chromium is preinstalled at /opt/pw-browsers
+python tests/ui/lab_iphone.py --shots ./screenshots
+python -m pytest tests/ui/                  # what CI runs (~4s)
+```
+
+First run found four real defects: an uncaught `_aaStatus.pending is not
+iterable` (a non-200 JSON body wiped a default and killed the refresh loop's
+tail), a bare "Automation" heading with nothing under it, "-746m ago" from
+NAS/phone clock skew, and a date wrapping mid-value so one stat tile stood
+taller than its row.
+
+These assertions prove the layout EXECUTES and measures correctly. They do not
+prove it looks good — for that, read the screenshots or use the
+`--profile monitor` playwright-monitor service against a live stack.
+
 ## Testing Philosophy
 
 Test the safety boundary first, then correctness of deterministic engines.

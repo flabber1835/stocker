@@ -964,6 +964,12 @@ tr.cash-row .t-ticker { color: var(--text2); }
   font-size: 15px; font-weight: 700;
   font-family: var(--mono); font-variant-numeric: tabular-nums;
   color: var(--navy); margin-top: 2px;
+  /* Never break a value across lines. A 10-char date ("2024-11-08") in the
+     Lab's live-stats row wrapped to "2024-11-" / "08", making that one tile
+     taller than the rest of its row — a ragged, broken-looking grid on a
+     375px phone. With `flex: 1 1 88px` a nowrap tile simply claims a bit more
+     width (or moves to the next line) instead of growing taller. */
+  white-space: nowrap;
 }
 .stat-up   { color: var(--green); }
 .stat-down { color: var(--red); }
