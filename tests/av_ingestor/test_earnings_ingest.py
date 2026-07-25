@@ -111,5 +111,5 @@ async def test_parsed_payload_feeds_the_factor():
         {"ticker": "FLOP", "fiscal_date_ending": "2026-03-31", "reported_date": "2026-04-20",
          "reported_eps": 0.5, "estimated_eps": 1.0},
     ])], ignore_index=True)
-    s = compute_earnings_surprise(df, date(2026, 5, 1), min_quarters_for_sue=2)
+    s = compute_earnings_surprise(df, date(2026, 5, 1), min_quarters_for_sue=2, method="analyst")
     assert s["ACME"] > 0 > s["FLOP"]

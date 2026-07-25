@@ -73,6 +73,32 @@ async def load_listing_windows(engine) -> dict[str, tuple]:
         return {}
 
 
+async def load_earnings(engine, tickers: list[str], end: date) -> pd.DataFrame:
+    """bt_earnings → the frame compute_earnings_surprise expects.
+
+    NO estimated_eps column: Sharadar has no analyst estimates, and the factor
+    refuses rather than falling back to the other method when the column its
+    method needs is absent. Point-in-time is enforced INSIDE the factor
+    (reported_date <= as_of); the `end` bound here only keeps post-window rows
+    out of the process entirely."""
+    try:
+        async with engine.connect() as conn:
+            rows = (await conn.execute(text(
+                "SELECT ticker, reported_date, fiscal_date_ending, reported_eps "
+                "FROM bt_earnings WHERE ticker = ANY(:tk) AND reported_date <= :t "
+                "ORDER BY ticker, reported_date"
+            ), {"tk": tickers, "t": end})).fetchall()
+    except Exception:  # noqa: BLE001 — table predates this feature
+        return pd.DataFrame(columns=["ticker", "reported_date",
+                                     "fiscal_date_ending", "reported_eps"])
+    return pd.DataFrame([{
+        "ticker": r.ticker, "reported_date": r.reported_date,
+        "fiscal_date_ending": r.fiscal_date_ending,
+        "reported_eps": _f(r.reported_eps),
+    } for r in rows], columns=["ticker", "reported_date",
+                               "fiscal_date_ending", "reported_eps"])
+
+
 async def load_universe(engine, limit: int | None = None) -> tuple[list[str], dict[str, str]]:
     """Tickers + sector map from the LATEST bt_universe snapshot. `limit` keeps
     smoke runs small: top-N by latest dollar volume (deterministic order).

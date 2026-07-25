@@ -1206,18 +1206,24 @@ async def _do_calculate(run_id: str, trace_id: str, today: date, started_at: dat
     # score_date are used). Loading the full per-ticker history lets the factor
     # standardize the surprise by the ticker's own surprise volatility (SUE).
     # Missing/empty → the factor is null everywhere → renormalized out (inert).
-    earnings_df = pd.DataFrame(columns=["ticker", "reported_date", "reported_eps", "estimated_eps"])
+    # fiscal_date_ending is REQUIRED by the seasonal-random-walk SUE (the default
+    # sue_method): it aligns the year-ago quarter by fiscal PERIOD rather than by
+    # row position, so a missing or restated quarter cannot shift the comparison
+    # onto the wrong period.
+    _ecols = ["ticker", "reported_date", "fiscal_date_ending", "reported_eps",
+              "estimated_eps"]
+    earnings_df = pd.DataFrame(columns=_ecols)
     try:
         async with engine.connect() as conn:
             erows = await conn.execute(
-                text("SELECT ticker, reported_date, reported_eps, estimated_eps "
+                text("SELECT ticker, reported_date, fiscal_date_ending, reported_eps, "
+                     "       estimated_eps "
                      "FROM earnings WHERE ticker = ANY(:tk) AND reported_date IS NOT NULL"),
                 {"tk": list(universe_tickers)},
             )
             _erecs = erows.fetchall()
         if _erecs:
-            earnings_df = pd.DataFrame(_erecs, columns=["ticker", "reported_date",
-                                                        "reported_eps", "estimated_eps"])
+            earnings_df = pd.DataFrame(_erecs, columns=_ecols)
         print(f"[calculate] loaded {len(earnings_df)} earnings rows "
               f"for {earnings_df['ticker'].nunique() if not earnings_df.empty else 0} tickers")
     except Exception as exc:

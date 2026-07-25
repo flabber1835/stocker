@@ -2979,3 +2979,47 @@ that needs live's `_do_build` composition extracted from its DB coupling into a
 shared function both call, which is the same treatment `rank`/`select` already
 received. Until then live/tunnel parity rests on shared module identity plus the
 AST call-site diff, which is strong but not an output-equality proof.
+
+## Design Decision: SUE definition — parity by definition, not by subtraction (2026-07)
+
+The wind tunnel refused every config weighting `earnings_surprise` because live's
+SUE is `(reported − estimated) ÷ stdev(surprises)` and Sharadar carries no analyst
+estimates. Three ways out: buy an estimates history, drop the factor from live, or
+**move BOTH sides to a definition both corpora can compute**. Chosen: the third.
+
+`FactorEngineConfig.sue_method`:
+
+```text
+analyst               (reported − estimated), standardized. Live's original.
+                      Needs analyst estimates ⇒ the wind tunnel cannot compute it.
+seasonal_random_walk  (eps_q − eps_{q-4}), standardized by the ticker's own
+                      history of those differences. Foster-Olsen-Shevlin (1984),
+                      the classic SUE. Needs only REPORTED eps, which both AV and
+                      Sharadar have.
+```
+
+Set to `seasonal_random_walk` in the active config, so live and the tunnel now
+compute the same number from different vendors — the situation every other factor
+is already in, and the one form of divergence this system accepts.
+
+HONEST COST, stated because it is a real downgrade: analyst-based SUE produces
+somewhat stronger drift than SRW (Livnat-Mendenhall 2006). We are trading signal
+strength for measurability. The reasoning: an evolution loop that CANNOT SEE a
+factor will drift the config away from it, and with auto-promotion running that
+is a worse failure than a slightly weaker signal. A factor the loop can measure
+and tune beats a stronger one it is blind to. Reversible — set `sue_method:
+analyst` on both sides if an estimates history is ever bought for the corpus.
+
+Implementation notes:
+  - ONE function, `compute_earnings_surprise(..., method=...)`, in the module both
+    stacks import. Two implementations of a factor is the drift this system keeps
+    paying for.
+  - SRW aligns the year-ago quarter by `fiscal_date_ending`, not by row position:
+    a missing or restated quarter would silently shift a positional lookup onto
+    the wrong period.
+  - Point-in-time and the drift window are unchanged and apply to both methods:
+    only quarters with `reported_date <= as_of` are visible, and a report older
+    than `earnings_drift_window_days` gives a neutral (null) signal.
+  - The coverage contract now reads `sue_method`: `earnings_surprise` is SUPPORTED
+    under `seasonal_random_walk` and still REFUSED under `analyst`. The gate did
+    not become weaker — it became method-aware.

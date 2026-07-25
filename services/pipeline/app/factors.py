@@ -13,6 +13,7 @@ def compute_earnings_surprise(
     as_of: _date,
     drift_window_days: int = 90,
     min_quarters_for_sue: int = 6,
+    method: str = "seasonal_random_walk",
 ) -> pd.Series:
     """Per-ticker RAW earnings-surprise signal (SUE) as of `as_of`, point-in-time.
 
@@ -22,7 +23,19 @@ def compute_earnings_surprise(
     orthogonal to 12-1 price momentum (which skips the most recent ~21 days and so
     misses a fresh beat).
 
-    `earnings` columns: ticker, reported_date (date), reported_eps, estimated_eps.
+    `earnings` columns: ticker, reported_date (date), reported_eps, and — for
+    method='analyst' — estimated_eps, or — for 'seasonal_random_walk' —
+    fiscal_date_ending.
+
+    METHOD decides what "unexpected" means, and is the SAME function for both so
+    two implementations of one factor cannot drift:
+      analyst              unexpected = reported − estimated. Stronger drift, but
+                           needs analyst estimates the Sharadar corpus lacks, so
+                           the wind tunnel cannot reproduce it.
+      seasonal_random_walk unexpected = eps_q − eps_{q-4} (the same fiscal quarter
+                           a year earlier) — Foster-Olsen-Shevlin. Needs only
+                           REPORTED eps, so live and the wind tunnel compute the
+                           same number from their different vendors.
 
     Construction (per ticker):
       - POINT-IN-TIME: only quarters with reported_date <= as_of are visible (no
@@ -30,8 +43,8 @@ def compute_earnings_surprise(
       - DRIFT WINDOW: the signal is used only if the latest visible report is within
         `drift_window_days` of as_of; older than that the drift has played out →
         NaN (neutral). This is what makes it a *leadership* signal, not a stale one.
-      - SUE = latest unexpected EPS / stdev of the ticker's unexpected-EPS history,
-        where unexpected = reported_eps - estimated_eps. Standardizing by the
+      - SUE = latest unexpected EPS / stdev of the ticker's unexpected-EPS history.
+        Standardizing by the
         ticker's own surprise volatility (Bernard-Thomas / Foster-Olsen-Shevlin)
         stops a chronically-noisy reporter from dominating. Requires
         `min_quarters_for_sue` non-null quarters; otherwise falls back to a
@@ -45,13 +58,23 @@ def compute_earnings_surprise(
     if earnings is None or earnings.empty:
         return pd.Series(dtype=float, name="earnings_surprise")
 
+    srw = str(method) == "seasonal_random_walk"
+    need = "fiscal_date_ending" if srw else "estimated_eps"
+    if need not in earnings.columns:
+        # No column, no signal — never a silent fallback to the OTHER method,
+        # which would compute a different factor under the requested name.
+        return pd.Series(dtype=float, name="earnings_surprise")
+
     df = earnings.copy()
     df["reported_date"] = pd.to_datetime(df["reported_date"]).dt.date
     as_of = pd.to_datetime(as_of).date()
     cutoff = as_of - pd.Timedelta(days=drift_window_days).to_pytimedelta()
     df = df[df["reported_date"] <= as_of]                     # POINT-IN-TIME
-    for col in ("reported_eps", "estimated_eps"):
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+    df["reported_eps"] = pd.to_numeric(df["reported_eps"], errors="coerce")
+    if srw:
+        df["fiscal_date_ending"] = pd.to_datetime(df["fiscal_date_ending"]).dt.date
+    else:
+        df["estimated_eps"] = pd.to_numeric(df["estimated_eps"], errors="coerce")
     df = df.sort_values(["ticker", "reported_date"])
 
     out: dict[str, float] = {}
@@ -61,8 +84,11 @@ def compute_earnings_surprise(
         if latest["reported_date"] < cutoff:
             out[ticker] = float("nan")
             continue
-        unexpected = g["reported_eps"] - g["estimated_eps"]
-        unexpected = unexpected.dropna()
+
+        if srw:
+            unexpected = _srw_unexpected(g)
+        else:
+            unexpected = (g["reported_eps"] - g["estimated_eps"]).dropna()
         if unexpected.empty:
             out[ticker] = float("nan")
             continue
@@ -71,11 +97,63 @@ def compute_earnings_surprise(
             sigma = float(unexpected.std(ddof=1))
             out[ticker] = (u_latest / sigma) if sigma > 1e-12 else float("nan")
         else:
-            est = latest["estimated_eps"]
-            denom = abs(float(est)) if pd.notna(est) and abs(float(est)) > 1e-6 else float("nan")
+            # Too few quarters to standardize by the ticker's own history: scale
+            # by the size of the reference figure so a newly-covered name still
+            # gets a (less precise) signal instead of dropping out entirely.
+            ref = (_srw_reference(g) if srw else latest["estimated_eps"])
+            denom = (abs(float(ref)) if ref is not None and pd.notna(ref)
+                     and abs(float(ref)) > 1e-6 else float("nan"))
             out[ticker] = (u_latest / denom) if denom == denom else float("nan")
 
     return pd.Series(out, name="earnings_surprise", dtype=float)
+
+
+def _srw_unexpected(g: pd.DataFrame) -> pd.Series:
+    """eps_q − eps_{q-4}, aligned by FISCAL PERIOD, newest last.
+
+    Aligned by fiscal_date_ending rather than by row position on purpose: a
+    missing quarter or a restatement shifts a positional `iloc[-5]` lookup onto
+    the wrong period, which silently compares Q3 against Q2 and calls the
+    difference a surprise. Matching ~365 days back tolerates fiscal calendars
+    that wander by a few days, and yields nothing when the year-ago quarter is
+    genuinely absent."""
+    eps_by_period = {}
+    for fde, eps in zip(g["fiscal_date_ending"], g["reported_eps"]):
+        if fde is not None and pd.notna(eps):
+            eps_by_period[fde] = float(eps)
+    vals = []
+    for fde, eps in zip(g["fiscal_date_ending"], g["reported_eps"]):
+        if fde is None or pd.isna(eps):
+            continue
+        prior = _year_ago_period(fde, eps_by_period)
+        if prior is not None:
+            vals.append(float(eps) - prior)
+    return pd.Series(vals, dtype=float)
+
+
+def _year_ago_period(fde, eps_by_period: dict):
+    """The eps for the fiscal period closest to one year before `fde` (±45 days),
+    or None. The tolerance covers 52/53-week fiscal calendars and period-end
+    drift; beyond it, treating some other quarter as 'the year-ago quarter' would
+    manufacture a surprise out of seasonality."""
+    target = fde - pd.Timedelta(days=365).to_pytimedelta()
+    best, best_gap = None, None
+    for period, eps in eps_by_period.items():
+        gap = abs((period - target).days)
+        if gap <= 45 and (best_gap is None or gap < best_gap):
+            best, best_gap = eps, gap
+    return best
+
+
+def _srw_reference(g: pd.DataFrame):
+    """Scale reference for the too-few-quarters fallback: the year-ago EPS, which
+    is what 'unexpected' was measured against."""
+    eps_by_period = {}
+    for fde, eps in zip(g["fiscal_date_ending"], g["reported_eps"]):
+        if fde is not None and pd.notna(eps):
+            eps_by_period[fde] = float(eps)
+    latest_fde = g["fiscal_date_ending"].iloc[-1]
+    return None if latest_fde is None else _year_ago_period(latest_fde, eps_by_period)
 
 
 def drop_fundamentalless(
@@ -691,6 +769,7 @@ def compute_all_factors(
         earnings_surprise_raw = compute_earnings_surprise(
             earnings, as_of_date,
             drift_window_days=cfg.earnings_drift_window_days,
+            method=getattr(cfg, "sue_method", "seasonal_random_walk"),
         )
     else:
         earnings_surprise_raw = pd.Series(dtype=float, name="earnings_surprise")

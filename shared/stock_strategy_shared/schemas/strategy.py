@@ -125,6 +125,20 @@ class FactorEngineConfig(BaseModel):
         default=20, ge=5, le=63,
         description="Trading days over which average dollar volume is computed for the liquidity factor."
     )
+    sue_method: Literal["analyst", "seasonal_random_walk"] = Field(
+        default="seasonal_random_walk",
+        description=(
+            "How the earnings_surprise (PEAD) factor measures 'unexpected'. "
+            "'analyst': reported − estimated EPS, standardized by the ticker's own "
+            "surprise history. Stronger drift (Livnat-Mendenhall 2006) but needs "
+            "analyst estimates, which the Sharadar backtest corpus does not have — "
+            "so the wind tunnel REFUSES a config using it. "
+            "'seasonal_random_walk' (default): eps_q − eps_{q-4}, standardized the "
+            "same way — the classic Foster-Olsen-Shevlin SUE. Needs only REPORTED "
+            "eps, which both AV and Sharadar carry, so live and the wind tunnel "
+            "compute the same number. Chosen deliberately: a slightly weaker "
+            "signal the evolution loop can MEASURE beats a stronger one it is "
+            "blind to."))
     earnings_drift_window_days: int = Field(
         default=90, ge=14, le=180,
         description="PEAD drift window for the earnings_surprise factor: a quarterly "

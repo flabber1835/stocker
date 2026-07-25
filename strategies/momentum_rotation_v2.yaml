@@ -22,6 +22,12 @@ factor_engine:
   momentum_blend_windows:
   - 252
   - 126
+  # PEAD "unexpected" = eps_q - eps_{q-4} (Foster-Olsen-Shevlin), NOT reported
+  # minus analyst-estimate. Slightly weaker drift, but it needs only REPORTED
+  # eps — which both Alpha Vantage (live) and Sharadar (wind tunnel) carry — so
+  # the backtest scores the same factor live trades. See docs/architecture.md
+  # "SUE definition — parity by definition, not by subtraction".
+  sue_method: seasonal_random_walk
 regime_detection:
   slow_sma: 200
   vol_window: 20

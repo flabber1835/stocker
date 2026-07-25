@@ -29,7 +29,7 @@ from app.coverage import check_config_coverage
 from app.coverage import enforcement_enabled as coverage_enforcement_enabled
 from app.parity import check_config_parity
 from app.parity import enforcement_enabled as parity_enforcement_enabled
-from app.data import (load_data_version, load_fundamentals,
+from app.data import (load_data_version, load_earnings, load_fundamentals,
                       load_listing_windows, load_prices, load_universe)
 from app.sim import DEFAULT_DELIST_RECOVERY_PCT, SimParams, run_simulation
 from app.sweep import (SweepWindows, aggregate_rolling, apply_diff,
@@ -281,6 +281,10 @@ async def _run_bg(run_id: str, req: BtRunRequest, cfg: StrategyConfig) -> None:
         if prices.empty:
             raise RuntimeError("bt_prices empty for range — run bt-data /jobs/backfill first")
         fundamentals = await load_fundamentals(engine, tickers, req.end_date)
+        # Point-in-time EPS for the seasonal-random-walk SUE. Empty on a
+        # pre-migration corpus ⇒ the factor is null ⇒ the coverage gate refuses
+        # a config that weights it, rather than scoring it silently.
+        earnings = await load_earnings(engine, tickers, req.end_date)
         progress["phase"] = "simulating"
 
         params = SimParams(start=req.start_date, end=req.end_date,
@@ -294,7 +298,7 @@ async def _run_bg(run_id: str, req: BtRunRequest, cfg: StrategyConfig) -> None:
 
         result = await asyncio.to_thread(
             run_simulation, prices, fundamentals, sector_map, cfg, params, _cb,
-            None, listing_windows)
+            None, listing_windows, earnings)
 
         summary = _json_sanitize(result.summary)
         async with engine.begin() as conn:
@@ -528,6 +532,7 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
         if prices.empty:
             raise RuntimeError("bt_prices empty for range — run bt-data /jobs/backfill first")
         fundamentals = await load_fundamentals(engine, tickers, req.validate_end)
+        earnings = await load_earnings(engine, tickers, req.validate_end)
 
         base_dict = base_cfg.model_dump(mode="json")
         sim_kwargs = dict(tx_cost_bps=req.tx_cost_bps, fill_timing=req.fill_timing,
@@ -589,7 +594,7 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
                     row = await asyncio.to_thread(
                         run_config_both_windows, prices, fundamentals, sector_map,
                         base_dict, diff, windows, sim_kwargs, factor_cache, _cb,
-                        listing_windows)
+                        listing_windows, earnings)
                 finally:
                     poller.cancel()
                 row = _json_sanitize(row)
@@ -640,7 +645,7 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
         if rolling:
             await _finalize_rolling(sweep_id, base_dict, sim_kwargs, prices,
                                     fundamentals, sector_map, holdout,
-                                    listing_windows)
+                                    listing_windows, earnings)
         async with engine.begin() as conn:
             await conn.execute(text(
                 "UPDATE bt_sweeps SET status='success', completed_at=NOW() "
@@ -663,7 +668,8 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
 async def _finalize_rolling(sweep_id: str, base_dict: dict, sim_kwargs: dict,
                             prices, fundamentals, sector_map,
                             holdout: tuple[date, date] | None,
-                            listing_windows: dict | None = None) -> None:
+                            listing_windows: dict | None = None,
+                            earnings=None) -> None:
     """Mark the aggregate champion (max median_oos_RETURN — owner objective is
     long-run wealth; ties broken by worst_oos_return then median_oos_sharpe then
     config_idx, deterministic) and, if a holdout span was reserved, replay ONLY
@@ -698,7 +704,7 @@ async def _finalize_rolling(sweep_id: str, base_dict: dict, sim_kwargs: dict,
             summary = (await asyncio.to_thread(
                 run_simulation, prices, fundamentals, sector_map,
                 StrategyConfig(**cfg_dict), params, None, None,
-                listing_windows)).summary
+                listing_windows, earnings)).summary
         except Exception as exc:  # noqa: BLE001 — holdout failure must not fail the sweep
             summary = {"error": f"holdout sim failed: {str(exc)[:400]}"}
     summary = _json_sanitize({"start": str(holdout[0]), "end": str(holdout[1]),

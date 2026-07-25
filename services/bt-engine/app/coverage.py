@@ -64,12 +64,24 @@ SUPPORTED_FACTORS: dict[str, str] = {
 # factor to the registry without deciding its wind-tunnel status fails the drift
 # test instead of defaulting to either answer.
 UNSUPPORTED_FACTORS: dict[str, str] = {
+    # CONDITIONAL: computable under sue_method='seasonal_random_walk' (which
+    # needs only reported eps, in bt_earnings), NOT under 'analyst' (which needs
+    # estimates Sharadar does not carry). See _supports_earnings_surprise.
     "earnings_surprise":
-        "bt_earnings is populated but not yet wired into compute_all_factors "
-        "(needs SUE definitional parity — Sharadar SF1 carries reported eps but "
-        "no analyst estimate, so the live analyst-based SUE cannot be "
-        "reproduced verbatim)",
+        "sue_method='analyst' needs analyst estimates, which the Sharadar corpus "
+        "does not carry. Switch to sue_method='seasonal_random_walk' — the "
+        "classic Foster-Olsen-Shevlin SUE (eps_q − eps_{q-4}), which BOTH live "
+        "and this corpus can compute identically",
 }
+
+
+def _supports_earnings_surprise(config: StrategyConfig) -> bool:
+    """The one factor whose support depends on HOW it is configured.
+
+    Method-aware rather than a blanket refusal: the gate exists to stop a config
+    being scored differently than it reads, not to ban a factor. Under SRW the
+    tunnel computes exactly what live computes."""
+    return getattr(config.factor_engine, "sue_method", "") == "seasonal_random_walk"
 
 
 class CoverageError(RuntimeError):
@@ -114,6 +126,8 @@ def check_config_coverage(config: StrategyConfig) -> list[str]:
     violations: list[str] = []
     for name, weight in sorted(weighted_factors(config).items()):
         if name in SUPPORTED_FACTORS:
+            continue
+        if name == "earnings_surprise" and _supports_earnings_surprise(config):
             continue
         reason = UNSUPPORTED_FACTORS.get(
             name, "not computable by bt-engine (unknown factor)")

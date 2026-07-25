@@ -88,14 +88,26 @@ def test_a_missing_factor_silently_rescales_every_other_weight():
 
 # ── static gate ─────────────────────────────────────────────────────────────
 
-def test_the_active_config_is_refused_until_sue_parity_lands():
-    """momentum_rotation_v2 weights earnings_surprise at 0.12 and the corpus has
-    no analyst estimates. Being refused is the CORRECT state — silently scoring
-    it is what produced void results for weeks."""
-    violations = check_config_coverage(_cfg())
+def test_the_active_config_is_now_scorable():
+    """It weights earnings_surprise at 0.12 and WAS refused, because live's SUE
+    needed analyst estimates the corpus lacks. Both sides moved to the
+    seasonal-random-walk definition, so the tunnel computes the same factor live
+    trades — parity by definition, not by deleting the factor."""
+    assert _cfg().factor_engine.sue_method == "seasonal_random_walk"
+    assert check_config_coverage(_cfg()) == []
+
+
+def test_the_analyst_sue_is_still_refused():
+    """The gate became METHOD-AWARE, not weaker. Analyst SUE needs estimates
+    Sharadar does not have, so a config asking for it is still unscorable."""
+    d = _cfg().model_dump()
+    d["factor_engine"]["sue_method"] = "analyst"
+    violations = check_config_coverage(StrategyConfig(**d))
     assert len(violations) == 1
     assert "earnings_surprise" in violations[0]
     assert "0.12" in violations[0]
+    assert "seasonal_random_walk" in violations[0], (
+        "a refusal must name the method that WOULD work")
 
 
 def test_a_config_using_only_supported_factors_passes():
@@ -118,6 +130,9 @@ def test_static_weights_are_not_judged_on_unused_regime_vectors():
     drift this module exists to prevent."""
     d = _cfg().model_dump()
     assert d["regime_weighting_enabled"] is False
+    # analyst SUE keeps earnings_surprise UNCOMPUTABLE, which is what makes this
+    # test about regime-vector SCOPING rather than about the SUE method.
+    d["factor_engine"]["sue_method"] = "analyst"
     d["required_factors"] = ["momentum"]
     d["static_factor_weights"] = _w(momentum=0.6, quality=0.4)
     # Load an uncomputable factor into a REGIME vector. Rotation is off, so this
@@ -140,6 +155,7 @@ def test_regime_rotation_on_checks_every_regime_vector():
     distort that regime's scores, so it must be caught."""
     d = _cfg().model_dump()
     d["regime_weighting_enabled"] = True
+    d["factor_engine"]["sue_method"] = "analyst"   # keep the factor uncomputable
     d["required_factors"] = ["momentum"]
     for regime in ("bull_calm", "bull_stress", "bear_stress", "bear_calm"):
         d["factor_weights"][regime] = _w(momentum=0.6, quality=0.4)
@@ -152,7 +168,9 @@ def test_regime_rotation_on_checks_every_regime_vector():
 def test_violation_message_explains_the_consequence_not_just_the_fact():
     """A gate whose message is 'unsupported factor' teaches nobody why the run
     was refused, and the next person deletes the gate."""
-    msg = check_config_coverage(_cfg())[0]
+    d = _cfg().model_dump()
+    d["factor_engine"]["sue_method"] = "analyst"
+    msg = check_config_coverage(StrategyConfig(**d))[0]
     assert "renormalize" in msg.lower()
     assert "different strategy" in msg.lower()
 
@@ -162,7 +180,9 @@ def test_violations_are_reported_even_when_enforcement_is_off(monkeypatch):
     diagnosis. A disabled gate that is also silent is the original bug."""
     monkeypatch.setenv("BT_COVERAGE_ENFORCE", "false")
     assert enforcement_enabled() is False
-    assert check_config_coverage(_cfg()) != []
+    d = _cfg().model_dump()
+    d["factor_engine"]["sue_method"] = "analyst"
+    assert check_config_coverage(StrategyConfig(**d)) != []
 
 
 @pytest.mark.parametrize("val,expected", [

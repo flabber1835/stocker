@@ -217,7 +217,8 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
                  factor_cache=None, factor_key: str | None = None,
                  coverage_observer=None,
                  current_holdings: set | None = None,
-                 listing_windows: dict | None = None) -> tuple:
+                 listing_windows: dict | None = None,
+                 earnings: pd.DataFrame | None = None) -> tuple:
     """One rebalance: factors → rank → falling-knife → builder composition.
     Returns ({ticker: weight}, ranked_df, TargetStatus) — weights sum ≤ 1
     (cash_reserve / vol-target de-lever).
@@ -249,6 +250,9 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
             day_prices, fundamentals_asof, cfg=config.factor_engine,
             copy_input=False, sector_map=sector_map,
             as_of_date=as_of,
+            # The factor enforces point-in-time itself (reported_date <= as_of),
+            # so the whole history is passed once rather than sliced per date.
+            earnings=earnings,
         )
         if factor_cache is not None and factor_key is not None:
             factor_cache.put(as_of, factor_key, fdf)
@@ -401,7 +405,8 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
 def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                    sector_map: dict[str, str], config: StrategyConfig,
                    params: SimParams, progress_cb=None, factor_cache=None,
-                   listing_windows: dict | None = None) -> SimResult:
+                   listing_windows: dict | None = None,
+                   earnings: pd.DataFrame | None = None) -> SimResult:
     """prices: long [ticker, date, open, close, adjusted_close, volume] covering
     [start − FACTOR_LOOKBACK_DAYS, end] incl. SPY. fundamentals: long
     [ticker, as_of_date, pe_ratio, pb_ratio, roe, debt_to_equity, revenue_growth,
@@ -463,6 +468,8 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
     factor_key = None
     if factor_cache is not None:
         from app.factor_cache import factor_cfg_key
+        # factor_engine carries sue_method, so two configs differing only in SUE
+        # method get different cache keys — the frames genuinely differ.
         factor_key = factor_cfg_key(config.factor_engine)
     rd_cfg = config.regime_detection
 
@@ -639,7 +646,8 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                 factor_cache=factor_cache, factor_key=factor_key,
                 coverage_observer=coverage,
                 current_holdings=set(qty),
-                listing_windows=listing_windows)
+                listing_windows=listing_windows,
+                earnings=earnings)
             status_counts[target_status] = status_counts.get(target_status, 0) + 1
 
             if ranked is not None:
