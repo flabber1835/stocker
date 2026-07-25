@@ -32,8 +32,8 @@ import httpx
 from fastapi import FastAPI
 
 from app.logic import (artifact_needed, baseline_is_valid, build_schedule,
-                       derive_windows,
-                       experiment_due, fired_this_week, promotion_eligible,
+                       derive_windows, experiment_due, experiment_windows,
+                       fired_this_week, promotion_eligible_2w,
                        sweep_due, sweep_needed, topup_due)
 
 BT_DATA_URL = os.getenv("BT_DATA_URL", "http://bt-data:8000")
@@ -59,6 +59,13 @@ EXPERIMENT_RECENT_YEARS = float(os.getenv("BT_EXPERIMENT_RECENT_YEARS", "3"))
 # Deterministic auto-promotion gate (paper mode — see architecture.md 6d):
 PROMOTE_MARGIN = float(os.getenv("BT_PROMOTE_MARGIN", "0.01"))         # +1pp CAGR
 PROMOTE_DD_TOLERANCE = float(os.getenv("BT_PROMOTE_DD_TOLERANCE", "0.05"))
+# Hold-out slice carved off the END of the recent window; a candidate must
+# keep its edge here, not just on the data it was selected against.
+EXPERIMENT_VALIDATE_MONTHS = int(os.getenv("BT_EXPERIMENT_VALIDATE_MONTHS", "12"))
+PROMOTE_VALIDATE_TOL = float(os.getenv("BT_PROMOTE_VALIDATE_TOL", "0.0"))
+# Legacy Phase-5 weekly GRID: retired by default — the experiment lane is now
+# the single driver and carries evaluator proposals itself. true re-enables.
+STANDING_SWEEP_ENABLED = os.getenv("BT_STANDING_SWEEP_ENABLED", "false").lower() in ("1", "true", "yes")
 LOCAL_TZ = ZoneInfo(os.getenv("SCHEDULE_TZ", "America/New_York"))
 
 _status: dict = {"last_tick": None, "last_topup": None, "last_sweep_fire": None,
@@ -158,162 +165,158 @@ def _mark_full_proposal(pid: str | None, to_status: str) -> None:
 
 async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
                            cov: dict | None) -> None:
-    """Phase 6c: poll the in-flight experiment; fire the next one when the
-    daily slot opens. One at a time; weekly fire cap; auto-baseline first.
-    experiments.json doubles as durable state and the results bridge the
-    evaluator packet reads."""
+    """Phase 6c/6d: the wind tunnel's ONE driver — everything it runs is either
+    the promotion yardstick or something the evaluator asked for.
+
+    Each experiment is a single-config SWEEP job, which scores it over a TUNE
+    window and a held-out VALIDATE window in one pass (reusing the tested
+    run_config_both_windows path). That hold-out is what stops the loop from
+    auto-promoting a config selected on the very data it was fitted to.
+
+    Fires one at a time, capped per ISO week; experiments.json is both durable
+    state and the results bridge the evaluator packet reads."""
     state = _bt_json("experiments.json") or {"experiments": []}
     exps = state["experiments"]
     changed = False
 
-    # 1. Poll the running experiment (if any).
+    # 1. Poll the in-flight experiment.
     for e in exps:
-        if e.get("status") != "running" or not e.get("run_id"):
+        if e.get("status") != "running" or not e.get("sweep_id"):
             continue
         try:
-            r = (await client.get(f"{BT_ENGINE_URL}/runs/{e['run_id']}")
-                 ).json().get("run") or {}
+            sw = (await client.get(f"{BT_ENGINE_URL}/sweeps/latest")).json().get("sweep") or {}
+            if sw.get("sweep_id") != e["sweep_id"]:
+                continue
+            if sw.get("status") not in ("success", "failed"):
+                continue
+            row = {}
+            if sw.get("status") == "success":
+                lb = (await client.get(
+                    f"{BT_ENGINE_URL}/sweeps/{e['sweep_id']}/leaderboard",
+                    params={"limit": 1})).json().get("leaderboard") or []
+                row = lb[0] if lb else {}
         except Exception as exc:  # noqa: BLE001
-            _note(f"experiment poll failed: {exc}")
+            _note(f"experiment poll failed: {repr(exc)[:160]}")
             continue
-        if r.get("status") in ("success", "failed"):
-            e["status"] = r["status"]
-            e["completed_at"] = now.isoformat(timespec="seconds")
-            e["result"] = {k: r.get(k) for k in (
-                "total_return", "annualized_return", "sharpe_ratio",
-                "max_drawdown", "benchmark_total_return", "alpha",
-                "start_date", "end_date", "error_message")}
-            changed = True
-            _mark_full_proposal(e.get("proposal_id"),
-                                "tested" if r["status"] == "success" else "failed")
-            _note(f"experiment {e.get('id', '?')[:8]} {r['status']} "
-                  f"(CAGR={r.get('annualized_return')})")
-            # ── Phase 6d deterministic auto-promotion (paper mode) ─────────
-            # Candidates (never the baseline itself) are gated against the
-            # recent-window BASELINE; a pass writes the promotion artifact the
-            # live api's watcher validates + applies. The LLM authored the
-            # candidate; everything from here is deterministic.
-            if r["status"] == "success" and e.get("kind") == "full_config":
-                base_entry = next((b for b in reversed(exps)
-                                   if b.get("kind") == "baseline"
-                                   and b.get("status") == "success"), None)
-                base = (base_entry or {}).get("result")
-                # SAME-WINDOW guard: comparing a candidate scored on
-                # [T+Δ−3y, T+Δ] against a baseline scored on [T−3y, T] hands the
-                # candidate a free CAGR edge from the window shift alone, which
-                # could auto-promote pure noise. Only compare identical spans.
-                cand_win = e.get("window") or {}
-                base_win = (base_entry or {}).get("window") or {}
-                if base is not None and cand_win != base_win:
-                    ok, why = False, (f"window mismatch (candidate {cand_win} vs "
-                                      f"baseline {base_win}) — not comparable")
-                else:
-                    ok, why = promotion_eligible(e["result"], base,
-                                                 PROMOTE_MARGIN, PROMOTE_DD_TOLERANCE)
-                e["promotion"] = {"eligible": ok, "reason": why}
-                if ok and e.get("config_hash") and e.get("config"):
-                    _write_bt_json("promotion.json", {
-                        "config": e["config"],
-                        "config_hash": e["config_hash"],
-                        "candidate_id": e.get("id"),
-                        "hypothesis": e.get("hypothesis"),
-                        "diff_vs_active": e.get("diff_vs_active"),
-                        "evidence": {"candidate": e["result"], "baseline": base,
-                                     "gate": why,
-                                     "window_years": EXPERIMENT_RECENT_YEARS},
-                        "promoted_at": now.isoformat(timespec="seconds"),
-                    })
-                    _note(f"PROMOTION: candidate {str(e.get('id'))[:8]} passed "
-                          f"the gate ({why}) — artifact written for the live "
-                          "watcher")
-                else:
-                    _note(f"no promotion for {str(e.get('id'))[:8]}: {why}")
 
-    running = any(e.get("status") == "running" for e in exps)
+        e["status"] = sw.get("status")
+        e["completed_at"] = now.isoformat(timespec="seconds")
+        e["result"] = {"tune": row.get("in_sample"), "validate": row.get("out_sample"),
+                       "error_message": row.get("error_message") or sw.get("error_message")}
+        changed = True
+        _mark_full_proposal(e.get("proposal_id"),
+                            "tested" if sw.get("status") == "success" else "failed")
+        _note(f"experiment {str(e.get('id'))[:8]} {e['status']} "
+              f"(tune CAGR={(row.get('in_sample') or {}).get('annualized_return')}, "
+              f"validate CAGR={(row.get('out_sample') or {}).get('annualized_return')})")
 
-    # 2. Fire the next one when the slot is open.
+        # 2. Deterministic auto-promotion (paper mode). Baseline never promotes.
+        if e["status"] == "success" and e.get("kind") == "full_config":
+            base_entry = next((b for b in reversed(exps)
+                               if b.get("kind") == "baseline"
+                               and b.get("status") == "success"), None)
+            base = (base_entry or {}).get("result")
+            if (base_entry or {}).get("windows") != e.get("windows"):
+                ok, why = False, "window mismatch vs baseline — not comparable"
+            else:
+                ok, why = promotion_eligible_2w(
+                    e["result"], base, PROMOTE_MARGIN, PROMOTE_DD_TOLERANCE,
+                    PROMOTE_VALIDATE_TOL)
+            e["promotion"] = {"eligible": ok, "reason": why}
+            if ok and e.get("config") and e.get("config_hash"):
+                _write_bt_json("promotion.json", {
+                    "config": e["config"], "config_hash": e["config_hash"],
+                    "candidate_id": e.get("id"), "hypothesis": e.get("hypothesis"),
+                    "diff_vs_active": e.get("diff_vs_active"),
+                    "evidence": {"candidate": e["result"], "baseline": base,
+                                 "gate": why, "windows": e.get("windows")},
+                    "promoted_at": now.isoformat(timespec="seconds"),
+                })
+                _note(f"PROMOTION: {str(e.get('id'))[:8]} passed the two-window "
+                      f"gate ({why})")
+            else:
+                _note(f"no promotion for {str(e.get('id'))[:8]}: {why}")
+
+    running = any(x.get("status") == "running" for x in exps)
+
+    # 3. Fire the next experiment when the daily slot is open.
     if (not running and experiment_due(now, EXPERIMENT_HOUR)
             and cov and cov.get("go")
             and fired_this_week(exps, now.date()) < EXPERIMENTS_PER_WEEK):
-        try:
-            sweep = (await client.get(f"{BT_ENGINE_URL}/sweeps/latest")
-                     ).json().get("sweep")
-        except Exception:  # noqa: BLE001
-            sweep = None
-        if sweep and sweep.get("status") == "running":
-            pass  # never contend with a sweep for the engine/host
+        evs = date_fromiso(cov.get("earliest_viable_start"))
+        windows = experiment_windows(now.date(), EXPERIMENT_RECENT_YEARS,
+                                     EXPERIMENT_VALIDATE_MONTHS, evs)
+        if windows is None:
+            _note("experiment slot: derived tune window too short — skipped")
+            return
+
+        applied_promo = None
+        ps = _read_promotion_state() or {}
+        if ps.get("status") == "applied":
+            applied_promo = ps.get("last_hash")
+        live_baseline = next((b for b in reversed(exps)
+                              if b.get("kind") == "baseline"
+                              and b.get("status") in ("running", "success")), None)
+        base_ok, base_why = baseline_is_valid(live_baseline, applied_promo)
+        if live_baseline is not None and live_baseline.get("status") == "running":
+            base_ok = True
+
+        payload = {"grid": {}, "max_configs": 1,
+                   "rebalance_every": EXPERIMENT_REBALANCE_EVERY, **windows}
+        entry = None
+        import uuid as _uuid
+        if not base_ok:
+            # (Re-)run the yardstick FIRST: candidates must be gated against the
+            # config that is actually live, over the SAME windows.
+            entry = {"id": str(_uuid.uuid4()), "kind": "baseline",
+                     "hypothesis": (f"BASELINE: active config, tune+validate "
+                                    f"({base_why})"),
+                     "diff_vs_active": {}, "proposal_id": None,
+                     "windows": windows, "applied_promotion": applied_promo}
         else:
-            # RECENT window (Phase 6d): judge on the current era; also fits the
-            # bt-engine 4g cap (the full 20y frame does not — the full-history
-            # floor returns with the memory-lean loader).
-            evs = cov.get("earliest_viable_start")
-            recent_start = (now.date()
-                            - timedelta(days=int(EXPERIMENT_RECENT_YEARS * 365.25)))
-            start = max(d for d in (recent_start,
-                                    date_fromiso(evs) if evs else None) if d)
-            window = {"start": start.isoformat(), "end": now.date().isoformat()}
-
-            # Is the promotion yardstick still valid for the CURRENT champion?
-            applied_promo = (_read_promotion_state() or {}).get("last_hash") \
-                if (_read_promotion_state() or {}).get("status") == "applied" else None
-            live_baseline = next((b for b in reversed(exps)
-                                  if b.get("kind") == "baseline"
-                                  and b.get("status") in ("running", "success")), None)
-            base_ok, base_why = baseline_is_valid(live_baseline, applied_promo)
-            if live_baseline is not None and live_baseline.get("status") == "running":
-                base_ok = True      # a baseline in flight is not "missing"
-
-            pending = _pending_full_experiments()
-            entry = None
-            if pending and base_ok:
-                p = pending[0]
-                payload_window = (live_baseline or {}).get("window") or window
-                payload = {"start_date": payload_window["start"],
-                           "end_date": payload_window["end"],
-                           "rebalance_every": EXPERIMENT_REBALANCE_EVERY,
-                           "config": p["config"]}
+            pend_full = _pending_full_experiments()
+            pend_field = _pending_proposals()
+            if pend_full:
+                p = pend_full[0]
+                payload["config"] = p["config"]     # whole candidate YAML
                 entry = {"id": p.get("id"), "kind": "full_config",
                          "hypothesis": p.get("hypothesis"),
                          "diff_vs_active": p.get("diff"),
-                         # carried for the promotion artifact on success:
-                         "config": p.get("config"),
-                         "config_hash": p.get("config_hash"),
-                         "window": payload_window,
-                         "proposal_id": p.get("id")}
-            elif not base_ok:
-                # (Re-)run the yardstick FIRST: candidates must be gated against
-                # the config that is actually live, over the SAME window they
-                # will be scored on.
-                import uuid as _uuid
-                payload = {"start_date": window["start"], "end_date": window["end"],
-                           "rebalance_every": EXPERIMENT_REBALANCE_EVERY}
-                entry = {"id": str(_uuid.uuid4()), "kind": "baseline",
-                         "hypothesis": (f"BASELINE: active config over the recent "
-                                        f"{EXPERIMENT_RECENT_YEARS:g}y window "
-                                        f"({base_why})"),
-                         "diff_vs_active": {}, "proposal_id": None,
-                         "window": window,
-                         "applied_promotion": applied_promo}
-            if entry:
-                try:
-                    r = await client.post(f"{BT_ENGINE_URL}/jobs/run", json=payload)
-                    if r.status_code == 200:
-                        entry.update({"run_id": r.json().get("run_id"),
-                                      "status": "running",
-                                      "fired_at": now.isoformat(timespec="seconds")})
-                        exps.append(entry)
-                        changed = True
-                        _mark_full_proposal(entry.get("proposal_id"), "testing")
-                        _note(f"experiment fired ({entry['kind']}) run "
-                              f"{entry['run_id'][:8]}")
-                    else:
-                        _note(f"experiment fire refused → {r.status_code} "
-                              f"{r.text[:120]}")
-                except Exception as exc:  # noqa: BLE001
-                    _note(f"experiment fire failed: {exc}")
+                         "config": p.get("config"), "config_hash": p.get("config_hash"),
+                         "windows": windows, "proposal_id": p.get("id")}
+            elif pend_field:
+                # single-field queue_experiment proposals run here too (the grid
+                # used to carry them). bt-engine applies the diff to its own
+                # active config, so no config is sent.
+                p = pend_field[0]
+                payload["grid"] = {p["config_field"]: [p.get("value")]}
+                entry = {"id": p.get("id"), "kind": "single_field",
+                         "hypothesis": p.get("hypothesis")
+                         or f"{p['config_field']} → {p.get('value')}",
+                         "diff_vs_active": {p["config_field"]: p.get("value")},
+                         "windows": windows, "proposal_id": p.get("id")}
+        if entry is None:
+            return
+        try:
+            r = await client.post(f"{BT_ENGINE_URL}/sweeps/run", json=payload)
+            if r.status_code == 200:
+                entry.update({"sweep_id": r.json().get("sweep_id"),
+                              "status": "running",
+                              "fired_at": now.isoformat(timespec="seconds")})
+                exps.append(entry)
+                changed = True
+                _mark_full_proposal(entry.get("proposal_id"), "testing")
+                _note(f"experiment fired ({entry['kind']}) sweep "
+                      f"{str(entry['sweep_id'])[:8]} tune {windows['tune_start']}"
+                      f"→{windows['tune_end']} validate {windows['validate_start']}"
+                      f"→{windows['validate_end']}")
+            else:
+                _note(f"experiment fire refused → {r.status_code} {r.text[:120]}")
+        except Exception as exc:  # noqa: BLE001
+            _note(f"experiment fire failed: {repr(exc)[:160]}")
 
     if changed:
-        state["experiments"] = exps[-60:]   # bounded history
+        state["experiments"] = exps[-60:]
         state["updated_at"] = now.isoformat(timespec="seconds")
         _write_bt_json("experiments.json", state)
 
@@ -322,9 +325,8 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
 # The Lab's freshness was 100% coupled to a tick's HTTP polls ALL succeeding: a
 # single coverage ReadTimeout / DNS blip during a container recreate blanked
 # coverage to None and the UI flipped to "NO-GO (backfill needed)" even with 35M
-# rows loaded. We now persist the last SUCCESSFUL coverage/sweep to disk and
-# always serve it (stamped with its age) so a transient poll failure degrades to
-# "data as of Nm ago", never to "no data". Survives a bt-scheduler restart too.
+# rows loaded. We persist the last SUCCESSFUL coverage/sweep and always serve it
+# (stamped with its age) so a transient failure degrades to "data as of Nm ago".
 _LAST_GOOD_FILE = "last_good.json"
 _last_good: dict = {}
 
@@ -335,7 +337,6 @@ def _load_last_good() -> None:
 
 
 def _remember_good(key: str, value, now_iso: str) -> None:
-    """Record a successful poll result as last-known-good (persisted)."""
     _last_good[key] = value
     _last_good[f"{key}_as_of"] = now_iso
     _write_bt_json(_LAST_GOOD_FILE, _last_good)
@@ -370,18 +371,17 @@ def _next_experiment_fire(now: datetime) -> str:
 
 
 async def _experiment_snapshot(client: httpx.AsyncClient, now: datetime) -> dict:
-    """Live experiment-lane view for the Lab: the running experiment (with % if
-    available), the queued theses, recent results, and when the lane next fires.
-    Pure-ish: reads the artifact files the lane maintains; best-effort progress
-    poll for the running run."""
+    """Live experiment-lane view for the Lab: what is running (with progress and
+    thesis), what is scheduled next and why, recent results, and the promotion
+    outcome."""
     exps = (_bt_json("experiments.json") or {}).get("experiments") or []
     running = next((e for e in reversed(exps) if e.get("status") == "running"), None)
     progress = None
-    if running and running.get("run_id"):
+    if running and running.get("sweep_id"):
         try:
-            r = (await client.get(f"{BT_ENGINE_URL}/runs/{running['run_id']}")
-                 ).json().get("run") or {}
-            progress = r.get("progress_pct")
+            sw = (await client.get(f"{BT_ENGINE_URL}/sweeps/latest")).json().get("sweep") or {}
+            if sw.get("sweep_id") == running["sweep_id"] and sw.get("n_configs"):
+                progress = 100.0 * (sw.get("n_done") or 0) / sw["n_configs"]
         except Exception:  # noqa: BLE001 — progress is best-effort
             progress = None
     props = (_bt_json("proposals.json") or {}).get("proposals") or []
@@ -390,45 +390,39 @@ async def _experiment_snapshot(client: httpx.AsyncClient, now: datetime) -> dict
                or (f"{e.get('config_field')} → {e.get('value')}"
                    if e.get("config_field") else "—")}
               for e in props if e.get("status") == "pending"]
-    baseline_done = any(e.get("kind") == "baseline" for e in exps)
-    if not baseline_done and not any(q for q in queued):
+    if not any(e.get("kind") == "baseline" and e.get("status") in ("running", "success")
+               for e in exps):
         queued.insert(0, {"kind": "baseline",
-                          "hypothesis": "BASELINE: active config over full history"})
+                          "hypothesis": "BASELINE: active config (promotion yardstick)"})
     recent = [{"kind": e.get("kind"), "status": e.get("status"),
                "hypothesis": e.get("hypothesis"),
-               "cagr": (e.get("result") or {}).get("annualized_return"),
+               "cagr": ((e.get("result") or {}).get("validate") or {}).get("annualized_return"),
+               "promotion": (e.get("promotion") or {}).get("reason"),
                "completed_at": e.get("completed_at")}
               for e in exps if e.get("status") in ("success", "failed")][-5:]
     n_fired = fired_this_week(exps, now.date())
     next_fire = _next_experiment_fire(now)
-    # Live-side promotion outcome travels back over the same shared mount.
     promo = _bt_json("promotion.json")
-    promo_state = None
-    try:
-        with open(os.path.join(ARTIFACTS_PATH, "config",
-                               "promotion_state.json")) as f:
-            promo_state = json.load(f)
-    except (OSError, ValueError):
-        pass
     return {
         "running": ({"kind": running.get("kind"),
                      "hypothesis": running.get("hypothesis"),
                      "fired_at": running.get("fired_at"),
+                     "windows": running.get("windows"),
                      "progress_pct": progress} if running else None),
         "queued": queued[:8],
-        "schedule": build_schedule(queued, next_fire, n_fired,
-                                   EXPERIMENTS_PER_WEEK),
+        "schedule": build_schedule(queued, next_fire, n_fired, EXPERIMENTS_PER_WEEK),
         "recent": recent,
         "next_fire_local": next_fire,
         "fired_this_week": n_fired,
         "week_cap": EXPERIMENTS_PER_WEEK,
         "window_years": EXPERIMENT_RECENT_YEARS,
+        "validate_months": EXPERIMENT_VALIDATE_MONTHS,
         "last_promotion": ({"config_hash": promo.get("config_hash"),
                             "promoted_at": promo.get("promoted_at"),
                             "hypothesis": promo.get("hypothesis"),
                             "gate": (promo.get("evidence") or {}).get("gate")}
                            if promo else None),
-        "promotion_applied": promo_state,
+        "promotion_applied": _read_promotion_state(),
     }
 
 
@@ -506,9 +500,14 @@ async def _tick() -> None:
         except Exception as exc:  # noqa: BLE001
             _note(f"experiment lane failed: {exc}")
 
-        # ── weekly standing sweep (skip-if-unchanged + experiment queue) ──────
+        # ── weekly standing GRID (legacy Phase 5 — RETIRED by default) ────────
+        # The hand-written 54-config grid predates evaluator-authored
+        # configs: it is not driven by the evaluator, it carried the
+        # universe_limit look-ahead bias, and it competed with the lane for
+        # the engine. The lane now runs everything (baseline, full-config
+        # candidates, AND single-field proposals) with a validation window.
         try:
-            if os.path.exists(SPEC_PATH):
+            if STANDING_SWEEP_ENABLED and os.path.exists(SPEC_PATH):
                 latest = (await client.get(f"{BT_ENGINE_URL}/sweeps/latest")).json().get("sweep")
                 if sweep_due(now, latest, weekday=SWEEP_WEEKDAY, hour=SWEEP_HOUR):
                     with open(SPEC_PATH, "rb") as f:

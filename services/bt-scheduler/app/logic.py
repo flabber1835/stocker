@@ -182,3 +182,82 @@ def baseline_is_valid(baseline: dict | None, applied_promotion_hash: str | None
     if not (baseline.get("window") or {}).get("start"):
         return False, "baseline has no pinned comparison window"
     return True, "baseline current"
+
+
+def shift_months(d: date, months: int) -> date:
+    """Calendar-month shift with day-of-month clamping. Local copy: bt-scheduler
+    must not import from bt-engine (separate services/images)."""
+    total = d.year * 12 + (d.month - 1) + months
+    year, month = divmod(total, 12)
+    month += 1
+    nxt = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    last_day = (nxt - timedelta(days=1)).day
+    return date(year, month, min(d.day, last_day))
+
+
+def experiment_windows(today: date, recent_years: float, validate_months: int,
+                       earliest: date | None = None) -> dict | None:
+    """Split the recent era into TUNE + VALIDATE for the experiment lane.
+
+    The lane used to score a candidate on the SAME window the evaluator was
+    looking at when it authored the config — in-sample selection with an
+    auto-apply attached. We now carve the most recent `validate_months` off the
+    end as a hold-out: the candidate must earn its edge on tune AND still hold
+    up on validate. (Nothing an LLM authors is ever truly out-of-sample — it has
+    seen all history — so the shadow challenger's live-forward measurement
+    remains the honest verdict; this is the cheap pre-filter.)
+
+    Returns None when the derived tune window is too short to mean anything.
+    """
+    validate_end = today
+    validate_start = shift_months(today, -int(validate_months))
+    tune_end = validate_start
+    tune_start = shift_months(validate_end, -int(round(recent_years * 12)))
+    if earliest and tune_start < earliest:
+        tune_start = earliest
+    if (tune_end - tune_start).days < 180:
+        return None
+    return {"tune_start": tune_start.isoformat(), "tune_end": tune_end.isoformat(),
+            "validate_start": validate_start.isoformat(),
+            "validate_end": validate_end.isoformat()}
+
+
+def _cagr(summary: dict | None) -> float | None:
+    if not summary:
+        return None
+    v = summary.get("annualized_return")
+    return None if v is None else float(v)
+
+
+def promotion_eligible_2w(cand: dict | None, base: dict | None,
+                          margin: float = 0.01, dd_tol: float = 0.05,
+                          validate_tol: float = 0.0) -> tuple[bool, str]:
+    """Two-window promotion gate. `cand`/`base` are {"tune": summary,
+    "validate": summary} from ONE sweep job each (same windows by construction).
+
+    Promote only when the candidate:
+      1. beats the baseline's TUNE CAGR by >= margin  (there is a real edge)
+      2. is not worse than the baseline's VALIDATE CAGR by more than
+         validate_tol                                  (the edge survives OOS)
+      3. does not blow past the baseline's VALIDATE drawdown by dd_tol
+    Pure — the LLM authors candidates, this decides."""
+    ct, cv = (cand or {}).get("tune"), (cand or {}).get("validate")
+    bt, bv = (base or {}).get("tune"), (base or {}).get("validate")
+    if _cagr(ct) is None or _cagr(cv) is None:
+        return False, "candidate missing tune/validate result"
+    if _cagr(bt) is None or _cagr(bv) is None:
+        return False, "no two-window baseline to compare against"
+
+    edge = _cagr(ct) - _cagr(bt)
+    if edge < margin:
+        return False, f"tune CAGR edge {edge:+.4f} < margin {margin:+.4f}"
+    v_edge = _cagr(cv) - _cagr(bv)
+    if v_edge < -validate_tol:
+        return False, (f"edge does NOT survive validation: out-of-sample CAGR "
+                       f"{v_edge:+.4f} vs baseline (tol {validate_tol:.4f})")
+    cdd, bdd = (cv or {}).get("max_drawdown"), (bv or {}).get("max_drawdown")
+    if cdd is not None and bdd is not None and float(cdd) < float(bdd) - dd_tol:
+        return False, (f"validate drawdown {float(cdd):.2%} worse than baseline "
+                       f"{float(bdd):.2%} beyond {dd_tol:.0%}")
+    return True, (f"tune edge {edge:+.4f} >= {margin:+.4f} AND validate edge "
+                  f"{v_edge:+.4f} holds (drawdown within {dd_tol:.0%})")

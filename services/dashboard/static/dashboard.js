@@ -2782,13 +2782,17 @@ function renderLab(d) {
       const p = ex.running.progress_pct;
       const bar = p != null
           ? `<div class="lab-prog"><div class="lab-prog-fill" style="width:${Math.max(2, Math.min(100, p))}%"></div></div>` : '';
+      const w = ex.running.windows || {};
+      const wtxt = w.tune_start ? ` · tune ${esc(w.tune_start)}→${esc(w.tune_end)}` +
+                                  ` · validate ${esc(w.validate_start)}→${esc(w.validate_end)}` : '';
       h += `<div class="lab-line"><b>▶ running</b> · ${esc(ex.running.kind)} · ` +
            `started ${esc(_labAge(ex.running.fired_at))}` +
-           (p != null ? ` · ${Math.round(p)}%` : ' · (running)') + '</div>' + bar +
+           (p != null ? ` · ${Math.round(p)}%` : ' · (running)') + wtxt + '</div>' + bar +
            `<div class="lab-note">thesis: ${esc(ex.running.hypothesis)}</div>`;
     } else {
       h += `<div class="lab-line lab-dim">none running · next slot ${esc(ex.next_fire_local)} ` +
-           `· ${esc(ex.fired_this_week)}/${esc(ex.week_cap)} fired this week</div>`;
+           `· ${esc(ex.fired_this_week)}/${esc(ex.week_cap)} fired this week · ` +
+           `${esc(ex.window_years)}y tune + ${esc(ex.validate_months)}mo hold-out</div>`;
     }
     if (ex.schedule && ex.schedule.length) {
       h += '<div class="lab-note"><b>schedule</b> (daily slot, ' +
@@ -2815,7 +2819,8 @@ function renderLab(d) {
       h += '<div class="lab-note"><b>recent:</b><br>' +
            ex.recent.slice().reverse().map(r =>
              `· ${esc(r.kind)} <b>${esc(r.status)}</b>` +
-             (r.cagr != null ? ` — CAGR ${(Number(r.cagr) * 100).toFixed(1)}%` : '') +
+             (r.cagr != null ? ` — validate CAGR ${(Number(r.cagr) * 100).toFixed(1)}%` : '') +
+             (r.promotion ? ` <span class="lab-dim">[${esc(r.promotion)}]</span>` : '') +
              (r.hypothesis ? ` — ${esc(String(r.hypothesis).slice(0, 80))}` : '')).join('<br>') +
            '</div>';
     }

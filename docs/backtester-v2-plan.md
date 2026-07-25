@@ -448,3 +448,44 @@ factors → compute_all_factors(copy_input=False): the per-rebalance slice is
 
 Categorical caveat: every groupby on a price frame MUST pass `observed=True`,
 or pandas iterates all 17,781 categories instead of the ~50 present in a slice.
+
+## Phase 6e — one driver, with a validation window (2026-07, review outcome)
+
+Two changes, taken together because either alone would be wrong.
+
+**(a) The experiment lane now validates.** It previously scored a candidate and
+the baseline on the SAME recent window — i.e. the evaluator looked at recent
+performance, authored a config fitted to it, and we graded it on that same
+period. In-sample selection with an auto-apply attached: exactly the
+performance-chasing failure mode. Each experiment is now a single-config SWEEP
+job (reusing the tested run_config_both_windows path) over:
+
+```text
+tune     [today − BT_EXPERIMENT_RECENT_YEARS ,  today − BT_EXPERIMENT_VALIDATE_MONTHS]
+validate [today − BT_EXPERIMENT_VALIDATE_MONTHS , today]      (hold-out, default 12mo)
+```
+
+`promotion_eligible_2w` promotes only when the candidate (1) beats the
+baseline's TUNE CAGR by BT_PROMOTE_MARGIN, (2) does NOT give the edge back on
+VALIDATE (within BT_PROMOTE_VALIDATE_TOL), and (3) keeps VALIDATE drawdown
+within tolerance. Baseline and candidate always share identical windows.
+
+Honest limit: nothing an LLM authors is truly out-of-sample — it has seen all
+history. This hold-out is a cheap pre-filter that kills configs fitted to the
+tune period; the SHADOW challenger's live-forward measurement remains the only
+genuinely unbiased verdict, and promotion evidence should be read that way.
+
+**(b) The weekly standing GRID is retired** (BT_STANDING_SWEEP_ENABLED=false;
+set true to restore). It predated evaluator-authored configs: a hand-written
+54-config spec, not driven by the evaluator, carrying the `universe_limit:1500`
+look-ahead bias, and competing with the lane for the engine. The lane is now
+the single driver and runs everything the evaluator asks for:
+
+```text
+baseline      → active config (the promotion yardstick), re-run whenever a
+                promotion has actually been APPLIED live
+full_config   → queue_strategy_experiment: a whole candidate YAML
+single_field  → queue_experiment: bt-engine applies the dotted diff to the
+                active config (these used to ride the grid — they would have
+                stopped running when it was retired)
+```

@@ -93,7 +93,7 @@ def test_remember_good_persists_and_survives(monkeypatch, tmp_path):
 # ── Phase 6d: deterministic promotion gate + schedule builder ─────────────────
 
 def test_promotion_gate_requires_margin_and_dd_tolerance():
-    from app.logic import promotion_eligible
+    from app.logic import promotion_eligible  # legacy single-window helper
     base = {"annualized_return": 0.12, "max_drawdown": -0.25}
     # clears margin, drawdown similar → eligible
     ok, why = promotion_eligible({"annualized_return": 0.14, "max_drawdown": -0.27},
@@ -163,3 +163,43 @@ def test_promotion_gate_is_window_pinned():
     cand_win = {"start": "2023-06-01", "end": "2026-06-01"}
     base_win = {"start": "2023-01-01", "end": "2026-01-01"}
     assert cand_win != base_win
+
+
+# ── validation split: the lane's two-window gate (review fix a) ───────────────
+
+def _w(cagr, dd=-0.25):
+    return {"annualized_return": cagr, "max_drawdown": dd}
+
+
+def test_two_window_gate_requires_edge_that_survives_validation():
+    from app.logic import promotion_eligible_2w
+    base = {"tune": _w(0.12), "validate": _w(0.10)}
+    # edge on tune AND holds on validate → promote
+    ok, why = promotion_eligible_2w({"tune": _w(0.16), "validate": _w(0.11)}, base)
+    assert ok and "validate edge" in why
+    # THE case this fix exists for: big in-sample edge that COLLAPSES OOS
+    ok, why = promotion_eligible_2w({"tune": _w(0.25), "validate": _w(0.02)}, base)
+    assert not ok and "does NOT survive validation" in why
+    # no real edge on tune
+    ok, why = promotion_eligible_2w({"tune": _w(0.125), "validate": _w(0.20)}, base)
+    assert not ok and "margin" in why
+    # validate drawdown blows the tolerance
+    ok, why = promotion_eligible_2w({"tune": _w(0.20), "validate": _w(0.11, -0.45)}, base)
+    assert not ok and "drawdown" in why
+    # missing pieces never promote
+    assert promotion_eligible_2w({"tune": _w(0.2)}, base)[0] is False
+    assert promotion_eligible_2w({"tune": _w(0.2), "validate": _w(0.2)}, None)[0] is False
+
+
+def test_experiment_windows_carve_holdout_off_the_end():
+    from app.logic import experiment_windows
+    w = experiment_windows(date(2026, 7, 25), recent_years=3, validate_months=12)
+    assert w["validate_end"] == "2026-07-25"
+    assert w["validate_start"] == "2025-07-25"          # 12mo hold-out
+    assert w["tune_end"] == w["validate_start"]         # contiguous, no overlap
+    assert w["tune_start"] == "2023-07-25"              # 3y back from today
+    # clamped to available data, and refused when tune gets too short
+    w2 = experiment_windows(date(2026, 7, 25), 3, 12, earliest=date(2024, 1, 1))
+    assert w2["tune_start"] == "2024-01-01"
+    assert experiment_windows(date(2026, 7, 25), 3, 12,
+                              earliest=date(2025, 6, 1)) is None
