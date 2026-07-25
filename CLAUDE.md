@@ -378,6 +378,15 @@ volume keeps its namespace. To bring up BOTH stacks with one command use
 `restart: unless-stopped`, so once up they survive NAS reboots; they only stay
 down after an explicit stop/down.
 
+`up.sh` carries the SAME in-flight guard as `down.sh`: it SKIPS the backtest
+stack (and says so) while a bt-data fetch or a bt-engine sweep is running,
+because bt-engine marks every `running` bt_sweeps row `RESTART_ABORTED: engine
+restarted mid-sweep` **on its own startup** — recreating the container does not
+pause a sweep, it destroys it. Three consecutive nightly baselines were lost
+that way (2026-07-23/24/25), which left the experiment lane unable to validate
+any candidate and auto-promotion unable to fire. The LIVE stack still deploys
+when the bt stack is skipped; `--force` overrides.
+
 `scripts/down.sh` is the counterpart (`live` / `backtest` / `both`, default
 both). It enforces two things a raw `docker compose down` does not:
 `--volumes`/`-v` is REFUSED outright (it would delete the trading database and
