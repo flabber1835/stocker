@@ -207,20 +207,6 @@ ARTIFACTS_PATH = os.getenv("ARTIFACTS_PATH", "/artifacts")
 _config_apply_lock = asyncio.Lock()
 
 
-class ConfigApplyRequest(BaseModel):
-    config_field: Optional[str] = None
-    suggested_value: str | float | int | bool | None = None
-    # PAIRED/BATCH apply: {dotted.field: suggested_value, ...} applied in ONE
-    # atomic validate+write. Needed for coupled edits that are individually
-    # schema-invalid — e.g. the W29 factor reweight (near_high 0.06→0 funds
-    # low_volatility 0.08→0.14): either field alone breaks the weights-sum-to-1
-    # invariant and is rightly rejected; together they validate. When `changes`
-    # is set, config_field/suggested_value are ignored.
-    changes: Optional[dict[str, str | float | int | bool | None]] = None
-    source_report_run_id: Optional[str] = None
-    recommendation_index: Optional[int] = None
-    confirm: bool = False
-
 
 def _hash_raw(raw: str) -> str:
     import hashlib
@@ -393,144 +379,12 @@ async def _promotion_watcher() -> None:
         await asyncio.sleep(PROMOTION_POLL_SECS)
 
 
-@app.post("/config/apply")
-async def config_apply(req: ConfigApplyRequest):
-    import yaml as _yaml
-    from datetime import datetime as _dt, timezone as _tz
-
-    from stock_strategy_shared.config_values import (get_dotted, parse_suggested_value,
-                                                     set_dotted)
-
-    if not req.confirm:
-        raise HTTPException(status_code=400, detail="confirm=true required — this edits the live strategy config")
-    raw_changes = (req.changes if req.changes
-                   else {req.config_field or "": req.suggested_value})
-    edits: dict[str, Any] = {}
-    for field, raw in raw_changes.items():
-        if not field:
-            raise HTTPException(status_code=422, detail="config_field (or changes) required")
-        value, ok = parse_suggested_value(raw)
-        if not ok:
-            raise HTTPException(status_code=422, detail=(
-                f"suggested_value {raw!r} for {field} is not a literal — prose "
-                "recommendations cannot be one-click applied; edit the YAML manually"))
-        edits[field] = value
-
-    async with _config_apply_lock:
-        try:
-            with open(STRATEGY_CONFIG_PATH) as f:
-                old_raw = f.read()
-            cfg = _yaml.safe_load(old_raw)
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=500, detail=f"cannot read active config: {exc}")
-        old_values = {f: get_dotted(cfg, f) for f in edits}
-        if all(old_values[f] == v for f, v in edits.items()):
-            raise HTTPException(status_code=409, detail=(
-                f"{list(edits)} already at the suggested value(s) — nothing to apply"))
-        for field, value in edits.items():
-            err = set_dotted(cfg, field, value)
-            if err:
-                raise HTTPException(status_code=422, detail=err)
-
-        # Hard gate: the WHOLE new config through the strategy-validator service.
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                vr = await client.post(f"{STRATEGY_VALIDATOR_URL}/validate", json=cfg)
-        except Exception as exc:  # noqa: BLE001 — fail-closed, no write
-            raise HTTPException(status_code=503, detail=(
-                f"strategy-validator unreachable ({exc}) — config NOT applied"))
-        vbody = {}
-        try:
-            vbody = vr.json()
-        except Exception:  # noqa: BLE001
-            pass
-        if vr.status_code != 200 or not vbody.get("valid"):
-            raise HTTPException(status_code=422, detail={
-                "message": "strategy-validator rejected the new config — NOT applied",
-                "errors": vbody.get("errors") or [vr.text[:500]]})
-
-        new_raw = _yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False)
-        hash_before, hash_after = _hash_raw(old_raw), _hash_raw(new_raw)
-        stamp = _dt.now(_tz.utc).strftime("%Y%m%dT%H%M%SZ")
-        _archive_config("history", stamp, hash_before, old_raw)
-
-        # Transactional ordering (audit finding #4): PENDING audit rows FIRST —
-        # if the DB can't record the change, the live config is NOT touched
-        # (fail closed). Then the atomic file replace, then the applied/
-        # artifact, then the rows are finalized to 'applied'. The one residual
-        # window (file replaced, finalize fails) leaves 'pending' rows — an
-        # honest signal, surfaced in the response — instead of NO record.
-        row_ids = {field: str(uuid.uuid4()) for field in edits}
-        try:
-            async with engine.begin() as conn:
-                for field, value in edits.items():
-                    await conn.execute(text(
-                        "INSERT INTO config_changes (id, status, config_path, config_field, "
-                        " old_value, new_value, config_hash_before, config_hash_after, "
-                        " source_report_run_id, recommendation_index, applied_by, validator_status) "
-                        "VALUES (CAST(:id AS uuid), 'pending', :path, :field, CAST(:old AS jsonb), "
-                        "        CAST(:new AS jsonb), :hb, :ha, CAST(:rid AS uuid), :ridx, "
-                        "        'dashboard', :vst)"
-                    ), {"id": row_ids[field], "path": STRATEGY_CONFIG_PATH,
-                        "field": field, "old": json.dumps(old_values[field]),
-                        "new": json.dumps(value), "hb": hash_before, "ha": hash_after,
-                        "rid": req.source_report_run_id, "ridx": req.recommendation_index,
-                        "vst": f"valid ({vr.status_code})"})
-        except Exception as exc:  # noqa: BLE001 — no audit trail → no apply
-            traceback.print_exc()
-            raise HTTPException(status_code=503, detail=(
-                f"audit record could not be written ({str(exc)[:200]}) — "
-                "config NOT applied"))
-
-        tmp = STRATEGY_CONFIG_PATH + ".tmp"
-        try:
-            with open(tmp, "w") as f:
-                f.write(new_raw)
-            os.replace(tmp, STRATEGY_CONFIG_PATH)
-        except OSError as exc:
-            # best-effort: mark the pending rows failed so they can't read as applied
-            try:
-                async with engine.begin() as conn:
-                    await conn.execute(text(
-                        "UPDATE config_changes SET status = 'failed' "
-                        "WHERE id = ANY(CAST(:ids AS uuid[]))"
-                    ), {"ids": list(row_ids.values())})
-            except Exception:  # noqa: BLE001
-                traceback.print_exc()
-            raise HTTPException(status_code=500, detail=(
-                f"config write failed ({exc}) — active file unchanged"))
-
-        # applied/ artifact only AFTER the replace succeeded — it must never
-        # claim an apply that didn't happen (audit finding #4).
-        applied_path = _archive_config("applied", stamp, hash_after, new_raw)
-
-        audit_ok = True
-        try:
-            async with engine.begin() as conn:
-                await conn.execute(text(
-                    "UPDATE config_changes SET status = 'applied' "
-                    "WHERE id = ANY(CAST(:ids AS uuid[]))"
-                ), {"ids": list(row_ids.values())})
-        except Exception:  # noqa: BLE001 — file IS applied; pending rows are the honest state
-            traceback.print_exc()
-            audit_ok = False
-
-    return {
-        "applied": True,
-        "changes": {f: {"old": old_values[f], "new": v} for f, v in edits.items()},
-        "config_field": next(iter(edits)),
-        "old_value": old_values[next(iter(edits))],
-        "new_value": edits[next(iter(edits))],
-        "config_hash_before": hash_before,
-        "config_hash_after": hash_after,
-        "applied_artifact": applied_path,
-        "audit_row_written": True,          # rows exist by construction now
-        "audit_finalized": audit_ok,        # False → rows left 'pending', file applied
-        "note": ("takes effect on the NEXT chain run (config reloaded per run). "
-                 "Active file is now ahead of git — mirror the applied artifact "
-                 "into the repo before the next git-pull deploy."),
-    }
-
+# NOTE: POST /config/apply (the human one-click apply) was REMOVED. A config
+# change now reaches the live strategy ONLY by winning the wind-tunnel gate:
+# evaluator authors a whole candidate -> lane scores it on tune + hold-out ->
+# promotion_eligible_2w -> _check_promotion applies it (validator-gated,
+# audited). One path, one currency (a complete config). Manual override is a
+# YAML edit + deploy; revert is an artifacts/config/history/ copy-back.
 
 @app.get("/config/changes")
 async def config_changes(limit: int = 50):

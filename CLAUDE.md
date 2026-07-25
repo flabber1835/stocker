@@ -1241,20 +1241,17 @@ Loop budget EVALUATOR_MAX_TOOL_TURNS (default 24); exhaustion strips tools and
 demands the final report JSON. EVALUATOR_TOOLS_ENABLED=false → Phase-1
 packet-only (also the automatic fallback on a hard tool-loop failure). Every
 call persisted in evaluator_reports.tool_transcript (migration 0040) for audit.
-Phase 3 (BUILT): one-click HUMAN-APPROVED apply. Review-tab recommendation
-cards carry an Apply button → api `POST /config/apply` (the ONLY service with
-a read-write strategies mount): parses the literal suggested_value (shared
-config_values.py — same parser as the experiment queue), applies the single
-dotted-path diff, validates the WHOLE new config through the
-strategy-validator SERVICE (fail-closed: unreachable/invalid → no write),
-archives before/after under artifacts/config/{history,applied}/, atomically
-replaces the active YAML (normalized — comments stripped; the applied/
-artifact is the canonical new version to mirror into git verbatim), and
-records a `config_changes` audit row (migration 0042). Takes effect next
-chain run (per-run config reload; mid-chain applies surface via the skew
-detector). The packet's `applied_config_changes` section is the ground truth
-for "was my recommendation adopted". The evaluator service itself stays
-read-only; the LLM never reaches the write path — the human click does.
+Phase 3 REMOVED (2026-07, owner decision): the one-click human apply
+(`POST /config/apply` + the Review-tab Apply buttons) is GONE, together with
+the single-field `queue_experiment` tool and the recommendation→experiment
+harvest. There is now ONE currency and ONE path: the evaluator authors a
+COMPLETE candidate StrategyConfig (`queue_strategy_experiment` — to change a
+single field it sends the whole YAML with that field changed), the daily lane
+scores it against the current champion on a TUNE window plus a HELD-OUT
+validate window, and only a winner is applied — by deterministic code, never by
+the LLM and never by a click. `recommendations[]` remain ADVISORY (reasoning,
+structural findings, things a config cannot express). Manual override is a YAML
+edit + deploy; revert is copying an `artifacts/config/history/` archive back.
 
 Phase 6d (BUILT, 2026-07 — owner decision): AUTO-PROMOTION in PAPER mode.
 Config changes no longer need a human click: the evaluator authors whole

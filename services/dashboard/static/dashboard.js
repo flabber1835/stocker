@@ -2467,19 +2467,9 @@ function _renderEvalReport(rep) {
         // doesn't exist in the schema).
         const isAdvice = !it.config_field || it.config_field === 'none' || it.is_edit === false;
         const invalid = !isAdvice && it.config_field_valid === false;
-        // Phase 3 one-click apply: valid single-field edits get an Apply button;
-        // an audit row for this field+report renders as an APPLIED badge instead.
-        const applied = !isAdvice && !invalid && _appliedChanges.find(c =>
-          c.config_field === it.config_field && c.source_report_run_id === rep.run_id);
-        if (!isAdvice && !invalid && !applied) selectableCount++;
-        const applyUi = isAdvice || invalid ? ''
-          : applied
-            ? ' <span class="eval-chip" style="background:rgba(5,150,105,.15);color:#059669;border-color:#059669">APPLIED ' + _esc(applied.config_hash_after || '') + '</span>'
-            : ' <label style="margin-left:6px;font-size:11px;font-weight:400;cursor:pointer;opacity:.85">' +
-              '<input type="checkbox" class="eval-rec-cb" data-idx="' + idx + '" style="vertical-align:middle"> pair</label>' +
-              ' <button class="eval-apply-btn" onclick="applyRecommendation(' + idx + ')" ' +
-              'style="margin-left:6px;padding:2px 10px;font-size:11px;cursor:pointer;border-radius:6px;' +
-              'border:1px solid var(--border)">Apply</button>';
+        // Config changes are NOT applied from here: a change reaches the
+        // live config ONLY by winning its wind-tunnel gate (Phase 6d/6e).
+        // Recommendations are advisory/structural evidence.
         const chip = ' <span class="eval-chip">' +
           _esc(it.direction || '') + ' &middot; ' + _esc(it.confidence || '') + '</span>';
         const head = isAdvice
@@ -2500,19 +2490,6 @@ function _renderEvalReport(rep) {
       }).join('')
     : '<div style="margin:8px 12px;opacity:.7">No config changes recommended this week.</div>';
 
-  // Paired apply: coupled edits (e.g. a factor reweight that must keep weights
-  // summing to 1.0) are individually schema-invalid — the validator rightly
-  // rejects each alone. Tick "pair" on the coupled cards and apply them as ONE
-  // atomic validate+write.
-  if (selectableCount >= 2) {
-    recs.innerHTML +=
-      '<div style="margin:10px 12px;padding:8px 12px;border:1px dashed var(--border);border-radius:8px">' +
-      '<button onclick="applySelectedRecommendations()" ' +
-      'style="padding:3px 12px;font-size:11px;cursor:pointer;border-radius:6px;border:1px solid var(--border)">' +
-      'Apply selected together</button>' +
-      ' <span style="opacity:.7;font-size:11px">tick &ldquo;pair&rdquo; on coupled cards (e.g. reweights that must keep ' +
-      'factor weights summing to 1.0) &mdash; validated and written as ONE config</span></div>';
-  }
 
   // Structural findings — gaps that need CODE or NEW DATA (missing factors,
   // selection/exit logic, data sources), distinct from YAML tweaks above.
@@ -2574,96 +2551,10 @@ async function _loadAppliedChanges() {
   } catch (e) { _appliedChanges = []; }
 }
 
-// Phase 3 one-click apply: the click IS the human approval. Server-side the
-// api validates the whole new config through strategy-validator before any
-// write; the dashboard only confirms intent and shows the result.
-async function applyRecommendation(idx) {
-  const rep = _evalCurrent;
-  if (!rep) return;
-  // If the user has ticked "pair" boxes, a per-card Apply is a doomed
-  // single-field request (a coupled edit alone fails schema validation) —
-  // their intent is clearly the pair, so delegate to the atomic batch flow.
-  const ticked = document.querySelectorAll('.eval-rec-cb:checked').length;
-  if (ticked >= 2) {
-    return applySelectedRecommendations();
-  }
-  const it = (((rep.recommendations || {}).items) || [])[idx];
-  if (!it) return;
-  if (!confirm('Apply to the LIVE strategy config?\n\n' +
-               it.config_field + ' → ' + it.suggested_value +
-               '\n\nValidated by strategy-validator first; takes effect on the next chain run.')) return;
-  try {
-    const res = await fetch('/api/config/apply', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        config_field: it.config_field, suggested_value: it.suggested_value,
-        source_report_run_id: rep.run_id, recommendation_index: idx, confirm: true,
-      }),
-    }).then(r => r.json());
-    if (res.applied) {
-      alert('Applied ✓  config ' + res.config_hash_before + ' → ' + res.config_hash_after +
-            '\n\nTakes effect on the next chain run. The active file is now ahead of git — ' +
-            'mirror the applied artifact into the repo before the next deploy.');
-      await _loadAppliedChanges();
-      _renderEvalReport(rep);
-    } else {
-      const d = res.detail;
-      alert('NOT applied: ' + (typeof d === 'string' ? d
-        : d && d.message ? d.message + '\n' + (d.errors || []).join('\n')
-        : JSON.stringify(res)));
-    }
-  } catch (e) {
-    alert('Apply failed: ' + e);
-  }
-}
-
-// Paired atomic apply — sends the checked cards' fields as ONE `changes` batch
-// so coupled edits (individually schema-invalid, e.g. weight reallocations)
-// validate and write together. Server-side contract: POST /config/apply with
-// {changes: {field: value, ...}} — one validator pass, one file write, one
-// audit row per field.
-async function applySelectedRecommendations() {
-  const rep = _evalCurrent;
-  if (!rep) return;
-  const items = (((rep.recommendations || {}).items) || []);
-  const idxs = Array.from(document.querySelectorAll('.eval-rec-cb:checked'))
-    .map(cb => parseInt(cb.dataset.idx, 10));
-  if (idxs.length < 2) {
-    alert('Tick "pair" on at least two cards to apply together (use the per-card Apply for a single change).');
-    return;
-  }
-  const changes = {}, lines = [];
-  for (const i of idxs) {
-    const it = items[i];
-    if (!it || !it.config_field || it.config_field === 'none') continue;
-    changes[it.config_field] = it.suggested_value;
-    lines.push(it.config_field + ' → ' + it.suggested_value);
-  }
-  if (lines.length < 2) return;
-  if (!confirm('Apply ' + lines.length + ' changes to the LIVE strategy config ATOMICALLY?\n\n' +
-               lines.join('\n') +
-               '\n\nValidated as ONE config by strategy-validator; takes effect on the next chain run.')) return;
-  try {
-    const res = await fetch('/api/config/apply', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ changes: changes, source_report_run_id: rep.run_id, confirm: true }),
-    }).then(r => r.json());
-    if (res.applied) {
-      alert('Applied ✓  config ' + res.config_hash_before + ' → ' + res.config_hash_after +
-            '\n\nTakes effect on the next chain run. The active file is now ahead of git — ' +
-            'mirror the applied artifact into the repo before the next deploy.');
-      await _loadAppliedChanges();
-      _renderEvalReport(rep);
-    } else {
-      const d = res.detail;
-      alert('NOT applied: ' + (typeof d === 'string' ? d
-        : d && d.message ? d.message + '\n' + (d.errors || []).join('\n')
-        : JSON.stringify(res)));
-    }
-  } catch (e) {
-    alert('Apply failed: ' + e);
-  }
-}
+// Config changes reach the live config ONLY by winning the wind-tunnel
+// gate (Phase 6d/6e): evaluator authors a whole candidate config, the lane
+// scores it on tune + hold-out, and deterministic code applies the winner.
+// There is deliberately no manual apply button here.
 
 async function loadEvaluator() {
   try {

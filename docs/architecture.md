@@ -2159,3 +2159,31 @@ real money): raise PROMOTE_MARGIN, add the full-history floor + minimum-trades
 + regime-diversity gates, require a shadow live-forward edge over N weeks, and
 restore human approval or a bounded-knob whitelist. Recorded here so going
 live forces this review.
+
+## Design Decision: ONE path to the live config (2026-07, owner decision)
+
+The human one-click apply is REMOVED — endpoint (`POST /config/apply`), the
+Review-tab Apply buttons, the single-field `queue_experiment` tool, and the
+recommendation→single-field harvest. Rationale: two paths to the live config
+(a click that skipped the wind tunnel, and a gated backtest) meant the
+un-validated one could silently win, and single-field diffs made "what was
+tested" differ from "what goes live".
+
+Now: **a complete StrategyConfig is the only currency, and winning the
+wind-tunnel gate is the only path.**
+
+```text
+evaluator authors a WHOLE candidate config   (queue_strategy_experiment)
+  → daily lane scores it vs the current champion on TUNE + HELD-OUT VALIDATE
+  → promotion_eligible_2w (deterministic)
+  → api promotion watcher: validator-gated, archived, audited, atomic replace
+```
+
+To change one field the evaluator sends the whole YAML with that field changed
+— so the artifact that was tested IS the artifact that goes live, byte for
+byte. `recommendations[]` stay advisory (reasoning, structural findings, things
+no config can express) and no longer auto-queue anything.
+
+Escape hatches (unchanged, deliberately manual): override = edit the YAML and
+deploy; revert = copy an `artifacts/config/history/` archive back over the
+active file. Both leave the git mirror as the audit trail.

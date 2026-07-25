@@ -275,25 +275,16 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
                      "windows": windows, "applied_promotion": applied_promo}
         else:
             pend_full = _pending_full_experiments()
-            pend_field = _pending_proposals()
             if pend_full:
+                # A COMPLETE candidate config is the only currency: to change one
+                # field the evaluator sends the whole YAML with that field
+                # changed, so what is tested is exactly what may go live.
                 p = pend_full[0]
-                payload["config"] = p["config"]     # whole candidate YAML
+                payload["config"] = p["config"]
                 entry = {"id": p.get("id"), "kind": "full_config",
                          "hypothesis": p.get("hypothesis"),
                          "diff_vs_active": p.get("diff"),
                          "config": p.get("config"), "config_hash": p.get("config_hash"),
-                         "windows": windows, "proposal_id": p.get("id")}
-            elif pend_field:
-                # single-field queue_experiment proposals run here too (the grid
-                # used to carry them). bt-engine applies the diff to its own
-                # active config, so no config is sent.
-                p = pend_field[0]
-                payload["grid"] = {p["config_field"]: [p.get("value")]}
-                entry = {"id": p.get("id"), "kind": "single_field",
-                         "hypothesis": p.get("hypothesis")
-                         or f"{p['config_field']} → {p.get('value')}",
-                         "diff_vs_active": {p["config_field"]: p.get("value")},
                          "windows": windows, "proposal_id": p.get("id")}
         if entry is None:
             return
