@@ -203,6 +203,22 @@ def tool_definitions() -> list[dict]:
                            "description": "complete StrategyConfig as JSON (start from the active config and modify)"},
                 "hypothesis": {"type": "string",
                                "description": "what you expect and WHY — the thesis this candidate tests"},
+                "predicted_tune_cagr_edge": {
+                    "type": "number",
+                    "description": (
+                        "YOUR PREDICTION, and you are SCORED on it. How much "
+                        "should this candidate beat the BASELINE's tune-window "
+                        "CAGR by, in absolute terms? 0.02 means '+2 percentage "
+                        "points of CAGR'. Negative is a legitimate answer (a "
+                        "candidate worth testing can be expected to lose). When "
+                        "the run lands, the actual edge is computed and your "
+                        "error and directional accuracy are recorded — the "
+                        "prediction_scorecard packet section shows your running "
+                        "bias across every candidate you have ever queued. "
+                        "Guessing high to justify a candidate is self-defeating: "
+                        "it makes you measurably over-optimistic. Omit only if "
+                        "you genuinely have no expectation."),
+                },
                 "regime": {"type": "string", "enum": sorted(STRESS_REGIMES),
                            "description": (
                                "OPTIONAL. Score this candidate over a fixed "
@@ -878,6 +894,15 @@ async def queue_strategy_experiment(args: dict, *, budget: BacktestBudget) -> st
     config, and append it (kind='full_config') to the shared proposals queue.
     The bt-scheduler's daily experiment lane runs it as one full-history
     backtest (tune + held-out validate)."""
+    pred = args.get("predicted_tune_cagr_edge")
+    if pred is not None:
+        try:
+            pred = float(pred)
+        except (TypeError, ValueError):
+            return "queue rejected: predicted_tune_cagr_edge must be a number (0.02 = +2pp CAGR)"
+        if not -1.0 <= pred <= 1.0:
+            return (f"queue rejected: predicted_tune_cagr_edge {pred} is outside "
+                    "[-1, 1] — it is an absolute CAGR edge (0.02 = +2pp), not a percent")
     regime = str(args.get("regime") or "").strip() or None
     if regime and regime not in STRESS_REGIMES:
         return (f"queue rejected: unknown regime {regime!r} — choose one of "
@@ -943,6 +968,7 @@ async def queue_strategy_experiment(args: dict, *, budget: BacktestBudget) -> st
                 "status": "pending", "origin": "exploratory",
                 "hypothesis": hypothesis, "config": validated,
                 "config_hash": cfg_hash, "diff": diff, "regime": regime,
+                "predicted_tune_cagr_edge": pred,
                 # The config this candidate (and its diff) was authored against.
                 # Auto-promotion can change the live config while this sits
                 # pending, which would make promoting it a silent REVERT of the
@@ -955,12 +981,18 @@ async def queue_strategy_experiment(args: dict, *, budget: BacktestBudget) -> st
         budget.experiment_used -= 1
         return f"queue error: {str(exc)[:400]}"
 
+    scored = (f" Prediction recorded: you expect {pred:+.4f} CAGR edge vs the "
+              "baseline on tune; the actual will be scored against it."
+              if pred is not None else
+              " NO prediction supplied — this candidate cannot contribute to your "
+              "calibration record.")
     where = (f" over stress regime {regime}: {STRESS_REGIMES[regime]['stresses']}"
              " — DIAGNOSTIC ONLY, this run can never promote" if regime else "")
     return (f"queued full-config candidate {cfg_hash}{where} ({len(diff)} field(s) differ "
             "from active). Runs in the daily experiment lane (one full-history "
             "backtest); results appear in the experiment_lane packet section, "
-            f"typically within days. diff: {_json.dumps(diff, default=str)[:800]}")
+            f"typically within days.{scored} "
+            f"diff: {_json.dumps(diff, default=str)[:800]}")
 
 
 

@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from stock_strategy_shared.schemas.strategy import FactorWeights, StrategyConfig
 
 LLM_GATEWAY_URL = os.getenv("LLM_GATEWAY_URL", "http://llm-gateway:8000")
-EVALUATOR_MODEL = os.getenv("EVALUATOR_MODEL", "claude-opus-4-8")
+EVALUATOR_MODEL = os.getenv("EVALUATOR_MODEL", "claude-opus-5")
 EVALUATOR_PROVIDER = os.getenv("EVALUATOR_PROVIDER", "anthropic")
 EVALUATOR_MAX_TOKENS = int(os.getenv("EVALUATOR_MAX_TOKENS", "16000"))
 # Must exceed the gateway's worst case (Anthropic SDK ~600s timeout x up to 3
@@ -171,6 +171,7 @@ on validate is auto-applied as the live config by deterministic code. So a knob 
 only WRITE ABOUT will never change: if you believe a change is right, queue it. \
 Recommendations[] are ADVISORY — use them for reasoning, structural findings and \
 things a config cannot express.
+- YOU ARE SCORED. Every candidate you queue may carry a committed predicted_tune_cagr_edge, and when the wind tunnel returns, predicted-vs-actual is recorded. The packet's prediction_scorecard section is YOUR OWN track record: mean_signed_error > 0 means you systematically over-predict your own edge, so subtract it from the next one. Open the review by reading it. Inflating a prediction to make a candidate look worth running is self-defeating — it only makes you measurably over-optimistic, and a candidate queued with no prediction teaches you nothing about your calibration.
 - ITERATE, don't restart: the packet's prior_reviews section is your own recent output. \
 Open the narrative by scoring last week's calls — for each prior recommendation, was it \
 adopted? The packet's applied_config_changes section is GROUND TRUTH for adoption — \

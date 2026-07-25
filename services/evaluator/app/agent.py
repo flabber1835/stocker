@@ -88,6 +88,9 @@ TOOLS. You can now INVESTIGATE before concluding. Available tools:
   Results — including the promotion gate's verdict and reason — arrive in the
   experiment_lane packet section, typically within days. Pair important ones with a
   ledger entry so the thesis survives until results arrive.
+  OPTIONAL `predicted_tune_cagr_edge`: commit a NUMBER for how much this beats
+  the baseline's tune CAGR (0.02 = +2pp). You are scored on it — see the packet's
+  prediction_scorecard for your running bias. Negative is a legitimate prediction.
   OPTIONAL `regime`: score the candidate over a fixed historical crisis
   (gfc_2008, covid_2020, bear_2022, energy_shock_2015, volmageddon_2018) instead
   of the rolling recent window. DIAGNOSTIC ONLY — a regime run can NEVER promote,

@@ -547,7 +547,7 @@ services:
       STRATEGY_CONFIG_PATH: /strategies/momentum_rotation_v2.yaml  # keep in sync with pipeline/portfolio-builder/llm-vetter/backtester
       LLM_GATEWAY_URL: http://llm-gateway:8000
       EVALUATOR_PROVIDER: ${EVALUATOR_PROVIDER:-anthropic}
-      EVALUATOR_MODEL: ${EVALUATOR_MODEL:-claude-opus-4-8}
+      EVALUATOR_MODEL: ${EVALUATOR_MODEL:-claude-opus-5}
       ARTIFACTS_PATH: /artifacts
       # Phase 2 tools (read-only; see docs/architecture.md "evaluator tools")
       EVALUATOR_TOOLS_ENABLED: ${EVALUATOR_TOOLS_ENABLED:-true}

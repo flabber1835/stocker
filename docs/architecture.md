@@ -1847,7 +1847,7 @@ touches the broker path, and reaches the LLM only through the llm-gateway.
 never writes config, never creates trade intents, never touches the broker path.
 It calls the LLM exclusively through the llm-gateway (the system's single LLM
 interface), with `EVALUATOR_PROVIDER`/`EVALUATOR_MODEL` (default
-anthropic / claude-opus-4-8) — deliberately independent of the vetter's
+anthropic / claude-opus-5) — deliberately independent of the vetter's
 `LLM_PROVIDER`, so the nightly vetting can run on a cheap/local model while the
 weekly review uses a frontier model with adaptive thinking.
 
@@ -2168,6 +2168,44 @@ real money): raise PROMOTE_MARGIN, add the full-history floor + minimum-trades
 + regime-diversity gates, require a shadow live-forward edge over N weeks, and
 restore human approval or a bounded-knob whitelist. Recorded here so going
 live forces this review.
+
+## Design Decision: score the evaluator's own predictions (2026-07)
+
+The evaluator writes an `expected_effect` on every recommendation and nobody
+ever checked. There was therefore no way to answer the only question that
+matters about it: does the weekly review beat "change nothing"? It holds the
+strategy to account with forward-return ledgers and calibration curves while
+being itself unmeasured.
+
+`queue_strategy_experiment` now takes an optional `predicted_tune_cagr_edge` —
+a committed number for how much the candidate should beat the BASELINE's
+tune-window CAGR (0.02 = +2pp). Validated at queue time to [-1, 1] so a model
+passing "2" (percent) cannot poison the record. When the lane completes,
+`score_prediction` (pure, in bt-scheduler/app/logic.py) computes the actual edge
+on the SAME windows the gate used and stores predicted / actual / signed error /
+direction. The packet's `prediction_scorecard` section is the running tally.
+
+**The headline is BIAS, not accuracy.** `mean_signed_error` is reported
+alongside `mean_absolute_error` precisely because they answer different
+questions: an evaluator that is right about direction every time but inflates
+every magnitude by 3pp has the SAME absolute error as an unbiased noisy one, and
+needs a completely different correction. The prompt tells it to subtract its own
+measured bias from the next prediction.
+
+Deliberate choices:
+- Scoring is INDEPENDENT of promotion. Most candidates are refused, and those
+  forecasts are exactly the ones worth learning from — a test asserts the
+  scoring call sits outside the promotion branch.
+- Candidates queued WITHOUT a prediction are counted and named in the scorecard
+  rather than silently shrinking the sample.
+- Regime runs have no comparable baseline, so they score to None rather than
+  fabricating an edge.
+- Inflating a prediction to justify a candidate is self-defeating by
+  construction: it only makes the model measurably over-optimistic. That is the
+  incentive property the design rests on.
+
+Sample sizes will be tiny for a long time; the section says so, and it is a
+running tally rather than a verdict.
 
 ## Design Decision: the shadow challenger is the only uncontaminated evidence (2026-07)
 

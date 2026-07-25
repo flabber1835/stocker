@@ -1356,6 +1356,9 @@ async def build_packet(engine, as_of: date | None = None) -> dict:
             # evaluator had queued was buried in a section it was instructed to
             # skip. It stays duplicated inside backtest_lab for back-compat.
             "experiment_queue": await _section(lambda: _async_wrap(_experiment_queue)),
+            # The evaluator's own calibration record — it holds the strategy to
+            # account weekly; this holds IT to account on the same terms.
+            "prediction_scorecard": await _section(lambda: _async_wrap(_prediction_scorecard)),
         }
     return packet
 
@@ -1392,7 +1395,7 @@ def _experiment_lane() -> dict:
     view = [{k: e.get(k) for k in ("id", "kind", "status", "hypothesis",
                                    "config_hash", "diff_vs_active", "windows",
                                    "regime", "fired_at", "completed_at", "result",
-                                   "promotion")} for e in exps[-20:]]
+                                   "promotion", "prediction")} for e in exps[-20:]]
     baseline = next((e for e in reversed(exps)
                      if e.get("kind") == "baseline"
                      and e.get("status") == "success"), None)
@@ -1463,6 +1466,63 @@ def _backtest_lab() -> dict:
                  "re-recommending or retracting."
                  + (" WARNING: results are STALE (>21d old) — weigh accordingly."
                     if stale else "")),
+    }
+
+
+def _prediction_scorecard() -> dict:
+    """The evaluator's OWN track record. It writes an expected effect on every
+    recommendation and, until this existed, nobody ever checked — so there was
+    no way to know whether the weekly review beat "change nothing".
+
+    Every queued candidate can carry a committed CAGR-edge prediction; when the
+    wind tunnel scores it the lane records predicted vs actual. The headline is
+    BIAS (mean SIGNED error), not accuracy: a model that is right on direction
+    but systematically over-predicts magnitude needs a different correction
+    from one that is simply noisy."""
+    path = os.path.join(os.getenv("ARTIFACTS_PATH", "/artifacts"),
+                        "bt", "experiments.json")
+    try:
+        with open(path) as f:
+            exps = (json.load(f) or {}).get("experiments") or []
+    except (OSError, ValueError):
+        return {"available": False}
+    scored = [e for e in exps if isinstance(e.get("prediction"), dict)]
+    pending = [e for e in exps
+               if e.get("predicted_tune_cagr_edge") is not None
+               and not isinstance(e.get("prediction"), dict)]
+    no_pred = [e for e in exps if e.get("kind") == "full_config"
+               and e.get("predicted_tune_cagr_edge") is None]
+    if not scored:
+        return {"available": True, "n_scored": 0,
+                "n_awaiting_result": len(pending),
+                "n_queued_without_a_prediction": len(no_pred),
+                "note": ("no prediction has been scored yet. Supply "
+                         "predicted_tune_cagr_edge on every candidate you queue — "
+                         "an unpredicted candidate teaches you nothing about your "
+                         "own calibration.")}
+    errs = [e["prediction"]["error"] for e in scored]
+    abs_errs = [e["prediction"]["abs_error"] for e in scored]
+    dirs = [e["prediction"]["direction_correct"] for e in scored
+            if e["prediction"].get("direction_correct") is not None]
+    mean_err = sum(errs) / len(errs)
+    return {
+        "available": True,
+        "n_scored": len(scored),
+        "n_awaiting_result": len(pending),
+        "n_queued_without_a_prediction": len(no_pred),
+        # SIGNED mean: positive => you systematically over-predict your own edge
+        "mean_signed_error": round(mean_err, 6),
+        "mean_absolute_error": round(sum(abs_errs) / len(abs_errs), 6),
+        "direction_hit_rate": (round(sum(dirs) / len(dirs), 3) if dirs else None),
+        "recent": [{"id": e.get("id"), "hypothesis": (e.get("hypothesis") or "")[:120],
+                    **e["prediction"]} for e in scored[-10:]],
+        "note": ("mean_signed_error > 0 means you are OPTIMISTIC about your own "
+                 "candidates by that much CAGR on average — subtract it from your "
+                 "next prediction. A high direction_hit_rate with a large signed "
+                 "error means the ideas are right and the magnitudes are inflated, "
+                 "which is a different failure from being simply noisy. Sample "
+                 "sizes here are tiny for a long time; read it as a running tally, "
+                 "not a verdict."),
     }
 
 

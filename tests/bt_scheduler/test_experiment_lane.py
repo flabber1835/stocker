@@ -3,6 +3,8 @@ fired_this_week) and the evaluator-side config_diff attribution helper."""
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from app.logic import experiment_due, fired_this_week
 
 ET = ZoneInfo("America/New_York")
@@ -402,3 +404,42 @@ def test_a_regime_run_can_never_promote():
     idx_regime = src.index('if e.get("regime"):')
     idx_gate = src.index("promotion_eligible_2w")
     assert idx_regime < idx_gate, "the regime check must precede the promotion gate"
+
+
+# ── prediction scoring: hold the evaluator to its own numbers ────────────────
+
+def test_score_prediction_measures_signed_bias():
+    from app.logic import score_prediction
+    base = {"tune": {"annualized_return": 0.12}}
+    # over-predicted: said +5pp, got +3pp
+    s = score_prediction(0.05, {"tune": {"annualized_return": 0.15}}, base)
+    assert s["actual_edge"] == pytest.approx(0.03)
+    assert s["error"] == pytest.approx(0.02)      # signed: positive = optimistic
+    assert s["direction_correct"] is True
+    # wrong direction entirely
+    s = score_prediction(0.05, {"tune": {"annualized_return": 0.10}}, base)
+    assert s["actual_edge"] == pytest.approx(-0.02)
+    assert s["direction_correct"] is False
+
+
+def test_unscoreable_predictions_return_none():
+    """No prediction, or no comparable baseline, must not fabricate a score."""
+    from app.logic import score_prediction
+    base = {"tune": {"annualized_return": 0.12}}
+    assert score_prediction(None, {"tune": {"annualized_return": 0.15}}, base) is None
+    assert score_prediction(0.05, {"tune": {}}, base) is None
+    assert score_prediction(0.05, {"tune": {"annualized_return": 0.15}}, None) is None
+    # a prediction of exactly zero has no direction to be right about
+    assert score_prediction(0.0, {"tune": {"annualized_return": 0.12}},
+                            base)["direction_correct"] is None
+
+
+def test_a_refused_candidate_is_still_a_scored_forecast():
+    """Scoring must not depend on promotion — most candidates are refused, and
+    those forecasts are exactly the ones worth learning from."""
+    import inspect
+
+    from app import main as m
+    src = inspect.getsource(m._experiment_lane)
+    i_pred, i_ok = src.index("score_prediction("), src.index('if ok and e.get("config")')
+    assert i_pred < i_ok, "prediction scoring sits inside the promotion branch"

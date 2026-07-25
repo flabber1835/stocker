@@ -34,6 +34,7 @@ from fastapi import FastAPI
 from app.logic import (artifact_needed, baseline_is_valid, build_schedule,
                        derive_windows, experiment_due, experiment_windows,
                        fired_this_week, promotion_eligible_2w, regime_windows,
+                       score_prediction,
                        sweep_due, sweep_needed, topup_due)
 
 BT_DATA_URL = os.getenv("BT_DATA_URL", "http://bt-data:8000")
@@ -237,6 +238,16 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
                     e["result"], base, PROMOTE_MARGIN, PROMOTE_DD_TOLERANCE,
                     PROMOTE_VALIDATE_TOL)
             e["promotion"] = {"eligible": ok, "reason": why}
+            # Score the evaluator's own committed prediction against ground
+            # truth, on the SAME windows the gate used. Independent of whether
+            # it promoted — a refused candidate is still a scored forecast.
+            pred = score_prediction(e.get("predicted_tune_cagr_edge"),
+                                    e.get("result"), base)
+            if pred:
+                e["prediction"] = pred
+                _note(f"prediction {str(e.get('id'))[:8]}: predicted "
+                      f"{pred['predicted_edge']:+.4f} actual {pred['actual_edge']:+.4f} "
+                      f"(error {pred['error']:+.4f})")
             if ok and e.get("config") and e.get("config_hash"):
                 _write_bt_json("promotion.json", {
                     "config": e["config"], "config_hash": e["config_hash"],
@@ -324,6 +335,7 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
                          "hypothesis": p.get("hypothesis"),
                          "diff_vs_active": p.get("diff"), "regime": regime,
                          "config": p.get("config"), "config_hash": p.get("config_hash"),
+                         "predicted_tune_cagr_edge": p.get("predicted_tune_cagr_edge"),
                          "windows": cand_windows, "proposal_id": p.get("id")}
         if entry is None:
             return

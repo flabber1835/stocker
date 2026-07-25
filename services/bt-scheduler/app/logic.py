@@ -136,6 +136,34 @@ def fired_this_week(experiments: list[dict], today: date,
     return n
 
 
+def score_prediction(predicted: float | None, cand: dict | None,
+                     base: dict | None) -> dict | None:
+    """Score the evaluator's committed CAGR-edge prediction against what the
+    wind tunnel actually produced. Returns None when it cannot be scored
+    (no prediction, or no comparable baseline). Pure.
+
+    This is what makes the evaluator accountable on the same terms it holds the
+    strategy to: it writes an expected_effect on every recommendation and, until
+    now, nobody ever checked. Signed error (not absolute) is the point — the
+    useful statistic is BIAS, i.e. whether it is systematically optimistic about
+    its own ideas."""
+    if predicted is None:
+        return None
+    ct, bt = (cand or {}).get("tune"), (base or {}).get("tune")
+    if _cagr(ct) is None or _cagr(bt) is None:
+        return None
+    actual = _cagr(ct) - _cagr(bt)
+    return {
+        "predicted_edge": round(float(predicted), 6),
+        "actual_edge": round(actual, 6),
+        # signed: positive = the evaluator over-predicted its own edge
+        "error": round(float(predicted) - actual, 6),
+        "abs_error": round(abs(float(predicted) - actual), 6),
+        # a prediction of exactly 0 has no direction to be right about
+        "direction_correct": bool(predicted * actual > 0) if predicted else None,
+    }
+
+
 def promotion_eligible(cand: dict | None, base: dict | None,
                        margin: float = 0.01, dd_tol: float = 0.05
                        ) -> tuple[bool, str]:

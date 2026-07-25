@@ -1219,7 +1219,7 @@ docs/architecture.md "Design Decision: weekly LLM evaluator loop".
    vetter-excluded / exited names did AFTERWARD), current target book
    (weighted beta, sector weights), config-hash history, system-health
    caveats. Best-effort per section; persisted verbatim.
-2. An Opus-class model (EVALUATOR_MODEL, default claude-opus-4-8, adaptive
+2. An Opus-class model (EVALUATOR_MODEL, default claude-opus-5, adaptive
    thinking) reviews it VIA THE LLM-GATEWAY and returns structured JSON:
    narrative markdown + recommendation objects (YAML-knob tweaks) +
    STRUCTURAL FINDINGS (gaps needing code/new data: missing factors, missing
@@ -1254,6 +1254,12 @@ tools are for drill-down and testing a thesis BEFORE recommending it:
     canonical shared strategy_engine.rank via the _vendor shim): top-N
     membership changes + movers vs the active ranking, before spending a
     run_backtest slot. No builder caps/vetter. Budget EVALUATOR_MAX_PREVIEWS (8).
+  queue_strategy_experiment also takes an optional `predicted_tune_cagr_edge`:
+    a COMMITTED number (0.02 = +2pp) for how much the candidate should beat the
+    baseline's tune CAGR. The lane scores predicted-vs-actual when the run lands
+    and the packet's `prediction_scorecard` reports the running SIGNED bias —
+    the evaluator is now accountable on the same terms it holds the strategy to.
+    See docs/architecture.md "score the evaluator's own predictions".
   hypothesis_ledger — durable cross-week memory (evaluator_hypotheses, migration
     0041): thesis → planned test → status/outcome. The ONE write tool, scoped to
     its own table; read back as a deterministic packet section every review.
