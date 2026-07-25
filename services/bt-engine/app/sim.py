@@ -544,7 +544,17 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                                            "notional": diff, "action": "buy_add",
                                            "reason": dcs.reason})
                         elif dcs.action == "sell_trim" and diff < 0:
-                            p = last_px.get(dcs.ticker) or 1.0
+                            # NO $1 PLACEHOLDER. qty = floor(-diff / p), so a
+                            # fallback price of 1.0 turns a dollar drift into a
+                            # share count ~100x too large; _fill then caps it at
+                            # the held quantity, silently converting a TRIM into
+                            # a FULL LIQUIDATION. Same class as the delist bug
+                            # fixed above: a placeholder default that quietly
+                            # changes what the trade means. No known price ⇒ no
+                            # trade (the name is marked at last_px anyway).
+                            p = last_px.get(dcs.ticker)
+                            if not p or p <= 0:
+                                continue
                             trades.append({"ticker": dcs.ticker, "side": "sell",
                                            "qty": math.floor(-diff / p),
                                            "action": "sell_trim", "reason": dcs.reason})
@@ -560,7 +570,14 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
         # 2. delist sweep: held names with no print for DELIST_GAP_DAYS trading days
         for t in list(qty):
             if t in last_seen and (D - last_seen[t]).days > DELIST_GAP_DAYS * 2:
-                p = last_px.get(t, 0.0)
+                # Never book a delist exit at a ZERO price: `.get(t, 0.0)` would
+                # hand the whole position to the void and call it a sale. A held
+                # name always has a last_px (every fill stamps one), so a missing
+                # price means something is wrong — hold and let the next sweep
+                # retry rather than silently destroying the position.
+                p = last_px.get(t)
+                if not p or p <= 0:
+                    continue
                 cash += qty[t] * p
                 trade_rows.append({"date": D.date(), "ticker": t, "action": "exit",
                                    "qty": qty[t], "price": p, "tx_cost": 0.0,

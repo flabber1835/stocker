@@ -3628,10 +3628,34 @@ async def _run_shadow_build(ranking_run_id: str | None = None) -> None:
         if strategy is not None and (
                 challenger.factor_engine.model_dump()
                 != strategy.factor_engine.model_dump()):
-            print("[pipeline] shadow SKIPPED: challenger factor_engine differs "
-                  "from the active config — persisted factor scores cannot "
-                  "score it; use the wind-tunnel experiment lane instead",
-                  flush=True)
+            # PERSIST the refusal, don't just print it. Every strategy YAML in
+            # the repo except the active one differs in factor_engine, so the
+            # overwhelmingly likely outcome of "set CHALLENGER_CONFIG_PATH" is
+            # this branch — and a stdout line nobody reads is indistinguishable
+            # from a feature that is switched off. A skipped row makes the
+            # packet say WHY there is no shadow evidence.
+            msg = ("challenger factor_engine differs from the active config — "
+                   "the shadow re-ranks the champion's PERSISTED factor scores, "
+                   "so those are the wrong inputs. Change weights/builder knobs "
+                   "in the challenger, or send this candidate to the wind-tunnel "
+                   "experiment lane, which recomputes factors.")
+            print(f"[pipeline] shadow SKIPPED: {msg}", flush=True)
+            try:
+                async with engine.begin() as conn:
+                    rr = (await conn.execute(text(
+                        "SELECT rank_date FROM ranking_runs WHERE status='success' "
+                        "ORDER BY started_at DESC LIMIT 1"))).mappings().first()
+                    if rr:
+                        await conn.execute(text(
+                            "INSERT INTO shadow_runs (run_date, strategy_id, "
+                            " config_hash, config_path, status, n_positions, "
+                            " error_message) "
+                            "VALUES (:d, :sid, :h, :p, 'skipped', 0, :e) "
+                            "ON CONFLICT (run_date, config_hash) DO NOTHING"),
+                            {"d": rr["rank_date"], "sid": challenger.strategy_id,
+                             "h": ch_hash, "p": path, "e": msg})
+            except Exception as exc:  # noqa: BLE001 — observational, never fatal
+                print(f"[pipeline] shadow skip-row write failed: {exc}", flush=True)
             return
         async with engine.connect() as conn:
             if ranking_run_id:

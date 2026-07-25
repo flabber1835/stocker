@@ -179,7 +179,13 @@ services:
       # strategy YAML (e.g. /strategies/challenger.yaml) to build a THEORETICAL
       # daily target under it after each delta — shadow_runs rows only, no
       # orders. Empty (default) = feature inert.
-      CHALLENGER_CONFIG_PATH: ${CHALLENGER_CONFIG_PATH:-}
+      # Shadow challenger — the ONLY uncontaminated forward evidence in the
+      # system (target composed from data <= D, scored on days that had not
+      # happened). MUST share factor_engine with the active config, since the
+      # shadow re-ranks the champion's PERSISTED factor scores; every other
+      # strategy YAML in the repo differs there and would be refused. Set to ""
+      # to disable.
+      CHALLENGER_CONFIG_PATH: ${CHALLENGER_CONFIG_PATH:-/strategies/challenger_lowvol_v1.yaml}
       ARTIFACTS_PATH: /artifacts
       PYTHONUNBUFFERED: "1"
       LOG_LEVEL: ${LOG_LEVEL:-info}

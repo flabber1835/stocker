@@ -381,8 +381,35 @@ async def _shadow_vs_champion(conn) -> dict:
         "AND run_date >= CURRENT_DATE - make_interval(days => :lb) "
         "ORDER BY run_date"), {"lb": SHADOW_LOOKBACK_DAYS})).mappings().all()
     if not srows:
+        # "No successful rows" has TWO very different causes and the old note
+        # asserted only one of them. A challenger that IS configured but keeps
+        # being refused (its factor_engine differs from the active config — true
+        # of every strategy YAML in the repo except the active one) produces
+        # skipped/failed rows and no successes. Reporting that as "set
+        # CHALLENGER_CONFIG_PATH" would send the reader to fix something that
+        # is not broken, and hide a challenger that is silently doing nothing.
+        bad = (await conn.execute(text(
+            "SELECT status, strategy_id, config_hash, MAX(run_date) AS last_seen, "
+            "       COUNT(*) AS n, MAX(error_message) AS why "
+            "FROM shadow_runs WHERE status <> 'success' "
+            "AND run_date >= CURRENT_DATE - make_interval(days => :lb) "
+            "GROUP BY status, strategy_id, config_hash "
+            "ORDER BY MAX(run_date) DESC LIMIT 5"
+        ), {"lb": SHADOW_LOOKBACK_DAYS})).mappings().all()
+        if bad:
+            return {"note": ("a challenger IS configured but produced no usable "
+                             "shadow targets — see refusals below; this is a "
+                             "TOOLING GAP, not an absence of evidence"),
+                    "refusals": [{"status": r["status"], "strategy_id": r["strategy_id"],
+                                  "config_hash": r["config_hash"], "runs": r["n"],
+                                  "last_seen": str(r["last_seen"]),
+                                  "reason": r["why"]} for r in bad]}
         return {"note": ("no shadow runs — set CHALLENGER_CONFIG_PATH on the "
-                         "pipeline to enable the shadow challenger")}
+                         "pipeline to enable the shadow challenger. It is the "
+                         "ONLY uncontaminated forward evidence available: every "
+                         "backtest is scored on history the model has already "
+                         "read, while a shadow target is composed from data <= D "
+                         "and scored on days that had not yet happened.")}
     crows = (await conn.execute(text(
         "WITH latest AS ("
         "  SELECT DISTINCT ON (portfolio_date) run_id, portfolio_date "

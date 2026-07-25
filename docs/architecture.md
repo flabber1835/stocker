@@ -2169,6 +2169,48 @@ real money): raise PROMOTE_MARGIN, add the full-history floor + minimum-trades
 restore human approval or a bounded-knob whitelist. Recorded here so going
 live forces this review.
 
+## Design Decision: the shadow challenger is the only uncontaminated evidence (2026-07)
+
+Every backtest is scored on history the model has already read, so nothing the
+evaluator authors is truly out-of-sample — and the held-out validate window is
+drawn from the same era as the tune window, which is why it is a weak filter.
+The shadow challenger is the one measurement immune to that: the target for day
+D is composed from data <= D and scored on days that had not yet happened.
+
+It had never produced a single row, and the reason was a trap. The shadow
+re-ranks the champion's PERSISTED factor scores, so a challenger whose
+`factor_engine` differs is refused — and EVERY strategy YAML in the repo except
+the active one differs there. "Just set CHALLENGER_CONFIG_PATH" would have
+yielded zero rows and one stdout line: indistinguishable from the feature being
+switched off. Same failure class as the day's other bugs (a path that looks
+enabled, does nothing, and reports it only where nobody looks).
+
+Three changes:
+
+1. `strategies/challenger_lowvol_v1.yaml` — a SHADOW-COMPATIBLE challenger
+   (identical factor_engine, changed weights). The change under test is the
+   evaluator's own standing recommendation, which the experiment lane has never
+   managed to validate: momentum 0.36 -> 0.28 into low_volatility (0.14 ->
+   0.18) and quality (0.20 -> 0.24), on the evidence that momentum's marginal
+   IC has averaged ~0 over seven live weeks while the other two stayed
+   positive. So the cleanest evidence channel is pointed at the most contested
+   open question.
+2. The factor_engine refusal is PERSISTED to `shadow_runs` (status='skipped'
+   with the reason), not merely printed.
+3. `_shadow_vs_champion` distinguishes "nothing configured" from "configured
+   but refused every day" — the old note asserted the first for both, which
+   would send the reader to fix something that is not broken while a silent
+   challenger accumulated nothing. A refusal now reports as a TOOLING GAP.
+
+`tests/pipeline/test_shadow_challenger.py` asserts the configured challenger is
+shadow-compatible, that it actually differs from the champion, that the refusal
+is persisted, and that the packet can tell the two causes apart.
+
+Promotion is unaffected: the gate reads `experiment_lane`, never `shadow_runs`.
+Wiring shadow evidence into the gate would push a config change from ~2 days to
+~2-3 months (20 sessions per data point, overlapping spans) — a real trade-off,
+deliberately not taken.
+
 ## Design Decision: named stress regimes + evaluator read access to the wind tunnel (2026-07)
 
 Two related gaps, both exposed the day the simulator's `-96%` bug was found by
