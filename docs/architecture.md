@@ -2090,3 +2090,53 @@ Three fixes applied before trusting what the closed-loop layer measures:
 3. **Shadow lineage is pinned**: the delta step passes its own
    `source_ranking_run_id` into `_run_shadow_build`, so the async shadow task
    can no longer attach to a newer ranking that completed in between.
+
+## Design Decision: auto-promotion of strategy configs (Phase 6d, PAPER mode — 2026-07)
+
+Owner decision: the evaluator is a COMPONENT of the money-maximizing system,
+not an auditor of it. Config changes no longer require a human click; human
+approval remains ONLY for structural changes (code, new data sources, risk-env
+changes, going live). Justification: the account is PAPER — the blast radius
+of a bad auto-applied config is paper losses and wasted signal-weeks — while
+every hard rail is unchanged (strategy-validator schema+safety gate on every
+apply, risk-service on every order, kill switch, LLM never touches the order
+path or the file write — deterministic code does).
+
+Pipeline (all deterministic; the LLM only AUTHORS candidates):
+
+```text
+evaluator queue_strategy_experiment(config, hypothesis)      [LLM authors]
+  → bt-scheduler daily lane runs it over the RECENT window   [deterministic]
+      (EXPERIMENT_RECENT_YEARS, default 3 — "current era" relevance;
+       full-history floor deferred until bt-engine's memory-lean loader,
+       full-universe 20y does not fit the 4g cap)
+  → promotion gate promotion_eligible(candidate, baseline):  [deterministic]
+      CAGR edge ≥ PROMOTE_MARGIN (default +1pp) vs the recent-window BASELINE
+      (active config, auto-run first), max_drawdown not worse than baseline by
+      more than PROMOTE_DD_TOLERANCE (default 5pp)
+  → pass → artifacts/bt/promotion.json (config + evidence)   [file bridge]
+  → live api promotion watcher (AUTO_PROMOTION_ENABLED):     [deterministic]
+      validates the WHOLE config through the strategy-validator service
+      (fail-closed), archives before/after, writes a config_changes audit row
+      (config_field '__full_config__', applied_by 'auto_promotion'), atomically
+      replaces the active YAML; next chain run picks it up (per-run reload;
+      mid-chain applies surface via the config-pin skew detector)
+  → the promoted-from candidate stays in experiments.json; the shadow
+      challenger + decision ledger keep measuring it live-forward
+```
+
+Dedup/idempotency: the watcher records the last-processed promotion hash in
+artifacts/config/promotion_state.json — a promotion applies once; a REJECTED
+promotion (validator) is recorded so it never loops; validator-unreachable is
+NOT recorded (retries next poll, fail-closed).
+
+Revert path: every apply archives the prior YAML under
+artifacts/config/history/ — revert = copy it back over the active file (next
+run reloads) and git-commit; the config_changes row + evidence say exactly
+what was applied and why.
+
+LIVE-MONEY PRECONDITIONS (must be revisited before ALPACA_BASE_URL points at
+real money): raise PROMOTE_MARGIN, add the full-history floor + minimum-trades
++ regime-diversity gates, require a shadow live-forward edge over N weeks, and
+restore human approval or a bounded-knob whitelist. Recorded here so going
+live forces this review.

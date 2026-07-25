@@ -212,7 +212,12 @@ def tool_definitions() -> list[dict]:
             "(experiment_lane packet section, typically 1-3 days). Draws from the "
             "SAME per-review experiment budget as queue_experiment — the statistical "
             "budget against our one shared history is deliberate; prefer few, "
-            "well-motivated candidates over many draws."
+            "well-motivated candidates over many draws. AUTO-PROMOTION (paper "
+            "mode): a candidate whose recent-window CAGR beats the recent-window "
+            "baseline by the deterministic gate margin (drawdown within tolerance) "
+            "is AUTOMATICALLY validated and applied as the LIVE config — no human "
+            "click. Author candidates with that weight: each one is a potential "
+            "live strategy, not a thought experiment."
         ),
         "parameters": {
             "type": "object",

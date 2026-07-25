@@ -1256,7 +1256,22 @@ detector). The packet's `applied_config_changes` section is the ground truth
 for "was my recommendation adopted". The evaluator service itself stays
 read-only; the LLM never reaches the write path — the human click does.
 
-Cannot deploy changes directly. Never submits trades, never bypasses risk.
+Phase 6d (BUILT, 2026-07 — owner decision): AUTO-PROMOTION in PAPER mode.
+Config changes no longer need a human click: the evaluator authors whole
+candidate configs (queue_strategy_experiment), the wind tunnel scores them on
+the RECENT window (BT_EXPERIMENT_RECENT_YEARS, default 3y) vs a recent-window
+baseline of the active config, and the deterministic gate (promotion_eligible:
+CAGR edge ≥ BT_PROMOTE_MARGIN, drawdown within BT_PROMOTE_DD_TOLERANCE) writes
+artifacts/bt/promotion.json; the live api's promotion watcher
+(AUTO_PROMOTION_ENABLED) validates the WHOLE config through the
+strategy-validator (fail-closed), archives, audits (config_changes,
+applied_by='auto_promotion'), and atomically replaces the active YAML. Human
+approval remains for STRUCTURAL changes (code, data sources, risk env, going
+live). Live-money preconditions before this stays on with real dollars are
+recorded in docs/architecture.md "Phase 6d".
+
+The evaluator service itself still never writes the live config — the
+deterministic watcher does. Never submits trades, never bypasses risk.
 
 ## scheduler
 

@@ -96,6 +96,11 @@ services:
       STRATEGY_CONFIG_PATH: /strategies/momentum_rotation_v2.yaml
       STRATEGY_VALIDATOR_URL: http://strategy-validator:8000
       ARTIFACTS_PATH: /artifacts
+      # Phase 6d auto-promotion (PAPER mode — architecture.md 6d): the watcher
+      # applies wind-tunnel-gated candidate configs from artifacts/bt/
+      # promotion.json (validator-gated, audited). false restores human-only.
+      AUTO_PROMOTION_ENABLED: ${AUTO_PROMOTION_ENABLED:-true}
+      PROMOTION_POLL_SECS: ${PROMOTION_POLL_SECS:-60}
     volumes:
       - ./strategies:/strategies
       - ./artifacts:/artifacts

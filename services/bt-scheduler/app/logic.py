@@ -120,3 +120,48 @@ def fired_this_week(experiments: list[dict], today: date) -> int:
         if d.isocalendar()[:2] == wk:
             n += 1
     return n
+
+
+def promotion_eligible(cand: dict | None, base: dict | None,
+                       margin: float = 0.01, dd_tol: float = 0.05
+                       ) -> tuple[bool, str]:
+    """Phase 6d deterministic promotion gate: a candidate auto-promotes only if
+    its recent-window CAGR beats the recent-window BASELINE (active config) by
+    ≥ margin AND its max drawdown is not worse than the baseline's by more than
+    dd_tol. Pure; the LLM never decides promotion — it only authors candidates."""
+    if not cand or cand.get("annualized_return") is None:
+        return False, "no candidate result"
+    if not base or base.get("annualized_return") is None:
+        return False, "no recent-window baseline to compare against"
+    edge = float(cand["annualized_return"]) - float(base["annualized_return"])
+    if edge < margin:
+        return False, f"CAGR edge {edge:+.4f} < required margin {margin:+.4f}"
+    cdd, bdd = cand.get("max_drawdown"), base.get("max_drawdown")
+    if cdd is not None and bdd is not None and float(cdd) < float(bdd) - dd_tol:
+        return False, (f"max drawdown {float(cdd):.2%} worse than baseline "
+                       f"{float(bdd):.2%} beyond tolerance {dd_tol:.0%}")
+    return True, (f"CAGR edge {edge:+.4f} ≥ {margin:+.4f}, drawdown within "
+                  f"{dd_tol:.0%} of baseline")
+
+
+def build_schedule(queued: list[dict], next_fire_iso: str,
+                   fired_this_week: int, week_cap: int,
+                   max_items: int = 8) -> list[dict]:
+    """Map the queued experiments onto their expected firing slots (one per
+    day, in queue order, starting at the next daily slot). Items beyond this
+    ISO week's remaining budget are labeled — the cap defers them, order kept.
+    Pure; approximation is honest (labels, no fake precision)."""
+    try:
+        fire = datetime.fromisoformat(next_fire_iso)
+    except ValueError:
+        return []
+    budget = max(0, week_cap - fired_this_week)
+    out = []
+    for i, q in enumerate((queued or [])[:max_items]):
+        out.append({
+            "when": (fire + timedelta(days=i)).isoformat(timespec="minutes"),
+            "kind": q.get("kind", "single_field"),
+            "thesis": q.get("hypothesis") or "—",
+            "note": None if i < budget else "after weekly cap resets",
+        })
+    return out

@@ -280,3 +280,66 @@ async def test_happy_path_pending_then_applied(sandbox):
     assert upd and sqls.index(upd[0]) > sqls.index(ins[0])
     # applied/ artifact exists only because the replace succeeded
     assert res["applied_artifact"] and os.path.exists(res["applied_artifact"])
+
+
+# ── Phase 6d: auto-promotion watcher (paper mode) ─────────────────────────────
+
+def _write_promotion(tmp_path, cfg: dict, ph="abcd1234abcd1234"):
+    import json as _json
+    d = tmp_path / "artifacts" / "bt"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "promotion.json").write_text(_json.dumps({
+        "config": cfg, "config_hash": ph,
+        "hypothesis": "test thesis", "diff_vs_active": {"max_positions": {"from": 30, "to": 20}},
+        "evidence": {"gate": "CAGR edge +0.02"}, "promoted_at": "2026-07-24T22:30",
+    }))
+    return ph
+
+
+@pytest.mark.asyncio
+async def test_promotion_applied_validator_gated_and_audited(sandbox, tmp_path):
+    cand = yaml.safe_load(open(sandbox))
+    cand["portfolio_builder"]["max_positions"] = 20
+    ph = _write_promotion(tmp_path, cand)
+    fake = _FakeHttpx(_Resp({"valid": True}))
+    with patch.object(main, "httpx", fake):
+        await main._check_promotion()
+    # config replaced atomically
+    assert yaml.safe_load(open(sandbox))["portfolio_builder"]["max_positions"] == 20
+    # validator saw the WHOLE candidate
+    assert fake.last_posted["portfolio_builder"]["max_positions"] == 20
+    # state recorded → a second pass is a no-op (idempotent)
+    state = main._read_promo_state()
+    assert state["last_hash"] == ph and state["status"] == "applied"
+    before = open(sandbox).read()
+    with patch.object(main, "httpx", fake):
+        await main._check_promotion()
+    assert open(sandbox).read() == before
+    # audit row attempted with the auto_promotion marker
+    assert any("auto_promotion" in sql for sql, _ in main.engine.executed)
+
+
+@pytest.mark.asyncio
+async def test_promotion_rejected_by_validator_never_applies_never_loops(sandbox, tmp_path):
+    cand = yaml.safe_load(open(sandbox))
+    cand["portfolio_builder"]["max_positions"] = 20
+    ph = _write_promotion(tmp_path, cand)
+    before = open(sandbox).read()
+    fake = _FakeHttpx(_Resp({"valid": False, "errors": ["bad"]}, status_code=422))
+    with patch.object(main, "httpx", fake):
+        await main._check_promotion()
+    assert open(sandbox).read() == before                     # untouched
+    assert main._read_promo_state()["status"] == "rejected"   # recorded → no loop
+
+
+@pytest.mark.asyncio
+async def test_promotion_validator_unreachable_fails_closed_and_retries(sandbox, tmp_path):
+    cand = yaml.safe_load(open(sandbox))
+    cand["portfolio_builder"]["max_positions"] = 20
+    _write_promotion(tmp_path, cand)
+    before = open(sandbox).read()
+    fake = _FakeHttpx(raise_exc=RuntimeError("validator down"))
+    with patch.object(main, "httpx", fake):
+        await main._check_promotion()
+    assert open(sandbox).read() == before                     # untouched
+    assert main._read_promo_state() == {}                     # NOT recorded → retried

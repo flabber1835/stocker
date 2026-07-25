@@ -31,8 +31,9 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import FastAPI
 
-from app.logic import (artifact_needed, derive_windows, experiment_due,
-                       fired_this_week, sweep_due, sweep_needed, topup_due)
+from app.logic import (artifact_needed, build_schedule, derive_windows,
+                       experiment_due, fired_this_week, promotion_eligible,
+                       sweep_due, sweep_needed, topup_due)
 
 BT_DATA_URL = os.getenv("BT_DATA_URL", "http://bt-data:8000")
 BT_ENGINE_URL = os.getenv("BT_ENGINE_URL", "http://bt-engine:8000")
@@ -50,6 +51,13 @@ FORCE_REFRESH_DAYS = int(os.getenv("BT_SWEEP_FORCE_REFRESH_DAYS", "28"))
 EXPERIMENT_HOUR = int(os.getenv("BT_EXPERIMENT_HOUR", "22"))
 EXPERIMENTS_PER_WEEK = int(os.getenv("BT_EXPERIMENTS_PER_WEEK", "5"))
 EXPERIMENT_REBALANCE_EVERY = int(os.getenv("BT_EXPERIMENT_REBALANCE_EVERY", "5"))
+# Phase 6d: experiments run over the RECENT window (owner philosophy: judge on
+# the current era) — also what fits the bt-engine 4g memory cap. Full-history
+# floor returns once the memory-lean loader lands.
+EXPERIMENT_RECENT_YEARS = float(os.getenv("BT_EXPERIMENT_RECENT_YEARS", "3"))
+# Deterministic auto-promotion gate (paper mode — see architecture.md 6d):
+PROMOTE_MARGIN = float(os.getenv("BT_PROMOTE_MARGIN", "0.01"))         # +1pp CAGR
+PROMOTE_DD_TOLERANCE = float(os.getenv("BT_PROMOTE_DD_TOLERANCE", "0.05"))
 LOCAL_TZ = ZoneInfo(os.getenv("SCHEDULE_TZ", "America/New_York"))
 
 _status: dict = {"last_tick": None, "last_topup": None, "last_sweep_fire": None,
@@ -179,6 +187,35 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
                                 "tested" if r["status"] == "success" else "failed")
             _note(f"experiment {e.get('id', '?')[:8]} {r['status']} "
                   f"(CAGR={r.get('annualized_return')})")
+            # ── Phase 6d deterministic auto-promotion (paper mode) ─────────
+            # Candidates (never the baseline itself) are gated against the
+            # recent-window BASELINE; a pass writes the promotion artifact the
+            # live api's watcher validates + applies. The LLM authored the
+            # candidate; everything from here is deterministic.
+            if r["status"] == "success" and e.get("kind") == "full_config":
+                base = next((b.get("result") for b in reversed(exps)
+                             if b.get("kind") == "baseline"
+                             and b.get("status") == "success"), None)
+                ok, why = promotion_eligible(e["result"], base,
+                                             PROMOTE_MARGIN, PROMOTE_DD_TOLERANCE)
+                e["promotion"] = {"eligible": ok, "reason": why}
+                if ok and e.get("config_hash") and e.get("config"):
+                    _write_bt_json("promotion.json", {
+                        "config": e["config"],
+                        "config_hash": e["config_hash"],
+                        "candidate_id": e.get("id"),
+                        "hypothesis": e.get("hypothesis"),
+                        "diff_vs_active": e.get("diff_vs_active"),
+                        "evidence": {"candidate": e["result"], "baseline": base,
+                                     "gate": why,
+                                     "window_years": EXPERIMENT_RECENT_YEARS},
+                        "promoted_at": now.isoformat(timespec="seconds"),
+                    })
+                    _note(f"PROMOTION: candidate {str(e.get('id'))[:8]} passed "
+                          f"the gate ({why}) — artifact written for the live "
+                          "watcher")
+                else:
+                    _note(f"no promotion for {str(e.get('id'))[:8]}: {why}")
 
     running = any(e.get("status") == "running" for e in exps)
 
@@ -194,8 +231,16 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
         if sweep and sweep.get("status") == "running":
             pass  # never contend with a sweep for the engine/host
         else:
+            # RECENT window (Phase 6d): judge on the current era; also fits the
+            # bt-engine 4g cap (the full 20y frame does not — the full-history
+            # floor returns with the memory-lean loader).
             evs = cov.get("earliest_viable_start")
-            payload = {"start_date": evs, "end_date": now.date().isoformat(),
+            recent_start = (now.date()
+                            - timedelta(days=int(EXPERIMENT_RECENT_YEARS * 365.25)))
+            start = max(d for d in (recent_start,
+                                    date_fromiso(evs) if evs else None) if d)
+            payload = {"start_date": start.isoformat(),
+                       "end_date": now.date().isoformat(),
                        "rebalance_every": EXPERIMENT_REBALANCE_EVERY}
             pending = _pending_full_experiments()
             entry = None
@@ -205,22 +250,24 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
                 entry = {"id": p.get("id"), "kind": "full_config",
                          "hypothesis": p.get("hypothesis"),
                          "diff_vs_active": p.get("diff"),
+                         # carried for the promotion artifact on success:
+                         "config": p.get("config"),
+                         "config_hash": p.get("config_hash"),
                          "proposal_id": p.get("id")}
             elif not any(e.get("kind") == "baseline"
                          and e.get("status") in ("running", "success")
                          for e in exps):
                 # Only a RUNNING or SUCCEEDED baseline blocks re-firing — a
                 # failed/died attempt (bt-engine down, OOM, reclaim) must retry
-                # on a later slot, not permanently forfeit the anchor number.
-                # One-time auto-baseline: the ACTIVE config over full history —
-                # the "switched on 20 years ago" anchor. bt-engine loads its
-                # own STRATEGY_CONFIG_PATH when no config is passed. Caveat:
-                # the active config was designed with hindsight → closer to
-                # in-sample; rolling OOS remains the honest estimate.
+                # on a later slot. Auto-baseline = the ACTIVE config over the
+                # SAME recent window (bt-engine loads its own
+                # STRATEGY_CONFIG_PATH when no config is passed) — the yardstick
+                # every candidate's promotion gate compares against.
                 import uuid as _uuid
                 entry = {"id": str(_uuid.uuid4()), "kind": "baseline",
-                         "hypothesis": ("BASELINE: active config over full "
-                                        "history (hindsight caveat applies)"),
+                         "hypothesis": (f"BASELINE: active config over the "
+                                        f"recent {EXPERIMENT_RECENT_YEARS:g}y "
+                                        "window (the promotion yardstick)"),
                          "diff_vs_active": {}, "proposal_id": None}
             if entry:
                 try:
@@ -269,6 +316,15 @@ def _remember_good(key: str, value, now_iso: str) -> None:
     _write_bt_json(_LAST_GOOD_FILE, _last_good)
 
 
+def date_fromiso(v):
+    """Lenient ISO-date parse (None-safe) for coverage-provided dates."""
+    from datetime import date as _date
+    try:
+        return _date.fromisoformat(str(v)[:10])
+    except (ValueError, TypeError):
+        return None
+
+
 def _next_experiment_fire(now: datetime) -> str:
     """Human 'when does the lane next fire' — daily at EXPERIMENT_HOUR local."""
     fire = now.replace(hour=EXPERIMENT_HOUR, minute=0, second=0, microsecond=0)
@@ -307,16 +363,36 @@ async def _experiment_snapshot(client: httpx.AsyncClient, now: datetime) -> dict
                "cagr": (e.get("result") or {}).get("annualized_return"),
                "completed_at": e.get("completed_at")}
               for e in exps if e.get("status") in ("success", "failed")][-5:]
+    n_fired = fired_this_week(exps, now.date())
+    next_fire = _next_experiment_fire(now)
+    # Live-side promotion outcome travels back over the same shared mount.
+    promo = _bt_json("promotion.json")
+    promo_state = None
+    try:
+        with open(os.path.join(ARTIFACTS_PATH, "config",
+                               "promotion_state.json")) as f:
+            promo_state = json.load(f)
+    except (OSError, ValueError):
+        pass
     return {
         "running": ({"kind": running.get("kind"),
                      "hypothesis": running.get("hypothesis"),
                      "fired_at": running.get("fired_at"),
                      "progress_pct": progress} if running else None),
         "queued": queued[:8],
+        "schedule": build_schedule(queued, next_fire, n_fired,
+                                   EXPERIMENTS_PER_WEEK),
         "recent": recent,
-        "next_fire_local": _next_experiment_fire(now),
-        "fired_this_week": fired_this_week(exps, now.date()),
+        "next_fire_local": next_fire,
+        "fired_this_week": n_fired,
         "week_cap": EXPERIMENTS_PER_WEEK,
+        "window_years": EXPERIMENT_RECENT_YEARS,
+        "last_promotion": ({"config_hash": promo.get("config_hash"),
+                            "promoted_at": promo.get("promoted_at"),
+                            "hypothesis": promo.get("hypothesis"),
+                            "gate": (promo.get("evidence") or {}).get("gate")}
+                           if promo else None),
+        "promotion_applied": promo_state,
     }
 
 

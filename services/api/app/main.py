@@ -45,7 +45,13 @@ async def lifespan(app: FastAPI):
     # Warm up DB in background so /health responds immediately. Blocking here
     # causes docker healthcheck failures + restart loop on slow NAS hardware.
     warm_up_db_in_background(engine, "api")
+    # Phase 6d auto-promotion watcher (paper mode; see architecture.md).
+    promo_task = None
+    if AUTO_PROMOTION_ENABLED:
+        promo_task = asyncio.create_task(_promotion_watcher())
     yield
+    if promo_task:
+        promo_task.cancel()
 
 
 app = FastAPI(title="stocker-api", lifespan=lifespan)
@@ -231,6 +237,160 @@ def _archive_config(subdir: str, stamp: str, cfg_hash: str, raw: str) -> Optiona
         return path
     except OSError:
         return None
+
+
+# ── Phase 6d: auto-promotion watcher (paper mode — architecture.md 6d) ────────
+# The bt stack's promotion gate writes artifacts/bt/promotion.json (candidate
+# config + evidence). This watcher — deterministic code, never the LLM —
+# validates the WHOLE config through the strategy-validator (fail-closed),
+# archives, audits (config_changes, applied_by 'auto_promotion'), and atomically
+# replaces the active YAML. Human approval remains for STRUCTURAL changes only.
+AUTO_PROMOTION_ENABLED = os.getenv("AUTO_PROMOTION_ENABLED", "true").lower() in ("1", "true", "yes")
+PROMOTION_POLL_SECS = float(os.getenv("PROMOTION_POLL_SECS", "60"))
+
+
+def _promo_state_path() -> str:
+    # resolved at call time (not import) so tests/env overrides take effect
+    return os.path.join(ARTIFACTS_PATH, "config", "promotion_state.json")
+
+
+def _read_promo_state() -> dict:
+    try:
+        with open(_promo_state_path()) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_promo_state(state: dict) -> None:
+    path = _promo_state_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(state, f, indent=1, default=str)
+    os.replace(tmp, path)
+
+
+async def _check_promotion() -> None:
+    import yaml as _yaml
+    from datetime import datetime as _dt, timezone as _tz
+
+    path = os.path.join(ARTIFACTS_PATH, "bt", "promotion.json")
+    try:
+        with open(path) as f:
+            promo = json.load(f)
+    except (OSError, ValueError):
+        return
+    ph = promo.get("config_hash")
+    cfg = promo.get("config")
+    if not ph or not isinstance(cfg, dict):
+        return
+    state = _read_promo_state()
+    if state.get("last_hash") == ph:
+        return  # already applied or explicitly rejected — never loops
+
+    async with _config_apply_lock:
+        try:
+            with open(STRATEGY_CONFIG_PATH) as f:
+                old_raw = f.read()
+        except OSError as exc:
+            print(f"[api] promotion: cannot read active config: {exc}", flush=True)
+            return
+        # Hard gate, fail-closed: validator unreachable → NO state write → retry
+        # next poll. A definitive REJECTION is recorded so it never loops.
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                vr = await client.post(f"{STRATEGY_VALIDATOR_URL}/validate", json=cfg)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[api] promotion: validator unreachable ({exc}) — retrying later",
+                  flush=True)
+            return
+        vbody = {}
+        try:
+            vbody = vr.json()
+        except Exception:  # noqa: BLE001
+            pass
+        if vr.status_code != 200 or not vbody.get("valid"):
+            _write_promo_state({"last_hash": ph, "status": "rejected",
+                                "reason": vbody.get("errors") or vr.text[:300],
+                                "at": _dt.now(_tz.utc).isoformat()})
+            print(f"[api] promotion {ph} REJECTED by validator — not applied",
+                  flush=True)
+            return
+
+        new_raw = _yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False)
+        hash_before, hash_after = _hash_raw(old_raw), _hash_raw(new_raw)
+        if hash_after == hash_before:
+            _write_promo_state({"last_hash": ph, "status": "noop",
+                                "reason": "identical to active config",
+                                "at": _dt.now(_tz.utc).isoformat()})
+            return
+        stamp = _dt.now(_tz.utc).strftime("%Y%m%dT%H%M%SZ")
+        _archive_config("history", stamp, hash_before, old_raw)
+
+        # Same transactional ordering as the one-click apply: audit row FIRST
+        # (pending), then the atomic replace, then applied/ artifact + finalize.
+        row_id = str(uuid.uuid4())
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    "INSERT INTO config_changes (id, status, config_path, config_field, "
+                    " old_value, new_value, config_hash_before, config_hash_after, "
+                    " applied_by, validator_status) "
+                    "VALUES (CAST(:id AS uuid), 'pending', :path, '__full_config__', "
+                    "        CAST(:old AS jsonb), CAST(:new AS jsonb), :hb, :ha, "
+                    "        'auto_promotion', :vst)"
+                ), {"id": row_id, "path": STRATEGY_CONFIG_PATH,
+                    "old": json.dumps({"config_hash": hash_before}),
+                    "new": json.dumps({"config_hash": hash_after,
+                                       "promotion_hash": ph,
+                                       "hypothesis": promo.get("hypothesis"),
+                                       "diff_vs_active": promo.get("diff_vs_active"),
+                                       "evidence": promo.get("evidence")}),
+                    "hb": hash_before, "ha": hash_after,
+                    "vst": f"valid ({vr.status_code})"})
+        except Exception as exc:  # noqa: BLE001 — no audit trail → no apply
+            print(f"[api] promotion: audit write failed ({exc}) — not applied",
+                  flush=True)
+            return
+
+        tmp = STRATEGY_CONFIG_PATH + ".tmp"
+        try:
+            with open(tmp, "w") as f:
+                f.write(new_raw)
+            os.replace(tmp, STRATEGY_CONFIG_PATH)
+        except OSError as exc:
+            try:
+                async with engine.begin() as conn:
+                    await conn.execute(text(
+                        "UPDATE config_changes SET status='failed' WHERE id=CAST(:id AS uuid)"
+                    ), {"id": row_id})
+            except Exception:  # noqa: BLE001
+                traceback.print_exc()
+            print(f"[api] promotion: config write failed ({exc})", flush=True)
+            return
+        _archive_config("applied", stamp, hash_after, new_raw)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    "UPDATE config_changes SET status='applied' WHERE id=CAST(:id AS uuid)"
+                ), {"id": row_id})
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+        _write_promo_state({"last_hash": ph, "status": "applied",
+                            "config_hash_after": hash_after,
+                            "at": _dt.now(_tz.utc).isoformat()})
+        print(f"[api] promotion {ph} APPLIED (config {hash_before} → {hash_after}); "
+              "next chain run picks it up", flush=True)
+
+
+async def _promotion_watcher() -> None:
+    while True:
+        try:
+            await _check_promotion()
+        except Exception:  # noqa: BLE001 — the watcher must never die
+            traceback.print_exc()
+        await asyncio.sleep(PROMOTION_POLL_SECS)
 
 
 @app.post("/config/apply")

@@ -88,3 +88,39 @@ def test_remember_good_persists_and_survives(monkeypatch, tmp_path):
     m._load_last_good()
     assert m._last_good["coverage"]["go"] is True
     assert m._last_good["coverage_as_of"] == "2026-07-23T22:00:00"
+
+
+# ── Phase 6d: deterministic promotion gate + schedule builder ─────────────────
+
+def test_promotion_gate_requires_margin_and_dd_tolerance():
+    from app.logic import promotion_eligible
+    base = {"annualized_return": 0.12, "max_drawdown": -0.25}
+    # clears margin, drawdown similar → eligible
+    ok, why = promotion_eligible({"annualized_return": 0.14, "max_drawdown": -0.27},
+                                 base, margin=0.01, dd_tol=0.05)
+    assert ok and "edge" in why
+    # beats baseline but under the margin → not eligible
+    ok, why = promotion_eligible({"annualized_return": 0.125, "max_drawdown": -0.20},
+                                 base, margin=0.01, dd_tol=0.05)
+    assert not ok and "margin" in why
+    # big CAGR but drawdown blows the tolerance → not eligible
+    ok, why = promotion_eligible({"annualized_return": 0.30, "max_drawdown": -0.45},
+                                 base, margin=0.01, dd_tol=0.05)
+    assert not ok and "drawdown" in why
+    # no baseline yet → never promotes
+    ok, why = promotion_eligible({"annualized_return": 0.30}, None)
+    assert not ok and "baseline" in why
+
+
+def test_schedule_maps_queue_to_daily_slots_with_cap_labels():
+    from app.logic import build_schedule
+    queued = [{"kind": "full_config", "hypothesis": f"h{i}"} for i in range(4)]
+    sched = build_schedule(queued, "2026-07-24T22:00", fired_this_week=4, week_cap=5)
+    assert len(sched) == 4
+    assert sched[0]["when"].startswith("2026-07-24T22:00") and sched[0]["note"] is None
+    assert sched[1]["when"].startswith("2026-07-25T22:00")
+    # only 1 slot left this week → items 2+ labeled as deferred by the cap
+    assert sched[1]["note"] == "after weekly cap resets"
+    assert all(s["thesis"].startswith("h") for s in sched)
+    assert build_schedule([], "2026-07-24T22:00", 0, 5) == []
+    assert build_schedule(queued, "garbage", 0, 5) == []

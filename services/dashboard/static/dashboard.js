@@ -2790,9 +2790,26 @@ function renderLab(d) {
       h += `<div class="lab-line lab-dim">none running · next slot ${esc(ex.next_fire_local)} ` +
            `· ${esc(ex.fired_this_week)}/${esc(ex.week_cap)} fired this week</div>`;
     }
-    if (ex.queued && ex.queued.length) {
+    if (ex.schedule && ex.schedule.length) {
+      h += '<div class="lab-note"><b>schedule</b> (daily slot, ' +
+           `${esc(ex.window_years)}y recent window):<br>` +
+           ex.schedule.map(s =>
+             `· <b>${esc(String(s.when).replace('T', ' '))}</b> [${esc(s.kind)}] ${esc(s.thesis)}` +
+             (s.note ? ` <span class="lab-dim">(${esc(s.note)})</span>` : '')).join('<br>') +
+           '</div>';
+    } else if (ex.queued && ex.queued.length) {
       h += '<div class="lab-note"><b>scheduled next:</b><br>' +
            ex.queued.map(q => `· [${esc(q.kind)}] ${esc(q.hypothesis)}`).join('<br>') + '</div>';
+    }
+    if (ex.last_promotion) {
+      const ps = ex.promotion_applied;
+      const outcome = ps
+          ? (ps.last_hash === ex.last_promotion.config_hash
+             ? ` → live side: <b>${esc(ps.status)}</b> ${esc(_labAge(ps.at))}` : '')
+          : ' → awaiting live-side watcher';
+      h += `<div class="lab-line lab-ok">⚑ auto-promotion ${esc(ex.last_promotion.config_hash)} ` +
+           `at ${esc(_labAge(ex.last_promotion.promoted_at))} — ${esc(ex.last_promotion.gate)}` +
+           `${outcome}<br><span class="lab-dim">thesis: ${esc(ex.last_promotion.hypothesis)}</span></div>`;
     }
     if (ex.recent && ex.recent.length) {
       h += '<div class="lab-note"><b>recent:</b><br>' +
