@@ -360,8 +360,18 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      # service_STARTED, not service_healthy. A healthy-gate here made one slow
+      # gateway probe fail the ENTIRE live stack ("dependency failed to start:
+      # container stocker-llm-gateway-1 is unhealthy" → rc=1), and the coupling
+      # was never justified: the vetter runs mode: drawdown_only by default and
+      # makes no LLM calls at all. Even in llm mode a briefly-unavailable gateway
+      # should degrade one chain step, not block deploying the trading stack.
+      # Matches what `evaluator` already declares for the same dependency.
+      # depends_on only orders STARTUP anyway — neither service can assume the
+      # other is reachable later, so ordering-plus-retry is the honest contract.
+      # See docs/architecture.md "container healthchecks probe LIVENESS".
       llm-gateway:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
       interval: 5s

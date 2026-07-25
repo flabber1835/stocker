@@ -1089,22 +1089,17 @@ async def _do_vet(
 
 @app.get("/health")
 async def health():
-    gateway_ok = False
-    gateway_info: dict = {}
-    try:
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            r = await client.get(f"{LLM_GATEWAY_URL}/health")
-            r.raise_for_status()
-            gateway_info = r.json()
-            gateway_ok = True
-    except Exception:
-        pass
+    """LIVENESS ONLY — the container healthcheck's target. No I/O.
+
+    This used to call the gateway's /health, which itself probed ollama: a chain
+    of liveness probes is a chain of shared fate, and it made this container's
+    health depend on a service that is optional in every default deploy. The
+    gateway round-trip moved to /health/gateway. See docs/architecture.md
+    "container healthchecks probe LIVENESS, never dependencies"."""
     return {
         "status": "ok",
         "service": "llm-vetter",
         "gateway_url": LLM_GATEWAY_URL,
-        "gateway_ok": gateway_ok,
-        "gateway_provider": gateway_info.get("default_provider"),
         "av_configured": bool(AV_API_KEY and AV_API_KEY != "demo"),
         "tavily_configured": bool(TAVILY_API_KEY),
         "llm_enabled": _llm_active(),
@@ -1123,6 +1118,33 @@ async def health():
         "risk_horizon_days": strategy.vetter.risk_horizon_days,
         "system_prompt_file": strategy.vetter.system_prompt_file,
         "strictness": strategy.vetter.strictness,
+    }
+
+
+@app.get("/health/gateway")
+async def health_gateway():
+    """READINESS — is the LLM gateway answering? Explicitly NOT part of /health.
+
+    Note this is only meaningful when the vetter is actually using the LLM; in
+    the default `mode: drawdown_only` the gateway is not consulted at all, so an
+    unreachable gateway here is informational, not a fault."""
+    gateway_ok = False
+    gateway_info: dict = {}
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            r = await client.get(f"{LLM_GATEWAY_URL}/health")
+            r.raise_for_status()
+            gateway_info = r.json()
+            gateway_ok = True
+    except Exception:
+        pass
+    return {
+        "status": "ok",
+        "service": "llm-vetter",
+        "gateway_url": LLM_GATEWAY_URL,
+        "gateway_ok": gateway_ok,
+        "gateway_provider": gateway_info.get("default_provider"),
+        "llm_enabled": _llm_active(),
     }
 
 

@@ -1835,6 +1835,32 @@ clear README
 typed Pydantic models where useful
 ```
 
+**`/health` is a LIVENESS probe — it must never perform external I/O.** It is the
+container healthcheck's target (5s timeout, 5 retries past a 20s start_period)
+and other services gate startup on the result, so a `/health` that calls a
+dependency reports someone else's outage as its own death and can blow the probe
+budget while the service is perfectly fine. Put dependency probes on a separate
+path (`/health/providers` on llm-gateway, `/health/gateway` on llm-vetter).
+
+This is not hypothetical: llm-gateway's `/health` awaited a provider health_check
+against `ollama` — a host that does not exist unless `--profile ollama` is up —
+with a 5.0s inner timeout against the healthcheck's own 5s. Cold deploys
+intermittently died with `dependency failed to start: container
+stocker-llm-gateway-1 is unhealthy` → `live stack FAILED (rc=1)`, and a second
+`docker compose up -d` always "fixed" it (warm DNS returns NXDOMAIN instantly).
+llm-vetter had the same bug one level up, calling the gateway's `/health` from
+its own. Enforced by `tests/contracts/test_health_is_liveness_only.py`, which
+scans EVERY service — the marker list plus a stricter "no `await` at all" rule,
+because the gateway's offending call went through an abstraction and the markers
+alone missed it.
+
+Related: prefer `condition: service_started` over `service_healthy` for
+depends_on edges on optional/degradable services. `depends_on` only orders
+STARTUP, so neither side can assume the other is reachable later anyway;
+`service_healthy` on a non-essential dependency just converts a degraded feature
+into a failed deploy. See docs/architecture.md "container healthchecks probe
+LIVENESS, never dependencies".
+
 Important test categories:
 
 ```text

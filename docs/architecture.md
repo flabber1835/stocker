@@ -2622,3 +2622,92 @@ bt_prices has always carried. Corrected rather than propagated.
   configs that weight neither, by changing which tickers clear
   `min_non_null_factors`. This is a correction, not a regression: the tunnel's
   rankable universe now matches live's.
+
+## Design Decision: container healthchecks probe LIVENESS, never dependencies (2026-07)
+
+### The failure
+
+A cold `docker compose up -d --build` intermittently ends with:
+
+```text
+✗ Container stocker-llm-gateway-1     Error      132.8s
+dependency failed to start: container stocker-llm-gateway-1 is unhealthy
+!! live stack FAILED (rc=1)
+```
+
+Running `docker compose up -d` a second time fixes it. That "fixed by retrying"
+signature is the tell: nothing is broken, a probe is losing a race.
+
+### Root cause
+
+`llm-gateway`'s `/health` looped over every registered provider and `await`ed
+`provider.health_check()`. The Ollama provider is registered UNCONDITIONALLY at
+startup — but `ollama` lives behind `--profile ollama`, so on a normal deploy the
+hostname `ollama` does not resolve at all. Every probe therefore made a real
+network call to a host that does not exist.
+
+The timeouts made that fatal rather than merely wasteful:
+
+```text
+ollama health client timeout   5.0s   (_HEALTH_TIMEOUT)
+docker healthcheck timeout     5s     (compose)
+```
+
+They are EQUAL, so the probe can never win: the moment DNS resolution for the
+absent `ollama` service takes the full inner timeout, the outer healthcheck has
+already expired — and the probe command (`python -c "import urllib.request…"`)
+spends several hundred ms on interpreter startup before the request even begins.
+Five consecutive expiries past `start_period` mark the container unhealthy,
+`llm-vetter` declares `condition: service_healthy` on it, and the whole live
+stack exits rc=1.
+
+Why intermittent, and why a second `up` works: on a cold deploy the compose
+network is being created while 17 containers attach and images are still
+building, and a lookup for a non-existent name can block. Once warm, Docker's
+embedded DNS returns NXDOMAIN immediately, `health_check()` fails in
+milliseconds, and the endpoint answers well inside the budget. The 30s
+`_HEALTH_CACHE_TTL` then keeps it fast. Nothing about the gateway was ever
+actually wrong — including during the failure, since `/health` returns
+`{"status": "ok"}` whether or not a provider answers. It was only ever too SLOW.
+
+### The rule
+
+> A container healthcheck answers "is this process serving?" — never "are my
+> dependencies up?". A liveness probe that performs external I/O reports someone
+> else's outage as its own death, and its failure mode is a deploy that dies
+> rather than a service that degrades.
+
+Applied:
+
+```text
+llm-gateway  GET /health            liveness only: no I/O, no provider probing
+             GET /health/providers  live probe of each provider (humans/UI)
+llm-vetter   GET /health            liveness only; no longer calls the gateway
+             GET /health/gateway    the gateway round-trip, on request
+```
+
+`llm-vetter`'s `/health` was the same bug one level up — its Docker healthcheck
+made an HTTP call to the gateway's `/health`, which then probed ollama. A chain
+of liveness probes is a chain of shared fate.
+
+### Amplifier: the dependency edge
+
+`llm-vetter` declared `llm-gateway: condition: service_healthy`, which is what
+turned one slow probe into `live stack FAILED (rc=1)`. That coupling was never
+justified: the vetter runs `mode: drawdown_only` by default and makes NO LLM
+calls at all, and even in `llm` mode a gateway that is briefly unavailable should
+degrade one chain step, not block the deploy of the trading stack. Changed to
+`service_started`, matching what `evaluator` already declares for the same
+dependency.
+
+Note this is strictly weaker coupling than it looks: `depends_on` only orders
+STARTUP. Neither service can rely on the other being reachable at any later
+moment anyway, so ordering-plus-retry is the only honest contract.
+
+### What was deliberately NOT changed
+
+`api`'s `/health` was checked and is already I/O-free (its database reads live in
+`/data-freshness`). The healthcheck interval/timeout/retry values are untouched:
+with the I/O removed, the existing 5s/5s/5/20s budget has orders of magnitude of
+headroom, and widening timeouts to accommodate a probe that should not have been
+doing I/O would have hidden the bug rather than fixed it.
