@@ -63,8 +63,8 @@ def test_factor_cfg_key_stable_and_config_sensitive():
 
 def test_data_fingerprint_changes_on_topup():
     prices, fnd, _days, _flip = _flip_data(n_days=60, flip_at=50)
-    fp1 = data_fingerprint(prices, fnd, 5)
-    fp2 = data_fingerprint(prices.iloc[:-10], fnd, 5)     # fewer rows / earlier max date
+    fp1 = data_fingerprint(prices, fnd, 5, "v1")
+    fp2 = data_fingerprint(prices.iloc[:-10], fnd, 5, "v1")     # fewer rows / earlier max date
     assert fp1 != fp2
 
 
@@ -77,7 +77,7 @@ def test_cached_sweep_bit_identical_to_uncached(tmp_path):
 
     plain = run_config_both_windows(prices, fnd, {}, base, {}, w, _SIM_KW)
 
-    cache = FactorCache(data_fingerprint(prices, fnd, 6), root=str(tmp_path))
+    cache = FactorCache(data_fingerprint(prices, fnd, 6, "v1"), root=str(tmp_path))
     cold = run_config_both_windows(prices, fnd, {}, base, {}, w, _SIM_KW, cache)
     assert cache.hits == 0 and cache.misses >= 1          # first pass populates
     warm = run_config_both_windows(prices, fnd, {}, base, {}, w, _SIM_KW, cache)
@@ -98,7 +98,7 @@ def test_distinct_factor_configs_do_not_share_entries(tmp_path):
     diff = {"factor_engine.momentum_short_window": 10}
 
     plain = run_config_both_windows(prices, fnd, {}, base, diff, w, _SIM_KW)
-    cache = FactorCache(data_fingerprint(prices, fnd, 6), root=str(tmp_path))
+    cache = FactorCache(data_fingerprint(prices, fnd, 6, "v1"), root=str(tmp_path))
     # warm the cache with the BASE config first, then run the diff config
     run_config_both_windows(prices, fnd, {}, base, {}, w, _SIM_KW, cache)
     cached = run_config_both_windows(prices, fnd, {}, base, diff, w, _SIM_KW, cache)
@@ -106,3 +106,51 @@ def test_distinct_factor_configs_do_not_share_entries(tmp_path):
     assert cached.get("error_message") is None
     for window in ("in_sample", "out_sample"):
         assert cached[window] == plain[window]
+
+
+# ── cache IDENTITY (audit item 1) ───────────────────────────────────────────
+# The fingerprint used to hash only the SHAPE of the data — row counts, ticker
+# count, price date span. None of that changes when data is CORRECTED IN PLACE,
+# which is exactly what the SF1 re-backfill does: it writes market_cap and
+# shares_outstanding onto EXISTING rows. Same keys, same counts, same span,
+# byte-identical fingerprint, stale cache silently reused — and the coverage
+# observer could not have caught it, because both factors are weight-0 in the
+# active config and are therefore never observed.
+
+def _same_shape_pair():
+    """Two frames identical in every SHAPE dimension but different in VALUES —
+    the in-place correction the old fingerprint could not see."""
+    prices, fnd, _days, _flip = _flip_data(n_days=60, flip_at=50)
+    corrected = fnd.copy()
+    corrected["roe"] = corrected["roe"] * 2.0        # values changed, shape identical
+    assert len(corrected) == len(fnd)
+    return prices, fnd, corrected
+
+
+def test_an_in_place_correction_changes_the_fingerprint_via_the_version():
+    prices, before, after = _same_shape_pair()
+    # Shape alone cannot distinguish them...
+    assert data_fingerprint(prices, before, 5, "v1") == \
+        data_fingerprint(prices, after, 5, "v1"), (
+            "sanity: the shape components genuinely cannot see this change")
+    # ...which is why the CORPUS VERSION is what invalidates.
+    assert data_fingerprint(prices, before, 5, "v1") != \
+        data_fingerprint(prices, after, 5, "v2")
+
+
+def test_no_version_means_no_cache_rather_than_a_weak_key():
+    """FAIL-CLOSED. Degrading to the shape hash would restore the exact bug;
+    the cache is a pure optimization, so a wrong cache is worse than none."""
+    prices, fnd, _days, _flip = _flip_data(n_days=60, flip_at=50)
+    for missing in (None, ""):
+        assert data_fingerprint(prices, fnd, 5, missing) is None
+
+
+def test_the_shape_components_are_still_part_of_the_key():
+    """Defence in depth: a corpus mutated by something that forgets to bump the
+    version should still be likely to invalidate."""
+    prices, fnd, _days, _flip = _flip_data(n_days=60, flip_at=50)
+    assert data_fingerprint(prices, fnd, 5, "v1") != \
+        data_fingerprint(prices.iloc[:-10], fnd, 5, "v1")
+    assert data_fingerprint(prices, fnd, 5, "v1") != \
+        data_fingerprint(prices, fnd, 6, "v1")

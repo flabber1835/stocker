@@ -213,7 +213,7 @@ def aggregate_rolling(rows: list[dict]) -> dict:
 def run_config_both_windows(prices, fundamentals, sector_map, base_config: dict,
                             diff: dict, windows: SweepWindows,
                             sim_kwargs: dict, factor_cache=None,
-                            progress_cb=None) -> dict:
+                            progress_cb=None, listing_windows: dict | None = None) -> dict:
     """Run ONE config over tune + validate windows. Returns a result-row dict
     (never raises — an invalid/failed config becomes an error row so one bad
     grid point can't kill the sweep)."""
@@ -229,7 +229,8 @@ def run_config_both_windows(prices, fundamentals, sector_map, base_config: dict,
             def cb(done, total, stats=None, _p=phase):   # noqa: E306
                 progress_cb(_p, done, total, stats)
         return run_simulation(prices, fundamentals, sector_map, cfg, params,
-                              progress_cb=cb, factor_cache=factor_cache).summary
+                              progress_cb=cb, factor_cache=factor_cache,
+                              listing_windows=listing_windows).summary
 
     try:
         in_sample = _one(windows.tune_start, windows.tune_end, "tune")

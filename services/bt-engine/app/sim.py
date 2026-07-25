@@ -63,9 +63,64 @@ _FK_DEFAULTS = dict(backstop_pct=0.25, window_days=21, excess_pct=0.15,
 # Trailing price history handed to the factor step per rebalance (calendar days).
 # Momentum 12-1 needs ~370; covariance/regime ≤ 252 trading days. 420 covers all.
 FACTOR_LOOKBACK_DAYS = 420
-# A held name with no price for this many TRADING days is treated as delisted and
-# force-exited at its last available adjusted close.
+# A held name with no price for this many TRADING SESSIONS is treated as delisted
+# and force-exited. Measured in real session indices against `all_days`, NOT in
+# calendar days: the previous `(D - last_seen).days > DELIST_GAP_DAYS * 2` was a
+# calendar approximation that landed nearer 10 sessions than 7 and drifted with
+# holidays, so the constant did not mean what its name said.
 DELIST_GAP_DAYS = 7
+
+# Fraction of the last mark recovered on a delist exit. 1.0 (the old behaviour)
+# assumed a company that stops printing at $2 is worth the full $2, which
+# flatters exactly the speculative/distressed strategies most likely to be
+# proposed. 0.70 follows the delisting-return literature (Shumway 1997: ≈ −30%
+# for NYSE/AMEX performance-related delistings; worse on NASDAQ).
+#
+# HONEST: a FLAT rate over every delist exit, including mergers where recovery is
+# typically at or above the last mark. A bias correction, not a model. Separating
+# acquisition from failure needs the delisting REASON — available once the
+# point-in-time universe carries `isdelisted`, and the natural follow-up.
+DEFAULT_DELIST_RECOVERY_PCT = 0.70
+
+
+def eligible_on(as_of: date, window: tuple | None) -> bool:
+    """Was this ticker listed on `as_of`?
+
+    POINT-IN-TIME eligibility from Sharadar's firstpricedate/lastpricedate.
+    Previously the engine had ONE universe snapshot and inferred history from
+    price presence alone, which cannot see when-issued securities, ticker reuse,
+    reorganizations or temporary listing gaps.
+
+    An UNKNOWN bound is not a constraint: a missing first_price_date must not
+    erase a ticker from all of history, and a missing last_price_date is the
+    normal representation of "still trading". Only a bound that is present AND
+    violated excludes."""
+    if not window:
+        return True
+    first, last = window
+    if first is not None and as_of < first:
+        return False
+    if last is not None and as_of > last:
+        return False
+    return True
+
+
+class TargetStatus:
+    """Why the builder returned what it returned.
+
+    `if target:` conflated "the builder failed" with "the strategy wants zero
+    exposure". Both hold the book today only because the builder never
+    intentionally returns an empty one — an assumption a future evaluator-authored
+    config could invalidate in silence. Making the distinction explicit means a
+    deliberate risk-off target is OBEYED while a degraded build is not."""
+    SUCCESS_WITH_TARGET = "success_with_target"
+    SUCCESS_EMPTY_TARGET = "success_empty_target"   # deliberate zero exposure
+    DEGRADED = "degraded"                           # partial inputs → hold
+    FAILED = "failed"                               # nothing rankable → hold
+
+    ALL = (SUCCESS_WITH_TARGET, SUCCESS_EMPTY_TARGET, DEGRADED, FAILED)
+    # Statuses that must NOT be acted on — the book is held as-is.
+    HOLD = (DEGRADED, FAILED)
 
 
 @dataclass
@@ -77,6 +132,9 @@ class SimParams:
     starting_capital: float = 100_000.0
     rebalance_every: int = 1                # trading days between rebalances (1 = live-faithful)
     drawdown_backstop_pct: float | None = None   # optional override of config/env default
+    # Proceeds fraction of the last mark on a delist exit; 1.0 restores the old
+    # full-recovery behaviour. See DEFAULT_DELIST_RECOVERY_PCT.
+    delist_recovery_pct: float = DEFAULT_DELIST_RECOVERY_PCT
 
 
 @dataclass
@@ -157,12 +215,23 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
                  sector_map: dict[str, str], config: StrategyConfig, regime: str,
                  fk: dict, spy_closes: list[float],
                  factor_cache=None, factor_key: str | None = None,
-                 coverage_observer=None) -> dict[str, float]:
+                 coverage_observer=None,
+                 current_holdings: set | None = None,
+                 listing_windows: dict | None = None) -> tuple:
     """One rebalance: factors → rank → falling-knife → builder composition.
-    Returns ({ticker: weight}, ranked_df) — weights sum ≤ 1 (cash_reserve /
-    vol-target de-lever); ({}, None|df) when no feasible target.
+    Returns ({ticker: weight}, ranked_df, TargetStatus) — weights sum ≤ 1
+    (cash_reserve / vol-target de-lever).
     Faithful to portfolio-builder _do_build ordering (cluster on the full pool,
     exclusions dropped from the selectable pool AFTER clustering).
+
+    The STATUS is what distinguishes "the builder could not produce a book" from
+    "the strategy wants no exposure" — see TargetStatus. The caller must not
+    infer that from an empty dict.
+
+    current_holdings feeds the turnover penalty, exactly as live does. An AST
+    diff of the two greedy_select call sites found these were the only live-only
+    kwargs, so a config with turnover_penalty > 0 was previously simulated as
+    though it were 0.
 
     factor_cache/factor_key (sweeps): the factor frame depends only on
     (as_of_date, factor_engine config, loaded data), so across a sweep's many
@@ -190,7 +259,9 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
         coverage_observer.observe(fdf)
     ranked = live.rank_universe(fdf, regime, config)
     if ranked.empty:
-        return {}, None
+        # Nothing in the universe scored at all — inputs are unusable, not a
+        # strategy decision.
+        return {}, None, TargetStatus.FAILED
     # full_ranked (whole scored universe) is what callers get back — the score-
     # calibration diagnostic needs the full spectrum, not just the investable
     # head; selection below still works on the candidate_count head.
@@ -211,12 +282,19 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
                                    window=DOLLAR_VOLUME_WINDOW)
             if dv is not None:
                 avg_dv[t] = dv
+    # POINT-IN-TIME eligibility, applied at the same seam as the investability
+    # floor: a name not listed on this date is not a candidate, whatever prices
+    # happen to exist for its symbol.
+    if listing_windows:
+        candidates = [t for t in candidates
+                      if eligible_on(as_of, listing_windows.get(t))]
     candidates = [t for t in candidates if t in latest_px and not below_investability_floor(
         latest_px.get(t), avg_dv.get(t),
         min_price=config.universe.min_price,
         min_avg_dollar_volume=config.universe.min_avg_dollar_volume_20d)]
     if len(candidates) < 2:
-        return {}, None
+        # Fewer than two investable names survived the liquidity/price floor.
+        return {}, None, TargetStatus.DEGRADED
 
     # Falling-knife veto at selection (plan decision #1): computed from prices ≤ D.
     closes_by_ticker = {t: g["adjusted_close"].astype(float).tolist()
@@ -230,7 +308,8 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
         min_observations=pb.min_covariance_observations,
         shrinkage=pb.covariance_shrinkage)
     if cov is None or len(cov) < 2:
-        return {}, None
+        # Not enough overlapping price history to estimate covariance.
+        return {}, None, TargetStatus.DEGRADED
     available = [t for t in candidates if t in cov.index]
     cluster_map = live.correlation_clusters(raw_corr, threshold=pb.cluster_correlation_threshold)
 
@@ -239,18 +318,26 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
     if pb.require_positive_composite_score:
         available = [t for t in available if scores_map[t] >= 0]
     if len(available) < 2:
-        return {}, None
+        # Vetoes/score filters left nothing selectable. DEGRADED rather than a
+        # deliberate flat book: the strategy asked for positions and could not
+        # get them.
+        return {}, None, TargetStatus.DEGRADED
     scores = pd.Series({t: scores_map[t] for t in available})
     cov = cov.loc[available, available]
 
     selected = live.greedy_select(
         scores, cov, target=pb.max_positions,
         sector_map=cluster_map, max_sector_weight=pb.max_cluster_weight,
+        # Turnover-penalty parity with live. The `> 0` guard mirrors the builder
+        # exactly, so a zero penalty passes None and the holdings-agnostic
+        # behaviour is bit-identical to before this was wired.
+        current_holdings=current_holdings if pb.turnover_penalty > 0.0 else None,
+        turnover_penalty=pb.turnover_penalty,
         max_tickers_per_sector=pb.max_tickers_per_cluster,
         av_sector_map=sector_map, max_av_sector_weight=pb.max_sector_weight,
         selection_vol_aversion=pb.selection_vol_aversion)
     if not selected:
-        return {}, full_ranked
+        return {}, full_ranked, TargetStatus.DEGRADED
     weights = live.compute_weights(
         selected, cov, method=pb.weighting,
         max_position_weight=pb.max_position_weight,
@@ -303,12 +390,18 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
         exposure = max_exposure
     if exposure < 1.0 - 1e-12:
         weights = {t: w * exposure for t, w in weights.items()}
-    return {t: float(w) for t, w in weights.items()}, full_ranked
+    out = {t: float(w) for t, w in weights.items()}
+    # An empty book HERE is a real answer: everything upstream succeeded and the
+    # composition step chose no exposure. That is obeyed, not overridden.
+    status = (TargetStatus.SUCCESS_WITH_TARGET if out
+              else TargetStatus.SUCCESS_EMPTY_TARGET)
+    return out, full_ranked, status
 
 
 def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                    sector_map: dict[str, str], config: StrategyConfig,
-                   params: SimParams, progress_cb=None, factor_cache=None) -> SimResult:
+                   params: SimParams, progress_cb=None, factor_cache=None,
+                   listing_windows: dict | None = None) -> SimResult:
     """prices: long [ticker, date, open, close, adjusted_close, volume] covering
     [start − FACTOR_LOOKBACK_DAYS, end] incl. SPY. fundamentals: long
     [ticker, as_of_date, pe_ratio, pb_ratio, roe, debt_to_equity, revenue_growth,
@@ -323,7 +416,12 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
         # was simply wrong.
         "earnings_surprise is not computable from the Sharadar corpus "
         "(no analyst estimates) — configs weighting it are refused, not degraded",
-        "sector labels are the latest bt_universe snapshot (static, not per-date)",
+        # Listing/delisting WINDOWS are now point-in-time; the sector LABEL is
+        # not, and Sharadar TICKERS has no historical classification to make it
+        # so. Stated separately so the remaining gap is not mistaken for the
+        # whole one having been closed.
+        "sector labels are CURRENT-STATE (Sharadar TICKERS carries no historical "
+        "classification) — listing/delisting windows ARE point-in-time",
     ]
     coverage = CoverageObserver(config)
     # Memory-lean input handling (full-history runs): data.load_prices already
@@ -357,6 +455,10 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
     if len(all_days) < 2:
         raise ValueError("fewer than 2 trading days in range")
 
+    # Session index for every trading day, so staleness is counted in real
+    # SESSIONS rather than approximated from calendar days.
+    day_index = {d: k for k, d in enumerate(all_days)}
+
     fk = _fk_params(config, params.drawdown_backstop_pct)
     factor_key = None
     if factor_cache is not None:
@@ -368,7 +470,12 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
     cash = float(params.starting_capital)
     qty: dict[str, float] = {}
     last_px: dict[str, float] = {}
-    last_seen: dict[str, pd.Timestamp] = {}
+    last_seen_i: dict[str, int] = {}            # ticker → session INDEX of last print
+    unfilled: list[dict] = []                   # orders dropped for want of a price
+    filled_notional_today: float = 0.0
+    n_rebalances = 0                            # rebalance EVALUATIONS
+    n_rebalances_with_trades = 0
+    status_counts: dict[str, int] = {}
     rank_history: dict[str, list] = {}          # ticker → [RankObservation] newest-first
     target_history: list[set] = []              # newest-first target membership
     raw_regimes: list[str] = []                 # newest-first
@@ -409,19 +516,35 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
         for t, q in qty.items():
             p = _price(t, d, opens=False)
             if p is not None:
-                last_px[t], last_seen[t] = p, d
+                last_px[t], last_seen_i[t] = p, day_index.get(d, last_seen_i.get(t, -1))
             total += q * (p if p is not None else last_px.get(t, 0.0))
         return total
 
     def _fill(trades: list[dict], d: pd.Timestamp, opens: bool):
-        nonlocal cash
+        nonlocal cash, filled_notional_today
         # sells first (frees cash), then buys best-rank first, capped by cash
         for tr in sorted(trades, key=lambda x: 0 if x["side"] == "sell" else 1):
             p = _price(tr["ticker"], d, opens)
             if p is None or p <= 0:
-                p = last_px.get(tr["ticker"])
-                if p is None:
-                    continue
+                # NO PRINT, NO FILL. This used to fall back to last_px, which
+                # executed trades against a security that had no market that day
+                # (halt, delisting, vendor gap) — buying at a frozen, usually
+                # lower price and exiting positions that could not be exited.
+                # Not a conservative degradation: optimistic or pessimistic
+                # depending on what happened after the last print.
+                #
+                # It also compounded with the stale-price fix below: a phantom
+                # fill stamped last_seen, resetting the delisting countdown, so a
+                # dead name could be kept alive indefinitely by fills at a frozen
+                # price.
+                #
+                # Dropped, not queued: the next rebalance re-decides from current
+                # state, which is what live does with an unfilled day order.
+                unfilled.append({"date": d.date(), "ticker": tr["ticker"],
+                                 "action": tr.get("action", tr["side"]),
+                                 "qty": float(tr.get("qty") or 0.0),
+                                 "reason": "no price on fill date (halt/delist/data gap)"})
+                continue
             if tr["side"] == "sell":
                 q = min(tr["qty"], qty.get(tr["ticker"], 0.0))
                 if q <= 0:
@@ -442,7 +565,9 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                 cost = q * p * params.tx_cost_bps / 10_000.0
                 cash -= q * p + cost
                 qty[tr["ticker"]] = qty.get(tr["ticker"], 0.0) + q
-            # A FILL IS PROOF OF A PRINT. last_seen/last_px are otherwise refreshed
+            # A FILL IS PROOF OF A PRINT (and, since the no-price branch above
+            # now refuses to fill, only a REAL print can reach here).
+            # last_seen_i/last_px are otherwise refreshed
             # only by _mtm, which walks HELD tickers — so a name's timestamp froze
             # the moment it left the book. On re-entry weeks later that stale
             # timestamp tripped the delist sweep below, which instantly
@@ -451,7 +576,13 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
             # booked an immediate loss: cost-independent, scaling with rebalance
             # frequency, and compounding to -92% on a book whose every holding
             # rose. (Reproduced with 7 tickers all trending UP.)
-            last_px[tr["ticker"]], last_seen[tr["ticker"]] = p, d
+            last_px[tr["ticker"]] = p
+            last_seen_i[tr["ticker"]] = day_index.get(d, last_seen_i.get(tr["ticker"], -1))
+            # REALIZED notional — what actually traded, at the actual fill
+            # price. Turnover used to be computed from decision-time intended
+            # notional at last_px, before fills, so it could never reconcile with
+            # the costs that hit equity.
+            filled_notional_today += float(q) * float(p)
             trade_rows.append({"date": d.date(), "ticker": tr["ticker"],
                                "action": tr["action"], "qty": float(q), "price": p,
                                "tx_cost": round(q * p * params.tx_cost_bps / 10_000.0, 4),
@@ -501,11 +632,15 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                         columns=["as_of_date"], errors="ignore")
 
             spy_closes = spy_upto["close"].astype(float).tolist()
-            target, ranked = build_target(
+            n_rebalances += 1
+            target, ranked, target_status = build_target(
                 day_prices[day_prices["ticker"] != "SPY"], fnd_asof, sector_map,
                 config, confirmed_regime, fk, spy_closes,
                 factor_cache=factor_cache, factor_key=factor_key,
-                coverage_observer=coverage)
+                coverage_observer=coverage,
+                current_holdings=set(qty),
+                listing_windows=listing_windows)
+            status_counts[target_status] = status_counts.get(target_status, 0) + 1
 
             if ranked is not None:
                 obs_date = D.date()
@@ -521,7 +656,11 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                     calib_samples.append((i, dict(zip(
                         ranked["ticker"], ranked["composite_score"].astype(float)))))
 
-            if target:      # empty target = degraded build → hold (mirrors live)
+            # Act on the STATUS, not on dict truthiness. DEGRADED/FAILED hold the
+            # book (a partial build must never mass-liquidate); an empty target
+            # that came back SUCCESS is a deliberate risk-off instruction and is
+            # obeyed — the delta engine will exit into cash.
+            if target_status not in TargetStatus.HOLD:
                 target_history.insert(0, set(target))
                 del target_history[10:]
                 equity_now = _mtm(D)
@@ -577,9 +716,13 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                                            "qty": math.floor(-diff / p),
                                            "action": "sell_trim", "reason": dcs.reason})
                 if trades:
-                    notional = sum((t.get("notional") or t["qty"] * (last_px.get(t["ticker"]) or 0.0))
-                                   for t in trades)
-                    turnover_samples.append(notional / equity_now / 2 if equity_now > 0 else 0.0)
+                    n_rebalances_with_trades += 1
+                # Turnover is NOT recorded here. It used to be summed from
+                # decision-time intended notional at last_px — before fills, and
+                # therefore unable to reconcile with the costs that actually hit
+                # equity, or with orders that never filled at all. It is now
+                # accumulated inside _fill from REALIZED notional and sampled
+                # against realized equity below.
                 if params.fill_timing == "close":
                     _fill(trades, D, opens=False)
                 else:
@@ -587,7 +730,7 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
 
         # 2. delist sweep: held names with no print for DELIST_GAP_DAYS trading days
         for t in list(qty):
-            if t in last_seen and (D - last_seen[t]).days > DELIST_GAP_DAYS * 2:
+            if t in last_seen_i and (i - last_seen_i[t]) > DELIST_GAP_DAYS:
                 # Never book a delist exit at a ZERO price: `.get(t, 0.0)` would
                 # hand the whole position to the void and call it a sale. A held
                 # name always has a last_px (every fill stamps one), so a missing
@@ -596,14 +739,32 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                 p = last_px.get(t)
                 if not p or p <= 0:
                     continue
-                cash += qty[t] * p
+                # RECOVERY HAIRCUT. Booking the full last mark assumed a company
+                # that stops printing at $2 is worth $2 — which flatters exactly
+                # the speculative/distressed strategies most likely to be
+                # proposed. Transaction cost applies too; it used to be written
+                # as a literal 0.0.
+                recovery = max(0.0, float(params.delist_recovery_pct))
+                px_eff = p * recovery
+                gross = qty[t] * px_eff
+                cost = gross * params.tx_cost_bps / 10_000.0
+                cash += gross - cost
+                filled_notional_today += gross
                 trade_rows.append({"date": D.date(), "ticker": t, "action": "exit",
-                                   "qty": qty[t], "price": p, "tx_cost": 0.0,
-                                   "reason": "delisted — exited at last available price"})
+                                   "qty": qty[t], "price": px_eff,
+                                   "tx_cost": round(cost, 4),
+                                   "reason": (f"delisted — exited at {recovery:.0%} of last "
+                                              f"available price ({p:.4f})")})
                 qty.pop(t)
 
         # 3. mark to market
         equity = _mtm(D)
+        # Realized turnover for the day: what actually traded, over what the book
+        # was actually worth. /2 keeps the one-sided convention (a buy funded by
+        # a sell is one unit of turnover, not two).
+        if filled_notional_today > 0 and equity > 0:
+            turnover_samples.append(filled_notional_today / equity / 2)
+        filled_notional_today = 0.0
         spy_now = float(spy[spy["date"] == D]["close"].iloc[0])
         spy_val = params.starting_capital * spy_now / spy_start
         peak = max(peak, equity)
@@ -659,10 +820,29 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
         "max_drawdown": round(max_dd, 4),
         "benchmark_total_return": round(spy_total, 6),
         "alpha": round(ann - spy_ann, 6),
-        "avg_turnover": round(float(np.mean(turnover_samples)), 4) if turnover_samples else 0.0,
+        # avg_turnover keeps its NAME (bt_runs column, evaluator queries) but now
+        # means realized turnover per rebalance EVALUATION — zero-turnover cycles
+        # included. Existing readers get a better number under the same key.
+        "avg_turnover": (round(float(np.sum(turnover_samples)) / n_rebalances, 4)
+                         if n_rebalances else 0.0),
+        "avg_turnover_per_fill_day": (round(float(np.mean(turnover_samples)), 4)
+                                      if turnover_samples else 0.0),
         "win_rate": round(win_days / cmp_days, 4) if cmp_days else 0.0,
         "n_trading_days": len(all_days),
-        "n_rebalances": len(turnover_samples),
+        # These used to be one number: turnover_samples doubled as the turnover
+        # series AND the rebalance counter, and was appended only when trades
+        # existed — so "n_rebalances" silently meant "rebalance dates that
+        # produced trades".
+        "n_rebalances": n_rebalances,                       # evaluations
+        "n_rebalances_with_trades": n_rebalances_with_trades,
+        "n_days_with_fills": len(turnover_samples),
+        "total_turnover": round(float(np.sum(turnover_samples)), 4) if turnover_samples else 0.0,
+        "target_status_counts": dict(sorted(status_counts.items())),
+        "unfilled_orders": len(unfilled),
+        # A sample, not the whole list: a long run with a systemic data gap could
+        # otherwise put thousands of rows into a summary JSON blob.
+        "unfilled_sample": unfilled[:20],
+        "delist_recovery_pct": float(params.delist_recovery_pct),
         # Terminal-wealth distribution (docs/architecture.md "terminal wealth").
         # CAGR and one realised max_drawdown describe the single path history
         # happened to take; the objective is compounded WEALTH, whose enemy is

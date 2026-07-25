@@ -10,9 +10,11 @@ the number of DISTINCT factor_engine configs (2 in the standing grid).
 
 Disk-backed (pickle) rather than in-memory: a decades-long sweep touches
 thousands of dates × ~750KB frames — gigabytes that must not live in RAM on
-the NAS. The cache directory is scoped by a DATA FINGERPRINT (row count +
-date span + ticker count of the loaded frames): a top-up changes the
-fingerprint and the stale cache is wiped on the next sweep. Every operation
+the NAS. The cache directory is scoped by a DATA FINGERPRINT built on bt-data's
+CORPUS VERSION (bt_data_version, bumped after every write) plus the loaded
+frames' shape. Version-first is load-bearing: a shape-only fingerprint does
+not change when data is corrected in place, which silently served stale
+factors. No version readable ⇒ no cache. Every operation
 is fail-soft — an IO error degrades to a recompute, never a failed sweep.
 """
 from __future__ import annotations
@@ -33,10 +35,32 @@ _MARKER = "fingerprint.txt"
 
 
 def data_fingerprint(prices: pd.DataFrame, fundamentals: pd.DataFrame,
-                     n_tickers: int) -> str:
-    """Cheap identity of the loaded dataset — enough to invalidate on top-ups
-    (row counts and date span change) without hashing gigabytes."""
+                     n_tickers: int, data_version: str | None) -> str | None:
+    """Identity of the loaded dataset, or None meaning "do not cache at all".
+
+    `data_version` is bt-data's corpus version (bt_data_version), stamped after
+    every successful write. It is REQUIRED: without it this returns None and the
+    caller disables the cache.
+
+    WHY IT IS REQUIRED. This used to hash only the SHAPE of the data — row
+    counts, ticker count, price date span. None of that changes when data is
+    CORRECTED IN PLACE. The SF1 re-backfill that populates market_cap /
+    shares_outstanding writes onto EXISTING rows: same primary keys, same counts,
+    same span, byte-identical fingerprint. A surviving cache would have served
+    factor frames computed without the new columns, and the coverage observer
+    would not have noticed because both factors are weight-0 in the active config
+    and therefore never observed. Two different ticker subsets with equal counts
+    and spans could also have collided.
+
+    Fail-closed rather than degrading to the shape hash: the cache is a pure
+    optimization, so a weak identity is strictly worse than no cache.
+
+    The shape parts are kept ALONGSIDE the version so a corpus mutated by
+    something that forgets to bump the version is still likely to invalidate."""
+    if not data_version:
+        return None
     parts = [
+        str(data_version),
         str(len(prices)), str(len(fundamentals)), str(n_tickers),
         str(prices["date"].min()) if len(prices) else "-",
         str(prices["date"].max()) if len(prices) else "-",

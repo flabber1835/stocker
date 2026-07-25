@@ -154,3 +154,60 @@ def test_prior_shares_uses_the_same_anchor_as_the_growth_fields():
         # 400 shares issued per year in this fixture → a positive dilution signal
         net = rows[i]["shares_outstanding"] / rows[i]["shares_outstanding_prior"] - 1
         assert net > 0
+
+
+# ── point-in-time universe metadata (audit items 6/7) ───────────────────────
+# TICKERS rows always carried firstpricedate/lastpricedate/isdelisted;
+# map_tickers_row kept ticker/name/sector and discarded them, so the engine had
+# ONE snapshot for all of history and inferred eligibility from price presence.
+
+from app.sharadar_adapter import map_tickers_row  # noqa: E402
+
+
+def _t(**over) -> dict:
+    base = {"ticker": "AAPL", "name": "Apple Inc", "sector": "Technology",
+            "category": "Domestic Common Stock", "exchange": "NASDAQ",
+            "firstpricedate": "1980-12-12", "lastpricedate": "2026-07-24",
+            "isdelisted": "N"}
+    base.update(over)
+    return base
+
+
+def test_listing_window_and_delisted_flag_are_kept():
+    m = map_tickers_row(_t(), "2026-07-25")
+    assert m["first_price_date"] == "1980-12-12"
+    assert m["last_price_date"] == "2026-07-24"
+    assert m["is_delisted"] is False
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("Y", True), ("y", True), ("YES", True), ("TRUE", True), ("1", True),
+    ("N", False), ("no", False), ("FALSE", False), ("0", False),
+    (True, True), (False, False),
+])
+def test_isdelisted_parsing(raw, expected):
+    assert map_tickers_row(_t(isdelisted=raw), "2026-07-25")["is_delisted"] is expected
+
+
+def test_an_unparseable_delisted_flag_is_unknown_not_listed():
+    """None means 'we do not know'. Defaulting to False would silently assert a
+    delisted company is still trading."""
+    assert map_tickers_row(_t(isdelisted="???"), "2026-07-25")["is_delisted"] is None
+    assert map_tickers_row(_t(isdelisted=""), "2026-07-25")["is_delisted"] is None
+
+
+def test_absent_last_price_date_stays_null_not_a_sentinel():
+    """Empty lastpricedate is the NORMAL representation of 'still trading'. A
+    sentinel date would delist every live company on that day."""
+    m = map_tickers_row(_t(lastpricedate=""), "2026-07-25")
+    assert m["last_price_date"] is None
+
+
+def test_datetime_valued_dates_are_truncated_to_the_date():
+    m = map_tickers_row(_t(firstpricedate="1980-12-12 00:00:00"), "2026-07-25")
+    assert m["first_price_date"] == "1980-12-12"
+
+
+def test_the_existing_universe_filter_still_applies():
+    assert map_tickers_row(_t(category="ETF"), "2026-07-25") is None
+    assert map_tickers_row(_t(exchange="OTC"), "2026-07-25") is None

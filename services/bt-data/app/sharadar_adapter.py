@@ -203,7 +203,38 @@ def map_tickers_row(row: dict, snapshot_date: str) -> Optional[dict]:
         "ticker": row["ticker"],
         "name": row.get("name"),
         "sector": row.get("sector"),
+        # POINT-IN-TIME listing window. These were already in every TICKERS row
+        # and were discarded, which left the engine inferring historical
+        # eligibility from price presence and using ONE snapshot for all of
+        # history. Same "already fetched, then thrown away" shape as the SF1 gap.
+        "first_price_date": _date_or_none(row.get("firstpricedate")),
+        "last_price_date": _date_or_none(row.get("lastpricedate")),
+        "is_delisted": _bool_or_none(row.get("isdelisted")),
     }
+
+
+def _date_or_none(v: Any) -> Optional[str]:
+    """Sharadar serves ISO date strings; empty/absent means 'still trading' for
+    lastpricedate, which must stay NULL rather than becoming a sentinel."""
+    if not v:
+        return None
+    s = str(v).strip()
+    return s[:10] if len(s) >= 10 else None
+
+
+def _bool_or_none(v: Any) -> Optional[bool]:
+    """Sharadar isdelisted is 'Y'/'N' (sometimes bool). Unknown stays None so a
+    parsing surprise never silently reads as 'still listed'."""
+    if v is None or v == "":
+        return None
+    if isinstance(v, bool):
+        return v
+    t = str(v).strip().upper()
+    if t in ("Y", "YES", "TRUE", "1"):
+        return True
+    if t in ("N", "NO", "FALSE", "0"):
+        return False
+    return None
 
 
 def compute_growth(curr: Optional[float], year_ago: Optional[float]) -> Optional[float]:

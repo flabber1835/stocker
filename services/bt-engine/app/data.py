@@ -37,9 +37,52 @@ LOAD_CHUNK_ROWS = int(os.getenv("BT_LOAD_CHUNK_ROWS", "250000"))
 _NUM_COLS = ("open", "close", "adjusted_close", "volume")
 
 
+async def load_data_version(engine) -> str | None:
+    """The corpus version bt-data stamps after every successful write.
+
+    Returns None when the table/row is absent, which the caller treats as
+    "disable the factor cache" — see factor_cache.data_fingerprint. Fail-closed
+    on purpose: the cache is a pure optimization, and a weak identity is worse
+    than no cache. The previous shape-based fingerprint (row counts + date span)
+    did not change when data was CORRECTED IN PLACE."""
+    try:
+        async with engine.connect() as conn:
+            row = (await conn.execute(text(
+                "SELECT version::text, updated_at FROM bt_data_version WHERE id = 1"
+            ))).first()
+        return str(row[0]) if row and row[0] else None
+    except Exception:  # noqa: BLE001 — pre-migration DB, permissions, anything
+        return None
+
+
+async def load_listing_windows(engine) -> dict[str, tuple]:
+    """ticker → (first_price_date, last_price_date) from bt_universe.
+
+    The POINT-IN-TIME eligibility source. Absent dates mean "unknown", which is
+    treated as no constraint on that side rather than as an exclusion — a
+    missing first_price_date must not silently erase a ticker from all of
+    history."""
+    try:
+        async with engine.connect() as conn:
+            rows = (await conn.execute(text(
+                "SELECT ticker, first_price_date, last_price_date FROM bt_universe "
+                "WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM bt_universe)"
+            ))).fetchall()
+        return {r[0]: (r[1], r[2]) for r in rows}
+    except Exception:  # noqa: BLE001 — columns predate this feature
+        return {}
+
+
 async def load_universe(engine, limit: int | None = None) -> tuple[list[str], dict[str, str]]:
     """Tickers + sector map from the LATEST bt_universe snapshot. `limit` keeps
-    smoke runs small: top-N by latest dollar volume (deterministic order)."""
+    smoke runs small: top-N by latest dollar volume (deterministic order).
+
+    The sector map is CURRENT-STATE and stays that way: Sharadar TICKERS carries
+    point-in-time listing DATES but not a point-in-time CLASSIFICATION, so a 2011
+    portfolio is built with today's sector label. That remains in the simulator's
+    caveats; removing it needs a vendor with historical classifications.
+    Point-in-time ELIGIBILITY (listing/delisting windows) is handled separately —
+    see load_listing_windows."""
     async with engine.connect() as conn:
         rows = (await conn.execute(text(
             "SELECT ticker, sector FROM bt_universe "

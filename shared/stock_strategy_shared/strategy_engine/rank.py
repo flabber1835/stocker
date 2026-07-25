@@ -12,13 +12,24 @@ def composite_scores(
     weights: dict[str, float],
     min_factors: int,
     required: set[str],
+    availability_scope: str = "all",
 ) -> pd.Series:
     """Vectorized composite score — same semantics as the original row-wise
     df.apply version (kept verbatim in tests/shared/test_rank_vectorized.py as
     the equivalence oracle), ~2 orders of magnitude faster on a full universe:
 
-      - a factor is AVAILABLE when its value is non-null (weight-0 factors still
-        count toward the min_factors availability threshold, as before)
+      - a factor is AVAILABLE when its value is non-null. `availability_scope`
+        decides WHICH factors that counting ranges over:
+          "all"      (default, historical): every registry factor counts, weight-0
+                     included — so a factor contributing nothing to the score
+                     still decides whether a security is rankable, and populating
+                     a new unused factor silently widens the investable universe.
+          "weighted": only nonzero-weight factors count — the intuitive reading.
+        The DEFAULT IS DELIBERATELY "all": flipping it is a live strategy change
+        (see StrategyConfig.min_non_null_factors_scope), not a cleanup, so it is
+        the config's call and never an implicit consequence of this refactor.
+        Either way the SCORE is unchanged — scope affects only the eligibility
+        count, since a zero weight contributes zero to the weighted sum.
       - score = Σ (w_f / Σ available weights) · value_f over available factors
       - NaN when: fewer than min_factors available, any required factor is
         null/absent, or the available weights sum to exactly 0
@@ -39,7 +50,11 @@ def composite_scores(
     norm_w = avail_w.div(weight_sum.where(weight_sum != 0), axis=0)
     score = norm_w.mul(vals.fillna(0.0)).sum(axis=1)
 
-    invalid = (avail.sum(axis=1) < min_factors) | (weight_sum == 0)
+    counted = avail
+    if availability_scope == "weighted":
+        counted = avail.loc[:, [f for f in FACTORS if float(weights[f]) > 0]] \
+            if any(float(weights[f]) > 0 for f in FACTORS) else avail.iloc[:, :0]
+    invalid = (counted.sum(axis=1) < min_factors) | (weight_sum == 0)
     if required:
         req_vals = factor_scores.reindex(columns=sorted(required))
         invalid |= req_vals.isna().any(axis=1)
@@ -59,6 +74,7 @@ def rank_universe(
         df, regime_weights,
         min_factors=strategy.min_non_null_factors,
         required=set(strategy.required_factors),
+        availability_scope=getattr(strategy, "min_non_null_factors_scope", "all"),
     )
 
     # Only rank tickers with a valid composite score; drop unrankable rows entirely.

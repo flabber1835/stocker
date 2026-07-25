@@ -1258,6 +1258,54 @@ with `scripts/purge-void-bt-results.sh --yes` (dry-run by default; refuses while
 a job is in flight; deletes RESULTS tables only and clears the
 artifacts/bt/*.json bridge — never the source corpus).
 
+### Wind-tunnel fidelity: the parity manifest
+
+```text
+Every parameter that can change live behaviour needs an explicit wind-tunnel
+parity declaration. Where the tunnel cannot model one, it REFUSES the config
+rather than scoring it as if the parameter were absent.
+```
+
+The factor-coverage contract closed one instance; `turnover_penalty` was the same
+bug a layer up (live passed `current_holdings`/`turnover_penalty` into
+`greedy_select`, the simulator did not, so a nonzero penalty was scored as zero).
+`services/bt-engine/app/parity.py` declares every StrategyConfig field as
+HONOURED / PARTIAL / IGNORED with a reason; `check_config_parity` refuses (422) a
+config that sets an IGNORED field to a NON-DEFAULT value. `BT_PARITY_ENFORCE=false`
+downgrades to a log. Two tests keep it honest: every schema field must be
+classified (a new field fails CI until someone decides), and an AST diff asserts
+the live and tunnel `greedy_select`/`compute_weights` call sites pass the same
+kwargs.
+
+Also fixed in the same batch (docs/architecture.md "wind-tunnel fidelity batch"):
+
+```text
+factor cache      keyed on bt_data_version (bumped by bt-data after EVERY write),
+                  not on data SHAPE — row counts/date span do not change when data
+                  is corrected in place, so a re-backfill left a stale cache
+                  looking valid. No version readable ⇒ cache DISABLED (fail-closed).
+fills             NO PRINT, NO FILL. The last_px fallback executed trades against
+                  securities with no market, and (post the -96% fix) the phantom
+                  fill stamped last_seen, resetting the delist timer. Dropped
+                  orders are reported in summary.unfilled_orders.
+delisting         SimParams.delist_recovery_pct (default 0.70) + transaction cost.
+                  Full recovery of the last mark flattered distressed strategies.
+                  A FLAT rate incl. mergers — a bias correction, not a model.
+delist gap        counted in real SESSION INDICES, not `(D-last_seen).days > 7*2`.
+universe          point-in-time eligibility from Sharadar firstpricedate/
+                  lastpricedate/isdelisted. Sector labels remain CURRENT-STATE
+                  (no vendor history) and stay in caveats.
+target status     TargetStatus.{SUCCESS_WITH_TARGET,SUCCESS_EMPTY_TARGET,DEGRADED,
+                  FAILED} replaces `if target:` — a deliberate risk-off target is
+                  now obeyed, a degraded build still holds the book.
+counters          n_rebalances = EVALUATIONS (was "dates that produced trades");
+                  turnover from REALIZED fills, not decision-time intended notional.
+eligibility scope min_non_null_factors_scope: "all" (default, unchanged) |
+                  "weighted". Weight-0 factors counting toward eligibility means a
+                  data-engineering change can move CAGR; the default is NOT flipped
+                  because "weighted" is a large live strategy change — backtest first.
+```
+
 ## evaluator
 
 Weekly LLM strategy review. OBJECTIVE (owner-set, in its system prompt + docs):

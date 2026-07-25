@@ -2711,3 +2711,181 @@ moment anyway, so ordering-plus-retry is the only honest contract.
 with the I/O removed, the existing 5s/5s/5/20s budget has orders of magnitude of
 headroom, and widening timeouts to accommodate a probe that should not have been
 doing I/O would have hidden the bug rather than fixed it.
+
+## Design Decision: wind-tunnel fidelity batch — cache identity, fill realism, parity manifest (2026-07)
+
+An external audit found eleven defects in the backtest simulator, all verified at
+the cited lines. They share one root: the tunnel silently SUBSTITUTES something
+plausible where it cannot model the real thing — a renormalized weight, a stale
+price, a modern sector label, an emergent eligibility rule. Each substitution
+produces a number, and a number is indistinguishable from an answer.
+
+The generalized rule, extending the factor-coverage contract to every config
+field:
+
+> Every parameter that can change live behaviour needs an explicit wind-tunnel
+> parity declaration and an empirical "was actually exercised" observer.
+> Where the tunnel cannot model a parameter, it REFUSES the config rather than
+> scoring it as if the parameter were absent.
+
+### 1. Factor-cache identity: version, not shape
+
+`data_fingerprint()` hashed row counts, ticker count and the price date span.
+Nothing in that changes when data is CORRECTED IN PLACE. This is not
+hypothetical: the SF1 re-backfill that populates `market_cap` /
+`shares_outstanding` writes those values onto EXISTING rows — same primary keys,
+same counts, same span — so the fingerprint is byte-identical and a surviving
+cache would serve factor frames computed without the new columns. The coverage
+observer would not catch it either, because both factors are weight-0 in the
+active config and therefore never observed.
+
+Replaced with an explicit corpus version: bt-data maintains a single-row
+`bt_data_version` table and bumps a fresh UUID at the end of EVERY successful
+write stage. bt-engine reads it and keys the cache on it.
+
+FAIL-CLOSED: if the version cannot be read, the cache is DISABLED rather than
+falling back to the shape hash. A weak identity is worse than no cache — the
+cache is a pure optimization, and correctness must not depend on it.
+
+The shape components are retained ALONGSIDE the version, so a corpus mutated by
+something that forgets to bump the version is still likely to invalidate.
+
+### 2. Turnover penalty: implemented, not rejected
+
+An AST diff of the two `greedy_select` call sites (live
+`portfolio-builder/app/main.py` vs `bt-engine/app/sim.py`) found exactly two
+live-only kwargs — `current_holdings` and `turnover_penalty` — and zero
+divergence in `compute_weights`. So a config with `turnover_penalty > 0` was
+simulated as though it were 0: the same class as earnings_surprise, one layer up.
+
+The simulator already tracks `qty`, so current holdings are available at
+`build_target` time. Implemented rather than gated, on the same principle: teach
+the tunnel, do not forbid the strategy. The `turnover_penalty > 0` guard mirrors
+live exactly, so a zero penalty passes `current_holdings=None` and the
+holdings-agnostic behaviour is bit-identical to before.
+
+### 3. No fill without a print
+
+`_fill` fell back to `last_px` when the fill date had no price, so a pending
+trade could execute against a security with no market that day — a halt, a
+delisting, a vendor gap. That is not conservative: on a buy it purchases at a
+frozen (often lower) price, on a sell it exits a position that could not have
+been exited.
+
+It also compounded with the stale-price fix from the `-96%` bleed. That change
+made every fill stamp `last_seen` (a fill is proof of a print) — correct for real
+fills, but for a PHANTOM fill it reset the delisting countdown, so a dead name
+could have its timer refreshed indefinitely by fills at a frozen price.
+
+Now: no print, no fill. The order is dropped (not queued — the next rebalance
+re-decides from current state, which is what live does) and recorded in
+`unfilled_orders` on the summary with a reason. NOT in `bt_trades`: that table's
+`price` is NOT NULL and it means "a trade happened", which is precisely what did
+not happen here.
+
+### 4. Delisting: a configurable recovery rate
+
+`cash += qty[t] * last_px[t]` recovered 100% of the last mark, with `tx_cost: 0.0`
+written literally into the trade row. A company that stops printing at $2 is
+frequently worth a fraction of that; full recovery flatters exactly the
+speculative/distressed strategies the evaluator is most likely to propose.
+
+`SimParams.delist_recovery_pct` (default **0.70**) — the proceeds fraction of the
+last mark, with the normal transaction cost now applied. The 30% haircut follows
+the delisting-return literature (Shumway 1997 finds ≈ −30% for NYSE/AMEX
+performance-related delistings; Shumway & Warther 1999 finds worse for NASDAQ),
+rounded to one blunt number.
+
+Stated honestly: this is a FLAT rate applied to every delist exit, including
+mergers and acquisitions where recovery is typically at or above the last mark.
+It is a bias correction, not a model. Set it to 1.0 to restore the previous
+behaviour. Distinguishing acquisition from failure requires the delisting REASON,
+which becomes available with the point-in-time universe work below and is the
+natural follow-up.
+
+### 5. Delist gap measured in real sessions
+
+`DELIST_GAP_DAYS = 7` was documented as trading days but compared as
+`(D - last_seen).days > DELIST_GAP_DAYS * 2` — a calendar approximation that
+lands nearer 10 sessions than 7, and drifts with holidays. The simulator walks an
+explicit list of sessions, so the exact count is available: staleness is now
+measured in SESSION INDICES against `all_days`. No approximation, no holiday
+drift, and the constant now means what its name says.
+
+### 6/7. Point-in-time sector and universe
+
+`load_universe` read `WHERE snapshot_date = (SELECT MAX(...))`, so a 2011
+portfolio was built with 2026 sector labels — future information feeding
+sector-neutral scoring, sector group sizes and sector caps. The single snapshot
+also meant historical eligibility was inferred from price presence rather than
+reconstructed.
+
+Sharadar's TICKERS rows already carry `firstpricedate`, `lastpricedate`,
+`isdelisted` and `sicsector`/`sector`; `map_tickers_row` kept ticker, name and
+sector and discarded the rest — the same "already fetched, then thrown away"
+shape as the SF1 gap. Those fields are now persisted, and the universe is
+reconstructed AS OF each simulated date: a ticker is eligible on D when
+`firstpricedate <= D <= COALESCE(lastpricedate, ∞)`.
+
+HONEST LIMIT, stated because it would otherwise be mistaken for a full fix:
+Sharadar TICKERS is CURRENT-STATE metadata with historical DATE columns. It gives
+correct listing/delisting windows; it does NOT give the sector a company was
+classified under in 2011. The sector label remains current-state and stays in
+`caveats`. Removing that requires a vendor with point-in-time classifications.
+
+### 8. Eligibility scope made explicit — behaviour NOT changed silently
+
+`composite_scores` counts a factor as "available" whenever it is non-null,
+regardless of weight, so a weight-0 factor can decide whether a security is
+rankable. A data-engineering change (populating a new unused factor) can
+therefore move CAGR. Real, and shared with live.
+
+The obvious fix — count only nonzero-weight factors — is NOT applied as a silent
+default, because it is a large live strategy change, not a cleanup. Under
+`momentum_rotation_v2` it would turn `min_non_null_factors: 6` from "6 of 12
+available" into "6 of the 7 weighted", which would sharply shrink the rankable
+universe and change what the live book buys.
+
+So the SEMANTICS become explicit and the CHOICE stays with the owner:
+`min_non_null_factors_scope: "all" | "weighted"`, defaulting to `"all"` (today's
+behaviour, bit-identical). The field is in the parity manifest, so the tunnel and
+live can never diverge on it, and flipping it can be backtested first.
+
+### 9. Target status is explicit, not dictionary truthiness
+
+`if target:` conflated "the builder failed / produced nothing usable" with "the
+strategy deliberately wants zero exposure". Both mean "hold what we have" today
+only because the builder never intentionally returns an empty book — an
+assumption a future evaluator-authored config could invalidate silently.
+
+`build_target` now returns a `TargetStatus` alongside the weights:
+`SUCCESS_WITH_TARGET` / `SUCCESS_EMPTY_TARGET` / `DEGRADED` / `FAILED`. Only
+DEGRADED and FAILED hold the book; SUCCESS_EMPTY_TARGET is honoured as a real
+risk-off instruction. The simulator counts each status so a run that spent half
+its life DEGRADED is visible rather than merely flat.
+
+### 10/11. Turnover and rebalance counts measure what they claim
+
+One root cause: `turnover_samples` doubled as the turnover series AND the
+rebalance counter, and was appended only when trades existed — so
+`n_rebalances` meant "rebalance dates that produced trades", and turnover was
+computed from DECISION-time intended notional at `last_px`, before fills, and so
+could never reconcile with the costs that actually hit equity.
+
+Now `_fill` accumulates REALIZED filled notional, turnover is that over realized
+equity, and the counters are separate and named for what they are:
+`n_rebalances` (evaluations), `n_rebalances_with_trades`, `total_turnover`,
+`avg_turnover` (= total over evaluations, so zero-turnover cycles count).
+
+### The parity manifest
+
+`services/bt-engine/app/parity.py` declares, for every StrategyConfig field,
+whether the wind tunnel HONOURS it, IGNORES it, or honours it PARTIALLY, plus a
+reason. `check_config_parity(cfg)` refuses (422) a config that sets an IGNORED
+field to a non-default value — the coverage contract generalized from factors to
+the whole config surface.
+
+Two tests keep it honest: every schema field must be classified (a new field
+fails CI until someone decides), and an AST diff asserts the live and tunnel
+`greedy_select` / `compute_weights` call sites agree on kwargs — the check that
+would have caught the turnover-penalty gap the day it appeared.

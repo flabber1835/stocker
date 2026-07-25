@@ -672,6 +672,23 @@ class StrategyConfig(BaseModel):
     max_positions: int = Field(default=30, ge=1, le=500)
     min_score_percentile: float = Field(default=0.0, ge=0, le=1)
     min_non_null_factors: int = Field(default=3, ge=1, le=FACTOR_COUNT)
+    min_non_null_factors_scope: Literal["all", "weighted"] = Field(
+        default="all",
+        description=(
+            "WHICH factors count toward min_non_null_factors. "
+            "'all' (default, and the historical behaviour): every factor in the "
+            "registry counts as soon as it is non-null, INCLUDING factors whose "
+            "weight is 0. That means a factor contributing nothing to the score "
+            "still decides whether a security is rankable — so populating a new "
+            "unused factor, or dropping one, silently moves the investable "
+            "universe and therefore returns. "
+            "'weighted': only factors carrying a nonzero weight in the resolved "
+            "regime vector count, which is the intuitive reading. "
+            "DEFAULT IS DELIBERATELY 'all'. Switching is a real strategy change, "
+            "not a cleanup: under a 7-nonzero-weight config, "
+            "min_non_null_factors: 6 goes from '6 of the ~12 available' to '6 of "
+            "the 7 weighted', sharply shrinking the rankable universe. Backtest "
+            "before flipping it."))
     min_ranked: int = Field(
         default=0, ge=0,
         description=(

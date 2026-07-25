@@ -217,12 +217,39 @@ async def _upsert_universe(rows: list[dict]) -> int:
         r["snapshot_date"] = _d(r["snapshot_date"])
     async with engine.begin() as conn:
         await conn.execute(text(
-            "INSERT INTO bt_universe (snapshot_date, ticker, name, sector) "
-            "VALUES (:snapshot_date, :ticker, :name, :sector) "
+            "INSERT INTO bt_universe (snapshot_date, ticker, name, sector, "
+            "  first_price_date, last_price_date, is_delisted) "
+            "VALUES (:snapshot_date, :ticker, :name, :sector, "
+            "  :first_price_date, :last_price_date, :is_delisted) "
             "ON CONFLICT (snapshot_date, ticker) DO UPDATE SET "
-            "  name=EXCLUDED.name, sector=EXCLUDED.sector"
+            "  name=EXCLUDED.name, sector=EXCLUDED.sector, "
+            "  first_price_date=EXCLUDED.first_price_date, "
+            "  last_price_date=EXCLUDED.last_price_date, "
+            "  is_delisted=EXCLUDED.is_delisted"
         ), rows)
     return len(rows)
+
+
+async def _bump_data_version(note: str) -> None:
+    """Stamp a fresh corpus version after a successful write.
+
+    bt-engine's factor cache keys on this. It used to key on the SHAPE of the
+    data (row counts, ticker count, price date span), which does not change when
+    data is CORRECTED IN PLACE — so a re-backfill that adds values to existing
+    rows left a stale cache looking valid. Fail-soft: a version that cannot be
+    written is not worth failing a multi-hour backfill over, and bt-engine
+    DISABLES its cache when it cannot read one."""
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "INSERT INTO bt_data_version (id, version, updated_at, note) "
+                "VALUES (1, gen_random_uuid(), NOW(), :note) "
+                "ON CONFLICT (id) DO UPDATE SET "
+                "  version=gen_random_uuid(), updated_at=NOW(), note=EXCLUDED.note"
+            ), {"note": note[:500]})
+        print(f"[bt-data] corpus version bumped ({note})", flush=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[bt-data] WARN could not bump corpus version: {exc}", flush=True)
 
 
 # ── Backfill ───────────────────────────────────────────────────────────────────
@@ -322,6 +349,7 @@ async def _load_benchmarks(date_from: str, date_to: str) -> int:
                 total += await _upsert_prices(batch); batch = []
         total += await _upsert_prices(batch)
         await _close_run(rid, "success", total, err=f"BENCHMARKS:{BENCHMARK_TICKERS}")
+        await _bump_data_version("benchmarks")
         print(f"[bt-data] benchmarks {BENCHMARK_TICKERS} DONE ({total} rows)", flush=True)
         return total
     except Exception as exc:
@@ -367,6 +395,7 @@ async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
             dmin = cdmin if dmin is None or (cdmin and cdmin < dmin) else dmin
             dmax = cdmax if dmax is None or (cdmax and cdmax > dmax) else dmax
         await _close_run(rid, "success", total, dmin, dmax)
+        await _bump_data_version(f"prices {dmin}..{dmax}")
     except Exception as exc:
         # repr, not str: several exception types (ReadTimeout, MemoryError)
         # stringify to '' — the "failed with no error message" mystery rows.
@@ -417,6 +446,7 @@ async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
         print(f"[bt-data] SF1: {total} fundamentals rows, {earnings_total} "
               f"earnings rows", flush=True)
         await _close_run(rid, "success", total)
+        await _bump_data_version(f"fundamentals+earnings ({total}/{earnings_total} rows)")
     except Exception as exc:
         await _close_run(rid, "failed", err=repr(exc)[:1500])
         raise
@@ -432,6 +462,7 @@ async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
                 rows.append(m)
         total = await _upsert_universe(rows)
         await _close_run(rid, "success", total)
+        await _bump_data_version(f"universe ({total} tickers)")
     except Exception as exc:
         await _close_run(rid, "failed", err=repr(exc)[:1500])
         raise

@@ -74,6 +74,24 @@ ALTER TABLE bt_fundamentals
     ADD COLUMN IF NOT EXISTS shares_outstanding       NUMERIC(22,2),
     ADD COLUMN IF NOT EXISTS shares_outstanding_prior NUMERIC(22,2);
 
+-- ── Corpus version ────────────────────────────────────────────────────────────
+-- The factor cache in bt-engine used to key on the SHAPE of the loaded data (row
+-- counts, ticker count, price date span). Nothing in that changes when data is
+-- CORRECTED IN PLACE — e.g. the SF1 re-backfill that writes market_cap and
+-- shares_outstanding onto EXISTING rows: same primary keys, same counts, same
+-- span, byte-identical fingerprint, stale cache silently reused.
+--
+-- bt-data bumps a fresh UUID here at the end of EVERY successful write stage.
+-- bt-engine keys the cache on it and DISABLES the cache entirely if it cannot be
+-- read — a weak identity is worse than no cache, which is only an optimization.
+CREATE TABLE IF NOT EXISTS bt_data_version (
+    id          INTEGER      PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    version     UUID         NOT NULL DEFAULT gen_random_uuid(),
+    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    note        TEXT
+);
+INSERT INTO bt_data_version (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
 -- Point-in-time quarterly EPS, the raw material for reproducing the
 -- earnings-surprise (PEAD) factor. POPULATED BUT NOT YET CONSUMED: Sharadar has
 -- no analyst estimates, so live's analyst-based SUE cannot be computed from it.
@@ -106,9 +124,26 @@ CREATE TABLE IF NOT EXISTS bt_universe (
     ticker          VARCHAR(20)  NOT NULL,
     name            VARCHAR(200),
     sector          VARCHAR(100),
+    -- POINT-IN-TIME listing window (2026-07). Sharadar TICKERS carries these and
+    -- map_tickers_row discarded them, so the engine had one snapshot and inferred
+    -- historical eligibility from price presence alone. With these, a ticker is
+    -- eligible on D iff first_price_date <= D <= COALESCE(last_price_date, ∞).
+    --
+    -- HONEST LIMIT: TICKERS is CURRENT-STATE metadata with historical DATE
+    -- columns. The dates are point-in-time; `sector` is NOT — it is today's
+    -- classification, and stays in the simulator's caveats.
+    first_price_date DATE,
+    last_price_date  DATE,
+    is_delisted      BOOLEAN,
     PRIMARY KEY (snapshot_date, ticker)
 );
 CREATE INDEX IF NOT EXISTS idx_bt_universe_date ON bt_universe(snapshot_date);
+ALTER TABLE bt_universe
+    ADD COLUMN IF NOT EXISTS first_price_date DATE,
+    ADD COLUMN IF NOT EXISTS last_price_date  DATE,
+    ADD COLUMN IF NOT EXISTS is_delisted      BOOLEAN;
+CREATE INDEX IF NOT EXISTS idx_bt_universe_window
+    ON bt_universe(first_price_date, last_price_date);
 
 -- Bookkeeping for the fetch jobs (backfill + incremental top-up).
 CREATE TABLE IF NOT EXISTS bt_data_runs (

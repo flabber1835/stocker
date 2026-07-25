@@ -25,9 +25,13 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 
-from app.coverage import check_config_coverage, enforcement_enabled
-from app.data import load_fundamentals, load_prices, load_universe
-from app.sim import SimParams, run_simulation
+from app.coverage import check_config_coverage
+from app.coverage import enforcement_enabled as coverage_enforcement_enabled
+from app.parity import check_config_parity
+from app.parity import enforcement_enabled as parity_enforcement_enabled
+from app.data import (load_data_version, load_fundamentals,
+                      load_listing_windows, load_prices, load_universe)
+from app.sim import DEFAULT_DELIST_RECOVERY_PCT, SimParams, run_simulation
 from app.sweep import (SweepWindows, aggregate_rolling, apply_diff,
                        enumerate_grid, merge_extra_configs,
                        rolling_windows, run_config_both_windows)
@@ -119,6 +123,9 @@ class BtRunRequest(BaseModel):
     rebalance_every: int = 1
     drawdown_backstop_pct: float | None = None
     universe_limit: int | None = None    # smoke runs: top-N by dollar volume
+    # Proceeds fraction of the last mark on a delist exit (1.0 = the old
+    # full-recovery assumption). See sim.DEFAULT_DELIST_RECOVERY_PCT.
+    delist_recovery_pct: float = DEFAULT_DELIST_RECOVERY_PCT
 
 
 @app.get("/health")
@@ -131,16 +138,25 @@ def _enforce_coverage(cfg: StrategyConfig, what: str = "config") -> None:
 
     422, not 400: the config is structurally VALID — it is this corpus that
     cannot score it. A 400 would tell bt-scheduler the proposal was malformed."""
-    violations = check_config_coverage(cfg)
-    if not violations:
+    # Both checks always RUN; the env flags govern only whether a violation is
+    # fatal. A disabled gate that is also silent is the exact shape of the bug
+    # this was written for, so the diagnosis is always available in the log.
+    coverage = check_config_coverage(cfg)          # FACTORS the corpus lacks
+    # Parity manifest (app/parity.py): the same rule generalized from factors to
+    # every config field. A knob the tunnel ignores is refused when it is set to
+    # a non-default value, rather than scored as though it were absent — which is
+    # what happened to turnover_penalty.
+    parity = check_config_parity(cfg)
+    if not coverage and not parity:
         return
-    detail = f"factor coverage: {what} cannot be scored by this wind tunnel. " \
-             + " ".join(violations)
-    if not enforcement_enabled():
-        # Still say it loudly. A disabled gate that is also silent is the exact
-        # shape of the bug this was written for.
-        print(f"[bt-engine] COVERAGE VIOLATION (enforcement disabled): {detail}",
-              flush=True)
+
+    fatal = ((coverage and coverage_enforcement_enabled())
+             or (parity and parity_enforcement_enabled()))
+    detail = (f"{what} cannot be faithfully scored by this wind tunnel. "
+              + " ".join(list(coverage) + list(parity)))
+    if not fatal:
+        print(f"[bt-engine] COVERAGE/PARITY VIOLATION (enforcement disabled): "
+              f"{detail}", flush=True)
         return
     raise HTTPException(status_code=422, detail=detail)
 
@@ -153,7 +169,7 @@ def _drop_uncoverable_diffs(diffs: list[dict], base: dict) -> tuple[list[dict], 
     factor cannot be allowed to kill the standing sweep. Dropped diffs go back
     through the existing `extra_dropped` channel, which bt-scheduler already
     understands as 'invalid' rather than 'testing' (audit F2)."""
-    if not enforcement_enabled():
+    if not coverage_enforcement_enabled() and not parity_enforcement_enabled():
         return list(diffs), []
     keep, dropped = [], []
     for diff in diffs:
@@ -164,12 +180,15 @@ def _drop_uncoverable_diffs(diffs: list[dict], base: dict) -> tuple[list[dict], 
             keep.append(diff)
             continue
         try:
-            violations = check_config_coverage(StrategyConfig(**merged))
+            merged_cfg = StrategyConfig(**merged)
+            violations = list(check_config_coverage(merged_cfg))
+            if parity_enforcement_enabled():
+                violations += check_config_parity(merged_cfg)
         except Exception:  # noqa: BLE001 — never let the gate itself break a sweep
             keep.append(diff)
             continue
         if violations:
-            print(f"[bt-engine] dropped diff for factor coverage: {diff} — "
+            print(f"[bt-engine] dropped diff for coverage/parity: {diff} — "
                   f"{' '.join(violations)}", flush=True)
             dropped.append(diff)
         else:
@@ -251,6 +270,9 @@ async def _run_bg(run_id: str, req: BtRunRequest, cfg: StrategyConfig) -> None:
         tickers, sector_map = await load_universe(engine, limit=req.universe_limit)
         if not tickers:
             raise RuntimeError("bt_universe is empty — run bt-data /jobs/backfill first")
+        # POINT-IN-TIME eligibility windows (Sharadar firstpricedate/lastpricedate).
+        # Empty dict on a pre-migration corpus ⇒ no constraint, same as before.
+        listing_windows = await load_listing_windows(engine)
         def _loaded(rows):
             progress["rows"] = rows
 
@@ -271,7 +293,8 @@ async def _run_bg(run_id: str, req: BtRunRequest, cfg: StrategyConfig) -> None:
             progress["done"], progress["total"] = done, total
 
         result = await asyncio.to_thread(
-            run_simulation, prices, fundamentals, sector_map, cfg, params, _cb)
+            run_simulation, prices, fundamentals, sector_map, cfg, params, _cb,
+            None, listing_windows)
 
         summary = _json_sanitize(result.summary)
         async with engine.begin() as conn:
@@ -396,6 +419,7 @@ class SweepRequest(BaseModel):
     starting_capital: float = 100_000.0
     rebalance_every: int = 5              # sweeps favor tractability; 1 = live-faithful
     universe_limit: int | None = None
+    delist_recovery_pct: float = DEFAULT_DELIST_RECOVERY_PCT
     max_configs: int = 200                # grid cap; overflow → seeded random sample
     sample_seed: int = 0
     # Experiment queue (Phase 6b): extra single-diff configs appended AFTER grid
@@ -492,6 +516,9 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
         tickers, sector_map = await load_universe(engine, limit=req.universe_limit)
         if not tickers:
             raise RuntimeError("bt_universe is empty — run bt-data /jobs/backfill first")
+        # POINT-IN-TIME eligibility windows (Sharadar firstpricedate/lastpricedate).
+        # Empty dict on a pre-migration corpus ⇒ no constraint, same as before.
+        listing_windows = await load_listing_windows(engine)
         # ONE load spans earliest tune−lookback → validate_end (incl. any
         # holdout); safe for every window because the sim is truncation-proven
         # to never read past its own end date.
@@ -505,7 +532,8 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
         base_dict = base_cfg.model_dump(mode="json")
         sim_kwargs = dict(tx_cost_bps=req.tx_cost_bps, fill_timing=req.fill_timing,
                           starting_capital=req.starting_capital,
-                          rebalance_every=req.rebalance_every)
+                          rebalance_every=req.rebalance_every,
+                          delist_recovery_pct=req.delist_recovery_pct)
         # Cross-config factor memo (audit perf #12): one dataset serves every
         # config, so per-date factor frames are cached by factor-config identity —
         # the 54-config grid computes factors ~2× per date instead of 54×.
@@ -513,8 +541,17 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
         factor_cache = None
         if os.getenv("BT_FACTOR_CACHE", "true").lower() not in ("0", "false", "no"):
             from app.factor_cache import FactorCache, data_fingerprint
-            factor_cache = FactorCache(
-                data_fingerprint(prices, fundamentals, len(tickers)))
+            # The corpus version is REQUIRED. Without it the fingerprint would
+            # fall back to data SHAPE, which does not change when data is
+            # corrected in place — the failure this replaces. No version ⇒ no
+            # cache, because a wrong cache is worse than a slow sweep.
+            fp = data_fingerprint(prices, fundamentals, len(tickers),
+                                  await load_data_version(engine))
+            if fp is None:
+                print("[bt-engine] factor cache DISABLED — no bt_data_version to "
+                      "key it on (run bt-data once to stamp one)", flush=True)
+            else:
+                factor_cache = FactorCache(fp)
         for idx, diff in enumerate(diffs):
             cfg_rows = []
             for widx, windows in enumerate(windows_list):
@@ -551,7 +588,8 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
                 try:
                     row = await asyncio.to_thread(
                         run_config_both_windows, prices, fundamentals, sector_map,
-                        base_dict, diff, windows, sim_kwargs, factor_cache, _cb)
+                        base_dict, diff, windows, sim_kwargs, factor_cache, _cb,
+                        listing_windows)
                 finally:
                     poller.cancel()
                 row = _json_sanitize(row)
@@ -601,7 +639,8 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
 
         if rolling:
             await _finalize_rolling(sweep_id, base_dict, sim_kwargs, prices,
-                                    fundamentals, sector_map, holdout)
+                                    fundamentals, sector_map, holdout,
+                                    listing_windows)
         async with engine.begin() as conn:
             await conn.execute(text(
                 "UPDATE bt_sweeps SET status='success', completed_at=NOW() "
@@ -623,7 +662,8 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
 
 async def _finalize_rolling(sweep_id: str, base_dict: dict, sim_kwargs: dict,
                             prices, fundamentals, sector_map,
-                            holdout: tuple[date, date] | None) -> None:
+                            holdout: tuple[date, date] | None,
+                            listing_windows: dict | None = None) -> None:
     """Mark the aggregate champion (max median_oos_RETURN — owner objective is
     long-run wealth; ties broken by worst_oos_return then median_oos_sharpe then
     config_idx, deterministic) and, if a holdout span was reserved, replay ONLY
@@ -657,7 +697,8 @@ async def _finalize_rolling(sweep_id: str, base_dict: dict, sim_kwargs: dict,
             params = SimParams(start=holdout[0], end=holdout[1], **sim_kwargs)
             summary = (await asyncio.to_thread(
                 run_simulation, prices, fundamentals, sector_map,
-                StrategyConfig(**cfg_dict), params)).summary
+                StrategyConfig(**cfg_dict), params, None, None,
+                listing_windows)).summary
         except Exception as exc:  # noqa: BLE001 — holdout failure must not fail the sweep
             summary = {"error": f"holdout sim failed: {str(exc)[:400]}"}
     summary = _json_sanitize({"start": str(holdout[0]), "end": str(holdout[1]),
