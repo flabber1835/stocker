@@ -2135,6 +2135,25 @@ artifacts/config/history/ — revert = copy it back over the active file (next
 run reloads) and git-commit; the config_changes row + evidence say exactly
 what was applied and why.
 
+Review findings applied (2026-07, post-6d code review):
+- YARDSTICK INTEGRITY. Two defects made auto-promotion unsound and are fixed:
+  (a) WINDOW DRIFT — the baseline ran once on [T−3y, T] while candidates ran
+      days later on [T+Δ−3y, T+Δ]; the shift alone hands a candidate free CAGR
+      and could promote noise. Candidates now run on the baseline's PINNED
+      window, and the gate refuses a window mismatch outright.
+  (b) STALE YARDSTICK — the baseline was re-run only if missing, so after a
+      promotion every later candidate was still gated against an ANCESTOR
+      config. Each promotion drifted the yardstick further from what is really
+      live, and could promote a config WORSE than the running one. The lane now
+      invalidates the baseline whenever a promotion has been APPLIED live
+      (logic.baseline_is_valid, keyed on the api's promotion_state.json) and
+      re-runs it before gating anything else.
+- SHADOW COHERENCE. The shadow re-ranks the CHAMPION's persisted factor scores,
+  so a challenger whose factor_engine differs needs different inputs entirely;
+  it is now SKIPPED with a loud log instead of publishing an incoherent
+  comparison (such candidates belong in the wind tunnel, which recomputes
+  factors).
+
 LIVE-MONEY PRECONDITIONS (must be revisited before ALPACA_BASE_URL points at
 real money): raise PROMOTE_MARGIN, add the full-history floor + minimum-trades
 + regime-diversity gates, require a shadow live-forward edge over N weeks, and

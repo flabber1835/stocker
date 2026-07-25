@@ -3618,6 +3618,21 @@ async def _run_shadow_build(ranking_run_id: str | None = None) -> None:
         return
     try:
         challenger, ch_hash = load_strategy(path)
+        # COHERENCE GUARD (review finding): the shadow re-ranks the CHAMPION's
+        # persisted factor scores. That is only meaningful when the challenger
+        # differs in factor WEIGHTS / builder knobs — if it changes the
+        # factor_engine itself (e.g. momentum_method), those persisted scores
+        # are the wrong inputs and the shadow would silently measure something
+        # incoherent. Refuse rather than publish a misleading comparison; such a
+        # candidate belongs in the wind tunnel, which recomputes factors.
+        if strategy is not None and (
+                challenger.factor_engine.model_dump()
+                != strategy.factor_engine.model_dump()):
+            print("[pipeline] shadow SKIPPED: challenger factor_engine differs "
+                  "from the active config — persisted factor scores cannot "
+                  "score it; use the wind-tunnel experiment lane instead",
+                  flush=True)
+            return
         async with engine.connect() as conn:
             if ranking_run_id:
                 rr = (await conn.execute(text(

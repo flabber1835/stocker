@@ -2,6 +2,7 @@
 construction reusing the shared canonical select, and the inert-by-default
 guard (no CHALLENGER_CONFIG_PATH → the hook is a no-op, no DB touched)."""
 import asyncio
+import os
 from datetime import date, timedelta
 
 import numpy as np
@@ -107,3 +108,32 @@ def test_shadow_hook_inert_without_config_path(monkeypatch):
     asyncio.run(main._run_shadow_build())        # must return silently
     # lineage param (audit-3 fix #3) accepted and equally inert without config
     asyncio.run(main._run_shadow_build("11111111-1111-1111-1111-111111111111"))
+
+
+def test_shadow_refuses_challenger_with_different_factor_engine(monkeypatch, tmp_path):
+    """Review finding: the shadow re-ranks the CHAMPION's persisted factor
+    scores. A challenger that changes the factor_engine needs DIFFERENT factor
+    inputs, so scoring it on the champion's scores is incoherent — it must be
+    skipped (that candidate belongs in the wind tunnel), not silently published."""
+    import yaml
+    from app import main
+    from stock_strategy_shared.loader import load_strategy
+
+    active_path = os.path.join(os.path.dirname(__file__), "..", "..",
+                               "strategies", "momentum_rotation_v2.yaml")
+    active, _ = load_strategy(active_path)
+
+    raw = yaml.safe_load(open(active_path))
+    raw.setdefault("factor_engine", {})
+    fe = raw["factor_engine"]
+    fe["momentum_method"] = ("residual" if fe.get("momentum_method") != "residual"
+                            else "residual_riskadj")
+    challenger_path = tmp_path / "challenger.yaml"
+    challenger_path.write_text(yaml.safe_dump(raw))
+
+    g = main._run_shadow_build.__globals__
+    monkeypatch.setitem(g, "CHALLENGER_CONFIG_PATH", str(challenger_path))
+    monkeypatch.setitem(g, "strategy", active)
+    monkeypatch.setitem(g, "engine", None)   # any DB touch would blow up
+
+    asyncio.run(main._run_shadow_build())    # must return before touching the DB

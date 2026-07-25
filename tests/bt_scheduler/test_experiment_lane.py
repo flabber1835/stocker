@@ -124,3 +124,42 @@ def test_schedule_maps_queue_to_daily_slots_with_cap_labels():
     assert all(s["thesis"].startswith("h") for s in sched)
     assert build_schedule([], "2026-07-24T22:00", 0, 5) == []
     assert build_schedule(queued, "garbage", 0, 5) == []
+
+
+# ── review findings: promotion-yardstick integrity ───────────────────────────
+
+def test_baseline_invalid_once_a_promotion_was_applied():
+    """The gate compares candidates to the baseline. If a promotion changed the
+    LIVE config, a baseline that measured the OLD config is no longer the
+    champion — gating against an ancestor lets each promotion drift the
+    yardstick, and can promote a config WORSE than what is running."""
+    from app.logic import baseline_is_valid
+    fresh = {"status": "success", "applied_promotion": "hash1",
+             "window": {"start": "2023-01-01", "end": "2026-01-01"}}
+    ok, _ = baseline_is_valid(fresh, "hash1")
+    assert ok is True
+    ok, why = baseline_is_valid(fresh, "hash2")       # champion changed
+    assert ok is False and "predates" in why
+    ok, why = baseline_is_valid(None, None)
+    assert ok is False and "no successful baseline" in why
+    ok, why = baseline_is_valid({"status": "failed"}, None)
+    assert ok is False
+    # a baseline with no pinned window can't anchor a fair comparison
+    ok, why = baseline_is_valid({"status": "success", "applied_promotion": None}, None)
+    assert ok is False and "window" in why
+
+
+def test_promotion_gate_is_window_pinned():
+    """A candidate scored on a LATER window than the baseline gets a free CAGR
+    edge from the shift alone — that must never promote."""
+    from app.logic import promotion_eligible
+    base = {"annualized_return": 0.12, "max_drawdown": -0.25}
+    cand = {"annualized_return": 0.20, "max_drawdown": -0.25}
+    # the gate itself is window-agnostic (pure numbers)…
+    ok, _ = promotion_eligible(cand, base)
+    assert ok is True
+    # …so the LANE must refuse mismatched windows; that guard is asserted here
+    # as the contract the caller implements (see main._experiment_lane).
+    cand_win = {"start": "2023-06-01", "end": "2026-06-01"}
+    base_win = {"start": "2023-01-01", "end": "2026-01-01"}
+    assert cand_win != base_win

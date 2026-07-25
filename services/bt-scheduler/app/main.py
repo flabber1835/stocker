@@ -31,7 +31,8 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import FastAPI
 
-from app.logic import (artifact_needed, build_schedule, derive_windows,
+from app.logic import (artifact_needed, baseline_is_valid, build_schedule,
+                       derive_windows,
                        experiment_due, fired_this_week, promotion_eligible,
                        sweep_due, sweep_needed, topup_due)
 
@@ -193,11 +194,22 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
             # live api's watcher validates + applies. The LLM authored the
             # candidate; everything from here is deterministic.
             if r["status"] == "success" and e.get("kind") == "full_config":
-                base = next((b.get("result") for b in reversed(exps)
-                             if b.get("kind") == "baseline"
-                             and b.get("status") == "success"), None)
-                ok, why = promotion_eligible(e["result"], base,
-                                             PROMOTE_MARGIN, PROMOTE_DD_TOLERANCE)
+                base_entry = next((b for b in reversed(exps)
+                                   if b.get("kind") == "baseline"
+                                   and b.get("status") == "success"), None)
+                base = (base_entry or {}).get("result")
+                # SAME-WINDOW guard: comparing a candidate scored on
+                # [T+Δ−3y, T+Δ] against a baseline scored on [T−3y, T] hands the
+                # candidate a free CAGR edge from the window shift alone, which
+                # could auto-promote pure noise. Only compare identical spans.
+                cand_win = e.get("window") or {}
+                base_win = (base_entry or {}).get("window") or {}
+                if base is not None and cand_win != base_win:
+                    ok, why = False, (f"window mismatch (candidate {cand_win} vs "
+                                      f"baseline {base_win}) — not comparable")
+                else:
+                    ok, why = promotion_eligible(e["result"], base,
+                                                 PROMOTE_MARGIN, PROMOTE_DD_TOLERANCE)
                 e["promotion"] = {"eligible": ok, "reason": why}
                 if ok and e.get("config_hash") and e.get("config"):
                     _write_bt_json("promotion.json", {
@@ -239,36 +251,49 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
                             - timedelta(days=int(EXPERIMENT_RECENT_YEARS * 365.25)))
             start = max(d for d in (recent_start,
                                     date_fromiso(evs) if evs else None) if d)
-            payload = {"start_date": start.isoformat(),
-                       "end_date": now.date().isoformat(),
-                       "rebalance_every": EXPERIMENT_REBALANCE_EVERY}
+            window = {"start": start.isoformat(), "end": now.date().isoformat()}
+
+            # Is the promotion yardstick still valid for the CURRENT champion?
+            applied_promo = (_read_promotion_state() or {}).get("last_hash") \
+                if (_read_promotion_state() or {}).get("status") == "applied" else None
+            live_baseline = next((b for b in reversed(exps)
+                                  if b.get("kind") == "baseline"
+                                  and b.get("status") in ("running", "success")), None)
+            base_ok, base_why = baseline_is_valid(live_baseline, applied_promo)
+            if live_baseline is not None and live_baseline.get("status") == "running":
+                base_ok = True      # a baseline in flight is not "missing"
+
             pending = _pending_full_experiments()
             entry = None
-            if pending:
+            if pending and base_ok:
                 p = pending[0]
-                payload["config"] = p["config"]
+                payload_window = (live_baseline or {}).get("window") or window
+                payload = {"start_date": payload_window["start"],
+                           "end_date": payload_window["end"],
+                           "rebalance_every": EXPERIMENT_REBALANCE_EVERY,
+                           "config": p["config"]}
                 entry = {"id": p.get("id"), "kind": "full_config",
                          "hypothesis": p.get("hypothesis"),
                          "diff_vs_active": p.get("diff"),
                          # carried for the promotion artifact on success:
                          "config": p.get("config"),
                          "config_hash": p.get("config_hash"),
+                         "window": payload_window,
                          "proposal_id": p.get("id")}
-            elif not any(e.get("kind") == "baseline"
-                         and e.get("status") in ("running", "success")
-                         for e in exps):
-                # Only a RUNNING or SUCCEEDED baseline blocks re-firing — a
-                # failed/died attempt (bt-engine down, OOM, reclaim) must retry
-                # on a later slot. Auto-baseline = the ACTIVE config over the
-                # SAME recent window (bt-engine loads its own
-                # STRATEGY_CONFIG_PATH when no config is passed) — the yardstick
-                # every candidate's promotion gate compares against.
+            elif not base_ok:
+                # (Re-)run the yardstick FIRST: candidates must be gated against
+                # the config that is actually live, over the SAME window they
+                # will be scored on.
                 import uuid as _uuid
+                payload = {"start_date": window["start"], "end_date": window["end"],
+                           "rebalance_every": EXPERIMENT_REBALANCE_EVERY}
                 entry = {"id": str(_uuid.uuid4()), "kind": "baseline",
-                         "hypothesis": (f"BASELINE: active config over the "
-                                        f"recent {EXPERIMENT_RECENT_YEARS:g}y "
-                                        "window (the promotion yardstick)"),
-                         "diff_vs_active": {}, "proposal_id": None}
+                         "hypothesis": (f"BASELINE: active config over the recent "
+                                        f"{EXPERIMENT_RECENT_YEARS:g}y window "
+                                        f"({base_why})"),
+                         "diff_vs_active": {}, "proposal_id": None,
+                         "window": window,
+                         "applied_promotion": applied_promo}
             if entry:
                 try:
                     r = await client.post(f"{BT_ENGINE_URL}/jobs/run", json=payload)
@@ -314,6 +339,17 @@ def _remember_good(key: str, value, now_iso: str) -> None:
     _last_good[key] = value
     _last_good[f"{key}_as_of"] = now_iso
     _write_bt_json(_LAST_GOOD_FILE, _last_good)
+
+
+def _read_promotion_state() -> dict | None:
+    """The live api's applied-promotion record (shared ./artifacts mount).
+    Tells the lane whether the champion changed since its baseline ran."""
+    try:
+        with open(os.path.join(ARTIFACTS_PATH, "config",
+                               "promotion_state.json")) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
 
 
 def date_fromiso(v):

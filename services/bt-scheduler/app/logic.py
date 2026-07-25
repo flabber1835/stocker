@@ -165,3 +165,20 @@ def build_schedule(queued: list[dict], next_fire_iso: str,
             "note": None if i < budget else "after weekly cap resets",
         })
     return out
+
+
+def baseline_is_valid(baseline: dict | None, applied_promotion_hash: str | None
+                      ) -> tuple[bool, str]:
+    """The promotion yardstick must measure the CURRENT champion. A baseline is
+    stale once a promotion has actually been APPLIED live since it ran —
+    otherwise every later candidate is gated against an ancestor config, and
+    each promotion drifts the yardstick further from what is really running
+    (a ratchet that can promote a config WORSE than the live one). Pure."""
+    if not baseline or baseline.get("status") != "success":
+        return False, "no successful baseline"
+    if baseline.get("applied_promotion") != applied_promotion_hash:
+        return False, ("baseline predates the live config (promotion "
+                       f"{applied_promotion_hash}) — re-running the yardstick")
+    if not (baseline.get("window") or {}).get("start"):
+        return False, "baseline has no pinned comparison window"
+    return True, "baseline current"
