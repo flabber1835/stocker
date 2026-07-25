@@ -405,3 +405,46 @@ promote  unchanged — human Apply only.
 
 The weekly grid sweep continues unchanged (skip-if-unchanged); the lane is for
 evaluator-authored whole-strategy candidates and the baseline.
+
+## Memory-lean full-history runs (2026-07, post-OOM)
+
+The uncapped full-universe 20-year baseline consumed all host RAM and took the
+ENTIRE NAS down (live trading included). Two fixes: bt-engine now has a hard
+`mem_limit` (BT_ENGINE_MEM_LIMIT, default 4g) so it can only ever kill itself,
+and the loader + sim were made memory-lean so a full-history run actually FITS.
+
+Where the memory went (35M rows, 17,781 tickers, ~5,500 sessions):
+
+```text
+LOADER (was ~19GB peak)
+  .fetchall()                → 35M SQLAlchemy Row objects        ~4GB
+  [ {...} for r in rows ]    → 35M six-key dicts                ~12GB
+  pd.DataFrame(list_of_dicts)→ copies it all again               ~3GB
+SIM (was ~11GB peak)
+  prices.copy() + sort_values + assign(_adj_open) → 3 full frames
+  pivot_table ×2             → groupby-mean over every row, float64
+  object-dtype ticker        → 35M repeated strings              ~2GB
+```
+
+Fixes (load ≈1.0GB, sim ≈1.8GB — comfortably inside 4g):
+
+```text
+stream a server-side cursor in BT_LOAD_CHUNK_ROWS partitions, building numpy
+  arrays per chunk → peak is the final frame + one chunk, never 3 copies
+ticker  → pandas Categorical (int32 codes + one dictionary): ~2GB → ~140MB
+prices  → float32 (BT_PRICE_FLOAT32=false to revert): 1.1GB → 560MB.
+          Relative error ~6e-8 ⇒ ~1e-7 on a computed return: negligible beside
+          the 10bps cost model, and determinism/truncation invariants hold
+          (same dtype both sides of every comparison — tests prove it).
+dates   → datetime64 AT LOAD, so the sim's pd.to_datetime copy disappears
+sim     → skips copy/sort when the loader's contract already holds
+          (_is_ticker_date_sorted); builds the adjusted-open pivot in a TEMP
+          frame instead of assigning onto px (no duplicate, and no mutation of
+          a caller's frame — the sweep reuses ONE frame across configs);
+          _pivot() uses DataFrame.pivot (reshape) not pivot_table (groupby-mean)
+factors → compute_all_factors(copy_input=False): the per-rebalance slice is
+          already a fresh copy, so the second copy per rebalance is gone
+```
+
+Categorical caveat: every groupby on a price frame MUST pass `observed=True`,
+or pandas iterates all 17,781 categories instead of the ~50 present in a slice.

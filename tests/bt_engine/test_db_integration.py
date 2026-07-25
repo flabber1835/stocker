@@ -137,10 +137,17 @@ def test_prices_any_binding_window_and_ticker_scope(db_engine):
     from app.sim import FACTOR_LOOKBACK_DAYS
     px = _run(db_engine, lambda e: load_prices(e, ["AAA", "SPY"], SIM_START, SIM_END))
     assert set(px["ticker"].unique()) == {"AAA", "SPY"}      # ANY(list) binds
-    assert px["date"].max() <= SIM_END                        # no post-end rows
-    assert px["date"].min() >= SIM_START - timedelta(days=FACTOR_LOOKBACK_DAYS)
+    # memory-lean loader contract: datetime64 dates + categorical ticker +
+    # float prices, delivered (ticker, date) sorted so the sim skips its copies
+    assert pd.api.types.is_datetime64_any_dtype(px["date"])
+    assert isinstance(px["ticker"].dtype, pd.CategoricalDtype)
+    assert pd.api.types.is_float_dtype(px["adjusted_close"])
+    from app.sim import _is_ticker_date_sorted
+    assert _is_ticker_date_sorted(px)
+    assert px["date"].max() <= pd.Timestamp(SIM_END)          # no post-end rows
+    assert px["date"].min() >= pd.Timestamp(SIM_START - timedelta(days=FACTOR_LOOKBACK_DAYS))
     # lookback actually reaches back before the sim window (factors need it)
-    assert px["date"].min() < SIM_START
+    assert px["date"].min() < pd.Timestamp(SIM_START)
     assert px["adjusted_close"].notna().all()
 
 

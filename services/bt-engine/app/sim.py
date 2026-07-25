@@ -85,6 +85,30 @@ class SimResult:
     caveats: list = field(default_factory=list)
 
 
+def _is_ticker_date_sorted(px: pd.DataFrame) -> bool:
+    """Cheap check that a price frame is already (ticker, date) ordered — the
+    loader guarantees it, so the sim can skip a full-frame sort_values copy.
+    Fails fast on the ticker column before touching the per-ticker dates."""
+    if not px["ticker"].is_monotonic_increasing:
+        return False
+    d = px["date"]
+    if d.is_monotonic_increasing:      # single ticker, or globally ordered
+        return True
+    # dates must be non-decreasing WITHIN each ticker block
+    same_ticker = px["ticker"].to_numpy()[1:] == px["ticker"].to_numpy()[:-1]
+    return bool(((d.to_numpy()[1:] >= d.to_numpy()[:-1]) | ~same_ticker).all())
+
+
+def _pivot(df: pd.DataFrame, value_col: str) -> pd.DataFrame:
+    """date × ticker matrix. pivot() is a reshape; pivot_table() would run a
+    groupby-mean over every row. (ticker, date) is the bt_prices PK so there is
+    nothing to aggregate — but fall back if a caller's frame has duplicates."""
+    try:
+        return df.pivot(index="date", columns="ticker", values=value_col)
+    except ValueError:
+        return df.pivot_table(index="date", columns="ticker", values=value_col)
+
+
 def _fk_params(config: StrategyConfig, override_backstop: float | None) -> dict:
     fk = getattr(config.vetter, "falling_knife", None)
     out = dict(_FK_DEFAULTS)
@@ -145,9 +169,12 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
     if factor_cache is not None and factor_key is not None:
         fdf = factor_cache.get(as_of, factor_key)
     if fdf is None:
+        # copy_input=False: run_simulation already hands us a FRESH per-rebalance
+        # slice (.copy() at the call site), so letting the factor step copy it
+        # again doubled the transient allocation on every one of ~1000 rebalances.
         fdf = live.compute_all_factors(
             day_prices, fundamentals_asof, cfg=config.factor_engine,
-            copy_input=True, sector_map=sector_map,
+            copy_input=False, sector_map=sector_map,
             as_of_date=as_of,
         )
         if factor_cache is not None and factor_key is not None:
@@ -167,10 +194,10 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
     candidates = [t for t in candidates if t.upper() not in dnb]
 
     sub = day_prices[day_prices["ticker"].isin(candidates)].sort_values("date")
-    latest_px = sub.groupby("ticker")["adjusted_close"].last().to_dict()
+    latest_px = sub.groupby("ticker", observed=True)["adjusted_close"].last().to_dict()
     avg_dv: dict[str, float] = {}
     if "close" in sub.columns and "volume" in sub.columns:
-        for t, g in sub.groupby("ticker"):
+        for t, g in sub.groupby("ticker", observed=True):
             dv = avg_dollar_volume(g["close"].tolist(), g["volume"].tolist(),
                                    window=DOLLAR_VOLUME_WINDOW)
             if dv is not None:
@@ -185,7 +212,7 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
     # Falling-knife veto at selection (plan decision #1): computed from prices ≤ D.
     closes_by_ticker = {t: g["adjusted_close"].astype(float).tolist()
                         for t, g in sub[sub["ticker"].isin(candidates)]
-                        .sort_values("date").groupby("ticker")}
+                        .sort_values("date").groupby("ticker", observed=True)}
     vetoed = falling_knife_excluded(closes_by_ticker, spy_closes, fk)
 
     cov, _dropped, raw_corr = live.build_covariance(
@@ -282,10 +309,21 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
         "volume_surge inputs absent → those factors are null and renormalized out",
         "sector labels are the latest bt_universe snapshot (static, not per-date)",
     ]
-    px = prices.copy()
-    px["date"] = pd.to_datetime(px["date"])
-    px = px.sort_values(["ticker", "date"])
-    px["adjusted_close"] = px["adjusted_close"].astype(float)
+    # Memory-lean input handling (full-history runs): data.load_prices already
+    # delivers datetime64 dates, float price dtypes and (ticker, date) ordering,
+    # so each of these full-frame copies is SKIPPED on the production path and
+    # only taken when a caller (tests, synthetic data) hands us a raw frame.
+    # Three avoided copies of a ~1GB frame is the difference between fitting the
+    # 4g cap and OOM-killing the host.
+    px = prices
+    if not pd.api.types.is_datetime64_any_dtype(px["date"]):
+        px = px.copy()
+        px["date"] = pd.to_datetime(px["date"])
+    if not _is_ticker_date_sorted(px):
+        px = px.sort_values(["ticker", "date"], kind="stable")
+    if not pd.api.types.is_float_dtype(px["adjusted_close"]):
+        px = px.copy() if px is prices else px
+        px["adjusted_close"] = pd.to_numeric(px["adjusted_close"], errors="coerce")
 
     fnd = fundamentals.copy()
     if not fnd.empty:
@@ -324,11 +362,20 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
     spy_start = float(spy[spy["date"] == all_days[0]]["close"].iloc[0])
 
     # Per-day price lookup (adjusted) and adjusted-open factor.
-    day_close = px.pivot_table(index="date", columns="ticker", values="adjusted_close")
+    # _pivot uses DataFrame.pivot (a reshape) rather than pivot_table (which
+    # runs a needless groupby-mean over 35M rows); (ticker, date) is the source
+    # PK so duplicates can't occur, and it falls back if a caller's frame has
+    # any. The adjusted-open column is built in a TEMPORARY frame instead of
+    # being assigned onto px — assigning would both duplicate the whole frame
+    # and mutate a caller's input (the sweep reuses one frame across configs).
+    day_close = _pivot(px, "adjusted_close")
     if "open" in px.columns and px["open"].notna().any():
-        adj_factor = (px["adjusted_close"] / px["close"].replace(0, np.nan)).astype(float)
-        px = px.assign(_adj_open=px["open"].astype(float) * adj_factor)
-        day_open = px.pivot_table(index="date", columns="ticker", values="_adj_open")
+        adj_factor = px["adjusted_close"] / px["close"].replace(0, np.nan)
+        tmp = pd.DataFrame({"date": px["date"], "ticker": px["ticker"],
+                            "_adj_open": px["open"] * adj_factor})
+        del adj_factor
+        day_open = _pivot(tmp, "_adj_open")
+        del tmp
     else:
         day_open = day_close   # no opens (synthetic data) → degrade to close fills
         caveats.append("no open prices — next_open fills degraded to close prices")
