@@ -87,6 +87,28 @@ def test_evaluator_queue_is_readable_by_the_lane(artifacts):
     assert p["config"]["strategy_id"]
 
 
+def test_a_queued_candidate_actually_gets_a_slot(artifacts):
+    """The queue being READABLE is not enough — the lane only reaches for a
+    candidate once its baseline yardstick is valid. baseline_is_valid checked a
+    key the lane never writes, so it always said 'no pinned comparison window':
+    every daily slot re-ran the BASELINE and no candidate was ever tested. The
+    loop looked healthy (experiments firing nightly) while doing nothing.
+    This asserts both halves compose — a valid baseline AND a visible candidate."""
+    from datetime import date
+    _queue_candidate(artifacts)
+    sched = _load("app.main", "bt-scheduler")
+    sched.ARTIFACTS_PATH = str(artifacts)
+    from app.logic import baseline_is_valid, experiment_windows
+
+    windows = experiment_windows(date(2026, 7, 25), 3, 12, date(2004, 1, 1))
+    baseline = {"kind": "baseline", "status": "success", "windows": windows,
+                "applied_promotion": None}
+    base_ok, why = baseline_is_valid(baseline, None)
+    assert base_ok, f"the lane would re-run the baseline forever: {why}"
+    # …so the fire step falls through to the evaluator's pending candidate
+    assert sched._pending_full_experiments(), "no candidate available for the slot"
+
+
 def test_lane_lifecycle_marks_the_evaluators_entry(artifacts):
     """pending → testing → tested must land on the SAME row the evaluator wrote."""
     _queue_candidate(artifacts)

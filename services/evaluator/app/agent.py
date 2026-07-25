@@ -71,13 +71,15 @@ TOOLS. You can now INVESTIGATE before concluding. Available tools:
   abandoned, outcome citing the evidence). When a thesis needs future data — "watch
   momentum IC two more weeks", "re-test beta_target once 4w of live equity exists" —
   CREATE an entry instead of re-deriving it next week. Its own table, nothing else.
-- queue_experiment: queue a single-knob diff for the ISOLATED wind-tunnel sweep
-  (decades of data, walk-forward OOS) WITHOUT recommending it — for theses you want
-  tested but are not ready to put in front of the owner: refuting your own hunches,
-  knob-sensitivity probes. Runs in the NEXT weekly sweep; results arrive in a future
-  packet's backtest_lab.experiment_queue (1-2 weeks). Changes you DO recommend are
-  queued automatically — never queue those twice. Pair important ones with a ledger
-  entry so the thesis survives until results arrive.
+- queue_strategy_experiment: THE ONLY WAY A CONFIG CHANGE CAN EVER REACH THE LIVE
+  STRATEGY. Nothing is harvested from recommendations[] and no human clicks anything:
+  if you want a knob changed you must author the COMPLETE candidate config here (to
+  change one field, send the whole YAML with that field changed). The wind tunnel
+  scores it against the current champion on a TUNE window and a HELD-OUT VALIDATE
+  window; a candidate that wins BOTH is applied automatically by deterministic code.
+  Results — including the promotion gate's verdict and reason — arrive in the
+  experiment_lane packet section, typically within days. Pair important ones with a
+  ledger entry so the thesis survives until results arrive.
 - web_search: external context (macro, factor literature). Sparing use; packet/SQL
   evidence outranks it.
 

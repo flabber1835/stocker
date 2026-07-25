@@ -167,7 +167,8 @@ def build_schedule(queued: list[dict], next_fire_iso: str,
     return out
 
 
-def baseline_is_valid(baseline: dict | None, applied_promotion_hash: str | None
+def baseline_is_valid(baseline: dict | None, applied_promotion_hash: str | None,
+                      today: date | None = None, max_age_days: int = 30
                       ) -> tuple[bool, str]:
     """The promotion yardstick must measure the CURRENT champion. A baseline is
     stale once a promotion has actually been APPLIED live since it ran —
@@ -179,8 +180,31 @@ def baseline_is_valid(baseline: dict | None, applied_promotion_hash: str | None
     if baseline.get("applied_promotion") != applied_promotion_hash:
         return False, ("baseline predates the live config (promotion "
                        f"{applied_promotion_hash}) — re-running the yardstick")
-    if not (baseline.get("window") or {}).get("start"):
+    # The pinned window is `windows` (tune_start/tune_end/validate_start/
+    # validate_end) — EXACTLY the dict _experiment_lane stores on the entry and
+    # compares for window-equality before gating. This used to read a
+    # non-existent baseline["window"]["start"], so EVERY real baseline was
+    # judged unpinned: the lane re-fired the yardstick on every daily slot and
+    # no evaluator candidate was ever tested — the whole auto-promotion loop
+    # was inert in production while the unit test passed against a made-up
+    # shape. Keep this key list identical to what the lane writes.
+    windows = baseline.get("windows") or {}
+    if not all(windows.get(k) for k in
+               ("tune_start", "tune_end", "validate_start", "validate_end")):
         return False, "baseline has no pinned comparison window"
+    # Candidates are scored on the BASELINE's windows (experiment_windows is
+    # derived from `today`, so recomputing them per fire made every candidate
+    # land on a different window than the yardstick — the gate's own
+    # window-equality precondition then refused every promotion). Pinning means
+    # the window ages, so retire the yardstick once it does and re-measure.
+    if today is not None:
+        try:
+            ve = date.fromisoformat(str(windows["validate_end"]))
+        except (TypeError, ValueError):
+            return False, "baseline validate_end unparseable"
+        if (today - ve).days > max_age_days:
+            return False, (f"baseline window ends {ve} ({(today - ve).days}d ago) "
+                           f"— past {max_age_days}d, re-running the yardstick")
     return True, "baseline current"
 
 

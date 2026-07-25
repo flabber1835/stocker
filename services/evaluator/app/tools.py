@@ -815,6 +815,11 @@ async def queue_strategy_experiment(args: dict, *, budget: BacktestBudget) -> st
                 "status": "pending", "origin": "exploratory",
                 "hypothesis": hypothesis, "config": validated,
                 "config_hash": cfg_hash, "diff": diff,
+                # The config this candidate (and its diff) was authored against.
+                # Auto-promotion can change the live config while this sits
+                # pending, which would make promoting it a silent REVERT of the
+                # newer champion — the packet flags that as stale_vs_active_config.
+                "queued_against_config_hash": _hash,
                 "queued_at": datetime.now(timezone.utc).isoformat(),
             })
             _props.write_proposals_file(content)

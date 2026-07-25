@@ -1711,11 +1711,20 @@ Phase 1 (BUILT)   — read-only weekly report in the dashboard's Review tab
 Phase 2 (BUILT)   — the LLM calls read-only TOOLS mid-review (backtester, SQL,
                     source/docs read, web search) to test a thesis before
                     recommending it — see "Phase 2: evaluator tools" below
-Phase 3 (BUILT)   — one-click HUMAN-APPROVED apply of a recommendation to the
-                    strategy YAML — see "Phase 3: one-click apply" below
+Phase 3 (REMOVED) — one-click HUMAN-APPROVED apply of a recommendation. Deleted
+                    in 2026-07; the ONLY path to the live config is now the
+                    wind-tunnel gate — see "ONE path to the live config" below.
+                    The section is kept for history, not as current behavior.
 ```
 
-## Design Decision: evaluator Phase 3 — one-click apply (BUILT)
+## Design Decision: evaluator Phase 3 — one-click apply (REMOVED 2026-07)
+
+> **HISTORICAL.** `POST /config/apply`, the Review-tab Apply buttons and the
+> single-field `queue_experiment` tool no longer exist. A config change reaches
+> the live strategy only by winning the deterministic promotion gate — see
+> "ONE path to the live config". Kept because the transactional ordering and
+> archive/audit mechanics below were inherited verbatim by the promotion
+> watcher.
 
 The Review tab's actionable recommendation cards carry an **Apply** button. The
 click is the human approval — the LLM boundary is unchanged (the evaluator
@@ -2183,6 +2192,45 @@ To change one field the evaluator sends the whole YAML with that field changed
 — so the artifact that was tested IS the artifact that goes live, byte for
 byte. `recommendations[]` stay advisory (reasoning, structural findings, things
 no config can express) and no longer auto-queue anything.
+
+**Loop integrity — the two links that make this path real.** With one path,
+either link failing silently disables strategy evolution entirely while the
+system still *looks* busy. Both are now regression-tested:
+
+1. *The lane must reach the candidate.* It only tests a candidate once its
+   BASELINE yardstick is valid (`baseline_is_valid`), and validity includes a
+   pinned comparison window. That check read `baseline["window"]["start"]`
+   while the lane writes `baseline["windows"] = {tune_start, tune_end,
+   validate_start, validate_end}` — so every real baseline read "unpinned", the
+   lane re-fired the YARDSTICK on every daily slot, and no evaluator candidate
+   was ever run. The unit test passed because it asserted against the invented
+   shape. Tests now build the entry the way the lane does
+   (`test_a_real_lane_baseline_entry_is_accepted`, and the composed seam test
+   `test_a_queued_candidate_actually_gets_a_slot`).
+2. *The candidate must be COMPARABLE to the yardstick.* The gate refuses to
+   compare across windows ("window mismatch vs baseline — not comparable"), but
+   `experiment_windows` is derived from `today` and the lane recomputed it on
+   every fire. Only one experiment runs per day, so a candidate fired the day
+   after its baseline always landed on a different window — auto-promotion was
+   structurally unreachable. Candidates now INHERIT the baseline's exact
+   windows; because that pins the comparison in time, `baseline_is_valid`
+   retires the yardstick once its `validate_end` is older than
+   `BT_BASELINE_MAX_AGE_DAYS` (default 30) and the lane re-measures it.
+3. *The next review must see the outcome.* The gate's verdict
+   (`promotion.eligible` / `.reason`), the tune/validate `windows`, and the
+   `config_hash` are surfaced in the `experiment_lane` packet section, and
+   `experiment_queue` is a TOP-LEVEL packet section (it used to live only
+   inside `backtest_lab`, whose own note tells the model that section is
+   retired). Without these the evaluator re-proposes theses whose results it
+   cannot read.
+
+**Candidate staleness.** A candidate is a whole config frozen at queue time. If
+a promotion lands while it is pending, promoting it later would silently REVERT
+the newer champion, and its stored diff was computed against a config that is
+no longer active. Queue entries therefore record
+`queued_against_config_hash`, and the packet flags pending entries whose stamp
+no longer matches the live config as `stale_vs_active_config` so the evaluator
+re-authors instead of waiting on them.
 
 Escape hatches (unchanged, deliberately manual): override = edit the YAML and
 deploy; revert = copy an `artifacts/config/history/` archive back over the

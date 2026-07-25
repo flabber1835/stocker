@@ -63,6 +63,11 @@ PROMOTE_DD_TOLERANCE = float(os.getenv("BT_PROMOTE_DD_TOLERANCE", "0.05"))
 # keep its edge here, not just on the data it was selected against.
 EXPERIMENT_VALIDATE_MONTHS = int(os.getenv("BT_EXPERIMENT_VALIDATE_MONTHS", "12"))
 PROMOTE_VALIDATE_TOL = float(os.getenv("BT_PROMOTE_VALIDATE_TOL", "0.0"))
+# Candidates are scored on the BASELINE's exact windows (the gate refuses to
+# compare across windows). That pins the comparison but lets it age, so the
+# yardstick is re-measured once its validate window ends more than this many
+# days ago — trading a rerun slot for a current comparison.
+BASELINE_MAX_AGE_DAYS = int(os.getenv("BT_BASELINE_MAX_AGE_DAYS", "30"))
 # Legacy Phase-5 weekly GRID: retired by default — the experiment lane is now
 # the single driver and carries evaluator proposals itself. true re-enables.
 STANDING_SWEEP_ENABLED = os.getenv("BT_STANDING_SWEEP_ENABLED", "false").lower() in ("1", "true", "yes")
@@ -257,14 +262,26 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
         live_baseline = next((b for b in reversed(exps)
                               if b.get("kind") == "baseline"
                               and b.get("status") in ("running", "success")), None)
-        base_ok, base_why = baseline_is_valid(live_baseline, applied_promo)
+        base_ok, base_why = baseline_is_valid(live_baseline, applied_promo,
+                                              today=now.date(),
+                                              max_age_days=BASELINE_MAX_AGE_DAYS)
         if live_baseline is not None and live_baseline.get("status") == "running":
             base_ok = True
 
-        payload = {"grid": {}, "max_configs": 1,
-                   "rebalance_every": EXPERIMENT_REBALANCE_EVERY, **windows}
         entry = None
         import uuid as _uuid
+        if base_ok and live_baseline and live_baseline.get("windows"):
+            # PIN the candidate to the yardstick's windows. experiment_windows
+            # is derived from `today`, so a candidate fired the day after the
+            # baseline got a DIFFERENT window — and the gate's own
+            # window-equality precondition ("window mismatch vs baseline — not
+            # comparable") then refused every promotion. One experiment fires
+            # per day, so the windows never matched and auto-promotion was
+            # structurally unreachable. baseline_is_valid retires the yardstick
+            # once its window ages past BASELINE_MAX_AGE_DAYS.
+            windows = live_baseline["windows"]
+        payload = {"grid": {}, "max_configs": 1,
+                   "rebalance_every": EXPERIMENT_REBALANCE_EVERY, **windows}
         if not base_ok:
             # (Re-)run the yardstick FIRST: candidates must be gated against the
             # config that is actually live, over the SAME windows.

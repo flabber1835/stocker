@@ -12,19 +12,16 @@ the live strategy only by winning the deterministic promotion gate.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
-from typing import Any
 
-# SHARED parser (also used by the api service's one-click apply) — "what value
-# does this recommendation mean" cannot diverge between testing and applying.
-from stock_strategy_shared.config_values import parse_suggested_value  # noqa: F401
-
-from app.tools import apply_config_changes
-
-PENDING_CAP = int(os.getenv("EVALUATOR_PROPOSALS_PENDING_CAP", "8"))
+# How many finished (tested/failed/invalid) entries to keep. Every entry embeds
+# a COMPLETE StrategyConfig (kilobytes), and both stacks read+rewrite the whole
+# file under a lock on every queue write and every lifecycle mark — so without
+# trimming the file grows forever and every write gets slower. Pending/testing
+# entries are NEVER trimmed (they are live work).
 RETAIN = int(os.getenv("EVALUATOR_PROPOSALS_RETAIN", "40"))
+_LIVE_STATUSES = ("pending", "testing")
 
 
 
@@ -48,8 +45,19 @@ def read_proposals_file() -> dict | None:
         return None
 
 
+def trim_proposals(entries: list[dict], retain: int = RETAIN) -> list[dict]:
+    """Drop the oldest FINISHED entries beyond `retain`, keeping every live one
+    and preserving order. Pure."""
+    finished = [i for i, e in enumerate(entries)
+                if e.get("status") not in _LIVE_STATUSES]
+    drop = set(finished[:max(0, len(finished) - retain)])
+    return [e for i, e in enumerate(entries) if i not in drop]
+
+
 def write_proposals_file(content: dict) -> None:
     path = proposals_path()
+    if isinstance(content.get("proposals"), list):
+        content = {**content, "proposals": trim_proposals(content["proposals"])}
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w") as f:

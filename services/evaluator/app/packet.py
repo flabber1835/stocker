@@ -60,10 +60,20 @@ PIPELINE (daily, after US close; fully deterministic — no LLM in the chain):
 7. RISK GATE + EXECUTION: deterministic risk service (kill switch, notional/
    turnover/position/count/staleness limits) approves each intent; day orders
    queue for the next open; paper trading via Alpaca.
+8. STRATEGY EVOLUTION (the loop you are in): you author COMPLETE candidate
+   configs (queue_strategy_experiment). An ISOLATED backtest stack ("wind
+   tunnel", decades of Sharadar point-in-time data, its own database) runs one
+   candidate per day against the active config over a TUNE window plus a
+   HELD-OUT VALIDATE window. A deterministic gate (CAGR edge on tune, edge
+   survives validate, drawdown within tolerance) promotes a winner: the whole
+   YAML is schema-validated and swapped in as the live config by code — no
+   human click, no LLM write. Results and the gate's verdict come back in the
+   experiment_lane packet section.
 KNOWN NON-FEATURES (candidates for structural findings): no news/sentiment
 input anywhere (vetter is price-only now); no earnings-proximity entry gate; no
 intraday layer; no shorting; no position-level stop-loss (exit hysteresis is
-the orphan timer only); backtester exists but is not yet in the weekly loop.
+the orphan timer only); promotion is scored on backtests plus a live shadow —
+there is no forward paper A/B between champion and challenger.
 """
 
 
@@ -1158,22 +1168,39 @@ async def _config_history(conn) -> list[dict]:
              "last_seen": str(r["last_d"]), "runs": r["runs"]} for r in rows]
 
 
-async def _applied_config_changes(conn) -> list[dict]:
-    """One-click applies (evaluator Phase 3, config_changes audit): which of
-    YOUR past recommendations the human actually applied, when, and what
-    changed — ground truth for the 'was it adopted' scoring, no YAML-diff
-    guessing needed."""
+async def _applied_config_changes(conn) -> dict:
+    """The config_changes audit trail — ground truth for "did the live strategy
+    actually change", no YAML-diff guessing needed.
+
+    Two things this MUST carry, both previously missing:
+      status     — the row is written 'pending' BEFORE the YAML is replaced and
+                   flipped to 'applied'/'failed' after. Returning every row
+                   unfiltered showed a FAILED apply as an adopted change.
+      applied_by — 'auto_promotion' (the wind-tunnel gate replacing the whole
+                   config) vs a manual edit. The human one-click path is gone,
+                   so an unexplained change is normally a promotion."""
     rows = (await conn.execute(text(
-        "SELECT applied_at, config_field, old_value, new_value, "
+        "SELECT applied_at, status, applied_by, config_field, old_value, new_value, "
         "       config_hash_before, config_hash_after, "
         "       source_report_run_id::text AS source_report_run_id "
         "FROM config_changes ORDER BY applied_at DESC LIMIT 20"
     ))).mappings().all()
-    return [{"applied_at": str(r["applied_at"]), "config_field": r["config_field"],
-             "old_value": r["old_value"], "new_value": r["new_value"],
-             "config_hash_before": r["config_hash_before"],
-             "config_hash_after": r["config_hash_after"],
-             "source_report_run_id": r["source_report_run_id"]} for r in rows]
+    out = [{"applied_at": str(r["applied_at"]), "status": r["status"],
+            "applied_by": r["applied_by"], "config_field": r["config_field"],
+            "old_value": r["old_value"], "new_value": r["new_value"],
+            "config_hash_before": r["config_hash_before"],
+            "config_hash_after": r["config_hash_after"],
+            "source_report_run_id": r["source_report_run_id"]} for r in rows]
+    return {
+        "changes": out,
+        "applied_count": sum(1 for r in out if r["status"] == "applied"),
+        "note": ("ONLY status='applied' rows actually changed the live config; "
+                 "'pending'/'failed' rows did NOT (the audit row is written "
+                 "before the replace). applied_by='auto_promotion' means the "
+                 "deterministic gate promoted one of YOUR candidates — "
+                 "config_field is '__full_config__' and new_value carries the "
+                 "hypothesis, diff_vs_active and the backtest evidence that won."),
+    }
 
 
 async def _error_digest(conn) -> dict:
@@ -1296,6 +1323,12 @@ async def build_packet(engine, as_of: date | None = None) -> dict:
             "hypothesis_ledger": await _section(lambda: _hypothesis_ledger(conn), conn),
             "backtest_lab": await _section(lambda: _async_wrap(_backtest_lab)),
             "experiment_lane": await _section(lambda: _async_wrap(_experiment_lane)),
+            # TOP-LEVEL on purpose: the queue used to live only INSIDE
+            # backtest_lab, whose own note tells the model that section is
+            # retired and not to expect it — so the one record of what the
+            # evaluator had queued was buried in a section it was instructed to
+            # skip. It stays duplicated inside backtest_lab for back-compat.
+            "experiment_queue": await _section(lambda: _async_wrap(_experiment_queue)),
         }
     return packet
 
@@ -1303,11 +1336,14 @@ async def build_packet(engine, as_of: date | None = None) -> dict:
 def _experiment_lane() -> dict:
     """Phase 6c results bridge: the daily full-config experiment lane
     (artifacts/bt/experiments.json, written by bt-scheduler). Each entry is one
-    FULL-HISTORY backtest of either the BASELINE (active config — the 'switched
-    on 20 years ago' anchor, hindsight caveat applies) or an evaluator-authored
-    full-config candidate, with its hypothesis and auto-computed diff vs the
-    active config. Score your own past candidates here before authoring new
-    ones; promotion stays a human config change."""
+    RECENT-WINDOW backtest (tune + held-out validate, per Phase 6d) of either
+    the BASELINE (the active config — the yardstick every candidate is gated
+    against, hindsight caveat applies) or an evaluator-authored
+    full-config candidate, with its hypothesis, auto-computed diff vs the active
+    config, the tune/validate windows it was scored on, and the PROMOTION GATE's
+    verdict + reason. Score your own past candidates here before authoring new
+    ones. Promotion is AUTOMATIC in paper mode: a candidate that clears the gate
+    is applied as the live config by deterministic code, no human click."""
     path = os.path.join(os.getenv("ARTIFACTS_PATH", "/artifacts"),
                         "bt", "experiments.json")
     try:
@@ -1320,9 +1356,16 @@ def _experiment_lane() -> dict:
                          "after backtest coverage goes GO; queue candidates with "
                          "queue_strategy_experiment")}
     exps = art.get("experiments") or []
+    # `promotion` ({eligible, reason}) and `windows` MUST be in this projection:
+    # the system prompt tells the model to read the gate's verdict here and to
+    # note which candidates were auto-promoted. Omitting them (the original key
+    # list) left it blind to the outcome of its own candidates — it could see a
+    # CAGR but never why the gate passed or refused it. `config_hash` is the
+    # join key back to experiment_queue.
     view = [{k: e.get(k) for k in ("id", "kind", "status", "hypothesis",
-                                   "diff_vs_active", "fired_at", "completed_at",
-                                   "result")} for e in exps[-20:]]
+                                   "config_hash", "diff_vs_active", "windows",
+                                   "fired_at", "completed_at", "result",
+                                   "promotion")} for e in exps[-20:]]
     baseline = next((e for e in reversed(exps)
                      if e.get("kind") == "baseline"
                      and e.get("status") == "success"), None)
@@ -1335,11 +1378,16 @@ def _experiment_lane() -> dict:
                                "remains the honest estimate")}
                      if baseline else None),
         "experiments": view,
-        "note": ("full-history single backtests (full universe, t+1 fills, "
-                 "costs); compare candidates against the baseline via CAGR "
-                 "(annualized_return), max_drawdown, alpha — and treat "
-                 "single-history wins as evidence to test in the walk-forward "
-                 "sweep, not proof"),
+        "note": ("single backtests over the recent window, split into a TUNE and "
+                 "a HELD-OUT VALIDATE span (see each entry's `windows`); full "
+                 "universe, t+1 fills, costs. Compare candidates against the "
+                 "baseline via CAGR (annualized_return), max_drawdown, alpha. "
+                 "`promotion.eligible`/`promotion.reason` is the deterministic "
+                 "gate's verdict — eligible=true means that candidate was applied "
+                 "as the LIVE config automatically (cross-check "
+                 "applied_config_changes). A tune edge that dies on validate is "
+                 "the loop working as designed: report it, don't re-queue it "
+                 "unchanged."),
     }
 
 
@@ -1399,21 +1447,33 @@ def _experiment_queue() -> dict:
     Entries are COMPLETE candidate configs, so the useful identity is
     kind/config_hash plus the auto-computed DIFF vs the active config — without
     the diff a future review cannot tell what its own candidate actually
-    changed."""
+    changed. `id` is the join key into experiment_lane."""
     path = os.path.join(os.getenv("ARTIFACTS_PATH", "/artifacts"), "bt", "proposals.json")
     try:
         with open(path) as f:
             entries = (json.load(f) or {}).get("proposals") or []
     except (OSError, ValueError):
         return {"available": False}
+    # A candidate is a WHOLE config, frozen at queue time. If the live config has
+    # since changed (an auto-promotion landed), a still-pending candidate would
+    # REVERT that change if it were promoted, and its stored diff was computed
+    # against a config that is no longer active. Surface it rather than pretend.
+    active_hash = None
+    try:
+        _cfg, active_hash = load_strategy(os.getenv("STRATEGY_CONFIG_PATH", ""))
+    except Exception:  # noqa: BLE001 — the queue view must not need a loadable config
+        active_hash = None
     by_status: dict[str, int] = {}
     for e in entries:
         by_status[str(e.get("status"))] = by_status.get(str(e.get("status")), 0) + 1
     recent = []
     for e in entries[-15:]:
-        row = {k: v for k in ("kind", "status", "origin", "hypothesis",
-                              "config_hash", "queued_at")
+        row = {k: v for k in ("id", "kind", "status", "origin", "hypothesis",
+                              "config_hash", "queued_against_config_hash", "queued_at")
                if (v := e.get(k)) is not None}
+        qa = e.get("queued_against_config_hash")
+        if qa and active_hash and e.get("status") == "pending":
+            row["stale_vs_active_config"] = qa != active_hash
         diff = e.get("diff")
         if isinstance(diff, dict) and diff:
             # compact "field: from -> to" so the thesis can be read against the
@@ -1422,7 +1482,15 @@ def _experiment_queue() -> dict:
                               for k, v in list(diff.items())[:12]}
             row["n_changed_fields"] = len(diff)
         recent.append(row)
-    return {"available": True, "counts": by_status, "recent": recent}
+    return {"available": True, "counts": by_status, "recent": recent,
+            "active_config_hash": active_hash,
+            "note": ("candidates you queued. `changes` is the diff vs the config "
+                     "that was active WHEN IT WAS QUEUED "
+                     "(queued_against_config_hash). stale_vs_active_config=true "
+                     "means a promotion has changed the live config since — that "
+                     "candidate would REVERT the newer change if promoted, so "
+                     "re-author it from the current YAML instead of waiting on it. "
+                     "`id` joins to experiment_lane entries.")}
 
 
 async def _hypothesis_ledger(conn) -> dict:

@@ -12,7 +12,13 @@ LLM boundary: advisory only. This service never writes strategy config, never
 creates trade intents, never calls the broker. Phase 2 (BUILT — app/tools.py +
 app/agent.py) gives the LLM read-only tools mid-review: backtester config-replay,
 SQL, source/docs read, web search, each call audited in
-evaluator_reports.tool_transcript. Phase 3 adds human-approved config changes.
+evaluator_reports.tool_transcript.
+
+The one way a review can change the live strategy is queue_strategy_experiment:
+it APPENDS a complete candidate config to the wind tunnel's queue. The bt stack
+scores it (tune + held-out validate) and a deterministic gate in the api service
+promotes a winner. The human one-click apply was removed — recommendations[] are
+advisory text only.
 """
 from __future__ import annotations
 

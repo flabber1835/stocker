@@ -446,18 +446,11 @@ async def proxy_delta_latest():
     return await _proxy("/delta/latest")
 
 
-@app.post("/api/config/apply")
-async def proxy_config_apply(request: Request):
-    """Evaluator Phase 3: forward the human's Apply click to the api's one-click
-    config apply (validator-gated, audited). The dashboard adds nothing — the
-    click IS the approval; all safety lives server-side."""
-    try:
-        body = await request.json()
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.post(f"{API_URL}/config/apply", json=body)
-            return JSONResponse(content=r.json(), status_code=r.status_code)
-    except Exception as exc:
-        return JSONResponse(content={"error": str(exc)}, status_code=502)
+# NOTE: POST /api/config/apply (the proxy behind the Review tab's Apply button)
+# was REMOVED with the one-click path — its target, the api's POST /config/apply,
+# no longer exists, so it could only ever 404. A config change reaches the live
+# strategy solely by winning the wind-tunnel promotion gate. The read-only audit
+# trail of what those promotions applied stays below.
 
 
 @app.get("/api/config/changes")

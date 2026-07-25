@@ -112,6 +112,11 @@ services:
       # per ISO week. See docs/backtester-v2-plan.md "Phase 6c".
       BT_EXPERIMENT_HOUR: ${BT_EXPERIMENT_HOUR:-22}
       BT_EXPERIMENTS_PER_WEEK: ${BT_EXPERIMENTS_PER_WEEK:-5}
+      # Candidates are scored on the BASELINE's exact windows (the promotion
+      # gate refuses to compare across windows). That pins the comparison but
+      # freezes it in time, so the yardstick is re-measured once its validate
+      # window ended more than this many days ago.
+      BT_BASELINE_MAX_AGE_DAYS: ${BT_BASELINE_MAX_AGE_DAYS:-30}
       # Skip-if-unchanged: on the due day the sweep fires only if the spec hash
       # changed, evaluator proposals are pending, or this many days passed since
       # the last fire (the monthly refresh that keeps windows sliding).

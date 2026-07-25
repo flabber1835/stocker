@@ -31,3 +31,14 @@ def test_no_apply_buttons_rendered():
 def test_applied_changes_history_still_shown():
     # the audit trail of what the AUTOMATED promotions applied stays visible
     assert "/api/config/changes" in _js()
+
+
+def test_no_server_side_apply_proxy():
+    """The UI check above only covers the JS. The dashboard also kept the
+    server-side proxy that forwarded to the api's POST /config/apply — an
+    endpoint that no longer exists, so the route could only 404 while still
+    advertising a capability the system deliberately removed."""
+    with open(os.path.join(ROOT, "services", "dashboard", "app", "main.py")) as f:
+        src = f.read()
+    assert '@app.post("/api/config/apply")' not in src
+    assert "proxy_config_apply" not in src

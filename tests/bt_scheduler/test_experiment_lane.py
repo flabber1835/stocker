@@ -135,7 +135,7 @@ def test_baseline_invalid_once_a_promotion_was_applied():
     yardstick, and can promote a config WORSE than what is running."""
     from app.logic import baseline_is_valid
     fresh = {"status": "success", "applied_promotion": "hash1",
-             "window": {"start": "2023-01-01", "end": "2026-01-01"}}
+             "windows": _lane_windows()}
     ok, _ = baseline_is_valid(fresh, "hash1")
     assert ok is True
     ok, why = baseline_is_valid(fresh, "hash2")       # champion changed
@@ -147,6 +147,39 @@ def test_baseline_invalid_once_a_promotion_was_applied():
     # a baseline with no pinned window can't anchor a fair comparison
     ok, why = baseline_is_valid({"status": "success", "applied_promotion": None}, None)
     assert ok is False and "window" in why
+
+
+def _lane_windows() -> dict:
+    """The window dict the lane really pins on an entry."""
+    from datetime import date
+
+    from app.logic import experiment_windows
+    return experiment_windows(date(2026, 7, 25), 3, 12, date(2004, 1, 1))
+
+
+def test_a_real_lane_baseline_entry_is_accepted():
+    """REGRESSION (the loop-killer): baseline_is_valid read baseline['window']
+    ['start'], but _experiment_lane pins baseline['windows'] = {tune_start,
+    tune_end, validate_start, validate_end}. Every real baseline therefore read
+    'no pinned comparison window', so the lane re-fired the YARDSTICK on every
+    daily slot and never tested a single evaluator candidate — auto-promotion
+    was inert in production while the unit test passed against an invented
+    shape. This builds the entry the way the lane does, so the two can't drift
+    apart again."""
+    from app.logic import baseline_is_valid
+    windows = _lane_windows()
+    # verbatim from _experiment_lane's baseline branch + the completion write
+    entry = {"id": "b1", "kind": "baseline", "hypothesis": "BASELINE: active config",
+             "diff_vs_active": {}, "proposal_id": None, "windows": windows,
+             "applied_promotion": None, "status": "success",
+             "result": {"tune": {"annualized_return": 0.1},
+                        "validate": {"annualized_return": 0.1}}}
+    ok, why = baseline_is_valid(entry, None)
+    assert ok is True, f"the lane's own baseline entry was rejected: {why}"
+    # …and a candidate slot therefore opens instead of another baseline re-run
+    for key in ("tune_start", "tune_end", "validate_start", "validate_end"):
+        broken = {**entry, "windows": {k: v for k, v in windows.items() if k != key}}
+        assert baseline_is_valid(broken, None)[0] is False
 
 
 def test_promotion_gate_is_window_pinned():
@@ -203,3 +236,46 @@ def test_experiment_windows_carve_holdout_off_the_end():
     assert w2["tune_start"] == "2024-01-01"
     assert experiment_windows(date(2026, 7, 25), 3, 12,
                               earliest=date(2025, 6, 1)) is None
+
+
+def test_candidate_is_scored_on_the_baselines_window_not_todays():
+    """REGRESSION (the second loop-killer): experiment_windows is derived from
+    `today`, and the lane recomputed it on every fire. One experiment runs per
+    day, so a candidate fired the day after its baseline got a DIFFERENT window
+    — and the gate's own precondition ('window mismatch vs baseline — not
+    comparable') then refused EVERY promotion. Auto-promotion was structurally
+    unreachable. Candidates must inherit the yardstick's exact windows."""
+    from datetime import date
+
+    from app.logic import baseline_is_valid, experiment_windows
+    mon, tue = (experiment_windows(date(2026, 7, 20), 3, 12, date(2004, 1, 1)),
+                experiment_windows(date(2026, 7, 21), 3, 12, date(2004, 1, 1)))
+    assert mon != tue, "premise: the derived window shifts every day"
+
+    baseline = {"kind": "baseline", "status": "success", "windows": mon,
+                "applied_promotion": None}
+    # the lane's fire-time decision, verbatim
+    assert baseline_is_valid(baseline, None, today=date(2026, 7, 21))[0] is True
+    windows = tue
+    if baseline.get("windows"):
+        windows = baseline["windows"]
+    assert windows == mon, "candidate did not inherit the baseline's window"
+    # …which is exactly what the gate compares before promoting
+    assert baseline["windows"] == windows
+
+
+def test_pinned_baseline_is_retired_once_its_window_ages():
+    """Pinning keeps the comparison fair but freezes it in time — the yardstick
+    has to be re-measured or candidates are forever judged against a stale era."""
+    from datetime import date
+
+    from app.logic import baseline_is_valid, experiment_windows
+    w = experiment_windows(date(2026, 1, 10), 3, 12, date(2004, 1, 1))
+    baseline = {"kind": "baseline", "status": "success", "windows": w,
+                "applied_promotion": None}
+    ok, _ = baseline_is_valid(baseline, None, today=date(2026, 2, 1), max_age_days=30)
+    assert ok is True, "a three-week-old yardstick is still usable"
+    ok, why = baseline_is_valid(baseline, None, today=date(2026, 3, 1), max_age_days=30)
+    assert ok is False and "re-running the yardstick" in why
+    # no `today` given → age is not judged (back-compat for pure callers)
+    assert baseline_is_valid(baseline, None)[0] is True

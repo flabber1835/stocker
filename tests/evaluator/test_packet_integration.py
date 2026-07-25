@@ -252,6 +252,9 @@ def test_full_packet_builds_with_no_section_errors(db_engine, monkeypatch):
         "current_target_book", "config_history", "applied_config_changes",
         "system_health", "hypothesis_ledger", "backtest_lab", "error_digest",
         "invisible_bench", "benchmark_coverage",
+        # the loop's own feedback: results of the evaluator's candidates, and
+        # what it currently has queued (top-level, not buried in backtest_lab)
+        "experiment_lane", "experiment_queue",
     }
     assert expected <= set(packet)
     broken = {k: v for k, v in packet.items()

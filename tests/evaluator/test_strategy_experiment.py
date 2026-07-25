@@ -88,3 +88,25 @@ def test_full_config_missing_hypothesis_rejected(env):
     out = _call_full({"config": _active_config()}, budget)
     assert "hypothesis" in out
     assert budget.experiment_used == 0
+
+
+# ── queue growth ─────────────────────────────────────────────────────────────
+
+def test_finished_entries_are_trimmed_but_live_work_never_is():
+    """Every entry embeds a COMPLETE StrategyConfig, and BOTH stacks read and
+    rewrite the whole file under a lock on every queue write and lifecycle
+    mark. RETAIN existed but was never applied, so the file grew forever and
+    each write got slower. Pending/testing entries are live work — trimming one
+    would drop a candidate the lane still has to run."""
+    from app.proposals import trim_proposals
+    old_done = [{"id": f"d{i}", "status": "tested"} for i in range(50)]
+    live = [{"id": "p1", "status": "pending"}, {"id": "t1", "status": "testing"}]
+    kept = trim_proposals(old_done + live, retain=10)
+    ids = [e["id"] for e in kept]
+    assert {"p1", "t1"} <= set(ids), "live work was trimmed"
+    assert len([e for e in kept if e["status"] == "tested"]) == 10
+    assert ids[-2:] == ["p1", "t1"], "order must be preserved"
+    # the OLDEST finished entries are the ones dropped
+    assert "d49" in ids and "d0" not in ids
+    # under the cap nothing is touched
+    assert trim_proposals(live, retain=10) == live
