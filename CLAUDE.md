@@ -419,6 +419,29 @@ cd /volume1/docker/github/stocker
 scripts/deploy.sh <changed-services...>     # or: make deploy SERVICES="api pipeline"
 ```
 
+**When you are not sure what is deployed** — after a long session, or any change
+touching `shared/` — use the all-encompassing deploy instead of naming services:
+
+```bash
+cd /volume1/docker/github/stocker
+scripts/deploy-all.sh            # git sync → FORCED base rebuild → both stacks → verify
+scripts/deploy-all.sh --verify   # verify only, change nothing
+scripts/deploy-all.sh --force    # also recreate the bt stack mid-job (destroys a running sweep)
+```
+
+It is slower than a targeted deploy and that is the trade: certainty over
+minutes. The base rebuild is UNCONDITIONAL (the editable install caches
+`shared/`'s module list, so a NEW shared file is invisible until rebuilt), both
+stacks are covered, the bt in-flight guard still applies, and it finishes by
+VERIFYING rather than asserting success — container state, per-service health on
+ports read from compose (never hardcoded), whether the coverage/parity gate is
+actually ENFORCING, and the bt corpus version the factor cache keys on. Non-zero
+exit if anything is off.
+
+`scripts/up.sh` now also rebuilds `stocker-base` when it is STALE relative to
+`shared/`, not only when it is missing — the trap that crash-looped bt-engine on
+the factor_registry import.
+
 Manual equivalent (what the script does):
 
 ```bash

@@ -51,11 +51,38 @@ if [ "$FORCE" -eq 0 ]; then
 fi
 
 # 17 of the service images are `FROM stocker-base:latest` — a LOCALLY built
-# image that compose never builds for you. If it is missing (fresh host, after
-# a prune) every one of those builds fails, which reads as a random service
-# error. Build it once, up front, so the failure can't happen.
+# image that compose never builds for you.
+#
+# MISSING is the obvious failure (fresh host, after a prune): every dependent
+# build fails, which reads as a random service error.
+#
+# STALE is the subtle one, and it has bitten twice. The base carries the
+# editable install of shared/, which CACHES THE MODULE FILE LIST — so a NEW file
+# under shared/ (parity.py, wealth.py, …) is invisible to every service until
+# the base is rebuilt. The backtest stack has no bind-mount override, so its
+# services import the BAKED copy and crash-loop on the missing import. Rebuilding
+# only when the image is absent never caught this, and "remember to rebuild the
+# base" is not a control.
+#
+# Rule: rebuild when the image is older than the newest file under shared/. A
+# git pull restamps mtimes, so this errs toward rebuilding after any sync —
+# cheap, and the failure it prevents is a crash-looping service.
+base_needs_build=0
 if ! docker image inspect stocker-base:latest >/dev/null 2>&1; then
+    base_needs_build=1
     echo "── stocker-base:latest missing — building it first ─────────"
+else
+    img_epoch="$(docker image inspect stocker-base:latest \
+        --format '{{.Created}}' 2>/dev/null | cut -c1-19)"
+    img_ts="$(date -d "${img_epoch/T/ }" +%s 2>/dev/null || echo 0)"
+    newest_shared="$(find shared -type f -newermt "@${img_ts}" -print -quit 2>/dev/null || true)"
+    if [ "$img_ts" = "0" ] || [ -n "$newest_shared" ]; then
+        base_needs_build=1
+        echo "── stocker-base:latest is STALE vs shared/ — rebuilding ────"
+        [ -n "$newest_shared" ] && echo "   (newer than the image: $newest_shared)"
+    fi
+fi
+if [ "$base_needs_build" -eq 1 ]; then
     if ! docker build --network host -t stocker-base:latest -f Dockerfile.base .; then
         echo "!! could not build stocker-base — every service build will fail"
         exit 1
