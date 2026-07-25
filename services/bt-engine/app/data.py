@@ -62,14 +62,22 @@ async def load_universe(engine, limit: int | None = None) -> tuple[list[str], di
     return tickers, sector_map
 
 
-async def load_prices(engine, tickers: list[str], start: date, end: date) -> pd.DataFrame:
+async def load_prices(engine, tickers: list[str], start: date, end: date,
+                      on_progress=None) -> pd.DataFrame:
     """Stream bt_prices into a compact frame (categorical ticker, float32 prices).
+
+    on_progress(rows_loaded) is called per chunk so the caller can show that a
+    long full-history load is ALIVE (progress_pct sits at 0 until the sim starts,
+    which is indistinguishable from stuck).
 
     Rows arrive already ordered by (ticker, date) — sim.run_simulation relies on
     that and skips its own sort when the order holds, saving another full copy.
     """
     px_from = start - timedelta(days=FACTOR_LOOKBACK_DAYS)
-    sql = text("SELECT ticker, date, open, close, adjusted_close, volume "
+    # `date` comes back as an INTEGER day-number: converting 35M datetime.date
+    # objects in Python costs ~45s, while int → datetime64[D] is a free C cast.
+    sql = text("SELECT ticker, (date - DATE '1970-01-01') AS day_num, "
+               "       open, close, adjusted_close, volume "
                "FROM bt_prices WHERE ticker = ANY(:tk) AND date BETWEEN :f AND :t "
                "ORDER BY ticker, date")
     params = {"tk": tickers, "f": px_from, "t": end}
@@ -78,6 +86,7 @@ async def load_prices(engine, tickers: list[str], start: date, end: date) -> pd.
     code_parts: list[np.ndarray] = []
     date_parts: list[np.ndarray] = []
     num_parts: dict[str, list[np.ndarray]] = {c: [] for c in _NUM_COLS}
+    rows_seen = chunks = 0
 
     async with engine.connect() as conn:
         result = await conn.stream(sql, params)          # server-side cursor
@@ -85,20 +94,35 @@ async def load_prices(engine, tickers: list[str], start: date, end: date) -> pd.
             n = len(part)
             if not n:
                 continue
-            codes = np.empty(n, dtype=np.int32)
-            for i, r in enumerate(part):
-                c = code_of.get(r[0])
-                if c is None:
-                    c = len(code_of)
-                    code_of[r[0]] = c
-                codes[i] = c
-            code_parts.append(codes)
-            date_parts.append(np.array([r[1] for r in part], dtype="datetime64[D]"))
+            # factorize the chunk (C-level hash) then remap its few distinct
+            # tickers into global codes — rows are ticker-ordered, so a chunk
+            # holds only a handful of names.
+            local, uniques = pd.factorize(np.asarray([r[0] for r in part], dtype=object))
+            remap = np.empty(len(uniques), dtype=np.int32)
+            for k, u in enumerate(uniques):
+                g = code_of.get(u)
+                if g is None:
+                    g = len(code_of)
+                    code_of[u] = g
+                remap[k] = g
+            code_parts.append(remap[local])
+            date_parts.append(
+                np.fromiter((r[1] for r in part), dtype=np.int32, count=n)
+                .astype("datetime64[D]"))
             for j, col in enumerate(_NUM_COLS, start=2):
                 num_parts[col].append(np.fromiter(
                     (np.nan if r[j] is None else float(r[j]) for r in part),
                     dtype=PRICE_DTYPE, count=n))
+            rows_seen += n
+            chunks += 1
+            if on_progress is not None:
+                on_progress(rows_seen)
+            if chunks % 20 == 0:      # aliveness heartbeat in docker logs
+                print(f"[bt-engine] loading prices: {rows_seen:,} rows, "
+                      f"{len(code_of):,} tickers", flush=True)
 
+    print(f"[bt-engine] prices loaded: {rows_seen:,} rows, {len(code_of):,} tickers",
+          flush=True)
     if not code_parts:
         return pd.DataFrame({"ticker": pd.Categorical([]), "date": pd.to_datetime([]),
                              **{c: np.empty(0, dtype=PRICE_DTYPE) for c in _NUM_COLS}})

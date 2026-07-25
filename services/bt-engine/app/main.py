@@ -166,13 +166,19 @@ async def start_run(req: BtRunRequest, background_tasks: BackgroundTasks):
 
 
 async def _run_bg(run_id: str, req: BtRunRequest, cfg: StrategyConfig) -> None:
-    progress = {"done": 0, "total": 1}
+    # phase matters for the UI: loading a full-history corpus takes minutes
+    # during which the sim hasn't started, so a flat 0% is indistinguishable
+    # from "stuck". Loading creeps 1→4%, the simulation owns 5→99%.
+    progress = {"done": 0, "total": 1, "phase": "loading", "rows": 0}
 
     async def _progress_poller():
         last = -1
         while True:
             await asyncio.sleep(2.0)
-            pct = int(100 * progress["done"] / max(progress["total"], 1))
+            if progress["phase"] == "loading":
+                pct = 1 + min(3, progress["rows"] // 10_000_000)
+            else:
+                pct = 5 + int(94 * progress["done"] / max(progress["total"], 1))
             if pct != last:
                 last = pct
                 try:
@@ -188,10 +194,15 @@ async def _run_bg(run_id: str, req: BtRunRequest, cfg: StrategyConfig) -> None:
         tickers, sector_map = await load_universe(engine, limit=req.universe_limit)
         if not tickers:
             raise RuntimeError("bt_universe is empty — run bt-data /jobs/backfill first")
-        prices = await load_prices(engine, tickers, req.start_date, req.end_date)
+        def _loaded(rows):
+            progress["rows"] = rows
+
+        prices = await load_prices(engine, tickers, req.start_date, req.end_date,
+                                   on_progress=_loaded)
         if prices.empty:
             raise RuntimeError("bt_prices empty for range — run bt-data /jobs/backfill first")
         fundamentals = await load_fundamentals(engine, tickers, req.end_date)
+        progress["phase"] = "simulating"
 
         params = SimParams(start=req.start_date, end=req.end_date,
                            tx_cost_bps=req.tx_cost_bps, fill_timing=req.fill_timing,
