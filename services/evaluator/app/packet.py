@@ -1461,7 +1461,14 @@ def _backtest_lab() -> dict:
         "stale": stale,
         "windows": art.get("windows"),
         "n_configs": art.get("n_configs"),
-        "leaderboard_top": (art.get("leaderboard") or [])[:15],
+        # Ranking columns only. The rows now also carry the FULL per-window
+        # summaries (for the promotion gate and the Lab UI); pasting 15×2 of
+        # those into the prompt is bulk, not evidence — bt_sql_query reaches the
+        # same tables when a row actually needs drilling into.
+        "leaderboard_top": [
+            {k: v for k, v in (row or {}).items()
+             if k not in ("in_sample", "out_sample")}
+            for row in (art.get("leaderboard") or [])[:15]],
         "experiment_queue": _experiment_queue(),
         "note": ("walk-forward sweep from the isolated Sharadar backtester — ranked "
                  "by OUT-OF-SAMPLE sharpe; overfit_gap = in-sample − out-of-sample "

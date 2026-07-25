@@ -952,6 +952,35 @@ tr.cash-row .t-ticker { color: var(--text2); }
 .lab-bad{color:#e25b5b}
 .lab-ok{color:#3ecf8e}
 .lab-tbl{width:100%;font-size:12px;border-collapse:collapse}
+/* ── expandable run detail ────────────────────────────────────────────────
+   A completed run has ~15 numbers; the row shows four. <details> keeps the
+   table scannable and puts the rest one tap away. Two columns on a wide
+   screen, STACKED below 520px — on a phone a 2-col numeric grid either
+   overflows horizontally or squeezes the labels to unreadable. */
+.lab-detail-wrap{display:flex;gap:14px;flex-wrap:wrap;padding:6px 12px 10px}
+.lab-detail-col{flex:1 1 240px;min-width:0}
+.lab-detail-h{font-size:11px;opacity:.7;margin:2px 0 4px;text-transform:uppercase;
+  letter-spacing:.04em}
+.lab-detail{width:100%;font-size:12px;border-collapse:collapse}
+.lab-detail th{text-align:left;font-weight:400;opacity:.65;padding:2px 8px 2px 0;
+  white-space:nowrap}
+.lab-detail td{text-align:right;padding:2px 0;font-variant-numeric:tabular-nums;
+  white-space:nowrap}
+.lab-detail-empty{padding:4px 12px 10px;font-size:12px}
+.lab-run{padding-top:0;padding-bottom:0}
+.lab-run details>summary,.lab-detail-row details>summary{cursor:pointer;
+  /* NOT display:flex. Flex makes every inline child of the summary its own
+     flex ITEM, so a one-line header (kind, status, CAGR, promotion reason,
+     hypothesis) renders as narrow side-by-side COLUMNS instead of wrapping
+     text — unreadable, and invisible to overflow/font-size checks because
+     nothing actually overflows. Padding + min-height give the tap target. */
+  min-height:32px;padding:5px 0;font-size:13px;line-height:1.35}
+.lab-detail-row td{padding:0 12px 4px}
+.lab-detail-row details>summary{font-size:11px;opacity:.6}
+@media (max-width:520px){
+  .lab-detail-wrap{display:block;padding:6px 12px 10px}
+  .lab-detail-col{margin-bottom:10px}
+}
 .lab-tbl th,.lab-tbl td{padding:3px 12px;text-align:left}
 
 /* ── Stat tiles: compact numbers instead of a run-on text line ───────────── */

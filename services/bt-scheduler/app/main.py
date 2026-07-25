@@ -492,11 +492,20 @@ async def _experiment_snapshot(client: httpx.AsyncClient, now: datetime) -> dict
                for e in exps):
         queued.insert(0, {"kind": "baseline",
                           "hypothesis": "BASELINE: active config (promotion yardstick)"})
+    # The FULL per-window summaries ride along so the Lab UI can expand a run
+    # into CAGR / drawdown / SPY / turnover / terminal wealth. Previously only
+    # `cagr` was projected, so everything the simulator computed was reachable
+    # solely by querying bt-postgres by hand. Five entries, two summaries each —
+    # bounded, and this artifact is read by a browser, not pasted into a prompt.
     recent = [{"kind": e.get("kind"), "status": e.get("status"),
                "hypothesis": e.get("hypothesis"),
                "cagr": ((e.get("result") or {}).get("period_b") or {}).get("annualized_return"),
                "promotion": (e.get("promotion") or {}).get("reason"),
-               "completed_at": e.get("completed_at")}
+               "completed_at": e.get("completed_at"),
+               "windows": e.get("windows"),
+               "regime": e.get("regime"),
+               "config_hash": e.get("config_hash"),
+               "result": e.get("result")}
               for e in exps if e.get("status") in ("success", "failed")][-5:]
     # The cap counts CANDIDATES only (a baseline tests no hypothesis). Report
     # baseline fires separately rather than hiding them — "0/5 fired" next to a

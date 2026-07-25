@@ -43,6 +43,34 @@ def _ago(minutes: int) -> str:
     from datetime import datetime, timedelta, timezone
     return (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
 
+def _summary(cagr, dd, bench, *, trades=418, tw=True, unfilled=0, degraded=0):
+    """A realistic bt-engine run summary — the shape the expandable detail
+    renders. Deliberately includes the fidelity flags (unfilled orders, degraded
+    builds) because those must be VISIBLE, not buried."""
+    out = {
+        "total_return": cagr * 2.6, "annualized_return": cagr,
+        "sharpe_ratio": 0.94, "max_drawdown": dd,
+        "benchmark_total_return": bench, "alpha": cagr - 0.06,
+        "win_rate": 0.523, "n_trades": trades, "n_trading_days": 504,
+        "n_rebalances": 100, "n_rebalances_with_trades": 71,
+        "avg_turnover": 0.1837, "total_turnover": 18.37,
+        "unfilled_orders": unfilled, "delist_recovery_pct": 0.70,
+        "target_status_counts": ({"success_with_target": 100 - degraded,
+                                  "degraded": degraded} if degraded
+                                 else {"success_with_target": 100}),
+        "fill_timing": "next_open", "tx_cost_bps": 10,
+    }
+    if tw:
+        out["terminal_wealth"] = {
+            "median_terminal_wealth": 141233.10, "p5_terminal_wealth": 92840.55,
+            "p95_terminal_wealth": 219884.02, "prob_loss": 0.0885,
+            "prob_beat_benchmark": 0.6120, "median_multiple": 1.412415,
+            "p5_multiple": 0.928406, "n_paths": 2000,
+        }
+    return out
+
+
+
 
 BT_STATUS_INNER = {
     "generated_at": _ago(4),
@@ -79,13 +107,25 @@ BT_STATUS_INNER = {
         ],
         "recent": [
             {"kind": "baseline", "status": "success", "hypothesis": "BASELINE: active config",
-             "cagr": 0.1421, "promotion": None, "completed_at": _ago(1200)},
+             "cagr": 0.1421, "promotion": None, "completed_at": _ago(1200),
+             "config_hash": "cd66a1f0", "regime": None,
+             "windows": {"period_a_start": "2023-07-25", "period_a_end": "2025-07-25",
+                         "period_b_start": "2025-07-25", "period_b_end": "2026-07-25"},
+             "result": {"period_a": _summary(0.1602, -0.2413, 0.2510),
+                        "period_b": _summary(0.1421, -0.1904, 0.1830, unfilled=3),
+                        "error_message": None}},
             {"kind": "full_config", "status": "success",
              "hypothesis": "momentum 0.42 -> 0.55 with earnings_surprise at 0.12",
              "cagr": 0.1180,
              "promotion": "edge does NOT survive validation: out-of-sample CAGR -0.0300 "
                           "vs baseline (tol 0.0000)",
-             "completed_at": _ago(2600)},
+             "completed_at": _ago(2600),
+             "config_hash": "77b3e9c1", "regime": None,
+             "windows": {"period_a_start": "2023-07-25", "period_a_end": "2025-07-25",
+                         "period_b_start": "2025-07-25", "period_b_end": "2026-07-25"},
+             "result": {"period_a": _summary(0.1710, -0.2802, 0.2510, degraded=6),
+                        "period_b": _summary(0.1180, -0.3110, 0.1830),
+                        "error_message": None}},
         ],
         "next_fire_local": "2026-07-25T22:00-04:00",
         "fired_this_week": 0,
@@ -108,7 +148,9 @@ SWEEP = {
                          "portfolio_builder.max_positions": 20 + i},
          "oos_sharpe": 1.05 - i * 0.03, "is_sharpe": 1.4 - i * 0.02,
          "oos_return": 0.19 - i * 0.01, "oos_max_drawdown": -0.22 - i * 0.005,
-         "overfit_gap": 0.35 + i * 0.05}
+         "overfit_gap": 0.35 + i * 0.05,
+         "in_sample": _summary(0.21 - i * 0.01, -0.24, 0.2510),
+         "out_sample": _summary(0.19 - i * 0.01, -0.22 - i * 0.005, 0.1830)}
         for i in range(15)
     ],
 }
@@ -149,7 +191,8 @@ SPEC = TabSpec(
                         # must NOT contradict itself with "none running"
                         "lane idle (engine busy above)"],
     },
-    extra=[lambda page, c, label: audit_leaderboard(page, c) if label == "idle" else None],
+    extra=[lambda page, c, label: audit_leaderboard(page, c) if label == "idle" else None,
+           lambda page, c, label: audit_run_detail(page, c) if label == "idle" else None],
 )
 
 
@@ -197,6 +240,88 @@ VARIANTS = [
     ("running", {"/api/bt/status": BT_STATUS_RUNNING}),
     ("clock-skew", {"/api/bt/status": BT_STATUS_SKEWED}),
 ]
+
+def audit_run_detail(page, c):
+    """Expandable run detail: the numbers a completed run actually produced.
+
+    The list row shows CAGR and little else; everything the simulator computed —
+    drawdown, the SPY comparison, turnover, terminal wealth — lived only in the
+    database. These checks prove the disclosure EXPANDS and that the values are
+    really there, not merely that an element with the right class exists.
+    """
+    detail_sel = "#lab-body .lab-run details"
+    n = page.locator(detail_sel).count()
+    c.check(n > 0, f"[detail] {n} expandable run(s) in the experiment history")
+    if not n:
+        return
+
+    first = page.locator(detail_sel).first
+    # COLLAPSED first: an accordion that ships open defeats the purpose — the
+    # list has to stay scannable.
+    c.check(not first.evaluate("e => e.open"), "[detail] starts collapsed")
+
+    # The COLLAPSED header must read as wrapped TEXT. A display:flex summary
+    # turns each inline child into a flex item and lays the header out as narrow
+    # side-by-side columns — unreadable, yet invisible to the overflow and
+    # font-size checks because nothing technically overflows. Screenshot caught
+    # it; this is what catches it next time. ~5 lines at 375px is generous for
+    # the longest header the fixture produces.
+    sm_h = first.locator("summary").evaluate("e => e.getBoundingClientRect().height")
+    c.check(sm_h < 140,
+            f"[detail] collapsed header wraps as text, not columns ({sm_h:.0f}px)")
+
+    # The element's OWN height, not document.body.scrollHeight: the lab body is
+    # itself a scroll container, so the document height does not move when
+    # content grows inside it — the first draft of this check failed for that
+    # reason while the feature worked.
+    before = first.evaluate("e => e.getBoundingClientRect().height")
+    first.locator("summary").click()
+    page.wait_for_timeout(120)
+    c.check(first.evaluate("e => e.open"), "[detail] opens on tap")
+    after = first.evaluate("e => e.getBoundingClientRect().height")
+    c.check(after > before + 40,
+            f"[detail] expanding adds content ({before:.0f}px -> {after:.0f}px)")
+
+    txt = first.inner_text()
+    # The metrics the request was about. Checked by LABEL because a value alone
+    # could come from anywhere on the page.
+    for label in ("CAGR", "max drawdown", "SPY (same span)", "vs SPY", "sharpe",
+                  "total return", "turnover / rebalance", "trades"):
+        c.check(label.lower() in txt.lower(), f"[detail] shows '{label}'")
+    # Terminal wealth is the objective in its own units.
+    c.check("end value" in txt.lower(), "[detail] shows terminal-wealth figures")
+    # Both windows, and the held-out one labelled as such — reading a tune-window
+    # number as if it were out-of-sample is the mistake this whole lane exists
+    # to prevent.
+    # Case-INSENSITIVE: .lab-detail-h is text-transform:uppercase, so
+    # inner_text() returns the rendered "PERIOD A". Asserting the source casing
+    # tests the stylesheet, not the label.
+    low = txt.lower()
+    c.check("period a" in low, "[detail] labels period A")
+    c.check("held out" in low, "[detail] labels period B as HELD OUT")
+    # A percentage, not a raw float: 0.1421 next to "CAGR" reads as 0.14%.
+    import re
+    c.check(re.search(r"\d+\.\d%", txt) is not None,
+            "[detail] numbers are formatted as percentages")
+
+    # THE PHONE CONSTRAINT: expanding must not widen the page. A 2-column
+    # numeric grid is exactly what overflows 375px.
+    over = page.evaluate(
+        "() => ({doc: document.documentElement.scrollWidth,"
+        "        win: window.innerWidth})")
+    c.check(over["doc"] <= over["win"] + 1,
+            f"[detail] page does not scroll sideways when expanded "
+            f"({over['doc']}px vs {over['win']}px)")
+
+    # Fidelity flags must be visible, not buried: a run with unfilled orders is
+    # weaker evidence than one without.
+    body = page.locator("#lab-body").inner_text()
+    c.check("unfilled" in body.lower() or "builds" in body.lower(),
+            "[detail] surfaces run-fidelity flags (unfilled orders / degraded builds)")
+
+    # And the leaderboard rows carry the same disclosure.
+    lb = page.locator("#lab-body .lab-detail-row details")
+    c.check(lb.count() > 0, f"[detail] {lb.count()} expandable leaderboard row(s)")
 
 
 if __name__ == "__main__":

@@ -759,9 +759,15 @@ async def sweep_leaderboard(sweep_id: str, limit: int = 25):
         if aggs:
             return {"mode": "rolling", "ranked_by": "median_oos_return",
                     "leaderboard": [_fmt(r) for r in aggs]}
+        # in_sample/out_sample are the FULL per-window summaries. They are not a
+        # nicety: bt-scheduler stores them as the experiment's period_a/period_b,
+        # and the promotion gate reads exactly those — so omitting them here made
+        # `candidate missing period_a/period_b result` the verdict on EVERY
+        # candidate, and auto-promotion could never fire. They also feed the Lab
+        # UI's expandable run detail.
         rows = (await conn.execute(text(
             "SELECT config_idx, config_diff, is_sharpe, oos_sharpe, oos_return, "
-            "oos_max_drawdown, overfit_gap, error_message "
+            "oos_max_drawdown, overfit_gap, error_message, in_sample, out_sample "
             "FROM bt_sweep_results WHERE sweep_id=CAST(:sid AS uuid) "
             "ORDER BY oos_return DESC NULLS LAST LIMIT :n"
         ), {"sid": sweep_id, "n": min(limit, 500)})).mappings().all()

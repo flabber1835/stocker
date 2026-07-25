@@ -2714,6 +2714,92 @@ function _labLiveStats(lv, esc) {
     '</div>';
 }
 
+// ── Run detail (expandable) ──────────────────────────────────────────────────
+// Every completed run carries a FULL summary — CAGR, drawdown, the SPY
+// comparison, turnover, terminal-wealth distribution — and the leaderboard row
+// showed four of them. The rest existed only in the database. <details> rather
+// than a JS toggle: no state to wire, works on mobile Safari, and the row stays
+// readable when collapsed.
+function _labPct(v, dp) {
+  return v == null || v === '' ? '—' : (Number(v) * 100).toFixed(dp == null ? 1 : dp) + '%';
+}
+function _labNum(v, dp) {
+  return v == null || v === '' ? '—' : Number(v).toFixed(dp == null ? 2 : dp);
+}
+function _labMoney(v) {
+  return v == null ? '—' : '$' + Number(v).toLocaleString('en-US', {maximumFractionDigits: 0});
+}
+
+function _labRunDetail(sm, esc, label) {
+  if (!sm || typeof sm !== 'object') {
+    return `<div class="lab-dim lab-detail-empty">no ${esc(label || 'run')} summary stored</div>`;
+  }
+  if (sm.error) {
+    return `<div class="lab-bad lab-detail-empty">${esc(sm.error)}</div>`;
+  }
+  const tw = sm.terminal_wealth || {};
+  // Return vs the benchmark over the SAME span is the number that decides
+  // whether a config beat buying SPY — shown next to it, not left to arithmetic.
+  const excess = (sm.total_return != null && sm.benchmark_total_return != null)
+      ? Number(sm.total_return) - Number(sm.benchmark_total_return) : null;
+  const rows = [
+    ['total return', _labPct(sm.total_return)],
+    ['CAGR', _labPct(sm.annualized_return)],
+    ['SPY (same span)', _labPct(sm.benchmark_total_return)],
+    ['vs SPY', excess == null ? '—'
+        : `<span class="${excess >= 0 ? 'lab-ok' : 'lab-bad'}">${_labPct(excess)}</span>`],
+    ['alpha', _labPct(sm.alpha)],
+    ['max drawdown', _labPct(sm.max_drawdown)],
+    ['sharpe', _labNum(sm.sharpe_ratio)],
+    ['win rate (days)', _labPct(sm.win_rate)],
+    ['trades', sm.n_trades == null ? '—' : esc(sm.n_trades)],
+    ['rebalances', sm.n_rebalances == null ? '—' : esc(sm.n_rebalances)],
+    ['…of which traded', sm.n_rebalances_with_trades == null
+        ? '—' : esc(sm.n_rebalances_with_trades)],
+    ['turnover / rebalance', _labPct(sm.avg_turnover)],
+    ['trading days', sm.n_trading_days == null ? '—' : esc(sm.n_trading_days)],
+  ];
+  // Terminal wealth is the objective in its own units. Only shown when the
+  // bootstrap actually ran (it returns nothing on too little data).
+  if (tw.median_terminal_wealth != null) {
+    rows.push(['median end value', _labMoney(tw.median_terminal_wealth)]);
+    rows.push(['5th pct end value', _labMoney(tw.p5_terminal_wealth)]);
+    rows.push(['prob of loss', _labPct(tw.prob_loss)]);
+    if (tw.prob_beat_benchmark != null) {
+      rows.push(['prob beat SPY', _labPct(tw.prob_beat_benchmark)]);
+    }
+  }
+  // Fidelity flags: a run with unfilled orders or many degraded builds is not
+  // the same quality of evidence as one without, and that must not be buried.
+  if (sm.unfilled_orders) {
+    rows.push(['unfilled orders', `<span class="lab-warn">${esc(sm.unfilled_orders)}</span>`]);
+  }
+  if (sm.delist_recovery_pct != null) {
+    rows.push(['delist recovery', _labPct(sm.delist_recovery_pct, 0)]);
+  }
+  const tsc = sm.target_status_counts;
+  if (tsc && Object.keys(tsc).length) {
+    const degraded = (tsc.degraded || 0) + (tsc.failed || 0);
+    const txt = Object.entries(tsc).map(([k, v]) => `${k.replace(/_/g, ' ')} ${v}`).join(', ');
+    rows.push(['builds', degraded
+        ? `<span class="lab-warn">${esc(txt)}</span>` : esc(txt)]);
+  }
+  let out = '<table class="lab-detail">';
+  rows.forEach(([k, v]) => {
+    out += `<tr><th>${esc(k)}</th><td>${v}</td></tr>`;
+  });
+  out += '</table>';
+  return out;
+}
+
+function _labRunDetailPair(a, b, esc, labelA, labelB) {
+  return '<div class="lab-detail-wrap">' +
+         `<div class="lab-detail-col"><div class="lab-detail-h">${esc(labelA)}</div>` +
+         _labRunDetail(a, esc, labelA) + '</div>' +
+         `<div class="lab-detail-col"><div class="lab-detail-h">${esc(labelB)}</div>` +
+         _labRunDetail(b, esc, labelB) + '</div></div>';
+}
+
 function renderLab(d) {
   const esc = t => String(t == null ? '—' : t).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
   const st = d.status, sw = d.sweep;
@@ -2816,13 +2902,36 @@ function renderLab(d) {
            `${outcome}<br><span class="lab-dim">thesis: ${esc(ex.last_promotion.hypothesis)}</span></div>`;
     }
     if (ex.recent && ex.recent.length) {
-      h += '<div class="lab-note"><b>recent:</b><br>' +
-           ex.recent.slice().reverse().map(r =>
-             `· ${esc(r.kind)} <b>${esc(r.status)}</b>` +
-             (r.cagr != null ? ` — validate CAGR ${(Number(r.cagr) * 100).toFixed(1)}%` : '') +
-             (r.promotion ? ` <span class="lab-dim">[${esc(r.promotion)}]</span>` : '') +
-             (r.hypothesis ? ` — ${esc(String(r.hypothesis).slice(0, 80))}` : '')).join('<br>') +
-           '</div>';
+      h += '<div class="lab-note"><b>recent:</b></div>';
+      ex.recent.slice().reverse().forEach(r => {
+        const head =
+          `· ${esc(r.kind)} <b>${esc(r.status)}</b>` +
+          (r.regime ? ` <span class="lab-dim">[${esc(r.regime)}]</span>` : '') +
+          (r.cagr != null ? ` — period-B CAGR ${(Number(r.cagr) * 100).toFixed(1)}%` : '') +
+          (r.promotion ? ` <span class="lab-dim">[${esc(r.promotion)}]</span>` : '') +
+          (r.hypothesis ? ` — ${esc(String(r.hypothesis).slice(0, 80))}` : '');
+        const res = r.result || {};
+        const w = r.windows || {};
+        // Only offer the disclosure when there is something behind it — an empty
+        // expander reads as a broken control.
+        if (res.period_a || res.period_b) {
+          const wa = w.period_a_start ? `${esc(w.period_a_start)}→${esc(w.period_a_end)}` : 'period A';
+          const wb = w.period_b_start ? `${esc(w.period_b_start)}→${esc(w.period_b_end)}` : 'period B';
+          h += `<div class="lab-note lab-run"><details><summary>${head}</summary>` +
+               _labRunDetailPair(res.period_a, res.period_b, esc,
+                                 `period A · ${wa}`, `period B (held out) · ${wb}`) +
+               (res.error_message
+                 ? `<div class="lab-bad lab-detail-empty">${esc(res.error_message)}</div>` : '') +
+               (r.config_hash
+                 ? `<div class="lab-meta">config ${esc(r.config_hash)}</div>` : '') +
+               '</details></div>';
+        } else {
+          h += `<div class="lab-note lab-run">${head}` +
+               (res.error_message
+                 ? `<br><span class="lab-bad">${esc(res.error_message)}</span>` : '') +
+               '</div>';
+        }
+      });
     }
   }
 
@@ -2871,11 +2980,18 @@ function renderLab(d) {
           .map(([k, v]) => `${k.split('.').pop()}=${v === null ? 'off' : v}`).join(' ') : '(baseline)';
       const gap = r.overfit_gap;
       const gapCls = gap != null && gap > 0.5 ? ' class="lab-warn"' : '';
+      const detail = (r.in_sample || r.out_sample)
+          ? `<tr class="lab-detail-row"><td colspan="6"><details>` +
+            `<summary>full result</summary>` +
+            _labRunDetailPair(r.in_sample, r.out_sample, esc,
+                              'period A (tune)', 'period B (held out)') +
+            `</details></td></tr>`
+          : '';
       h += `<tr><td>${i + 1}</td><td>${esc(diff || '(baseline)')}</td>` +
            `<td>${r.oos_sharpe != null ? Number(r.oos_sharpe).toFixed(2) : '—'}</td>` +
            `<td>${r.oos_return != null ? (Number(r.oos_return) * 100).toFixed(1) + '%' : '—'}</td>` +
            `<td>${r.oos_max_drawdown != null ? (Number(r.oos_max_drawdown) * 100).toFixed(1) + '%' : '—'}</td>` +
-           `<td${gapCls}>${gap != null ? Number(gap).toFixed(2) : '—'}</td></tr>`;
+           `<td${gapCls}>${gap != null ? Number(gap).toFixed(2) : '—'}</td></tr>` + detail;
     });
     h += '</table>';
     h += `<div class="lab-meta">sweep ${esc(sw.sweep_id)} · exported ${esc(_labAge(sw.generated_at))}</div>`;
