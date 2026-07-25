@@ -75,9 +75,17 @@ def tool_definitions() -> list[dict]:
         {
             "name": "run_backtest",
             "description": (
-                "Config-replay a CANDIDATE strategy config over history: re-ranks and "
-                "re-selects every historical rebalance date with the live chain's own "
-                "deterministic code, de-biased (t+1 fills, no survivorship, 10bps cost). "
+                "RE-WEIGHT stored factors over history. It re-ranks and re-selects every "
+                "historical rebalance date from the PERSISTED point-in-time factor_scores, "
+                "de-biased (t+1 fills, no survivorship, 10bps cost). "
+                "WHAT IT CANNOT DO, and will REFUSE rather than answer wrongly: it does not "
+                "recompute factors, so a change to factor CONSTRUCTION (momentum/volatility "
+                "windows, pe_pb_cap, sector-neutralisation) is unmodellable here; it applies "
+                "NO exclusions, not even the deterministic falling-knife veto live uses; and "
+                "it is holdings-agnostic, so turnover_penalty is inert. For any of those, use "
+                "queue_strategy_experiment (the wind tunnel) — it recomputes factors from raw "
+                "prices, applies the veto, and models holdings. Use THIS tool for factor "
+                "WEIGHTS, position/sector/cluster caps, candidate_count, vol/beta targets. "
                 "Express the candidate as a DIFF over the ACTIVE config: "
                 "config_changes = {dotted.path: value}, e.g. "
                 "{\"static_factor_weights.momentum\": 0.5, \"portfolio_builder.max_positions\": 25}. "
@@ -432,6 +440,15 @@ async def run_backtest(args: dict, *, engine, budget: BacktestBudget) -> str:
             if r.status_code == 400:
                 budget.used -= 1
                 return f"backtester rejected the config: {r.text[:500]}"
+            if r.status_code == 422:
+                # PARITY REFUSAL, not a malformed request: config-replay cannot
+                # model something this diff changes (factor CONSTRUCTION, a
+                # nonzero turnover penalty, ...). Do not burn the budget — no run
+                # happened — and point the model at the engine that CAN answer,
+                # rather than letting it read the refusal as "this idea failed".
+                budget.used -= 1
+                return (f"config-replay cannot faithfully score this diff: "
+                        f"{r.text[:700]}")
             r.raise_for_status()
             started = r.json()
             break

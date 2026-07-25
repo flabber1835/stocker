@@ -2889,3 +2889,93 @@ Two tests keep it honest: every schema field must be classified (a new field
 fails CI until someone decides), and an AST diff asserts the live and tunnel
 `greedy_select` / `compute_weights` call sites agree on kwargs — the check that
 would have caught the turnover-penalty gap the day it appeared.
+
+## Design Decision: the parity manifest covers BOTH simulators, and is checked against behaviour (2026-07)
+
+### The gap the manifest left
+
+The wind tunnel's manifest shipped the same day an external review pointed out
+that there are TWO systems answering "what would this config have done?" — and
+only one of them had a gate. Worse, the evaluator's interactive tool posts to the
+UNGATED one:
+
+```text
+services/evaluator/app/tools.py   run_backtest → BACKTESTER_URL/jobs/backtest-config
+                                                 (config-replay)
+                                  queue_strategy_experiment → the wind tunnel lane
+```
+
+`grep -c "parity\|coverage" services/backtester/app/*.py` returned **0**. So an
+evaluator sending `{"factor_engine.momentum_long_window": 500}` to `run_backtest`
+got back a clean summary with a Sharpe — computed by re-ranking factor_scores
+that production had calculated under the OLD momentum window. The parameter was
+silently dropped and a number was returned, which is the earnings-surprise
+failure exactly, in the service the LLM queries most.
+
+### Two declarations, one mechanism
+
+`shared/stock_strategy_shared/parity.py` now holds the ENGINE (verdicts,
+flattening, defaults, the check); each service holds only its DECLARATION.
+Two copies of an interpreting rule is the drift this system keeps hitting, and
+the two simulators genuinely model different subsets — config-replay's IGNORED
+set is much larger.
+
+**Baseline differs by design**, and this is the subtle part:
+
+```text
+wind tunnel    baseline = SCHEMA DEFAULTS. It recomputes everything from raw
+               data, so a field it ignores is unmodelled regardless of what
+               production was running.
+config-replay  baseline = the ACTIVE CONFIG. It re-ranks factor_scores that
+               PRODUCTION computed, so a candidate whose factor_engine matches
+               production IS correctly served by those stored values — only a
+               CHANGE to factor construction is unmodellable.
+```
+
+Comparing config-replay against schema defaults refuses the active config itself
+(its `momentum_method`, `pe_pb_cap` etc. all differ from defaults) — wrong, and
+the fastest way to get a gate switched off.
+
+`run_backtest` now maps the 422 to a message that names the wind tunnel, and does
+NOT burn a backtest budget slot — no run happened, and the model must not read a
+refusal as "this idea failed". Its tool description was also rewritten: it
+previously claimed to use "the live chain's own deterministic code", which is
+what steered the model into sending factor-construction diffs.
+
+### Checking the manifest against behaviour
+
+A manifest is a CLAIM. So was the old cache fingerprint ("this identifies the
+dataset"), and it was wrong for a long time because nothing checked it.
+
+`tests/parity/` runs config-replay's composer on one frozen, seeded point-in-time
+fixture and asserts, per declared field:
+
+```text
+HONOURED → changing it CHANGES the target
+IGNORED  → changing it leaves the target BIT-IDENTICAL
+```
+
+The second direction is the load-bearing one: an IGNORED declaration that is
+secretly honoured is merely over-cautious, while an HONOURED one that is secretly
+ignored is the original bug.
+
+**It found a real error on its first run.** `min_score_percentile` was declared
+IGNORED in BOTH manifests; it is applied inside `rank_universe`
+(`strategy_engine/rank.py:98`), the shared module both engines call, and moving
+it moved the target. Corrected to HONOURED in both.
+
+It also exposed a lesson about the harness itself: three of the first HONOURED
+probes passed for the wrong reason — the values chosen sat outside the binding
+range (a 0.15 position cap when every weight was already below it), so they tested
+the probe rather than the manifest. The fixture is now calibrated so each probe
+demonstrably binds, and `test_the_fixture_produces_a_real_target` asserts the
+base target fills the position cap so the comparisons cannot go vacuous.
+
+### What is deliberately NOT claimed
+
+This harness proves each simulator matches its OWN declaration. It does NOT yet
+prove the wind tunnel's target equals the LIVE builder's on identical inputs —
+that needs live's `_do_build` composition extracted from its DB coupling into a
+shared function both call, which is the same treatment `rank`/`select` already
+received. Until then live/tunnel parity rests on shared module identity plus the
+AST call-site diff, which is strong but not an output-equality proof.

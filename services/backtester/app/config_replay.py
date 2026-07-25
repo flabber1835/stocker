@@ -149,9 +149,18 @@ def build_target_for_date(
 ) -> list[dict]:
     """Re-rank + re-select for ONE rebalance date under `config`, returning
     [{ticker, weight}] (sums to <= 1.0; < 1.0 when cash_reserve / vol_target
-    de-levers). Composes the vendored rank_universe + builder select functions in
-    the SAME order and with the SAME parameters as portfolio-builder's _do_build.
-    Empty/degenerate selection → [] (the caller skips that date's period)."""
+    de-levers). Composes the shared rank_universe + builder select functions.
+
+    NOT the same as portfolio-builder's _do_build, despite sharing its modules —
+    an earlier version of this docstring claimed it was. The differences are
+    declared in app/parity.py and enforced at the endpoint; the load-bearing ones:
+      - NO exclusions are applied, not even the deterministic falling-knife veto
+        that live and the wind tunnel apply at selection;
+      - holdings-agnostic: no current_holdings, so turnover_penalty is inert;
+      - eligibility comes from price presence, not listing/delisting windows.
+    Empty/degenerate selection → [] (the caller SKIPS that date, which silently
+    extends the prior holding period — the wind tunnel distinguishes a degraded
+    build from a deliberately flat one; this cannot)."""
     pb = config.portfolio_builder
 
     # ── rank under this config ────────────────────────────────────────────────

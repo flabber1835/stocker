@@ -1269,13 +1269,42 @@ rather than scoring it as if the parameter were absent.
 The factor-coverage contract closed one instance; `turnover_penalty` was the same
 bug a layer up (live passed `current_holdings`/`turnover_penalty` into
 `greedy_select`, the simulator did not, so a nonzero penalty was scored as zero).
-`services/bt-engine/app/parity.py` declares every StrategyConfig field as
-HONOURED / PARTIAL / IGNORED with a reason; `check_config_parity` refuses (422) a
-config that sets an IGNORED field to a NON-DEFAULT value. `BT_PARITY_ENFORCE=false`
-downgrades to a log. Two tests keep it honest: every schema field must be
-classified (a new field fails CI until someone decides), and an AST diff asserts
-the live and tunnel `greedy_select`/`compute_weights` call sites pass the same
-kwargs.
+TWO simulators answer "what would this config have done?", so there are TWO
+declarations over ONE shared mechanism (`shared/stock_strategy_shared/parity.py`
+— a NEW shared module file, so `make build-base` FIRST):
+
+```text
+services/bt-engine/app/parity.py    the wind tunnel. Baseline = SCHEMA DEFAULTS
+                                    (it recomputes everything from raw data).
+                                    BT_PARITY_ENFORCE=false downgrades to a log.
+services/backtester/app/parity.py   config-replay. Baseline = the ACTIVE CONFIG,
+                                    because it re-ranks factor_scores PRODUCTION
+                                    computed — only a CHANGE to factor
+                                    construction is unmodellable. Comparing it to
+                                    schema defaults would refuse the active config
+                                    itself. BACKTESTER_PARITY_ENFORCE=false.
+```
+
+Each declares every StrategyConfig field HONOURED / PARTIAL / IGNORED with a
+reason; the check refuses (422) a config setting an IGNORED field away from the
+baseline. config-replay's IGNORED set is much larger — it applies NO exclusions
+(not even the deterministic falling-knife veto), is holdings-agnostic (so
+`turnover_penalty` is inert), infers eligibility from price presence, and above
+all does NOT recompute factors. The evaluator's `run_backtest` posts THERE, so
+that gate is what stops a factor-construction diff coming back with a Sharpe
+attached; a 422 refunds the budget slot and names the wind tunnel instead.
+
+Three guards: every schema field must be classified (a new field fails CI until
+someone decides); an AST diff asserts the live and tunnel
+`greedy_select`/`compute_weights` call sites pass the same kwargs; and
+`tests/parity/` runs config-replay's composer on a frozen fixture asserting
+HONOURED fields CHANGE the target and IGNORED fields leave it BIT-IDENTICAL.
+That last one caught `min_score_percentile` mis-declared IGNORED in both
+manifests (it is applied inside the shared `rank_universe`).
+
+NOT yet proven: that the wind tunnel's target equals the LIVE builder's on
+identical inputs. That needs live `_do_build`'s composition extracted from its DB
+coupling into a shared function, the same treatment rank/select already had.
 
 Also fixed in the same batch (docs/architecture.md "wind-tunnel fidelity batch"):
 

@@ -50,6 +50,8 @@ def _reload_strategy() -> None:
     except Exception as exc:  # noqa: BLE001 — keep the last-good config on a bad edit
         print(f"[backtester] config reload failed, keeping cached: {exc}")
 from pydantic import BaseModel
+from app.parity import check_config_parity
+from app.parity import enforcement_enabled as parity_enforcement_enabled
 from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 from stock_strategy_shared.tracing import log_step, write_trace_file, mark_orphaned_runs_failed, exc_text
@@ -800,6 +802,41 @@ async def start_backtest_job(
     return {"status": "started", "run_id": run_id, "trace_id": trace_id}
 
 
+def _enforce_parity(cfg: StrategyConfig) -> None:
+    """Refuse a candidate whose diff touches something config-replay cannot model.
+
+    422, not 400: the config is structurally VALID — this ENGINE cannot faithfully
+    score it. The distinction matters to the caller: a 400 says "you sent
+    nonsense", a 422 says "ask the wind tunnel instead".
+
+    Baseline is the ACTIVE config, not the schema defaults, because config-replay
+    re-ranks factor_scores that PRODUCTION computed: a candidate that leaves
+    factor_engine alone IS correctly served by those stored values, and only a
+    CHANGE to factor construction is unmodellable.
+
+    Without this, the evaluator's run_backtest tool — which posts here — got a
+    clean summary with a Sharpe for a diff the engine had silently dropped. That
+    is the same class as the earnings-surprise gap, in the service the LLM
+    actually queries interactively."""
+    try:
+        baseline, _h = load_strategy(STRATEGY_CONFIG_PATH)
+    except Exception:  # noqa: BLE001 — no active config to compare against
+        baseline = None
+    violations = check_config_parity(cfg, baseline=baseline)
+    if not violations:
+        return
+    detail = ("config-replay cannot faithfully score this candidate. "
+              + " ".join(violations)
+              + " Re-run it through the wind tunnel (queue_strategy_experiment), "
+                "which recomputes factors from raw prices and models holdings.")
+    if not parity_enforcement_enabled():
+        # A disabled gate that is also silent is the bug this exists to stop.
+        print(f"[backtester] PARITY VIOLATION (enforcement disabled): {detail}",
+              flush=True)
+        return
+    raise HTTPException(status_code=422, detail=detail)
+
+
 @app.post("/jobs/backtest-config")
 async def start_config_replay_job(req: ConfigReplayRequest, background_tasks: BackgroundTasks):
     """G1 — replay a CANDIDATE config over history (config-replay). Unlike
@@ -822,6 +859,8 @@ async def start_config_replay_job(req: ConfigReplayRequest, background_tasks: Ba
         cfg, cfg_hash = _resolve_replay_config(req.config_path, req.config)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"invalid config: {exc}")
+
+    _enforce_parity(cfg)
 
     async with _job_lock:
         async with engine.connect() as conn:

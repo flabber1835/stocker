@@ -17,6 +17,11 @@ DIFFERS FROM THE SCHEMA DEFAULT. Defaults are exempt on purpose: a field left at
 its default is not something the author asked for, so refusing on it would refuse
 every config for parameters nobody set.
 
+The MECHANISM lives in shared/stock_strategy_shared/parity.py — the backtester's
+config-replay declares its own (different, smaller) set against the same engine,
+and two copies of the interpreting logic is the drift this system keeps hitting.
+This module is the wind tunnel's DECLARATION.
+
 Three verdicts:
     HONOURED  the tunnel models it (or it provably cannot affect a simulation)
     PARTIAL   modelled with a stated limitation — allowed, but it is a caveat
@@ -30,14 +35,10 @@ from __future__ import annotations
 
 import os
 
+from stock_strategy_shared.parity import (HONOURED, IGNORED, PARTIAL,  # noqa: F401
+                                          ParityManifest)
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 
-HONOURED = "honoured"
-PARTIAL = "partial"
-IGNORED = "ignored"
-
-# Keys are dotted paths into the StrategyConfig dump. A bare section name
-# classifies every field under it that has no more specific entry.
 PARITY: dict[str, tuple[str, str]] = {
     # ── identity / documentation ──────────────────────────────────────────
     "strategy_id":  (HONOURED, "recorded on the run; affects nothing"),
@@ -73,9 +74,10 @@ PARITY: dict[str, tuple[str, str]] = {
     # ── ranking ──────────────────────────────────────────────────────────
     "max_positions": (HONOURED, "portfolio_builder.max_positions takes precedence"),
     "min_score_percentile": (
-        IGNORED,
-        "the tunnel selects from the candidate_count head by score and does not "
-        "apply a separate percentile floor"),
+        HONOURED,
+        "applied INSIDE rank_universe (the shared module both engines call), not "
+        "as a separate step afterwards — which is why it was mis-declared IGNORED "
+        "until the behavioural harness caught it moving the target"),
     "min_non_null_factors": (HONOURED, "rank_universe, shared module"),
     "min_non_null_factors_scope": (HONOURED, "passed to composite_scores"),
     "min_ranked": (
@@ -165,32 +167,6 @@ def enforcement_enabled() -> bool:
         not in ("false", "0", "no", "off")
 
 
-def _flatten(d: dict, prefix: str = "") -> dict:
-    out = {}
-    for k, v in (d or {}).items():
-        path = f"{prefix}{k}"
-        # Only descend ONE level: the manifest classifies sections and their
-        # immediate fields. Deeper structures (regimes, falling_knife) are
-        # classified by their parent, which is what the declarations say.
-        if isinstance(v, dict) and not prefix:
-            out[path] = v
-            for k2, v2 in v.items():
-                out[f"{path}.{k2}"] = v2
-        else:
-            out[path] = v
-    return out
-
-
-def verdict_for(path: str) -> tuple[str, str]:
-    """Most specific declaration wins; fall back to the section's."""
-    if path in PARITY:
-        return PARITY[path]
-    section = path.split(".", 1)[0]
-    if section in PARITY:
-        return PARITY[section]
-    return (IGNORED, "undeclared in the parity manifest")
-
-
 def _is_inert(path: str, cfg: StrategyConfig) -> bool:
     """Is an IGNORED field unable to bite GIVEN THE REST of this config?
 
@@ -205,83 +181,17 @@ def _is_inert(path: str, cfg: StrategyConfig) -> bool:
     return False
 
 
+
+MANIFEST = ParityManifest("this wind tunnel", PARITY, _is_inert)
+
+
+def verdict_for(path: str) -> tuple[str, str]:
+    return MANIFEST.verdict_for(path)
+
+
 def check_config_parity(cfg: StrategyConfig) -> list[str]:
-    """Violations: IGNORED fields set to something other than the schema default.
-
-    Comparing against the DEFAULT rather than flagging every ignored field is
-    what keeps this usable — a field nobody set is not a claim about behaviour,
-    and refusing on it would refuse every config ever written."""
-    defaults = _flatten(_default_dump())
-    actual = _flatten(cfg.model_dump(mode="json"))
-    out = []
-    for path, value in sorted(actual.items()):
-        # Sections are classified so their LEAVES inherit a verdict; the section
-        # itself is not a setting anyone chose, so it is never a violation.
-        if isinstance(value, dict):
-            continue
-        verdict, why = verdict_for(path)
-        if verdict != IGNORED:
-            continue
-        if path not in defaults:
-            continue          # no default to compare against (required field)
-        if defaults[path] == value:
-            continue          # left at default → not a claim about behaviour
-        if _is_inert(path, cfg):
-            continue
-        out.append(
-            f"'{path}' is set to {value!r} but the wind tunnel does not model it: "
-            f"{why}. Scoring this config would report a result for a strategy "
-            f"that differs from the one described.")
-    return out
-
-
-_DEFAULT_CACHE: dict | None = None
-
-
-def _default_dump() -> dict:
-    """A minimal VALID config, used only to read field defaults.
-
-    Built from the real schema rather than hand-listing defaults, so the manifest
-    cannot drift from them. Cached: constructing it is pure but not free, and
-    check_config_parity runs per candidate in a sweep."""
-    global _DEFAULT_CACHE
-    if _DEFAULT_CACHE is not None:
-        return _DEFAULT_CACHE
-    w = {"momentum": 0.4, "quality": 0.2, "value": 0.2, "growth": 0.1,
-         "low_volatility": 0.1}
-    regimes = {
-        "bull_calm": {"spy_above_slow_sma": True, "vol_above_threshold": False},
-        "bull_stress": {"spy_above_slow_sma": True, "vol_above_threshold": True},
-        "bear_stress": {"spy_above_slow_sma": False, "vol_above_threshold": True},
-        "bear_calm": {"spy_above_slow_sma": False, "vol_above_threshold": False},
-    }
-    cfg = StrategyConfig(
-        strategy_id="_parity_defaults",
-        universe={},
-        regime_detection={"regimes": regimes},
-        factor_weights={k: w for k in regimes},
-        static_factor_weights=w,
-        portfolio_builder={},
-        vetter={},
-    )
-    _DEFAULT_CACHE = cfg.model_dump(mode="json")
-    return _DEFAULT_CACHE
+    return MANIFEST.check(cfg)
 
 
 def unclassified_fields() -> list[str]:
-    """Every schema field must carry a declaration. Surfaced as a function so the
-    drift test and a future /health probe share one answer — a NEW config field
-    must fail CI until someone decides whether the tunnel honours it."""
-    problems = []
-    for path, value in sorted(_flatten(_default_dump()).items()):
-        # Sections are never violations (only their leaves are), so requiring a
-        # section-level declaration would be a rule with no consequence.
-        if isinstance(value, dict):
-            continue
-        if path in PARITY:
-            continue
-        section = path.split(".", 1)[0]
-        if section in PARITY:
-            continue
-        problems.append(path)
-    return problems
+    return MANIFEST.unclassified()
