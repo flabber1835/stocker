@@ -2424,11 +2424,11 @@ const _EVAL_VERDICT_COLOR = {
   insufficient_data: '#6B7280',
 };
 
-let _evalCurrent = null;      // report shown now (Apply needs its run_id)
-let _appliedChanges = [];     // config_changes audit rows (applied badges)
+// config_changes audit rows — rendered as the "Config changes applied" strip
+// (auto-promotions are the only path to the live config now).
+let _appliedChanges = [];
 
 function _renderEvalReport(rep) {
-  _evalCurrent = rep;
   const st = $('eval-status'), recs = $('eval-recs'),
         nar = $('eval-narrative'), meta = $('eval-meta');
   if (!rep) {
@@ -2458,7 +2458,6 @@ function _renderEvalReport(rep) {
     ' &middot; as of ' + _esc(rep.as_of_date) + (rep.manual ? ' &middot; manual run' : '') + '</span></div>';
 
   const items = rj.items || [];
-  let selectableCount = 0;   // valid, not-yet-applied single-field edits
   recs.innerHTML = items.length
     ? items.map((it, idx) => {
         // Three header shapes: a single-field edit (field → value), general
@@ -2476,7 +2475,7 @@ function _renderEvalReport(rep) {
           ? '<div style="font-weight:700">General advice' + chip + '</div>'
           : '<div style="font-weight:700">' + _esc(it.config_field) +
             ' <span style="opacity:.7">&rarr; ' + _esc(it.suggested_value) + '</span>' + chip +
-            (invalid ? ' <span class="eval-chip eval-chip-bad">unknown config field — not actionable</span>' : applyUi) +
+            (invalid ? ' <span class="eval-chip eval-chip-bad">unknown config field — not actionable</span>' : '') +
             '</div>';
         return '<div style="margin:8px 12px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;' +
           (invalid ? 'opacity:.55' : '') + '">' +
@@ -2507,6 +2506,35 @@ function _renderEvalReport(rep) {
           ? '<ul style="margin:6px 0 0 16px;opacity:.8">' + f.evidence.map(e => '<li>' + _esc(e) + '</li>').join('') + '</ul>'
           : '') +
         '</div>').join('');
+  }
+
+  // Auto-promotions: the ONLY way the live strategy changes now, so the owner
+  // has to be able to SEE them. _appliedChanges was fetched every load and then
+  // dropped on the floor once the Apply buttons (which consumed it) were
+  // removed — the audit trail existed but was invisible. Only status='applied'
+  // rows actually changed the config; the row is written 'pending' first.
+  const applied = (_appliedChanges || []).filter(c => c.status === 'applied');
+  if (applied.length) {
+    recs.innerHTML += '<div style="margin:14px 12px 4px;font-size:10px;font-weight:700;' +
+      'letter-spacing:.12em;text-transform:uppercase;color:var(--text2)">Config changes applied</div>' +
+      applied.slice(0, 8).map(c => {
+        const auto = c.applied_by === 'auto_promotion';
+        const nv = c.new_value || {};
+        const changes = nv.diff_vs_active && typeof nv.diff_vs_active === 'object'
+          ? Object.entries(nv.diff_vs_active).slice(0, 6)
+              .map(([k, v]) => k + ': ' + (v && v.from) + ' → ' + (v && v.to)).join(' · ')
+          : (c.config_field || '');
+        return '<div style="margin:8px 12px;padding:10px 12px;border:1px solid var(--border);' +
+          'border-left:3px solid var(--green);border-radius:8px">' +
+          '<div style="font-weight:700">' +
+          (auto ? 'Auto-promoted' : _esc(c.applied_by || 'manual')) +
+          ' <span style="opacity:.7;font-weight:400">' + _esc(String(c.applied_at || '').slice(0, 16)) +
+          ' · ' + _esc(c.config_hash_before || '') + ' → ' + _esc(c.config_hash_after || '') +
+          '</span></div>' +
+          (changes ? '<div style="margin-top:4px">' + _esc(changes) + '</div>' : '') +
+          (nv.hypothesis ? '<div style="margin-top:4px;opacity:.8">' + _esc(nv.hypothesis) + '</div>' : '') +
+          '</div>';
+      }).join('');
   }
 
   nar.innerHTML = '<div style="padding:4px 12px">' + _mdToHtml(rep.report_markdown || '') + '</div>';
@@ -2580,7 +2608,15 @@ async function loadEvaluator() {
       }, 15000);
     }
   } catch (e) {
-    $('eval-status').textContent = 'Evaluator unreachable: ' + e;
+    // Distinguish "the service is down" from "this UI threw while rendering".
+    // A ReferenceError/TypeError here is OUR bug — reporting it as "Evaluator
+    // unreachable" sent the owner looking at a service that was perfectly fine
+    // (a leftover `applyUi` reference did exactly that after the one-click
+    // apply was removed).
+    const uiBug = (e instanceof ReferenceError) || (e instanceof TypeError);
+    $('eval-status').textContent = uiBug
+      ? ('Dashboard render error (the evaluator service is fine — this is a UI bug): ' + e)
+      : ('Evaluator unreachable: ' + e);
   }
 }
 
