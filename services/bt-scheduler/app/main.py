@@ -413,7 +413,11 @@ async def _experiment_snapshot(client: httpx.AsyncClient, now: datetime) -> dict
                "promotion": (e.get("promotion") or {}).get("reason"),
                "completed_at": e.get("completed_at")}
               for e in exps if e.get("status") in ("success", "failed")][-5:]
+    # The cap counts CANDIDATES only (a baseline tests no hypothesis). Report
+    # baseline fires separately rather than hiding them — "0/5 fired" next to a
+    # busy lane would look broken.
     n_fired = fired_this_week(exps, now.date())
+    n_baseline = fired_this_week(exps, now.date(), kinds=("baseline",))
     next_fire = _next_experiment_fire(now)
     promo = _bt_json("promotion.json")
     return {
@@ -428,6 +432,7 @@ async def _experiment_snapshot(client: httpx.AsyncClient, now: datetime) -> dict
         "recent": recent,
         "next_fire_local": next_fire,
         "fired_this_week": n_fired,
+        "baselines_this_week": n_baseline,
         "week_cap": EXPERIMENTS_PER_WEEK,
         "window_years": EXPERIMENT_RECENT_YEARS,
         "validate_months": EXPERIMENT_VALIDATE_MONTHS,

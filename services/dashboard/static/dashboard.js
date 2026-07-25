@@ -2733,8 +2733,13 @@ function renderLab(d) {
       }
       h += `<div class="lab-note">thesis: ${esc(ex.running.hypothesis)}</div>`;
     } else {
+      // The weekly cap counts CANDIDATES only — a baseline re-measures the live
+      // config and spends no statistical budget. Show baseline fires alongside
+      // so a busy lane never reads as "0/5 fired".
+      const nb = ex.baselines_this_week || 0;
       h += `<div class="lab-line lab-dim">none running · next slot ${esc(ex.next_fire_local)} ` +
-           `· ${esc(ex.fired_this_week)}/${esc(ex.week_cap)} fired this week · ` +
+           `· ${esc(ex.fired_this_week)}/${esc(ex.week_cap)} candidates fired this week` +
+           (nb ? ` (+${esc(nb)} baseline${nb > 1 ? 's' : ''})` : '') + ' · ' +
            `${esc(ex.window_years)}y tune + ${esc(ex.validate_months)}mo hold-out</div>`;
     }
     if (ex.schedule && ex.schedule.length) {

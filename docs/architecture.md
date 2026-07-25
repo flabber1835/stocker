@@ -2216,6 +2216,13 @@ system still *looks* busy. Both are now regression-tested:
    windows; because that pins the comparison in time, `baseline_is_valid`
    retires the yardstick once its `validate_end` is older than
    `BT_BASELINE_MAX_AGE_DAYS` (default 30) and the lane re-measures it.
+   `BT_EXPERIMENTS_PER_WEEK` counts CANDIDATE fires only: the cap bounds
+   multiple testing against our one shared history, and a baseline re-measures
+   the config already live — no new hypothesis, no DSR to deflate. Counting it
+   meant every yardstick re-run silently ate a candidate slot (and while the
+   lane was re-firing the baseline daily it burned the whole weekly budget on
+   runs that tested nothing). `/experiments` reports `baselines_this_week`
+   separately so a busy lane never reads as "0/5 fired".
 3. *The next review must see the outcome.* The gate's verdict
    (`promotion.eligible` / `.reason`), the tune/validate `windows`, and the
    `config_hash` are surfaced in the `experiment_lane` packet section, and

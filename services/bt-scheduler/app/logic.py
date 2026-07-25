@@ -103,13 +103,27 @@ def experiment_due(now_local: datetime, hour: int = 22) -> bool:
     return now_local.hour >= hour
 
 
-def fired_this_week(experiments: list[dict], today: date) -> int:
+CANDIDATE_KINDS = ("full_config",)
+
+
+def fired_this_week(experiments: list[dict], today: date,
+                    kinds: tuple[str, ...] | None = CANDIDATE_KINDS) -> int:
     """How many experiment-lane runs were FIRED in `today`'s ISO week (the
     weekly statistical budget). Counts fires, not completions — a failed run
-    still spent a draw against the one shared history."""
+    still spent a draw against the one shared history.
+
+    Only CANDIDATE fires count by default. The cap exists to bound multiple
+    testing against our one shared price history, and a BASELINE is not a draw:
+    it re-measures the config already live, tests no new hypothesis and deflates
+    no DSR. Counting it meant every yardstick re-run silently ate a candidate
+    slot — and while the lane was re-firing the baseline daily (the windows-key
+    bug) it burned the whole weekly budget on runs that tested nothing. Pass
+    kinds=None to count every fire."""
     wk = today.isocalendar()[:2]
     n = 0
     for e in experiments or []:
+        if kinds is not None and e.get("kind") not in kinds:
+            continue
         fired = e.get("fired_at")
         if not fired:
             continue

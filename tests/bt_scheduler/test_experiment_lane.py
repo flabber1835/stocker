@@ -14,8 +14,8 @@ def test_experiment_due_at_or_after_hour_any_day():
     assert experiment_due(datetime(2026, 7, 22, 21, 59, tzinfo=ET), 22) is False
 
 
-def _e(fired, status="success"):
-    return {"fired_at": fired, "status": status}
+def _e(fired, status="success", kind="full_config"):
+    return {"fired_at": fired, "status": status, "kind": kind}
 
 
 def test_fired_this_week_counts_iso_week_fires_only():
@@ -25,7 +25,7 @@ def test_fired_this_week_counts_iso_week_fires_only():
         _e("2026-07-21T22:00:00-04:00", "failed"), # Tue this week — failures count
         _e("2026-07-17T22:00:00-04:00"),           # Fri LAST week
         _e(None),                                  # never fired — ignored
-        {"status": "running"},                     # no fired_at — ignored
+        {"status": "running", "kind": "full_config"},   # no fired_at — ignored
         _e("garbage-timestamp"),                   # unparsable — ignored
     ]
     assert fired_this_week(exps, today) == 2
@@ -34,6 +34,24 @@ def test_fired_this_week_counts_iso_week_fires_only():
 def test_fired_this_week_empty():
     assert fired_this_week([], date(2026, 7, 22)) == 0
     assert fired_this_week(None, date(2026, 7, 22)) == 0
+
+
+def test_baseline_fires_do_not_spend_the_weekly_candidate_budget():
+    """The weekly cap bounds MULTIPLE TESTING against our one shared history. A
+    baseline re-measures the config already live — no new hypothesis, no DSR to
+    deflate — so it is not a draw. Counting it meant every yardstick re-run ate
+    a candidate slot, and while the lane was re-firing the baseline daily (the
+    windows-key bug) it burned the entire weekly budget on runs that tested
+    nothing."""
+    today = date(2026, 7, 25)                      # ISO week 2026-W30 (Sat)
+    wasted = [_e("2026-07-22T22:00:00-04:00", kind="baseline"),
+              _e("2026-07-23T22:00:00-04:00", kind="baseline"),
+              _e("2026-07-24T22:00:00-04:00", kind="baseline")]
+    assert fired_this_week(wasted, today) == 0, "baseline re-runs still eat slots"
+    # …a real candidate still counts, and kinds=None restores the raw total
+    mixed = wasted + [_e("2026-07-24T22:00:00-04:00")]
+    assert fired_this_week(mixed, today) == 1
+    assert fired_this_week(mixed, today, kinds=None) == 4
 
 
 def test_config_diff_dotted_paths_and_asymmetry():
