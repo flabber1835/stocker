@@ -378,9 +378,19 @@ volume keeps its namespace. To bring up BOTH stacks with one command use
 `restart: unless-stopped`, so once up they survive NAS reboots; they only stay
 down after an explicit stop/down.
 
-Run `docker compose down --remove-orphans` once after pulling a new compose
-file to evict containers whose service definitions were removed/renamed —
-without this they stick around as ghost containers in `docker compose ps`.
+`scripts/down.sh` is the counterpart (`live` / `backtest` / `both`, default
+both). It enforces two things a raw `docker compose down` does not:
+`--volumes`/`-v` is REFUSED outright (it would delete the trading database and
+the 35M-row Sharadar corpus), and taking the backtest stack down while a
+bt-data fetch or a bt-engine sweep is RUNNING is blocked unless `--force` is
+passed — recreating those containers mid-job kills the job. Use
+`scripts/down.sh live` to restart the trading stack while an experiment keeps
+running. Like up.sh, one stack failing never stops the other.
+
+Run `scripts/down.sh --remove-orphans` (or `docker compose down
+--remove-orphans`) once after pulling a new compose file to evict containers
+whose service definitions were removed/renamed — without this they stick
+around as ghost containers in `docker compose ps`.
 
 `alpaca-sync` and `trade-executor` default `ALPACA_BASE_URL` to
 `https://paper-api.alpaca.markets`; without `ALPACA_API_KEY` set, both
