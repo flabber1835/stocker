@@ -1364,7 +1364,7 @@ def _experiment_lane() -> dict:
     # join key back to experiment_queue.
     view = [{k: e.get(k) for k in ("id", "kind", "status", "hypothesis",
                                    "config_hash", "diff_vs_active", "windows",
-                                   "fired_at", "completed_at", "result",
+                                   "regime", "fired_at", "completed_at", "result",
                                    "promotion")} for e in exps[-20:]]
     baseline = next((e for e in reversed(exps)
                      if e.get("kind") == "baseline"
@@ -1469,7 +1469,8 @@ def _experiment_queue() -> dict:
     recent = []
     for e in entries[-15:]:
         row = {k: v for k in ("id", "kind", "status", "origin", "hypothesis",
-                              "config_hash", "queued_against_config_hash", "queued_at")
+                              "regime", "config_hash",
+                              "queued_against_config_hash", "queued_at")
                if (v := e.get(k)) is not None}
         qa = e.get("queued_against_config_hash")
         if qa and active_hash and e.get("status") == "pending":

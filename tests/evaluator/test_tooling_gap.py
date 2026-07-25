@@ -28,4 +28,21 @@ def test_disabled_web_search_is_named_in_system_prompt(monkeypatch):
 def test_available_web_search_gets_no_unavailable_note(monkeypatch):
     monkeypatch.setattr(tools, "TAVILY_API_KEY", "tvly-test")
     system = agent.build_system_prompt()
-    assert "UNAVAILABLE" not in system
+    # scoped to THIS tool: there is more than one key-gated tool now, and a
+    # bare "UNAVAILABLE not in system" would fail whenever any other is off
+    assert "web_search EXISTS but is UNAVAILABLE" not in system
+
+
+def test_disabled_bt_sql_is_named_in_system_prompt(monkeypatch):
+    """Same contract as web_search: the model cannot miss what it was never
+    told about, so a gated-off tool is named and routed to tooling_gap."""
+    monkeypatch.setattr(tools, "BT_DATABASE_URL", "")
+    system = agent.build_system_prompt()
+    assert "bt_sql_query EXISTS but is UNAVAILABLE" in system
+    assert "tooling_gap" in system
+
+
+def test_available_bt_sql_gets_no_unavailable_note(monkeypatch):
+    monkeypatch.setattr(tools, "BT_DATABASE_URL", "postgresql+asyncpg://u:p@h/db")
+    system = agent.build_system_prompt()
+    assert "bt_sql_query EXISTS but is UNAVAILABLE" not in system

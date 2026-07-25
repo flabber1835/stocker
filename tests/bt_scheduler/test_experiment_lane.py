@@ -351,3 +351,54 @@ def test_engine_busy_is_none_when_the_engine_is_idle():
     snap = asyncio.run(m._experiment_snapshot(
         _Client(), datetime(2026, 7, 25, 13, 0, tzinfo=ET)))
     assert snap["engine_busy"] is None
+
+
+# ── named stress regimes (docs/architecture.md "named stress regimes") ────────
+
+def test_regime_windows_are_fixed_and_split_into_two_spans():
+    from datetime import date
+
+    from app.logic import STRESS_REGIMES, regime_windows
+    w, why = regime_windows("gfc_2008", date(2005, 1, 3))
+    assert why == "ok"
+    assert w == {"tune_start": "2007-10-01", "tune_end": "2008-10-01",
+                 "validate_start": "2008-10-01", "validate_end": "2009-06-30"}
+    # every regime must be well-formed: start < split < end, no overlap
+    for name, spec in STRESS_REGIMES.items():
+        s, sp, e = (date.fromisoformat(spec[k]) for k in ("start", "split", "end"))
+        assert s < sp < e, f"{name} spans are not ordered"
+        assert spec["stresses"], f"{name} has no stated failure mode"
+
+
+def test_unknown_regime_is_refused_not_guessed():
+    from app.logic import regime_windows
+    w, why = regime_windows("financial_crisis", None)
+    assert w is None and "unknown regime" in why
+
+
+def test_regime_inside_the_factor_warmup_runway_is_refused():
+    """A window starting before the 12-1 momentum + 200d SMA lookback has
+    warmed up would silently measure a momentum-only composite — something
+    other than the strategy."""
+    from datetime import date
+
+    from app.logic import regime_windows
+    w, why = regime_windows("gfc_2008", date(2007, 6, 1))
+    assert w is None and "warm-up" in why
+    # …and is accepted once the data clears the runway
+    assert regime_windows("gfc_2008", date(2006, 1, 1))[0] is not None
+
+
+def test_a_regime_run_can_never_promote():
+    """THE safety property. A regime's two spans are crash/recovery halves, not
+    a tune/hold-out pair — comparing them through the gate would be meaningless,
+    and letting one promote would apply a config selected on a hand-picked
+    historical period."""
+    import inspect
+
+    from app import main as m
+    src = inspect.getsource(m._experiment_lane)
+    assert 'if e.get("regime"):' in src, "the gate no longer short-circuits regime runs"
+    idx_regime = src.index('if e.get("regime"):')
+    idx_gate = src.index("promotion_eligible_2w")
+    assert idx_regime < idx_gate, "the regime check must precede the promotion gate"

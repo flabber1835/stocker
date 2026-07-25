@@ -146,6 +146,7 @@ def test_tool_addendum_names_the_real_config_change_tool(monkeypatch):
     # web_search is key-gated; enable it so the full surface is compared (its
     # absence is separately announced by WEB_SEARCH_UNAVAILABLE_NOTE).
     monkeypatch.setattr(tools, "TAVILY_API_KEY", "test-key")
+    monkeypatch.setattr(tools, "BT_DATABASE_URL", "postgresql+asyncpg://u:p@h/db")
     names = {t["name"] for t in tools.tool_definitions()}
     assert "queue_strategy_experiment" in TOOLS_ADDENDUM
     assert "queued automatically" not in TOOLS_ADDENDUM

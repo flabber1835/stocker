@@ -260,6 +260,68 @@ def experiment_windows(today: date, recent_years: float, validate_months: int,
             "validate_end": validate_end.isoformat()}
 
 
+# ── Named stress regimes (docs/architecture.md "named stress regimes") ───────
+# A FIXED, pre-registered set. The evaluator requests a regime by NAME and can
+# never supply raw dates: the DSR machinery deflates for how many CONFIGS were
+# tried, not how many PERIODS, so a model free to choose both searches two
+# dimensions while penalised on one. Each entry targets a DISTINCT failure mode.
+#
+# `split` cuts the window into two NON-overlapping spans carried as the existing
+# tune/validate fields. They are NOT a tune/hold-out pair — a regime run can
+# never promote (see _experiment_lane) — they are crash-then-recovery halves.
+STRESS_REGIMES: dict[str, dict] = {
+    "gfc_2008": {
+        "start": "2007-10-01", "split": "2008-10-01", "end": "2009-06-30",
+        "stresses": "credit crisis, -55% market, and the March-2009 momentum "
+                    "crash — the worst episode in history for a momentum book",
+    },
+    "covid_2020": {
+        "start": "2020-01-02", "split": "2020-04-01", "end": "2020-09-30",
+        "stresses": "fastest -34% on record then a V — maximally adverse for a "
+                    "drawdown veto, which sells the bottom and blocks re-entry",
+    },
+    "bear_2022": {
+        "start": "2022-01-03", "split": "2022-07-01", "end": "2023-01-31",
+        "stresses": "rate-shock grind and growth->value rotation; a slow bleed "
+                    "rather than a crash, so it tests rotation not survival",
+    },
+    "energy_shock_2015": {
+        "start": "2015-06-01", "split": "2015-12-01", "end": "2016-03-31",
+        "stresses": "oil -70% sector blowup — sector-concentration risk",
+    },
+    "volmageddon_2018": {
+        "start": "2018-01-02", "split": "2018-10-01", "end": "2019-01-31",
+        "stresses": "Feb-2018 vol spike plus the Q4 drawdown; tests "
+                    "low_volatility and the vol-scaled falling-knife threshold",
+    },
+}
+
+# Factor warm-up the sim needs before a window can mean anything: 12-1 momentum
+# (~252 sessions) plus the 200-day regime SMA, with slack. A regime starting
+# inside this runway would silently produce a momentum-only composite.
+REGIME_WARMUP_DAYS = 400
+
+
+def regime_windows(name: str, earliest: date | None = None
+                   ) -> tuple[dict | None, str]:
+    """Fixed windows for a named stress regime, or (None, reason).
+
+    `earliest` is the earliest viable data start from bt-data coverage; a regime
+    whose start does not clear it by REGIME_WARMUP_DAYS is REFUSED rather than
+    run on a half-warm factor set. Pure."""
+    spec = STRESS_REGIMES.get(str(name or ""))
+    if not spec:
+        return None, (f"unknown regime {name!r} — choose one of "
+                      f"{', '.join(sorted(STRESS_REGIMES))}")
+    start = date.fromisoformat(spec["start"])
+    if earliest is not None and (start - earliest).days < REGIME_WARMUP_DAYS:
+        return None, (f"regime {name} starts {start} but data only begins "
+                      f"{earliest}; needs {REGIME_WARMUP_DAYS}d of factor "
+                      "warm-up (12-1 momentum + 200d regime SMA)")
+    return {"tune_start": spec["start"], "tune_end": spec["split"],
+            "validate_start": spec["split"], "validate_end": spec["end"]}, "ok"
+
+
 def _cagr(summary: dict | None) -> float | None:
     if not summary:
         return None

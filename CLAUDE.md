@@ -1258,6 +1258,23 @@ tools are for drill-down and testing a thesis BEFORE recommending it:
     0041): thesis → planned test → status/outcome. The ONE write tool, scoped to
     its own table; read back as a deterministic packet section every review.
     Budget EVALUATOR_MAX_LEDGER_WRITES (6).
+  bt_sql_query — read-only SELECTs on the WIND TUNNEL's RESULTS tables
+    (bt_sweeps, bt_sweep_results, bt_sweep_aggregates, bt_runs, bt_equity,
+    bt_positions, bt_trades) so a review can explain WHY a candidate won and
+    diagnose a failing lane itself, instead of only seeing summary numbers
+    crossing the artifact bridge. Python-side ALLOWLIST; the raw corpus
+    (bt_prices ~35M rows, bt_fundamentals) is deliberately unreachable — ad-hoc
+    mining of 20 years bypasses the backtest_trials accounting that deflates the
+    DSR. Reaches bt-postgres via its published host port (BT_DATABASE_URL);
+    unset or unreachable ⇒ the tool disappears and the prompt says so.
+queue_strategy_experiment also takes an OPTIONAL `regime`: a NAMED historical
+crisis (gfc_2008, covid_2020, bear_2022, energy_shock_2015, volmageddon_2018)
+scored instead of the rolling recent window. Raw date ranges are NOT offered —
+choosing both the config and the period searches two dimensions while the DSR
+penalises one. A regime run is DIAGNOSTIC ONLY and can never promote (its two
+spans are crash/recovery halves, not a tune/hold-out pair); a regime starting
+inside the factor warm-up runway is refused. See docs/architecture.md "named
+stress regimes".
 The packet also carries `backtest_lab` — the one-way results bridge from the
 isolated backtest stack (artifacts/bt/latest_sweep.json, written by
 bt-scheduler): the latest walk-forward sweep leaderboard, decision-grade

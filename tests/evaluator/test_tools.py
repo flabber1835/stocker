@@ -218,3 +218,66 @@ def test_tools_addendum_carries_investigation_guidance():
     assert "WHERE sync_run_id = (SELECT run_id FROM alpaca_sync_runs" in A
     assert "SCHEMA CHEAT-SHEET" in A and "backtest_runs(" in A
     assert "no connectivity pings (SELECT 1)" in A
+
+
+# ── bt_sql_query: read-only window into the WIND TUNNEL's results ────────────
+
+def test_bt_allowlist_permits_results_tables():
+    from app.tools import bt_table_guard
+    for q in ("SELECT status, error_message FROM bt_sweeps ORDER BY started_at DESC",
+              "SELECT ticker, weight FROM bt_positions WHERE run_id = 'x'",
+              "WITH r AS (SELECT run_id FROM bt_runs LIMIT 1) "
+              "SELECT * FROM bt_trades t, r WHERE t.run_id = r.run_id"):
+        assert bt_table_guard(q) is None, q
+
+
+def test_bt_allowlist_blocks_the_raw_corpus():
+    """The 35M-row price table and the fundamentals are deliberately out of
+    reach: ad-hoc mining of 20 years of history bypasses the backtest_trials
+    accounting that deflates the DSR, and an unbounded scan contends with a
+    running sweep."""
+    from app.tools import bt_table_guard
+    for q, bad in (("SELECT * FROM bt_prices", "bt_prices"),
+                   ("SELECT * FROM bt_fundamentals", "bt_fundamentals"),
+                   ("SELECT p.close FROM bt_positions x JOIN bt_prices p "
+                    "ON p.ticker = x.ticker", "bt_prices")):
+        err = bt_table_guard(q)
+        assert err and bad in err, q
+
+
+def test_bt_query_must_name_a_wind_tunnel_table():
+    from app.tools import bt_table_guard
+    assert bt_table_guard("SELECT 1") is not None
+
+
+def test_bt_tool_absent_without_a_dsn(monkeypatch):
+    """Best-effort like web_search: a review must never fail because the
+    backtest machine is down."""
+    import app.tools as tools
+    monkeypatch.setattr(tools, "BT_DATABASE_URL", "")
+    assert "bt_sql_query" not in {t["name"] for t in tools.tool_definitions()}
+    monkeypatch.setattr(tools, "BT_DATABASE_URL", "postgresql+asyncpg://u:p@h/db")
+    assert "bt_sql_query" in {t["name"] for t in tools.tool_definitions()}
+
+
+def test_bt_query_without_dsn_returns_a_message_not_an_exception(monkeypatch):
+    import asyncio
+
+    import app.tools as tools
+    monkeypatch.setattr(tools, "BT_DATABASE_URL", "")
+    out = asyncio.run(tools.bt_sql_query({"query": "SELECT * FROM bt_sweeps"}))
+    assert "unavailable" in out
+
+
+def test_bt_query_reuses_the_read_only_sql_guards(monkeypatch):
+    """Writes and multi-statement injection must be refused before the
+    allowlist is even consulted."""
+    import asyncio
+
+    import app.tools as tools
+    monkeypatch.setattr(tools, "BT_DATABASE_URL", "postgresql+asyncpg://u:p@h/db")
+    for q in ("DELETE FROM bt_sweeps",
+              "SELECT * FROM bt_sweeps; DROP TABLE bt_runs",
+              "UPDATE bt_runs SET status='x'"):
+        out = asyncio.run(tools.bt_sql_query({"query": q}))
+        assert out.startswith("query rejected"), (q, out)

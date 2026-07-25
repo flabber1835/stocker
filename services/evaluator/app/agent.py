@@ -60,6 +60,14 @@ TOOLS. You can now INVESTIGATE before concluding. Available tools:
   changes + biggest movers vs the active ranking. Use it BEFORE spending a run_backtest
   slot; a diff that barely moves the ranking is not worth a backtest. Rank-level only
   (no builder caps / vetter) — a promising preview still needs run_backtest to confirm.
+- bt_sql_query: read-only SELECTs on the WIND TUNNEL's results DB — bt_sweeps
+  (why a run died, how long it ran), bt_sweep_results, bt_runs, bt_equity (the
+  daily equity/drawdown path), bt_positions (what a run actually HELD), bt_trades
+  (every fill, with reason). Use it to explain a candidate's result rather than
+  quoting four summary numbers, and to diagnose a failing lane yourself instead
+  of only reporting that it failed. The raw price/fundamental corpus is NOT
+  reachable — mining 20 years of history ad hoc would bypass the trials
+  accounting that deflates your DSR.
 - sql_query: read-only SELECTs on the live DB — drill into any packet anomaly (a factor's
   IC, a specific trade, what a dropped name did next) instead of speculating.
 - read_file: read the actual source/docs/strategies — ground structural findings in the
@@ -80,6 +88,13 @@ TOOLS. You can now INVESTIGATE before concluding. Available tools:
   Results — including the promotion gate's verdict and reason — arrive in the
   experiment_lane packet section, typically within days. Pair important ones with a
   ledger entry so the thesis survives until results arrive.
+  OPTIONAL `regime`: score the candidate over a fixed historical crisis
+  (gfc_2008, covid_2020, bear_2022, energy_shock_2015, volmageddon_2018) instead
+  of the rolling recent window. DIAGNOSTIC ONLY — a regime run can NEVER promote,
+  because its two spans are crash/recovery halves, not a tune/hold-out pair. It
+  answers "how does this behave when the market breaks?", which the rolling
+  window cannot: the hold-out is drawn from the same era as the tune window, so
+  neither has ever seen a crisis. Raw date ranges are deliberately not offered.
 - web_search: external context (macro, factor literature). Sparing use; packet/SQL
   evidence outranks it.
 
@@ -134,12 +149,23 @@ materially improved this review, say so in a structural finding with category
 it silently."""
 
 
+BT_SQL_UNAVAILABLE_NOTE = """
+
+NOTE: bt_sql_query EXISTS but is UNAVAILABLE this run (no BT_DATABASE_URL, or the
+backtest machine is unreachable) — it is not in your tool list. You therefore
+cannot inspect what a wind-tunnel run HELD or why it died; the experiment_lane
+packet section's summary numbers are all you have. If that materially limited
+this review, say so in a structural finding with category "tooling_gap"."""
+
+
 def build_system_prompt() -> str:
     """SYSTEM_PROMPT + tool addendum + availability notes for disabled tools.
     Module-attribute read (not a cached import) so tests/env changes are honored."""
     system = SYSTEM_PROMPT + TOOLS_ADDENDUM
     if not _tools_mod.TAVILY_API_KEY:
         system += WEB_SEARCH_UNAVAILABLE_NOTE
+    if not _tools_mod.BT_DATABASE_URL:
+        system += BT_SQL_UNAVAILABLE_NOTE
     return system
 
 

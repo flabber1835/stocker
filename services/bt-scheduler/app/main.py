@@ -33,7 +33,7 @@ from fastapi import FastAPI
 
 from app.logic import (artifact_needed, baseline_is_valid, build_schedule,
                        derive_windows, experiment_due, experiment_windows,
-                       fired_this_week, promotion_eligible_2w,
+                       fired_this_week, promotion_eligible_2w, regime_windows,
                        sweep_due, sweep_needed, topup_due)
 
 BT_DATA_URL = os.getenv("BT_DATA_URL", "http://bt-data:8000")
@@ -215,8 +215,17 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
               f"(tune CAGR={(row.get('in_sample') or {}).get('annualized_return')}, "
               f"validate CAGR={(row.get('out_sample') or {}).get('annualized_return')})")
 
-        # 2. Deterministic auto-promotion (paper mode). Baseline never promotes.
-        if e["status"] == "success" and e.get("kind") == "full_config":
+        # 2. Deterministic auto-promotion (paper mode). Baseline never promotes,
+        # and NEITHER DOES A STRESS-REGIME RUN: its windows are a fixed historical
+        # crisis, not the rolling tune/hold-out the gate is defined against, and
+        # its two spans are crash/recovery halves rather than a hold-out pair.
+        # Regime results are diagnostic — they feed findings and the ledger.
+        if e.get("regime"):
+            e["promotion"] = {"eligible": False,
+                              "reason": f"stress regime {e['regime']} — diagnostic "
+                                        "only, never promotable"}
+            changed = True
+        elif e["status"] == "success" and e.get("kind") == "full_config":
             base_entry = next((b for b in reversed(exps)
                                if b.get("kind") == "baseline"
                                and b.get("status") == "success"), None)
@@ -298,11 +307,24 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
                 # changed, so what is tested is exactly what may go live.
                 p = pend_full[0]
                 payload["config"] = p["config"]
+                cand_windows, regime = windows, p.get("regime")
+                if regime:
+                    # Fixed historical crisis instead of the rolling window. A
+                    # refused regime (unknown name, or starting inside the factor
+                    # warm-up runway) must not silently fall back to the rolling
+                    # window — that would label a normal run as a stress test.
+                    rw, why = regime_windows(regime, evs)
+                    if rw is None:
+                        _note(f"regime {regime} refused: {why}")
+                        _mark_full_proposal(p.get("id"), "invalid")
+                        return
+                    cand_windows = rw
+                    payload.update(rw)
                 entry = {"id": p.get("id"), "kind": "full_config",
                          "hypothesis": p.get("hypothesis"),
-                         "diff_vs_active": p.get("diff"),
+                         "diff_vs_active": p.get("diff"), "regime": regime,
                          "config": p.get("config"), "config_hash": p.get("config_hash"),
-                         "windows": windows, "proposal_id": p.get("id")}
+                         "windows": cand_windows, "proposal_id": p.get("id")}
         if entry is None:
             return
         try:

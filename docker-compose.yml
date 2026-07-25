@@ -550,6 +550,18 @@ services:
       EVALUATOR_MAX_TOOL_TURNS: ${EVALUATOR_MAX_TOOL_TURNS:-24}
       EVALUATOR_MAX_BACKTESTS: ${EVALUATOR_MAX_BACKTESTS:-3}
       EVALUATOR_MAX_QUEUED_EXPERIMENTS: ${EVALUATOR_MAX_QUEUED_EXPERIMENTS:-4}
+      # READ-ONLY window into the wind tunnel's RESULTS tables (bt_sweeps,
+      # bt_runs, bt_equity, bt_positions, bt_trades) so a review can ask WHY a
+      # candidate won or why a run died — it could previously only see
+      # error_message strings crossing the artifact bridge. bt-postgres already
+      # publishes host port 5434, so this needs no shared docker network and no
+      # change to the backtest stack: the isolation decision (separate compose
+      # projects, no lifecycle coupling) is unaffected, and a read-only
+      # connection can neither trigger runs nor recreate containers. Unset the
+      # variable and the tool simply disappears from the toolset.
+      BT_DATABASE_URL: ${BT_DATABASE_URL:-postgresql+asyncpg://btuser:${BT_POSTGRES_PASSWORD:-btpass}@host.docker.internal:5434/backtest}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./artifacts:/artifacts
       - ./strategies:/strategies:ro

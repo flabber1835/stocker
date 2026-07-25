@@ -46,6 +46,11 @@ TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 TAVILY_BASE = os.getenv("TAVILY_BASE_URL", "https://api.tavily.com/search")
 REPO_ROOT = os.getenv("EVALUATOR_REPO_ROOT", "/repo")
 
+# Wind-tunnel results DB (read-only). Unset => the tool is absent, exactly like
+# web_search without a Tavily key — a review must never fail because the
+# backtest machine is down.
+BT_DATABASE_URL = os.getenv("BT_DATABASE_URL", "")
+
 MAX_BACKTESTS = int(os.getenv("EVALUATOR_MAX_BACKTESTS", "3"))
 BACKTEST_POLL_SECS = float(os.getenv("EVALUATOR_BACKTEST_POLL_SECS", "5"))
 # Submit-phase deadline (waiting out a 409-busy backtester before giving up).
@@ -198,10 +203,49 @@ def tool_definitions() -> list[dict]:
                            "description": "complete StrategyConfig as JSON (start from the active config and modify)"},
                 "hypothesis": {"type": "string",
                                "description": "what you expect and WHY — the thesis this candidate tests"},
+                "regime": {"type": "string", "enum": sorted(STRESS_REGIMES),
+                           "description": (
+                               "OPTIONAL. Score this candidate over a fixed "
+                               "historical crisis instead of the rolling recent "
+                               "window. DIAGNOSTIC ONLY — a regime run can NEVER "
+                               "promote, because its windows are a crash/recovery "
+                               "split, not a tune/hold-out pair. Use it to ask "
+                               "'how does this behave when the market breaks?'. "
+                               "Raw date ranges are deliberately not offered: "
+                               "choosing both the config and the period searches "
+                               "two dimensions while the DSR penalises one. "
+                               + " | ".join(f"{k}: {v['stresses']}"
+                                            for k, v in sorted(STRESS_REGIMES.items())))},
             },
             "required": ["config", "hypothesis"],
         },
     })
+    if BT_DATABASE_URL:
+        tools.append({
+            "name": "bt_sql_query",
+            "description": (
+                "Read-only SELECT against the WIND TUNNEL's own database "
+                "(bt-postgres) — the RESULTS of backtests, so you can ask WHY a "
+                "candidate won or lost instead of only seeing four summary "
+                "numbers. Tables: bt_sweeps (status, windows, error_message, "
+                "started_at/completed_at — how long a run lasted and why it "
+                "died), bt_sweep_results / bt_sweep_aggregates (per-config, "
+                "per-window in_sample/out_sample summaries), bt_runs (single "
+                "backtests), bt_equity (the daily equity + spy_value + drawdown "
+                "path), bt_positions (what a run HELD on each rebalance date), "
+                "bt_trades (every fill with price and reason). "
+                "The raw price/fundamental corpus is deliberately NOT reachable: "
+                "ad-hoc mining of 20 years of history would bypass the "
+                "backtest_trials accounting that deflates your DSR. "
+                f"Row cap {SQL_MAX_ROWS}, timeout {SQL_STATEMENT_TIMEOUT_MS // 1000}s. "
+                "Prefer aggregates over raw dumps."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+        })
     tools.append({
         "name": "hypothesis_ledger",
         "description": (
@@ -276,6 +320,19 @@ def apply_config_changes(base: dict, changes: dict[str, Any]) -> tuple[dict | No
         return None, f"candidate config INVALID (nothing was run): {exc}"
     return validated.model_dump(mode="json"), None
 
+
+# Mirrors bt-scheduler/app/logic.py STRESS_REGIMES. Duplicated ON PURPOSE: the
+# two stacks share no code path (separate compose projects, one-way file
+# bridge), so this is the tool-schema copy the LLM sees. A cross-stack test
+# (tests/cross_service/) asserts the two tables stay identical — if they drift,
+# the evaluator offers a regime the lane will refuse.
+STRESS_REGIMES: dict[str, dict] = {
+    "gfc_2008": {"stresses": "credit crisis, -55% market, March-2009 momentum crash"},
+    "covid_2020": {"stresses": "fastest -34% then a V — worst case for a drawdown veto"},
+    "bear_2022": {"stresses": "rate-shock grind, growth->value rotation"},
+    "energy_shock_2015": {"stresses": "oil -70% sector blowup — concentration risk"},
+    "volmageddon_2018": {"stresses": "Feb-2018 vol spike + Q4 drawdown"},
+}
 
 MAX_LEDGER_WRITES = int(os.getenv("EVALUATOR_MAX_LEDGER_WRITES", "6"))
 MAX_PREVIEWS = int(os.getenv("EVALUATOR_MAX_PREVIEWS", "8"))
@@ -466,6 +523,70 @@ async def sql_query(args: dict, *, engine) -> str:
     payload = {"rows": out_rows, "row_count": len(out_rows),
                "truncated_at_row_cap": capped}
     return _truncate(json.dumps(payload, default=str))
+
+
+# ── bt_sql_query (wind-tunnel RESULTS, read-only) ─────────────────────────────
+
+# ALLOWLIST, enforced in Python — not a prompt instruction. The raw corpus
+# (bt_prices ~35M rows, bt_fundamentals) is excluded on purpose: an unbounded
+# query contends with a running sweep (bt-engine is capped at 4g and pegs a core
+# mid-run), and ad-hoc mining of 20 years of history is a data-dredging path
+# that bypasses the trials accounting entirely — the model could "find" an
+# in-sample pattern and author a config from it with no trial registered.
+BT_TABLES = ("bt_sweeps", "bt_sweep_results", "bt_sweep_aggregates", "bt_runs",
+             "bt_equity", "bt_positions", "bt_trades")
+_BT_IDENT = re.compile(r"\b(bt_[a-z_]+)\b", re.IGNORECASE)
+
+
+def bt_table_guard(query: str) -> str | None:
+    """Every bt_* relation named in the query must be on the allowlist. Pure."""
+    referenced = {m.lower() for m in _BT_IDENT.findall(query or "")}
+    forbidden = sorted(referenced - set(BT_TABLES))
+    if forbidden:
+        return (f"table(s) {', '.join(forbidden)} are not readable — allowed: "
+                f"{', '.join(BT_TABLES)}. The raw price/fundamental corpus is "
+                "excluded so ad-hoc history mining cannot bypass the "
+                "backtest_trials accounting that deflates your DSR.")
+    if not referenced:
+        return f"query must read one of: {', '.join(BT_TABLES)}"
+    return None
+
+
+_bt_engine = None
+
+
+async def bt_sql_query(args: dict) -> str:
+    """Same hard guarantees as sql_query (single statement, SET TRANSACTION READ
+    ONLY, statement_timeout, row cap) plus the table allowlist. Best-effort: an
+    unreachable wind tunnel degrades to a message, never an exception."""
+    global _bt_engine
+    if not BT_DATABASE_URL:
+        return ("bt_sql_query unavailable: BT_DATABASE_URL not configured "
+                "(the wind-tunnel results DB is not reachable from here)")
+    query = str(args.get("query") or "")
+    err = sql_guard(query) or bt_table_guard(query)
+    if err:
+        return f"query rejected: {err}"
+    q = query.strip().rstrip(";")
+    from sqlalchemy import text as _sql
+    from sqlalchemy.ext.asyncio import create_async_engine
+    try:
+        if _bt_engine is None:
+            _bt_engine = create_async_engine(BT_DATABASE_URL, pool_pre_ping=True,
+                                             pool_size=1, max_overflow=1)
+        async with _bt_engine.connect() as conn:
+            await conn.execute(_sql("SET TRANSACTION READ ONLY"))
+            await conn.execute(_sql(f"SET LOCAL statement_timeout = {SQL_STATEMENT_TIMEOUT_MS}"))
+            result = await conn.execute(_sql(q))
+            rows = result.mappings().fetchmany(SQL_MAX_ROWS + 1)
+            await conn.rollback()
+    except Exception as exc:  # noqa: BLE001 — the bt stack may simply be down
+        return (f"wind-tunnel query error (the backtest machine may be down; "
+                f"this is not fatal to the review): {str(exc)[:500]}")
+    capped = len(rows) > SQL_MAX_ROWS
+    return _truncate(json.dumps({"rows": [dict(r) for r in rows[:SQL_MAX_ROWS]],
+                                 "row_count": min(len(rows), SQL_MAX_ROWS),
+                                 "truncated_at_row_cap": capped}, default=str))
 
 
 # ── read_file ─────────────────────────────────────────────────────────────────
@@ -757,6 +878,10 @@ async def queue_strategy_experiment(args: dict, *, budget: BacktestBudget) -> st
     config, and append it (kind='full_config') to the shared proposals queue.
     The bt-scheduler's daily experiment lane runs it as one full-history
     backtest (tune + held-out validate)."""
+    regime = str(args.get("regime") or "").strip() or None
+    if regime and regime not in STRESS_REGIMES:
+        return (f"queue rejected: unknown regime {regime!r} — choose one of "
+                f"{', '.join(sorted(STRESS_REGIMES))} (raw date ranges are not offered)")
     hypothesis = str(args.get("hypothesis") or "").strip()
     if not hypothesis:
         return ("queue rejected: state the hypothesis this candidate tests — "
@@ -798,7 +923,10 @@ async def queue_strategy_experiment(args: dict, *, budget: BacktestBudget) -> st
         with _props.proposals_lock():
             content = _props.read_proposals_file() or {"proposals": []}
             entries = content.setdefault("proposals", [])
+            # Same config under a DIFFERENT regime is a legitimate new test, so
+            # the dedup key is (config_hash, regime), not config_hash alone.
             if any(e.get("kind") == "full_config" and e.get("config_hash") == cfg_hash
+                   and (e.get("regime") or None) == regime
                    and e.get("status") in ("pending", "testing", "tested")
                    for e in entries):
                 budget.experiment_used -= 1  # dupes never burn budget
@@ -814,7 +942,7 @@ async def queue_strategy_experiment(args: dict, *, budget: BacktestBudget) -> st
                 "id": str(_uuid.uuid4()), "kind": "full_config",
                 "status": "pending", "origin": "exploratory",
                 "hypothesis": hypothesis, "config": validated,
-                "config_hash": cfg_hash, "diff": diff,
+                "config_hash": cfg_hash, "diff": diff, "regime": regime,
                 # The config this candidate (and its diff) was authored against.
                 # Auto-promotion can change the live config while this sits
                 # pending, which would make promoting it a silent REVERT of the
@@ -827,7 +955,9 @@ async def queue_strategy_experiment(args: dict, *, budget: BacktestBudget) -> st
         budget.experiment_used -= 1
         return f"queue error: {str(exc)[:400]}"
 
-    return (f"queued full-config candidate {cfg_hash} ({len(diff)} field(s) differ "
+    where = (f" over stress regime {regime}: {STRESS_REGIMES[regime]['stresses']}"
+             " — DIAGNOSTIC ONLY, this run can never promote" if regime else "")
+    return (f"queued full-config candidate {cfg_hash}{where} ({len(diff)} field(s) differ "
             "from active). Runs in the daily experiment lane (one full-history "
             "backtest); results appear in the experiment_lane packet section, "
             f"typically within days. diff: {_json.dumps(diff, default=str)[:800]}")
@@ -851,6 +981,8 @@ async def execute_tool(name: str, args: dict, *, engine, budget: BacktestBudget)
             return await run_backtest(args, engine=engine, budget=budget)
         if name == "sql_query":
             return await sql_query(args, engine=engine)
+        if name == "bt_sql_query":
+            return await bt_sql_query(args)
         if name == "read_file":
             return await read_file(args)
         if name == "preview_ranking":

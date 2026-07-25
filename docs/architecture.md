@@ -2169,6 +2169,96 @@ real money): raise PROMOTE_MARGIN, add the full-history floor + minimum-trades
 restore human approval or a bounded-knob whitelist. Recorded here so going
 live forces this review.
 
+## Design Decision: named stress regimes + evaluator read access to the wind tunnel (2026-07)
+
+Two related gaps, both exposed the day the simulator's `-96%` bug was found by
+hand:
+
+1. The wind tunnel holds Sharadar prices back to **2004**, but the experiment
+   lane hardcoded a rolling `recent 3y tune + 12mo hold-out`. Nothing in the
+   loop could ask the data about 2008. A config tuned only on a recent window
+   has never been shown a crisis — precisely the overfitting the hold-out
+   cannot catch, because the hold-out is drawn from the same era.
+2. The evaluator flagged "the experiment lane is non-functional" for four
+   consecutive weeks but could not diagnose it: it saw only `error_message`
+   strings crossing the artifact bridge. It could not query `bt_sweeps` for
+   run durations, nor `bt_positions`/`bt_trades` — the artifact that actually
+   cracked the bug.
+
+### Named stress regimes (diagnostic only)
+
+`STRESS_REGIMES` in `bt-scheduler/app/logic.py` is a FIXED, pre-registered set.
+The evaluator requests a regime by NAME; it can never supply raw dates.
+
+```text
+gfc_2008          2007-10-01 → 2009-06-30  (split 2008-10-01)
+covid_2020        2020-01-02 → 2020-09-30  (split 2020-04-01)
+bear_2022         2022-01-03 → 2023-01-31  (split 2022-07-01)
+energy_shock_2015 2015-06-01 → 2016-03-31  (split 2015-12-01)
+volmageddon_2018  2018-01-02 → 2019-01-31  (split 2018-10-01)
+```
+
+Each is chosen for a DISTINCT failure mode, not for being an interesting year:
+GFC carries the March-2009 momentum crash (the worst episode in history for a
+momentum-tilted book); COVID is the maximally adverse case for a drawdown veto
+(it sells the bottom and blocks re-entry through the V); 2022 is a slow
+rotation rather than a crash; 2015 is a sector blowup, directly relevant to a
+book running ~23% energy; 2018 tests `low_volatility` and the vol-scaled knife.
+
+**Why NAMES and not a date range.** The DSR/`backtest_trials` machinery deflates
+for how many CONFIGS were tried, not how many PERIODS. A model free to choose
+both is searching two dimensions while being penalised on one, and the
+promotion gate compares candidate-vs-baseline on identical windows — so a free
+range would let it find the period where its candidate happens to win. A fixed
+enumerable set keeps the search space countable.
+
+**The split.** Each regime is cut at a meaningful date into two NON-overlapping
+spans carried as the existing `tune`/`validate` fields (crash then recovery for
+GFC and COVID; first leg then second for 2022). This reuses
+`run_config_both_windows` unchanged and the two numbers are genuinely
+informative — but they are NOT a tune/hold-out pair and must never be read as
+one.
+
+**Hard rule: a regime run can never promote.** `_experiment_lane` skips the
+promotion gate entirely for any entry carrying `regime`. Stress results feed
+structural findings and the hypothesis ledger; promotion stays gated on the
+standard rolling window alone. Regime fires DO count against
+`BT_EXPERIMENTS_PER_WEEK` — engine time is the scarce resource and the model
+chooses how to spend it.
+
+**Coverage guard.** A regime whose window predates usable factor history (the
+12-1 momentum lookback plus the 200-day regime SMA) or whose fundamentals are
+too thin is refused at queue time with a reason, rather than silently
+producing a momentum-only composite that measures something other than the
+strategy.
+
+### Evaluator read-only access to bt-postgres
+
+A `bt_sql_query` tool, scoped by a Python-side ALLOWLIST to the RESULTS tables:
+`bt_sweeps`, `bt_sweep_results`, `bt_sweep_aggregates`, `bt_runs`, `bt_equity`,
+`bt_positions`, `bt_trades`. Same guards as the live `sql_query` (single
+SELECT/WITH, `SET TRANSACTION READ ONLY`, statement timeout, row cap).
+
+**The raw corpus is deliberately NOT reachable** — `bt_prices` (35M rows) and
+`bt_fundamentals` are excluded. Two reasons: an unbounded query can contend
+with a running sweep (bt-engine is memory-capped at 4g and pegs a core during a
+run), and more importantly ad-hoc SQL over 20 years of history is a
+data-dredging path that bypasses the trials accounting entirely. The model
+could "find" a pattern in-sample and author a config from it with no trial ever
+registered.
+
+**Transport.** bt-postgres already publishes host port 5434, so the evaluator
+reaches it via `host.docker.internal` (`extra_hosts: host-gateway`). No shared
+docker network and no change to the backtest stack — the isolation decision
+(separate compose projects, no lifecycle coupling) is unaffected: a read-only
+connection cannot trigger runs or recreate containers. The tool is BEST-EFFORT
+and degrades to "unavailable" when bt-postgres is unreachable, exactly like
+`web_search` without a Tavily key, so a review never fails because the backtest
+machine is down.
+
+Hardening follow-up (not done): a real `READ ONLY` postgres ROLE rather than
+relying on the read-only transaction plus allowlist.
+
 ## Design Decision: ONE path to the live config (2026-07, owner decision)
 
 The human one-click apply is REMOVED — endpoint (`POST /config/apply`), the

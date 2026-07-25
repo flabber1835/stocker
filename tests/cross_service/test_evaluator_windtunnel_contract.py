@@ -150,3 +150,51 @@ def test_locks_resolve_to_the_same_file_across_both_stacks(artifacts):
     evaluator_lock = props.proposals_path() + ".lock"
     scheduler_lock = os.path.join(str(artifacts), "bt", "proposals.json.lock")
     assert os.path.realpath(evaluator_lock) == os.path.realpath(scheduler_lock)
+
+
+# ── named stress regimes: the two stacks must offer the SAME set ─────────────
+
+def test_regime_tables_match_across_the_stacks():
+    """The regime table is duplicated by necessity — the stacks share no code
+    path. If they drift, the evaluator offers a regime the lane will refuse and
+    the candidate is silently marked invalid."""
+    tools = _load("app.tools", "evaluator")
+    ev = set(tools.STRESS_REGIMES)
+    sched = _load("app.logic", "bt-scheduler")
+    lane = set(sched.STRESS_REGIMES)
+    assert ev == lane, (
+        f"regime tables drifted — evaluator-only: {ev - lane}, lane-only: {lane - ev}")
+    for name in sorted(lane):
+        assert sched.regime_windows(name, None)[0] is not None, \
+            f"{name} is offered but produces no windows"
+
+
+def test_a_queued_regime_candidate_carries_its_regime_to_the_lane(artifacts):
+    """The end-to-end field: the evaluator stamps `regime`, the lane reads it."""
+    import asyncio
+
+    import yaml
+    tools = _load("app.tools", "evaluator")
+    tools.STRATEGY_CONFIG_PATH = str(STRAT)
+    cand = yaml.safe_load(open(STRAT))
+    cand["portfolio_builder"]["max_positions"] = 21
+    out = asyncio.run(tools.queue_strategy_experiment(
+        {"config": cand, "hypothesis": "does concentration survive a crisis?",
+         "regime": "gfc_2008"}, budget=tools.BacktestBudget()))
+    assert "gfc_2008" in out and "never promote" in out, out
+
+    sched = _load("app.main", "bt-scheduler")
+    sched.ARTIFACTS_PATH = str(artifacts)
+    pending = sched._pending_full_experiments()
+    assert pending and pending[0]["regime"] == "gfc_2008"
+
+
+def test_raw_date_ranges_are_not_offered(artifacts):
+    """Choosing both the config and the period searches two dimensions while
+    the DSR penalises one."""
+    tools = _load("app.tools", "evaluator")
+    spec = [t for t in tools.tool_definitions()
+            if t["name"] == "queue_strategy_experiment"][0]
+    props = spec["parameters"]["properties"]
+    assert set(props) == {"config", "hypothesis", "regime"}, props.keys()
+    assert props["regime"]["enum"] == sorted(tools.STRESS_REGIMES)
