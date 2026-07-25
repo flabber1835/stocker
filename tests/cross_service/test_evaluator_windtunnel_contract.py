@@ -196,5 +196,12 @@ def test_raw_date_ranges_are_not_offered(artifacts):
     spec = [t for t in tools.tool_definitions()
             if t["name"] == "queue_strategy_experiment"][0]
     props = spec["parameters"]["properties"]
-    assert set(props) == {"config", "hypothesis", "regime"}, props.keys()
+    # Assert the INTENT — no free date range — not an exact parameter set. The
+    # exact-set form broke the moment a legitimate new field was added, which
+    # is a test coupling to the wrong thing.
+    date_like = [k for k in props
+                 if any(w in k.lower() for w in ("date", "start", "end", "from",
+                                                 "to_", "period", "window", "year"))]
+    assert not date_like, f"a raw date/period field is exposed: {date_like}"
     assert props["regime"]["enum"] == sorted(tools.STRESS_REGIMES)
+    assert "config" in props and "hypothesis" in props

@@ -13,6 +13,9 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
+from stock_strategy_shared.wealth import (DEFAULT_TAIL_TOLERANCE,
+                                          tail_is_acceptable)
+
 
 def derive_windows(spec: dict, today: date,
                    earliest_viable_start: date | None = None) -> dict | None:
@@ -359,7 +362,9 @@ def _cagr(summary: dict | None) -> float | None:
 
 def promotion_eligible_2w(cand: dict | None, base: dict | None,
                           margin: float = 0.01, dd_tol: float = 0.05,
-                          validate_tol: float = 0.0) -> tuple[bool, str]:
+                          validate_tol: float = 0.0,
+                          tail_tol: float = DEFAULT_TAIL_TOLERANCE
+                          ) -> tuple[bool, str]:
     """Two-window promotion gate. `cand`/`base` are {"tune": summary,
     "validate": summary} from ONE sweep job each (same windows by construction).
 
@@ -387,5 +392,17 @@ def promotion_eligible_2w(cand: dict | None, base: dict | None,
     if cdd is not None and bdd is not None and float(cdd) < float(bdd) - dd_tol:
         return False, (f"validate drawdown {float(cdd):.2%} worse than baseline "
                        f"{float(bdd):.2%} beyond {dd_tol:.0%}")
+    # 4. LEFT TAIL. max_drawdown is one realised number from the single path
+    # history happened to take; a candidate carrying a fat tail that simply did
+    # not fire looks identical to a safe one. The bootstrapped 5th-percentile
+    # terminal wealth is that risk measured directly, in the objective's own
+    # units. Inert when either side lacks the distribution (older rows, regime
+    # runs) — a new check must never silently block every promotion.
+    tail_ok, tail_why = tail_is_acceptable((cv or {}).get("terminal_wealth"),
+                                           (bv or {}).get("terminal_wealth"),
+                                           tail_tol)
+    if not tail_ok:
+        return False, tail_why
     return True, (f"tune edge {edge:+.4f} >= {margin:+.4f} AND validate edge "
-                  f"{v_edge:+.4f} holds (drawdown within {dd_tol:.0%})")
+                  f"{v_edge:+.4f} holds (drawdown within {dd_tol:.0%}; "
+                  f"{tail_why})")

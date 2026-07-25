@@ -443,3 +443,61 @@ def test_a_refused_candidate_is_still_a_scored_forecast():
     src = inspect.getsource(m._experiment_lane)
     i_pred, i_ok = src.index("score_prediction("), src.index('if ok and e.get("config")')
     assert i_pred < i_ok, "prediction scoring sits inside the promotion branch"
+
+
+# ── left-tail guard in the promotion gate ────────────────────────────────────
+
+def _tw(p5):
+    return {"terminal_wealth": {"p5_multiple": p5}}
+
+
+def test_gate_refuses_a_fat_left_tail_at_equal_cagr():
+    """THE point of terminal-wealth distributions. Same CAGR edge, same realised
+    max_drawdown — but a materially worse 5th-percentile terminal wealth. The
+    old gate could not see this at all."""
+    from app.logic import promotion_eligible_2w
+    base_w = {"annualized_return": 0.12, "max_drawdown": -0.25, **_tw(0.95)}
+    cand_t = {"annualized_return": 0.15, "max_drawdown": -0.25, **_tw(0.95)}
+    fat = {"annualized_return": 0.15, "max_drawdown": -0.25, **_tw(0.70)}
+    ok, why = promotion_eligible_2w({"tune": cand_t, "validate": fat},
+                                    {"tune": base_w, "validate": base_w})
+    assert ok is False and "left tail worse" in why
+
+
+def test_gate_allows_an_equal_or_better_tail():
+    from app.logic import promotion_eligible_2w
+    base_w = {"annualized_return": 0.12, "max_drawdown": -0.25, **_tw(0.95)}
+    good = {"annualized_return": 0.15, "max_drawdown": -0.25, **_tw(0.97)}
+    ok, why = promotion_eligible_2w({"tune": good, "validate": good},
+                                    {"tune": base_w, "validate": base_w})
+    assert ok is True and "left tail acceptable" in why
+
+
+def test_tail_guard_is_inert_on_results_without_a_distribution():
+    """Older rows and regime runs carry no terminal_wealth. A newly added check
+    must never silently block every promotion."""
+    from app.logic import promotion_eligible_2w
+    base_w = {"annualized_return": 0.12, "max_drawdown": -0.25}
+    good = {"annualized_return": 0.15, "max_drawdown": -0.25}
+    ok, why = promotion_eligible_2w({"tune": good, "validate": good},
+                                    {"tune": base_w, "validate": base_w})
+    assert ok is True and "check skipped" in why
+
+
+def test_tail_guard_cannot_rescue_a_candidate_that_fails_an_earlier_condition():
+    """Order matters: a spectacular tail must not paper over a missing edge."""
+    from app.logic import promotion_eligible_2w
+    base_w = {"annualized_return": 0.12, "max_drawdown": -0.25, **_tw(0.95)}
+    weak = {"annualized_return": 0.121, "max_drawdown": -0.25, **_tw(1.50)}
+    ok, why = promotion_eligible_2w({"tune": weak, "validate": weak},
+                                    {"tune": base_w, "validate": base_w})
+    assert ok is False and "margin" in why
+
+
+def test_tail_tolerance_is_configurable():
+    from app.logic import promotion_eligible_2w
+    base_w = {"annualized_return": 0.12, "max_drawdown": -0.25, **_tw(0.95)}
+    cand = {"annualized_return": 0.15, "max_drawdown": -0.25, **_tw(0.80)}
+    args = ({"tune": cand, "validate": cand}, {"tune": base_w, "validate": base_w})
+    assert promotion_eligible_2w(*args, tail_tol=0.05)[0] is False
+    assert promotion_eligible_2w(*args, tail_tol=0.20)[0] is True

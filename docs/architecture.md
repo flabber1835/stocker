@@ -2169,6 +2169,61 @@ real money): raise PROMOTE_MARGIN, add the full-history floor + minimum-trades
 restore human approval or a bounded-knob whitelist. Recorded here so going
 live forces this review.
 
+## Design Decision: terminal-wealth distributions in the promotion gate (2026-07)
+
+The gate compared two configs on CAGR and one realised `max_drawdown` — one
+number from one run through history. History ran once, so that answers "what
+happened", not "what is likely". Two consequences, both material now that
+promotion is automatic:
+
+  * it could not separate BETTER from LUCKIER. A +1pp CAGR edge over ~100
+    rebalances can come from two positions that happened to land well.
+  * it was blind to the left tail. A candidate carrying a fat tail that simply
+    did not fire looked identical to a genuinely safe one — while the stated
+    objective is compounded WEALTH, whose enemy is precisely the drawdown
+    arithmetic cannot recover from.
+
+bt-engine now resamples each run's realised daily returns (circular block
+bootstrap, `app/bootstrap.py`) into a distribution of terminal wealth, reported
+on every summary as `terminal_wealth`: median, p5/p25/p75/p95, `prob_loss`, and
+— paired with the SPY leg — `prob_beat_benchmark`.
+
+Design choices, each load-bearing and each test-pinned:
+  CIRCULAR blocks so every observation has equal draw probability; a
+    non-circular bootstrap under-samples both ends, biasing the very tail being
+    measured.
+  BLOCKS not IID draws, because equity returns cluster; IID resampling destroys
+    that and understates the tail.
+  PAIRED benchmark resampling (same index draw) so "probability of beating SPY"
+    preserves co-movement instead of comparing two independently shuffled
+    worlds.
+  SEEDED, because reproducibility is a system-wide contract.
+  REFUSES to answer below two blocks of data rather than fabricating a
+    distribution from five points.
+
+`promotion_eligible_2w` gains a fourth condition: the candidate's 5th-percentile
+terminal wealth, as a MULTIPLE of starting capital, may not sit more than
+`BT_PROMOTE_TAIL_TOLERANCE` (default 0.05) below the baseline's. The rule lives
+in `shared/stock_strategy_shared/wealth.py` because bt-engine PRODUCES the
+distribution and bt-scheduler CONSUMES it — two copies of a promotion criterion
+is exactly the drift that has bitten this system before.
+
+It is INERT when either side lacks a distribution (older rows, stress-regime
+runs). A newly added gate condition must never silently block every promotion
+because a historical row lacks a field, and it cannot rescue a candidate that
+fails an earlier condition — a spectacular tail does not paper over a missing
+edge.
+
+HONEST LIMIT, stated in the module and worth repeating: a 2-year window at
+weekly rebalancing is ~100 observations, and a bootstrap of 100 observations is
+itself noisy. This makes the uncertainty visible and correctly signed; it does
+not manufacture information. The expected effect is that the gate promotes LESS
+often, refusing marginal candidates it previously waved through — a brake, not
+an accelerator.
+
+DEPLOY NOTE: `wealth.py` is a NEW module under shared/, so `stocker-base` must
+be rebuilt before the services that import it.
+
 ## Design Decision: score the evaluator's own predictions (2026-07)
 
 The evaluator writes an `expected_effect` on every recommendation and nobody

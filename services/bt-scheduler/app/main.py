@@ -64,6 +64,10 @@ PROMOTE_DD_TOLERANCE = float(os.getenv("BT_PROMOTE_DD_TOLERANCE", "0.05"))
 # keep its edge here, not just on the data it was selected against.
 EXPERIMENT_VALIDATE_MONTHS = int(os.getenv("BT_EXPERIMENT_VALIDATE_MONTHS", "12"))
 PROMOTE_VALIDATE_TOL = float(os.getenv("BT_PROMOTE_VALIDATE_TOL", "0.0"))
+# Left-tail guard: how much worse the candidate's 5th-percentile TERMINAL WEALTH
+# may be than the baseline's, as a multiple of starting capital. CAGR and a
+# single realised drawdown cannot see a tail that did not happen to fire.
+PROMOTE_TAIL_TOLERANCE = float(os.getenv("BT_PROMOTE_TAIL_TOLERANCE", "0.05"))
 # Candidates are scored on the BASELINE's exact windows (the gate refuses to
 # compare across windows). That pins the comparison but lets it age, so the
 # yardstick is re-measured once its validate window ends more than this many
@@ -236,7 +240,7 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
             else:
                 ok, why = promotion_eligible_2w(
                     e["result"], base, PROMOTE_MARGIN, PROMOTE_DD_TOLERANCE,
-                    PROMOTE_VALIDATE_TOL)
+                    PROMOTE_VALIDATE_TOL, PROMOTE_TAIL_TOLERANCE)
             e["promotion"] = {"eligible": ok, "reason": why}
             # Score the evaluator's own committed prediction against ground
             # truth, on the SAME windows the gate used. Independent of whether

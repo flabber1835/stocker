@@ -43,6 +43,7 @@ from stock_strategy_shared.investability import (
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 from app import live
+from app.bootstrap import bootstrap_terminal_wealth, daily_returns
 from app.calibration import (aggregate_calibration, decile_forward_returns,
                              sample_evenly)
 
@@ -645,6 +646,19 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
         "win_rate": round(win_days / cmp_days, 4) if cmp_days else 0.0,
         "n_trading_days": len(all_days),
         "n_rebalances": len(turnover_samples),
+        # Terminal-wealth distribution (docs/architecture.md "terminal wealth").
+        # CAGR and one realised max_drawdown describe the single path history
+        # happened to take; the objective is compounded WEALTH, whose enemy is
+        # the drawdown arithmetic cannot recover from. Resampling the realised
+        # returns in circular blocks gives the spread — the 5th percentile is
+        # that left tail in the only unit that matters. Paired with the SPY leg
+        # so prob_beat_benchmark preserves co-movement. None when the window is
+        # too short to say anything honest.
+        "terminal_wealth": bootstrap_terminal_wealth(
+            daily_returns(equity_rows),
+            starting_capital=params.starting_capital,
+            benchmark_returns=daily_returns(equity_rows, value_key="spy_value"),
+        ),
         "n_trades": len(trade_rows),
         "fill_timing": params.fill_timing,
         "tx_cost_bps": params.tx_cost_bps,

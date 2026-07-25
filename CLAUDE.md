@@ -1264,6 +1264,14 @@ tools are for drill-down and testing a thesis BEFORE recommending it:
     0041): thesis → planned test → status/outcome. The ONE write tool, scoped to
     its own table; read back as a deterministic packet section every review.
     Budget EVALUATOR_MAX_LEDGER_WRITES (6).
+  Every bt-engine run summary now carries `terminal_wealth`: a circular-block
+    bootstrap of the realised returns into a DISTRIBUTION of end-of-period money
+    (median, p5/p25/p75/p95, prob_loss, paired prob_beat_benchmark). The
+    promotion gate's fourth condition compares 5th-percentile terminal wealth
+    against the baseline (BT_PROMOTE_TAIL_TOLERANCE, default 0.05) — CAGR and a
+    single realised drawdown cannot see a tail that did not happen to fire. The
+    rule is shared/stock_strategy_shared/wealth.py (NEW shared module ⇒ rebuild
+    stocker-base). See docs/architecture.md "terminal-wealth distributions".
   bt_sql_query — read-only SELECTs on the WIND TUNNEL's RESULTS tables
     (bt_sweeps, bt_sweep_results, bt_sweep_aggregates, bt_runs, bt_equity,
     bt_positions, bt_trades) so a review can explain WHY a candidate won and
