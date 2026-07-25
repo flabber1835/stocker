@@ -425,6 +425,16 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                 cost = q * p * params.tx_cost_bps / 10_000.0
                 cash -= q * p + cost
                 qty[tr["ticker"]] = qty.get(tr["ticker"], 0.0) + q
+            # A FILL IS PROOF OF A PRINT. last_seen/last_px are otherwise refreshed
+            # only by _mtm, which walks HELD tickers — so a name's timestamp froze
+            # the moment it left the book. On re-entry weeks later that stale
+            # timestamp tripped the delist sweep below, which instantly
+            # liquidated the fresh position at the stale last_px. With an
+            # upward-drifting series the stale price is LOWER, so every re-entry
+            # booked an immediate loss: cost-independent, scaling with rebalance
+            # frequency, and compounding to -92% on a book whose every holding
+            # rose. (Reproduced with 7 tickers all trending UP.)
+            last_px[tr["ticker"]], last_seen[tr["ticker"]] = p, d
             trade_rows.append({"date": d.date(), "ticker": tr["ticker"],
                                "action": tr["action"], "qty": float(q), "price": p,
                                "tx_cost": round(q * p * params.tx_cost_bps / 10_000.0, 4),
