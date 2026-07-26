@@ -29,14 +29,35 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 ARGS=()
 FORCE=0
+SERIAL=0
 for a in "$@"; do
     case "$a" in
         --build)      ARGS+=(--build) ;;
         --force|-f)   FORCE=1 ;;
+        --serial|-s)  SERIAL=1 ;;
         *) echo "unknown argument: $a"
-           echo "usage: scripts/up.sh [--build] [--force]"; exit 2 ;;
+           echo "usage: scripts/up.sh [--build] [--force] [--serial]"; exit 2 ;;
     esac
 done
+
+# SERIAL builds, one image at a time. Compose hands every service to BuildKit at
+# once; on a NAS that means ~17 concurrent pip installs and layer exports
+# competing for the same spindle, and the symptom is not a clear out-of-resources
+# error but this:
+#     => [scheduler internal] load .dockerignore    15.5s
+#     failed to solve: DeadlineExceeded: context deadline exceeded
+# A 400-byte .dockerignore taking 15 seconds is IO starvation, and BuildKit's
+# internal deadline fires before anything useful happens. Serial is slower in
+# wall-clock but finishes, which parallel does not.
+build_serially() {   # build_serially [compose args...]
+    local svc rc=0
+    while read -r svc; do
+        [ -n "$svc" ] || continue
+        echo "── building $svc ─────────────────────────────────"
+        docker compose "$@" build "$svc" || { echo "!! $svc build FAILED"; rc=1; }
+    done < <(docker compose "$@" config --services 2>/dev/null)
+    return "$rc"
+}
 
 bt_busy=""
 if [ "$FORCE" -eq 0 ]; then
@@ -94,7 +115,12 @@ bt_rc=0
 bt_skipped=0
 
 echo "── live stack ──────────────────────────────────────────────"
-docker compose up -d "${ARGS[@]}" || live_rc=$?
+if [ "$SERIAL" -eq 1 ] && [ "${#ARGS[@]}" -gt 0 ]; then
+    build_serially || live_rc=$?
+    docker compose up -d || live_rc=$?
+else
+    docker compose up -d "${ARGS[@]}" || live_rc=$?
+fi
 [ "$live_rc" -ne 0 ] && echo "!! live stack FAILED (rc=$live_rc) — continuing to the backtest stack"
 
 echo
@@ -112,7 +138,12 @@ if [ -n "$bt_busy" ]; then
     echo "      scripts/up.sh${ARGS[*]:+ ${ARGS[*]}} --force"
     bt_skipped=1
 else
-    docker compose -f docker-compose.backtest.yml up -d "${ARGS[@]}" || bt_rc=$?
+    if [ "$SERIAL" -eq 1 ] && [ "${#ARGS[@]}" -gt 0 ]; then
+        build_serially -f docker-compose.backtest.yml || bt_rc=$?
+        docker compose -f docker-compose.backtest.yml up -d || bt_rc=$?
+    else
+        docker compose -f docker-compose.backtest.yml up -d "${ARGS[@]}" || bt_rc=$?
+    fi
     [ "$bt_rc" -ne 0 ] && echo "!! backtest stack FAILED (rc=$bt_rc)"
 fi
 
@@ -136,6 +167,10 @@ if [ "$live_rc" -eq 0 ] && [ "$bt_rc" -eq 0 ]; then
 fi
 echo "✗ live=$( [ "$live_rc" -eq 0 ] && echo ok || echo FAILED ) " \
      "backtest=$( [ "$bt_rc" -eq 0 ] && echo ok || echo FAILED )"
+echo "  If a build died with 'DeadlineExceeded: context deadline exceeded',"
+echo "  that is IO starvation from ~17 parallel builds, not a code error —"
+echo "  retry one image at a time:"
+echo "      scripts/up.sh --build --serial"
 echo "  Re-run a single stack to see the full build log, e.g.:"
 echo "    docker compose up -d --build llm-gateway"
 exit 1

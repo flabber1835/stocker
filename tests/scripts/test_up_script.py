@@ -111,3 +111,33 @@ def test_up_and_down_share_the_same_liveness_probes(tmp_path):
     for probe in ("localhost:8030/runs/latest", "localhost:8031/sweeps/latest"):
         assert probe in up, f"up.sh does not probe {probe}"
         assert probe in down, f"down.sh does not probe {probe}"
+
+
+# ── serial build fallback (NAS IO starvation) ──────────────────────────────
+
+def test_serial_mode_exists_and_builds_one_image_at_a_time():
+    """Compose hands all ~17 services to BuildKit at once. On the NAS that
+    starves IO and dies with `DeadlineExceeded: context deadline exceeded` while
+    a 400-byte .dockerignore takes 15 seconds — not a code error, and not
+    obviously a resource one either. Serial finishes; parallel does not."""
+    with open(os.path.join(ROOT, "scripts", "up.sh")) as f:
+        up = f.read()
+    assert "--serial" in up
+    assert "build_serially" in up
+    assert "config --services" in up, "serial mode must enumerate services itself"
+
+
+def test_serial_mode_covers_both_stacks():
+    with open(os.path.join(ROOT, "scripts", "up.sh")) as f:
+        up = f.read()
+    assert up.count("build_serially") >= 3, (
+        "definition plus a call for each stack — a live-only serial mode leaves "
+        "the backtest stack hitting the same wall")
+
+
+def test_the_deadline_error_is_explained_in_the_failure_hint():
+    """The message is opaque. Pointing at --serial where it appears saves the
+    next person a diagnosis."""
+    with open(os.path.join(ROOT, "scripts", "up.sh")) as f:
+        up = f.read()
+    assert "DeadlineExceeded" in up
