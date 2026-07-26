@@ -301,6 +301,86 @@ def test_account_vs_spy_windows_symmetric(db_engine):
     assert h["excess"] == pytest.approx(0.03 - (430 / 422 - 1), abs=1e-3)
 
 
+# ── W30 finding: the selection audit was single-window by construction ───────
+# It anchored ONE build and started over every week, so cap_blocked-vs-selected
+# could never accumulate ("remains a single window" in report after report).
+# Seeds three OLDER builds (D-16/-14/-12, all past the forward-window cutoff, all
+# older than the D-8 anchor so the newest-build assertions elsewhere are
+# untouched) in which the cap_blocked name beats the selected ones every time.
+
+def test_selection_audit_pools_multiple_builds_at_a_fixed_horizon(db_engine):
+    from sqlalchemy import text
+
+    async def _add_builds(engine):
+        async with engine.begin() as conn:
+            async def ex(sql, rows):
+                await conn.execute(text(sql), rows)
+            # P01/P03 flat, P02 rising: cap_blocked beats selected in EVERY
+            # window, so the consistency counter must read 3 of 3.
+            px = []
+            for i in range(31):
+                if i == 7:
+                    continue                       # keep the seed's gap day
+                px += [{"t": "P01", "d": D(i), "px": 100},
+                       {"t": "P03", "d": D(i), "px": 100},
+                       {"t": "P02", "d": D(i), "px": 100 + (30 - i)}]
+            await ex("INSERT INTO daily_prices (ticker, date, adjusted_close, close) "
+                     "VALUES (:t, :d, :px, :px)", px)
+            for days_ago in (16, 14, 12):
+                f, r, p = (str(uuid.uuid4()) for _ in range(3))
+                d, st = D(days_ago), _ts(D(days_ago))
+                await ex("INSERT INTO factor_runs (run_id, strategy_id, config_hash, "
+                         " score_date, regime, status, started_at, completed_at) "
+                         "VALUES (:id, 's1', 'hp', :d, 'bull_calm', 'success', :st, :st)",
+                         [{"id": f, "d": d, "st": st}])
+                await ex("INSERT INTO ranking_runs (run_id, source_factor_run_id, "
+                         " strategy_id, config_hash, regime, rank_date, status, "
+                         " started_at, completed_at) "
+                         "VALUES (:id, :f, 's1', 'hp', 'bull_calm', :d, 'success', :st, :st)",
+                         [{"id": r, "f": f, "d": d, "st": st}])
+                await ex("INSERT INTO rankings (run_id, source_factor_run_id, strategy_id, "
+                         " regime, rank_date, ticker, rank, composite_score) "
+                         "VALUES (:r, :f, 's1', 'bull_calm', :d, :t, :rk, 0.8)",
+                         [{"r": r, "f": f, "d": d, "t": t, "rk": rk}
+                          for t, rk in (("P01", 1), ("P02", 2), ("P03", 3))])
+                await ex("INSERT INTO portfolio_runs (run_id, source_ranking_run_id, "
+                         " strategy_id, config_hash, regime, portfolio_date, status, "
+                         " started_at, completed_at) "
+                         "VALUES (:id, :r, 's1', 'hp', 'bull_calm', :d, 'success', :st, :st)",
+                         [{"id": p, "r": r, "d": d, "st": st}])
+                # P01 and P03 selected → worst_selected_rank 3, so P02 (rank 2,
+                # unselected, unvetoed) is cap_blocked by definition.
+                await ex("INSERT INTO portfolio_holdings (run_id, source_ranking_run_id, "
+                         " strategy_id, regime, portfolio_date, ticker, position, weight, "
+                         " original_rank) "
+                         "VALUES (:p, :r, 's1', 'bull_calm', :d, :t, 1, 0.5, :rk)",
+                         [{"p": p, "r": r, "d": d, "t": t, "rk": rk}
+                          for t, rk in (("P01", 1), ("P03", 3))])
+    asyncio.run(_run_with_engine(db_engine, _add_builds))
+
+    from app.packet import FWD_SESSIONS, _selection_audit
+    audit = _call(db_engine, _selection_audit)
+
+    # Pooled, not single-window.
+    assert audit["n_builds_pooled"] >= 4, audit.get("note")
+    assert audit["fwd_window_sessions"] == FWD_SESSIONS
+    assert "fwd_window_days" not in audit, (
+        "the calendar-day key is back — it reported 7 for a 5-session window")
+
+    # Every seeded window has cap_blocked (P02, rising) beating selected (flat).
+    cb = audit["pooled"]["cap_blocked_vs_selected"]
+    assert cb["windows_compared"] >= 3
+    assert cb["windows_beating_selected"] == cb["windows_compared"]
+    assert cb["avg_spread_vs_selected"] > 0
+
+    # Fixed horizon: each window spans exactly FWD_SESSIONS sessions, so an
+    # older build cannot dominate the pool by having had more elapsed time.
+    for b in audit["per_build"]:
+        if b["window"]:
+            assert b["window"][0] < b["window"][1]
+    assert audit["pooled"]["by_outcome"]["selected"]["n"] >= 6   # 2 names x 3 builds
+
+
 # ── W29 sector finding: a fresh weekly universe snapshot inserts sector=NULL ──
 # for every row (LISTING_STATUS carries no sector), so any reader scoped to the
 # NEWEST snapshot went sector-blind right after a refresh — the packet showed the

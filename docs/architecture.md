@@ -3076,3 +3076,70 @@ declaration never refuses it. A regression test pins the reachability
 arithmetic to the active config so a future max_positions or threshold change
 that re-creates the unreachable-gate state fails CI instead of silently
 re-accumulating cash.
+
+## Design Decision: audit windows measured in SESSIONS, and pooled across builds (2026-07)
+
+### Two defects in the same evidence path
+
+The W30 review reported "selection/gate audits are still 2026-07-17 — identical
+to last review, so no streak was extended and cap_blocked>selected remains a
+single window". Investigating why exposed two problems in how the packet builds
+its outcome evidence.
+
+**1. Calendar days masquerading as sessions.** `_selection_audit` / `_gate_audit`
+deliberately anchor on a build old enough to HAVE a forward window (auditing
+yesterday's build returns `fwd_return == 0.0` for every name — the W27 report
+correctly read that as no signal). But the cutoff subtracted
+`timedelta(days=FWD_MIN_DAYS)` — CALENDAR days — while the docstring promised
+"`>= FWD_MIN_DAYS` of prices". On a weekend review the two coincide by luck; a
+mid-week review lands the cutoff on the prior Friday and gets ~3 sessions of
+forward window while the packet reports `fwd_window_days: 7`. A section whose
+entire job is honest evidence was overstating its own sample.
+
+**2. Single-window by construction.** The audit anchored ONE build and started
+over every week, so the selected / cap_blocked / out_ranked comparison could
+never accumulate. That is why the evaluator kept writing "single window" and
+could never justify a change to the builder's caps: the question "do the
+diversification caps reject winners?" needs many windows, and the design threw
+each one away.
+
+### The rule
+
+```text
+A forward window is measured in TRADING SESSIONS, never calendar days.
+An outcome comparison pools MANY builds at a FIXED horizon, never one build
+  measured to 'now'.
+```
+
+Both halves matter and the second depends on the first. Pooling builds that are
+each measured "from build date to the latest close" would be invalid: the oldest
+build gets the longest window, so it dominates the average and the pooled number
+measures elapsed time as much as selection quality. Every pooled build is
+therefore scored over EXACTLY `EVALUATOR_FWD_SESSIONS` sessions — the same
+fixed-horizon discipline already adopted for the shadow comparison and the
+decision ledger.
+
+Implementation:
+
+```text
+_session_dates()      the SPY trading calendar (the same source the rest of the
+                      packet keys on), read once per audit.
+_fixed_horizon_returns()  base = last close <= build date; end = exactly H
+                      sessions later. Delisted names take their last available
+                      close (no phantom recovery).
+_selection_audit()    pools the newest EVALUATOR_SELECTION_AUDIT_BUILDS (default
+                      8) authoritative builds (superseded_at IS NULL, one per
+                      portfolio_date) that have a full H-session window.
+```
+
+The pooled output reports, per outcome class, the mean forward return AND the
+number of observations — plus the statistic that actually decides the question:
+`windows_cap_blocked_beat_selected` out of `n_builds`. "cap_blocked beat
+selected in 6 of 8 windows" is evidence; one window is an anecdote. Ticker-level
+detail (`candidates`) stays scoped to the single most recent qualifying build so
+the packet does not grow by 8x.
+
+`fwd_window_days` is replaced by `fwd_window_sessions` (the honest unit) with
+`fwd_window_calendar_days` kept alongside for context — the mislabel is not
+preserved for compatibility, because the whole point is that the evaluator was
+being told a number that was not true.

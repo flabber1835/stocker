@@ -118,10 +118,14 @@ strategy YAML; the investable-universe snapshot; a GATE AUDIT (names the univers
 dropped BEFORE ranking, with their missing factors, forward returns, and first-price dates \
 — a big dropped mover whose momentum/low_volatility are null and whose first price is \
 recent = a young listing the history-hungry factors structurally exclude; recurring cases \
-justify recommending a different filter mechanism); a SELECTION AUDIT of the latest build \
+justify recommending a different filter mechanism); a SELECTION AUDIT \
 (every candidate classified selected / cap_blocked / vetter_excluded / out_ranked, with \
 forward returns per class — cap_blocked beating selected implicates CONSTRUCTION; \
-out_ranked beating selected implicates the FACTOR MODEL); an EXPERIMENT_LANE section \
+out_ranked beating selected implicates the FACTOR MODEL. It is POOLED over several \
+recent builds, each scored on the SAME fixed session horizon: weigh `pooled` — and \
+especially `pooled.cap_blocked_vs_selected.windows_beating_selected` out of \
+`windows_compared`, the consistency test — over `avg_fwd_return_by_outcome`, which is \
+the newest window ALONE and is noise at this sample size); an EXPERIMENT_LANE section \
 — THE RESULTS OF YOUR OWN CANDIDATES: each is a complete config you authored, scored by \
 the wind tunnel on a TUNE window and a HELD-OUT VALIDATE window, with the promotion \
 gate's verdict and reason. Read it FIRST every review: score your past candidates \

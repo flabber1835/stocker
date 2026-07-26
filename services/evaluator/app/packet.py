@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import traceback
+from bisect import bisect_right
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
 
@@ -871,7 +872,17 @@ def classify_candidates(candidates: list[dict], selected: set[str],
     return out
 
 
-FWD_MIN_DAYS = int(os.getenv("EVALUATOR_FWD_MIN_DAYS", "5"))
+# Forward window, in TRADING SESSIONS. The old EVALUATOR_FWD_MIN_DAYS was
+# subtracted as CALENDAR days while the code claimed "N days of prices": on a
+# weekend review the two coincide, but a mid-week review got ~3 sessions while
+# the packet reported 7 days. Sessions is the only unit that means the same
+# thing every day of the week. Old env name still read as a fallback so an
+# existing deploy's override is not silently dropped.
+FWD_SESSIONS = int(os.getenv("EVALUATOR_FWD_SESSIONS",
+                             os.getenv("EVALUATOR_FWD_MIN_DAYS", "5")))
+# How many past builds the selection audit pools. One build per portfolio_date
+# (the authoritative, non-superseded one).
+SELECTION_AUDIT_BUILDS = int(os.getenv("EVALUATOR_SELECTION_AUDIT_BUILDS", "8"))
 
 
 async def _latest_price_date(conn) -> date | None:
@@ -879,85 +890,251 @@ async def _latest_price_date(conn) -> date | None:
         "SELECT MAX(date) FROM daily_prices WHERE ticker='SPY'"))).scalar()
 
 
+async def _session_dates(conn) -> list[date]:
+    """The trading calendar (ascending). Reuses `_spy_closes` so there is ONE
+    session source in this module — the score-calibration section already keys
+    its fixed-horizon windows on it, and two calendars that could disagree is
+    exactly the class of bug these audits exist to find."""
+    return [d for d, _ in await _spy_closes(conn)]
+
+
+def session_cutoff(sessions: list[date], horizon: int) -> date | None:
+    """The newest date that still has `horizon` FULL sessions of prices after it.
+
+    A build dated on or before this has a real forward window; a build after it
+    would be scored over fewer sessions than advertised (or zero — which reads
+    as 'every name returned exactly 0.0', the W27 no-signal case). Pure."""
+    if horizon < 0 or len(sessions) <= horizon:
+        return None
+    return sessions[-(horizon + 1)]
+
+
+def horizon_bounds(sessions: list[date], anchor: date,
+                   horizon: int) -> tuple[date, date] | None:
+    """(base_session, end_session) for a FIXED `horizon`-session window starting
+    at the last session on or before `anchor`. None when the window would run
+    past the available data — a partial window must never be silently scored as
+    a full one, which is the bug that makes pooled averages measure elapsed time
+    instead of selection quality. Pure."""
+    i = bisect_right(sessions, anchor) - 1
+    if i < 0 or i + horizon >= len(sessions):
+        return None
+    return sessions[i], sessions[i + horizon]
+
+
+async def _fixed_horizon_returns(conn, tickers: list[str], base: date,
+                                 end: date) -> dict[str, float]:
+    """{ticker: return between two FIXED session dates} in ONE query.
+
+    Unlike _forward_returns_bulk (base -> latest close), every build pooled by
+    the selection audit is scored over the SAME number of sessions, so an older
+    build cannot dominate the pooled average purely by having had more time.
+    A name that stopped trading inside the window takes its last available
+    close (no phantom recovery, matching the simulator's delisting treatment)."""
+    if not tickers:
+        return {}
+    rows = (await conn.execute(text(
+        "WITH b AS (SELECT DISTINCT ON (ticker) ticker, adjusted_close FROM daily_prices "
+        "           WHERE ticker = ANY(:tk) AND date <= :b ORDER BY ticker, date DESC), "
+        "     e AS (SELECT DISTINCT ON (ticker) ticker, adjusted_close FROM daily_prices "
+        "           WHERE ticker = ANY(:tk) AND date <= :e ORDER BY ticker, date DESC) "
+        "SELECT b.ticker, b.adjusted_close AS base, e.adjusted_close AS fin "
+        "FROM b JOIN e USING (ticker) WHERE b.adjusted_close > 0"
+    ), {"tk": list(tickers), "b": base, "e": end})).mappings().all()
+    return {r["ticker"]: round(float(r["fin"]) / float(r["base"]) - 1.0, 4)
+            for r in rows}
+
+
+def pool_outcome_stats(per_build: list[dict]) -> dict:
+    """Aggregate per-build class returns into pooled evidence. Pure.
+
+    Reports the observation COUNT next to every mean (a mean over 3 names is not
+    a mean over 300), and the statistic that actually answers the construction
+    question: in how many independent windows did cap_blocked beat selected.
+    One window is an anecdote; 6 of 8 is evidence."""
+    classes = ("selected", "cap_blocked", "vetter_excluded", "out_ranked")
+    pooled: dict[str, dict] = {}
+    for c in classes:
+        vals = [v for b in per_build for v in b["returns"].get(c, [])]
+        pooled[c] = {"avg_fwd_return": round(sum(vals) / len(vals), 4) if vals else None,
+                     "n": len(vals)}
+
+    def _beat(cls: str) -> dict:
+        wins = total = 0
+        spreads = []
+        for b in per_build:
+            a, s = b["returns"].get(cls, []), b["returns"].get("selected", [])
+            if not a or not s:
+                continue
+            total += 1
+            spread = sum(a) / len(a) - sum(s) / len(s)
+            spreads.append(spread)
+            if spread > 0:
+                wins += 1
+        return {"windows_beating_selected": wins, "windows_compared": total,
+                "avg_spread_vs_selected":
+                    round(sum(spreads) / len(spreads), 4) if spreads else None}
+
+    return {"by_outcome": pooled,
+            "cap_blocked_vs_selected": _beat("cap_blocked"),
+            "out_ranked_vs_selected": _beat("out_ranked")}
+
+
 async def _selection_audit(conn) -> dict:
     """Picked vs not-picked, with WHY and what each did afterward — the evidence
     that separates 'the rank missed winners' from 'the builder's caps rejected
     winners the rank found'.
 
-    Anchored on the newest build with a REAL forward window (>= FWD_MIN_DAYS of
-    prices after it), falling back to the newest build. Auditing yesterday's
-    build gives fwd_return == 0.0 for every name (zero elapsed sessions) — the
-    W27 report correctly read that as 'no realized-outcome signal'."""
+    POOLED across the newest SELECTION_AUDIT_BUILDS authoritative builds, each
+    scored over a FIXED FWD_SESSIONS-session window. Two reasons this is not one
+    build measured to 'now':
+      - one window is an anecdote. The W30 review kept reporting
+        "cap_blocked>selected remains a single window" and could never justify
+        touching the builder's caps, because the design discarded every prior
+        window.
+      - pooling builds measured to the LATEST close would be invalid: the oldest
+        build gets the longest window and dominates the average, so the number
+        would partly measure elapsed time rather than selection quality.
+    Ticker-level detail stays scoped to the most recent qualifying build so the
+    packet does not grow by SELECTION_AUDIT_BUILDS x."""
     px_date = await _latest_price_date(conn)
-    run = None
-    if px_date:
-        run = (await conn.execute(text(
-            "SELECT run_id, source_ranking_run_id, portfolio_date FROM ("
-            "  SELECT pr.run_id, ph.source_ranking_run_id, pr.portfolio_date, pr.started_at "
-            "  FROM portfolio_runs pr JOIN portfolio_holdings ph ON ph.run_id = pr.run_id "
-            "  WHERE pr.status='success' AND pr.portfolio_date <= :cutoff "
-            "  ORDER BY pr.started_at DESC LIMIT 1) x"
-        ), {"cutoff": px_date - timedelta(days=FWD_MIN_DAYS)})).mappings().first()
-    if not run:
-        run = (await conn.execute(text(
-            "SELECT run_id, source_ranking_run_id, portfolio_date FROM ("
-            "  SELECT pr.run_id, ph.source_ranking_run_id, pr.portfolio_date, pr.started_at "
-            "  FROM portfolio_runs pr JOIN portfolio_holdings ph ON ph.run_id = pr.run_id "
-            "  WHERE pr.status='success' ORDER BY pr.started_at DESC LIMIT 1) x"
+    sessions = await _session_dates(conn)
+    cutoff = session_cutoff(sessions, FWD_SESSIONS)
+
+    runs = []
+    if cutoff:
+        runs = (await conn.execute(text(
+            # DISTINCT ON (portfolio_date): one authoritative build per date. A
+            # manual re-run supersedes a cron build for the SAME date, and
+            # counting both would double-weight that day in the pool.
+            "SELECT DISTINCT ON (pr.portfolio_date) "
+            "       pr.run_id, ph.source_ranking_run_id, pr.portfolio_date "
+            "FROM portfolio_runs pr JOIN portfolio_holdings ph ON ph.run_id = pr.run_id "
+            "WHERE pr.status='success' AND pr.superseded_at IS NULL "
+            "  AND pr.portfolio_date <= :cutoff "
+            "ORDER BY pr.portfolio_date DESC, pr.started_at DESC"
+        ), {"cutoff": cutoff})).mappings().all()
+        runs = list(runs)[:SELECTION_AUDIT_BUILDS]
+    if not runs:
+        # No build has a full forward window yet (young deployment, or a data
+        # gap). Fall back to the newest build so the section still describes the
+        # CURRENT selection, and say plainly that outcomes are not scorable.
+        fb = (await conn.execute(text(
+            "SELECT pr.run_id, ph.source_ranking_run_id, pr.portfolio_date "
+            "FROM portfolio_runs pr JOIN portfolio_holdings ph ON ph.run_id = pr.run_id "
+            "WHERE pr.status='success' ORDER BY pr.started_at DESC LIMIT 1"
         ))).mappings().first()
-    if not run:
-        return {"note": "no successful portfolio run yet"}
+        if not fb:
+            return {"note": "no successful portfolio run yet"}
+        runs = [fb]
 
-    cands = (await conn.execute(text(
-        # Latest NON-NULL sector per ticker across snapshots — a fresh weekly
-        # snapshot inserts sector=NULL everywhere, so scoping to the newest snapshot
-        # showed the whole book as sector-unknown right after a refresh (W29 finding).
-        "SELECT r.ticker, r.rank, r.composite_score, n.sector "
-        "FROM rankings r "
-        "LEFT JOIN (SELECT DISTINCT ON (ticker) ticker, sector FROM universe_tickers "
-        "           WHERE sector IS NOT NULL "
-        "           ORDER BY ticker, snapshot_id DESC) n ON n.ticker = r.ticker "
-        "WHERE r.run_id = :rid ORDER BY r.rank ASC LIMIT :n"
-    ), {"rid": run["source_ranking_run_id"], "n": SELECTION_AUDIT_CANDIDATES})).mappings().all()
-    candidates = [{"ticker": c["ticker"], "rank": c["rank"],
-                   "score": _r(c["composite_score"]), "sector": c["sector"]} for c in cands]
+    per_build: list[dict] = []
+    newest_audit: list[dict] | None = None
+    newest_meta: dict = {}
 
-    sel_rows = (await conn.execute(text(
-        "SELECT ticker, original_rank FROM portfolio_holdings WHERE run_id = :rid"
-    ), {"rid": run["run_id"]})).mappings().all()
-    selected = {r["ticker"] for r in sel_rows}
-    ranks = [r["original_rank"] for r in sel_rows if r["original_rank"] is not None]
-    worst_rank = max(ranks) if ranks else None
+    for idx, run in enumerate(runs):
+        cands = (await conn.execute(text(
+            # Latest NON-NULL sector per ticker across snapshots — a fresh weekly
+            # snapshot inserts sector=NULL everywhere, so scoping to the newest snapshot
+            # showed the whole book as sector-unknown right after a refresh (W29 finding).
+            "SELECT r.ticker, r.rank, r.composite_score, n.sector "
+            "FROM rankings r "
+            "LEFT JOIN (SELECT DISTINCT ON (ticker) ticker, sector FROM universe_tickers "
+            "           WHERE sector IS NOT NULL "
+            "           ORDER BY ticker, snapshot_id DESC) n ON n.ticker = r.ticker "
+            "WHERE r.run_id = :rid ORDER BY r.rank ASC LIMIT :n"
+        ), {"rid": run["source_ranking_run_id"],
+            "n": SELECTION_AUDIT_CANDIDATES})).mappings().all()
+        candidates = [{"ticker": c["ticker"], "rank": c["rank"],
+                       "score": _r(c["composite_score"]), "sector": c["sector"]}
+                      for c in cands]
+        if not candidates:
+            continue
 
-    exc_rows = (await conn.execute(text(
-        "SELECT ve.ticker, ve.risk_type FROM vetter_exclusions ve "
-        "JOIN vetter_runs vr ON vr.run_id = ve.run_id "
-        "WHERE vr.source_ranking_run_id = :srid"
-    ), {"srid": run["source_ranking_run_id"]})).mappings().all()
-    excluded = {r["ticker"]: r["risk_type"] for r in exc_rows}
+        sel_rows = (await conn.execute(text(
+            "SELECT ticker, original_rank FROM portfolio_holdings WHERE run_id = :rid"
+        ), {"rid": run["run_id"]})).mappings().all()
+        selected = {r["ticker"] for r in sel_rows}
+        ranks = [r["original_rank"] for r in sel_rows if r["original_rank"] is not None]
+        worst_rank = max(ranks) if ranks else None
 
-    audit = classify_candidates(candidates, selected, excluded, worst_rank)
-    fwd = await _forward_returns_bulk(conn, [a["ticker"] for a in audit], run["portfolio_date"])
-    for a in audit:
-        a["fwd_return"] = fwd.get(a["ticker"])
+        exc_rows = (await conn.execute(text(
+            "SELECT ve.ticker, ve.risk_type FROM vetter_exclusions ve "
+            "JOIN vetter_runs vr ON vr.run_id = ve.run_id "
+            "WHERE vr.source_ranking_run_id = :srid"
+        ), {"srid": run["source_ranking_run_id"]})).mappings().all()
+        excluded = {r["ticker"]: r["risk_type"] for r in exc_rows}
 
-    def _avg(cls):
-        v = [a["fwd_return"] for a in audit if a["outcome"] == cls and a["fwd_return"] is not None]
-        return round(sum(v) / len(v), 4) if v else None
+        audit = classify_candidates(candidates, selected, excluded, worst_rank)
 
+        bounds = horizon_bounds(sessions, run["portfolio_date"], FWD_SESSIONS)
+        if bounds:
+            base, end = bounds
+            fwd = await _fixed_horizon_returns(
+                conn, [a["ticker"] for a in audit], base, end)
+        else:
+            base = end = None
+            fwd = {}
+        for a in audit:
+            a["fwd_return"] = fwd.get(a["ticker"])
+
+        by_class: dict[str, list[float]] = {}
+        for a in audit:
+            if a["fwd_return"] is not None:
+                by_class.setdefault(a["outcome"], []).append(a["fwd_return"])
+        per_build.append({
+            "portfolio_date": str(run["portfolio_date"]),
+            "window": [str(base), str(end)] if bounds else None,
+            "selected_count": len(selected),
+            "worst_selected_rank": worst_rank,
+            "returns": by_class,
+            "avg_fwd_return_by_outcome": {
+                c: (round(sum(v) / len(v), 4) if (v := by_class.get(c)) else None)
+                for c in ("selected", "cap_blocked", "vetter_excluded", "out_ranked")},
+        })
+        if idx == 0:
+            newest_audit = audit
+            newest_meta = {
+                "portfolio_date": str(run["portfolio_date"]),
+                "candidate_count": len(audit),
+                "selected_count": len(selected),
+                "worst_selected_rank": worst_rank,
+            }
+
+    if not per_build:
+        return {"note": "no ranked candidates on any recent build"}
+
+    pooled = pool_outcome_stats(per_build)
+    scorable = bool(per_build[0].get("window"))
     return {
-        "portfolio_date": str(run["portfolio_date"]),
-        "fwd_window_days": (px_date - run["portfolio_date"]).days if px_date else None,
-        "candidate_count": len(audit),
-        "selected_count": len(selected),
-        "worst_selected_rank": worst_rank,
-        "avg_fwd_return_by_outcome": {c: _avg(c) for c in
-                                      ("selected", "cap_blocked", "vetter_excluded", "out_ranked")},
+        **newest_meta,
+        # Sessions is the honest unit. This key used to be `fwd_window_days` and
+        # carried CALENDAR days (7 where the window was 5 sessions) — not kept
+        # for compatibility, because the section's whole job is honest evidence.
+        "fwd_window_sessions": FWD_SESSIONS,
+        "fwd_window_calendar_days": (
+            (px_date - date.fromisoformat(newest_meta["portfolio_date"])).days
+            if px_date and newest_meta.get("portfolio_date") else None),
+        "n_builds_pooled": len(per_build),
+        "pooled": pooled,
+        # The single-build view the earlier reports were built on, kept so a
+        # week-over-week read still works — now explicitly labelled as one window.
+        "avg_fwd_return_by_outcome": per_build[0]["avg_fwd_return_by_outcome"],
+        "per_build": [{k: v for k, v in b.items() if k != "returns"}
+                      for b in per_build],
         "note": ("cap_blocked = ranked above the last pick but skipped by the builder "
                  "(diversification caps / vol-adjusted score) — if this class beats "
                  "'selected', construction is rejecting winners the rank found. "
-                 "out_ranked beating selected implicates the FACTOR MODEL instead."),
-        "candidates": audit,
+                 "out_ranked beating selected implicates the FACTOR MODEL instead. "
+                 "Weigh `pooled` (many independent windows at a fixed horizon) over "
+                 "`avg_fwd_return_by_outcome` (the newest window alone); "
+                 "`pooled.cap_blocked_vs_selected.windows_beating_selected` out of "
+                 "`windows_compared` is the consistency test."
+                 + ("" if scorable else
+                    " NOT SCORABLE this review: no build yet has a full "
+                    f"{FWD_SESSIONS}-session forward window, so forward returns are "
+                    "absent and only the CURRENT selection is described.")),
+        "candidates": newest_audit or [],
     }
 
 
@@ -990,12 +1167,16 @@ async def _gate_audit(conn) -> dict:
     recent-IPO blind spot: history-hungry factors exclude it for ~a year)."""
     px_date = await _latest_price_date(conn)
     run = None
-    if px_date:
+    # SESSIONS, not calendar days: the old `px_date - timedelta(days=N)` claimed
+    # "N days of prices" but on a mid-week review the cutoff landed on the prior
+    # Friday and the window was ~3 sessions.
+    cutoff = session_cutoff(await _session_dates(conn), FWD_SESSIONS)
+    if cutoff:
         run = (await conn.execute(text(
             "SELECT run_id, source_factor_run_id, rank_date FROM ranking_runs "
             "WHERE status='success' AND rank_date <= :cutoff "
             "ORDER BY started_at DESC LIMIT 1"
-        ), {"cutoff": px_date - timedelta(days=FWD_MIN_DAYS)})).mappings().first()
+        ), {"cutoff": cutoff})).mappings().first()
     if not run:
         run = (await conn.execute(text(
             "SELECT run_id, source_factor_run_id, rank_date FROM ranking_runs "
@@ -1022,7 +1203,12 @@ async def _gate_audit(conn) -> dict:
         nulls = sorted(k for k, v in scores.items() if v is None)
         dropped.append({"ticker": r["ticker"], "null_factors": nulls})
 
-    fwd = await _forward_returns_bulk(conn, [d["ticker"] for d in dropped], run["rank_date"])
+    # FIXED horizon, same as the selection audit: "what did the dropped names do
+    # afterward" must mean the same span every week, or a week-over-week read
+    # compares a 5-session window against a 9-session one.
+    gb = horizon_bounds(await _session_dates(conn), run["rank_date"], FWD_SESSIONS)
+    fwd = (await _fixed_horizon_returns(
+        conn, [d["ticker"] for d in dropped], gb[0], gb[1])) if gb else {}
     for d in dropped:
         d["fwd_return"] = fwd.get(d["ticker"])
     scored = [d["fwd_return"] for d in dropped if d["fwd_return"] is not None]
@@ -1040,7 +1226,8 @@ async def _gate_audit(conn) -> dict:
 
     return {
         "rank_date": str(run["rank_date"]),
-        "fwd_window_days": (px_date - run["rank_date"]).days if px_date else None,
+        "fwd_window_sessions": FWD_SESSIONS if gb else None,
+        "fwd_window_calendar_days": (px_date - run["rank_date"]).days if px_date else None,
         "dropped_after_scoring": len(dropped),
         "no_factor_row_count": no_factor_row,
         "dropped_with_price_data": len(scored),
