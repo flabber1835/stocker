@@ -403,7 +403,14 @@ async def _run_bg(run_id: str, req: BtRunRequest, cfg: StrategyConfig) -> None:
 _RUN_COLS = ("run_id::text AS run_id, strategy_id, start_date, end_date, status, "
              "progress_pct, tx_cost_bps, fill_timing, starting_capital, total_return, "
              "annualized_return, sharpe_ratio, max_drawdown, benchmark_total_return, "
-             "alpha, avg_turnover, win_rate, started_at, completed_at, error_message")
+             "alpha, avg_turnover, win_rate, started_at, completed_at, error_message, "
+             # IN-FLIGHT numbers. The summary columns above are written once, at
+             # COMPLETION — during a run they are all null, which reads as "stuck"
+             # when the run is fine. live_stats carries equity / return / drawdown
+             # / trade count as of the day being simulated. It was persisted in
+             # b76ed87 and never SELECTed, so it was write-only: the one field
+             # that answers "is this progressing sensibly?" was unreachable.
+             "live_stats")
 
 
 @app.get("/runs/latest")
