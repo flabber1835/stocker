@@ -86,6 +86,9 @@ _SWEEP_DDL = [
     # live progress + interim stats for the config running right now
     "ALTER TABLE bt_sweeps ADD COLUMN IF NOT EXISTS progress_pct INTEGER",
     "ALTER TABLE bt_sweeps ADD COLUMN IF NOT EXISTS live_stats JSONB",
+    # Same for a SINGLE run. A full-history run takes minutes with nothing to
+    # look at; the simulator already emits the stats, they just had nowhere to go.
+    "ALTER TABLE bt_runs ADD COLUMN IF NOT EXISTS live_stats JSONB",
 ]
 
 
@@ -277,7 +280,7 @@ async def _run_bg(run_id: str, req: BtRunRequest, cfg: StrategyConfig) -> None:
     # phase matters for the UI: loading a full-history corpus takes minutes
     # during which the sim hasn't started, so a flat 0% is indistinguishable
     # from "stuck". Loading creeps 1→4%, the simulation owns 5→99%.
-    progress = {"done": 0, "total": 1, "phase": "loading", "rows": 0}
+    progress = {"done": 0, "total": 1, "phase": "loading", "rows": 0, "live": None}
 
     async def _progress_poller():
         last = -1
@@ -292,8 +295,12 @@ async def _run_bg(run_id: str, req: BtRunRequest, cfg: StrategyConfig) -> None:
                 try:
                     async with engine.begin() as conn:
                         await conn.execute(text(
-                            "UPDATE bt_runs SET progress_pct=:p WHERE run_id=CAST(:r AS uuid)"
-                        ), {"p": min(pct, 99), "r": run_id})
+                            "UPDATE bt_runs SET progress_pct=:p, "
+                            "  live_stats=COALESCE(CAST(:ls AS jsonb), live_stats) "
+                            "WHERE run_id=CAST(:r AS uuid)"
+                        ), {"p": min(pct, 99), "r": run_id,
+                            "ls": (json.dumps(_json_sanitize(progress["live"]), default=str)
+                                   if progress["live"] else None)})
                 except Exception:  # noqa: BLE001
                     pass
 
@@ -325,8 +332,19 @@ async def _run_bg(run_id: str, req: BtRunRequest, cfg: StrategyConfig) -> None:
                            rebalance_every=req.rebalance_every,
                            drawdown_backstop_pct=req.drawdown_backstop_pct)
 
-        def _cb(done, total):
+        # THREE parameters. run_simulation calls progress_cb(done, total, stats)
+        # — the `stats` argument was added in 194b63d ("live run stats in the
+        # Lab"), which updated the SWEEP callback and not this one. Every
+        # interactive POST /jobs/run has died ~5% in ever since with
+        # "_cb() takes 2 positional arguments but 3 were given"; nothing noticed
+        # because the experiment lane drives /sweeps/run instead. Keep the
+        # default so an older caller shape still works.
+        def _cb(done, total, stats=None):
             progress["done"], progress["total"] = done, total
+            if stats:
+                # Same live tiles the sweep gets — a multi-minute single run with
+                # no visible state is indistinguishable from a stuck one.
+                progress["live"] = stats
 
         result = await asyncio.to_thread(
             run_simulation, prices, fundamentals, sector_map, cfg, params, _cb,
