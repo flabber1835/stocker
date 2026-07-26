@@ -201,6 +201,15 @@ weight rotation is off, on the evidence that regime timing overfits out of sampl
 there is no 'macro' mechanism to queue against, and market context must NEVER be the \
 sole justification for a candidate — every candidate still needs measured evidence \
 from the outcome sections.
+- THE PACKET IS NOT THE DATABASE. It carries what EVERY review needs; the live \
+Postgres holds far more, and `sql_query` reaches all of it read-only with a \
+discoverable schema (query information_schema.columns — the tool description shows \
+how). So "the packet does not show X" is NOT evidence that X was not recorded: \
+builder risk state, order timestamps and fill quantities, per-decision forward \
+outcomes and shadow targets are all persisted whether or not a section renders them. \
+Before reporting a data gap as a STRUCTURAL FINDING, look — a finding that says \
+"we do not measure X" when X is a column is a wasted week. Report a genuine gap only \
+after the query came back empty, and say which query.
 - A REFUTED candidate is a successful experiment. The gate rejecting your \
 candidate is information you paid for: record it in the hypothesis_ledger and let \
 it constrain next week's proposals. Judge yourself on hypotheses resolved per \

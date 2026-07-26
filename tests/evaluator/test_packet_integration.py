@@ -498,3 +498,26 @@ def test_market_context_is_bounded_on_both_axes(db_engine):
     assert "FROM rankings WHERE run_id" in src, "scans the raw universe"
     assert "rn <= 200" in src, "no per-ticker row cap"
     assert "INTERVAL '400 days'" in src, "no date floor on the price scan"
+
+
+def test_schema_discovery_returns_the_columns_the_packet_hides(db_engine):
+    """The whole point of the change: the model must be able to FIND columns the
+    packet never renders. Run the advertised recipe against the real migrated
+    schema — a recipe that works only in the tool description is worthless."""
+    import asyncio as _a
+    from app.tools import sql_query
+
+    async def _q(engine):
+        return await sql_query({"query":
+            "SELECT table_name, column_name FROM information_schema.columns "
+            "WHERE table_schema='public' AND table_name IN "
+            "('portfolio_runs','alpaca_orders') ORDER BY table_name, column_name"},
+            engine=engine)
+    out = _a.run(_run_with_engine(db_engine, _q))
+    # The three builder risk columns the audit reported as missing evidence.
+    for col in ("portfolio_estimated_vol", "avg_pairwise_correlation",
+                "risk_estimate_degraded"):
+        assert col in out, f"{col} not discoverable — the audit's finding stands"
+    # And the order-lifecycle fields the old partial hint list concealed.
+    for col in ("submitted_at", "filled_qty", "avg_fill_price"):
+        assert col in out, f"{col} not discoverable"

@@ -3380,3 +3380,44 @@ evidence that regime timing overfits), so market context may explain a result
 and must not by itself justify a candidate. There is deliberately no `macro`
 entry in the experiment mechanism vocabulary — no config-shaped lever for this
 input to map onto.
+
+## Design Decision: the packet is an index, not the database — schema discovery (2026-07)
+
+An audit of the packet found seven material evidence gaps. Several turned out
+not to be gaps at all: the data was recorded and simply never surfaced. The
+builder persists `portfolio_estimated_vol`, `avg_pairwise_correlation` and
+`risk_estimate_degraded` on every run and `_current_book` selects three columns
+from that row. `alpaca_orders` records the full order lifecycle and the packet
+projects six fields of it. This is the same write-only-column pattern as
+`bt_runs.live_stats` (persisted, never SELECTed, found the same week).
+
+The reflex fix is to widen the packet. That trades one failure for another: the
+last review consumed 572k input tokens, and more context is not monotonically
+better — a decisive number diluted among a hundred others is a number the model
+does not act on. The same salience argument used to keep a news feed OUT applies
+to numbers.
+
+```text
+Data needed EVERY review        → packet section.
+Data needed when something      → sql_query, with a schema the model can
+looks wrong                       DISCOVER rather than guess.
+```
+
+The second half was missing. `sql_query`'s description carried a hand-maintained
+partial column list — which had already drifted, and whose partiality was
+actively misleading: `alpaca_orders (status, notional, filled_at)` reads as the
+column list, so the model had no way to know `submitted_at` or `filled_qty`
+exist, and would report execution-latency evidence as unavailable.
+
+So the description now carries a TABLE INDEX grouped by the question each table
+answers, and an explicit `information_schema.columns` recipe for columns. The
+guard already permits it (a plain SELECT; verified against `sql_guard`), so this
+is a prompt change, not a capability change. The system prompt states the rule
+directly: the packet is not the database, and a structural finding of the form
+"we do not measure X" must be preceded by a query that came back empty — naming
+the query.
+
+Consequence for the packet-gap audit: items become "must be a section" only if a
+review needs them EVERY time (target-vs-live divergence, builder risk state).
+Drill-down evidence (execution latency percentiles, per-ticker attribution) is
+better reached on demand than paid for weekly.
