@@ -46,7 +46,8 @@ def test_full_config_candidate_queued_with_auto_diff(env):
     budget = tools.BacktestBudget()
     cand = _active_config()
     cand["max_positions"] = 20
-    out = _call_full({"config": cand, "hypothesis": "concentration lifts CAGR"},
+    out = _call_full({"config": cand, "hypothesis": "concentration lifts CAGR",
+                      "mechanism": "concentration_control"},
                      budget)
     assert "queued full-config candidate" in out
     (entry,) = _entries(env)
@@ -58,7 +59,8 @@ def test_full_config_candidate_queued_with_auto_diff(env):
 
 def test_full_config_identical_to_active_rejected(env):
     budget = tools.BacktestBudget()
-    out = _call_full({"config": _active_config(), "hypothesis": "h"}, budget)
+    out = _call_full({"config": _active_config(), "hypothesis": "h",
+                            "mechanism": "risk_control"}, budget)
     assert "identical to the active config" in out
     assert budget.experiment_used == 0
 
@@ -67,8 +69,9 @@ def test_full_config_duplicate_refunds_budget(env):
     budget = tools.BacktestBudget()
     cand = _active_config()
     cand["max_positions"] = 20
-    _call_full({"config": cand, "hypothesis": "h1"}, budget)
-    out = _call_full({"config": cand, "hypothesis": "h2 different"}, budget)
+    _call_full({"config": cand, "hypothesis": "h1", "mechanism": "risk_control"}, budget)
+    out = _call_full({"config": cand, "hypothesis": "h2 different",
+                      "mechanism": "risk_control"}, budget)
     assert "already queued" in out
     assert len(_entries(env)) == 1
     assert budget.experiment_used == 1
@@ -78,9 +81,57 @@ def test_full_config_schema_invalid_rejected_before_budget(env):
     budget = tools.BacktestBudget()
     cand = _active_config()
     cand["max_positions"] = -5                    # schema violation
-    out = _call_full({"config": cand, "hypothesis": "h"}, budget)
+    out = _call_full({"config": cand, "hypothesis": "h",
+                      "mechanism": "risk_control"}, budget)
     assert "schema validation" in out
     assert budget.experiment_used == 0
+
+
+def test_second_candidate_on_the_same_mechanism_is_refused_end_to_end(env):
+    """Independence enforced through the REAL queue path, not just the pure
+    helper: two different configs, same mechanism, second one refused and its
+    budget refunded. This is what stops five slots holding one hypothesis."""
+    budget = tools.BacktestBudget()
+    a = _active_config(); a["max_positions"] = 20
+    b = _active_config(); b["max_positions"] = 22
+    assert "queued full-config candidate" in _call_full(
+        {"config": a, "hypothesis": "tighter book", "mechanism": "concentration_control"},
+        budget)
+    out = _call_full(
+        {"config": b, "hypothesis": "even tighter", "mechanism": "concentration_control"},
+        budget)
+    assert "already queued this cycle" in out
+    assert len(_entries(env)) == 1
+    assert budget.experiment_used == 1, "a refused draw must not burn budget"
+
+
+def test_a_different_mechanism_still_queues(env):
+    """The refusal must not be a blanket second-candidate block — breadth is
+    the entire point of the raised budget."""
+    budget = tools.BacktestBudget()
+    a = _active_config(); a["max_positions"] = 20
+    b = _active_config(); b["delta_engine"]["orphan_confirmation_days"] = 5
+    _call_full({"config": a, "hypothesis": "h", "mechanism": "concentration_control"},
+               budget)
+    out = _call_full({"config": b, "hypothesis": "slower exits",
+                      "mechanism": "exit_hysteresis"}, budget)
+    assert "queued full-config candidate" in out, out
+    entries = _entries(env)
+    assert len(entries) == 2
+    assert {e["mechanism"] for e in entries} == {"concentration_control",
+                                                 "exit_hysteresis"}
+    assert entries[1]["changed_fields"] == ["delta_engine.orphan_confirmation_days"]
+
+
+def test_the_queue_reply_reports_remaining_slots(env):
+    """The model has to know how much capacity is left to decide whether to
+    keep going — and is told to account for what it leaves idle."""
+    budget = tools.BacktestBudget()
+    cand = _active_config(); cand["max_positions"] = 20
+    out = _call_full({"config": cand, "hypothesis": "h",
+                      "mechanism": "concentration_control"}, budget)
+    assert f"{tools.MAX_QUEUED_EXPERIMENTS - 1} experiment slot(s) left" in out
+    assert "unused" in out
 
 
 def test_full_config_missing_hypothesis_rejected(env):

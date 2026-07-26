@@ -211,6 +211,19 @@ def tool_definitions() -> list[dict]:
                            "description": "complete StrategyConfig as JSON (start from the active config and modify)"},
                 "hypothesis": {"type": "string",
                                "description": "what you expect and WHY — the thesis this candidate tests"},
+                "mechanism": {
+                    "type": "string", "enum": sorted(MECHANISMS),
+                    "description": (
+                        "WHICH assumption this candidate probes. Enforced: only "
+                        "ONE candidate per mechanism per review, because four "
+                        "variants of one knob is ONE experiment wearing four "
+                        "slots. Spend the week's slots on DIFFERENT mechanisms — "
+                        "that is where the information is. Also the key results "
+                        "are aggregated by, so a future review can read 'this "
+                        "class of change has failed 4 for 4' instead of a list "
+                        "of unrelated config hashes. "
+                        + " | ".join(f"{k}: {v}" for k, v in sorted(MECHANISMS.items()))),
+                },
                 "predicted_tune_cagr_edge": {
                     "type": "number",
                     "description": (
@@ -241,7 +254,7 @@ def tool_definitions() -> list[dict]:
                                + " | ".join(f"{k}: {v['stresses']}"
                                             for k, v in sorted(STRESS_REGIMES.items())))},
             },
-            "required": ["config", "hypothesis"],
+            "required": ["config", "hypothesis", "mechanism"],
         },
     })
     if BT_DATABASE_URL:
@@ -360,7 +373,67 @@ STRESS_REGIMES: dict[str, dict] = {
 
 MAX_LEDGER_WRITES = int(os.getenv("EVALUATOR_MAX_LEDGER_WRITES", "6"))
 MAX_PREVIEWS = int(os.getenv("EVALUATOR_MAX_PREVIEWS", "8"))
-MAX_QUEUED_EXPERIMENTS = int(os.getenv("EVALUATOR_MAX_QUEUED_EXPERIMENTS", "4"))
+# 5, matching the lane's BT_EXPERIMENTS_PER_WEEK candidate cap exactly (baselines
+# fire outside that cap). Raising this further does nothing until the lane cap
+# rises too.
+MAX_QUEUED_EXPERIMENTS = int(os.getenv("EVALUATOR_MAX_QUEUED_EXPERIMENTS", "5"))
+
+# The mechanism vocabulary. A candidate must name WHICH assumption it probes, so
+# (a) the lane cannot be filled with four variants of one hypothesis, and (b)
+# failures aggregate into "this CLASS of intervention does not work here" instead
+# of a pile of unrelated config hashes. Deliberately coarse: these are the
+# distinct places a strategy can be wrong, not a taxonomy of every field.
+MECHANISMS: dict[str, str] = {
+    "factor_weighting": "which factors the composite score weights, and how much",
+    "factor_construction": "how a factor is COMPUTED (windows, definitions, new factors)",
+    "entry_selection": "which candidates are eligible / how the pool is formed",
+    "exit_hysteresis": "when a held name leaves (orphan timers, confirmation, rank buffers)",
+    "portfolio_construction": "how selected names are weighted and sized",
+    "concentration_control": "sector / cluster / position caps and book breadth",
+    "risk_control": "vol targeting, beta targeting, cash reserve, falling-knife veto",
+    "turnover_control": "drift thresholds and churn damping",
+    "universe": "investability floors and what is in the pool at all",
+}
+
+
+def experiment_diversity_conflict(pending: list[dict], mechanism: str,
+                                  changed_fields: set[str]) -> str | None:
+    """Why this candidate is NOT independent of what is already queued, or None.
+
+    Pure. Two deterministic refusals, in order of authority:
+      1. the MECHANISM is already being probed this cycle — a second draw on the
+         same assumption, which is what "four momentum thresholds" really is;
+      2. the FIELD SET is identical — same knobs, different values. This is the
+         backstop: config topology only approximates the economic hypothesis
+         (two candidates can share a field while testing different mechanisms),
+         so the label is authoritative and this catches an unlabelled repeat.
+    Partial field overlap is NOT refused — it is legitimate (exit_threshold +
+    confirmation_days vs exit_threshold + vol_scaling are different theses) and
+    is surfaced to the model instead."""
+    for e in pending:
+        if e.get("mechanism") and e["mechanism"] == mechanism:
+            return (f"mechanism {mechanism!r} is already queued this cycle "
+                    f"(candidate {str(e.get('config_hash'))[:12]}: "
+                    f"{str(e.get('hypothesis'))[:120]}). Four draws on one "
+                    "assumption is ONE experiment — probe a different mechanism, "
+                    f"or wait for that result. Mechanisms: {', '.join(sorted(MECHANISMS))}")
+    for e in pending:
+        if set(e.get("changed_fields") or []) == changed_fields and changed_fields:
+            return (f"identical changed-field set to queued candidate "
+                    f"{str(e.get('config_hash'))[:12]} "
+                    f"({', '.join(sorted(changed_fields))[:200]}) — same knobs, "
+                    "different values is a parameter sweep, not an independent "
+                    "hypothesis")
+    return None
+
+
+def overlapping_fields(pending: list[dict], changed_fields: set[str]) -> set[str]:
+    """Fields this candidate shares with anything already queued. Reported, not
+    refused — see experiment_diversity_conflict. Pure."""
+    out: set[str] = set()
+    for e in pending:
+        out |= (set(e.get("changed_fields") or []) & changed_fields)
+    return out
 
 
 class BacktestBudget:
@@ -928,6 +1001,12 @@ async def queue_strategy_experiment(args: dict, *, budget: BacktestBudget) -> st
     if not hypothesis:
         return ("queue rejected: state the hypothesis this candidate tests — "
                 "future reviews read it cold next to the results")
+    mechanism = str(args.get("mechanism") or "").strip()
+    if mechanism not in MECHANISMS:
+        return (f"queue rejected: mechanism must be one of "
+                f"{', '.join(sorted(MECHANISMS))} — it is what stops the week's "
+                "slots filling with variants of one hypothesis, and what lets a "
+                "future review aggregate failures by CLASS of intervention")
     cand = args.get("config")
     if not isinstance(cand, dict) or not cand:
         return "queue rejected: config must be a complete StrategyConfig JSON object"
@@ -974,17 +1053,32 @@ async def queue_strategy_experiment(args: dict, *, budget: BacktestBudget) -> st
                 budget.experiment_used -= 1  # dupes never burn budget
                 return ("already queued/tested: an identical candidate config "
                         f"(hash {cfg_hash}) exists — argue from its results instead")
-            n_pending_full = sum(1 for e in entries
-                                 if e.get("kind") == "full_config"
-                                 and e.get("status") == "pending")
-            if n_pending_full >= 6:
+            pending_full = [e for e in entries
+                            if e.get("kind") == "full_config"
+                            and e.get("status") == "pending"]
+            if len(pending_full) >= 6:
                 budget.experiment_used -= 1
                 return "queue rejected: 6 full-config candidates already pending"
+            # INDEPENDENCE. Enforced here rather than only asked for in the
+            # prompt: breadth is the whole point of the raised budget, and the
+            # under-generation it fixes was itself a case of trusting an
+            # instruction to carry a property nothing checked.
+            changed_fields = set(diff)
+            conflict = experiment_diversity_conflict(
+                pending_full, mechanism, changed_fields)
+            if conflict:
+                budget.experiment_used -= 1   # a refused draw costs no budget
+                return f"queue rejected: {conflict}"
+            overlap = overlapping_fields(pending_full, changed_fields)
             entries.append({
                 "id": str(_uuid.uuid4()), "kind": "full_config",
                 "status": "pending", "origin": "exploratory",
                 "hypothesis": hypothesis, "config": validated,
                 "config_hash": cfg_hash, "diff": diff, "regime": regime,
+                "mechanism": mechanism,
+                # Stored flat so the lane and the packet can aggregate outcomes
+                # by mechanism/field without re-deriving them from the diff.
+                "changed_fields": sorted(changed_fields),
                 "predicted_tune_cagr_edge": pred,
                 # The config this candidate (and its diff) was authored against.
                 # Auto-promotion can change the live config while this sits
@@ -1005,10 +1099,20 @@ async def queue_strategy_experiment(args: dict, *, budget: BacktestBudget) -> st
               "calibration record.")
     where = (f" over stress regime {regime}: {STRESS_REGIMES[regime]['stresses']}"
              " — DIAGNOSTIC ONLY, this run can never promote" if regime else "")
+    # Overlap short of an identical field set is legitimate; say so rather than
+    # refusing, so the model can judge whether the two theses really differ.
+    lap = (f" NOTE: shares field(s) {', '.join(sorted(overlap))[:200]} with an "
+           "already-queued candidate — allowed (different mechanisms may touch "
+           "the same knob), but the results will be harder to attribute."
+           if overlap else "")
+    left = max(0, budget.experiment_limit - budget.experiment_used)
     return (f"queued full-config candidate {cfg_hash}{where} ({len(diff)} field(s) differ "
-            "from active). Runs in the daily experiment lane (one full-history "
-            "backtest); results appear in the experiment_lane packet section, "
-            f"typically within days.{scored} "
+            f"from active; mechanism={mechanism}). Runs in the daily experiment "
+            "lane (one full-history backtest); results appear in the "
+            f"experiment_lane packet section, typically within days.{scored}{lap} "
+            f"{left} experiment slot(s) left this review — use them on DIFFERENT "
+            "mechanisms where the evidence supports a thesis, and account for any "
+            "you leave unused in your report. "
             f"diff: {_json.dumps(diff, default=str)[:800]}")
 
 

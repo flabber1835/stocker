@@ -3143,3 +3143,75 @@ the packet does not grow by 8x.
 `fwd_window_calendar_days` kept alongside for context — the mislabel is not
 preserved for compatibility, because the whole point is that the evaluator was
 being told a number that was not true.
+
+## Design Decision: search breadth — fill the lane with INDEPENDENT hypotheses (2026-07)
+
+### The bottleneck was neither the gate nor the lane
+
+The concern was "the safeguards are too strict, nothing will ever promote".
+Measurement says otherwise: the per-review cap is
+`EVALUATOR_MAX_QUEUED_EXPERIMENTS` (4) and the lane's weekly candidate cap is
+`BT_EXPERIMENTS_PER_WEEK` (5) — and the W30 review queued ONE candidate. Four
+lane slots sat idle. The system was not rejecting ideas; it was not generating
+them.
+
+At 1 candidate/week and a plausible 10-20% gate pass rate, a promotion arrives
+every 5-10 weeks. At 4-5/week, every 1.5-2.5 weeks — a 4x speedup with NO
+change to the acceptance criteria. Search throughput and evaluation rigour are
+separate dials and must be turned separately; loosening a gate to compensate
+for an idle searcher is the wrong trade.
+
+### Why the evaluator under-generated
+
+Nothing was broken. An LLM told "queue an experiment if you believe one is
+warranted" optimises for PRECISION — avoid bad ideas — when what the loop needs
+is RECALL, expected information gain per week. The prompt now asks for up to
+`MAX_QUEUED_EXPERIMENTS` independent hypotheses AND requires the model to
+account for every unused slot. That last part matters more than the raise: the
+model may still queue one, but it must say why the other four had lower expected
+information value. Idle capacity becomes visible and intentional instead of
+silent.
+
+### Independence is enforced, not requested
+
+Four variants of one parameter are ONE hypothesis:
+
+```text
+momentum threshold 0.72 / 0.74 / 0.76 / 0.78   → one hypothesis, four slots burnt
+factor weight / exit hysteresis / sector cap / vol target
+                                               → four assumptions probed
+```
+
+Relying on instruction alone for the property the whole change depends on
+repeats the mistake that caused the under-generation. `queue_strategy_experiment`
+therefore requires a structured `mechanism` label from a fixed vocabulary, and
+`experiment_diversity_conflict()` (pure) rejects a candidate that either:
+
+```text
+duplicates a PENDING candidate's mechanism   (same assumption, second draw)
+duplicates a PENDING candidate's field set   (same knobs, different values)
+```
+
+Config topology is not a perfect proxy for economic hypothesis — two candidates
+can share a field while testing different mechanisms, or touch different fields
+within one mechanism. So the MECHANISM label is authoritative and the field-set
+check is the backstop, not the reverse. Overlap short of equality is reported to
+the model, not refused.
+
+The label also fixes a real gap in what a FAILURE teaches. Results were
+attributable only per config_hash, so "exit-hysteresis changes have now failed
+4 for 4" was not computable. The packet's experiment_lane now aggregates
+outcomes BY MECHANISM, which is what turns a pile of individual rejections into
+"this class of intervention does not work here" — the sharpest thing a failed
+experiment can say.
+
+### Deliberately NOT done
+
+Gate thresholds are untouched. The first valid baseline completed 2026-07-26;
+there is no track record of the gate refusing good candidates, and re-tuning
+`BT_PROMOTE_MARGIN` / `BT_PROMOTE_VALIDATE_TOL` now would be fitting to zero
+observations. Fill the lane first, measure the real pass rate, then decide.
+
+Expect the deflated Sharpe the evaluator reads to FALL as the trial count
+climbs. That is the multiple-testing correction working, not strategy decay,
+and it must not be "fixed" by weakening the correction.

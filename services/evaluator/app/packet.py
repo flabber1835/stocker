@@ -1550,6 +1550,56 @@ async def build_packet(engine, as_of: date | None = None) -> dict:
     return packet
 
 
+def mechanism_scorecard(experiments: list[dict]) -> dict:
+    """Candidate outcomes aggregated by MECHANISM — the class of assumption a
+    candidate probed — over all history. Pure.
+
+    Results used to be attributable only per config_hash, so "exit-hysteresis
+    changes have now failed 4 for 4" was not computable and every rejection read
+    as an isolated event. Aggregating by mechanism is what turns a pile of
+    individual refusals into "this class of intervention does not work here",
+    which is the sharpest thing a failed experiment can say.
+
+    `promoted` counts gate passes; `refused` counts scored candidates the gate
+    rejected. Unscored/failed runs are counted separately so a mechanism does not
+    look refuted when its runs simply never completed."""
+    out: dict[str, dict] = {}
+    for e in experiments or []:
+        if e.get("kind") != "full_config":
+            continue
+        m = e.get("mechanism") or "unlabelled"
+        row = out.setdefault(m, {"queued": 0, "scored": 0, "promoted": 0,
+                                 "refused": 0, "not_scored": 0,
+                                 "best_tune_edge": None})
+        row["queued"] += 1
+        promo = e.get("promotion") or {}
+        if e.get("status") != "success" or not promo:
+            row["not_scored"] += 1
+            continue
+        row["scored"] += 1
+        if promo.get("eligible"):
+            row["promoted"] += 1
+        else:
+            row["refused"] += 1
+        # `actual_edge` is what score_prediction() writes (period_a CAGR edge vs
+        # the baseline). Present only when the candidate carried a prediction.
+        edge = (e.get("prediction") or {}).get("actual_edge")
+        if edge is not None:
+            try:
+                edge = float(edge)
+            except (TypeError, ValueError):
+                edge = None
+        if edge is not None and (row["best_tune_edge"] is None
+                                 or edge > row["best_tune_edge"]):
+            row["best_tune_edge"] = round(edge, 4)
+    return {"mechanisms": out,
+            "note": ("candidate outcomes by CLASS of intervention, all history. "
+                     "A mechanism with several `refused` and no `promoted` is "
+                     "evidence that this class of change does not help HERE — "
+                     "weigh that before spending another slot on it. "
+                     "`not_scored` runs prove nothing either way.")}
+
+
 def _experiment_lane() -> dict:
     """Phase 6c results bridge: the daily full-config experiment lane
     (artifacts/bt/experiments.json, written by bt-scheduler). Each entry is one
@@ -1582,13 +1632,15 @@ def _experiment_lane() -> dict:
     view = [{k: e.get(k) for k in ("id", "kind", "status", "hypothesis",
                                    "config_hash", "diff_vs_active", "windows",
                                    "regime", "fired_at", "completed_at", "result",
-                                   "promotion", "prediction")} for e in exps[-20:]]
+                                   "promotion", "prediction", "mechanism")}
+            for e in exps[-20:]]
     baseline = next((e for e in reversed(exps)
                      if e.get("kind") == "baseline"
                      and e.get("status") == "success"), None)
     return {
         "available": True,
         "updated_at": art.get("updated_at"),
+        "by_mechanism": mechanism_scorecard(exps),
         "baseline": ({"result": baseline.get("result"),
                       "note": ("active config over full history; designed with "
                                "hindsight → closer to in-sample; rolling OOS "

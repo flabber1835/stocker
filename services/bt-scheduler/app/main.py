@@ -354,6 +354,12 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
                     payload.update(_engine_window_keys(rw))
                 entry = {"id": p.get("id"), "kind": "full_config",
                          "hypothesis": p.get("hypothesis"),
+                         # Carried through so results aggregate by CLASS of
+                         # intervention (packet: experiment_lane.by_mechanism),
+                         # not only per config hash. Absent on pre-existing
+                         # proposals, which score as 'unlabelled'.
+                         "mechanism": p.get("mechanism"),
+                         "changed_fields": p.get("changed_fields"),
                          "diff_vs_active": p.get("diff"), "regime": regime,
                          "config": p.get("config"), "config_hash": p.get("config_hash"),
                          "predicted_tune_cagr_edge": p.get("predicted_tune_cagr_edge"),

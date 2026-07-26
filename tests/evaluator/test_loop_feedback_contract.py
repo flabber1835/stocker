@@ -127,7 +127,8 @@ def test_queue_writes_record_the_config_they_were_authored_against(tmp_path, mon
     cand = yaml.safe_load(open(strat))
     cand["portfolio_builder"]["max_positions"] = 19
     out = asyncio.run(tools.queue_strategy_experiment(
-        {"config": cand, "hypothesis": "concentration"}, budget=tools.BacktestBudget()))
+        {"config": cand, "hypothesis": "concentration",
+         "mechanism": "concentration_control"}, budget=tools.BacktestBudget()))
     assert "queued full-config candidate" in out, out
     entry = json.load(open(tmp_path / "bt" / "proposals.json"))["proposals"][0]
     assert entry["queued_against_config_hash"], "no lineage stamp on the candidate"
