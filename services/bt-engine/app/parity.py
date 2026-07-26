@@ -195,3 +195,18 @@ def check_config_parity(cfg: StrategyConfig) -> list[str]:
 
 def unclassified_fields() -> list[str]:
     return MANIFEST.unclassified()
+
+
+def run_provenance() -> dict:
+    """The conditions under which a result was produced, stamped into every
+    summary.
+
+    A run made with a gate DISABLED used to be byte-indistinguishable from one
+    made with it enforcing, so the promotion gate — deterministic code that
+    rewrites the live strategy — could accept a candidate scored under no parity
+    check at all. Read per call, like the gates themselves."""
+    from app.coverage import enforcement_enabled as coverage_enforcing
+    return {
+        "parity_enforced": enforcement_enabled(),
+        "coverage_enforced": coverage_enforcing(),
+    }

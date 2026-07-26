@@ -365,6 +365,31 @@ def _cagr(summary: dict | None) -> float | None:
     return None if v is None else float(v)
 
 
+REQUIRED_GATES = ("parity_enforced", "coverage_enforced")
+
+
+def provenance_is_trustworthy(*summaries) -> tuple[bool, str]:
+    """Were the safety gates enforcing when EVERY compared summary was produced?
+
+    Pure. A gate that can be switched off while its output still steers the live
+    config is decorative — so a run made with parity or coverage disabled must be
+    non-promotable, not merely unverified. Absent provenance is treated as NOT
+    enforced: a row that predates the stamp is precisely the one that cannot be
+    vouched for, and the failure direction for a rule that rewrites the live
+    strategy is 'refuse'."""
+    for s in summaries:
+        prov = (s or {}).get("provenance")
+        if not isinstance(prov, dict):
+            return False, ("result carries no gate provenance — cannot confirm "
+                           "the parity/coverage gates were enforcing when it was "
+                           "produced (re-run it under the current engine)")
+        off = [g for g in REQUIRED_GATES if not prov.get(g)]
+        if off:
+            return False, (f"produced with {', '.join(off)}=false — a result "
+                           "scored with a safety gate disabled is not promotable")
+    return True, "gates enforced"
+
+
 def promotion_eligible_2w(cand: dict | None, base: dict | None,
                           margin: float = 0.01, dd_tol: float = 0.05,
                           validate_tol: float = 0.0,
@@ -394,6 +419,14 @@ def promotion_eligible_2w(cand: dict | None, base: dict | None,
         return False, "candidate missing period_a/period_b result"
     if _cagr(bt) is None or _cagr(bv) is None:
         return False, "no two-window baseline to compare against"
+    # 0. PROVENANCE, before any number is compared. A result produced with the
+    # parity or coverage gate DISABLED is byte-indistinguishable from a checked
+    # one, so promotion has to read the stamp rather than the returns. Missing
+    # provenance counts as NOT enforced: an older row is exactly the case that
+    # cannot be vouched for, and this rule rewrites the live config.
+    prov_ok, prov_why = provenance_is_trustworthy(ct, cv, bt, bv)
+    if not prov_ok:
+        return False, prov_why
 
     edge = _cagr(ct) - _cagr(bt)
     if edge < margin:

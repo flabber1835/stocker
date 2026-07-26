@@ -229,10 +229,16 @@ def run_config_both_windows(prices, fundamentals, sector_map, base_config: dict,
         if progress_cb is not None:
             def cb(done, total, stats=None, _p=phase):   # noqa: E306
                 progress_cb(_p, done, total, stats)
-        return run_simulation(prices, fundamentals, sector_map, cfg, params,
-                              progress_cb=cb, factor_cache=factor_cache,
-                              listing_windows=listing_windows,
-                              earnings=earnings).summary
+        summary = run_simulation(prices, fundamentals, sector_map, cfg, params,
+                                 progress_cb=cb, factor_cache=factor_cache,
+                                 listing_windows=listing_windows,
+                                 earnings=earnings).summary
+        # Stamp the CONDITIONS of production. Without this a run made with the
+        # parity/coverage gate disabled is byte-identical to an enforced one,
+        # and the promotion gate cannot tell them apart.
+        from app.parity import run_provenance
+        summary["provenance"] = run_provenance()
+        return summary
 
     try:
         in_sample = _one(windows.tune_start, windows.tune_end, "tune")

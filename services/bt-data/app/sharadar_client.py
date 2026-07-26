@@ -8,9 +8,16 @@ Tables: SEP (prices), SF1 (fundamentals), TICKERS (metadata).
 Responses are cursor-paginated: datatable.data (rows), datatable.columns (schema),
 meta.next_cursor_id (None when done). We yield dict rows (column-name → value).
 
-MOCK mode (BT_MOCK_DATA=true or no SHARADAR_API_KEY): yields a tiny synthetic
-dataset so the service + backfill + tests run with no network/key. This lets the
-build proceed in parallel while the real key is provisioned.
+DATA MODE is EXPLICIT (BT_DATA_MODE=sharadar|mock, default sharadar). Mock
+yields a tiny synthetic dataset so the service + backfill + tests run with no
+network/key.
+
+A MISSING KEY IS NOT A REQUEST FOR MOCK DATA. This used to be
+`BT_MOCK_DATA or not SHARADAR_API_KEY`, so a secret that failed to load silently
+substituted a synthetic corpus — and every downstream number stayed shaped like
+a real backtest, feeding a promotion gate that rewrites the live strategy. Now
+`mode=sharadar` with no key raises at startup. Legacy BT_MOCK_DATA=true is still
+honoured as an explicit request for mock.
 """
 from __future__ import annotations
 
@@ -24,6 +31,8 @@ import httpx
 NDL_BASE = os.getenv("NDL_BASE_URL", "https://data.nasdaq.com/api/v3/datatables/SHARADAR")
 SHARADAR_API_KEY = os.getenv("SHARADAR_API_KEY", "")
 BT_MOCK_DATA = os.getenv("BT_MOCK_DATA", "").lower() in ("1", "true", "yes")
+BT_DATA_MODE = (os.getenv("BT_DATA_MODE", "") or
+                ("mock" if BT_MOCK_DATA else "sharadar")).strip().lower()
 
 # A full-universe backfill follows thousands of cursor pages over several hours.
 # WITHOUT retry, a single transient blip (network reset, Sharadar 429/5xx, read
@@ -95,9 +104,38 @@ async def _get_with_retry(client: httpx.AsyncClient, url: str, params: dict) -> 
     raise last_exc
 
 
+class DataModeError(RuntimeError):
+    """Configured for real data without the means to fetch it."""
+
+
+def data_mode() -> str:
+    """'sharadar' | 'mock' — EXPLICIT, never inferred from a missing secret."""
+    if BT_DATA_MODE not in ("sharadar", "mock"):
+        raise DataModeError(
+            f"BT_DATA_MODE={BT_DATA_MODE!r} is not 'sharadar' or 'mock'")
+    return BT_DATA_MODE
+
+
+def verify_data_mode() -> str:
+    """Called at STARTUP. Fails loudly rather than downgrading to synthetic data.
+
+    The whole point: a research platform whose corpus can be replaced by a toy
+    dataset because an env var did not load produces reports that look exactly
+    like real ones."""
+    mode = data_mode()
+    if mode == "sharadar" and not SHARADAR_API_KEY:
+        raise DataModeError(
+            "BT_DATA_MODE=sharadar but SHARADAR_API_KEY is empty. Refusing to "
+            "fall back to synthetic data — a missing secret must not silently "
+            "replace the historical corpus. Set the key, or set "
+            "BT_DATA_MODE=mock to ask for mock data deliberately.")
+    return mode
+
+
 def is_mock() -> bool:
-    """Mock when explicitly requested OR when no API key is configured yet."""
-    return BT_MOCK_DATA or not SHARADAR_API_KEY
+    """Mock ONLY when explicitly configured. A missing key is an error, not a
+    mode (see verify_data_mode)."""
+    return data_mode() == "mock"
 
 
 async def fetch_table(

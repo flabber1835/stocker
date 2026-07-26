@@ -3453,3 +3453,53 @@ Consequence for the packet-gap audit: items become "must be a section" only if a
 review needs them EVERY time (target-vs-live divergence, builder risk state).
 Drill-down evidence (execution latency percentiles, per-ticker attribution) is
 better reached on demand than paid for weekly.
+
+## Design Decision: a result must carry the provenance of the gates that made it (2026-07)
+
+### The hole
+
+`BT_PARITY_ENFORCE=false` and `BT_COVERAGE_ENFORCE=false` exist so a safety gate
+can be flipped without an image rebuild. But a run produced with a gate DISABLED
+was byte-indistinguishable from one produced with it enforcing: the summary
+recorded returns, not the conditions under which they were computed. So the
+promotion gate — deterministic code that rewrites the live strategy — could
+accept a candidate scored under no parity check at all, which is precisely the
+class of result those gates exist to refuse.
+
+The same hole in the data layer: `bt-data` treated a MISSING `SHARADAR_API_KEY`
+as a request for mock mode (`return BT_MOCK_DATA or not SHARADAR_API_KEY`). A
+secret failing to load therefore substituted a tiny synthetic corpus, silently,
+and every downstream number remained shaped like a real backtest.
+
+Both are the same failure: **the artifact does not record the conditions of its
+own production**, so a degraded run and a sound one are indistinguishable
+downstream.
+
+### The rule
+
+```text
+Every backtest summary carries a `provenance` block stating which gates were
+enforcing and which data source produced it. The promotion gate REFUSES any
+result whose provenance is missing or shows a gate disabled.
+```
+
+Missing provenance is treated as NOT enforced, not as "assume fine" — an older
+row without the block is exactly the case that cannot be vouched for. That makes
+the pre-existing rows non-promotable rather than silently trusted, which is the
+correct direction for a rule that rewrites the live config.
+
+```text
+bt-engine   `run_provenance()` stamps parity_enforced / coverage_enforced into
+            every summary, on BOTH the single-run and sweep paths.
+bt-data     BT_DATA_MODE is explicit ('sharadar' | 'mock'). Configured for
+            sharadar with no key is a STARTUP FAILURE, not a silent downgrade.
+            The mode is stamped on every data run so a corpus built from mock
+            data is identifiable after the fact.
+gate        promotion_eligible_2w refuses on missing/false provenance, with the
+            reason naming which gate was off — a refusal nobody can read is
+            another silent failure.
+```
+
+The cost is deliberate: turning a gate off now makes results NON-PROMOTABLE
+rather than merely unverified. That is the point. A gate you can disable while
+its output still steers the live config is decorative.

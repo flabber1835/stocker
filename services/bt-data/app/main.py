@@ -27,7 +27,8 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.sharadar_client import fetch_table, is_mock
+from app.sharadar_client import (data_mode, fetch_table, is_mock,
+                                 verify_data_mode)
 from app.sharadar_adapter import (
     map_sep_row, map_sf1_earnings_row, map_sf1_row, map_tickers_row, compute_growth,
 )
@@ -74,6 +75,14 @@ async def _ensure_schema() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # FAIL LOUDLY before serving: configured for real data without a key used to
+    # downgrade silently to a tiny synthetic corpus, and every downstream number
+    # stayed shaped like a real backtest — feeding a promotion gate that
+    # rewrites the live strategy.
+    mode = verify_data_mode()
+    print(f"[bt-data] data mode: {mode}"
+          + ("  *** SYNTHETIC DATA — results are NOT research-grade ***"
+             if mode == "mock" else ""), flush=True)
     # Retry briefly so a cold bt-postgres can finish starting.
     import asyncio
     for attempt in range(30):
@@ -96,7 +105,8 @@ app = FastAPI(title="bt-data", lifespan=lifespan)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "bt-data", "mock": is_mock()}
+    return {"status": "ok", "service": "bt-data", "mock": is_mock(),
+            "data_mode": data_mode()}
 
 
 # ── Fetch-run bookkeeping ──────────────────────────────────────────────────────
@@ -521,7 +531,8 @@ async def start_backfill(background_tasks: BackgroundTasks,
 
     background_tasks.add_task(_guarded)
     return {"status": "started", "date_from": date_from, "date_to": date_to,
-            "tickers": tickers or "ALL", "mock": is_mock()}
+            "tickers": tickers or "ALL", "mock": is_mock(),
+            "data_mode": data_mode()}
 
 
 # Re-fetch this many days behind MAX(date) on topup: upserts make the overlap
@@ -554,7 +565,7 @@ async def start_fetch_benchmarks(background_tasks: BackgroundTasks,
     background_tasks.add_task(_guarded)
     return {"status": "started", "job": "fetch-benchmarks",
             "tickers": BENCHMARK_TICKERS, "date_from": date_from, "date_to": dt,
-            "mock": is_mock()}
+            "mock": is_mock(), "data_mode": data_mode()}
 
 
 @app.post("/jobs/topup")
@@ -589,7 +600,8 @@ async def start_topup(background_tasks: BackgroundTasks):
 
     background_tasks.add_task(_guarded)
     return {"status": "started", "job_type": "topup", "date_from": date_from,
-            "date_to": date_to, "mock": is_mock()}
+            "date_to": date_to, "mock": is_mock(),
+            "data_mode": data_mode()}
 
 
 # ── Data-depth report (GO/NO-GO gate) ──────────────────────────────────────────

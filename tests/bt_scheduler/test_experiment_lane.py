@@ -220,8 +220,13 @@ def test_promotion_gate_is_window_pinned():
 
 # ── validation split: the lane's two-window gate (review fix a) ───────────────
 
+ENFORCED = {"parity_enforced": True, "coverage_enforced": True}
+
+
 def _w(cagr, dd=-0.25):
-    return {"annualized_return": cagr, "max_drawdown": dd}
+    # provenance is REQUIRED now: a summary without it cannot be vouched for and
+    # the gate refuses it (see TestProvenanceGate).
+    return {"annualized_return": cagr, "max_drawdown": dd, "provenance": ENFORCED}
 
 
 def test_two_window_gate_requires_edge_that_survives_validation():
@@ -448,7 +453,7 @@ def test_a_refused_candidate_is_still_a_scored_forecast():
 # ── left-tail guard in the promotion gate ────────────────────────────────────
 
 def _tw(p5):
-    return {"terminal_wealth": {"p5_multiple": p5}}
+    return {"terminal_wealth": {"p5_multiple": p5}, "provenance": ENFORCED}
 
 
 def test_gate_refuses_a_fat_left_tail_at_equal_cagr():
@@ -477,8 +482,12 @@ def test_tail_guard_is_inert_on_results_without_a_distribution():
     """Older rows and regime runs carry no terminal_wealth. A newly added check
     must never silently block every promotion."""
     from app.logic import promotion_eligible_2w
-    base_w = {"annualized_return": 0.12, "max_drawdown": -0.25}
-    good = {"annualized_return": 0.15, "max_drawdown": -0.25}
+    # No terminal_wealth (the point of this test) but gates ENFORCED — the two
+    # checks are independent and the provenance rule must not mask the tail one.
+    base_w = {"annualized_return": 0.12, "max_drawdown": -0.25,
+              "provenance": ENFORCED}
+    good = {"annualized_return": 0.15, "max_drawdown": -0.25,
+            "provenance": ENFORCED}
     ok, why = promotion_eligible_2w({"period_a": good, "period_b": good},
                                     {"period_a": base_w, "period_b": base_w})
     assert ok is True and "check skipped" in why
@@ -547,3 +556,78 @@ def test_legacy_grid_windows_keep_the_engine_vocabulary():
     w = derive_windows({"tune_years": 6, "validate_years": 2}, date(2026, 7, 25),
                        date(2004, 1, 1))
     assert set(w) == {"tune_start", "tune_end", "validate_start", "validate_end"}
+
+
+# ── gate provenance: a result must record the conditions that produced it ────
+
+class TestProvenanceGate:
+    """BT_PARITY_ENFORCE / BT_COVERAGE_ENFORCE exist so a safety gate can be
+    flipped without an image rebuild. But a run produced with a gate DISABLED
+    was byte-indistinguishable from a checked one, so the promotion gate —
+    deterministic code that rewrites the live strategy — could accept a
+    candidate scored under no parity check at all. A gate you can disable while
+    its output still steers the live config is decorative."""
+
+    def _pair(self, prov):
+        w = {"annualized_return": 0.20, "max_drawdown": -0.25}
+        if prov is not None:
+            w = {**w, "provenance": prov}
+        return {"period_a": w, "period_b": w}
+
+    def _base(self, prov=None):
+        w = {"annualized_return": 0.10, "max_drawdown": -0.25,
+             "provenance": prov if prov is not None else ENFORCED}
+        return {"period_a": w, "period_b": w}
+
+    def test_an_otherwise_winning_candidate_is_refused_without_provenance(self):
+        """+10pp of CAGR edge in both windows still loses to a missing stamp."""
+        from app.logic import promotion_eligible_2w
+        ok, why = promotion_eligible_2w(self._pair(None), self._base())
+        assert ok is False and "no gate provenance" in why
+
+    def test_parity_disabled_is_refused_and_named(self):
+        from app.logic import promotion_eligible_2w
+        ok, why = promotion_eligible_2w(
+            self._pair({"parity_enforced": False, "coverage_enforced": True}),
+            self._base())
+        assert ok is False and "parity_enforced" in why
+
+    def test_coverage_disabled_is_refused_and_named(self):
+        from app.logic import promotion_eligible_2w
+        ok, why = promotion_eligible_2w(
+            self._pair({"parity_enforced": True, "coverage_enforced": False}),
+            self._base())
+        assert ok is False and "coverage_enforced" in why
+
+    def test_an_unenforced_BASELINE_also_blocks(self):
+        """The yardstick matters as much as the candidate: comparing against a
+        baseline scored without the gates is the same defect one level down."""
+        from app.logic import promotion_eligible_2w
+        ok, why = promotion_eligible_2w(
+            self._pair(ENFORCED),
+            self._base({"parity_enforced": False, "coverage_enforced": True}))
+        assert ok is False and "parity_enforced" in why
+
+    def test_fully_enforced_results_still_promote(self):
+        """The guard must not become a blanket refusal — otherwise the loop is
+        dead and nobody notices for a month."""
+        from app.logic import promotion_eligible_2w
+        ok, why = promotion_eligible_2w(self._pair(ENFORCED), self._base())
+        assert ok is True, why
+
+    def test_provenance_is_checked_before_any_number_is_compared(self):
+        """An unenforced result must be refused ON PROVENANCE, not accidentally
+        by failing some other condition — otherwise a strong-looking unenforced
+        candidate would be reported with a misleading reason."""
+        from app.logic import promotion_eligible_2w
+        ok, why = promotion_eligible_2w(self._pair(None), self._base())
+        assert "margin" not in why and "drawdown" not in why
+
+
+def test_provenance_helper_is_pure_and_defaults_closed():
+    from app.logic import provenance_is_trustworthy
+    assert provenance_is_trustworthy({}, {})[0] is False
+    assert provenance_is_trustworthy({"provenance": {}})[0] is False
+    assert provenance_is_trustworthy({"provenance": ENFORCED})[0] is True
+    # A non-dict provenance (corrupt row) must not be truthy-accepted.
+    assert provenance_is_trustworthy({"provenance": "yes"})[0] is False

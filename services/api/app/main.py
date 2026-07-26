@@ -6,7 +6,7 @@ import re
 import traceback
 import uuid
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Literal, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
@@ -2326,6 +2326,99 @@ async def system_status():
         "ingestor":         ingestor_result,
         "portfolio_builder": portfolio_builder_result,
         "scheduler":        scheduler_result,
+    }
+
+
+# Every run table that records a terminal FAILURE with a message. The digest is
+# the answer to the operational gap this system kept hitting: the errors WERE
+# recorded — in error_message columns, execution_steps, stdout — and the only
+# reader was the weekly evaluator packet. A `_cb()` arity bug killed every manual
+# backtest for months and surfaced because a human happened to watch a progress
+# bar stall. Recording an error is not surfacing it.
+# (label, table, timestamp column, MESSAGE expression). The message expression
+# is explicit per table because they do not agree: scheduler_runs has no
+# error_message at all — its diagnostic is which STEP was left unfinished.
+_ERROR_SOURCES = [
+    ("ingest",      "ingest_runs",      "started_at", "error_message"),
+    ("pipeline",    "pipeline_runs",    "started_at", "error_message"),
+    ("ranking",     "ranking_runs",     "started_at", "error_message"),
+    ("factor",      "factor_runs",      "started_at", "error_message"),
+    ("vetter",      "vetter_runs",      "started_at", "error_message"),
+    ("portfolio",   "portfolio_runs",   "started_at", "error_message"),
+    ("delta",       "delta_runs",       "started_at", "error_message"),
+    ("alpaca_sync", "alpaca_sync_runs", "started_at", "error_message"),
+    ("scheduler",   "scheduler_runs",   "started_at", "steps::text"),
+]
+
+
+@app.get("/system/errors")
+async def system_errors(hours: int = 24):
+    """Every recorded failure in the last `hours`, in one place.
+
+    Deliberately NOT gated on a service being down: a failure written to a row
+    and never read is indistinguishable from no failure at all, which is how a
+    broken path survives for months. `orders_failed` and `risk_rejections` are
+    included because an order that never executed is an operational failure even
+    though no run row is marked failed."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=max(1, hours))
+    out: list[dict] = []
+    async with engine.connect() as conn:
+        for label, table, ts_col, msg_expr in _ERROR_SOURCES:
+            try:
+                rows = (await conn.execute(text(
+                    f"SELECT {ts_col} AS ts, status, {msg_expr} AS error_message "
+                    f"FROM {table} "
+                    f"WHERE status IN ('failed','partial_success') AND {ts_col} >= :c "
+                    f"ORDER BY {ts_col} DESC LIMIT 50"
+                ), {"c": cutoff})).mappings().all()
+            except Exception as exc:  # noqa: BLE001 — a missing column must not
+                # blank the whole digest; report the gap instead of hiding it.
+                out.append({"source": label, "status": "digest_error",
+                            "message": str(exc)[:200], "occurrences": 1})
+                continue
+            for r in rows:
+                out.append({"source": label, "at": str(r["ts"]),
+                            "status": r["status"],
+                            "message": (r["error_message"] or "")[:400]})
+        try:
+            orders = (await conn.execute(text(
+                "SELECT status, COUNT(*) n, MAX(created_at) last_at, "
+                "       MIN(COALESCE(error_message,'')) sample "
+                "FROM alpaca_orders WHERE created_at >= :c "
+                "AND status IN ('failed','risk_rejected','cancel_failed','expired') "
+                "GROUP BY status"), {"c": cutoff})).mappings().all()
+            for r in orders:
+                out.append({"source": "orders", "at": str(r["last_at"]),
+                            "status": r["status"], "occurrences": r["n"],
+                            "message": (r["sample"] or "")[:400]})
+        except Exception as exc:  # noqa: BLE001
+            out.append({"source": "orders", "status": "digest_error",
+                        "message": str(exc)[:200], "occurrences": 1})
+
+    # Collapse identical messages so one repeating fault does not bury the rest.
+    merged: dict[tuple, dict] = {}
+    for e in out:
+        key = (e["source"], e.get("status"), e.get("message", "")[:120])
+        if key in merged:
+            merged[key]["occurrences"] = merged[key].get("occurrences", 1) + \
+                e.get("occurrences", 1)
+            merged[key]["at"] = max(merged[key].get("at") or "", e.get("at") or "")
+        else:
+            merged[key] = {**e, "occurrences": e.get("occurrences", 1)}
+    errors = sorted(merged.values(), key=lambda e: e.get("at") or "", reverse=True)
+    return {
+        "window_hours": hours,
+        "error_count": sum(e["occurrences"] for e in errors),
+        "distinct_faults": len(errors),
+        "errors": errors[:100],
+        # State of every switch that can change the strategy WITHOUT a human.
+        # An autonomous default is not dangerous because it is on; it is
+        # dangerous because it is on and nobody can see that it is.
+        "autonomy": {
+            "auto_promotion_enabled": AUTO_PROMOTION_ENABLED,
+            "revert_enabled": REVERT_ENABLED,
+            "promotion_state": _read_promo_state(),
+        },
     }
 
 

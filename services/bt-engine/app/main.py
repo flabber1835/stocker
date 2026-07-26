@@ -350,7 +350,11 @@ async def _run_bg(run_id: str, req: BtRunRequest, cfg: StrategyConfig) -> None:
             run_simulation, prices, fundamentals, sector_map, cfg, params, _cb,
             None, listing_windows, earnings)
 
-        summary = _json_sanitize(result.summary)
+        from app.parity import run_provenance
+        # Which gates were enforcing when this number was produced. Without it a
+        # run made with parity/coverage disabled is byte-identical to a checked
+        # one, and nothing downstream can refuse it.
+        summary = _json_sanitize({**result.summary, "provenance": run_provenance()})
         async with engine.begin() as conn:
             for chunk_start in range(0, len(result.equity), 500):
                 await conn.execute(text(
