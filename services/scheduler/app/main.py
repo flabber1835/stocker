@@ -1300,7 +1300,18 @@ async def _supervisor_tick() -> None:
             # or returns a non-200 (still booting), wait for the next tick — treating
             # "can't reach it" as "no universe" caused a runaway trigger loop that
             # burned AV quota with redundant full-universe downloads on every restart.
-            has_univ = await _has_universe(client)
+            #
+            # SKIPPED ENTIRELY once a chain is ACTIVE. An open chain has already run
+            # (or is past) fetch — the universe self-evidently exists, so this check
+            # can only produce false negatives there. And it did: av-ingestor's
+            # /status ran exact COUNT(*)s over daily_prices, the run-now loop called
+            # it every 3s, the overlapping full-table scans pegged postgres until
+            # every call blew the 10s timeout, and each tick bailed HERE — before the
+            # step loop — freezing the chain at "calculating factors" ~30 min after
+            # the pipeline had actually succeeded. A pre-flight for STARTING a chain
+            # must never be able to stall one that is already running.
+            chain_open = bool(_chain_status.get("current_run_id"))
+            has_univ = True if chain_open else await _has_universe(client)
             if has_univ is None:
                 _log("supervisor: av-ingestor unreachable or not ready — waiting for next tick")
                 _chain_status["status"] = "running"
@@ -1640,7 +1651,10 @@ async def _fast_drain() -> None:
     global _fast_drain_task
     try:
         for _ in range(20000):  # hard cap (~28h at 5s) — chains terminate long before
-            await _supervisor_tick()
+            try:
+                await _supervisor_tick()
+            except Exception as exc:  # noqa: BLE001 — one bad tick must not kill the drain
+                _log("fast drain: tick raised — continuing", error=str(exc))
             if not _chain_is_active(_chain_status):
                 break
             await asyncio.sleep(FAST_TICK_SECS)
@@ -1681,7 +1695,12 @@ async def _run_supervised_fast() -> None:
     """
     async with _run_now_lock:
         for _ in range(12000):  # ~10 hours at 3s
-            await _supervisor_tick()
+            try:
+                await _supervisor_tick()
+            except Exception as exc:  # noqa: BLE001 — one bad tick must not end the
+                # supervised loop: this loop had NO guard, so a single raising tick
+                # silently killed the manual run's fast polling for the whole session.
+                _log("run-now fast loop: tick raised — continuing", error=str(exc))
             if _chain_status.get("status") in ("success", "failed"):
                 break
             await asyncio.sleep(3)

@@ -945,6 +945,24 @@ async def get_run(run_id: str):
 
 @app.get("/status")
 async def status():
+    """Cheap at ANY table size — this endpoint is on the scheduler's per-tick
+    hot path (_has_universe), and the manual-run loop ticks every 3 seconds.
+
+    The exact `SELECT COUNT(*) FROM daily_prices` this used to run is a full
+    scan over millions of rows. Under the 3s tick cadence the overlapping scans
+    pegged postgres until every call exceeded the scheduler's 10s timeout, each
+    tick bailed with "av-ingestor unreachable" BEFORE the step loop, and the
+    chain froze on "calculating factors" half an hour after the pipeline had
+    succeeded — the supervisor DDoSing its own database and reading the
+    resulting slowness as an outage. Same pathology bt-data's /data/coverage
+    already fixed with planner estimates; same fix.
+
+    universe_tickers stays EXACT: it is the value _has_universe gates on
+    (populated vs definitively empty), the table is thousands of rows via an
+    indexed lookup, and a planner estimate of 0 on a never-analyzed fresh table
+    would re-trigger a full universe download. price/fundamental rows are
+    display figures — reltuples (refreshed by autovacuum and the migrator's
+    scoped ANALYZE) is the right cost/accuracy trade for them."""
     async with SessionLocal() as session:
         universe_count = (
             await session.execute(
@@ -955,10 +973,21 @@ async def status():
                 )
             )
         ).scalar() or 0
-        price_rows = (await session.execute(text("SELECT COUNT(*) FROM daily_prices"))).scalar() or 0
-        fundamental_rows = (await session.execute(text("SELECT COUNT(*) FROM fundamentals"))).scalar() or 0
+        price_rows = (
+            await session.execute(text(
+                "SELECT GREATEST(reltuples, 0)::bigint FROM pg_class "
+                "WHERE oid = to_regclass('public.daily_prices')"
+            ))
+        ).scalar() or 0
+        fundamental_rows = (
+            await session.execute(text(
+                "SELECT GREATEST(reltuples, 0)::bigint FROM pg_class "
+                "WHERE oid = to_regclass('public.fundamentals')"
+            ))
+        ).scalar() or 0
 
-    return {"universe_tickers": universe_count, "price_rows": price_rows, "fundamental_rows": fundamental_rows}
+    return {"universe_tickers": universe_count, "price_rows": price_rows,
+            "fundamental_rows": fundamental_rows, "row_counts_estimated": True}
 
 
 # ── Helpers ──────────────────────────────────

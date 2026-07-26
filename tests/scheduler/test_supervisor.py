@@ -2034,7 +2034,11 @@ class TestSupervisorTradingCalendarGate:
 
         # Bypassed the gate entirely (frontier never consulted) and proceeded.
         mock_delta.assert_not_called()
-        mock_has_universe.assert_called_once()
+        # An active chain also skips the universe pre-check: it already passed at
+        # chain start, and re-consulting av-ingestor /status every tick let a slow
+        # or down /status freeze an in-flight chain (the "calculating factors"
+        # wedge). See tests/scheduler/test_active_chain_survives_status_outage.py.
+        mock_has_universe.assert_not_called()
 
 
 # ── TestRestartAbortLoopBreaker ───────────────────────────────────────────────
