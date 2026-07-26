@@ -252,6 +252,9 @@ def test_full_packet_builds_with_no_section_errors(db_engine, monkeypatch):
         "current_target_book", "config_history", "applied_config_changes",
         "system_health", "hypothesis_ledger", "backtest_lab", "error_digest",
         "invisible_bench", "benchmark_coverage",
+        # the ENVIRONMENT the results happened in — without it a bad excess vs
+        # SPY is indistinguishable from a narrow index
+        "market_context",
         # the loop's own feedback: results of the evaluator's candidates, and
         # what it currently has queued (top-level, not buried in backtest_lab)
         "experiment_lane", "experiment_queue",
@@ -468,3 +471,30 @@ def test_prior_reviews_one_entry_per_iso_week_latest_wins(db_engine):
     assert tripled["config_hash_at_review"] == "c3"        # latest-started re-run
     single = next(w for w in weeks if w["same_week_rerun_count"] == 1)
     assert single["config_hash_at_review"] == "c9"
+
+
+def test_market_context_runs_its_aggregate_against_the_real_schema(db_engine):
+    """The section's SQL is a window-function aggregate over daily_prices — the
+    kind that passes every mocked test and fails on the real database (this
+    week alone: a str bound to a DATE column, a COUNT(*) full scan). Run it."""
+    from app.packet import _market_context
+    ctx = _call(db_engine, _market_context)
+    assert "error" not in ctx, ctx.get("error")
+    # The seeded fixture has a successful ranking run, so the price aggregate
+    # ran rather than short-circuiting on "no ranking yet".
+    assert "breadth" in ctx and "leadership" in ctx and "dispersion" in ctx
+    assert ctx["breadth"]["n_scored_21d"] is not None
+    # Diagnostic-only framing has to reach the model, not just the docs.
+    assert "must NOT" in ctx["note"]
+
+
+def test_market_context_is_bounded_on_both_axes(db_engine):
+    """An unbounded scan over daily_prices on a review path is the pathology
+    that froze the chain. The pool is the RANKED universe and the per-ticker
+    window is capped."""
+    import inspect
+    from app.packet import _market_context
+    src = inspect.getsource(_market_context)
+    assert "FROM rankings WHERE run_id" in src, "scans the raw universe"
+    assert "rn <= 200" in src, "no per-ticker row cap"
+    assert "INTERVAL '400 days'" in src, "no date floor on the price scan"

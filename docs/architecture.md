@@ -3307,3 +3307,76 @@ It also does not make the promotion gate safe to loosen on its own evidence:
 this measures the LAST promotion, not the policy. Enough reverts (or their
 absence) accumulating in `config_changes` is what will eventually justify
 moving `BT_PROMOTE_MARGIN` — and that decision stays manual.
+
+## Design Decision: deterministic market context — explain the environment, do not chase it (2026-07)
+
+### The gap
+
+The evaluator was asked to adapt the strategy while seeing the portfolio's
+results but not the environment producing them. It knew the book returned X and
+SPY returned Y; it did not know whether that happened in a vol spike, a breadth
+collapse, a mega-cap melt-up or a broad rotation. That makes a whole class of
+finding uninterpretable: a −17% excess against SPY reads as "the factor model is
+broken" when the measurable truth may be "SPY's return was concentrated in seven
+names and a 35-name diversified book structurally cannot track that".
+
+### Why NOT a news/sentiment feed
+
+The obvious fix — have the review search the web for wars, tariffs, macro
+headlines — was considered and deliberately rejected for now:
+
+```text
+the boundary does not hold  The evaluator's only lever is a config change. Put
+                            a narrative in its context and the sole way to ACT
+                            on it is to change the strategy — regime chasing
+                            arriving through the back door with a diagnostic
+                            label on it. Intent in a prompt does not bind; the
+                            model acts through the lever it was given.
+least reliable input        Every other packet section is measured (IC, forward
+                            returns, gate verdicts). Sentiment is unverifiable,
+                            already priced in by construction, and SALIENT — it
+                            can dominate the reasoning precisely because it is
+                            the most vivid item among numbers.
+injection surface           Arbitrary web text entering a context that authors
+                            live config candidates.
+reproducibility             Two reviews on identical data would diverge because
+                            the web moved, adding noise to the prediction
+                            scorecard and to week-over-week comparison.
+```
+
+The decisive observation: the diagnostic value wanted here is QUANTITATIVE. A
+narrow mega-cap rally IS "top-25 median 21d return minus universe median". A
+tariff shock IS a vol regime change plus sector dispersion. The headline is a
+label on a pattern the price data already contains — so measure the pattern.
+
+### What the section carries
+
+`market_context` (packet, deterministic, no LLM, no external calls):
+
+```text
+regime      current label, CONSECUTIVE sessions held, SPY vs its slow SMA,
+            realized vol, and that vol's percentile against its own 2y history
+            (a level means nothing without its own distribution).
+breadth     share of the ranked universe above its 200d / 50d average, and share
+            with a positive 21d / 63d return. A rally the book cannot join looks
+            exactly like a broken factor model until breadth is on the page.
+leadership  SPY-top-25 median return minus universe median, 21d and 63d. THE
+            number that separates "we picked badly" from "the index was seven
+            stocks".
+dispersion  cross-sectional stdev of 21d returns (is stock selection even being
+            rewarded this month?) plus the best-minus-worst sector spread.
+```
+
+Sourced from `regime_snapshots` (already carries SPY/vol state) and one bounded
+aggregate over `daily_prices` for the tickers in the latest ranking — the
+investable pool, not the raw universe, and capped at 200 sessions per ticker so
+this never becomes another full-table scan on a hot path.
+
+### The rule it must not break
+
+The section's own note states it plainly: this is CONTEXT FOR DIAGNOSIS. The
+config is regime-static by design (`regime_weighting_enabled: false`, on the
+evidence that regime timing overfits), so market context may explain a result
+and must not by itself justify a candidate. There is deliberately no `macro`
+entry in the experiment mechanism vocabulary — no config-shaped lever for this
+input to map onto.

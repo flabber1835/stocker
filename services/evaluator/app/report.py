@@ -188,6 +188,19 @@ accepted, and breadth ACROSS mechanisms is where the information is. \
 For every slot you leave unused, say in your narrative WHY no further independent \
 hypothesis was sufficiently supported by the packet — leaving capacity idle is a \
 legitimate decision, leaving it idle silently is not.
+- MARKET CONTEXT before blame. The packet's `market_context` section states the \
+ENVIRONMENT the strategy operated in — breadth, mega-cap leadership, cross-sectional \
+dispersion, regime state — all measured, no news. Read it BEFORE concluding the \
+factor model failed: a large negative excess vs SPY next to a big `mega_cap_lead_21d` \
+and weak breadth means the index was NARROW and a 35-name diversified book \
+structurally could not track it; a low `cross_sectional_stdev_21d` means stock \
+selection was barely rewarded at all this period, whatever any model did. Say which \
+of the two a result is, rather than defaulting to the model. \
+It is DIAGNOSTIC ONLY: the config is regime-STATIC by deliberate design (regime \
+weight rotation is off, on the evidence that regime timing overfits out of sample), \
+there is no 'macro' mechanism to queue against, and market context must NEVER be the \
+sole justification for a candidate — every candidate still needs measured evidence \
+from the outcome sections.
 - A REFUTED candidate is a successful experiment. The gate rejecting your \
 candidate is information you paid for: record it in the hypothesis_ledger and let \
 it constrain next week's proposals. Judge yourself on hypotheses resolved per \

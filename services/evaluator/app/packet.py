@@ -1138,6 +1138,182 @@ async def _selection_audit(conn) -> dict:
     }
 
 
+def _median(xs: list[float]) -> float | None:
+    if not xs:
+        return None
+    s = sorted(xs)
+    n = len(s)
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
+
+
+def _stdev(xs: list[float]) -> float | None:
+    n = len(xs)
+    if n < 2:
+        return None
+    m = sum(xs) / n
+    return (sum((x - m) ** 2 for x in xs) / (n - 1)) ** 0.5
+
+
+def market_stats(rows: list[dict], mega_caps: set[str],
+                 sector_map: dict[str, str]) -> dict:
+    """Breadth / leadership / dispersion from per-ticker price aggregates. Pure.
+
+    `rows`: {ticker, last_px, px_21, px_63, sma50, sma200, n200}. Every metric
+    is computed over the tickers that actually have the inputs it needs and
+    reports its own denominator — a breadth number over 40 names and one over
+    3000 are different claims, and a section written to make a result
+    interpretable must not itself be uninterpretable."""
+    def _ret(r, key):
+        a, b = r.get("last_px"), r.get(key)
+        if a is None or b is None or b <= 0:
+            return None
+        return float(a) / float(b) - 1.0
+
+    r21 = {r["ticker"]: v for r in rows if (v := _ret(r, "px_21")) is not None}
+    r63 = {r["ticker"]: v for r in rows if (v := _ret(r, "px_63")) is not None}
+
+    def _pct_above(key: str, min_obs: int = 0) -> tuple[float | None, int]:
+        vals = [1.0 if float(r["last_px"]) > float(r[key]) else 0.0
+                for r in rows
+                if r.get("last_px") and r.get(key) and float(r[key]) > 0
+                and (r.get("n200") or 0) >= min_obs]
+        return ((sum(vals) / len(vals)) if vals else None), len(vals)
+
+    # 200 observations required for a 200-day average to mean what it says —
+    # otherwise a young listing contributes an average of 30 days under that name.
+    above200, n200 = _pct_above("sma200", min_obs=200)
+    above50, n50 = _pct_above("sma50", min_obs=50)
+
+    uni21, uni63 = list(r21.values()), list(r63.values())
+    mega21 = [v for t, v in r21.items() if t in mega_caps]
+    mega63 = [v for t, v in r63.items() if t in mega_caps]
+    med_u21, med_m21 = _median(uni21), _median(mega21)
+    med_u63, med_m63 = _median(uni63), _median(mega63)
+
+    by_sector: dict[str, list[float]] = {}
+    for t, v in r21.items():
+        s = sector_map.get(t)
+        if s:
+            by_sector.setdefault(s, []).append(v)
+    sect = {s: round(_median(v), 4) for s, v in by_sector.items()
+            if len(v) >= 5 and _median(v) is not None}
+    best = max(sect, key=sect.get) if sect else None
+    worst = min(sect, key=sect.get) if sect else None
+
+    return {
+        "breadth": {
+            "n_with_200d_history": n200,
+            "pct_above_200sma": _r(above200),
+            "n_with_50d_history": n50,
+            "pct_above_50sma": _r(above50),
+            "pct_positive_21d": _r(sum(1 for v in uni21 if v > 0) / len(uni21)) if uni21 else None,
+            "pct_positive_63d": _r(sum(1 for v in uni63 if v > 0) / len(uni63)) if uni63 else None,
+            "n_scored_21d": len(uni21),
+        },
+        "leadership": {
+            "universe_median_21d": _r(med_u21),
+            "mega_cap_median_21d": _r(med_m21),
+            "mega_cap_lead_21d": _r(med_m21 - med_u21)
+                                 if (med_m21 is not None and med_u21 is not None) else None,
+            "universe_median_63d": _r(med_u63),
+            "mega_cap_median_63d": _r(med_m63),
+            "mega_cap_lead_63d": _r(med_m63 - med_u63)
+                                 if (med_m63 is not None and med_u63 is not None) else None,
+            "n_mega_caps_scored": len(mega21),
+        },
+        "dispersion": {
+            "cross_sectional_stdev_21d": _r(_stdev(uni21)),
+            "sector_medians_21d": sect,
+            "best_sector": best, "worst_sector": worst,
+            "sector_spread_21d": (_r(sect[best] - sect[worst])
+                                  if best and worst else None),
+        },
+    }
+
+
+async def _market_context(conn) -> dict:
+    """The ENVIRONMENT the strategy operated in — breadth, leadership,
+    dispersion, regime state.
+
+    Without this a whole class of finding is uninterpretable: a large negative
+    excess against SPY reads as "the factor model is broken" when the measurable
+    truth may be "the index was seven stocks and a 35-name book cannot track
+    that". Deterministic — no LLM, no external calls, no news."""
+    reg_rows = (await conn.execute(text(
+        "SELECT snapshot_date, regime, spy_vs_sma, realized_vol FROM regime_snapshots "
+        "ORDER BY snapshot_date DESC LIMIT 504"))).mappings().all()
+    regime = {}
+    if reg_rows:
+        cur = reg_rows[0]
+        held = 0
+        for r in reg_rows:                    # consecutive, most-recent-first
+            if r["regime"] != cur["regime"]:
+                break
+            held += 1
+        vols = sorted(float(r["realized_vol"]) for r in reg_rows
+                      if r["realized_vol"] is not None)
+        v = _f(cur["realized_vol"])
+        # A vol LEVEL means nothing without its own distribution: 18% is calm in
+        # one era and elevated in another.
+        pct = (sum(1 for x in vols if x <= v) / len(vols)) if (vols and v is not None) else None
+        regime = {"current": cur["regime"], "as_of": str(cur["snapshot_date"]),
+                  "sessions_held": held, "spy_vs_slow_sma": _r(cur["spy_vs_sma"]),
+                  "realized_vol": _r(v),
+                  "realized_vol_pct_of_2y": _r(pct),
+                  "note": ("sessions_held counts CONSECUTIVE snapshots of the same "
+                           "regime. Regime weight ROTATION is off by design — this "
+                           "is context, not a switch.")}
+
+    rr = (await conn.execute(text(
+        "SELECT run_id, rank_date FROM ranking_runs WHERE status='success' "
+        "ORDER BY started_at DESC LIMIT 1"))).mappings().first()
+    if not rr:
+        return {"regime": regime, "note": "no successful ranking run yet"}
+
+    # Bounded on BOTH axes: the investable (ranked) pool rather than the raw
+    # universe, and at most 200 sessions per ticker. An unbounded scan over
+    # daily_prices on a review path is the pathology that froze the chain.
+    rows = (await conn.execute(text(
+        "WITH u AS (SELECT DISTINCT ticker FROM rankings WHERE run_id = :rid), "
+        "px AS ("
+        "  SELECT p.ticker, p.adjusted_close, "
+        "         ROW_NUMBER() OVER (PARTITION BY p.ticker ORDER BY p.date DESC) rn "
+        "  FROM daily_prices p JOIN u ON u.ticker = p.ticker "
+        "  WHERE p.date <= :d AND p.date > :d - INTERVAL '400 days' "
+        "    AND p.adjusted_close > 0) "
+        "SELECT ticker, "
+        "       MAX(adjusted_close) FILTER (WHERE rn = 1)   AS last_px, "
+        "       MAX(adjusted_close) FILTER (WHERE rn = 22)  AS px_21, "
+        "       MAX(adjusted_close) FILTER (WHERE rn = 64)  AS px_63, "
+        "       AVG(adjusted_close) FILTER (WHERE rn <= 50) AS sma50, "
+        "       AVG(adjusted_close) FILTER (WHERE rn <= 200) AS sma200, "
+        "       COUNT(*) AS n200 "
+        "FROM px WHERE rn <= 200 GROUP BY ticker"
+    ), {"rid": rr["run_id"], "d": rr["rank_date"]})).mappings().all()
+
+    srows = (await conn.execute(text(
+        "SELECT DISTINCT ON (ticker) ticker, sector FROM universe_tickers "
+        "WHERE sector IS NOT NULL ORDER BY ticker, snapshot_id DESC"))).mappings().all()
+    sector_map = {r["ticker"]: r["sector"] for r in srows}
+
+    stats = market_stats([dict(r) for r in rows], set(_SPY_TOP), sector_map)
+    return {
+        "as_of": str(rr["rank_date"]),
+        "regime": regime,
+        **stats,
+        "note": ("CONTEXT FOR DIAGNOSIS. Use it to interpret results — a large "
+                 "negative excess vs SPY alongside a big mega_cap_lead and weak "
+                 "breadth means the index was narrow, NOT that the factor model "
+                 "failed; a low cross_sectional_stdev means stock selection was "
+                 "barely rewarded this month whatever the model did. It must NOT "
+                 "by itself justify a candidate: the config is regime-STATIC by "
+                 "design (regime rotation is off, on the evidence that regime "
+                 "timing overfits out of sample), and there is deliberately no "
+                 "'macro' mechanism to queue against. Every candidate still needs "
+                 "measured evidence from the outcome sections."),
+    }
+
+
 async def _universe_snapshot(conn) -> dict:
     """Shape of the investable universe feeding the rank — so pool-size or
     coverage problems are visible (a great rank over a broken pool still loses)."""
@@ -1513,6 +1689,7 @@ async def build_packet(engine, as_of: date | None = None) -> dict:
             "system_architecture": await _section(lambda: _async_wrap(_system_architecture)),
             "strategy_config": await _section(lambda: _async_wrap(_strategy_config_section)),
             "universe_snapshot": await _section(lambda: _universe_snapshot(conn), conn),
+            "market_context": await _section(lambda: _market_context(conn), conn),
             "gate_audit": await _section(lambda: _gate_audit(conn), conn),
             "selection_audit": await _section(lambda: _selection_audit(conn), conn),
             "factor_coverage": await _section(lambda: _factor_coverage(conn), conn),
