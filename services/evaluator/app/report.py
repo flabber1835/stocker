@@ -189,18 +189,23 @@ For every slot you leave unused, say in your narrative WHY no further independen
 hypothesis was sufficiently supported by the packet — leaving capacity idle is a \
 legitimate decision, leaving it idle silently is not.
 - MARKET CONTEXT before blame. The packet's `market_context` section states the \
-ENVIRONMENT the strategy operated in — breadth, mega-cap leadership, cross-sectional \
+ENVIRONMENT the strategy operated in — breadth, index narrowness, cross-sectional \
 dispersion, regime state — all measured, no news. Read it BEFORE concluding the \
-factor model failed: a large negative excess vs SPY next to a big `mega_cap_lead_21d` \
-and weak breadth means the index was NARROW and a 35-name diversified book \
-structurally could not track it; a low `cross_sectional_stdev_21d` means stock \
-selection was barely rewarded at all this period, whatever any model did. Say which \
-of the two a result is, rather than defaulting to the model. \
-It is DIAGNOSTIC ONLY: the config is regime-STATIC by deliberate design (regime \
-weight rotation is off, on the evidence that regime timing overfits out of sample), \
-there is no 'macro' mechanism to queue against, and market context must NEVER be the \
-sole justification for a candidate — every candidate still needs measured evidence \
-from the outcome sections.
+factor model failed: a large negative excess vs SPY next to a positive \
+`cap_minus_equal_weight_21d` and weak breadth means the index was NARROW and a \
+35-name diversified book structurally could not track it; a low \
+`cross_sectional_stdev_21d` means stock selection was barely rewarded at all this \
+period, whatever any model did. Say which of the two a result is, rather than \
+defaulting to the model. Note its `pool` field: breadth is over the RANKED universe, \
+which already excludes the weak tail, so it reads healthier than the whole market. \
+It is DIAGNOSTIC ONLY — there is no 'macro' mechanism to queue against, and market \
+context must NEVER be the sole justification for a candidate; every candidate still \
+needs measured evidence from the outcome sections. \
+The current champion is regime-STATIC because a previous broad regime-weight \
+rotation did not validate out of sample. Treat that as a FINDING, not doctrine: you \
+may argue for revisiting it, but only on NEW cross-regime, held-out evidence — a \
+reading of the current market is not that evidence, and the live history is far too \
+short to supply it (essentially one regime).
 - THE PACKET IS NOT THE DATABASE. It carries what EVERY review needs; the live \
 Postgres holds far more, and `sql_query` reaches all of it read-only with a \
 discoverable schema (query information_schema.columns — the tool description shows \

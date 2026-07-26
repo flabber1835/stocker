@@ -3360,9 +3360,13 @@ regime      current label, CONSECUTIVE sessions held, SPY vs its slow SMA,
 breadth     share of the ranked universe above its 200d / 50d average, and share
             with a positive 21d / 63d return. A rally the book cannot join looks
             exactly like a broken factor model until breadth is on the page.
-leadership  SPY-top-25 median return minus universe median, 21d and 63d. THE
-            number that separates "we picked badly" from "the index was seven
-            stocks".
+leadership  cap-weighted MINUS equal-weighted return over the same names —
+            the direct narrowness measure, and the one that separates "we
+            picked badly" from "the index was seven stocks". The SPY-top-25
+            median comparison is kept as a fallback proxy for when market-cap
+            coverage is thin, and is named for what it is: a median cannot
+            measure contribution, because it treats a $3T name and a $200B name
+            identically.
 dispersion  cross-sectional stdev of 21d returns (is stock selection even being
             rewarded this month?) plus the best-minus-worst sector spread.
 ```
@@ -3372,14 +3376,42 @@ aggregate over `daily_prices` for the tickers in the latest ranking — the
 investable pool, not the raw universe, and capped at 200 sessions per ticker so
 this never becomes another full-table scan on a hot path.
 
+Two corrections from review, both worth recording because each was a way of
+reporting a number that was not what it claimed:
+
+```text
+one row per SESSION   regime_snapshots has NO unique constraint on
+                      snapshot_date and the pipeline plain-INSERTs, so a manual
+                      chain re-run writes a second row for the same session.
+                      Counting rows made `sessions_held` and the vol percentile
+                      partly measure how often someone pressed Run. Fixed with
+                      DISTINCT ON (snapshot_date) ... ORDER BY snapshot_date
+                      DESC, calculated_at DESC.
+name the POOL         breadth is over the RANKED universe, which has already
+                      passed the investability floors and factor gates. Calling
+                      that "market breadth" overstates it, and the bias has a
+                      direction: in a small-cap selloff the weak tail is already
+                      excluded, so it reads healthier than the market. The keys
+                      are `ranked_universe_*` and the section carries a `pool`
+                      field saying so.
+```
+
 ### The rule it must not break
 
-The section's own note states it plainly: this is CONTEXT FOR DIAGNOSIS. The
-config is regime-static by design (`regime_weighting_enabled: false`, on the
-evidence that regime timing overfits), so market context may explain a result
-and must not by itself justify a candidate. There is deliberately no `macro`
-entry in the experiment mechanism vocabulary — no config-shaped lever for this
-input to map onto.
+The section's own note states it plainly: this is CONTEXT FOR DIAGNOSIS. Market
+context may explain a result and must not by itself justify a candidate, and
+there is deliberately no `macro` entry in the experiment mechanism vocabulary —
+no config-shaped lever for this input to map onto.
+
+The regime-static choice is stated to the model as a FINDING, not doctrine —
+"a previous broad regime-weight rotation did not validate out of sample" — which
+it may argue to overturn on new cross-regime, held-out evidence. The earlier
+wording ("on the evidence that regime timing overfits") asserted a contested
+empirical claim as settled, to the one agent in the system whose job is to
+question assumptions, in a system whose philosophy is measure-don't-assume.
+Note the evidence to overturn it cannot come from live history: ~9 weeks spans
+essentially one regime, so regime-conditioned evidence is a wind-tunnel project
+(20 years, regime labels per date), not a packet query.
 
 ## Design Decision: the packet is an index, not the database — schema discovery (2026-07)
 

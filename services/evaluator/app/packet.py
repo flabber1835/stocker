@@ -1155,7 +1155,8 @@ def _stdev(xs: list[float]) -> float | None:
 
 
 def market_stats(rows: list[dict], mega_caps: set[str],
-                 sector_map: dict[str, str]) -> dict:
+                 sector_map: dict[str, str],
+                 caps: dict[str, float] | None = None) -> dict:
     """Breadth / leadership / dispersion from per-ticker price aggregates. Pure.
 
     `rows`: {ticker, last_px, px_21, px_63, sma50, sma200, n200}. Every metric
@@ -1200,8 +1201,26 @@ def market_stats(rows: list[dict], mega_caps: set[str],
     best = max(sect, key=sect.get) if sect else None
     worst = min(sect, key=sect.get) if sect else None
 
+    # CAP-WEIGHTED minus EQUAL-WEIGHTED over the same names — the direct measure
+    # of index narrowness. The mega-cap median below is a RANK-based proxy: it
+    # cannot support "the index was seven stocks", because a median treats a $3T
+    # name and a $200B name identically. This can.
+    caps = caps or {}
+    def _narrowness(rets: dict[str, float]) -> tuple[float | None, int]:
+        pairs = [(caps[t], r) for t, r in rets.items()
+                 if caps.get(t) and caps[t] > 0]
+        if len(pairs) < 20:                 # too thin to mean anything
+            return None, len(pairs)
+        tot = sum(c for c, _ in pairs)
+        cw = sum(c * r for c, r in pairs) / tot
+        ew = sum(r for _, r in pairs) / len(pairs)
+        return cw - ew, len(pairs)
+
+    narrow21, n_cap21 = _narrowness(r21)
+    narrow63, _ = _narrowness(r63)
+
     return {
-        "breadth": {
+        "ranked_universe_breadth": {
             "n_with_200d_history": n200,
             "pct_above_200sma": _r(above200),
             "n_with_50d_history": n50,
@@ -1211,15 +1230,26 @@ def market_stats(rows: list[dict], mega_caps: set[str],
             "n_scored_21d": len(uni21),
         },
         "leadership": {
-            "universe_median_21d": _r(med_u21),
+            # The honest measure: > 0 means big names carried the tape.
+            "cap_minus_equal_weight_21d": _r(narrow21),
+            "cap_minus_equal_weight_63d": _r(narrow63),
+            "n_with_market_cap": n_cap21,
+            # Rank-based PROXY, kept because it needs no market-cap coverage.
+            # Named for what it is: a median comparison, not a contribution.
+            "mega_cap_median_lead_21d": _r(med_m21 - med_u21)
+                                        if (med_m21 is not None and med_u21 is not None) else None,
+            "mega_cap_median_lead_63d": _r(med_m63 - med_u63)
+                                        if (med_m63 is not None and med_u63 is not None) else None,
+            "ranked_universe_median_21d": _r(med_u21),
             "mega_cap_median_21d": _r(med_m21),
-            "mega_cap_lead_21d": _r(med_m21 - med_u21)
-                                 if (med_m21 is not None and med_u21 is not None) else None,
-            "universe_median_63d": _r(med_u63),
-            "mega_cap_median_63d": _r(med_m63),
-            "mega_cap_lead_63d": _r(med_m63 - med_u63)
-                                 if (med_m63 is not None and med_u63 is not None) else None,
             "n_mega_caps_scored": len(mega21),
+            "mega_cap_list_as_of": _SPY_TOP_AS_OF,
+            "note": ("cap_minus_equal_weight is the narrowness measure — "
+                     "capitalisation-weighted minus equal-weighted return over the "
+                     "SAME names, so a positive value means the large names drove "
+                     "the tape. mega_cap_median_lead is a weaker rank-based proxy "
+                     "over a STATIC top-25 list (see mega_cap_list_as_of; it drifts "
+                     "as constituents change) and cannot measure contribution."),
         },
         "dispersion": {
             "cross_sectional_stdev_21d": _r(_stdev(uni21)),
@@ -1239,9 +1269,16 @@ async def _market_context(conn) -> dict:
     excess against SPY reads as "the factor model is broken" when the measurable
     truth may be "the index was seven stocks and a 35-name book cannot track
     that". Deterministic — no LLM, no external calls, no news."""
+    # DISTINCT ON (snapshot_date): regime_snapshots has NO unique constraint on
+    # the date and the pipeline plain-INSERTs, so every manual chain re-run adds
+    # a second row for the same session. Counting rows would inflate
+    # `sessions_held` and let re-run days vote twice in the vol percentile —
+    # i.e. the metric would partly measure how often someone pressed Run.
     reg_rows = (await conn.execute(text(
-        "SELECT snapshot_date, regime, spy_vs_sma, realized_vol FROM regime_snapshots "
-        "ORDER BY snapshot_date DESC LIMIT 504"))).mappings().all()
+        "SELECT DISTINCT ON (snapshot_date) "
+        "       snapshot_date, regime, spy_vs_sma, realized_vol "
+        "FROM regime_snapshots "
+        "ORDER BY snapshot_date DESC, calculated_at DESC LIMIT 504"))).mappings().all()
     regime = {}
     if reg_rows:
         cur = reg_rows[0]
@@ -1296,21 +1333,40 @@ async def _market_context(conn) -> dict:
         "WHERE sector IS NOT NULL ORDER BY ticker, snapshot_id DESC"))).mappings().all()
     sector_map = {r["ticker"]: r["sector"] for r in srows}
 
-    stats = market_stats([dict(r) for r in rows], set(_SPY_TOP), sector_map)
+    crows = (await conn.execute(text(
+        "SELECT DISTINCT ON (ticker) ticker, market_cap FROM fundamentals "
+        "WHERE market_cap IS NOT NULL AND market_cap > 0 "
+        "ORDER BY ticker, as_of_date DESC"))).mappings().all()
+    caps = {r["ticker"]: float(r["market_cap"]) for r in crows}
+
+    stats = market_stats([dict(r) for r in rows], set(_SPY_TOP), sector_map, caps)
     return {
         "as_of": str(rr["rank_date"]),
+        # Say what the population IS. Calling this "market breadth" oversells it:
+        # the pool has already passed the investability floors and factor-coverage
+        # gates, so in a small-cap selloff the weakest names are ALREADY excluded
+        # and breadth reads healthier than the market.
+        "pool": ("the RANKED universe of the latest ranking run — names that "
+                 "passed the investability floors and factor gates. NOT the full "
+                 "active universe, and not an index. Breadth over this pool is "
+                 "biased UPWARD versus the whole market when the excluded tail is "
+                 "the weak tail."),
         "regime": regime,
         **stats,
         "note": ("CONTEXT FOR DIAGNOSIS. Use it to interpret results — a large "
-                 "negative excess vs SPY alongside a big mega_cap_lead and weak "
-                 "breadth means the index was narrow, NOT that the factor model "
-                 "failed; a low cross_sectional_stdev means stock selection was "
-                 "barely rewarded this month whatever the model did. It must NOT "
-                 "by itself justify a candidate: the config is regime-STATIC by "
-                 "design (regime rotation is off, on the evidence that regime "
-                 "timing overfits out of sample), and there is deliberately no "
-                 "'macro' mechanism to queue against. Every candidate still needs "
-                 "measured evidence from the outcome sections."),
+                 "negative excess vs SPY alongside a positive "
+                 "cap_minus_equal_weight and weak breadth means the index was "
+                 "narrow, NOT that the factor model failed; a low "
+                 "cross_sectional_stdev means stock selection was barely rewarded "
+                 "this period whatever the model did. It must NOT by itself "
+                 "justify a candidate — every candidate still needs measured "
+                 "evidence from the outcome sections, and there is deliberately no "
+                 "'macro' mechanism to queue against. The current champion is "
+                 "regime-STATIC because a previous broad regime-weight rotation "
+                 "did not validate out of sample. That is a FINDING, not settled "
+                 "doctrine: it can be overturned, but by new cross-regime "
+                 "held-out evidence — which this section is not — rather than by "
+                 "an observation about the current market."),
     }
 
 

@@ -482,8 +482,12 @@ def test_market_context_runs_its_aggregate_against_the_real_schema(db_engine):
     assert "error" not in ctx, ctx.get("error")
     # The seeded fixture has a successful ranking run, so the price aggregate
     # ran rather than short-circuiting on "no ranking yet".
-    assert "breadth" in ctx and "leadership" in ctx and "dispersion" in ctx
-    assert ctx["breadth"]["n_scored_21d"] is not None
+    assert ("ranked_universe_breadth" in ctx and "leadership" in ctx
+            and "dispersion" in ctx)
+    assert ctx["ranked_universe_breadth"]["n_scored_21d"] is not None
+    # The pool is named, not implied — "market breadth" over a gated pool
+    # overstates the market.
+    assert "RANKED universe" in ctx["pool"]
     # Diagnostic-only framing has to reach the model, not just the docs.
     assert "must NOT" in ctx["note"]
 
