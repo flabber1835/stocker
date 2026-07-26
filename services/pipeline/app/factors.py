@@ -85,8 +85,9 @@ def compute_earnings_surprise(
             out[ticker] = float("nan")
             continue
 
+        srw_ref = None
         if srw:
-            unexpected = _srw_unexpected(g)
+            unexpected, srw_ref = _srw_align(g)
         else:
             unexpected = (g["reported_eps"] - g["estimated_eps"]).dropna()
         if unexpected.empty:
@@ -100,7 +101,7 @@ def compute_earnings_surprise(
             # Too few quarters to standardize by the ticker's own history: scale
             # by the size of the reference figure so a newly-covered name still
             # gets a (less precise) signal instead of dropping out entirely.
-            ref = (_srw_reference(g) if srw else latest["estimated_eps"])
+            ref = (srw_ref if srw else latest["estimated_eps"])
             denom = (abs(float(ref)) if ref is not None and pd.notna(ref)
                      and abs(float(ref)) > 1e-6 else float("nan"))
             out[ticker] = (u_latest / denom) if denom == denom else float("nan")
@@ -108,52 +109,56 @@ def compute_earnings_surprise(
     return pd.Series(out, name="earnings_surprise", dtype=float)
 
 
-def _srw_unexpected(g: pd.DataFrame) -> pd.Series:
-    """eps_q − eps_{q-4}, aligned by FISCAL PERIOD, newest last.
+def _srw_align(g: pd.DataFrame) -> tuple[pd.Series, float | None]:
+    """(unexpected eps_q − eps_{q-4} per row of g, year-ago eps for g's LAST row).
 
-    Aligned by fiscal_date_ending rather than by row position on purpose: a
-    missing quarter or a restatement shifts a positional `iloc[-5]` lookup onto
-    the wrong period, which silently compares Q3 against Q2 and calls the
-    difference a surprise. Matching ~365 days back tolerates fiscal calendars
-    that wander by a few days, and yields nothing when the year-ago quarter is
-    genuinely absent."""
-    eps_by_period = {}
-    for fde, eps in zip(g["fiscal_date_ending"], g["reported_eps"]):
-        if fde is not None and pd.notna(eps):
-            eps_by_period[fde] = float(eps)
-    vals = []
-    for fde, eps in zip(g["fiscal_date_ending"], g["reported_eps"]):
-        if fde is None or pd.isna(eps):
-            continue
-        prior = _year_ago_period(fde, eps_by_period)
-        if prior is not None:
-            vals.append(float(eps) - prior)
-    return pd.Series(vals, dtype=float)
+    Aligned by fiscal_date_ending, never by row position: a missing quarter or a
+    restatement shifts a positional `iloc[-5]` onto the wrong period, which
+    silently compares Q3 against Q2 and calls the difference a surprise. The
+    year-ago match is the period nearest to fde−365d within ±45 days (52/53-week
+    fiscal calendars wander; beyond that, calling some other quarter "the
+    year-ago quarter" manufactures a surprise out of seasonality).
 
+    VECTORIZED with searchsorted — O(q log q) per ticker. The first version did
+    a per-row linear scan over ALL of the ticker's periods with Python-level
+    date arithmetic (O(q²), twice: once for the deltas and again for the
+    fallback reference). Across a full universe with decades of AV history that
+    made the live factor step visibly slower on the NAS the day it shipped —
+    the regression multiplier behind a "stuck on calculating factors" report.
 
-def _year_ago_period(fde, eps_by_period: dict):
-    """The eps for the fiscal period closest to one year before `fde` (±45 days),
-    or None. The tolerance covers 52/53-week fiscal calendars and period-end
-    drift; beyond it, treating some other quarter as 'the year-ago quarter' would
-    manufacture a surprise out of seasonality."""
-    target = fde - pd.Timedelta(days=365).to_pytimedelta()
-    best, best_gap = None, None
-    for period, eps in eps_by_period.items():
-        gap = abs((period - target).days)
-        if gap <= 45 and (best_gap is None or gap < best_gap):
-            best, best_gap = eps, gap
-    return best
+    Rows keep g's order (reported_date-sorted), so `.iloc[-1]` downstream is the
+    most recently REPORTED quarter — identical semantics to the original."""
+    fde = pd.to_datetime(g["fiscal_date_ending"], errors="coerce")
+    eps = pd.to_numeric(g["reported_eps"], errors="coerce")
+    ok = fde.notna() & eps.notna()
+    if not ok.any():
+        return pd.Series(dtype=float), None
 
+    days = fde[ok].values.astype("datetime64[D]").astype("int64")
+    vals = eps[ok].to_numpy(dtype=float)
 
-def _srw_reference(g: pd.DataFrame):
-    """Scale reference for the too-few-quarters fallback: the year-ago EPS, which
-    is what 'unexpected' was measured against."""
-    eps_by_period = {}
-    for fde, eps in zip(g["fiscal_date_ending"], g["reported_eps"]):
-        if fde is not None and pd.notna(eps):
-            eps_by_period[fde] = float(eps)
-    latest_fde = g["fiscal_date_ending"].iloc[-1]
-    return None if latest_fde is None else _year_ago_period(latest_fde, eps_by_period)
+    # Lookup table: one eps per period, LAST occurrence in report order winning
+    # (a restatement replaces the original figure, as the dict version did).
+    lut = pd.Series(vals, index=days)
+    lut = lut[~lut.index.duplicated(keep="last")].sort_index()
+    P, E = lut.index.to_numpy(), lut.to_numpy()
+
+    targets = days - 365
+    pos = np.searchsorted(P, targets)
+    left = np.clip(pos - 1, 0, len(P) - 1)
+    right = np.clip(pos, 0, len(P) - 1)
+    gap_l = np.abs(P[left] - targets)
+    gap_r = np.abs(P[right] - targets)
+    use_left = gap_l <= gap_r                     # tie → earlier period
+    idx = np.where(use_left, left, right)
+    gap = np.where(use_left, gap_l, gap_r)
+    matched = gap <= 45
+
+    unexpected = pd.Series(vals[matched] - E[idx[matched]], dtype=float)
+
+    # Fallback scale reference: the year-ago eps of the LAST valid row.
+    ref = float(E[idx[-1]]) if matched[-1] else None
+    return unexpected, ref
 
 
 def drop_fundamentalless(

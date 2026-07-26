@@ -217,3 +217,50 @@ def test_a_perfectly_constant_yoy_delta_yields_no_signal():
     out = compute_earnings_surprise(df, dt.date(2022, 12, 1),
                                     drift_window_days=400, method=Q)
     assert pd.isna(out.get("AAA"))
+
+
+# ── scaling guard ───────────────────────────────────────────────────────────
+
+def test_srw_costs_no_more_than_a_few_analyst_passes():
+    """The first SRW implementation was O(q²) per ticker: every row linearly
+    scanned ALL of the ticker's periods with Python-level date arithmetic — and
+    the fallback-reference helper did it AGAIN. Across a live universe with
+    decades of AV history that made the factor step visibly slower on the NAS
+    the day it shipped, reading as "stuck on calculating factors".
+
+    Guarded as a ratio against the ANALYST method ON THE SAME FRAME — same
+    machine, same data, same groupby overhead, and analyst is a vectorized O(q)
+    subtraction. That internal control is what makes the bound meaningful:
+    the first draft compared q=40 vs q=200 wall-clock and measured the OLD
+    quadratic at 7.7x against a threshold of 8 — a guard that misses the very
+    bug it was written for. Calibrated here: old 14.5x, new 2.8x; 8 splits them
+    with ~2x margin on both sides, on any machine.
+    """
+    import time
+
+    rows = []
+    for t in range(300):
+        for i in range(200):
+            y, qq = 1975 + i // 4, i % 4
+            fde = dt.date(y, [3, 6, 9, 12][qq], 28)
+            rows.append({"ticker": f"S{t:04d}", "fiscal_date_ending": fde,
+                         "reported_date": fde + dt.timedelta(days=45),
+                         "reported_eps": 1.0 + 0.01 * i + 0.001 * ((i * 7) % 5),
+                         "estimated_eps": 1.0 + 0.01 * i})
+    df = pd.DataFrame(rows)
+
+    def _time(method):
+        best = float("inf")
+        for _ in range(2):                      # best-of-2 damps scheduler noise
+            t0 = time.perf_counter()
+            compute_earnings_surprise(df, dt.date(2026, 7, 25),
+                                      drift_window_days=100000, method=method)
+            best = min(best, time.perf_counter() - t0)
+        return best
+
+    srw, analyst = _time(Q), _time(A)
+    ratio = srw / max(analyst, 1e-9)
+    assert ratio < 8, (
+        f"SRW costs {ratio:.1f}x the analyst pass on identical data — the "
+        f"alignment has gone super-linear in history length again "
+        f"(srw {srw:.2f}s vs analyst {analyst:.2f}s)")
