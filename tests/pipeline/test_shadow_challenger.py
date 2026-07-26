@@ -74,7 +74,10 @@ def test_refusal_is_persisted_not_just_printed():
     """A stdout line nobody reads is indistinguishable from 'switched off'. The
     refusal must land in shadow_runs so the packet can explain the absence."""
     src = (ROOT / "services" / "pipeline" / "app" / "main.py").read_text()
-    i = src.index("shadow SKIPPED")
+    # Anchored on the refusal MESSAGE, not the log line: the print carries the
+    # shadow's role now ("shadow (challenger) SKIPPED"), and an anchor that
+    # breaks on a formatting change tests the format, not the behaviour.
+    i = src.index("challenger factor_engine differs")
     window = src[i:i + 1600]
     assert "INSERT INTO shadow_runs" in window, \
         "the factor_engine refusal is printed but never persisted"
@@ -108,3 +111,35 @@ def test_challenger_is_documented_as_the_pending_recommendation():
     assert raw["static_factor_weights"]["momentum"] == 0.28
     assert raw["static_factor_weights"]["low_volatility"] == 0.18
     assert raw["static_factor_weights"]["quality"] == 0.24
+
+
+# ── displaced-champion shadow (auto-revert input) ───────────────────────────
+# A promotion is only reversible if the config it displaced keeps being scored.
+# The api writes displaced_champion.yaml on apply; the pipeline must shadow it
+# with the SAME machinery as the challenger — and the two must be independent,
+# because the displaced shadow feeds a config-CHANGING decision and cannot be
+# collateral damage from an unrelated challenger misconfiguration.
+
+def test_both_shadows_are_fired_and_are_independent():
+    src = (ROOT / "services" / "pipeline" / "app" / "main.py").read_text()
+    i = src.index("async def _run_all_shadow_builds")
+    body = src[i:i + 900]
+    assert "CHALLENGER_CONFIG_PATH" in body and "DISPLACED_CHAMPION_PATH" in body
+    assert "except Exception" in body, (
+        "one shadow failing must not suppress the other — the displaced "
+        "shadow is the input to the revert decision")
+
+
+def test_the_delta_path_fires_the_combined_builder_not_just_the_challenger():
+    src = (ROOT / "services" / "pipeline" / "app" / "main.py").read_text()
+    assert "_run_all_shadow_builds(" in src
+    i = src.index("asyncio.create_task(_run_all_shadow_builds")
+    # still pinned to THIS delta's ranking run (the audit-3 lineage fix)
+    assert "shadow_rank_id" in src[i:i + 200]
+
+
+def test_displaced_path_defaults_under_the_artifacts_mount():
+    """The api writes it to ARTIFACTS_PATH/config/; pipeline mounts the same
+    volume. A default pointing anywhere else would silently never shadow."""
+    from app.main import DISPLACED_CHAMPION_PATH
+    assert DISPLACED_CHAMPION_PATH.endswith("config/displaced_champion.yaml")

@@ -102,6 +102,17 @@ services:
       # promotion.json (validator-gated, audited). false restores human-only.
       AUTO_PROMOTION_ENABLED: ${AUTO_PROMOTION_ENABLED:-true}
       PROMOTION_POLL_SECS: ${PROMOTION_POLL_SECS:-60}
+      # Auto-revert: the displaced champion keeps running as a shadow, and if it
+      # beats the config that replaced it the promotion is undone. Makes a
+      # promotion a REVERSIBLE experiment rather than a one-way door — the
+      # precondition for ever loosening the promotion gate. Independent of
+      # AUTO_PROMOTION_ENABLED on purpose: turning promotion off must not strand
+      # an applied promotion with no way back.
+      REVERT_ENABLED: ${REVERT_ENABLED:-true}
+      REVERT_MIN_SESSIONS: ${REVERT_MIN_SESSIONS:-20}
+      REVERT_MARGIN: ${REVERT_MARGIN:-0.02}
+      REVERT_HORIZON_SESSIONS: ${REVERT_HORIZON_SESSIONS:-20}
+      REVERT_POLL_SECS: ${REVERT_POLL_SECS:-3600}
     volumes:
       - ./strategies:/strategies
       - ./artifacts:/artifacts

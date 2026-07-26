@@ -3473,12 +3473,13 @@ async def start_delta_only(background_tasks: BackgroundTasks, manual: bool = Fal
                 shadow_rank_id = (await conn.execute(text(
                     "SELECT source_ranking_run_id FROM delta_runs WHERE run_id=:rid"
                 ), {"rid": delta_run_id_result})).scalar()
-            # Shadow challenger (closed-loop item 4): fire-and-forget after the
-            # chain's delta completes — observational only, never blocks/fails
-            # the chain. Inert unless CHALLENGER_CONFIG_PATH is configured.
+            # Shadows (closed-loop item 4 + auto-revert): fire-and-forget after
+            # the chain's delta completes — observational only, never
+            # blocks/fails the chain. Inert unless CHALLENGER_CONFIG_PATH is
+            # configured or a promotion has left a displaced champion.
             # Pinned to THIS delta's ranking run (lineage fix) so an async race
             # with a newer ranking can't mis-attach the shadow.
-            asyncio.create_task(_run_shadow_build(
+            asyncio.create_task(_run_all_shadow_builds(
                 str(shadow_rank_id) if shadow_rank_id else None))
         except Exception as exc:
             print(f"[pipeline] standalone delta FAILED: {exc}", flush=True)
@@ -3608,18 +3609,48 @@ async def _do_label_outcomes() -> dict:
 CHALLENGER_CONFIG_PATH = os.getenv("CHALLENGER_CONFIG_PATH", "")
 SHADOW_PRICE_BUFFER_DAYS = 30
 
+# The config a promotion displaced, written by the api's promotion watcher.
+# Shadowing it is what makes a promotion a REVERSIBLE experiment: the api's
+# revert watcher compares this shadow against the live champion's target and
+# restores it if the displaced config wins (architecture.md "a promotion is a
+# REVERSIBLE experiment"). Same machinery as the challenger path — the only
+# difference is who writes the file and who reads the result.
+DISPLACED_CHAMPION_PATH = os.getenv(
+    "DISPLACED_CHAMPION_PATH",
+    os.path.join(os.getenv("ARTIFACTS_PATH", "/artifacts"),
+                 "config", "displaced_champion.yaml"))
 
-async def _run_shadow_build(ranking_run_id: str | None = None) -> None:
+
+async def _run_all_shadow_builds(ranking_run_id: str | None = None) -> None:
+    """Fire every configured shadow. Sequential and independent: one failing
+    (or being absent) must never suppress the other, and the displaced-champion
+    shadow is the input to a config-changing decision, so it cannot be
+    collateral damage from an unrelated challenger misconfiguration."""
+    for path, role in ((CHALLENGER_CONFIG_PATH, "challenger"),
+                       (DISPLACED_CHAMPION_PATH, "displaced_champion")):
+        try:
+            await _run_shadow_build(ranking_run_id, path=path, role=role)
+        except Exception as exc:  # noqa: BLE001 — observational, never fatal
+            print(f"[pipeline] shadow ({role}) FAILED: {exc}", flush=True)
+
+
+async def _run_shadow_build(ranking_run_id: str | None = None, *,
+                            path: str | None = None,
+                            role: str = "challenger") -> None:
     """Best-effort; never raises into the delta path that spawned it.
 
     ranking_run_id pins the shadow to the EXACT ranking run the triggering
     delta consumed (audit-3 lineage fix): this task runs async, so "latest
     successful ranking" could otherwise attach to a newer run that completed
     in between (e.g. a manual re-run). None falls back to latest (manual
-    invocation / older callers)."""
+    invocation / older callers).
+
+    `path`/`role` select WHICH config is shadowed — the env-configured
+    challenger, or the champion a promotion displaced. Defaults preserve the
+    original single-challenger behaviour for existing callers."""
     from app.shadow import build_challenger_target
 
-    path = CHALLENGER_CONFIG_PATH
+    path = CHALLENGER_CONFIG_PATH if path is None else path
     if not path or not os.path.exists(path):
         return
     try:
@@ -3645,7 +3676,7 @@ async def _run_shadow_build(ranking_run_id: str | None = None) -> None:
                    "so those are the wrong inputs. Change weights/builder knobs "
                    "in the challenger, or send this candidate to the wind-tunnel "
                    "experiment lane, which recomputes factors.")
-            print(f"[pipeline] shadow SKIPPED: {msg}", flush=True)
+            print(f"[pipeline] shadow ({role}) SKIPPED: {msg}", flush=True)
             try:
                 async with engine.begin() as conn:
                     rr = (await conn.execute(text(
@@ -3736,10 +3767,10 @@ async def _run_shadow_build(ranking_run_id: str | None = None) -> None:
                  "st": "success" if target else "failed",
                  "t": json.dumps({t: round(w, 6) for t, w in target.items()}),
                  "n": len(target), "e": terr})
-        print(f"[pipeline] shadow build {rr['rank_date']} config={ch_hash} "
+        print(f"[pipeline] shadow ({role}) build {rr['rank_date']} config={ch_hash} "
               f"n={len(target)} err={terr}", flush=True)
     except Exception as exc:  # noqa: BLE001 — shadow is observational, never fatal
-        print(f"[pipeline] shadow build FAILED: {exc}", flush=True)
+        print(f"[pipeline] shadow ({role}) build FAILED: {exc}", flush=True)
 
 
 @app.post("/jobs/label-outcomes")

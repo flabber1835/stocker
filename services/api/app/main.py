@@ -49,9 +49,16 @@ async def lifespan(app: FastAPI):
     promo_task = None
     if AUTO_PROMOTION_ENABLED:
         promo_task = asyncio.create_task(_promotion_watcher())
+    # Auto-revert: independent of AUTO_PROMOTION_ENABLED on purpose. Turning
+    # promotion OFF must not strand an already-applied promotion with no way
+    # back — the displaced champion still deserves its evaluation.
+    revert_task = None
+    if REVERT_ENABLED:
+        revert_task = asyncio.create_task(_revert_watcher())
     yield
-    if promo_task:
-        promo_task.cancel()
+    for t in (promo_task, revert_task):
+        if t:
+            t.cancel()
 
 
 app = FastAPI(title="stocker-api", lifespan=lifespan)
@@ -234,6 +241,24 @@ def _archive_config(subdir: str, stamp: str, cfg_hash: str, raw: str) -> Optiona
 AUTO_PROMOTION_ENABLED = os.getenv("AUTO_PROMOTION_ENABLED", "true").lower() in ("1", "true", "yes")
 PROMOTION_POLL_SECS = float(os.getenv("PROMOTION_POLL_SECS", "60"))
 
+# ── Auto-revert: a promotion is a REVERSIBLE experiment ──────────────────────
+# The displaced champion keeps running as a shadow; if it beats the config that
+# replaced it by a material margin over a full window, deterministic code
+# reverts. This lowers the COST of a wrong promotion rather than the evidence
+# bar — see architecture.md "a promotion is a REVERSIBLE experiment".
+REVERT_ENABLED = os.getenv("REVERT_ENABLED", "true").lower() in ("1", "true", "yes")
+REVERT_MIN_SESSIONS = int(os.getenv("REVERT_MIN_SESSIONS", "20"))
+REVERT_MARGIN = float(os.getenv("REVERT_MARGIN", "0.02"))
+REVERT_HORIZON_SESSIONS = int(os.getenv("REVERT_HORIZON_SESSIONS", "20"))
+REVERT_POLL_SECS = float(os.getenv("REVERT_POLL_SECS", "3600"))
+
+
+def _displaced_config_path() -> str:
+    """The config a promotion replaced, kept so the pipeline can shadow it and
+    the revert path can restore it verbatim. Its EXISTENCE is the signal that a
+    promotion is currently under evaluation."""
+    return os.path.join(ARTIFACTS_PATH, "config", "displaced_champion.yaml")
+
 
 def _promo_state_path() -> str:
     # resolved at call time (not import) so tests/env overrides take effect
@@ -274,6 +299,14 @@ async def _check_promotion() -> None:
     state = _read_promo_state()
     if state.get("last_hash") == ph:
         return  # already applied or explicitly rejected — never loops
+    # PING-PONG GUARD. A promotion that auto-revert already undid must never be
+    # re-applied: the lane would re-promote the same winning candidate the next
+    # evening and the config would oscillate forever.
+    if ph in (state.get("reverted_hashes") or []):
+        print(f"[api] promotion {ph} SKIPPED — this candidate was auto-reverted "
+              "before; it cannot be re-applied without clearing reverted_hashes",
+              flush=True)
+        return
 
     async with _config_apply_lock:
         try:
@@ -363,8 +396,29 @@ async def _check_promotion() -> None:
                 ), {"id": row_id})
         except Exception:  # noqa: BLE001
             traceback.print_exc()
+        # Keep the DISPLACED champion so it can be shadowed and, if it wins,
+        # restored byte-for-byte. Written AFTER the apply succeeded: a file
+        # present when the config was never replaced would make the revert path
+        # evaluate a promotion that did not happen.
+        try:
+            dpath = _displaced_config_path()
+            os.makedirs(os.path.dirname(dpath), exist_ok=True)
+            with open(dpath + ".tmp", "w") as f:
+                f.write(old_raw)
+            os.replace(dpath + ".tmp", dpath)
+        except OSError as exc:
+            # Non-fatal: the promotion IS applied. Losing this only means the
+            # promotion is not revertible-by-measurement, which must be loud.
+            print(f"[api] promotion {ph}: could not store displaced champion "
+                  f"({exc}) — this promotion will NOT be auto-revertible",
+                  flush=True)
         _write_promo_state({"last_hash": ph, "status": "applied",
                             "config_hash_after": hash_after,
+                            "displaced_hash": hash_before,
+                            "displaced_at": _dt.now(_tz.utc).isoformat(),
+                            # Carried forward — the blocklist must survive every
+                            # later promotion or the ping-pong guard forgets.
+                            "reverted_hashes": state.get("reverted_hashes") or [],
                             "at": _dt.now(_tz.utc).isoformat()})
         print(f"[api] promotion {ph} APPLIED (config {hash_before} → {hash_after}); "
               "next chain run picks it up", flush=True)
@@ -377,6 +431,226 @@ async def _promotion_watcher() -> None:
         except Exception:  # noqa: BLE001 — the watcher must never die
             traceback.print_exc()
         await asyncio.sleep(PROMOTION_POLL_SECS)
+
+
+# ── auto-revert ──────────────────────────────────────────────────────────────
+
+async def _paired_spans(conn, displaced_hash: str, since: date,
+                        horizon: int) -> list[tuple[float, float]]:
+    """[(champion_return, displaced_return)] for every date on/after `since`
+    that has BOTH a champion target and a displaced shadow AND whose horizon
+    has fully elapsed. Both scored as weighted forward returns over the same
+    fixed session span — target vs target, construction held constant.
+
+    `since` is a real date, never a string: asyncpg infers the parameter type
+    from the DATE column and rejects a str outright ('str' object has no
+    attribute 'toordinal'). A CAST does not help — it makes Postgres infer the
+    parameter AS a date."""
+    from app.revert import weighted_return
+
+    if isinstance(since, str):          # tolerate ISO input from stored state
+        since = date.fromisoformat(since[:10])
+    sessions = [r[0] for r in (await conn.execute(text(
+        "SELECT date FROM daily_prices WHERE ticker='SPY' "
+        "AND date >= :s ORDER BY date ASC"), {"s": since})).fetchall()]
+    if len(sessions) <= horizon:
+        return []
+    from bisect import bisect_right
+
+    shadows = (await conn.execute(text(
+        "SELECT run_date, target FROM shadow_runs "
+        "WHERE config_hash = :h AND status='success' "
+        "AND run_date >= :s ORDER BY run_date ASC"
+    ), {"h": displaced_hash, "s": since})).mappings().all()
+    if not shadows:
+        return []
+
+    # One authoritative target per portfolio_date (a manual re-run supersedes a
+    # cron build for the same date). Aggregate FIRST, pick second — doing it in
+    # one pass with a windowed aggregate reads as clever and is easy to get
+    # subtly wrong.
+    champs = {r["portfolio_date"]: r["target"] for r in (await conn.execute(text(
+        "SELECT DISTINCT ON (portfolio_date) portfolio_date, target FROM ("
+        "  SELECT pr.portfolio_date, pr.started_at, "
+        "         jsonb_object_agg(ph.ticker, ph.weight) AS target "
+        "  FROM portfolio_runs pr JOIN portfolio_holdings ph ON ph.run_id = pr.run_id "
+        "  WHERE pr.status='success' AND pr.superseded_at IS NULL "
+        "    AND pr.portfolio_date >= :s "
+        "  GROUP BY pr.run_id, pr.portfolio_date, pr.started_at) x "
+        "ORDER BY portfolio_date, started_at DESC"
+    ), {"s": since})).mappings().all()}
+
+    out: list[tuple[float, float]] = []
+    for s in shadows:
+        d = s["run_date"]
+        champ = champs.get(d)
+        if not champ or not s["target"]:
+            continue
+        i = bisect_right(sessions, d) - 1
+        if i < 0 or i + horizon >= len(sessions):
+            continue                      # horizon not fully elapsed — excluded
+        base, end = sessions[i], sessions[i + horizon]
+        tickers = sorted(set(champ) | set(s["target"]))
+        rows = (await conn.execute(text(
+            "WITH b AS (SELECT DISTINCT ON (ticker) ticker, adjusted_close FROM daily_prices "
+            "           WHERE ticker = ANY(:tk) AND date <= :b ORDER BY ticker, date DESC), "
+            "     e AS (SELECT DISTINCT ON (ticker) ticker, adjusted_close FROM daily_prices "
+            "           WHERE ticker = ANY(:tk) AND date <= :e ORDER BY ticker, date DESC) "
+            "SELECT b.ticker, b.adjusted_close AS base, e.adjusted_close AS fin "
+            "FROM b JOIN e USING (ticker) WHERE b.adjusted_close > 0"
+        ), {"tk": tickers, "b": base, "e": end})).mappings().all()
+        rets = {r["ticker"]: float(r["fin"]) / float(r["base"]) - 1.0 for r in rows}
+        cr, dr = weighted_return(champ, rets), weighted_return(s["target"], rets)
+        if cr is not None and dr is not None:
+            out.append((cr, dr))
+    return out
+
+
+async def _check_revert() -> None:
+    """Evaluate the standing promotion and revert it if the displaced champion
+    won. Fail-closed at every step: anything missing or unreadable leaves the
+    live config exactly where it is."""
+    import yaml as _yaml
+    from datetime import datetime as _dt, timezone as _tz
+
+    from app.revert import revert_decision
+
+    dpath = _displaced_config_path()
+    if not os.path.exists(dpath):
+        return                       # no promotion under evaluation
+    state = _read_promo_state()
+    displaced_hash, since = state.get("displaced_hash"), state.get("displaced_at")
+    if not displaced_hash or not since:
+        return
+    if engine is None:
+        return
+
+    async with engine.connect() as conn:
+        try:
+            since_d = date.fromisoformat(str(since)[:10])
+        except ValueError:
+            print(f"[api] revert: unparseable displaced_at {since!r} — skipping",
+                  flush=True)
+            return
+        pairs = await _paired_spans(conn, displaced_hash, since_d,
+                                    REVERT_HORIZON_SESSIONS)
+    verdict = revert_decision(pairs, min_sessions=REVERT_MIN_SESSIONS,
+                              margin=REVERT_MARGIN)
+    if not verdict.revert:
+        return
+
+    async with _config_apply_lock:
+        try:
+            with open(dpath) as f:
+                restore_raw = f.read()
+            restore_cfg = _yaml.safe_load(restore_raw)
+            with open(STRATEGY_CONFIG_PATH) as f:
+                current_raw = f.read()
+        except (OSError, ValueError) as exc:
+            print(f"[api] revert: cannot read configs ({exc}) — not reverting",
+                  flush=True)
+            return
+        # The restored config ran live before, but it goes through the SAME
+        # hard gate anyway: "it was fine last month" is an assumption, and this
+        # is still an automated write to the live strategy.
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                vr = await client.post(f"{STRATEGY_VALIDATOR_URL}/validate",
+                                       json=restore_cfg)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[api] revert: validator unreachable ({exc}) — retrying later",
+                  flush=True)
+            return
+        vbody = {}
+        try:
+            vbody = vr.json()
+        except Exception:  # noqa: BLE001
+            pass
+        if vr.status_code != 200 or not vbody.get("valid"):
+            print(f"[api] revert REFUSED: the displaced config no longer "
+                  f"validates ({vbody.get('errors') or vr.text[:200]})", flush=True)
+            return
+
+        hash_before, hash_after = _hash_raw(current_raw), _hash_raw(restore_raw)
+        if hash_before == hash_after:
+            return
+        stamp = _dt.now(_tz.utc).strftime("%Y%m%dT%H%M%SZ")
+        _archive_config("history", stamp, hash_before, current_raw)
+
+        row_id = str(uuid.uuid4())
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    "INSERT INTO config_changes (id, status, config_path, config_field, "
+                    " old_value, new_value, config_hash_before, config_hash_after, "
+                    " applied_by, validator_status) "
+                    "VALUES (CAST(:id AS uuid), 'pending', :path, '__full_config__', "
+                    "        CAST(:old AS jsonb), CAST(:new AS jsonb), :hb, :ha, "
+                    "        'auto_revert', :vst)"
+                ), {"id": row_id, "path": STRATEGY_CONFIG_PATH,
+                    "old": json.dumps({"config_hash": hash_before}),
+                    "new": json.dumps({"config_hash": hash_after,
+                                       "reverted_promotion": state.get("last_hash"),
+                                       "reason": verdict.reason,
+                                       "n_days": verdict.n_days,
+                                       "avg_spread": verdict.avg_spread}),
+                    "hb": hash_before, "ha": hash_after,
+                    "vst": f"valid ({vr.status_code})"})
+        except Exception as exc:  # noqa: BLE001 — no audit trail → no apply
+            print(f"[api] revert: audit write failed ({exc}) — not reverting",
+                  flush=True)
+            return
+
+        tmp = STRATEGY_CONFIG_PATH + ".tmp"
+        try:
+            with open(tmp, "w") as f:
+                f.write(restore_raw)
+            os.replace(tmp, STRATEGY_CONFIG_PATH)
+        except OSError as exc:
+            try:
+                async with engine.begin() as conn:
+                    await conn.execute(text(
+                        "UPDATE config_changes SET status='failed' WHERE id=CAST(:id AS uuid)"
+                    ), {"id": row_id})
+            except Exception:  # noqa: BLE001
+                traceback.print_exc()
+            print(f"[api] revert: config write failed ({exc})", flush=True)
+            return
+        _archive_config("applied", stamp, hash_after, restore_raw)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    "UPDATE config_changes SET status='applied' WHERE id=CAST(:id AS uuid)"
+                ), {"id": row_id})
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+
+        reverted = list(state.get("reverted_hashes") or [])
+        if state.get("last_hash") and state["last_hash"] not in reverted:
+            reverted.append(state["last_hash"])
+        _write_promo_state({**state, "status": "reverted",
+                            "reverted_hashes": reverted[-50:],
+                            "reverted_at": _dt.now(_tz.utc).isoformat(),
+                            "revert_reason": verdict.reason,
+                            # Cleared: only the MOST RECENT promotion is
+                            # revertible. Chaining reverts would walk the config
+                            # backwards through history on accumulated noise.
+                            "displaced_hash": None, "displaced_at": None})
+        try:
+            os.remove(dpath)
+        except OSError:
+            pass
+        print(f"[api] promotion {state.get('last_hash')} REVERTED "
+              f"({hash_before} → {hash_after}): {verdict.reason}", flush=True)
+
+
+async def _revert_watcher() -> None:
+    while True:
+        try:
+            await _check_revert()
+        except Exception:  # noqa: BLE001 — the watcher must never die
+            traceback.print_exc()
+        await asyncio.sleep(REVERT_POLL_SECS)
 
 
 # NOTE: POST /config/apply (the human one-click apply) was REMOVED. A config

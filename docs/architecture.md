@@ -3215,3 +3215,95 @@ observations. Fill the lane first, measure the real pass rate, then decide.
 Expect the deflated Sharpe the evaluator reads to FALL as the trial count
 climbs. That is the multiple-testing correction working, not strategy decay,
 and it must not be "fixed" by weakening the correction.
+
+## Design Decision: a promotion is a REVERSIBLE experiment — displaced-champion shadow + auto-revert (2026-07)
+
+### The gap
+
+Auto-promotion was a one-way door. A candidate that cleared the gate became the
+live config and stayed there until some LATER candidate displaced it, and
+NOTHING measured whether the switch actually helped. Two consequences:
+
+```text
+1. no feedback on the switching POLICY. The wind tunnel scores each candidate
+   in isolation; nobody ever asked "does promoting beat freezing the config?".
+   Every promotion is locally justified while the sequence can still lose —
+   the classic factor-timing failure, and structurally invisible here.
+2. the gate had to carry all the weight. When being wrong is unbounded and
+   permanent, the acceptance criteria must be strict, which is what makes the
+   loop slow. Rigour was substituting for reversibility.
+```
+
+"Fail fast and cheap" means lowering the COST of being wrong, not the evidence
+bar. That is this change; the gate is untouched.
+
+### The rule
+
+```text
+When a promotion is applied, the DISPLACED champion keeps running as a shadow.
+If it beats the new champion by a material margin over a full evaluation
+window, deterministic code reverts.
+```
+
+The comparison is TARGET vs TARGET, both theoretical, over the SAME fixed
+session horizon: the new champion's real target book (portfolio_holdings) and
+the displaced champion's shadow target (shadow_runs), each scored as a weighted
+forward return. Comparing REALIZED equity against a theoretical shadow would be
+biased — realized carries costs, slippage and execution timing the shadow does
+not — so the honest test holds construction constant and varies only the config.
+
+Flow:
+
+```text
+promotion applied ──▶ api writes artifacts/config/displaced_champion.yaml
+                      + promotion_state{promoted_hash, displaced_hash, at}
+                            │
+      each successful delta ▼
+                      pipeline runs a SECOND shadow build for that file
+                      (same machinery as CHALLENGER_CONFIG_PATH, role tagged)
+                            │
+        daily, in the api   ▼
+                      revert_decision(champion_r, displaced_r, ...)  ← PURE
+                            │ displaced ahead by >= margin over >= min sessions
+                            ▼
+                      revert: validate → archive → audit(applied_by=
+                      'auto_revert') → atomic replace → BLOCKLIST the hash
+```
+
+### Guards, and why each exists
+
+```text
+ping-pong        A reverted promotion hash is recorded in promotion_state's
+                 `reverted_hashes`; _check_promotion REFUSES to re-apply it.
+                 Without this the lane re-promotes the same winning candidate
+                 the next evening and the config oscillates forever.
+one shot         Only the MOST RECENT promotion is revertible, and reverting
+                 clears the displaced file. Chained reverts would walk the
+                 config backwards through history on accumulated noise.
+sample floor     REVERT_MIN_SESSIONS (default 20) of FULLY ELAPSED horizons.
+                 Consecutive daily spans overlap heavily, so 20 days is far
+                 fewer than 20 independent observations — the floor is a
+                 minimum, not a sufficiency claim, and the margin does the
+                 real work.
+margin           REVERT_MARGIN (default 0.02 = 2pp annualised-equivalent
+                 spread). Deliberately material: a revert is itself a config
+                 change with its own turnover cost, so it must clear noise,
+                 not merely register it.
+fail-closed      No shadow data, unparseable file, or validator unreachable →
+                 NO revert. Absence of evidence never triggers a config change.
+inert by default REVERT_ENABLED gates the whole path; with no promotion having
+                 happened there is no displaced file and nothing runs.
+```
+
+### What this does NOT claim
+
+The shadow inherits the champion's persisted factor scores, so a displaced
+config differing in `factor_engine` cannot be shadowed — the same coherence
+guard the challenger path already applies, for the same reason. Such a
+promotion is simply not revertible-by-measurement, and the log says so rather
+than silently comparing incoherent inputs.
+
+It also does not make the promotion gate safe to loosen on its own evidence:
+this measures the LAST promotion, not the policy. Enough reverts (or their
+absence) accumulating in `config_changes` is what will eventually justify
+moving `BT_PROMOTE_MARGIN` — and that decision stays manual.

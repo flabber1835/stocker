@@ -56,7 +56,8 @@ def _queue_candidate(artifacts, max_positions=17):
     cand = yaml.safe_load(open(STRAT))
     cand["portfolio_builder"]["max_positions"] = max_positions
     out = asyncio.run(tools.queue_strategy_experiment(
-        {"config": cand, "hypothesis": "fewer names concentrate the edge"},
+        {"config": cand, "hypothesis": "fewer names concentrate the edge",
+         "mechanism": "concentration_control"},
         budget=tools.BacktestBudget()))
     assert "queued full-config candidate" in out, out
     return out
@@ -180,6 +181,7 @@ def test_a_queued_regime_candidate_carries_its_regime_to_the_lane(artifacts):
     cand["portfolio_builder"]["max_positions"] = 21
     out = asyncio.run(tools.queue_strategy_experiment(
         {"config": cand, "hypothesis": "does concentration survive a crisis?",
+         "mechanism": "concentration_control",
          "regime": "gfc_2008"}, budget=tools.BacktestBudget()))
     assert "gfc_2008" in out and "never promote" in out, out
 
