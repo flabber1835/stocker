@@ -136,8 +136,19 @@ def test_dry_run_does_not_reach_the_delete_path(src):
     assert dry_exit < purge
 
 
-def test_it_explains_the_fail_closed_422_that_follows(src):
-    """After purging, sweeps are refused by the coverage contract. Without this
-    note the next operator reads 422 as a broken deploy and disables the gate."""
-    assert "422" in src
-    assert "earnings_surprise" in src
+def test_the_epilogue_asserts_no_world_state(src):
+    """It used to say "re-backfill SF1" and "sweeps will be refused with 422
+    until SUE parity lands" — both true when written, both false within a day.
+    A script that confidently restates a stale world is worse than one that says
+    nothing, because it is read as current. Point at the checker instead."""
+    # Only what the script PRINTS. The tail also contains a comment quoting the
+    # removed text to explain why it went — matching that is the same
+    # comment-vs-code trap the deploy-all tests hit.
+    tail = "\n".join(ln for ln in src[src.index('echo "Done."'):].splitlines()
+                      if ln.lstrip().startswith("echo"))
+    for stale in ("422", "earnings_surprise", "re-backfill", "cannot compute"):
+        assert stale not in tail, (
+            f"the epilogue asserts {stale!r} — a state that can go out of date. "
+            f"Reference scripts/deploy-all.sh --verify instead.")
+    assert "deploy-all.sh --verify" in tail, (
+        "the epilogue must point at something that reads the LIVE system")

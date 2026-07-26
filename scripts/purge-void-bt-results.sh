@@ -116,10 +116,21 @@ done
 echo "  kept artifacts/bt/experiments.json (lane scheduling state, not results)"
 
 echo
-echo "Done. Next steps:"
-echo "  1. Re-backfill SF1 so market_cap / shares_outstanding / bt_earnings"
-echo "     populate (prices are untouched and need no refetch):"
-echo "       curl -X POST 'http://localhost:8030/jobs/backfill?date_from=2005-01-01&date_to=\$(date +%F)'"
-echo "  2. The active config weights earnings_surprise, which the tunnel still"
-echo "     cannot compute, so sweeps will be refused with HTTP 422 until SUE"
-echo "     definitional parity lands. That is the intended fail-closed state."
+echo "Done."
+echo
+# DELIBERATELY no assertions about corpus or gate state here. This epilogue used
+# to say "re-backfill SF1" and "sweeps will be refused with 422 until SUE parity
+# lands" — both true when written, both false within a day, and a script that
+# confidently restates a stale world is worse than one that says nothing. Point
+# at the checker instead; it reads the live system.
+echo "  What is actually deployed, whether the gates enforce, and whether the"
+echo "  active config is scorable:"
+echo "      scripts/deploy-all.sh --verify"
+echo
+echo "  Corpus completeness (all three should be non-zero):"
+echo "      docker compose -p stocker-bt -f docker-compose.backtest.yml exec -T bt-postgres \\"
+echo "        psql -U btuser -d backtest -tAqc \"SELECT count(*) FROM bt_earnings\""
+echo
+echo "  The experiment lane fires its own baseline on the daily schedule — there"
+echo "  is no manual trigger, and a hand-fired sweep would NOT be recorded as the"
+echo "  promotion yardstick."
