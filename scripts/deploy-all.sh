@@ -112,8 +112,14 @@ probe_stack() {   # probe_stack <label> [compose args...]
         # probed once and reported api/scheduler/evaluator as NOT RESPONDING
         # seconds after they were created, which is a false alarm that trains
         # you to ignore the check.
+        # 90s, not 30. A container recreated SECONDS before this runs is still
+        # doing startup work — bt-engine's lifespan runs DDL and an orphan-run
+        # reclaim against bt-postgres before it serves anything. 30s flagged a
+        # 4-second-old bt-engine as down, which is the same false alarm the
+        # single-shot version produced, just rarer. A service genuinely broken
+        # will not come up in 90s either.
         ok=0
-        for attempt in 1 2 3 4 5 6 7 8 9 10; do
+        for attempt in $(seq 1 30); do
             if curl -sf --max-time 4 "http://${host_port/0.0.0.0/localhost}/health" \
                  >/dev/null 2>&1; then ok=1; break; fi
             sleep 3
@@ -121,7 +127,7 @@ probe_stack() {   # probe_stack <label> [compose args...]
         if [ "$ok" -eq 1 ]; then
             printf '  %-22s ok\n' "$svc"
         else
-            printf '  %-22s NOT RESPONDING after 30s (%s)\n' "$svc" "$host_port"
+            printf '  %-22s NOT RESPONDING after 90s (%s)\n' "$svc" "$host_port"
             rc=1
         fi
     done < <(docker compose "$@" ps --services --filter status=running 2>/dev/null)
