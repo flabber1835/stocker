@@ -136,6 +136,14 @@ delta_engine:
   confirmation_days: 3
   orphan_confirmation_days: 2
   max_positions: 35
+  # Drift-rebalance gates calibrated to a 35-name book (per-name target
+  # ~0.975/35 = 2.79%): the old 0.02 absolute default could only fire after a
+  # ~70% relative weight loss, so small drifts accumulated as permanent idle
+  # cash (~5pp observed). See docs/architecture.md "drift-rebalance thresholds
+  # calibrated to book granularity".
+  rebalance_drift_threshold: 0.005
+  rebalance_min_relative_drift: 0.15
+  rebalance_min_trade_value: 250
 max_positions: 35
 min_score_percentile: 0.0
 min_non_null_factors: 6

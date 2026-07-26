@@ -3023,3 +3023,56 @@ Implementation notes:
   - The coverage contract now reads `sue_method`: `earnings_surprise` is SUPPORTED
     under `seasonal_random_walk` and still REFUSED under `analyst`. The gate did
     not become weaker — it became method-aware.
+
+## Design Decision: drift-rebalance thresholds calibrated to book granularity (2026-07)
+
+### The observation
+
+The live account sat at ~8.9% cash for a week in a calm market with the book at
+its 35-name capacity, target exposure 0.975, and vol targeting NOT binding
+(book vol ~9% vs the 0.18 target). Order-flow forensics showed a healthy
+executor (every intent eventually submitted at the open and filled), so the gap
+was not a leak — it decomposed as: 2.5% designed `cash_reserve` + ~1.2pp
+in-flight rotation + **~5pp of aggregate drift the rebalancer is structurally
+blind to**.
+
+### Root cause
+
+`delta_engine.rebalance_drift_threshold` defaulted to 0.02 ABSOLUTE (2pp). With
+35 positions the per-name target weight is 0.975/35 ≈ 2.79%, so a buy_add fires
+only when a position drifts from 2.79% to below 0.79% — a ~70% relative loss of
+weight. The threshold was calibrated for chunky books (10% positions, where 2pp
+is a meaningful wobble) and is effectively unreachable at this granularity.
+Meanwhile winners lift total equity, mechanically shrinking every other
+position's weight by ~0.1–0.2pp each; no single name ever trips the gate, and
+the aggregate accumulates as permanent idle cash (~0.5%/yr of expected-return
+drag at a 10% hurdle).
+
+### The rule
+
+Drift thresholds must be reachable at the book's actual position granularity: a
+position that has lost a MATERIAL fraction (~20%) of its target weight must be
+able to trip the gate. The active config (momentum_rotation_v2) now sets:
+
+```yaml
+delta_engine:
+  rebalance_drift_threshold: 0.005    # 0.5pp absolute (was default 0.02)
+  rebalance_min_relative_drift: 0.15  # AND >= 15% of target weight
+  rebalance_min_trade_value: 250      # AND >= $250 of correction
+```
+
+The three gates compose: the absolute floor stops noise-trading on tiny drifts,
+the relative floor stops the 0.5pp absolute from churning LARGE positions
+(a 8% position needs 1.2pp, not 0.5pp), and the dollar floor stops economically
+meaningless orders regardless of weights. For the current book the absolute
+gate binds (0.5pp > 15% x 2.79pp = 0.42pp); the relative gate takes over as
+position weights grow.
+
+Trade-off accepted: a few more small orders per week (spread cost, and
+sell_trims count against MAX_DAILY_TURNOVER_PCT). Both simulators are safe:
+bt-engine HONOURS all three fields (drift trims are modelled, so the lane can
+score this config), and config-replay's `delta_engine: IGNORED-but-inert`
+declaration never refuses it. A regression test pins the reachability
+arithmetic to the active config so a future max_positions or threshold change
+that re-creates the unreachable-gate state fails CI instead of silently
+re-accumulating cash.
