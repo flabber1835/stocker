@@ -3504,6 +3504,37 @@ The cost is deliberate: turning a gate off now makes results NON-PROMOTABLE
 rather than merely unverified. That is the point. A gate you can disable while
 its output still steers the live config is decorative.
 
+### Follow-up: provenance must include WHICH CONFIG, not just which gates
+
+The first cut stamped gate state and stopped. Days later a baseline re-ran and
+its period-A excess vs SPY moved from -17.4% to -14.9%. Two things had changed
+at once — the active config (drift-rebalance gates) and the window phase (every
+rebalance date shifted a day, because windows are derived from `today`) — and
+the database could not distinguish them, because the sweep spec recorded
+`base_strategy`: the strategy NAME, which is invariant under every config
+change. Attribution came down to the `mtime` of the YAML on the NAS, evidence a
+`git checkout` or a redeploy would have erased.
+
+```text
+config_identity(cfg)   {config_hash, strategy_id}, hashed from CONTENT (sorted
+                       JSON of the validated model) with the SAME algorithm the
+                       evaluator uses for candidates — so a baseline hash and a
+                       candidate hash are directly comparable and "which config
+                       was this measured against?" is answered by equality.
+run_provenance(cfg)    carries it alongside the gate state into every summary.
+bt_sweeps.spec         records the identity, not just the name.
+/sweeps/run response   returns it, so bt-scheduler can stamp the lane entry at
+                       fire time (only when absent — a candidate keeps the hash
+                       it was authored with).
+```
+
+Note what remains true even with this fix: a re-baseline changes the config AND
+the window phase together, so a yardstick that moves is still not attributable
+to one cause. That is inherent — windows are derived from `today` and pinned per
+baseline. The practical consequence is that "the baseline improved" is never an
+interpretable statement; only candidate-vs-baseline on the SAME pinned windows
+is. Worth remembering before reading a re-baselined number as progress.
+
 
 ### The third mode: a cancelled subscription must not brick a paid-for corpus
 

@@ -237,7 +237,7 @@ def run_config_both_windows(prices, fundamentals, sector_map, base_config: dict,
         # parity/coverage gate disabled is byte-identical to an enforced one,
         # and the promotion gate cannot tell them apart.
         from app.parity import run_provenance
-        summary["provenance"] = run_provenance()
+        summary["provenance"] = run_provenance(cfg)
         return summary
 
     try:

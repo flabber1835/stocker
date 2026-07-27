@@ -351,10 +351,11 @@ async def _run_bg(run_id: str, req: BtRunRequest, cfg: StrategyConfig) -> None:
             None, listing_windows, earnings)
 
         from app.parity import run_provenance
-        # Which gates were enforcing when this number was produced. Without it a
-        # run made with parity/coverage disabled is byte-identical to a checked
-        # one, and nothing downstream can refuse it.
-        summary = _json_sanitize({**result.summary, "provenance": run_provenance()})
+        # Which gates were enforcing AND which config produced this number.
+        # Without either, a run is byte-identical to one made under different
+        # conditions and nothing downstream can tell them apart.
+        summary = _json_sanitize({**result.summary,
+                                  "provenance": run_provenance(cfg)})
         async with engine.begin() as conn:
             for chunk_start in range(0, len(result.equity), 500):
                 await conn.execute(text(
@@ -531,6 +532,8 @@ async def start_sweep(req: SweepRequest, background_tasks: BackgroundTasks):
     # The BASE is fatal: every diff is scored relative to it, so a base the
     # tunnel cannot compute makes the entire sweep meaningless.
     _enforce_coverage(base_cfg, what="base config")
+    from app.parity import config_identity
+    _base_identity = config_identity(base_cfg)
     diffs = enumerate_grid(req.grid, max_configs=req.max_configs,
                            sample_seed=req.sample_seed)
     diffs, extra_dropped = merge_extra_configs(
@@ -558,12 +561,17 @@ async def start_sweep(req: SweepRequest, background_tasks: BackgroundTasks):
             ), {"sid": sweep_id,
                 "spec": json.dumps(_json_sanitize({
                     "grid": req.grid, "base_strategy": base_cfg.strategy_id,
+                    # WHICH config, not just its name. Recording only the
+                    # strategy_id made "did the yardstick move because the
+                    # config changed?" unanswerable from the database.
+                    **_base_identity,
                     "request": req.model_dump(mode="json")}), default=str),
                 "n": len(diffs), "ts": req.tune_start, "te": req.tune_end,
                 "vs": req.validate_start, "ve": req.validate_end})
     background_tasks.add_task(_sweep_bg, sweep_id, req, base_cfg, diffs,
                               windows_list, holdout)
     return {"status": "started", "sweep_id": sweep_id, "n_configs": len(diffs),
+            **_base_identity,
             "n_windows": len(windows_list),
             "holdout": [str(holdout[0]), str(holdout[1])] if holdout else None,
             "n_extra": len(req.extra_configs or []) - len(extra_dropped),

@@ -331,6 +331,11 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
                                     f"({base_why})"),
                      "diff_vs_active": {}, "proposal_id": None,
                      "windows": windows, "applied_promotion": applied_promo}
+            # config_hash is filled from the engine's response below. The
+            # yardstick used to record only the strategy NAME, so when a
+            # re-baselined excess-vs-SPY moved 2.5pp, separating a config change
+            # from a window phase-shift needed a filesystem mtime — evidence a
+            # redeploy would have erased.
         else:
             pend_full = _pending_full_experiments()
             if pend_full:
@@ -369,9 +374,16 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
         try:
             r = await client.post(f"{BT_ENGINE_URL}/sweeps/run", json=payload)
             if r.status_code == 200:
-                entry.update({"sweep_id": r.json().get("sweep_id"),
+                body = r.json()
+                entry.update({"sweep_id": body.get("sweep_id"),
                               "status": "running",
                               "fired_at": now.isoformat(timespec="seconds")})
+                # WHICH config the engine actually loaded — for a baseline this
+                # is the only record of what the yardstick measured. Only set
+                # when absent so a candidate keeps its own authored hash.
+                for k in ("config_hash", "strategy_id"):
+                    if body.get(k) and not entry.get(k):
+                        entry[k] = body[k]
                 exps.append(entry)
                 changed = True
                 _mark_full_proposal(entry.get("proposal_id"), "testing")

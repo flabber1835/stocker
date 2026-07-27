@@ -197,16 +197,45 @@ def unclassified_fields() -> list[str]:
     return MANIFEST.unclassified()
 
 
-def run_provenance() -> dict:
+def config_identity(cfg) -> dict:
+    """{config_hash, strategy_id} for a StrategyConfig. Pure.
+
+    Hashed from CONTENT (sorted JSON of the validated model), not from the file
+    bytes, and with the SAME algorithm the evaluator uses when it queues a
+    candidate — so a baseline hash and a candidate hash are directly comparable
+    and "which config was this measured against?" is answerable by equality."""
+    import hashlib
+    import json as _json
+    try:
+        d = cfg.model_dump(mode="json")
+    except Exception:  # noqa: BLE001 — identity must never break a run
+        return {"config_hash": None, "strategy_id": None}
+    return {
+        "config_hash": hashlib.sha256(
+            _json.dumps(d, sort_keys=True, default=str).encode()).hexdigest()[:16],
+        "strategy_id": d.get("strategy_id"),
+    }
+
+
+def run_provenance(cfg=None) -> dict:
     """The conditions under which a result was produced, stamped into every
     summary.
 
     A run made with a gate DISABLED used to be byte-indistinguishable from one
     made with it enforcing, so the promotion gate — deterministic code that
     rewrites the live strategy — could accept a candidate scored under no parity
-    check at all. Read per call, like the gates themselves."""
+    check at all. Read per call, like the gates themselves.
+
+    `cfg` adds WHICH config produced the number. The yardstick used to record
+    only the strategy NAME, so when a baseline re-ran and its excess-vs-SPY
+    moved 2.5pp, telling a config change apart from a window phase-shift needed
+    a filesystem mtime — evidence a redeploy would have destroyed. The identity
+    of a measurement's input is not optional metadata."""
     from app.coverage import enforcement_enabled as coverage_enforcing
-    return {
+    out = {
         "parity_enforced": enforcement_enabled(),
         "coverage_enforced": coverage_enforcing(),
     }
+    if cfg is not None:
+        out.update(config_identity(cfg))
+    return out
