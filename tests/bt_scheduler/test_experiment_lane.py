@@ -155,7 +155,7 @@ def test_baseline_invalid_once_a_promotion_was_applied():
     yardstick, and can promote a config WORSE than what is running."""
     from app.logic import baseline_is_valid
     fresh = {"status": "success", "applied_promotion": "hash1",
-             "windows": _lane_windows()}
+             "windows": _lane_windows(), "result": BASELINE_RESULT}
     ok, _ = baseline_is_valid(fresh, "hash1")
     assert ok is True
     ok, why = baseline_is_valid(fresh, "hash2")       # champion changed
@@ -192,8 +192,10 @@ def test_a_real_lane_baseline_entry_is_accepted():
     entry = {"id": "b1", "kind": "baseline", "hypothesis": "BASELINE: active config",
              "diff_vs_active": {}, "proposal_id": None, "windows": windows,
              "applied_promotion": None, "status": "success",
-             "result": {"period_a": {"annualized_return": 0.1},
-                        "period_b": {"annualized_return": 0.1}}}
+             "result": {"period_a": {"annualized_return": 0.1,
+                                     "provenance": ENFORCED},
+                        "period_b": {"annualized_return": 0.1,
+                                     "provenance": ENFORCED}}}
     ok, why = baseline_is_valid(entry, None)
     assert ok is True, f"the lane's own baseline entry was rejected: {why}"
     # …and a candidate slot therefore opens instead of another baseline re-run
@@ -221,6 +223,11 @@ def test_promotion_gate_is_window_pinned():
 # ── validation split: the lane's two-window gate (review fix a) ───────────────
 
 ENFORCED = {"parity_enforced": True, "coverage_enforced": True}
+# A baseline needs a RESULT carrying gate provenance to be a usable yardstick —
+# the promotion gate refuses any comparison whose baseline cannot show its gates
+# were enforcing, so baseline_is_valid checks the same thing.
+BASELINE_RESULT = {"period_a": {"annualized_return": 0.1, "provenance": ENFORCED},
+                   "period_b": {"annualized_return": 0.1, "provenance": ENFORCED}}
 
 
 def _w(cagr, dd=-0.25):
@@ -278,7 +285,7 @@ def test_candidate_is_scored_on_the_baselines_window_not_todays():
     assert mon != tue, "premise: the derived window shifts every day"
 
     baseline = {"kind": "baseline", "status": "success", "windows": mon,
-                "applied_promotion": None}
+                "applied_promotion": None, "result": BASELINE_RESULT}
     # the lane's fire-time decision, verbatim
     assert baseline_is_valid(baseline, None, today=date(2026, 7, 21))[0] is True
     windows = tue
@@ -297,7 +304,7 @@ def test_pinned_baseline_is_retired_once_its_window_ages():
     from app.logic import baseline_is_valid, experiment_windows
     w = experiment_windows(date(2026, 1, 10), 3, 12, date(2004, 1, 1))
     baseline = {"kind": "baseline", "status": "success", "windows": w,
-                "applied_promotion": None}
+                "applied_promotion": None, "result": BASELINE_RESULT}
     ok, _ = baseline_is_valid(baseline, None, today=date(2026, 2, 1), max_age_days=30)
     assert ok is True, "a three-week-old yardstick is still usable"
     ok, why = baseline_is_valid(baseline, None, today=date(2026, 3, 1), max_age_days=30)
@@ -631,3 +638,37 @@ def test_provenance_helper_is_pure_and_defaults_closed():
     assert provenance_is_trustworthy({"provenance": ENFORCED})[0] is True
     # A non-dict provenance (corrupt row) must not be truthy-accepted.
     assert provenance_is_trustworthy({"provenance": "yes"})[0] is False
+
+
+def test_a_baseline_without_provenance_is_retired_so_the_lane_self_heals():
+    """THE deadlock this closes. The promotion gate refuses any comparison whose
+    BASELINE cannot show its gates were enforcing. If baseline_is_valid did not
+    check the same thing, the lane would consider its yardstick fine, never
+    re-run it, and refuse every candidate for a reason more candidates cannot
+    fix — a loop that looks busy and can never promote."""
+    from app.logic import baseline_is_valid
+    windows = {"period_a_start": "2023-01-01", "period_a_end": "2024-01-01",
+               "period_b_start": "2024-01-01", "period_b_end": "2025-01-01"}
+    stale = {"status": "success", "applied_promotion": None, "windows": windows,
+             "result": {"period_a": {"annualized_return": 0.1},
+                        "period_b": {"annualized_return": 0.1}}}
+    ok, why = baseline_is_valid(stale, None)
+    assert ok is False and "provenance" in why
+    assert "re-running the yardstick" in why, "must trigger a re-run, not just fail"
+
+    fresh = {**stale, "result": {
+        "period_a": {"annualized_return": 0.1, "provenance": ENFORCED},
+        "period_b": {"annualized_return": 0.1, "provenance": ENFORCED}}}
+    assert baseline_is_valid(fresh, None)[0] is True
+
+
+def test_a_baseline_scored_with_a_gate_off_is_also_retired():
+    from app.logic import baseline_is_valid
+    windows = {"period_a_start": "2023-01-01", "period_a_end": "2024-01-01",
+               "period_b_start": "2024-01-01", "period_b_end": "2025-01-01"}
+    off = {"parity_enforced": False, "coverage_enforced": True}
+    b = {"status": "success", "applied_promotion": None, "windows": windows,
+         "result": {"period_a": {"annualized_return": 0.1, "provenance": off},
+                    "period_b": {"annualized_return": 0.1, "provenance": off}}}
+    ok, why = baseline_is_valid(b, None)
+    assert ok is False and "parity_enforced" in why

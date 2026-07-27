@@ -246,6 +246,18 @@ def baseline_is_valid(baseline: dict | None, applied_promotion_hash: str | None,
     # land on a different window than the yardstick — the gate's own
     # window-equality precondition then refused every promotion). Pinning means
     # the window ages, so retire the yardstick once it does and re-measure.
+    # PROVENANCE. The gate refuses any comparison involving a result that cannot
+    # show its safety gates were enforcing — INCLUDING the baseline. Without this
+    # check here the lane would consider its yardstick valid, never re-run it, and
+    # every candidate would be refused for a reason more candidates cannot fix:
+    # a silent stall where the loop looks busy and can never promote. Retiring
+    # the baseline is what makes the system self-heal.
+    res = baseline.get("result") or {}
+    prov_ok, prov_why = provenance_is_trustworthy(res.get("period_a"),
+                                                  res.get("period_b"))
+    if not prov_ok:
+        return False, f"baseline {prov_why} — re-running the yardstick"
+
     if today is not None:
         try:
             ve = date.fromisoformat(str(windows["period_b_end"]))

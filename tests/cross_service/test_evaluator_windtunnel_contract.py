@@ -102,8 +102,15 @@ def test_a_queued_candidate_actually_gets_a_slot(artifacts):
     from app.logic import baseline_is_valid, experiment_windows
 
     windows = experiment_windows(date(2026, 7, 25), 3, 12, date(2004, 1, 1))
+    _enforced = {"parity_enforced": True, "coverage_enforced": True}
     baseline = {"kind": "baseline", "status": "success", "windows": windows,
-                "applied_promotion": None}
+                "applied_promotion": None,
+                # A usable yardstick must show its gates were enforcing — the
+                # promotion gate refuses comparisons against one that cannot.
+                "result": {"period_a": {"annualized_return": 0.1,
+                                        "provenance": _enforced},
+                           "period_b": {"annualized_return": 0.1,
+                                        "provenance": _enforced}}}
     base_ok, why = baseline_is_valid(baseline, None)
     assert base_ok, f"the lane would re-run the baseline forever: {why}"
     # …so the fire step falls through to the evaluator's pending candidate
