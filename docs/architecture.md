@@ -3491,10 +3491,10 @@ correct direction for a rule that rewrites the live config.
 ```text
 bt-engine   `run_provenance()` stamps parity_enforced / coverage_enforced into
             every summary, on BOTH the single-run and sweep paths.
-bt-data     BT_DATA_MODE is explicit ('sharadar' | 'mock'). Configured for
-            sharadar with no key is a STARTUP FAILURE, not a silent downgrade.
-            The mode is stamped on every data run so a corpus built from mock
-            data is identifiable after the fact.
+bt-data     BT_DATA_MODE is explicit ('sharadar' | 'frozen' | 'mock').
+            Configured for sharadar with no key is a STARTUP FAILURE, not a
+            silent downgrade. The mode is stamped on every data run so a corpus
+            built from mock data is identifiable after the fact.
 gate        promotion_eligible_2w refuses on missing/false provenance, with the
             reason naming which gate was off — a refusal nobody can read is
             another silent failure.
@@ -3503,3 +3503,32 @@ gate        promotion_eligible_2w refuses on missing/false provenance, with the
 The cost is deliberate: turning a gate off now makes results NON-PROMOTABLE
 rather than merely unverified. That is the point. A gate you can disable while
 its output still steers the live config is decorative.
+
+
+### The third mode: a cancelled subscription must not brick a paid-for corpus
+
+The first cut of this had two modes and was wrong. "Can FETCH new data" and
+"can RUN backtests" are different capabilities, and collapsing them meant that
+cancelling the Sharadar subscription — a perfectly reasonable decision once ~20
+years of history is downloaded — would stop bt-data from starting at all, and
+with it the topup checks and coverage gate the lane polls.
+
+```text
+sharadar   fetch from Nasdaq Data Link; requires SHARADAR_API_KEY
+frozen     NO fetching; the corpus already in bt-postgres is REAL and
+           research-grade. Backtests, sweeps and promotion are unaffected —
+           only NEW data stops. Needs no key.
+mock       synthetic, explicitly requested, NOT research-grade
+```
+
+`corpus_is_real()` is true for BOTH sharadar and frozen, and is the predicate a
+research result should carry — a lapsed subscription does not retroactively
+make history synthetic. Only `is_mock()` marks data that cannot support a
+conclusion.
+
+Two supporting details, each preventing a nuisance that trains an operator to
+ignore signals: bt-scheduler SKIPS the daily topup when bt-data reports
+`frozen` (rather than POSTing it forever and logging a refusal), and the
+sharadar-without-a-key error names `frozen` as the answer — the operator meets
+that error exactly when the key stops working, which is precisely when they
+need to know the option exists.

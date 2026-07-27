@@ -87,3 +87,64 @@ def test_the_mode_is_reported_on_every_job_response(monkeypatch):
     body = (Path(__file__).resolve().parents[2] / "services" / "bt-data"
             / "app" / "main.py").read_text()
     assert body.count('"data_mode": data_mode()') >= 3
+
+
+# ── frozen: cancelling the subscription must not brick a paid-for corpus ─────
+
+class TestFrozenCorpus:
+    """"Can fetch new data" and "can run backtests" are different capabilities.
+    Conflating them would mean cancelling the Sharadar subscription bricked 20
+    years of history already downloaded and sitting in bt-postgres."""
+
+    def test_frozen_needs_no_key_and_starts_cleanly(self, monkeypatch):
+        c = _client(monkeypatch, BT_DATA_MODE="frozen")
+        assert c.verify_data_mode() == "frozen"
+
+    def test_frozen_data_is_REAL_not_mock(self, monkeypatch):
+        """A cancelled subscription does not make the corpus synthetic. This is
+        the predicate a research result should carry — not is_mock()'s inverse
+        by accident."""
+        c = _client(monkeypatch, BT_DATA_MODE="frozen")
+        assert c.is_mock() is False
+        assert c.corpus_is_real() is True
+
+    def test_only_mock_is_not_real(self, monkeypatch):
+        assert _client(monkeypatch, BT_DATA_MODE="mock").corpus_is_real() is False
+        assert _client(monkeypatch, BT_DATA_MODE="sharadar",
+                       SHARADAR_API_KEY="k").corpus_is_real() is True
+
+    def test_frozen_refuses_to_fetch_and_says_the_corpus_is_fine(self, monkeypatch):
+        """The refusal has to distinguish 'no new data' from 'broken', or the
+        operator reads a fetch error as a dead backtest stack."""
+        import asyncio
+        c = _client(monkeypatch, BT_DATA_MODE="frozen")
+        assert c.fetching_enabled() is False
+
+        async def _go():
+            async for _ in c.fetch_table("SEP"):
+                pass
+        with pytest.raises(c.DataModeError) as exc:
+            asyncio.run(_go())
+        msg = str(exc.value)
+        assert "unaffected" in msg and "frozen" in msg
+
+    def test_the_sharadar_error_points_at_frozen_as_the_cancellation_answer(
+            self, monkeypatch):
+        """Discoverability: the operator hits this error precisely when the key
+        stops working, which is exactly when they need to know frozen exists."""
+        c = _client(monkeypatch, BT_DATA_MODE="sharadar")
+        with pytest.raises(c.DataModeError) as exc:
+            c.verify_data_mode()
+        assert "frozen" in str(exc.value)
+        assert "cancelling" in str(exc.value).lower()
+
+
+def test_the_scheduler_skips_topup_on_a_frozen_corpus():
+    """Otherwise it POSTs a topup every day forever and logs a refusal — noise
+    that trains the operator to ignore the log."""
+    from pathlib import Path
+    body = (Path(__file__).resolve().parents[2] / "services" / "bt-scheduler"
+            / "app" / "main.py").read_text()
+    assert 'data_mode") == "frozen"' in body
+    i = body.index("if (not frozen and not running")
+    assert i > 0, "the topup fire is not gated on frozen"

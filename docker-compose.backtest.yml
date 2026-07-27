@@ -10,7 +10,13 @@
 # Provision before first run:
 #   - SHARADAR_API_KEY  (Nasdaq Data Link "Sharadar Equity Bundle")
 #   - enough disk for bt-postgres (SF1 + SEP backfill is multi-GB)
-# BT_DATA_MODE is EXPLICIT (sharadar|mock, default sharadar). Configured for
+# BT_DATA_MODE is EXPLICIT (sharadar|frozen|mock, default sharadar):
+#   sharadar  fetch new data; requires SHARADAR_API_KEY
+#   frozen    NO fetching, corpus already in bt-postgres stays REAL and fully
+#             usable — the correct setting after CANCELLING the subscription.
+#             Backtests and sweeps are unaffected; only new data stops.
+#   mock      synthetic data, explicitly requested; NOT research-grade
+# Configured for
 # sharadar with no key now FAILS AT STARTUP rather than silently serving a tiny
 # synthetic corpus — a missing secret must not quietly replace the historical
 # data that auto-promotion is scored against. Set BT_DATA_MODE=mock to ask for
@@ -55,7 +61,7 @@ services:
       BT_DATABASE_URL: postgresql+asyncpg://btuser:${BT_POSTGRES_PASSWORD:-btpass}@bt-postgres:5432/backtest
       SHARADAR_API_KEY: ${SHARADAR_API_KEY:-}
       BT_MOCK_DATA: ${BT_MOCK_DATA:-}
-      BT_DATA_MODE: ${BT_DATA_MODE:-sharadar}
+      BT_DATA_MODE: ${BT_DATA_MODE:-sharadar}   # set 'frozen' if the subscription lapses
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
       interval: 30s

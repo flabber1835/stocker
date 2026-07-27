@@ -570,6 +570,17 @@ async def _tick() -> None:
     async with httpx.AsyncClient(timeout=30.0) as client:
         # ── daily topup ───────────────────────────────────────────────────────
         try:
+            # FROZEN corpus (subscription cancelled): the data on disk stays fully
+            # usable and sweeps are unaffected — only acquiring NEW data stops.
+            # Skip the topup rather than POST it daily and log a refusal forever.
+            health = {}
+            try:
+                health = (await client.get(f"{BT_DATA_URL}/health")).json()
+            except Exception:  # noqa: BLE001 — mode unknown → behave as before
+                pass
+            frozen = health.get("data_mode") == "frozen"
+            if frozen:
+                snapshot["data_mode"] = "frozen"
             runs = (await client.get(f"{BT_DATA_URL}/runs/latest")).json().get("runs", [])
             snapshot["data_runs"] = runs[:3]
             running = any(r.get("status") == "running" for r in runs)
@@ -584,7 +595,8 @@ async def _tick() -> None:
             # idempotent, so the once-per-restart re-fire is harmless.
             fired_today = (_status["last_topup"] is not None and
                            datetime.fromisoformat(_status["last_topup"]).date() == now.date())
-            if not running and not fired_today and topup_due(now, last_date, hour=TOPUP_HOUR):
+            if (not frozen and not running and not fired_today
+                    and topup_due(now, last_date, hour=TOPUP_HOUR)):
                 r = await client.post(f"{BT_DATA_URL}/jobs/topup")
                 _status["last_topup"] = now.isoformat(timespec="seconds")
                 _note(f"topup fired → {r.status_code} {r.text[:120]}")

@@ -8,9 +8,19 @@ Tables: SEP (prices), SF1 (fundamentals), TICKERS (metadata).
 Responses are cursor-paginated: datatable.data (rows), datatable.columns (schema),
 meta.next_cursor_id (None when done). We yield dict rows (column-name → value).
 
-DATA MODE is EXPLICIT (BT_DATA_MODE=sharadar|mock, default sharadar). Mock
-yields a tiny synthetic dataset so the service + backfill + tests run with no
-network/key.
+DATA MODE is EXPLICIT (BT_DATA_MODE=sharadar|frozen|mock, default sharadar):
+
+  sharadar  fetch from Nasdaq Data Link. Requires SHARADAR_API_KEY.
+  frozen    NO fetching, but the corpus already in bt-postgres is REAL and
+            research-grade. This is the state after a subscription is cancelled:
+            20 years of downloaded history keeps working, backtests keep
+            running, only new data stops. Needs no key and is NOT mock.
+  mock      tiny synthetic dataset so the service + backfill + tests run with
+            no network/key. Results are NOT research-grade.
+
+`frozen` exists because "can fetch new data" and "can run backtests" are
+different capabilities, and conflating them would mean cancelling the
+subscription bricked a corpus that is already paid for and on disk.
 
 A MISSING KEY IS NOT A REQUEST FOR MOCK DATA. This used to be
 `BT_MOCK_DATA or not SHARADAR_API_KEY`, so a secret that failed to load silently
@@ -33,6 +43,7 @@ SHARADAR_API_KEY = os.getenv("SHARADAR_API_KEY", "")
 BT_MOCK_DATA = os.getenv("BT_MOCK_DATA", "").lower() in ("1", "true", "yes")
 BT_DATA_MODE = (os.getenv("BT_DATA_MODE", "") or
                 ("mock" if BT_MOCK_DATA else "sharadar")).strip().lower()
+VALID_DATA_MODES = ("sharadar", "frozen", "mock")
 
 # A full-universe backfill follows thousands of cursor pages over several hours.
 # WITHOUT retry, a single transient blip (network reset, Sharadar 429/5xx, read
@@ -109,11 +120,28 @@ class DataModeError(RuntimeError):
 
 
 def data_mode() -> str:
-    """'sharadar' | 'mock' — EXPLICIT, never inferred from a missing secret."""
-    if BT_DATA_MODE not in ("sharadar", "mock"):
+    """'sharadar' | 'frozen' | 'mock' — EXPLICIT, never inferred from a missing
+    secret."""
+    if BT_DATA_MODE not in VALID_DATA_MODES:
         raise DataModeError(
-            f"BT_DATA_MODE={BT_DATA_MODE!r} is not 'sharadar' or 'mock'")
+            f"BT_DATA_MODE={BT_DATA_MODE!r} is not one of "
+            f"{', '.join(VALID_DATA_MODES)}")
     return BT_DATA_MODE
+
+
+def corpus_is_real() -> bool:
+    """Is the data backing this service genuine market history?
+
+    True for BOTH sharadar and frozen — a cancelled subscription does not make
+    the 20 years already on disk synthetic. Only `mock` is not real. This is the
+    predicate that belongs on a research result, not `is_mock()`'s inverse by
+    accident."""
+    return data_mode() in ("sharadar", "frozen")
+
+
+def fetching_enabled() -> bool:
+    """Can this service acquire NEW data? False when frozen."""
+    return data_mode() != "frozen"
 
 
 def verify_data_mode() -> str:
@@ -127,8 +155,10 @@ def verify_data_mode() -> str:
         raise DataModeError(
             "BT_DATA_MODE=sharadar but SHARADAR_API_KEY is empty. Refusing to "
             "fall back to synthetic data — a missing secret must not silently "
-            "replace the historical corpus. Set the key, or set "
-            "BT_DATA_MODE=mock to ask for mock data deliberately.")
+            "replace the historical corpus. Set the key; set BT_DATA_MODE=frozen "
+            "to keep using the corpus already downloaded WITHOUT fetching (the "
+            "right setting after cancelling the subscription); or set "
+            "BT_DATA_MODE=mock to ask for synthetic data deliberately.")
     return mode
 
 
@@ -150,6 +180,11 @@ async def fetch_table(
 
     page_limit caps the number of pages fetched (None = all) — useful for tests.
     """
+    if not fetching_enabled():
+        raise DataModeError(
+            "BT_DATA_MODE=frozen: refusing to fetch. The corpus already in "
+            "bt-postgres stays fully usable — backtests and sweeps are "
+            "unaffected; only acquiring NEW data is disabled.")
     if is_mock():
         async for row in _mock_rows(table, params or {}):
             yield row
