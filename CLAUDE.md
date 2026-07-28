@@ -1550,6 +1550,27 @@ boundary. Tier-1 companion guard: av-ingestor reclaims a `running` `ingest_runs`
 row older than `STALE_INGEST_HOURS` (default 6h) so an orphaned forever-`running`
 fetch can't 409-wedge future runs.
 
+**Manual run-now does NOT re-fetch data that is already ingested.** `/jobs/run-now`
+puts every step in `_force_pending` (so any FAILED step gets one self-heal retry),
+but `_NO_RERUN_WHEN_DONE = {"fetch-data"}` suppresses the *forced re-run of work
+already finished for the target session*. Rationale: once the session's bars are in
+the DB a re-ingest produces identical data at a cost of HOURS, whereas the strategy
+segment (pipeline → vet → build → delta) is cheap and config-sensitive — re-running
+it is the whole point of a manual run. `POST /jobs/run-now?refetch=true` opts back
+into a genuine re-ingest (suspected bad/partial fetch). The refetch flag is NOT
+persisted, so a restart mid-manual-run resumes with the safe default.
+
+This closed a chain that could not advance (2026-07-27/28) in which two bugs
+compounded: run-now restarted the fetch, and the fetch watchdog killed it before it
+could finish. `fetch-data.max_running_minutes` is now
+`FETCH_MAX_RUNNING_MINUTES` (default **480**, was a hardcoded 240). Fetch duration
+is **bimodal**: a normal incremental evening is well under an hour, but on a
+universe-refresh day the fresh LISTING_STATUS snapshot nulls every sector and the
+per-ticker OVERVIEW backfill re-fetches thousands of fundamentals — measured 4h30m
+(5900/5918 tickers, `partial_success`). The 240m limit was calibrated on normal days,
+fired at the 4h mark, and coerced a fetch that succeeded 30 minutes later to
+`failed`. A watchdog shorter than the slowest legitimate run IS the outage.
+
 The pipeline service maintains a Redis consumer on `stocker:pipeline_events`
 to drain the Pending Entries List on restart (recovering events that a crashed
 instance claimed but never ACK'd). Events are ACK'd on receipt but do **not**

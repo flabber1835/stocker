@@ -147,6 +147,12 @@ _chain_status: dict = {
 # drained as each step is re-triggered. Cron-driven ticks ignore it.
 _force_pending: set[str] = set()
 
+# Steps whose FORCED re-run is suppressed while they already read 'done' for the
+# target session. A step listed here is still force-retried when it reads 'failed'
+# (the self-heal path) — only the redundant "redo work that is already finished"
+# case is suppressed. Populated by /jobs/run-now; see _NO_RERUN_WHEN_DONE.
+_no_rerun_when_done: set[str] = set()
+
 # ── chain-level config pinning (audit finding #5) ────────────────────────────
 # Services reload the strategy YAML per run (the seam fix for divergent cached
 # configs), which leaves ONE race: a one-click apply landing MID-CHAIN makes
@@ -161,6 +167,19 @@ _force_pending: set[str] = set()
 # (no strategies mount / cold image) — services then skip the check.
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
 _STRATEGY_STEPS = ("pipeline", "vet", "portfolio-builder", "delta")
+
+# Steps a manual run-now must NOT re-execute when they already read 'done' for the
+# target session. Once the session's bars are ingested there is nothing new to
+# fetch, and re-ingesting the whole universe costs HOURS — 4h30m measured on a
+# universe-refresh evening. Forcing it turned every "Run" click into a fresh
+# multi-hour fetch instead of advancing to the pipeline, and paired with the fetch
+# watchdog that produced an inescapable loop: click Run → restart fetch → watchdog
+# coerces it to failed → the ranking never advances (observed 2026-07-27/28: the
+# ranking stayed stuck three sessions behind while the data was already in the DB).
+# The strategy segment IS still re-run — it is cheap and config-sensitive, which is
+# the whole point of a manual run. A genuine re-ingest is opt-in:
+# POST /jobs/run-now?refetch=true.
+_NO_RERUN_WHEN_DONE = frozenset({"fetch-data"})
 
 
 def _active_config_hash() -> str | None:
@@ -279,10 +298,20 @@ _STEPS: list[_StepDef] = [
              # G2 watchdog: a HUNG (not crashed) fetch reports 'running' forever and the
              # ingestor's STALE_INGEST_HOURS reclaim only fires on the NEXT POST (which
              # the scheduler won't send while it sees 'running'). Without a timeout here
-             # a stall wedges the chain invisibly. 240m comfortably covers a legit cold
-             # full rebuild (~3h) while letting a true hang self-heal (coerced failed →
-             # re-triggered). vet=90 / delta=30 set the same guard.
-             max_running_minutes=240,
+             # a stall wedges the chain invisibly. A true hang still self-heals (coerced
+             # failed → re-triggered). vet=90 / delta=30 set the same guard.
+             #
+             # The limit MUST exceed the slowest LEGITIMATE fetch, or the watchdog
+             # becomes the outage. Fetch duration is BIMODAL: a normal incremental
+             # evening runs well under an hour, but on a UNIVERSE-REFRESH day the fresh
+             # LISTING_STATUS snapshot inserts sector=NULL for every ticker and the
+             # per-ticker OVERVIEW backfill re-fetches thousands of fundamentals. The
+             # measured worst case (2026-07-27, ~4,900 fundamentals, 5900/5918 tickers)
+             # was 4h30m — the old 240m limit was calibrated on normal days, fired at
+             # the 4h mark, and coerced a fetch that succeeded 30 minutes later to
+             # 'failed'. Default 480m leaves ~1.5x headroom over the measured worst
+             # case; FETCH_MAX_RUNNING_MINUTES overrides it without a code change.
+             max_running_minutes=int(os.getenv("FETCH_MAX_RUNNING_MINUTES", "480")),
              date_anchor=DateAnchor.SESSION),
     # run_date = score_date = MAX SPY date (the data session the pipeline scored).
     # Anchored on SESSION (the latest closed session), NOT wall-clock chain_date.
@@ -1053,6 +1082,10 @@ async def _trigger_step(client: httpx.AsyncClient, step: _StepDef, force: bool =
                 )
                 _chain_status["config_hash"] = new_hash
                 _force_pending.update(_STRATEGY_STEPS)
+                # These MUST redo work they already did under the old config, so
+                # clear any suppression on them. (fetch-data is untouched — raw
+                # market data does not depend on the strategy config.)
+                _no_rerun_when_done.difference_update(_STRATEGY_STEPS)
                 return False
             _log(f"supervisor: {step.name}: already running (409) — will check next tick")
             return True
@@ -1406,19 +1439,28 @@ async def _supervisor_tick() -> None:
                 # network error leaves the step pending for the next tick rather than
                 # silently advertising 'running' while no new run has actually started.
                 if state == "done" and step.name in _force_pending:
-                    ok = await _trigger_step(client, step, force=True)
-                    if ok:
+                    if step.name in _no_rerun_when_done:
+                        # Already finished for this session and not eligible for a
+                        # forced redo (fetch-data — see _RERUN_WHEN_DONE). Drain the
+                        # flag and fall through to the normal 'done' handling so the
+                        # chain ADVANCES rather than re-doing hours of work.
                         _force_pending.discard(step.name)
-                        _chain_status["status"] = "running"
-                        _chain_status["steps"][step.name] = "running"
+                        _log(f"supervisor: {step.name} already done for this session — "
+                             f"skipping forced re-run (use ?refetch=true to force)")
                     else:
-                        # Keep the step pending and the chain status unchanged so the
-                        # dashboard does not show a fake 'running' state. Next tick retries.
-                        _log(f"supervisor: {step.name} force-trigger failed — will retry next tick")
-                    await _db_update_run(run_id, "running" if ok else (_chain_status.get("status") or "running"),
-                                          _chain_status["steps"], _chain_status["run_ids"],
-                                          force_pending=_force_pending)
-                    return
+                        ok = await _trigger_step(client, step, force=True)
+                        if ok:
+                            _force_pending.discard(step.name)
+                            _chain_status["status"] = "running"
+                            _chain_status["steps"][step.name] = "running"
+                        else:
+                            # Keep the step pending and the chain status unchanged so the
+                            # dashboard does not show a fake 'running' state. Next tick retries.
+                            _log(f"supervisor: {step.name} force-trigger failed — will retry next tick")
+                        await _db_update_run(run_id, "running" if ok else (_chain_status.get("status") or "running"),
+                                              _chain_status["steps"], _chain_status["run_ids"],
+                                              force_pending=_force_pending)
+                        return
 
                 if state == "done":
                     if svc_run_id := await _get_latest_run_id(client, step.url, step.status_path):
@@ -1574,6 +1616,10 @@ async def _startup_catch_up() -> None:
         # force_pending, so origin correctly stays "scheduled".
         if restored_pending:
             _force_pending.update(restored_pending)
+            # Re-arm the suppression for the resumed manual run. The refetch opt-in
+            # is not persisted, so a restart resumes with the SAFE default: a fetch
+            # that already landed this session's bars is not re-ingested.
+            _no_rerun_when_done.update(_NO_RERUN_WHEN_DONE)
             _chain_status["origin"] = "manual"
             _log(
                 "startup: resumed in-flight MANUAL run from DB",
@@ -1857,11 +1903,16 @@ async def debug_log():
 
 
 @app.post("/jobs/run-now")
-async def run_now(background_tasks: BackgroundTasks):
-    """Manual chain re-run. Unlike the cron-driven tick path, this always forces
-    each step to re-execute even if today's chain has already completed —
-    otherwise the dashboard "Run" button silently no-ops the second time it's
-    pressed in a day.
+async def run_now(background_tasks: BackgroundTasks, refetch: bool = False):
+    """Manual chain re-run. Unlike the cron-driven tick path, this forces the
+    STRATEGY segment (pipeline → vet → build → delta) to re-execute even if
+    today's chain already completed — otherwise the dashboard "Run" button
+    silently no-ops the second time it's pressed in a day.
+
+    fetch-data is NOT force-re-run when it already has the target session's bars
+    (see _RERUN_WHEN_DONE): the data is the same and the re-ingest costs hours.
+    A failed or missing fetch is still triggered normally. Pass refetch=true to
+    force a genuine re-ingest (e.g. a suspected bad/partial ingest).
 
     Guarded by _run_now_lock (held across the full supervised loop, including
     the 3s sleep between ticks) so a second click while the first is still
@@ -1917,10 +1968,16 @@ async def run_now(background_tasks: BackgroundTasks):
             "config_hash": None,   # re-pin: a manual run must use the CURRENT config
         })
         _last_trigger_at.clear()  # new chain opens → drop stale cooldown stamps (SCH-F2)
+        # Every step stays eligible for the FAILED self-heal retry...
         _force_pending.update(s.name for s in _STEPS)
-        forced = sorted(_force_pending)
+        # ...but a step already DONE for this session is only redone if it is not
+        # suppressed (fetch-data, unless the caller explicitly asked to re-ingest).
+        _no_rerun_when_done.clear()
+        if not refetch:
+            _no_rerun_when_done.update(_NO_RERUN_WHEN_DONE)
+        forced = sorted(_force_pending - _no_rerun_when_done)
     background_tasks.add_task(_run_supervised_fast)
-    return {"status": "started", "forced_steps": forced}
+    return {"status": "started", "forced_steps": forced, "refetch": refetch}
 
 
 @app.get("/runs/latest")
