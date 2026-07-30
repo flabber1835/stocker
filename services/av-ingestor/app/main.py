@@ -266,6 +266,69 @@ def _valid_px(x) -> bool:
     return isinstance(x, (int, float)) and x == x and 0.0 < x < 1_000_000.0
 
 
+# Relative tolerance for "AV served a different adjusted close for a date we
+# already have". Prices are NUMERIC(14,4), so the representable quantum on a $5
+# stock is 2e-5 relative — 1e-4 clears float/rounding noise while still catching
+# the smallest real dividend adjustment (~0.1%+).
+RESTATE_REL_TOLERANCE = 1e-4
+
+
+def _row_date(row: dict) -> date | None:
+    try:
+        return date.fromisoformat(row["date"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def select_rows_to_upsert(
+    rows: list[dict],
+    latest_in_db: date | None,
+    stored_adj: float | None,
+    *,
+    tolerance: float = RESTATE_REL_TOLERANCE,
+) -> tuple[list[dict], bool]:
+    """Choose which fetched bars to write, and report whether AV RESTATED history.
+
+    Normal evening: only bars newer than `latest_in_db`. A compact fetch returns
+    ~100 days and re-writing identical rows for every ticker every night is pure
+    cost on a job that already runs for hours.
+
+    BUT `adjusted_close` is a VINTAGE, not a fact — AV re-derives the whole series
+    on every split and dividend. Because we only ever wrote each bar once, on the
+    day it landed, a corporate action leaves our history frozen in the OLD basis
+    while new bars arrive in the NEW one. Anything measured ACROSS the action then
+    reads a phantom move: a 2:1 split looks like a ~50% crash to a trailing peak
+    (which would liquidate the position), and momentum / low_volatility /
+    near_high stay quietly wrong for that ticker indefinitely. The
+    `ON CONFLICT ... adjusted_close=EXCLUDED.adjusted_close` in _upsert_prices was
+    always capable of re-basing history — it just never saw an old row.
+
+    So compare the newest bar we ALREADY have against what AV serves for that same
+    date. If it moved, the series was restated: return the FULL returned window so
+    the upsert re-bases our history to one uniform vintage.
+
+    Cost: one float comparison per ticker on a normal evening; a ~100-row upsert
+    only on a ticker's actual action day (a handful of times a year each).
+
+    Returns (rows_to_upsert, restated). Pure — unit-tested in
+    tests/av_ingestor/test_price_restatement.py.
+    """
+    if latest_in_db is None:
+        return list(rows), False
+
+    if stored_adj is not None and _valid_px(stored_adj):
+        for row in rows:
+            if _row_date(row) != latest_in_db:
+                continue
+            served = row.get("adjusted_close")
+            if _valid_px(served) and abs(served - stored_adj) > tolerance * abs(stored_adj):
+                return list(rows), True
+            break  # the overlap row is unique per (ticker, date)
+
+    newer = [r for r in rows if (d := _row_date(r)) is not None and d > latest_in_db]
+    return newer, False
+
+
 async def _upsert_prices(session, ticker: str, rows: list[dict]) -> int:
     """Upsert daily price rows for a single ticker; return the number actually written.
 
@@ -1121,6 +1184,30 @@ async def _load_price_staleness() -> tuple[dict[str, date], date | None]:
     return ticker_latest, spy_max
 
 
+async def _load_latest_adjusted() -> dict[str, float]:
+    """ticker → the adjusted close stored for its NEWEST bar.
+
+    Read alongside _load_price_staleness so a fetch can detect that AV RESTATED a
+    ticker's series after a split/dividend (see select_rows_to_upsert). COALESCE
+    because raw_adjusted_close is only backfilled for corporate_actions tickers;
+    for every other ticker adjusted_close IS the raw AV value. Compare raw against
+    raw — adjusted_close may have been locally re-derived for spinoffs, and that
+    local adjustment is not something AV will ever serve back.
+
+    Uses idx_prices_ticker_date (ticker, date DESC), so the DISTINCT ON walks the
+    index rather than the table.
+    """
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            text(
+                "SELECT DISTINCT ON (ticker) ticker, "
+                "       COALESCE(raw_adjusted_close, adjusted_close) AS adj "
+                "FROM daily_prices ORDER BY ticker, date DESC"
+            )
+        )
+        return {r.ticker: float(r.adj) for r in rows.fetchall() if r.adj is not None}
+
+
 async def _load_fund_staleness() -> dict[str, date]:
     """Return ticker→most_recent_fetched_at (UTC date) for fundamentals."""
     async with engine.connect() as conn:
@@ -1202,6 +1289,10 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
 
     # Check what's already in the DB so we can skip up-to-date tickers.
     ticker_latest, spy_max = await _load_price_staleness()
+    # ...and what adjusted close we stored for each ticker's newest bar, so a
+    # restated series (split/dividend) is detected and re-based rather than left
+    # split across two vintages. See select_rows_to_upsert.
+    latest_adj = await _load_latest_adjusted()
     fund_latest = await _load_fund_staleness()
     investable_tickers = await _load_investable_tickers()
 
@@ -1307,14 +1398,15 @@ async def _run_fetch_data(run_id: str, tickers: list[str]) -> None:
                         use_compact = False
                     rows = await client.get_daily_prices(ticker, compact=use_compact)
                     if rows:
-                        # Filter to only rows newer than what's already in the DB.
-                        # Compact fetches 100 days but we typically only need the last 1-2;
-                        # upserting all 100 would rewrite identical rows unnecessarily.
+                        # Normally only rows newer than the DB; the WHOLE window when
+                        # AV restated the series (split/dividend) so our history is
+                        # re-based to one vintage. See select_rows_to_upsert.
                         latest_in_db = ticker_latest.get(ticker)
-                        new_rows = (
-                            [r for r in rows if date.fromisoformat(r["date"]) > latest_in_db]
-                            if latest_in_db else rows
-                        )
+                        new_rows, restated = select_rows_to_upsert(
+                            rows, latest_in_db, latest_adj.get(ticker))
+                        if restated:
+                            print(f"[fetch-data] {ticker}: AV RESTATED adjusted closes "
+                                  f"(split/dividend) — re-basing {len(new_rows)} bars {label}")
                         if new_rows:
                             async with SessionLocal() as session:
                                 async with session.begin():
@@ -1578,6 +1670,8 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
     all_tickers = _build_benchmarks_first(tickers)
 
     ticker_latest, spy_max = await _load_price_staleness()
+    # See select_rows_to_upsert — detects an AV restatement so history is re-based.
+    latest_adj = await _load_latest_adjusted()
     benchmark_set = set(BENCHMARK_TICKERS)
     skip_count = sum(
         1 for t in all_tickers
@@ -1618,10 +1712,11 @@ async def _run_fetch_prices(run_id: str, tickers: list[str]) -> None:
                     print(f"[fetch-prices] {ticker}: no data returned")
                 else:
                     latest_in_db = ticker_latest.get(ticker)
-                    new_rows = (
-                        [r for r in rows if date.fromisoformat(r["date"]) > latest_in_db]
-                        if latest_in_db else rows
-                    )
+                    new_rows, restated = select_rows_to_upsert(
+                        rows, latest_in_db, latest_adj.get(ticker))
+                    if restated:
+                        print(f"[fetch-prices] {ticker}: AV RESTATED adjusted closes "
+                              f"(split/dividend) — re-basing {len(new_rows)} bars")
                     written = 0
                     if new_rows:
                         async with SessionLocal() as session:

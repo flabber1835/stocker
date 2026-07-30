@@ -67,6 +67,58 @@ def recent_drawdown(
     return raw_dd
 
 
+def peak_to_now(peak_close: float | None, last_close: float | None) -> float | None:
+    """PURE peak-to-now drawdown from a peak that has ALREADY been established
+    elsewhere: `last / peak - 1`, in (-1.0, 0.0], or None if either input is unusable.
+
+    Deliberately SEPARATE from recent_drawdown(), and not a thin wrapper around it.
+    recent_drawdown applies `baseline_window` give-back suppression: a stock that
+    spiked and round-tripped nets to ~0 there, because for the falling-knife ENTRY
+    veto a round trip is volatility, not a knife. A trailing STOP must have the
+    opposite behaviour — giving back a run-up is exactly the event it exists to act
+    on. Wiring a stop through recent_drawdown would silently disarm it on the names
+    it most needs to catch, so the two live side by side under names that cannot be
+    confused.
+
+    Takes a peak rather than a series because the caller owns the peak's definition
+    (highest close since the position opened) and its provenance.
+    """
+    if peak_close is None or last_close is None:
+        return None
+    try:
+        peak = float(peak_close)
+        last = float(last_close)
+    except (TypeError, ValueError):
+        return None
+    # NaN-safe: NaN fails every comparison, so the positivity checks reject it.
+    if not (peak > 0) or not (last > 0):
+        return None
+    return last / peak - 1.0
+
+
+def trailing_stop_hit(
+    peak_close: float | None, last_close: float | None, stop_pct: float
+) -> bool:
+    """True when the close has fallen `stop_pct` or more below its peak.
+
+    Fail-CLOSED in the sense that matters for a sell rule: an unusable peak or
+    close, or a non-positive stop_pct, returns False. A stop must never fire on
+    absent or corrupt data — the whole position is sold when it does, and the
+    caller cannot un-sell it. Freshness (is this close current?) and arming (is
+    this position old enough to have a meaningful peak?) are the CALLER's
+    responsibility; this is pure arithmetic on numbers already judged usable.
+
+    Boundary is inclusive: a drop of exactly stop_pct fires, so a config's stated
+    threshold is the level at which it acts rather than one tick past it.
+    """
+    if not (stop_pct > 0):
+        return False
+    dd = peak_to_now(peak_close, last_close)
+    if dd is None:
+        return False
+    return dd <= -float(stop_pct)
+
+
 def beta_and_idio_vol(
     stock_closes: Sequence[float],
     spy_closes: Sequence[float],
