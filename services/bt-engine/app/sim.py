@@ -479,6 +479,15 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
     last_px: dict[str, float] = {}
     last_seen_i: dict[str, int] = {}            # ticker → session INDEX of last print
     unfilled: list[dict] = []                   # orders dropped for want of a price
+    # Trailing stop (inert unless config.trailing_stop.enabled). These mirror the
+    # live position_episodes table: opened_i is the episode's open date, peak_adj
+    # the highest close since then, stop_peaks the peak that stopped a name (the
+    # re-entry gate). Cleared when a position goes flat — a re-buy opens a NEW
+    # episode with a fresh peak, exactly as live does.
+    opened_i: dict[str, int] = {}               # ticker → session INDEX position opened
+    peak_adj: dict[str, float] = {}             # ticker → highest close since opened_i
+    stop_peaks: dict[str, float] = {}           # ticker → peak that triggered its stop
+    n_stop_exits = 0
     filled_notional_today: float = 0.0
     n_rebalances = 0                            # rebalance EVALUATIONS
     n_rebalances_with_trades = 0
@@ -524,8 +533,28 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
             p = _price(t, d, opens=False)
             if p is not None:
                 last_px[t], last_seen_i[t] = p, day_index.get(d, last_seen_i.get(t, -1))
+                if t in opened_i:
+                    peak_adj[t] = max(peak_adj.get(t, p), p)
             total += q * (p if p is not None else last_px.get(t, 0.0))
         return total
+
+    def _mark_close(d: pd.Timestamp) -> None:
+        """Refresh marks + ratchet peaks from THIS session's close.
+
+        _mtm does the same as a side effect, but it only runs on rebalance dates
+        and at end-of-day. The trailing stop is checked EVERY session, before the
+        rebalance gate, so the peak has to be current by then — otherwise on a
+        rebalance_every=5 sweep the stop would compare today's close against a
+        peak up to five sessions stale. Idempotent: same inputs, same values, so
+        the later _mtm call is a no-op refresh and truncation invariance holds.
+        """
+        for t in qty:
+            p = _price(t, d, opens=False)
+            if p is None:
+                continue
+            last_px[t], last_seen_i[t] = p, day_index.get(d, last_seen_i.get(t, -1))
+            if t in opened_i:
+                peak_adj[t] = max(peak_adj.get(t, p), p)
 
     def _fill(trades: list[dict], d: pd.Timestamp, opens: bool):
         nonlocal cash, filled_notional_today
@@ -561,6 +590,13 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                 qty[tr["ticker"]] = qty.get(tr["ticker"], 0.0) - q
                 if qty[tr["ticker"]] <= 1e-9:
                     qty.pop(tr["ticker"], None)
+                    # Episode closed. A later re-buy opens a NEW one with a fresh
+                    # peak — the stop measures the trend the CURRENT position has
+                    # lived through, not a previous one. stop_peaks is deliberately
+                    # NOT cleared here: it is what blocks re-entry until the close
+                    # exceeds the peak that stopped the name.
+                    opened_i.pop(tr["ticker"], None)
+                    peak_adj.pop(tr["ticker"], None)
             else:
                 q = tr["qty"]
                 if tr.get("notional") is not None:   # size at the actual fill price
@@ -571,7 +607,17 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                     continue
                 cost = q * p * params.tx_cost_bps / 10_000.0
                 cash -= q * p + cost
+                was_flat = qty.get(tr["ticker"], 0.0) <= 1e-9
                 qty[tr["ticker"]] = qty.get(tr["ticker"], 0.0) + q
+                if was_flat:
+                    # Episode opens at the FILL date, and this fill price seeds the
+                    # peak — matching live, where opened_on is the fill date and
+                    # that session's close counts toward the peak. A buy_add into an
+                    # existing position deliberately does NOT reset either: the peak
+                    # belongs to the episode, not to the most recent purchase.
+                    opened_i[tr["ticker"]] = day_index.get(d, 0)
+                    peak_adj[tr["ticker"]] = p
+                    stop_peaks.pop(tr["ticker"], None)  # re-entered ⇒ block cleared
             # A FILL IS PROOF OF A PRINT (and, since the no-price branch above
             # now refuses to fill, only a REAL print can reach here).
             # last_seen_i/last_px are otherwise refreshed
@@ -607,11 +653,50 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
     calib_idx = set(sample_evenly(calib_eligible, CALIB_MAX_DATES))
     calib_samples: list[tuple[int, dict[str, float]]] = []
 
+    ts_cfg = getattr(config, "trailing_stop", None)
+    ts_on = bool(getattr(ts_cfg, "enabled", False))
+
     for i, D in enumerate(all_days):
         # 1. fill pending next_open trades at today's open
         if pending:
             _fill(pending, D, opens=True)
             pending = []
+
+        # 1b. TRAILING STOP — evaluated EVERY session, deliberately outside the
+        # rebalance gate below. Live checks the stop on every chain run (daily);
+        # if it rode the rebalance cadence instead, a sweep at rebalance_every=5
+        # would check it a fifth as often and any swept stop_pct would carry that
+        # latency baked in — the number would not transfer to production. Sells
+        # queue into `pending` like every other decision, filling at D+1's open,
+        # which mirrors live's decide-after-close / trade-at-next-open.
+        stopped_today: set[str] = set()
+        stop_trades: list[dict] = []
+        if ts_on:
+            _mark_close(D)   # peaks must be current before the check
+            states = {
+                t: live.StopState(
+                    peak_close=peak_adj[t],
+                    last_close=last_px[t],
+                    sessions_held=i - opened_i[t],
+                    sessions_since_close=i - last_seen_i.get(t, i),
+                )
+                for t in qty
+                if t in opened_i and t in peak_adj and t in last_px
+            }
+            plan = live.plan_trailing_stops(
+                states, enabled=True, stop_pct=ts_cfg.stop_pct,
+                arm_after_sessions=ts_cfg.arm_after_sessions,
+                max_stale_sessions=ts_cfg.max_stale_sessions,
+                max_stops_per_run=ts_cfg.max_stops_per_run)
+            for t, peak in plan.stopped.items():
+                stopped_today.add(t)
+                stop_peaks[t] = peak
+                stop_trades.append({
+                    "ticker": t, "side": "sell", "qty": qty[t], "action": "exit",
+                    "reason": f"trailing stop: close {last_px[t]:.2f} is "
+                              f"{(last_px[t] / peak - 1) * 100:.1f}% below peak {peak:.2f}",
+                })
+            n_stop_exits += len(stop_trades)
 
         rebalance = (i % max(1, params.rebalance_every)) == 0
         if rebalance:
@@ -675,9 +760,25 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                 actual_w = {t: (qty.get(t, 0.0) * (last_px.get(t) or 0.0)) / equity_now
                             for t in qty} if equity_now > 0 else {}
                 delta_cfg = config.delta_engine
+                # Stopped names are already being sold at D+1's open, and names
+                # blocked by an unrecovered stop peak must not be bought back.
+                # Both are stripped from the target AS WELL AS from live_positions:
+                # stripping only the latter leaves an in-target un-held ticker,
+                # which Loop 1 reads as an ENTRY — buying back the very name the
+                # stop just sold, at the same open. They ride in through the
+                # existing inflight_exits parameter, which frees a capacity slot
+                # without crediting their cash.
+                blocked = {
+                    t for t, pk in stop_peaks.items()
+                    if t not in qty and live.reentry_blocked(_price(t, D, opens=False), pk)
+                }
+                excluded = stopped_today | blocked
+                if excluded:
+                    target = {k: v for k, v in target.items() if k not in excluded}
                 decisions = live.evaluate_target_vs_live(
                     target_portfolio=target,
-                    live_positions=set(qty),
+                    live_positions=set(qty) - stopped_today,
+                    inflight_exits=stopped_today or None,
                     universe=rank_history,
                     confirmation_days=delta_cfg.confirmation_days,
                     max_positions=config.portfolio_builder.max_positions,
@@ -731,10 +832,25 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                 # equity, or with orders that never filled at all. It is now
                 # accumulated inside _fill from REALIZED notional and sampled
                 # against realized equity below.
+                # Stop sells lead: they free cash for whatever the rebalance buys,
+                # and _fill sorts sells first anyway.
+                trades = stop_trades + trades
+                stop_trades = []
                 if params.fill_timing == "close":
                     _fill(trades, D, opens=False)
                 else:
                     pending = trades
+
+        # 1c. Stop sells still have to trade on a session the rebalance block did
+        # not run — a non-rebalance day, or a DEGRADED/FAILED build that held the
+        # book. That is the normal case at rebalance_every>1 and the whole point
+        # of checking the stop daily; dropping them here would silently restore
+        # the rebalance cadence.
+        if stop_trades:
+            if params.fill_timing == "close":
+                _fill(stop_trades, D, opens=False)
+            else:
+                pending = pending + stop_trades
 
         # 2. delist sweep: held names with no print for DELIST_GAP_DAYS trading days
         for t in list(qty):
@@ -764,6 +880,11 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                                    "reason": (f"delisted — exited at {recovery:.0%} of last "
                                               f"available price ({p:.4f})")})
                 qty.pop(t)
+                # Episode closed by delisting, not by a stop — so no stop_peaks
+                # entry and no re-entry block. Leaving opened_i/peak_adj behind
+                # would carry a dead peak into a later re-listing.
+                opened_i.pop(t, None)
+                peak_adj.pop(t, None)
 
         # 3. mark to market
         equity = _mtm(D)
@@ -846,6 +967,12 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
         "n_days_with_fills": len(turnover_samples),
         "total_turnover": round(float(np.sum(turnover_samples)), 4) if turnover_samples else 0.0,
         "target_status_counts": dict(sorted(status_counts.items())),
+        # Stop exits vs everything else. The whole premise of the trailing stop is
+        # that it replaces rank-driven exits with trend-driven ones, so a run where
+        # this is 0 scored a config whose stop never fired — the A/B is meaningless
+        # without knowing which.
+        "trailing_stop_enabled": ts_on,
+        "n_stop_exits": n_stop_exits,
         "unfilled_orders": len(unfilled),
         # A sample, not the whole list: a long run with a systemic data gap could
         # otherwise put thousands of rows into a summary JSON blob.
