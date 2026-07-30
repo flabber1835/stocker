@@ -33,6 +33,131 @@ class DeltaDecision:
     weight_drift: Optional[float] = None    # actual_weight - target_weight; positive = overweight, negative = underweight
 
 
+@dataclass(frozen=True)
+class StopState:
+    """Everything the trailing stop needs to know about ONE held position.
+
+    Assembled by the caller (the pipeline reads daily_prices + position_episodes;
+    the simulator carries it in memory), so this module stays free of I/O and of
+    any opinion about where a peak came from.
+    """
+    peak_close: float           # highest close since the position opened
+    last_close: float           # most recent close
+    sessions_held: int          # trading sessions since the position opened
+    sessions_since_close: int   # 0 = last_close is this session's close
+
+
+@dataclass(frozen=True)
+class StopPlan:
+    stopped: dict[str, float]   # ticker → the peak that triggered it. The caller
+                                # persists this as stop_peak; reentry_blocked reads
+                                # it back to gate re-entry.
+    deferred: dict[str, float]  # ticker → drawdown, held back by max_stops_per_run
+    skipped: dict[str, str]     # ticker → why not ('no_data' | 'unarmed' | 'stale')
+
+
+def reentry_blocked(last_close: Optional[float], stop_peak: Optional[float]) -> bool:
+    """True while a stopped-out name has not recovered to the peak that stopped it.
+
+    This is the whole re-entry rule: no cooldown parameter, no timer. It clears
+    itself the moment the close exceeds that peak, which is a strictly stronger
+    condition than "N sessions have passed" — with a 15% stop, recovering to the
+    triggering peak takes roughly a 17.6% rally off the stop price. Unknown inputs
+    never block: a missing peak means we have no evidence to hold a name out on.
+    """
+    if stop_peak is None or last_close is None:
+        return False
+    try:
+        peak = float(stop_peak)
+        last = float(last_close)
+    except (TypeError, ValueError):
+        return False
+    if not (peak > 0) or not (last > 0):  # NaN-safe
+        return False
+    return last <= peak
+
+
+def plan_trailing_stops(
+    stop_states: Optional[dict[str, "StopState"]],
+    *,
+    enabled: bool,
+    stop_pct: float,
+    arm_after_sessions: int,
+    max_stale_sessions: int,
+    max_stops_per_run: int,
+) -> StopPlan:
+    """Decide which held positions the trailing stop closes THIS run.
+
+    Deliberately OUTSIDE evaluate_target_vs_live, whose signature is unchanged.
+    That is not tidiness — it is what makes live bit-identical when the feature is
+    off BY CONSTRUCTION rather than by a flag threaded through seven branches. It
+    also puts the decision where the caller's knowledge is: only the caller knows
+    whether today's build was DEGRADED, which the engine cannot distinguish from a
+    genuinely empty target, and only the caller owns check cadence — which matters
+    because the simulator gates its decision block on rebalance_every while live
+    evaluates every chain run.
+
+    Config arrives as scalars rather than a TrailingStopConfig, matching
+    evaluate_target_vs_live's style and keeping this module free of a schema import.
+
+    The arithmetic lives in stock_strategy_shared.drawdown; policy lives here.
+
+    Every rule below exists because of a specific way a naive stop misbehaves:
+
+      enabled=False    the off-switch is honoured HERE, once, so it is a property
+                       of the function rather than a discipline each caller repeats
+      no_data          an unusable peak or close is NOT a sell signal. A stop closes
+                       the WHOLE position and the caller cannot un-sell it
+      unarmed          a 2-session-old position's peak IS its entry price, so any
+                       downtick reads as a drawdown from peak
+      stale            a halted / vendor-gapped / delisting name whose print is
+                       frozen below its peak would emit an unfillable exit every
+                       single run, forever
+      max_stops_per_run  exits are EXEMPT from the risk-service turnover cap (it
+                       counts only sell_trims), so nothing downstream would stop a
+                       market-wide drawdown liquidating the book at one open
+
+    Overflow past the breaker goes to `deferred`, never silently dropped — a
+    truncated exit list that reads as "nothing more to do" is the same failure as a
+    silently capped sweep. `skipped` is returned for the same reason: the first
+    question anyone asks is why a position that looks stopped was not.
+
+    Deterministic: worst drawdown first, ties broken by ticker, so identical inputs
+    always produce an identical plan.
+    """
+    from stock_strategy_shared.drawdown import peak_to_now, trailing_stop_hit
+
+    stopped: dict[str, float] = {}
+    deferred: dict[str, float] = {}
+    skipped: dict[str, str] = {}
+    if not enabled or not stop_states:
+        return StopPlan(stopped=stopped, deferred=deferred, skipped=skipped)
+
+    candidates: list[tuple[float, str]] = []
+    for ticker, state in stop_states.items():
+        dd = peak_to_now(state.peak_close, state.last_close)
+        if dd is None:
+            skipped[ticker] = "no_data"
+            continue
+        if state.sessions_held < arm_after_sessions:
+            skipped[ticker] = "unarmed"
+            continue
+        if state.sessions_since_close > max_stale_sessions:
+            skipped[ticker] = "stale"
+            continue
+        if not trailing_stop_hit(state.peak_close, state.last_close, stop_pct):
+            continue
+        candidates.append((dd, ticker))
+
+    candidates.sort(key=lambda pair: (pair[0], pair[1]))  # worst drawdown first
+    for position, (dd, ticker) in enumerate(candidates):
+        if position < max_stops_per_run:
+            stopped[ticker] = float(stop_states[ticker].peak_close)
+        else:
+            deferred[ticker] = dd
+    return StopPlan(stopped=stopped, deferred=deferred, skipped=skipped)
+
+
 def _consecutive_in_zone(
     observations: list[RankObservation],
     predicate,

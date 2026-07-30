@@ -74,6 +74,13 @@ detect_regime = regime.detect_regime
 resolve_confirmed_regime = regime.resolve_confirmed_regime
 RankObservation = engine.RankObservation
 evaluate_target_vs_live = engine.evaluate_target_vs_live
+# Trailing stop: planned OUTSIDE evaluate_target_vs_live, so the simulator can
+# check it in its DAILY loop rather than on the rebalance_every cadence its
+# decision block runs on. Same module object as live — no vendoring, no drift.
+StopState = engine.StopState
+StopPlan = engine.StopPlan
+plan_trailing_stops = engine.plan_trailing_stops
+reentry_blocked = engine.reentry_blocked
 greedy_select = select.greedy_select
 compute_weights = select.compute_weights
 build_covariance = select.build_covariance
