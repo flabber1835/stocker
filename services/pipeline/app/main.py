@@ -25,6 +25,7 @@ from app.engine import (
     evaluate_target_vs_live,
     below_floor_unranked,
     meets_floor_fresh,
+    DeltaDecision,
     RankObservation,
 )
 from stock_strategy_shared.schemas.strategy import StrategyConfig
@@ -2219,6 +2220,126 @@ async def _resolve_delta_lineage(conn) -> dict:
     }
 
 
+async def _plan_stops(ts_cfg, held: set[str],
+                      session: date) -> tuple[dict[str, float], set[str]]:
+    """Maintain position_episodes and decide which held names the stop closes.
+
+    Returns (stopped: ticker → the peak that triggered it, blocked: tickers whose
+    stop peak has not been recovered and which must not be re-entered).
+
+    All the policy is pure (app/episodes.py + engine.plan_trailing_stops); this
+    function is the SQL around it. It is called only when the stop is enabled, the
+    book is non-empty and today's build was healthy.
+    """
+    from app.engine import StopState, plan_trailing_stops, reentry_blocked
+    from app.episodes import (blocked_reentries, build_stop_states,
+                              plan_episode_sync)
+
+    # `session` is the chain's DATA-session date (ranking_runs.rank_date), not
+    # wall-clock today — the same anchor every other step in the chain uses. A
+    # chain spanning midnight must not stamp two different dates on one cycle.
+
+    async with engine.begin() as conn:
+        rows = (await conn.execute(text(
+            "SELECT ticker, opened_on, pending_close_since FROM position_episodes "
+            "WHERE closed_on IS NULL"))).fetchall()
+        open_eps = {r.ticker: r.opened_on for r in rows}
+        pending = {r.ticker: r.pending_close_since for r in rows}
+
+        sync = plan_episode_sync(held, open_eps, pending, session)
+        # ON CONFLICT DO NOTHING against the partial unique index: two runs racing
+        # (a manual run-now overlapping the cron chain) must not both insert.
+        for ticker in sorted(sync.to_open):
+            await conn.execute(text(
+                "INSERT INTO position_episodes (ticker, opened_on) VALUES (:t, :d) "
+                "ON CONFLICT DO NOTHING"), {"t": ticker, "d": session})
+            open_eps[ticker] = session
+        if sync.to_mark_pending:
+            await conn.execute(text(
+                "UPDATE position_episodes SET pending_close_since = :d, updated_at = NOW() "
+                "WHERE closed_on IS NULL AND ticker = ANY(:ts)"),
+                {"d": session, "ts": sorted(sync.to_mark_pending)})
+        if sync.to_clear_pending:
+            await conn.execute(text(
+                "UPDATE position_episodes SET pending_close_since = NULL, updated_at = NOW() "
+                "WHERE closed_on IS NULL AND ticker = ANY(:ts)"),
+                {"ts": sorted(sync.to_clear_pending)})
+        if sync.to_close:
+            # 'gone' — left the broker without a stop firing (sold by the orphan
+            # path, a manual trade, or a corporate action). No stop_peak, so it
+            # does not block re-entry.
+            await conn.execute(text(
+                "UPDATE position_episodes SET closed_on = :d, close_reason = 'gone', "
+                "updated_at = NOW() WHERE closed_on IS NULL AND ticker = ANY(:ts)"),
+                {"d": session, "ts": sorted(sync.to_close)})
+            for ticker in sync.to_close:
+                open_eps.pop(ticker, None)
+
+    live_eps = {t: d for t, d in open_eps.items() if t in held}
+    if not live_eps:
+        return {}, set()
+
+    async with engine.connect() as conn:
+        # Session calendar from SPY: staleness must be counted in SESSIONS, not
+        # calendar days, or a weekend makes a fresh print look two days old and
+        # silently disarms the stop.
+        cal = [r.date for r in (await conn.execute(text(
+            "SELECT DISTINCT date FROM daily_prices WHERE ticker = :bench "
+            "AND date >= :d ORDER BY date"),
+            {"bench": MARKET_BENCHMARK, "d": min(live_eps.values())})).fetchall()]
+        # Peak and marks per episode, scoped to date >= that episode's opened_on.
+        agg = (await conn.execute(text(
+            "WITH eps(ticker, opened_on) AS ("
+            "  SELECT * FROM unnest(CAST(:ts AS text[]), CAST(:ds AS date[]))) "
+            "SELECT e.ticker, MAX(p.adjusted_close) AS peak_close, "
+            "  (array_agg(p.adjusted_close ORDER BY p.date DESC))[1] AS last_close, "
+            "  MAX(p.date) AS last_date, COUNT(DISTINCT p.date) AS sessions_held "
+            "FROM eps e JOIN daily_prices p "
+            "  ON p.ticker = e.ticker AND p.date >= e.opened_on "
+            "     AND p.adjusted_close IS NOT NULL "
+            "GROUP BY e.ticker"),
+            {"ts": sorted(live_eps), "ds": [live_eps[t] for t in sorted(live_eps)]}
+        )).fetchall()
+
+        peak_rows = (await conn.execute(text(
+            "SELECT DISTINCT ON (ticker) ticker, stop_peak FROM position_episodes "
+            "WHERE close_reason = 'trailing_stop' AND closed_on IS NOT NULL "
+            "  AND stop_peak IS NOT NULL "
+            "ORDER BY ticker, closed_on DESC"))).fetchall()
+        stop_peaks = {r.ticker: float(r.stop_peak) for r in peak_rows}
+        last_closes: dict[str, float] = {}
+        if stop_peaks:
+            lc = (await conn.execute(text(
+                "SELECT DISTINCT ON (ticker) ticker, adjusted_close FROM daily_prices "
+                "WHERE ticker = ANY(:ts) AND adjusted_close IS NOT NULL "
+                "ORDER BY ticker, date DESC"), {"ts": sorted(stop_peaks)})).fetchall()
+            last_closes = {r.ticker: float(r.adjusted_close) for r in lc}
+
+    states = build_stop_states([dict(r._mapping) for r in agg], cal, StopState)
+    plan = plan_trailing_stops(
+        states, enabled=True, stop_pct=ts_cfg.stop_pct,
+        arm_after_sessions=ts_cfg.arm_after_sessions,
+        max_stale_sessions=ts_cfg.max_stale_sessions,
+        max_stops_per_run=ts_cfg.max_stops_per_run)
+
+    if plan.stopped:
+        async with engine.begin() as conn:
+            for ticker, peak in sorted(plan.stopped.items()):
+                # Close the episode NOW, recording the peak that triggered it. The
+                # position is sold at the next open; recording it here means the
+                # re-entry block is armed before the next build can propose a buy.
+                await conn.execute(text(
+                    "UPDATE position_episodes SET closed_on = :d, "
+                    "close_reason = 'trailing_stop', stop_peak = :p, updated_at = NOW() "
+                    "WHERE closed_on IS NULL AND ticker = :t"),
+                    {"d": session, "p": peak, "t": ticker})
+        print(f"[delta] trailing stop: {sorted(plan.stopped)} "
+              f"(deferred={sorted(plan.deferred)}, skipped={plan.skipped})", flush=True)
+
+    blocked = blocked_reentries(stop_peaks, last_closes, held, reentry_blocked)
+    return plan.stopped, blocked
+
+
 async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) -> None:
     """The complete delta logic from delta-engine/app/main.py _do_delta."""
     _set_pct("delta", 3)
@@ -2864,6 +2985,40 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             elif _r.ticker not in live_positions_set:
                 inflight_entries.add(_r.ticker)
 
+        # ── trailing stop (config-flagged, default OFF) ──────────────────────
+        # Planned OUTSIDE evaluate_target_vs_live so that, with the feature off,
+        # the engine's inputs are literally unchanged rather than flag-guarded.
+        # Suppressed entirely when the target is empty or the build was degraded:
+        # a transient builder/rank failure must never mass-liquidate, which is the
+        # same reasoning behind the engine's target_is_empty hold.
+        stop_plan_stopped: dict[str, float] = {}
+        stop_blocked: set[str] = set()
+        ts_cfg = getattr(strategy, "trailing_stop", None)
+        if (getattr(ts_cfg, "enabled", False) and live_positions_set
+                and target_portfolio and not anchor_degraded):
+            try:
+                stop_plan_stopped, stop_blocked = await _plan_stops(
+                    ts_cfg, live_positions_set, run_date)
+            except Exception as exc:   # noqa: BLE001
+                # A stop that cannot be computed is NOT a sell signal. Log and carry
+                # on with the orphan timer, which is still running underneath.
+                print(f"[delta] trailing stop: skipped this run ({exc})", flush=True)
+                stop_plan_stopped, stop_blocked = {}, set()
+
+        if stop_plan_stopped or stop_blocked:
+            excluded = set(stop_plan_stopped) | stop_blocked
+            # Strip from the TARGET as well as from live_positions. Removing only
+            # the latter leaves an in-target un-held ticker, which Loop 1 reads as
+            # an ENTRY — re-buying the very name the stop just sold, at the same
+            # open. The builder is holdings-agnostic, so a stopped name is still in
+            # today's target and this is the normal case, not an edge one.
+            target_portfolio = {k: v for k, v in target_portfolio.items()
+                                if k not in excluded}
+            live_positions_set = live_positions_set - set(stop_plan_stopped)
+            # Ride in through inflight_exits: frees a capacity slot in
+            # _allocate_capacity without crediting their cash in _cap_buys.
+            inflight_exits = inflight_exits | set(stop_plan_stopped)
+
         # Target-vs-live diff: portfolio_holdings is target, live_positions is actual
         # Pure CPU compute — offload so /runs/progress stays answerable (see note above).
         decisions = await asyncio.to_thread(
@@ -2894,6 +3049,27 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             cash_fraction=strategy.portfolio_builder.cash_reserve,
         )
         mode_used = "target_vs_live"
+
+        # Stopped names were stripped from the engine's inputs, so it produced no
+        # decision for them. Add the exits back here — the existing write path then
+        # persists them like any other intent, and the trade-executor sizes them
+        # from the live position as it does every exit. Reusing the `exit` action
+        # (rather than a new token) means no CHECK-constraint migration; stop vs
+        # orphan attribution comes from position_episodes.close_reason, which is
+        # already written, not from parsing this reason string.
+        for _t, _peak in sorted(stop_plan_stopped.items()):
+            _obs = universe.get(_t) or []
+            _last = _obs[0] if _obs else None
+            decisions[_t] = DeltaDecision(
+                ticker=_t, action="exit",
+                rank=(_last.rank if _last else 9999),
+                composite_score=(_last.composite_score if _last else 0.0),
+                confirmation_days_met=0,
+                current_weight=None,
+                actual_weight=live_weights.get(_t),
+                reason=(f"trailing stop: close fell {ts_cfg.stop_pct:.0%} or more "
+                        f"below the peak of {float(_peak):.2f} since entry"),
+            )
 
     # Suppress buy-side intents when the broker snapshot is unreliable (see guard
     # above). Done before the split below so all counts reflect the suppression.

@@ -283,6 +283,15 @@ names and entries queue as `watch` forever. Whether suppression pays is a
 wind-tunnel A/B (`tests/simulation/trailing_stop_ab_sim.py`). Consequence: with two
 exit routes turnover may rise before it falls.
 
+Per-position state lives in `position_episodes` (migration 0048) — one row per
+unbroken holding period, carrying `opened_on` (the peak's anchor) and, on a stop,
+`stop_peak` (the re-entry gate). A partial unique index enforces one OPEN episode
+per ticker. Closing requires absence on TWO consecutive runs: `live_positions` is a
+per-sync snapshot, so one degraded sync would otherwise end the episode and the
+re-opened one would carry a fresh, LOOSER peak — a risk control failing silently
+toward less protection. Rules are pure in `services/pipeline/app/episodes.py`; the
+SQL is `_plan_stops` in the pipeline's main.
+
 The stop is planned OUTSIDE `evaluate_target_vs_live` (pure `plan_trailing_stops`
 in the same module), so the engine signature is untouched and live is bit-identical
 when the feature is off by construction. Callers strip stopped names from BOTH
