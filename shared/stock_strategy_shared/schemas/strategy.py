@@ -655,6 +655,45 @@ class TrailingStopConfig(BaseModel):
                     "at a single open — and exits are exempt from the risk-service "
                     "turnover cap, so nothing downstream throttles it.")
 
+    # ── width mode ────────────────────────────────────────────────────────────
+    # A flat stop_pct treats every holding alike, which it is not: 15% off the peak
+    # means a broken trend for a utility and ordinary noise for a small-cap
+    # momentum name. 'vol_scaled' sizes the width by the ticker's own realised
+    # volatility, reusing scaled_excess_threshold — the SAME mechanism the
+    # falling-knife veto uses on the entry side.
+    width_method: Literal["fixed", "vol_scaled"] = Field(
+        default="fixed",
+        description="'fixed' uses stop_pct for every position (default — unchanged "
+                    "behaviour). 'vol_scaled' scales it per ticker by realised vol.")
+    vol_anchor: float = Field(
+        default=0.35, gt=0.0, le=3.0,
+        description="Annualised realised vol of a 'typical' name — one at the anchor "
+                    "keeps stop_pct exactly. Calmer names get a TIGHTER width, wilder "
+                    "ones MORE rope. Mirrors DRAWDOWN_VOL_ANCHOR on the entry side.")
+    vol_lookback: int = Field(
+        default=120, ge=20, le=504,
+        description="Sessions of closes used to measure realised vol. Matches the "
+                    "beta/idio_vol lookback so the two vol figures are comparable.")
+    stop_pct_min: float = Field(
+        default=0.08, gt=0.0, le=0.9,
+        description="Floor on the scaled width. Without it a very calm name gets a "
+                    "hair-trigger stop and churns on noise.")
+    stop_pct_max: float = Field(
+        default=0.35, gt=0.0, le=0.9,
+        description="Cap on the scaled width. Without it a wild name is effectively "
+                    "unstoppable and the rule stops being a risk control.")
+
+    @model_validator(mode="after")
+    def width_clamps_are_ordered(self) -> "TrailingStopConfig":
+        """An inverted clamp silently collapses every width to one number — the
+        stop would still 'work', just not as configured, which is worse than an
+        error."""
+        if self.stop_pct_min > self.stop_pct_max:
+            raise ValueError(
+                f"trailing_stop.stop_pct_min ({self.stop_pct_min}) must not exceed "
+                f"stop_pct_max ({self.stop_pct_max})")
+        return self
+
 
 class DeltaEngineConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")

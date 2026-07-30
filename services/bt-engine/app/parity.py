@@ -165,7 +165,9 @@ PARITY: dict[str, tuple[str, str]] = {
     "trailing_stop": (
         PARTIAL,
         "the stop is fully simulated — per-position peak close since entry, "
-        "arming, staleness, the circuit breaker — and is evaluated EVERY session "
+        "arming, staleness, the circuit breaker, and both width methods (fixed "
+        "and vol_scaled, the latter from the same realized_vol helper live uses) "
+        "— and is evaluated EVERY session "
         "outside the rebalance gate, so its check cadence matches live regardless "
         "of rebalance_every (pinned by TestCadenceIsDaily). One limit remains: "
         "VINTAGE. Live peaks come from AV adjusted closes, which are re-based only "

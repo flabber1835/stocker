@@ -2231,6 +2231,8 @@ async def _plan_stops(ts_cfg, held: set[str],
     function is the SQL around it. It is called only when the stop is enabled, the
     book is non-empty and today's build was healthy.
     """
+    from dataclasses import replace
+
     from app.engine import StopState, plan_trailing_stops, reentry_blocked
     from app.episodes import (blocked_reentries, build_stop_states,
                               plan_episode_sync)
@@ -2316,11 +2318,38 @@ async def _plan_stops(ts_cfg, held: set[str],
             last_closes = {r.ticker: float(r.adjusted_close) for r in lc}
 
     states = build_stop_states([dict(r._mapping) for r in agg], cal, StopState)
+
+    # Per-ticker realised vol, only when the width is actually scaled by it — a
+    # lookback-length price pull per holding is pure cost under the fixed default.
+    if getattr(ts_cfg, "width_method", "fixed") == "vol_scaled" and states:
+        from stock_strategy_shared.drawdown import realized_vol
+        async with engine.connect() as conn:
+            vol_rows = (await conn.execute(text(
+                "SELECT ticker, adjusted_close, date FROM ("
+                "  SELECT ticker, adjusted_close, date, ROW_NUMBER() OVER ("
+                "    PARTITION BY ticker ORDER BY date DESC) AS rn "
+                "  FROM daily_prices "
+                "  WHERE ticker = ANY(:ts) AND adjusted_close IS NOT NULL) s "
+                "WHERE rn <= :n ORDER BY ticker, date"),
+                {"ts": sorted(states), "n": int(ts_cfg.vol_lookback)})).fetchall()
+        series: dict[str, list[float]] = {}
+        for r in vol_rows:
+            series.setdefault(r.ticker, []).append(float(r.adjusted_close))
+        states = {
+            t: replace(s, vol=realized_vol(series.get(t) or [],
+                                           lookback=int(ts_cfg.vol_lookback)))
+            for t, s in states.items()
+        }
+
     plan = plan_trailing_stops(
         states, enabled=True, stop_pct=ts_cfg.stop_pct,
         arm_after_sessions=ts_cfg.arm_after_sessions,
         max_stale_sessions=ts_cfg.max_stale_sessions,
-        max_stops_per_run=ts_cfg.max_stops_per_run)
+        max_stops_per_run=ts_cfg.max_stops_per_run,
+        width_method=getattr(ts_cfg, "width_method", "fixed"),
+        vol_anchor=getattr(ts_cfg, "vol_anchor", 0.35),
+        stop_pct_min=getattr(ts_cfg, "stop_pct_min", 0.08),
+        stop_pct_max=getattr(ts_cfg, "stop_pct_max", 0.35))
 
     if plan.stopped:
         async with engine.begin() as conn:

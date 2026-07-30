@@ -45,6 +45,10 @@ class StopState:
     last_close: float           # most recent close
     sessions_held: int          # trading sessions since the position opened
     sessions_since_close: int   # 0 = last_close is this session's close
+    vol: Optional[float] = None  # annualised realised vol. Read ONLY when
+                                 # width_method == 'vol_scaled'; None falls back to
+                                 # the flat width, so a name with too little history
+                                 # is never given a width derived from nothing.
 
 
 @dataclass(frozen=True)
@@ -85,6 +89,10 @@ def plan_trailing_stops(
     arm_after_sessions: int,
     max_stale_sessions: int,
     max_stops_per_run: int,
+    width_method: str = "fixed",
+    vol_anchor: float = 0.35,
+    stop_pct_min: float = 0.08,
+    stop_pct_max: float = 0.35,
 ) -> StopPlan:
     """Decide which held positions the trailing stop closes THIS run.
 
@@ -125,7 +133,33 @@ def plan_trailing_stops(
     Deterministic: worst drawdown first, ties broken by ticker, so identical inputs
     always produce an identical plan.
     """
-    from stock_strategy_shared.drawdown import peak_to_now, trailing_stop_hit
+    from stock_strategy_shared.drawdown import (peak_to_now,
+                                                scaled_excess_threshold,
+                                                trailing_stop_hit)
+
+    def _width(state: "StopState") -> float:
+        """The give-back this position is allowed, before it is sold.
+
+        'vol_scaled' reuses scaled_excess_threshold — the SAME function the
+        entry-side falling-knife veto uses — rather than a parallel formula, so the
+        two vol-scaled thresholds cannot drift apart. It already falls back to the
+        flat base when vol is unknown, which is exactly the behaviour a stop needs:
+        a name with too little history gets the ordinary width, never one derived
+        from nothing.
+        """
+        if width_method != "vol_scaled":
+            return stop_pct
+        vol = state.vol
+        # scaled_excess_threshold only guards None — a 0.0 would scale to the FLOOR
+        # and a NaN would fall through min/max as order-dependent garbage. Neither
+        # is a reading to size a sell rule on: a zero-vol equity is far more likely
+        # a frozen or padded series than a genuinely riskless one, so both are
+        # treated as UNKNOWN and get the ordinary width. Sanitised here rather than
+        # in the shared helper, which the live falling-knife veto also calls.
+        if vol is None or not (vol > 0):  # NaN-safe
+            vol = None
+        return scaled_excess_threshold(vol, stop_pct, anchor=vol_anchor,
+                                       lo=stop_pct_min, hi=stop_pct_max)
 
     stopped: dict[str, float] = {}
     deferred: dict[str, float] = {}
@@ -145,8 +179,11 @@ def plan_trailing_stops(
         if state.sessions_since_close > max_stale_sessions:
             skipped[ticker] = "stale"
             continue
-        if not trailing_stop_hit(state.peak_close, state.last_close, stop_pct):
+        if not trailing_stop_hit(state.peak_close, state.last_close, _width(state)):
             continue
+        # Ranked by RAW drawdown, not by drawdown-relative-to-width: when the
+        # circuit breaker binds, the deepest losses should go first regardless of
+        # how wide their individual stop happened to be.
         candidates.append((dd, ticker))
 
     candidates.sort(key=lambda pair: (pair[0], pair[1]))  # worst drawdown first

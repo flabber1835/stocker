@@ -35,6 +35,7 @@ import pandas as pd
 
 from stock_strategy_shared.drawdown import (
     excess_drawdown, recent_drawdown, falling_knife_verdict)
+from stock_strategy_shared.drawdown import realized_vol as _realized_vol
 from stock_strategy_shared.investability import (
     DOLLAR_VOLUME_WINDOW,
     avg_dollar_volume,
@@ -655,6 +656,8 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
 
     ts_cfg = getattr(config, "trailing_stop", None)
     ts_on = bool(getattr(ts_cfg, "enabled", False))
+    ts_scaled = ts_on and getattr(ts_cfg, "width_method", "fixed") == "vol_scaled"
+    ts_vol_lb = int(getattr(ts_cfg, "vol_lookback", 120) or 120)
 
     for i, D in enumerate(all_days):
         # 1. fill pending next_open trades at today's open
@@ -679,6 +682,16 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                     last_close=last_px[t],
                     sessions_held=i - opened_i[t],
                     sessions_since_close=i - last_seen_i.get(t, i),
+                    # Realised vol over the trailing window ENDING AT TODAY — the
+                    # slice is [i - lookback + 1 : i + 1], never past i, so
+                    # truncation invariance holds. Computed only when the width is
+                    # actually scaled by it. Uses the same helper as live, so the
+                    # two cannot drift.
+                    vol=(_realized_vol(
+                        [v for v in day_close[t].iloc[max(0, i - ts_vol_lb + 1):i + 1]
+                         if v == v],
+                        lookback=ts_vol_lb)
+                         if ts_scaled and t in day_close.columns else None),
                 )
                 for t in qty
                 if t in opened_i and t in peak_adj and t in last_px
@@ -687,7 +700,11 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                 states, enabled=True, stop_pct=ts_cfg.stop_pct,
                 arm_after_sessions=ts_cfg.arm_after_sessions,
                 max_stale_sessions=ts_cfg.max_stale_sessions,
-                max_stops_per_run=ts_cfg.max_stops_per_run)
+                max_stops_per_run=ts_cfg.max_stops_per_run,
+                width_method=getattr(ts_cfg, "width_method", "fixed"),
+                vol_anchor=getattr(ts_cfg, "vol_anchor", 0.35),
+                stop_pct_min=getattr(ts_cfg, "stop_pct_min", 0.08),
+                stop_pct_max=getattr(ts_cfg, "stop_pct_max", 0.35))
             for t, peak in plan.stopped.items():
                 stopped_today.add(t)
                 stop_peaks[t] = peak

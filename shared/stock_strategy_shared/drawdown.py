@@ -119,6 +119,43 @@ def trailing_stop_hit(
     return dd <= -float(stop_pct)
 
 
+def realized_vol(
+    closes: Sequence[float], lookback: int = 120, min_observations: int = 20
+) -> float | None:
+    """Annualised realised volatility from close-to-close returns, or None when
+    there is too little history to mean anything.
+
+    TOTAL vol, deliberately — not the idiosyncratic residual `beta_and_idio_vol`
+    returns. The two are used for different jobs and the split is intentional:
+
+      falling-knife veto → idio_vol. Its question is "is this stock-specific?", so
+        the market-driven part of a decline must be stripped; a broad sell-off is
+        not a knife.
+      trailing stop      → realized_vol. Its question is "how far does this name
+        normally travel?", and the stop acts on the REALISED price path. If a
+        position is 20% off its peak the money is gone whether the market caused it
+        or not, so sizing the stop on residual vol would give a high-beta name a
+        width calibrated for a move it does not actually make.
+
+    Same return and annualisation convention as beta_and_idio_vol (simple returns,
+    sample stdev, × √252) so the two are directly comparable and one definition of
+    "annualised vol" does not silently drift from the other.
+    """
+    if not closes:
+        return None
+    vals = [float(c) for c in closes[-lookback:] if c is not None and float(c) > 0]
+    if len(vals) < max(2, min_observations):
+        return None
+    rets = [vals[i] / vals[i - 1] - 1.0 for i in range(1, len(vals))]
+    if len(rets) < 2:
+        return None
+    mean_r = sum(rets) / len(rets)
+    var = sum((r - mean_r) ** 2 for r in rets) / (len(rets) - 1)
+    if var < 0 or var != var:  # NaN-safe
+        return None
+    return (var ** 0.5) * (252 ** 0.5)
+
+
 def beta_and_idio_vol(
     stock_closes: Sequence[float],
     spy_closes: Sequence[float],

@@ -272,7 +272,41 @@ arm_after_sessions 5      a 2-day-old position's peak IS its entry price
 max_stale_sessions 2      never act on a frozen print (unfillable exit every run)
 max_stops_per_run  5      circuit breaker — exits are EXEMPT from the turnover cap,
                           so nothing else stops a drawdown liquidating the book
+width_method     fixed    'fixed' | 'vol_scaled' — see below
+vol_anchor        0.35    realised vol that keeps stop_pct exactly
+vol_lookback       120    sessions of closes behind the vol estimate
+stop_pct_min      0.08    floor on the scaled width (no hair-triggers)
+stop_pct_max      0.35    cap on the scaled width (still a risk control)
 ```
+
+**Width mode.** A flat `stop_pct` treats every holding alike, which they are not:
+15% off the peak is a broken trend for a utility and ordinary noise for a small-cap
+momentum name. `width_method: vol_scaled` sizes the give-back per ticker via the
+SAME `scaled_excess_threshold` the entry-side falling-knife veto uses, so the two
+vol-scaled thresholds cannot drift apart.
+
+It scales on TOTAL realised vol (`shared/.../drawdown.py realized_vol`), NOT the
+`idio_vol` the veto uses — a deliberate split. The veto asks "is this decline
+stock-specific?", so the market-driven part must be stripped. The stop acts on the
+REALISED price path: if a position is 20% off its peak the money is gone whether
+the market caused it or not, so sizing on residual vol would give a high-beta name
+a width calibrated for a move it does not actually make.
+
+Unknown vol falls back to the flat `stop_pct`, and so do **0.0 and NaN** —
+`scaled_excess_threshold` only guards `None`, so a 0.0 would scale to the FLOOR
+(the tightest possible stop) and a NaN would fall through min/max unpredictably. A
+zero-vol equity is far more likely a frozen or padded series than a genuinely
+riskless one; the conservative reading of a suspicious input on a SELL rule is the
+ordinary width. Sanitised in `plan_trailing_stops`, not in the shared helper, which
+the live veto also calls.
+
+ATR was considered and rejected. Both `daily_prices` and `bt_prices` carry
+high/low, but NEITHER compute path loads them (`bt-engine/app/data.py` omits them;
+in live they are write-only columns with zero readers), and live's high/low are
+UNADJUSTED while every peak/stop/drawdown computation runs on `adjusted_close`. ATR
+would mean two loader changes plus a raw→adjusted conversion and a fresh
+vintage-consistency problem of exactly the kind the restatement fix just closed.
+Close-to-close vol needs none of it.
 
 ADDITIVE in v1, not a replacement: the orphan timer still runs alongside it.
 Suppressing the orphan exit was the original intent and does NOT work —

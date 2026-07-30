@@ -226,6 +226,77 @@ class TestInvariantsStillHold:
         assert a.equity == b.equity and a.trades == b.trades and a.summary == b.summary
 
 
+class TestWidthMethod:
+    """Vol-scaled width in the simulator. `fixed` is the default and must remain
+    bit-identical, or adding a mode silently changed what every prior sweep meant."""
+
+    def test_fixed_default_is_bit_identical_to_an_unspecified_width(self):
+        prices, fnd, days = _make_data()
+        p = _params(days)
+        a = run_simulation(prices.copy(), fnd.copy(), {}, _cfg(trailing_stop=_ON), p)
+        b = run_simulation(prices.copy(), fnd.copy(), {},
+                           _cfg(trailing_stop={**_ON, "width_method": "fixed"}), p)
+        assert a.equity == b.equity and a.trades == b.trades
+
+    def test_vol_parameters_are_inert_while_the_method_is_fixed(self):
+        """A config carrying an aggressive anchor and clamps but width_method
+        'fixed' must behave exactly as one carrying none."""
+        prices, fnd, days = _make_data()
+        p = _params(days)
+        a = run_simulation(prices.copy(), fnd.copy(), {}, _cfg(trailing_stop=_ON), p)
+        b = run_simulation(prices.copy(), fnd.copy(), {},
+                           _cfg(trailing_stop={**_ON, "vol_anchor": 0.05,
+                                               "stop_pct_min": 0.01,
+                                               "stop_pct_max": 0.02}), p)
+        assert a.equity == b.equity and a.trades == b.trades
+
+    def test_vol_scaled_runs_and_still_stops(self):
+        prices, fnd, days = _make_data()
+        res = run_simulation(prices.copy(), fnd.copy(), {},
+                             _cfg(trailing_stop={**_ON, "width_method": "vol_scaled",
+                                                 "vol_lookback": 60}),
+                             _params(days))
+        assert res.summary["n_stop_exits"] > 0
+
+    def test_vol_scaled_changes_behaviour_vs_fixed(self):
+        """If scaling produced identical results the mode would be decorative — the
+        clamps are set tight here so the difference is unambiguous."""
+        prices, fnd, days = _make_data()
+        p = _params(days)
+        fixed = run_simulation(prices.copy(), fnd.copy(), {},
+                               _cfg(trailing_stop=_ON), p)
+        scaled = run_simulation(prices.copy(), fnd.copy(), {},
+                                _cfg(trailing_stop={**_ON, "width_method": "vol_scaled",
+                                                    "vol_lookback": 60,
+                                                    "vol_anchor": 1.5,
+                                                    "stop_pct_min": 0.01,
+                                                    "stop_pct_max": 0.03}), p)
+        assert scaled.summary["n_stop_exits"] != fixed.summary["n_stop_exits"] \
+            or scaled.trades != fixed.trades
+
+    def test_truncation_invariance_holds_with_vol_scaling(self):
+        """The vol window ends at today, so truncating at K cannot change state
+        at K. This is the property every backtest number rests on."""
+        prices, fnd, days = _make_data()
+        cfg = _cfg(trailing_stop={**_ON, "width_method": "vol_scaled",
+                                  "vol_lookback": 60})
+        k_idx = len(days) - 20
+        p_k = SimParams(start=days[-90].date(), end=days[k_idx].date(),
+                        tx_cost_bps=0, fill_timing="close", rebalance_every=5)
+        full = run_simulation(prices.copy(), fnd.copy(), {}, cfg, p_k)
+        trunc = run_simulation(prices[prices["date"] <= days[k_idx]].copy(),
+                               fnd.copy(), {}, cfg, p_k)
+        assert full.equity == trunc.equity and full.trades == trunc.trades
+
+    def test_determinism_with_vol_scaling(self):
+        prices, fnd, days = _make_data()
+        cfg = _cfg(trailing_stop={**_ON, "width_method": "vol_scaled"})
+        p = _params(days)
+        a = run_simulation(prices.copy(), fnd.copy(), {}, cfg, p)
+        b = run_simulation(prices.copy(), fnd.copy(), {}, cfg, p)
+        assert a.equity == b.equity and a.summary == b.summary
+
+
 class TestCircuitBreaker:
     def test_max_stops_per_run_bounds_one_session(self):
         """A market-wide collapse: every holding breaches at once. Exits are exempt
