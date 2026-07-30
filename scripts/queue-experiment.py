@@ -13,9 +13,13 @@ It writes the same entry shape the evaluator writes, so the lane, the leaderboar
 and the evaluator packet all read it without special-casing. `origin` is set to
 'human' rather than 'exploratory' so a later review can tell who asked.
 
-Usage (from the repo root, inside a container that mounts ./artifacts read-write):
+Run it in a container that has BOTH ./strategies (to read the active config) and
+./artifacts read-write (to write the queue). `pipeline` has both; bt-scheduler has
+neither, and the evaluator mounts /repo without ./scripts. No container mounts the
+scripts dir, so copy it in:
 
-    docker compose exec bt-scheduler python /repo/scripts/queue-experiment.py \
+    docker compose cp scripts/queue-experiment.py pipeline:/tmp/qe.py
+    docker compose exec pipeline python /tmp/qe.py \
         --set trailing_stop.enabled=true \
         --set trailing_stop.stop_pct=0.10 \
         --mechanism exit_hysteresis \
@@ -41,8 +45,16 @@ import sys
 import uuid
 from datetime import datetime, timezone
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(REPO, "shared"))
+# Add the repo's shared/ when running from a checkout. Inside a service container
+# stock_strategy_shared is already installed (editable, from the base image), and
+# __file__ may not point anywhere useful — the script is typically `docker compose
+# cp`'d to /tmp — so this is best-effort, not required.
+try:
+    _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if os.path.isdir(os.path.join(_REPO, "shared")):
+        sys.path.insert(0, os.path.join(_REPO, "shared"))
+except NameError:  # executed from stdin
+    pass
 
 from stock_strategy_shared.filelock import file_lock          # noqa: E402
 from stock_strategy_shared.loader import load_strategy        # noqa: E402
