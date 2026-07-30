@@ -3563,3 +3563,185 @@ ignore signals: bt-scheduler SKIPS the daily topup when bt-data reports
 sharadar-without-a-key error names `frozen` as the answer — the operator meets
 that error exactly when the key stops working, which is precisely when they
 need to know the option exists.
+
+---
+
+## Design Decision: trailing-stop exit rule (config-flagged, default OFF)
+
+Today the live book's only discretionary exit is the **orphan timer**. The
+portfolio-builder rebuilds a holdings-agnostic target every evening, and a held
+name is sold once it has been absent from that target for
+`orphan_confirmation_days` consecutive builds. Exit is therefore coupled to the
+ranking: a position leaves because the ranker stopped liking it, relative to
+whatever else scored well that day.
+
+The trailing stop tests a different split of responsibilities:
+
+```text
+the ranker      answers "what should I buy next?"
+a trailing stop answers "has this trend objectively ended?"
+```
+
+Those are different questions, and for a momentum book (`momentum_rotation_v2`
+runs momentum 0.36 / quality 0.20 / low_vol 0.14 / value 0.08) the second one is
+arguably the better exit criterion. A winner should not be sold because something
+else out-ranked it slightly; it should be sold when its own trend breaks.
+
+Rule: per position, track the highest close since entry. When the close falls
+`stop_pct` below that peak, sell the whole position. Re-entry is blocked until the
+close exceeds the peak that triggered the stop — a price-based condition, so no
+cooldown parameter and no timer.
+
+### It is ADDITIVE in v1, not a replacement
+
+The original intent was for the stop to be the *only* discretionary exit, with the
+orphan timer suppressed. That does not work, for a structural reason:
+`engine.py` Loop 3 begins `if ticker not in target_portfolio: continue`, so
+out-of-target holdings never receive `buy_add`/`sell_trim`, and
+`_allocate_capacity` never force-exits. With orphan exits off, the book fills to
+`max_positions` with stale out-of-target names, new entries queue as `watch`
+indefinitely, and nothing can trim the winners. "The stop is the only exit" and
+"drift rebalancing stays" cannot both hold.
+
+So v1 ships both exits. Whether suppression pays is a wind-tunnel A/B — the
+harness already exists in `tests/simulation/trailing_stop_ab_sim.py`, which counts
+`stop_exits` against `delta_exits`. Note the consequence: with two exit routes,
+turnover may go UP before it goes down. The turnover reduction this design is
+aiming for only arrives in the suppressed variant.
+
+### The planner sits BESIDE the engine, not inside it
+
+`plan_trailing_stops` is a pure function in `services/pipeline/app/engine.py`;
+`evaluate_target_vs_live`'s signature is unchanged. Each caller computes stop
+states, calls the planner, then:
+
+```text
+strips stopped + re-entry-blocked tickers from BOTH live_positions AND target
+  (stripping from live_positions alone makes Loop 1 see an in-target un-held
+   ticker and emit an entry — buying back the name it just stopped out of)
+passes stopped tickers via the EXISTING inflight_exits parameter
+  (frees a capacity slot in _allocate_capacity, but does NOT credit their cash
+   in _cap_buys — only action=="exit" does, which is the conservative half)
+merges its own exit decisions into the engine's result
+```
+
+Four reasons this beats new engine parameters: live is bit-identical when the
+feature is off *by construction* rather than by a flag; the caller knows whether
+the build was DEGRADED, which the engine cannot distinguish from a genuinely empty
+target (`engine.py:549`) — so a bad-data day can hold the book without disarming
+the stop; check cadence becomes the caller's choice, which the parity problem
+below requires; and the existing A/B sim already has this shape.
+
+### Top-level config block, and why placement is a correctness question
+
+`trailing_stop` is TOP-LEVEL, not nested under `delta_engine`. The parity
+manifests' `flatten_config` is two levels deep, so `delta_engine.trailing_stop.*`
+would be invisible to the CI classification guard. Worse, config-replay's
+`_is_inert` treats every `delta_engine.*` path as provably harmless — nesting
+there would let it **silently score a stop-enabled candidate as though the stop
+did not exist**, and return a Sharpe for it.
+
+```text
+bt-engine    PARTIAL  the stop IS simulated, with two real limits (below)
+backtester   IGNORED  holdings-agnostic by construction — cannot model a
+                      path-dependent exit at all, so it must 422 and name the
+                      wind tunnel instead
+```
+
+`tests/parity/` pins both halves of that contract: setting `trailing_stop.*`
+leaves config-replay's target bit-identical (the IGNORED claim is true) AND the
+gate refuses it (so the evaluator gets a 422, not a number).
+
+### Two parity limits, declared rather than assumed
+
+**Cadence.** `sim.py:616` gates the whole decision block on
+`(i % rebalance_every) == 0`. Live evaluates the stop every chain run (daily); a
+sweep at `rebalance_every=5` would check it every fifth session, so a swept
+`stop_pct` carries that latency baked in and would not transfer. The stop must run
+in the sim's daily loop, independent of the rebalance gate. Until it does, the
+verdict stays PARTIAL — declaring HONOURED with cadence drift is exactly the class
+of claim the manifest exists to prevent, and nothing enforces HONOURED
+behaviourally.
+
+**Vintage.** Live peaks come from AV adjusted closes; the tunnel's corpus is
+Sharadar SEP, uniformly restated end to end. See the restatement fix below — the
+tunnel structurally cannot reproduce a live vintage split.
+
+### Prerequisite: `adjusted_close` was never restated
+
+`adjusted_close` is a VINTAGE, not a fact — AV re-derives a ticker's whole
+adjusted series on every split and dividend. The ingestor filtered every fetch to
+strictly-newer bars, so the `ON CONFLICT ... adjusted_close=EXCLUDED.adjusted_close`
+in `_upsert_prices` never saw an old row and each bar stayed frozen at the vintage
+of the day it landed. Any measure spanning a corporate action read a phantom move:
+a 2:1 split reads as a ~50% crash to a peak-to-now measure, which for a trailing
+stop means **liquidating a position that did not move**.
+
+Nothing could have caught this. The wind tunnel scores a uniformly-restated
+corpus, and the simulator's truncation-invariance property removes ROWS, not
+VALUES — so a peak over a frozen window is perfectly truncation-invariant while
+being wrong in live. Both existing safety nets were structurally blind to it.
+
+`select_rows_to_upsert` now compares the stored adjusted close for our newest bar
+against what AV serves for that same date; a mismatch means the series was
+restated, so the whole returned window is re-upserted. Detection rather than
+blanket re-upsert: the blanket version is ~590k rows a night across the universe
+on a fetch that already runs for hours, whereas this is one float comparison per
+ticker and a ~100-row write only on a ticker's actual action day. Degraded inputs
+fall back to the old newer-only behaviour, never to a spurious full re-upsert.
+
+Side effect, and it is not small: this corrects `momentum`, `low_volatility` and
+`near_high` for every ticker that has had an action, so **it changes rankings**.
+The first chain run after it deploys is not comparable to the last one before it.
+
+### Stop math is deliberately NOT `recent_drawdown`
+
+`peak_to_now` and `trailing_stop_hit` live beside `recent_drawdown` in
+`shared/stock_strategy_shared/drawdown.py` but are not built on it.
+`recent_drawdown` applies `baseline_window` give-back suppression, so a name that
+ran 100 → 150 and gave it all back nets to ~0. That is correct for the
+falling-knife ENTRY veto — a round trip is volatility, not a knife — and exactly
+backwards for a trailing stop, whose entire purpose is to act when a run-up is
+given back. Routing the stop through it would silently disarm it on the names it
+most needs to catch. A test pins the divergence so the two cannot be merged later.
+
+A second, quieter reason: `recent_drawdown` also understates a collapse whose
+start falls inside its own 3-close baseline window.
+
+### The LLM-tunable partition
+
+`trailing_stop.enabled` is PROTECTED (human-only). It flips an entire exit regime,
+which is the same class of control as the entry-side `vetter.falling_knife`
+thresholds — not an alpha knob. `is_protected_path` is subtree-prefix matched, so
+`stop_pct`, arming, staleness and the circuit breaker stay tunable; freezing the
+whole subtree would also freeze the one number the tunnel is meant to sweep.
+
+The wind tunnel can still turn it on: `bt-engine/app/sweep.py` deliberately does
+not enforce `PROTECTED_PATHS` ("human-launched offline research"). So a candidate
+gets SCORED with the stop enabled, and a human decides whether it goes live.
+
+### Safety rules, and why each exists
+
+```text
+arm_after_sessions  (5)  a 2-day-old position's peak IS its entry price, so any
+                         downtick reads as a drawdown from peak
+max_stale_sessions  (2)  a halted / vendor-gapped / delisting name whose last
+                         print is frozen below its peak would otherwise emit an
+                         unfillable exit every single run
+max_stops_per_run   (5)  exits are EXEMPT from the risk-service turnover cap
+                         (MAX_DAILY_TURNOVER_PCT counts only sell_trims), so
+                         nothing downstream throttles a market-wide drawdown
+                         liquidating the whole book at one open. There is no
+                         "unlimited" setting.
+no fresh close ⇒ no stop state ⇒ no stop, preserving the existing data-gap rule
+empty or degraded target ⇒ no stop pass, so a builder failure never liquidates
+```
+
+Also accepted and documented rather than fixed: a `buy_add` inherits the episode
+peak, so shares added after a run can be stopped out on a drawdown they never
+participated in; the re-entry block is keyed per ticker, so it leaks across share
+classes (blocking GOOG does not block GOOGL); and deriving the peak from
+`daily_prices` rather than ratcheting it means the peak sees every session while a
+ratchet only sees sessions the chain ran — the derived form is strictly tighter,
+and makes stop behaviour mildly dependent on chain uptime in a way the tunnel
+(which never skips a session) cannot express.

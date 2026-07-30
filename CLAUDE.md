@@ -257,6 +257,44 @@ they stay OCCUPIED in both the planner and the gate — they free a slot only on
 confirmed-exiting.) Residual rejections can still arise only from genuine fill
 races DURING the open drain, which remain the gate's job.
 
+**Trailing-stop exit (`trailing_stop:`, TOP-LEVEL, defaults OFF — Phase 1 built).**
+An alternative exit criterion under test: per position, track the highest close
+since entry and sell the whole position when the close falls `stop_pct` below that
+peak; re-entry blocked until the close exceeds the peak that triggered the stop.
+The premise is that the ranker answers "what should I buy next?" while a stop
+answers "has this trend objectively ended?" — different questions, and for a
+momentum book the second is arguably the better exit.
+
+```text
+enabled            false  master switch; PROTECTED (human-only) — flips an exit REGIME
+stop_pct           0.15   inclusive give-back from the peak close
+arm_after_sessions 5      a 2-day-old position's peak IS its entry price
+max_stale_sessions 2      never act on a frozen print (unfillable exit every run)
+max_stops_per_run  5      circuit breaker — exits are EXEMPT from the turnover cap,
+                          so nothing else stops a drawdown liquidating the book
+```
+
+ADDITIVE in v1, not a replacement: the orphan timer still runs alongside it.
+Suppressing the orphan exit was the original intent and does NOT work —
+`engine.py` Loop 3 starts `if ticker not in target_portfolio: continue`, so
+out-of-target holdings get no `buy_add`/`sell_trim`, and `_allocate_capacity` never
+force-exits; with orphan exits off the book fills to `max_positions` with stale
+names and entries queue as `watch` forever. Whether suppression pays is a
+wind-tunnel A/B (`tests/simulation/trailing_stop_ab_sim.py`). Consequence: with two
+exit routes turnover may rise before it falls.
+
+The stop is planned OUTSIDE `evaluate_target_vs_live` (pure `plan_trailing_stops`
+in the same module), so the engine signature is untouched and live is bit-identical
+when the feature is off by construction. Callers strip stopped names from BOTH
+`live_positions` and `target_portfolio` (stripping only the former makes Loop 1
+emit an `entry` and buy the name straight back) and pass them via the existing
+`inflight_exits`. Parity: PARTIAL in bt-engine (cadence — `sim.py` gates decisions
+on `rebalance_every`, live checks daily), IGNORED in the backtester (config-replay
+is holdings-agnostic and must 422 rather than score it). Top-level placement is a
+correctness matter, not tidiness: nested under `delta_engine` it would fall into
+config-replay's `_is_inert` and be scored as if absent. See docs/architecture.md
+"trailing-stop exit rule".
+
 Two initial strategy styles:
 
 ```text

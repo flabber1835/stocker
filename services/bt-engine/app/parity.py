@@ -158,6 +158,23 @@ PARITY: dict[str, tuple[str, str]] = {
         IGNORED,
         "the simulator steps DAILY bars; intraday monitoring/trims have no "
         "representation in it at all"),
+
+    # ── trailing-stop exit ───────────────────────────────────────────────
+    # One section declaration covers every leaf: verdict_for falls back to the
+    # section, and unclassified()/check() skip dict values.
+    "trailing_stop": (
+        PARTIAL,
+        "the stop itself IS simulated (per-position peak close, arming, staleness "
+        "and the circuit breaker), but two limits are real. (1) CADENCE: live "
+        "evaluates the stop every chain run (daily); this simulator's decision "
+        "block is gated on rebalance_every, so a sweep at rebalance_every>1 checks "
+        "the stop less often than live and a swept stop_pct carries that latency "
+        "baked in. Run rebalance_every=1 to score it faithfully. (2) VINTAGE: live "
+        "peaks come from AV adjusted closes, which are re-based only when AV "
+        "restates them; this corpus is Sharadar SEP, uniformly restated end to "
+        "end, so the tunnel cannot reproduce a live vintage split. Upgrade to "
+        "HONOURED once the stop runs in the daily loop independent of the "
+        "rebalance gate"),
 }
 
 

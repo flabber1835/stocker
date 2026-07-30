@@ -595,6 +595,67 @@ class PortfolioBuilderConfig(BaseModel):
         return self
 
 
+class TrailingStopConfig(BaseModel):
+    """Trailing-stop EXIT rule: sell a position when its close falls `stop_pct`
+    below the highest close since the position opened.
+
+    The motivating idea is to split two questions the ranking currently answers
+    together. The ranker answers "what should I buy next?"; a trailing stop answers
+    "has this trend objectively ended?" — which is a different question, and a more
+    natural one for a momentum book, since a name should not be sold merely because
+    something else out-ranked it slightly.
+
+    DEFAULTS OFF, and the whole block is inert while `enabled` is False, so a config
+    that omits it (or ships it at defaults) behaves byte-identically to the
+    orphan-timer-only behaviour that predates it. In v1 the stop is ADDITIVE: the
+    orphan exit still runs alongside it. Suppressing the orphan timer was considered
+    and deferred, because with it off nothing trims out-of-target holdings
+    (`engine.py` Loop 3 skips them) and nothing force-exits at capacity, so the book
+    freezes into a stale portfolio. Whether suppression pays is a wind-tunnel A/B,
+    not an assumption.
+
+    Placed at TOP LEVEL rather than under `delta_engine` on purpose. The parity
+    manifests' `flatten_config` is two levels deep, so a block nested at
+    `delta_engine.trailing_stop.*` would be invisible to the CI classification guard;
+    worse, config-replay's `_is_inert` treats every `delta_engine.*` path as inert, so
+    nesting there would let it SILENTLY score a stop-enabled candidate as though the
+    stop did not exist. Top-level earns an honest 422 instead.
+
+    `enabled` is PROTECTED in the LLM-tunable partition (see PROTECTED_PATHS) — it
+    flips an entire exit regime, which is the same class of control as the entry-side
+    falling-knife veto. `stop_pct` and the rest stay tunable, and the wind tunnel can
+    still sweep `enabled` because sweeps deliberately do not enforce that partition.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(
+        default=False,
+        description="Master switch. False ⇒ no stop states are computed and no stop "
+                    "exits are ever emitted; behaviour is identical to pre-feature.")
+    stop_pct: float = Field(
+        default=0.15, gt=0.0, le=0.9,
+        description="Sell when the close is this far below the position's peak close. "
+                    "0.15 = a 15% give-back. Boundary is inclusive.")
+    arm_after_sessions: int = Field(
+        default=5, ge=2, le=252,
+        description="A position must be this many sessions old before its stop can "
+                    "fire. A two-day-old position has a two-close peak and could "
+                    "otherwise be stopped out on noise it never had a chance to rise "
+                    "above.")
+    max_stale_sessions: int = Field(
+        default=2, ge=1, le=10,
+        description="A stop only acts on a close no older than this. A halted, "
+                    "vendor-gapped or delisting name whose last print is frozen below "
+                    "its peak would otherwise emit an unfillable exit every run.")
+    max_stops_per_run: int = Field(
+        default=5, ge=1, le=100,
+        description="Circuit breaker: at most this many positions are stopped in one "
+                    "run (the worst drawdowns first), the rest deferred to later runs. "
+                    "A market-wide drawdown could otherwise liquidate the whole book "
+                    "at a single open — and exits are exempt from the risk-service "
+                    "turnover cap, so nothing downstream throttles it.")
+
+
 class DeltaEngineConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -727,6 +788,12 @@ class StrategyConfig(BaseModel):
     vetter: VetterConfig = Field(default_factory=VetterConfig)
     intraday: IntradayConfig = Field(default_factory=IntradayConfig)
     delta_engine: DeltaEngineConfig = Field(default_factory=DeltaEngineConfig)
+    trailing_stop: TrailingStopConfig = Field(
+        default_factory=TrailingStopConfig,
+        description="Trailing-stop exit rule. Defaults OFF — a config that omits this "
+                    "block behaves exactly as before the feature existed. TOP-LEVEL "
+                    "rather than nested under delta_engine so both parity manifests can "
+                    "see its leaves; see TrailingStopConfig.")
 
     @model_validator(mode="after")
     def sync_max_positions(self) -> "StrategyConfig":
@@ -838,6 +905,14 @@ PROTECTED_PATHS: frozenset[str] = frozenset({
     "strategy_id",          # identity — changing it forks/confuses the strategy registry
     "universe.source",      # structural data-source switch (e.g. av_listing) — not an alpha knob
     "vetter.falling_knife",  # crash-protection thresholds — must not be loosened by a tuner
+    # Flips an entire EXIT REGIME (rank/target-driven ⇄ price-driven), which is the
+    # same class of control as the entry-side falling-knife veto above — not an alpha
+    # knob. Only `.enabled` is protected, so stop_pct / arming / staleness / the
+    # circuit breaker stay LLM-tunable. The wind tunnel can still turn it on: sweeps
+    # deliberately do not enforce this partition (see bt-engine/app/sweep.py), which
+    # is how a candidate config gets SCORED with the stop on before a human decides
+    # to run it.
+    "trailing_stop.enabled",
 })
 
 

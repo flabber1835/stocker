@@ -26,7 +26,34 @@ def _baseline() -> dict:
 
 
 def test_protected_paths_are_the_expected_set():
-    assert PROTECTED_PATHS == frozenset({"strategy_id", "universe.source", "vetter.falling_knife"})
+    assert PROTECTED_PATHS == frozenset({
+        "strategy_id", "universe.source", "vetter.falling_knife",
+        "trailing_stop.enabled",
+    })
+
+
+def test_trailing_stop_switch_is_protected_but_its_width_is_not():
+    """`enabled` flips an entire exit regime (rank/target-driven ⇄ price-driven),
+    which is the same class of control as the entry-side falling-knife veto. The
+    THRESHOLD stays tunable — protecting the whole subtree would also freeze the one
+    number the wind tunnel is meant to sweep."""
+    assert is_protected_path("trailing_stop.enabled")
+    assert not is_protected_path("trailing_stop.stop_pct")
+    assert not is_protected_path("trailing_stop.arm_after_sessions")
+    assert not is_protected_path("trailing_stop.max_stops_per_run")
+    assert not is_protected_path("trailing_stop")  # the section itself is not a setting
+
+
+def test_flipping_the_trailing_stop_is_rejected_as_a_proposal():
+    base = _baseline()
+    proposed = {**base, "trailing_stop": {"enabled": True}}
+    assert validate_llm_tunable_diff(base, proposed) == ["trailing_stop.enabled"]
+
+
+def test_retuning_the_stop_width_is_allowed_as_a_proposal():
+    base = {**_baseline(), "trailing_stop": {"enabled": True, "stop_pct": 0.15}}
+    proposed = {**base, "trailing_stop": {"enabled": True, "stop_pct": 0.20}}
+    assert validate_llm_tunable_diff(base, proposed) == []
 
 
 def test_is_protected_path_prefix_match():

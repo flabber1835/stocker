@@ -126,6 +126,23 @@ PARITY: dict[str, tuple[str, str]] = {
         "machine, so none of these knobs can change its result"),
 
     "intraday": (IGNORED, "daily bars only; intraday logic has no representation"),
+
+    # ── trailing-stop exit ───────────────────────────────────────────────
+    # NOT inert, unlike delta_engine above — and that asymmetry is the point.
+    # delta_engine knobs only steer a state machine config-replay never runs, so
+    # they provably change nothing here. A trailing stop changes which positions
+    # EXIST over time: it is path-dependent, and config-replay is holdings-agnostic
+    # by construction (it composes a fresh target per date and never models a
+    # position's history). Scoring a stop-enabled candidate here would silently
+    # report the number for a strategy WITHOUT the stop. So this one must bite —
+    # the evaluator's run_backtest tool gets a 422 pointing at the wind tunnel,
+    # which is the only engine that can answer the question.
+    "trailing_stop": (
+        IGNORED,
+        "config-replay is holdings-agnostic — it composes a target per date and "
+        "never carries a position's entry or peak, so a path-dependent exit rule "
+        "cannot be modelled at all. Score it in the wind tunnel "
+        "(queue_strategy_experiment), which steps positions day by day"),
 }
 
 

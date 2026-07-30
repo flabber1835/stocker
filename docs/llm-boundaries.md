@@ -86,10 +86,22 @@ every field. This is enforced, not advisory.
 LLM-tunable  : factor weights, factor-engine params, universe filters (min_price,
                min_avg_dollar_volume_20d), portfolio caps, vetter scope
                (candidate_count, strictness, …), delta timings, max_positions, …
-Protected    : strategy_id          (identity — forks the registry)
-  (human-only) universe.source      (structural data-source switch)
-               vetter.falling_knife (crash-protection thresholds — must not be loosened)
+Protected    : strategy_id             (identity — forks the registry)
+  (human-only) universe.source         (structural data-source switch)
+               vetter.falling_knife    (crash-protection thresholds — must not be loosened)
+               trailing_stop.enabled   (flips an entire EXIT REGIME — see below)
 ```
+
+`trailing_stop.enabled` is protected for the same reason as `vetter.falling_knife`:
+it is not an alpha knob but a switch between two exit regimes (rank/target-driven
+vs price-driven). Only `.enabled` is listed, so `stop_pct`, `arm_after_sessions`,
+`max_stale_sessions` and `max_stops_per_run` remain LLM-tunable — protecting the
+whole subtree would freeze the very number the wind tunnel exists to sweep.
+
+The tunnel can still evaluate it switched ON: `bt-engine/app/sweep.py` deliberately
+does not enforce this partition (offline research, human-launched). So a candidate
+gets SCORED with the stop enabled and a human decides whether it reaches the live
+book — proposal and authority stay separated without blinding the research path.
 
 A protected entry guards its whole subtree (prefix match), so every threshold under
 `vetter.falling_knife` is protected.

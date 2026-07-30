@@ -197,6 +197,12 @@ IGNORED_PROBES = [
     ("deduplicate_share_classes", False),
     ("delta_engine.orphan_confirmation_days", 9),
     ("delta_engine.rebalance_drift_threshold", 0.5),
+    # NOT a delta_engine path, deliberately — see the manifest note. Nesting the
+    # trailing stop under delta_engine would put it in the inert exception below and
+    # config-replay would score a stop-enabled candidate as though the stop were
+    # absent, with a Sharpe attached.
+    ("trailing_stop.enabled", True),
+    ("trailing_stop.stop_pct", 0.05),
 ]
 
 
