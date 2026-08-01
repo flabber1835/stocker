@@ -248,3 +248,58 @@ def test_bt_sweep_equity_schema_and_write(db_engine):
 
     with pytest.raises(Exception):
         _run(db_engine, _bad_phase(db_engine))
+
+
+def test_bt_sweep_trades_answers_the_delist_question(db_engine):
+    """The read this table exists for. A wave of delist exits at
+    delist_recovery_pct and an ordinary drawdown are indistinguishable in the
+    equity curve alone; `reason` is what separates them."""
+    from sqlalchemy import text
+
+    async def _go(engine):
+        async with engine.begin() as conn:
+            sid = (await conn.execute(text(
+                "INSERT INTO bt_sweeps (spec, n_configs, tune_start, tune_end, "
+                " validate_start, validate_end) "
+                "VALUES ('{}'::jsonb, 1, :a, :b, :b, :c) RETURNING sweep_id"),
+                {"a": SIM_START, "b": SIM_END - timedelta(days=30), "c": SIM_END}
+            )).scalar()
+            rows = [
+                {"sid": str(sid), "idx": 0, "widx": 0, "ph": "tune",
+                 "d": SIM_END - timedelta(days=5), "tk": "AAA", "act": "exit",
+                 "q": 10, "px": 7.0, "cost": 0.1,
+                 "rsn": "delisted — exited at 70% of last available price (10.0000)"},
+                {"sid": str(sid), "idx": 0, "widx": 0, "ph": "tune",
+                 "d": SIM_END - timedelta(days=5), "tk": "BBB", "act": "exit",
+                 "q": 5, "px": 50.0, "cost": 0.1,
+                 "rsn": "trailing stop: close 50.00 is -12.0% below peak 57.00"},
+                # same ticker twice on one date — legitimate, and the reason there
+                # is no natural key to conflict on
+                {"sid": str(sid), "idx": 0, "widx": 0, "ph": "tune",
+                 "d": SIM_END - timedelta(days=5), "tk": "BBB", "act": "entry",
+                 "q": 5, "px": 50.0, "cost": 0.1, "rsn": "entry"},
+            ]
+            ins = text(
+                "INSERT INTO bt_sweep_trades (sweep_id, config_idx, window_idx, "
+                " phase, date, ticker, action, qty, price, tx_cost, reason) "
+                "VALUES (CAST(:sid AS uuid), :idx, :widx, :ph, :d, :tk, :act, :q, "
+                " :px, :cost, :rsn)")
+            await conn.execute(ins, rows)
+            # Writer idempotency is delete-then-insert, scoped to the leg.
+            await conn.execute(text(
+                "DELETE FROM bt_sweep_trades WHERE sweep_id = CAST(:s AS uuid) "
+                "AND config_idx = 0 AND window_idx = 0"), {"s": str(sid)})
+            await conn.execute(ins, rows)
+        async with engine.connect() as conn:
+            n = (await conn.execute(text(
+                "SELECT count(*) FROM bt_sweep_trades WHERE sweep_id = CAST(:s AS uuid)"),
+                {"s": str(sid)})).scalar()
+            delists = (await conn.execute(text(
+                "SELECT date, count(*) FROM bt_sweep_trades "
+                "WHERE sweep_id = CAST(:s AS uuid) AND reason LIKE 'delisted%' "
+                "GROUP BY date"), {"s": str(sid)})).all()
+        return n, delists
+
+    n, delists = _run(db_engine, _go)
+    assert n == 3, "re-running the leg duplicated fills — writer is not idempotent"
+    assert len(delists) == 1 and delists[0][1] == 1

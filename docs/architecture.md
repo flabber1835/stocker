@@ -3835,6 +3835,19 @@ candidate diverged rather than only by how much. That is the smallest useful pie
 of the trace/forest-map work: the summary says a candidate lost; the curve says
 where to look.
 
-Still not persisted for sweep legs: trades and positions. The delist-artifact
-hypothesis specifically needs `bt_trades` (reason LIKE 'delisted%'), so that is the
-natural next increment.
+`bt_sweep_trades` followed immediately, for the reason the equity table alone was
+not enough: a wave of delist exits at `delist_recovery_pct` and an ordinary drawdown
+are **indistinguishable in the curve**. The `reason` string is what separates them —
+it names the mechanism that produced each fill (orphan exit, trailing stop, delist
+sweep, drift trim), which is the attribution no summary can express. Idempotency
+there is delete-then-insert scoped to the leg rather than ON CONFLICT, because a
+ticker can legitimately trade twice on one date and there is no natural key.
+
+So the shape of the diagnosis is now: `bt_sweep_equity` says WHEN a candidate
+diverged, `bt_sweep_trades` says WHY. Both are on the evaluator's SQL allowlist and
+both are purged by `purge-void-bt-results.sh` — a readable table that survives a
+purge is a permanent island of void evidence, which is the failure the purge
+cross-check test exists to prevent.
+
+Still not persisted for sweep legs: positions. That is the remaining piece for a
+full forest map (what the book HELD on each date, not only what it traded).

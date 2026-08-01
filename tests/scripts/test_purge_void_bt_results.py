@@ -67,7 +67,7 @@ def test_it_never_passes_volumes_to_compose(src):
 
 @pytest.mark.parametrize("table", [
     "bt_sweeps", "bt_sweep_results", "bt_sweep_aggregates",
-    "bt_runs", "bt_equity", "bt_positions", "bt_trades", "bt_sweep_equity"])
+    "bt_runs", "bt_equity", "bt_positions", "bt_trades", "bt_sweep_equity", "bt_sweep_trades"])
 def test_every_results_table_the_evaluator_can_read_is_purged(src, table):
     """These are exactly the tables in the evaluator's bt_sql_query allowlist.
     Missing one leaves a readable island of void evidence."""

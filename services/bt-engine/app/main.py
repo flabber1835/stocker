@@ -672,29 +672,60 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
                 # cannot be queried by date. Best-effort: a sweep must not fail
                 # because a diagnostic write did.
                 _equity = row.pop("equity_by_phase", None) or {}
+                _trades = row.pop("trades_by_phase", None) or {}
                 row = _json_sanitize(row)
                 cfg_rows.append(row)
-                if _equity:
-                    try:
-                        _eq_params = [
-                            {"sid": sweep_id, "idx": idx, "widx": widx,
-                             "ph": phase, "d": e.get("date"),
-                             "pv": e.get("portfolio_value"),
-                             "sv": e.get("spy_value"), "dd": e.get("drawdown")}
-                            for phase, rows_ in _equity.items() for e in (rows_ or [])
-                            if e.get("date") is not None
-                        ]
-                        if _eq_params:
-                            async with engine.begin() as conn:
+                # The curve says WHEN a candidate diverged; the fills (with their
+                # `reason`) say WHY — a wave of delist exits at delist_recovery_pct
+                # and an ordinary drawdown are indistinguishable in the curve.
+                # Both go to their own tables, never into bt_sweep_results' JSONB.
+                # Best-effort: a sweep must not fail because a diagnostic write did.
+                try:
+                    _eq_params = [
+                        {"sid": sweep_id, "idx": idx, "widx": widx,
+                         "ph": phase, "d": e.get("date"),
+                         "pv": e.get("portfolio_value"),
+                         "sv": e.get("spy_value"), "dd": e.get("drawdown")}
+                        for phase, rows_ in _equity.items() for e in (rows_ or [])
+                        if e.get("date") is not None
+                    ]
+                    _tr_params = [
+                        {"sid": sweep_id, "idx": idx, "widx": widx,
+                         "ph": phase, "d": t.get("date"), "tk": t.get("ticker"),
+                         "act": t.get("action"), "q": t.get("qty"),
+                         "px": t.get("price"), "cost": t.get("tx_cost") or 0,
+                         "rsn": (t.get("reason") or "")[:300]}
+                        for phase, rows_ in _trades.items() for t in (rows_ or [])
+                        if t.get("date") is not None and t.get("ticker")
+                    ]
+                    if _eq_params or _tr_params:
+                        async with engine.begin() as conn:
+                            if _eq_params:
                                 await conn.execute(text(
                                     "INSERT INTO bt_sweep_equity (sweep_id, config_idx, "
                                     " window_idx, phase, date, portfolio_value, spy_value, "
                                     " drawdown) VALUES (CAST(:sid AS uuid), :idx, :widx, "
                                     " :ph, :d, :pv, :sv, :dd) "
                                     "ON CONFLICT DO NOTHING"), _eq_params)
-                    except Exception as exc:  # noqa: BLE001
-                        print(f"[sweep] equity persistence failed for config {idx} "
-                              f"({exc}) — results unaffected", flush=True)
+                            if _tr_params:
+                                # A ticker can legitimately trade twice on one date,
+                                # so there is no natural key to conflict on —
+                                # idempotency is delete-then-insert, scoped to this
+                                # leg, inside the same transaction.
+                                await conn.execute(text(
+                                    "DELETE FROM bt_sweep_trades WHERE "
+                                    " sweep_id = CAST(:sid AS uuid) AND config_idx = :idx "
+                                    " AND window_idx = :widx"),
+                                    {"sid": sweep_id, "idx": idx, "widx": widx})
+                                await conn.execute(text(
+                                    "INSERT INTO bt_sweep_trades (sweep_id, config_idx, "
+                                    " window_idx, phase, date, ticker, action, qty, price, "
+                                    " tx_cost, reason) VALUES (CAST(:sid AS uuid), :idx, "
+                                    " :widx, :ph, :d, :tk, :act, :q, :px, :cost, :rsn)"),
+                                    _tr_params)
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[sweep] trace persistence failed for config {idx} "
+                          f"({exc}) — results unaffected", flush=True)
                 async with engine.begin() as conn:
                     await conn.execute(text(
                         "INSERT INTO bt_sweep_results (sweep_id, config_idx, window_idx, "

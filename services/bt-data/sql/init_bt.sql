@@ -301,6 +301,32 @@ CREATE TABLE IF NOT EXISTS bt_sweep_equity (
 CREATE INDEX IF NOT EXISTS idx_bt_sweep_equity_cfg
     ON bt_sweep_equity (sweep_id, config_idx, phase, date);
 
+-- Every fill for SWEEP legs, with its REASON. The equity curve says WHEN a
+-- candidate diverged; this says WHY — a wave of "delisted — exited at 70% of last
+-- available price" and an ordinary drawdown look identical in the curve alone, and
+-- the first is an artifact of delist_recovery_pct while the second is the strategy.
+--
+-- No natural key (a ticker can legitimately trade twice on a date), so idempotency
+-- comes from the writer deleting the leg's rows before inserting rather than from
+-- ON CONFLICT. reason is what makes this worth storing at all: it carries the
+-- mechanism that produced the fill (orphan exit, trailing stop, delist sweep,
+-- drift trim), which is the attribution the summaries cannot express.
+CREATE TABLE IF NOT EXISTS bt_sweep_trades (
+    sweep_id        UUID         NOT NULL REFERENCES bt_sweeps(sweep_id) ON DELETE CASCADE,
+    config_idx      INTEGER      NOT NULL,
+    window_idx      INTEGER      NOT NULL DEFAULT 0,
+    phase           VARCHAR(10)  NOT NULL CHECK (phase IN ('tune','validate')),
+    date            DATE         NOT NULL,
+    ticker          VARCHAR(20)  NOT NULL,
+    action          VARCHAR(12)  NOT NULL,
+    qty             NUMERIC(18,6) NOT NULL,
+    price           NUMERIC(16,6) NOT NULL,
+    tx_cost         NUMERIC(16,4) NOT NULL DEFAULT 0,
+    reason          TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bt_sweep_trades_cfg
+    ON bt_sweep_trades (sweep_id, config_idx, phase, date);
+
 -- Phase 5b: per-config aggregates across the rolling windows. Rows exist only
 -- for rolling-mode sweeps; the leaderboard endpoint auto-detects them. The
 -- champion (max median_oos_sharpe; ties broken by worst_oos_sharpe then

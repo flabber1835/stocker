@@ -94,6 +94,22 @@ def test_the_curve_comes_back_for_both_phases(result):
     assert eq["tune"] and eq["validate"], "a phase returned an empty curve"
 
 
+def test_the_fills_come_back_for_both_phases(result):
+    tr = result["trades_by_phase"]
+    assert set(tr) == {"tune", "validate"}
+    assert tr["tune"], "no fills recorded for the tune window"
+
+
+def test_fills_carry_the_reason(result):
+    """`reason` is why this is worth storing: it names the MECHANISM that produced
+    the fill (orphan exit, trailing stop, delist sweep, drift trim). Without it a
+    wave of delist exits at delist_recovery_pct is indistinguishable from an
+    ordinary drawdown in the equity curve."""
+    t = result["trades_by_phase"]["tune"][0]
+    assert {"date", "ticker", "action", "qty", "price", "tx_cost", "reason"} <= set(t)
+    assert any(x.get("reason") for x in result["trades_by_phase"]["tune"])
+
+
 def test_rows_carry_what_the_diagnosis_needs(result):
     """book vs SPY on a date is the whole question — 'did we fall while the market
     held up, and when'."""
@@ -116,8 +132,8 @@ def test_the_curve_is_not_stored_in_the_summary_jsonb(result):
     rows into bt_sweep_results' JSONB would make them unqueryable by date, which
     is the only way anyone wants to read them."""
     for key in ("in_sample", "out_sample"):
-        assert "equity_by_phase" not in (result[key] or {})
-        assert "equity" not in (result[key] or {})
+        for leaked in ("equity_by_phase", "trades_by_phase", "equity", "trades"):
+            assert leaked not in (result[key] or {})
 
 
 def test_an_errored_config_returns_no_curve():
@@ -131,3 +147,4 @@ def test_an_errored_config_returns_no_curve():
         sim_kwargs=dict(tx_cost_bps=0, fill_timing="close", rebalance_every=5))
     assert bad.get("error_message")
     assert not bad.get("equity_by_phase")
+    assert not bad.get("trades_by_phase")

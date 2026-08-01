@@ -224,6 +224,7 @@ def run_config_both_windows(prices, fundamentals, sector_map, base_config: dict,
     cfg = StrategyConfig(**cfg_dict)
 
     equity_by_phase: dict[str, list] = {}
+    trades_by_phase: dict[str, list] = {}
 
     def _one(start: date, end: date, phase: str) -> dict:
         params = SimParams(start=start, end=end, **sim_kwargs)
@@ -235,10 +236,13 @@ def run_config_both_windows(prices, fundamentals, sector_map, base_config: dict,
                                 progress_cb=cb, factor_cache=factor_cache,
                                 listing_windows=listing_windows,
                                 earnings=earnings)
-        # Keep the per-session curve. It used to be discarded here, so a sweep
-        # persisted only summaries and the SHAPE of a run was unrecoverable once
-        # it finished — the caller writes these to bt_sweep_equity.
+        # Keep the per-session curve AND the fills. Both used to be discarded
+        # here, so a sweep persisted only summaries and the SHAPE of a run was
+        # unrecoverable once it finished — the caller writes these to
+        # bt_sweep_equity / bt_sweep_trades. The curve says WHEN a candidate
+        # diverged; the fills (and their `reason`) say WHY.
         equity_by_phase[phase] = result.equity
+        trades_by_phase[phase] = result.trades
         summary = result.summary
         # Stamp the CONDITIONS of production. Without this a run made with the
         # parity/coverage gate disabled is byte-identical to an enforced one,
@@ -257,10 +261,11 @@ def run_config_both_windows(prices, fundamentals, sector_map, base_config: dict,
     oos_sharpe = out_sample.get("sharpe_ratio")
     return {
         "config_diff": diff,
-        # Popped by the caller and written to bt_sweep_equity — deliberately NOT
-        # part of the JSONB stored on bt_sweep_results, which would put thousands
-        # of rows into a blob nothing can query by date.
+        # Popped by the caller and written to bt_sweep_equity / bt_sweep_trades —
+        # deliberately NOT part of the JSONB stored on bt_sweep_results, which
+        # would put thousands of rows into a blob nothing can query by date.
         "equity_by_phase": equity_by_phase,
+        "trades_by_phase": trades_by_phase,
         "in_sample": in_sample,
         "out_sample": out_sample,
         "is_sharpe": is_sharpe,

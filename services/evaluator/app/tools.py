@@ -666,7 +666,8 @@ async def sql_query(args: dict, *, engine) -> str:
 # mid-run), and ad-hoc mining of 20 years of history is a data-dredging path
 # that bypasses the trials accounting entirely — the model could "find" an
 # in-sample pattern and author a config from it with no trial registered.
-# bt_sweep_equity is the per-session curve for SWEEP legs; bt_equity covers only
+# bt_sweep_equity / bt_sweep_trades are the per-session curve and the fills for
+# SWEEP legs; bt_equity covers only
 # interactive /jobs/run. Without it a candidate's SHAPE is unreadable — only its
 # summary — so "did the book fall while SPY held up, and when?" was unanswerable
 # for the very runs that decide promotion.
@@ -675,7 +676,8 @@ async def sql_query(args: dict, *, engine) -> str:
 # results.sh is cross-checked against it by parsing this expression, and a comment
 # containing a ')' truncates that match.
 BT_TABLES = ("bt_sweeps", "bt_sweep_results", "bt_sweep_aggregates", "bt_runs",
-             "bt_equity", "bt_positions", "bt_trades", "bt_sweep_equity")
+             "bt_equity", "bt_positions", "bt_trades", "bt_sweep_equity",
+             "bt_sweep_trades")
 _BT_IDENT = re.compile(r"\b(bt_[a-z_]+)\b", re.IGNORECASE)
 
 
