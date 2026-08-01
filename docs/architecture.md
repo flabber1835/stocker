@@ -1991,9 +1991,10 @@ duplicated strategy math now has a single import path that a merged codebase
 inherits unchanged.
 
 Deploy caveat: strategy_engine is a NEW module directory under shared/ — the
-stale-base trap applies. `make build-base` BEFORE rebuilding pipeline,
-portfolio-builder, backtester, evaluator (and the bt stack next time it is
-rebuilt).
+stale-base trap applies. Rebuild the base BEFORE pipeline, portfolio-builder,
+backtester, evaluator (and the bt stack next time it is rebuilt):
+`docker build --network host -t stocker-base:latest -f Dockerfile.base .`
+(`make build-base` is the same command, but make is not installed on the NAS.)
 
 ## Design Decision: closed-loop evaluation upgrades (2026-07, optimizer-essay adoption)
 

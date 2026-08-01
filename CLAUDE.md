@@ -514,8 +514,15 @@ pushes, and rebuilds):
 
 ```bash
 cd /volume1/docker/github/stocker
-scripts/deploy.sh <changed-services...>     # or: make deploy SERVICES="api pipeline"
+scripts/deploy.sh <changed-services...>
 ```
+
+**`make` is NOT installed on the NAS.** The `Makefile` is a development
+convenience only — every deploy instruction must use the underlying command, and
+the `scripts/*.sh` deploys already do (they call `docker build` directly, never
+`make`). A `make` invocation on the NAS exits "command not found"; chained with
+`;` or written on its own line, whatever follows then runs against a STALE image
+and the failure surfaces much later as an ImportError crash loop.
 
 **When you are not sure what is deployed** — after a long session, or any change
 touching `shared/` — use the all-encompassing deploy instead of naming services:
@@ -553,13 +560,14 @@ docker compose up -d --build <changed-services...>
 Rebuild only the services whose code (or the `shared/` package they bundle)
 changed. A change under `shared/` requires rebuilding EVERY service that imports it.
 
-**The BACKTEST stack needs `make build-base` for ANY `shared/` change, not just a
+**The BACKTEST stack needs a BASE REBUILD for ANY `shared/` change, not just a
 new module file.** `docker-compose.override.yml` bind-mounts `./shared:/shared` for
 the LIVE services only — it does not apply to `docker-compose.backtest.yml` at all.
 bt-engine and bt-data import the copy BAKED into `stocker-base`, so rebuilding
 bt-engine alone re-layers it on a stale base and the edit stays invisible; the
 container then crash-loops on ImportError. Always
-`make build-base && docker compose -f docker-compose.backtest.yml up -d --build
+`docker build --network host -t stocker-base:latest -f Dockerfile.base .` then
+`docker compose -f docker-compose.backtest.yml up -d --build
 bt-engine`. (Cost of getting this wrong, 2026-07-31: bt-engine crash-looped on a
 function added to an existing shared file, because "editing existing shared files
 is live" was read as a general rule when it holds for the live stack only.)
@@ -1404,7 +1412,7 @@ bug a layer up (live passed `current_holdings`/`turnover_penalty` into
 `greedy_select`, the simulator did not, so a nonzero penalty was scored as zero).
 TWO simulators answer "what would this config have done?", so there are TWO
 declarations over ONE shared mechanism (`shared/stock_strategy_shared/parity.py`
-— a NEW shared module file, so `make build-base` FIRST):
+— a NEW shared module file, so `docker build --network host -t stocker-base:latest -f Dockerfile.base .` FIRST):
 
 ```text
 services/bt-engine/app/parity.py    the wind tunnel. Baseline = SCHEMA DEFAULTS
@@ -2181,7 +2189,7 @@ stocker/
                            import THIS; their local rank/select files are re-export
                            shims (sys.modules replacement — one module object).
                            NEW shared module dir ⇒ deploys touching it need
-                           `make build-base` FIRST.
+                           `docker build --network host -t stocker-base:latest -f Dockerfile.base .` FIRST.
       broker/            ← BrokerAdapter abstraction (one active broker per deploy,
                            BROKER env; AlpacaBrokerAdapter built; IBKRBrokerAdapter
                            BUILT but DORMANT — activation needs BROKER=ibkr + the

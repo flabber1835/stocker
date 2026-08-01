@@ -130,5 +130,5 @@ else
     info "no services passed — skipping docker build."
     info "usage: scripts/deploy.sh <changed-services...>  (e.g. api pipeline)"
     info "reminder: a change under shared/ requires rebuilding EVERY service that"
-    info "imports it, and a brand-NEW shared module additionally requires 'make build-base' first."
+    info "imports it, and a brand-NEW shared module additionally requires the base rebuild first (`docker build --network host -t stocker-base:latest -f Dockerfile.base .`)."
 fi
