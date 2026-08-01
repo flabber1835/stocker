@@ -145,11 +145,28 @@ def main() -> int:
     cfg_hash = hashlib.sha256(
         json.dumps(validated, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
+    # The queue's canonical diff shape is {path: {from, to}} (evaluator
+    # config_diff), NOT {path: value}. The packet renders it as "from -> to", so a
+    # bare value used to raise AttributeError there — and because packet sections
+    # are caught as a unit, one malformed entry blanked the evaluator's whole view
+    # of its own queue. Emit the real shape.
+    base_flat = base_cfg.model_dump(mode="json")
+
+    def _at(cfg: dict, path: str):
+        node = cfg
+        for part in path.split("."):
+            if not isinstance(node, dict) or part not in node:
+                return None
+            node = node[part]
+        return node
+
+    diff_entry = {p: {"from": _at(base_flat, p), "to": v} for p, v in diff.items()}
+
     entry = {
         "id": str(uuid.uuid4()), "kind": "full_config", "status": "pending",
         "origin": "human",
         "hypothesis": " ".join(args.hypothesis.split()),
-        "config": validated, "config_hash": cfg_hash, "diff": diff,
+        "config": validated, "config_hash": cfg_hash, "diff": diff_entry,
         "regime": None, "mechanism": args.mechanism,
         "changed_fields": sorted(diff),
         "predicted_tune_cagr_edge": None,

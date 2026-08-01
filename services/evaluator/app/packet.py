@@ -2050,9 +2050,22 @@ def _experiment_queue() -> dict:
         diff = e.get("diff")
         if isinstance(diff, dict) and diff:
             # compact "field: from -> to" so the thesis can be read against the
-            # actual change without dumping a whole config into the packet
-            row["changes"] = {k: f"{v.get('from')} -> {v.get('to')}"
-                              for k, v in list(diff.items())[:12]}
+            # actual change without dumping a whole config into the packet.
+            #
+            # The canonical shape from config_diff is {path: {from, to}}, but a
+            # queue entry can be hand-written (scripts/queue-experiment.py) and
+            # carry {path: value} instead. Rendering that used to raise
+            # AttributeError on the bare value, and because _section catches per
+            # SECTION rather than per entry, ONE malformed row blanked the whole
+            # experiment_queue AND backtest_lab views — leaving the evaluator
+            # unable to see its own queue, which is how an unrelated candidate
+            # consumed a lane slot unnoticed. A rendering detail must never cost
+            # the model a whole section.
+            def _fmt(v):
+                if isinstance(v, dict) and ("from" in v or "to" in v):
+                    return f"{v.get('from')} -> {v.get('to')}"
+                return f"-> {v}"     # value-only entry: the target, origin unknown
+            row["changes"] = {k: _fmt(v) for k, v in list(diff.items())[:12]}
             row["n_changed_fields"] = len(diff)
         recent.append(row)
     return {"available": True, "counts": by_status, "recent": recent,
