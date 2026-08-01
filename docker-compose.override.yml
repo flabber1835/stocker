@@ -16,6 +16,17 @@
 #       -> docker compose build <service>   (and rebuild stocker-base for shared deps)
 #   - adding a brand-new module file under shared/ (editable finder caches the file
 #       list) -> rebuild stocker-base. Editing existing shared files is live.
+#   - THE BACKTEST STACK, for ANY shared/ change at all. This file only overrides
+#       docker-compose.yml, so nothing here applies to docker-compose.backtest.yml:
+#       bt-engine and bt-data have NO /shared bind mount and import the copy BAKED
+#       into stocker-base (Dockerfile.base:5-9). Rebuilding bt-engine alone just
+#       re-layers it on a stale base, so the edit is still invisible and the
+#       container crash-loops on ImportError. Always:
+#           make build-base && docker compose -f docker-compose.backtest.yml \
+#               up -d --build bt-engine
+#       The "editing existing shared files is live" line above is true for the LIVE
+#       stack ONLY — it is not a general rule, and reading it as one is what caused
+#       the 2026-07-31 bt-engine crash loop on a missing shared function.
 #
 # NOTE: shared/ is imported by every service, so a syntax error there breaks ALL
 # services on their next restart — higher blast radius than a single-service edit.

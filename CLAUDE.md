@@ -552,6 +552,18 @@ docker compose up -d --build <changed-services...>
 
 Rebuild only the services whose code (or the `shared/` package they bundle)
 changed. A change under `shared/` requires rebuilding EVERY service that imports it.
+
+**The BACKTEST stack needs `make build-base` for ANY `shared/` change, not just a
+new module file.** `docker-compose.override.yml` bind-mounts `./shared:/shared` for
+the LIVE services only — it does not apply to `docker-compose.backtest.yml` at all.
+bt-engine and bt-data import the copy BAKED into `stocker-base`, so rebuilding
+bt-engine alone re-layers it on a stale base and the edit stays invisible; the
+container then crash-loops on ImportError. Always
+`make build-base && docker compose -f docker-compose.backtest.yml up -d --build
+bt-engine`. (Cost of getting this wrong, 2026-07-31: bt-engine crash-looped on a
+function added to an existing shared file, because "editing existing shared files
+is live" was read as a general rule when it holds for the live stack only.)
+
 A brand-NEW module file under `shared/` additionally requires rebuilding
 `stocker-base` first (`docker build --network host -t stocker-base:latest -f
 Dockerfile.base .`) — the editable install caches the module file list, and the
