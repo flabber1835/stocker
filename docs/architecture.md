@@ -3120,6 +3120,20 @@ therefore scored over EXACTLY `EVALUATOR_FWD_SESSIONS` sessions — the same
 fixed-horizon discipline already adopted for the shadow comparison and the
 decision ledger.
 
+**The horizon is 21 sessions (2026-08). It was 5.** The selection and gate audits
+answer "did the ranker miss winners / did the caps reject winners / did the vetter
+exclude winners"; the owner objective is roughly one-month continuation. At 5 they
+judged a WEEK, and their conclusions were read into reviews as if they answered the
+month — one of them ("cap_blocked beat selected in 6 of 8 windows") drove a queued
+candidate. Meanwhile `SHADOW_HORIZON_SESSIONS` and `CALIB_HORIZON_SESSIONS` were
+already 20 and the wind tunnel promotes on multi-year compounded return, so the loop
+ran three horizons against one objective and could improve any of them without
+improving the goal.
+
+The cost is real and was the original reason for 5: a build cannot be scored until
+21 sessions of forward data exist, so each review pools fewer builds. A fast answer
+to the wrong question is not a cheaper answer.
+
 Implementation:
 
 ```text

@@ -310,9 +310,19 @@ def test_account_vs_spy_windows_symmetric(db_engine):
 # Seeds three OLDER builds (D-16/-14/-12, all past the forward-window cutoff, all
 # older than the D-8 anchor so the newest-build assertions elsewhere are
 # untouched) in which the cap_blocked name beats the selected ones every time.
+#
+# The horizon is PINNED to 5 here rather than using the default. This test's subject
+# is that builds are POOLED at a FIXED horizon — a property that holds at any
+# horizon — and the seed spans 31 calendar days, so at the real default (21) no
+# seeded build has enough forward data and the test measures nothing. The default
+# itself is asserted separately by test_default_forward_horizon_matches_objective,
+# which is where a change to it should have to be justified.
 
-def test_selection_audit_pools_multiple_builds_at_a_fixed_horizon(db_engine):
+def test_selection_audit_pools_multiple_builds_at_a_fixed_horizon(db_engine, monkeypatch):
     from sqlalchemy import text
+
+    import app.packet as _pkt
+    monkeypatch.setattr(_pkt, "FWD_SESSIONS", 5)
 
     async def _add_builds(engine):
         async with engine.begin() as conn:
@@ -361,7 +371,8 @@ def test_selection_audit_pools_multiple_builds_at_a_fixed_horizon(db_engine):
                           for t, rk in (("P01", 1), ("P03", 3))])
     asyncio.run(_run_with_engine(db_engine, _add_builds))
 
-    from app.packet import FWD_SESSIONS, _selection_audit
+    from app.packet import _selection_audit
+    FWD_SESSIONS = _pkt.FWD_SESSIONS
     audit = _call(db_engine, _selection_audit)
 
     # Pooled, not single-window.
@@ -525,3 +536,27 @@ def test_schema_discovery_returns_the_columns_the_packet_hides(db_engine):
     # And the order-lifecycle fields the old partial hint list concealed.
     for col in ("submitted_at", "filled_qty", "avg_fill_price"):
         assert col in out, f"{col} not discoverable"
+
+
+def test_default_forward_horizon_matches_the_objective():
+    """The selection and gate audits answer "did the ranker miss winners / did the
+    caps reject winners / did the vetter exclude winners". The owner objective is
+    roughly one-month continuation, so those audits must be scored over roughly a
+    month.
+
+    It was 5 sessions — a WEEK — while SHADOW_HORIZON_SESSIONS and
+    CALIB_HORIZON_SESSIONS were already 20 and the wind tunnel promotes on
+    multi-year compounded return. Three horizons against one objective means the
+    loop can improve any of them without improving the goal, and one 5-session
+    conclusion ("cap_blocked beat selected in 6 of 8 windows") had already reached a
+    review and driven a queued candidate.
+
+    Pinned as a test because it is a one-line default that silently changes what
+    every audit means."""
+    import app.packet as _pkt
+    assert _pkt.FWD_SESSIONS == 21, (
+        "the selection/gate audits are scored over "
+        f"{_pkt.FWD_SESSIONS} sessions against a ~1-month objective")
+    # ...and it should stay comparable with the constants that were already right.
+    assert abs(_pkt.FWD_SESSIONS - _pkt.SHADOW_HORIZON_SESSIONS) <= 2
+    assert abs(_pkt.FWD_SESSIONS - _pkt.CALIB_HORIZON_SESSIONS) <= 2

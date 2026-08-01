@@ -1,3 +1,34 @@
+# ============================================================================
+# INACTIVE — THIS CONFIG IS NOT RUNNING AND NEVER HAS BEEN.
+#
+# The ACTIVE strategy is momentum_rotation_v2.yaml, pinned in docker-compose.yml
+# (eight services). Nothing loads this file: not compose, not code, not docs.
+#
+# Renamed to .inactive on 2026-08-01 after an external analyst spent an entire
+# study on it believing it was live. Every conclusion in that study described
+# parameters that exist ONLY here:
+#
+#     this file (v3)                    momentum_rotation_v2 (ACTIVE)
+#     momentum          0.60            0.36
+#     low_volatility    0.06            0.14
+#     (no earnings_surprise)            earnings_surprise 0.12
+#     momentum_method   residual_riskadj (divides by formation vol)
+#                                       residual (no vol divisor at all)
+#     weighting         inverse_vol      score_proportional
+#     selection_vol_aversion  <unset> -> 1.0 (max defensive)
+#                                       0.2 (an ~8% haircut, not ~50%)
+#     (no book-level vol control)       vol_target_enabled: true @ 0.18
+#
+# The analysis concluded that stocker "penalises volatility four times over".
+# That is true of THIS file. v2 removed three of those four and moved risk
+# control to a book-level exposure overlay — which was the study's own
+# recommendation, implemented before it was written.
+#
+# Kept (rather than deleted) because it is a coherent aggressive variant worth
+# testing one day, and because the git history of a deleted file is not where
+# anyone looks. To test it, queue it as a wind-tunnel candidate. To run it live
+# it would have to be renamed back AND pinned in docker-compose.yml.
+# ============================================================================
 # momentum_rotation_v3 — AGGRESSIVE momentum (deepest low-vol/value cut)
 #
 # Spectrum: momentum_rotation_v1 (mom 0.42, low_vol 0.16, value 0.14, defensive) →

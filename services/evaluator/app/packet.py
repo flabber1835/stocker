@@ -878,8 +878,23 @@ def classify_candidates(candidates: list[dict], selected: set[str],
 # the packet reported 7 days. Sessions is the only unit that means the same
 # thing every day of the week. Old env name still read as a fallback so an
 # existing deploy's override is not silently dropped.
+#
+# 21, not 5. The selection audit and the gate audit answer "did the ranker miss
+# winners / did the caps reject winners / did the vetter exclude winners", and the
+# owner objective is roughly one-month continuation. At 5 sessions those audits
+# judged a week and the conclusions were fed to reviews as if they answered the
+# month — while shadow (SHADOW_HORIZON_SESSIONS) and score calibration
+# (CALIB_HORIZON_SESSIONS) already used 20, and the wind tunnel promotes on
+# multi-year compounded return. Three horizons, one objective, and the evaluator
+# could improve any one of them without improving the goal.
+#
+# 21 ≈ one trading month, matching the 20-session constants closely enough to
+# compare while being the honest length of the thing being judged. The cost is
+# fewer scorable builds per review (a build needs 21 sessions of forward data
+# before it can be scored at all), which is a real loss of sample and the reason
+# this was 5 — but a fast answer to the wrong question is not a cheaper answer.
 FWD_SESSIONS = int(os.getenv("EVALUATOR_FWD_SESSIONS",
-                             os.getenv("EVALUATOR_FWD_MIN_DAYS", "5")))
+                             os.getenv("EVALUATOR_FWD_MIN_DAYS", "21")))
 # How many past builds the selection audit pools. One build per portfolio_date
 # (the authoritative, non-superseded one).
 SELECTION_AUDIT_BUILDS = int(os.getenv("EVALUATOR_SELECTION_AUDIT_BUILDS", "8"))
