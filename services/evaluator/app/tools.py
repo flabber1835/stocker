@@ -296,7 +296,7 @@ def tool_definitions() -> list[dict]:
                 "path for EXPERIMENT-LANE candidates, keyed sweep_id/config_idx/"
                 "window_idx/phase — use this to see WHEN a candidate diverged "
                 "from SPY rather than only by how much), bt_positions (what a run "
-                "HELD on each rebalance date), bt_trades (every fill with price "
+                "HELD on each rebalance date, interactive runs), bt_sweep_positions (the same for experiment-lane candidates — breadth and deployment over time), bt_trades (every fill with price "
                 "and reason). "
                 "The raw price/fundamental corpus is deliberately NOT reachable: "
                 "ad-hoc mining of 20 years of history would bypass the "
@@ -677,7 +677,7 @@ async def sql_query(args: dict, *, engine) -> str:
 # containing a ')' truncates that match.
 BT_TABLES = ("bt_sweeps", "bt_sweep_results", "bt_sweep_aggregates", "bt_runs",
              "bt_equity", "bt_positions", "bt_trades", "bt_sweep_equity",
-             "bt_sweep_trades")
+             "bt_sweep_trades", "bt_sweep_positions")
 _BT_IDENT = re.compile(r"\b(bt_[a-z_]+)\b", re.IGNORECASE)
 
 

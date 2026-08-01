@@ -3849,5 +3849,49 @@ both are purged by `purge-void-bt-results.sh` — a readable table that survives
 purge is a permanent island of void evidence, which is the failure the purge
 cross-check test exists to prevent.
 
-Still not persisted for sweep legs: positions. That is the remaining piece for a
-full forest map (what the book HELD on each date, not only what it traded).
+`bt_sweep_positions` completes the trace: what the book HELD on each date, which is
+the only way to see BREADTH (how many names) and DEPLOYMENT (how much capital) over
+time. The 35-names-drifting-to-26 defect was invisible in the summary AND in the
+trade log, and obvious here.
+
+### The forest map
+
+`services/bt-engine/app/forest.py` turns that trace into a run's SHAPE. It is PURE,
+computed where the data is already in memory, and attached to each leg's summary —
+so it reaches the evaluator through the existing `result` plumbing with no new
+packet section and no extra query. Small by construction: chapters and aggregates,
+never rows.
+
+The organising idea is that the strategy is a moving FOOTPRINT over the opportunity
+set, with an area (how many names, how much capital each) that changes every
+session. Wealth lost then decomposes into separately-fixable reasons the footprint
+failed to cover growth:
+
+```text
+footprint too SMALL    deployment: mean_fill_ratio, mean_invested_weight,
+                       share_of_sessions_below_90pct_of_cap
+footprint MOVES a lot  churn: repeat entries per name
+footprint LEFT early   by_mechanism: fills grouped by the RULE that caused them
+                       (trailing_stop / delist_sweep / orphan_exit / floor_exit /
+                       drift_*), so "this class of intervention costs" is
+                       computable rather than re-derived from prose
+footprint WRONG place  NOT COMPUTED — see below
+```
+
+`chapters` splits the run into ~8 slices, each carrying book vs SPY return, worst
+drawdown, mean positions and fill count, plus `worst_chapter_idx`. A single average
+over three years destroys exactly the signal worth seeing: "breadth collapsed in
+chapter 4 and deployment collapsed with it" is a sentence about a mechanism failing
+at a moment, which no run-level mean can express.
+
+**What it deliberately does NOT compute**, declared in the returned `missing` field
+rather than silently omitted: growth CAPTURE — of the growth available in the
+opportunity set, how much fell inside the footprint, and why the rest did not. That
+needs the ranked universe per date (what we did *not* hold and how it performed),
+which is not derivable from a run's own trace. Omitting it silently would read as
+"nothing else was available", which is the more dangerous error.
+
+Two disciplines carry over from the rest of the loop. Everything here is
+DESCRIPTIVE — it says where to look, never what is wrong. And a diagnosis drawn from
+one run is one sample: a mechanism finding is only evidence once it reproduces
+across the rolling windows, exactly as a config edge must.

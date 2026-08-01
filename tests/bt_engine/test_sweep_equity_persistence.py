@@ -110,6 +110,28 @@ def test_fills_carry_the_reason(result):
     assert any(x.get("reason") for x in result["trades_by_phase"]["tune"])
 
 
+def test_positions_come_back_for_both_phases(result):
+    """What the book HELD, not only what it traded — the only way to see breadth
+    and deployment over time. The 35-names-drifting-to-26 defect was invisible in
+    both the summary and the trade log, and obvious here."""
+    pos = result["positions_by_phase"]
+    assert set(pos) == {"tune", "validate"}
+    assert pos["tune"], "no positions recorded for the tune window"
+    p = pos["tune"][0]
+    assert {"date", "ticker", "qty", "weight", "market_value"} <= set(p)
+
+
+def test_the_forest_map_rides_in_the_summary(result):
+    """It reaches the evaluator through the existing `result` plumbing — no new
+    packet section, no extra query. Small by construction: chapters and
+    aggregates, never rows."""
+    for key in ("in_sample", "out_sample"):
+        fm = (result[key] or {}).get("forest_map")
+        assert fm and "error" not in fm, fm
+        assert fm["deployment"]["configured_cap"] == 3
+        assert fm["n_chapters"] > 0
+
+
 def test_rows_carry_what_the_diagnosis_needs(result):
     """book vs SPY on a date is the whole question — 'did we fall while the market
     held up, and when'."""
@@ -132,7 +154,8 @@ def test_the_curve_is_not_stored_in_the_summary_jsonb(result):
     rows into bt_sweep_results' JSONB would make them unqueryable by date, which
     is the only way anyone wants to read them."""
     for key in ("in_sample", "out_sample"):
-        for leaked in ("equity_by_phase", "trades_by_phase", "equity", "trades"):
+        for leaked in ("equity_by_phase", "trades_by_phase",
+                       "positions_by_phase", "equity", "trades", "positions"):
             assert leaked not in (result[key] or {})
 
 
@@ -148,3 +171,4 @@ def test_an_errored_config_returns_no_curve():
     assert bad.get("error_message")
     assert not bad.get("equity_by_phase")
     assert not bad.get("trades_by_phase")
+    assert not bad.get("positions_by_phase")

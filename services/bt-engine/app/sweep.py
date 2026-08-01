@@ -225,6 +225,7 @@ def run_config_both_windows(prices, fundamentals, sector_map, base_config: dict,
 
     equity_by_phase: dict[str, list] = {}
     trades_by_phase: dict[str, list] = {}
+    positions_by_phase: dict[str, list] = {}
 
     def _one(start: date, end: date, phase: str) -> dict:
         params = SimParams(start=start, end=end, **sim_kwargs)
@@ -243,12 +244,25 @@ def run_config_both_windows(prices, fundamentals, sector_map, base_config: dict,
         # diverged; the fills (and their `reason`) say WHY.
         equity_by_phase[phase] = result.equity
         trades_by_phase[phase] = result.trades
+        positions_by_phase[phase] = result.positions
         summary = result.summary
         # Stamp the CONDITIONS of production. Without this a run made with the
         # parity/coverage gate disabled is byte-identical to an enforced one,
         # and the promotion gate cannot tell them apart.
         from app.parity import run_provenance
         summary["provenance"] = run_provenance(cfg)
+        # The run's SHAPE, computed here where the trace is already in memory and
+        # attached to the summary so it reaches the evaluator's packet through the
+        # existing `result` plumbing — no new section, no extra query. Small by
+        # construction (chapters + aggregates, never rows), unlike the raw
+        # equity/trade/position lists which go to their own tables.
+        from app.forest import forest_map
+        try:
+            summary["forest_map"] = forest_map(
+                result.equity, result.trades, result.positions,
+                max_positions=cfg.portfolio_builder.max_positions)
+        except Exception as exc:  # noqa: BLE001 — a diagnostic must never fail a run
+            summary["forest_map"] = {"error": str(exc)[:200]}
         return summary
 
     try:
@@ -266,6 +280,7 @@ def run_config_both_windows(prices, fundamentals, sector_map, base_config: dict,
         # would put thousands of rows into a blob nothing can query by date.
         "equity_by_phase": equity_by_phase,
         "trades_by_phase": trades_by_phase,
+        "positions_by_phase": positions_by_phase,
         "in_sample": in_sample,
         "out_sample": out_sample,
         "is_sharpe": is_sharpe,

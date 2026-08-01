@@ -673,6 +673,7 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
                 # because a diagnostic write did.
                 _equity = row.pop("equity_by_phase", None) or {}
                 _trades = row.pop("trades_by_phase", None) or {}
+                _positions = row.pop("positions_by_phase", None) or {}
                 row = _json_sanitize(row)
                 cfg_rows.append(row)
                 # The curve says WHEN a candidate diverged; the fills (with their
@@ -698,7 +699,15 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
                         for phase, rows_ in _trades.items() for t in (rows_ or [])
                         if t.get("date") is not None and t.get("ticker")
                     ]
-                    if _eq_params or _tr_params:
+                    _pos_params = [
+                        {"sid": sweep_id, "idx": idx, "widx": widx,
+                         "ph": phase, "d": p.get("date"), "tk": p.get("ticker"),
+                         "q": p.get("qty"), "w": p.get("weight"),
+                         "mv": p.get("market_value")}
+                        for phase, rows_ in _positions.items() for p in (rows_ or [])
+                        if p.get("date") is not None and p.get("ticker")
+                    ]
+                    if _eq_params or _tr_params or _pos_params:
                         async with engine.begin() as conn:
                             if _eq_params:
                                 await conn.execute(text(
@@ -723,6 +732,13 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
                                     " tx_cost, reason) VALUES (CAST(:sid AS uuid), :idx, "
                                     " :widx, :ph, :d, :tk, :act, :q, :px, :cost, :rsn)"),
                                     _tr_params)
+                            if _pos_params:
+                                await conn.execute(text(
+                                    "INSERT INTO bt_sweep_positions (sweep_id, "
+                                    " config_idx, window_idx, phase, date, ticker, qty, "
+                                    " weight, market_value) VALUES (CAST(:sid AS uuid), "
+                                    " :idx, :widx, :ph, :d, :tk, :q, :w, :mv) "
+                                    "ON CONFLICT DO NOTHING"), _pos_params)
                 except Exception as exc:  # noqa: BLE001
                     print(f"[sweep] trace persistence failed for config {idx} "
                           f"({exc}) — results unaffected", flush=True)

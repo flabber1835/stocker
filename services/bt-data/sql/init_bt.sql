@@ -327,6 +327,26 @@ CREATE TABLE IF NOT EXISTS bt_sweep_trades (
 CREATE INDEX IF NOT EXISTS idx_bt_sweep_trades_cfg
     ON bt_sweep_trades (sweep_id, config_idx, phase, date);
 
+-- What the book HELD on each rebalance date, for SWEEP legs. Trades say what
+-- changed; positions say what was actually owned, which is the only way to see
+-- breadth (how many names) and deployment (how much capital) over time. The
+-- 35-names-drifting-to-26 defect was invisible in both the summary and the
+-- trade log, and obvious here.
+CREATE TABLE IF NOT EXISTS bt_sweep_positions (
+    sweep_id        UUID         NOT NULL REFERENCES bt_sweeps(sweep_id) ON DELETE CASCADE,
+    config_idx      INTEGER      NOT NULL,
+    window_idx      INTEGER      NOT NULL DEFAULT 0,
+    phase           VARCHAR(10)  NOT NULL CHECK (phase IN ('tune','validate')),
+    date            DATE         NOT NULL,
+    ticker          VARCHAR(20)  NOT NULL,
+    qty             NUMERIC(18,6) NOT NULL,
+    weight          NUMERIC(10,6),
+    market_value    NUMERIC(18,2),
+    PRIMARY KEY (sweep_id, config_idx, window_idx, phase, date, ticker)
+);
+CREATE INDEX IF NOT EXISTS idx_bt_sweep_positions_cfg
+    ON bt_sweep_positions (sweep_id, config_idx, phase, date);
+
 -- Phase 5b: per-config aggregates across the rolling windows. Rows exist only
 -- for rolling-mode sweeps; the leaderboard endpoint auto-detects them. The
 -- champion (max median_oos_sharpe; ties broken by worst_oos_sharpe then
