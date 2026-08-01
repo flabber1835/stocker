@@ -223,16 +223,23 @@ def run_config_both_windows(prices, fundamentals, sector_map, base_config: dict,
         return {"config_diff": diff, "error_message": err}
     cfg = StrategyConfig(**cfg_dict)
 
+    equity_by_phase: dict[str, list] = {}
+
     def _one(start: date, end: date, phase: str) -> dict:
         params = SimParams(start=start, end=end, **sim_kwargs)
         cb = None
         if progress_cb is not None:
             def cb(done, total, stats=None, _p=phase):   # noqa: E306
                 progress_cb(_p, done, total, stats)
-        summary = run_simulation(prices, fundamentals, sector_map, cfg, params,
-                                 progress_cb=cb, factor_cache=factor_cache,
-                                 listing_windows=listing_windows,
-                                 earnings=earnings).summary
+        result = run_simulation(prices, fundamentals, sector_map, cfg, params,
+                                progress_cb=cb, factor_cache=factor_cache,
+                                listing_windows=listing_windows,
+                                earnings=earnings)
+        # Keep the per-session curve. It used to be discarded here, so a sweep
+        # persisted only summaries and the SHAPE of a run was unrecoverable once
+        # it finished — the caller writes these to bt_sweep_equity.
+        equity_by_phase[phase] = result.equity
+        summary = result.summary
         # Stamp the CONDITIONS of production. Without this a run made with the
         # parity/coverage gate disabled is byte-identical to an enforced one,
         # and the promotion gate cannot tell them apart.
@@ -250,6 +257,10 @@ def run_config_both_windows(prices, fundamentals, sector_map, base_config: dict,
     oos_sharpe = out_sample.get("sharpe_ratio")
     return {
         "config_diff": diff,
+        # Popped by the caller and written to bt_sweep_equity — deliberately NOT
+        # part of the JSONB stored on bt_sweep_results, which would put thousands
+        # of rows into a blob nothing can query by date.
+        "equity_by_phase": equity_by_phase,
         "in_sample": in_sample,
         "out_sample": out_sample,
         "is_sharpe": is_sharpe,

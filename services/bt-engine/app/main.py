@@ -666,8 +666,35 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
                         listing_windows, earnings)
                 finally:
                     poller.cancel()
+                # Per-session curves are persisted to their own table, never into
+                # bt_sweep_results' JSONB — popped BEFORE _json_sanitize so a
+                # multi-thousand-row list is not serialised into a blob that
+                # cannot be queried by date. Best-effort: a sweep must not fail
+                # because a diagnostic write did.
+                _equity = row.pop("equity_by_phase", None) or {}
                 row = _json_sanitize(row)
                 cfg_rows.append(row)
+                if _equity:
+                    try:
+                        _eq_params = [
+                            {"sid": sweep_id, "idx": idx, "widx": widx,
+                             "ph": phase, "d": e.get("date"),
+                             "pv": e.get("portfolio_value"),
+                             "sv": e.get("spy_value"), "dd": e.get("drawdown")}
+                            for phase, rows_ in _equity.items() for e in (rows_ or [])
+                            if e.get("date") is not None
+                        ]
+                        if _eq_params:
+                            async with engine.begin() as conn:
+                                await conn.execute(text(
+                                    "INSERT INTO bt_sweep_equity (sweep_id, config_idx, "
+                                    " window_idx, phase, date, portfolio_value, spy_value, "
+                                    " drawdown) VALUES (CAST(:sid AS uuid), :idx, :widx, "
+                                    " :ph, :d, :pv, :sv, :dd) "
+                                    "ON CONFLICT DO NOTHING"), _eq_params)
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"[sweep] equity persistence failed for config {idx} "
+                              f"({exc}) — results unaffected", flush=True)
                 async with engine.begin() as conn:
                     await conn.execute(text(
                         "INSERT INTO bt_sweep_results (sweep_id, config_idx, window_idx, "

@@ -180,3 +180,71 @@ def test_loaded_frames_drive_a_deterministic_simulation(db_engine):
     assert r1.equity and r1.trades, "DB-loaded frames must produce a live sim"
     assert r1.equity == r2.equity and r1.summary == r2.summary
     assert r1.summary["total_return"] is not None
+
+
+# ── bt_sweep_equity: the per-session curve for SWEEP legs ────────────────────
+# bt_equity cannot serve this — its run_id REFERENCES bt_runs, and sweep legs
+# deliberately never write that table. Before this existed, a sweep persisted only
+# summaries, so the SHAPE of a candidate's run was unrecoverable once it finished
+# and "the book tracked SPY then collapsed in the final month" could be neither
+# confirmed nor dismissed.
+
+def test_bt_sweep_equity_schema_and_write(db_engine):
+    from sqlalchemy import text
+
+    async def _go(engine):
+        async with engine.begin() as conn:
+            sid = (await conn.execute(text(
+                "INSERT INTO bt_sweeps (spec, n_configs, tune_start, tune_end, "
+                " validate_start, validate_end) "
+                "VALUES ('{}'::jsonb, 1, :a, :b, :b, :c) RETURNING sweep_id"),
+                {"a": SIM_START, "b": SIM_END - timedelta(days=30), "c": SIM_END}
+            )).scalar()
+            rows = [{"sid": str(sid), "idx": 0, "widx": 0, "ph": ph,
+                     "d": SIM_START + timedelta(days=i),
+                     "pv": 100000 + i * 10, "sv": 100000 + i * 8,
+                     "dd": -0.01 * (i % 3)}
+                    for ph in ("tune", "validate") for i in range(5)]
+            await conn.execute(text(
+                "INSERT INTO bt_sweep_equity (sweep_id, config_idx, window_idx, "
+                " phase, date, portfolio_value, spy_value, drawdown) "
+                "VALUES (CAST(:sid AS uuid), :idx, :widx, :ph, :d, :pv, :sv, :dd) "
+                "ON CONFLICT DO NOTHING"), rows)
+            # Idempotent: the writer re-runs on retry and must not explode.
+            await conn.execute(text(
+                "INSERT INTO bt_sweep_equity (sweep_id, config_idx, window_idx, "
+                " phase, date, portfolio_value, spy_value, drawdown) "
+                "VALUES (CAST(:sid AS uuid), :idx, :widx, :ph, :d, :pv, :sv, :dd) "
+                "ON CONFLICT DO NOTHING"), rows)
+        async with engine.connect() as conn:
+            n = (await conn.execute(text(
+                "SELECT count(*) FROM bt_sweep_equity WHERE sweep_id = CAST(:s AS uuid)"),
+                {"s": str(sid)})).scalar()
+            phases = [r[0] for r in (await conn.execute(text(
+                "SELECT DISTINCT phase FROM bt_sweep_equity "
+                "WHERE sweep_id = CAST(:s AS uuid) ORDER BY phase"),
+                {"s": str(sid)})).all()]
+            # The read this table exists for: book vs SPY over time, one config.
+            curve = (await conn.execute(text(
+                "SELECT date, portfolio_value, spy_value FROM bt_sweep_equity "
+                "WHERE sweep_id = CAST(:s AS uuid) AND config_idx = 0 "
+                "  AND phase = 'validate' ORDER BY date"), {"s": str(sid)})).all()
+        return n, phases, curve, sid
+
+    n, phases, curve, sid = _run(db_engine, _go)
+    assert n == 10, "the second insert duplicated rows — writer is not idempotent"
+    assert phases == ["tune", "validate"]
+    assert len(curve) == 5 and curve[0][1] < curve[-1][1]
+
+    def _bad_phase(engine):
+        async def _go2(engine):
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    "INSERT INTO bt_sweep_equity (sweep_id, config_idx, window_idx, "
+                    " phase, date, portfolio_value) VALUES "
+                    "(CAST(:s AS uuid), 0, 0, 'holdout', :d, 1)"),
+                    {"s": str(sid), "d": SIM_START})
+        return _go2
+
+    with pytest.raises(Exception):
+        _run(db_engine, _bad_phase(db_engine))

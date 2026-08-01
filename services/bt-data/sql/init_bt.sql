@@ -273,6 +273,34 @@ ALTER TABLE bt_sweep_results DROP CONSTRAINT IF EXISTS bt_sweep_results_pkey;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_bt_sweep_results_cfg_win
     ON bt_sweep_results (sweep_id, config_idx, window_idx);
 
+-- Per-session equity for SWEEP legs. bt_equity cannot serve this: its run_id
+-- REFERENCES bt_runs, and sweep legs deliberately do not write that table.
+--
+-- Why it exists at all: until now a sweep persisted only SUMMARIES, so the shape
+-- of a run was unrecoverable the moment it finished. The dashboard's live_stats
+-- is transient telemetry, overwritten each poll and gone at completion. That made
+-- a real observation — "the book tracked SPY and then collapsed in the final
+-- month, in every config" — impossible to confirm or dismiss after the fact. A
+-- wind tunnel that decides what goes live should not be returning an exit code
+-- and throwing away the execution.
+--
+-- Volume is modest: ~750 sessions x 2 windows per config, four numbers each.
+-- phase is 'tune' | 'validate' so the two spans stay separable without a join.
+CREATE TABLE IF NOT EXISTS bt_sweep_equity (
+    sweep_id        UUID         NOT NULL REFERENCES bt_sweeps(sweep_id) ON DELETE CASCADE,
+    config_idx      INTEGER      NOT NULL,
+    window_idx      INTEGER      NOT NULL DEFAULT 0,
+    phase           VARCHAR(10)  NOT NULL CHECK (phase IN ('tune','validate')),
+    date            DATE         NOT NULL,
+    portfolio_value NUMERIC(18,2) NOT NULL,
+    spy_value       NUMERIC(18,2),
+    drawdown        NUMERIC(10,6),
+    PRIMARY KEY (sweep_id, config_idx, window_idx, phase, date)
+);
+-- The read this exists for: one config's curve, in order.
+CREATE INDEX IF NOT EXISTS idx_bt_sweep_equity_cfg
+    ON bt_sweep_equity (sweep_id, config_idx, phase, date);
+
 -- Phase 5b: per-config aggregates across the rolling windows. Rows exist only
 -- for rolling-mode sweeps; the leaderboard endpoint auto-detects them. The
 -- champion (max median_oos_sharpe; ties broken by worst_oos_sharpe then

@@ -3803,3 +3803,38 @@ choose a replacement. The invariant that would have caught it — "the realised 
 holds `max_positions` unless the eligible pool is exhausted, and target weights sum
 to `1 − cash_reserve` unless a named cap binds" — was true, assumed, and written
 down nowhere, so nothing could check it.
+
+### Sweep legs persist their equity curve (bt_sweep_equity)
+
+A sweep used to persist only SUMMARIES. `run_config_both_windows` discarded the
+`SimResult` and kept `.summary`, so four numbers per window survived and the SHAPE
+of a run did not. The dashboard's `live_stats` is transient — overwritten each poll,
+gone at completion.
+
+The cost was concrete. An owner watched several candidates track SPY through most
+of period A and then collapse in the final month, ending 15-17pp behind. Two
+explanations were available — a shared drawdown across correlated configs (all four
+candidates are perturbations of one model, so a common decline is *expected*), or an
+end-of-window artifact such as a wave of delist exits at `delist_recovery_pct` —
+and **neither could be tested**, because the data no longer existed. `bt_equity`
+holds only INTERACTIVE `/jobs/run` results; its `run_id` REFERENCES `bt_runs`, which
+sweep legs deliberately never write.
+
+A wind tunnel that decides what goes live should not return an exit code and throw
+away the execution.
+
+`bt_sweep_equity` is keyed `(sweep_id, config_idx, window_idx, phase, date)` and
+carries `portfolio_value / spy_value / drawdown` — enough to answer the question
+that matters: *did the book fall while the market held up, and when?* It is written
+per config as each leg completes, best-effort (a failed diagnostic write never fails
+a sweep), and popped BEFORE `_json_sanitize` so thousands of rows never land in
+`bt_sweep_results`' JSONB where nothing could query them by date.
+
+Added to the evaluator's `bt_sql_query` allowlist, so a review can ask *when* a
+candidate diverged rather than only by how much. That is the smallest useful piece
+of the trace/forest-map work: the summary says a candidate lost; the curve says
+where to look.
+
+Still not persisted for sweep legs: trades and positions. The delist-artifact
+hypothesis specifically needs `bt_trades` (reason LIKE 'delisted%'), so that is the
+natural next increment.

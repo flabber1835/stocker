@@ -292,8 +292,12 @@ def tool_definitions() -> list[dict]:
                 "died), bt_sweep_results / bt_sweep_aggregates (per-config, "
                 "per-window in_sample/out_sample summaries), bt_runs (single "
                 "backtests), bt_equity (the daily equity + spy_value + drawdown "
-                "path), bt_positions (what a run HELD on each rebalance date), "
-                "bt_trades (every fill with price and reason). "
+                "path, INTERACTIVE runs only), bt_sweep_equity (the same daily "
+                "path for EXPERIMENT-LANE candidates, keyed sweep_id/config_idx/"
+                "window_idx/phase — use this to see WHEN a candidate diverged "
+                "from SPY rather than only by how much), bt_positions (what a run "
+                "HELD on each rebalance date), bt_trades (every fill with price "
+                "and reason). "
                 "The raw price/fundamental corpus is deliberately NOT reachable: "
                 "ad-hoc mining of 20 years of history would bypass the "
                 "backtest_trials accounting that deflates your DSR. "
@@ -662,8 +666,16 @@ async def sql_query(args: dict, *, engine) -> str:
 # mid-run), and ad-hoc mining of 20 years of history is a data-dredging path
 # that bypasses the trials accounting entirely — the model could "find" an
 # in-sample pattern and author a config from it with no trial registered.
+# bt_sweep_equity is the per-session curve for SWEEP legs; bt_equity covers only
+# interactive /jobs/run. Without it a candidate's SHAPE is unreadable — only its
+# summary — so "did the book fall while SPY held up, and when?" was unanswerable
+# for the very runs that decide promotion.
+#
+# Keep this a PLAIN tuple literal with no inline comments: scripts/purge-void-bt-
+# results.sh is cross-checked against it by parsing this expression, and a comment
+# containing a ')' truncates that match.
 BT_TABLES = ("bt_sweeps", "bt_sweep_results", "bt_sweep_aggregates", "bt_runs",
-             "bt_equity", "bt_positions", "bt_trades")
+             "bt_equity", "bt_positions", "bt_trades", "bt_sweep_equity")
 _BT_IDENT = re.compile(r"\b(bt_[a-z_]+)\b", re.IGNORECASE)
 
 
