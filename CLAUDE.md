@@ -317,6 +317,23 @@ names and entries queue as `watch` forever. Whether suppression pays is a
 wind-tunnel A/B (`tests/simulation/trailing_stop_ab_sim.py`). Consequence: with two
 exit routes turnover may rise before it falls.
 
+**Re-entry blocks are excluded by the BUILDER, never filtered from a finished
+target.** A name stopped out is unbuyable until its close exceeds the peak that
+stopped it, and that block joins the SAME exclusion set as the vetter's, applied at
+selection after clustering (so a blocked name still acts as a cluster bridge). The
+first cut had the delta step strip blocked names from the composed target instead,
+which removed them and put NOTHING in their place: the book shrank below
+`max_positions` and the removed weight fell to cash, so the stop silently became a
+market-timing overlay nobody configured (observed in the tunnel: 35 names → 26 in a
+drawdown, with the experiment then measuring "stop + de-risking" rather than the
+stop). Only the builder can backfill, because only it knows the next-best candidate.
+The builder's block query is deliberately FAIL-OPEN — the opposite of the vetter's
+fail-closed load — because an unreadable episode table means we don't know a name is
+blocked, and the cost is one premature re-entry the stop handles again, whereas
+refusing to build a portfolio would be far worse. The delta step still strips names
+stopped in the SAME run (no build could have known) and drops any leaked entry for a
+blocked name without touching the target.
+
 Per-position state lives in `position_episodes` (migration 0048) — one row per
 unbroken holding period, carrying `opened_on` (the peak's anchor) and, on a stop,
 `stop_peak` (the re-entry gate). A partial unique index enforces one OPEN episode

@@ -3745,3 +3745,60 @@ classes (blocking GOOG does not block GOOGL); and deriving the peak from
 ratchet only sees sessions the chain ran — the derived form is strictly tighter,
 and makes stop behaviour mildly dependent on chain uptime in a way the tunnel
 (which never skips a session) cannot express.
+
+### Correction: exclusions must reach the BUILDER, not filter a finished target
+
+The first cut of the trailing stop removed re-entry-blocked names from the target
+the builder had already composed:
+
+```python
+target = {k: v for k, v in target.items() if k not in excluded}   # WRONG
+```
+
+That removes names and puts nothing in their place. Two things follow, and the
+second is worse than the first: the book shrinks below `max_positions`, AND the
+removed name's weight is not reallocated, so it falls to cash. In a drawdown the
+effect compounds — more names stop out, most stay blocked (recovery requires
+exceeding the pre-stop peak), the target keeps shrinking, and the book drifts to
+cash. Observed in the wind tunnel as 35 names → 26.
+
+The consequence is not a sizing detail. It makes the stop an implicit
+**market-timing overlay** that nobody configured, and it means the experiment
+measuring a 10% stop was actually measuring "10% stop + automatic de-risking".
+Those are different strategies, and a win would not have said which one won.
+
+**Only the builder can backfill**, because only the builder knows the next-best
+candidate and the caps that govern it. So the block is now an ordinary exclusion,
+applied at the builder's existing seam — selection, AFTER clustering — for the same
+reason vetter exclusions are: a blocked name must still act as a single-linkage
+cluster bridge, or removing it fragments a real correlated theme and lets the
+survivors escape `max_cluster_weight` during the very drawdown the cap exists to
+contain.
+
+Asymmetry worth stating: the builder's block query is deliberately **fail-open**,
+the opposite of the vetter-exclusion load, which is fail-closed. An unreadable
+vetter means we do not know a name is dangerous, so we must not buy it. An
+unreadable episode table means we do not know a name is blocked, and the cost of
+buying it anyway is one premature re-entry that the stop will handle again —
+whereas refusing to build a portfolio over a telemetry read is far worse.
+
+Two residual strips remain in the delta step, both correct:
+
+```text
+stopped THIS run   the target was composed before the stop was known, so no build
+                   could have avoided it. Stripped from target AND live_positions
+                   (leaving it in the target with the position gone makes Loop 1
+                   read an in-target un-held ticker as an ENTRY and buy back the
+                   name the stop just sold). One-cycle gap; the next build fills it.
+leaked blocks      defence in depth for the fail-open path. Drops the ENTRY
+                   decision, never the target entry — dropping the target entry is
+                   the bug this whole change removes.
+```
+
+**The generalisable lesson**, and the reason this is recorded rather than quietly
+fixed: *post-hoc filtering of a composed portfolio silently changes exposure.* Any
+future mechanism that wants to remove a name has to reach the component that can
+choose a replacement. The invariant that would have caught it — "the realised book
+holds `max_positions` unless the eligible pool is exhausted, and target weights sum
+to `1 − cash_reserve` unless a named cap binds" — was true, assumed, and written
+down nowhere, so nothing could check it.

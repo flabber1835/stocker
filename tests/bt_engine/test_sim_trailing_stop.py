@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app.sim import SimParams, run_simulation
+from app.sim import SimParams, TargetStatus, run_simulation
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 _REGIMES = {
@@ -295,6 +295,82 @@ class TestWidthMethod:
         a = run_simulation(prices.copy(), fnd.copy(), {}, cfg, p)
         b = run_simulation(prices.copy(), fnd.copy(), {}, cfg, p)
         assert a.equity == b.equity and a.summary == b.summary
+
+
+class TestTheBookStaysFull:
+    """THE regression. The first cut filtered stopped and re-entry-blocked names
+    out of an already-composed target, which removed them and put nothing in their
+    place: the book shrank below max_positions AND the removed weight fell to cash.
+    The stop silently became a market-timing overlay nobody configured — observed
+    live as 35 names drifting to 26 during a drawdown.
+
+    Blocked names are now excluded from the SELECTABLE POOL, so greedy_select
+    backfills with the next-best candidate. The stop changes WHICH names are held,
+    never HOW MANY or how invested the book is.
+
+    These assert against the position count over time, which is what no test
+    checked before — the earlier suite proved stopped names are not re-bought and
+    never that anything took their place.
+    """
+
+    def _built(self, blocked=None, max_positions=3):
+        """Compose one target directly, so the assertion is about the MECHANISM
+        rather than about whatever a 750-session run happens to produce. An
+        end-to-end position count is too blunt here: with a small fixture the
+        difference hides inside ordinary turnover, and the first version of this
+        test passed against the bug."""
+        from app.sim import build_target
+        prices, fnd, days = _make_data()
+        cfg = _cfg()
+        cfg.portfolio_builder.max_positions = max_positions
+        D = days[-1]
+        window = prices[(prices["date"] <= D)
+                        & (prices["date"] >= D - pd.Timedelta(days=420))].copy()
+        spy = window[window["ticker"] == "SPY"]["adjusted_close"].tolist()
+        target, _ranked, status = build_target(
+            window[window["ticker"] != "SPY"], fnd, {}, cfg, "bull_calm",
+            {"backstop_pct": 0.0, "excess_pct": 0.0, "window_days": 21,
+             "beta_lookback": 120, "vol_scaling": False, "vol_anchor": 0.35,
+             "excess_min": 0.1, "excess_max": 0.3},
+            spy, blocked_tickers=blocked)
+        return target, status
+
+    def test_blocking_a_selected_name_backfills_rather_than_shrinks(self):
+        """THE assertion. Block one of the names the builder chose; the book must
+        come back the SAME SIZE with a different member — not one name shorter.
+
+        This is what no test checked before: the earlier suite proved a stopped
+        name is not re-bought, and never that anything took its place."""
+        base, status = self._built()
+        assert len(base) >= 2, f"fixture produced no usable target ({status})"
+
+        victim = next(iter(base))
+        after, _ = self._built(blocked={victim})
+
+        assert victim not in after, "the blocked name was still selected"
+        assert len(after) == len(base), (
+            f"book shrank {len(base)} → {len(after)} when one name was blocked — "
+            "blocked names must be excluded from the SELECTABLE POOL so "
+            "greedy_select backfills, not filtered out of a finished target")
+
+    def test_blocking_does_not_leave_weight_in_cash(self):
+        """The other half of the same bug: even at equal count, if the removed
+        name's weight is not reallocated the difference sits in cash."""
+        base, _ = self._built()
+        victim = next(iter(base))
+        after, _ = self._built(blocked={victim})
+        assert sum(after.values()) == pytest.approx(sum(base.values()), rel=0.02), (
+            f"invested weight fell {sum(base.values()):.4f} → {sum(after.values()):.4f} "
+            "— the blocked name's weight was stranded in cash")
+
+    def test_blocking_everything_degrades_rather_than_silently_shrinking(self):
+        """The honest edge: if the block empties the pool there is nothing to
+        backfill with, and that must surface as DEGRADED rather than as a quietly
+        tiny book."""
+        base, _ = self._built()
+        after, status = self._built(blocked=set(base) | {"AAA", "BBB", "CCC",
+                                                         "DDD", "EEE", "FFF"})
+        assert not after and status in (TargetStatus.DEGRADED, TargetStatus.FAILED)
 
 
 class TestCircuitBreaker:

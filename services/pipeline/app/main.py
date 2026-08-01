@@ -3034,15 +3034,23 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 print(f"[delta] trailing stop: skipped this run ({exc})", flush=True)
                 stop_plan_stopped, stop_blocked = {}, set()
 
-        if stop_plan_stopped or stop_blocked:
-            excluded = set(stop_plan_stopped) | stop_blocked
-            # Strip from the TARGET as well as from live_positions. Removing only
-            # the latter leaves an in-target un-held ticker, which Loop 1 reads as
-            # an ENTRY — re-buying the very name the stop just sold, at the same
-            # open. The builder is holdings-agnostic, so a stopped name is still in
-            # today's target and this is the normal case, not an edge one.
+        if stop_plan_stopped:
+            # Only names stopped THIS run are stripped here. Re-entry-blocked names
+            # are excluded by the BUILDER, which is the only component that can
+            # backfill the slot with the next-best candidate — filtering them out
+            # of a finished target removed them and left nothing in their place,
+            # shrinking the book below max_positions and stranding the weight in
+            # cash (observed: 35 names → 26 in a drawdown).
+            #
+            # A name stopped this run is different: today's target was composed
+            # before the stop was known, so no build could have avoided it. It is
+            # stripped from the TARGET as well as from live_positions — leaving it
+            # in the target with the position gone makes Loop 1 read an in-target
+            # un-held ticker as an ENTRY and buy back the very name the stop just
+            # sold, at the same open. That slot stays empty for exactly one cycle;
+            # tomorrow's build fills it properly.
             target_portfolio = {k: v for k, v in target_portfolio.items()
-                                if k not in excluded}
+                                if k not in stop_plan_stopped}
             live_positions_set = live_positions_set - set(stop_plan_stopped)
             # Ride in through inflight_exits: frees a capacity slot in
             # _allocate_capacity without crediting their cash in _cap_buys.
@@ -3086,6 +3094,21 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
         # (rather than a new token) means no CHECK-constraint migration; stop vs
         # orphan attribution comes from position_episodes.close_reason, which is
         # already written, not from parsing this reason string.
+        # Defence in depth. The BUILDER excludes re-entry-blocked names, so one
+        # should never reach an entry intent — but the builder's block query is
+        # deliberately fail-open, and a stale build predates a fresh block. If one
+        # slips through, drop the ENTRY rather than the target entry: removing it
+        # from the target would shrink the book and strand the weight in cash,
+        # which is the bug this whole change exists to fix. The slot simply goes
+        # unfilled this cycle, exactly like any deferred entry.
+        _leaked = {t for t in stop_blocked
+                   if t in decisions and decisions[t].action == "entry"}
+        if _leaked:
+            print(f"[delta] trailing stop: builder proposed {sorted(_leaked)} despite "
+                  f"an unrecovered stop peak — dropping the entries", flush=True)
+            for _t in _leaked:
+                decisions.pop(_t, None)
+
         for _t, _peak in sorted(stop_plan_stopped.items()):
             _obs = universe.get(_t) or []
             _last = _obs[0] if _obs else None

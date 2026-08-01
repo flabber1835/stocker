@@ -219,7 +219,8 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
                  coverage_observer=None,
                  current_holdings: set | None = None,
                  listing_windows: dict | None = None,
-                 earnings: pd.DataFrame | None = None) -> tuple:
+                 earnings: pd.DataFrame | None = None,
+                 blocked_tickers: set | None = None) -> tuple:
     """One rebalance: factors → rank → falling-knife → builder composition.
     Returns ({ticker: weight}, ranked_df, TargetStatus) — weights sum ≤ 1
     (cash_reserve / vol-target de-lever).
@@ -320,6 +321,19 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
 
     # Exclusions after clustering, exactly like the builder.
     available = [t for t in available if t not in vetoed]
+    # Trailing-stop re-entry blocks are an exclusion of exactly the same kind, so
+    # they are applied at the same seam — AFTER clustering, so a blocked name still
+    # acts as a single-linkage bridge and cannot fragment a real correlated theme.
+    #
+    # Applied HERE rather than to the finished target, which is what the first cut
+    # did: removing names from a composed target left nothing in their place, so
+    # the book shrank below max_positions AND the removed weight fell to cash. The
+    # stop silently became a market-timing overlay nobody configured (observed:
+    # 35 names → 26 during a drawdown). Excluding from the selectable pool lets
+    # greedy_select backfill with the next-best candidate, so the stop changes
+    # WHICH names are held, never HOW MANY or how invested the book is.
+    if blocked_tickers:
+        available = [t for t in available if t not in blocked_tickers]
     if pb.require_positive_composite_score:
         available = [t for t in available if scores_map[t] >= 0]
     if len(available) < 2:
@@ -715,6 +729,17 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                 })
             n_stop_exits += len(stop_trades)
 
+        # Names whose stop peak has not been recovered. Computed HERE, before the
+        # rebalance gate, so it can reach the builder's candidate pool — the
+        # builder must not be able to select a name the stop would then have to
+        # remove, because removing it after composition shrinks the book and
+        # strands its weight in cash.
+        blocked: set[str] = set()
+        if ts_on and stop_peaks:
+            blocked = {t for t, pk in stop_peaks.items()
+                       if t not in qty
+                       and live.reentry_blocked(_price(t, D, opens=False), pk)}
+
         rebalance = (i % max(1, params.rebalance_every)) == 0
         if rebalance:
             window_start = D - pd.Timedelta(days=FACTOR_LOOKBACK_DAYS)
@@ -749,7 +774,8 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                 coverage_observer=coverage,
                 current_holdings=set(qty),
                 listing_windows=listing_windows,
-                earnings=earnings)
+                earnings=earnings,
+                blocked_tickers=blocked)
             status_counts[target_status] = status_counts.get(target_status, 0) + 1
 
             if ranked is not None:
@@ -777,21 +803,23 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                 actual_w = {t: (qty.get(t, 0.0) * (last_px.get(t) or 0.0)) / equity_now
                             for t in qty} if equity_now > 0 else {}
                 delta_cfg = config.delta_engine
-                # Stopped names are already being sold at D+1's open, and names
-                # blocked by an unrecovered stop peak must not be bought back.
-                # Both are stripped from the target AS WELL AS from live_positions:
-                # stripping only the latter leaves an in-target un-held ticker,
-                # which Loop 1 reads as an ENTRY — buying back the very name the
-                # stop just sold, at the same open. They ride in through the
-                # existing inflight_exits parameter, which frees a capacity slot
-                # without crediting their cash.
-                blocked = {
-                    t for t, pk in stop_peaks.items()
-                    if t not in qty and live.reentry_blocked(_price(t, D, opens=False), pk)
-                }
-                excluded = stopped_today | blocked
-                if excluded:
-                    target = {k: v for k, v in target.items() if k not in excluded}
+                # Re-entry-blocked names never reached the candidate pool (see
+                # build_target), so the target is already backfilled around them.
+                # Only names stopped THIS session still need removing: the target
+                # above was composed before the stop was known, so it can contain
+                # a name that is being sold at D+1's open. Stripping it from the
+                # target as well as from live_positions is required — leaving it
+                # in the target with the position gone makes Loop 1 read an
+                # in-target un-held ticker as an ENTRY and buy back the very name
+                # the stop just sold, at the same open.
+                #
+                # This one name is NOT backfilled, and that is correct: the build
+                # had no way to know. The next build fills the slot properly, so
+                # the gap is one cycle and self-correcting — unlike the blocked
+                # set, which persists for as long as the block does and therefore
+                # must be handled at the pool.
+                if stopped_today:
+                    target = {k: v for k, v in target.items() if k not in stopped_today}
                 decisions = live.evaluate_target_vs_live(
                     target_portfolio=target,
                     live_positions=set(qty) - stopped_today,

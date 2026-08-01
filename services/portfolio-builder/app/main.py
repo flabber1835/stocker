@@ -380,6 +380,52 @@ async def _do_build(
     # cluster on the full universe, apply drawdown/vetter exclusions AFTER".
     excluded_set = compute_excluded_set(vetter_excluded, _held_now, excluded_risk_type)
 
+    # Trailing-stop re-entry blocks: a name stopped out stays unbuyable until its
+    # close exceeds the peak that stopped it. This belongs in the SAME exclusion
+    # set as the vetter's, applied at selection and after clustering, for the same
+    # two reasons — a blocked name still acts as a single-linkage cluster bridge,
+    # and excluding it from the SELECTABLE pool lets greedy_select backfill with
+    # the next-best candidate.
+    #
+    # The builder is where this has to happen. The delta step used to strip
+    # blocked names from the finished target instead, which removed them and put
+    # nothing in their place: the book shrank below max_positions and the removed
+    # weight fell to cash, turning the stop into a market-timing overlay nobody
+    # configured. The builder is the only place that can backfill, because it is
+    # the only place that knows the next-best candidate.
+    #
+    # Fail-OPEN, deliberately, and note this is the opposite of the vetter's
+    # fail-closed load: an unreadable vetter means we do not know a name is
+    # dangerous, so we must not buy it; an unreadable episode table means we do
+    # not know a name is blocked, and the cost of buying it anyway is one
+    # premature re-entry that the stop will handle again. Refusing to build a
+    # portfolio over that would be far worse.
+    stop_blocked: list[str] = []
+    try:
+        async with engine.connect() as conn:
+            _brows = await conn.execute(text(
+                "WITH last_stop AS ("
+                "  SELECT DISTINCT ON (ticker) ticker, stop_peak FROM position_episodes"
+                "  WHERE close_reason = 'trailing_stop' AND closed_on IS NOT NULL"
+                "    AND stop_peak IS NOT NULL"
+                "  ORDER BY ticker, closed_on DESC),"
+                "px AS ("
+                "  SELECT DISTINCT ON (ticker) ticker, adjusted_close FROM daily_prices"
+                "  WHERE ticker IN (SELECT ticker FROM last_stop)"
+                "    AND adjusted_close IS NOT NULL"
+                "  ORDER BY ticker, date DESC) "
+                "SELECT l.ticker FROM last_stop l JOIN px ON px.ticker = l.ticker "
+                "WHERE px.adjusted_close <= l.stop_peak"))
+            stop_blocked = [r.ticker for r in _brows.fetchall()]
+    except Exception as exc:  # noqa: BLE001
+        print(f"[build] trailing-stop re-entry blocks unreadable ({exc}) — "
+              f"proceeding without them", flush=True)
+    # A HELD name is never blocked: re-buying is what clears the block, and a
+    # position we already hold is governed by its own open episode.
+    stop_blocked = [t for t in stop_blocked if t not in _held_now]
+    if stop_blocked:
+        excluded_set = excluded_set | set(stop_blocked)
+
     async with engine.begin() as conn:
         warn_lines: list[str] = []
         if vetter_excluded:
