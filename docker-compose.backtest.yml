@@ -91,8 +91,20 @@ services:
       BT_DATABASE_URL: postgresql+asyncpg://btuser:${BT_POSTGRES_PASSWORD:-btpass}@bt-postgres:5432/backtest
       STRATEGY_CONFIG_PATH: /strategies/momentum_rotation_v2.yaml
       STALE_BT_RUN_HOURS: ${STALE_BT_RUN_HOURS:-12}
+      # Point the factor cache at a VOLUME, not the container's /tmp. The default
+      # (/tmp/bt_factor_cache) dies with the container, so every bt-engine rebuild
+      # silently discarded the whole cache and the next sweep recomputed factors
+      # for every rebalance date from scratch — measured as a run producing no
+      # progress snapshot for its first ~15 minutes. The cache is already
+      # fingerprinted on bt_data_version, so a stale corpus invalidates it
+      # correctly; persistence changes nothing about that.
+      BT_FACTOR_CACHE_DIR: /factor-cache
     volumes:
       - ./strategies:/strategies:ro
+      # Named volume rather than a bind under ./artifacts: this grows to GBs
+      # (thousands of dates × ~750KB frames) and ./artifacts is shared with the
+      # live stack and read by the evaluator.
+      - bt_factor_cache:/factor-cache
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
       interval: 30s
@@ -154,3 +166,7 @@ services:
 
 volumes:
   bt_pgdata:
+  # Survives bt-engine rebuilds. Safe to delete to reclaim disk — the cache is
+  # a pure memo of factor frames and is rebuilt on demand; deleting it costs
+  # time on the next sweep, never correctness.
+  bt_factor_cache:

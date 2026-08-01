@@ -132,3 +132,99 @@ async def test_promotion_validator_unreachable_fails_closed_and_retries(sandbox,
         await main._check_promotion()
     assert open(sandbox).read() == before                     # untouched
     assert main._read_promo_state() == {}                     # NOT recorded → retried
+
+
+# ── PROTECTED_PATHS gate on the promotion path ───────────────────────────────
+# /validate checks schema and hard safety limits but knows nothing about the
+# LLM-tunable partition. Without a second gate, an automated promotion could write
+# a protected field — strategy_id, universe.source, the falling-knife thresholds,
+# or trailing_stop.enabled — into the live config with no human involved. That made
+# the partition decorative on the one path that reaches production: the evaluator
+# is forbidden from PROPOSING those fields while promotion was free to APPLY them.
+
+class _UrlAwareHttpx:
+    """Distinguishes the two validator calls, which the shared fake cannot."""
+
+    def __init__(self, llm_change, validate):
+        self.calls = []
+        outer = self
+
+        class _Client:
+            def __init__(self, *a, **k): ...
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return False
+            async def post(self, url, json=None, **k):
+                outer.calls.append(url)
+                if "validate-llm-change" in url:
+                    if isinstance(llm_change, Exception):
+                        raise llm_change
+                    return llm_change
+                return validate
+        self.AsyncClient = _Client
+
+
+@pytest.mark.asyncio
+async def test_promotion_touching_a_protected_field_is_refused(sandbox, tmp_path,
+                                                               monkeypatch):
+    cand = yaml.safe_load(open(sandbox))
+    cand.setdefault("trailing_stop", {})["enabled"] = True
+    ph = _write_promotion(tmp_path, cand)
+    before = open(sandbox).read()
+
+    fake = _UrlAwareHttpx(
+        llm_change=_Resp({"valid": False,
+                          "changed_protected_fields": ["trailing_stop.enabled"]},
+                         status_code=422),
+        validate=_Resp({"valid": True, "strategy_id": "x"}))
+    monkeypatch.setattr(main, "httpx", fake)
+
+    await main._check_promotion()
+
+    assert open(sandbox).read() == before, "the live config was rewritten"
+    state = main._read_promo_state()
+    assert state["last_hash"] == ph and state["status"] == "rejected"
+    assert "protected" in state["reason"].lower()
+    assert not any("/validate" in c and "llm-change" not in c for c in fake.calls), (
+        "schema validation ran anyway — the protected check must short-circuit")
+
+
+@pytest.mark.asyncio
+async def test_a_tunable_only_promotion_still_applies(sandbox, tmp_path, monkeypatch):
+    """The gate must not block ordinary candidates — a gate that refuses
+    everything is a gate someone switches off."""
+    cand = yaml.safe_load(open(sandbox))
+    cand["max_positions"] = 20
+    cand["portfolio_builder"]["max_positions"] = 20
+    _write_promotion(tmp_path, cand)
+
+    fake = _UrlAwareHttpx(
+        llm_change=_Resp({"valid": True, "changed_protected_fields": []}),
+        validate=_Resp({"valid": True, "strategy_id": "x"}))
+    monkeypatch.setattr(main, "httpx", fake)
+
+    await main._check_promotion()
+
+    applied = yaml.safe_load(open(sandbox))
+    assert applied["max_positions"] == 20
+    assert main._read_promo_state()["status"] == "applied"
+
+
+@pytest.mark.asyncio
+async def test_protected_check_unreachable_fails_closed(sandbox, tmp_path, monkeypatch):
+    """Fail-closed, like the schema gate beside it: no state write, so the next
+    poll retries rather than the candidate being lost or silently applied."""
+    cand = yaml.safe_load(open(sandbox))
+    cand["max_positions"] = 20
+    _write_promotion(tmp_path, cand)
+    before = open(sandbox).read()
+
+    monkeypatch.setattr(main, "httpx", _UrlAwareHttpx(
+        llm_change=RuntimeError("connection refused"),
+        validate=_Resp({"valid": True})))
+
+    await main._check_promotion()
+
+    assert open(sandbox).read() == before
+    assert main._read_promo_state() == {} or "status" not in main._read_promo_state(), (
+        "a definitive state was recorded for a transient outage — the candidate "
+        "would never be retried")

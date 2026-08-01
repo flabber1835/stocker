@@ -315,6 +315,47 @@ async def _check_promotion() -> None:
         except OSError as exc:
             print(f"[api] promotion: cannot read active config: {exc}", flush=True)
             return
+        # PROTECTED_PATHS gate. /validate checks schema + hard safety limits but
+        # knows nothing about the LLM-tunable partition, so without this an
+        # automated promotion could write a protected field — identity, the data
+        # source, the falling-knife thresholds, or the trailing stop's master
+        # switch — into the live config with no human involved. That made the
+        # partition decorative on the one path that actually reaches production:
+        # the evaluator is forbidden from PROPOSING those fields while promotion
+        # was free to APPLY them.
+        #
+        # Fail-closed like the validator call below: unreadable baseline or an
+        # unreachable validator means NO state write and a retry next poll, never
+        # an unchecked apply.
+        try:
+            baseline_raw = _yaml.safe_load(old_raw) or {}
+        except Exception as exc:  # noqa: BLE001
+            print(f"[api] promotion: active config unparseable ({exc}) — "
+                  f"cannot check protected paths, refusing", flush=True)
+            return
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                pr = await client.post(
+                    f"{STRATEGY_VALIDATOR_URL}/validate-llm-change",
+                    json={"baseline": baseline_raw, "proposed": cfg})
+        except Exception as exc:  # noqa: BLE001
+            print(f"[api] promotion: validator unreachable for the protected-path "
+                  f"check ({exc}) — retrying later", flush=True)
+            return
+        if pr.status_code != 200:
+            pbody = {}
+            try:
+                pbody = pr.json()
+            except Exception:  # noqa: BLE001
+                pass
+            changed = pbody.get("changed_protected_fields") or pbody.get("detail")
+            print(f"[api] promotion {ph} REJECTED — changes protected field(s) "
+                  f"{changed}; a human must apply this", flush=True)
+            _write_promo_state({"last_hash": ph, "status": "rejected",
+                                "reason": f"protected fields changed: {changed}",
+                                "at": _dt.now(_tz.utc).isoformat()})
+            return
+
         # Hard gate, fail-closed: validator unreachable → NO state write → retry
         # next poll. A definitive REJECTION is recorded so it never loops.
         try:

@@ -113,6 +113,24 @@ path returns 422 with `changed_protected_fields`. This is what makes direct LLM 
 to the strategy file safe: `validate_llm_tunable_diff(baseline, proposed)` is the
 deterministic check, the LLM only ever proposes.
 
+**The partition is enforced on the PROMOTION path too, not only on proposals.**
+`/validate` checks schema and hard-safety limits and knows nothing about
+`PROTECTED_PATHS`, so the auto-promotion watcher (`services/api/app/main.py`) used
+to be able to write a protected field into the live config with no human involved —
+making the partition decorative on the one path that actually reaches production.
+The evaluator was forbidden from PROPOSING those fields while promotion was free to
+APPLY them. The watcher now calls `/validate-llm-change` with the active config as
+baseline BEFORE the schema gate, and refuses (recording `rejected`) on any protected
+change. Fail-closed: an unparseable baseline or unreachable validator writes no
+state and retries next poll.
+
+AUTO-REVERT is deliberately NOT gated this way. A revert restores a config that was
+previously live and is a de-risking action; blocking it on a protected-path diff
+could strand the system on a config it has already judged bad. Since promotions can
+no longer change protected fields, a displaced config differs from the current one
+only in tunable fields anyway — unless a human edited a protected field in between,
+which is human-initiated territory by definition.
+
 **Hard risk gates stay outside the file.** The risk-service env limits (kill switch,
 daily-loss, max-position, turnover, staleness) are never in the strategy YAML and are
 unreachable from this surface by construction. The partition is the second line for

@@ -1581,6 +1581,18 @@ approval remains for STRUCTURAL changes (code, data sources, risk env, going
 live). Live-money preconditions before this stays on with real dollars are
 recorded in docs/architecture.md "Phase 6d".
 
+The watcher enforces `PROTECTED_PATHS` BEFORE the schema gate: it calls the
+validator's `/validate-llm-change` with the ACTIVE config as baseline and refuses
+any candidate that changes a protected field. Without this the partition was
+decorative on the only path that reaches production — the evaluator is forbidden
+from PROPOSING `strategy_id` / `universe.source` / `vetter.falling_knife` /
+`trailing_stop.enabled` while promotion was free to APPLY them, so a winning
+sweep could have flipped an exit regime live unattended. Fail-closed: an
+unparseable baseline or unreachable validator writes no state and retries next
+poll. AUTO-REVERT is deliberately NOT gated this way — a revert is de-risking,
+and blocking it on a protected diff could strand the system on a config it has
+already judged bad.
+
 The evaluator service itself still never writes the live config — the
 deterministic watcher does. Never submits trades, never bypasses risk.
 
