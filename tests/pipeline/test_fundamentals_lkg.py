@@ -18,20 +18,25 @@ def test_lkg_sql_covers_every_field_with_latest_non_null():
     assert "source != 'no_data'" in sql
 
 
-def test_lkg_field_list_matches_step5_dataframe_columns():
-    # The DataFrame construction in Step 5 must consume exactly ticker, as_of_date,
-    # then FUND_FIELDS in order — a drift here silently mislabels columns.
-    import inspect
-    src = inspect.getsource(pm._do_calculate) if hasattr(pm, "_do_calculate") else ""
-    if not src:  # fall back: scan module source
-        src = inspect.getsource(pm)
-    expected = ('columns=["ticker", "as_of_date", "pe_ratio", "pb_ratio", "roe", "debt_to_equity",\n'
-                '                     "revenue_growth", "eps_growth", "gross_profit", "total_assets",\n'
-                '                     "shares_outstanding", "shares_outstanding_prior", "market_cap"]')
+def test_lkg_field_list_matches_the_dataframe_columns():
+    """The SQL projection and the DataFrame's column labels must agree, or every
+    fundamentals field is silently read off the wrong column.
+
+    This used to be checked by string-matching a hardcoded `columns=[...]`
+    literal against the source of `_do_calculate`. Both now derive from the one
+    `FUND_FIELDS` tuple (`FUND_DF_COLUMNS`), so drift is structurally impossible
+    rather than merely detected — assert the derivation, and that the field list
+    itself has not changed shape underneath it."""
+    import app.factor_inputs as fi
+
     assert list(pm.FUND_FIELDS) == ["pe_ratio", "pb_ratio", "roe", "debt_to_equity",
                                     "revenue_growth", "eps_growth", "gross_profit", "total_assets",
                                     "shares_outstanding", "shares_outstanding_prior", "market_cap"]
-    assert expected.replace(" ", "").replace("\n", "") in src.replace(" ", "").replace("\n", "")
+    assert fi.FUND_DF_COLUMNS == ["ticker", "as_of_date", *pm.FUND_FIELDS]
+    # the projection order the SQL emits is ticker, as_of_date, then FUND_FIELDS
+    sql = pm._lkg_fundamentals_sql()
+    positions = [sql.index(f" AS {f}") for f in pm.FUND_FIELDS]
+    assert positions == sorted(positions), "SQL emits fields out of FUND_FIELDS order"
 
 
 def test_window_default():

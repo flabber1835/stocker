@@ -41,6 +41,7 @@ from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 BACKTESTER_URL = os.getenv("BACKTESTER_URL", "http://backtester:8000")
+PIPELINE_URL = os.getenv("PIPELINE_URL", "http://pipeline:8000")
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 TAVILY_BASE = os.getenv("TAVILY_BASE_URL", "https://api.tavily.com/search")
@@ -201,6 +202,40 @@ def tool_definitions() -> list[dict]:
                 },
                 "top_n": {"type": "integer", "default": 30,
                           "description": "membership window to compare (default max_positions-ish)"},
+            },
+            "required": ["config_changes"],
+        },
+    })
+    tools.append({
+        "name": "preview_factor_recompute",
+        "description": (
+            "The ONLY cheap way to triage a factor_engine change. preview_ranking and "
+            "run_backtest both RE-WEIGHT factor scores that are already persisted, so "
+            "neither can see a change to how a factor is COMPUTED "
+            "(momentum_blend_windows, momentum_method, volatility_window, pe_pb_cap, "
+            "sue_method, industry_neutral_factors) — those score identically to the "
+            "active config there. This RECOMPUTES every factor for the latest scored "
+            "date under your candidate and diffs the resulting ranking against a "
+            "freshly recomputed active baseline. Takes tens of seconds. Same "
+            "config_changes shape and same output as preview_ranking, plus per-factor "
+            "coverage and rank-correlation (watch coverage: a longer window can null a "
+            "factor out entirely) and `baseline_fidelity` — how closely the recomputed "
+            "baseline matches the ranking the chain actually persisted; well under 1.0 "
+            "means the comparison is contaminated and you should say so. "
+            "Use preview_ranking instead for weight-only diffs (it is far cheaper). "
+            "ONE DATE, NO RETURNS: this tells you WHETHER a change moves the book, "
+            "never whether it makes money — confirm with the wind tunnel "
+            "(queue_strategy_experiment). `universe.*` changes are refused."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "config_changes": {
+                    "type": "object",
+                    "description": "dotted.path -> new value, applied to the active config",
+                },
+                "top_n": {"type": "integer", "default": 30,
+                          "description": "membership window to compare"},
             },
             "required": ["config_changes"],
         },
@@ -400,6 +435,11 @@ STRESS_REGIMES: dict[str, dict] = {
 
 MAX_LEDGER_WRITES = int(os.getenv("EVALUATOR_MAX_LEDGER_WRITES", "6"))
 MAX_PREVIEWS = int(os.getenv("EVALUATOR_MAX_PREVIEWS", "8"))
+# Lower than MAX_PREVIEWS (8) because this one costs a pipeline round-trip and a
+# universe-scale recompute, not a re-weight of scores already in hand. Higher than
+# MAX_BACKTESTS (3) on purpose: a triage budget equal to the thing it is meant to
+# save you from buys nothing.
+MAX_FACTOR_PREVIEWS = int(os.getenv("EVALUATOR_MAX_FACTOR_PREVIEWS", "4"))
 # 5, matching the lane's BT_EXPERIMENTS_PER_WEEK candidate cap exactly (baselines
 # fire outside that cap). Raising this further does nothing until the lane cap
 # rises too.
@@ -475,6 +515,8 @@ class BacktestBudget:
         self.ledger_used = 0
         self.preview_limit = MAX_PREVIEWS
         self.preview_used = 0
+        self.factor_preview_limit = MAX_FACTOR_PREVIEWS
+        self.factor_preview_used = 0
         self.experiment_limit = MAX_QUEUED_EXPERIMENTS
         self.experiment_used = 0
 
@@ -494,6 +536,12 @@ class BacktestBudget:
         if self.preview_used >= self.preview_limit:
             return False
         self.preview_used += 1
+        return True
+
+    def take_factor_preview(self) -> bool:
+        if self.factor_preview_used >= self.factor_preview_limit:
+            return False
+        self.factor_preview_used += 1
         return True
 
     def take_experiment(self) -> bool:
@@ -912,6 +960,86 @@ async def preview_ranking(args: dict, *, engine, budget: BacktestBudget) -> str:
     return _truncate(json.dumps(out, default=str))
 
 
+# ── preview_factor_recompute ──────────────────────────────────────────────────
+#
+# The gap this closes: `preview_ranking` above loads ONE frame of persisted
+# factor scores and ranks it under two configs, so a change to how a factor is
+# COMPUTED scores identically to the active config there — silently, with no
+# error. Same for the backtester's config_replay, which also replays persisted
+# scores. Until this tool existed, `factor_construction` was the one mechanism in
+# MECHANISMS with no cheap evaluation path at all: the only route was a
+# multi-hour wind-tunnel run, and one such candidate spent 3h31m and a full lane
+# slot to come back at -1.18pp.
+#
+# The recompute itself lives on the PIPELINE, not here: `compute_all_factors` is
+# in services/pipeline/app and its inputs need ~200 lines of loader SQL
+# (investability prefilter, last-known-good fundamentals, drop_fundamentalless).
+# Re-implementing that here would mean the preview scores a different universe
+# than the chain and reports the difference as a config effect.
+
+async def preview_factor_recompute(args: dict, *, budget: BacktestBudget) -> str:
+    """RECOMPUTE factor scores for the latest scored date under (active + diff),
+    then diff the resulting ranking against a freshly recomputed baseline."""
+    if not budget.take_factor_preview():
+        return (f"FACTOR-PREVIEW BUDGET EXHAUSTED ({budget.factor_preview_limit} per "
+                f"review). Use preview_ranking for weight-only diffs, or commit the "
+                f"thesis to the wind tunnel with queue_strategy_experiment.")
+    try:
+        base_cfg, _h = load_strategy(STRATEGY_CONFIG_PATH)
+    except Exception as exc:  # noqa: BLE001
+        return f"error: could not load active strategy config: {exc}"
+    candidate_dict, err = apply_config_changes(base_cfg.model_dump(mode="json"),
+                                               args.get("config_changes") or {})
+    if err:
+        budget.factor_preview_used -= 1   # a rejected config ran nothing
+        return err
+
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            r = await client.post(f"{PIPELINE_URL}/preview/factors",
+                                  json={"config": candidate_dict})
+    except Exception as exc:  # noqa: BLE001
+        return f"error: could not reach the pipeline at {PIPELINE_URL}: {str(exc)[:300]}"
+    if r.status_code != 200:
+        detail = ""
+        try:
+            detail = str((r.json() or {}).get("detail", ""))[:600]
+        except Exception:  # noqa: BLE001
+            detail = r.text[:600]
+        return f"preview refused (HTTP {r.status_code}): {detail}"
+
+    data = r.json()
+    import pandas as pd
+    a_df = pd.DataFrame(data["active_ranking"])
+    c_df = pd.DataFrame(data["candidate_ranking"])
+    if a_df.empty or c_df.empty:
+        return "preview produced no ranking — the recompute scored nothing"
+    top_n = max(5, min(100, int(args.get("top_n") or
+                                base_cfg.portfolio_builder.max_positions)))
+    out = rank_delta(a_df, c_df, top_n)
+    out["score_date"] = data.get("score_date")
+    out["regime"] = data.get("regime")
+    out["n_tickers"] = data.get("n_tickers")
+    out["factor_engine_changed"] = data.get("factor_engine_changed")
+    out["factor_coverage"] = data.get("factor_coverage")
+    out["factor_rank_correlation"] = data.get("factor_rank_correlation")
+    out["baseline_fidelity"] = data.get("baseline_fidelity")
+    notes = ["ONE date, rank-level, NO returns — this shows whether the change moves "
+             "the book, not whether it pays. Confirm with queue_strategy_experiment.",
+             "builder caps/covariance and the vetter are NOT applied."]
+    if data.get("factor_engine_changed") is False:
+        notes.append("this diff does not touch factor_engine — preview_ranking would "
+                     "have answered it far more cheaply.")
+    bf = data.get("baseline_fidelity")
+    if bf is not None and bf < 0.98:
+        notes.append(f"baseline_fidelity {bf} — the recomputed baseline DIVERGES from "
+                     f"the ranking the chain persisted for this date (price-vintage or "
+                     f"universe drift). Treat this diff as contaminated.")
+    out["notes"] = notes
+    return _truncate(json.dumps(out, default=str))
+
+
 def _loads_json(raw):
     try:
         return json.loads(raw)
@@ -1177,6 +1305,8 @@ async def execute_tool(name: str, args: dict, *, engine, budget: BacktestBudget)
             return await read_file(args)
         if name == "preview_ranking":
             return await preview_ranking(args, engine=engine, budget=budget)
+        if name == "preview_factor_recompute":
+            return await preview_factor_recompute(args, budget=budget)
         if name == "hypothesis_ledger":
             return await hypothesis_ledger(args, engine=engine, budget=budget)
         if name == "queue_strategy_experiment":

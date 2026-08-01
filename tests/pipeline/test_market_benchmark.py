@@ -16,7 +16,12 @@ def test_default_benchmark_is_spy():
 
 
 def test_pipeline_has_no_hardcoded_spy_ticker_literals():
-    src = open(os.path.join(ROOT, "services", "pipeline", "app", "main.py")).read()
+    # Scan the whole service, not just main.py: the regime step's benchmark query
+    # now lives in factor_inputs.py, and a main.py-only scan would pass vacuously
+    # for any query that moves out of it.
+    import glob
+    app_dir = os.path.join(ROOT, "services", "pipeline", "app")
+    src = "".join(open(f).read() for f in sorted(glob.glob(os.path.join(app_dir, "*.py"))))
     # the analytical market-proxy queries must bind :bench, not a 'SPY' string literal
     assert "ticker = :bench" in src
     assert "ticker = 'SPY'" not in src, "pipeline still hardcodes ticker = 'SPY'"

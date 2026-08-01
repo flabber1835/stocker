@@ -765,6 +765,15 @@ Closed-loop side jobs hosted by the pipeline (2026-07, see architecture.md
   (migration 0046). No vetter/orders/risk checks. The evaluator packet's
   `shadow_vs_champion` section compares forward returns; promotion is a human
   config change. Unset path (default) = inert.
+- `POST /preview/factors` — READ-ONLY factor recompute for the evaluator's
+  `preview_factor_recompute` tool. Deliberately NOT under `/jobs/` (every path
+  there persists a run row; this one writes nothing). Recomputes every factor for
+  the latest scored date under a CANDIDATE config and returns both rankings.
+  Refuses (422) a `universe.*` change; 409s on `_job_lock` contention
+  (PREVIEW_LOCK_TIMEOUT_SECS, default 5). The loader steps it shares with the
+  factor step live in `app/factor_inputs.py` (`load_factor_inputs`) so the
+  preview and the chain cannot assemble different inputs. See
+  docs/architecture.md "the factor-recompute preview".
 
 `pipeline_runs` is the cross-step audit row; `factor_status`,
 `ranking_status`, and `delta_status` columns surface sub-step progress
@@ -1532,6 +1541,28 @@ tools are for drill-down and testing a thesis BEFORE recommending it:
     canonical shared strategy_engine.rank via the _vendor shim): top-N
     membership changes + movers vs the active ranking, before spending a
     run_backtest slot. No builder caps/vetter. Budget EVALUATOR_MAX_PREVIEWS (8).
+    RE-WEIGHTS persisted scores, so it CANNOT see a factor_engine change.
+  preview_factor_recompute — the tool for that case, and the ONLY cheap one.
+    `preview_ranking` and the backtester's config_replay both re-weight PERSISTED
+    `factor_scores`, so a change to how a factor is COMPUTED (momentum_blend_windows,
+    momentum_method, volatility_window, pe_pb_cap, sue_method,
+    industry_neutral_factors) scored IDENTICALLY to the active config in both —
+    silently. `factor_construction` was the one MECHANISM with no cheap test; the
+    only route was a multi-hour wind-tunnel run (one candidate burned 3h31m and a
+    lane slot for -1.18pp). This POSTs the whole candidate config to the pipeline's
+    read-only `POST /preview/factors`, which RECOMPUTES every factor for the latest
+    scored date and returns both rankings + per-factor coverage/rank-correlation +
+    `baseline_fidelity`. The recompute lives on the PIPELINE because
+    `compute_all_factors` and its ~200 lines of loader SQL do (promoting them to
+    `shared/` would force a stocker-base rebuild everywhere; re-implementing them in
+    the evaluator would score a different universe than the chain). Both sides are
+    recomputed on ONE frame with `copy_input=False` — safe because those in-place
+    mutations are idempotent, which is what makes recomputing our own baseline
+    affordable. `universe.*` diffs are REFUSED (422) because the preview reuses the
+    prior run's investable set, which is what makes the diff apples-to-apples.
+    NO `backtest_trials` registration: a rank diff is not a performance estimate and
+    must not deflate anyone's DSR. Budget EVALUATOR_MAX_FACTOR_PREVIEWS (4).
+    See docs/architecture.md "the factor-recompute preview".
   queue_strategy_experiment also takes an optional `predicted_tune_cagr_edge`:
     a COMMITTED number (0.02 = +2pp) for how much the candidate should beat the
     baseline's tune CAGR. The lane scores predicted-vs-actual when the run lands

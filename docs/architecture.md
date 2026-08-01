@@ -1812,6 +1812,15 @@ preview_ranking— FAST thesis triage (seconds): re-rank the latest scored unive
                  top-N membership changes, biggest movers, rank correlation.
                  Rank-level only (no builder caps / vetter); a promising preview
                  still needs run_backtest. Budget EVALUATOR_MAX_PREVIEWS (8).
+                 Cannot see a factor_engine change — see below.
+preview_factor_recompute
+               — RECOMPUTES every factor for the latest scored date under a
+                 candidate config, then diffs the ranking against a freshly
+                 recomputed baseline. Same output shape as preview_ranking plus
+                 per-factor coverage, per-factor rank correlation, and
+                 `baseline_fidelity`. HTTP POST to the pipeline's read-only
+                 /preview/factors. Budget EVALUATOR_MAX_FACTOR_PREVIEWS (4).
+                 See "factor-recompute preview" below.
 hypothesis_ledger — the evaluator's durable CROSS-WEEK MEMORY and its ONE write
                  tool, scoped to the evaluator_hypotheses table (migration 0041)
                  and nothing else: thesis → planned test → status/outcome.
@@ -1837,6 +1846,86 @@ fails hard — a review is never lost to a tool bug).
 error) is persisted verbatim in `evaluator_reports.tool_transcript` (migration
 0040), so any number the narrative cites can be traced to the exact query or
 backtest that produced it.
+
+### Design Decision: the factor-recompute preview
+
+**The gap.** Every cheap evaluation path the evaluator had RE-WEIGHTED factor
+scores that were already persisted: `preview_ranking` loads one frame of
+`factor_scores` and ranks it under two configs, and the backtester's
+`config_replay` replays the persisted point-in-time scores per date. So a change
+to how a factor is COMPUTED — `momentum_blend_windows`, `momentum_method`,
+`volatility_window`, `pe_pb_cap`, `sue_method`, `industry_neutral_factors` —
+scored IDENTICALLY to the active config in both, silently and with no error.
+`factor_construction` was the one entry in the tool's own `MECHANISMS` vocabulary
+with no cheap test at all; the only real route was a multi-hour wind-tunnel run.
+One such candidate (`residual_riskadj`, a55598f6) spent 3h31m and a full
+experiment-lane slot to return −1.18pp.
+
+**Where the recompute runs, and why not in the evaluator.** `compute_all_factors`
+lives in `services/pipeline/app/factors.py` and is NOT importable from the
+evaluator (its Dockerfile copies only `services/evaluator/app/`; `shared/` has no
+`factors.py`). Two options existed:
+
+```text
+promote factors.py to shared/   a NEW shared module file ⇒ forced stocker-base
+                                rebuild for every dependent image (the
+                                factor_registry crash-loop trap), AND the
+                                evaluator would have to re-implement ~200 lines
+                                of loader SQL (investability prefilter,
+                                last-known-good fundamentals, drop_fundamentalless).
+                                A preview that assembles its inputs differently
+                                from production scores a different universe and
+                                reports the difference as a config effect.
+read-only endpoint on the       CHOSEN. Reuses the real loaders. Universe-scale
+pipeline + thin HTTP tool       pandas stays in the container already mem_limited
+                                for it. No base rebuild; bt-engine untouched.
+```
+
+`factors.py` is already shared-by-copy with bt-engine (COPYed at image build), so
+a third consumer over HTTP is consistent with that.
+
+**`POST /preview/factors` (pipeline).** Deliberately NOT under `/jobs/` — every
+path there persists a run row; this one writes nothing. It:
+
+```text
+- refuses (422) any candidate whose `universe.*` differs from the active config.
+  The preview reuses the SURVIVING TICKERS of the run it diffs against and skips
+  the investability prefilter entirely — that is what makes the comparison
+  apples-to-apples, and a factor_engine diff cannot change investability anyway.
+  Honouring a universe change would break the guarantee silently, so it refuses
+  and names the wind tunnel instead.
+- acquires _job_lock with a SHORT timeout (PREVIEW_LOCK_TIMEOUT_SECS, default 5)
+  and returns 409 on contention. A memory guard, not a correctness one: the
+  preview holds a universe-scale price frame and the factor step already sits
+  close to PIPELINE_MEM_LIMIT.
+- RECOMPUTES THE ACTIVE SIDE TOO rather than reading persisted scores. A
+  persisted run may carry a different price vintage (the restatement fix) or
+  universe snapshot; comparing recompute-against-persisted would mix a data diff
+  into the config diff. Both computes pass copy_input=False on the SAME frame —
+  safe because compute_all_factors' in-place mutations (to_datetime on datetimes,
+  sorting an already-sorted frame, astype(float) on floats) are all IDEMPOTENT,
+  so the second compute costs no extra peak memory. That is what makes
+  recomputing our own baseline affordable.
+- reports `baseline_fidelity`: Spearman of the recomputed active ranking against
+  the ranking the chain actually PERSISTED for that date. Below ~1.0 the baseline
+  has drifted and every conclusion off it is contaminated — surfaced on every
+  call so the model can see it, rather than asserted in a test where nobody would.
+```
+
+**No DSR trial registration.** A rank diff is not a performance estimate: it
+produces no returns, no equity curve, and covers one date. Registering it as a
+`backtest_trials` row would deflate the DSR of runs that actually measure
+something. The tool's description says so and the prompt repeats it: the preview
+answers "does this move the book", never "does this pay".
+
+**Loader extraction (`services/pipeline/app/factor_inputs.py`).** Steps 1-5b of
+`_do_calculate` moved verbatim into `load_factor_inputs`, which both callers use.
+Audit logging and progress are INJECTED (`log` / `progress`) so the READ path
+cannot diverge while only the chain writes `execution_steps`. `universe_override`
+is the single behavioural seam. Guarded by `tests/pipeline/test_factor_inputs_extraction.py`
+(the caller must not re-query the loader's tables) and
+`tests/integration/test_preview_factors_read_only.py` (row counts unchanged
+across a live call against a real, fully-migrated Postgres — mutation-verified).
 
 **Boundary unchanged:** tools are read-only over already-ingested point-in-time
 data (web search is the one documented exception — external context, logged);

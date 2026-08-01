@@ -573,9 +573,18 @@ services:
       # Phase 2 tools (read-only; see docs/architecture.md "evaluator tools")
       EVALUATOR_TOOLS_ENABLED: ${EVALUATOR_TOOLS_ENABLED:-true}
       BACKTESTER_URL: http://backtester:8000
+      # preview_factor_recompute posts here. It is the ONLY cheap way to evaluate a
+      # factor_engine change: preview_ranking and config_replay both re-weight
+      # PERSISTED factor scores, so a change to how a factor is computed scores
+      # identically to the active config in both. The recompute lives on the
+      # pipeline because that is where compute_all_factors and its loaders are —
+      # duplicating them here would score a different universe than the chain.
+      # The endpoint (/preview/factors) is read-only and persists nothing.
+      PIPELINE_URL: http://pipeline:8000
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       EVALUATOR_MAX_TOOL_TURNS: ${EVALUATOR_MAX_TOOL_TURNS:-24}
       EVALUATOR_MAX_BACKTESTS: ${EVALUATOR_MAX_BACKTESTS:-3}
+      EVALUATOR_MAX_FACTOR_PREVIEWS: ${EVALUATOR_MAX_FACTOR_PREVIEWS:-4}
       EVALUATOR_MAX_QUEUED_EXPERIMENTS: ${EVALUATOR_MAX_QUEUED_EXPERIMENTS:-4}
       # READ-ONLY window into the wind tunnel's RESULTS tables (bt_sweeps,
       # bt_runs, bt_equity, bt_positions, bt_trades) so a review can ask WHY a

@@ -12,7 +12,11 @@ SERVICES = ["pipeline", "av-ingestor", "llm-vetter", "portfolio-builder", "api"]
 
 
 def _main(svc):
-    return (ROOT / "services" / svc / "app" / "main.py").read_text()
+    """The service's whole app source, not just main.py — the pipeline's universe
+    read moved into factor_inputs.py when the factor-step loaders were extracted,
+    and a main.py-only scan would then pass vacuously for anything that leaves it."""
+    return "".join(p.read_text()
+                   for p in sorted((ROOT / "services" / svc / "app").glob("*.py")))
 
 
 def test_pipeline_selects_active_snapshot_by_max_id():

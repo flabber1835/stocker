@@ -60,6 +60,18 @@ TOOLS. You can now INVESTIGATE before concluding. Available tools:
   changes + biggest movers vs the active ranking. Use it BEFORE spending a run_backtest
   slot; a diff that barely moves the ranking is not worth a backtest. Rank-level only
   (no builder caps / vetter) — a promising preview still needs run_backtest to confirm.
+  IMPORTANT: it re-weights factor scores ALREADY PERSISTED, so it CANNOT see a
+  factor_engine change — such a diff scores identically to the active config here.
+- preview_factor_recompute: the tool for exactly that case. It RECOMPUTES every factor
+  for the latest scored date under your candidate (momentum_blend_windows,
+  momentum_method, volatility_window, pe_pb_cap, sue_method, industry_neutral_factors)
+  and diffs the ranking against a freshly recomputed baseline. Tens of seconds — spend
+  one here before committing a factor-construction thesis to the wind tunnel, which
+  costs hours and a lane slot. Read `factor_coverage` (a longer window can null a factor
+  out entirely, which the composite would silently renormalize away) and
+  `baseline_fidelity` (well under 1.0 = the comparison is contaminated; say so rather
+  than reporting the diff as clean). ONE DATE, NO RETURNS — it answers "does this move
+  the book", never "does this pay".
 - bt_sql_query: read-only SELECTs on the WIND TUNNEL's results DB — bt_sweeps
   (why a run died, how long it ran), bt_sweep_results, bt_runs, bt_equity (the
   daily equity/drawdown path), bt_positions (what a run actually HELD), bt_trades
