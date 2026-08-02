@@ -42,6 +42,8 @@ from stock_strategy_shared.investability import (
     avg_dollar_volume,
     below_investability_floor,
 )
+from stock_strategy_shared.crash_brake import (evaluate_crash_state,
+                                                scale_weights, target_exposure)
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 from app import live
@@ -226,7 +228,8 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
                  current_holdings: set | None = None,
                  listing_windows: dict | None = None,
                  earnings: pd.DataFrame | None = None,
-                 blocked_tickers: set | None = None) -> tuple:
+                 blocked_tickers: set | None = None,
+                 crash_exposure: float | None = None) -> tuple:
     """One rebalance: factors → rank → falling-knife → builder composition.
     Returns ({ticker: weight}, ranked_df, TargetStatus) — weights sum ≤ 1
     (cash_reserve / vol-target de-lever).
@@ -415,6 +418,15 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
         exposure = max_exposure
     if exposure < 1.0 - 1e-12:
         weights = {t: w * exposure for t, w in weights.items()}
+    # Crash brake LAST — and the reason is narrower than "order matters". The two
+    # scalars commute, so which multiplication runs first is immaterial. What is
+    # NOT immaterial is that the brake lands AFTER book_volatility has measured
+    # the book: brake first and vol-targeting sees a halved book, concludes it has
+    # room to lever back up, and partly undoes the brake, leaving more risk on in
+    # a crash than the config asked for. Relative weights are preserved, so
+    # composition is untouched and restoring exposure cannot silently re-rank.
+    if crash_exposure is not None and crash_exposure < 1.0 - 1e-12:
+        weights = scale_weights(weights, crash_exposure)
     out = {t: float(w) for t, w in weights.items()}
     # An empty book HERE is a real answer: everything upstream succeeded and the
     # composition step chose no exposure. That is obeyed, not overridden.
@@ -513,6 +525,14 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
     # cannot supply. Indices (not dates) because `i` is already the session counter
     # and stays correct under truncation.
     stop_at_i: dict[str, int] = {}
+
+    cb_cfg = getattr(config, "crash_brake", None)
+    cb_on = bool(getattr(cb_cfg, "enabled", False))
+    crash_was_engaged = False
+    n_crash_sessions = 0      # rebalances scored with the brake engaged
+    n_crash_episodes = 0      # distinct engagements — a rare control must be RARE,
+                              # and one long episode reads very differently from
+                              # twenty short ones at the same session count.
     n_stop_exits = 0
     filled_notional_today: float = 0.0
     n_rebalances = 0                            # rebalance EVALUATIONS
@@ -788,6 +808,36 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                         columns=["as_of_date"], errors="ignore")
 
             spy_closes = spy_upto["close"].astype(float).tolist()
+
+            # ── crash brake ───────────────────────────────────────────────
+            # Evaluated from the SAME frame the factor step gets, so breadth is
+            # measured over the investable universe rather than over whatever
+            # happens to be held. Both conditions come from the shared module
+            # live calls; nothing is re-derived here.
+            crash_exposure = None
+            if cb_on:
+                _by_t = {
+                    t: g["adjusted_close"].astype(float).tolist()
+                    for t, g in day_prices[day_prices["ticker"] != "SPY"].groupby("ticker")
+                }
+                crash_state = evaluate_crash_state(
+                    benchmark_closes=spy_closes,
+                    closes_by_ticker=_by_t,
+                    market_return_window_sessions=cb_cfg.market_return_window_sessions,
+                    market_return_threshold=cb_cfg.market_return_threshold,
+                    breadth_sma_sessions=cb_cfg.breadth_sma_sessions,
+                    breadth_threshold=cb_cfg.breadth_threshold,
+                    min_breadth_names=cb_cfg.min_breadth_names,
+                    enabled=True)
+                crash_exposure = target_exposure(
+                    crash_state, cb_cfg.normal_equity_exposure,
+                    cb_cfg.stressed_equity_exposure)
+                if crash_state.engaged:
+                    n_crash_sessions += 1
+                    if not crash_was_engaged:
+                        n_crash_episodes += 1
+                crash_was_engaged = crash_state.engaged
+
             n_rebalances += 1
             target, ranked, target_status = build_target(
                 day_prices[day_prices["ticker"] != "SPY"], fnd_asof, sector_map,
@@ -797,7 +847,8 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                 current_holdings=set(qty),
                 listing_windows=listing_windows,
                 earnings=earnings,
-                blocked_tickers=blocked)
+                blocked_tickers=blocked,
+                crash_exposure=crash_exposure)
             status_counts[target_status] = status_counts.get(target_status, 0) + 1
 
             if ranked is not None:
@@ -1042,6 +1093,18 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
         "n_days_with_fills": len(turnover_samples),
         "total_turnover": round(float(np.sum(turnover_samples)), 4) if turnover_samples else 0.0,
         "target_status_counts": dict(sorted(status_counts.items())),
+        # A rare control must be shown to be RARE. Session count alone is
+        # ambiguous — one long episode and twenty short ones read very
+        # differently — so both are reported, and the share tells you at a glance
+        # whether the "brake" has quietly become a permanent de-risking overlay.
+        "crash_brake": ({
+            "enabled": True,
+            "engaged_rebalances": n_crash_sessions,
+            "episodes": n_crash_episodes,
+            "share_of_rebalances": (round(n_crash_sessions / n_rebalances, 4)
+                                    if n_rebalances else None),
+            "stressed_exposure": cb_cfg.stressed_equity_exposure,
+        } if cb_on else {"enabled": False}),
         # Stop exits vs everything else. The whole premise of the trailing stop is
         # that it replaces rank-driven exits with trend-driven ones, so a run where
         # this is 0 scored a config whose stop never fired — the A/B is meaningless
