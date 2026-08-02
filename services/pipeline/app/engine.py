@@ -11,6 +11,8 @@ from typing import Optional
 
 from stock_strategy_shared.investability import below_investability_floor
 from stock_strategy_shared.capacity import select_entries_within_capacity
+from stock_strategy_shared.drawdown import (
+    reentry_blocked as _shared_reentry_blocked)
 
 
 @dataclass(frozen=True)
@@ -60,48 +62,10 @@ class StopPlan:
     skipped: dict[str, str]     # ticker → why not ('no_data' | 'unarmed' | 'stale')
 
 
-def reentry_blocked(last_close: Optional[float], stop_peak: Optional[float],
-                    *, sessions_since_stop: Optional[int] = None,
-                    policy: str = "peak", cooldown_sessions: int = 21) -> bool:
-    """Is a stopped-out name still barred from being re-bought?
+# reentry_blocked is CANONICAL in shared.drawdown (the builder needs the same
+# rule; a second copy is how a configured cooldown gets overridden).
+reentry_blocked = _shared_reentry_blocked
 
-    TWO POLICIES, because the right answer depends on how wide the stop is.
-
-    'peak' (default, the original rule): blocked until the close exceeds the peak
-    that triggered the stop. No timer. It is a strictly stronger condition than
-    "N sessions have passed" — at a 15% stop, recovering to the triggering peak
-    takes roughly a 17.6% rally off the stop price.
-
-    'cooldown': blocked for `cooldown_sessions` sessions after the stop, then
-    free. Introduced because the peak rule does not scale with stop width: at a
-    30% stop, regaining the peak needs a ~43% rally, which is not hysteresis but
-    near-permanent exclusion — a name that stops out in an ordinary correction
-    would be unbuyable for years while the ranking keeps nominating it. Both are
-    kept so the wind tunnel can score them at matched widths rather than one
-    being asserted.
-
-    Unknown inputs never block, under either policy: a missing peak (or, for the
-    cooldown, an unknown stop date) is absence of evidence, and the failure mode
-    of blocking on it is a name silently dropping out of the investable set.
-    """
-    if policy == "cooldown":
-        if sessions_since_stop is None:
-            return False
-        try:
-            elapsed = int(sessions_since_stop)
-        except (TypeError, ValueError):
-            return False
-        return elapsed < max(0, int(cooldown_sessions))
-    if stop_peak is None or last_close is None:
-        return False
-    try:
-        peak = float(stop_peak)
-        last = float(last_close)
-    except (TypeError, ValueError):
-        return False
-    if not (peak > 0) or not (last > 0):  # NaN-safe
-        return False
-    return last <= peak
 
 
 def plan_trailing_stops(

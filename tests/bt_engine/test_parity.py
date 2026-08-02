@@ -171,3 +171,37 @@ def test_live_and_tunnel_selection_call_sites_agree_on_kwargs():
         assert not (live - tunnel), (
             f"{fname}: live passes {sorted(live - tunnel)} that the wind tunnel "
             f"does not — the config would be scored as if those were unset")
+
+
+def test_crash_brake_is_not_claimed_HONOURED_without_a_live_path():
+    """A verdict is a claim about LIVE, not about the simulator.
+
+    crash_brake was declared HONOURED while the live pipeline never called the
+    brake and the trade-executor had no path for risk_reduce/risk_restore — so a
+    tunnel result described behaviour the live book could not reproduce. That is
+    precisely the lie this manifest exists to prevent, and the identical error had
+    already been corrected once for portfolio_drawdown_guard.
+
+    The check is mechanical: HONOURED requires the live chain to actually invoke
+    the shared module. Promote the verdict when that call exists, not before.
+    """
+    import os
+
+    from app.parity import HONOURED, verdict_for
+
+    verdict, reason = verdict_for("crash_brake.enabled")
+    root = os.path.join(os.path.dirname(__file__), "..", "..")
+    live = open(os.path.join(root, "services", "pipeline", "app", "main.py")).read()
+    live_calls_it = "evaluate_crash_state" in live
+
+    if verdict == HONOURED:
+        assert live_calls_it, (
+            "crash_brake is declared HONOURED but services/pipeline never calls "
+            "evaluate_crash_state — the tunnel would be scoring behaviour live "
+            "cannot reproduce")
+    else:
+        assert not live_calls_it, (
+            "the live chain now evaluates the crash brake — promote the parity "
+            "verdict to HONOURED (and check the executor accepts risk_reduce / "
+            "risk_restore)")
+    assert reason

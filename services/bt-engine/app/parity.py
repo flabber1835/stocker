@@ -158,9 +158,16 @@ PARITY: dict[str, tuple[str, str]] = {
     # Market-wide exposure brake. The tunnel has the benchmark and the whole
     # universe's closes, so it can compute the same two conditions live does.
     "crash_brake": (
-        HONOURED,
-        "evaluate_crash_state on the same shared module live calls; exposure "
-        "scalar applied to the composed target"),
+        PARTIAL,
+        "the SIMULATOR honours it fully (evaluate_crash_state from the shared "
+        "module, exposure scalar on the composed target). LIVE DOES NOT: the "
+        "pipeline never calls the brake, and the trade-executor has no path for "
+        "risk_reduce/risk_restore. So a tunnel result for a brake-enabled config "
+        "describes behaviour the live book cannot reproduce. HONOURED was claimed "
+        "here before the live path existed — the exact class of lie this manifest "
+        "exists to prevent, and the same error already corrected once for "
+        "portfolio_drawdown_guard. Restore HONOURED only when the live chain "
+        "evaluates the brake and the executor accepts both actions"),
     "portfolio_builder.cluster_method": (
         HONOURED,
         "passed to the shared correlation_clusters the live builder calls"),

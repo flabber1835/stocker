@@ -1858,10 +1858,16 @@ async def _plan_stops(ts_cfg, held: set[str],
         )).fetchall()
 
         peak_rows = (await conn.execute(text(
-            "SELECT DISTINCT ON (ticker) ticker, stop_peak, closed_on FROM position_episodes "
-            "WHERE close_reason = 'trailing_stop' AND closed_on IS NOT NULL "
-            "  AND stop_peak IS NOT NULL "
-            "ORDER BY ticker, closed_on DESC"))).fetchall()
+            # closed_on IS NOT NULL was WRONG once the stop leaves the episode
+            # open pending its fill: the block would not arm until the sale
+            # confirmed, leaving a window where the next build could re-buy the
+            # name the stop just sold.
+            "SELECT DISTINCT ON (ticker) ticker, stop_peak, "
+            "       COALESCE(closed_on, pending_close_since) AS closed_on "
+            "  FROM position_episodes "
+            "WHERE close_reason = 'trailing_stop' AND stop_peak IS NOT NULL "
+            "  AND COALESCE(closed_on, pending_close_since) IS NOT NULL "
+            "ORDER BY ticker, COALESCE(closed_on, pending_close_since) DESC"))).fetchall()
         stop_peaks = {r.ticker: float(r.stop_peak) for r in peak_rows}
         # closed_on carries the stop DATE, which the cooldown policy needs. Loaded
         # in the same pass as the peak so the two can never disagree about which
@@ -1912,11 +1918,21 @@ async def _plan_stops(ts_cfg, held: set[str],
     if plan.stopped:
         async with engine.begin() as conn:
             for ticker, peak in sorted(plan.stopped.items()):
-                # Close the episode NOW, recording the peak that triggered it. The
-                # position is sold at the next open; recording it here means the
-                # re-entry block is armed before the next build can propose a buy.
+                # STOP-PENDING, not closed. The sell is submitted for the next
+                # open and can be rejected, cancelled or partially filled. Closing
+                # here would tell Stocker the episode ended while the broker still
+                # holds the position — and a later re-open would start a FRESH
+                # episode with a new opened_on and a reset peak, i.e. the stop
+                # silently loosening itself. The episode closes only when the
+                # position is confirmed gone (the two-sync rule in
+                # plan_episode_sync).
+                #
+                # The re-entry block is still armed immediately: the block query
+                # reads stop_peak on any episode carrying close_reason
+                # 'trailing_stop', open or closed, using
+                # COALESCE(closed_on, pending_close_since) as the stop date.
                 await conn.execute(text(
-                    "UPDATE position_episodes SET closed_on = :d, "
+                    "UPDATE position_episodes SET pending_close_since = :d, "
                     "close_reason = 'trailing_stop', stop_peak = :p, updated_at = NOW() "
                     "WHERE closed_on IS NULL AND ticker = :t"),
                     {"d": session, "p": peak, "t": ticker})

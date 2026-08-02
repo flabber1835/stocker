@@ -27,6 +27,11 @@ from stock_strategy_shared.investability import (
 )
 from stock_strategy_shared.tracing import fmt_row, log_step, write_trace_file, mark_orphaned_runs_failed, exc_text
 from stock_strategy_shared.db import wait_for_db
+from stock_strategy_shared.drawdown import reentry_blocked
+
+# Session calendar anchor for the cooldown re-entry policy — same
+# benchmark the pipeline counts sessions against.
+MARKET_BENCHMARK = os.getenv("MARKET_BENCHMARK", "SPY")
 
 STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/quality_core_v1.yaml")
 
@@ -403,20 +408,42 @@ async def _do_build(
     stop_blocked: list[str] = []
     try:
         async with engine.connect() as conn:
+            # Load the RAW inputs and apply the SHARED rule — do NOT re-implement
+            # the predicate in SQL. The previous version hardcoded
+            # `adjusted_close <= stop_peak` (peak recovery) and therefore ignored
+            # trailing_stop.reentry_policy entirely: a configured 21-session
+            # cooldown was silently overridden into near-permanent exclusion,
+            # because clearing a 30% stop's peak needs a ~43% rally. The builder
+            # and the delta step must agree, or the effective policy is whichever
+            # is stricter.
             _brows = await conn.execute(text(
                 "WITH last_stop AS ("
-                "  SELECT DISTINCT ON (ticker) ticker, stop_peak FROM position_episodes"
-                "  WHERE close_reason = 'trailing_stop' AND closed_on IS NOT NULL"
-                "    AND stop_peak IS NOT NULL"
-                "  ORDER BY ticker, closed_on DESC),"
+                "  SELECT DISTINCT ON (ticker) ticker, stop_peak,"
+                "         COALESCE(closed_on, pending_close_since) AS closed_on"
+                "    FROM position_episodes"
+                "  WHERE close_reason = 'trailing_stop' AND stop_peak IS NOT NULL"
+                "    AND COALESCE(closed_on, pending_close_since) IS NOT NULL"
+                "  ORDER BY ticker, COALESCE(closed_on, pending_close_since) DESC),"
                 "px AS ("
                 "  SELECT DISTINCT ON (ticker) ticker, adjusted_close FROM daily_prices"
                 "  WHERE ticker IN (SELECT ticker FROM last_stop)"
                 "    AND adjusted_close IS NOT NULL"
                 "  ORDER BY ticker, date DESC) "
-                "SELECT l.ticker FROM last_stop l JOIN px ON px.ticker = l.ticker "
-                "WHERE px.adjusted_close <= l.stop_peak"))
-            stop_blocked = [r.ticker for r in _brows.fetchall()]
+                "SELECT l.ticker, l.stop_peak, l.closed_on, px.adjusted_close, "
+                "       (SELECT COUNT(*) FROM (SELECT DISTINCT date FROM daily_prices "
+                "          WHERE ticker = :bench AND date > l.closed_on) x) AS sessions "
+                "  FROM last_stop l LEFT JOIN px ON px.ticker = l.ticker"),
+                {"bench": MARKET_BENCHMARK})
+            _ts = getattr(strategy, "trailing_stop", None)
+            _policy = getattr(_ts, "reentry_policy", "peak")
+            _cool = int(getattr(_ts, "reentry_cooldown_sessions", 21))
+            stop_blocked = [
+                r.ticker for r in _brows.fetchall()
+                if reentry_blocked(
+                    None if r.adjusted_close is None else float(r.adjusted_close),
+                    None if r.stop_peak is None else float(r.stop_peak),
+                    sessions_since_stop=r.sessions,
+                    policy=_policy, cooldown_sessions=_cool)]
     except Exception as exc:  # noqa: BLE001
         print(f"[build] trailing-stop re-entry blocks unreadable ({exc}) — "
               f"proceeding without them", flush=True)
