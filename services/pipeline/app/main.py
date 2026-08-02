@@ -29,6 +29,8 @@ from app.factor_inputs import (
 )
 from app.regime import detect_regime, resolve_confirmed_regime
 from app.rank import rank_universe, FACTORS
+from app import vendor_shadow as vs
+from app.shadow import build_challenger_target
 from app.engine import (
     evaluate_all,
     evaluate_target_vs_live,
@@ -4064,3 +4066,304 @@ async def list_runs(limit: int = 10):
         ), {"lim": limit})
         results = rows.fetchall()
     return [_format_pipeline_run(dict(r._mapping)) for r in results]
+
+
+# ── Vendor shadow: AV vs Sharadar, measured (2026-08) ────────────────────────
+#
+# A cutover from Alpha Vantage to Sharadar is not a data swap. Live's
+# adjusted_close is AV-VINTAGE (written once, re-based only when AV restates it);
+# Sharadar's closeadj is uniformly restated across all history. Replacing one
+# with the other silently re-bases every price, moving momentum, low_volatility,
+# every drawdown, and every peak the trailing stop reads — on a book whose exit
+# policy IS the peak. That change would arrive unannounced and its first evidence
+# would be sales.
+#
+# So this measures the difference rather than estimating it. Read-only on both
+# sides; writes nothing but its own summary row. See docs/architecture.md
+# "the vendor shadow".
+
+BT_DATABASE_URL = os.getenv("BT_DATABASE_URL", "")
+# How far back the price probe compares the two series. One year: long enough to
+# contain a split or a distribution for most names, short enough that the two
+# universe-scale frames fit beside each other.
+VENDOR_SHADOW_PRICE_DAYS = int(os.getenv("VENDOR_SHADOW_PRICE_DAYS", "365"))
+# Per-ticker price probes are the expensive part (a pandas join each). Bounded,
+# with the bound REPORTED — a silent cap would read as "we checked everything".
+VENDOR_SHADOW_PRICE_TICKERS = int(os.getenv("VENDOR_SHADOW_PRICE_TICKERS", "400"))
+
+_bt_shadow_engine: Optional[AsyncEngine] = None
+
+
+def _get_bt_engine() -> Optional[AsyncEngine]:
+    """Lazily open the read-only bt-postgres connection.
+
+    Absence is NOT an error. The backtest stack is a separate compose project
+    that is legitimately down during a live-only deploy, and a diagnostic that
+    fails when its optional peer is missing would be worse than the gap it
+    reports."""
+    global _bt_shadow_engine
+    if not BT_DATABASE_URL:
+        return None
+    if _bt_shadow_engine is None:
+        _bt_shadow_engine = create_async_engine(
+            BT_DATABASE_URL, pool_pre_ping=True, pool_size=1, max_overflow=0)
+    return _bt_shadow_engine
+
+
+async def _load_sharadar_frames(bt_engine, tickers: list[str], score_date: date,
+                                lookback_days: int):
+    """Sharadar prices + fundamentals + sectors, shaped like the live contract.
+
+    The column NAMES are load-bearing: compute_all_factors looks every field up
+    by name and returns all-NaN for a missing column rather than raising, so a
+    shape mismatch here would surface as a factor coverage collapse attributed to
+    the vendor. That is exactly the misattribution this job exists to prevent.
+    """
+    px_from = score_date - timedelta(days=lookback_days)
+    async with bt_engine.connect() as conn:
+        px_rows = (await conn.execute(text(
+            "SELECT ticker, date, adjusted_close, close, volume FROM bt_prices "
+            "WHERE ticker = ANY(:tk) AND date BETWEEN :f AND :t "
+            "ORDER BY ticker, date"
+        ), {"tk": tickers, "f": px_from, "t": score_date})).fetchall()
+
+        # POINT-IN-TIME: only filings public on or before the session, latest per
+        # ticker. DISTINCT ON is the whole no-look-ahead guarantee here — an
+        # unbounded MAX would hand the shadow a figure live could not have seen
+        # and manufacture a vendor difference out of a time difference.
+        fund_rows = (await conn.execute(text(
+            "SELECT DISTINCT ON (ticker) ticker, pe_ratio, pb_ratio, roe, "
+            "  debt_to_equity, revenue_growth, eps_growth, market_cap, "
+            "  shares_outstanding, shares_outstanding_prior, gross_profit, "
+            "  total_assets "
+            "FROM bt_fundamentals WHERE ticker = ANY(:tk) AND as_of_date <= :t "
+            "ORDER BY ticker, as_of_date DESC"
+        ), {"tk": tickers, "t": score_date})).fetchall()
+
+        sec_rows = (await conn.execute(text(
+            "SELECT ticker, sector FROM bt_universe WHERE snapshot_date = "
+            "(SELECT MAX(snapshot_date) FROM bt_universe)"
+        ))).fetchall()
+        listed = [r[0] for r in sec_rows]
+
+    def _f(v):
+        return None if v is None else float(v)
+
+    prices = pd.DataFrame(
+        [{"ticker": r[0], "date": pd.Timestamp(r[1]), "adjusted_close": _f(r[2]),
+          "close": _f(r[3]), "volume": _f(r[4])} for r in px_rows],
+        columns=["ticker", "date", "adjusted_close", "close", "volume"])
+    fundamentals = pd.DataFrame(
+        [{"ticker": r[0], "pe_ratio": _f(r[1]), "pb_ratio": _f(r[2]), "roe": _f(r[3]),
+          "debt_to_equity": _f(r[4]), "revenue_growth": _f(r[5]),
+          "eps_growth": _f(r[6]), "market_cap": _f(r[7]),
+          "shares_outstanding": _f(r[8]), "shares_outstanding_prior": _f(r[9]),
+          "gross_profit": _f(r[10]), "total_assets": _f(r[11])} for r in fund_rows],
+        columns=["ticker", *[c for c in FUND_FIELDS]])
+    sector_map = {r[0]: r[1] for r in sec_rows if r[1]}
+    return prices, fundamentals, sector_map, listed
+
+
+def _series_by_ticker(df: pd.DataFrame, tickers: set[str]) -> dict[str, dict]:
+    """{ticker: {date: adjusted_close}} for the price probe."""
+    out: dict[str, dict] = {}
+    if df is None or df.empty:
+        return out
+    sub = df[df["ticker"].isin(tickers)]
+    for t, g in sub.groupby("ticker", observed=True):
+        out[str(t)] = dict(zip(pd.to_datetime(g["date"]).dt.date,
+                               g["adjusted_close"].astype(float)))
+    return out
+
+
+async def _persist_vendor_shadow(score_date, status: str, report: dict | None,
+                                 error: str | None) -> None:
+    """UPSERT on score_date. The comparison is a pure function of (session,
+    config, corpus), so a re-run must REPLACE — a second row would double-count
+    that session in any trend read off this table."""
+    rep = report or {}
+    rank = rep.get("ranking") or {}
+    async with engine.begin() as conn:
+        await conn.execute(text(
+            "INSERT INTO vendor_shadow_runs (score_date, status, config_hash, "
+            "  universe_jaccard, ranking_spearman, overlap_at_25, target_jaccard, "
+            "  n_suspicious_prices, verdict, report, error_message) "
+            "VALUES (:d, :s, :ch, :uj, :rs, :o25, :tj, :nsp, :v, "
+            "        CAST(:rep AS jsonb), :err) "
+            "ON CONFLICT (score_date) DO UPDATE SET "
+            "  status=EXCLUDED.status, config_hash=EXCLUDED.config_hash, "
+            "  universe_jaccard=EXCLUDED.universe_jaccard, "
+            "  ranking_spearman=EXCLUDED.ranking_spearman, "
+            "  overlap_at_25=EXCLUDED.overlap_at_25, "
+            "  target_jaccard=EXCLUDED.target_jaccard, "
+            "  n_suspicious_prices=EXCLUDED.n_suspicious_prices, "
+            "  verdict=EXCLUDED.verdict, report=EXCLUDED.report, "
+            "  error_message=EXCLUDED.error_message, created_at=NOW()"
+        ), {"d": score_date, "s": status, "ch": rep.get("config_hash"),
+            "uj": (rep.get("universe") or {}).get("jaccard"),
+            "rs": rank.get("spearman"), "o25": rank.get("overlap_at_25"),
+            "tj": (rep.get("target") or {}).get("jaccard"),
+            "nsp": (rep.get("price_adjustment") or {}).get("n_suspicious"),
+            "v": rep.get("verdict"), "rep": json.dumps(rep),
+            "err": (error or "")[:2000] or None})
+
+
+@app.post("/jobs/vendor-shadow")
+async def vendor_shadow(payload: dict | None = None):
+    """Compare the live (AV) and Sharadar views of the latest scored session.
+
+    Read-only on both sides. Never writes daily_prices/fundamentals, never gates
+    or promotes anything — `universe.source` stays a PROTECTED path. The output
+    is evidence for a human decision about the vendor migration.
+    """
+    bt = _get_bt_engine()
+    if bt is None:
+        return {"status": "unavailable",
+                "detail": "BT_DATABASE_URL not configured — the Sharadar corpus "
+                          "lives in the separate backtest compose project"}
+
+    try:
+        active, active_hash = load_strategy(STRATEGY_CONFIG_PATH)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"could not load active config: {exc}")
+
+    async with engine.connect() as conn:
+        run_row = (await conn.execute(text(
+            "SELECT run_id, score_date FROM factor_runs WHERE status='success' "
+            "ORDER BY score_date DESC, completed_at DESC NULLS LAST LIMIT 1"
+        ))).mappings().first()
+        if not run_row:
+            raise HTTPException(status_code=409, detail="no successful factor run to compare against")
+        live_tickers = [r[0] for r in (await conn.execute(text(
+            "SELECT ticker FROM factor_scores WHERE run_id = :rid"
+        ), {"rid": run_row["run_id"]})).fetchall()]
+    score_date = run_row["score_date"]
+    if not live_tickers:
+        raise HTTPException(status_code=409, detail="latest factor run has no factor_scores rows")
+
+    # Serialize against the chain — a MEMORY guard, not a correctness one. This
+    # job holds two universe-scale price frames and the factor step already sits
+    # near PIPELINE_MEM_LIMIT; OOMing the pipeline would trip the crash-loop
+    # breaker and suspend the chain, which is far worse than skipping a
+    # diagnostic. So it yields rather than waits.
+    try:
+        await asyncio.wait_for(_job_lock.acquire(), timeout=PREVIEW_LOCK_TIMEOUT_SECS)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=409, detail="pipeline busy — a job holds the lock; retry later")
+
+    try:
+        sh_prices, sh_fund, sh_sectors, sh_listed = await _load_sharadar_frames(
+            bt, live_tickers, score_date, VENDOR_SHADOW_PRICE_DAYS)
+        universe = vs.diff_sets(live_tickers, sh_listed)
+
+        shadow_tickers = sorted(set(live_tickers) & set(sh_prices["ticker"].unique())
+                                if not sh_prices.empty else set())
+        if len(shadow_tickers) < 10:
+            report = vs.ShadowReport(
+                score_date=str(score_date), config_hash=active_hash,
+                universe=_universe_block(universe),
+                caveats=["the Sharadar corpus covers too few of the live universe "
+                         "on this session to compare — is bt-data topped up?"])
+            await _persist_vendor_shadow(score_date, "unavailable", report.to_dict(),
+                                         "insufficient Sharadar coverage")
+            return {"status": "unavailable", **report.to_dict()}
+
+        # BOTH sides over the SAME ticker set. Factors are cross-sectional
+        # percentiles, so ranking each vendor over its own universe would fold a
+        # population difference into every factor number and make none of them
+        # attributable. The universe difference is measured separately, above.
+        live_inputs = await load_factor_inputs(engine, active,
+                                               universe_override=shadow_tickers)
+        regime = live_inputs.confirmed_regime
+
+        def _work():
+            lf = compute_all_factors(
+                prices_long=live_inputs.prices_df,
+                fundamentals=live_inputs.fundamentals_df.drop(
+                    columns=["as_of_date"], errors="ignore"),
+                cfg=active.factor_engine, copy_input=False,
+                sector_map=live_inputs.sector_map,
+                earnings=live_inputs.earnings_df, as_of_date=score_date)
+            sf = compute_all_factors(
+                prices_long=sh_prices, fundamentals=sh_fund,
+                cfg=active.factor_engine, copy_input=False,
+                sector_map=sh_sectors or live_inputs.sector_map,
+                earnings=None, as_of_date=score_date)
+            return lf, sf
+
+        live_f, shad_f = await asyncio.to_thread(_work)
+        live_ranked = await asyncio.to_thread(rank_universe, live_f, regime, active)
+        shad_ranked = await asyncio.to_thread(rank_universe, shad_f, regime, active)
+
+        # The price probe runs on the SAME frames already in memory, so it costs
+        # a join per ticker and no extra load.
+        probe = sorted(set(live_ranked["ticker"].head(
+            VENDOR_SHADOW_PRICE_TICKERS).tolist()))
+        live_px = _series_by_ticker(live_inputs.prices_df, set(probe))
+        shad_px = _series_by_ticker(sh_prices, set(probe))
+        diffs = [vs.compare_price_series(t, live_px.get(t, {}), shad_px.get(t, {}))
+                 for t in probe]
+
+        live_target, live_err = build_challenger_target(
+            live_ranked, live_inputs.prices_df, live_inputs.sector_map, active)
+        shad_target, shad_err = build_challenger_target(
+            shad_ranked, sh_prices, sh_sectors or live_inputs.sector_map, active)
+    finally:
+        if _job_lock.locked():
+            _job_lock.release()
+
+    lr = live_ranked.set_index("ticker")["rank"]
+    sr = shad_ranked.set_index("ticker")["rank"]
+    live_order = live_ranked.sort_values("rank")["ticker"].tolist()
+    shad_order = shad_ranked.sort_values("rank")["ticker"].tolist()
+
+    factors_block = {}
+    _li, _si = live_f.set_index("ticker"), shad_f.set_index("ticker")
+    for f in FACTORS:
+        if f in _li.columns and f in _si.columns:
+            factors_block[f] = {
+                "live_non_null": int(_li[f].notna().sum()),
+                "shadow_non_null": int(_si[f].notna().sum()),
+                "spearman": vs.spearman(_li[f], _si[f]),
+            }
+
+    target_diff = vs.diff_sets(live_target.keys(), shad_target.keys())
+    caveats = []
+    if live_err:
+        caveats.append(f"live target not composed: {live_err}")
+    if shad_err:
+        caveats.append(f"shadow target not composed: {shad_err}")
+    if len(probe) < len(live_order):
+        caveats.append(f"price probe covers the top {len(probe)} of "
+                       f"{len(live_order)} ranked names "
+                       f"(VENDOR_SHADOW_PRICE_TICKERS)")
+    caveats.append("news and the forward earnings calendar are NOT compared — "
+                   "they are a separate migration and the vetter runs "
+                   "drawdown_only, so neither is in the daily chain")
+
+    report = vs.ShadowReport(
+        score_date=str(score_date), config_hash=active_hash,
+        universe=_universe_block(universe),
+        factors=factors_block,
+        ranking={
+            "n_compared": int(len(set(lr.index) & set(sr.index))),
+            "spearman": vs.spearman(lr.astype(float), sr.astype(float)),
+            "overlap_at_25": vs.overlap_at_k(live_order, shad_order, 25),
+            "overlap_at_100": vs.overlap_at_k(live_order, shad_order, 100),
+            "movers": vs.rank_movers(lr.to_dict(), sr.to_dict()),
+        },
+        target={**_universe_block(target_diff),
+                "live_weights": {t: round(w, 5) for t, w in sorted(live_target.items())},
+                "shadow_weights": {t: round(w, 5) for t, w in sorted(shad_target.items())}},
+        price_adjustment=vs.summarize_price_diffs(diffs),
+        caveats=caveats)
+
+    out = report.to_dict()
+    await _persist_vendor_shadow(score_date, "success", out, None)
+    return {"status": "success", **out}
+
+
+def _universe_block(d: "vs.SetDiff") -> dict:
+    return {"n_live": d.n_live, "n_shadow": d.n_shadow, "n_both": d.n_both,
+            "jaccard": d.jaccard, "only_live": d.only_live,
+            "only_shadow": d.only_shadow}

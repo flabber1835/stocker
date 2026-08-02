@@ -4299,3 +4299,145 @@ answering one with the other's fix is the failure mode this prevents.
 Live changes from the same batch went into `momentum_core_v3` — a RANKING-layer
 rebuild only (liquidity to 0, momentum window shortened, composite simplified,
 book concentrated 35 -> 25). The exit regime was deliberately untouched.
+
+## Design Decision: the vendor shadow — measure the AV→Sharadar diff, do not argue about it (2026-08)
+
+### The question
+
+An analyst report recommends moving the live quantitative chain from Alpha
+Vantage to Sharadar, so live and the wind tunnel share one vendor's fields,
+adjustment rules and point-in-time semantics. The argument is sound and the
+end state is right. The disagreement is about what to do FIRST.
+
+The report treats corporate-action normalization as one validation bullet among
+five. It is the whole risk, and it is the reason a cutover cannot be a data
+swap:
+
+```text
+live       adjusted_close is AV-VINTAGE. Rows are written once and only
+           re-based when AV restates them (the S0 vintage-drift fix).
+Sharadar   closeadj is UNIFORMLY restated across the whole history.
+```
+
+Replacing one with the other silently re-bases every price in `daily_prices`.
+That moves momentum, low_volatility, near_high, every drawdown, and every peak
+the trailing stop reads — on a book that is now `exit_policy:
+trailing_stop_only`, where the peak IS the exit rule. A vendor migration would
+arrive as an unannounced strategy change, and the first evidence of it would be
+sales.
+
+The honest response to "how different are these two datasets?" is not an
+estimate. It is a measurement.
+
+### What is built: a read-only daily diff, no live writer
+
+The report's Phase 2 is "generalize bt-data into a live writer populating
+daily_prices/fundamentals/universe_snapshots". That is a large build whose
+output cannot be trusted until the diff it is supposed to justify has been
+measured — so it is deliberately SKIPPED for now and Phase 3 (shadow) is done
+first, in a form that needs no live writer at all:
+
+```text
+POST /jobs/vendor-shadow    on the PIPELINE, read-only on both sides.
+
+  live side      the pipeline's own persisted factor_scores / rankings
+  Sharadar side  bt_prices / bt_fundamentals / bt_universe, read over
+                 BT_DATABASE_URL (the published host port the evaluator's
+                 bt_sql_query already uses), then run through the pipeline's
+                 OWN compute_all_factors + rank_universe
+```
+
+**Both sides are computed by literally the same code objects in one process.**
+That is the property that makes the diff interpretable: whatever it reports is a
+DATA difference, because there is no code difference left for it to be. Splitting
+the computation across pipeline and bt-engine would have reintroduced exactly the
+ambiguity the exercise exists to remove.
+
+It is hosted on the pipeline rather than bt-engine for the same reason
+`/preview/factors` is: the loaders, the factor module and the live rankings are
+all there.
+
+It takes `_job_lock` with a short timeout and 409s rather than waiting, which is
+the same choice `/preview/factors` makes and for the same reason — **memory, not
+correctness**. This job holds TWO universe-scale price frames, and the factor
+step already sits close to `PIPELINE_MEM_LIMIT`. Running a diagnostic beside it
+could OOM the pipeline, and the crash-loop breaker would then read that as a
+deterministic failure and SUSPEND the chain. A diagnostic that can halt trading
+is a worse bug than the one it measures, so it yields instead.
+
+**Both sides are RECOMPUTED, including live's.** Reading live's persisted
+`rankings` for the baseline would mix a vintage difference into what is supposed
+to be a pure vendor difference. `baseline_fidelity` reports the recompute against
+what the chain actually persisted, so that assumption is visible rather than
+assumed — the same treatment `/preview/factors` gives it.
+
+**Both sides are ranked over the SAME ticker set** — the intersection. Factors
+are cross-sectional percentiles, so ranking each vendor over its own universe
+would contaminate every factor diff with a population diff and make none of it
+attributable. The universe difference is a separate, first-class measurement
+rather than a confound folded into the others.
+
+### What it measures
+
+Every measurement answers a specific question a cutover would otherwise answer
+in production:
+
+```text
+universe          membership diff both ways        — would the book see a
+                                                     different investable set?
+price_adjustment  per-ticker correlation of live
+                  vs Sharadar RETURNS over the
+                  window, plus the drift of the
+                  adjusted_close RATIO             — THE corporate-action probe.
+                                                     A split/spinoff handled
+                                                     differently shows up here as
+                                                     a ratio step, and nowhere
+                                                     else until it moves a rank.
+factor_*          per-factor Spearman + coverage   — which FACTOR the difference
+                                                     lands in
+ranking           full-universe Spearman rank IC,
+                  top-25 / top-100 overlap         — does any of it reach the
+                                                     decision?
+target            selected-set diff under the
+                  live config's own caps           — does it reach the BOOK?
+```
+
+Rank correlation alone is the wrong headline. A vendor diff that leaves the rank
+IC at 0.99 but moves three names in and out of the top 25 changes the portfolio;
+one that perturbs ranks 400-2000 and nothing else does not. So the overlap and
+target-set diffs are reported alongside, and the target diff is the one to read
+first.
+
+### Deliberate non-features
+
+* **It never writes to `daily_prices` / `fundamentals`.** No shadow ingestion
+  tables either. The Sharadar side is computed from the corpus in place and
+  discarded; only the diff SUMMARY is persisted (`vendor_shadow_runs`). Anything
+  else would be a live writer built before the evidence justifying one.
+* **It does not gate, promote, or veto anything.** No auto-cutover, no
+  threshold that flips a source. `universe.source` remains a PROTECTED path.
+  The output is evidence for a human decision.
+* **It does not compare news or the earnings calendar.** Those are a separate
+  migration, and the vetter runs `drawdown_only` — deterministic, no news in the
+  daily chain — so that dependency is close to inert already.
+* **A missing bt-postgres is not an error.** BT_DATABASE_URL unset or
+  unreachable ⇒ the job reports unavailable and returns. The backtest stack is a
+  separate compose project that is legitimately down during a live-only deploy,
+  and a diagnostic that fails the chain's health when its optional peer is
+  absent would be a worse bug than the one it is measuring.
+
+### What would justify a cutover
+
+Stated in advance, so the decision is not made by whoever reads the numbers
+last:
+
+```text
+enough sessions to include a split, a distribution, a new listing, a delisting
+  and a fundamentals refresh — the events the two vendors handle differently
+target-set diff small and EXPLAINED, not merely small
+every price_adjustment outlier attributed to a named corporate action
+gross-profitability parity holding (needs the SF1 re-backfill first)
+```
+
+Until then the recommendation stands as: migrate, eventually, on this evidence —
+and do not point the live chain at bt-postgres in the meantime.

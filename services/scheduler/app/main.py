@@ -1220,6 +1220,38 @@ async def _maybe_label_outcomes() -> None:
         _log("decision-outcome labeling trigger failed (will retry tomorrow)", error=str(exc))
 
 
+# Vendor shadow (AV vs Sharadar). Independent of the chain, once a day, and
+# deliberately AFTER the chain's own side jobs: it competes for the pipeline's
+# _job_lock, so triggering it early would just 409. Default ON because the whole
+# point is a SERIES — a diff measured once tells you nothing about whether the
+# two vendors disagree on splits, and gaps in the series are what make it
+# unreadable later.
+VENDOR_SHADOW_ENABLED = os.getenv("VENDOR_SHADOW_ENABLED", "true").lower() in ("1", "true", "yes")
+_vendor_shadow_attempted: str | None = None
+
+
+async def _maybe_vendor_shadow() -> None:
+    """Best-effort daily AV-vs-Sharadar comparison — never blocks the chain.
+
+    Once per calendar day, and NOT retried within the day even on failure: a 409
+    means the chain holds the pipeline lock, which is the correct outcome, and
+    hammering it would be the trigger-flood bug this scheduler already learned
+    once."""
+    global _vendor_shadow_attempted
+    if not VENDOR_SHADOW_ENABLED:
+        return
+    today = _local_now().date().isoformat()
+    if _vendor_shadow_attempted == today:
+        return
+    _vendor_shadow_attempted = today
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            r = await client.post(f"{PIPELINE_URL}/jobs/vendor-shadow")
+            _log("vendor shadow triggered", status_code=r.status_code)
+    except Exception as exc:  # noqa: BLE001 — a diagnostic must never affect the chain
+        _log("vendor shadow trigger failed (will retry tomorrow)", error=str(exc))
+
+
 async def _supervisor_tick() -> None:
     """
     Non-blocking state-machine supervisor. Reads each step's status from its
@@ -1236,6 +1268,8 @@ async def _supervisor_tick() -> None:
     await _maybe_refresh_universe()
     # Daily decision-ledger labeling — same independence, daily-gated inside.
     await _maybe_label_outcomes()
+    # Daily vendor-provenance diff — read-only, never gates anything.
+    await _maybe_vendor_shadow()
 
     today = _local_today().isoformat()
     trading_day = last_trading_day(_local_today()).isoformat()

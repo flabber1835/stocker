@@ -783,6 +783,35 @@ Closed-loop side jobs hosted by the pipeline (2026-07, see architecture.md
   (migration 0046). No vetter/orders/risk checks. The evaluator packet's
   `shadow_vs_champion` section compares forward returns; promotion is a human
   config change. Unset path (default) = inert.
+- `POST /jobs/vendor-shadow` — the AV-vs-Sharadar provenance diff (2026-08).
+  Read-only on BOTH sides: live's `daily_prices`/`fundamentals` and the Sharadar
+  corpus in bt-postgres (over `BT_DATABASE_URL`, the published host port the
+  evaluator's `bt_sql_query` already uses — no shared docker network, isolation
+  unchanged). It exists because a cutover is NOT a data swap: live's
+  `adjusted_close` is AV-VINTAGE (re-based only when AV restates) while
+  Sharadar's is UNIFORMLY restated, so swapping them silently re-bases every
+  price and moves every peak the trailing stop reads — a strategy change
+  arriving as a data change, on a book running `trailing_stop_only`.
+  BOTH sides are RECOMPUTED by the same `compute_all_factors`/`rank_universe`
+  objects in one process (so any difference is a DATA difference by
+  construction) and ranked over the SAME ticker set (the intersection —
+  cross-sectional percentiles mean per-vendor universes would fold a population
+  diff into every factor). Measures: universe membership, per-factor Spearman +
+  coverage, ranking Spearman + top-25/100 overlap, target-set diff under the live
+  config's caps, and the corporate-action probe (per-ticker RETURN correlation +
+  adjusted-close RATIO drift — levels legitimately differ by a constant factor,
+  returns do not). Read the verdict in the order it reports: target → overlap →
+  rank → prices. Persists `vendor_shadow_runs` (migration 0051, UPSERT on
+  score_date). Takes `_job_lock` with a short timeout and 409s — a MEMORY guard
+  (two universe-scale frames beside a factor step already near
+  `PIPELINE_MEM_LIMIT`; an OOM would trip the crash-loop breaker and suspend the
+  chain). Gates NOTHING — `universe.source` stays PROTECTED and no threshold
+  flips a vendor; the output is evidence for a human. `BT_DATABASE_URL` unset or
+  unreachable ⇒ `unavailable`, never an error (the bt stack is legitimately down
+  during a live-only deploy). Scheduler triggers it once a day
+  (`_maybe_vendor_shadow`, `VENDOR_SHADOW_ENABLED`). News and the forward
+  earnings calendar are deliberately NOT compared — separate migration, and the
+  vetter runs `drawdown_only`. See docs/architecture.md "the vendor shadow".
 - `POST /preview/factors` — READ-ONLY factor recompute for the evaluator's
   `preview_factor_recompute` tool. Deliberately NOT under `/jobs/` (every path
   there persists a run row; this one writes nothing). Recomputes every factor for

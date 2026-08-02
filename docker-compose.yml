@@ -209,6 +209,17 @@ services:
       DRAWDOWN_EXCESS_MIN: ${DRAWDOWN_EXCESS_MIN:-0.10}
       DRAWDOWN_EXCESS_MAX: ${DRAWDOWN_EXCESS_MAX:-0.30}
       DRAWDOWN_BASELINE_WINDOW: ${DRAWDOWN_BASELINE_WINDOW:-3}
+      # Vendor shadow (/jobs/vendor-shadow): READ-ONLY access to the Sharadar
+      # corpus so the AV-vs-Sharadar diff can be measured before anyone decides
+      # to migrate. Reaches bt-postgres over its published host port, exactly as
+      # the evaluator's bt_sql_query does — so the isolation decision (separate
+      # compose projects, no lifecycle coupling) is unaffected and no shared
+      # docker network is needed. Unset it and the job reports "unavailable"
+      # instead of failing: the backtest stack is legitimately down during a
+      # live-only deploy, and a diagnostic must not turn that into an outage.
+      BT_DATABASE_URL: ${BT_DATABASE_URL:-postgresql+asyncpg://btuser:${BT_POSTGRES_PASSWORD:-btpass}@host.docker.internal:5434/backtest}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./strategies:/strategies:ro
       - ./artifacts:/artifacts
@@ -664,6 +675,10 @@ services:
       # Daily decision-ledger labeling (pipeline /jobs/label-outcomes):
       # idempotent harvest+label of decision_outcomes. false disables.
       OUTCOME_LABELING_ENABLED: ${OUTCOME_LABELING_ENABLED:-true}
+      # Daily AV-vs-Sharadar provenance diff on the pipeline. Read-only; it
+      # gates nothing and never writes market data. See docs/architecture.md
+      # "the vendor shadow".
+      VENDOR_SHADOW_ENABLED: ${VENDOR_SHADOW_ENABLED:-true}
     volumes:
       - ./strategies:/strategies:ro   # config-pin hash source (never written here)
     depends_on:
