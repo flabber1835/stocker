@@ -38,6 +38,7 @@ def plan_episode_sync(
     open_episodes: dict[str, date],
     pending_since: dict[str, Optional[date]],
     session: date,
+    stop_pending: set[str] | None = None,
 ) -> EpisodeSync:
     """Reconcile the broker's held set against the open episodes.
 
@@ -56,9 +57,19 @@ def plan_episode_sync(
     to_mark_pending: set[str] = set()
     to_clear_pending: set[str] = set()
 
+    stop_pending = stop_pending or set()
     for ticker in open_episodes:
         if ticker in held:
-            if pending_since.get(ticker) is not None:
+            # A STOP-pending episode must NOT be cleared here. pending_close_since
+            # carries two different meanings: "absent from one sync, probably a bad
+            # snapshot" (clearable) and "the stop fired, the sell is queued for the
+            # next open" (not clearable — the position is still held precisely
+            # BECAUSE the sale has not happened yet). Clearing the second would
+            # disarm the re-entry block and lose the recorded stop peak on the very
+            # next sync, which is the failure mode the pending state was introduced
+            # to prevent.
+            if (pending_since.get(ticker) is not None
+                    and ticker not in stop_pending):
                 to_clear_pending.add(ticker)   # came back — it was a bad snapshot
             continue
         marked = pending_since.get(ticker)

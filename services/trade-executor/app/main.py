@@ -895,7 +895,13 @@ async def _load_intent(conn, intent_id: str) -> dict:
     ), {"iid": intent_id})).mappings().first()
     if row is None:
         raise HTTPException(status_code=404, detail=f"Intent {intent_id} not found")
-    TRADEABLE_ACTIONS = {"entry", "exit", "buy_add", "sell_trim"}
+    # risk_reduce / risk_restore are the crash brake's book-level exposure moves.
+    # They are NOT sell_trim/buy_add: a trim corrects ONE name toward its target
+    # weight, whereas these scale the whole book on a market signal. Keeping them
+    # distinct is what lets the turnover accounting, the decision ledger and any
+    # post-mortem tell "we de-risked" from "we rebalanced".
+    TRADEABLE_ACTIONS = {"entry", "exit", "buy_add", "sell_trim",
+                         "risk_reduce", "risk_restore"}
     if row["action"] not in TRADEABLE_ACTIONS:
         raise HTTPException(
             status_code=400,
@@ -1283,12 +1289,16 @@ async def _size_partial(conn, ticker: str, intent: dict) -> tuple[float, float, 
         price_source = "daily_prices"
         # BUY-side freshness bound: only a buy_add must refuse a stale fallback close
         # (don't over-restrict a sell_trim — de-risking on a stale price is safe).
-        if action == "buy_add":
-            _refuse_if_stale_buy_price(ticker, price_row, "buy_add")
+        if action in ("buy_add", "risk_restore"):
+            _refuse_if_stale_buy_price(ticker, price_row, action)
     if last_price is None or last_price <= 0:
         raise HTTPException(status_code=400, detail=f"No price found for {ticker}")
 
-    drift_weight = (target_weight - actual_weight) if action == "buy_add" else (actual_weight - target_weight)
+    # risk_reduce/risk_restore carry the exposure DELTA for this position in the
+    # same field the drift actions use, so sizing is shared rather than forked.
+    drift_weight = ((target_weight - actual_weight)
+                    if action in ("buy_add", "risk_restore")
+                    else (actual_weight - target_weight))
     target_notional = drift_weight * sizing_basis
     qty_int = math.floor(target_notional / last_price)
     if qty_int < 1:
@@ -1306,7 +1316,7 @@ async def _size_partial(conn, ticker: str, intent: dict) -> tuple[float, float, 
     # held → Alpaca "insufficient qty available". Clamp the trim to the shares
     # actually held now (floored to whole shares), and refuse if the position is
     # already gone. Exits don't pass through here — they use close-position.
-    if action == "sell_trim":
+    if action in ("sell_trim", "risk_reduce"):
         # Scoped to the latest sync run (audit #5): a ticker absent from the latest
         # sync must read as not-held (held_qty 0) → refuse, not resurrect an old qty.
         held_now = (await conn.execute(text(
@@ -1621,7 +1631,7 @@ async def submit_order(req: SubmitOrderRequest) -> TradeAttemptResponse:
 
         ticker = intent["ticker"]
         action = intent["action"]
-        side = "buy" if action in ("entry", "buy_add") else "sell"
+        side = "buy" if action in ("entry", "buy_add", "risk_restore") else "sell"
 
         # ── Step 2b: already-held guard (entry only) ──────────────────────────
         # A new delta run can fire before alpaca-sync captures a fill, producing

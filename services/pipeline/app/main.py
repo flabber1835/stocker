@@ -1774,6 +1774,54 @@ async def _resolve_delta_lineage(conn) -> dict:
     }
 
 
+async def _evaluate_crash_brake(cb_cfg, universe_tickers: list[str], session: date):
+    """Live crash-state evaluation, from the SAME shared module the tunnel uses.
+
+    Reads the benchmark's closes and the investable universe's closes and returns
+    (CrashState, exposure). Nothing here decides trades — the caller turns the
+    exposure scalar into risk_reduce / risk_restore intents.
+
+    Fail-safe: any load error returns a DISENGAGED state. Refusing to buy on
+    missing data costs an opportunity; cutting the book in half on missing data
+    is an unforced loss, and this is the one control able to do that.
+    """
+    from stock_strategy_shared.crash_brake import (evaluate_crash_state,
+                                                   target_exposure)
+    window = int(getattr(cb_cfg, "market_return_window_sessions", 20))
+    sma = int(getattr(cb_cfg, "breadth_sma_sessions", 100))
+    need = max(window, sma) + 5
+    async with engine.connect() as conn:
+        bench = [float(r.adjusted_close) for r in (await conn.execute(text(
+            "SELECT adjusted_close FROM ("
+            "  SELECT adjusted_close, date FROM daily_prices "
+            "   WHERE ticker = :b AND adjusted_close IS NOT NULL "
+            "   ORDER BY date DESC LIMIT :n) x ORDER BY date ASC"),
+            {"b": MARKET_BENCHMARK, "n": need})).fetchall()]
+        rows = (await conn.execute(text(
+            "SELECT ticker, adjusted_close FROM ("
+            "  SELECT ticker, adjusted_close, date, ROW_NUMBER() OVER ("
+            "    PARTITION BY ticker ORDER BY date DESC) AS rn "
+            "  FROM daily_prices WHERE ticker = ANY(:ts) "
+            "    AND adjusted_close IS NOT NULL) y "
+            "WHERE rn <= :n ORDER BY ticker, date ASC"),
+            {"ts": list(universe_tickers), "n": need})).fetchall()
+    by_t: dict[str, list[float]] = {}
+    for r in rows:
+        by_t.setdefault(r.ticker, []).append(float(r.adjusted_close))
+    state = evaluate_crash_state(
+        benchmark_closes=bench, closes_by_ticker=by_t,
+        market_return_window_sessions=window,
+        market_return_threshold=float(getattr(cb_cfg, "market_return_threshold", -0.06)),
+        breadth_sma_sessions=sma,
+        breadth_threshold=float(getattr(cb_cfg, "breadth_threshold", 0.42)),
+        min_breadth_names=int(getattr(cb_cfg, "min_breadth_names", 50)),
+        enabled=True)
+    exposure = target_exposure(
+        state, float(getattr(cb_cfg, "normal_equity_exposure", 1.0)),
+        float(getattr(cb_cfg, "stressed_equity_exposure", 0.5)))
+    return state, exposure
+
+
 async def _plan_stops(ts_cfg, held: set[str],
                       session: date) -> tuple[dict[str, float], set[str]]:
     """Maintain position_episodes and decide which held names the stop closes.
@@ -1797,12 +1845,18 @@ async def _plan_stops(ts_cfg, held: set[str],
 
     async with engine.begin() as conn:
         rows = (await conn.execute(text(
-            "SELECT ticker, opened_on, pending_close_since FROM position_episodes "
-            "WHERE closed_on IS NULL"))).fetchall()
+            "SELECT ticker, opened_on, pending_close_since, close_reason "
+            "  FROM position_episodes WHERE closed_on IS NULL"))).fetchall()
         open_eps = {r.ticker: r.opened_on for r in rows}
         pending = {r.ticker: r.pending_close_since for r in rows}
+        # Episodes whose pending flag means "the stop fired, sale queued" rather
+        # than "missing from one sync" — see plan_episode_sync.
+        stop_pending = {r.ticker for r in rows
+                        if r.close_reason == "trailing_stop"
+                        and r.pending_close_since is not None}
 
-        sync = plan_episode_sync(held, open_eps, pending, session)
+        sync = plan_episode_sync(held, open_eps, pending, session,
+                                 stop_pending=stop_pending)
         # ON CONFLICT DO NOTHING against the partial unique index: two runs racing
         # (a manual run-now overlapping the cron chain) must not both insert.
         for ticker in sorted(sync.to_open):
@@ -2780,7 +2834,8 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     completed_at = datetime.now(timezone.utc)
 
     def _is_actionable(d) -> bool:  # noqa: ANN001 — engine decision rows
-        if d.action in ("entry", "exit", "hold", "at_risk", "buy_add", "sell_trim"):
+        if d.action in ("entry", "exit", "hold", "at_risk", "buy_add", "sell_trim",
+                        "risk_reduce", "risk_restore"):
             return True
         if d.action == "watch" and d.confirmation_days_met >= confirmation_days:
             return True
@@ -2788,6 +2843,54 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
 
     actionable = [d for d in decisions.values() if _is_actionable(d)]
     skipped_watch = len(decisions) - len(actionable)
+
+    # ── crash brake ───────────────────────────────────────────────────────────
+    # Book-level exposure, evaluated AFTER the per-name decisions and layered on
+    # top of them. It never changes WHICH names are held — only how much of each,
+    # by one shared factor — so it is a risk overlay rather than a second hidden
+    # selection rule.
+    #
+    # Suppressed on a degraded build for the same reason the stop is: a transient
+    # rank/builder failure must not be able to halve the book.
+    crash_note = None
+    cb_cfg = getattr(strategy, "crash_brake", None)
+    if (getattr(cb_cfg, "enabled", False) and actual_weights
+            and not anchor_degraded):
+        try:
+            from stock_strategy_shared.crash_brake import plan_exposure_moves
+            _uni = sorted({d.ticker for d in decisions.values()} | set(actual_weights))
+            _state, _exposure = await _evaluate_crash_brake(cb_cfg, _uni, run_date)
+            # Where the book is NOW, so a re-run does not double-cut: the prior
+            # exposure is the book's realised gross weight, not an assumed 1.0.
+            _prev = sum(float(w) for w in actual_weights.values() if w) or 1.0
+            _prev = min(1.0, max(0.05, _prev))
+            moves = plan_exposure_moves(actual_weights, _exposure,
+                                        prev_exposure=_prev)
+            crash_note = {"engaged": _state.engaged, "reason": _state.reason,
+                          "market_return": _state.market_return,
+                          "breadth": _state.breadth,
+                          "target_exposure": _exposure,
+                          "prev_exposure": round(_prev, 4),
+                          "n_moves": len(moves)}
+            print(f"[delta] crash_brake: {crash_note}", flush=True)
+            for m in moves:
+                base = decisions.get(m["ticker"])
+                actionable.append(DeltaDecision(
+                    ticker=m["ticker"], action=m["action"],
+                    rank=getattr(base, "rank", 9999),
+                    composite_score=getattr(base, "composite_score", 0.0),
+                    confirmation_days_met=0,
+                    current_weight=m["target_weight"],
+                    reason=(f"crash brake {'ENGAGED' if _state.engaged else 'CLEARED'}: "
+                            f"exposure {_prev:.0%} -> {_exposure:.0%} "
+                            f"({_state.reason})"),
+                    actual_weight=m["current_weight"],
+                    weight_drift=m["delta"]))
+        except Exception as exc:   # noqa: BLE001
+            # Fail-safe, like the stop: a brake that cannot be computed is not a
+            # signal to sell. Log and leave exposure where it is.
+            print(f"[delta] crash_brake skipped this run ({exc})", flush=True)
+            crash_note = {"error": str(exc)[:200]}
 
     def _enrich_drop_cause(d) -> str:
         return enrich_drop_cause(d.action, d.reason,

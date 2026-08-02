@@ -241,7 +241,8 @@ _TICKER_RE = re.compile(r"^[A-Z0-9.\-]{1,20}$")
 
 class TradeCheckRequest(BaseModel):
     ticker: str
-    action: Literal["entry", "exit", "buy_add", "sell_trim"]
+    action: Literal["entry", "exit", "buy_add", "sell_trim",
+                    "risk_reduce", "risk_restore"]
     side: Literal["buy", "sell"]
     qty: float
     notional: float
@@ -414,7 +415,11 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
     # MUST be allowed to close it. The exit is sized qty-only at the broker
     # (close-position computes the exact held qty), so a zero notional here is an
     # audit-display gap, not a real "$0 order". Entries/buy_adds still reject $0.
-    is_close = req.action in ("exit", "sell_trim")
+    # risk_reduce is DE-RISKING and is treated like a close throughout: a gate
+    # that refuses to let the book cut exposure during a market break is a gate
+    # working against its own purpose. risk_restore is risk-INCREASING and is
+    # therefore gated exactly like buy_add.
+    is_close = req.action in ("exit", "sell_trim", "risk_reduce")
     if req.notional <= 0 and not is_close:
         return False, "Invalid notional: must be > 0", "notional_zero", env
     # Per-order notional cap. The ABSOLUTE cap (MAX_ORDER_NOTIONAL) alone is a
@@ -567,7 +572,7 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
             # an exit signal on stale data is conservative (close a position we
             # may no longer want); a buy on stale data could be wildly wrong.
             max_data_age = env["max_data_age_hours"]
-            if req.action in ("entry", "buy_add") and max_data_age > 0:
+            if req.action in ("entry", "buy_add", "risk_restore") and max_data_age > 0:
                 async with engine.connect() as conn:
                     pl_row = (await conn.execute(text(
                         "SELECT completed_at FROM pipeline_runs "
@@ -756,7 +761,7 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
             # past portfolio-builder's max_position_weight; without this gate
             # a buy_add would compound the over-concentration.
             max_pos_pct = env["max_position_pct"]
-            if req.action in ("entry", "buy_add") and max_pos_pct > 0 and max_pos_pct < 1.0:
+            if req.action in ("entry", "buy_add", "risk_restore") and max_pos_pct > 0 and max_pos_pct < 1.0:
                 async with engine.connect() as conn:
                     acct_row = (await conn.execute(text(
                         "SELECT account_value FROM alpaca_sync_runs "
@@ -801,7 +806,7 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
             # and reject an opening buy that would push the total past the cap.
             # Exits/sell_trims are exempt (already via is_close). 0 = disabled.
             max_cycle_buy = env["max_cycle_buy_notional"]
-            if req.action in ("entry", "buy_add") and max_cycle_buy > 0:
+            if req.action in ("entry", "buy_add", "risk_restore") and max_cycle_buy > 0:
                 async with engine.connect() as conn:
                     if req.sim_date:
                         buy_row = (await conn.execute(text(
@@ -872,6 +877,10 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
     #
     # Skipped when DB is unavailable.
     max_daily_pct = env["max_daily_turnover_pct"]
+    # risk_reduce is deliberately NOT counted here. The cap exists to throttle
+    # DISCRETIONARY churn; a market-wide de-risking is the one moment the book
+    # most needs to move, and throttling it would leave exposure on precisely
+    # when the brake said to cut it. Same reasoning that already exempts exits.
     if req.action == "sell_trim" and engine is not None and max_daily_pct < 1.0:
         try:
             async with engine.connect() as conn:

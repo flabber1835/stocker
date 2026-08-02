@@ -99,9 +99,16 @@ async def test_a_collapsed_position_is_stopped_and_recorded(mod, seeded, async_d
 
     async with eng.connect() as conn:
         row = (await conn.execute(text(
-            "SELECT closed_on, close_reason, stop_peak FROM position_episodes "
+            "SELECT closed_on, pending_close_since, close_reason, stop_peak "
+                "  FROM position_episodes "
             "WHERE ticker='WINNER'"))).one()
-    assert row.closed_on == sessions[-1]
+    # STOP-PENDING, not closed. The sell is queued for the next open and can be
+    # rejected, cancelled or partially filled; closing here would tell Stocker the
+    # episode ended while the broker still holds the position, and a later re-open
+    # would start a FRESH episode with a reset peak — the stop silently loosening
+    # itself. The episode closes only once the position is confirmed gone.
+    assert row.closed_on is None, "episode must stay OPEN until the sale confirms"
+    assert row.pending_close_since == sessions[-1]
     assert row.close_reason == "trailing_stop"
     assert float(row.stop_peak) == pytest.approx(149.0)
     await eng.dispose()
@@ -200,4 +207,57 @@ async def test_the_circuit_breaker_bounds_one_run(mod, seeded, async_dsn):
     stopped, _ = await mod._plan_stops(
         _TS(max_stops_per_run=1), {"WINNER", "WINNER2"}, sessions[-1])
     assert len(stopped) == 1, "the breaker must bound a market-wide collapse"
+    await eng.dispose()
+
+
+async def test_a_stop_whose_sale_never_fills_keeps_its_peak(mod, seeded, async_dsn):
+    """THE reason the stop marks pending instead of closing.
+
+    A stop fires, the sell is queued for the next open — and is rejected. The
+    broker still holds the position. If the episode had been closed, the next sync
+    would see the ticker held with no open episode and open a NEW one dated today,
+    with today's price as its peak. The stop would then need another full
+    stop_pct fall FROM THE REDUCED PRICE before firing again: a risk control
+    silently loosening itself at the worst moment.
+
+    Here the episode stays open, so opened_on and the recorded peak survive and
+    the stop can fire again on the next run.
+    """
+    from app.episodes import plan_episode_sync
+
+    sessions = seeded
+    eng = create_async_engine(async_dsn, future=True)
+    async with eng.begin() as conn:
+        await conn.execute(text("DELETE FROM position_episodes"))
+        await conn.execute(text(
+            "INSERT INTO position_episodes (ticker, opened_on, close_reason, "
+            " stop_peak, pending_close_since) "
+            "VALUES ('WINNER', :o, 'trailing_stop', 149.0, :p)"),
+            {"o": sessions[0], "p": sessions[-1]})
+        rows = (await conn.execute(text(
+            "SELECT ticker, opened_on, pending_close_since, close_reason "
+            "  FROM position_episodes WHERE closed_on IS NULL"))).fetchall()
+
+    open_eps = {r.ticker: r.opened_on for r in rows}
+    pending = {r.ticker: r.pending_close_since for r in rows}
+    stop_pending = {r.ticker for r in rows
+                    if r.close_reason == "trailing_stop"
+                    and r.pending_close_since is not None}
+
+    # The sale did not fill, so the broker still reports the position HELD.
+    sync = plan_episode_sync({"WINNER"}, open_eps, pending, sessions[-1],
+                             stop_pending=stop_pending)
+
+    assert "WINNER" not in sync.to_clear_pending, (
+        "a stop-pending episode must NOT be cleared just because the position is "
+        "still held — it is still held precisely BECAUSE the sale has not happened")
+    assert "WINNER" not in sync.to_open, "no second episode may be opened"
+    assert "WINNER" not in sync.to_close
+
+    async with eng.connect() as conn:
+        row = (await conn.execute(text(
+            "SELECT opened_on, stop_peak FROM position_episodes "
+            "WHERE ticker='WINNER'"))).one()
+    assert row.opened_on == sessions[0], "the original entry date must survive"
+    assert float(row.stop_peak) == pytest.approx(149.0), "the peak must survive"
     await eng.dispose()

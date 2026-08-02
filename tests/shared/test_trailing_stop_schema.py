@@ -48,16 +48,25 @@ class TestDefaultsOff:
         """A config that never mentions the block must not acquire a live stop."""
         assert StrategyConfig(**_minimal()).trailing_stop.enabled is False
 
-    def test_no_DEPLOYED_config_has_it_on(self):
-        """Guard against enabling it by accident on the live book.
+    def test_a_DEPLOYED_config_with_the_stop_on_is_COHERENTLY_configured(self):
+        """The guard changed shape when the owner turned the stop on live.
 
-        Scoped to the configs docker-compose actually deploys, not every YAML in
-        strategies/. The folder now also holds wind-tunnel CHALLENGERS whose whole
-        purpose is to run with the stop on (momentum_stop_v1) — refusing those
-        would forbid testing the feature, which is the opposite of the intent.
-        What must stay true is that nothing reaching production has it on, and
-        deriving that set from compose checks the thing that actually ships rather
-        than a directory listing a new file can dilute.
+        It used to assert no deployed config enabled it — an accident guard,
+        correct while the feature was unproven. That premise is now spent: the
+        stop is on in momentum_core_v3 by explicit decision. Keeping the old
+        assertion would just mean deleting it, so it becomes the invariant that
+        still has teeth — if a deployed config enables the stop, the settings
+        that make it SAFE must be present:
+
+          arm_after_sessions >= 2   a two-day-old position's peak IS its entry
+                                    price; arming at 1 stops out on noise
+          max_stale_sessions >= 1   a frozen print would emit an unfillable exit
+                                    every run, forever
+          max_stops_per_run  >= 1   exits are exempt from the turnover cap, so
+                                    this is the ONLY brake on a drawdown
+                                    liquidating the whole book
+          stop_pct in (0, 0.9]      schema-enforced, restated so the intent is
+                                    visible here
         """
         import os
         import re
@@ -70,11 +79,32 @@ class TestDefaultsOff:
             r"STRATEGY_CONFIG_PATH:\s*/strategies/(\S+\.yaml)", compose)}
         assert deployed, "no deployed strategy config found in docker-compose.yml"
         for name in sorted(deployed):
-            cfg, _hash = load_strategy(os.path.join(root, "strategies", name))
-            assert cfg.trailing_stop.enabled is False, (
-                f"{name} is DEPLOYED by docker-compose and enables the trailing "
-                f"stop; it must be switched on deliberately, after a shadow period"
-            )
+            cfg, _h = load_strategy(os.path.join(root, "strategies", name))
+            ts = cfg.trailing_stop
+            if not ts.enabled:
+                continue
+            assert ts.arm_after_sessions >= 2, name
+            assert ts.max_stale_sessions >= 1, name
+            assert ts.max_stops_per_run >= 1, name
+            assert 0 < ts.stop_pct <= 0.9, name
+
+    def test_a_DEPLOYED_stop_only_config_has_a_stop(self):
+        """exit_policy=trailing_stop_only with no stop has NO ordinary exit — the
+        book fills to max_positions and freezes. The schema refuses it; this
+        checks the deployed config specifically, because that is the one that
+        would freeze a real book."""
+        import os
+        import re
+
+        from stock_strategy_shared.loader import load_strategy
+
+        root = os.path.join(os.path.dirname(__file__), "..", "..")
+        compose = open(os.path.join(root, "docker-compose.yml")).read()
+        for name in sorted({m for m in re.findall(
+                r"STRATEGY_CONFIG_PATH:\s*/strategies/(\S+\.yaml)", compose)}):
+            cfg, _h = load_strategy(os.path.join(root, "strategies", name))
+            if cfg.delta_engine.exit_policy == "trailing_stop_only":
+                assert cfg.trailing_stop.enabled, name
 
     def test_a_challenger_may_enable_it(self):
         """The complement: the feature has to be testable. If this file stops

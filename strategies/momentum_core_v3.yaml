@@ -14,7 +14,28 @@ description: "LIVE, 2026-08. A RANKING-LAYER rebuild from three independent line
   \ has been paused.\nBook concentrated 35 -> 25: the decile curve is flat through its middle\
   \ and the top tier is what pays.\nEXIT REGIME UNCHANGED \u2014 target-diff exits, orphan\
   \ timer, no trailing stop, no crash brake. Those are being scored as challengers and have\
-  \ no supporting evidence yet.\n"
+  \ no supporting evidence yet.\n\n2026-08 (second pass): EXIT REGIME SWITCHED to the auditor's\
+  \ intended architecture \u2014 ranking picks entries, price manages exits. Target membership\
+  \ no longer retires a holding (exit_policy=trailing_stop_only); a 30% trailing stop does,\
+  \ with a 21-session cooldown rather than peak-recovery (clearing a 30% stop's peak needs\
+  \ a ~43% rally, which is exclusion, not hysteresis). Drift rebalancing OFF so winners are\
+  \ not trimmed back to target. selection_vol_aversion 0.2 -> 0 : book risk is vol_target's\
+  \ job, and the premise here is that the ranking's top tier carries the signal.\nPREREQUISITE,\
+  \ already applied: migration 0050 reconstructs position_episodes for the existing book.\
+  \ Without it every peak would start at the activation date and a holding already far off\
+  \ its high could never stop.\ncrash_brake ON. The live path now exists: the delta step evaluates\
+  \ the state from the SAME shared module the tunnel uses, emits risk_reduce/risk_restore\
+  \ intents, and both the risk gate and the executor accept them. risk_reduce is treated as\
+  \ de-risking throughout (exempt from the turnover cap, ungated by staleness) because a gate\
+  \ that refuses to let the book cut exposure during a market break works against its own\
+  \ purpose. STILL THE THINNEST EVIDENCE in the config: calibrated on a 2014-2018 panel containing\
+  \ no real crash. portfolio_drawdown_guard on in observe_only \u2014 it reports, never trades.\n\
+  min_non_null_factors_scope: weighted, and the count lowered 4 -> 3 to match required_factors\
+  \ exactly. Under the default 'all' scope the seven ZERO-WEIGHT factors still counted toward\
+  \ eligibility, so liquidity and earnings_surprise could admit or reject a security while\
+  \ contributing nothing to its score \u2014 incoherent once their weights went to 0. Eligibility\
+  \ is now precisely 'has momentum, quality and value', which is what required_factors already\
+  \ says; nothing hidden adds to it.\n"
 universe:
   source: av_listing
   min_price: 5.0
@@ -91,7 +112,7 @@ factor_weights:
     liquidity: 0.0
 portfolio_builder:
   method: greedy_score_per_port_vol
-  selection_vol_aversion: 0.2
+  selection_vol_aversion: 0.0
   candidate_count: 120
   max_positions: 25
   min_selected: 12
@@ -143,10 +164,36 @@ delta_engine:
   rebalance_drift_threshold: 0.005
   rebalance_min_relative_drift: 0.15
   rebalance_min_trade_value: 250
+  exit_policy: trailing_stop_only
+  drift_rebalance_enabled: false
 max_positions: 25
 min_score_percentile: 0.0
-min_non_null_factors: 4
+min_non_null_factors: 3
 required_factors:
 - momentum
 - quality
 - value
+trailing_stop:
+  enabled: true
+  stop_pct: 0.3
+  arm_after_sessions: 5
+  max_stale_sessions: 2
+  max_stops_per_run: 5
+  width_method: fixed
+  reentry_policy: cooldown
+  reentry_cooldown_sessions: 21
+min_non_null_factors_scope: weighted
+crash_brake:
+  enabled: true
+  market_return_window_sessions: 20
+  market_return_threshold: -0.06
+  breadth_sma_sessions: 100
+  breadth_threshold: 0.42
+  min_breadth_names: 50
+  normal_equity_exposure: 1.0
+  stressed_equity_exposure: 0.5
+  stressed_stop_pct: 0.2
+  stressed_stop_sma_sessions: 100
+portfolio_drawdown_guard:
+  enabled: true
+  action_mode: observe_only

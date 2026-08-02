@@ -158,16 +158,15 @@ PARITY: dict[str, tuple[str, str]] = {
     # Market-wide exposure brake. The tunnel has the benchmark and the whole
     # universe's closes, so it can compute the same two conditions live does.
     "crash_brake": (
-        PARTIAL,
-        "the SIMULATOR honours it fully (evaluate_crash_state from the shared "
-        "module, exposure scalar on the composed target). LIVE DOES NOT: the "
-        "pipeline never calls the brake, and the trade-executor has no path for "
-        "risk_reduce/risk_restore. So a tunnel result for a brake-enabled config "
-        "describes behaviour the live book cannot reproduce. HONOURED was claimed "
-        "here before the live path existed — the exact class of lie this manifest "
-        "exists to prevent, and the same error already corrected once for "
-        "portfolio_drawdown_guard. Restore HONOURED only when the live chain "
-        "evaluates the brake and the executor accepts both actions"),
+        HONOURED,
+        "BOTH sides call evaluate_crash_state from stock_strategy_shared."
+        "crash_brake: the sim applies the exposure scalar to the composed target, "
+        "live turns it into risk_reduce/risk_restore intents the executor and risk "
+        "gate accept. This said HONOURED once BEFORE the live path existed — a lie "
+        "the manifest exists to catch — and was demoted to PARTIAL until it was "
+        "true. One real limitation remains and it is why this is not a perfect "
+        "match: the sim rescales the TARGET, live rescales the HELD book, so a "
+        "position mid-rotation can differ by one cycle"),
     "portfolio_builder.cluster_method": (
         HONOURED,
         "passed to the shared correlation_clusters the live builder calls"),
@@ -175,9 +174,9 @@ PARITY: dict[str, tuple[str, str]] = {
         IGNORED,
         "the sim does not compute the attribution report. Declaring it HONOURED "
         "would be the exact lie this manifest exists to prevent — nothing "
-        "implements it. It is INERT while action_mode is observe_only (it emits "
-        "no orders, so it cannot change a simulated result), and the day an "
-        "acting mode is added the gate starts refusing, which is correct"),
+        "implements it. INERT while action_mode is observe_only (it emits no "
+        "orders, so it cannot move a simulated result); the day an acting mode "
+        "exists the gate starts refusing, which is correct"),
     "delta_engine.exit_policy": (
         HONOURED, "suppress_target_exits -> evaluate_target_vs_live, same call as live"),
     "delta_engine.drift_rebalance_enabled": (

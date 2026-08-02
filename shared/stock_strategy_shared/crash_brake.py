@@ -174,3 +174,48 @@ def scale_weights(weights: Mapping[str, float], exposure: float) -> dict[str, fl
     if exposure is None or exposure < 0:
         return dict(weights)
     return {t: w * exposure for t, w in (weights or {}).items()}
+
+
+# ── turning an exposure change into intents ──────────────────────────────────
+
+def plan_exposure_moves(actual_weights: Mapping[str, float],
+                        exposure: float,
+                        *, prev_exposure: float = 1.0,
+                        min_move_weight: float = 0.002) -> list[dict]:
+    """Per-position moves that take the book from `prev_exposure` to `exposure`.
+
+    Returns [{ticker, action, current_weight, target_weight, delta}] where action
+    is 'risk_reduce' (sell) or 'risk_restore' (buy). Empty when the exposure is
+    unchanged — the brake must be silent on the ~99% of days it is disengaged.
+
+    RELATIVE WEIGHTS ARE PRESERVED. Every position moves by the same FACTOR, so
+    restoring cannot re-rank the book: a name that was 6% of a fully-invested book
+    is 3% at half exposure and 6% again on restore, never "whatever today's target
+    says". Re-deriving from the target would make the brake a rebalancing trigger,
+    which is the rotation a stop-only policy exists to avoid.
+
+    `min_move_weight` drops moves too small to be worth a commission — a 0.1%
+    nudge across 25 names is 25 orders of pure cost.
+    """
+    if not actual_weights or exposure is None or prev_exposure is None:
+        return []
+    if prev_exposure <= 0 or abs(exposure - prev_exposure) < 1e-9:
+        return []
+    scale = exposure / prev_exposure
+    action = "risk_reduce" if scale < 1.0 else "risk_restore"
+    out = []
+    for t, w in sorted(actual_weights.items()):
+        try:
+            cur = float(w)
+        except (TypeError, ValueError):
+            continue
+        if not (cur > 0):
+            continue
+        tgt = cur * scale
+        if abs(tgt - cur) < min_move_weight:
+            continue
+        out.append({"ticker": t, "action": action,
+                    "current_weight": round(cur, 6),
+                    "target_weight": round(tgt, 6),
+                    "delta": round(tgt - cur, 6)})
+    return out

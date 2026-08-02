@@ -178,3 +178,43 @@ class TestExposure:
 def test_the_state_names_its_own_exposure_key():
     assert _call().equity_exposure_key == "stressed"
     assert _call(benchmark_closes=_rising(200)).equity_exposure_key == "normal"
+
+
+class TestExposureMoves:
+    """Turning an exposure change into intents. The brake must be SILENT on the
+    ~99% of days it is disengaged, and must preserve relative weights so that
+    restoring cannot quietly re-rank the book."""
+
+    W = {"A": 0.06, "B": 0.04, "C": 0.02}
+
+    def test_no_change_produces_no_moves(self):
+        from stock_strategy_shared.crash_brake import plan_exposure_moves
+        assert plan_exposure_moves(self.W, 1.0, prev_exposure=1.0) == []
+
+    def test_engaging_sells_every_position_by_the_same_factor(self):
+        from stock_strategy_shared.crash_brake import plan_exposure_moves
+        moves = plan_exposure_moves(self.W, 0.5, prev_exposure=1.0)
+        assert {m["action"] for m in moves} == {"risk_reduce"}
+        ratios = {m["ticker"]: m["target_weight"] / m["current_weight"] for m in moves}
+        assert len(set(round(r, 12) for r in ratios.values())) == 1
+
+    def test_restoring_returns_each_name_to_its_ORIGINAL_share(self):
+        """The property that makes this a risk overlay rather than a rebalance:
+        a name that was 6% comes back as 6%, not as whatever today's target says."""
+        from stock_strategy_shared.crash_brake import plan_exposure_moves
+        half = {m["ticker"]: m["target_weight"]
+                for m in plan_exposure_moves(self.W, 0.5, prev_exposure=1.0)}
+        back = plan_exposure_moves(half, 1.0, prev_exposure=0.5)
+        assert {m["action"] for m in back} == {"risk_restore"}
+        for m in back:
+            assert m["target_weight"] == pytest.approx(self.W[m["ticker"]], abs=1e-9)
+
+    def test_moves_too_small_to_pay_for_themselves_are_dropped(self):
+        """A 0.1% nudge across 25 names is 25 orders of pure commission."""
+        from stock_strategy_shared.crash_brake import plan_exposure_moves
+        moves = plan_exposure_moves({"A": 0.01}, 0.99, prev_exposure=1.0)
+        assert moves == []
+
+    def test_an_empty_book_produces_nothing(self):
+        from stock_strategy_shared.crash_brake import plan_exposure_moves
+        assert plan_exposure_moves({}, 0.5) == []
