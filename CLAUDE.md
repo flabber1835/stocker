@@ -1366,6 +1366,33 @@ tried; short samples flagged DIRECTIONAL. `backtest_runs` gains
 summary/validation/sim_mode/config_json (migration 0039). Config reloaded per job
 (G6). See docs/architecture.md "backtester as a trustworthy evaluator tool".
 
+### The ranked universe per rebalance (`bt_sweep_rankings`)
+
+```text
+Every other bt_sweep_* table records what the book DID. None can answer
+"what did we pass over, and how did it do?"
+```
+
+`target` holds only the survivors, so after the fact a name absent from it is
+indistinguishable from a name that was never ranked. That made growth-capture,
+oracle recall and paired regret impossible — and `forest_map` had been declaring
+the gap in its own `missing` field since it was written.
+
+`bt_sweep_rankings` records the ranked HEAD per rebalance with `selected` and
+`reject_reason`. Those two columns are what make it more than a rank dump: they
+separate "the model ranked it low" (a FACTOR-MODEL miss) from "the model ranked
+it high and the builder refused it" (a CONSTRUCTION miss) — different failures
+with different fixes, and a single "we missed winners" number cannot tell them
+apart. `forest.growth_capture` computes exactly that split and NAMES which one it
+implicates.
+
+CAPPED at `BT_RANKING_ROW_CAP` (default 100) rows per date: 20 years x ~2000
+names daily is ~10M rows per config, a corpus rather than a diagnostic. The cap
+is reported as `summary.ranking_rank_cap` and stored on `bt_sweeps`, because
+without it "absent from the table" is ambiguous between "ranked and passed over"
+and "beyond the cap" — an ambiguity that would silently corrupt every recall
+number computed from it. Readable by the evaluator's `bt_sql_query`.
+
 ### Factor-coverage contract (wind tunnel ↔ live)
 
 ```text

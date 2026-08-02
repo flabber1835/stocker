@@ -14,7 +14,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from app.forest import classify_reason, forest_map
+from app.forest import classify_reason, forest_map, growth_capture
 
 D0 = date(2026, 1, 5)
 
@@ -167,3 +167,83 @@ class TestDegradedInputs:
         m = forest_map(_eq() + [{"portfolio_value": 1}], [{"ticker": "X"}],
                        _pos() + [{"ticker": "Y"}], max_positions=30)
         assert m["n_chapters"] > 0
+
+
+class TestGrowthCapture:
+    """The one question a run's own trace cannot answer: did the names we passed
+    over do better than the ones we took?
+
+    The load-bearing part is the SPLIT. `cap_blocked` beating `selected`
+    implicates CONSTRUCTION (sector/cluster/capacity caps); `out_ranked` beating
+    it implicates the FACTOR MODEL. Those have different fixes, and a single
+    "we missed winners" number cannot tell them apart — which is how a
+    construction problem gets answered with a factor change that could not
+    possibly have helped.
+    """
+
+    def _rows(self, date_, selected, cap_blocked, out_ranked):
+        rows = []
+        for i, t in enumerate(selected):
+            rows.append({"date": date_, "ticker": t, "rank": i + 1,
+                         "selected": True})
+        for i, t in enumerate(cap_blocked):
+            rows.append({"date": date_, "ticker": t, "rank": 100 + i,
+                         "selected": False, "reject_reason": "sector_cap"})
+        for i, t in enumerate(out_ranked):
+            rows.append({"date": date_, "ticker": t, "rank": 500 + i,
+                         "selected": False})
+        return rows
+
+    def test_a_construction_problem_is_named_as_such(self):
+        rows = self._rows(D0, ["S1", "S2"], ["C1", "C2"], ["O1", "O2"])
+        fwd = {(D0, "S1"): 0.01, (D0, "S2"): 0.01,
+               (D0, "C1"): 0.09, (D0, "C2"): 0.09,
+               (D0, "O1"): 0.00, (D0, "O2"): 0.00}
+        gc = growth_capture(rows, fwd)
+        assert gc["cap_blocked_avg_fwd"] > gc["selected_avg_fwd"]
+        assert any("CONSTRUCTION" in n for n in gc["notes"])
+        assert not any("FACTOR MODEL" in n for n in gc["notes"])
+
+    def test_a_factor_model_problem_is_named_as_such(self):
+        rows = self._rows(D0, ["S1", "S2"], ["C1"], ["O1", "O2"])
+        fwd = {(D0, "S1"): 0.01, (D0, "S2"): 0.01, (D0, "C1"): 0.00,
+               (D0, "O1"): 0.12, (D0, "O2"): 0.12}
+        gc = growth_capture(rows, fwd)
+        assert any("FACTOR MODEL" in n for n in gc["notes"])
+        assert not any("CONSTRUCTION" in n for n in gc["notes"])
+
+    def test_a_working_model_gets_no_complaint(self):
+        rows = self._rows(D0, ["S1", "S2"], ["C1"], ["O1"])
+        fwd = {(D0, "S1"): 0.10, (D0, "S2"): 0.10,
+               (D0, "C1"): 0.01, (D0, "O1"): 0.00}
+        gc = growth_capture(rows, fwd)
+        assert gc["notes"] == []
+        assert gc["selected_avg_fwd"] > gc["out_ranked_avg_fwd"]
+
+    def test_a_date_with_no_forward_data_is_skipped_not_zeroed(self):
+        """An unelapsed horizon is not a flat outcome. Averaging it in would drag
+        every number toward zero exactly at the end of a run."""
+        rows = (self._rows(D0, ["S1"], [], ["O1"])
+                + self._rows(D0 + timedelta(days=30), ["S2"], [], ["O2"]))
+        gc = growth_capture(rows, {(D0, "S1"): 0.10, (D0, "O1"): 0.02})
+        assert gc["n_dates"] == 1
+        assert gc["selected_avg_fwd"] == pytest.approx(0.10)
+
+    def test_no_rankings_returns_none(self):
+        assert growth_capture([], {}) is None
+
+    def test_the_forest_map_reports_it_when_given_the_inputs(self):
+        rows = self._rows(D0, ["S1"], [], ["O1"])
+        m = forest_map(_eq(), [], _pos(), max_positions=30,
+                       rankings=rows,
+                       forward_returns={(D0, "S1"): 0.05, (D0, "O1"): 0.01})
+        assert m["growth_capture"]["selected_avg_fwd"] == pytest.approx(0.05)
+        assert not any("growth_capture" in s for s in m["missing"])
+
+    def test_it_is_still_DECLARED_missing_when_absent(self):
+        """Silently omitting it reads as 'nothing else was available' — the
+        difference between 'we checked and the book was best' and 'we never
+        looked'."""
+        m = forest_map(_eq(), [], _pos(), max_positions=30)
+        assert "growth_capture" not in m
+        assert any("growth_capture" in s for s in m["missing"])

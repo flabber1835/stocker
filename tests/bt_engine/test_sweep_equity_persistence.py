@@ -172,3 +172,42 @@ def test_an_errored_config_returns_no_curve():
     assert not bad.get("equity_by_phase")
     assert not bad.get("trades_by_phase")
     assert not bad.get("positions_by_phase")
+
+
+def test_the_ranked_universe_comes_back(result):
+    """The one thing a run's own trace cannot reconstruct.
+
+    `target` holds only the survivors, so a name absent from it is
+    indistinguishable from a name that was never ranked — which makes
+    growth-capture, oracle recall and paired regret impossible after the fact.
+    This is the record of what the model SAW.
+    """
+    rk = result["rankings_by_phase"]
+    assert set(rk) == {"tune", "validate"}
+    assert rk["tune"], "no ranked universe recorded for the tune window"
+    r = rk["tune"][0]
+    assert {"date", "ticker", "rank", "composite_score", "selected"} <= set(r)
+
+
+def test_rankings_include_names_that_were_NOT_selected(result):
+    """A rank dump of only the book would answer nothing — the passed-over names
+    are the entire point."""
+    rows = result["rankings_by_phase"]["tune"]
+    assert any(not r["selected"] for r in rows), "only selected names recorded"
+    assert any(r["selected"] for r in rows)
+
+
+def test_the_row_cap_is_reported(result):
+    """Without it, 'absent from the table' is ambiguous between 'ranked and
+    passed over' and 'beyond the cap' — and every recall number computed off the
+    table would be quietly wrong."""
+    for key in ("in_sample", "out_sample"):
+        assert (result[key] or {}).get("ranking_rank_cap")
+
+
+def test_rankings_are_not_stored_in_the_summary_jsonb(result):
+    """Same reason as the other row streams: thousands of rows in JSONB are
+    unqueryable by date, which is the only way anyone wants to read them."""
+    for key in ("in_sample", "out_sample"):
+        for leaked in ("rankings_by_phase", "rankings"):
+            assert leaked not in (result[key] or {})

@@ -379,3 +379,45 @@ CREATE INDEX IF NOT EXISTS idx_bt_sweep_aggregates_median
 -- Two-window results are ranked by oos_return (compounded return) too:
 CREATE INDEX IF NOT EXISTS idx_bt_sweep_results_return
     ON bt_sweep_results (sweep_id, oos_return DESC NULLS LAST);
+
+-- The ranked universe per rebalance — what the model SAW, not only what it held.
+--
+-- Every other bt_sweep_* table records what the book DID. None of them can answer
+-- "what did we pass over, and how did it do?", which is the question behind
+-- growth-capture, oracle recall and paired regret. forest_map has been declaring
+-- that gap in its own `missing` field since it was written: "growth_capture:
+-- needs the ranked universe per date — not derivable from a run's own trace".
+--
+-- DELIBERATELY CAPPED, not the whole universe. A 20-year run over ~2000 names at
+-- daily cadence would be ~10M rows per config, which is a corpus, not a
+-- diagnostic. `rank_cap` rows per date covers the decision-relevant head: the
+-- selected book plus the near-misses that any regret analysis compares against.
+-- The cap is RECORDED on bt_sweeps so a later reader knows whether an absent
+-- ticker was ranked-and-passed-over or simply beyond the cap — an ambiguity that
+-- would silently corrupt exactly the recall numbers this table exists to compute.
+--
+-- `selected` and `reject_reason` are what make this more than a rank dump: they
+-- separate "the model ranked it low" from "the model ranked it high and the
+-- builder refused it", which are different failures with different fixes.
+CREATE TABLE IF NOT EXISTS bt_sweep_rankings (
+    sweep_id        UUID         NOT NULL REFERENCES bt_sweeps(sweep_id) ON DELETE CASCADE,
+    config_idx      INTEGER      NOT NULL,
+    window_idx      INTEGER      NOT NULL DEFAULT 0,
+    phase           VARCHAR(10)  NOT NULL CHECK (phase IN ('tune','validate')),
+    date            DATE         NOT NULL,
+    ticker          VARCHAR(20)  NOT NULL,
+    rank            INTEGER      NOT NULL,
+    composite_score NUMERIC(12,6),
+    selected        BOOLEAN      NOT NULL DEFAULT FALSE,
+    weight          NUMERIC(10,6),
+    reject_reason   VARCHAR(32),
+    PRIMARY KEY (sweep_id, config_idx, window_idx, phase, date, ticker)
+);
+CREATE INDEX IF NOT EXISTS idx_bt_sweep_rankings_cfg
+    ON bt_sweep_rankings (sweep_id, config_idx, phase, date);
+-- The growth-capture read: "the names we passed over, best-ranked first".
+CREATE INDEX IF NOT EXISTS idx_bt_sweep_rankings_passed
+    ON bt_sweep_rankings (sweep_id, config_idx, phase, date, rank)
+    WHERE NOT selected;
+
+ALTER TABLE bt_sweeps ADD COLUMN IF NOT EXISTS ranking_rank_cap INTEGER;

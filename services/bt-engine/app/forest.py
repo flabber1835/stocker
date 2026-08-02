@@ -27,7 +27,7 @@ class of intervention rather than re-deriving intent from prose.
 """
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Mapping, Sequence
 
 # Reason-prefix → mechanism. Matched case-insensitively against the leading text of
 # a fill's `reason`, which the sim writes verbatim from the decision that caused it.
@@ -75,21 +75,106 @@ def _chapter_bounds(n_rows: int, n_chapters: int) -> list[tuple[int, int]]:
     return out
 
 
+def growth_capture(rankings: Sequence[dict], forward: Mapping[tuple, float],
+                   *, top_k: int = 25) -> dict | None:
+    """Did the names we PASSED OVER do better than the ones we took?
+
+    The one question a run's own trace cannot answer, and the reason
+    bt_sweep_rankings exists. For each date it compares the forward return of the
+    SELECTED book against the best-ranked names that were not selected, and splits
+    the passed-over group by WHY:
+
+      out_ranked   — the model ranked it below the book. A FACTOR-MODEL miss.
+      cap_blocked  — the model ranked it inside the book but the builder refused
+                     it (sector, cluster, capacity). A CONSTRUCTION miss.
+
+    That split is the whole point. The two have different fixes, and a single
+    "we missed winners" number cannot tell them apart — which is how a
+    construction problem gets mistaken for a ranking problem and answered with a
+    factor change that could not possibly have helped.
+
+    `forward` maps (date, ticker) -> forward return. Dates with no forward data
+    are SKIPPED rather than treated as zero: a horizon that has not elapsed is
+    not a flat outcome, and averaging it in would drag every number toward zero
+    exactly at the end of a run.
+    """
+    by_date: dict = {}
+    for r in rankings or []:
+        d, t = r.get("date"), r.get("ticker")
+        if d is None or t is None:
+            continue
+        by_date.setdefault(d, []).append(r)
+    if not by_date:
+        return None
+
+    sel_r, out_r, cap_r, n_dates = [], [], [], 0
+    for d, rows in by_date.items():
+        rows.sort(key=lambda r: r.get("rank") or 10**9)
+        got = [forward.get((d, r["ticker"])) for r in rows]
+        if not any(v is not None for v in got):
+            continue
+        n_dates += 1
+        for r, fwd in zip(rows, got):
+            if fwd is None:
+                continue
+            if r.get("selected"):
+                sel_r.append(fwd)
+            elif r.get("reject_reason"):
+                cap_r.append(fwd)
+            elif (r.get("rank") or 10**9) <= top_k:
+                cap_r.append(fwd)      # inside the head but unselected
+            else:
+                out_r.append(fwd)
+
+    def _avg(xs):
+        return round(sum(xs) / len(xs), 6) if xs else None
+
+    sel, out_ranked, cap = _avg(sel_r), _avg(out_r), _avg(cap_r)
+    notes = []
+    # The interpretation, stated rather than left to the reader — the same
+    # reasoning the selection audit uses on the live side.
+    if sel is not None and cap is not None and cap > sel:
+        notes.append("cap_blocked beat selected — implicates CONSTRUCTION "
+                     "(sector/cluster/capacity caps), not the factor model")
+    if sel is not None and out_ranked is not None and out_ranked > sel:
+        notes.append("out_ranked beat selected — implicates the FACTOR MODEL: "
+                     "names it scored below the book did better than the book")
+    return {
+        "n_dates": n_dates,
+        "top_k": top_k,
+        "selected_avg_fwd": sel,
+        "out_ranked_avg_fwd": out_ranked,
+        "cap_blocked_avg_fwd": cap,
+        "n_selected": len(sel_r), "n_out_ranked": len(out_r),
+        "n_cap_blocked": len(cap_r),
+        "notes": notes,
+    }
+
+
 def forest_map(equity: Sequence[dict], trades: Sequence[dict],
                positions: Sequence[dict], *, max_positions: int,
-               n_chapters: int = 8) -> dict:
+               n_chapters: int = 8,
+               rankings: Sequence[dict] | None = None,
+               forward_returns: Mapping[tuple, float] | None = None) -> dict:
     """Descriptive shape of one run. See the module docstring for the frame.
 
     equity/trades/positions are the SimResult lists verbatim. `max_positions` is
     the configured cap, so breadth can be read as a FRACTION of what the config
     asked for — 26 names means nothing without knowing whether the cap was 30 or 50.
     """
-    out: dict = {
-        "n_chapters": 0,
-        "missing": ["growth_capture: needs the ranked universe per date (what we "
-                    "did NOT hold and how it performed) — not derivable from a "
-                    "run's own trace"],
-    }
+    out: dict = {"n_chapters": 0, "missing": []}
+    gc = (growth_capture(rankings, forward_returns)
+          if rankings and forward_returns else None)
+    if gc:
+        out["growth_capture"] = gc
+    else:
+        # Still DECLARED when absent. Silently omitting it reads as "nothing else
+        # was available", which is the more dangerous error — it is the difference
+        # between "we checked and the book was the best of what we saw" and "we
+        # never looked".
+        out["missing"].append(
+            "growth_capture: needs the ranked universe per date (bt_sweep_rankings) "
+            "AND forward returns — pass rankings= and forward_returns=")
 
     # ── deployment: was the footprint the size the config asked for? ──────────
     by_date: dict = {}

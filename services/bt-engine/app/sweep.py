@@ -226,6 +226,7 @@ def run_config_both_windows(prices, fundamentals, sector_map, base_config: dict,
     equity_by_phase: dict[str, list] = {}
     trades_by_phase: dict[str, list] = {}
     positions_by_phase: dict[str, list] = {}
+    rankings_by_phase: dict[str, list] = {}
 
     def _one(start: date, end: date, phase: str) -> dict:
         params = SimParams(start=start, end=end, **sim_kwargs)
@@ -245,6 +246,7 @@ def run_config_both_windows(prices, fundamentals, sector_map, base_config: dict,
         equity_by_phase[phase] = result.equity
         trades_by_phase[phase] = result.trades
         positions_by_phase[phase] = result.positions
+        rankings_by_phase[phase] = result.rankings
         summary = result.summary
         # Stamp the CONDITIONS of production. Without this a run made with the
         # parity/coverage gate disabled is byte-identical to an enforced one,
@@ -281,6 +283,7 @@ def run_config_both_windows(prices, fundamentals, sector_map, base_config: dict,
         "equity_by_phase": equity_by_phase,
         "trades_by_phase": trades_by_phase,
         "positions_by_phase": positions_by_phase,
+        "rankings_by_phase": rankings_by_phase,
         "in_sample": in_sample,
         "out_sample": out_sample,
         "is_sharpe": is_sharpe,

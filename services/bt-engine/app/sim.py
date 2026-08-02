@@ -72,6 +72,11 @@ _FK_DEFAULTS = dict(backstop_pct=0.25, window_days=21, excess_pct=0.15,
 # Trailing price history handed to the factor step per rebalance (calendar days).
 # Momentum 12-1 needs ~370; covariance/regime ≤ 252 trading days. 420 covers all.
 FACTOR_LOOKBACK_DAYS = 420
+# Rows of the ranked universe kept per rebalance. Not the whole universe: 20 years
+# x ~2000 names daily is ~10M rows per config, which is a corpus rather than a
+# diagnostic. This covers the decision-relevant head — the book plus the
+# near-misses any regret analysis compares it against.
+RANKING_ROW_CAP = int(os.getenv("BT_RANKING_ROW_CAP", "100"))
 # A held name with no price for this many TRADING SESSIONS is treated as delisted
 # and force-exited. Measured in real session indices against `all_days`, NOT in
 # calendar days: the previous `(D - last_seen).days > DELIST_GAP_DAYS * 2` was a
@@ -152,6 +157,10 @@ class SimResult:
     equity: list = field(default_factory=list)      # [{date, portfolio_value, spy_value, drawdown}]
     trades: list = field(default_factory=list)      # [{date, ticker, action, qty, price, tx_cost, reason}]
     positions: list = field(default_factory=list)   # EOD on rebalance days [{date, ticker, qty, weight, market_value}]
+    # The ranked universe HEAD per rebalance — what the model SAW, not only what
+    # it held. Capped (RANKING_ROW_CAP); the cap travels in the summary so a
+    # reader can tell "ranked and passed over" from "beyond the cap".
+    rankings: list = field(default_factory=list)
     caveats: list = field(default_factory=list)
 
 
@@ -527,6 +536,7 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
     # cannot supply. Indices (not dates) because `i` is already the session counter
     # and stays correct under truncation.
     stop_at_i: dict[str, int] = {}
+    ranking_rows: list[dict] = []
 
     cb_cfg = getattr(config, "crash_brake", None)
     cb_on = bool(getattr(cb_cfg, "enabled", False))
@@ -859,6 +869,37 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                 crash_exposure=crash_exposure)
             status_counts[target_status] = status_counts.get(target_status, 0) + 1
 
+            # The ranked HEAD, with what the builder did about each name. This is
+            # the only record of what the model SAW rather than what it took, and
+            # nothing downstream can reconstruct it: `target` holds the survivors,
+            # so a name absent from it is indistinguishable from a name that was
+            # never ranked. Written on rebalance dates only — the ranking does not
+            # change in between.
+            if ranked is not None and len(ranked):
+                for _n, _r in enumerate(ranked.itertuples()):
+                    if _n >= RANKING_ROW_CAP:
+                        break
+                    _t = _r.ticker
+                    _sel = _t in target
+                    ranking_rows.append({
+                        "date": D.date(), "ticker": _t,
+                        "rank": int(_r.rank),
+                        "composite_score": (None if _r.composite_score != _r.composite_score
+                                            else round(float(_r.composite_score), 6)),
+                        "selected": _sel,
+                        "weight": round(float(target[_t]), 6) if _sel else None,
+                        # Why a well-ranked name did NOT make the book. Only the
+                        # coarse reason is available here (the builder's own
+                        # rejection detail does not cross the build_target
+                        # boundary), but the distinction that matters — ranked
+                        # into the head yet unselected — is exactly what separates
+                        # a CONSTRUCTION miss from a FACTOR-MODEL miss.
+                        "reject_reason": (None if _sel
+                                          else ("cap_or_veto"
+                                                if int(_r.rank) <= len(target)
+                                                else None)),
+                    })
+
             if ranked is not None:
                 obs_date = D.date()
                 # rank_history stays scoped to the investable head (unchanged
@@ -1101,6 +1142,10 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
         "n_days_with_fills": len(turnover_samples),
         "total_turnover": round(float(np.sum(turnover_samples)), 4) if turnover_samples else 0.0,
         "target_status_counts": dict(sorted(status_counts.items())),
+        # WITHOUT this a later reader cannot tell "ranked and passed over" from
+        # "never in the captured head", and every recall number computed off the
+        # table would be silently wrong.
+        "ranking_rank_cap": RANKING_ROW_CAP,
         # A rare control must be shown to be RARE. Session count alone is
         # ambiguous — one long episode and twenty short ones read very
         # differently — so both are reported, and the share tells you at a glance
@@ -1166,4 +1211,5 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
         raise CoverageError("factor coverage: " + " ".join(cov))
     caveats.extend(cov)
     return SimResult(summary=summary, equity=equity_rows, trades=trade_rows,
-                     positions=position_rows, caveats=caveats)
+                     positions=position_rows, rankings=ranking_rows,
+                     caveats=caveats)

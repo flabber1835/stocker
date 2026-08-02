@@ -674,6 +674,7 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
                 _equity = row.pop("equity_by_phase", None) or {}
                 _trades = row.pop("trades_by_phase", None) or {}
                 _positions = row.pop("positions_by_phase", None) or {}
+                _rankings = row.pop("rankings_by_phase", None) or {}
                 row = _json_sanitize(row)
                 cfg_rows.append(row)
                 # The curve says WHEN a candidate diverged; the fills (with their
@@ -707,7 +708,17 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
                         for phase, rows_ in _positions.items() for p in (rows_ or [])
                         if p.get("date") is not None and p.get("ticker")
                     ]
-                    if _eq_params or _tr_params or _pos_params:
+                    _rk_params = [
+                        {"sid": sweep_id, "idx": idx, "widx": widx,
+                         "ph": phase, "d": r.get("date"), "tk": r.get("ticker"),
+                         "rk": r.get("rank"), "cs": r.get("composite_score"),
+                         "sel": bool(r.get("selected")), "w": r.get("weight"),
+                         "rr": r.get("reject_reason")}
+                        for phase, rows_ in _rankings.items() for r in (rows_ or [])
+                        if r.get("date") is not None and r.get("ticker")
+                        and r.get("rank") is not None
+                    ]
+                    if _eq_params or _tr_params or _pos_params or _rk_params:
                         async with engine.begin() as conn:
                             if _eq_params:
                                 await conn.execute(text(
@@ -739,6 +750,14 @@ async def _sweep_bg(sweep_id: str, req: "SweepRequest", base_cfg: StrategyConfig
                                     " weight, market_value) VALUES (CAST(:sid AS uuid), "
                                     " :idx, :widx, :ph, :d, :tk, :q, :w, :mv) "
                                     "ON CONFLICT DO NOTHING"), _pos_params)
+                            if _rk_params:
+                                await conn.execute(text(
+                                    "INSERT INTO bt_sweep_rankings (sweep_id, "
+                                    " config_idx, window_idx, phase, date, ticker, "
+                                    " rank, composite_score, selected, weight, "
+                                    " reject_reason) VALUES (CAST(:sid AS uuid), "
+                                    " :idx, :widx, :ph, :d, :tk, :rk, :cs, :sel, "
+                                    " :w, :rr) ON CONFLICT DO NOTHING"), _rk_params)
                 except Exception as exc:  # noqa: BLE001
                     print(f"[sweep] trace persistence failed for config {idx} "
                           f"({exc}) — results unaffected", flush=True)

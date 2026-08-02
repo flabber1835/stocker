@@ -46,7 +46,7 @@ done
 # bt_sweep_equity / bt_sweep_trades: per-session curves and fills for sweep legs. Purged with the rest —
 # leaving it behind would keep a readable island of VOID equity paths after the
 # summaries that explain them are gone.
-RESULT_TABLES="bt_sweep_results bt_sweep_aggregates bt_sweeps bt_trades bt_positions bt_equity bt_runs bt_sweep_equity bt_sweep_trades bt_sweep_positions"
+RESULT_TABLES="bt_sweep_results bt_sweep_aggregates bt_sweeps bt_trades bt_positions bt_equity bt_runs bt_sweep_equity bt_sweep_trades bt_sweep_positions bt_sweep_rankings"
 # Named explicitly so a future reader can see what is deliberately preserved.
 CORPUS_TABLES="bt_prices bt_fundamentals bt_earnings bt_universe bt_data_runs"
 

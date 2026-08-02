@@ -4213,3 +4213,37 @@ on top of `calibration.py`. The backtest stack has no bind mount, so bt-engine
 imports the copy baked into `stocker-base`: use `scripts/deploy-all.sh`, or force
 `docker build --network host -t stocker-base:latest -f Dockerfile.base .` before
 rebuilding bt-engine.
+
+### Design Decision: recording what the model SAW, not only what it held (2026-08)
+
+An oracle-forensics study (46 months, 505 survivor-biased large caps) asked how
+often the ranking's top 25 contained the next month's actual top 25. Recall was
+10.7% against 5.1% random — a real edge, roughly 2x, but three quarters of the
+next month's winners sat outside the top 100.
+
+**The findings worth keeping were the NEGATIVE ones.** Every static blend tested
+— breakout, trend-quality, acceleration — scored BELOW plain momentum (16.19-
+18.16% vs 18.74% CAGR). And a gradient-boosted classifier RAISED recall (9.7% ->
+17.3%) while LOWERING realised return (1.82% -> 1.21%): it found more hindsight
+winners and worse false positives. That is the argument against optimising recall
+at all, and it generalises further than the study applied it — oracle regret is
+measured against an unachievable benchmark (the oracle's +14.78%/month is ~430%
+annualised), so it is a diagnostic, never an objective.
+
+**What was NOT adopted, and why.** The study's headline recommendation was a
+regime-conditioned rebound sleeve (+2pp CAGR). Three reasons to wait: it was
+fitted on 2014-2016 and did not activate at all in 2017, so there is no
+out-of-sample evidence; it carries ~10 free parameters over ~34 months for a
++2pp effect from 3 of 25 slots; and it is the strategy most flattered by the
+panel's survivorship bias — "beaten down, high vol, below its old high" selects
+names that came back, in a dataset containing only names that came back.
+
+**What WAS built** is the instrumentation, which has no fitting risk and closes a
+gap the system had already declared. See CLAUDE.md "the ranked universe per
+rebalance". The point is the selected / cap_blocked / out_ranked split: it is the
+difference between a factor-model problem and a construction problem, and
+answering one with the other's fix is the failure mode this prevents.
+
+Live changes from the same batch went into `momentum_core_v3` — a RANKING-layer
+rebuild only (liquidity to 0, momentum window shortened, composite simplified,
+book concentrated 35 -> 25). The exit regime was deliberately untouched.
