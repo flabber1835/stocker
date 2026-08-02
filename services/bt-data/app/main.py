@@ -387,6 +387,69 @@ async def _load_benchmarks(date_from: str, date_to: str) -> int:
         return 0
 
 
+async def _load_fundamentals(date_from: str, date_to: str,
+                             tickers: Optional[str], job_type: str) -> int:
+    """SF1 (ARQ) → bt_fundamentals + bt_earnings. Returns rows written.
+
+    Extracted from _run_backfill so it can be re-run ON ITS OWN. That matters:
+    every column added to the SF1 mapping (market_cap and shares_outstanding in
+    2026-07, gross_profit and total_assets in 2026-08) is NULL on existing rows
+    until this stage runs again, and the only way to re-run it used to be a full
+    backfill — which redoes the ~35M-row price corpus first, for hours, to fix
+    columns prices have nothing to do with. A stage that cannot be replayed
+    independently is a stage nobody replays.
+
+    The upserts are ON CONFLICT DO UPDATE keyed on (ticker, as_of_date), so
+    re-running is idempotent: existing rows gain the new columns in place and the
+    price corpus is untouched.
+    """
+    rid = await _open_run(job_type, "bt_fundamentals")
+    try:
+        params = {"dimension": "ARQ", "datekey.gte": date_from, "datekey.lte": date_to}
+        if tickers:
+            params["ticker"] = tickers
+        # Group by ticker to compute YoY growth (this quarter vs ~4 filings ago),
+        # but upsert PER TICKER and free each block as we go — never hold two
+        # full-universe copies in memory at once (the whole-universe SF1 buffer
+        # was an OOM risk after prices finished on a RAM-tight NAS).
+        per_ticker: dict[str, list[dict]] = {}
+        async for raw in fetch_table("SF1", params=params):
+            m = map_sf1_row(raw)
+            if m is None:
+                continue
+            per_ticker.setdefault(m["ticker"], []).append(m)
+        total = 0
+        earnings_total = 0
+        for t in list(per_ticker.keys()):
+            rows = per_ticker.pop(t)          # free this ticker's block after use
+            rows.sort(key=lambda r: r["as_of_date"])
+            erows = []
+            for i, r in enumerate(rows):
+                prior = rows[i - 4] if i >= 4 else None  # ~year-ago quarter
+                r["revenue_growth"] = compute_growth(
+                    r.get("_revenue"), prior.get("_revenue") if prior else None)
+                r["eps_growth"] = compute_growth(
+                    r.get("_eps"), prior.get("_eps") if prior else None)
+                # issuance = shares_now / shares_year_ago − 1, computed by the
+                # factor step; it needs the year-ago LEVEL, not a ratio, so the
+                # same rows[i-4] anchor the growth fields use is carried across.
+                r["shares_outstanding_prior"] = (
+                    prior.get("shares_outstanding") if prior else None)
+                er = map_sf1_earnings_row(r)
+                if er:
+                    erows.append(er)
+            total += await _upsert_fundamentals(rows)
+            earnings_total += await _upsert_bt_earnings(erows)
+        print(f"[bt-data] SF1: {total} fundamentals rows, {earnings_total} "
+              f"earnings rows", flush=True)
+        await _close_run(rid, "success", total)
+        await _bump_data_version(f"fundamentals+earnings ({total}/{earnings_total} rows)")
+        return total
+    except Exception as exc:
+        await _close_run(rid, "failed", err=repr(exc)[:1500])
+        raise
+
+
 async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
                         job_type: str = "backfill") -> None:
     # Prices (SEP) — chunked by calendar year, resumable. Each chunk commits
@@ -433,51 +496,7 @@ async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
     # Benchmark ETFs (SPY etc.) from SFP — the SEP load above is equities-only.
     await _load_benchmarks(date_from, date_to)
 
-    # Fundamentals (SF1, ARQ) — compute YoY growth across successive filings.
-    rid = await _open_run(job_type, "bt_fundamentals")
-    try:
-        params = {"dimension": "ARQ", "datekey.gte": date_from, "datekey.lte": date_to}
-        if tickers:
-            params["ticker"] = tickers
-        # Group by ticker to compute YoY growth (this quarter vs ~4 filings ago),
-        # but upsert PER TICKER and free each block as we go — never hold two
-        # full-universe copies in memory at once (the whole-universe SF1 buffer
-        # was an OOM risk after prices finished on a RAM-tight NAS).
-        per_ticker: dict[str, list[dict]] = {}
-        async for raw in fetch_table("SF1", params=params):
-            m = map_sf1_row(raw)
-            if m is None:
-                continue
-            per_ticker.setdefault(m["ticker"], []).append(m)
-        total = 0
-        earnings_total = 0
-        for t in list(per_ticker.keys()):
-            rows = per_ticker.pop(t)          # free this ticker's block after use
-            rows.sort(key=lambda r: r["as_of_date"])
-            erows = []
-            for i, r in enumerate(rows):
-                prior = rows[i - 4] if i >= 4 else None  # ~year-ago quarter
-                r["revenue_growth"] = compute_growth(
-                    r.get("_revenue"), prior.get("_revenue") if prior else None)
-                r["eps_growth"] = compute_growth(
-                    r.get("_eps"), prior.get("_eps") if prior else None)
-                # issuance = shares_now / shares_year_ago − 1, computed by the
-                # factor step; it needs the year-ago LEVEL, not a ratio, so the
-                # same rows[i-4] anchor the growth fields use is carried across.
-                r["shares_outstanding_prior"] = (
-                    prior.get("shares_outstanding") if prior else None)
-                er = map_sf1_earnings_row(r)
-                if er:
-                    erows.append(er)
-            total += await _upsert_fundamentals(rows)
-            earnings_total += await _upsert_bt_earnings(erows)
-        print(f"[bt-data] SF1: {total} fundamentals rows, {earnings_total} "
-              f"earnings rows", flush=True)
-        await _close_run(rid, "success", total)
-        await _bump_data_version(f"fundamentals+earnings ({total}/{earnings_total} rows)")
-    except Exception as exc:
-        await _close_run(rid, "failed", err=repr(exc)[:1500])
-        raise
+    await _load_fundamentals(date_from, date_to, tickers, job_type)
 
     # Universe snapshot (TICKERS, as-of date_to). One snapshot for the backfill end;
     # the engine treats it as the listed set (delisted names still in bt_prices).
@@ -605,6 +624,52 @@ async def start_topup(background_tasks: BackgroundTasks):
     return {"status": "started", "job_type": "topup", "date_from": date_from,
             "date_to": date_to, "mock": is_mock(),
             "data_mode": data_mode()}
+
+
+@app.post("/jobs/backfill-fundamentals")
+async def start_fundamentals_backfill(background_tasks: BackgroundTasks,
+                                      date_from: str, date_to: str,
+                                      tickers: Optional[str] = None):
+    """Re-run the SF1 stage ALONE — no prices, no benchmarks, no universe.
+
+    Why this exists as its own endpoint: every column added to the SF1 mapping is
+    NULL on existing rows until the stage runs again, and the only way to re-run
+    it was /jobs/backfill, which redoes the ~35M-row price corpus first — hours of
+    work to fix columns that have nothing to do with prices. A stage that cannot
+    be replayed on its own is a stage nobody replays, which is how gross_profit /
+    total_assets stayed missing long enough for the wind tunnel to score a quality
+    factor live does not compute.
+
+    IDEMPOTENT AND NON-DESTRUCTIVE. The upsert is ON CONFLICT (ticker,
+    as_of_date) DO UPDATE, so existing rows gain the new columns in place;
+    bt_prices is never touched. Safe to re-run, and safe to interrupt.
+
+    Shares the same single-writer guard as backfill/topup — one long writer at a
+    time, or they lock each other row-by-row on the same upserts.
+    """
+    global _job_active
+    try:
+        date.fromisoformat(date_from); date.fromisoformat(date_to)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date_from/date_to must be ISO YYYY-MM-DD")
+    if _job_active:
+        return {"status": "already_running",
+                "detail": "a backfill/topup is already in progress — not spawning another"}
+    _job_active = True
+
+    async def _guarded():
+        global _job_active
+        try:
+            await _load_fundamentals(date_from, date_to, tickers, "backfill_fundamentals")
+        finally:
+            _job_active = False
+
+    background_tasks.add_task(_guarded)
+    return {"status": "started", "job_type": "backfill_fundamentals",
+            "date_from": date_from, "date_to": date_to,
+            "tickers": tickers or "ALL", "mock": is_mock(),
+            "data_mode": data_mode(),
+            "note": "SF1 only — bt_prices is not touched"}
 
 
 # ── Data-depth report (GO/NO-GO gate) ──────────────────────────────────────────

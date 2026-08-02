@@ -351,3 +351,60 @@ def test_the_insert_and_the_coercion_cover_the_same_date_columns():
                              inspect.getsource(bt_main.coerce_universe_dates)))
     missing = date_cols - coerced
     assert not missing, f"DATE column(s) in the INSERT are never coerced: {missing}"
+
+
+# ── replaying the SF1 stage on its own ──────────────────────────────────────
+# Every column added to the mapping is NULL on existing rows until the stage
+# runs again, and until 2026-08 the only way to re-run it was a full backfill —
+# hours of price loading to fix columns prices have nothing to do with. That is
+# how gross_profit/total_assets stayed missing long enough for the wind tunnel to
+# score a quality factor live does not compute.
+
+def test_the_sf1_stage_is_callable_without_the_price_stage():
+    """A stage that cannot be replayed independently is a stage nobody replays."""
+    from app import main as bt_main
+    assert callable(getattr(bt_main, "_load_fundamentals", None))
+
+
+def test_the_backfill_still_goes_through_the_same_function():
+    """The extraction must not fork into two SF1 implementations — the endpoint
+    and the full backfill have to write identical rows or a replay would
+    silently differ from the original load."""
+    import inspect
+
+    from app import main as bt_main
+    assert "_load_fundamentals(" in inspect.getsource(bt_main._run_backfill)
+    assert "_load_fundamentals(" in inspect.getsource(
+        bt_main.start_fundamentals_backfill)
+
+
+def test_the_replay_endpoint_does_not_touch_prices():
+    """The whole point. If this ever calls _run_backfill it becomes the
+    multi-hour job it was written to avoid, and nobody would notice until they
+    ran it."""
+    import inspect
+
+    from app import main as bt_main
+    src = inspect.getsource(bt_main.start_fundamentals_backfill)
+    assert "_run_backfill" not in src
+    assert "_load_price_chunk" not in src
+
+
+def test_the_fundamentals_upsert_is_non_destructive():
+    """Re-running must UPDATE existing rows in place, never delete and reload:
+    an interrupted replay would otherwise leave the corpus with a hole in it."""
+    import inspect
+
+    from app import main as bt_main
+    src = inspect.getsource(bt_main._upsert_fundamentals)
+    assert "ON CONFLICT (ticker, as_of_date) DO UPDATE" in src
+    assert "DELETE" not in src.upper()
+
+
+def test_it_shares_the_single_writer_guard():
+    """Two long writers upserting the same table lock each other row by row —
+    the 'five running tasks, zero progress' pileup the flag was added for."""
+    import inspect
+
+    from app import main as bt_main
+    assert "_job_active" in inspect.getsource(bt_main.start_fundamentals_backfill)
