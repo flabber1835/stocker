@@ -683,6 +683,26 @@ class TrailingStopConfig(BaseModel):
         description="Cap on the scaled width. Without it a wild name is effectively "
                     "unstoppable and the rule stops being a risk control.")
 
+    reentry_policy: Literal["peak", "cooldown"] = Field(
+        default="peak",
+        description=(
+            "How long a stopped-out name stays unbuyable.\n"
+            "'peak' (default, unchanged): until the close exceeds the peak that "
+            "triggered the stop. Self-clearing, no timer, and a strictly stronger "
+            "filter than any fixed wait.\n"
+            "'cooldown': for reentry_cooldown_sessions sessions, then free.\n"
+            "Which is right DEPENDS ON STOP WIDTH, which is why both exist. The "
+            "peak rule does not scale: regaining the peak after a 15% stop needs a "
+            "~17.6% rally, but after a 30% stop it needs ~43% — that is no longer "
+            "hysteresis, it is near-permanent exclusion of a name the ranker keeps "
+            "nominating. Wide-stop configs should prefer 'cooldown'."),
+    )
+    reentry_cooldown_sessions: int = Field(
+        default=21, ge=0, le=252,
+        description="Sessions barred after a stop when reentry_policy='cooldown'. "
+                    "Inert under 'peak'. 21 ~ one trading month.",
+    )
+
     @model_validator(mode="after")
     def width_clamps_are_ordered(self) -> "TrailingStopConfig":
         """An inverted clamp silently collapses every width to one number — the

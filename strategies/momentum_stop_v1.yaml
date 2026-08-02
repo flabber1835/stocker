@@ -156,6 +156,12 @@ trailing_stop:
   max_stale_sessions: 2
   max_stops_per_run: 5
   width_method: fixed
+  # COOLDOWN, not the default peak rule. At a 30% stop, regaining the peak that
+  # triggered it needs a ~43% rally — that is not hysteresis, it is near-permanent
+  # exclusion of a name the ranker keeps nominating. The peak rule is right at
+  # 15%; it does not scale to this width.
+  reentry_policy: cooldown
+  reentry_cooldown_sessions: 21
 delta_engine:
   # The whole point. Target membership no longer retires a holding; the stop
   # does. entry_rank/exit_rank/orphan_confirmation_days below are inert under

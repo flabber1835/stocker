@@ -128,15 +128,29 @@ def blocked_reentries(
     last_closes: dict[str, float],
     held: set[str],
     reentry_blocked_fn,
+    *,
+    sessions_since_stop: dict[str, int] | None = None,
+    policy: str = "peak",
+    cooldown_sessions: int = 21,
 ) -> set[str]:
-    """Tickers that stopped out and have not recovered to the peak that stopped them.
+    """Tickers that stopped out and are still barred from being re-bought.
 
     Only names NOT currently held can be blocked — re-buying clears the block, and a
     position we already hold is governed by its own live episode. A ticker with no
-    fresh close is NOT blocked: the block exists to prevent a re-buy, and without a
-    price nothing can buy it anyway.
+    fresh close is NOT blocked under the PEAK policy: the block exists to prevent a
+    re-buy, and without a price nothing can buy it anyway.
+
+    Under the COOLDOWN policy the price is irrelevant — only elapsed sessions since
+    the stop matter — so a name with no fresh print is still blocked while its timer
+    runs. That asymmetry is deliberate: the peak rule needs a price to compare
+    against and the cooldown does not, so requiring one would silently unblock a
+    halted name early.
     """
+    sessions_since_stop = sessions_since_stop or {}
     return {
         t for t, peak in stop_peaks.items()
-        if t not in held and reentry_blocked_fn(last_closes.get(t), peak)
+        if t not in held and reentry_blocked_fn(
+            last_closes.get(t), peak,
+            sessions_since_stop=sessions_since_stop.get(t),
+            policy=policy, cooldown_sessions=cooldown_sessions)
     }

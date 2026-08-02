@@ -125,8 +125,50 @@ class TestBuildStopStates:
 
 
 class TestBlockedReentries:
-    def _blocked(self, last, peak):
+    def _blocked(self, last, peak, *, sessions_since_stop=None,
+                 policy="peak", cooldown_sessions=21):
+        """Stand-in for engine.reentry_blocked. It grew keyword-only policy
+        arguments when the cooldown was added; the fake mirrors the real
+        signature so this suite cannot pass against a call the engine would
+        reject."""
+        if policy == "cooldown":
+            return (sessions_since_stop is not None
+                    and sessions_since_stop < cooldown_sessions)
         return last is not None and peak is not None and last <= peak
+
+    def test_the_fake_matches_the_real_signature(self):
+        """Guards the paragraph above: a divergence here makes every other test
+        in this class green against a contract that does not exist."""
+        import inspect
+        import os
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__),
+                                        "../../services/pipeline/app"))
+        from engine import reentry_blocked
+        real = inspect.signature(reentry_blocked).parameters
+        fake = {k: v for k, v in inspect.signature(self._blocked).parameters.items()
+                if k != "self"}
+        kw = inspect.Parameter.KEYWORD_ONLY
+        # blocked_reentries passes the first two POSITIONALLY (so their names may
+        # differ) and everything else BY KEYWORD (so those names must match).
+        assert ([k for k, v in real.items() if v.kind is kw]
+                == [k for k, v in fake.items() if v.kind is kw])
+        assert (len([v for v in real.values() if v.kind is not kw])
+                == len([v for v in fake.values() if v.kind is not kw]))
+
+    def test_a_cooldown_block_survives_a_missing_price(self):
+        """The peak rule needs a price to compare against; the cooldown does not.
+        Requiring one would silently unblock a halted name early."""
+        out = blocked_reentries({"AAA": 100.0}, {}, set(), self._blocked,
+                                sessions_since_stop={"AAA": 3},
+                                policy="cooldown", cooldown_sessions=21)
+        assert out == {"AAA"}
+
+    def test_a_cooldown_expires(self):
+        out = blocked_reentries({"AAA": 100.0}, {}, set(), self._blocked,
+                                sessions_since_stop={"AAA": 21},
+                                policy="cooldown", cooldown_sessions=21)
+        assert out == set()
 
     def test_an_unrecovered_stop_blocks(self):
         out = blocked_reentries({"AAA": 100.0}, {"AAA": 90.0}, set(), self._blocked)

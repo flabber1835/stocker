@@ -1789,7 +1789,7 @@ async def _plan_stops(ts_cfg, held: set[str],
 
     from app.engine import StopState, plan_trailing_stops, reentry_blocked
     from app.episodes import (blocked_reentries, build_stop_states,
-                              plan_episode_sync)
+                              plan_episode_sync, sessions_after)
 
     # `session` is the chain's DATA-session date (ranking_runs.rank_date), not
     # wall-clock today — the same anchor every other step in the chain uses. A
@@ -1858,11 +1858,15 @@ async def _plan_stops(ts_cfg, held: set[str],
         )).fetchall()
 
         peak_rows = (await conn.execute(text(
-            "SELECT DISTINCT ON (ticker) ticker, stop_peak FROM position_episodes "
+            "SELECT DISTINCT ON (ticker) ticker, stop_peak, closed_on FROM position_episodes "
             "WHERE close_reason = 'trailing_stop' AND closed_on IS NOT NULL "
             "  AND stop_peak IS NOT NULL "
             "ORDER BY ticker, closed_on DESC"))).fetchall()
         stop_peaks = {r.ticker: float(r.stop_peak) for r in peak_rows}
+        # closed_on carries the stop DATE, which the cooldown policy needs. Loaded
+        # in the same pass as the peak so the two can never disagree about which
+        # episode a block refers to.
+        stop_dates = {r.ticker: r.closed_on for r in peak_rows}
         last_closes: dict[str, float] = {}
         if stop_peaks:
             lc = (await conn.execute(text(
@@ -1919,7 +1923,13 @@ async def _plan_stops(ts_cfg, held: set[str],
         print(f"[delta] trailing stop: {sorted(plan.stopped)} "
               f"(deferred={sorted(plan.deferred)}, skipped={plan.skipped})", flush=True)
 
-    blocked = blocked_reentries(stop_peaks, last_closes, held, reentry_blocked)
+    blocked = blocked_reentries(
+        stop_peaks, last_closes, held, reentry_blocked,
+        sessions_since_stop={t: n for t, d in stop_dates.items()
+                             if (n := sessions_after(cal, d)) is not None},
+        policy=getattr(ts_cfg, "reentry_policy", "peak"),
+        cooldown_sessions=int(getattr(ts_cfg, "reentry_cooldown_sessions", 21)),
+    )
     return plan.stopped, blocked
 
 

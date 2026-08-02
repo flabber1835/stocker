@@ -508,6 +508,11 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
     opened_i: dict[str, int] = {}               # ticker → session INDEX position opened
     peak_adj: dict[str, float] = {}             # ticker → highest close since opened_i
     stop_peaks: dict[str, float] = {}           # ticker → peak that triggered its stop
+    # Session INDEX at which each stop fired. The cooldown re-entry policy measures
+    # elapsed sessions, not price recovery, so it needs the date the peak alone
+    # cannot supply. Indices (not dates) because `i` is already the session counter
+    # and stays correct under truncation.
+    stop_at_i: dict[str, int] = {}
     n_stop_exits = 0
     filled_notional_today: float = 0.0
     n_rebalances = 0                            # rebalance EVALUATIONS
@@ -639,6 +644,7 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                     opened_i[tr["ticker"]] = day_index.get(d, 0)
                     peak_adj[tr["ticker"]] = p
                     stop_peaks.pop(tr["ticker"], None)  # re-entered ⇒ block cleared
+                    stop_at_i.pop(tr["ticker"], None)
             # A FILL IS PROOF OF A PRINT (and, since the no-price branch above
             # now refuses to fill, only a REAL print can reach here).
             # last_seen_i/last_px are otherwise refreshed
@@ -732,6 +738,7 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
             for t, peak in plan.stopped.items():
                 stopped_today.add(t)
                 stop_peaks[t] = peak
+                stop_at_i[t] = i
                 stop_trades.append({
                     "ticker": t, "side": "sell", "qty": qty[t], "action": "exit",
                     "reason": f"trailing stop: close {last_px[t]:.2f} is "
@@ -746,9 +753,14 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
         # strands its weight in cash.
         blocked: set[str] = set()
         if ts_on and stop_peaks:
-            blocked = {t for t, pk in stop_peaks.items()
-                       if t not in qty
-                       and live.reentry_blocked(_price(t, D, opens=False), pk)}
+            _rp = getattr(ts_cfg, "reentry_policy", "peak")
+            _cd = int(getattr(ts_cfg, "reentry_cooldown_sessions", 21))
+            blocked = {
+                t for t, pk in stop_peaks.items()
+                if t not in qty and live.reentry_blocked(
+                    _price(t, D, opens=False), pk,
+                    sessions_since_stop=(i - stop_at_i[t]) if t in stop_at_i else None,
+                    policy=_rp, cooldown_sessions=_cd)}
 
         rebalance = (i % max(1, params.rebalance_every)) == 0
         if rebalance:
