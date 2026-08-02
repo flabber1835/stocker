@@ -757,14 +757,20 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                 vol_anchor=getattr(ts_cfg, "vol_anchor", 0.35),
                 stop_pct_min=getattr(ts_cfg, "stop_pct_min", 0.08),
                 stop_pct_max=getattr(ts_cfg, "stop_pct_max", 0.35))
-            for t, peak in plan.stopped.items():
+            # `stop_peak`, NOT `peak`: the portfolio high-water mark is a
+            # module-level `peak` (initialised above, consumed by the drawdown
+            # field). Binding a TICKER price to that name here silently reset the
+            # watermark on every stop, so max_drawdown reported "decline since the
+            # last stop" instead of the book's real drawdown.
+            for t, stop_peak in plan.stopped.items():
                 stopped_today.add(t)
-                stop_peaks[t] = peak
+                stop_peaks[t] = stop_peak
                 stop_at_i[t] = i
                 stop_trades.append({
                     "ticker": t, "side": "sell", "qty": qty[t], "action": "exit",
                     "reason": f"trailing stop: close {last_px[t]:.2f} is "
-                              f"{(last_px[t] / peak - 1) * 100:.1f}% below peak {peak:.2f}",
+                              f"{(last_px[t] / stop_peak - 1) * 100:.1f}% below "
+                              f"peak {stop_peak:.2f}",
                 })
             n_stop_exits += len(stop_trades)
 
