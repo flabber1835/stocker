@@ -19,6 +19,7 @@ import random
 import pytest
 
 from stock_strategy_shared.calibration import (aggregate_calibration,
+                                               top_n_return,
                                                bootstrap_ci,
                                                decile_forward_returns,
                                                decile_rows_from_ranks,
@@ -201,6 +202,41 @@ class TestAggregate:
 
     def test_no_usable_date_returns_none(self):
         assert aggregate_calibration([[], []], 20) is None
+
+
+class TestTopNIsNotTheDecileCurve:
+    """The book is ~25 of ~2000 names — the top fifth of decile 1. Whether decile
+    6 beats decile 2 cannot touch its P&L, so a ranking can be flat in its middle
+    while its head pays. Collapsing the two into one verdict about "the ranking"
+    is the specific misreading this metric exists to prevent."""
+
+    def _flat_middle_paying_head(self, n=200, head=25):
+        """Top 25 earn 2%; everything else is noise around zero, ordered so the
+        decile curve below the head is deliberately UNinformative."""
+        rng = random.Random(5)
+        return ([(i + 1, 0.02) for i in range(head)]
+                + [(i + 1, rng.gauss(0, 0.01)) for i in range(head, n)])
+
+    def test_it_reads_the_head_only(self):
+        assert top_n_return(self._flat_middle_paying_head(), 25) == pytest.approx(0.02)
+
+    def test_the_decile_curve_can_be_unimpressive_while_it_pays(self):
+        rows = [decile_rows_from_ranks(self._flat_middle_paying_head(), top_n=25)
+                for _ in range(10)]
+        agg = aggregate_calibration(rows, 20)
+        assert agg["top_n"] == 25
+        assert agg["top_n_avg_return"] == pytest.approx(0.02, abs=1e-6)
+        assert agg["top_n_ci"]["prob_positive"] > 0.99
+        # ...while the ordering BELOW the head carries little: deciles 3-9 are noise
+        mid = [d["avg_fwd"] for d in agg["deciles"][2:9]]
+        assert max(mid) - min(mid) < 0.01
+
+    def test_it_is_reported_only_when_asked_for(self):
+        agg = aggregate_calibration([decile_rows_from_ranks(_perfect_pairs())], 20)
+        assert agg["top_n"] is None and agg["top_n_avg_return"] is None
+
+    def test_a_short_book_does_not_over_read(self):
+        assert top_n_return([(1, 0.05)], 25) == pytest.approx(0.05)
 
 
 def test_bt_engine_imports_the_canonical_module():

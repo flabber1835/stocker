@@ -97,10 +97,24 @@ def decile_forward_returns(scores: dict[str, float],
     return out
 
 
+def top_n_return(pairs: Sequence[tuple[int, float]], n: int) -> float | None:
+    """Mean forward return of the best-ranked `n` names.
+
+    The decile curve answers "is the ORDERING informative"; this answers "does the
+    part we actually BUY outperform". For a 25-name book out of ~2000 those are
+    very different questions — the book is the top ~1.75%, i.e. the top fifth of
+    decile 1 — and a ranking can be useless in its middle while its head still
+    pays. Reported alongside the curve so the two are never conflated.
+    """
+    vals = [v for _r, v in sorted(pairs, key=lambda x: x[0])[:max(1, n)]]
+    return round(sum(vals) / len(vals), 6) if vals else None
+
+
 def decile_rows_from_ranks(pairs: Sequence[tuple[int, float]],
                            n_bins: int = N_BINS,
                            n_scored: int | None = None,
-                           n_missing: int = 0) -> list[dict]:
+                           n_missing: int = 0,
+                           top_n: int | None = None) -> list[dict]:
     """Same shape as `decile_forward_returns`, for callers that already hold
     (rank, forward_return) pairs — the live path, where the rank is persisted and
     the return is computed in SQL. Lower rank = better."""
@@ -118,6 +132,8 @@ def decile_rows_from_ranks(pairs: Sequence[tuple[int, float]],
         "n_scored": n_scored if n_scored is not None else len(pairs) + n_missing,
         "n_missing": n_missing,
         "rank_ic": spearman_ic(ordered),
+        "top_n": top_n,
+        "top_n_return": top_n_return(ordered, top_n) if top_n else None,
     }
     return out
 
@@ -237,6 +253,8 @@ def _curve(usable: list[list[dict]], n_bins: int) -> dict:
     ns = [0] * n_bins
     per_date_spread: list[float] = []
     per_date_ic: list[float] = []
+    per_date_top_n: list[float] = []
+    top_n_size = None
     n_scored = n_missing = 0
     for rows in usable:
         vals: list[float | None] = [None] * n_bins
@@ -252,6 +270,9 @@ def _curve(usable: list[list[dict]], n_bins: int) -> dict:
         meta = (rows[0] or {}).get("_meta") or {}
         if meta.get("rank_ic") is not None:
             per_date_ic.append(meta["rank_ic"])
+        if meta.get("top_n_return") is not None:
+            per_date_top_n.append(meta["top_n_return"])
+            top_n_size = meta.get("top_n")
         n_scored += int(meta.get("n_scored") or 0)
         n_missing += int(meta.get("n_missing") or 0)
 
@@ -273,6 +294,15 @@ def _curve(usable: list[list[dict]], n_bins: int) -> dict:
         # never carried at their last print — treating a disappeared name as flat
         # inflates the deciles it concentrates in (the low ones), which shrinks
         # top-minus-bottom and makes the ranking look worse than it is.
+        # What the BOOK would have earned, not what the ordering implies. A 25-name
+        # book is the top ~1.75% of the universe; whether decile 6 beats decile 2
+        # cannot touch its P&L, so a flat middle and a paying head are perfectly
+        # consistent and must be reported separately rather than averaged into one
+        # verdict about "the ranking".
+        "top_n": top_n_size,
+        "top_n_avg_return": (round(sum(per_date_top_n) / len(per_date_top_n), 6)
+                             if per_date_top_n else None),
+        "top_n_ci": bootstrap_ci(per_date_top_n),
         "missing_endpoint_rate": (round(n_missing / n_scored, 4) if n_scored else None),
         "n_scored": n_scored,
         "n_missing_endpoint": n_missing,

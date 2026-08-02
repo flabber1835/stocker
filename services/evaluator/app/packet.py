@@ -573,6 +573,16 @@ async def _score_calibration(conn, active_config_hash: str | None = None,
                         f"OTHER configs — deliberately not pooled)",
                 "config_hash": active_config_hash}
 
+    # The BOOK's size, not a round number: the decile curve answers "is the
+    # ordering informative", top_n answers "does the part we actually buy
+    # outperform". For 25 names out of ~2000 those are different questions, and a
+    # ranking can be flat in its middle while its head pays.
+    try:
+        _cfg, _h = load_strategy(os.getenv("STRATEGY_CONFIG_PATH", ""))
+        book_size = int(_cfg.portfolio_builder.max_positions)
+    except Exception:  # noqa: BLE001
+        book_size = 25
+
     from bisect import bisect_right
 
     # Map each run to its session index first, then keep only anchors a full
@@ -615,7 +625,8 @@ async def _score_calibration(conn, active_config_hash: str | None = None,
                 pairs.append((int(rk), float(p1) / float(p0) - 1.0 - spy_ret))
             else:
                 n_missing += 1
-        deciles = decile_rows_from_ranks(pairs, n_scored=len(rows), n_missing=n_missing)
+        deciles = decile_rows_from_ranks(pairs, n_scored=len(rows),
+                                         n_missing=n_missing, top_n=book_size)
         if deciles:
             per_run.append(deciles)
             per_regime.append(regime)
@@ -627,6 +638,11 @@ async def _score_calibration(conn, active_config_hash: str | None = None,
 
     out = aggregate_calibration(per_run, CALIB_HORIZON_SESSIONS,
                                 regimes=per_regime) or {}
+    out["book_size_note"] = (
+        f"top_n = {book_size} = the strategy's max_positions. The book is roughly "
+        f"the top 1-2% of the universe, i.e. the top fifth of decile 1 — so a flat "
+        f"MIDDLE of the decile curve is compatible with a head that pays, and the "
+        f"two must not be collapsed into one verdict about 'the ranking'.")
     out["description"] = (
         "Decile 1 = best-ranked tenth; avg_fwd = mean forward return minus SPY "
         "over the same 20 sessions, averaged across INDEPENDENT (non-overlapping) "
