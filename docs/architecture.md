@@ -4073,3 +4073,143 @@ Two disciplines carry over from the rest of the loop. Everything here is
 DESCRIPTIVE — it says where to look, never what is wrong. And a diagnosis drawn from
 one run is one sample: a mechanism finding is only evidence once it reproduces
 across the rolling windows, exactly as a config edge must.
+
+---
+
+## Design Decision: rank picks entries, price manages exits (2026-08 exit-model batch)
+
+A brief proposed re-splitting the two questions the system currently answers
+together. The evidence behind it is weak in a specific, stated way — a 2014-2018
+panel of 505 large caps whose only stress was Aug-2015 and Feb-2018 — so
+everything below ships as a WIND-TUNNEL CHALLENGER with defaults preserving
+today's behaviour exactly. The live book (`momentum_rotation_v2`, 35 names,
+target-diff exits) is untouched.
+
+The organising idea:
+
+```text
+ranking            -> which names to BUY next
+trailing stop      -> has THIS position's trend objectively ended
+crash brake        -> is the whole market breaking (book-level, not per-name)
+drawdown guard     -> when we are down, down HOW (report only)
+```
+
+### `strategies/momentum_stop_v1.yaml`
+
+Raw 6-1 momentum as the sole alpha factor, 25 names, a 30% trailing stop,
+stop-only exits, no drift rebalancing. Two consequences that were not in the
+brief and matter more than most of what was:
+
+**It clears the wind tunnel's factor-coverage gate, which the champion cannot.**
+Auto-promotion is paused today because `earnings_surprise` (weight 0.12) has no
+Sharadar equivalent, so `check_config_coverage` refuses the active config. At
+weight 0 that gate passes — the challenger is scoreable where the incumbent is
+not.
+
+**`universe.require_fundamentals: true` is mandatory here.** With
+quality/value/growth at weight 0 the composite is price-and-volume only, which a
+leveraged ETF satisfies trivially and then TOPS on momentum. The champion is
+shielded because its `required_factors` need fundamentals; this config has no
+such shield, and without the flag the top of the book fills with SOXL and TQQQ.
+
+### `delta_engine.exit_policy` — the piece that was said to be impossible
+
+CLAUDE.md recorded that suppressing orphan exits wedges the book: `engine.py`
+Loop 3 opens `if ticker not in target_portfolio: continue`, and
+`_allocate_capacity` never force-exits, so the book fills to `max_positions` with
+stale names while entries queue as `watch` forever.
+
+The missing piece was vacancy refill — and it needed no new code.
+`select_entries_within_capacity` already admits best-rank-first up to
+`max_positions`, so a stop that frees a slot is filled by the best eligible name
+on the next build. §3 is therefore SUPPRESSION plus tests pinning the refill,
+which is only true until someone edits the allocator.
+
+The engine gained two primitives (`suppress_target_exits`, `drift_rebalance`).
+The stop itself still plans OUTSIDE the engine and arrives via `inflight_exits`,
+so no peak, `stop_pct` or episode state crosses that boundary — asserted directly
+now, not merely implied by pinning the parameter list.
+
+**The safety exits survive the policy.** Below-floor, delisted and data-gap holds
+are untouched. Suppressing those too is how "let winners run" quietly becomes
+"never sell anything", stranding a sub-floor holding forever.
+
+A config setting `trailing_stop_only` without `trailing_stop.enabled` is REFUSED:
+it would have no ordinary exit at all.
+
+### `trailing_stop.reentry_policy` — reversing a documented decision
+
+The shipped rule blocks re-entry until the close exceeds the peak that triggered
+the stop: no timer, self-clearing, strictly stronger than any fixed wait. That
+reasoning holds at 15% and does not scale, because the rally needed to clear the
+block is `stop_pct / (1 - stop_pct)`:
+
+```text
+stop 15%  ->  17.6% rally
+stop 30%  ->  42.9% rally
+```
+
+At 30% that is not hysteresis, it is near-permanent exclusion of a name the ranker
+keeps nominating. Both policies are kept so the tunnel can score them at matched
+widths. One asymmetry is deliberate: under `peak` a name with no fresh close is
+NOT blocked (nothing can buy it anyway); under `cooldown` it stays blocked while
+the timer runs, because that rule needs no price and requiring one would unblock
+a halted name early.
+
+### `crash_brake` — book-level, and rare by construction
+
+Two conditions, both required: benchmark window return at or below threshold AND
+breadth below threshold. An index drop alone is routinely a few mega-caps; thin
+breadth alone is normal in a narrow bull market.
+
+**Fail-safe on missing data**, deliberately the opposite of the falling-knife
+veto's fail-closed load: refusing to buy on missing data costs an opportunity,
+selling half the book on missing data is an unforced loss.
+
+**Applied after `book_volatility` measures the book.** Not "after vol-targeting" —
+two scalars commute, so that framing is empty. Brake first and vol-targeting sees
+a halved book, concludes it can lever back up, and partly undoes the brake.
+
+`delta_intents.action` was `VARCHAR(10)`; `risk_reduce` and `risk_restore` are 11
+and 12 characters, so both were unstorable and the first INSERT would have raised
+at the exact moment the brake engaged. Migration 0049 widens it.
+
+CALIBRATION CAVEAT, recorded in the module and the config: this is the change
+with the largest claimed effect resting on a sample containing no crash. Score it
+against the named stress regimes (`gfc_2008`, `covid_2020`, `bear_2022`) before
+believing it.
+
+### `portfolio_drawdown_guard` — observe-only, and that is a finding
+
+Acting on it HURT in the source evidence: culprit-selling and blanket stop-
+tightening cut CAGR badly. It reports, and an AST scan asserts no order/intent
+vocabulary reaches the module. `action_mode` is a `Literal` with one member
+rather than a bool, so adding an acting mode is a schema change somebody reviews.
+
+### `portfolio_builder.cluster_method`
+
+Single-linkage CHAINS: A~B and B~C fuse A, B, C even when corr(A,C) is near zero.
+`complete` requires every pairwise link. Default unchanged — tightening the cap
+under single-linkage already measured as costly (~26.1% -> 18.1% CAGR, no
+drawdown improvement), and momentum winners are often legitimately clustered.
+
+`cluster_cap_applies_to_new_entries_only` from the brief was NOT built: the cap is
+already selection-only (nothing re-trims a held position when its cluster weight
+grows), so the flag would be a no-op describing existing behaviour.
+
+### ATR (§8) was declined
+
+Neither compute path loads high/low, and live's are UNADJUSTED while every
+peak/stop/drawdown computation runs on `adjusted_close` — so it means two loader
+changes, a raw-to-adjusted conversion, and a fresh vintage-consistency problem of
+the kind the restatement fix just closed. The reported gain (26.1% -> 26.7%, with
+higher turnover) is inside noise, and `atr_multiple: 14.0` clamped to [0.20, 0.30]
+barely moves the line anyway.
+
+### Deploy
+
+This batch added two NEW `shared/` modules (`crash_brake.py`, `drawdown_guard.py`)
+on top of `calibration.py`. The backtest stack has no bind mount, so bt-engine
+imports the copy baked into `stocker-base`: use `scripts/deploy-all.sh`, or force
+`docker build --network host -t stocker-base:latest -f Dockerfile.base .` before
+rebuilding bt-engine.

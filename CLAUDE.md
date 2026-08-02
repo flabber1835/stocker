@@ -355,6 +355,24 @@ correctness matter, not tidiness: nested under `delta_engine` it would fall into
 config-replay's `_is_inert` and be scored as if absent. See docs/architecture.md
 "trailing-stop exit rule".
 
+**Exit-model challengers (2026-08, `strategies/momentum_stop_v1.yaml`).** A
+wind-tunnel candidate testing "rank picks ENTRIES, price manages EXITS": raw 6-1
+momentum as the only alpha factor, 25 names, a 30% trailing stop with
+`delta_engine.exit_policy: trailing_stop_only` (target membership no longer
+retires a holding) and `drift_rebalance_enabled: false`. Live v2 is UNCHANGED;
+every new flag defaults to today's behaviour. Notable: this config CLEARS the
+tunnel's factor-coverage gate that the champion fails (earnings_surprise at
+weight 0), so it is scoreable where the incumbent is not — and it REQUIRES
+`universe.require_fundamentals: true`, because a price-only composite is topped
+by leveraged ETFs. Also added: `trailing_stop.reentry_policy` (peak|cooldown —
+the peak rule needs a 43% rally to clear a 30% stop, which is exclusion not
+hysteresis), top-level `crash_brake` (book-level exposure cut, two conditions,
+fail-safe on missing data, migration 0049 widens `delta_intents.action` for
+risk_reduce/risk_restore), top-level `portfolio_drawdown_guard` (observe-only —
+acting on it measured WORSE), and `portfolio_builder.cluster_method`
+(single|complete; single-linkage chains). See docs/architecture.md "rank picks
+entries, price manages exits".
+
 Two initial strategy styles:
 
 ```text
