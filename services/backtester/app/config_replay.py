@@ -215,7 +215,9 @@ def build_target_for_date(
     available = [t for t in filtered if t in cov.index]
     scores = pd.Series({t: scores_map[t] for t in available})
     cov = cov.loc[available, available]
-    cluster_map = correlation_clusters(raw_corr, threshold=pb.cluster_correlation_threshold)
+    cluster_map = correlation_clusters(
+        raw_corr, threshold=pb.cluster_correlation_threshold,
+        method=getattr(pb, "cluster_method", "single"))
 
     # ── require-positive-composite (config) ───────────────────────────────────
     if pb.require_positive_composite_score:

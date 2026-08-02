@@ -50,7 +50,9 @@ def build_challenger_target(ranked: pd.DataFrame, price_df: pd.DataFrame,
         shrinkage=pb.covariance_shrinkage)
     if cov is None or len(cov) < 2:
         return {}, "covariance unavailable (insufficient price history)"
-    cluster_map = correlation_clusters(raw_corr, threshold=pb.cluster_correlation_threshold)
+    cluster_map = correlation_clusters(
+        raw_corr, threshold=pb.cluster_correlation_threshold,
+        method=getattr(pb, "cluster_method", "single"))
 
     available = [t for t in candidates if t in cov.index]
     if pb.require_positive_composite_score:

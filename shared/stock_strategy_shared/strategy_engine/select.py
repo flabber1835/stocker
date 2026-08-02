@@ -88,6 +88,7 @@ def compute_excluded_set(
 def correlation_clusters(
     matrix: pd.DataFrame,
     threshold: float = 0.70,
+    method: str = "single",
 ) -> dict[str, str]:
     """
     Group tickers into correlation clusters.
@@ -100,11 +101,28 @@ def correlation_clusters(
     anyway; we use the off-diagonals directly.)
 
     Two tickers join the same cluster when their absolute correlation is
-    >= threshold. Clustering is single-linkage via union-find: A~B and B~C puts
-    A, B, C in one cluster even if |corr(A,C)| is below threshold (they co-move
-    through B). This is the data-driven replacement for provider sector labels,
+    >= threshold. This is the data-driven replacement for provider sector labels,
     which are unreliable for risk grouping (e.g. GOOG is "Communication Services";
     gold miners span several sectors).
+
+    TWO LINKAGES:
+
+    'single' (default, unchanged) — union-find. A~B and B~C puts A, B and C in one
+    cluster even if |corr(A,C)| is far below threshold: they co-move THROUGH B.
+    Cheap and transitive, but chains: in a broad momentum book a run of pairwise
+    links can fuse most of the market into one mega-cluster, and the count cap
+    then blocks names that are not actually correlated with each other.
+
+    'complete' — a ticker joins a cluster only if it clears the threshold against
+    EVERY existing member. No chaining, so clusters stay interpretable as "these
+    all move together", at the cost of more, smaller clusters. Greedy and
+    order-dependent by nature, so members are considered in a FIXED lexicographic
+    order, which keeps the result deterministic (this repo tests that directly).
+
+    Neither is universally right and the default is not changed: single-linkage is
+    what every existing result was produced under, and tightening the cluster cap
+    under it has already been measured as costly. 'complete' exists so the wind
+    tunnel can score the alternative instead of the choice being argued.
 
     Returns a {ticker: cluster_id} map where cluster_id is the
     lexicographically-smallest ticker in the cluster (stable, deterministic).
@@ -115,6 +133,8 @@ def correlation_clusters(
         return {}
 
     corr = matrix.values
+    if method == "complete":
+        return _complete_linkage(tickers, corr, threshold)
 
     # Union-find with path compression.
     parent = {t: t for t in tickers}
@@ -143,6 +163,33 @@ def correlation_clusters(
                 union(tickers[i], tickers[j])
 
     return {t: find(t) for t in tickers}
+
+
+def _complete_linkage(tickers: list[str], corr, threshold: float) -> dict[str, str]:
+    """Complete-linkage clustering: join only if correlated with EVERY member.
+
+    Deterministic by construction — members are visited in lexicographic order and
+    a candidate joins the FIRST cluster it fully clears, so the same matrix always
+    yields the same map. Cluster ids follow the single-linkage convention (the
+    lexicographically-smallest member), so every downstream consumer is unchanged.
+    """
+    idx = {t: i for i, t in enumerate(tickers)}
+    clusters: list[list[str]] = []
+    for t in sorted(tickers):
+        placed = False
+        for members in clusters:
+            if all(abs(corr[idx[t], idx[m]]) >= threshold for m in members):
+                members.append(t)
+                placed = True
+                break
+        if not placed:
+            clusters.append([t])
+    out: dict[str, str] = {}
+    for members in clusters:
+        cid = min(members)
+        for m in members:
+            out[m] = cid
+    return out
 
 
 def greedy_select(

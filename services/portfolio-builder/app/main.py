@@ -622,7 +622,9 @@ async def _do_build(
     # would deflate every pairwise correlation by the shrinkage factor and wrongly
     # split genuine co-movers into singletons (e.g. gold miners correlated 0.79-0.92
     # reading 0.63-0.74 after 0.20 shrinkage, mostly falling below a 0.70 threshold).
-    cluster_map = correlation_clusters(raw_corr, threshold=pb_cfg.cluster_correlation_threshold)
+    cluster_map = correlation_clusters(
+        raw_corr, threshold=pb_cfg.cluster_correlation_threshold,
+        method=getattr(pb_cfg, "cluster_method", "single"))
     cluster_sizes: dict[str, int] = {}
     for _cid in cluster_map.values():
         cluster_sizes[_cid] = cluster_sizes.get(_cid, 0) + 1

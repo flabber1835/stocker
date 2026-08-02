@@ -326,7 +326,9 @@ def build_target(day_prices: pd.DataFrame, fundamentals_asof: pd.DataFrame,
         # Not enough overlapping price history to estimate covariance.
         return {}, None, TargetStatus.DEGRADED
     available = [t for t in candidates if t in cov.index]
-    cluster_map = live.correlation_clusters(raw_corr, threshold=pb.cluster_correlation_threshold)
+    cluster_map = live.correlation_clusters(
+        raw_corr, threshold=pb.cluster_correlation_threshold,
+        method=getattr(pb, "cluster_method", "single"))
 
     # Exclusions after clustering, exactly like the builder.
     available = [t for t in available if t not in vetoed]

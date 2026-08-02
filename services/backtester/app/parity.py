@@ -129,6 +129,9 @@ PARITY: dict[str, tuple[str, str]] = {
         "PATH-DEPENDENT book-level exposure: it scales the whole book on a market "
         "signal and restores it later, which a holdings-agnostic replay composing "
         "a fresh target per date cannot represent. Wind tunnel only"),
+    "portfolio_builder.cluster_method": (
+        HONOURED,
+        "config-replay composes via the same shared correlation_clusters"),
     "portfolio_drawdown_guard": (
         IGNORED,
         "observe-only diagnostics; produces no orders, so config-replay's result "

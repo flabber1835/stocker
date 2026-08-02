@@ -161,6 +161,9 @@ PARITY: dict[str, tuple[str, str]] = {
         HONOURED,
         "evaluate_crash_state on the same shared module live calls; exposure "
         "scalar applied to the composed target"),
+    "portfolio_builder.cluster_method": (
+        HONOURED,
+        "passed to the shared correlation_clusters the live builder calls"),
     "portfolio_drawdown_guard": (
         IGNORED,
         "the sim does not compute the attribution report. Declaring it HONOURED "

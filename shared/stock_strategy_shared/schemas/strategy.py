@@ -453,6 +453,21 @@ class PortfolioBuilderConfig(BaseModel):
             "(e.g. GOOG tagged Communication Services, gold miners split across sectors)."
         ),
     )
+    cluster_method: Literal["single", "complete"] = Field(
+        default="single",
+        description=(
+            "How correlation clusters are formed. 'single' (default, unchanged) is "
+            "union-find: A~B and B~C fuses A, B, C even when corr(A,C) is far below "
+            "threshold. Cheap and transitive, but it CHAINS — in a broad momentum "
+            "book a run of pairwise links can fuse most of the market into one "
+            "mega-cluster, after which the count cap blocks names that are not "
+            "actually correlated with each other. 'complete' admits a ticker only "
+            "if it clears the threshold against EVERY existing member, so clusters "
+            "stay readable as 'these move together', at the cost of more, smaller "
+            "ones. The default is NOT changed: single-linkage produced every "
+            "existing result, and tightening the cap under it has already measured "
+            "as costly — 'complete' exists so the tunnel can score the alternative."),
+    )
     max_cluster_weight: float = Field(
         default=0.15, gt=0, le=1.0,
         description=(
