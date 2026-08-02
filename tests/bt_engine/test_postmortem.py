@@ -201,3 +201,72 @@ class TestVerdict:
         be able to see the numbers it was drawn from without another round-trip."""
         r = self._run([("2025-01", 100, 100), ("2025-02", 88, 88)])
         assert r["monthly_curve"] and r["drawdown_shape"]["n_sessions"] == 2
+
+
+# ── the two defects the FIRST REAL RUN exposed ──────────────────────────────
+# Both were found by pointing v1 of this module at an actual sweep, and both made
+# it blind in the direction that mattered. Fixture numbers are the real ones.
+
+class TestRealRunRegressions:
+    def _months(self, rows):
+        return {m["month"]: m["kind"] for m in attribute_months(
+            [{"month": mo, "book_return": b, "spy_return": s} for mo, b, s in rows])}
+
+    def test_a_shared_DIRECTION_is_not_a_shared_MAGNITUDE(self):
+        """December 2024, from a real run: the book fell 9.46% while SPY fell
+        2.41%. v1 asked 'did the benchmark also fall?' BEFORE asking how far
+        apart they were, so a fourfold loss was filed as an ordinary market
+        decline — the single most important month in the run, mislabelled as
+        nothing to investigate."""
+        assert self._months([("2024-12", -0.0946, -0.0241)])["2024-12"] == "alone"
+
+    def test_a_genuinely_market_wide_month_is_still_not_promoted(self):
+        """The complement, and the reason the threshold is not simply zero.
+        April 2024: −5.15% against −4.03% is the book being a long-only equity
+        book. If this flipped to 'alone' the fix would have destroyed the signal
+        it was meant to sharpen."""
+        assert self._months([("2024-04", -0.0515, -0.0403)])["2024-04"] == "with_market"
+
+    def test_outperforming_a_falling_market_is_never_idiosyncratic(self):
+        """March 2025: −1.66% against SPY's −5.57%. The book did BETTER. A
+        sign-only rule is fine here, but a gap rule with the sign dropped would
+        flag it."""
+        assert self._months([("2025-03", -0.0166, -0.0557)])["2025-03"] == "with_market"
+
+    def test_a_MISSED_RALLY_is_visible_even_though_nothing_was_lost(self):
+        """The second defect, and the worse one. A book that flatlines through a
+        market rally has not lost money, so v1's loss-only filter dropped the
+        month entirely — meaning the module could not see 'failed to rebound',
+        which is the exact hypothesis it was written to test. A diagnostic blind
+        to its prime suspect is not a diagnostic."""
+        k = self._months([("2025-05", 0.001, 0.075)])
+        assert k["2025-05"] == "lagged_rally"
+
+    def test_a_missed_rally_within_tracking_error_is_still_dropped(self):
+        """June 2024 from the same real run: flat against SPY's +3.53%. That is
+        about one sigma of monthly tracking error for a 25-name book, so it stays
+        out. Recorded because the temptation is to lower the threshold until a
+        month you already have in mind appears — which is fitting the instrument
+        to the anecdote."""
+        assert self._months([("2024-06", -0.00004, 0.0353)]) == {}
+
+    def test_the_verdict_reports_missed_rallies_alongside_the_losses(self):
+        """Two orthogonal failure modes. A book can decline with the market AND
+        fail to participate in the recovery, and collapsing them into one
+        sentence loses the half that explains the underperformance."""
+        r = post_mortem(
+            [{"date": "2025-01-31", "portfolio_value": 100, "spy_value": 100},
+             {"date": "2025-02-28", "portfolio_value": 88, "spy_value": 90},
+             {"date": "2025-03-31", "portfolio_value": 88.5, "spy_value": 99}],
+            [])
+        assert "RALLIED and the book did not follow" in r["verdict"]
+
+    def test_months_are_ordered_by_GAP_not_by_raw_loss(self):
+        """The worst month to investigate is the one least explained by the
+        market, not the one with the biggest number. Ordering by raw loss puts a
+        market-wide crash at the top and buries the idiosyncratic month."""
+        got = [m["month"] for m in attribute_months([
+            {"month": "crash", "book_return": -0.15, "spy_return": -0.14},
+            {"month": "alone", "book_return": -0.08, "spy_return": 0.01},
+        ])]
+        assert got[0] == "alone"

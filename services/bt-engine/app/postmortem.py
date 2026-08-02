@@ -27,13 +27,22 @@ from typing import Mapping, Sequence
 
 from app.forest import classify_reason
 
-# A month where the book falls and the benchmark does not is the interesting
-# case. This is the gap, in percentage points, at which "the book moved on its
-# own" stops being noise. A 25-name book routinely diverges a few points from
-# SPY in a month; ten is a different animal.
-IDIOSYNCRATIC_GAP = 0.10
-# A month is only worth attributing if the book actually fell in it.
+# The gap, in percentage points, at which "the book moved on its own" stops being
+# noise. A 25-name book has a monthly tracking error against SPY of roughly 3-4
+# points, so 5 is about two sigma — notable, not routine.
+#
+# Was 0.10, which was too permissive: it let a month where the book fell 9.5%
+# against SPY's 2.4% read as an ordinary market decline.
+IDIOSYNCRATIC_GAP = 0.05
+# A month is worth attributing if the book FELL...
 LOSS_FLOOR = -0.01
+# ...or if the market RALLIED and the book did not follow. This second gate
+# exists because the first one alone was blind to the hypothesis this module was
+# written to test: a book that flatlines through a +3.5% month has not lost
+# money, so a loss-only filter drops it — and "failed to rebound" is precisely a
+# sequence of months like that. A rule that cannot see its prime suspect is not a
+# diagnostic.
+RALLY_FLOOR = 0.02
 # Share of a month's exit notional attributable to the delist sweep, past which
 # the month is an ARTIFACT of delist_recovery_pct rather than the strategy: those
 # fills execute at 70% of the last print by assumption, not by trading.
@@ -126,21 +135,32 @@ def attribute_months(curve: Sequence[Mapping]) -> list[dict]:
     out = []
     for m in curve or ():
         br, sr = m.get("book_return"), m.get("spy_return")
-        if br is None or br > LOSS_FLOOR:
+        if br is None:
             continue
+        gap = None if sr is None else br - sr
+        fell = br <= LOSS_FLOOR
+        missed_rally = (sr is not None and sr >= RALLY_FLOOR
+                        and gap is not None and gap <= -IDIOSYNCRATIC_GAP)
+        if not (fell or missed_rally):
+            continue
+
         if sr is None:
-            kind, gap = "unknown", None
+            kind = "unknown"
+        elif gap <= -IDIOSYNCRATIC_GAP:
+            # ORDER MATTERS, and this is the branch that has to come first. The
+            # earlier version asked "did the benchmark also fall?" before asking
+            # how far apart they were, so a month where the book dropped 9.5%
+            # against SPY's 2.4% was filed as an ordinary market decline. A
+            # benchmark that dipped while the book collapsed did not cause the
+            # collapse; a shared direction is not a shared magnitude.
+            kind = "lagged_rally" if not fell else "alone"
+        elif sr <= LOSS_FLOOR:
+            kind = "with_market"
         else:
-            gap = br - sr
-            if sr <= LOSS_FLOOR:
-                kind = "with_market"
-            elif gap <= -IDIOSYNCRATIC_GAP:
-                kind = "alone"
-            else:
-                kind = "mild_lag"
+            kind = "mild_lag"
         out.append({"month": m["month"], "book_return": br, "spy_return": sr,
                     "gap": None if gap is None else round(gap, 4), "kind": kind})
-    out.sort(key=lambda r: r["book_return"])
+    out.sort(key=lambda r: (r["gap"] if r["gap"] is not None else r["book_return"]))
     return out
 
 
@@ -194,6 +214,7 @@ def post_mortem(equity: Sequence[Mapping], trades: Sequence[Mapping]) -> dict:
 
     n_alone = sum(1 for m in months if m["kind"] == "alone")
     n_market = sum(1 for m in months if m["kind"] == "with_market")
+    n_rally = sum(1 for m in months if m["kind"] == "lagged_rally")
 
     delist = mix.get("delist_share")
     if delist is not None and delist >= DELIST_ARTIFACT_SHARE:
@@ -207,12 +228,19 @@ def post_mortem(equity: Sequence[Mapping], trades: Sequence[Mapping]) -> dict:
         verdict = (f"DECLINED WITH THE MARKET — every losing month "
                    f"({n_market} of them) was a month the benchmark also fell. "
                    f"The lag is failure to REBOUND, not an independent loss")
-    elif n_alone == 1:
-        verdict = (f"ONE IDIOSYNCRATIC MONTH — {months[0]['month'] if months[0]['kind'] == 'alone' else [m['month'] for m in months if m['kind'] == 'alone'][0]}: "
-                   f"the book fell while the benchmark rose. Check its fills")
     else:
-        verdict = (f"{n_alone} IDIOSYNCRATIC MONTHS — the book fell while the "
-                   f"benchmark rose. That is not market beta; look at the fills")
+        alone = [m["month"] for m in months if m["kind"] == "alone"]
+        worst_gap = months[0]
+        verdict = (f"{n_alone} IDIOSYNCRATIC MONTH(S) — {', '.join(alone[:4])}: the "
+                   f"book fell far more than the benchmark (worst gap "
+                   f"{worst_gap['gap']:+.1%} in {worst_gap['month']}). That is not "
+                   f"market beta; look at those months' fills")
+
+    if n_rally:
+        rally = [m["month"] for m in months if m["kind"] == "lagged_rally"]
+        verdict += (f" | {n_rally} month(s) the market RALLIED and the book did "
+                    f"not follow ({', '.join(rally[:4])}) — the rebound-lag "
+                    f"signature, invisible in a loss-only view")
 
     if shape.get("terminal"):
         verdict += (f" | the run ENDED inside its worst drawdown "
