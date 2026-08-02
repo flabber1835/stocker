@@ -35,16 +35,22 @@ universe:
   min_avg_dollar_volume_20d: 20000000
 factor_engine:
   momentum_short_window: 21
-  momentum_long_window: 252
+  momentum_long_window: 126
   volatility_window: 252
   liquidity_window: 20
   pe_pb_cap: 50.0
   spy_price_lookback_days: 600
   quality_use_gross_profitability: true
   momentum_method: residual
+  # MUST MATCH the active config's factor_engine. The shadow path RE-WEIGHTS the
+  # chain's persisted factor scores; it does not recompute factors. A challenger
+  # whose factor_engine differs is refused on every run and the shadow
+  # accumulates nothing — silently, forever. Tracked to momentum_core_v3's
+  # [126, 63] when the live window was shortened. To test a factor-CONSTRUCTION
+  # change, use the wind tunnel (or preview_factor_recompute), which recomputes.
   momentum_blend_windows:
-  - 252
   - 126
+  - 63
 regime_detection:
   slow_sma: 200
   vol_window: 20
