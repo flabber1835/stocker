@@ -213,7 +213,8 @@ async def load_fundamentals(engine, tickers: list[str], end: date) -> pd.DataFra
         rows = (await conn.execute(text(
             "SELECT ticker, as_of_date, pe_ratio, pb_ratio, roe, debt_to_equity, "
             "       revenue_growth, eps_growth, market_cap, shares_outstanding, "
-            "       shares_outstanding_prior FROM bt_fundamentals "
+            "       shares_outstanding_prior, gross_profit, total_assets "
+            "FROM bt_fundamentals "
             "WHERE ticker = ANY(:tk) AND as_of_date <= :t ORDER BY ticker, as_of_date"
         ), {"tk": tickers, "t": end})).fetchall()
     # market_cap / shares_outstanding[_prior] feed small_cap and issuance. They
@@ -223,6 +224,13 @@ async def load_fundamentals(engine, tickers: list[str], end: date) -> pd.DataFra
     # relative to live. Column names must match live's `fundamentals` table
     # exactly: compute_small_cap/compute_issuance look them up BY NAME and return
     # all-NaN for a missing column rather than raising.
+    #
+    # gross_profit / total_assets are the same story with sharper teeth: they are
+    # the Novy-Marx profitability leg compute_quality uses when
+    # quality_use_gross_profitability is on. Its fallback to ROE is PER TICKER,
+    # so an absent column produced a fully-populated `quality` computed from a
+    # DIFFERENT definition than live's — invisible to a non-null coverage test.
+    # coverage.check_definition_coverage is the guard for that class.
     return pd.DataFrame([{
         "ticker": r.ticker, "as_of_date": r.as_of_date,
         "pe_ratio": _f(r.pe_ratio), "pb_ratio": _f(r.pb_ratio), "roe": _f(r.roe),
@@ -231,6 +239,8 @@ async def load_fundamentals(engine, tickers: list[str], end: date) -> pd.DataFra
         "market_cap": _f(r.market_cap),
         "shares_outstanding": _f(r.shares_outstanding),
         "shares_outstanding_prior": _f(r.shares_outstanding_prior),
+        "gross_profit": _f(r.gross_profit),
+        "total_assets": _f(r.total_assets),
     } for r in rows])
 
 

@@ -48,7 +48,8 @@ from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 from app import live
 from app.bootstrap import bootstrap_terminal_wealth, daily_returns
-from app.coverage import CoverageError, CoverageObserver
+from app.coverage import (CoverageError, CoverageObserver,
+                          check_definition_coverage)
 from app.coverage import enforcement_enabled as coverage_enforcement_enabled
 from app.calibration import (aggregate_calibration, decile_forward_returns,
                              sample_evenly, space_out)
@@ -473,6 +474,16 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
         "classification) — listing/delisting windows ARE point-in-time",
     ]
     coverage = CoverageObserver(config)
+    # Factor DEFINITION coverage — checked here, up front, rather than at the end
+    # with the null-factor backstop. It reads the loaded frame, not the run, so
+    # there is nothing to learn by simulating first; and unlike a null factor
+    # there is no warm-up story that could make an early answer a false positive.
+    # Absent inputs mean every rebalance would score a different factor than the
+    # config names, so refusing costs nothing that was worth having.
+    defs = check_definition_coverage(config, fundamentals)
+    if defs and coverage_enforcement_enabled():
+        raise CoverageError("factor definition coverage: " + " ".join(defs))
+    caveats.extend(defs)
     # Memory-lean input handling (full-history runs): data.load_prices already
     # delivers datetime64 dates, float price dtypes and (ticker, date) ordering,
     # so each of these full-frame copies is SKIPPED on the production path and

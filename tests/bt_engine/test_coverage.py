@@ -355,3 +355,150 @@ def test_enforcement_off_downgrades_the_raise_to_a_caveat(monkeypatch):
                                  tx_cost_bps=10, fill_timing="next_open",
                                  rebalance_every=5))
     assert any("earnings_surprise" in c for c in r.caveats)
+
+
+# ── the blind spot the checks above SHARE ───────────────────────────────────
+# Everything up to here asks "is the factor non-null?". A factor with a graceful
+# degradation path answers yes while computing something else.
+#
+# quality_use_gross_profitability — on in every strategy config in the repo —
+# switches quality's profitability leg to gross-profits-to-assets. compute_quality
+# falls back to ROE PER TICKER when gp/assets are missing, which is right for one
+# ticker's vendor blip. bt-data discarded SF1's gp/assets entirely, so the tunnel
+# took that fallback for every ticker on every date: ROE-quality scored under a
+# GPA config, at 25% of the live composite, with `quality` fully populated and
+# both checks above passing.
+
+from app.coverage import DEFINITION_INPUTS, check_definition_coverage  # noqa: E402
+
+
+def _fund(**cols) -> pd.DataFrame:
+    base = {"ticker": ["AAA", "BBB"], "roe": [0.15, 0.2],
+            "debt_to_equity": [0.5, 0.6]}
+    base.update(cols)
+    return pd.DataFrame(base)
+
+
+def _gpa_cfg(on: bool = True) -> StrategyConfig:
+    d = _cfg().model_dump()
+    d["factor_engine"]["quality_use_gross_profitability"] = on
+    return StrategyConfig(**d)
+
+
+def test_the_silent_fallback_is_caught_when_the_columns_are_absent():
+    """THE test. `quality` is perfectly non-null here — ROE is present — so the
+    static gate and CoverageObserver both pass while a different factor is
+    scored under the same name."""
+    obs = CoverageObserver(_gpa_cfg())
+    obs.observe(pd.DataFrame({"quality": [0.4, 0.6], "momentum": [0.1, 0.2]}))
+    assert "quality" in obs.observed, (
+        "precondition: the null-based checks see nothing wrong — that is the "
+        "whole reason check_definition_coverage exists")
+
+    v = check_definition_coverage(_gpa_cfg(), _fund())
+    assert v and "gross_profit" in v[0] and "total_assets" in v[0]
+
+
+def test_an_all_null_column_counts_as_absent():
+    """A column that exists and is empty is the post-schema-migration,
+    pre-re-backfill state — indistinguishable in effect from no column at all."""
+    v = check_definition_coverage(
+        _gpa_cfg(), _fund(gross_profit=[None, None], total_assets=[None, None]))
+    assert v and "gross_profit" in v[0]
+
+
+def test_a_populated_corpus_passes():
+    assert check_definition_coverage(
+        _gpa_cfg(), _fund(gross_profit=[1e9, 2e9], total_assets=[5e9, 8e9])) == []
+
+
+def test_a_partially_covered_corpus_passes_and_names_nothing():
+    """Judged on the WHOLE corpus, never per ticker. One filing without gross
+    profit is exactly what the per-ticker fallback is FOR; refusing that would
+    refuse the fallback's reason for existing."""
+    assert check_definition_coverage(
+        _gpa_cfg(), _fund(gross_profit=[1e9, None], total_assets=[5e9, None])) == []
+
+
+def test_only_the_missing_side_is_named():
+    """The message has to say which input to go and fetch."""
+    v = check_definition_coverage(
+        _gpa_cfg(), _fund(gross_profit=[1e9, 2e9], total_assets=[None, None]))
+    # The switch NAME contains 'gross_profit', so match the missing-columns
+    # clause specifically rather than the whole sentence.
+    assert v
+    clause = v[0].split("but ", 1)[1].split(" absent")[0]
+    assert "total_assets" in clause and "gross_profit" not in clause
+
+
+def test_the_switch_being_off_makes_it_inert():
+    """A config that never asked for GPA is scoring exactly what it asked for."""
+    assert check_definition_coverage(_gpa_cfg(on=False), _fund()) == []
+
+
+def test_the_message_names_the_fallback_and_the_source():
+    """A refusal that does not say what would have happened instead, or where the
+    data comes from, sends the reader back to the source to find out."""
+    msg = check_definition_coverage(_gpa_cfg(), _fund())[0]
+    assert "ROE" in msg and "SF1" in msg and "quality" in msg
+
+
+def test_every_declared_switch_is_a_real_schema_field():
+    """A typo'd switch name silently declares a guard that can never fire —
+    strictly worse than no guard, because the manifest claims coverage."""
+    from stock_strategy_shared.schemas.strategy import FactorEngineConfig
+    for switch, spec in DEFINITION_INPUTS.items():
+        assert switch in FactorEngineConfig.model_fields, switch
+        assert spec["factor"] in FACTOR_NAMES, spec["factor"]
+        assert spec["columns"] and spec["fallback"] and spec["source"]
+
+
+def test_the_bt_data_loader_selects_every_declared_column():
+    """The seam. A declared guard is only as good as the loader that feeds it:
+    if data.load_fundamentals stops selecting a column, this check would refuse
+    every run and read as a corpus problem rather than a loader one."""
+    import inspect
+
+    from app import data as bt_data
+    src = inspect.getsource(bt_data.load_fundamentals)
+    for spec in DEFINITION_INPUTS.values():
+        for col in spec["columns"]:
+            assert col in src, f"load_fundamentals never selects {col}"
+
+
+def test_a_real_simulation_refuses_before_it_computes_anything():
+    """Wiring. An unthreaded check is indistinguishable from a passing one —
+    the same failure mode this whole module exists to eliminate. It must raise
+    UP FRONT: the answer is a property of the loaded frame, not of the run, so
+    simulating first would only spend the time to learn the same thing."""
+    from app.coverage import CoverageError
+    from app.sim import SimParams, run_simulation
+
+    from .test_plausibility import _rising
+
+    prices, fnd, days = _rising(n_days=520)
+    assert "gross_profit" not in fnd.columns, "precondition"
+    d = _sim_cfg().model_dump()
+    d["factor_engine"]["quality_use_gross_profitability"] = True
+    with pytest.raises(CoverageError, match="definition coverage"):
+        run_simulation(prices, fnd, {}, StrategyConfig(**d),
+                       SimParams(start=days[60].date(), end=days[-1].date(),
+                                 tx_cost_bps=10, fill_timing="next_open",
+                                 rebalance_every=5))
+
+
+def test_definition_enforcement_off_still_says_so(monkeypatch):
+    """Same rule as the null check: a silent degraded run is the original bug."""
+    monkeypatch.setenv("BT_COVERAGE_ENFORCE", "false")
+    from app.sim import SimParams, run_simulation
+
+    from .test_plausibility import _rising
+
+    prices, fnd, days = _rising(n_days=520)
+    d = _sim_cfg().model_dump()
+    d["factor_engine"]["quality_use_gross_profitability"] = True
+    r = run_simulation(prices, fnd, {}, StrategyConfig(**d),
+                       SimParams(start=days[60].date(), end=days[-1].date(),
+                                 tx_cost_bps=10, fill_timing="next_open",
+                                 rebalance_every=5))
+    assert any("gross_profit" in c for c in r.caveats)

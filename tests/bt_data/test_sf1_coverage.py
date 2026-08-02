@@ -86,6 +86,81 @@ def test_prior_shares_is_left_for_the_caller():
     assert map_sf1_row(_row())["shares_outstanding_prior"] is None
 
 
+# ── gross-profits-to-assets (the SILENT-FALLBACK gap) ───────────────────────
+# Sharper than small_cap/issuance, which were merely null. Every strategy config
+# in the repo sets quality_use_gross_profitability, and compute_quality falls
+# back to ROE PER TICKER when gp/assets are missing — so the tunnel scored
+# ROE-quality under a GPA config, at 25% of the composite, while `quality` came
+# out fully populated and every non-null coverage check passed.
+
+def test_gross_profit_and_total_assets_are_mapped():
+    m = map_sf1_row(_row(gp=170_782_000_000.0, assets=346_747_000_000.0))
+    assert m["gross_profit"] == pytest.approx(170_782_000_000.0)
+    assert m["total_assets"] == pytest.approx(346_747_000_000.0)
+
+
+@pytest.mark.parametrize("assets", [1.0e12, 3.4e12, 4.1e12])
+def test_a_large_banks_total_assets_survives_the_magnitude_guard(assets):
+    """The market_cap trap, one field over. `_f`'s 1e12 cap is a RATIO guard;
+    total assets is a LEVEL, and JPMorgan's are legitimately ~$4e12. Routing it
+    through _f would null the GPA denominator for exactly the largest names,
+    silently dropping them back onto the ROE fallback."""
+    assert map_sf1_row(_row(assets=assets))["total_assets"] == pytest.approx(assets)
+
+
+def test_a_loss_making_quarters_negative_gross_profit_is_kept():
+    """Negative gross profit is real and informative — it is the bottom of the
+    quality ranking, not missing data. Discarding it would hand the ticker the
+    ROE fallback instead, mixing two definitions inside one cross-section."""
+    assert map_sf1_row(_row(gp=-1_200_000.0))["gross_profit"] == pytest.approx(-1_200_000.0)
+
+
+def test_zero_gross_profit_is_kept_not_treated_as_missing():
+    """`if not gp` would discard a genuine break-even quarter."""
+    assert map_sf1_row(_row(gp=0.0))["gross_profit"] == 0.0
+
+
+@pytest.mark.parametrize("over", [{"gp": None}, {"assets": ""}, {"assets": "n/a"}])
+def test_absent_inputs_stay_null(over):
+    m = map_sf1_row(_row(**over))
+    assert m["gross_profit"] is None or m["total_assets"] is None
+
+
+def test_the_gpa_column_names_match_what_compute_quality_looks_up():
+    """compute_quality does `"gross_profit" in fund.columns` — a rename here does
+    not raise, it silently restores the ROE fallback for the whole corpus."""
+    m = map_sf1_row(_row())
+    assert "gross_profit" in m and "total_assets" in m
+
+
+def test_every_mapped_fundamentals_field_reaches_the_INSERT():
+    """THE seam, and the one that would have caught this class at the source.
+
+    gp/assets were not "mapped and mis-persisted" — they were never mapped at
+    all. But the same gap one step later (mapped, then absent from the INSERT)
+    is silent in exactly the same way: the mapper tests pass, the backfill
+    succeeds, and the column is NULL forever. This pins mapper output against
+    the INSERT column list in both directions.
+    """
+    import inspect
+    import re
+
+    from app import main as bt_main
+    sql = inspect.getsource(bt_main._upsert_fundamentals)
+    insert = re.search(r"INSERT INTO bt_fundamentals \((.*?)\)\s*\"?\s*\n?\s*\"?VALUES",
+                       sql, re.S)
+    assert insert, "could not locate the bt_fundamentals INSERT"
+    cols = {c.strip() for c in re.sub(r'["\s]+', " ", insert.group(1)).split(",")
+            if c.strip()}
+    # The mapper's underscore-prefixed keys are scratch values the backfill loop
+    # consumes and strips before insert; everything else is a real column.
+    mapped = {k for k in map_sf1_row(_row()) if not k.startswith("_")}
+    assert not (mapped - cols), \
+        f"mapped but never persisted (silently NULL forever): {mapped - cols}"
+    assert not (cols - mapped), \
+        f"in the INSERT but never mapped (always NULL): {cols - mapped}"
+
+
 def test_existing_fields_are_untouched():
     m = map_sf1_row(_row())
     assert (m["pe_ratio"], m["pb_ratio"], m["roe"], m["debt_to_equity"]) == \

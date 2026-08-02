@@ -168,16 +168,19 @@ async def _upsert_fundamentals(rows: list[dict]) -> int:
         await conn.execute(text(
             "INSERT INTO bt_fundamentals (ticker, as_of_date, fiscal_period, pe_ratio, "
             "  pb_ratio, roe, debt_to_equity, revenue_growth, eps_growth, "
-            "  market_cap, shares_outstanding, shares_outstanding_prior) "
+            "  market_cap, shares_outstanding, shares_outstanding_prior, "
+            "  gross_profit, total_assets) "
             "VALUES (:ticker, :as_of_date, :fiscal_period, :pe_ratio, :pb_ratio, :roe, "
             "  :debt_to_equity, :revenue_growth, :eps_growth, "
-            "  :market_cap, :shares_outstanding, :shares_outstanding_prior) "
+            "  :market_cap, :shares_outstanding, :shares_outstanding_prior, "
+            "  :gross_profit, :total_assets) "
             "ON CONFLICT (ticker, as_of_date) DO UPDATE SET "
             "  pe_ratio=EXCLUDED.pe_ratio, pb_ratio=EXCLUDED.pb_ratio, roe=EXCLUDED.roe, "
             "  debt_to_equity=EXCLUDED.debt_to_equity, revenue_growth=EXCLUDED.revenue_growth, "
             "  eps_growth=EXCLUDED.eps_growth, market_cap=EXCLUDED.market_cap, "
             "  shares_outstanding=EXCLUDED.shares_outstanding, "
-            "  shares_outstanding_prior=EXCLUDED.shares_outstanding_prior"
+            "  shares_outstanding_prior=EXCLUDED.shares_outstanding_prior, "
+            "  gross_profit=EXCLUDED.gross_profit, total_assets=EXCLUDED.total_assets"
         ), clean)
     return len(clean)
 

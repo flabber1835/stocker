@@ -1428,6 +1428,26 @@ BT_COVERAGE_ENFORCE=false disables (default on); violations are still LOGGED —
                          a disabled gate that is also silent is the original bug.
 ```
 
+**The blind spot the contract shared with itself (2026-08): SILENT FALLBACKS.**
+Both checks ask "is the factor non-null?" — a question a graceful degradation
+path answers YES to while computing something else. `quality_use_gross_profitability`
+(set by EVERY config in the repo) makes quality gross-profits-to-assets;
+`compute_quality` falls back to ROE PER TICKER when `gross_profit`/`total_assets`
+are missing. bt-data never mapped SF1's `gp`/`assets`, so the tunnel took that
+fallback everywhere and scored ROE-quality under a GPA config at 25% of the
+composite, with `quality` fully populated and both checks green. The parity
+manifest called `factor_engine` HONOURED because it is "the SAME module" — true,
+and insufficient: same module + different INPUT COLUMN = different factor.
+Fixed by mapping `gp`/`assets` (via `_level()`, not `_f()` — a large bank's
+assets are ~$4e12 and the 1e12 RATIO guard would null exactly the biggest names)
+and by `coverage.DEFINITION_INPUTS` + `check_definition_coverage(config, frame)`,
+which asks whether the corpus carried the inputs for the DEFINITIONS the config
+selected. Whole-corpus, never per-ticker (one missing filing is what the fallback
+is for); raised UP FRONT, before any compute. Add an entry whenever a factor
+gains a fallback. Consequence: the tunnel REFUSES every repo config until the SF1
+stage is RE-BACKFILLED (price corpus untouched), and prior sweep numbers touching
+quality are void.
+
 Coverage closed in bt-data: SF1 `marketcap` → `market_cap` (small_cap),
 `sharesbas`/`shareswa` → `shares_outstanding` + `shares_outstanding_prior` from
 the rows[i-4] year-ago filing (issuance), and `bt_earnings` (per-filing EPS,

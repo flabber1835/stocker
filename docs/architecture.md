@@ -2788,6 +2788,58 @@ bt_prices has always carried. Corrected rather than propagated.
   `min_non_null_factors`. This is a correction, not a regression: the tunnel's
   rankable universe now matches live's.
 
+### The blind spot the contract shared with itself: silent fallbacks (2026-08)
+
+Both checks above ask the same question — **is the factor non-null?** A factor
+with a graceful degradation path answers *yes* while computing something else
+entirely, so neither check can see it. That is not a gap in the implementation;
+it is a gap in the question.
+
+The instance: `quality_use_gross_profitability: true` — set by **every strategy
+config in the repo**, including the live `momentum_core_v3` — makes the quality
+factor gross-profits-to-assets (Novy-Marx). `compute_quality` falls back to ROE
+**per ticker** when `gross_profit`/`total_assets` are missing, which is exactly
+right for one filing's vendor blip and was added deliberately (the PBR incident).
+But bt-data never mapped SF1's `gp`/`assets`, `bt_fundamentals` had no such
+columns, and `bt-engine/app/data.py` never selected them. So the tunnel took that
+fallback for every ticker on every date and scored **ROE-quality under a GPA
+config, at 25% of the live composite** — while `quality` came out fully
+populated, the static gate passed, and `CoverageObserver` recorded it as
+observed. Every wind-tunnel number touching quality measured a factor live does
+not compute.
+
+Note what the parity manifest said: `factor_engine` was declared HONOURED because
+"compute_all_factors is the SAME module live runs". True, and insufficient — the
+same module with a different **input column** computes a different factor. Module
+identity is a necessary condition for parity, never a sufficient one.
+
+The fix has two halves, and the second is the one that generalizes:
+
+```text
+data      SF1 gp/assets → bt_fundamentals.gross_profit/total_assets, through the
+          existing sharadar_adapter. Both are LEVEL fields (_level(), not _f()):
+          a large bank's assets are legitimately ~$4e12, so the 1e12 RATIO guard
+          would have nulled the denominator for exactly the largest names — the
+          market_cap trap, one field over.
+guard     coverage.DEFINITION_INPUTS + check_definition_coverage(config, frame).
+          It asks the OTHER question: did the corpus carry the inputs for the
+          factor DEFINITIONS this config selected? Judged on the whole corpus,
+          never per ticker (one missing filing is what the fallback is FOR).
+          Raised UP FRONT, before any compute — unlike a null factor there is no
+          warm-up story that could make an early answer a false positive.
+```
+
+Add an entry to `DEFINITION_INPUTS` whenever a factor gains a fallback. A
+fallback with no entry is this bug again. And when declaring a config field
+HONOURED in a parity manifest, the test is not "same code" — it is "same code
+**and** same inputs".
+
+Consequence: the tunnel now REFUSES every config in the repo until the SF1 stage
+is re-backfilled to populate the two columns (the ~35M-row price corpus is
+untouched). That refusal is the correct state — the alternative is continuing to
+score a quality factor nobody configured. Sweep results from before the
+re-backfill that touch quality are void.
+
 ## Design Decision: container healthchecks probe LIVENESS, never dependencies (2026-07)
 
 ### The failure

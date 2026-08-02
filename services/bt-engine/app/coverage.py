@@ -64,7 +64,9 @@ SUPPORTED_FACTORS: dict[str, str] = {
     "near_high":        "bt_prices.adjusted_close",
     "volume_surge":     "bt_prices.volume",
     "liquidity":        "bt_prices.close + volume",
-    "quality":          "bt_fundamentals.roe / debt_to_equity",
+    "quality":          "bt_fundamentals.roe / debt_to_equity "
+                        "(+ gross_profit / total_assets when "
+                        "quality_use_gross_profitability — see DEFINITION_INPUTS)",
     "value":            "bt_fundamentals.pe_ratio / pb_ratio",
     "growth":           "bt_fundamentals.revenue_growth / eps_growth",
     "small_cap":        "bt_fundamentals.market_cap",
@@ -147,6 +149,71 @@ def check_config_coverage(config: StrategyConfig) -> list[str]:
             f"compute it: {reason}. Scoring it anyway would renormalize the "
             f"weight across the remaining factors and silently test a "
             f"DIFFERENT strategy.")
+    return violations
+
+
+# ── the blind spot both checks above share ───────────────────────────────────
+#
+# Everything above asks "is the factor non-null?". A factor with a GRACEFUL
+# DEGRADATION PATH answers yes while computing something else entirely, so
+# neither check can see it.
+#
+# The instance that motivated this: `quality_use_gross_profitability: true` —
+# set by every strategy config in the repo — makes the quality factor
+# gross-profits-to-assets (Novy-Marx). `compute_quality` falls back to ROE PER
+# TICKER when gp/assets are missing, which is exactly right for one ticker's
+# vendor blip. bt-data never mapped SF1's `gp`/`assets`, so the tunnel took that
+# fallback for EVERY ticker on EVERY date and scored ROE-quality — a different
+# factor, at 25% of the live composite — while `quality` stayed perfectly
+# non-null and both checks above passed.
+#
+# So the question here is not "did it compute?" but "did it compute the
+# DEFINITION the config asked for?". Each entry names a config switch, the input
+# columns that switch requires, and what the code silently does without them.
+# Add an entry whenever a factor gains a fallback; a fallback with no entry is
+# the same bug again.
+DEFINITION_INPUTS: dict[str, dict] = {
+    "quality_use_gross_profitability": {
+        "factor": "quality",
+        "columns": ("gross_profit", "total_assets"),
+        "fallback": "ROE (the legacy proxy), per ticker",
+        "source": "Sharadar SF1 gp / assets, mapped by bt-data",
+    },
+}
+
+
+def check_definition_coverage(config: StrategyConfig, fundamentals) -> list[str]:
+    """Did the corpus carry the inputs for the factor DEFINITIONS this config
+    selected? Returns human-readable violations (empty = OK).
+
+    Judged on the WHOLE corpus, never per ticker: a name whose filing lacks gross
+    profit legitimately falls back, and refusing that would be refusing the
+    fallback's entire reason for existing. "Not one row in the whole run" is the
+    only reading with no innocent explanation — the same standard CoverageObserver
+    applies to null factors.
+
+    Cheap enough to run before the simulation starts, unlike the observer, because
+    the inputs are a property of the loaded frame rather than of the run.
+    """
+    fe = getattr(config, "factor_engine", None)
+    if fe is None or fundamentals is None:
+        return []
+    violations: list[str] = []
+    for switch, spec in sorted(DEFINITION_INPUTS.items()):
+        if not getattr(fe, switch, False):
+            continue
+        cols = getattr(fundamentals, "columns", ())
+        missing = [c for c in spec["columns"]
+                   if c not in cols or not bool(fundamentals[c].notna().any())]
+        if not missing:
+            continue
+        violations.append(
+            f"factor_engine.{switch} is on, but {', '.join(missing)} "
+            f"{'is' if len(missing) == 1 else 'are'} absent from the corpus "
+            f"({spec['source']}). '{spec['factor']}' would silently fall back to "
+            f"{spec['fallback']} — a DIFFERENT factor under the same name, which "
+            f"the non-null coverage checks cannot detect because the column comes "
+            f"out fully populated.")
     return violations
 
 

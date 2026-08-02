@@ -63,6 +63,13 @@ CREATE TABLE IF NOT EXISTS bt_fundamentals (
     market_cap               NUMERIC(24,2),   -- SF1 marketcap    → small_cap
     shares_outstanding       NUMERIC(22,2),   -- SF1 sharesbas    → issuance
     shares_outstanding_prior NUMERIC(22,2),   -- the ~year-ago filing
+    -- Novy-Marx gross-profits-to-assets, the profitability leg of `quality` when
+    -- quality_use_gross_profitability is on — which every strategy config in the
+    -- repo sets. Absent, compute_quality falls back to ROE per ticker, so the
+    -- tunnel scored a DIFFERENT quality factor under the same name at 25% of the
+    -- composite, and the coverage contract saw a perfectly non-null column.
+    gross_profit             NUMERIC(24,2),   -- SF1 gp
+    total_assets             NUMERIC(24,2),   -- SF1 assets
     PRIMARY KEY (ticker, as_of_date)
 );
 CREATE INDEX IF NOT EXISTS idx_bt_fundamentals_asof ON bt_fundamentals(as_of_date);
@@ -72,7 +79,9 @@ CREATE INDEX IF NOT EXISTS idx_bt_fundamentals_asof ON bt_fundamentals(as_of_dat
 ALTER TABLE bt_fundamentals
     ADD COLUMN IF NOT EXISTS market_cap               NUMERIC(24,2),
     ADD COLUMN IF NOT EXISTS shares_outstanding       NUMERIC(22,2),
-    ADD COLUMN IF NOT EXISTS shares_outstanding_prior NUMERIC(22,2);
+    ADD COLUMN IF NOT EXISTS shares_outstanding_prior NUMERIC(22,2),
+    ADD COLUMN IF NOT EXISTS gross_profit             NUMERIC(24,2),
+    ADD COLUMN IF NOT EXISTS total_assets             NUMERIC(24,2);
 
 -- ── Corpus version ────────────────────────────────────────────────────────────
 -- The factor cache in bt-engine used to key on the SHAPE of the loaded data (row

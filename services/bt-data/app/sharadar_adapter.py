@@ -100,6 +100,8 @@ def map_sf1_row(row: dict) -> Optional[dict]:
       debt_to_equity ← de   (debt-to-equity)
       market_cap     ← marketcap                      → small_cap factor
       shares_outstanding ← sharesbas (fallback shareswa)
+      gross_profit   ← gp                             → quality (Novy-Marx GPA)
+      total_assets   ← assets                         → quality (GPA denominator)
       revenue_growth ← computed by the caller from successive `revenue` rows
                        (SF1 has no direct YoY growth field); left None here.
       eps_growth     ← computed by the caller from successive `eps` rows; None here.
@@ -118,6 +120,17 @@ def map_sf1_row(row: dict) -> Optional[dict]:
     availability counts weight-0 factors toward `min_non_null_factors`, so the
     tunnel's rankable universe was narrower than live's. See docs/architecture.md
     "factor-coverage contract".
+
+    gross_profit / total_assets are a SHARPER instance of the same gap, and a
+    more dangerous one. `quality_use_gross_profitability: true` — set by every
+    strategy config in the repo — makes the quality factor gross-profits-to-
+    assets (Novy-Marx). `compute_quality` falls back to ROE PER TICKER when
+    those inputs are missing, which is right for one ticker's vendor blip and
+    catastrophic for a corpus that has neither column: the tunnel then scored
+    ROE-quality under a GPA config, at 25% of the live composite, and the
+    coverage contract could not see it because `quality` was perfectly non-null
+    the whole time. A graceful degradation path is a blind spot in any
+    non-null test. See coverage.check_definition_coverage.
     """
     datekey = row.get("datekey")
     if not datekey:
@@ -137,6 +150,12 @@ def map_sf1_row(row: dict) -> Optional[dict]:
         # but net issuance is a RATIO of two consecutive filings, so a consistent
         # weighted-average basis still measures dilution correctly.
         "shares_outstanding": _level(row.get("sharesbas")) or _level(row.get("shareswa")),
+        # LEVEL fields, not ratios: total assets for a large bank run into the
+        # trillions, so _f()'s 1e12 ratio guard would null exactly the biggest
+        # names — the same trap market_cap documents above, and the one that
+        # would quietly re-open this coverage hole for the most-held tickers.
+        "gross_profit": _level(row.get("gp")),
+        "total_assets": _level(row.get("assets")),
         "revenue_growth": None,   # caller computes from successive revenue rows
         "eps_growth": None,       # caller computes from successive eps rows
         "shares_outstanding_prior": None,   # caller: the ~year-ago filing

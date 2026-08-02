@@ -63,7 +63,21 @@ PARITY: dict[str, tuple[str, str]] = {
         HONOURED,
         "compute_all_factors is the SAME module live runs (module identity is "
         "asserted by tests/backtester/test_vendor_sync.py), so every knob under "
-        "it takes effect identically"),
+        "it takes effect identically GIVEN THE SAME INPUT COLUMNS — see the "
+        "quality_use_gross_profitability leaf for why that qualifier is load-"
+        "bearing rather than pedantic"),
+    # The one knob that needed its own declaration. Same module is NOT sufficient
+    # for parity when the knob selects a DEFINITION whose inputs the corpus may
+    # lack: compute_quality's per-ticker ROE fallback made this HONOURED-by-
+    # module-identity and IGNORED-in-fact for as long as bt-data discarded SF1's
+    # gp/assets. The inputs are now mapped, and coverage.check_definition_coverage
+    # refuses the config if a corpus ever loses them again.
+    "factor_engine.quality_use_gross_profitability": (
+        HONOURED,
+        "needs bt_fundamentals.gross_profit/total_assets (SF1 gp/assets, mapped "
+        "since 2026-08). Without them compute_quality silently degrades to ROE, "
+        "so coverage.check_definition_coverage refuses the run rather than "
+        "scoring a different quality factor under the same name"),
 
     # ── regime + weights ─────────────────────────────────────────────────
     "regime_detection": (HONOURED, "detect_regime + resolve_confirmed_regime, per date"),
