@@ -2150,6 +2150,81 @@ the model's ordering carries no information in that band — evidence for
 factor-weight or construction changes; top-decile-only lift with a flat middle
 supports concentrated books.
 
+#### Design Decision: the calibration instrument had to be fixed before it could be believed (2026-08)
+
+An external review recomputed a price-only reconstruction of the active ranking
+over 48 monthly dates and reported a top-minus-bottom spread of +0.40pp with a
+bootstrap 95% interval of −1.13 to +1.86. Its headline ("the ranking is not
+monotonic") over-reached — it tested 0.56 of the composite weight, on a 505-name
+large-cap panel rather than the ~2000-name investable universe, and judged a
+35-name book by whether decile 6 beat decile 2 — but its critique of OUR OWN
+measurement was correct on every point. Six defects, all confirmed:
+
+```text
+CALIB_MAX_RUNS = 6      sampled from a 21-90d window against a 20-session
+                        horizon, so the anchors OVERLAPPED almost entirely.
+                        Six such observations are closer to two.
+no config filter        ranking_runs selected on status + date only, so runs
+                        produced by DIFFERENT factor weights were averaged into
+                        one curve. This repo added _detect_config_skew because
+                        mixing configs across one chain was a bug; averaging
+                        them across a diagnostic is the same bug.
+regimes pooled          recorded per sampled run, then averaged away. A factor
+                        can be monotone in bull_calm and inverted in bear_stress.
+unbounded fwd price     the forward CTE took the last close <= d1 with NO lower
+                        bound, so a name that stopped printing after d0 resolved
+                        to its OWN baseline — a delisted position scored as
+                        exactly FLAT. Delisting for cause concentrates in
+                        low-ranked names, so this INFLATED the bottom deciles and
+                        SHRANK top-minus-bottom: the bias ran against us.
+no uncertainty          a point estimate and a monotone fraction, nothing else.
+CALIB_MAX_DATES = 12    in the tunnel, on a corpus supporting ~250 independent
+                        anchors.
+```
+
+**Root cause: two implementations.** `services/bt-engine/app/calibration.py` and
+an inline copy in the evaluator's `packet.py`. They drifted, and the live one is
+where every defect landed. The math is now canonical in
+`shared/stock_strategy_shared/calibration.py` (NEW shared module ⇒ deploys need
+`docker build --network host -t stocker-base:latest -f Dockerfile.base .` FIRST);
+bt-engine's module is a re-export shim, the same treatment `rank`/`select` got.
+
+**What the section now reports, and why each one is load-bearing:**
+
+```text
+n_dates                 INDEPENDENT anchors, spaced >= one horizon apart via
+                        `space_out`. Newest-first, so spacing thins the past.
+per_date_ic             mean / median / share_positive / CI of the per-date rank
+                        IC. Orientation follows the published convention
+                        (positive = the ranking predicts returns) so it can be
+                        compared against literature. NOTE a mean IC near 0.02 is
+                        NORMAL for equity factors and does NOT imply decile-by-
+                        decile monotonicity — the prompt says so explicitly,
+                        because demanding 9/9 adjacent monotonicity from IC 0.02
+                        asks for something no real factor model delivers.
+spread_ci               percentile bootstrap over the per-date spreads, with
+                        prob_positive. Deterministic seed: a CI that moves
+                        between runs is not quotable.
+missing_endpoint_rate   share of ranked names dropped for want of a price at
+                        either end — the delisting exposure, now visible.
+by_regime               per-regime curves, suppressed below 2 dates in a regime
+                        (one observation restated as a regime finding is the
+                        most misleading thing this section could emit).
+rank_dates_excluded_    how many dates were left out for belonging to another
+  other_config          config. A small sample must READ as a small sample
+                        rather than be padded.
+```
+
+Live: `CALIB_MAX_RUNS` 6 → 24 over `CALIB_LOOKBACK_DAYS` 730 (both env-tunable).
+Tunnel: `CALIB_MAX_DATES` 12 → 60 (`BT_CALIB_MAX_DATES`), spaced before sampling.
+
+Not fixed here, and worth stating: the review's surviving *substantive* findings
+— that 126-day momentum alone may beat the `[252,126]` blend, and that liquidity
+belongs as an investability gate rather than a weighted alpha — are now
+corroborated by three and four independent sources respectively. Those are
+config questions for the wind tunnel, not measurement bugs, and they go through
+`queue_strategy_experiment` like anything else.
+
 ### 4. Shadow champion/challenger (Item 4)
 
 An optional CHALLENGER config (`CHALLENGER_CONFIG_PATH`, e.g.

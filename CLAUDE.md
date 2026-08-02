@@ -1569,6 +1569,27 @@ tools are for drill-down and testing a thesis BEFORE recommending it:
     and the packet's `prediction_scorecard` reports the running SIGNED bias —
     the evaluator is now accountable on the same terms it holds the strategy to.
     See docs/architecture.md "score the evaluator's own predictions".
+  The packet's `score_calibration` section answers "does a better rank actually
+    predict a better forward return". Its math is CANONICAL in
+    `shared/stock_strategy_shared/calibration.py` — bt-engine's
+    `app/calibration.py` is a re-export shim. There used to be two
+    implementations (bt-engine's and an inline copy in packet.py); they drifted,
+    and every defect landed in the live one: 6 anchors sampled from a 21-90d
+    window against a 20-session horizon (so they OVERLAPPED — closer to 2
+    independent samples), no strategy_id/config_hash filter (curves from
+    DIFFERENT factor weights averaged into one), regimes pooled, an UNBOUNDED
+    forward-price lookup (a name that stopped printing after d0 resolved to its
+    own baseline → a delisted position scored as exactly FLAT, which inflates the
+    low deciles it concentrates in and SHRINKS top-minus-bottom), and a point
+    estimate with no interval. All fixed: anchors spaced >= one horizon
+    (`space_out`), scoped to the active config with the excluded count reported,
+    forward price bounded both sides with `missing_endpoint_rate` surfaced,
+    per-date rank IC + bootstrap CI + `prob_positive`, and a per-regime split
+    (suppressed below 2 dates in a regime). CALIB_MAX_RUNS 6→24 over
+    CALIB_LOOKBACK_DAYS 730; BT_CALIB_MAX_DATES 12→60. NEW shared module ⇒
+    `docker build --network host -t stocker-base:latest -f Dockerfile.base .`
+    FIRST. See docs/architecture.md "the calibration instrument had to be fixed
+    before it could be believed".
   hypothesis_ledger — durable cross-week memory (evaluator_hypotheses, migration
     0041): thesis → planned test → status/outcome. The ONE write tool, scoped to
     its own table; read back as a deterministic packet section every review.

@@ -19,6 +19,9 @@ from typing import Any, Awaitable, Callable
 
 from sqlalchemy import text
 
+from stock_strategy_shared.calibration import (aggregate_calibration,
+                                               decile_rows_from_ranks,
+                                               space_out)
 from stock_strategy_shared.loader import load_strategy
 
 TRADE_LOOKBACK_DAYS = int(os.getenv("EVALUATOR_TRADE_LOOKBACK_DAYS", "365"))
@@ -498,52 +501,94 @@ async def _shadow_vs_champion(conn) -> dict:
 
 
 CALIB_HORIZON_SESSIONS = 20
-CALIB_MAX_RUNS = 6
+# Was 6, drawn from a 21-90 day window. With a 20-session forward horizon those
+# anchors overlap almost completely — six such observations are closer to two
+# independent ones, which is why the curve they produced could not settle
+# anything. Anchors are now spaced >= one horizon apart over a much longer
+# lookback, so `n_dates` counts INDEPENDENT samples.
+CALIB_MAX_RUNS = int(os.getenv("CALIB_MAX_RUNS", "24"))
+CALIB_LOOKBACK_DAYS = int(os.getenv("CALIB_LOOKBACK_DAYS", "730"))
 
 
-def _calibration_deciles(pairs: list[tuple[int, float]], n_bins: int = 10) -> list[float | None]:
-    """pairs = (rank, fwd_excess_return); contiguous rank bins best-first →
-    per-decile mean. [] when fewer scored names than bins."""
-    if len(pairs) < n_bins:
-        return []
-    pairs = sorted(pairs, key=lambda x: x[0])
-    n = len(pairs)
-    out = []
-    for d in range(n_bins):
-        chunk = [r for _, r in pairs[(d * n) // n_bins:((d + 1) * n) // n_bins]]
-        out.append(sum(chunk) / len(chunk) if chunk else None)
-    return out
-
-
-async def _score_calibration(conn) -> dict:
+async def _score_calibration(conn, active_config_hash: str | None = None,
+                             active_strategy_id: str | None = None) -> dict:
     """Closed-loop item 3: does a better rank actually predict a better forward
     return, and is the relationship monotone? Decile-of-rank (decile 1 = best)
-    → mean forward EXCESS return vs SPY over 20 sessions, averaged over up to
-    CALIB_MAX_RUNS persisted ranking runs old enough (21–90d) to have forward
-    data. A flat/non-monotone curve = the ordering carries no information in
-    that band; top-decile-only lift with a flat middle supports concentration."""
+    → mean forward EXCESS return vs SPY over 20 sessions.
+
+    A flat/non-monotone curve = the ordering carries no information in that
+    band; top-decile-only lift with a flat middle supports a concentrated book
+    rather than treating rank as a continuous forecast.
+
+    Four things this deliberately does that the first version did not, each of
+    which could turn noise into an apparent result:
+
+    1. SCOPES TO ONE CONFIG. Ranking runs are filtered to the active
+       strategy_id + config_hash. Pooling runs from different factor weights
+       averages curves produced by different models into one, which is not a
+       measurement of anything. The count of runs excluded for this reason is
+       reported, so a small sample reads as a small sample instead of being
+       quietly padded.
+    2. SPACES THE ANCHORS. >= CALIB_HORIZON_SESSIONS apart, so the forward
+       windows do not overlap and the bootstrap interval is honest.
+    3. BOUNDS THE FORWARD PRICE. The old query took the last close <= d1 with no
+       lower bound, so a name that stopped printing after d0 returned its OWN
+       baseline price — a delisted holding scored as exactly FLAT. Delisting for
+       cause concentrates in low-ranked names, so that inflated the bottom
+       deciles and SHRANK top-minus-bottom. Now the endpoint must fall inside a
+       window of d1, and names without one are excluded and COUNTED
+       (missing_endpoint_rate).
+    4. REPORTS UNCERTAINTY. Per-date rank IC (mean, share positive), a bootstrap
+       CI and P(spread > 0) on the per-date spread, and a per-regime split — a
+       factor can be monotone in bull_calm and inverted in bear_stress.
+    """
     spy = await _spy_closes(conn)
     if len(spy) < CALIB_HORIZON_SESSIONS + 2:
         return {"note": "insufficient SPY history"}
     sessions = [d for d, _ in spy]
     spy_px = dict(spy)
+
+    where = ["status='success'",
+             "rank_date BETWEEN CURRENT_DATE - CAST(:lb AS integer) AND CURRENT_DATE - CAST(:minage AS integer)"]
+    params: dict = {"lb": CALIB_LOOKBACK_DAYS,
+                    "minage": CALIB_HORIZON_SESSIONS + 10}
+    if active_config_hash:
+        where.append("config_hash = :ch")
+        params["ch"] = active_config_hash
+    if active_strategy_id:
+        where.append("strategy_id = :sid")
+        params["sid"] = active_strategy_id
     runs = (await conn.execute(text(
         "SELECT DISTINCT ON (rank_date) rank_date, run_id, regime "
-        "FROM ranking_runs WHERE status='success' "
-        "AND rank_date BETWEEN CURRENT_DATE - 90 AND CURRENT_DATE - 21 "
-        "ORDER BY rank_date, started_at DESC"))).all()
+        "FROM ranking_runs WHERE " + " AND ".join(where) +
+        " ORDER BY rank_date, started_at DESC"), params)).all()
+    total_in_window = (await conn.execute(text(
+        "SELECT COUNT(DISTINCT rank_date) FROM ranking_runs WHERE status='success' "
+        "AND rank_date BETWEEN CURRENT_DATE - CAST(:lb AS integer) AND CURRENT_DATE - CAST(:minage AS integer)"),
+        {"lb": CALIB_LOOKBACK_DAYS,
+         "minage": CALIB_HORIZON_SESSIONS + 10})).scalar_one()
     if not runs:
-        return {"note": "no ranking runs 21-90 days old yet — needs history to accrue"}
-    if len(runs) > CALIB_MAX_RUNS:
-        step = (len(runs) - 1) / (CALIB_MAX_RUNS - 1)
-        runs = [runs[round(i * step)] for i in range(CALIB_MAX_RUNS)]
+        return {"note": f"no ranking runs for the active config in the last "
+                        f"{CALIB_LOOKBACK_DAYS}d ({total_in_window} exist under "
+                        f"OTHER configs — deliberately not pooled)",
+                "config_hash": active_config_hash}
 
     from bisect import bisect_right
-    per_run, sampled = [], []
+
+    # Map each run to its session index first, then keep only anchors a full
+    # horizon apart (newest-first), so the retained observations are independent.
+    indexed = []
     for rank_date, run_id, regime in runs:
         i = bisect_right(sessions, rank_date) - 1
         if i < 0 or i + CALIB_HORIZON_SESSIONS >= len(sessions):
             continue
+        indexed.append((i, rank_date, run_id, regime))
+    keep = set(space_out([x[0] for x in indexed], CALIB_HORIZON_SESSIONS,
+                         max_n=CALIB_MAX_RUNS))
+    indexed = [x for k, x in enumerate(indexed) if k in keep]
+
+    per_run, per_regime, sampled = [], [], []
+    for i, rank_date, run_id, regime in indexed:
         d0, d1 = sessions[i], sessions[i + CALIB_HORIZON_SESSIONS]
         if d0 not in spy_px or d1 not in spy_px or spy_px[d0] <= 0:
             continue
@@ -553,41 +598,50 @@ async def _score_calibration(conn) -> dict:
             "b AS (SELECT DISTINCT ON (ticker) ticker, adjusted_close AS p0 FROM daily_prices "
             "      WHERE ticker IN (SELECT ticker FROM r) AND date <= :d0 AND date >= :d0f "
             "      ORDER BY ticker, date DESC), "
+            # LOWER BOUND on the endpoint too. Without it a name whose last print
+            # predates d1 by months resolves to its own p0, i.e. a delisted
+            # position scored as flat instead of as the loss it was.
             "f AS (SELECT DISTINCT ON (ticker) ticker, adjusted_close AS p1 FROM daily_prices "
-            "      WHERE ticker IN (SELECT ticker FROM r) AND date <= :d1 "
+            "      WHERE ticker IN (SELECT ticker FROM r) AND date <= :d1 AND date >= :d1f "
             "      ORDER BY ticker, date DESC) "
             "SELECT r.rank, b.p0, f.p1 FROM r "
-            "JOIN b USING (ticker) JOIN f USING (ticker) WHERE b.p0 > 0"
+            "LEFT JOIN b USING (ticker) LEFT JOIN f USING (ticker)"
         ), {"rid": str(run_id), "d0": d0, "d1": d1,
-            "d0f": d0 - timedelta(days=14)})).all()
-        pairs = [(int(rk), float(p1) / float(p0) - 1.0 - spy_ret)
-                 for rk, p0, p1 in rows if p0 and p1]
-        deciles = _calibration_deciles(pairs)
+            "d0f": d0 - timedelta(days=14),
+            "d1f": d1 - timedelta(days=14)})).all()
+        pairs, n_missing = [], 0
+        for rk, p0, p1 in rows:
+            if p0 and p1 and float(p0) > 0:
+                pairs.append((int(rk), float(p1) / float(p0) - 1.0 - spy_ret))
+            else:
+                n_missing += 1
+        deciles = decile_rows_from_ranks(pairs, n_scored=len(rows), n_missing=n_missing)
         if deciles:
             per_run.append(deciles)
+            per_regime.append(regime)
             sampled.append({"rank_date": str(rank_date), "regime": regime,
-                            "n_tickers": len(pairs),
+                            "n_tickers": len(pairs), "n_missing_endpoint": n_missing,
                             "spy_ret_20d": round(spy_ret, 4)})
     if not per_run:
         return {"note": "no sampled run produced a usable decile curve"}
-    n_bins = 10
-    avg = []
-    for d in range(n_bins):
-        vals = [run[d] for run in per_run if run[d] is not None]
-        avg.append(round(sum(vals) / len(vals), 6) if vals else None)
-    adj = [(a, b) for a, b in zip(avg, avg[1:]) if a is not None and b is not None]
-    return {
-        "description": (
-            "Decile 1 = best-ranked tenth. avg_excess_20d = mean forward return "
-            "minus SPY over the same 20 sessions, averaged across sampled runs."),
-        "horizon_sessions": CALIB_HORIZON_SESSIONS,
-        "deciles": [{"decile": i + 1, "avg_excess_20d": avg[i]} for i in range(n_bins)],
-        "top_minus_bottom": (round(avg[0] - avg[-1], 6)
-                             if avg[0] is not None and avg[-1] is not None else None),
-        "monotone_fraction": (round(sum(1 for a, b in adj if a >= b) / len(adj), 4)
-                              if adj else None),
-        "sampled_runs": sampled,
-    }
+
+    out = aggregate_calibration(per_run, CALIB_HORIZON_SESSIONS,
+                                regimes=per_regime) or {}
+    out["description"] = (
+        "Decile 1 = best-ranked tenth; avg_fwd = mean forward return minus SPY "
+        "over the same 20 sessions, averaged across INDEPENDENT (non-overlapping) "
+        "anchor dates for the ACTIVE config only. Read n_dates, per_date_ic and "
+        "spread_ci BEFORE the curve: a top_minus_bottom whose spread_ci spans zero "
+        "is not evidence of a monotone ranking, and a mean IC around 0.02 is normal "
+        "for equity factors — it does NOT imply decile-by-decile monotonicity.")
+    out["config_hash"] = active_config_hash
+    out["strategy_id"] = active_strategy_id
+    out["lookback_days"] = CALIB_LOOKBACK_DAYS
+    out["anchor_spacing_sessions"] = CALIB_HORIZON_SESSIONS
+    out["rank_dates_in_window_all_configs"] = total_in_window
+    out["rank_dates_excluded_other_config"] = max(0, total_in_window - len(runs))
+    out["sampled_runs"] = sampled
+    return out
 
 
 async def _decision_outcomes(conn) -> dict:
@@ -1752,13 +1806,24 @@ async def _system_health(conn) -> dict:
 async def build_packet(engine, as_of: date | None = None) -> dict:
     """Assemble the full evaluator packet. Never raises; sections degrade."""
     as_of = as_of or datetime.now(timezone.utc).date()
+    # Resolved once, up front: the calibration section SCOPES to the active
+    # config, so it needs the hash before the dict literal builds. Best-effort —
+    # an unreadable config degrades calibration to unscoped-and-said-so rather
+    # than failing the whole packet.
+    try:
+        _active = _strategy_config_section()
+    except Exception:  # noqa: BLE001
+        _active = {}
+    _active_hash = _active.get("config_hash")
+    _active_sid = _active.get("strategy_id")
     async with engine.connect() as conn:
         packet = {
             "schema_version": 1,
             "as_of_date": str(as_of),
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "system_architecture": await _section(lambda: _async_wrap(_system_architecture)),
-            "strategy_config": await _section(lambda: _async_wrap(_strategy_config_section)),
+            "strategy_config": _active or await _section(
+                lambda: _async_wrap(_strategy_config_section)),
             "universe_snapshot": await _section(lambda: _universe_snapshot(conn), conn),
             "market_context": await _section(lambda: _market_context(conn), conn),
             "gate_audit": await _section(lambda: _gate_audit(conn), conn),
@@ -1771,7 +1836,8 @@ async def build_packet(engine, as_of: date | None = None) -> dict:
             "closed_trades": await _section(lambda: _closed_trades(conn), conn),
             "open_positions": await _section(lambda: _open_positions(conn), conn),
             "decision_outcomes": await _section(lambda: _decision_outcomes(conn), conn),
-            "score_calibration": await _section(lambda: _score_calibration(conn), conn),
+            "score_calibration": await _section(
+                lambda: _score_calibration(conn, _active_hash, _active_sid), conn),
             "shadow_vs_champion": await _section(lambda: _shadow_vs_champion(conn), conn),
             "vetter_outcomes": await _section(lambda: _vetter_outcomes(conn), conn),
             "exit_outcomes": await _section(lambda: _exit_outcomes(conn), conn),

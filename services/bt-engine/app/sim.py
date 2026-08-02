@@ -27,6 +27,7 @@ This module is PURE (no DB, no env): main.py loads frames and persists results.
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -48,12 +49,17 @@ from app.bootstrap import bootstrap_terminal_wealth, daily_returns
 from app.coverage import CoverageError, CoverageObserver
 from app.coverage import enforcement_enabled as coverage_enforcement_enabled
 from app.calibration import (aggregate_calibration, decile_forward_returns,
-                             sample_evenly)
+                             sample_evenly, space_out)
 
 # Score calibration (closed-loop item 3): decile-of-score → forward return over
-# this many sessions, on up to CALIB_MAX_DATES evenly-sampled rebalance dates.
+# this many sessions, on up to CALIB_MAX_DATES sampled rebalance dates, spaced at
+# least one horizon apart so the observations are INDEPENDENT (overlapping
+# windows share most of their return path, so a bootstrap over them understates
+# the interval — 12 overlapping anchors are closer to 3 samples than to 12).
+# 12 was far too few to settle a noisy one-month cross-sectional relationship;
+# a 20-year corpus supports ~250 non-overlapping anchors, so take what fits.
 CALIB_HORIZON_SESSIONS = 20
-CALIB_MAX_DATES = 12
+CALIB_MAX_DATES = int(os.getenv("BT_CALIB_MAX_DATES", "60"))
 
 # Env-default falling-knife thresholds (mirror the vetter's DRAWDOWN_* defaults);
 # a config's vetter.falling_knife overrides field-by-field, exactly like live.
@@ -665,8 +671,12 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
     # window must fit inside the sim range — no partial horizons).
     calib_eligible = [j for j in range(0, len(all_days), max(1, params.rebalance_every))
                       if j + CALIB_HORIZON_SESSIONS < len(all_days)]
-    calib_idx = set(sample_evenly(calib_eligible, CALIB_MAX_DATES))
-    calib_samples: list[tuple[int, dict[str, float]]] = []
+    # space_out first (independence), THEN thin evenly if still over the cap, so
+    # a long run keeps anchors spread across its whole span rather than clustered.
+    _spaced = [calib_eligible[k] for k in
+               space_out(calib_eligible, CALIB_HORIZON_SESSIONS)]
+    calib_idx = set(sample_evenly(_spaced, CALIB_MAX_DATES))
+    calib_samples: list[tuple[int, dict[str, float], str | None]] = []
 
     ts_cfg = getattr(config, "trailing_stop", None)
     ts_on = bool(getattr(ts_cfg, "enabled", False))
@@ -790,7 +800,8 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                     del rank_history[t][8:]
                 if i in calib_idx:
                     calib_samples.append((i, dict(zip(
-                        ranked["ticker"], ranked["composite_score"].astype(float)))))
+                        ranked["ticker"], ranked["composite_score"].astype(float))),
+                        confirmed_regime))
 
             # Act on the STATUS, not on dict truthiness. DEGRADED/FAILED hold the
             # book (a partial build must never mass-liquidate); an empty target
@@ -1043,15 +1054,16 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
     # Score calibration (closed-loop item 3): decile-of-score → mean forward
     # return over the sampled rebalance dates. null when the range is too short
     # for a single full horizon or too few names were scored.
-    calib_rows = []
-    for j, scores in calib_samples:
+    calib_rows, calib_regimes = [], []
+    for j, scores, creg in calib_samples:
         d0, d1 = all_days[j], all_days[j + CALIB_HORIZON_SESSIONS]
         calib_rows.append(decile_forward_returns(
             scores,
             lambda t, _d=d0: _price(t, _d, opens=False),
             lambda t, _d=d1: _price(t, _d, opens=False)))
+        calib_regimes.append(creg)
     summary["score_calibration"] = aggregate_calibration(
-        calib_rows, CALIB_HORIZON_SESSIONS)
+        calib_rows, CALIB_HORIZON_SESSIONS, regimes=calib_regimes)
 
     # Empirical coverage backstop. The static gate in main.py runs on a DECLARED
     # capability list that could go stale, and a corpus can lose a column the
