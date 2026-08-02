@@ -129,6 +129,10 @@ PARITY: dict[str, tuple[str, str]] = {
         "PATH-DEPENDENT book-level exposure: it scales the whole book on a market "
         "signal and restores it later, which a holdings-agnostic replay composing "
         "a fresh target per date cannot represent. Wind tunnel only"),
+    "portfolio_drawdown_guard": (
+        IGNORED,
+        "observe-only diagnostics; produces no orders, so config-replay's result "
+        "is unaffected by it"),
     "delta_engine.exit_policy": (
         IGNORED,
         "PATH-DEPENDENT, unlike its section-mates: it decides which positions "

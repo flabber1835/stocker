@@ -874,6 +874,69 @@ class CrashBrakeConfig(BaseModel):
         return self
 
 
+class PortfolioDrawdownGuardConfig(BaseModel):
+    """Book-level drawdown ATTRIBUTION. TOP-LEVEL, observe-only by default.
+
+    Answers "down HOW", not "are we down". A 6% drawdown from one blown-up
+    position is a different problem from the same 6% spread across twenty-five
+    names — the first is a position that should have been stopped, the second is
+    the correlated decline the crash brake addresses — and they call for opposite
+    responses.
+
+    IT DOES NOT TRADE, and that is a finding rather than caution. The same
+    evidence that motivated it showed acting on it HURT: automatic culprit-selling
+    and progressively tightening every stop cut CAGR badly, and the 12% emergency
+    rule bought ~10pp of drawdown for ~1.3pp of CAGR — a real trade, but a
+    capital-preservation PROFILE choice, not a default. The emergency fields below
+    are validated and inert until action_mode says otherwise.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(default=False)
+    action_mode: Literal["observe_only"] = Field(
+        default="observe_only",
+        description="Only 'observe_only' exists. Deliberately a Literal with ONE "
+                    "member rather than a bool: adding an acting mode should be a "
+                    "schema change somebody reviews, not a value somebody sets.")
+    warning_drawdown: float = Field(
+        default=0.05, gt=0.0, le=0.9,
+        description="Positive magnitude. Below this nothing is attributed — "
+                    "computing it every ordinary session is just packet noise.")
+    attribution_drawdown: float = Field(default=0.08, gt=0.0, le=0.9)
+    sma_sessions: int = Field(default=100, ge=20, le=252)
+    near_stop_within: float = Field(
+        default=0.25, gt=0.0, le=1.0,
+        description="Report holdings this fraction of the way to their stop. "
+                    "Forward-looking: it says how much of the book the stop is "
+                    "about to sell if the decline continues.")
+
+    # ── conservative profile; inert while action_mode is observe_only ──
+    emergency_drawdown: float = Field(default=0.12, gt=0.0, le=0.9)
+    require_10d_portfolio_return_below: float = Field(default=-0.04, le=0.0)
+    emergency_equity_exposure: float = Field(default=0.75, gt=0.0, le=1.0)
+    emergency_duration_sessions: int = Field(default=10, ge=1, le=252)
+    emergency_ticker_stop_pct: float = Field(default=0.20, gt=0.0, le=0.9)
+    minimum_rearm_sessions: int = Field(default=63, ge=1, le=504)
+    reset_guard_watermark_after_episode: bool = Field(default=True)
+
+    @model_validator(mode="after")
+    def thresholds_are_ordered(self) -> "PortfolioDrawdownGuardConfig":
+        """warning <= attribution <= emergency. Out of order the guard would
+        report 'attribution' before 'warning' and fire the emergency before it had
+        anything to attribute — a ladder that runs backwards is not a ladder."""
+        if self.warning_drawdown > self.attribution_drawdown:
+            raise ValueError(
+                f"portfolio_drawdown_guard.warning_drawdown "
+                f"({self.warning_drawdown}) must not exceed attribution_drawdown "
+                f"({self.attribution_drawdown})")
+        if self.attribution_drawdown > self.emergency_drawdown:
+            raise ValueError(
+                f"portfolio_drawdown_guard.attribution_drawdown "
+                f"({self.attribution_drawdown}) must not exceed "
+                f"emergency_drawdown ({self.emergency_drawdown})")
+        return self
+
+
 class StrategyConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -956,6 +1019,10 @@ class StrategyConfig(BaseModel):
                     "the same reason as trailing_stop, and default_factory rather than "
                     "Optional[...]=None so every leaf yields its own dotted path to "
                     "the parity flattener (a None would dump as one opaque leaf).")
+    portfolio_drawdown_guard: PortfolioDrawdownGuardConfig = Field(
+        default_factory=PortfolioDrawdownGuardConfig,
+        description="Book-level drawdown attribution; OFF by default and "
+                    "observe-only when on. Reports, never trades.")
 
     @model_validator(mode="after")
     def sync_max_positions(self) -> "StrategyConfig":

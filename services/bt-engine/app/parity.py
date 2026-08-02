@@ -161,6 +161,13 @@ PARITY: dict[str, tuple[str, str]] = {
         HONOURED,
         "evaluate_crash_state on the same shared module live calls; exposure "
         "scalar applied to the composed target"),
+    "portfolio_drawdown_guard": (
+        IGNORED,
+        "the sim does not compute the attribution report. Declaring it HONOURED "
+        "would be the exact lie this manifest exists to prevent — nothing "
+        "implements it. It is INERT while action_mode is observe_only (it emits "
+        "no orders, so it cannot change a simulated result), and the day an "
+        "acting mode is added the gate starts refusing, which is correct"),
     "delta_engine.exit_policy": (
         HONOURED, "suppress_target_exits -> evaluate_target_vs_live, same call as live"),
     "delta_engine.drift_rebalance_enabled": (
@@ -208,6 +215,13 @@ def _is_inert(path: str, cfg: StrategyConfig) -> bool:
     off."""
     if path.startswith("vetter."):
         return getattr(cfg.vetter, "mode", "drawdown_only") != "llm"
+    if path.startswith("portfolio_drawdown_guard."):
+        # Observe-only emits no orders, so nothing it is set to can move a
+        # simulated result. The moment an acting mode exists this stops being
+        # true and the gate refuses — which is why the check reads action_mode
+        # rather than hard-coding the section as always-inert.
+        guard = getattr(cfg, "portfolio_drawdown_guard", None)
+        return getattr(guard, "action_mode", "observe_only") == "observe_only"
     return False
 
 
