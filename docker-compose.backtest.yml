@@ -89,7 +89,7 @@ services:
       - "8031:8000"
     environment:
       BT_DATABASE_URL: postgresql+asyncpg://btuser:${BT_POSTGRES_PASSWORD:-btpass}@bt-postgres:5432/backtest
-      STRATEGY_CONFIG_PATH: /strategies/momentum_rotation_v2.yaml
+      STRATEGY_CONFIG_PATH: /strategies/momentum_core_v3.yaml
       STALE_BT_RUN_HOURS: ${STALE_BT_RUN_HOURS:-12}
       # Point the factor cache at a VOLUME, not the container's /tmp. The default
       # (/tmp/bt_factor_cache) dies with the container, so every bt-engine rebuild

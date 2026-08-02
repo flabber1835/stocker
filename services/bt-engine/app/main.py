@@ -39,7 +39,7 @@ from app.sweep import (SweepWindows, aggregate_rolling, apply_diff,
 BT_DATABASE_URL = os.environ.get("BT_DATABASE_URL", "")
 if not BT_DATABASE_URL:
     raise RuntimeError("Missing required env var: BT_DATABASE_URL")
-STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/momentum_rotation_v2.yaml")
+STRATEGY_CONFIG_PATH = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/momentum_core_v3.yaml")
 # A 'running' bt_runs row older than this is a zombie (worker died without the
 # failure handler) — reclaimed at job start so it can't wedge new jobs.
 STALE_BT_RUN_HOURS = float(os.getenv("STALE_BT_RUN_HOURS", "12"))

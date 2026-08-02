@@ -1,0 +1,152 @@
+strategy_id: momentum_core_v3
+description: "LIVE, 2026-08. A RANKING-LAYER rebuild from three independent lines of evidence\
+  \ \u2014 no new mechanism, and the exit regime deliberately untouched.\n(1) liquidity is\
+  \ an eligibility GATE, not alpha: our own marginal IC was negative in 6 of 6 windows and\
+  \ two external studies agree, so its weight goes to 0 while universe.min_avg_dollar_volume_20d\
+  \ keeps doing the real work.\n(2) a 252-session formation window is too slow: v1's own inline\
+  \ comment, an external critique and an oracle-forensics study all point shorter, so the\
+  \ blend moves [252,126] -> [126,63].\n(3) diluting momentum LOSES: every static blend tested\
+  \ (breakout, trend-quality, acceleration) scored BELOW raw momentum, so the composite is\
+  \ simplified rather than extended.\nearnings_surprise -> 0 for two reasons: our seasonal-random-walk\
+  \ SUE is a weak stand-in for the estimate-revision data the signal actually wants, and at\
+  \ weight 0 the wind tunnel can finally SCORE this config \u2014 the coverage gate refuses\
+  \ any config weighting a factor Sharadar cannot reproduce, which is precisely why auto-promotion\
+  \ has been paused.\nBook concentrated 35 -> 25: the decile curve is flat through its middle\
+  \ and the top tier is what pays.\nEXIT REGIME UNCHANGED \u2014 target-diff exits, orphan\
+  \ timer, no trailing stop, no crash brake. Those are being scored as challengers and have\
+  \ no supporting evidence yet.\n"
+universe:
+  source: av_listing
+  min_price: 5.0
+  min_avg_dollar_volume_20d: 20000000
+factor_engine:
+  momentum_short_window: 21
+  momentum_long_window: 126
+  volatility_window: 252
+  liquidity_window: 20
+  pe_pb_cap: 50.0
+  spy_price_lookback_days: 600
+  quality_use_gross_profitability: true
+  momentum_method: residual
+  momentum_blend_windows:
+  - 126
+  - 63
+  sue_method: seasonal_random_walk
+regime_detection:
+  slow_sma: 200
+  vol_window: 20
+  vol_threshold: 0.2
+  confirmation_days: 5
+  regimes:
+    bull_calm:
+      spy_above_slow_sma: true
+      vol_above_threshold: false
+    bull_stress:
+      spy_above_slow_sma: true
+      vol_above_threshold: true
+    bear_stress:
+      spy_above_slow_sma: false
+      vol_above_threshold: true
+    bear_calm:
+      spy_above_slow_sma: false
+      vol_above_threshold: false
+regime_weighting_enabled: false
+static_factor_weights:
+  momentum: 0.5
+  quality: 0.25
+  value: 0.1
+  low_volatility: 0.1
+  growth: 0.05
+  liquidity: 0.0
+  earnings_surprise: 0.0
+  near_high: 0.0
+factor_weights:
+  bull_calm:
+    momentum: 0.5
+    quality: 0.25
+    value: 0.1
+    low_volatility: 0.1
+    growth: 0.05
+    liquidity: 0.0
+  bull_stress:
+    momentum: 0.5
+    quality: 0.25
+    value: 0.1
+    low_volatility: 0.1
+    growth: 0.05
+    liquidity: 0.0
+  bear_stress:
+    momentum: 0.5
+    quality: 0.25
+    value: 0.1
+    low_volatility: 0.1
+    growth: 0.05
+    liquidity: 0.0
+  bear_calm:
+    momentum: 0.5
+    quality: 0.25
+    value: 0.1
+    low_volatility: 0.1
+    growth: 0.05
+    liquidity: 0.0
+portfolio_builder:
+  method: greedy_score_per_port_vol
+  selection_vol_aversion: 0.2
+  candidate_count: 120
+  max_positions: 25
+  min_selected: 12
+  covariance_window_days: 252
+  min_covariance_observations: 126
+  covariance_shrinkage: 0.2
+  require_positive_composite_score: false
+  weighting: score_proportional
+  max_position_weight: 0.08
+  max_sector_weight: 0.3
+  cluster_correlation_threshold: 0.7
+  max_cluster_weight: 0.15
+  max_tickers_per_cluster: 3
+  do_not_buy: []
+  cash_reserve: 0.025
+  vol_target_enabled: true
+  vol_target: 0.18
+  vol_target_min_exposure: 0.3
+  beta_target_enabled: false
+  beta_target: 1.3
+  beta_tolerance: 0.1
+vetter:
+  enabled: true
+  mode: drawdown_only
+  candidate_count: 200
+  risk_horizon_days: 90
+  system_prompt_file: /strategies/quality_core_v1.vetter_prompt.txt
+  max_searches_per_ticker: 3
+  news_lookback_days: 7
+  max_articles_per_ticker: 4
+  earnings_horizon_days: 90
+  strictness: moderate
+intraday:
+  enabled: false
+  benchmark_ticker: SPY
+  trim_winners_enabled: false
+  trim_winner_threshold_pct: 10.0
+  trim_winner_partial_pct: 25.0
+  trim_time_window_minutes_before_close: 60
+  delay_buys_after_spike_enabled: false
+  delay_buy_spike_threshold_pct: 15.0
+  risk_event_action: reduce
+delta_engine:
+  entry_rank: 25
+  exit_rank: 40
+  confirmation_days: 3
+  orphan_confirmation_days: 2
+  max_positions: 25
+  rebalance_drift_threshold: 0.005
+  rebalance_min_relative_drift: 0.15
+  rebalance_min_trade_value: 250
+max_positions: 25
+min_score_percentile: 0.0
+min_non_null_factors: 4
+required_factors:
+- momentum
+- quality
+- value

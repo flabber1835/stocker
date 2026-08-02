@@ -25,7 +25,7 @@ DATABASE_URL          = os.getenv("DATABASE_URL", "")
 # Active strategy file (read-only) — exposes the live factor weights so the screener
 # detail card can annotate every (generic-engine) factor with its current weight.
 # Mounted into the api the same way as the other strategy consumers.
-STRATEGY_CONFIG_PATH  = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/momentum_rotation_v2.yaml")
+STRATEGY_CONFIG_PATH  = os.getenv("STRATEGY_CONFIG_PATH", "/strategies/momentum_core_v3.yaml")
 TRADE_EXECUTOR_URL    = os.getenv("TRADE_EXECUTOR_URL",    "http://trade-executor:8000")
 ALPACA_SYNC_URL       = os.getenv("ALPACA_SYNC_URL",       "http://alpaca-sync:8000")
 PIPELINE_URL          = os.getenv("PIPELINE_URL",          "http://pipeline:8000")

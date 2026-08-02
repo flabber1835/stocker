@@ -94,7 +94,7 @@ services:
       # rewrites the active YAML after the strategy-validator gate, when a
       # wind-tunnel candidate wins — see docs/architecture.md "ONE path to the
       # live config". (The one-click POST /config/apply it replaced is gone.)
-      STRATEGY_CONFIG_PATH: /strategies/momentum_rotation_v2.yaml
+      STRATEGY_CONFIG_PATH: /strategies/momentum_core_v3.yaml
       STRATEGY_VALIDATOR_URL: http://strategy-validator:8000
       ARTIFACTS_PATH: /artifacts
       # Phase 6d auto-promotion (PAPER mode — architecture.md 6d): the watcher
@@ -185,7 +185,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       MARKET_BENCHMARK: ${MARKET_BENCHMARK:-SPY}
       REDIS_URL: redis://redis:6379
-      STRATEGY_CONFIG_PATH: /strategies/momentum_rotation_v2.yaml  # hardcoded active strategy — pinned so a deploy (git pull + up) always uses it regardless of any .env override. To switch strategies, edit this value (in all four consumers: pipeline, portfolio-builder, llm-vetter, backtester).
+      STRATEGY_CONFIG_PATH: /strategies/momentum_core_v3.yaml  # hardcoded active strategy — pinned so a deploy (git pull + up) always uses it regardless of any .env override. To switch strategies, edit this value (in all four consumers: pipeline, portfolio-builder, llm-vetter, backtester).
       # Shadow champion/challenger (closed-loop item 4): point at a second
       # strategy YAML (e.g. /strategies/challenger.yaml) to build a THEORETICAL
       # daily target under it after each delta — shadow_runs rows only, no
@@ -285,7 +285,7 @@ services:
       SERVICE_NAME: portfolio-builder
       DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
       REDIS_URL: redis://redis:6379
-      STRATEGY_CONFIG_PATH: /strategies/momentum_rotation_v2.yaml  # hardcoded active strategy — pinned so a deploy (git pull + up) always uses it regardless of any .env override. To switch strategies, edit this value (in all four consumers: pipeline, portfolio-builder, llm-vetter, backtester).
+      STRATEGY_CONFIG_PATH: /strategies/momentum_core_v3.yaml  # hardcoded active strategy — pinned so a deploy (git pull + up) always uses it regardless of any .env override. To switch strategies, edit this value (in all four consumers: pipeline, portfolio-builder, llm-vetter, backtester).
       ARTIFACTS_PATH: /artifacts
     volumes:
       - ./artifacts:/artifacts
@@ -363,7 +363,7 @@ services:
       DRAWDOWN_EXCESS_MIN: ${DRAWDOWN_EXCESS_MIN:-0.10}
       DRAWDOWN_EXCESS_MAX: ${DRAWDOWN_EXCESS_MAX:-0.30}
       DRAWDOWN_BASELINE_WINDOW: ${DRAWDOWN_BASELINE_WINDOW:-3}
-      STRATEGY_CONFIG_PATH: /strategies/momentum_rotation_v2.yaml  # hardcoded active strategy — pinned so a deploy (git pull + up) always uses it regardless of any .env override. To switch strategies, edit this value (in all four consumers: pipeline, portfolio-builder, llm-vetter, backtester).
+      STRATEGY_CONFIG_PATH: /strategies/momentum_core_v3.yaml  # hardcoded active strategy — pinned so a deploy (git pull + up) always uses it regardless of any .env override. To switch strategies, edit this value (in all four consumers: pipeline, portfolio-builder, llm-vetter, backtester).
       ARTIFACTS_PATH: /artifacts
     volumes:
       - ./artifacts:/artifacts
@@ -539,7 +539,7 @@ services:
       - "8013:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
-      STRATEGY_CONFIG_PATH: /strategies/momentum_rotation_v2.yaml  # hardcoded active strategy — pinned so a deploy (git pull + up) always uses it regardless of any .env override. To switch strategies, edit this value (in all four consumers: pipeline, portfolio-builder, llm-vetter, backtester).
+      STRATEGY_CONFIG_PATH: /strategies/momentum_core_v3.yaml  # hardcoded active strategy — pinned so a deploy (git pull + up) always uses it regardless of any .env override. To switch strategies, edit this value (in all four consumers: pipeline, portfolio-builder, llm-vetter, backtester).
       ARTIFACTS_PATH: /artifacts
     volumes:
       - ./artifacts:/artifacts
@@ -565,7 +565,7 @@ services:
     environment:
       SERVICE_NAME: evaluator
       DATABASE_URL: postgresql+asyncpg://stocker:${POSTGRES_PASSWORD:-stocker}@postgres:5432/stocker
-      STRATEGY_CONFIG_PATH: /strategies/momentum_rotation_v2.yaml  # keep in sync with pipeline/portfolio-builder/llm-vetter/backtester
+      STRATEGY_CONFIG_PATH: /strategies/momentum_core_v3.yaml  # keep in sync with pipeline/portfolio-builder/llm-vetter/backtester
       LLM_GATEWAY_URL: http://llm-gateway:8000
       EVALUATOR_PROVIDER: ${EVALUATOR_PROVIDER:-anthropic}
       EVALUATOR_MODEL: ${EVALUATOR_MODEL:-claude-opus-5}
@@ -657,7 +657,7 @@ services:
       # Chain-level config pinning (audit #5): the supervisor reads the active
       # strategy YAML to pin its hash for the whole chain — same path the
       # strategy-consuming services use. Read-only mount below.
-      STRATEGY_CONFIG_PATH:     /strategies/momentum_rotation_v2.yaml
+      STRATEGY_CONFIG_PATH:     /strategies/momentum_core_v3.yaml
       # Weekly LISTING_STATUS refresh (weekend-only): keeps the universe current
       # — new listings enter, delistings drop. 0 disables (frozen-at-boot).
       UNIVERSE_REFRESH_DAYS: ${UNIVERSE_REFRESH_DAYS:-7}

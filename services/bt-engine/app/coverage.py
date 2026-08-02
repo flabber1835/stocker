@@ -1,7 +1,8 @@
 """Factor-coverage contract: the wind tunnel may not score a config that puts
 nonzero weight on a factor it cannot compute.
 
-WHY THIS EXISTS. `momentum_rotation_v2` weights `earnings_surprise` at 0.12.
+WHY THIS EXISTS. The former champion `momentum_rotation_v2` weighted
+`earnings_surprise` at 0.12.
 bt-engine never passed `earnings=` to compute_all_factors and bt-data never
 ingested earnings, so the factor was null on every row. `composite_scores`
 renormalizes per row over the NON-NULL factors — correct for a transiently
@@ -9,6 +10,16 @@ missing value, catastrophic for a structurally absent one: instead of erroring,
 it redistributed the 0.12 and quietly scored momentum at 0.409 rather than
 0.360. Every wind-tunnel run was scoring a config that was not the one supplied,
 and auto-promotion could act on the result.
+
+STATUS 2026-08: the active config `momentum_core_v3` sets earnings_surprise to 0,
+so it now PASSES this gate and is scoreable — which was one of the reasons for
+the change, not a side effect. Auto-promotion is no longer blocked by the active
+config. The gate itself stays exactly as strict: the moment any config weights a
+factor the corpus cannot reproduce, it is refused again. Teaching the tunnel the
+factor remains the right resolution; dropping a factor to satisfy the instrument
+would be letting the instrument dictate the strategy, and that is NOT what
+happened here (the weight went to 0 on its own evidence — a seasonal-random-walk
+SUE is a weak proxy for estimate-revision data).
 
 The renormalizer cannot distinguish "this ticker has no earnings yet" from "this
 corpus has no earnings at all". So the distinction has to be made here, before

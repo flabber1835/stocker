@@ -113,7 +113,7 @@ def main() -> int:
     ap.add_argument("--hypothesis", required=True,
                     help="what this candidate tests, read cold by a future review")
     ap.add_argument("--config-path", default=os.getenv(
-        "STRATEGY_CONFIG_PATH", "/strategies/momentum_rotation_v2.yaml"))
+        "STRATEGY_CONFIG_PATH", "/strategies/momentum_core_v3.yaml"))
     ap.add_argument("--artifacts", default=os.getenv("ARTIFACTS_PATH", "/artifacts"))
     ap.add_argument("--first", action="store_true",
                     help="put at the HEAD of the queue — the lane fires pend_full[0]")
