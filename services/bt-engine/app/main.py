@@ -26,6 +26,7 @@ from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 from app.coverage import check_config_coverage
+from app.postmortem import post_mortem
 from app.coverage import enforcement_enabled as coverage_enforcement_enabled
 from app.parity import check_config_parity
 from app.parity import enforcement_enabled as parity_enforcement_enabled
@@ -891,6 +892,76 @@ async def latest_sweep():
             "FROM bt_sweeps ORDER BY started_at DESC LIMIT 1"
         ))).mappings().first()
     return {"sweep": _fmt(row)} if row else {"sweep": None}
+
+
+@app.get("/sweeps/latest/postmortem")
+async def latest_postmortem(phase: str = "tune", config_idx: int | None = None):
+    """WHERE the latest sweep lost, and whether the market lost with it.
+
+    The summary numbers cannot answer this. A 14.6% max drawdown is equally
+    consistent with "gave it all back in the final month" and with "fell in April
+    with everyone else", and those call for completely different responses. This
+    computes which one happened instead of leaving it to be argued about.
+
+    phase: 'tune' (period A) or 'validate' (period B).
+    """
+    async with engine.connect() as conn:
+        sw = (await conn.execute(text(
+            "SELECT sweep_id::text FROM bt_sweeps ORDER BY started_at DESC LIMIT 1"
+        ))).first()
+    if not sw:
+        raise HTTPException(status_code=404, detail="no sweeps recorded yet")
+    return await sweep_postmortem(sw[0], phase=phase, config_idx=config_idx)
+
+
+@app.get("/sweeps/{sweep_id}/postmortem")
+async def sweep_postmortem(sweep_id: str, phase: str = "tune",
+                           config_idx: int | None = None):
+    """Per-config post-mortem for one window of one sweep. See above.
+
+    Every config in the sweep is reported unless one is named: a decline that
+    shows up in EVERY config is a property of the simulator or the corpus, while
+    one that shows up in a single config is a property of that config. Reporting
+    only the winner would hide that distinction — which is the distinction the
+    question turns on.
+    """
+    _uuid(sweep_id)
+    if phase not in ("tune", "validate"):
+        raise HTTPException(status_code=400, detail="phase must be 'tune' or 'validate'")
+
+    async with engine.connect() as conn:
+        eq = (await conn.execute(text(
+            "SELECT config_idx, date, portfolio_value, spy_value, drawdown "
+            "FROM bt_sweep_equity WHERE sweep_id = CAST(:sid AS uuid) AND phase = :ph "
+            + ("AND config_idx = :ci " if config_idx is not None else "")
+            + "ORDER BY config_idx, date"
+        ), {"sid": sweep_id, "ph": phase, "ci": config_idx})).mappings().all()
+        tr = (await conn.execute(text(
+            "SELECT config_idx, date, ticker, action, qty, price, reason "
+            "FROM bt_sweep_trades WHERE sweep_id = CAST(:sid AS uuid) AND phase = :ph "
+            + ("AND config_idx = :ci " if config_idx is not None else "")
+            + "ORDER BY config_idx, date"
+        ), {"sid": sweep_id, "ph": phase, "ci": config_idx})).mappings().all()
+
+    if not eq:
+        # Explicitly NOT an empty diagnosis. A sweep that predates
+        # bt_sweep_equity persisted only summaries, and returning "nothing wrong"
+        # for "nothing recorded" is the failure this endpoint exists to end.
+        return {"sweep_id": sweep_id, "phase": phase, "configs": {},
+                "detail": "no per-session equity recorded for this sweep — it "
+                          "predates bt_sweep_equity, so its shape is "
+                          "unrecoverable. Re-run it to get a post-mortem."}
+
+    by_cfg_eq: dict[int, list] = {}
+    for r in eq:
+        by_cfg_eq.setdefault(int(r["config_idx"]), []).append(dict(r))
+    by_cfg_tr: dict[int, list] = {}
+    for r in tr:
+        by_cfg_tr.setdefault(int(r["config_idx"]), []).append(dict(r))
+
+    return {"sweep_id": sweep_id, "phase": phase,
+            "configs": {str(idx): post_mortem(rows, by_cfg_tr.get(idx, []))
+                        for idx, rows in sorted(by_cfg_eq.items())}}
 
 
 @app.get("/sweeps/{sweep_id}/leaderboard")
