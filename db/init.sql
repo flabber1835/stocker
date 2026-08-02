@@ -494,7 +494,7 @@ CREATE TABLE IF NOT EXISTS delta_intents (
     id                    UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     run_id                UUID         NOT NULL REFERENCES delta_runs(run_id) ON DELETE CASCADE,
     ticker                VARCHAR(20)  NOT NULL,
-    action                VARCHAR(10)  NOT NULL CHECK (action IN ('entry','exit','hold','watch','at_risk','buy_add','sell_trim')),
+    action                VARCHAR(20)  NOT NULL CHECK (action IN ('entry','exit','hold','watch','at_risk','buy_add','sell_trim','risk_reduce','risk_restore')),
     rank                  INTEGER,
     composite_score       NUMERIC(12,6),
     confirmation_days_met INTEGER,

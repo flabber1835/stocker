@@ -124,6 +124,11 @@ PARITY: dict[str, tuple[str, str]] = {
         "config-replay produces synthetic TARGETS and hands them to the "
         "persisted-book simulator; it does not run the entry/exit/orphan state "
         "machine, so none of these knobs can change its result"),
+    "crash_brake": (
+        IGNORED,
+        "PATH-DEPENDENT book-level exposure: it scales the whole book on a market "
+        "signal and restores it later, which a holdings-agnostic replay composing "
+        "a fresh target per date cannot represent. Wind tunnel only"),
     "delta_engine.exit_policy": (
         IGNORED,
         "PATH-DEPENDENT, unlike its section-mates: it decides which positions "

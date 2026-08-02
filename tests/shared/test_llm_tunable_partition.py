@@ -29,7 +29,20 @@ def test_protected_paths_are_the_expected_set():
     assert PROTECTED_PATHS == frozenset({
         "strategy_id", "universe.source", "vetter.falling_knife",
         "trailing_stop.enabled", "delta_engine.exit_policy",
+        "crash_brake.enabled",
     })
+
+
+def test_the_crash_brake_switch_is_protected_but_its_thresholds_are_not():
+    """Third member of the exit/risk-regime family. `.enabled` decides whether the
+    book de-risks itself on a market signal at all — a human decision. The
+    thresholds and exposures stay tunable, since sweeping them is the entire point
+    of having the feature in the wind tunnel."""
+    assert is_protected_path("crash_brake.enabled")
+    assert not is_protected_path("crash_brake.market_return_threshold")
+    assert not is_protected_path("crash_brake.breadth_threshold")
+    assert not is_protected_path("crash_brake.stressed_equity_exposure")
+    assert not is_protected_path("crash_brake")  # the section itself is not a setting
 
 
 def test_both_halves_of_the_exit_switch_are_protected():

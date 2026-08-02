@@ -155,6 +155,12 @@ PARITY: dict[str, tuple[str, str]] = {
     # Both are passed straight through to the same evaluate_target_vs_live the
     # live chain calls (sim.py), so the tunnel scores the exit REGIME a candidate
     # declares rather than the default one.
+    # Market-wide exposure brake. The tunnel has the benchmark and the whole
+    # universe's closes, so it can compute the same two conditions live does.
+    "crash_brake": (
+        HONOURED,
+        "evaluate_crash_state on the same shared module live calls; exposure "
+        "scalar applied to the composed target"),
     "delta_engine.exit_policy": (
         HONOURED, "suppress_target_exits -> evaluate_target_vs_live, same call as live"),
     "delta_engine.drift_rebalance_enabled": (

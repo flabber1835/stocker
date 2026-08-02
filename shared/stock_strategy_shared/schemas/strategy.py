@@ -809,6 +809,71 @@ class DeltaEngineConfig(BaseModel):
         return self
 
 
+class CrashBrakeConfig(BaseModel):
+    """Rare, market-wide gross-exposure brake. TOP-LEVEL, defaults OFF.
+
+    The trailing stop retires a holding whose own trend broke; it is useless
+    against twenty-five correlated positions falling together, none yet 30% off
+    its own peak. This acts on the BOOK — it cuts gross exposure and leaves
+    composition alone, which is what makes it a risk overlay rather than a second
+    hidden selection rule.
+
+    Top-level placement is a correctness matter, not tidiness: the parity
+    flattener recurses only two levels, so a block nested one deeper would be
+    INVISIBLE to `unclassified()` — the CI guard whose entire job is to stop a new
+    field being silently ignored by the wind tunnel.
+
+    CALIBRATION CAVEAT. The evidence behind these defaults came from a 2014-2018
+    panel whose only stress was Aug-2015 and Feb-2018 — no GFC, no COVID, no 2022.
+    A crash brake fitted on a sample containing no crash is the weakest kind of
+    fitted parameter, and this is the change with the largest claimed effect.
+    Score it against the named stress regimes before believing it.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(
+        default=False,
+        description="Master switch. PROTECTED (human-only): it changes the book's "
+                    "RISK regime, the same class of control as trailing_stop.enabled.")
+    market_return_window_sessions: int = Field(default=20, ge=5, le=126)
+    market_return_threshold: float = Field(
+        default=-0.06, le=0.0, ge=-0.5,
+        description="Engage when the window return is at or below this (negative).")
+    breadth_sma_sessions: int = Field(default=100, ge=20, le=252)
+    breadth_threshold: float = Field(
+        default=0.42, gt=0.0, lt=1.0,
+        description="Engage when FEWER than this share of eligible names are above "
+                    "their own SMA. BOTH conditions must hold: an index drop alone is "
+                    "routinely a few mega-caps, and thin breadth alone is a normal "
+                    "feature of a narrow bull market. Requiring both keeps it rare.")
+    min_breadth_names: int = Field(
+        default=50, ge=1, le=5000,
+        description="Below this many names with enough history the breadth reading is "
+                    "UNAVAILABLE and the brake stays disengaged — a reading over a "
+                    "handful of survivors is noise, and acting on it is worse than not.")
+    normal_equity_exposure: float = Field(default=1.0, gt=0.0, le=1.0)
+    stressed_equity_exposure: float = Field(
+        default=0.50, gt=0.0, le=1.0,
+        description="Gross exposure while engaged; the remainder sits in cash.")
+    stressed_stop_pct: float = Field(
+        default=0.20, gt=0.0, le=0.9,
+        description="Tighter trailing stop applied WHILE ENGAGED, and only to holdings "
+                    "below stressed_stop_sma_sessions — a blanket tightening would stop "
+                    "out names that are still working.")
+    stressed_stop_sma_sessions: int = Field(default=100, ge=20, le=252)
+
+    @model_validator(mode="after")
+    def stressed_exposure_is_a_reduction(self) -> "CrashBrakeConfig":
+        """A 'brake' that raises exposure is a config nobody meant to write."""
+        if self.stressed_equity_exposure > self.normal_equity_exposure:
+            raise ValueError(
+                f"crash_brake.stressed_equity_exposure "
+                f"({self.stressed_equity_exposure}) must not exceed "
+                f"normal_equity_exposure ({self.normal_equity_exposure}) — the "
+                f"brake reduces exposure, it does not add it")
+        return self
+
+
 class StrategyConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -885,6 +950,12 @@ class StrategyConfig(BaseModel):
                     "block behaves exactly as before the feature existed. TOP-LEVEL "
                     "rather than nested under delta_engine so both parity manifests can "
                     "see its leaves; see TrailingStopConfig.")
+    crash_brake: CrashBrakeConfig = Field(
+        default_factory=CrashBrakeConfig,
+        description="Market-wide gross-exposure brake; OFF by default. TOP-LEVEL for "
+                    "the same reason as trailing_stop, and default_factory rather than "
+                    "Optional[...]=None so every leaf yields its own dotted path to "
+                    "the parity flattener (a None would dump as one opaque leaf).")
 
     @model_validator(mode="after")
     def sync_max_positions(self) -> "StrategyConfig":
@@ -1031,6 +1102,10 @@ PROTECTED_PATHS: frozenset[str] = frozenset({
     # drift_rebalance_enabled is deliberately NOT here: it changes position sizing
     # discipline, not what retires a holding.
     "delta_engine.exit_policy",
+    # Third member of the same family: it changes the book's RISK regime, cutting
+    # gross exposure on a market signal. Only `.enabled` is frozen — the
+    # thresholds and exposures stay tunable, which is the whole reason to sweep it.
+    "crash_brake.enabled",
 })
 
 
