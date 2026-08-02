@@ -152,6 +152,13 @@ PARITY: dict[str, tuple[str, str]] = {
     "delta_engine.rebalance_drift_threshold": (HONOURED, "drift trims"),
     "delta_engine.rebalance_min_relative_drift": (HONOURED, "drift trims"),
     "delta_engine.rebalance_min_trade_value": (HONOURED, "drift trims"),
+    # Both are passed straight through to the same evaluate_target_vs_live the
+    # live chain calls (sim.py), so the tunnel scores the exit REGIME a candidate
+    # declares rather than the default one.
+    "delta_engine.exit_policy": (
+        HONOURED, "suppress_target_exits -> evaluate_target_vs_live, same call as live"),
+    "delta_engine.drift_rebalance_enabled": (
+        HONOURED, "drift_rebalance -> evaluate_target_vs_live, same call as live"),
 
     # ── intraday ─────────────────────────────────────────────────────────
     "intraday": (

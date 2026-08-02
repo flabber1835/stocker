@@ -196,4 +196,25 @@ def test_evaluate_target_vs_live_signature_is_unchanged():
         "dedup_survivors", "cash_fraction", "unranked_below_floor",
         "factor_gate_gap", "inflight_entries", "inflight_exits",
         "min_relative_drift", "min_trade_value", "risk_degraded",
+        # Added deliberately (2026-08), and NOT stop parameters despite the name
+        # of one of them. They select which mechanism RETIRES a holding and
+        # whether weights are pulled back to target — decisions that live in the
+        # engine's own branches and cannot be planned outside it, unlike the stop.
+        # The stop still computes its plan externally and arrives via
+        # inflight_exits, so the guarantee this test protects is intact: no peak,
+        # no stop_pct, no episode state crosses this boundary.
+        "suppress_target_exits", "drift_rebalance",
     ]
+
+
+def test_the_stop_still_does_not_leak_into_the_engine():
+    """The complement of the list above: whatever else gets added, no parameter
+    may carry the stop's own state. That is the actual invariant — the parameter
+    list is just how it is checked."""
+    params = set(inspect.signature(evaluate_target_vs_live).parameters)
+    for leaked in ("stop_pct", "stop_states", "peak_close", "stop_peak",
+                   "trailing_stop", "episodes", "reentry_blocked",
+                   "arm_after_sessions", "width_method"):
+        assert leaked not in params, (
+            f"{leaked!r} crossed into the engine — the stop must stay a pure "
+            f"planner whose result arrives via inflight_exits")

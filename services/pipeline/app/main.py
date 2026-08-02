@@ -2624,6 +2624,11 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             min_relative_drift=de_cfg.rebalance_min_relative_drift,
             min_trade_value=de_cfg.rebalance_min_trade_value,
             risk_degraded=anchor_risk_degraded,
+            # exit_policy / drift_rebalance_enabled default to today's behaviour,
+            # so a config that sets neither produces byte-identical decisions.
+            suppress_target_exits=(
+                getattr(de_cfg, "exit_policy", "target_diff") == "trailing_stop_only"),
+            drift_rebalance=bool(getattr(de_cfg, "drift_rebalance_enabled", True)),
             account_value=account_value_for_drift,
             buying_power=buying_power_for_cap,
             target_history=target_history,

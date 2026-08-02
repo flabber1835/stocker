@@ -846,6 +846,13 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                     target_history=target_history,
                     orphan_confirmation_days=delta_cfg.orphan_confirmation_days,
                     cash_fraction=cash / equity_now if equity_now > 0 else None,
+                    # Same two primitives live passes, from the same config, so a
+                    # stop-only candidate is scored on the policy it declares.
+                    suppress_target_exits=(
+                        getattr(delta_cfg, "exit_policy", "target_diff")
+                        == "trailing_stop_only"),
+                    drift_rebalance=bool(
+                        getattr(delta_cfg, "drift_rebalance_enabled", True)),
                 )
                 trades: list[dict] = []
                 for dcs in sorted(decisions.values(), key=lambda x: x.rank):

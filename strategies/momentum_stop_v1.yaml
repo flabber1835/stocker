@@ -1,0 +1,186 @@
+strategy_id: momentum_stop_v1
+description: "CHALLENGER, not live. Tests the thesis that the ranking should pick\
+  \ ENTRIES while individual price behaviour drives normal EXITS: raw 6-1 momentum\
+  \ as the sole alpha factor, 25 names, and a wide trailing stop instead of\
+  \ target-diff rotation. Everything the multifactor champion uses for ordering\
+  \ (quality/value/growth/earnings_surprise/low_vol/liquidity) goes to weight 0 —\
+  \ liquidity and price survive as ELIGIBILITY filters in universe.*, not as\
+  \ ranking factors. Compare against momentum_rotation_v2 in the wind tunnel; do\
+  \ not promote on the public-panel evidence that motivated it (2014-2018, 505\
+  \ large caps, one small correction — see docs/architecture.md).\n"
+universe:
+  source: av_listing
+  min_price: 5.0
+  min_avg_dollar_volume_20d: 20000000
+  # NOT optional here. With quality/value/growth at weight 0 the composite is
+  # price-and-volume only, which a leveraged ETF (SOXL, TQQQ) satisfies trivially
+  # and then TOPS on momentum. The champion is protected by its required_factors
+  # needing fundamentals; this config has no such shield, so the ETF exclusion has
+  # to be explicit. Same reasoning as the speculative sleeve.
+  require_fundamentals: true
+factor_engine:
+  momentum_short_window: 21
+  # 6-1: a 126-session formation window, still skipping the most recent 21
+  # sessions so short-term reversal is not bought.
+  momentum_long_window: 126
+  volatility_window: 252
+  liquidity_window: 20
+  pe_pb_cap: 50.0
+  spy_price_lookback_days: 600
+  quality_use_gross_profitability: true
+  # RAW, not residual: the market-stripping variants were what the champion used,
+  # and the reconstruction that motivated this config found raw 6-1 more monotone
+  # over a 21-session horizon than the residual blend.
+  momentum_method: raw
+  momentum_blend_windows:
+  - 126
+  sue_method: seasonal_random_walk
+regime_detection:
+  slow_sma: 200
+  vol_window: 20
+  vol_threshold: 0.2
+  confirmation_days: 5
+  regimes:
+    bull_calm:
+      spy_above_slow_sma: true
+      vol_above_threshold: false
+    bull_stress:
+      spy_above_slow_sma: true
+      vol_above_threshold: true
+    bear_stress:
+      spy_above_slow_sma: false
+      vol_above_threshold: true
+    bear_calm:
+      spy_above_slow_sma: false
+      vol_above_threshold: false
+# Off, as in the champion. The four regime vectors below are identical to the
+# static one purely so the schema's "every regime is covered and sums to 1.0"
+# check passes; they are never consulted while this is false.
+regime_weighting_enabled: false
+static_factor_weights:
+  momentum: 1.0
+  earnings_surprise: 0.0
+  quality: 0.0
+  low_volatility: 0.0
+  value: 0.0
+  near_high: 0.0
+  liquidity: 0.0
+  growth: 0.0
+factor_weights:
+  bull_calm:
+    momentum: 1.0
+    quality: 0.0
+    value: 0.0
+    growth: 0.0
+    low_volatility: 0.0
+    liquidity: 0.0
+  bull_stress:
+    momentum: 1.0
+    quality: 0.0
+    value: 0.0
+    growth: 0.0
+    low_volatility: 0.0
+    liquidity: 0.0
+  bear_stress:
+    momentum: 1.0
+    quality: 0.0
+    value: 0.0
+    growth: 0.0
+    low_volatility: 0.0
+    liquidity: 0.0
+  bear_calm:
+    momentum: 1.0
+    quality: 0.0
+    value: 0.0
+    growth: 0.0
+    low_volatility: 0.0
+    liquidity: 0.0
+portfolio_builder:
+  method: greedy_score_per_port_vol
+  # 0.0, not the champion's 0.2: the premise here is that the ranking's top tier
+  # carries the signal, so the builder should not discount a candidate for adding
+  # book volatility. Book-level risk is vol_target's job, and crash risk is the
+  # crash brake's.
+  selection_vol_aversion: 0.0
+  candidate_count: 120
+  max_positions: 25
+  min_selected: 12
+  covariance_window_days: 252
+  min_covariance_observations: 126
+  covariance_shrinkage: 0.2
+  require_positive_composite_score: false
+  weighting: score_proportional
+  # 0.08 = 2x the 4% equal weight at 25 names, and inside the schema's
+  # 3/max_positions = 0.12 ceiling.
+  max_position_weight: 0.08
+  max_sector_weight: 0.3
+  cluster_correlation_threshold: 0.7
+  max_cluster_weight: 0.15
+  max_tickers_per_cluster: 3
+  do_not_buy: []
+  cash_reserve: 0.025
+  vol_target_enabled: true
+  vol_target: 0.18
+  vol_target_min_exposure: 0.3
+  beta_target_enabled: false
+  beta_target: 1.3
+  beta_tolerance: 0.1
+vetter:
+  enabled: true
+  mode: drawdown_only
+  candidate_count: 200
+  risk_horizon_days: 90
+  system_prompt_file: /strategies/quality_core_v1.vetter_prompt.txt
+  max_searches_per_ticker: 3
+  news_lookback_days: 7
+  max_articles_per_ticker: 4
+  earnings_horizon_days: 90
+  strictness: moderate
+intraday:
+  enabled: false
+  benchmark_ticker: SPY
+  trim_winners_enabled: false
+  trim_winner_threshold_pct: 10.0
+  trim_winner_partial_pct: 25.0
+  trim_time_window_minutes_before_close: 60
+  delay_buys_after_spike_enabled: false
+  delay_buy_spike_threshold_pct: 15.0
+  risk_event_action: reduce
+# The trailing stop is the POINT of this config: exits come from the price path,
+# not from falling out of a freshly rebuilt target. 30% is deliberately wide —
+# 10-15% stops cut volatile momentum winners off before they compound.
+trailing_stop:
+  enabled: true
+  stop_pct: 0.30
+  arm_after_sessions: 5
+  max_stale_sessions: 2
+  max_stops_per_run: 5
+  width_method: fixed
+delta_engine:
+  # The whole point. Target membership no longer retires a holding; the stop
+  # does. entry_rank/exit_rank/orphan_confirmation_days below are inert under
+  # this policy (they drive the target-diff path) and are kept only so the
+  # config stays comparable field-for-field with the champion.
+  exit_policy: trailing_stop_only
+  # Winners are left where the market puts them. Re-trimming a winner back to
+  # its target weight every few builds is a slow-motion version of the rotation
+  # this config exists to avoid.
+  drift_rebalance_enabled: false
+  entry_rank: 25
+  exit_rank: 40
+  confirmation_days: 3
+  orphan_confirmation_days: 2
+  max_positions: 25
+  rebalance_drift_threshold: 0.005
+  rebalance_min_relative_drift: 0.15
+  rebalance_min_trade_value: 250
+max_positions: 25
+min_score_percentile: 0.0
+# 1 + "weighted": eligibility is judged only over factors this config actually
+# WEIGHTS, so the seven zero-weight factors no longer gate a ticker into or out
+# of the universe. The champion keeps scope "all" — flipping it there would be a
+# large live strategy change, which is exactly why it is being tried here first.
+min_non_null_factors: 1
+min_non_null_factors_scope: weighted
+required_factors:
+- momentum

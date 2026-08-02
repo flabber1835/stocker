@@ -28,8 +28,21 @@ def _baseline() -> dict:
 def test_protected_paths_are_the_expected_set():
     assert PROTECTED_PATHS == frozenset({
         "strategy_id", "universe.source", "vetter.falling_knife",
-        "trailing_stop.enabled",
+        "trailing_stop.enabled", "delta_engine.exit_policy",
     })
+
+
+def test_both_halves_of_the_exit_switch_are_protected():
+    """Protecting one without the other would be decorative. `trailing_stop.enabled`
+    turns the stop ON; `delta_engine.exit_policy` decides whether it is the ONLY
+    ordinary exit — so a tuner could leave the stop on, flip the policy, and retire
+    the orphan timer (the live book's entire exit mechanism) with no human in the
+    loop. The sizing knob next to it stays tunable: it changes rebalancing
+    discipline, not what retires a holding."""
+    assert is_protected_path("delta_engine.exit_policy")
+    assert is_protected_path("trailing_stop.enabled")
+    assert not is_protected_path("delta_engine.drift_rebalance_enabled")
+    assert not is_protected_path("delta_engine.orphan_confirmation_days")
 
 
 def test_trailing_stop_switch_is_protected_but_its_width_is_not():

@@ -440,6 +440,8 @@ def evaluate_target_vs_live(
     min_relative_drift: float = 0.0,
     min_trade_value: float = 0.0,
     risk_degraded: bool = False,
+    suppress_target_exits: bool = False,
+    drift_rebalance: bool = True,
 ) -> dict[str, DeltaDecision]:
     """Diff portfolio_holdings (target) against live_positions (actual broker state).
 
@@ -623,6 +625,26 @@ def evaluate_target_vs_live(
             # purely for rank/score reporting; the orphan logic below is identical.
             # `forced_orphan` keeps it out of the genuine-data-gap hold even when
             # the survivor itself has no obs (then it orphan-exits as rank 9999).
+            if suppress_target_exits:
+                # Target-driven, so it goes with the orphan timer. A share-class
+                # loser whose company the builder dropped is not a broken trend —
+                # under a stop-only policy the stop decides, same as any holding.
+                decisions[ticker] = DeltaDecision(
+                    ticker=ticker,
+                    action="hold",
+                    rank=9999,
+                    composite_score=0.0,
+                    confirmation_days_met=0,
+                    current_weight=0.0,
+                    reason=(
+                        f"Held at broker; share-class dedup loser (survivor "
+                        f"{survivor} also out of target) — "
+                        f"exit_policy=trailing_stop_only, holding"
+                    ),
+                    actual_weight=actual_weights.get(ticker) if actual_weights else None,
+                    weight_drift=None,
+                )
+                continue
             forced_orphan = True
             obs = universe.get(survivor, [])
             latest = obs[0] if obs else RankObservation(
@@ -744,6 +766,34 @@ def evaluate_target_vs_live(
         # build that re-includes the ticker resets the count. Data-gap orphans
         # (no ranking obs) are handled above and never reach here, so they are
         # never force-sold on missing data.
+        if suppress_target_exits:
+            # exit_policy='trailing_stop_only': falling out of the target is NOT a
+            # sell signal. The builder still names the best 25 today, but the
+            # premise of this policy is that the ordering is informative about the
+            # top TIER and not monotone enough to justify retiring a holding for
+            # slipping down it. The position leaves when its own price path breaks
+            # (the trailing stop, planned outside this function), when it drops
+            # below the investability floor (branch C above, still live), or when
+            # it delists. The orphan timer is not merely deferred here — it is not
+            # started, so a name that re-enters the target later carries no
+            # countdown with it.
+            decisions[ticker] = DeltaDecision(
+                ticker=ticker,
+                action="hold",
+                rank=latest.rank,
+                composite_score=latest.composite_score,
+                confirmation_days_met=0,
+                current_weight=0.0,
+                reason=(
+                    f"Held at broker, not in target (rank={latest.rank}) — "
+                    f"exit_policy=trailing_stop_only, so target membership does "
+                    f"not retire a holding; exit is the stop's decision"
+                ),
+                actual_weight=actual_weights.get(ticker) if actual_weights else None,
+                weight_drift=None,
+            )
+            continue
+
         orphan_days = _orphan_confirm_days(ticker, target_history, orphan_conf)
         # Fall back to today-only when no build history is available yet: an orphan
         # today counts as 1 (cannot confirm until orphan_conf builds exist).
@@ -808,6 +858,13 @@ def evaluate_target_vs_live(
             has_real_target and drift is not None and abs(drift) > drift_threshold
         )
         immaterial_why = None
+        if not drift_rebalance and drift_material:
+            # drift_rebalance_enabled=False: leave weights where the market put
+            # them. Pulling a winner back to its target weight every few builds is
+            # a slow-motion version of the rotation a stop-only policy exists to
+            # avoid — it sells exactly the names the thesis wants to let run.
+            drift_material = False
+            immaterial_why = "drift rebalance disabled (drift_rebalance_enabled=false)"
         if drift_material and min_relative_drift > 0 and cmp_target > 0:
             if abs(drift) / cmp_target < min_relative_drift:
                 drift_material = False

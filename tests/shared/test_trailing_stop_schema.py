@@ -48,23 +48,47 @@ class TestDefaultsOff:
         """A config that never mentions the block must not acquire a live stop."""
         assert StrategyConfig(**_minimal()).trailing_stop.enabled is False
 
-    def test_the_real_configs_all_have_it_off(self):
-        """Guard against enabling it by accident in a YAML. Turning this on is a
-        deliberate act with a shadow period first — not a side effect of an edit."""
-        import glob
+    def test_no_DEPLOYED_config_has_it_on(self):
+        """Guard against enabling it by accident on the live book.
+
+        Scoped to the configs docker-compose actually deploys, not every YAML in
+        strategies/. The folder now also holds wind-tunnel CHALLENGERS whose whole
+        purpose is to run with the stop on (momentum_stop_v1) — refusing those
+        would forbid testing the feature, which is the opposite of the intent.
+        What must stay true is that nothing reaching production has it on, and
+        deriving that set from compose checks the thing that actually ships rather
+        than a directory listing a new file can dilute.
+        """
+        import os
+        import re
+
+        from stock_strategy_shared.loader import load_strategy
+
+        root = os.path.join(os.path.dirname(__file__), "..", "..")
+        compose = open(os.path.join(root, "docker-compose.yml")).read()
+        deployed = {m for m in re.findall(
+            r"STRATEGY_CONFIG_PATH:\s*/strategies/(\S+\.yaml)", compose)}
+        assert deployed, "no deployed strategy config found in docker-compose.yml"
+        for name in sorted(deployed):
+            cfg, _hash = load_strategy(os.path.join(root, "strategies", name))
+            assert cfg.trailing_stop.enabled is False, (
+                f"{name} is DEPLOYED by docker-compose and enables the trailing "
+                f"stop; it must be switched on deliberately, after a shadow period"
+            )
+
+    def test_a_challenger_may_enable_it(self):
+        """The complement: the feature has to be testable. If this file stops
+        existing or stops enabling the stop, the wind tunnel has nothing to score
+        the exit-regime change against."""
         import os
 
         from stock_strategy_shared.loader import load_strategy
 
-        root = os.path.join(os.path.dirname(__file__), "..", "..", "strategies")
-        paths = sorted(glob.glob(os.path.join(root, "*.yaml")))
-        assert paths, "no strategy YAMLs found — fixture path is wrong"
-        for path in paths:
-            cfg, _hash = load_strategy(path)
-            assert cfg.trailing_stop.enabled is False, (
-                f"{os.path.basename(path)} enables the trailing stop; it must be "
-                "switched on deliberately, after a shadow period"
-            )
+        path = os.path.join(os.path.dirname(__file__), "..", "..",
+                            "strategies", "momentum_stop_v1.yaml")
+        cfg, _hash = load_strategy(path)
+        assert cfg.trailing_stop.enabled is True
+        assert cfg.delta_engine.exit_policy == "trailing_stop_only"
 
 
 class TestTopLevelPlacement:

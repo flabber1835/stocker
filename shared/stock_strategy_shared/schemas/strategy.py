@@ -748,6 +748,38 @@ class DeltaEngineConfig(BaseModel):
         )
     )
 
+    exit_policy: Literal["target_diff", "trailing_stop_only"] = Field(
+        default="target_diff",
+        description=(
+            "WHICH MECHANISM RETIRES A HOLDING.\n"
+            "'target_diff' (default, unchanged): the builder is the source of "
+            "truth — a held name the builder drops leaves via the orphan timer.\n"
+            "'trailing_stop_only': target-driven exits are SUPPRESSED. A holding "
+            "leaves only when its own price path breaks (trailing_stop), when it "
+            "falls below the investability floor, or when it delists. The premise "
+            "is that the ranking is informative about the top TIER but not "
+            "monotone enough to justify selling a name for slipping from rank 20 "
+            "to rank 50 — so rank picks entries and price manages exits.\n"
+            "REQUIRES trailing_stop.enabled: a stop-only policy with no stop has "
+            "no ordinary exit at all and would freeze the book permanently. "
+            "Vacancies are refilled from the latest ranking automatically: the "
+            "capacity allocator already admits best-rank-first up to "
+            "max_positions, so a stop that frees a slot is filled by the best "
+            "eligible name on the next build."
+        ),
+    )
+    drift_rebalance_enabled: bool = Field(
+        default=True,
+        description=(
+            "When False, no buy_add/sell_trim is proposed: position weights are "
+            "left where the market puts them instead of being pulled back to "
+            "target. Set False alongside exit_policy='trailing_stop_only' to let "
+            "winners actually compound — periodically re-trimming a winner back "
+            "to its target weight is a slow-motion version of the rotation the "
+            "stop-only policy exists to avoid. Entries still size to target."
+        ),
+    )
+
     @model_validator(mode="after")
     def exit_rank_exceeds_entry_rank(self) -> "DeltaEngineConfig":
         if self.exit_rank <= self.entry_rank:
@@ -897,6 +929,24 @@ class StrategyConfig(BaseModel):
         return self.factor_weights[regime]
 
     @model_validator(mode="after")
+    def stop_only_exits_require_a_stop(self) -> "StrategyConfig":
+        """A stop-only exit policy with the stop switched off has NO ordinary exit.
+
+        The book would fill to max_positions and then freeze: nothing retires a
+        holding, so every subsequent entry queues as `watch` forever and the
+        strategy silently becomes buy-and-hold-the-first-25. That is a config
+        that cannot do what it says, so it is refused rather than deployed.
+        """
+        if (self.delta_engine.exit_policy == "trailing_stop_only"
+                and not self.trailing_stop.enabled):
+            raise ValueError(
+                "delta_engine.exit_policy='trailing_stop_only' requires "
+                "trailing_stop.enabled=true — otherwise nothing exits a holding "
+                "and the book freezes at max_positions"
+            )
+        return self
+
+    @model_validator(mode="after")
     def liquidity_weight_consistent_with_required_factors(self) -> "StrategyConfig":
         if "liquidity" not in self.required_factors:
             return self
@@ -952,6 +1002,15 @@ PROTECTED_PATHS: frozenset[str] = frozenset({
     # is how a candidate config gets SCORED with the stop on before a human decides
     # to run it.
     "trailing_stop.enabled",
+    # The other half of the same switch. `trailing_stop.enabled` turns the stop ON;
+    # this decides whether the stop is the ONLY ordinary exit. Protecting one
+    # without the other would be decorative: a tuner could leave the stop enabled
+    # and flip exit_policy to trailing_stop_only, retiring the orphan timer — the
+    # live book's entire exit mechanism — without a human ever seeing it. As above,
+    # the wind tunnel can still score it; sweeps do not enforce this partition.
+    # drift_rebalance_enabled is deliberately NOT here: it changes position sizing
+    # discipline, not what retires a holding.
+    "delta_engine.exit_policy",
 })
 
 

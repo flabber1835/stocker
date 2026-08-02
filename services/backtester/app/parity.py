@@ -124,6 +124,15 @@ PARITY: dict[str, tuple[str, str]] = {
         "config-replay produces synthetic TARGETS and hands them to the "
         "persisted-book simulator; it does not run the entry/exit/orphan state "
         "machine, so none of these knobs can change its result"),
+    "delta_engine.exit_policy": (
+        IGNORED,
+        "PATH-DEPENDENT, unlike its section-mates: it decides which positions "
+        "survive from one date to the next, and this replay holds no book to "
+        "survive in. Score it in the wind tunnel (queue_strategy_experiment)"),
+    "delta_engine.drift_rebalance_enabled": (
+        IGNORED,
+        "suppresses rebalancing of EXISTING positions, which a holdings-agnostic "
+        "replay does not have. Wind tunnel only"),
 
     "intraday": (IGNORED, "daily bars only; intraday logic has no representation"),
 
@@ -153,7 +162,18 @@ def _is_inert(path: str, cfg: StrategyConfig) -> bool:
     machine, so its knobs are inert ALWAYS — but declaring them HONOURED would
     be a lie, and refusing on them would block every real config (they are all
     set). IGNORED-but-inert is the honest encoding: the declaration says "not
-    modelled", the gate stays quiet because it provably changes nothing here."""
+    modelled", the gate stays quiet because it provably changes nothing here.
+
+    TWO EXCEPTIONS, and the distinction is exactly the one the inert claim rests
+    on. `exit_policy` and `drift_rebalance_enabled` do not merely steer a state
+    machine this replay skips — they decide WHICH POSITIONS EXIST over time, and
+    config-replay is holdings-agnostic by construction (fresh target per date, no
+    book to carry a holding forward in). Calling them inert would be the same
+    class of lie the trailing-stop entry below refuses to tell. A stop-only
+    config is already caught via trailing_stop.enabled, but only as a side
+    effect; naming these directly means the 422 says what is actually wrong."""
+    if path in ("delta_engine.exit_policy", "delta_engine.drift_rebalance_enabled"):
+        return False
     return path.startswith("delta_engine.")
 
 
