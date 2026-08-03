@@ -1,5 +1,6 @@
 """Phase 6c experiment lane — pure decision logic (experiment_due /
 fired_this_week) and the evaluator-side config_diff attribution helper."""
+import os
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -672,3 +673,60 @@ def test_a_baseline_scored_with_a_gate_off_is_also_retired():
                     "period_b": {"annualized_return": 0.1, "provenance": off}}}
     ok, why = baseline_is_valid(b, None)
     assert ok is False and "parity_enforced" in why
+
+
+def test_baseline_invalid_once_the_CONFIG_ITSELF_changed():
+    """The promotion check missed the way the owner actually changes the
+    strategy: a YAML edit + deploy. Nothing else retires the yardstick — not an
+    edit, not a revert — so a baseline measured under an edited config stayed
+    "valid" forever and every later candidate was gated against a config no
+    longer running. Same ancestor-drift the promotion check exists to prevent,
+    arriving by the manual route.
+
+    The case that forced this: a config live for two DAYS during a one-off
+    portfolio migration would have become the permanent promotion yardstick.
+    """
+    from app.logic import baseline_is_valid
+    base = {"status": "success", "applied_promotion": None,
+            "windows": _lane_windows(), "result": BASELINE_RESULT,
+            "config_hash": "c9517f45ec9e90ad"}
+
+    ok, _why = baseline_is_valid(base, None, active_config_hash="c9517f45ec9e90ad")
+    assert ok is True, "same config must NOT churn a multi-hour yardstick run"
+
+    ok, why = baseline_is_valid(base, None, active_config_hash="c5bc5d20824f85ae")
+    assert ok is False
+    assert "c9517f45ec9e90ad" in why and "c5bc5d20824f85ae" in why, (
+        "the reason must name BOTH hashes — 'stale baseline' sends the reader "
+        "hunting for which config it measured")
+
+
+def test_an_unreadable_config_hash_FAILS_OPEN():
+    """Either side missing means we could not read one, not that they differ.
+    Retiring the yardstick on a probe timeout would throw away a multi-hour run
+    for nothing, and would do it exactly when the engine is least healthy."""
+    from app.logic import baseline_is_valid
+    base = {"status": "success", "applied_promotion": None,
+            "windows": _lane_windows(), "result": BASELINE_RESULT,
+            "config_hash": "c9517f45ec9e90ad"}
+    assert baseline_is_valid(base, None, active_config_hash=None)[0] is True
+    assert baseline_is_valid({**base, "config_hash": None},
+                             None, active_config_hash="whatever")[0] is True
+
+
+def test_the_engine_reports_the_hash_the_check_needs():
+    """The seam. bt-scheduler cannot read /strategies, so it asks the engine that
+    would RUN the config. If /gates/check stops returning config_hash the check
+    silently fails open forever — a guard that cannot fire."""
+    import inspect
+
+    from app import main as bt_main
+    src = inspect.getsource(bt_main._experiment_lane)
+    assert "/gates/check" in src and "config_hash" in src
+
+    engine_src = open(os.path.join(
+        os.path.dirname(__file__), "..", "..",
+        "services", "bt-engine", "app", "main.py")).read()
+    gates = engine_src[engine_src.index('@app.get("/gates/check")'):]
+    gates = gates[:gates.index("@app.", 10)]
+    assert '"config_hash"' in gates

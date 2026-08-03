@@ -297,9 +297,21 @@ async def _experiment_lane(client: httpx.AsyncClient, now: datetime,
         live_baseline = next((b for b in reversed(exps)
                               if b.get("kind") == "baseline"
                               and b.get("status") in ("running", "success")), None)
+        # What config is LIVE right now, asked of the engine that would run it.
+        # Best-effort: unreadable ⇒ None ⇒ baseline_is_valid fails OPEN on that
+        # check, so a probe timeout never churns a multi-hour yardstick run.
+        active_hash = None
+        try:
+            gr = await client.get(f"{BT_ENGINE_URL}/gates/check", timeout=15.0)
+            if gr.status_code == 200:
+                active_hash = gr.json().get("config_hash")
+        except Exception as exc:  # noqa: BLE001 — telemetry, never fatal
+            _note(f"active config hash unreadable ({exc}) — baseline "
+                  "config-change check skipped this tick")
         base_ok, base_why = baseline_is_valid(live_baseline, applied_promo,
                                               today=now.date(),
-                                              max_age_days=BASELINE_MAX_AGE_DAYS)
+                                              max_age_days=BASELINE_MAX_AGE_DAYS,
+                                              active_config_hash=active_hash)
         if live_baseline is not None and live_baseline.get("status") == "running":
             base_ok = True
 

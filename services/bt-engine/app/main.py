@@ -159,6 +159,10 @@ async def gates_check(config_path: str | None = None):
     return {
         "config": config_path or STRATEGY_CONFIG_PATH,
         "strategy_id": cfg.strategy_id,
+        # The hash of the config CURRENTLY on disk. bt-scheduler compares it
+        # against the hash its baseline was measured under, so a plain YAML edit
+        # retires the yardstick — see baseline_is_valid.
+        "config_hash": _h,
         "coverage_violations": coverage,
         "parity_violations": parity,
         "coverage_enforcing": cov_on,

@@ -1791,6 +1791,19 @@ approval remains for STRUCTURAL changes (code, data sources, risk env, going
 live). Live-money preconditions before this stays on with real dollars are
 recorded in docs/architecture.md "Phase 6d".
 
+The promotion YARDSTICK is retired by a config change, not only by a promotion.
+`baseline_is_valid` used to check three things — an applied promotion, window
+age, provenance — and none of them notice the way the owner actually changes the
+strategy: a YAML edit + deploy. A baseline measured under an edited config stayed
+"valid" forever, so every later candidate was gated against a config no longer
+running (the same ancestor-drift the promotion check exists to prevent, arriving
+by the manual route). It now also compares the baseline's `config_hash` against
+the LIVE one, read from bt-engine's `GET /gates/check` (bt-scheduler cannot see
+`/strategies`, so it asks the engine that would run it). FAIL-OPEN on unknown:
+either hash missing means unreadable, not different, and churning a multi-hour
+yardstick run on a probe timeout would do it exactly when the engine is least
+healthy.
+
 The watcher enforces `PROTECTED_PATHS` BEFORE the schema gate: it calls the
 validator's `/validate-llm-change` with the ACTIVE config as baseline and refuses
 any candidate that changes a protected field. Without this the partition was

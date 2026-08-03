@@ -217,7 +217,8 @@ def build_schedule(queued: list[dict], next_fire_iso: str,
 
 
 def baseline_is_valid(baseline: dict | None, applied_promotion_hash: str | None,
-                      today: date | None = None, max_age_days: int = 30
+                      today: date | None = None, max_age_days: int = 30,
+                      active_config_hash: str | None = None
                       ) -> tuple[bool, str]:
     """The promotion yardstick must measure the CURRENT champion. A baseline is
     stale once a promotion has actually been APPLIED live since it ran —
@@ -229,6 +230,21 @@ def baseline_is_valid(baseline: dict | None, applied_promotion_hash: str | None,
     if baseline.get("applied_promotion") != applied_promotion_hash:
         return False, ("baseline predates the live config (promotion "
                        f"{applied_promotion_hash}) — re-running the yardstick")
+    # A PROMOTION was the only way the yardstick could be retired, which missed
+    # the way the owner actually changes the strategy: a YAML edit + deploy. A
+    # baseline measured under an edited config stayed "valid" forever, so every
+    # later candidate was gated against a config that is no longer live — the
+    # same ancestor-drift the promotion check exists to prevent, arriving by the
+    # manual route. Concretely: a config live for two days during a portfolio
+    # migration would have become the permanent yardstick.
+    #
+    # FAIL-OPEN on unknown. Either hash missing means we could not read one, not
+    # that they differ, and retiring the yardstick on a probe timeout would churn
+    # a multi-hour run for nothing.
+    measured = baseline.get("config_hash")
+    if measured and active_config_hash and measured != active_config_hash:
+        return False, (f"baseline measured config {measured}, live is "
+                       f"{active_config_hash} — re-running the yardstick")
     # The pinned window is `windows` (period_a_start/period_a_end/
     # period_b_start/period_b_end) — EXACTLY the dict _experiment_lane stores and
     # compares for window-equality before gating. This used to read a
