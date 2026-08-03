@@ -35,7 +35,23 @@ description: "LIVE, 2026-08. A RANKING-LAYER rebuild from three independent line
   \ eligibility, so liquidity and earnings_surprise could admit or reject a security while\
   \ contributing nothing to its score \u2014 incoherent once their weights went to 0. Eligibility\
   \ is now precisely 'has momentum, quality and value', which is what required_factors already\
-  \ says; nothing hidden adds to it.\n"
+  \ says; nothing hidden adds to it.\n
+  \n2026-08-03 TEMPORARY CONVERGENCE WINDOW \u2014 exit_policy is target_diff, NOT
+  \ trailing_stop_only. REVERT IT after the book reaches 25 names (expected 2 builds).\n
+  \ Why: the live book was built by the OLD 35-name config, and stop-only has no
+  \ migration path from a portfolio it did not build. Target membership retires
+  \ nothing, so 23 held names sat permanently out of target while 13 target names
+  \ \u2014 including ranks #2 and #5 \u2014 queued as `watch` behind a full book. The
+  \ policy was frozen in the previous strategy while appearing to run this one, which
+  \ would have invalidated every week of live evidence collected in the meantime.\n
+  \ target_diff lets the orphan timer (orphan_confirmation_days=2) retire the 23 over
+  \ two builds; the 13 entries then fill and the book IS the v3 book. The trailing stop
+  \ stays ON throughout \u2014 both exits are additive, so nothing is unprotected during
+  \ the window.\n
+  \ REVERT: set delta_engine.exit_policy back to trailing_stop_only once the realized
+  \ book is 25 names. Leaving it on target_diff silently cancels the stop-only
+  \ experiment, because the orphan timer would keep retiring names on rank \u2014 the
+  \ exact coupling this strategy exists to remove.\n"
 universe:
   source: av_listing
   min_price: 5.0
@@ -164,7 +180,9 @@ delta_engine:
   rebalance_drift_threshold: 0.005
   rebalance_min_relative_drift: 0.15
   rebalance_min_trade_value: 250
-  exit_policy: trailing_stop_only
+  # TEMPORARY (2026-08-03) — see the convergence note in `description`.
+  # REVERT to trailing_stop_only once the realized book is 25 names.
+  exit_policy: target_diff
   drift_rebalance_enabled: false
 max_positions: 25
 min_score_percentile: 0.0
