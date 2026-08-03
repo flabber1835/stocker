@@ -113,10 +113,51 @@ for f in artifacts/bt/latest_sweep.json artifacts/bt/promotion.json; do
         echo "  removed $f"
     fi
 done
-# experiments.json is the lane's own scheduling state (weekly counters, queued
-# proposals). Its RESULTS are void but its queue is not, so the file is left in
-# place deliberately — bt-scheduler rewrites the result blocks on the next run.
-echo "  kept artifacts/bt/experiments.json (lane scheduling state, not results)"
+# experiments.json holds BOTH — the lane's scheduling state (weekly counters,
+# queued proposals) AND an embedded `result` block per finished experiment. The
+# file used to be skipped whole, on the claim that "bt-scheduler rewrites the
+# result blocks on the next run". That is only true of entries still RUNNING: a
+# finished entry keeps its result forever, and the BASELINE keeps its result as
+# the promotion yardstick. So void numbers survived the purge and kept reaching
+# the Lab tab, the evaluator packet's experiment_lane section, and the promotion
+# gate — by exactly the second route the paragraph above exists to close.
+#
+# So: strip the RESULTS, keep the SCHEDULE. fired_this_week() counts on
+# kind + fired_at, never on status or result, so the weekly multiple-testing
+# budget is preserved intact; a `pending` entry has no result and stays pending
+# so it still gets tested. Everything terminal is marked void, which makes
+# baseline_is_valid() return False and the lane re-run its yardstick against the
+# corrected corpus — the behaviour you want after a re-backfill anyway.
+EXP="artifacts/bt/experiments.json"
+if [ -f "$EXP" ]; then
+    python3 - "$EXP" <<'PYEOF'
+import json, sys
+path = sys.argv[1]
+try:
+    doc = json.load(open(path))
+except Exception as exc:
+    print(f"  could not parse {path} ({exc}) — left untouched")
+    raise SystemExit(0)
+exps = doc.get("experiments") or []
+voided = 0
+for e in exps:
+    if e.get("status") == "pending" and "result" not in e:
+        continue                      # queued, never ran — not void, still wanted
+    if any(k in e for k in ("result", "windows", "sweep_id")) or \
+            e.get("status") in ("running", "success", "failed", "tested"):
+        for k in ("result", "windows", "sweep_id"):
+            e.pop(k, None)
+        e["status"] = "void"
+        e["void_reason"] = "purged: scored against a corpus/simulator now known wrong"
+        voided += 1
+json.dump(doc, open(path, "w"), indent=2)
+print(f"  voided {voided} experiment result block(s) in {path}")
+print("  kept the queue and the weekly fire counters (fired_this_week keys on "
+      "kind + fired_at)")
+PYEOF
+else
+    echo "  no artifacts/bt/experiments.json — nothing to void"
+fi
 
 echo
 echo "Done."

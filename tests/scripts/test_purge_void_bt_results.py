@@ -101,10 +101,88 @@ def test_the_artifact_bridge_is_cleared_too(src):
     assert "promotion.json" in src
 
 
-def test_experiments_json_is_deliberately_kept(src):
-    """It holds the lane's scheduling state (weekly counters, queued proposals),
-    not results. Deleting it would silently reset the queue."""
-    assert "kept artifacts/bt/experiments.json" in src
+def test_experiments_json_is_kept_but_its_RESULTS_are_voided(src):
+    """The premise this test used to assert was simply false. It said
+    experiments.json holds "scheduling state, not results" — it holds BOTH: every
+    finished entry carries an embedded `result` block, and the BASELINE's is the
+    promotion yardstick. So the file was skipped whole and the void numbers kept
+    reaching the Lab tab, the evaluator's experiment_lane packet section AND the
+    promotion gate, by exactly the second route test_the_artifact_bridge_is_
+    cleared_too exists to close.
+
+    The file must survive (deleting it resets the queue and the weekly
+    multiple-testing budget) with its results stripped."""
+    assert "experiments.json" in src
+    assert 'rm -f "$EXP"' not in src and "rm -f artifacts/bt/experiments.json" not in src
+    assert "void" in src.lower()
+
+
+def _void_step(src: str) -> str:
+    """The experiments.json stanza, extracted so it can be RUN rather than
+    grepped — a purge asserted only by string matching is a purge nobody has
+    watched work."""
+    start = src.index('EXP="artifacts/bt/experiments.json"')
+    end = src.index("\nfi\n", start) + len("\nfi\n")
+    return src[start:end]
+
+
+def test_voiding_strips_results_but_preserves_the_SCHEDULE(src, tmp_path):
+    """The behavioural test. Three things must hold at once, and they pull in
+    opposite directions: void results must go, the weekly fire budget must NOT
+    reset (it bounds multiple testing against one shared price history), and a
+    queued-but-never-run candidate must survive to be tested."""
+    import json
+    import subprocess
+    import sys
+
+    (tmp_path / "artifacts" / "bt").mkdir(parents=True)
+    doc = {"experiments": [
+        {"kind": "baseline", "status": "success", "fired_at": "2026-08-03T22:00:00",
+         "sweep_id": "a", "windows": {"period_a_start": "2023-07-26"},
+         "result": {"period_a": {"cagr": 0.116}}},
+        {"kind": "full_config", "status": "success", "fired_at": "2026-08-04T22:00:00",
+         "sweep_id": "b", "windows": {}, "result": {"period_a": {"cagr": 0.09}}},
+        {"kind": "full_config", "status": "running", "fired_at": "2026-08-05T22:00:00",
+         "sweep_id": "c"},
+        {"kind": "full_config", "status": "pending", "queued_at": "2026-08-05T10:00:00"},
+    ]}
+    path = tmp_path / "artifacts" / "bt" / "experiments.json"
+    path.write_text(json.dumps(doc))
+
+    r = subprocess.run(["bash", "-c", _void_step(src)], cwd=tmp_path,
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+
+    out = json.loads(path.read_text())["experiments"]
+    assert not any("result" in e for e in out), "a void result survived the purge"
+    assert not any("sweep_id" in e for e in out), "a pointer to deleted sweep rows survived"
+
+    pending = [e for e in out if e["status"] == "pending"]
+    assert len(pending) == 1, "a queued candidate that never ran is not void"
+
+    # The STATUS must move too, not just the payload. The lane indexes
+    # `e["result"]` directly when status == "success", so an entry left
+    # "success" with its result stripped would KeyError on the next tick —
+    # trading a misleading number for a crash. (Caught by mutation testing: the
+    # assertions above all passed with the status change removed.)
+    terminal = [e for e in out if e["status"] != "pending"]
+    assert terminal and all(e["status"] == "void" for e in terminal)
+    assert all(e.get("void_reason") for e in terminal), (
+        "a voided entry must say WHY, or the next reader re-derives it wrongly")
+
+    # The weekly budget is counted from kind + fired_at, so voiding must not
+    # hand anyone free draws against the one shared history.
+    sys.path.insert(0, os.path.join(ROOT, "services", "bt-scheduler"))
+    from datetime import date
+
+    from app.logic import baseline_is_valid, fired_this_week
+    assert fired_this_week(out, date(2026, 8, 5)) == 2
+
+    # And the baseline must now read as unusable, so the lane re-measures its
+    # yardstick against the corrected corpus instead of gating on a void one.
+    base = next(e for e in out if e["kind"] == "baseline")
+    ok, _why = baseline_is_valid(base, None)
+    assert ok is False
 
 
 # ── safety behaviour ────────────────────────────────────────────────────────
