@@ -2856,17 +2856,22 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     # rank/builder failure must not be able to halve the book.
     crash_note = None
     cb_cfg = getattr(strategy, "crash_brake", None)
-    if (getattr(cb_cfg, "enabled", False) and actual_weights
+    # `live_weights` is the local; `actual_weights` is the PARAMETER NAME the
+    # engine functions take. Writing the parameter name here was a NameError that
+    # only fires when crash_brake.enabled is true — so it passed every test and
+    # every chain run until the day the feature was switched on live, then failed
+    # the delta step and left the book with no target and no proposals.
+    if (getattr(cb_cfg, "enabled", False) and live_weights
             and not anchor_degraded):
         try:
             from stock_strategy_shared.crash_brake import plan_exposure_moves
-            _uni = sorted({d.ticker for d in decisions.values()} | set(actual_weights))
+            _uni = sorted({d.ticker for d in decisions.values()} | set(live_weights))
             _state, _exposure = await _evaluate_crash_brake(cb_cfg, _uni, run_date)
             # Where the book is NOW, so a re-run does not double-cut: the prior
             # exposure is the book's realised gross weight, not an assumed 1.0.
-            _prev = sum(float(w) for w in actual_weights.values() if w) or 1.0
+            _prev = sum(float(w) for w in live_weights.values() if w) or 1.0
             _prev = min(1.0, max(0.05, _prev))
-            moves = plan_exposure_moves(actual_weights, _exposure,
+            moves = plan_exposure_moves(live_weights, _exposure,
                                         prev_exposure=_prev)
             crash_note = {"engaged": _state.engaged, "reason": _state.reason,
                           "market_return": _state.market_return,
