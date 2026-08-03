@@ -1522,7 +1522,15 @@ All pre-existing bt_sweeps / bt_sweep_results / bt_runs rows are VOID (this plus
 the `-96%` simulator bleed). The evaluator can read those tables, so purge them
 with `scripts/purge-void-bt-results.sh --yes` (dry-run by default; refuses while
 a job is in flight; deletes RESULTS tables only and clears the
-artifacts/bt/*.json bridge — never the source corpus).
+artifacts/bt/*.json bridge — never the source corpus). It ALSO voids the `result`
+blocks embedded in `artifacts/bt/experiments.json` while KEEPING the queue and the
+weekly fire counters: that file holds BOTH, and skipping it whole (the original
+behaviour) left void numbers reaching the Lab tab, the evaluator's
+`experiment_lane` packet section and the promotion gate by the file route the DB
+purge exists to close. Terminal entries become `status: void`; a `pending`
+candidate that never ran is untouched; `fired_this_week` keys on kind+fired_at so
+the multiple-testing budget does not reset; and `baseline_is_valid` then returns
+False, so the lane re-measures its yardstick against the corrected corpus.
 
 ### Wind-tunnel fidelity: the parity manifest
 
