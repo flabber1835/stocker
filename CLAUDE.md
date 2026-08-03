@@ -862,6 +862,28 @@ reads `done` not `idle`, and `test_no_step_uses_wall_clock_started_at`
 forbids any new wall-clock anchor — so a mis-chosen anchor fails in CI
 instead of looping in production.
 
+**A forced re-run must actually re-run (supersede guard).** A forced trigger is
+fire-and-forget: the supervisor POSTs `/jobs/*`, marks the step `running` in
+memory and returns. On the NEXT tick `_step_state` re-derives state from the
+service's `/runs/latest`, which still returns the PREVIOUS cycle's SUCCESSFUL
+run because the new one does not exist yet — so it reads `done` and the chain
+advances. Repeated down the chain this made run-now a SILENT NO-OP: five steps
+"complete" in ten seconds, no new `pipeline_runs` row, and
+`portfolio-builder: already running (409)` logged next to
+`portfolio-builder → done` (2026-08-02). `_force_pending` cannot prevent it — it
+records that a re-run was REQUESTED, not that one has STARTED. So a forced step
+now records the run_id seen AT TRIGGER TIME (`_forced_supersede`) and refuses a
+terminal state until the service reports a DIFFERENT one. Applies to `done` AND
+`failed`, which fail in opposite directions: a stale `done` walks past work that
+never ran, a stale `failed` SUSPENDS the chain on a step that was re-triggered
+fine (by then it is out of `_force_pending`, so no retry remains). An unreadable
+run_id (None) keeps WAITING rather than advancing — treating it as new would
+re-open the bug exactly when a service is least healthy.
+`FORCE_SUPERSEDE_TIMEOUT_SECS` (default 600) expires the wait so a trigger that
+never produced a run can't wedge the chain; the guard is cleared on session
+rollover and chain open alongside `_last_trigger_at`. Inert on the cron path
+(regular ticks never populate `_force_pending`).
+
 Trigger cooldown (`TRIGGER_COOLDOWN_SECS`, default 30s): when a step is
 `idle` the supervisor POSTs `/jobs/*` then waits a tick. There's a lag
 between accepting the trigger and the run row becoming visible as

@@ -657,16 +657,51 @@ async def _has_universe(client: httpx.AsyncClient) -> Optional[bool]:
 
 
 async def _get_latest_run_id(
-    client: httpx.AsyncClient, service_url: str, status_path: str = "/runs/latest"
+    client: httpx.AsyncClient, service_url: str, status_path: str = "/runs/latest",
+    job_type: str | None = None,
 ) -> Optional[str]:
-    """Return the run_id from the most recent run at this service, or None on failure."""
+    """Return the run_id from the most recent run at this service, or None on failure.
+
+    `job_type` scopes the poll server-side, exactly as _step_state does. Without
+    it av-ingestor's unscoped /runs/latest returns whatever ingest job ran most
+    recently, which is a different run than the one the caller is reasoning
+    about."""
     try:
-        r = await client.get(f"{service_url}{status_path}", timeout=10.0)
+        params = {"job_type": job_type} if job_type else None
+        r = await client.get(f"{service_url}{status_path}", params=params, timeout=10.0)
         if r.status_code == 200:
             return r.json().get("run_id")
     except Exception:
         pass
     return None
+
+
+# ── forced re-run supersede guard ────────────────────────────────────────────
+#
+# THE run-now no-op. A forced trigger is fire-and-forget: the supervisor POSTs
+# /jobs/*, marks the step 'running' in memory and returns. On the NEXT tick
+# _step_state re-derives state from the service's /runs/latest — which still
+# returns the PREVIOUS cycle's successful run, because the new one has not been
+# created yet. That reads 'done', so the chain advances to the next step, and
+# repeats: five steps "complete" in ten seconds while the jobs just triggered are
+# still starting. Observed in production as a run-now that changed nothing, with
+# `portfolio-builder: already running (409)` in the same log as
+# `portfolio-builder → done` — the proof that a real job was running when the
+# supervisor declared the step finished.
+#
+# So a forced step records the run_id it saw AT TRIGGER TIME and refuses to
+# accept 'done' until the service reports a DIFFERENT one. `_force_pending` alone
+# cannot do this: it says a re-run was REQUESTED, not that one has STARTED.
+#
+# step name → (run_id observed before triggering, monotonic timestamp)
+_forced_supersede: dict[str, tuple[Optional[str], float]] = {}
+# Give up waiting after this long and let the chain advance. The guard only has
+# to survive from "trigger accepted" to "new run row exists", which is seconds —
+# once the job is really running _step_state reports 'running' on its own. The
+# timeout exists so a trigger that silently never started can never WEDGE the
+# chain: a supervisor that waits forever is a worse failure than one that
+# advances too eagerly.
+FORCE_SUPERSEDE_TIMEOUT_SECS = float(os.getenv("FORCE_SUPERSEDE_TIMEOUT_SECS", "600"))
 
 
 async def _cancel_deferred_orders(client: httpx.AsyncClient, context: str = "pre-delta") -> bool:
@@ -1327,6 +1362,7 @@ async def _supervisor_tick() -> None:
             # either way — old monotonic stamps are already far past the window — but
             # this keeps the dict bounded and makes its "reset on chain open" contract true.
             _last_trigger_at.clear()
+            _forced_supersede.clear()
 
         # If this session's chain already completed (success/failed), skip — don't
         # re-open a redundant scheduler_runs row on every tick for the rest of the
@@ -1464,6 +1500,26 @@ async def _supervisor_tick() -> None:
                 else:
                     state = await _step_state(client, step, today, trading_day, prev_trading_day,
                                               latest_rank_date=latest_rank_date, session=session)
+                # A step we just force-triggered is NOT finished until a run
+                # newer than the one seen at trigger time exists. Applies to BOTH
+                # terminal states, and they fail in opposite directions: a stale
+                # 'done' makes the chain walk past work that never ran (the
+                # run-now no-op), while a stale 'failed' makes it SUSPEND on a
+                # step that was successfully re-triggered.
+                if state in ("done", "failed") and step.name in _forced_supersede:
+                    prior_id, since = _forced_supersede[step.name]
+                    current_id = await _get_latest_run_id(
+                        client, step.url, step.status_path, step.job_type)
+                    if current_id is not None and current_id != prior_id:
+                        _forced_supersede.pop(step.name, None)   # superseded — real re-run
+                    elif time.monotonic() - since > FORCE_SUPERSEDE_TIMEOUT_SECS:
+                        _forced_supersede.pop(step.name, None)
+                        _log(f"supervisor: {step.name} force-trigger never produced a new "
+                             f"run within {FORCE_SUPERSEDE_TIMEOUT_SECS:.0f}s — advancing "
+                             f"rather than wedging the chain")
+                    else:
+                        state = "running"
+
                 _chain_status["steps"][step.name] = state
                 _log(f"supervisor: {step.name} → {state}")
 
@@ -1482,9 +1538,15 @@ async def _supervisor_tick() -> None:
                         _log(f"supervisor: {step.name} already done for this session — "
                              f"skipping forced re-run (use ?refetch=true to force)")
                     else:
+                        # Capture what /runs/latest says BEFORE triggering, so the
+                        # supersede guard below can tell "the new run has not
+                        # appeared yet" from "the step is genuinely done".
+                        prior_run_id = await _get_latest_run_id(
+                            client, step.url, step.status_path, step.job_type)
                         ok = await _trigger_step(client, step, force=True)
                         if ok:
                             _force_pending.discard(step.name)
+                            _forced_supersede[step.name] = (prior_run_id, time.monotonic())
                             _chain_status["status"] = "running"
                             _chain_status["steps"][step.name] = "running"
                         else:
@@ -1530,9 +1592,17 @@ async def _supervisor_tick() -> None:
                     # Regular cron ticks never populate _force_pending, so a genuine
                     # failure on the daily schedule still halts the chain as before.
                     if step.name in _force_pending:
+                        prior_run_id = await _get_latest_run_id(
+                            client, step.url, step.status_path, step.job_type)
                         ok = await _trigger_step(client, step, force=True)
                         if ok:
                             _force_pending.discard(step.name)
+                            # Same guard as the done path, and it matters MORE here:
+                            # the failed row survives until the new run row exists, and
+                            # by then the step is no longer in _force_pending — so
+                            # without this the next tick reads 'failed' and SUSPENDS the
+                            # chain on a step that was successfully re-triggered.
+                            _forced_supersede[step.name] = (prior_run_id, time.monotonic())
                             _chain_status["status"] = "running"
                             _chain_status["steps"][step.name] = "running"
                             _log(f"supervisor: {step.name} was failed — force re-triggered by run-now")
@@ -2002,6 +2072,7 @@ async def run_now(background_tasks: BackgroundTasks, refetch: bool = False):
             "config_hash": None,   # re-pin: a manual run must use the CURRENT config
         })
         _last_trigger_at.clear()  # new chain opens → drop stale cooldown stamps (SCH-F2)
+        _forced_supersede.clear()  # ...and stale supersede waits from the prior chain
         # Every step stays eligible for the FAILED self-heal retry...
         _force_pending.update(s.name for s in _STEPS)
         # ...but a step already DONE for this session is only redone if it is not
