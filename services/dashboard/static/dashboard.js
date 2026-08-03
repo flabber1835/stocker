@@ -1453,8 +1453,22 @@ function _holdingStatus(r) {
 
   // No order yet — describe the standing decision.
   switch (r.action) {
-    case 'hold':
-      return { cls: 'hs-hold', text: 'Hold — in target portfolio' };
+    case 'hold': {
+      // 'hold' no longer implies membership. Under exit_policy=trailing_stop_only
+      // a name the builder DROPPED is still held — target membership does not
+      // retire a holding, the stop does — so the old unconditional "in target
+      // portfolio" label was false for every out-of-target position, and this
+      // panel contradicted the blotter beside it (which reports the real reason).
+      // `in_target` is the API's own delta-native answer (_intent_in_target):
+      // a hold is a target member only when current_weight > 0, because the
+      // engine sets current_weight = target_weight for in-target holds and
+      // leaves it 0 for held-but-dropped names. Reusing it rather than
+      // re-deriving keeps this label and the blotter's "Target ✓" tick from
+      // ever disagreeing.
+      return r.in_target
+        ? { cls: 'hs-hold', text: 'Hold — in target portfolio' }
+        : { cls: 'hs-hold', text: 'Hold — not in target; exit is the stop\u2019s decision' };
+    }
     case 'at_risk': {
       // Orphan counting down to a forced exit. confirmation_days_met counts builds
       // already orphaned; days remaining = confirmation_days - met.

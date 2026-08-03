@@ -1,10 +1,12 @@
 """Phase-2 evaluator tools — the safety guards each tool enforces regardless of
 what the LLM asks for: SQL read-only pre-check, repo path traversal/credential
 blocking, candidate-config validation, and the per-review backtest budget."""
+import json
 import os
 
 import pytest
 
+from app import tools
 from app.tools import (
     BacktestBudget,
     apply_config_changes,
@@ -281,3 +283,103 @@ def test_bt_query_reuses_the_read_only_sql_guards(monkeypatch):
               "UPDATE bt_runs SET status='x'"):
         out = asyncio.run(tools.bt_sql_query({"query": q}))
         assert out.startswith("query rejected"), (q, out)
+
+
+# ── sweep_postmortem ────────────────────────────────────────────────────────
+# The evaluator could already read bt_sweep_equity and bt_sweep_trades through
+# bt_sql_query, which is exactly why this tool exists: the alternative is the
+# model inventing its own attribution rule ("was that decline idiosyncratic?")
+# once per review, drifting from the one bt-engine applies. One rule, one place.
+
+class TestSweepPostmortem:
+    @pytest.mark.asyncio
+    async def test_it_disappears_when_the_wind_tunnel_is_unreachable(self, monkeypatch):
+        """The bt stack is a SEPARATE compose project and is legitimately down
+        during a live-only deploy. A missing peer must not put a tool in the list
+        that cannot work."""
+        monkeypatch.setattr(tools, "BT_ENGINE_URL", "")
+        names = {t["name"] for t in tools.tool_definitions()}
+        assert "sweep_postmortem" not in names
+
+    @pytest.mark.asyncio
+    async def test_it_is_offered_when_configured(self, monkeypatch):
+        monkeypatch.setattr(tools, "BT_ENGINE_URL", "http://bt:8000")
+        names = {t["name"] for t in tools.tool_definitions()}
+        assert "sweep_postmortem" in names
+
+    @pytest.mark.asyncio
+    async def test_unavailable_returns_a_message_not_an_exception(self, monkeypatch):
+        """Every tool degrades to a string — an exception would break the agent
+        loop and lose the whole review, not just one call."""
+        monkeypatch.setattr(tools, "BT_ENGINE_URL", "")
+        out = await tools.sweep_postmortem({})
+        assert "unavailable" in out.lower()
+
+    @pytest.mark.asyncio
+    async def test_a_bad_phase_is_refused_before_any_network_call(self, monkeypatch):
+        monkeypatch.setattr(tools, "BT_ENGINE_URL", "http://bt:8000")
+        out = await tools.sweep_postmortem({"phase": "whenever"})
+        assert "tune" in out and "validate" in out
+
+    @pytest.mark.asyncio
+    async def test_the_curve_is_dropped_by_default_and_kept_on_request(self, monkeypatch):
+        """A multi-config post-mortem carries ~24 months x N configs of numbers
+        the verdict already summarises. Default-off keeps it inside a sane token
+        budget without hiding it."""
+        payload = {"configs": {"0": {
+            "verdict": "DECLINED WITH THE MARKET",
+            "monthly_curve": [{"month": "2025-01"}],
+            "losing_months": [], "drawdown_shape": {}, "exit_mix_worst_months": {}}}}
+
+        class _Resp:
+            status_code = 200
+            text = ""
+
+            def json(self):
+                import copy
+                return copy.deepcopy(payload)
+
+        class _Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get(self, url, params=None):
+                return _Resp()
+
+        monkeypatch.setattr(tools, "BT_ENGINE_URL", "http://bt:8000")
+        monkeypatch.setattr(tools.httpx, "AsyncClient", lambda **kw: _Client())
+
+        lean = json.loads(await tools.sweep_postmortem({}))
+        assert "monthly_curve" not in lean["configs"]["0"]
+        assert lean["configs"]["0"]["verdict"]
+
+        full = json.loads(await tools.sweep_postmortem({"include_curve": True}))
+        assert full["configs"]["0"]["monthly_curve"]
+
+    @pytest.mark.asyncio
+    async def test_a_transport_failure_degrades_rather_than_raising(self, monkeypatch):
+        class _Boom:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get(self, url, params=None):
+                raise RuntimeError("connection refused")
+
+        monkeypatch.setattr(tools, "BT_ENGINE_URL", "http://bt:8000")
+        monkeypatch.setattr(tools.httpx, "AsyncClient", lambda **kw: _Boom())
+        out = await tools.sweep_postmortem({})
+        assert "unavailable" in out.lower() and "connection refused" in out
+
+    @pytest.mark.asyncio
+    async def test_it_is_reachable_through_the_dispatcher(self, monkeypatch):
+        """A tool the model can see but the router cannot reach is worse than no
+        tool — it burns a turn and returns an error."""
+        monkeypatch.setattr(tools, "BT_ENGINE_URL", "")
+        out = await tools.execute_tool("sweep_postmortem", {}, engine=None, budget=None)
+        assert "unavailable" in out.lower()

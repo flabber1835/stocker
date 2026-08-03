@@ -51,6 +51,10 @@ REPO_ROOT = os.getenv("EVALUATOR_REPO_ROOT", "/repo")
 # web_search without a Tavily key — a review must never fail because the
 # backtest machine is down.
 BT_DATABASE_URL = os.getenv("BT_DATABASE_URL", "")
+# bt-engine's HTTP surface, reached over its PUBLISHED host port — the same
+# isolation posture BT_DATABASE_URL already takes. Read-only endpoints only; the
+# evaluator can neither start a sweep nor recreate a container through it.
+BT_ENGINE_URL = os.getenv("BT_ENGINE_URL", "")
 
 MAX_BACKTESTS = int(os.getenv("EVALUATOR_MAX_BACKTESTS", "3"))
 BACKTEST_POLL_SECS = float(os.getenv("EVALUATOR_BACKTEST_POLL_SECS", "5"))
@@ -315,6 +319,52 @@ def tool_definitions() -> list[dict]:
             "required": ["config", "hypothesis", "mechanism"],
         },
     })
+    if BT_ENGINE_URL:
+        tools.append({
+            "name": "sweep_postmortem",
+            "description": (
+                "WHERE a wind-tunnel run lost, and whether the market lost with "
+                "it. A summary gives you CAGR, Sharpe and max drawdown; none of "
+                "them can tell a decline that happened alongside the benchmark "
+                "from one the book took on its own, and those call for opposite "
+                "responses — the first is the momentum rule behaving as designed, "
+                "the second needs a cause. Returns: the worst drawdown's peak and "
+                "trough dates and whether the run ENDED inside it (so you can see "
+                "whether a CAGR edge is an endpoint artifact); every losing month "
+                "classified `alone` / `with_market` / `lagged_rally` / `mild_lag` "
+                "with its gap vs the benchmark, ordered by GAP so the month least "
+                "explained by the market comes first; and the exit-mechanism mix "
+                "for the worst months. Read `delist_share` FIRST: a wave of "
+                "delist-sweep fills executes at delist_recovery_pct of the last "
+                "print BY ASSUMPTION rather than by trading, so a high share means "
+                "the loss is a simulator artifact and every behavioural reading of "
+                "it is moot. `lagged_rally` months are the rebound-lag signature — "
+                "the book did not lose money, it failed to participate. Use this "
+                "to author a BETTER next candidate instead of guessing which knob "
+                "caused a bad number."),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "sweep_id": {"type": "string", "description": (
+                        "Sweep UUID. Omit for the most recent sweep.")},
+                    "phase": {"type": "string", "enum": ["tune", "validate"],
+                              "description": (
+                                  "Which window. 'tune' is period A, 'validate' "
+                                  "is the held-out period B.")},
+                    "config_idx": {"type": "integer", "description": (
+                        "Restrict to one config. Omit to get every config in the "
+                        "sweep — a decline present in EVERY config is a property "
+                        "of the simulator or the corpus, one present in a single "
+                        "config is a property of that config, and only the "
+                        "comparison distinguishes them.")},
+                    "include_curve": {"type": "boolean", "description": (
+                        "Include the full month-by-month equity curve. Default "
+                        "false — the verdict and the losing months are the "
+                        "decision-relevant part and the curve is long.")},
+                },
+                "required": [],
+            },
+        })
     if BT_DATABASE_URL:
         tools.append({
             "name": "bt_sql_query",
@@ -704,6 +754,54 @@ async def sql_query(args: dict, *, engine) -> str:
     payload = {"rows": out_rows, "row_count": len(out_rows),
                "truncated_at_row_cap": capped}
     return _truncate(json.dumps(payload, default=str))
+
+
+# ── sweep_postmortem (wind-tunnel run SHAPE, read-only) ───────────────────────
+#
+# Deliberately an HTTP call to bt-engine rather than a re-derivation here. The
+# attribution rules (what counts as idiosyncratic, what counts as a missed rally,
+# where the delist-artifact threshold sits) live in ONE place —
+# services/bt-engine/app/postmortem.py — and re-implementing them in evaluator
+# SQL would give two answers that drift, which is the exact failure the parity
+# manifests and the shared strategy_engine exist to prevent.
+#
+# bt_sweep_equity / bt_sweep_trades ARE on the bt_sql_query allowlist, so the
+# model could assemble this itself. That is precisely why the tool exists: the
+# alternative is the LLM inventing an attribution rule per review.
+
+async def sweep_postmortem(args: dict) -> str:
+    """Best-effort: an unreachable wind tunnel degrades to a message, never an
+    exception. The bt stack is a separate compose project and is legitimately
+    down during a live-only deploy."""
+    if not BT_ENGINE_URL:
+        return ("sweep_postmortem unavailable: BT_ENGINE_URL not configured "
+                "(the wind-tunnel engine is not reachable from here)")
+    sweep_id = str(args.get("sweep_id") or "").strip()
+    phase = str(args.get("phase") or "tune")
+    if phase not in ("tune", "validate"):
+        return "phase must be 'tune' or 'validate'"
+    path = f"/sweeps/{sweep_id}/postmortem" if sweep_id else "/sweeps/latest/postmortem"
+    params = {"phase": phase}
+    if args.get("config_idx") is not None:
+        params["config_idx"] = int(args["config_idx"])
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.get(f"{BT_ENGINE_URL}{path}", params=params)
+        if r.status_code == 404:
+            return "no such sweep (or no sweeps recorded yet)"
+        if r.status_code != 200:
+            return f"wind tunnel returned HTTP {r.status_code}: {r.text[:300]}"
+        data = r.json()
+    except Exception as exc:  # noqa: BLE001 — a diagnostic must never break the loop
+        return f"sweep_postmortem unavailable: {exc}"
+
+    if not bool(args.get("include_curve")):
+        # The curve is ~24 rows per config of numbers the verdict already
+        # summarises. Dropping it by default keeps a multi-config post-mortem
+        # inside a sane token budget; the model can ask for it explicitly.
+        for cfg in (data.get("configs") or {}).values():
+            cfg.pop("monthly_curve", None)
+    return json.dumps(data)[:RESULT_CHAR_CAP]
 
 
 # ── bt_sql_query (wind-tunnel RESULTS, read-only) ─────────────────────────────
@@ -1302,6 +1400,8 @@ async def execute_tool(name: str, args: dict, *, engine, budget: BacktestBudget)
             return await sql_query(args, engine=engine)
         if name == "bt_sql_query":
             return await bt_sql_query(args)
+        if name == "sweep_postmortem":
+            return await sweep_postmortem(args)
         if name == "read_file":
             return await read_file(args)
         if name == "preview_ranking":

@@ -1718,6 +1718,20 @@ tools are for drill-down and testing a thesis BEFORE recommending it:
     single realised drawdown cannot see a tail that did not happen to fire. The
     rule is shared/stock_strategy_shared/wealth.py (NEW shared module ⇒ rebuild
     stocker-base). See docs/architecture.md "terminal-wealth distributions".
+  sweep_postmortem — WHERE a wind-tunnel run lost, and whether the market lost
+    with it. A summary cannot separate a decline that happened ALONGSIDE the
+    benchmark from one the book took ON ITS OWN, and those call for opposite
+    responses. Returns the worst drawdown's peak/trough and whether the run ENDED
+    inside it (a CAGR edge measured on a day one config was deep under water is an
+    ENDPOINT ARTIFACT), every losing month classified alone / with_market /
+    lagged_rally / mild_lag ordered by GAP, and the exit-mechanism mix.
+    `delist_share` is the artifact tell and outranks every behavioural reading.
+    Deliberately an HTTP call to bt-engine (`BT_ENGINE_URL`, its published host
+    port — same posture as `BT_DATABASE_URL`) rather than a re-derivation: the
+    attribution rules live ONCE in services/bt-engine/app/postmortem.py, and the
+    model could otherwise assemble this from bt_sweep_equity/bt_sweep_trades with
+    a rule it invents fresh each review. Unset ⇒ the tool disappears and the
+    prompt says so. See docs/architecture.md "the post-mortem".
   bt_sql_query — read-only SELECTs on the WIND TUNNEL's RESULTS tables
     (bt_sweeps, bt_sweep_results, bt_sweep_aggregates, bt_runs, bt_equity,
     bt_positions, bt_trades) so a review can explain WHY a candidate won and

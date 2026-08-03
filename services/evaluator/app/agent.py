@@ -80,6 +80,17 @@ TOOLS. You can now INVESTIGATE before concluding. Available tools:
   of only reporting that it failed. The raw price/fundamental corpus is NOT
   reachable — mining 20 years of history ad hoc would bypass the trials
   accounting that deflates your DSR.
+- sweep_postmortem: WHERE a wind-tunnel run lost, and whether the market lost with it.
+  A summary cannot separate a decline that happened ALONGSIDE the benchmark from one the
+  book took ON ITS OWN, and those call for opposite responses. Returns the worst
+  drawdown's peak/trough and whether the run ENDED inside it (a CAGR edge measured on a
+  day one config was deep under water is an ENDPOINT ARTIFACT, not an edge), every losing
+  month classified alone / with_market / lagged_rally / mild_lag ordered by GAP, and the
+  exit-mechanism mix. Read `delist_share` FIRST — a delist-sweep wave fills at
+  delist_recovery_pct of the last print BY ASSUMPTION, so a high share means the loss is a
+  simulator artifact and every behavioural reading of it is moot. Run it on a candidate
+  BEFORE authoring the next one: "which months, and why" beats guessing which knob caused
+  a bad number.
 - sql_query: read-only SELECTs on the live DB — drill into any packet anomaly (a factor's
   IC, a specific trade, what a dropped name did next) instead of speculating.
 - read_file: read the actual source/docs/strategies — ground structural findings in the
@@ -164,6 +175,15 @@ materially improved this review, say so in a structural finding with category
 it silently."""
 
 
+SWEEP_POSTMORTEM_UNAVAILABLE_NOTE = """
+
+NOTE: sweep_postmortem EXISTS but is UNAVAILABLE this run (no BT_ENGINE_URL, or the
+backtest machine is unreachable) — it is not in your tool list. You can therefore see
+THAT a candidate under- or out-performed but not WHERE, so do not attribute a result to
+a mechanism you could not check. If that materially limited this review, say so in a
+structural finding with category "tooling_gap"."""
+
+
 BT_SQL_UNAVAILABLE_NOTE = """
 
 NOTE: bt_sql_query EXISTS but is UNAVAILABLE this run (no BT_DATABASE_URL, or the
@@ -181,6 +201,8 @@ def build_system_prompt() -> str:
         system += WEB_SEARCH_UNAVAILABLE_NOTE
     if not _tools_mod.BT_DATABASE_URL:
         system += BT_SQL_UNAVAILABLE_NOTE
+    if not _tools_mod.BT_ENGINE_URL:
+        system += SWEEP_POSTMORTEM_UNAVAILABLE_NOTE
     return system
 
 

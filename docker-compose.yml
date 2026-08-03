@@ -607,6 +607,11 @@ services:
       # connection can neither trigger runs nor recreate containers. Unset the
       # variable and the tool simply disappears from the toolset.
       BT_DATABASE_URL: ${BT_DATABASE_URL:-postgresql+asyncpg://btuser:${BT_POSTGRES_PASSWORD:-btpass}@host.docker.internal:5434/backtest}
+      # bt-engine's READ-ONLY HTTP surface, same published-host-port posture as
+      # BT_DATABASE_URL above: no shared docker network, no lifecycle coupling,
+      # and nothing reachable through it can start a sweep or recreate a
+      # container. Unset it and sweep_postmortem disappears from the toolset.
+      BT_ENGINE_URL: ${BT_ENGINE_URL:-http://host.docker.internal:8031}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

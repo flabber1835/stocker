@@ -4441,3 +4441,70 @@ gross-profitability parity holding (needs the SF1 re-backfill first)
 
 Until then the recommendation stands as: migrate, eventually, on this evidence —
 and do not point the live chain at bt-postgres in the meantime.
+
+## Design Decision: the post-mortem — WHERE a run lost, not just how much (2026-08)
+
+A backtest summary reports CAGR, Sharpe and max drawdown. None of them can
+separate a decline that happened ALONGSIDE the benchmark from one the book took
+ON ITS OWN, and those call for opposite responses: the first is a momentum rule
+behaving as a long-only equity book must, the second needs a cause.
+
+Worse, the two are indistinguishable in the summary. Since `peak = final / (1 −
+maxDD)`, a run ending +24.5% with a 14.6% max drawdown is EQUALLY consistent
+with "peaked at +45.8% and gave it all back in the final weeks" and with "fell in
+April with everyone else and never rebounded". The question kept being asked and
+kept being answered with plausible reasoning instead of measurement.
+
+`GET /sweeps/{id}/postmortem` (and `/sweeps/latest/postmortem`) returns the
+diagnosis rather than the rows: month-end book vs benchmark, where the worst
+drawdown sits and whether the run ENDED inside it, every losing month classified,
+and the exit-mechanism mix for the worst months.
+
+**Read the verdict in this order** — it is ordered by what a finding would change,
+not by what is easiest to compute:
+
+```text
+delist_share       an ARTIFACT of delist_recovery_pct. Those fills execute at 70%
+                   of the last print BY ASSUMPTION, not by trading, so a high
+                   share makes every behavioural reading moot.
+alone              the book fell far more than the benchmark → look at the fills
+lagged_rally       the market rallied and the book did not follow → the
+                   rebound-lag signature; no money was lost, which is exactly why
+                   a loss-only view cannot see it
+with_market        the rule working as designed
+```
+
+### Two defects the first real run exposed
+
+Both were found by pointing v1 at an actual sweep, and both made it blind in the
+direction that mattered:
+
+1. **A shared DIRECTION is not a shared MAGNITUDE.** v1 asked "did the benchmark
+   also fall?" BEFORE asking how far apart they were, so December 2024 — the book
+   down 9.46% against SPY's 2.41%, a fourfold loss and the single most important
+   month in the run — was filed as an ordinary market decline with nothing to
+   investigate. The gap test now comes first, at 5pp (~2σ of monthly tracking
+   error for a 25-name book; 10pp was too permissive to ever fire).
+2. **A missed rally is invisible in a loss-only view.** A book that flatlines
+   through a market rally has not lost money, so the `LOSS_FLOOR` gate dropped the
+   month entirely — meaning the module could not see "failed to rebound", the
+   exact hypothesis it was written to test. A diagnostic blind to its prime
+   suspect is not a diagnostic.
+
+Months are ordered by GAP rather than raw loss: the month worth investigating is
+the one least explained by the market, and ordering by size puts a market-wide
+crash on top and buries the idiosyncratic one.
+
+### Why the evaluator reaches it over HTTP
+
+`bt_sweep_equity` and `bt_sweep_trades` are already on the evaluator's
+`bt_sql_query` allowlist, so the model COULD assemble this itself. That is
+precisely why the tool exists: the alternative is an LLM inventing an attribution
+rule ("was that decline idiosyncratic?") fresh each review, drifting from the one
+bt-engine applies. The rules live once, in
+`services/bt-engine/app/postmortem.py`, and the evaluator calls them —
+`BT_ENGINE_URL`, bt-engine's published host port, the same isolation posture
+`BT_DATABASE_URL` already takes. Read-only: nothing reachable through it can
+start a sweep or recreate a container. Unset ⇒ the tool disappears from the
+toolset and the prompt says so, so a review never silently attributes a result to
+a mechanism it could not check.

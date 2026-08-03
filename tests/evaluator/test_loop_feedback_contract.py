@@ -148,6 +148,10 @@ def test_tool_addendum_names_the_real_config_change_tool(monkeypatch):
     # absence is separately announced by WEB_SEARCH_UNAVAILABLE_NOTE).
     monkeypatch.setattr(tools, "TAVILY_API_KEY", "test-key")
     monkeypatch.setattr(tools, "BT_DATABASE_URL", "postgresql+asyncpg://u:p@h/db")
+    # Same reason: the wind-tunnel-gated tools are only in the list when their
+    # peer is configured, and this test compares the FULL documented surface.
+    # Their absence is separately announced by the *_UNAVAILABLE_NOTE blocks.
+    monkeypatch.setattr(tools, "BT_ENGINE_URL", "http://bt-engine:8000")
     names = {t["name"] for t in tools.tool_definitions()}
     assert "queue_strategy_experiment" in TOOLS_ADDENDUM
     assert "queued automatically" not in TOOLS_ADDENDUM
