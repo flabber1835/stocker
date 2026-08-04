@@ -74,7 +74,11 @@ echo "source : $SRC"
 echo "output : $OUT_DIR"
 echo
 
-docker run --rm \
+# -i is LOAD-BEARING. Without it docker does not attach stdin, so `python -`
+# reads an EMPTY program, runs nothing and exits 0 — the wrapper then renames an
+# empty .part directory into place and reports success. (That is exactly what
+# happened on the first real run: no output, no error, an empty folder.)
+docker run --rm -i \
     -e DATE_COL="$DATE_COL" \
     -e BASE="$BASE" \
     -v "$SRC:/in.zip:ro" \
@@ -175,8 +179,18 @@ if skipped:
     print(f"NOTE: {skipped:,} row(s) had no usable {want_col}", flush=True)
 PY
 
+# Never promote an empty split. The row-count assertion lives INSIDE the python,
+# which is worthless if the python never ran — the missing -i above proved that
+# the wrapper needs its own check on the one thing it can see from outside.
+N_PARTS="$(find "$OUT_DIR.part" -name '*.csv.gz' | wc -l)"
+if [ "$N_PARTS" -eq 0 ]; then
+    echo "the splitter produced no files — leaving $OUT_DIR.part for inspection" >&2
+    exit 1
+fi
+
 rm -rf "$OUT_DIR"
 mv "$OUT_DIR.part" "$OUT_DIR"
+echo "$N_PARTS year file(s) written"
 echo
 ls -lh "$OUT_DIR" | head -30
 echo

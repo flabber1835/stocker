@@ -12,6 +12,7 @@ import glob
 import gzip
 import io
 import os
+import re
 import subprocess
 import sys
 import zipfile
@@ -207,3 +208,51 @@ def test_the_source_zip_is_mounted_READ_ONLY(src):
     """A multi-GB download nobody wants to repeat. The splitter has no reason to
     be able to write to it."""
     assert '/in.zip:ro' in src
+
+
+# ── the wrapper, not the splitter ───────────────────────────────────────────
+# Every test above extracts the inline python and runs it directly, which is the
+# right way to test the splitting LOGIC and the exact reason the first real run
+# failed silently: `docker run` without -i does not attach stdin, so `python -`
+# read an empty program, ran nothing and exited 0. The wrapper then renamed an
+# empty .part directory into place and printed a success message.
+#
+# So these test the INVOCATION — the part no amount of splitter testing reaches.
+
+def test_docker_run_attaches_stdin_when_it_pipes_a_heredoc(src):
+    """THE bug. A heredoc feeds the container's stdin, which docker only wires up
+    with -i. Without it the program is empty and the run silently no-ops."""
+    assert "docker run --rm -i" in src, (
+        "docker run must pass -i when the program arrives on stdin, or `python -` "
+        "reads nothing and exits 0")
+
+
+def test_an_empty_result_is_a_FAILURE_not_a_success(src):
+    """The row-count assertion lives inside the python — worthless if the python
+    never ran. The wrapper needs its own check on the one thing it can observe
+    from outside: whether any files exist."""
+    guard = _guard_block(src)
+    assert guard, "no empty-output guard found"
+    assert "exit 1" in guard
+
+
+def _guard_block(src: str) -> str:
+    """The `if [ "$N_PARTS" -eq 0 ]` block, isolated. Splitting on the bare token
+    picks up the closing echo instead — which is how the first version of these
+    two tests failed on a script that was already correct."""
+    m = re.search(r'if \[ "\$N_PARTS" -eq 0 \].*?\nfi\n', src, re.S)
+    return m.group(0) if m else ""
+
+
+def test_a_failed_split_leaves_the_part_directory_for_inspection(src):
+    """Deleting the evidence on failure means the next person re-runs a multi-GB
+    job to see the same error."""
+    guard = _guard_block(src)
+    assert "leaving" in guard and ".part" in guard
+    assert src.index(guard) < src.index('mv "$OUT_DIR.part"')
+
+
+def test_the_promotion_happens_only_after_the_check(src):
+    """Ordering matters: renaming first and validating after would leave a bad
+    split at the real name."""
+    assert src.index("N_PARTS=") < src.index('mv "$OUT_DIR.part" "$OUT_DIR"')
