@@ -720,6 +720,111 @@ async def _distinct_tickers(conn, table: str) -> int:
     ))).scalar() or 0
 
 
+@app.post("/jobs/backfill-prices")
+async def start_price_backfill(background_tasks: BackgroundTasks,
+                               start_date: str, end_date: str,
+                               tickers: Optional[str] = None,
+                               force: bool = True):
+    """Re-run the SEP stage ALONE, IGNORING the completed-chunk markers.
+
+    `force=True` by DEFAULT, and that default is the whole point. /jobs/backfill
+    is chunk-resumable: it skips any year already marked complete, which is
+    correct for resuming an interrupted load and catastrophic for a REPLAY. Every
+    chunk of the price corpus is already marked complete, so a re-backfill run
+    the ordinary way skips all of them, writes nothing, reports success, and
+    leaves close_unadjusted NULL — the exact silent no-op that this endpoint
+    exists to avoid. A caller who genuinely wants resume semantics has to ask
+    for them.
+
+    IDEMPOTENT AND NON-DESTRUCTIVE: the upsert is ON CONFLICT (ticker, date) DO
+    UPDATE, so rows gain the column in place. Nothing is dropped, no volume is
+    touched, and an interrupted run leaves a PARTIALLY covered corpus rather
+    than a broken one — which is what GET /coverage/raw-close is for.
+
+    Shares the single-writer guard with backfill/topup.
+    """
+    global _job_active
+    try:
+        date.fromisoformat(start_date); date.fromisoformat(end_date)
+    except ValueError:
+        raise HTTPException(status_code=400,
+                            detail="start_date/end_date must be ISO YYYY-MM-DD")
+    if _job_active:
+        return {"status": "already_running",
+                "detail": "a backfill/topup is already in progress"}
+    _job_active = True
+
+    async def _guarded():
+        global _job_active
+        try:
+            await _run_price_stage(start_date, end_date, tickers, force=force)
+        finally:
+            _job_active = False
+
+    background_tasks.add_task(_guarded)
+    return {"status": "started", "stage": "bt_prices", "force": force,
+            "start_date": start_date, "end_date": end_date,
+            "tickers": tickers or "ALL", "mock": is_mock()}
+
+
+async def _run_price_stage(date_from: str, date_to: str,
+                           tickers: Optional[str], *, force: bool) -> None:
+    """The SEP stage on its own. Chunked by year and resumable within the run;
+    `force` decides whether PRIOR runs' completion markers are honoured."""
+    rid = await _open_run("backfill_prices", "bt_prices")
+    try:
+        done = set() if force else await _completed_chunks("bt_prices")
+        total, dmin, dmax = 0, None, None
+        for cf, ct in year_chunks(date_from, date_to):
+            marker = f"{_CHUNK_PREFIX}{cf}..{ct}:{tickers or 'ALL'}"
+            if marker in done and await _chunk_has_data(cf, ct):
+                print(f"[bt-data] prices chunk {cf}..{ct} skipped (force=False)",
+                      flush=True)
+                continue
+            crid = await _open_run("backfill_chunk", "bt_prices")
+            try:
+                ctotal, cdmin, cdmax = await asyncio.wait_for(
+                    _load_price_chunk(cf, ct, tickers), timeout=CHUNK_TIMEOUT_SECS)
+                await _close_run(crid, "success", ctotal, cdmin, cdmax, err=marker)
+                print(f"[bt-data] prices chunk {cf}..{ct} DONE ({ctotal} rows)",
+                      flush=True)
+            except Exception as exc:
+                await _close_run(crid, "failed", err=repr(exc)[:1500])
+                raise
+            total += ctotal
+            dmin = cdmin if dmin is None or (cdmin and cdmin < dmin) else dmin
+            dmax = cdmax if dmax is None or (cdmax and cdmax > dmax) else dmax
+        await _close_run(rid, "success", total, dmin, dmax)
+        await _bump_data_version("backfill-prices")
+    except Exception as exc:
+        await _close_run(rid, "failed", err=repr(exc)[:1500])
+        raise
+
+
+@app.get("/coverage/raw-close")
+async def raw_close_coverage(hash: bool = False,
+                             hash_start: str = "1990-01-01",
+                             hash_end: str = "2100-01-01"):
+    """Is the AS-TRADED price domain populated enough for Wealth Core?
+
+    Reported per SESSION and per TICKER, not as one number: a date range with no
+    coverage means the backfill did not reach that far and should be re-run,
+    while a ticker with no coverage means the vendor has none and re-running
+    changes nothing. 97% looks identical in aggregate either way.
+
+    `hash=1` additionally hashes the normalised price stream — the slow path,
+    since it reads every row — so a deployed backtester and wind tunnel can be
+    shown to be reading the same data rather than assumed to be.
+    """
+    from app.raw_close_coverage import build_report
+    async with engine.connect() as conn:
+        rep = await conn.run_sync(
+            lambda sync_conn: build_report(
+                sync_conn,
+                hash_range=(hash_start, hash_end) if hash else None))
+    return rep.to_dict()
+
+
 @app.get("/data/coverage")
 async def coverage():
     """Report how deep the stored data goes — the GO/NO-GO gate for choosing a

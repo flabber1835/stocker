@@ -248,6 +248,25 @@ CAVEATS: tuple[str, ...] = (
 )
 
 
+def run_normalized(*, sessions, bars_by_session, meta, starting_cash,
+                   cfg=None, eligibility_cfg=None, terminal_events=()):
+    """Run an ALREADY-NORMALISED stream and return the result plus the seven
+    parity hashes.
+
+    Split out from `run_wealth_core_replay` so the cross-engine parity test can
+    inject the shared golden stream instead of standing up a Sharadar corpus.
+    That split is what makes parity testable at all: the engines differ ONLY in
+    how they obtain bars, so the test has to be able to remove that difference
+    and confirm nothing else is left.
+    """
+    from stock_strategy_shared.wealth_core.run import run_with_hashes
+    return run_with_hashes(sessions=list(sessions),
+                           bars_by_session=bars_by_session, meta=meta,
+                           starting_cash=starting_cash, cfg=cfg,
+                           eligibility_cfg=eligibility_cfg,
+                           terminal_events=terminal_events)
+
+
 def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
                            terminal_events: Sequence[TerminalEvent] = ()
                            ) -> tuple[RunResult, dict]:
@@ -276,10 +295,10 @@ def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
                     "excluded: %s", len(unknown), unknown[:10])
         bars = {s: [b for b in v if b.security_id in meta] for s, v in bars.items()}
 
-    result = run_sessions(sessions=sessions, bars_by_session=bars, meta=meta,
-                          starting_cash=req.starting_cash, cfg=req.config,
-                          eligibility_cfg=req.eligibility,
-                          terminal_events=terminal_events)
+    result, hashes = run_normalized(
+        sessions=sessions, bars_by_session=bars, meta=meta,
+        starting_cash=req.starting_cash, cfg=req.config,
+        eligibility_cfg=req.eligibility, terminal_events=terminal_events)
 
     summary = {
         "sessions": len(sessions),
@@ -291,11 +310,12 @@ def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
         "blocked_sessions": len(result.blocked_sessions),
         "unfilled_at_end": len(result.unfilled_at_end),
         "result_hash": result.result_hash(),
+        "parity_hashes": hashes.to_dict(),
         "caveats": list(CAVEATS),
     }
     return result, summary
 
 
 __all__ = ["CAVEATS", "RawPriceDomainUnavailable", "WealthCoreReplayRequest",
-           "assert_raw_price_domain", "load_bars", "load_meta",
+           "assert_raw_price_domain", "load_bars", "load_meta", "run_normalized",
            "run_wealth_core_replay", "split_ratio_from_domains"]

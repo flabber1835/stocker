@@ -239,5 +239,20 @@ def run_sessions(*, sessions: Sequence[str],
     return out
 
 
-__all__ = ["RunResult", "TerminalEvent", "run_sessions", "STRATEGY_ID",
-           "STRATEGY_VERSION"]
+def run_with_hashes(**kw):
+    """`run_sessions` plus the seven parity hashes, in one call.
+
+    Every engine goes through THIS rather than calling run_sessions and hashing
+    itself. The point of the parity contract is that no engine gets to decide
+    what it hashes or how it rounds — an engine that computed its own hashes
+    could satisfy the contract while doing something different, which is the
+    failure mode the contract exists to detect.
+    """
+    from stock_strategy_shared.wealth_core.hashes import parity_hashes
+    result = run_sessions(**kw)
+    return result, parity_hashes(result, list(kw["sessions"]),
+                                 kw["bars_by_session"])
+
+
+__all__ = ["RunResult", "TerminalEvent", "run_sessions", "run_with_hashes",
+           "STRATEGY_ID", "STRATEGY_VERSION"]
