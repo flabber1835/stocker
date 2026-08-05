@@ -837,7 +837,8 @@ async def _run_price_stage(date_from: str, date_to: str,
 
 
 @app.get("/coverage/raw-close")
-async def raw_close_coverage(hash: bool = False,
+async def raw_close_coverage(exact: bool = False, hash: bool = False,
+                             sample_sessions: int = 40,
                              hash_start: str = "1990-01-01",
                              hash_end: str = "2100-01-01"):
     """Is the AS-TRADED price domain populated enough for Wealth Core?
@@ -847,7 +848,14 @@ async def raw_close_coverage(hash: bool = False,
     while a ticker with no coverage means the vendor has none and re-running
     changes nothing. 97% looks identical in aggregate either way.
 
-    `hash=1` additionally hashes the normalised price stream — the slow path,
+    FAST BY DEFAULT: planner row estimates, index-backed date bounds, and
+    coverage SAMPLED across ~40 dates spread over the range. The first version
+    scanned the whole 35M-row corpus and hit the statement timeout after ten
+    minutes, returning a 500 — a diagnostic failing in a way indistinguishable
+    from the fault it exists to diagnose.
+
+    `exact=1` runs the full scan for a caller who wants the real counts and can
+    wait. `hash=1` additionally hashes the normalised price stream — also slow,
     since it reads every row — so a deployed backtester and wind tunnel can be
     shown to be reading the same data rather than assumed to be.
     """
@@ -855,7 +863,7 @@ async def raw_close_coverage(hash: bool = False,
     async with engine.connect() as conn:
         rep = await conn.run_sync(
             lambda sync_conn: build_report(
-                sync_conn,
+                sync_conn, exact=exact, sample_sessions=sample_sessions,
                 hash_range=(hash_start, hash_end) if hash else None))
     return rep.to_dict()
 

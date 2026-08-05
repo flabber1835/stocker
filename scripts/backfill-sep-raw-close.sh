@@ -108,18 +108,27 @@ echo "${REPORT}" | python3 -m json.tool
 python3 - "$REPORT" <<'PY'
 import json, sys
 r = json.loads(sys.argv[1])
+if not r.get("column_present"):
+    print("\nbt_prices.close_unadjusted DOES NOT EXIST.", file=sys.stderr)
+    for n in r.get("notes", []):
+        print(f"  {n}", file=sys.stderr)
+    sys.exit(2)
 if not r.get("operational"):
     print("\nRAW-CLOSE COVERAGE IS NOT OPERATIONAL", file=sys.stderr)
-    print(f"  coverage        {r['coverage']:.4%}", file=sys.stderr)
-    print(f"  null rows       {r['rows_null']:,}", file=sys.stderr)
+    print(f"  coverage        {r['coverage']:.4%}"
+          f"{'' if r.get('exact') else '  (SAMPLED)'}", file=sys.stderr)
+    print(f"  rows (est)      {r.get('rows_total_estimate', 0):,}", file=sys.stderr)
     print(f"  unusable days   {r['sessions_unusable_count']:,} "
           f"(sample {r['sessions_unusable_sample'][:5]})", file=sys.stderr)
-    print(f"  uncovered names {r['tickers_uncovered_sample'][:10]}", file=sys.stderr)
+    print(f"  covered range   {r.get('first_covered_date')} .. "
+          f"{r.get('last_covered_date')}", file=sys.stderr)
     print("\nWealth Core marks the book in the AS-TRADED domain and will refuse "
-          "to run. Re-run this script for the missing DATE range; a ticker with "
-          "no closeunadj at all will not be fixed by re-running.", file=sys.stderr)
+          "to run. Re-run this script for the missing DATE range. For exact "
+          "counts and the per-ticker gaps (a full scan, minutes):", file=sys.stderr)
+    print("  curl -s 'localhost:8030/coverage/raw-close?exact=1'", file=sys.stderr)
     sys.exit(2)
-print(f"\nOPERATIONAL — coverage {r['coverage']:.4%}, "
+print(f"\nOPERATIONAL — coverage {r['coverage']:.4%}"
+      f"{'' if r.get('exact') else ' (SAMPLED)'}, "
       f"{r['first_covered_date']} .. {r['last_covered_date']}")
 print(f"normalized input hash: {r.get('normalized_input_hash')}")
 PY

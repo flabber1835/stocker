@@ -1,75 +1,93 @@
 """Coverage validation for the AS-TRADED price domain (`bt_prices.close_unadjusted`).
 
-The Wealth Core adapter refuses to run without this column, so somebody has to
-be able to answer "is it there yet?" without reading a backtest error. This
-module is that answer, and it reports per SESSION and per TICKER rather than as
-one percentage.
+The Wealth Core adapter refuses to run without this column, so somebody has to be
+able to answer "is it there yet?" without reading a backtest error.
 
-WHY BOTH BREAKDOWNS. A single corpus-wide number hides the two failure shapes
-that actually occur and that need opposite responses:
+IT MUST ANSWER IN SECONDS, AND THE FIRST VERSION DID NOT. It ran `COUNT(*)`,
+`COUNT(DISTINCT ticker)`, `GROUP BY date` and `GROUP BY ticker` across the whole
+35M-row corpus, and then the deploy pre-flight called it. On the NAS that hit the
+statement timeout after ten minutes and returned a 500 — a diagnostic that fails
+in a way indistinguishable from the fault it exists to diagnose. `/data/coverage`
+in this same service had already solved exactly this with planner estimates and
+index-backed dates; this now follows that precedent.
 
-    a DATE range with no coverage   the backfill did not reach that far back, or
-                                    died partway. Re-run it.
-    a TICKER with no coverage       the vendor has no closeunadj for that
-                                    security. Re-running changes nothing, and the
-                                    security has to be excluded or accepted as
-                                    unmarkable.
+    row counts       planner ESTIMATE (pg_class.reltuples), milliseconds
+    date bounds      index-backed MIN/MAX, exact
+    coverage         SAMPLED across ~40 dates spread over the range, each one an
+                     index lookup over a few thousand rows
+    ticker gaps      NOT in the fast path at all — that is a full GROUP BY
 
-97% coverage looks the same in aggregate whether the missing 3% is 2003 or is
-four hundred securities scattered across twenty years.
+WHY SAMPLING IS HONEST HERE. The question is "has the backfill populated this
+column?", whose real answers are ~0%, ~100%, or "it stopped somewhere". A sample
+spread across the whole date range distinguishes all three, and it distinguishes
+them the same way a full scan would, because coverage is a property of contiguous
+DATE RANGES — the backfill writes chunk by chunk. What sampling cannot see is a
+scattered handful of individual missing rows, which is exactly the case the
+engine already handles by refusing to trade a security with no print.
 
-THE INPUT HASH is over the NORMALISED price stream, not the raw rows. It answers
-"is the backtester and the wind tunnel reading the same data?" and it must not
-change when a column is renamed or a row is rewritten with identical values —
-those are not data changes, and a hash that moved on them would train everyone
-to ignore it.
+Every number is labelled `exact` or not, and `?exact=1` runs the real scan for a
+caller who genuinely wants it and can wait.
 """
 from __future__ import annotations
 
 import hashlib
 import json
 from dataclasses import dataclass, field
+from datetime import date as _date
 from typing import Any
 
 from sqlalchemy import text
 
-# A session below this is treated as UNUSABLE rather than partial. A day on
-# which most securities have no as-traded price cannot mark a portfolio, and
-# reporting it as "94% covered" invites someone to run on it anyway.
+# A session below this is treated as UNUSABLE rather than partial. A day on which
+# most securities have no as-traded price cannot mark a portfolio, and reporting
+# it as "94% covered" invites someone to run on it anyway.
 SESSION_USABLE_THRESHOLD = 0.95
 
-_OVERALL_SQL = text("""
+# Dates probed in the fast path. Enough to locate the boundary of a partial
+# backfill to within ~1/40th of the corpus, cheap enough to answer in seconds.
+SAMPLE_SESSIONS = 40
+
+# Applied per statement so a pathological plan degrades to "unknown" rather than
+# to a 500 ten minutes later.
+STATEMENT_TIMEOUT_MS = 15_000
+
+_COLUMN_EXISTS_SQL = text("""
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'bt_prices' AND column_name = 'close_unadjusted'
+""")
+
+_APPROX_ROWS_SQL = text(
+    "SELECT reltuples::bigint FROM pg_class WHERE relname = 'bt_prices'")
+
+_DATE_BOUNDS_SQL = text("SELECT MIN(date), MAX(date) FROM bt_prices")
+
+# Index-backed: the first real session at or after a target date.
+_NEAREST_SESSION_SQL = text("""
+    SELECT date FROM bt_prices WHERE date >= :target ORDER BY date LIMIT 1
+""")
+
+# One date, index-backed, a few thousand rows.
+_ONE_SESSION_SQL = text("""
+    SELECT COUNT(*) AS n, COUNT(close_unadjusted) AS n_raw
+      FROM bt_prices WHERE date = :d
+""")
+
+# EXACT mode only. This is the query that timed out.
+_EXACT_SQL = text("""
     SELECT COUNT(*) AS rows_total,
            COUNT(close_unadjusted) AS rows_with_raw,
-           COUNT(*) - COUNT(close_unadjusted) AS rows_null,
-           MIN(date) AS first_date,
-           MAX(date) AS last_date,
            MIN(date) FILTER (WHERE close_unadjusted IS NOT NULL) AS first_covered,
            MAX(date) FILTER (WHERE close_unadjusted IS NOT NULL) AS last_covered,
            COUNT(DISTINCT ticker) AS tickers_total
       FROM bt_prices
 """)
 
-_BY_SESSION_SQL = text("""
-    SELECT date,
-           COUNT(*) AS n,
-           COUNT(close_unadjusted) AS n_raw
-      FROM bt_prices
-     GROUP BY date
-     ORDER BY date
-""")
-
 _UNCOVERED_TICKERS_SQL = text("""
-    SELECT ticker, COUNT(*) AS n, COUNT(close_unadjusted) AS n_raw
-      FROM bt_prices
-     GROUP BY ticker
-    HAVING COUNT(close_unadjusted) = 0
-     ORDER BY ticker
-     LIMIT :limit
+    SELECT ticker FROM bt_prices
+     GROUP BY ticker HAVING COUNT(close_unadjusted) = 0
+     ORDER BY ticker LIMIT :limit
 """)
 
-# Ordered so the hash is a property of the DATA, never of the plan the database
-# chose. Reads only the three columns Wealth Core normalises from.
 _INPUT_SQL = text("""
     SELECT ticker, date, open, close, close_unadjusted, volume
       FROM bt_prices
@@ -80,42 +98,55 @@ _INPUT_SQL = text("""
 
 @dataclass
 class CoverageReport:
-    rows_total: int = 0
-    rows_with_raw: int = 0
-    rows_null: int = 0
+    column_present: bool = False
+    rows_total_estimate: int = 0
     first_date: Any = None
     last_date: Any = None
+    sampled: list[dict] = field(default_factory=list)
+    sessions_unusable: list[str] = field(default_factory=list)
+    exact: bool = False
+    rows_total: int | None = None
+    rows_with_raw: int | None = None
     first_covered_date: Any = None
     last_covered_date: Any = None
-    tickers_total: int = 0
+    tickers_total: int | None = None
     tickers_uncovered: list[str] = field(default_factory=list)
-    sessions_total: int = 0
-    sessions_fully_covered: int = 0
-    sessions_unusable: list[str] = field(default_factory=list)
     normalized_input_hash: str | None = None
+    notes: list[str] = field(default_factory=list)
 
     @property
     def coverage(self) -> float:
-        return 0.0 if not self.rows_total else self.rows_with_raw / self.rows_total
+        """Share of SAMPLED rows carrying an as-traded close (or the exact share
+        in exact mode). Zero when nothing was sampled — an unknown must never
+        read as full coverage."""
+        if self.exact and self.rows_total:
+            return (self.rows_with_raw or 0) / self.rows_total
+        n = sum(s["n"] for s in self.sampled)
+        return 0.0 if not n else sum(s["n_raw"] for s in self.sampled) / n
 
     @property
     def operational(self) -> bool:
         """Whether the Wealth Core adapter may be considered operational.
 
-        Deliberately strict on SESSIONS as well as on the overall rate: a run
-        cannot mark its book on a day most securities have no price for, however
-        good the corpus average looks.
+        Requires the column to EXIST, coverage at or above the floor, and no
+        sampled session below the per-session threshold — a run cannot mark its
+        book on a day most securities have no price for, however good the
+        average looks.
         """
-        return (self.rows_total > 0 and self.coverage >= 0.90
-                and not self.sessions_unusable)
+        return (self.column_present and bool(self.sampled)
+                and self.coverage >= 0.90 and not self.sessions_unusable)
 
     def to_dict(self) -> dict:
         return {
             "operational": self.operational,
+            "column_present": self.column_present,
             "coverage": round(self.coverage, 6),
+            "exact": self.exact,
+            "rows_total_estimate": self.rows_total_estimate,
             "rows_total": self.rows_total,
             "rows_with_raw_close": self.rows_with_raw,
-            "rows_null": self.rows_null,
+            "rows_null": (None if self.rows_total is None
+                          else self.rows_total - (self.rows_with_raw or 0)),
             "first_date": str(self.first_date) if self.first_date else None,
             "last_date": str(self.last_date) if self.last_date else None,
             "first_covered_date": (str(self.first_covered_date)
@@ -124,40 +155,92 @@ class CoverageReport:
                                   if self.last_covered_date else None),
             "tickers_total": self.tickers_total,
             "tickers_uncovered_sample": list(self.tickers_uncovered),
-            "sessions_total": self.sessions_total,
-            "sessions_fully_covered": self.sessions_fully_covered,
+            "sampled_sessions": self.sampled,
             "sessions_unusable_sample": list(self.sessions_unusable[:20]),
             "sessions_unusable_count": len(self.sessions_unusable),
             "normalized_input_hash": self.normalized_input_hash,
             "session_usable_threshold": SESSION_USABLE_THRESHOLD,
+            "notes": list(self.notes),
         }
 
 
-def build_report(conn, *, uncovered_ticker_limit: int = 50,
+def _guard(conn) -> None:
+    """Bound every statement. A diagnostic that hangs is worse than one that
+    says 'unknown', because the caller cannot tell it apart from the outage."""
+    conn.execute(text(f"SET LOCAL statement_timeout = {STATEMENT_TIMEOUT_MS}"))
+
+
+def _sample_dates(conn, lo: _date, hi: _date, n: int) -> list[_date]:
+    """`n` real sessions spread evenly across [lo, hi].
+
+    Targets are computed arithmetically and snapped to the next REAL session via
+    the date index, so no `DISTINCT date` over the whole table is ever needed.
+    """
+    if lo is None or hi is None:
+        return []
+    span = (hi - lo).days
+    out: list[_date] = []
+    seen: set[_date] = set()
+    for k in range(max(1, n)):
+        target = lo if n <= 1 else lo + __import__("datetime").timedelta(
+            days=round(span * k / (n - 1)))
+        got = conn.execute(_NEAREST_SESSION_SQL, {"target": target}).scalar()
+        if got is not None and got not in seen:
+            seen.add(got)
+            out.append(got)
+    return out
+
+
+def build_report(conn, *, sample_sessions: int = SAMPLE_SESSIONS,
+                 exact: bool = False, uncovered_ticker_limit: int = 50,
                  hash_range: tuple[str, str] | None = None) -> CoverageReport:
     rep = CoverageReport()
-    row = conn.execute(_OVERALL_SQL).mappings().first() or {}
-    rep.rows_total = row.get("rows_total") or 0
-    rep.rows_with_raw = row.get("rows_with_raw") or 0
-    rep.rows_null = row.get("rows_null") or 0
-    rep.first_date = row.get("first_date")
-    rep.last_date = row.get("last_date")
-    rep.first_covered_date = row.get("first_covered")
-    rep.last_covered_date = row.get("last_covered")
-    rep.tickers_total = row.get("tickers_total") or 0
+    _guard(conn)
 
-    for r in conn.execute(_BY_SESSION_SQL).mappings():
-        rep.sessions_total += 1
-        n, n_raw = (r["n"] or 0), (r["n_raw"] or 0)
+    rep.column_present = bool(conn.execute(_COLUMN_EXISTS_SQL).scalar())
+    if not rep.column_present:
+        rep.notes.append(
+            "bt_prices.close_unadjusted does not exist. bt-data re-applies "
+            "init_bt.sql on startup; check its log for schema failures.")
+        return rep
+
+    est = conn.execute(_APPROX_ROWS_SQL).scalar()
+    rep.rows_total_estimate = int(est) if est and est > 0 else 0
+
+    lo, hi = conn.execute(_DATE_BOUNDS_SQL).first() or (None, None)
+    rep.first_date, rep.last_date = lo, hi
+
+    for d in _sample_dates(conn, lo, hi, sample_sessions):
+        row = conn.execute(_ONE_SESSION_SQL, {"d": d}).mappings().first() or {}
+        n, n_raw = (row.get("n") or 0), (row.get("n_raw") or 0)
         share = 0.0 if not n else n_raw / n
-        if share >= 1.0:
-            rep.sessions_fully_covered += 1
+        rep.sampled.append({"date": str(d), "n": n, "n_raw": n_raw,
+                            "share": round(share, 6)})
         if share < SESSION_USABLE_THRESHOLD:
-            rep.sessions_unusable.append(str(r["date"]))
+            rep.sessions_unusable.append(str(d))
 
-    rep.tickers_uncovered = [
-        r["ticker"] for r in conn.execute(
-            _UNCOVERED_TICKERS_SQL, {"limit": uncovered_ticker_limit}).mappings()]
+    covered = [s for s in rep.sampled if s["n_raw"] > 0]
+    if covered:
+        rep.first_covered_date = covered[0]["date"]
+        rep.last_covered_date = covered[-1]["date"]
+    rep.notes.append(
+        f"SAMPLED {len(rep.sampled)} session(s); counts are estimates. Coverage "
+        f"is a property of contiguous date ranges because the backfill writes "
+        f"chunk by chunk, so a spread sample locates a partial backfill. Pass "
+        f"exact=1 for the full scan.")
+
+    if exact:
+        row = conn.execute(_EXACT_SQL).mappings().first() or {}
+        rep.exact = True
+        rep.rows_total = row.get("rows_total")
+        rep.rows_with_raw = row.get("rows_with_raw")
+        rep.first_covered_date = row.get("first_covered")
+        rep.last_covered_date = row.get("last_covered")
+        rep.tickers_total = row.get("tickers_total")
+        rep.tickers_uncovered = [
+            r["ticker"] for r in conn.execute(
+                _UNCOVERED_TICKERS_SQL,
+                {"limit": uncovered_ticker_limit}).mappings()]
 
     if hash_range:
         rep.normalized_input_hash = normalized_input_hash(conn, *hash_range)
@@ -184,5 +267,5 @@ def normalized_input_hash(conn, start: str, end: str) -> str:
     return h.hexdigest()
 
 
-__all__ = ["CoverageReport", "SESSION_USABLE_THRESHOLD", "build_report",
-           "normalized_input_hash"]
+__all__ = ["CoverageReport", "SAMPLE_SESSIONS", "SESSION_USABLE_THRESHOLD",
+           "STATEMENT_TIMEOUT_MS", "build_report", "normalized_input_hash"]
