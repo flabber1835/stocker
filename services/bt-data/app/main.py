@@ -64,13 +64,39 @@ engine = create_async_engine(
 _INIT_SQL = Path(__file__).resolve().parent.parent / "sql" / "init_bt.sql"
 
 
-async def _ensure_schema() -> None:
+async def _ensure_schema() -> list[str]:
     """Idempotently create the bt_* tables (so the service is self-sufficient even
-    if no migrator ran on the backtest box)."""
+    if no migrator ran on the backtest box).
+
+    ONE TRANSACTION PER STATEMENT, deliberately. The whole file used to run in a
+    single transaction, so ONE failing statement rolled back every other one —
+    and the caller swallowed the exception into a WARN, leaving a service that
+    reported healthy while missing columns it had just been told to add.
+
+    That is not hypothetical. An `ALTER TABLE bt_universe` was added ~60 lines
+    above the `CREATE TABLE bt_universe`, which fails on a fresh database; the
+    rollback then also reverted an unrelated `ALTER TABLE bt_prices ADD COLUMN
+    close_unadjusted`, and the first symptom was a 500 from a coverage endpoint
+    three deploy steps later. Per-statement transactions confine a bad statement
+    to itself.
+
+    Returns the failures rather than raising: this is a best-effort bootstrap
+    beside a real migrator, and refusing to serve because one idempotent ALTER
+    is unhappy would be worse. But they are RETURNED so the caller can log each
+    one individually instead of reporting "schema ensure failed" once.
+    """
     sql = _INIT_SQL.read_text()
-    async with engine.begin() as conn:
-        for stmt in [s.strip() for s in sql.split(";\n") if s.strip()]:
-            await conn.execute(text(stmt))
+    failures: list[str] = []
+    for stmt in [s.strip() for s in sql.split(";\n") if s.strip()]:
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(stmt))
+        except Exception as exc:
+            first = next((ln for ln in stmt.splitlines()
+                          if ln.strip() and not ln.strip().startswith("--")),
+                         stmt[:80])
+            failures.append(f"{first.strip()[:120]} -> {exc.__class__.__name__}: {exc}")
+    return failures
 
 
 @asynccontextmanager
@@ -93,8 +119,17 @@ async def lifespan(app: FastAPI):
         except Exception:
             await asyncio.sleep(2)
     try:
-        await _ensure_schema()
-        print("[bt-data] schema ensured", flush=True)
+        failures = await _ensure_schema()
+        if failures:
+            # Each one named. A single aggregate WARN made a schema bootstrap
+            # that had silently stopped applying half the file look identical to
+            # one that worked.
+            print(f"[bt-data] WARN {len(failures)} schema statement(s) FAILED — "
+                  f"columns they add are MISSING:", flush=True)
+            for f in failures:
+                print(f"[bt-data]   {f}", flush=True)
+        else:
+            print("[bt-data] schema ensured", flush=True)
     except Exception as exc:
         print(f"[bt-data] WARN schema ensure failed: {exc}", flush=True)
     yield

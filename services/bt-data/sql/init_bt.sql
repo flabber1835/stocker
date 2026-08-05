@@ -82,16 +82,6 @@ CREATE INDEX IF NOT EXISTS idx_bt_fundamentals_asof ON bt_fundamentals(as_of_dat
 -- Idempotent add for pre-existing DBs (bt-data re-applies this file on startup,
 -- so an existing bt-postgres picks the columns up without a manual migration —
 -- they stay NULL until the SF1 stage is re-backfilled).
--- Wealth Core v1 needs three TICKERS fields the mapper previously discarded:
--- `category` decides common-equity membership from its RAW string, and
--- permaticker/related_tickers are the ONLY non-heuristic route to issuer
--- identity. Idempotent adds, so an existing bt-postgres picks them up on
--- bt-data startup; they stay NULL until TICKERS is re-fetched.
-ALTER TABLE bt_universe
-    ADD COLUMN IF NOT EXISTS category        TEXT,
-    ADD COLUMN IF NOT EXISTS permaticker     TEXT,
-    ADD COLUMN IF NOT EXISTS related_tickers TEXT;
-
 ALTER TABLE bt_fundamentals
     ADD COLUMN IF NOT EXISTS market_cap               NUMERIC(24,2),
     ADD COLUMN IF NOT EXISTS shares_outstanding       NUMERIC(22,2),
@@ -167,6 +157,22 @@ ALTER TABLE bt_universe
     ADD COLUMN IF NOT EXISTS first_price_date DATE,
     ADD COLUMN IF NOT EXISTS last_price_date  DATE,
     ADD COLUMN IF NOT EXISTS is_delisted      BOOLEAN;
+
+-- Wealth Core v1 needs three TICKERS fields the mapper previously discarded:
+-- `category` decides common-equity membership from its RAW string, and
+-- permaticker/related_tickers are the ONLY non-heuristic route to issuer
+-- identity. Idempotent adds, so an existing bt-postgres picks them up on
+-- bt-data startup; they stay NULL until TICKERS is re-fetched.
+--
+-- POSITION MATTERS: this must sit AFTER the CREATE TABLE above. It was first
+-- written ~60 lines earlier, before bt_universe exists, so on a FRESH database
+-- it failed — and because the whole file ran in one transaction, that single
+-- failure rolled back every other statement in it, including an unrelated
+-- ALTER on bt_prices.
+ALTER TABLE bt_universe
+    ADD COLUMN IF NOT EXISTS category        TEXT,
+    ADD COLUMN IF NOT EXISTS permaticker     TEXT,
+    ADD COLUMN IF NOT EXISTS related_tickers TEXT;
 CREATE INDEX IF NOT EXISTS idx_bt_universe_window
     ON bt_universe(first_price_date, last_price_date);
 
