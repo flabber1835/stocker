@@ -57,15 +57,37 @@ if ! curl -fsS --max-time 10 "${BT_DATA_URL}/health" >/dev/null 2>&1; then
   fail "bt-data unhealthy"
 fi
 
-if ! curl -fsS --max-time 30 "${BT_DATA_URL}/coverage/raw-close" >/dev/null 2>&1; then
-  echo "bt-data answers /health but NOT /coverage/raw-close." >&2
-  echo "That endpoint ships with Wealth Core, so this container is running an" >&2
-  echo "image built before it. Restarting will not help — rebuild:" >&2
-  echo >&2
-  echo "  docker build --network host -t stocker-base:latest -f Dockerfile.base ." >&2
-  echo "  $BT_COMPOSE up -d --build bt-data" >&2
-  fail "bt-data image predates the coverage endpoint"
-fi
+# `curl -f` fails identically on 404 and 500, and those are opposite problems:
+# one means the image is old, the other means the image is current and the
+# request BROKE. Reporting either as "stale image" sends the reader to rebuild a
+# container that is already correct. So the status is read explicitly and the
+# body is shown — the traceback in it is the actual diagnosis.
+COV_BODY="$(mktemp)"
+COV_CODE="$(curl -sS -o "$COV_BODY" -w '%{http_code}' --max-time 60 \
+             "${BT_DATA_URL}/coverage/raw-close" 2>/dev/null || echo 000)"
+case "$COV_CODE" in
+  200) : ;;
+  404)
+    echo "bt-data answers /health but /coverage/raw-close is 404." >&2
+    echo "That endpoint ships with Wealth Core, so this container is running an" >&2
+    echo "image built before it. Restarting will not help — rebuild:" >&2
+    echo >&2
+    echo "  docker build --network host -t stocker-base:latest -f Dockerfile.base ." >&2
+    echo "  $BT_COMPOSE up -d --build bt-data" >&2
+    fail "bt-data image predates the coverage endpoint" ;;
+  *)
+    echo "/coverage/raw-close returned HTTP ${COV_CODE}. The endpoint EXISTS, so" >&2
+    echo "the image is current and the request itself failed. Body:" >&2
+    head -c 2000 "$COV_BODY" | sed 's/^/    /' >&2
+    echo >&2
+    echo "Most likely bt_prices.close_unadjusted does not exist yet. bt-data" >&2
+    echo "re-applies init_bt.sql on startup, so check that it did:" >&2
+    echo >&2
+    echo "  $BT_COMPOSE logs bt-data | grep -i 'init_bt\|ALTER\|close_unadj'" >&2
+    echo "  psql \"\$BT_DATABASE_URL\" -c '\\d bt_prices'   # is the column there?" >&2
+    fail "coverage endpoint errored (HTTP ${COV_CODE})" ;;
+esac
+rm -f "$COV_BODY"
 
 say "coverage BEFORE"
 curl -fsS "${BT_DATA_URL}/coverage/raw-close" | python3 -m json.tool
