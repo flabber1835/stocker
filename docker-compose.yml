@@ -5,6 +5,12 @@ services:
   postgres:
     image: postgres:16
     restart: unless-stopped
+    # See the note on bt-postgres: Docker's default 64MB /dev/shm is where
+    # PostgreSQL puts parallel-worker segments. The live tables are far smaller
+    # than the backtest corpus so this has not bitten here, but the default is
+    # a latent limit rather than a suitable value, and matching the two avoids
+    # the class of bug where a query works on one stack and not the other.
+    shm_size: 512mb
     # max_connections audited 2026-07 (external audit perf #14): worst-case sum of
     # every live-stack service's pool_size+max_overflow ≈ 102 (api 20, pipeline 15,
     # risk-service 30, av-ingestor 8, six services ~5 each, evaluator 4) plus a few

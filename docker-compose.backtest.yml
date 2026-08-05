@@ -35,6 +35,16 @@ services:
   bt-postgres:
     image: postgres:16
     restart: unless-stopped
+    # Docker gives a container 64MB of /dev/shm, and PostgreSQL allocates the
+    # per-worker segments a PARALLEL query needs there. On a 35M-row table any
+    # parallel plan wants more than that, and the failure is not a slow query —
+    # it is `could not resize shared memory segment ... No space left on device`,
+    # which reads like a full disk and is not one. Observed on VACUUM (ANALYZE)
+    # bt_prices.
+    #
+    # This is the corpus table every backtest reads, so the limit was throttling
+    # far more than the one command that finally named it.
+    shm_size: 1gb
     environment:
       POSTGRES_USER: btuser
       POSTGRES_PASSWORD: ${BT_POSTGRES_PASSWORD:-btpass}
