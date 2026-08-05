@@ -308,3 +308,20 @@ def test_the_expensive_queries_are_confined_to_the_exact_branch():
             parents = [p for p in ast.walk(fn)
                        if isinstance(p, ast.If) and node in ast.walk(p)]
             assert parents, f"{node.id} is used outside any conditional"
+
+
+def test_the_endpoint_default_matches_the_module_constant():
+    """Two places holding the same number drift. They did: the endpoint probed
+    40 sessions while the module said 12, so the deployed cost was over three
+    times what the constant claimed."""
+    import ast
+    main = (pathlib.Path(__file__).resolve().parents[2] / "services" / "bt-data"
+            / "app" / "main.py")
+    tree = ast.parse(main.read_text())
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+              and n.name == "raw_close_coverage")
+    idx = [a.arg for a in fn.args.args].index("sample_sessions")
+    default = fn.args.defaults[idx - (len(fn.args.args) - len(fn.args.defaults))]
+    assert isinstance(default, ast.Name), (
+        "sample_sessions must default to the module constant, not a literal")

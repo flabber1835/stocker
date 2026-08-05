@@ -63,6 +63,8 @@ engine = create_async_engine(
 
 _INIT_SQL = Path(__file__).resolve().parent.parent / "sql" / "init_bt.sql"
 
+from app.raw_close_coverage import SAMPLE_SESSIONS as _WC_SAMPLE_SESSIONS
+
 
 async def _ensure_schema() -> list[str]:
     """Idempotently create the bt_* tables (so the service is self-sufficient even
@@ -838,7 +840,11 @@ async def _run_price_stage(date_from: str, date_to: str,
 
 @app.get("/coverage/raw-close")
 async def raw_close_coverage(exact: bool = False, hash: bool = False,
-                             sample_sessions: int = 40,
+                             # Defaults to the module constant rather than a
+                             # literal: two places holding the same number is
+                             # how the endpoint ended up probing 40 sessions
+                             # while the module said 12.
+                             sample_sessions: int = _WC_SAMPLE_SESSIONS,
                              hash_start: str = "1990-01-01",
                              hash_end: str = "2100-01-01"):
     """Is the AS-TRADED price domain populated enough for Wealth Core?
