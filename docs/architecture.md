@@ -4508,3 +4508,39 @@ bt-engine applies. The rules live once, in
 start a sweep or recreate a container. Unset ⇒ the tool disappears from the
 toolset and the prompt says so, so a review never silently attributes a result to
 a mechanism it could not check.
+
+## Design Decision: Wealth Core is a stateful-ownership strategy, not a target portfolio
+
+Wealth Core (`stocker_wealth_core_v1`) cannot run on the daily chain, and the
+reason is structural rather than a matter of tuning. The chain is a
+target-portfolio system: it recomputes a normalised target from scratch each day
+and diffs it against the broker, which is precisely what makes it robust —
+nothing depends on remembering yesterday.
+
+Wealth Core depends on remembering yesterday. Position age (the one-time review
+fires at 119 sessions), the permanent review-passed flag, the episode peak the
+trailing stop measures from, both 21-session cooldowns, and the slot reservation
+behind a queued entry are all path-dependent and none can be recovered from a
+target. Running it through the target-diff path would produce a book that looked
+plausible every day and was a different strategy after the first restart.
+
+So the scheduler gained an explicit `execution_model` (`target_portfolio` |
+`stateful_ownership`) selecting between two DISJOINT chains. A config naming an
+unknown model is refused rather than defaulted: a target-diff chain pointed at a
+stateful book would have the delta engine propose selling every position it did
+not recognise. The field is TOP-LEVEL for the same reason `trailing_stop` is —
+nested, it would fall into the region config-replay and the parity manifests
+treat as inert.
+
+The strategy itself lives ONCE, in `shared/stock_strategy_shared/wealth_core/`.
+The backtester, the wind tunnel and the live book all call `run_sessions` and
+differ only in where `VendorBar`s come from; parity is proven by injecting the
+shared golden scenario into all three and requiring seven ordered hashes to
+match, where the first mismatch names the layer at fault. The wind tunnel refuses
+to score anything when it diverges — a tunnel that has drifted from the
+backtester reports on a strategy nobody is running, which is the same failure the
+factor-coverage contract was written after.
+
+Full design, the four price domains, the fail-closed rules, the two named
+ordering conventions and the known reproduction differences:
+**docs/wealth-core-v1.md**.
