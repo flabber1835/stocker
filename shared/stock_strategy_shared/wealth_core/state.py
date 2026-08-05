@@ -135,8 +135,15 @@ class SlotState:
     (spec §10) — the slot stays cash even if a different security would be
     happy to fill it, which is why the two cannot be collapsed into one."""
     slot_id: int
-    occupied_by: str | None = None          # security_id
+    occupied_by: str | None = None          # security_id, once FILLED
     cooldown_sessions_elapsed: int | None = None   # None = not cooling
+    # Claimed by a queued-but-unfilled entry. A separate field from
+    # `occupied_by` because the two are genuinely different states: the slot
+    # holds no shares, contributes nothing to equity and can still be released,
+    # but it is NOT available to another candidate.
+    reserved_for: str | None = None         # security_id
+    reserved_ticker: str | None = None
+    reserved_issuer: str | None = None
 
     @property
     def in_cooldown(self) -> bool:
@@ -145,11 +152,30 @@ class SlotState:
 
     @property
     def ready(self) -> bool:
-        """A genuine vacancy: empty AND out of cooldown."""
-        return self.occupied_by is None and not self.in_cooldown
+        """A genuine vacancy: empty, UNRESERVED, and out of cooldown.
+
+        The reservation term is load-bearing. Without it a slot whose entry
+        order has not filled yet still reads as free, so the next session hands
+        the same vacancy to the next candidate — and a security that stays
+        untradeable for N sessions accumulates N entry orders against N slots,
+        every one of which fills the moment it trades again. Observed: 13 queued
+        buys for one security, ~52% of the book in a strategy whose risk model
+        is 4% per name.
+        """
+        return (self.occupied_by is None and self.reserved_for is None
+                and not self.in_cooldown)
+
+    def reserve(self, security_id: str, ticker: str, issuer_id: str) -> None:
+        self.reserved_for = security_id
+        self.reserved_ticker = ticker
+        self.reserved_issuer = issuer_id
+
+    def release_reservation(self) -> None:
+        self.reserved_for = self.reserved_ticker = self.reserved_issuer = None
 
     def start_cooldown(self) -> None:
         self.occupied_by = None
+        self.release_reservation()
         self.cooldown_sessions_elapsed = 0
 
     def age_cooldown(self) -> None:
@@ -198,6 +224,22 @@ class PortfolioState:
         chosen slot depend on dict iteration, and the slot id ends up in the
         decision hash."""
         return sorted(s.slot_id for s in self.slots.values() if s.ready)
+
+    def reserved_security_ids(self) -> set[str]:
+        """Securities with a queued-but-unfilled entry. They are NOT held — they
+        contribute nothing to equity — but they are already spoken for, so a
+        later session must not select them again."""
+        return {s.reserved_for for s in self.slots.values() if s.reserved_for}
+
+    def reserved_issuer_ids(self) -> set[str]:
+        return {s.reserved_issuer for s in self.slots.values() if s.reserved_issuer}
+
+    def reserved_tickers(self) -> set[str]:
+        return {s.reserved_ticker for s in self.slots.values() if s.reserved_ticker}
+
+    def reserve_slot(self, slot_id: int, security_id: str, ticker: str,
+                     issuer_id: str) -> None:
+        self.slots[slot_id].reserve(security_id, ticker, issuer_id)
 
     def shares_by_security(self) -> dict[str, int]:
         return {e.security_id: e.current_shares for e in self.episodes.values()}

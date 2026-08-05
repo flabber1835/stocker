@@ -261,6 +261,24 @@ def whole_shares(equity: float, price: float, cash: float,
     return max(0, shares)
 
 
+def affordable_shares(cash: float, price: float | None,
+                      cfg: WealthCoreConfig) -> int:
+    """Whole shares `cash` can actually pay for AT THIS PRICE, cost included.
+
+    Separate from `whole_shares` because they answer different questions at
+    different times. `whole_shares` sizes the POSITION against 4% of equity when
+    the decision is made, on session t's close. This one is applied when the
+    order FILLS, at session t+1's open — and the open can gap above the close
+    the size was computed from, which overdraws by the gap. Observed in the
+    golden run before this existed: a fully-invested book finished on NEGATIVE
+    cash, which is leverage the strategy does not have.
+    """
+    if price is None or price <= 0 or cash <= 0:
+        return 0
+    per_share = price * (1.0 + cfg.transaction_cost_bps / 10_000.0)
+    return max(0, int(cash // per_share))
+
+
 def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
            marks: Mapping[str, "Mark"], cfg: WealthCoreConfig,
            strategy_id: str, strategy_version: int) -> Decision:
@@ -364,8 +382,14 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
     # Slots emptying at the same open are NOT reusable this session: their cash
     # is not available until the sale executes, and the spec forbids implicitly
     # replacing a position using same-open information.
-    pending_secs = {state.episodes[i].security_id for i in exiting}
-    pending_issuers = {state.episodes[i].issuer_id for i in exiting}
+    # A security is unavailable if it is exiting at the same open OR if an
+    # earlier session already queued an entry for it that has not filled. The
+    # second term is what stops one untradeable name accumulating an entry order
+    # per session, each against its own slot.
+    pending_secs = ({state.episodes[i].security_id for i in exiting}
+                    | state.reserved_security_ids())
+    pending_issuers = ({state.episodes[i].issuer_id for i in exiting}
+                       | state.reserved_issuer_ids())
 
     ranked = rank_candidates(scored)
     d.ranked_candidate_count = len(ranked)
@@ -415,6 +439,11 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
             reject(cand, Reason.REJECT_INSUFFICIENT_CASH, price=px)
             continue
         slot_id = ready.pop(0)
+        # RESERVE now, not at fill. The order may not fill for many sessions and
+        # the slot must be unavailable for every one of them; because the
+        # reservation lives in PortfolioState it also survives a restart, which
+        # a queue-side guard alone would not.
+        state.reserve_slot(slot_id, cand.security_id, cand.ticker, issuer)
         d.operations.append(Op(Operation.OPEN_SLOT_POSITION, Reason.ENTRY_DURABLE_RANK,
                                slot_id, cand.security_id, cand.ticker, shares,
                                {"durable_score": cand.score, "momentum": cand.momentum,
@@ -440,6 +469,7 @@ def apply_entry(state: PortfolioState, *, op: Op, session: str, signal_session: 
     cost = op.shares * raw_open * (1.0 + cfg.transaction_cost_bps / 10_000.0)
     state.cash -= cost
     state.slots[op.slot_id].occupied_by = op.security_id
+    state.slots[op.slot_id].release_reservation()   # the claim became a holding
     state.episodes[op.slot_id] = HoldingEpisode(
         security_id=op.security_id, ticker=op.ticker, issuer_id=issuer_id,
         slot_id=op.slot_id, signal_date=signal_session, entry_date=session,

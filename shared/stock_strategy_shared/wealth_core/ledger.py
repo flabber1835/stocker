@@ -106,6 +106,27 @@ class Ledger:
         self.receivables.clear()
         return cash, out
 
+    def to_dict(self) -> dict:
+        """Serialise for a restart. `receivables` is included and must be — an
+        accrued dividend that has not settled is money the book is owed, and
+        dropping it across a restart silently loses cash that the reconciliation
+        would then report as a divergence with no cause."""
+        return {"events": [e.to_dict() for e in self.events],
+                "receivables": {k: self.receivables[k] for k in sorted(self.receivables)}}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Ledger":
+        return cls(events=[LedgerEvent(
+                       session=e["session"],
+                       event_type=EventType(e["event_type"]),
+                       security_id=e["security_id"], ticker=e["ticker"],
+                       shares_delta=e["shares_delta"], cash_delta=e["cash_delta"],
+                       price=e["price"], fees=e["fees"],
+                       cash_before=e["cash_before"], cash_after=e["cash_after"],
+                       reason=e["reason"], detail=dict(e.get("detail") or {}))
+                   for e in d.get("events", [])],
+                   receivables=dict(d.get("receivables") or {}))
+
     def ledger_hash(self) -> str:
         blob = json.dumps([e.to_dict() for e in self.events], sort_keys=True,
                           separators=(",", ":"), default=str)

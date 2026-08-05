@@ -1,0 +1,33 @@
+{
+  "_comment": "Pinned by tests/wealth_core/repin_golden.py. A change here means the strategy's output moved; explain it in the commit.",
+  "blocked_sessions": [
+    "S170",
+    "S175",
+    "S176",
+    "S177",
+    "S178",
+    "S179",
+    "S182",
+    "S183",
+    "S184"
+  ],
+  "final_cash": 9.43,
+  "final_positions": 24,
+  "final_state_hash": "9b1a69bd75e31412",
+  "ledger_event_counts": {
+    "BUY": 29,
+    "CASH_MERGER": 1,
+    "DIVIDEND_ACCRUED": 1,
+    "DIVIDEND_PAID": 1,
+    "SELL": 3,
+    "SPLIT": 1,
+    "WRITE_OFF": 1
+  },
+  "ledger_hash": "38a6b08411124955",
+  "result_hash": "ef654c5987c1d046cd32c8023563e2b18fab45ed2da2864a2e392bfe6623f802",
+  "securities": 121,
+  "sessions": 260,
+  "starting_cash": 1000000.0,
+  "strategy_id": "stocker_wealth_core_v1",
+  "strategy_version": 1
+}

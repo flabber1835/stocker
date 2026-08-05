@@ -438,12 +438,19 @@ class TestSerialisationAndReplay:
         st = self._mid_flight()
         bars = [SecurityBar("S1", "T1", "I_S1", rising()), bar(5)]
         marks = cur(S1=150.0, S2=55.0, S5=120.0)
+        # Snapshot BEFORE deciding. `decide` mutates state — it sets exit_pending
+        # and reserves the slot behind an admission — so round-tripping the state
+        # afterwards would hand the replay the CONSEQUENCES of the first decision
+        # and compare two different inputs.
+        restarted = PortfolioState.from_dict(st.to_dict())
         a = decide(session="s", state=st, bars=bars, marks=marks, cfg=CFG,
                    strategy_id=SID, strategy_version=VER)
-        b = decide(session="s", state=PortfolioState.from_dict(st.to_dict()),
-                   bars=bars, marks=marks, cfg=CFG, strategy_id=SID,
-                   strategy_version=VER)
+        b = decide(session="s", state=restarted, bars=bars, marks=marks, cfg=CFG,
+                   strategy_id=SID, strategy_version=VER)
         assert a.decision_hash() == b.decision_hash()
+        # And the mutation itself must survive the round trip, or a restart
+        # re-hands the reserved slot to the next candidate.
+        assert st.to_dict()["slots"] == restarted.to_dict()["slots"]
 
     def test_the_state_hash_is_order_independent(self):
         """A hash that depends on dict insertion order would differ between a

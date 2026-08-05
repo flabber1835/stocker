@@ -32,6 +32,7 @@ from stock_strategy_shared.wealth_core.engine import (
     Operation,
     SecurityBar,
     WealthCoreConfig,
+    affordable_shares,
     apply_entry,
     apply_exit,
     decide,
@@ -59,6 +60,24 @@ class PendingOrder:
     reason: str
     sessions_waiting: int = 0
 
+    def to_dict(self) -> dict:
+        """Serialise for a restart. `sessions_waiting` is part of the state, not
+        a statistic: an order that has waited eleven sessions and one queued
+        yesterday are different facts, and resetting the counter across a
+        restart hides a security that has become untradeable."""
+        return {"operation": self.operation.value, "security_id": self.security_id,
+                "ticker": self.ticker, "slot_id": self.slot_id,
+                "shares": self.shares, "signal_session": self.signal_session,
+                "reason": self.reason, "sessions_waiting": self.sessions_waiting}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "PendingOrder":
+        return cls(operation=Operation(d["operation"]),
+                   security_id=d["security_id"], ticker=d["ticker"],
+                   slot_id=d["slot_id"], shares=d["shares"],
+                   signal_session=d["signal_session"], reason=d["reason"],
+                   sessions_waiting=d.get("sessions_waiting", 0))
+
 
 @dataclass
 class SessionResult:
@@ -68,6 +87,10 @@ class SessionResult:
     resolved_equity: float | None = None
     estimated_equity: float = 0.0
     blocked: bool = False
+    # Orders that reached a tradeable open but could not be paid for. Reported
+    # rather than silently dropped: a cancelled entry leaves a slot empty for
+    # reasons that have nothing to do with the strategy's opinion of the name.
+    cancelled: list[dict] = field(default_factory=list)
 
 
 def build_marks(bars: Sequence[DailyBar], held: set[str],
@@ -176,13 +199,37 @@ def cash_merger(state: PortfolioState, *, security_id: str, per_share: float,
         state.ticker_cooldowns[ep.ticker] = 0
 
 
+def tradeability_only_bars(bars: Sequence[DailyBar],
+                           windows: Mapping[str, Sequence[float]] | None
+                           ) -> list[SecurityBar]:
+    """SecurityBars whose `eligible` flag is TRADEABILITY, not §1 eligibility.
+
+    Named this way because it is not the strategy: it admits sub-$1 securities,
+    preferreds, ETFs and warrants — anything with a fillable open. It exists for
+    engine-level tests that are about ordering rather than about the universe,
+    and a caller has to say the word "tradeability" to get it, so the conflation
+    the eligibility engine was extracted to end cannot reappear by default.
+    """
+    w = windows or {}
+    return [SecurityBar(b.security_id, b.ticker, b.issuer_id,
+                        list(w.get(b.security_id, ())), eligible=b.can_execute)
+            for b in bars]
+
+
 def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar],
                  pending: list[PendingOrder], ledger: Ledger,
                  last_known: dict[str, float], cfg: WealthCoreConfig,
                  strategy_id: str, strategy_version: int,
-                 signal_windows: Mapping[str, Sequence[float]] | None = None
-                 ) -> SessionResult:
-    """One market session, in the fixed order documented at module level."""
+                 security_bars: Sequence[SecurityBar]) -> SessionResult:
+    """One market session, in the fixed order documented at module level.
+
+    `security_bars` carries §1 eligibility and the trailing SIGNAL windows, both
+    decided upstream by `feed.Feed`. It is REQUIRED and has no default: the
+    previous signature derived eligibility from `can_execute`, which meant every
+    caller that simply passed price bars silently ran a universe the strategy
+    never specified. There is `tradeability_only_bars` for callers that really do
+    want that, and it says so in its name.
+    """
     by_sec = {b.security_id: b for b in bars}
 
     apply_splits(state, bars, ledger, session)
@@ -190,6 +237,7 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
 
     # ── 4. execute orders decided BEFORE this session ────────────────────────
     fills: list[dict] = []
+    res_cancelled: list[dict] = []
     still_pending: list[PendingOrder] = []
     entered_this_session: list[int] = []
     for po in pending:
@@ -209,6 +257,25 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                         fees=po.shares * px * cfg.transaction_cost_bps / 10_000.0,
                         reason=po.reason)
         else:
+            # NO LEVERAGE, checked at the fill and not only at the decision.
+            # The size was computed from session t's close; this is t+1's open
+            # and it can gap. Fill what the cash actually covers.
+            fillable = min(po.shares, affordable_shares(state.cash, px, cfg))
+            if fillable <= 0:
+                state.slots[po.slot_id].release_reservation()
+                res_cancelled.append(
+                    {"session": session, "security_id": po.security_id,
+                     "ticker": po.ticker, "slot_id": po.slot_id,
+                     "wanted_shares": po.shares, "raw_open": px,
+                     "cash": round(state.cash, 2), "reason": "UNAFFORDABLE_AT_OPEN"})
+                continue
+            if fillable < po.shares:
+                res_cancelled.append(
+                    {"session": session, "security_id": po.security_id,
+                     "ticker": po.ticker, "slot_id": po.slot_id,
+                     "wanted_shares": po.shares, "filled_shares": fillable,
+                     "raw_open": px, "reason": "PARTIAL_AT_OPEN"})
+                po.shares = fillable
             before = state.cash
             apply_entry(state, op=Op(Operation.OPEN_SLOT_POSITION, None,
                                      po.slot_id, po.security_id, po.ticker,
@@ -245,18 +312,13 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     # ── 7. decide ────────────────────────────────────────────────────────────
     held = state.held_security_ids()
     marks = build_marks(bars, held, last_known)
-    # The trailing SIGNAL window is supplied by the adapter, never derived from
-    # `last_known` — that dict holds RAW mark closes, a different price domain,
-    # and reusing it here is exactly the cross-domain error prices.py exists to
-    # prevent. A caller that supplies none gets no signals rather than wrong ones.
-    windows = signal_windows or {}
-    sec_bars = [SecurityBar(b.security_id, b.ticker, b.issuer_id,
-                            list(windows.get(b.security_id, ())),
-                            eligible=b.can_execute)
-                for b in bars]
+    # The trailing SIGNAL window travels INSIDE security_bars, never derived
+    # here from `last_known` — that dict holds RAW mark closes, a different
+    # price domain, and reusing it would be exactly the cross-domain error
+    # prices.py exists to prevent.
     ev = state.equity_view(marks)
-    d = decide(session=session, state=state, bars=sec_bars, marks=marks, cfg=cfg,
-               strategy_id=strategy_id, strategy_version=strategy_version)
+    d = decide(session=session, state=state, bars=list(security_bars), marks=marks,
+               cfg=cfg, strategy_id=strategy_id, strategy_version=strategy_version)
 
     # ── 8. queue for the NEXT open ───────────────────────────────────────────
     for op in d.operations:
@@ -269,4 +331,4 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     return SessionResult(session=session, decision=d, fills=fills,
                          resolved_equity=ev.resolved_equity,
                          estimated_equity=ev.estimated_equity_including_stale_marks,
-                         blocked=not ev.is_resolved)
+                         blocked=not ev.is_resolved, cancelled=res_cancelled)

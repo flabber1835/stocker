@@ -21,6 +21,7 @@ from stock_strategy_shared.wealth_core.adapter import (
     build_marks,
     cash_merger,
     step_session,
+    tradeability_only_bars,
     write_off,
 )
 from stock_strategy_shared.wealth_core.engine import Operation, Reason, WealthCoreConfig
@@ -62,7 +63,7 @@ def step(st, bars, pending=None, ledger=None, last_known=None, session="d1",
                         ledger=ledger or Ledger(),
                         last_known=last_known if last_known is not None else {},
                         cfg=CFG, strategy_id=SID, strategy_version=VER,
-                        signal_windows=windows)
+                        security_bars=tradeability_only_bars(bars, windows))
 
 
 # ── the unmarkable-holding rule ─────────────────────────────────────────────
