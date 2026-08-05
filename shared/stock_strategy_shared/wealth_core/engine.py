@@ -39,6 +39,12 @@ from stock_strategy_shared.wealth_core.signals import (
     top_decile_cutoff,
 )
 from stock_strategy_shared.wealth_core.marks import Mark
+from stock_strategy_shared.wealth_core.ordering import (
+    CANONICAL_PROFILE,
+    ISSUER_CONFLICT_ADMISSION_TIE_BREAK,
+    KNOWN_PROFILES,
+    sort_for_leadership,
+)
 from stock_strategy_shared.wealth_core.state import (
     DEFAULT_ENTRY_WEIGHT,
     HoldingEpisode,
@@ -162,6 +168,19 @@ class WealthCoreConfig:
     transaction_cost_bps: float = 10.0
     max_admissions_per_session: int = 1
     minimum_leadership_population: int = 25
+    # The ORDERING PROFILE, in the config hash. A run scored under one profile
+    # can never be mistaken for a run scored under another — which is what makes
+    # a future compatibility profile a deliberate, visible change rather than a
+    # silent re-interpretation of every historical result.
+    ordering_profile: str = CANONICAL_PROFILE
+
+    def __post_init__(self) -> None:
+        if self.ordering_profile not in KNOWN_PROFILES:
+            raise ValueError(
+                f"unknown ordering_profile {self.ordering_profile!r}; known: "
+                f"{list(KNOWN_PROFILES)}. Refused rather than defaulted — "
+                f"silently falling back to canonical would score a run under "
+                f"rules the caller explicitly did not ask for.")
 
     def config_hash(self) -> str:
         blob = json.dumps({
@@ -171,6 +190,7 @@ class WealthCoreConfig:
             "transaction_cost_bps": self.transaction_cost_bps,
             "max_admissions_per_session": self.max_admissions_per_session,
             "minimum_leadership_population": self.minimum_leadership_population,
+            "ordering_profile": self.ordering_profile,
         }, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
@@ -214,9 +234,10 @@ def score_universe(bars: Sequence[SecurityBar],
                                    durable_score(mom, vol), False, ""))
 
     ranked_pool = [s for s in scored if s.momentum is not None]
-    # Deterministic even before the cutoff: ties at the boundary must not depend
-    # on input order.
-    ranked_pool.sort(key=lambda s: (-s.momentum, s.security_id, s.ticker))
+    # The NAMED rule, not an inline sort: a tie at the cutoff swaps one holding
+    # for another and then compounds for years through the slot and cooldown
+    # machinery, without producing an error or a visible discontinuity anywhere.
+    ranked_pool = sort_for_leadership(ranked_pool)
     # CERTIFIED: max(minimum_leadership_population, ceil(N x 0.10)).
     k = leadership_count(len(ranked_pool), cfg.top_fraction, cfg.top_decile_rounding,
                          cfg.minimum_leadership_population)
@@ -427,7 +448,13 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
             # The ONLY issuer separation in the certified path. Related
             # securities were never removed from the leadership population —
             # they compete on merit and lose here, once, at admission.
-            reject(cand, Reason.ISSUER_CONFLICT, issuer_group_key=issuer)
+            # The comparison tuple is PERSISTED, not left to be re-derived: the
+            # reason this security lost has to be recoverable from the record
+            # months later, and a reader who re-derives it from the code of the
+            # day gets that day's answer rather than the one that applied.
+            reject(cand, Reason.ISSUER_CONFLICT, issuer_group_key=issuer,
+                   tie_break=ISSUER_CONFLICT_ADMISSION_TIE_BREAK
+                   .comparison_tuple(cand))
             continue
         if state.ticker_in_cooldown(cand.ticker):
             reject(cand, Reason.REJECT_TICKER_COOLDOWN)

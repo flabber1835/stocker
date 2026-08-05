@@ -241,9 +241,10 @@ def rank_candidates(rows: Iterable[DurableScore]) -> list[DurableScore]:
     the cross-engine parity contract. A mandatory acceptance test shuffles the
     input and asserts the output is unchanged.
     """
-    qualified = [r for r in rows if r.qualified]
-    return sorted(qualified,
-                  key=lambda r: (-r.score, r.security_id, r.ticker))
+    from stock_strategy_shared.wealth_core.ordering import sort_for_admission
+    # Imported lazily: ordering.py is deliberately dependency-free and importing
+    # it at module scope here would close a cycle through engine.py.
+    return sort_for_admission([r for r in rows if r.qualified])
 
 
 # ── Details the specification does not settle ───────────────────────────────
