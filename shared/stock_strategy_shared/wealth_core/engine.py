@@ -28,6 +28,8 @@ from enum import Enum
 from typing import Mapping, Sequence
 
 from stock_strategy_shared.wealth_core.signals import (
+    DEFAULT_VOLATILITY_PROFILE,
+    VOLATILITY_PROFILES,
     DurableScore,
     leadership_count,
     annualized_formation_volatility,
@@ -174,8 +176,17 @@ class WealthCoreConfig:
     # a future compatibility profile a deliberate, visible change rather than a
     # silent re-interpretation of every historical result.
     ordering_profile: str = CANONICAL_PROFILE
+    # SPECIFICATION CONFLICT, resolved 2026-08-05: the written §5 spec said
+    # simple returns, the recovered certified source uses log returns. Both are
+    # implemented and named; this selects one and it is in the config hash, so a
+    # result is always attributable to the formula that produced it.
+    volatility_profile: str = DEFAULT_VOLATILITY_PROFILE
 
     def __post_init__(self) -> None:
+        if self.volatility_profile not in VOLATILITY_PROFILES:
+            raise ValueError(
+                f"unknown volatility_profile {self.volatility_profile!r}; "
+                f"known: {list(VOLATILITY_PROFILES)}")
         if self.ordering_profile not in KNOWN_PROFILES:
             raise ValueError(
                 f"unknown ordering_profile {self.ordering_profile!r}; known: "
@@ -192,6 +203,7 @@ class WealthCoreConfig:
             "max_admissions_per_session": self.max_admissions_per_session,
             "minimum_leadership_population": self.minimum_leadership_population,
             "ordering_profile": self.ordering_profile,
+            "volatility_profile": self.volatility_profile,
         }, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
@@ -230,7 +242,8 @@ def score_universe(bars: Sequence[SecurityBar],
             continue
         mom = medium_term_momentum(b.closes)
         rec = recent_return(b.closes)
-        vol = annualized_formation_volatility(b.closes)
+        vol = annualized_formation_volatility(b.closes,
+                                              cfg.volatility_profile)
         scored.append(DurableScore(b.security_id, b.ticker, mom, rec, vol,
                                    durable_score(mom, vol), False, ""))
 

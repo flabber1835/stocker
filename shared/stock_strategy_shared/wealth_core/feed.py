@@ -120,16 +120,32 @@ class SecuritySeries:
     issuer_id: str
     split_factor: float = 1.0
     sessions: list[str] = field(default_factory=list)
+    # GLOBAL session index of each observation — the market's session count, not
+    # this security's. The difference is the whole point: a security with a
+    # missing day has 127 observations spanning 128 sessions.
+    session_indices: list[int] = field(default_factory=list)
     signal_closes: list[float | None] = field(default_factory=list)
     raw_closes: list[float | None] = field(default_factory=list)
     volumes: list[float | None] = field(default_factory=list)
 
-    def append(self, bar: VendorBar) -> None:
+    def contiguous(self, length: int = REQUIRED_CLOSES) -> bool:
+        """Do the last `length` observations occupy consecutive market sessions?
+
+        Checked on the GLOBAL index, so it is a fact about the market calendar
+        rather than about this security's row count.
+        """
+        idx = self.session_indices[-length:]
+        if len(idx) < length:
+            return False
+        return idx[-1] - idx[0] == length - 1
+
+    def append(self, bar: VendorBar, session_index: int = -1) -> None:
         # The split applies to the factor BEFORE this session's close is
         # adjusted: the vendor's close on the ex-date is already post-split, so
         # it needs the new factor, not the old one.
         self.split_factor *= float(bar.split_ratio)
         self.sessions.append(bar.session)
+        self.session_indices.append(session_index)
         self.raw_closes.append(bar.raw_close)
         self.volumes.append(bar.volume)
         self.signal_closes.append(
@@ -233,6 +249,7 @@ def to_eligibility_input(bar: VendorBar, series: SecuritySeries,
             [v for v in series.volumes[-ADV_WINDOW_SESSIONS:]]),
         signal_dollar_volume=signal_day_dollar_volume(bar.raw_close, bar.volume),
         signal_closes_split_adj_div_unadj=series.signal_window(),
+        history_contiguous=series.contiguous(),
         terminal_state=terminal_state)
 
 
@@ -260,6 +277,22 @@ class Feed:
         self.meta = dict(meta)
         self.cfg = cfg or EligibilityConfig()
         self.series: dict[str, SecuritySeries] = {}
+        # The market's session counter, shared by every security. Advanced once
+        # per session by advance()/warmup(), never per security.
+        self._session_index = -1
+        self._seen_sessions: dict[str, int] = {}
+
+    def _advance_session(self, session: str) -> int:
+        """One global index per market session, assigned in arrival order.
+
+        Idempotent per session so a warmup followed by an advance over the same
+        date cannot double-count and silently make every window look gapped.
+        """
+        if session in self._seen_sessions:
+            return self._seen_sessions[session]
+        self._session_index += 1
+        self._seen_sessions[session] = self._session_index
+        return self._session_index
 
     def _series_for(self, bar: VendorBar) -> SecuritySeries:
         s = self.series.get(bar.security_id)
@@ -291,9 +324,10 @@ class Feed:
         basis would silently diverge between a fresh run and a resumed one.
         """
         for session in sessions:
+            idx = self._advance_session(session)
             for b in sorted(bars_by_session.get(session, ()),
                             key=lambda x: (x.security_id, x.ticker)):
-                self._series_for(b).append(b)
+                self._series_for(b).append(b, idx)
 
     def advance(self, session: str, bars: Iterable[VendorBar],
                 terminal_states: Mapping[str, TerminalState] | None = None
@@ -305,6 +339,7 @@ class Feed:
         the same reason `leadership_population` sorts.
         """
         terminal_states = terminal_states or {}
+        idx = self._advance_session(session)
         ordered = sorted(bars, key=lambda b: (b.security_id, b.ticker))
         seen: set[str] = set()
         for b in ordered:
@@ -318,7 +353,7 @@ class Feed:
                     f"duplicate bar for {b.security_id!r} on {session!r}: the "
                     f"split factor would be applied twice")
             seen.add(b.security_id)
-            self._series_for(b).append(b)
+            self._series_for(b).append(b, idx)
 
         elig_inputs = [
             to_eligibility_input(b, self.series[b.security_id],

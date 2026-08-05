@@ -84,35 +84,76 @@ def passes_freshness(recent: float | None) -> bool:
     return recent is not None and recent >= 0.0
 
 
-def annualized_formation_volatility(closes: Sequence[float]) -> float | None:
-    """Spec §5, stated explicitly by the assignment:
+# ── Volatility profiles (SPECIFICATION CONFLICT, resolved 2026-08-05) ───────
+# The written §5 spec says "sample standard deviation of one-session SIMPLE
+# returns". The RECOVERED CERTIFIED SOURCE uses LOG returns. Both are here, both
+# named, and the certified configuration selects the certified one.
+#
+# They are NOT interchangeable and the difference is not cosmetic: log returns
+# compress large moves, so a volatile name scores a lower denominator and a
+# HIGHER durable score than it would on simple returns. That reorders the
+# ranking and therefore changes which securities are bought.
+#
+# Editing the formula in place would have made every historical result
+# unattributable — the same config hash would refer to two different strategies
+# depending on when it ran. The profile name is in the config hash instead, so a
+# result can always be traced to the rule that produced it.
+SIMPLE_RETURNS_V1 = "simple_returns_v1"
+"""The written §5 spec: (P_t / P_{t-1}) - 1. Retained, selectable, superseded
+for certified parity."""
 
-        sample standard deviation of one-session SIMPLE returns
-        over the formation segment (t-126 … t-21)
-        multiplied by sqrt(252)
+LOG_RETURNS_CERTIFIED_V1 = "log_returns_certified_v1"
+"""The recovered certified source: ln(P_t / P_{t-1}). AUTHORITATIVE for
+"certified Wealth Core"."""
+
+VOLATILITY_PROFILES: tuple[str, ...] = (SIMPLE_RETURNS_V1,
+                                        LOG_RETURNS_CERTIFIED_V1)
+
+DEFAULT_VOLATILITY_PROFILE = LOG_RETURNS_CERTIFIED_V1
+"""Certified reproduction is the point of this engine, so the certified rule is
+the default. A deployment wanting the old written-spec behaviour must ask for it
+by name — the traceable direction, since silence should mean the authoritative
+source rather than a superseded one."""
+
+
+def annualized_formation_volatility(
+        closes: Sequence[float],
+        profile: str = DEFAULT_VOLATILITY_PROFILE) -> float | None:
+    """Annualised sample stdev of one-session returns over the formation
+    segment (t-126 … t-21), x sqrt(252).
 
     SAMPLE standard deviation means ddof=1. The formation segment spans 106
     closes and therefore 105 returns.
+
+    `profile` selects SIMPLE or LOG returns — see the block above; they are two
+    different strategies, not two spellings of one.
 
     Returns None for zero, non-finite, or insufficient observations (spec §5:
     "Reject zero, nonfinite, or insufficient volatility observations") — a zero
     denominator would otherwise send `durable_score` to infinity and hand the
     top of the ranking to whichever security had a frozen price.
     """
+    if profile not in VOLATILITY_PROFILES:
+        raise ValueError(
+            f"unknown volatility profile {profile!r}; known: "
+            f"{list(VOLATILITY_PROFILES)}. Refused rather than defaulted — "
+            f"defaulting would score a run under a formula the caller did not "
+            f"choose, which is the whole reason these are named.")
     if closes is None or len(closes) < REQUIRED_CLOSES:
         return None
     # Inclusive segment: index t-126 through t-21.
     seg = closes[-(LONG_LOOKBACK_SESSIONS + 1):len(closes) - SKIP_RECENT_SESSIONS]
     if len(seg) < 3:
         return None
+    use_log = profile == LOG_RETURNS_CERTIFIED_V1
     rets: list[float] = []
     for prev, cur in zip(seg, seg[1:]):
         if not (_finite(prev) and _finite(cur)):
             return None            # a gap inside formation invalidates the window
         prev, cur = float(prev), float(cur)
-        if prev <= 0:
+        if prev <= 0 or (use_log and cur <= 0):
             return None
-        rets.append(cur / prev - 1.0)
+        rets.append(math.log(cur / prev) if use_log else cur / prev - 1.0)
     n = len(rets)
     if n < 2:
         return None

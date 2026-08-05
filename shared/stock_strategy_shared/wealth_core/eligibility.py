@@ -31,6 +31,7 @@ from enum import Enum
 from typing import Sequence
 
 from stock_strategy_shared.wealth_core.signals import (
+    DEFAULT_VOLATILITY_PROFILE,
     REQUIRED_CLOSES,
     annualized_formation_volatility,
 )
@@ -90,6 +91,10 @@ class EligibilityConfig:
     min_adv20_dollars: float = 20_000_000.0
     min_signal_dollar_volume: float = 5_000_000.0
     min_history_sessions: int = 126        # PRIOR to the signal session
+    # Must MATCH WealthCoreConfig.volatility_profile: eligibility rejects a
+    # security whose formation volatility is unusable, and that verdict
+    # depends on which formula computes it.
+    volatility_profile: str = DEFAULT_VOLATILITY_PROFILE
     # Strict mode REFUSES a security whose issuer identity cannot be established
     # from relatedtickers or permaticker. The alternative — guessing from a name
     # or a ticker root — merges unrelated companies and splits related ones.
@@ -115,6 +120,12 @@ class EligibilityInput:
     adv20_dollars: float | None
     signal_dollar_volume: float | None
     signal_closes_split_adj_div_unadj: Sequence[float]
+    # Whether those closes occupy CONSECUTIVE market sessions. A per-security
+    # window counts OBSERVATIONS, so a security that missed a day still has 127
+    # of them — spanning 128 sessions. The momentum endpoints are then read at
+    # the wrong offsets and the security is admitted on history it does not
+    # have. None = the caller could not determine it, treated as a gap.
+    history_contiguous: bool | None = None
     terminal_state: TerminalState = TerminalState.NORMAL
     # OPTIONAL future metadata ONLY. Sharadar does not carry it and the certified
     # prototype did not use it, so nothing in certified mode may read it — proven
@@ -176,7 +187,13 @@ def evaluate(inp: EligibilityInput, cfg: EligibilityConfig) -> EligibilityResult
         return no(EligibilityReason.INSUFFICIENT_126_SESSION_HISTORY,
                   observations=len(closes), required=REQUIRED_CLOSES)
 
-    if annualized_formation_volatility(closes) is None:
+    if inp.history_contiguous is not True:
+        # Fail closed on None as well as False: "unknown" and "gapped" are the
+        # same risk here, and a feed that cannot say must not be believed.
+        return no(EligibilityReason.INSUFFICIENT_126_SESSION_HISTORY,
+                  gap="NON_CONTIGUOUS_SESSIONS",
+                  contiguous=inp.history_contiguous)
+    if annualized_formation_volatility(closes, cfg.volatility_profile) is None:
         return no(EligibilityReason.INVALID_FORMATION_VOLATILITY)
 
     return EligibilityResult(inp.security_id, inp.ticker, inp.issuer_group_key,
