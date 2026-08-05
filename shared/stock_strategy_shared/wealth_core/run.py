@@ -28,9 +28,8 @@ from typing import Callable, Mapping, Sequence
 from stock_strategy_shared.wealth_core.adapter import (
     PendingOrder,
     SessionResult,
-    cash_merger,
+    build_marks,
     step_session,
-    write_off,
 )
 from stock_strategy_shared.wealth_core.eligibility import (
     EligibilityConfig,
@@ -40,25 +39,31 @@ from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
 from stock_strategy_shared.wealth_core.feed import Feed, SecurityMeta, VendorBar
 from stock_strategy_shared.wealth_core.ledger import Ledger
 from stock_strategy_shared.wealth_core.state import PortfolioState
+from stock_strategy_shared.wealth_core.terminal import (
+    FinalReport,
+    TerminalKind,
+    TerminalTerms,
+    apply_terminal,
+    final_report,
+)
 
 STRATEGY_ID = "stocker_wealth_core_v1"
 STRATEGY_VERSION = 1
 
 
-@dataclass(frozen=True)
-class TerminalEvent:
-    """A resolved terminal action, applied on `session` BEFORE that session's
-    orders execute.
+def TerminalEvent(*, session: str, security_id: str, kind: str,
+                  cash_per_share: float = 0.0, **kw) -> TerminalTerms:
+    """Back-compatible constructor for the two original kinds.
 
-    Deliberately an explicit input rather than something the driver infers from
-    a price disappearing. "Stopped printing" and "was acquired for $54 cash" are
-    different facts with different cash consequences, and inferring one from the
-    other is how a delisting quietly becomes a full recovery.
+    Kept because it reads well at a call site and because the golden scenario
+    and several tests were written against it; it is a thin factory over
+    `TerminalTerms`, which is the real type. New kinds (CONVERSION,
+    CASH_PLUS_STOCK) are only expressible through TerminalTerms directly — a
+    kwargs-shaped shim for a nine-field deal would be worse than the type.
     """
-    session: str
-    security_id: str
-    kind: str                     # CASH_MERGER | WRITE_OFF
-    cash_per_share: float = 0.0
+    return TerminalTerms(session=session, security_id=security_id,
+                         kind=TerminalKind(kind),
+                         cash_per_share=cash_per_share, **kw)
 
 
 @dataclass
@@ -68,6 +73,8 @@ class RunResult:
     ledger: Ledger | None = None
     unfilled_at_end: list[dict] = field(default_factory=list)
     blocked_sessions: list[str] = field(default_factory=list)
+    terminal_results: list[dict] = field(default_factory=list)
+    final: FinalReport | None = None
 
     def to_dict(self) -> dict:
         """Canonical, order-independent serialisation.
@@ -97,6 +104,11 @@ class RunResult:
                 self.unfilled_at_end,
                 key=lambda o: (o["security_id"], o["operation"])),
             "blocked_sessions": list(self.blocked_sessions),
+            "terminal_results": sorted(
+                self.terminal_results,
+                key=lambda r: (r.get("session") or "",
+                               r.get("security_id") or "", r.get("kind") or "")),
+            "final": self.final.to_dict() if self.final else None,
         }
 
     def result_hash(self) -> str:
@@ -156,8 +168,24 @@ def run_sessions(*, sessions: Sequence[str],
     events_by_session: dict[str, list[TerminalEvent]] = {}
     for ev in terminal_events:
         events_by_session.setdefault(ev.session, []).append(ev)
+    # A terminal action dated INSIDE this run's window but not on one of its
+    # sessions never fires — a weekend date or a typo silently leaves the
+    # position outstanding for the rest of the backtest. Events dated OUTSIDE
+    # the window are legitimate: a resumed run is handed the whole deal
+    # calendar and only the part it covers is due yet.
+    if sessions:
+        lo, hi = sessions[0], sessions[-1]
+        stranded = sorted(d for d in set(events_by_session) - set(sessions)
+                          if lo <= d <= hi)
+        if stranded:
+            raise ValueError(
+                f"terminal event(s) dated {stranded} fall inside this run's "
+                f"window but on no trading session, so they would never fire "
+                f"and the position would stay outstanding. Refused rather than "
+                f"dropped.")
 
     out = RunResult(state=state, ledger=ledger)
+    last_norm = None
 
     for session in sessions:
         # Resolved terminal actions land BEFORE the session steps, so a security
@@ -165,22 +193,14 @@ def run_sessions(*, sessions: Sequence[str],
         # size against — and a write-off resolves the equity block in the same
         # session rather than one late.
         for ev in sorted(events_by_session.get(session, []),
-                         key=lambda e: (e.security_id, e.kind)):
-            if ev.kind == "CASH_MERGER":
-                cash_merger(state, security_id=ev.security_id,
-                            per_share=ev.cash_per_share, ledger=ledger,
-                            session=session)
-            elif ev.kind == "WRITE_OFF":
-                write_off(state, security_id=ev.security_id, ledger=ledger,
-                          session=session)
-            else:
-                raise ValueError(
-                    f"unknown TerminalEvent.kind {ev.kind!r} — refused rather "
-                    f"than ignored, because an unrecognised terminal action "
-                    f"silently skipped leaves the holding unresolved forever")
+                         key=lambda e: (e.security_id, e.kind.value)):
+            res = apply_terminal(state, ev, ledger=ledger, session=session,
+                                 cfg=cfg)
+            out.terminal_results.append({"session": session, **res})
 
         norm = feed.advance(session, bars_by_session.get(session, ()),
                             (terminal_states or {}).get(session))
+        last_norm = norm
         res = step_session(session=session, state=state, bars=norm.bars,
                            pending=pending, ledger=ledger, last_known=last_known,
                            cfg=cfg, strategy_id=STRATEGY_ID,
@@ -200,6 +220,22 @@ def run_sessions(*, sessions: Sequence[str],
          "operation": p.operation.value, "shares": p.shares,
          "signal_session": p.signal_session, "sessions_waiting": p.sessions_waiting}
         for p in pending]
+
+    # FINAL-SESSION ACCOUNTING. Marks come from the last session's bars, so the
+    # book is valued at its final VALID close rather than at whatever was last
+    # seen — a security that stopped printing in week two is reported unmarkable,
+    # not carried forward as though it were current.
+    if sessions and last_norm is not None:
+        # Marks from the LAST SESSION'S OWN BARS, not from `last_known`. A
+        # security that stopped printing in week two must be reported
+        # unmarkable; `last_known` would hand back its final print and the
+        # report would value a position that has had no market for years.
+        # `dict(last_known)` because build_marks MUTATES what it is given, and
+        # the final report must not change the run's marking state.
+        final_marks = build_marks(last_norm.bars, state.held_security_ids(),
+                                  dict(last_known), state.unresolved_terminals)
+        out.final = final_report(session=sessions[-1], state=state,
+                                 marks=final_marks, ledger=ledger, cfg=cfg)
     return out
 
 

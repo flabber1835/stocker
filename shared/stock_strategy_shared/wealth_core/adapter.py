@@ -94,16 +94,28 @@ class SessionResult:
 
 
 def build_marks(bars: Sequence[DailyBar], held: set[str],
-                last_known: dict[str, float]) -> dict[str, Mark]:
+                last_known: dict[str, float],
+                unresolved_terminals: Mapping[str, str] | None = None
+                ) -> dict[str, Mark]:
     """Turn today's bars into per-holding mark STATUS (spec, 2026-08-03 rule).
 
     A held security with no bar, or an unresolved terminal action, becomes STALE
     or UNRESOLVED_TERMINAL — never absent, because absence reads as zero to
     anything summing a dict.
+
+    `unresolved_terminals` OUTRANKS a printing price. A security whose deal
+    terms are unknown may still trade — during a contested bid it usually does —
+    and marking it CURRENT would let the book size admissions off a price that
+    is about to be replaced by consideration nobody has stated.
     """
+    blocked = dict(unresolved_terminals or {})
     by_sec = {b.security_id: b for b in bars}
     marks: dict[str, Mark] = {}
     for sec in sorted(set(by_sec) | held):
+        if sec in blocked:
+            marks[sec] = Mark(sec, MarkStatus.UNRESOLVED_TERMINAL,
+                              stale_raw_close=last_known.get(sec))
+            continue
         b = by_sec.get(sec)
         if b is None:
             marks[sec] = Mark(sec, MarkStatus.STALE,
@@ -311,7 +323,7 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
 
     # ── 7. decide ────────────────────────────────────────────────────────────
     held = state.held_security_ids()
-    marks = build_marks(bars, held, last_known)
+    marks = build_marks(bars, held, last_known, state.unresolved_terminals)
     # The trailing SIGNAL window travels INSIDE security_bars, never derived
     # here from `last_known` — that dict holds RAW mark closes, a different
     # price domain, and reusing it would be exactly the cross-domain error

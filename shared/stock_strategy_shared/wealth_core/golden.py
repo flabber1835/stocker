@@ -51,7 +51,7 @@ from dataclasses import dataclass
 from typing import Mapping, Sequence
 
 from stock_strategy_shared.wealth_core.feed import SecurityMeta, VendorBar
-from stock_strategy_shared.wealth_core.run import TerminalEvent
+from stock_strategy_shared.wealth_core.terminal import TerminalKind, TerminalTerms
 
 N_SESSIONS = 260                      # long enough for age-119 reviews to fire
 N_FILLER = 110
@@ -132,6 +132,17 @@ def _specs() -> list[_Spec]:
         _Spec("SEC_GHOST", "GHOST", 907, 35.0, 1.39, permaticker="P907"),
         _Spec("SEC_STOPOUT", "STOP", 909, 50.0, 1.46, permaticker="P909"),
         _Spec("SEC_FADER", "FADE", 910, 65.0, 1.37, permaticker="P910"),
+        # Terminal paths beyond cash and worthlessness. CONVERTED is taken over
+        # for stock at a ratio that leaves a FRACTION (so cash-in-lieu is
+        # exercised, not merely available); MIXED is cash-plus-stock; STRANDED
+        # has a deal announced with terms nobody supplied, and must BLOCK.
+        _Spec("SEC_CONVERTED", "CONV", 911, 48.0, 1.435, permaticker="P911"),
+        _Spec("SEC_MIXED", "MIX", 912, 52.0, 1.425, permaticker="P912"),
+        _Spec("SEC_STRANDED", "STRD", 913, 44.0, 1.415, permaticker="P913"),
+        # The security DELIVERED by the conversion. It must exist in the corpus
+        # from the start or the converted episode would have no closes and the
+        # trailing stop would go blind on a position the book still owns.
+        _Spec("SEC_ACQUIRER", "ACQR", 914, 90.0, 0.60, permaticker="P914"),
         # Listed late: fewer than 127 closes for the whole run.
         _Spec("SEC_SHORT", "SHORT", 908, 80.0, 2.00, first_t=150, permaticker="P908"),
     ]
@@ -161,6 +172,24 @@ MERGER_SESSION = 180
 BUST_UNRESOLVED_FROM = 182
 WRITE_OFF_SESSION = 185
 FADER_DECLINE_FROM = 135      # slow enough to stay ABOVE the stop, see below
+CONVERSION_SESSION = 190      # security-for-security, with a fractional stub
+MIXED_SESSION = 195           # cash-plus-stock
+STRANDED_ANNOUNCED = 200      # terms UNKNOWN: must block, not approximate
+STRANDED_RESOLVED = 210       # ...and the block must LIFT once supplied
+# The ratios are ECONOMICALLY COHERENT with the two price paths at the
+# conversion sessions, not round numbers. A real stock-for-stock ratio is set so
+# that ratio x acquirer_price ~ target_price, and the peak rescale in
+# terminal.py depends on exactly that relationship.
+#
+# The first cut used 0.37, which handed target holders about half their market
+# value. The rescaled peak then sat far above anything the acquirer traded at
+# and BOTH converted positions stopped out on the next session — which is the
+# correct response to a deal that destroys half the position's value, and
+# useless as a test of conversion. Both are also deliberately non-round so the
+# entitlement leaves a FRACTION and the cash-in-lieu leg is genuinely exercised
+# rather than merely available.
+CONVERSION_RATIO = 0.757
+MIXED_RATIO = 0.687
 
 # The security whose entry straddles the restart boundary. It is a FILLER rather
 # than a named security because the slot STOPOUT vacates goes to the best
@@ -221,10 +250,16 @@ def build_bars() -> dict[str, list[VendorBar]]:
                 continue
             if spec.security_id == "SEC_GHOST" and t == GHOST_MISSING_SESSION:
                 continue                       # no bar at all -> STALE mark
-            # After their terminal events these two stop printing entirely.
+            # After their terminal events these stop printing entirely.
             if spec.security_id == "SEC_MERGED" and t > MERGER_SESSION:
                 continue
             if spec.security_id == "SEC_BUST" and t > WRITE_OFF_SESSION:
+                continue
+            if spec.security_id == "SEC_CONVERTED" and t > CONVERSION_SESSION:
+                continue
+            if spec.security_id == "SEC_MIXED" and t > MIXED_SESSION:
+                continue
+            if spec.security_id == "SEC_STRANDED" and t > STRANDED_RESOLVED:
                 continue
 
             split, div = 1.0, 0.0
@@ -248,6 +283,11 @@ def build_bars() -> dict[str, list[VendorBar]]:
                 unresolved, tradeable = True, False
             if spec.security_id == "SEC_BUST" and BUST_UNRESOLVED_FROM <= t <= WRITE_OFF_SESSION:
                 unresolved, tradeable = True, False
+            # STRANDED keeps PRINTING and stays tradeable throughout. That is
+            # the point: a contested bid trades right up to closing, so the
+            # block has to come from the missing TERMS, not from an absent
+            # price. If it stopped printing, the mark would fail for the
+            # ordinary stale reason and the terms rule would go untested.
 
             out[session].append(VendorBar(
                 session=session, security_id=spec.security_id, ticker=spec.ticker,
@@ -258,12 +298,42 @@ def build_bars() -> dict[str, list[VendorBar]]:
     return out
 
 
-def build_terminal_events() -> list[TerminalEvent]:
+def build_terminal_events() -> list[TerminalTerms]:
+    """One of every supported kind, plus one deliberately incomplete deal.
+
+    The incomplete one is not an edge case bolted on: "terms arrive late" is the
+    ordinary situation for a real acquisition, and a fixture without it would
+    only ever prove the happy path.
+    """
     return [
-        TerminalEvent(session=SESSIONS[MERGER_SESSION], security_id="SEC_MERGED",
-                      kind="CASH_MERGER", cash_per_share=54.0),
-        TerminalEvent(session=SESSIONS[WRITE_OFF_SESSION], security_id="SEC_BUST",
-                      kind="WRITE_OFF"),
+        TerminalTerms(session=SESSIONS[MERGER_SESSION], security_id="SEC_MERGED",
+                      kind=TerminalKind.CASH_MERGER, cash_per_share=54.0,
+                      reference="golden/cash-merger"),
+        TerminalTerms(session=SESSIONS[WRITE_OFF_SESSION], security_id="SEC_BUST",
+                      kind=TerminalKind.WRITE_OFF,
+                      reference="golden/write-off"),
+        TerminalTerms(session=SESSIONS[CONVERSION_SESSION],
+                      security_id="SEC_CONVERTED", kind=TerminalKind.CONVERSION,
+                      delivered_security_id="SEC_ACQUIRER",
+                      delivered_ticker="ACQR", delivered_issuer_id="P:P914",
+                      exchange_ratio=CONVERSION_RATIO,
+                      cash_in_lieu_price_per_delivered_share=140.0,
+                      reference="golden/stock-for-stock"),
+        TerminalTerms(session=SESSIONS[MIXED_SESSION], security_id="SEC_MIXED",
+                      kind=TerminalKind.CASH_PLUS_STOCK, cash_per_share=18.0,
+                      delivered_security_id="SEC_ACQUIRER",
+                      delivered_ticker="ACQR", delivered_issuer_id="P:P914",
+                      exchange_ratio=MIXED_RATIO,
+                      cash_in_lieu_price_per_delivered_share=140.0,
+                      reference="golden/cash-plus-stock"),
+        # ANNOUNCED WITH NO TERMS. Every economic field is absent, so this must
+        # block admissions rather than be applied at any assumed value.
+        TerminalTerms(session=SESSIONS[STRANDED_ANNOUNCED],
+                      security_id="SEC_STRANDED", kind=TerminalKind.CASH_MERGER,
+                      reference="golden/terms-pending"),
+        TerminalTerms(session=SESSIONS[STRANDED_RESOLVED],
+                      security_id="SEC_STRANDED", kind=TerminalKind.CASH_MERGER,
+                      cash_per_share=61.5, reference="golden/terms-supplied"),
     ]
 
 
@@ -272,7 +342,7 @@ class GoldenScenario:
     sessions: Sequence[str]
     bars_by_session: Mapping[str, Sequence[VendorBar]]
     meta: Mapping[str, SecurityMeta]
-    terminal_events: Sequence[TerminalEvent]
+    terminal_events: Sequence[TerminalTerms]
     starting_cash: float = STARTING_CASH
     restart_at: int = RESTART_AT
 

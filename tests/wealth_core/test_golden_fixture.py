@@ -27,6 +27,7 @@ from stock_strategy_shared.wealth_core.adapter import PendingOrder
 from stock_strategy_shared.wealth_core.eligibility import EligibilityReason
 from stock_strategy_shared.wealth_core.feed import Feed
 from stock_strategy_shared.wealth_core.golden import (
+    CONVERSION_SESSION,
     GHOST_MISSING_SESSION,
     MERGER_SESSION,
     RESTART_AT,
@@ -104,7 +105,12 @@ class TestTheScenarioActuallyExercisesEachCondition:
     def test_an_unresolved_terminal_action_blocks_and_then_resolves(self, run):
         blocked = set(run.blocked_sessions)
         assert SESSIONS[MERGER_SESSION - 1] in blocked
-        merger = [e for e in run.ledger.events if e.event_type.value == "CASH_MERGER"]
+        # Scoped to SEC_MERGED: the stranded-terms case settles as a cash
+        # merger too, so an unscoped count now covers two different conditions
+        # and would pass for the wrong reason.
+        merger = [e for e in run.ledger.events
+                  if e.event_type.value == "CASH_MERGER"
+                  and e.security_id == "SEC_MERGED"]
         assert len(merger) == 1 and merger[0].cash_delta > 0
         # ...and the block LIFTS once resolved. An equity gate that never
         # reopens would look identical in every aggregate except the trades.
@@ -170,6 +176,62 @@ class TestTheScenarioActuallyExercisesEachCondition:
         cash = run.ledger.reconcile_cash(golden_scenario().starting_cash)
         assert cash == pytest.approx(run.state.cash, abs=0.01)
         assert run.state.cash >= 0.0
+
+    def test_every_supported_terminal_kind_fires(self, run):
+        applied = {r["kind"] for r in run.terminal_results if r.get("applied")}
+        assert applied == {"CASH_MERGER", "WRITE_OFF", "CONVERSION",
+                           "CASH_PLUS_STOCK"}
+
+    def test_a_conversion_actually_leaves_a_fraction_to_settle(self, run):
+        """A clean ratio would exercise the conversion path while leaving the
+        cash-in-lieu leg — the one that silently loses money if dropped —
+        untested."""
+        lieus = [r["cash_in_lieu"] for r in run.terminal_results
+                 if r.get("converted")]
+        assert lieus and all(x > 0 for x in lieus)
+
+    def test_cash_plus_stock_delivers_both_legs(self, run):
+        mixed = next(r for r in run.terminal_results
+                     if r.get("kind") == "CASH_PLUS_STOCK")
+        assert mixed["cash_consideration"] > 0
+        assert mixed["shares_delivered"] > 0
+
+    def test_a_deal_with_no_terms_blocks_and_then_unblocks(self, run):
+        blocked = [r for r in run.terminal_results if r.get("blocked")]
+        assert blocked and blocked[0]["reason"] == "MISSING_CASH_PER_SHARE"
+        sec = blocked[0]["security_id"]
+        # It BLOCKED for real sessions...
+        assert len(run.blocked_sessions) > 10
+        # ...and was eventually settled at the supplied price, not an assumed one.
+        settled = [r for r in run.terminal_results
+                   if r["security_id"] == sec and r.get("applied")]
+        assert settled and settled[-1]["proceeds"] > 0
+        assert run.state.unresolved_terminals == {}
+
+    def test_a_security_that_stops_printing_still_blocks_while_unresolved(self, run):
+        """The stranded name keeps trading throughout, so the block must come
+        from the missing TERMS rather than from an absent price."""
+        assert any(r.get("blocked") for r in run.terminal_results)
+
+    def test_the_final_report_separates_marked_from_forced(self, run):
+        f = run.final
+        assert f is not None and f.session == SESSIONS[-1]
+        assert f.marked_equity is not None, "no holding may be unmarkable here"
+        # Lower by exactly the cost of a sale that never happened.
+        assert f.forced_liquidation_equity < f.marked_equity
+        assert len(f.marked_positions) == len(run.state.episodes)
+        assert [e.event_type.value for e in f.mark_ledger.events] == \
+            ["TERMINAL_MARK"] * len(f.marked_positions)
+        assert all(e.detail.get("hypothetical")
+                   for e in f.forced_liquidation_ledger.events)
+
+    def test_finalisation_never_writes_into_the_run_ledger(self, run):
+        assert not any(e.event_type.value in ("TERMINAL_MARK",
+                                              "TERMINAL_LIQUIDATION")
+                       for e in run.ledger.events), (
+            "a mark changes nothing and a hypothetical sale never happened; "
+            "either one in the run ledger makes it depend on where the run "
+            "stopped, and the restart test fails")
 
     def test_an_order_that_cannot_be_paid_for_is_reported(self, run):
         cancelled = [c for s in run.sessions for c in s.cancelled]

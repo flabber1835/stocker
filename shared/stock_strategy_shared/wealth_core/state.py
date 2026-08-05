@@ -199,6 +199,11 @@ class PortfolioState:
     cash: float = 0.0
     initialized: bool = False
     session_index: int = 0
+    # security_id -> why its terminal action cannot be applied. Lives on the
+    # STATE rather than beside the event stream so it survives a restart: a
+    # blocked book that silently unblocks itself on redeploy is the failure the
+    # block exists to prevent.
+    unresolved_terminals: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def fresh(cls, starting_cash: float, n_slots: int = DEFAULT_SLOTS) -> "PortfolioState":
@@ -242,7 +247,24 @@ class PortfolioState:
         self.slots[slot_id].reserve(security_id, ticker, issuer_id)
 
     def shares_by_security(self) -> dict[str, int]:
-        return {e.security_id: e.current_shares for e in self.episodes.values()}
+        """AGGREGATED across episodes, not one entry per episode.
+
+        Normally one security occupies one slot and the distinction is invisible.
+        A CONVERSION breaks that: two separate holdings acquired by the same
+        company both become shares of the acquirer, in two slots. A dict
+        comprehension keyed on security_id silently dropped one of them, so
+        equity undercounted a position the book still owned — and every later 4%
+        admission was sized off the short number. Found by the golden fixture the
+        moment two conversions delivered the same acquirer.
+
+        The issuer-uniqueness rule governs ADMISSION, not corporate actions:
+        nothing prevents a takeover from consolidating two holdings, and the
+        engine has to be able to represent that rather than assume it away.
+        """
+        out: dict[str, int] = {}
+        for e in self.episodes.values():
+            out[e.security_id] = out.get(e.security_id, 0) + e.current_shares
+        return out
 
     def equity_view(self, marks: Mapping[str, "Mark"]) -> "EquityView":
         """Portfolio value split into the trustworthy part and the estimate.
@@ -284,6 +306,7 @@ class PortfolioState:
             "cash": self.cash,
             "initialized": self.initialized,
             "session_index": self.session_index,
+            "unresolved_terminals": dict(sorted(self.unresolved_terminals.items())),
         }
 
     @classmethod
@@ -296,6 +319,7 @@ class PortfolioState:
             cash=float(d.get("cash", 0.0)),
             initialized=bool(d.get("initialized", False)),
             session_index=int(d.get("session_index", 0)),
+            unresolved_terminals=dict(d.get("unresolved_terminals") or {}),
         )
 
     def state_hash(self) -> str:
