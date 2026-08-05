@@ -175,6 +175,84 @@ complete, plausible run beforehand.
    comprehension keyed on it — one position vanished from equity, and every later
    admission was sized off the short number.
 
+## Source-lot provenance
+
+Execution and marking use the **aggregated** security-level quantity — that is
+what the broker holds and what equity must count. But aggregation destroys the
+answer to "where did these shares come from?", and after a takeover that question
+has no other source: it is what distinguishes one 8% holding from two 4% holdings
+that collided, which changes what a human should do about it.
+
+So `HoldingEpisode.source_lots` records every predecessor — the original
+admission, then one entry per conversion, with the ratio, delivered count and
+both cash legs. Both views are preserved and both are reported:
+
+| Reader | Question it answers |
+|---|---|
+| `shares_by_security()` | how much do we own? |
+| `lots_by_security()` | out of what? |
+| `FinalReport.marked_positions` | one row per **holding** |
+| `FinalReport.aggregate_by_security` | one row per **exposure** |
+
+`tests/wealth_core/test_conversion_collision.py` is permanent. It asserts the
+invariant at **five** reader surfaces — ownership, equity, risk exposure, final
+reporting, provenance — because the original defect affected exactly one of them,
+so a test checking equity alone would have passed while risk was still blind. It
+also forbids, over the AST, `shares_by_security` being a dict comprehension keyed
+on `security_id`: the fix is one line, looks obviously correct in isolation, and a
+tidy-up that reverted it would be caught by nothing else — the run still
+completes and only the total is wrong.
+
+## The `wealth_core_v1` risk profile
+
+Three inherited limits do not merely mis-tune; they mean something this strategy
+does not do, and one fires where firing is worst.
+
+| Inherited limit | What it does to Wealth Core |
+|---|---|
+| `MAX_POSITION_PCT` | reads a **converted** position as a breach demanding a trim — a trade this strategy does not have and must not learn |
+| `MAX_DAILY_TURNOVER_PCT` | throttles trailing-stop exits during exactly the drawdown they exist for, turning a risk control into a risk |
+| `MAX_POSITIONS` | counts held names and ignores slots **reserved** by queued entries, which are already committed capital |
+
+`require_profile` **fails startup** when Wealth Core is selected without its own
+profile. Inheriting ambiguous limits is worse than having none, because every
+check would pass while enforcing the wrong ones and nothing would say so.
+
+The profile refuses incoherent configuration rather than accepting it: an exit
+notional cap cannot be set at all, and a concentration cap below the entry weight
+is rejected because it would breach on the day of entry.
+
+Encoded distinctions:
+
+- The one-entry-per-session limit is a **strategy behaviour**, not a safety rail.
+  It constrains entries only and never an exit, a kill-switch liquidation or a
+  broker-side forced close.
+- Exits are exempt from turnover **by construction**. Every sell is a stop, a
+  review exit or a corporate action; there is no discretionary churn to damp.
+- A **gap-reduced** entry below the 4% intent is valid. Rejecting it would make
+  the strategy skip exactly the names that ran between the decision and the fill.
+- A **converted** position above 4% is not a breach and not authorisation to trim.
+- Exposure is computed from **aggregated** share counts, so two lots converted
+  into one acquirer are one 8% exposure rather than two 4% ones.
+- Pending entries count against **both** slot availability and risk reservation.
+
+**Not yet done:** wiring this profile into `risk-service`'s `/check`. That
+endpoint still applies the target-portfolio limits, which is why live activation
+is blocked.
+
+## Scheduler run trace
+
+"Wealth Core does not require the target-portfolio stages" is a claim about
+*runtime* that no source reading settles. `RunTrace` persists which chain ran, in
+what order, what was bypassed, and what those bypassed services were doing at the
+time — a trace taken while they all happened to be healthy proves considerably
+less than one taken while two were down.
+
+`validate()` returns problems as **data** rather than raising: a trace is
+evidence, and a caller that cannot save a flawed one has no way to show what
+happened on a bad day. It rejects a legacy stage being invoked, a wrong stage
+order, an unrecorded bypass, and a "dry run" that submitted orders.
+
 ## Known reproduction differences and unsupported cases
 
 | Item | Status |
@@ -187,6 +265,9 @@ complete, plausible run beforehand.
 | `security_id` in the backtester | the **ticker**; a reused ticker reads as one continuous security |
 | security-for-security where the delivered security is absent from the corpus | unsupported — the converted episode would have no closes |
 | unmarkable-holding treatment | adopted 2026-08-03; the certified prototype's behaviour is unknown |
+| `risk-service` enforcement of `wealth_core_v1` | **not wired** — `/check` still applies the target-portfolio limits |
+| deployed-image parity | **not yet run** — needs the NAS |
+| SEP `close_unadjusted` | **not yet populated** — needs the replay |
 
 ## Operating it
 
@@ -206,3 +287,46 @@ python -m tests.wealth_core.repin_golden
 
 A change to the pinned hash is never a test failure to be papered over: it means
 the strategy's output moved, and the commit has to say why.
+
+## What "certified" would require
+
+The two ordering rules are **adopted deterministic conventions**, not
+transcriptions. Passing the test suite establishes internal consistency and
+cross-engine agreement; it does not establish reproduction of the frozen
+implementation. Exact certified reproduction may be claimed only once **all** of
+these match the recovered control:
+
+- normalized historical inputs
+- ordering profile
+- candidate audit
+- entries and exits
+- corporate-action treatment
+- daily equity
+- certified artifact hashes
+
+If the frozen implementation establishes different ordering, add a **named
+compatibility profile** and re-pin deliberately. The present production profile
+(`canonical_2026_08`) is preserved rather than silently changed.
+
+## Rollback
+
+The strategy is inert until a config selects it, so rollback is a config change
+rather than a code revert:
+
+```bash
+# 1. stop routing to Wealth Core — remove or change the top-level field
+#    execution_model: stateful_ownership   ->   target_portfolio
+#    The scheduler then runs the legacy chain unchanged.
+
+# 2. if a full code rollback is wanted
+git revert --no-commit 998a5d4 117d7ae 7966afc dc68f44 ce1c7fe 9f350a6 ca252c8
+git commit -m "revert Wealth Core"
+
+# 3. redeploy
+scripts/deploy-all.sh
+```
+
+`bt_prices.close_unadjusted` needs no rollback: it is an added column that
+nothing else reads, and the price corpus was rewritten in place by UPSERT with no
+other column touched. **Never** pass `--volumes` to any `docker compose down` —
+it deletes the trading database and the 35M-row corpus.
