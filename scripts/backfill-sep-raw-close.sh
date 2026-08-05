@@ -18,15 +18,53 @@ START="${1:-2003-01-01}"
 END="${2:-$(date +%F)}"
 
 say() { printf '\n=== %s ===\n' "$*"; }
+fail() { printf '\nFAILED: %s\n' "$*" >&2; exit 1; }
 
-say "pre-flight: is the column even there?"
-# init_bt.sql is re-applied idempotently on bt-data startup, so the ALTER has
-# normally already run. If it has not, the backfill would succeed and write
-# nothing, which is the one outcome worth failing fast on.
-if ! curl -fsS "${BT_DATA_URL}/coverage/raw-close" >/dev/null 2>&1; then
-  echo "bt-data is not reachable at ${BT_DATA_URL}." >&2
-  echo "Start the backtest stack first: scripts/up.sh" >&2
-  exit 1
+say "pre-flight: bt-data reachable, and running THIS build?"
+# Three different failures used to print the same message here ("not
+# reachable"), which sent the reader to restart a stack that was already up.
+# They need different fixes, so they are diagnosed separately:
+#
+#   container not running   scripts/up.sh SKIPS the backtest stack while a
+#                           bt-data fetch or a bt-engine sweep is in flight, and
+#                           that is deliberate — recreating those containers
+#                           destroys the job. The deploy is not broken; the
+#                           stack was intentionally left alone.
+#   /health fails           the service is genuinely down or still starting.
+#   /health ok, coverage    the container is running a STALE IMAGE that predates
+#     endpoint 404          the coverage endpoint. Rebuilding is the fix, and
+#                           restarting would achieve nothing.
+BT_COMPOSE="docker compose -f docker-compose.backtest.yml"
+
+if ! $BT_COMPOSE ps --services --filter status=running 2>/dev/null | grep -qx bt-data; then
+  echo "bt-data container is NOT running." >&2
+  $BT_COMPOSE ps 2>&1 | sed 's/^/    /' >&2
+  echo >&2
+  echo "Most likely: scripts/up.sh SKIPPED the backtest stack because a" >&2
+  echo "bt-data fetch or a bt-engine sweep is in flight — that guard exists" >&2
+  echo "because recreating those containers destroys the running job." >&2
+  echo >&2
+  echo "  check:  $BT_COMPOSE logs --tail=50 bt-data" >&2
+  echo "  check:  curl -s localhost:8031/runs/latest   # bt-engine, is a sweep live?" >&2
+  echo "  then :  scripts/up.sh            # once nothing is in flight" >&2
+  echo "  or   :  scripts/up.sh --force    # DESTROYS a running sweep" >&2
+  fail "backtest stack not running"
+fi
+
+if ! curl -fsS --max-time 10 "${BT_DATA_URL}/health" >/dev/null 2>&1; then
+  echo "bt-data container is running but /health does not answer at ${BT_DATA_URL}." >&2
+  $BT_COMPOSE logs --tail=50 bt-data 2>&1 | sed 's/^/    /' >&2
+  fail "bt-data unhealthy"
+fi
+
+if ! curl -fsS --max-time 30 "${BT_DATA_URL}/coverage/raw-close" >/dev/null 2>&1; then
+  echo "bt-data answers /health but NOT /coverage/raw-close." >&2
+  echo "That endpoint ships with Wealth Core, so this container is running an" >&2
+  echo "image built before it. Restarting will not help — rebuild:" >&2
+  echo >&2
+  echo "  docker build --network host -t stocker-base:latest -f Dockerfile.base ." >&2
+  echo "  $BT_COMPOSE up -d --build bt-data" >&2
+  fail "bt-data image predates the coverage endpoint"
 fi
 
 say "coverage BEFORE"

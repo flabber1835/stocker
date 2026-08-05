@@ -51,7 +51,18 @@ resolve before continuing if this is a manual edit."
     || fail "base image build"
 
   say "3/10  deploy both stacks"
-  scripts/up.sh --build || fail "stack deploy"
+  # up.sh SKIPS the backtest stack while a bt-data fetch or a bt-engine sweep is
+  # running and still exits 0 — correct behaviour (recreating those containers
+  # destroys the job) but it means a zero exit does not mean both stacks moved.
+  # Captured here so the skip is reported at the step that caused it rather than
+  # surfacing five steps later as a connection error.
+  scripts/up.sh --build 2>&1 | tee /tmp/wc-up.log || fail "stack deploy"
+  if grep -qi "skip" /tmp/wc-up.log; then
+    echo >&2
+    echo "NOTE: up.sh reported a SKIP. The backtest stack is probably still on" >&2
+    echo "its previous image because a fetch or sweep is in flight:" >&2
+    grep -i "skip" /tmp/wc-up.log | sed 's/^/    /' >&2
+  fi
 
   say "4/10  migrations"
   docker compose up -d db-migrator || fail "db-migrator"
