@@ -15,6 +15,7 @@ import pathlib
 import pytest
 
 from app.raw_close_coverage import (
+    ROWS_PER_PROBE,
     SAMPLE_SESSIONS,
     SESSION_USABLE_THRESHOLD,
     STATEMENT_TIMEOUT_MS,
@@ -58,7 +59,12 @@ class FakeConn:
             return _R([(later[0],)] if later else [])
         if "WHERE date = :d" in sql:
             n, n_raw = self.per_session.get(params["d"], (0, 0))
-            return _R([{"n": n, "n_raw": n_raw}])
+            cap = params.get("cap", n)
+            # Mirror the real LIMIT: the probe reads at most `cap` rows, and the
+            # covered share within a date is what survives the truncation.
+            share = 0.0 if not n else n_raw / n
+            n = min(n, cap)
+            return _R([{"n": n, "n_raw": int(round(n * share))}])
         if "COUNT(DISTINCT ticker)" in sql:
             return _R([self.exact_row or {}])
         if "HAVING" in sql:
@@ -142,6 +148,25 @@ class TestTheFastPathStaysFast:
         rep = build_report(NoSet(per_session=sessions(1.0)))
         assert rep.operational is True
         assert any("statement_timeout could not be set" in n for n in rep.notes)
+
+    def test_each_probe_reads_a_BOUNDED_number_of_rows(self):
+        """The number that actually governs cost. COUNT(close_unadjusted) reads
+        a column not in the date index, so every matching row needs a random
+        HEAP fetch — ~6,400 of them per session on this corpus, which is tens of
+        seconds on NAS storage however cheap the plan looks."""
+        c = FakeConn(per_session=sessions(1.0))
+        build_report(c)
+        probes = [q for q in c.executed if "WHERE date = :d" in q]
+        assert probes, "no per-date probe ran"
+        assert all("LIMIT :cap" in q for q in probes), (
+            "a probe without a LIMIT reads the whole session from the heap")
+        assert 0 < ROWS_PER_PROBE <= 1000
+
+    def test_the_total_work_is_small(self):
+        c = FakeConn(per_session=sessions(1.0))
+        rep = build_report(c)
+        rows = sum(p["n"] for p in rep.sampled)
+        assert rows <= SAMPLE_SESSIONS * ROWS_PER_PROBE
 
     def test_the_sample_is_bounded_and_spread(self):
         c = FakeConn(per_session=sessions(1.0))

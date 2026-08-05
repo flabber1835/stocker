@@ -43,9 +43,24 @@ from sqlalchemy import text
 # it as "94% covered" invites someone to run on it anyway.
 SESSION_USABLE_THRESHOLD = 0.95
 
-# Dates probed in the fast path. Enough to locate the boundary of a partial
-# backfill to within ~1/40th of the corpus, cheap enough to answer in seconds.
-SAMPLE_SESSIONS = 40
+# Dates probed in the fast path.
+SAMPLE_SESSIONS = 12
+
+# Rows read PER probed date. This is the number that actually governs cost, and
+# getting it wrong is what made the second version time out too.
+#
+# `COUNT(close_unadjusted)` reads a column that is NOT in idx_bt_prices_date, so
+# the index gives the row locations and every one of them still needs a random
+# HEAP fetch. A single session is ~6,400 rows; on NAS storage with a cold cache
+# those are ~6,400 random reads, which is tens of seconds — the plan looks cheap
+# (`Index Only Scan`, cost ~1,400) and is not, because the planner's cost model
+# assumes far faster random I/O than this box has.
+#
+# So each probe reads a BOUNDED slice instead of the whole session. Coverage
+# within a single date is effectively uniform — the backfill writes whole
+# chunks, so a date is populated or it is not — which makes a slice as
+# informative as the full count for the question being asked.
+ROWS_PER_PROBE = 200
 
 # Applied per statement so a pathological plan degrades to "unknown" rather than
 # to a 500 ten minutes later.
@@ -66,10 +81,13 @@ _NEAREST_SESSION_SQL = text("""
     SELECT date FROM bt_prices WHERE date >= :target ORDER BY date LIMIT 1
 """)
 
-# One date, index-backed, a few thousand rows.
+# One date, BOUNDED. The LIMIT is inside the subquery so it caps the heap
+# fetches; a LIMIT outside an aggregate would cap the result rows and read
+# everything anyway.
 _ONE_SESSION_SQL = text("""
     SELECT COUNT(*) AS n, COUNT(close_unadjusted) AS n_raw
-      FROM bt_prices WHERE date = :d
+      FROM (SELECT close_unadjusted FROM bt_prices
+             WHERE date = :d LIMIT :cap) s
 """)
 
 # EXACT mode only. This is the query that timed out.
@@ -211,6 +229,7 @@ def _sample_dates(conn, lo: _date, hi: _date, n: int) -> list[_date]:
 
 
 def build_report(conn, *, sample_sessions: int = SAMPLE_SESSIONS,
+                 rows_per_probe: int = ROWS_PER_PROBE,
                  exact: bool = False, uncovered_ticker_limit: int = 50,
                  hash_range: tuple[str, str] | None = None) -> CoverageReport:
     rep = CoverageReport()
@@ -230,7 +249,8 @@ def build_report(conn, *, sample_sessions: int = SAMPLE_SESSIONS,
     rep.first_date, rep.last_date = lo, hi
 
     for d in _sample_dates(conn, lo, hi, sample_sessions):
-        row = conn.execute(_ONE_SESSION_SQL, {"d": d}).mappings().first() or {}
+        row = conn.execute(_ONE_SESSION_SQL,
+                           {"d": d, "cap": rows_per_probe}).mappings().first() or {}
         n, n_raw = (row.get("n") or 0), (row.get("n_raw") or 0)
         share = 0.0 if not n else n_raw / n
         rep.sampled.append({"date": str(d), "n": n, "n_raw": n_raw,
@@ -243,10 +263,15 @@ def build_report(conn, *, sample_sessions: int = SAMPLE_SESSIONS,
         rep.first_covered_date = covered[0]["date"]
         rep.last_covered_date = covered[-1]["date"]
     rep.notes.append(
-        f"SAMPLED {len(rep.sampled)} session(s); counts are estimates. Coverage "
-        f"is a property of contiguous date ranges because the backfill writes "
-        f"chunk by chunk, so a spread sample locates a partial backfill. Pass "
-        f"exact=1 for the full scan.")
+        f"SAMPLED {len(rep.sampled)} session(s) x up to {rows_per_probe} rows; "
+        f"counts are estimates. Coverage is a property of contiguous date "
+        f"ranges because the backfill writes chunk by chunk, so a spread sample "
+        f"locates a partial backfill. Pass exact=1 for the full scan.")
+    if rep.rows_total_estimate <= 0:
+        rep.notes.append(
+            "reltuples is unset — bt_prices has never been ANALYZEd. Run "
+            "VACUUM (ANALYZE) bt_prices: it also sets the visibility map, which "
+            "is what lets index-only scans skip the heap on this corpus.")
 
     if exact:
         row = conn.execute(_EXACT_SQL).mappings().first() or {}
@@ -286,5 +311,6 @@ def normalized_input_hash(conn, start: str, end: str) -> str:
     return h.hexdigest()
 
 
-__all__ = ["CoverageReport", "SAMPLE_SESSIONS", "SESSION_USABLE_THRESHOLD",
-           "STATEMENT_TIMEOUT_MS", "build_report", "normalized_input_hash"]
+__all__ = ["CoverageReport", "ROWS_PER_PROBE", "SAMPLE_SESSIONS",
+           "SESSION_USABLE_THRESHOLD", "STATEMENT_TIMEOUT_MS", "build_report",
+           "normalized_input_hash"]

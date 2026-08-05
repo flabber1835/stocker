@@ -89,6 +89,17 @@ case "$COV_CODE" in
 esac
 rm -f "$COV_BODY"
 
+say "planner statistics"
+# VACUUM (ANALYZE) is not housekeeping here. It sets reltuples, which the
+# coverage report uses instead of COUNT(*), AND it sets the VISIBILITY MAP,
+# which is what lets an index-only scan skip the heap. Without it every probe
+# pays a random heap read per row, and on this box that is the difference
+# between a diagnostic answering in seconds and one timing out. Cheap to skip
+# if it has already run.
+$BT_COMPOSE exec -T bt-postgres psql -U btuser -d backtest \
+  -c "VACUUM (ANALYZE) bt_prices;" 2>&1 | tail -2 || \
+  echo "VACUUM skipped (non-fatal)" >&2
+
 say "coverage BEFORE"
 curl -fsS "${BT_DATA_URL}/coverage/raw-close" | python3 -m json.tool
 
