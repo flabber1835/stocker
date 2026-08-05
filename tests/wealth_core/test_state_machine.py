@@ -194,7 +194,10 @@ class TestTrailingStop:
     def test_a_new_episode_resets_the_peak(self):
         """Spec §9: the peak 'does not reset except when a new holding episode
         begins'. Re-entry after a stop must not inherit the old high-water mark,
-        or the fresh position would start already stopped out."""
+        or the fresh position would start already stopped out.
+
+        Under the locked convention the new episode's peak is UNSET at the fill
+        and only becomes real at the entry session's close."""
         st = PortfolioState.fresh(100_000.0)
         seat(st, 0, sec="S1", tic="T1", entry=100.0, peak=500.0)
         apply_exit(st, slot_id=0, raw_open=100.0, cfg=CFG)
@@ -202,7 +205,57 @@ class TestTrailingStop:
                               0, "S1", "T1", 10),
                     session="d2", signal_session="d1", raw_open=100.0,
                     split_adjusted_price=100.0, issuer_id="I_S1", cfg=CFG)
-        assert st.episodes[0].episode_peak_split_adjusted_close == 100.0
+        assert st.episodes[0].episode_peak_split_adjusted_close is None
+        st.episodes[0].observe_entry_close(102.0)
+        assert st.episodes[0].episode_peak_split_adjusted_close == 102.0
+
+    def test_the_stop_cannot_fire_before_an_owned_close_exists(self):
+        """LOCKED convention. Between the opening fill and that session's close
+        the position has no peak, so a close-based stop has nothing to measure
+        against. Firing here would use a price the position never owned."""
+        st = PortfolioState.fresh(100_000.0)
+        apply_entry(st, op=Op(Operation.OPEN_SLOT_POSITION, Reason.ENTRY_DURABLE_RANK,
+                              0, "S1", "T1", 10),
+                    session="d2", signal_session="d1", raw_open=100.0,
+                    split_adjusted_price=100.0, issuer_id="I_S1", cfg=CFG)
+        ep = st.episodes[0]
+        assert ep.stop_triggered(1.0) is False        # a 99% collapse still cannot fire
+        ep.observe_entry_close(100.0)
+        assert ep.stop_triggered(70.0) is True
+
+    @pytest.mark.parametrize("entry_close,expect_peak", [
+        (140.0, 140.0),   # entry-day move far ABOVE the entry open
+        (60.0, 60.0),     # entry-day move far BELOW the entry open
+    ])
+    def test_a_large_entry_day_move_sets_the_peak_from_the_CLOSE(
+            self, entry_close, expect_peak):
+        """MANDATED by the locked convention. The peak is the entry session's
+        CLOSE, not the entry open and not the signal-day close — so a stock that
+        gapped up and closed higher has a HIGHER peak than its entry price, and
+        one that collapsed intraday has a LOWER one. Seeding from the open would
+        get the second case wrong in the dangerous direction: the stop would be
+        armed 40% above where the position actually closed."""
+        st = PortfolioState.fresh(100_000.0)
+        apply_entry(st, op=Op(Operation.OPEN_SLOT_POSITION, Reason.ENTRY_DURABLE_RANK,
+                              0, "S1", "T1", 10),
+                    session="d2", signal_session="d1", raw_open=100.0,
+                    split_adjusted_price=100.0, issuer_id="I_S1", cfg=CFG)
+        st.episodes[0].observe_entry_close(entry_close)
+        assert st.episodes[0].episode_peak_split_adjusted_close == expect_peak
+        # ...and the stop measures from THAT peak, not from 100.
+        assert st.episodes[0].stop_triggered(expect_peak * 0.70) is True
+        assert st.episodes[0].stop_triggered(expect_peak * 0.7001) is False
+
+    def test_the_entry_close_does_NOT_age_the_holding(self):
+        """Entry close is age 0 (locked). observe_entry_close must not increment
+        the age, or every holding would review one session early."""
+        st = PortfolioState.fresh(100_000.0)
+        apply_entry(st, op=Op(Operation.OPEN_SLOT_POSITION, Reason.ENTRY_DURABLE_RANK,
+                              0, "S1", "T1", 10),
+                    session="d2", signal_session="d1", raw_open=100.0,
+                    split_adjusted_price=100.0, issuer_id="I_S1", cfg=CFG)
+        st.episodes[0].observe_entry_close(105.0)
+        assert st.episodes[0].market_sessions_held == 0
 
 
 # ── cooldowns (spec §10) ────────────────────────────────────────────────────

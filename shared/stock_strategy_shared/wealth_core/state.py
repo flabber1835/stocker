@@ -61,23 +61,42 @@ class HoldingEpisode:
     entry_split_adjusted_price: float
     initial_shares: int
     current_shares: int
-    episode_peak_split_adjusted_close: float
+    # UNSET until the first OWNED close (locked convention, 2026-08-03). The
+    # signal-day close happened before ownership, and the entry OPEN is not a
+    # closing observation — seeding the peak from either would arm the trailing
+    # stop against a price the position never owned. None means "no owned close
+    # yet", and the stop cannot fire.
+    episode_peak_split_adjusted_close: float | None = None
     market_sessions_held: int = 0
     review_completed: bool = False
     exit_pending: bool = False
     exit_reason: str | None = None
 
-    def observe_close(self, split_adjusted_close: float) -> None:
+    def observe_entry_close(self, split_adjusted_close: float | None) -> None:
+        """Initialise the peak from the ENTRY SESSION's close.
+
+        Separate from `observe_close` because the entry session does NOT age the
+        holding — the entry close is age 0 by the locked convention — but it is
+        the first owned close and therefore the first legitimate peak.
+        """
+        if split_adjusted_close is not None:
+            self.episode_peak_split_adjusted_close = float(split_adjusted_close)
+
+    def observe_close(self, split_adjusted_close: float | None) -> None:
         """Advance one session: age the holding and ratchet the episode peak.
 
-        The peak only ever rises within an episode. Both happen together
+        The peak only ever rises within an episode, and it initialises on the
+        first owned close if the entry session was missed. Both happen together
         because a caller that ages without ratcheting (or vice versa) produces a
         stop that measures the wrong drawdown, silently.
         """
         self.market_sessions_held += 1
-        if split_adjusted_close is not None and \
-                split_adjusted_close > self.episode_peak_split_adjusted_close:
-            self.episode_peak_split_adjusted_close = float(split_adjusted_close)
+        if split_adjusted_close is None:
+            return
+        px = float(split_adjusted_close)
+        if self.episode_peak_split_adjusted_close is None or \
+                px > self.episode_peak_split_adjusted_close:
+            self.episode_peak_split_adjusted_close = px
 
     @property
     def review_due(self) -> bool:
@@ -89,11 +108,15 @@ class HoldingEpisode:
                 and self.market_sessions_held == REVIEW_AGE_SESSIONS)
 
     def stop_triggered(self, split_adjusted_close: float | None) -> bool:
-        """Spec §9. Inclusive at exactly 30% off the episode peak."""
-        if split_adjusted_close is None or self.episode_peak_split_adjusted_close <= 0:
+        """Spec §9. Inclusive at exactly 30% off the episode peak.
+
+        Returns False while the peak is UNSET: the close-based stop is not
+        evaluated until at least one owned close exists (locked convention).
+        """
+        peak = self.episode_peak_split_adjusted_close
+        if split_adjusted_close is None or peak is None or peak <= 0:
             return False
-        return float(split_adjusted_close) <= \
-            self.episode_peak_split_adjusted_close * STOP_RETENTION
+        return float(split_adjusted_close) <= peak * STOP_RETENTION
 
     def is_underwater(self, split_adjusted_close: float | None) -> bool:
         """Spec §8, first limb: current split-adjusted close < split-adjusted
@@ -252,6 +275,10 @@ UNRESOLVED: dict[str, str] = {
         "spec §10 says 'unavailable for 21 market sessions' and 'expires after "
         "21 completed market sessions'. Adopted: same strictly-after "
         "convention — blocked at ages 0-20, available at 21.",
+    "episode_peak_origin":
+        "LOCKED 2026-08-03: the peak is UNSET at the opening fill, initialised "
+        "from the ENTRY SESSION'S CLOSE, and thereafter the max owned close. "
+        "The stop is not evaluated until an owned close exists.",
     "underwater_strictness":
         "spec §8 says 'current close < entry price'. Implemented STRICTLY less, "
         "so exactly flat is not underwater and the holding survives review.",

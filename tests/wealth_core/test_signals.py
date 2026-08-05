@@ -195,6 +195,25 @@ class TestTopDecile:
     def test_the_cutoff_never_exceeds_the_population(self):
         assert top_decile_cutoff(3, top_fraction=1.5) == 3
 
+    @pytest.mark.parametrize("n,expected", [
+        (9, 1), (10, 1), (11, 2), (19, 2), (20, 2), (21, 3),
+    ])
+    def test_the_mandated_universe_sizes(self, n, expected):
+        """LOCKED convention, at the sizes the assignment names. ceil(n x 0.10):
+        9->1, 10->1, 11->2, 19->2, 20->2, 21->3. The 10/11 and 20/21 steps are
+        where a floor/ceil mix-up would show, and they differ by one holding."""
+        assert top_decile_cutoff(n) == expected
+
+    def test_a_thin_universe_still_admits_at_least_one(self):
+        """The explicit minimum. Under `floor` a 9-name universe would retain
+        nobody and the strategy would sit in cash for a reason no rule states."""
+        assert top_decile_cutoff(9, rounding="floor") == 1
+        assert top_decile_cutoff(1) == 1
+
+    def test_an_empty_universe_admits_nobody(self):
+        """The minimum must not manufacture a candidate out of nothing."""
+        assert top_decile_cutoff(0) == 0
+
     def test_an_unknown_rounding_rule_is_refused(self):
         with pytest.raises(ValueError):
             top_decile_cutoff(10, rounding="nearest-ish")

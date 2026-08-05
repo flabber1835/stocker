@@ -147,8 +147,17 @@ def durable_score(momentum: float | None, vol: float | None) -> float | None:
 
 # ── Top-decile membership (spec §3) ─────────────────────────────────────────
 
-def top_decile_cutoff(n_eligible: int, top_fraction: float = 0.10,
-                      rounding: str = "ceil") -> int:
+# LOCKED 2026-08-03: ceil(eligible_count x 0.10), floored at one candidate
+# whenever the eligible universe is non-empty. Named rather than inlined so the
+# adapters, the config hash and the tests all refer to the same value.
+DEFAULT_TOP_FRACTION = 0.10
+DEFAULT_TOP_DECILE_ROUNDING = "ceil"
+DEFAULT_MIN_TOP_DECILE = 1
+
+
+def top_decile_cutoff(n_eligible: int, top_fraction: float = DEFAULT_TOP_FRACTION,
+                      rounding: str = DEFAULT_TOP_DECILE_ROUNDING,
+                      minimum: int = DEFAULT_MIN_TOP_DECILE) -> int:
     """How many of the ranked cross-section are retained as "the highest 10%".
 
     UNRESOLVED IN THE SPEC. The assignment says "retain the highest 10%" without
@@ -163,7 +172,7 @@ def top_decile_cutoff(n_eligible: int, top_fraction: float = 0.10,
     set. That too is a recorded decision.
     """
     if n_eligible <= 0:
-        return 0
+        return 0                       # empty universe admits nobody
     raw = n_eligible * float(top_fraction)
     if rounding == "ceil":
         k = math.ceil(raw)
@@ -173,7 +182,10 @@ def top_decile_cutoff(n_eligible: int, top_fraction: float = 0.10,
         k = int(raw + 0.5)
     else:
         raise ValueError(f"unknown top-decile rounding rule: {rounding!r}")
-    return max(0, min(int(k), n_eligible))
+    # The minimum is what stops a thin universe from admitting nobody at all
+    # under `floor`. It never expands the set beyond the deterministic count —
+    # ties at the boundary are still resolved by the sort, not by inclusion.
+    return max(0, min(max(int(k), int(minimum)), n_eligible))
 
 
 # ── Deterministic candidate ordering (spec §5) ──────────────────────────────
@@ -218,8 +230,11 @@ def rank_candidates(rows: Iterable[DurableScore]) -> list[DurableScore]:
 # in prose that drifts. Each is a real fork where a choice had to be made.
 UNRESOLVED: dict[str, str] = {
     "top_decile_rounding":
-        "spec §3 says 'the highest 10%' without a rounding rule; default 'ceil' "
-        "(inclusive at the boundary). floor/round are configurable.",
+        "LOCKED 2026-08-03: ceil(n x 0.10), minimum 1 while the eligible "
+        "universe is non-empty. The ORIGINAL CERTIFICATION ARTIFACT IS STILL "
+        "REQUIRED to confirm this matches the historical prototype — this does "
+        "not block implementation, but it blocks any claim of exact historical "
+        "reproduction.",
     "top_decile_tie_policy":
         "boundary ties are broken by the deterministic sort rather than by "
         "expanding the retained set. The spec states tie breakers for ORDERING "
