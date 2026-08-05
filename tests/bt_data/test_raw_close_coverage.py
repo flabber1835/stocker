@@ -39,6 +39,10 @@ class FakeConn:
         self.exact_row, self.uncovered, self.rows = exact_row, list(uncovered), list(rows)
         self.executed: list[str] = []
 
+    def exec_driver_sql(self, sql):
+        self.executed.append(" ".join(str(sql).split()))
+        return _R([])
+
     def execute(self, stmt, params=None):
         sql = " ".join(str(stmt).split())
         self.executed.append(sql)
@@ -117,6 +121,27 @@ class TestTheFastPathStaysFast:
         build_report(c)
         assert any("statement_timeout" in q for q in c.executed)
         assert STATEMENT_TIMEOUT_MS > 0
+
+    def test_the_timeout_is_set_through_the_DRIVER_not_the_orm(self):
+        """`SET` is a utility statement PostgreSQL cannot PREPARE, and the
+        asyncpg dialect prepares everything — so issuing it as text() can fail
+        on the driver rather than the database."""
+        c = FakeConn(per_session=sessions(1.0))
+        build_report(c)
+        assert any("statement_timeout" in q for q in c.executed)
+        assert hasattr(c, "exec_driver_sql")
+
+    def test_a_failure_to_set_the_timeout_does_not_kill_the_report(self):
+        """The timeout is a safety margin on queries that are already
+        index-bounded. Losing the margin is worth far less than losing the
+        diagnostic — but it is RECORDED, since it changes how long a bad plan
+        can hang."""
+        class NoSet(FakeConn):
+            def exec_driver_sql(self, sql):
+                raise RuntimeError("cannot PREPARE a utility statement")
+        rep = build_report(NoSet(per_session=sessions(1.0)))
+        assert rep.operational is True
+        assert any("statement_timeout could not be set" in n for n in rep.notes)
 
     def test_the_sample_is_bounded_and_spread(self):
         c = FakeConn(per_session=sessions(1.0))

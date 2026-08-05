@@ -164,10 +164,29 @@ class CoverageReport:
         }
 
 
-def _guard(conn) -> None:
+def _guard(conn, rep: "CoverageReport | None" = None) -> None:
     """Bound every statement. A diagnostic that hangs is worse than one that
-    says 'unknown', because the caller cannot tell it apart from the outage."""
-    conn.execute(text(f"SET LOCAL statement_timeout = {STATEMENT_TIMEOUT_MS}"))
+    says 'unknown', because the caller cannot tell it apart from the outage.
+
+    NON-FATAL, and via the DRIVER rather than the ORM. `SET` is a utility
+    statement that PostgreSQL cannot PREPARE, and SQLAlchemy's asyncpg dialect
+    routes everything through `_prepare_and_execute` — so issuing it as a normal
+    `text()` can fail on the driver rather than on the database. `exec_driver_sql`
+    uses the simple protocol.
+
+    And if it fails anyway, the report still runs: this is a safety margin on
+    queries that are already index-bounded, so losing the margin is worth far
+    less than losing the diagnostic. A failure is RECORDED rather than swallowed,
+    because a missing timeout changes how long a bad plan can hang.
+    """
+    try:
+        conn.exec_driver_sql(
+            f"SET LOCAL statement_timeout = {STATEMENT_TIMEOUT_MS}")
+    except Exception as exc:                                  # pragma: no cover
+        if rep is not None:
+            rep.notes.append(
+                f"statement_timeout could not be set ({exc.__class__.__name__}); "
+                f"queries are unbounded but remain index-backed")
 
 
 def _sample_dates(conn, lo: _date, hi: _date, n: int) -> list[_date]:
@@ -195,7 +214,7 @@ def build_report(conn, *, sample_sessions: int = SAMPLE_SESSIONS,
                  exact: bool = False, uncovered_ticker_limit: int = 50,
                  hash_range: tuple[str, str] | None = None) -> CoverageReport:
     rep = CoverageReport()
-    _guard(conn)
+    _guard(conn, rep)
 
     rep.column_present = bool(conn.execute(_COLUMN_EXISTS_SQL).scalar())
     if not rep.column_present:
