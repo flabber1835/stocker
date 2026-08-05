@@ -23,7 +23,7 @@
   ],
   "final_cash": 33848.44,
   "final_positions": 24,
-  "final_state_hash": "881e36b5771e7d65",
+  "final_state_hash": "7b7bb72ea9e28be5",
   "ledger_event_counts": {
     "BUY": 30,
     "CASH_MERGER": 2,
@@ -35,7 +35,7 @@
     "WRITE_OFF": 1
   },
   "ledger_hash": "67bffaeea73250f5",
-  "result_hash": "1da4beaa5c5561230635cde6009e64f07d06d2345f1d8bc34f58d8d7971ea998",
+  "result_hash": "effdb8fd44662899c3bb665f1ce7a7e814b7d348dea3ba86c3faea58d3b7fac0",
   "securities": 125,
   "sessions": 260,
   "starting_cash": 1000000.0,

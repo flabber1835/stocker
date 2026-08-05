@@ -18,8 +18,13 @@ import pathlib
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-for svc in ("backtester", "bt-engine", "pipeline"):
-    sys.path.insert(0, str(ROOT / "services" / svc))
+
+# NOTE: the service directories are deliberately NOT put on sys.path. Every
+# service ships a top-level `app` package, so inserting three of them makes
+# `import app.anything` resolve to whichever was inserted last — for any OTHER
+# suite sharing the interpreter. It broke tests/shared when the two ran in one
+# process. The modules below are loaded by explicit path instead, which needs no
+# path manipulation because none of them import `app.*`.
 
 from stock_strategy_shared.wealth_core.golden import golden_scenario  # noqa: E402
 from stock_strategy_shared.wealth_core.hashes import (  # noqa: E402

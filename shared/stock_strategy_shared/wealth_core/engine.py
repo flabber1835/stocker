@@ -503,6 +503,9 @@ def apply_entry(state: PortfolioState, *, op: Op, session: str, signal_session: 
         entry_raw_open=float(raw_open),
         entry_split_adjusted_price=float(split_adjusted_price),
         initial_shares=int(op.shares), current_shares=int(op.shares),
+        source_lots=[{"kind": "ADMISSION", "session": session,
+                      "security_id": op.security_id, "ticker": op.ticker,
+                      "shares": int(op.shares), "raw_open": float(raw_open)}],
         # Peak deliberately UNSET here. The caller initialises it from the entry
         # session's close via observe_entry_close(); seeding it from the entry
         # open would arm the stop against a price that is not a close.

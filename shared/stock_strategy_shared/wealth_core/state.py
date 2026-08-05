@@ -71,6 +71,16 @@ class HoldingEpisode:
     # yet", and the stop cannot fire.
     episode_peak_split_adjusted_close: float | None = None
     market_sessions_held: int = 0
+    # SOURCE-LOT PROVENANCE. Every predecessor this holding came from, oldest
+    # first: the original admission, then one entry per conversion.
+    #
+    # Execution and marking use an AGGREGATED security-level quantity — that is
+    # what the broker holds and what equity must count — but aggregation destroys
+    # the answer to "where did these shares come from?", and after two positions
+    # are taken over by the same acquirer that question has no other source. It
+    # is what distinguishes one 8% holding from two 4% holdings that happen to
+    # have collided, which changes what a human should do about it.
+    source_lots: list[dict] = field(default_factory=list)
     review_completed: bool = False
     exit_pending: bool = False
     exit_reason: str | None = None
@@ -229,6 +239,25 @@ class PortfolioState:
         chosen slot depend on dict iteration, and the slot id ends up in the
         decision hash."""
         return sorted(s.slot_id for s in self.slots.values() if s.ready)
+
+    def lots_by_security(self) -> dict[str, list[dict]]:
+        """Per-security PROVENANCE beside the aggregated quantity.
+
+        The companion to `shares_by_security`: that answers "how much do we
+        own?", this answers "out of what?". Two predecessor positions converted
+        into one acquirer appear here as two lots under one security, which is
+        the only place that fact survives.
+        """
+        out: dict[str, list[dict]] = {}
+        for slot_id in sorted(self.episodes):
+            ep = self.episodes[slot_id]
+            out.setdefault(ep.security_id, []).append({
+                "slot_id": slot_id,
+                "shares": ep.current_shares,
+                "entry_date": ep.entry_date,
+                "sessions_held": ep.market_sessions_held,
+                "origin": list(ep.source_lots)})
+        return out
 
     def reserved_security_ids(self) -> set[str]:
         """Securities with a queued-but-unfilled entry. They are NOT held — they

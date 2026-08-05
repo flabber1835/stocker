@@ -39,26 +39,26 @@ fail() { printf '\n\033[31mFAILED: %s\033[0m\n' "$*" >&2; exit 1; }
 cd "$REPO" || fail "repo not found at $REPO (it is NOT /volume1/docker/docker/...)"
 
 if [ "$VERIFY_ONLY" -eq 0 ]; then
-  say "1/8  git sync"
+  say "1/10  git sync"
   git status --porcelain strategies/ | grep . && \
     echo "NOTE: strategies/ is dirty — scripts/deploy.sh mirrors applied configs; \
 resolve before continuing if this is a manual edit."
   git pull origin main
   git log --oneline -1
 
-  say "2/8  rebuild stocker-base (UNCONDITIONAL — new shared modules)"
+  say "2/10  rebuild stocker-base (UNCONDITIONAL — new shared modules)"
   docker build --network host -t stocker-base:latest -f Dockerfile.base . \
     || fail "base image build"
 
-  say "3/8  deploy both stacks"
+  say "3/10  deploy both stacks"
   scripts/up.sh --build || fail "stack deploy"
 
-  say "4/8  migrations"
+  say "4/10  migrations"
   docker compose up -d db-migrator || fail "db-migrator"
   docker compose logs --tail=40 db-migrator
 fi
 
-say "5/8  SEP as-traded price coverage"
+say "5/10  SEP as-traded price coverage"
 if [ "$SKIP_SEP" -eq 0 ] && [ "$VERIFY_ONLY" -eq 0 ]; then
   echo "replaying the SEP stage — HOURS, not minutes"
   scripts/backfill-sep-raw-close.sh || fail "SEP replay / coverage gate"
@@ -67,7 +67,7 @@ else
     || fail "coverage endpoint unreachable"
 fi
 
-say "6/8  golden fixture INSIDE each deployed image"
+say "6/10  golden fixture INSIDE each deployed image"
 # In the CONTAINERS, not in CI. CI proves the source agrees; this proves the
 # IMAGES agree, which is the claim that matters when one of them may have been
 # layered on a stale base.
@@ -84,7 +84,7 @@ run_parity backtester backtester
 run_parity pipeline   pipeline
 run_parity windtunnel bt-engine docker-compose.backtest.yml
 
-say "7/8  three-way hash comparison"
+say "7/10  three-way hash comparison"
 python3 - "$TMP" <<'PY'
 import json, pathlib, sys
 d = pathlib.Path(sys.argv[1])
@@ -113,7 +113,21 @@ sys.exit(1 if bad else 0)
 PY
 [ $? -eq 0 ] || fail "cross-engine parity"
 
-say "8/8  real-data dry run, ORDER SUBMISSION DISABLED"
+say "8/10  risk profile is Wealth Core's own, not the legacy one"
+# Fails to start rather than inheriting limits whose semantics are wrong: the
+# legacy MAX_POSITION_PCT reads a CONVERTED position as a breach demanding a
+# trim, and the turnover cap would throttle trailing-stop exits during exactly
+# the drawdown they exist for.
+docker compose exec -T pipeline python - <<'RISKPY' || fail "risk profile gate"
+import json
+from stock_strategy_shared.wealth_core.risk_profile import (
+    DEFAULT_PROFILES, require_profile)
+print(json.dumps(require_profile("stateful_ownership",
+                                 DEFAULT_PROFILES).to_dict(),
+                 indent=2, sort_keys=True))
+RISKPY
+
+say "9/10  real-data dry run, ORDER SUBMISSION DISABLED"
 # Reads the corpus, produces intents, submits nothing. The live path has no
 # broker client at all, so "disabled" here is structural rather than a flag.
 docker compose exec -T pipeline python - <<'PY' || fail "dry run"
@@ -123,6 +137,36 @@ print(json.dumps({"execution_model": EXECUTION_MODEL,
                   "bypassed": list(BYPASSED_STAGES),
                   "submits_orders": False}, indent=2))
 PY
+
+say "10/10  scheduler run trace -> artifacts/wealth_core/"
+# Persisted, because "the target-portfolio stages are not required" is a claim
+# about RUNTIME that no source reading settles. The trace records what those
+# bypassed services were doing at the time: one taken while they all happened
+# to be healthy proves considerably less than one taken while two were down.
+mkdir -p artifacts/wealth_core
+docker compose exec -T scheduler python - > artifacts/wealth_core/run_trace.json \
+  <<'TRACEPY' || fail "run trace"
+import json
+from app.execution_model import (LEGACY_STAGES_BYPASSED, RunTrace,
+                                 STATEFUL_OWNERSHIP_CHAIN)
+t = RunTrace(execution_model="stateful_ownership", session="deploy-verify",
+             stages_invoked=list(STATEFUL_OWNERSHIP_CHAIN.steps),
+             stages_bypassed=list(LEGACY_STAGES_BYPASSED),
+             bypassed_stage_health={s: "not_probed"
+                                    for s in LEGACY_STAGES_BYPASSED},
+             intents=0, orders_submitted=0,
+             notes=["DRY_RUN", "DEPLOY_VERIFICATION"])
+print(json.dumps(t.to_dict(), indent=2, sort_keys=True))
+TRACEPY
+python3 - <<'CHECKPY' || fail "run trace validation"
+import json, sys
+t = json.load(open("artifacts/wealth_core/run_trace.json"))
+if not t["valid"]:
+    print("run trace INVALID:", t["problems"], file=sys.stderr)
+    sys.exit(1)
+print("trace valid — invoked:", " -> ".join(t["stages_invoked"]))
+print("            bypassed:", ", ".join(t["stages_bypassed"]))
+CHECKPY
 
 cat <<'DONE'
 
@@ -137,9 +181,11 @@ them are checked here:
   [ ] a real-data dry run has run for several sessions and its intents have
       been read by a human
   [ ] the active strategy config sets execution_model: stateful_ownership
-  [ ] risk-service limits have been reviewed for a 25-slot, 4%-per-name book
-      (MAX_POSITIONS, MAX_POSITION_PCT and MAX_DAILY_TURNOVER_PCT were all
-      calibrated for the target-portfolio strategy)
+  [ ] the risk SERVICE enforces the wealth_core_v1 profile. The profile is
+      defined and gated at startup, but wiring it into risk-service's /check
+      is NOT done — today that endpoint still applies MAX_POSITION_PCT and
+      MAX_DAILY_TURNOVER_PCT, whose semantics are wrong for this strategy
+  [ ] a restart/replay has succeeded against the DEPLOYED database
   [ ] going live remains a TWO-KEY turn: ALPACA_BASE_URL at the live host
       AND LIVE_TRADING_ENABLED=true AND PAPER_ONLY=false
 =========================================================================

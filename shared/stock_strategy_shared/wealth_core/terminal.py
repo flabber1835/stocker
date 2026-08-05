@@ -283,6 +283,18 @@ def _apply_conversion(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
 
     # Per-share accounting state rescales by the ratio, which preserves POSITION
     # value exactly — see the module docstring on why the peak must move.
+    # Provenance BEFORE the identity is overwritten — after this block there is
+    # no other record that these shares were once a different company.
+    ep.source_lots = list(ep.source_lots) + [{
+        "kind": terms.kind.value, "session": session,
+        "from_security_id": before_sec, "from_ticker": ep.ticker,
+        "shares_in": before_shares, "exchange_ratio": ratio,
+        "shares_delivered": delivered,
+        "cash_consideration": round(cash_leg, 10),
+        "cash_in_lieu": round(lieu, 10),
+        "to_security_id": terms.delivered_security_id,
+        "to_ticker": terms.delivered_ticker,
+        "reference": terms.reference}]
     ep.security_id = terms.delivered_security_id
     ep.ticker = terms.delivered_ticker
     ep.issuer_id = terms.delivered_issuer_id
@@ -328,6 +340,11 @@ class FinalReport:
     forced_liquidation_ledger: Ledger | None = None
     marked_equity: float | None = None
     forced_liquidation_equity: float | None = None
+    # security_id -> aggregated shares and marked value. Reported ALONGSIDE the
+    # per-slot rows because two positions taken over by the same acquirer are
+    # one exposure and two holdings, and a report showing only one of those two
+    # views is misleading in whichever direction it omits.
+    aggregate_by_security: dict = field(default_factory=dict)
     unresolved_terminals: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -348,6 +365,9 @@ class FinalReport:
             "forced_liquidation_equity": None if self.forced_liquidation_equity is None
             else round(self.forced_liquidation_equity, 2),
             "unresolved_terminals": dict(sorted(self.unresolved_terminals.items())),
+            "aggregate_by_security": {
+                k: self.aggregate_by_security[k]
+                for k in sorted(self.aggregate_by_security)},
         }
 
 
@@ -419,6 +439,15 @@ def final_report(*, session: str, state: PortfolioState, marks: Mapping[str, Mar
                 "last_known_raw_close": (m.stale_raw_close if m else None),
                 "blocking_reason": state.unresolved_terminals.get(
                     ep.security_id, "NO_CURRENT_MARK")})
+
+    for p in rep.marked_positions:
+        agg = rep.aggregate_by_security.setdefault(
+            p["security_id"], {"shares": 0, "marked_value": 0.0, "lots": 0,
+                               "slots": []})
+        agg["shares"] += p["shares"]
+        agg["marked_value"] = round(agg["marked_value"] + p["marked_value"], 2)
+        agg["lots"] += 1
+        agg["slots"].append(p["slot_id"])
 
     rep.marked_equity = None if any_unmarkable else total
     rep.forced_liquidation_equity = None if any_unmarkable else forced_total

@@ -92,3 +92,59 @@ def test_the_two_bypass_lists_agree():
     spec.loader.exec_module(mod)
     assert set(mod.BYPASSED_STAGES) == set(LEGACY_STAGES_BYPASSED)
     assert mod.EXECUTION_MODEL == ExecutionModel.STATEFUL_OWNERSHIP.value
+
+
+# ── the deployed run trace ──────────────────────────────────────────────────
+
+class TestRunTrace:
+    """"Wealth Core does not require the target-portfolio stages" is a claim
+    about RUNTIME behaviour that no source reading can settle."""
+
+    def trace(self, **kw):
+        from app.execution_model import RunTrace
+        base = dict(execution_model="stateful_ownership", session="2026-08-05",
+                    stages_invoked=list(STATEFUL_OWNERSHIP_CHAIN.steps),
+                    stages_bypassed=list(LEGACY_STAGES_BYPASSED),
+                    intents=3, orders_submitted=0, notes=["DRY_RUN"])
+        base.update(kw)
+        return RunTrace(**base)
+
+    def test_a_correct_trace_validates(self):
+        t = self.trace()
+        assert t.validate() == [] and t.to_dict()["valid"] is True
+
+    def test_a_legacy_stage_being_INVOKED_invalidates_it(self):
+        t = self.trace(stages_invoked=["broker-sync", "pipeline",
+                                       "wealth-core-session", "risk-reserve",
+                                       "execute", "broker-reconcile"])
+        assert any("INVOKED" in p for p in t.validate())
+
+    def test_the_stage_ORDER_is_part_of_the_contract(self):
+        """Sizing is 4% of CURRENT equity, so the account must be synced before
+        the session decides anything; and the risk gate must sit between the
+        decision and the broker."""
+        steps = list(STATEFUL_OWNERSHIP_CHAIN.steps)
+        steps[0], steps[1] = steps[1], steps[0]
+        assert any("ORDER" in p for p in self.trace(stages_invoked=steps).validate())
+
+    def test_an_unrecorded_bypass_invalidates_it(self):
+        t = self.trace(stages_bypassed=["vet"])
+        assert any("not recorded as bypassed" in p for p in t.validate())
+
+    def test_a_dry_run_that_submitted_orders_invalidates_it(self):
+        t = self.trace(orders_submitted=2, notes=["DRY_RUN"])
+        assert any("submit nothing" in p for p in t.validate())
+
+    def test_bypassed_stage_health_is_carried(self):
+        """A trace taken while every legacy service happened to be healthy
+        proves considerably less than one taken while two of them were down."""
+        t = self.trace(bypassed_stage_health={"vet": "failed",
+                                              "portfolio-builder": "failed"})
+        assert t.validate() == []
+        assert t.to_dict()["bypassed_stage_health"]["vet"] == "failed"
+
+    def test_validate_returns_data_rather_than_raising(self):
+        """A trace is EVIDENCE; a caller that cannot save a flawed one has no
+        way to show what happened on a bad day."""
+        t = self.trace(stages_invoked=[])
+        assert isinstance(t.validate(), list) and t.to_dict()["valid"] is False
