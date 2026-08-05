@@ -23,6 +23,7 @@ from stock_strategy_shared.wealth_core.engine import (
     score_universe,
     whole_shares,
 )
+from stock_strategy_shared.wealth_core.marks import Mark, MarkStatus
 from stock_strategy_shared.wealth_core.state import (
     COOLDOWN_SESSIONS,
     REVIEW_AGE_SESSIONS,
@@ -45,8 +46,20 @@ def bar(i, step=1.0, closes=None, eligible=True):
                        eligible=eligible)
 
 
+def cur(**px):
+    """CURRENT marks from {security_id: raw close} — the ordinary case."""
+    return {k: Mark(k, MarkStatus.CURRENT, raw_mark_close=v) for k, v in px.items()}
+
+
 def run(state, bars, marks=None, session="2026-08-03"):
-    marks = marks or {b.security_id: b.closes[-1] for b in bars}
+    if marks is None:
+        marks = cur(**{b.security_id: b.closes[-1] for b in bars})
+        # Held securities absent from `bars` still need a mark, or the equity
+        # gate correctly blocks and the test measures the wrong thing.
+        for e in state.episodes.values():
+            marks.setdefault(e.security_id,
+                             Mark(e.security_id, MarkStatus.CURRENT,
+                                  raw_mark_close=e.entry_split_adjusted_price))
     return decide(session=session, state=state, bars=bars, marks=marks, cfg=CFG,
                   strategy_id=SID, strategy_version=VER)
 
@@ -337,10 +350,10 @@ class TestAdmissions:
         st = PortfolioState.fresh(10_000.0)
         last = rising()[-1]
         seat(st, 0, sec="S1", tic="T1", entry=10.0, peak=last, shares=100, age=5)
-        marks = {"S1": last}
+        marks = cur(S1=last)
         d = decide(session="s", state=st, bars=[SecurityBar("S1", "T1", "I_S1", rising())],
                    marks=marks, cfg=CFG, strategy_id=SID, strategy_version=VER)
-        assert st.equity(marks) > 30_000        # position is ~69% of the book
+        assert st.equity_view(marks).resolved_equity > 30_000   # ~69% of the book
         assert st.episodes[0].current_shares == 100
         assert [o.operation for o in d.operations if o.slot_id == 0] == \
             [Operation.HOLD_UNCHANGED]
@@ -419,7 +432,7 @@ class TestSerialisationAndReplay:
     def test_a_restarted_run_makes_THE_SAME_DECISION(self):
         st = self._mid_flight()
         bars = [SecurityBar("S1", "T1", "I_S1", rising()), bar(5)]
-        marks = {"S1": 150.0, "S2": 55.0, "S5": 120.0}
+        marks = cur(S1=150.0, S2=55.0, S5=120.0)
         a = decide(session="s", state=st, bars=bars, marks=marks, cfg=CFG,
                    strategy_id=SID, strategy_version=VER)
         b = decide(session="s", state=PortfolioState.from_dict(st.to_dict()),
@@ -453,7 +466,7 @@ def test_INPUT_ROW_ORDER_CANNOT_CHANGE_DECISIONS():
     decision hash — otherwise the backtester and the live book can disagree
     purely because their queries returned rows differently."""
     bars = [bar(i, step=1.0 + i * 0.07) for i in range(40)]
-    marks = {b.security_id: 100.0 for b in bars}
+    marks = cur(**{b.security_id: 100.0 for b in bars})
 
     def once(rows):
         st = PortfolioState.fresh(1_000_000.0)

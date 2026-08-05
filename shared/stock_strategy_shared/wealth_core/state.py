@@ -29,7 +29,10 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any, Mapping
+
+if TYPE_CHECKING:  # pragma: no cover
+    from stock_strategy_shared.wealth_core.marks import EquityView, Mark
 
 # Spec §6: 25 persistent slots, 4% of current portfolio equity per admission.
 DEFAULT_SLOTS = 25
@@ -196,18 +199,19 @@ class PortfolioState:
         decision hash."""
         return sorted(s.slot_id for s in self.slots.values() if s.ready)
 
-    def equity(self, marks: dict[str, float]) -> float:
-        """Spec §2: portfolio marking uses actual RAW unadjusted closes, which
-        the caller supplies as `marks` keyed by security_id. A holding with no
-        mark contributes nothing rather than a stale value — silently carrying
-        yesterday's price into today's equity would resize every subsequent
-        admission."""
-        total = self.cash
-        for e in self.episodes.values():
-            px = marks.get(e.security_id)
-            if px is not None:
-                total += e.current_shares * float(px)
-        return total
+    def shares_by_security(self) -> dict[str, int]:
+        return {e.security_id: e.current_shares for e in self.episodes.values()}
+
+    def equity_view(self, marks: Mapping[str, "Mark"]) -> "EquityView":
+        """Portfolio value split into the trustworthy part and the estimate.
+
+        Replaces a plain `equity()` deliberately. A single float cannot express
+        "we do not know what one of these is worth", and a caller handed one
+        will size 4% of it — which is the failure this whole type exists to
+        prevent.
+        """
+        from stock_strategy_shared.wealth_core.marks import build_equity_view
+        return build_equity_view(self.cash, self.shares_by_security(), marks)
 
     # ── session advance ──────────────────────────────────────────────────────
 

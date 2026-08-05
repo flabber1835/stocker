@@ -37,6 +37,7 @@ from stock_strategy_shared.wealth_core.signals import (
     recent_return,
     top_decile_cutoff,
 )
+from stock_strategy_shared.wealth_core.marks import Mark
 from stock_strategy_shared.wealth_core.state import (
     DEFAULT_ENTRY_WEIGHT,
     HoldingEpisode,
@@ -53,6 +54,7 @@ class Operation(str, Enum):
     CLOSE_POSITION = "CLOSE_POSITION"
     KEEP_SLOT_IN_COOLDOWN = "KEEP_SLOT_IN_COOLDOWN"
     RELEASE_SLOT = "RELEASE_SLOT"
+    BLOCK_NEW_ADMISSIONS_UNRESOLVED_EQUITY = "BLOCK_NEW_ADMISSIONS_UNRESOLVED_EQUITY"
 
 
 class Reason(str, Enum):
@@ -72,6 +74,7 @@ class Reason(str, Enum):
     REJECT_INSUFFICIENT_CASH = "REJECT_INSUFFICIENT_CASH"
     REJECT_ADMISSION_LIMIT = "REJECT_ADMISSION_LIMIT"
     REJECT_NO_READY_SLOT = "REJECT_NO_READY_SLOT"
+    REJECT_UNRESOLVED_EQUITY = "REJECT_UNRESOLVED_EQUITY"
 
 
 @dataclass(frozen=True)
@@ -246,7 +249,7 @@ def whole_shares(equity: float, price: float, cash: float,
 
 
 def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
-           marks: Mapping[str, float], cfg: WealthCoreConfig,
+           marks: Mapping[str, "Mark"], cfg: WealthCoreConfig,
            strategy_id: str, strategy_version: int) -> Decision:
     """One session's decisions, on information available after session t closes.
 
@@ -348,7 +351,26 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
 
     ranked = rank_candidates(scored)
     d.ranked_candidate_count = len(ranked)
-    equity = state.equity(dict(marks))
+
+    # THE EQUITY GATE. Exits, holds and cooldowns above all ran regardless —
+    # a position whose value is unknown must still be able to leave, and a
+    # cooldown must still tick. But an ADMISSION is 4% of equity, and 4% of an
+    # unknown is not a number. Blocking is the only treatment that does not
+    # silently invent one.
+    ev = state.equity_view(marks)
+    if not ev.is_resolved:
+        d.operations.append(Op(
+            Operation.BLOCK_NEW_ADMISSIONS_UNRESOLVED_EQUITY,
+            Reason.REJECT_UNRESOLVED_EQUITY,
+            detail={"unresolved": list(ev.unresolved_security_ids),
+                    "estimated_equity_including_stale_marks":
+                        ev.estimated_equity_including_stale_marks}))
+        d.warnings.append(
+            f"admissions blocked: {len(ev.unresolved_security_ids)} holding(s) "
+            f"without a trustworthy current mark")
+        return d
+
+    equity = ev.resolved_equity
     admitted = 0
 
     for cand in ranked:
@@ -362,7 +384,8 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
             continue                                   # REJECT_ISSUER_ALREADY_HELD
         if state.ticker_in_cooldown(cand.ticker):
             continue                                   # REJECT_TICKER_COOLDOWN
-        px = marks.get(cand.security_id)
+        m = marks.get(cand.security_id)
+        px = m.raw_mark_close if (m and m.status.name == "CURRENT") else None
         shares = whole_shares(equity, px, state.cash, cfg)
         if shares <= 0:
             continue                                   # REJECT_INSUFFICIENT_CASH
