@@ -104,10 +104,62 @@ say "coverage BEFORE"
 curl -fsS "${BT_DATA_URL}/coverage/raw-close" | python3 -m json.tool
 
 say "backfilling SEP ${START} .. ${END} (hours, not minutes)"
-curl -fsS -X POST "${BT_DATA_URL}/jobs/backfill-prices" \
-  -H 'content-type: application/json' \
-  -d "{\"start_date\":\"${START}\",\"end_date\":\"${END}\"}" \
+# QUERY PARAMETERS, not a JSON body. The endpoint declares `start_date: str` as a
+# bare parameter, which FastAPI reads from the query string — a JSON body gets a
+# 422 with no hint as to why. Every other bt-data job endpoint takes query params
+# too, so posting a body here was inconsistent with the service as well as wrong.
+curl -fsS -X POST \
+  "${BT_DATA_URL}/jobs/backfill-prices?start_date=${START}&end_date=${END}&force=true" \
   | python3 -m json.tool
+
+# THE JOB IS FIRE-AND-FORGET. bt-data returns {"status":"started"} immediately and
+# does the work in a background task, so checking coverage now would report ~0%
+# and fail the gate on a replay that is running perfectly. Poll until the run row
+# reaches a terminal state instead.
+say "waiting for the SEP stage (this is the multi-hour part)"
+WAITED=0
+while :; do
+  STATE="$(curl -fsS "${BT_DATA_URL}/runs/latest" 2>/dev/null | python3 -c '
+import json, sys
+runs = json.load(sys.stdin).get("runs", [])
+row = next((r for r in runs if r.get("job_type") == "backfill_prices"), None)
+print("missing" if row is None else row.get("status") or "unknown")
+' 2>/dev/null || echo unreachable)"
+
+  case "$STATE" in
+    success) echo "  SEP stage: success after ${WAITED}m"; break ;;
+    failed)
+      echo "  SEP stage FAILED after ${WAITED}m" >&2
+      curl -fsS "${BT_DATA_URL}/runs/latest" | python3 -c '
+import json, sys
+for r in json.load(sys.stdin).get("runs", []):
+    if r.get("job_type") in ("backfill_prices", "backfill_chunk"):
+        print(f"  {r.get(\"status\"):8} {r.get(\"date_min\")}..{r.get(\"date_max\")} "
+              f"{r.get(\"rows_written\")} rows  {(r.get(\"error_message\") or \"\")[:160]}")
+' >&2 || true
+      fail "SEP replay failed — the corpus is PARTIALLY covered, not broken; "\
+           "re-running resumes from the missing date range" ;;
+    running)
+      # Chunk progress is the useful signal: the run row stays 'running' for
+      # hours while individual years complete underneath it.
+      DONE="$(curl -fsS "${BT_DATA_URL}/runs/latest" 2>/dev/null | python3 -c '
+import json, sys
+runs = json.load(sys.stdin).get("runs", [])
+print(sum(1 for r in runs
+          if r.get("job_type") == "backfill_chunk" and r.get("status") == "success"))
+' 2>/dev/null || echo "?")"
+      printf '  %sm elapsed, run=running, recent completed chunks=%s\n' "$WAITED" "$DONE" ;;
+    missing)  printf '  %sm elapsed, no backfill_prices run row yet\n' "$WAITED" ;;
+    *)        printf '  %sm elapsed, state=%s\n' "$WAITED" "$STATE" ;;
+  esac
+
+  sleep 60
+  WAITED=$((WAITED + 1))
+  if [ "$WAITED" -gt "${SEP_REPLAY_MAX_MINUTES:-720}" ]; then
+    fail "SEP replay still running after ${WAITED}m; not failing the corpus, "\
+         "just giving up on WAITING. Check: curl -s ${BT_DATA_URL}/runs/latest"
+  fi
+done
 
 say "coverage AFTER"
 REPORT="$(curl -fsS "${BT_DATA_URL}/coverage/raw-close?hash=1")"
