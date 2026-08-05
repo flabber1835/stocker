@@ -149,10 +149,13 @@ async def _upsert_prices(rows: list[dict]) -> int:
         r["date"] = _d(r["date"])
     async with engine.begin() as conn:
         await conn.execute(text(
-            "INSERT INTO bt_prices (ticker, date, open, high, low, close, adjusted_close, volume) "
-            "VALUES (:ticker, :date, :open, :high, :low, :close, :adjusted_close, :volume) "
+            "INSERT INTO bt_prices (ticker, date, open, high, low, close, adjusted_close, "
+            "close_unadjusted, volume) "
+            "VALUES (:ticker, :date, :open, :high, :low, :close, :adjusted_close, "
+            ":close_unadjusted, :volume) "
             "ON CONFLICT (ticker, date) DO UPDATE SET "
-            "  adjusted_close=EXCLUDED.adjusted_close, close=EXCLUDED.close, volume=EXCLUDED.volume"
+            "  adjusted_close=EXCLUDED.adjusted_close, close=EXCLUDED.close, "
+            "  close_unadjusted=EXCLUDED.close_unadjusted, volume=EXCLUDED.volume"
         ), rows)
     return len(rows)
 

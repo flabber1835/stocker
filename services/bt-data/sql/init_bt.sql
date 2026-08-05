@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS bt_prices (
     low             NUMERIC(24,6),
     close           NUMERIC(24,6),
     adjusted_close  NUMERIC(24,6),   -- Sharadar SEP closeadj (split+div adjusted)
+    close_unadjusted NUMERIC(24,6),  -- SEP closeunadj: the AS-TRADED price
     volume          NUMERIC(20,2),
     PRIMARY KEY (ticker, date)
 );
@@ -41,6 +42,11 @@ ALTER TABLE bt_prices
     ALTER COLUMN low TYPE NUMERIC(24,6),
     ALTER COLUMN close TYPE NUMERIC(24,6),
     ALTER COLUMN adjusted_close TYPE NUMERIC(24,6);
+-- The AS-TRADED price. Added after the fact, so an existing bt-postgres picks
+-- it up on the next bt-data startup (this file is re-applied idempotently) —
+-- but it stays NULL until the SEP stage is RE-BACKFILLED, and anything that
+-- needs a raw price must refuse rather than fall back to `close`.
+ALTER TABLE bt_prices ADD COLUMN IF NOT EXISTS close_unadjusted NUMERIC(24,6);
 
 CREATE TABLE IF NOT EXISTS bt_fundamentals (
     ticker          VARCHAR(20)  NOT NULL,

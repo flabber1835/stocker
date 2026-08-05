@@ -73,8 +73,21 @@ def map_sep_row(row: dict) -> dict:
     """Sharadar SEP daily price row → bt_prices row.
 
     SEP columns: ticker, date, open, high, low, close, closeadj, closeunadj,
-    volume, lastupdated. We take closeadj as adjusted_close (split+div adjusted),
-    close as the raw close, and volume.
+    volume, lastupdated.
+
+    THREE PRICE DOMAINS, and the names are misleading in exactly the direction
+    that costs money:
+
+        close        SPLIT-adjusted, DIVIDEND-unadjusted. Despite the name this
+                     is NOT the as-traded price — it is the signal domain.
+        closeadj     split AND dividend adjusted: a TOTAL-RETURN series.
+        closeunadj   the actual as-traded price. The marking and execution
+                     domain, and the only one a share count or a cash balance
+                     may be computed from.
+
+    `closeunadj` used to be discarded here, which left the corpus with no raw
+    price at all — so anything needing one had to reach for `close` and would
+    have marked a portfolio in split-adjusted currency without raising.
     """
     return {
         "ticker": row["ticker"],
@@ -84,6 +97,7 @@ def map_sep_row(row: dict) -> dict:
         "low": _f(row.get("low")),
         "close": _f(row.get("close")),
         "adjusted_close": _f(row.get("closeadj")),
+        "close_unadjusted": _f(row.get("closeunadj")),
         "volume": _f(row.get("volume")),
     }
 
