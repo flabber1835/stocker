@@ -117,8 +117,11 @@ class HoldingEpisode:
         holding is reviewed ONCE, and `review_completed` records that it was.
         Using `>=` with a broken flag would re-review daily forever — which is
         the Structural Core behaviour this strategy explicitly is not."""
+        # `>=`, not `==`. The flag already guarantees once-only; `==` meant a
+        # review DEFERRED for a missing close (see engine.decide) could never
+        # fire again, because the age moves past the threshold the next session.
         return (not self.review_completed
-                and self.market_sessions_held == REVIEW_AGE_SESSIONS)
+                and self.market_sessions_held >= REVIEW_AGE_SESSIONS)
 
     def stop_triggered(self, split_adjusted_close: float | None) -> bool:
         """Spec §9. Inclusive at exactly 30% off the episode peak.

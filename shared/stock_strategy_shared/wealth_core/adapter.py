@@ -232,7 +232,8 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                  pending: list[PendingOrder], ledger: Ledger,
                  last_known: dict[str, float], cfg: WealthCoreConfig,
                  strategy_id: str, strategy_version: int,
-                 security_bars: Sequence[SecurityBar]) -> SessionResult:
+                 security_bars: Sequence[SecurityBar],
+                 terminal_terms: Sequence = ()) -> SessionResult:
     """One market session, in the fixed order documented at module level.
 
     `security_bars` carries §1 eligibility and the trailing SIGNAL windows, both
@@ -247,12 +248,41 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     apply_splits(state, bars, ledger, session)
     apply_dividends(state, bars, ledger, session)
 
+    # ── 3. terminal actions, HERE and not before ─────────────────────────────
+    # They used to be applied by the caller BEFORE this function ran, i.e. before
+    # splits, before dividends and before pending fills — contradicting the
+    # ordering documented at the top of this module. Two reproducible failures
+    # followed: a pending exit plus a same-day cash merger raised KeyError,
+    # because the merger had already removed the episode the exit then popped;
+    # and a pending ENTRY plus a same-day merger BOUGHT a security that had
+    # already terminated. Both are ordering artefacts, so the ordering is now in
+    # one place — the same place that documents it.
+    terminal_results: list[dict] = []
+    for terms in sorted(terminal_terms,
+                        key=lambda t: (t.security_id, t.kind.value)):
+        from stock_strategy_shared.wealth_core.terminal import apply_terminal
+        terminal_results.append(
+            apply_terminal(state, terms, ledger=ledger, session=session, cfg=cfg))
+    terminated = {t.security_id for t in terminal_terms}
+
     # ── 4. execute orders decided BEFORE this session ────────────────────────
     fills: list[dict] = []
     res_cancelled: list[dict] = []
     still_pending: list[PendingOrder] = []
     entered_this_session: list[int] = []
     for po in pending:
+        if po.security_id in terminated and po.slot_id not in state.episodes:
+            # The security terminated this session and the slot is gone. An
+            # ENTRY here would buy a security that no longer exists; an EXIT
+            # would pop an episode the terminal action already removed
+            # (KeyError). Dropping the order is the only coherent outcome, and
+            # it is RECORDED so a vanished order is never silent.
+            res_cancelled.append(
+                {"session": session, "security_id": po.security_id,
+                 "ticker": po.ticker, "slot_id": po.slot_id,
+                 "wanted_shares": po.shares,
+                 "reason": "TERMINATED_BEFORE_FILL"})
+            continue
         b = by_sec.get(po.security_id)
         if b is None or not b.can_execute:
             po.sessions_waiting += 1        # persists; never silently dropped
@@ -294,7 +324,13 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                                      po.shares),
                         session=session, signal_session=po.signal_session,
                         raw_open=px,
-                        split_adjusted_price=b.signal_close_split_adj_div_unadj or px,
+                        # The split-adjusted EXECUTION OPEN — the price the
+                        # position was actually bought at, in the domain the
+                        # review compares against. The fill session's signal
+                        # close is a different number by a whole session's move.
+                        split_adjusted_price=(
+                            b.signal_open_split_adj_div_unadj
+                            or b.signal_close_split_adj_div_unadj or px),
                         issuer_id=b.issuer_id, cfg=cfg)
             ledger.post(session=session, event_type=EventType.BUY,
                         cash_before=before, cash_delta=state.cash - before,
@@ -340,6 +376,9 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                 ticker=op.ticker, slot_id=op.slot_id, shares=op.shares or 0,
                 signal_session=session, reason=op.reason.value))
 
+    d.warnings.extend(
+        f"terminal {r.get('kind') or r.get('reason')} on {r.get('security_id')}"
+        for r in terminal_results if not r.get("applied"))
     return SessionResult(session=session, decision=d, fills=fills,
                          resolved_equity=ev.resolved_equity,
                          estimated_equity=ev.estimated_equity_including_stale_marks,

@@ -72,6 +72,7 @@ class Reason(str, Enum):
     EXIT_TRAILING_STOP = "EXIT_TRAILING_STOP"
     HOLD_NOT_REVIEW_ELIGIBLE = "HOLD_NOT_REVIEW_ELIGIBLE"
     HOLD_REVIEW_PASSED = "HOLD_REVIEW_PASSED"
+    HOLD_REVIEW_DEFERRED = "HOLD_REVIEW_DEFERRED"
     HOLD_REVIEW_ALREADY_COMPLETED = "HOLD_REVIEW_ALREADY_COMPLETED"
     SLOT_IN_COOLDOWN = "SLOT_IN_COOLDOWN"
     SLOT_RELEASED = "SLOT_RELEASED"
@@ -342,6 +343,17 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
             continue
 
         if ep.review_due:
+            # NO PRICE, NO REVIEW. Without a close, `is_underwater` returns
+            # False, which fell through to the pass branch and marked the
+            # review PERMANENTLY complete — a holding could clear its only
+            # rank check by having no print that day. Deferring costs a
+            # session; passing on absent evidence cannot be undone.
+            if px is None:
+                d.operations.append(Op(
+                    Operation.HOLD_UNCHANGED, Reason.HOLD_REVIEW_DEFERRED,
+                    slot_id, ep.security_id, ep.ticker, ep.current_shares,
+                    {"age": ep.market_sessions_held, "reason": "NO_CLOSE"}))
+                continue
             underwater = ep.is_underwater(px)
             qualified = still_qualifies(by_sec.get(ep.security_id))
             if underwater and not qualified:
@@ -497,6 +509,10 @@ def apply_entry(state: PortfolioState, *, op: Op, session: str, signal_session: 
     state.cash -= cost
     state.slots[op.slot_id].occupied_by = op.security_id
     state.slots[op.slot_id].release_reservation()   # the claim became a holding
+    # The book exists from the first FILL, which is what ends the opening. Set
+    # here rather than by the caller so no engine can start steady-state before
+    # it owns anything.
+    state.initialized = True
     state.episodes[op.slot_id] = HoldingEpisode(
         security_id=op.security_id, ticker=op.ticker, issuer_id=issuer_id,
         slot_id=op.slot_id, signal_date=signal_session, entry_date=session,

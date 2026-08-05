@@ -137,6 +137,35 @@ class DailyBar:
                 and _positive(self.raw_open))
 
     @property
+    def signal_open_split_adj_div_unadj(self) -> float | None:
+        """The execution open, expressed in the SIGNAL domain.
+
+        The one-time review compares the current split-adjusted close against
+        the price the position was actually BOUGHT at, so both sides must be in
+        the same domain. Storing the fill session's signal CLOSE instead was
+        wrong by a full session's move — the first golden fill opened at 86.24
+        and stored 86.41.
+
+        Derived rather than carried: the split factor is exactly
+        signal_close / raw_close on the same bar, so scaling the raw open by it
+        puts the open on the signal basis without the adapter having to supply a
+        fourth price and without any chance of the two disagreeing.
+        """
+        if not (_positive(self.raw_open) and _positive(self.raw_close_for_scale)
+                and _positive(self.signal_close_split_adj_div_unadj)):
+            return None
+        factor = (float(self.signal_close_split_adj_div_unadj)
+                  / float(self.raw_close_for_scale))
+        return float(self.raw_open) * factor
+
+    @property
+    def raw_close_for_scale(self) -> float | None:
+        """The raw close used only to recover the split factor. Named apart from
+        `raw_mark_close` so a future change to marking cannot silently re-scale
+        the review basis."""
+        return self.raw_mark_close
+
+    @property
     def can_mark(self) -> bool:
         return not self.unresolved_corporate_action and _positive(self.raw_mark_close)
 

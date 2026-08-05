@@ -159,7 +159,12 @@ def run_sessions(*, sessions: Sequence[str],
     cfg = cfg or WealthCoreConfig()
     state = state if state is not None else PortfolioState.fresh(
         starting_cash, cfg.n_slots if hasattr(cfg, "n_slots") else 25)
-    state.initialized = True
+    # `initialized` is NOT set here. It means "the book has been constructed",
+    # and `decide` reads it to choose between filling every free slot at once
+    # (the opening) and one admission per session (steady state). Setting it
+    # before the first decision made the opening drip-feed: 4 entries in 130
+    # sessions instead of a book. It is now set by apply_entry, when the first
+    # position actually FILLS — a resumed run carries it in from storage.
     pending = pending if pending is not None else []
     ledger = ledger if ledger is not None else Ledger()
     last_known = last_known if last_known is not None else {}
@@ -192,12 +197,6 @@ def run_sessions(*, sessions: Sequence[str],
         # acquired for cash pays into the balance that this session's admissions
         # size against — and a write-off resolves the equity block in the same
         # session rather than one late.
-        for ev in sorted(events_by_session.get(session, []),
-                         key=lambda e: (e.security_id, e.kind.value)):
-            res = apply_terminal(state, ev, ledger=ledger, session=session,
-                                 cfg=cfg)
-            out.terminal_results.append({"session": session, **res})
-
         norm = feed.advance(session, bars_by_session.get(session, ()),
                             (terminal_states or {}).get(session))
         last_norm = norm
@@ -205,7 +204,10 @@ def run_sessions(*, sessions: Sequence[str],
                            pending=pending, ledger=ledger, last_known=last_known,
                            cfg=cfg, strategy_id=STRATEGY_ID,
                            strategy_version=STRATEGY_VERSION,
-                           security_bars=norm.security_bars)
+                           security_bars=norm.security_bars,
+                           # Applied INSIDE the session, at their documented
+                           # position after splits/dividends and before fills.
+                           terminal_terms=events_by_session.get(session, []))
         out.sessions.append(res)
         if res.blocked:
             out.blocked_sessions.append(session)
