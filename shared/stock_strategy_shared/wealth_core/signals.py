@@ -152,7 +152,28 @@ def durable_score(momentum: float | None, vol: float | None) -> float | None:
 # adapters, the config hash and the tests all refer to the same value.
 DEFAULT_TOP_FRACTION = 0.10
 DEFAULT_TOP_DECILE_ROUNDING = "ceil"
+# CERTIFIED SOURCE (2026-08-03 correction): the frozen implementation used
+# max(25, ceil(N x 0.10)), NOT ceil with a minimum of one. Identical for large
+# universes; materially different for small ones and for early history, which is
+# exactly where a reproduction would first diverge.
 DEFAULT_MIN_TOP_DECILE = 1
+MINIMUM_LEADERSHIP_POPULATION = 25
+
+
+def leadership_count(n_eligible: int, top_fraction: float = DEFAULT_TOP_FRACTION,
+                     rounding: str = DEFAULT_TOP_DECILE_ROUNDING,
+                     minimum_leadership_population: int = MINIMUM_LEADERSHIP_POPULATION
+                     ) -> int:
+    """CERTIFIED: max(minimum_leadership_population, ceil(N x top_fraction)),
+    capped at N.
+
+    The floor of 25 matters only when the eligible universe is small — but that
+    is precisely early history, where a reproduction diverges first and where a
+    "minimum of one" would have the strategy picking from a single name while
+    the certified path considered everything available.
+    """
+    return top_decile_cutoff(n_eligible, top_fraction, rounding,
+                             minimum=minimum_leadership_population)
 
 
 def top_decile_cutoff(n_eligible: int, top_fraction: float = DEFAULT_TOP_FRACTION,

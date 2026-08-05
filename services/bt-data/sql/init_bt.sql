@@ -76,6 +76,16 @@ CREATE INDEX IF NOT EXISTS idx_bt_fundamentals_asof ON bt_fundamentals(as_of_dat
 -- Idempotent add for pre-existing DBs (bt-data re-applies this file on startup,
 -- so an existing bt-postgres picks the columns up without a manual migration —
 -- they stay NULL until the SF1 stage is re-backfilled).
+-- Wealth Core v1 needs three TICKERS fields the mapper previously discarded:
+-- `category` decides common-equity membership from its RAW string, and
+-- permaticker/related_tickers are the ONLY non-heuristic route to issuer
+-- identity. Idempotent adds, so an existing bt-postgres picks them up on
+-- bt-data startup; they stay NULL until TICKERS is re-fetched.
+ALTER TABLE bt_universe
+    ADD COLUMN IF NOT EXISTS category        TEXT,
+    ADD COLUMN IF NOT EXISTS permaticker     TEXT,
+    ADD COLUMN IF NOT EXISTS related_tickers TEXT;
+
 ALTER TABLE bt_fundamentals
     ADD COLUMN IF NOT EXISTS market_cap               NUMERIC(24,2),
     ADD COLUMN IF NOT EXISTS shares_outstanding       NUMERIC(22,2),

@@ -29,6 +29,7 @@ from typing import Mapping, Sequence
 
 from stock_strategy_shared.wealth_core.signals import (
     DurableScore,
+    leadership_count,
     annualized_formation_volatility,
     durable_score,
     medium_term_momentum,
@@ -69,7 +70,7 @@ class Reason(str, Enum):
     SLOT_IN_COOLDOWN = "SLOT_IN_COOLDOWN"
     SLOT_RELEASED = "SLOT_RELEASED"
     REJECT_TICKER_COOLDOWN = "REJECT_TICKER_COOLDOWN"
-    REJECT_ISSUER_ALREADY_HELD = "REJECT_ISSUER_ALREADY_HELD"
+    ISSUER_CONFLICT = "ISSUER_CONFLICT"
     REJECT_ALREADY_HELD = "REJECT_ALREADY_HELD"
     REJECT_INSUFFICIENT_CASH = "REJECT_INSUFFICIENT_CASH"
     REJECT_ADMISSION_LIMIT = "REJECT_ADMISSION_LIMIT"
@@ -102,6 +103,11 @@ class Decision:
     candidates: list[DurableScore] = field(default_factory=list)
     eligible_universe_count: int = 0
     ranked_candidate_count: int = 0
+    # Why a ranked candidate was NOT admitted. Recorded rather than dropped:
+    # ISSUER_CONFLICT in particular is the ONLY place related securities are
+    # separated (the certified path does not deduplicate before the cutoff), so
+    # it has to be visible or the reason a name was passed over is unrecoverable.
+    admission_rejections: list[dict] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -133,6 +139,9 @@ class Decision:
                  "in_top_decile": c.in_top_decile, "reason": c.reason}
                 for c in sorted(self.candidates,
                                 key=lambda c: (c.security_id, c.ticker))],
+            "admission_rejections": sorted(
+                self.admission_rejections,
+                key=lambda r: (r.get("security_id") or "", r.get("reason") or "")),
             "warnings": sorted(self.warnings),
         }
 
@@ -152,6 +161,7 @@ class WealthCoreConfig:
     top_decile_rounding: str = "ceil"
     transaction_cost_bps: float = 10.0
     max_admissions_per_session: int = 1
+    minimum_leadership_population: int = 25
 
     def config_hash(self) -> str:
         blob = json.dumps({
@@ -160,6 +170,7 @@ class WealthCoreConfig:
             "top_decile_rounding": self.top_decile_rounding,
             "transaction_cost_bps": self.transaction_cost_bps,
             "max_admissions_per_session": self.max_admissions_per_session,
+            "minimum_leadership_population": self.minimum_leadership_population,
         }, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
@@ -206,7 +217,9 @@ def score_universe(bars: Sequence[SecurityBar],
     # Deterministic even before the cutoff: ties at the boundary must not depend
     # on input order.
     ranked_pool.sort(key=lambda s: (-s.momentum, s.security_id, s.ticker))
-    k = top_decile_cutoff(len(ranked_pool), cfg.top_fraction, cfg.top_decile_rounding)
+    # CERTIFIED: max(minimum_leadership_population, ceil(N x 0.10)).
+    k = leadership_count(len(ranked_pool), cfg.top_fraction, cfg.top_decile_rounding,
+                         cfg.minimum_leadership_population)
     top = {s.security_id for s in ranked_pool[:k]}
 
     out = []
@@ -343,6 +356,11 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
 
     held_secs = state.held_security_ids()
     held_issuers = state.held_issuer_ids()
+
+    def reject(cand, reason: Reason, **extra):
+        d.admission_rejections.append(
+            {"security_id": cand.security_id, "ticker": cand.ticker,
+             "reason": reason.value, **extra})
     # Slots emptying at the same open are NOT reusable this session: their cash
     # is not available until the sale executes, and the spec forbids implicitly
     # replacing a position using same-open information.
@@ -377,18 +395,25 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
         if admitted >= budget or not ready:
             break
         if cand.security_id in held_secs or cand.security_id in pending_secs:
-            continue                                   # REJECT_ALREADY_HELD
+            reject(cand, Reason.REJECT_ALREADY_HELD)
+            continue
         bar = next((b for b in bars if b.security_id == cand.security_id), None)
         issuer = bar.issuer_id if bar else cand.security_id
         if issuer in held_issuers or issuer in pending_issuers:
-            continue                                   # REJECT_ISSUER_ALREADY_HELD
+            # The ONLY issuer separation in the certified path. Related
+            # securities were never removed from the leadership population —
+            # they compete on merit and lose here, once, at admission.
+            reject(cand, Reason.ISSUER_CONFLICT, issuer_group_key=issuer)
+            continue
         if state.ticker_in_cooldown(cand.ticker):
-            continue                                   # REJECT_TICKER_COOLDOWN
+            reject(cand, Reason.REJECT_TICKER_COOLDOWN)
+            continue
         m = marks.get(cand.security_id)
         px = m.raw_mark_close if (m and m.status.name == "CURRENT") else None
         shares = whole_shares(equity, px, state.cash, cfg)
         if shares <= 0:
-            continue                                   # REJECT_INSUFFICIENT_CASH
+            reject(cand, Reason.REJECT_INSUFFICIENT_CASH, price=px)
+            continue
         slot_id = ready.pop(0)
         d.operations.append(Op(Operation.OPEN_SLOT_POSITION, Reason.ENTRY_DURABLE_RANK,
                                slot_id, cand.security_id, cand.ticker, shares,

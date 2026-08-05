@@ -222,6 +222,18 @@ def map_tickers_row(row: dict, snapshot_date: str) -> Optional[dict]:
         "ticker": row["ticker"],
         "name": row.get("name"),
         "sector": row.get("sector"),
+        # RETAINED, not discarded. Wealth Core decides common-equity membership
+        # from this raw string (contains "Common Stock", not "Warrant", not
+        # "Preferred"), so re-deriving it from the filter below would give the
+        # engine no way to distinguish an ADR from a warrant — and the audit
+        # record is supposed to carry the ORIGINAL category, not a verdict.
+        "category": row.get("category"),
+        # Issuer identity, from Sharadar's own fields. The alternative — a name
+        # or ticker-root heuristic — merges unrelated companies and splits
+        # related ones, silently and in opposite directions.
+        "permaticker": (str(row["permaticker"]).strip()
+                        if row.get("permaticker") not in (None, "") else None),
+        "related_tickers": _related_tickers(row.get("relatedtickers")),
         # POINT-IN-TIME listing window. These were already in every TICKERS row
         # and were discarded, which left the engine inferring historical
         # eligibility from price presence and using ONE snapshot for all of
@@ -230,6 +242,19 @@ def map_tickers_row(row: dict, snapshot_date: str) -> Optional[dict]:
         "last_price_date": _date_or_none(row.get("lastpricedate")),
         "is_delisted": _bool_or_none(row.get("isdelisted")),
     }
+
+
+def _related_tickers(v: Any) -> list[str]:
+    """Sharadar serves relatedtickers as a space- or comma-separated string.
+
+    Returned SORTED and de-duplicated so the issuer key is stable regardless of
+    the order the vendor happened to list them in — the key is a join of these,
+    and an unstable key silently stops the issuer-conflict check from matching.
+    """
+    if not v:
+        return []
+    raw = str(v).replace(",", " ").split()
+    return sorted({t.strip().upper() for t in raw if t.strip()})
 
 
 def _date_or_none(v: Any) -> Optional[str]:

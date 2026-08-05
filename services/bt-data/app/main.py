@@ -236,6 +236,12 @@ def coerce_universe_dates(rows: list[dict]) -> list[dict]:
         for col in ("snapshot_date", "first_price_date", "last_price_date"):
             if col in r:
                 r[col] = _d(r[col])
+        # related_tickers arrives from the mapper as a SORTED list. Flattened to
+        # a space-joined string for the TEXT column; the sort is what makes the
+        # issuer key stable, so it is preserved rather than re-derived on read.
+        rt = r.get("related_tickers")
+        if isinstance(rt, (list, tuple)):
+            r["related_tickers"] = " ".join(rt) or None
     return rows
 
 
@@ -246,14 +252,18 @@ async def _upsert_universe(rows: list[dict]) -> int:
     async with engine.begin() as conn:
         await conn.execute(text(
             "INSERT INTO bt_universe (snapshot_date, ticker, name, sector, "
-            "  first_price_date, last_price_date, is_delisted) "
+            "  first_price_date, last_price_date, is_delisted, category, "
+            "  permaticker, related_tickers) "
             "VALUES (:snapshot_date, :ticker, :name, :sector, "
-            "  :first_price_date, :last_price_date, :is_delisted) "
+            "  :first_price_date, :last_price_date, :is_delisted, :category, "
+            "  :permaticker, :related_tickers) "
             "ON CONFLICT (snapshot_date, ticker) DO UPDATE SET "
             "  name=EXCLUDED.name, sector=EXCLUDED.sector, "
             "  first_price_date=EXCLUDED.first_price_date, "
             "  last_price_date=EXCLUDED.last_price_date, "
-            "  is_delisted=EXCLUDED.is_delisted"
+            "  is_delisted=EXCLUDED.is_delisted, category=EXCLUDED.category, "
+            "  permaticker=EXCLUDED.permaticker, "
+            "  related_tickers=EXCLUDED.related_tickers"
         ), rows)
     return len(rows)
 

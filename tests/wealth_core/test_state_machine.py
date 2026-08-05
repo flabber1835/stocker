@@ -390,16 +390,21 @@ class TestAdmissions:
 
 # ── the decile is computed over ELIGIBLE names only (spec §3) ───────────────
 
-def test_top_decile_uses_only_eligible_securities():
-    """MANDATORY. Including ineligible names moves the cutoff and admits a
-    security that is not in the top 10% of anything tradeable."""
+def test_the_leadership_population_uses_only_eligible_securities():
+    """MANDATORY. Including ineligible names in the ranked pool would move the
+    cutoff and admit securities that are not in the leadership set of anything
+    the strategy can trade.
+
+    Under the CERTIFIED correction the count is max(25, ceil(N x 0.10)), so with
+    10 eligible names all 10 lead — the assertion that matters is that none of
+    the 50 strong INELIGIBLE names appear, not the size of the set."""
     strong_ineligible = [SecurityBar(f"X{i}", f"X{i}", f"IX{i}", rising(step=9.0),
                                      eligible=False, eligibility_reason="REJECT_LIQUIDITY")
                          for i in range(50)]
     eligible = [bar(i, step=1.0 + i * 0.1) for i in range(10)]
     scored = score_universe(eligible + strong_ineligible, CFG)
     in_top = [s for s in scored if s.in_top_decile]
-    assert len(in_top) == 1                       # ceil(0.10 * 10), not of 60
+    assert len(in_top) == 10                      # max(25, ceil(1)) capped at 10
     assert all(not s.security_id.startswith("X") for s in in_top)
 
 

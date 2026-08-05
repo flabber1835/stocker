@@ -408,3 +408,62 @@ def test_it_shares_the_single_writer_guard():
 
     from app import main as bt_main
     assert "_job_active" in inspect.getsource(bt_main.start_fundamentals_backfill)
+
+
+# ── bt_universe: the same seam, for the Wealth Core fields ──────────────────
+# `category`, `permaticker` and `related_tickers` were previously discarded by
+# the mapper. Wealth Core decides common-equity membership from the raw category
+# string and derives issuer identity from the other two — with no heuristic
+# fallback, because a name or ticker-root guess merges unrelated companies and
+# splits related ones.
+
+def test_the_wealth_core_universe_fields_are_mapped():
+    m = map_tickers_row(_t(category="ADR Common Stock", permaticker="199059",
+                           relatedtickers="GOOGL GOOG"), "2026-07-25")
+    assert m["category"] == "ADR Common Stock"
+    assert m["permaticker"] == "199059"
+    assert m["related_tickers"] == ["GOOG", "GOOGL"]      # sorted, deduped
+
+
+def test_related_tickers_are_sorted_and_deduplicated():
+    """The issuer key is a join of these, so an unstable order produces a
+    different key for the same issuer on different rows — and the conflict check
+    silently stops matching."""
+    a = map_tickers_row(_t(relatedtickers="B,A,B"), "2026-07-25")["related_tickers"]
+    b = map_tickers_row(_t(relatedtickers="A B"), "2026-07-25")["related_tickers"]
+    assert a == b == ["A", "B"]
+
+
+def test_absent_issuer_fields_stay_None_rather_than_becoming_empty_strings():
+    """Wealth Core's strict mode REFUSES a security with no issuer identity. An
+    empty string would pass a truthiness check and produce the key 'P:'."""
+    m = map_tickers_row(_t(permaticker="", relatedtickers=""), "2026-07-25")
+    assert m["permaticker"] is None and m["related_tickers"] == []
+
+
+def test_every_mapped_universe_field_reaches_the_INSERT():
+    """THE seam, and it caught a real gap: the three new fields were mapped but
+    absent from the INSERT, so they would have stayed NULL forever while every
+    mapper test passed."""
+    import inspect
+    import re
+
+    from app import main as bt_main
+    sql = inspect.getsource(bt_main._upsert_universe)
+    ins = re.search(r"INSERT INTO bt_universe \((.*?)\)\s*\"?\s*\n?\s*\"?VALUES",
+                    sql, re.S)
+    assert ins, "could not locate the bt_universe INSERT"
+    cols = {c.strip() for c in re.sub(r'["\s]+', " ", ins.group(1)).split(",")
+            if c.strip()}
+    mapped = set(map_tickers_row(_t(), "2026-07-25"))
+    assert not (mapped - cols), f"mapped but never persisted: {mapped - cols}"
+    assert not (cols - mapped), f"in the INSERT but never mapped: {cols - mapped}"
+
+
+def test_related_tickers_are_flattened_before_binding():
+    """A python list cannot bind to a TEXT column. Same class of failure as the
+    date coercion that killed a multi-hour backfill at its final stage."""
+    from app.main import coerce_universe_dates
+    rows = [map_tickers_row(_t(relatedtickers="B A"), "2026-07-25")]
+    coerce_universe_dates(rows)
+    assert rows[0]["related_tickers"] == "A B"
