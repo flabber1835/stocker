@@ -318,13 +318,26 @@ This is defect 1's lesson applied up front. It is also the reason to land the
 defect-1 fix before this work rather than after: the pattern, the vocabulary and
 the falsifier shape all already exist for the next control to copy.
 
-### 3.8 One net intent per ticker
+### 3.8 One net intent per ticker — reconciled, not merely constrained
 
-Defect 4's lesson. The controller emits a target exposure; a single
-reconciliation step merges per-name decisions and overlay moves into **one net
-instruction per ticker** before anything reaches `delta_intents`, plus a unique
-index on `(run_id, ticker)` so the invariant is enforced by the database rather
-than by convention.
+Defect 4's lesson, with an important refinement: **a unique index on
+`delta_intents` would turn conflicting logic into an insertion failure rather
+than resolving it.** Uniqueness is not reconciliation. The layering:
+
+```text
+proposals        APPEND-ONLY audit table. Every contributing proposal survives,
+                 including ones the reconciliation discarded — diagnostics are
+                 not the thing to sacrifice for the invariant.
+net_intent       ONE final economic instruction per (run_id, account_id, ticker).
+                 The unique index lives HERE.
+provenance       every contributing proposal + the priority rule that resolved
+                 them, stored with the net intent
+```
+
+So the database enforces the invariant on the table that represents the final
+executable instruction, while the raw proposals stay inspectable. A reviewer
+asking "why did this ticker get this instruction?" gets an answer rather than an
+absence.
 
 ### 3.9 Three hashes, so the certification anchor survives
 
@@ -358,6 +371,131 @@ reconciliation must leave every existing Wealth Core economic output
 A golden re-pin becomes necessary only if the ECONOMIC hash moves, and if that
 happens it is a finding, not a formality: it means the overlay changed base
 behaviour while disabled.
+
+### 3.9b The controller transition record — what parity actually compares
+
+Defect 5's lesson generalised. Asserting that the live source *contains a call to*
+the shared evaluator is presence, not equivalence, and presence is what let the
+fail-open defect stay green.
+
+Parity compares a **serialised controller transition record**, hashed identically
+by the live pipeline, the wind tunnel and the backtester:
+
+```text
+prior persisted state
+every input, WITH its available_at
+evaluation status              (evaluable / not, and why)
+trigger predicates             each condition's own boolean, not just the AND
+requested exposure
+healthy-session + minimum-duration counters
+resulting persisted state
+scheduled next-open action
+final reconciled intents
+```
+
+Recording each predicate separately rather than only their conjunction is what
+makes a divergence diagnosable: two engines can agree on "engaged" while
+disagreeing about which condition carried it, and that disagreement is a real
+defect that a single boolean hides.
+
+The decisive property: this makes **semantic divergence visible even when the
+resulting exposure happens to match**. Two engines producing the same exposure by
+different reasoning are not in parity — they are one input away from disagreeing,
+and the current test could not tell.
+
+## 3.10 The treasury_accrual_sleeve rate source — SETTLED
+
+**Source: Federal Reserve H.15 daily 3-month Treasury bill secondary-market
+rate, series DTB3**, ingested into Stocker as a dated observation table. History
+extends to 1954, covering the whole Wealth Core period with room to spare.
+
+Explicitly rejected, and why:
+
+```text
+FRED download at replay time      a runtime dependency on a mutable remote
+ALFRED as a runtime dependency    same, plus vintage complexity at the wrong layer
+Treasury daily bill archive       downloadable bill-rate history starts 2002
+3-month CONSTANT MATURITY         a modeled yield-curve point, not the observed
+                                  bill proxy
+SHY / BIL returns                 absent from the corpus; ETF-price semantics
+```
+
+### Point-in-time rule
+
+For session *t*, accrue using the most recent DTB3 observation **publicly
+available before the beginning of session t**.
+
+```text
+an observation dated Monday       cannot earn Monday's return
+                                  becomes eligible for Tuesday, if published
+                                  before Tuesday's session
+holidays / missing observations   carry forward the last ELIGIBLE published rate
+a missing historical observation  is NEVER backfilled from a later one
+the ingest stores                 observation_date AND available_at
+```
+
+Storing `available_at` separately from `observation_date` is the whole point:
+FRED reports observation and update timing separately, so availability can be
+modelled rather than assumed equal to the observation date.
+
+### Vintage and revisions — proportionate, and explicitly provisional
+
+A full vintage database is **not** built initially. Instead:
+
+```text
+1  ingest the complete DTB3 history ONCE
+2  record source, retrieval timestamp, immutable content hash
+3  treat that snapshot as the FROZEN research corpus
+4  forward operation APPENDS; it never rewrites stored rows
+5  an ingest that would change an existing observation is REJECTED unless
+   processed as an explicit revision event
+6  a one-time ALFRED comparison over representative old dates quantifies
+   whether H.15 revisions are material
+```
+
+This does not prove the present historical file equals what was published each
+day decades ago. It makes that limitation **explicit** and prevents silent
+history mutation, which is the failure that actually matters. The proportionality
+is justified: prior research attributed roughly **0.38pp** of cumulative
+contribution to the defensive sleeve against **28.76pp** from reduced equity
+exposure — the sleeve is not where the effect lives.
+
+**This is the one provisional item.** Step 6 must settle whether DTB3 revisions
+are immaterial BEFORE any historical performance number is promoted.
+
+### Accrual convention
+
+DTB3 is quoted on a **bank-discount basis**, so `rate / 252` is wrong. Convert
+the quotation to an investment-equivalent holding return:
+
+```text
+1  discount yield -> implied purchase price of a hypothetical 91-day bill
+2  that price -> its 91-day holding-period return
+3  holding-period return -> daily GEOMETRIC accrual
+4  apply over ACTUAL CALENDAR DAYS between portfolio valuation timestamps
+```
+
+The exact formula and day count are frozen in the specification, not chosen at
+implementation time. **Weekends earn Treasury accrual even though no equity
+session occurs**; the accumulated calendar-day accrual is credited at the next
+portfolio valuation.
+
+### Transition-day ordering
+
+```text
+a sale at Tuesday's open       starts earning sleeve accrual from Tuesday,
+                               AFTER execution
+a repurchase at Tuesday's open stops earning sleeve accrual AT execution
+never simultaneously           no capital may earn equity and treasury return
+                               over the same interval
+cash awaiting next-open        remains in the PRIOR economic asset until
+                               execution — never retrospectively in the
+                               destination sleeve
+```
+
+The last rule is the one that quietly inflates a backtest: crediting pending cash
+to the destination sleeve on the decision day pays a risk-free return on capital
+that was still at equity risk.
 
 ## 4. Build order
 
