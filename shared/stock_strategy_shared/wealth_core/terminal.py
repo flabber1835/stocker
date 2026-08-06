@@ -212,7 +212,7 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
 def _release(state: PortfolioState, slot_id: int, ep: HoldingEpisode) -> None:
     state.episodes.pop(slot_id)
     state.slots[slot_id].start_cooldown()
-    state.ticker_cooldowns[ep.ticker] = 0
+    state.security_cooldowns[ep.security_id] = 0
 
 
 def _apply_write_off(state, slot_id, ep, ledger, session) -> dict:

@@ -330,3 +330,87 @@ def test_the_two_caveat_sets_say_opposite_things_about_certification():
     # ...and must still describe what the terms-less case does, since that is
     # the behaviour a reader is most likely to be surprised by.
     assert "block" in actions
+
+
+# ── permanent identity (item 7) ─────────────────────────────────────────────
+
+class TestPointInTimeIdentity:
+    """`bt_universe` keyed meta on the TICKER, which splices ticker reuse: two
+    unrelated companies that held one symbol at different times became a single
+    continuous security and momentum ran straight across the discontinuity."""
+
+    ROWS = [
+        # One security, two symbols over time — a rename.
+        {"permaticker": "111", "ticker": "FB",
+         "first_price_date": "2012-05-18", "last_price_date": "2022-06-08"},
+        {"permaticker": "111", "ticker": "META",
+         "first_price_date": "2022-06-09", "last_price_date": None},
+        # One symbol, two securities over time — a reuse.
+        {"permaticker": "222", "ticker": "AAA",
+         "first_price_date": "2000-01-01", "last_price_date": "2005-01-01"},
+        {"permaticker": "333", "ticker": "AAA",
+         "first_price_date": "2010-01-01", "last_price_date": None},
+    ]
+
+    def r(self):
+        from app.wealth_core_replay import IdentityResolver
+        return IdentityResolver(self.ROWS)
+
+    def test_a_rename_resolves_to_ONE_permanent_security(self):
+        r = self.r()
+        assert r.resolve("FB", "2015-01-01") == "P:111"
+        assert r.resolve("META", "2023-01-01") == "P:111"
+
+    def test_a_REUSED_ticker_resolves_by_SESSION(self):
+        r = self.r()
+        assert r.resolve("AAA", "2002-01-01") == "P:222"
+        assert r.resolve("AAA", "2015-01-01") == "P:333"
+        assert r.reused_tickers == ["AAA"]
+
+    def test_a_session_no_owner_covers_is_REFUSED_not_guessed(self):
+        """Between the two owners' windows. Picking either produces a complete
+        run of a security that did not exist that day."""
+        r = self.r()
+        assert r.resolve("AAA", "2007-01-01") is None
+        assert r.unresolved == {"out_of_window": 1}
+
+    def test_an_unknown_ticker_is_REFUSED_and_counted(self):
+        r = self.r()
+        assert r.resolve("ZZZ", "2015-01-01") is None
+        assert r.unresolved == {"unknown_ticker": 1}
+
+    def test_OVERLAPPING_windows_are_ambiguous_rather_than_first_wins(self):
+        from app.wealth_core_replay import IdentityResolver
+        r = IdentityResolver([
+            {"permaticker": "1", "ticker": "X",
+             "first_price_date": "2000-01-01", "last_price_date": "2020-01-01"},
+            {"permaticker": "2", "ticker": "X",
+             "first_price_date": "2010-01-01", "last_price_date": None}])
+        assert r.resolve("X", "2015-01-01") is None
+        assert r.unresolved == {"ambiguous_ticker": 1}
+
+    def test_a_SINGLE_owner_is_resolved_without_consulting_the_window(self):
+        """A security's price history can legitimately start before the
+        universe snapshot's first_price_date. Refusing those bars would discard
+        real history for the common case to guard against a reuse that cannot
+        happen when only one security ever held the symbol."""
+        from app.wealth_core_replay import IdentityResolver
+        r = IdentityResolver([{"permaticker": "9", "ticker": "SOLO",
+                               "first_price_date": "2015-01-01",
+                               "last_price_date": "2016-01-01"}])
+        assert r.resolve("SOLO", "1999-01-01") == "P:9"
+        assert r.unresolved == {}
+
+    def test_the_id_is_PREFIXED_so_it_cannot_be_read_as_a_symbol(self):
+        from app.wealth_core_replay import SECURITY_ID_PREFIX, permanent_id
+        assert permanent_id("199059") == "P:199059"
+        assert SECURITY_ID_PREFIX == "P:"
+        assert permanent_id(None) is None and permanent_id("  ") is None
+
+    def test_resolution_is_deterministic_regardless_of_row_order(self):
+        from app.wealth_core_replay import IdentityResolver
+        fwd = IdentityResolver(self.ROWS)
+        rev = IdentityResolver(list(reversed(self.ROWS)))
+        for session in ("2002-01-01", "2015-01-01", "2023-01-01"):
+            assert fwd.resolve("AAA", session) == rev.resolve("AAA", session)
+            assert fwd.resolve("META", session) == rev.resolve("META", session)

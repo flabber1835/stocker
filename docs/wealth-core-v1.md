@@ -476,6 +476,72 @@ ledger. `DailyBar.from_mapping` refuses the ambiguous field names outright, and
 a test asserts the replay module never names that column even in a string, since
 its SQL queries are string constants too.
 
+## Permanent security identity
+
+**A ticker is an observation label. The permanent security identity owns the
+economic state.** Everything path-dependent hangs off `security_id`, so what
+that field means decides whether a rename is a no-op or a liquidation.
+
+The backtester used the TICKER as `security_id`, which gets it wrong in both
+directions and silently:
+
+| | what the ticker does | what it should do |
+|---|---|---|
+| rename (`FB` → `META`) | old id stops printing, new id appears — an exit and a fresh entry, with costs, a reset peak, a reset age and a reset review | nothing at all |
+| reuse (a ticker reassigned years later) | two unrelated companies splice into one continuous security | two separate histories |
+
+Neither raises. The first sells a winner on a press release; the second computes
+momentum across a discontinuity between different businesses.
+
+### What follows the permanent identity
+
+Position quantity and basis, the episode peak and stop state, entry date and the
+one-time review flag, the **security** cooldown, outstanding dividend
+receivables, pending entries and exits, terminal history, and issuer
+concentration. A `ticker_change` alters the tradeable symbol and nothing else.
+
+The cooldown moved with it, and that is a behaviour change rather than a
+refactor: `ticker_cooldowns` was keyed on the SYMBOL, so a security that exited
+and then renamed became immediately re-buyable — the cooldown looked up a
+ticker that no longer existed. It is now `security_cooldowns`, keyed on the
+permanent id, because "this security is unbuyable for 21 sessions" is a
+statement about the company, not about the string it trades under.
+
+### Resolution is point-in-time, and refuses rather than guesses
+
+`bt_universe` is keyed on `(snapshot_date, ticker)` and carries `permaticker`
+plus the `first_price_date` / `last_price_date` window. Meta is therefore built
+per **permaticker**, and a `(ticker, session)` pair resolves to whichever
+permanent security actually held that symbol on that session.
+
+Three refusals, all counted and reported rather than silently dropped:
+
+- **no permaticker** — identity cannot be established, so the security is
+  excluded. Same rule as strict issuer identity: a guess merges companies.
+- **ambiguous** — two permanent securities claim one ticker on one session with
+  overlapping windows. That is a data defect, and picking either one produces a
+  complete run of a security that did not exist.
+- **out of window** — a bar whose ticker resolves to no security on that
+  session.
+
+`security_id` is `P:<permaticker>`, prefixed so it can never be mistaken for a
+ticker by a reader or by a test fixture.
+
+### The certified artefact does not exercise identity either
+
+The same shape as the volatility-profile gap, recorded for the same reason.
+Across all 260 sessions the golden scenario produces **zero** relabellings and
+has **125 distinct tickers for 125 securities** — no rename, no reuse. So it
+pins identity *handling* only in the sense that the ids happen to be stable; it
+would not catch a regression that reverted to ticker-as-identity.
+
+That evidence lives in `tests/wealth_core/test_identity.py`, which is falsified
+rather than assumed: reverting the cooldown key to the symbol and removing the
+relabelling step fails **10** of its 21 tests. Giving the scenario a rename and a
+reused ticker would close the gap inside the artefact and needs its own
+deliberate re-pin — it belongs with the next scenario revision, alongside the
+volatility dispersion.
+
 ## Known reproduction differences and unsupported cases
 
 | Item | Status |

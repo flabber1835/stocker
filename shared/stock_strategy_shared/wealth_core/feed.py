@@ -140,6 +140,14 @@ class SecuritySeries:
         return idx[-1] - idx[0] == length - 1
 
     def append(self, bar: VendorBar, session_index: int = -1) -> None:
+        # The TICKER tracks the bar; the SECURITY_ID never does. A ticker is an
+        # observation label that can be reassigned on a rename, so the series
+        # carries the CURRENT one — a series that froze the ticker at creation
+        # would label every later session with a symbol that no longer trades.
+        # Nothing path-dependent keys on it: the split factor, the window and
+        # every piece of episode state hang off security_id, which is exactly
+        # what makes a rename a relabelling rather than an exit and re-entry.
+        self.ticker = bar.ticker
         # The split applies to the factor BEFORE this session's close is
         # adjusted: the vendor's close on the ex-date is already post-split, so
         # it needs the new factor, not the old one.

@@ -78,7 +78,9 @@ class Reason(str, Enum):
     HOLD_REVIEW_ALREADY_COMPLETED = "HOLD_REVIEW_ALREADY_COMPLETED"
     SLOT_IN_COOLDOWN = "SLOT_IN_COOLDOWN"
     SLOT_RELEASED = "SLOT_RELEASED"
-    REJECT_TICKER_COOLDOWN = "REJECT_TICKER_COOLDOWN"
+    # Named for the SECURITY, not the symbol: the cooldown is keyed on the
+    # permanent identity, so a rename cannot clear it.
+    REJECT_SECURITY_COOLDOWN = "REJECT_SECURITY_COOLDOWN"
     ISSUER_CONFLICT = "ISSUER_CONFLICT"
     REJECT_ALREADY_HELD = "REJECT_ALREADY_HELD"
     REJECT_INSUFFICIENT_CASH = "REJECT_INSUFFICIENT_CASH"
@@ -506,8 +508,8 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
                    tie_break=ISSUER_CONFLICT_ADMISSION_TIE_BREAK
                    .comparison_tuple(cand))
             continue
-        if state.ticker_in_cooldown(cand.ticker):
-            reject(cand, Reason.REJECT_TICKER_COOLDOWN)
+        if state.security_in_cooldown(cand.security_id):
+            reject(cand, Reason.REJECT_SECURITY_COOLDOWN)
             continue
         m = marks.get(cand.security_id)
         px = m.raw_mark_close if (m and m.status.name == "CURRENT") else None
@@ -577,4 +579,4 @@ def apply_exit(state: PortfolioState, *, slot_id: int, raw_open: float,
     ep = state.episodes.pop(slot_id)
     state.cash += ep.current_shares * raw_open * (1.0 - cfg.transaction_cost_bps / 10_000.0)
     state.slots[slot_id].start_cooldown()
-    state.ticker_cooldowns[ep.ticker] = 0
+    state.security_cooldowns[ep.security_id] = 0

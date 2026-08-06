@@ -147,8 +147,8 @@ the signal tests (57 passed) and the golden pin (passed) are both blind to it.
 4. ~~profile-discrimination fixture~~ — **done**, 29 tests, artefact untouched
 5. ~~integrate authoritative ACTIONS~~ — **done**, ingest + replay wiring
 6. ~~apply dividends~~ — **done**, with a settlement lag; golden pin left RED on purpose
-7. permanent security / issuer identifiers in place of the ticker
-8. revise and re-pin the certified artefact **once** for those data semantics
+7. ~~permanent security / issuer identifiers in place of the ticker~~ — **done**
+8. ~~revise and re-pin the certified artefact **once** for those data semantics~~ — **done**, `2643154598f7…`
 9. exact Sharadar control comparison
 10. enforce `wealth_core_v1` in the live risk service
 11. repeat cross-engine parity and restart falsification over the
@@ -157,11 +157,23 @@ the signal tests (57 passed) and the golden pin (passed) are both blind to it.
 
 No-go stands until 9 completes. Live activation additionally blocked on 10.
 
-**The golden pin is deliberately RED at this commit.** Dividends moved the
-strategy's output and permanent identifiers will move it again, so the two are
-held for ONE controlled re-pin (item 8) rather than two — which is what keeps a
-re-pin explainable. Everything else is green: 397 wealth_core, 45 parity, 140
-backtester, 151 bt_data, 781 shared.
+## The second controlled re-pin (2026-08-06)
+
+`6fd382cf1d33…` -> `2643154598f7…`, covering dividend timing AND identity
+semantics in ONE change, as intended.
+
+**No value moved.** Final cash (34,824.20), final positions (24), every ledger
+event count and the whole 19-session blocked list are IDENTICAL to the previous
+pin. What moved is timing and audit content:
+
+| cause | evidence |
+|---|---|
+| identity | isolating it at `dividend_settlement_lag_sessions=0` gives the SAME state hash as lag 1, so the entire state-hash movement is the cooldown re-key. `security_cooldowns` now holds `SEC_FADER`, a security id, where it held a ticker. |
+| dividend timing | payment moves S155 -> S156; the accrual carries `due_in`, the payment carries `accrued_session`. |
+| richer audit | `ledger_hash` now covers outstanding receivables; `REJECT_TICKER_COOLDOWN` became `REJECT_SECURITY_COOLDOWN` (it does fire in this scenario). |
+
+Everything green at the re-pin: 419 wealth_core, 45 parity, 149 backtester, 151
+bt_data, 781 shared.
 
 **ACTIONS is ingested but not yet BACKFILLED.** The code path is inert until
 `POST /jobs/backfill-actions` has run on bt-data: `bt_actions` empty means the

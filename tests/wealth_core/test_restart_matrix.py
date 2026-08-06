@@ -272,7 +272,7 @@ class TestTheRestartMachineryCanActuallyFail:
     def corrupt_cooldowns(self, blob):
         for slot in blob["slots"].values():
             slot["cooldown_sessions_elapsed"] = None
-        blob["ticker_cooldowns"] = {}
+        blob["security_cooldowns"] = {}
 
     def corrupt_review_flags(self, blob):
         for ep in blob["episodes"].values():

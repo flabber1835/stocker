@@ -403,14 +403,14 @@ class TestCooldown:
         """MANDATORY 20/21/22, on the TICKER — a separate lock, so the name
         cannot re-enter through a different slot."""
         st = PortfolioState.fresh(100_000.0)
-        st.ticker_cooldowns["T1"] = elapsed
-        assert st.ticker_in_cooldown("T1") is blocked
+        st.security_cooldowns["S1"] = elapsed
+        assert st.security_in_cooldown("S1") is blocked
 
     def test_an_exit_starts_BOTH_cooldowns(self):
         st = PortfolioState.fresh(100_000.0)
         seat(st, 3, sec="S9", tic="T9")
         apply_exit(st, slot_id=3, raw_open=100.0, cfg=CFG)
-        assert st.slots[3].in_cooldown and st.ticker_in_cooldown("T9")
+        assert st.slots[3].in_cooldown and st.security_in_cooldown("S9")
 
     def test_COOLDOWN_CASH_IS_NOT_REDISTRIBUTED(self):
         """MANDATORY. The slot stays cash. A strategy that spread it across the
@@ -526,7 +526,7 @@ class TestSerialisationAndReplay:
         seat(st, 1, sec="S2", tic="T2", entry=50.0, peak=60.0,
              age=REVIEW_AGE_SESSIONS - 2, shares=40, reviewed=True)
         st.slots[2].cooldown_sessions_elapsed = 13
-        st.ticker_cooldowns["T9"] = 13
+        st.security_cooldowns["S9"] = 13
         st.session_index = 512
         return st
 
@@ -541,7 +541,7 @@ class TestSerialisationAndReplay:
         assert back.episodes[0].episode_peak_split_adjusted_close == 180.0
         assert back.episodes[1].review_completed is True
         assert back.slots[2].cooldown_sessions_elapsed == 13
-        assert back.ticker_cooldowns["T9"] == 13
+        assert back.security_cooldowns["S9"] == 13
 
     def test_a_restarted_run_makes_THE_SAME_DECISION(self):
         st = self._mid_flight()
@@ -566,7 +566,7 @@ class TestSerialisationAndReplay:
         live process and a replay that rebuilt the same state."""
         st = self._mid_flight()
         shuffled = PortfolioState.from_dict(st.to_dict())
-        shuffled.ticker_cooldowns = dict(reversed(list(shuffled.ticker_cooldowns.items())))
+        shuffled.security_cooldowns = dict(reversed(list(shuffled.security_cooldowns.items())))
         assert shuffled.state_hash() == st.state_hash()
 
     def test_review_age_survives_a_restart_at_the_boundary(self):
@@ -609,10 +609,10 @@ def test_session_ageing_advances_holdings_and_both_cooldowns():
     st = PortfolioState.fresh(10_000.0)
     seat(st, 0, age=10, peak=100.0)
     st.slots[1].cooldown_sessions_elapsed = COOLDOWN_SESSIONS - 1
-    st.ticker_cooldowns["TX"] = COOLDOWN_SESSIONS - 1
+    st.security_cooldowns["SX"] = COOLDOWN_SESSIONS - 1
     st.age_one_session({"S1": 150.0})
     assert st.episodes[0].market_sessions_held == 11
     assert st.episodes[0].episode_peak_split_adjusted_close == 150.0
     assert st.slots[1].cooldown_sessions_elapsed is None      # expired
-    assert "TX" not in st.ticker_cooldowns
+    assert "SX" not in st.security_cooldowns
     assert st.session_index == 1

@@ -208,7 +208,13 @@ class PortfolioState:
     """
     slots: dict[int, SlotState] = field(default_factory=dict)
     episodes: dict[int, HoldingEpisode] = field(default_factory=dict)   # by slot_id
-    ticker_cooldowns: dict[str, int] = field(default_factory=dict)      # ticker -> elapsed
+    # security_id -> sessions elapsed. Keyed on the PERMANENT identity, not the
+    # ticker. A ticker is an observation label: a security that exited and then
+    # renamed used to become immediately re-buyable, because the cooldown was
+    # looked up under a symbol that no longer existed. "Unbuyable for 21
+    # sessions" is a statement about the company, not about the string it trades
+    # under.
+    security_cooldowns: dict[str, int] = field(default_factory=dict)
     cash: float = 0.0
     initialized: bool = False
     session_index: int = 0
@@ -233,8 +239,8 @@ class PortfolioState:
         the same company are one position, not two."""
         return {e.issuer_id for e in self.episodes.values()}
 
-    def ticker_in_cooldown(self, ticker: str) -> bool:
-        n = self.ticker_cooldowns.get(ticker)
+    def security_in_cooldown(self, security_id: str) -> bool:
+        n = self.security_cooldowns.get(security_id)
         return n is not None and n < COOLDOWN_SESSIONS
 
     def ready_slots(self) -> list[int]:
@@ -322,10 +328,10 @@ class PortfolioState:
             e.observe_close(split_adjusted_closes.get(e.security_id))
         for s in self.slots.values():
             s.age_cooldown()
-        for tic in list(self.ticker_cooldowns):
-            self.ticker_cooldowns[tic] += 1
-            if self.ticker_cooldowns[tic] >= COOLDOWN_SESSIONS:
-                del self.ticker_cooldowns[tic]
+        for sid in list(self.security_cooldowns):
+            self.security_cooldowns[sid] += 1
+            if self.security_cooldowns[sid] >= COOLDOWN_SESSIONS:
+                del self.security_cooldowns[sid]
         self.session_index += 1
 
     # ── serialisation (spec §12: replay) ─────────────────────────────────────
@@ -334,7 +340,7 @@ class PortfolioState:
         return {
             "slots": {str(k): asdict(v) for k, v in sorted(self.slots.items())},
             "episodes": {str(k): asdict(v) for k, v in sorted(self.episodes.items())},
-            "ticker_cooldowns": dict(sorted(self.ticker_cooldowns.items())),
+            "security_cooldowns": dict(sorted(self.security_cooldowns.items())),
             "cash": self.cash,
             "initialized": self.initialized,
             "session_index": self.session_index,
@@ -347,7 +353,14 @@ class PortfolioState:
             slots={int(k): SlotState(**v) for k, v in (d.get("slots") or {}).items()},
             episodes={int(k): HoldingEpisode(**v)
                       for k, v in (d.get("episodes") or {}).items()},
-            ticker_cooldowns=dict(d.get("ticker_cooldowns") or {}),
+            # No fallback to the old `ticker_cooldowns` key, deliberately. Its
+            # values were TICKERS, and reading them as security ids would
+            # silently apply a cooldown to nothing while the real security stayed
+            # buyable — a wrong answer dressed as compatibility. Wealth Core has
+            # never run in production (it is inert until a config selects it and
+            # live activation is blocked), so no such blob exists; if one ever
+            # does, it must be migrated deliberately rather than reinterpreted.
+            security_cooldowns=dict(d.get("security_cooldowns") or {}),
             cash=float(d.get("cash", 0.0)),
             initialized=bool(d.get("initialized", False)),
             session_index=int(d.get("session_index", 0)),

@@ -174,12 +174,27 @@ class TestMeta:
             {"ticker": "AAA", "category": "Domestic Common Stock",
              "permaticker": 123, "related_tickers": "AAA AAAB",
              "first_price_date": "2010-01-04"}]})
-        meta = load_meta(conn)["AAA"]
+        # Keyed on the PERMANENT id, not the ticker: meta is now one row per
+        # security rather than one per symbol, which is what stops a rename
+        # moving the issuer key and a reuse merging two companies.
+        meta = load_meta(conn)["P:123"]
+        assert meta.security_id == "P:123"
+        assert meta.ticker == "AAA", "the ticker survives as the display label"
         assert meta.category == "Domestic Common Stock"
         assert meta.permaticker == "123"
         assert meta.related_tickers == ("AAA", "AAAB")
         key, source = meta.issuer_key()
         assert key == "AAA|AAAB" and source == "RELATEDTICKERS"
+
+    def test_a_security_with_NO_permaticker_is_excluded_rather_than_guessed(self):
+        """Identity cannot be established, and the alternative is inventing
+        one. Same rule as strict issuer identity: a guess merges unrelated
+        companies and splits related ones, in opposite directions, silently."""
+        conn = FakeConn({"bt_universe": [
+            {"ticker": "AAA", "category": "Domestic Common Stock",
+             "permaticker": None, "related_tickers": None,
+             "first_price_date": "2010-01-04"}]})
+        assert load_meta(conn) == {}
 
 
 def test_the_unmodelled_parts_travel_with_the_result():

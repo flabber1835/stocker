@@ -169,7 +169,7 @@ class TestTerminalEvents:
     def test_a_terminal_event_starts_both_cooldowns(self):
         st = seated()
         cash_merger(st, security_id="S1", per_share=10.0, ledger=Ledger(), session="d")
-        assert st.slots[0].in_cooldown and st.ticker_in_cooldown("T1")
+        assert st.slots[0].in_cooldown and st.security_in_cooldown("S1")
 
 
 # ── corporate actions ───────────────────────────────────────────────────────

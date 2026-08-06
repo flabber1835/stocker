@@ -8,6 +8,8 @@ the cross-engine parity requirement can be met rather than asserted.
 
 DAILY EVENT ORDERING (spec §11), fixed here and nowhere else:
 
+    0. ticker changes    re-label held positions, reservations and queued orders
+                         BEFORE anything reads a symbol. Changes no number.
     1. splits            share counts change BEFORE anything reads them
     2. dividends         accrue as receivables, then settle to cash
     3. terminal actions  cash mergers, conversions, write-offs
@@ -100,6 +102,10 @@ class SessionResult:
     # the audit trail was gone — exactly the class of loss the hash exists to
     # catch. `session` is stamped here because the caller can no longer add it.
     terminal_results: list[dict] = field(default_factory=list)
+    # Ticker changes applied this session. A relabelling moves no money, so it
+    # posts no ledger event — but an exit silently submitted under a dead symbol
+    # is exactly the kind of thing that must not be invisible.
+    relabelled: list[dict] = field(default_factory=list)
 
 
 def build_marks(bars: Sequence[DailyBar], held: set[str],
@@ -140,6 +146,57 @@ def build_marks(bars: Sequence[DailyBar], held: set[str],
             marks[sec] = Mark(sec, MarkStatus.STALE,
                               stale_raw_close=last_known.get(sec))
     return marks
+
+
+def apply_ticker_changes(state: PortfolioState, bars: Sequence[DailyBar],
+                         pending: Sequence["PendingOrder"] = ()) -> list[dict]:
+    """Step 0. Re-label held positions, reservations and queued orders.
+
+    A TICKER IS AN OBSERVATION LABEL; the permanent `security_id` owns every
+    piece of economic state. So a rename must change the symbol and NOTHING
+    else — no trade, no cost, no reset of the peak, the age, the review flag or
+    either cooldown. That falls out of keying the state on security_id; what
+    does NOT fall out is the label itself, which is frozen at entry on the
+    episode and at decision time on a queued order.
+
+    Left un-refreshed, an exit for a renamed holding is submitted under the OLD
+    symbol — an order for something that no longer trades, which either rejects
+    at the broker or, worse, fills against whatever now owns that ticker.
+
+    Posts no ledger event, deliberately: the ledger's rule is that an event is
+    the only way a NUMBER changes, and a relabelling changes none. It is
+    reported on the session result instead, so the audit still shows it.
+    """
+    by_sec = {b.security_id: b.ticker for b in bars if b.ticker}
+    changes: list[dict] = []
+
+    for slot_id in sorted(state.episodes):
+        ep = state.episodes[slot_id]
+        new = by_sec.get(ep.security_id)
+        if new and new != ep.ticker:
+            changes.append({"security_id": ep.security_id, "from": ep.ticker,
+                            "to": new, "where": "episode", "slot_id": slot_id})
+            ep.ticker = new
+
+    for slot_id in sorted(state.slots):
+        s = state.slots[slot_id]
+        if s.reserved_for:
+            new = by_sec.get(s.reserved_for)
+            if new and new != s.reserved_ticker:
+                changes.append({"security_id": s.reserved_for,
+                                "from": s.reserved_ticker, "to": new,
+                                "where": "reservation", "slot_id": slot_id})
+                s.reserved_ticker = new
+
+    for po in pending:
+        new = by_sec.get(po.security_id)
+        if new and new != po.ticker:
+            changes.append({"security_id": po.security_id, "from": po.ticker,
+                            "to": new, "where": "pending_order",
+                            "slot_id": po.slot_id})
+            po.ticker = new
+
+    return changes
 
 
 def apply_splits(state: PortfolioState, bars: Sequence[DailyBar], ledger: Ledger,
@@ -215,7 +272,7 @@ def write_off(state: PortfolioState, *, security_id: str, ledger: Ledger,
                     detail={"shares": ep.current_shares})
         state.episodes.pop(slot_id)
         state.slots[slot_id].start_cooldown()
-        state.ticker_cooldowns[ep.ticker] = 0
+        state.security_cooldowns[ep.security_id] = 0
 
 
 def cash_merger(state: PortfolioState, *, security_id: str, per_share: float,
@@ -233,7 +290,7 @@ def cash_merger(state: PortfolioState, *, security_id: str, per_share: float,
         state.cash += proceeds
         state.episodes.pop(slot_id)
         state.slots[slot_id].start_cooldown()
-        state.ticker_cooldowns[ep.ticker] = 0
+        state.security_cooldowns[ep.security_id] = 0
 
 
 def tradeability_only_bars(bars: Sequence[DailyBar],
@@ -269,6 +326,10 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     want that, and it says so in its name.
     """
     by_sec = {b.security_id: b for b in bars}
+
+    # ── 0. re-label ──────────────────────────────────────────────────────────
+    # Before anything reads a ticker. Changes no number and no economic state.
+    relabelled = apply_ticker_changes(state, bars, pending)
 
     apply_splits(state, bars, ledger, session)
     apply_dividends(state, bars, ledger, session, cfg)
@@ -410,4 +471,5 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                          resolved_equity=ev.resolved_equity,
                          estimated_equity=ev.estimated_equity_including_stale_marks,
                          blocked=not ev.is_resolved, cancelled=res_cancelled,
-                         terminal_results=terminal_results)
+                         terminal_results=terminal_results,
+                         relabelled=relabelled)

@@ -111,21 +111,38 @@ _COVERAGE_SQL = text("""
      WHERE date BETWEEN :start AND :end
 """)
 
-# The LATEST non-null label per ticker, never "newest snapshot only" — a fresh
+# Grouped by PERMATICKER, not by ticker. Keying on the symbol collapses ticker
+# REUSE — two unrelated companies that held one ticker at different times became
+# a single continuous security, and momentum was computed straight across the
+# discontinuity between two different businesses.
+#
+# The LATEST non-null label per security, never "newest snapshot only": a fresh
 # universe snapshot writes NULLs that a later fetch backfills, so keying on the
 # newest snapshot goes blind the first time one lands. Same rule as the live
 # sector readers, for the same reason.
 _META_SQL = text("""
-    SELECT ticker,
+    SELECT permaticker,
+           (ARRAY_REMOVE(ARRAY_AGG(ticker ORDER BY snapshot_date DESC), NULL))[1]
+               AS ticker,
            (ARRAY_REMOVE(ARRAY_AGG(category ORDER BY snapshot_date DESC), NULL))[1]
                AS category,
-           (ARRAY_REMOVE(ARRAY_AGG(permaticker ORDER BY snapshot_date DESC), NULL))[1]
-               AS permaticker,
            (ARRAY_REMOVE(ARRAY_AGG(related_tickers ORDER BY snapshot_date DESC), NULL))[1]
                AS related_tickers,
            MIN(first_price_date) AS first_price_date
       FROM bt_universe
-     GROUP BY ticker
+     WHERE permaticker IS NOT NULL
+     GROUP BY permaticker
+""")
+
+# Every (permaticker, ticker) pairing with its listing window, so a bar can be
+# resolved to the security that actually held that symbol on that session.
+_IDENTITY_SQL = text("""
+    SELECT permaticker, ticker,
+           MIN(first_price_date) AS first_price_date,
+           MAX(last_price_date)  AS last_price_date
+      FROM bt_universe
+     WHERE permaticker IS NOT NULL AND ticker IS NOT NULL
+     GROUP BY permaticker, ticker
 """)
 
 
@@ -437,19 +454,140 @@ def load_actions(conn, start: str, end: str) -> list[dict]:
             conn.execute(_ACTIONS_SQL, {"start": start, "end": end}).mappings()]
 
 
+# ── permanent security identity ─────────────────────────────────────────────
+# A TICKER IS AN OBSERVATION LABEL. The permanent identity owns the economic
+# state, and using the ticker as `security_id` gets it wrong in both directions:
+# a rename reads as an exit plus a fresh entry (costs, reset peak, reset age,
+# reset review), and a reuse splices two unrelated companies into one security.
+# Neither raises.
+
+SECURITY_ID_PREFIX = "P:"
+
+
+def permanent_id(permaticker: str | None) -> str | None:
+    """`P:<permaticker>`, prefixed so it can never be mistaken for a ticker.
+
+    The prefix is not decoration: a bare permaticker is a numeric-looking string
+    and a fixture, a log line or a test that confused one for a symbol would
+    read perfectly. It is also what makes a grep for `P:` find every place
+    identity is being handled.
+    """
+    if permaticker is None or str(permaticker).strip() == "":
+        return None
+    return f"{SECURITY_ID_PREFIX}{str(permaticker).strip()}"
+
+
+class IdentityUnresolvable(ValueError):
+    """A ticker on a session cannot be attributed to one permanent security."""
+
+
+@dataclass(frozen=True)
+class _Listing:
+    security_id: str
+    first: str | None
+    last: str | None
+
+    def covers(self, session: str) -> bool:
+        if self.first and session < self.first:
+            return False
+        if self.last and session > self.last:
+            return False
+        return True
+
+
+class IdentityResolver:
+    """(ticker, session) -> permanent security id, POINT-IN-TIME.
+
+    Built from the `(permaticker, ticker)` pairings in `bt_universe` and their
+    listing windows. A ticker with one owner resolves without consulting the
+    window at all; a REUSED ticker is disambiguated by which owner's window
+    covers the session.
+
+    REFUSES rather than guesses, in three ways, and each refusal is counted so a
+    systematic corpus problem is visible rather than showing up as a slightly
+    smaller universe:
+
+        unknown     the ticker has no permaticker anywhere — identity cannot be
+                    established, so the security is excluded. Same rule as
+                    strict issuer identity: a guess merges companies.
+        ambiguous   two securities' windows both cover the session. That is a
+                    data defect, and picking either produces a complete run of a
+                    security that did not exist on that day.
+        out_of_window
+                    the ticker is known but no owner's window covers the
+                    session — a bar that predates the first listing or follows
+                    the last.
+    """
+
+    def __init__(self, rows: Iterable[Mapping]) -> None:
+        self._by_ticker: dict[str, list[_Listing]] = {}
+        for r in rows:
+            sid = permanent_id(r.get("permaticker"))
+            tkr = r.get("ticker")
+            if not sid or not tkr:
+                continue
+            self._by_ticker.setdefault(tkr, []).append(_Listing(
+                security_id=sid,
+                first=str(r["first_price_date"]) if r.get("first_price_date") else None,
+                last=str(r["last_price_date"]) if r.get("last_price_date") else None))
+        # Deterministic: the ambiguity check and any diagnostic must not depend
+        # on the order the database returned rows in.
+        for v in self._by_ticker.values():
+            v.sort(key=lambda x: (x.first or "", x.last or "", x.security_id))
+        self.unresolved: dict[str, int] = {}
+
+    def _count(self, reason: str) -> None:
+        self.unresolved[reason] = self.unresolved.get(reason, 0) + 1
+
+    @property
+    def reused_tickers(self) -> list[str]:
+        """Tickers claimed by more than one permanent security — the population
+        the old ticker-as-identity model silently spliced."""
+        return sorted(t for t, v in self._by_ticker.items()
+                      if len({x.security_id for x in v}) > 1)
+
+    def resolve(self, ticker: str, session: str) -> str | None:
+        listings = self._by_ticker.get(ticker)
+        if not listings:
+            self._count("unknown_ticker")
+            return None
+        if len({x.security_id for x in listings}) == 1:
+            # One owner ever. The window is NOT consulted: a security's price
+            # history can legitimately start before the universe snapshot's
+            # first_price_date, and refusing those bars would discard real
+            # history for the overwhelmingly common case in order to guard
+            # against a reuse that cannot happen here.
+            return listings[0].security_id
+        covering = {x.security_id for x in listings if x.covers(session)}
+        if len(covering) == 1:
+            return next(iter(covering))
+        self._count("ambiguous_ticker" if covering else "out_of_window")
+        return None
+
+
+def load_identity(conn) -> IdentityResolver:
+    return IdentityResolver(conn.execute(_IDENTITY_SQL).mappings())
+
+
 def load_meta(conn) -> dict[str, SecurityMeta]:
+    """One SecurityMeta per PERMANENT security, keyed on `P:<permaticker>`.
+
+    `ticker` here is the security's LATEST symbol — a display label and the
+    input to the certified issuer-key construction, which is transcribed and
+    must not change. Keying meta per permanent security is what makes that key
+    stable: one row per company means the issuer key cannot move when the symbol
+    does, which it did when meta was keyed on the ticker.
+    """
     out: dict[str, SecurityMeta] = {}
     for r in conn.execute(_META_SQL).mappings():
+        sid = permanent_id(r["permaticker"])
+        if sid is None:
+            continue
         related = (r["related_tickers"] or "").split()
-        out[r["ticker"]] = SecurityMeta(
-            # ticker AS security_id: the corpus has no permanent per-security
-            # key on bt_prices, so this is the identity the run uses. It is a
-            # KNOWN limitation — a ticker reused after a delisting would look
-            # like one continuous security — and it is why permaticker is
-            # carried into the issuer key, where it does have an effect.
-            security_id=r["ticker"], ticker=r["ticker"],
-            category=r["category"], permaticker=(
-                str(r["permaticker"]) if r["permaticker"] is not None else None),
+        out[sid] = SecurityMeta(
+            security_id=sid, ticker=r["ticker"],
+            category=r["category"],
+            permaticker=str(r["permaticker"]),
             related_tickers=tuple(related),
             first_session=str(r["first_price_date"]) if r["first_price_date"] else None)
     return out
@@ -458,7 +596,8 @@ def load_meta(conn) -> dict[str, SecurityMeta]:
 def load_bars(conn, start: str, end: str,
               authoritative_splits: dict[tuple[str, str], float] | None = None,
               reconciliation: dict[str, int] | None = None,
-              dividends: dict[tuple[str, str], float] | None = None
+              dividends: dict[tuple[str, str], float] | None = None,
+              identity: "IdentityResolver | None" = None
               ) -> dict[str, list[VendorBar]]:
     """Rows -> VendorBars, with the split ratio recovered per ticker.
 
@@ -477,9 +616,19 @@ def load_bars(conn, start: str, end: str,
     for r in conn.execute(_PRICES_SQL, {"start": start, "end": end}).mappings():
         session = str(r["date"])
         tkr = r["ticker"]
+        # The permanent identity, resolved point-in-time. Unresolvable bars are
+        # DROPPED (and counted on the resolver) rather than falling back to the
+        # ticker: a fallback would reintroduce exactly the splice this exists to
+        # prevent, on precisely the securities whose identity is doubtful.
+        sid = identity.resolve(tkr, session) if identity is not None else tkr
+        if sid is None:
+            continue
         close = _f(r["close"])
         raw = _f(r["close_unadjusted"])
-        p_close, p_raw = prev.get(tkr, (None, None))
+        # Keyed on the SECURITY, not the symbol. The split factor follows the
+        # company: keying the previous observation on the ticker would reset it
+        # at a rename and manufacture a spurious ratio on that session.
+        p_close, p_raw = prev.get(sid, (None, None))
         ratio = split_ratio_from_domains(p_close, p_raw, close, raw)
         if authoritative_splits is not None:
             ratio, outcome = reconcile_split(
@@ -490,7 +639,7 @@ def load_bars(conn, start: str, end: str,
                 # would bury three real disagreements under nine million
                 # non-events and make the ratio meaningless.
                 reconciliation[outcome] = reconciliation.get(outcome, 0) + 1
-        prev[tkr] = (close, raw)
+        prev[sid] = (close, raw)
 
         # as-traded open = adjusted open x (as-traded close / adjusted close)
         adj_open = _f(r["open"])
@@ -498,7 +647,10 @@ def load_bars(conn, start: str, end: str,
                     if (adj_open and raw and close) else None)
 
         out.setdefault(session, []).append(VendorBar(
-            session=session, security_id=tkr, ticker=tkr,
+            # PERMANENT identity, per-session LABEL. That split is the whole
+            # of item 7: everything path-dependent keys on the first, and the
+            # second is free to change without touching any of it.
+            session=session, security_id=sid, ticker=tkr,
             raw_close=raw, raw_open=raw_open, volume=_f(r["volume"]),
             split_ratio=ratio,
             # From SHARADAR/ACTIONS, never from a price. SEP carries no dividend
@@ -607,6 +759,7 @@ def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
         raise RawPriceDomainUnavailable("no sessions in range")
 
     meta = load_meta(conn)
+    identity = load_identity(conn)
 
     # ── the authoritative corporate-action stream ────────────────────────────
     sessions_sorted = sessions_index(sessions)
@@ -631,7 +784,7 @@ def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
         bars = load_bars(conn, req.start_date, req.end_date,
                          authoritative_splits=splits,
                          reconciliation=reconciliation,
-                         dividends=divs)
+                         dividends=divs, identity=identity)
         # Terminal events supplied by the CALLER win: an explicit event is a
         # human statement of terms the vendor did not carry, and the whole point
         # of the block is that a human can resolve it. ACTIONS fills the rest.
@@ -642,7 +795,7 @@ def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
             if (t.session, t.security_id) not in supplied]
         terminal_events = list(terminal_events) + derived_terminals
     else:
-        bars = load_bars(conn, req.start_date, req.end_date)
+        bars = load_bars(conn, req.start_date, req.end_date, identity=identity)
 
     # A bar with no reference row would be admitted on unknown eligibility, so
     # the feed refuses it. Dropping such tickers HERE, loudly, beats failing
@@ -678,6 +831,13 @@ def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
         "terminal_events_applied": len(terminal_events),
         "split_reconciliation": dict(sorted(reconciliation.items())),
         "dividend_rows_unusable": dividend_rows_dropped,
+        # Bars whose ticker could not be attributed to one permanent security.
+        # Counted by REASON: "unknown_ticker" is a reference-data gap,
+        # "ambiguous_ticker" is a corpus defect that would otherwise have run a
+        # security that did not exist that day, and both are far more useful
+        # than a single "excluded" total.
+        "identity_unresolved": dict(sorted(identity.unresolved.items())),
+        "reused_tickers": len(identity.reused_tickers),
         "outstanding_receivables": round(result.ledger.receivable_total(), 2),
         "caveats": list(CAVEATS) + list(
             ACTIONS_CAVEATS if use_actions else DERIVED_SPLIT_CAVEATS),
@@ -688,6 +848,8 @@ def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
 __all__ = ["ACTIONS_CAVEATS", "CAVEATS", "DERIVED_SPLIT_CAVEATS",
            "CorporateActionsUnavailable", "REQUIRE_ACTIONS", "SPLIT_ACTIONS",
            "TERMINAL_ACTIONS", "DIVIDEND_ACTIONS", "dividends_from_actions",
+           "IdentityResolver", "IdentityUnresolvable", "SECURITY_ID_PREFIX",
+           "permanent_id", "load_identity",
            "unusable_dividend_rows", "load_actions", "reconcile_split",
            "sessions_index", "snap_to_session", "split_ratios_from_actions",
            "terminal_events_from_actions", "terminal_from_action",
