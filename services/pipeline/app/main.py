@@ -2882,12 +2882,21 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 cb_cfg, _uni, run_date, prior_exposure=_prev)
             moves = plan_exposure_moves(live_weights, _exposure,
                                         prev_exposure=_prev)
-            crash_note = {"engaged": _state.engaged, "reason": _state.reason,
-                          "market_return": _state.market_return,
-                          "breadth": _state.breadth,
-                          "target_exposure": _exposure,
-                          "prev_exposure": round(_prev, 4),
-                          "n_moves": len(moves)}
+            # The CANONICAL record, from the shared module — the same function
+            # the wind tunnel calls. Comparing engines on their final exposure
+            # cannot see two engines reaching one number by different reasoning,
+            # which is one input away from a divergence.
+            from stock_strategy_shared.crash_brake import (transition_hash,
+                                                           transition_record)
+            _rec = transition_record(
+                _state, prior=_prev, target=_exposure,
+                market_return_threshold=float(getattr(
+                    cb_cfg, "market_return_threshold", -0.06)),
+                breadth_threshold=float(getattr(cb_cfg, "breadth_threshold", 0.42)),
+                min_breadth_names=int(getattr(cb_cfg, "min_breadth_names", 50)))
+            crash_note = dict(_rec)
+            crash_note["transition_hash"] = transition_hash(_rec)
+            crash_note["n_moves"] = len(moves)
             print(f"[delta] crash_brake: {crash_note}", flush=True)
             for m in moves:
                 base = decisions.get(m["ticker"])

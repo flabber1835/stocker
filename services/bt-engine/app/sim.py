@@ -43,7 +43,8 @@ from stock_strategy_shared.investability import (
     below_investability_floor,
 )
 from stock_strategy_shared.crash_brake import (evaluate_crash_state,
-                                                scale_weights, target_exposure)
+                                                scale_weights, target_exposure,
+                                                transition_record)
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 from app import live
@@ -558,6 +559,8 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
     # book weight; here targeted and realised are the same number, because the
     # simulator applies the scalar exactly. None until the first evaluation.
     crash_prior: float | None = None
+    # Canonical per-session transition records; see crash_brake.transition_record.
+    crash_records: list[dict] = []
     n_crash_episodes = 0      # distinct engagements — a rare control must be RARE,
                               # and one long episode reads very differently from
                               # twenty short ones at the same session count.
@@ -868,6 +871,15 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                 crash_exposure = target_exposure(
                     crash_state, cb_cfg.normal_equity_exposure,
                     cb_cfg.stressed_equity_exposure, prior=crash_prior)
+                # Same canonical record the live pipeline emits, from the same
+                # shared function. Kept per-session so a divergence can be
+                # located at the session that caused it rather than inferred
+                # from a summary that already averaged it away.
+                crash_records.append(transition_record(
+                    crash_state, prior=crash_prior, target=crash_exposure,
+                    market_return_threshold=cb_cfg.market_return_threshold,
+                    breadth_threshold=cb_cfg.breadth_threshold,
+                    min_breadth_names=cb_cfg.min_breadth_names))
                 crash_prior = crash_exposure
                 if crash_state.engaged:
                     n_crash_sessions += 1

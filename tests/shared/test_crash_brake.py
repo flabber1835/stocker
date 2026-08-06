@@ -17,7 +17,9 @@ import pytest
 from stock_strategy_shared.crash_brake import (CrashState, breadth_above_sma,
                                                evaluate_crash_state,
                                                market_window_return,
-                                               scale_weights, target_exposure)
+                                               scale_weights, target_exposure,
+                                               transition_hash,
+                                               transition_record)
 
 
 def _falling(n=200, start=100.0, daily=-0.004):
@@ -369,3 +371,108 @@ class TestNoDeadConfigurationPromisesARiskControl:
         assert orphans == [], (
             f"crash_brake fields with no consumer: {orphans} — dead config that "
             f"promises a risk control is worse than no config")
+
+
+class TestTheTransitionRecordMakesDivergenceVISIBLE:
+    """Defect 5. The only parity check on this control asserted that the live
+    SOURCE CONTAINS a call to evaluate_crash_state. Presence is not equivalence,
+    and presence is precisely what let the fail-open restore defect stay green:
+    both engines called the shared evaluator, both got engaged=False, and nothing
+    the test could see disagreed.
+
+    The decisive property asserted here is that semantic divergence shows up EVEN
+    WHEN THE RESULTING EXPOSURE MATCHES.
+    """
+
+    def _rec(self, state, prior, target):
+        return transition_record(
+            state, prior=prior, target=target,
+            market_return_threshold=-0.06, breadth_threshold=0.42,
+            min_breadth_names=50)
+
+    def _calm(self):
+        return evaluate_crash_state(
+            benchmark_closes=[100.0 + i for i in range(300)],
+            closes_by_ticker={f"T{i}": [10.0 + j * 0.1 for j in range(300)]
+                              for i in range(80)},
+            market_return_window_sessions=20, market_return_threshold=-0.06,
+            breadth_sma_sessions=100, breadth_threshold=0.42,
+            min_breadth_names=50, enabled=True)
+
+    def _unknown(self):
+        return evaluate_crash_state(
+            benchmark_closes=[100.0] * 300,
+            closes_by_ticker={"AAA": [10.0] * 300},
+            market_return_window_sessions=20, market_return_threshold=-0.06,
+            breadth_sma_sessions=100, breadth_threshold=0.42,
+            min_breadth_names=50, enabled=True)
+
+    def test_SAME_exposure_by_DIFFERENT_reasoning_does_not_hash_equal(self):
+        """THE point of the record. An engine that carries 100% because the market
+        is calm and one that carries 100% because it could not evaluate are not in
+        parity — they are one input away from disagreeing, and an exposure-only
+        comparison says they are identical."""
+        calm = self._rec(self._calm(), prior=1.0, target=1.0)
+        unknown = self._rec(self._unknown(), prior=1.0, target=1.0)
+        assert calm["target_exposure"] == unknown["target_exposure"] == 1.0, (
+            "the premise of this test is that the EXPOSURES match")
+        assert transition_hash(calm) != transition_hash(unknown), (
+            "two different decisions hashed identically — the record cannot "
+            "distinguish reasoning from outcome")
+
+    def test_each_predicate_is_recorded_SEPARATELY(self):
+        """Two engines can agree on `engaged` while disagreeing about which
+        condition carried it. A single boolean hides that."""
+        r = self._rec(self._calm(), prior=1.0, target=1.0)
+        assert "predicate_market_bad" in r and "predicate_breadth_bad" in r
+
+    def test_an_UNAVAILABLE_predicate_is_None_not_False(self):
+        """False means 'evaluated, and no'. None means 'not evaluated'. Folding
+        the second into the first is the shape of the original defect."""
+        r = self._rec(self._unknown(), prior=0.5, target=0.5)
+        assert r["predicate_breadth_bad"] is None
+        assert r["evaluable"] is False
+
+    def test_the_record_carries_the_DIRECTION_not_just_two_numbers(self):
+        engaged_like = self._rec(self._calm(), prior=1.0, target=0.5)
+        assert engaged_like["implied_action"] == "risk_reduce"
+        assert self._rec(self._calm(), prior=0.5,
+                         target=1.0)["implied_action"] == "risk_restore"
+        assert self._rec(self._calm(), prior=1.0,
+                         target=1.0)["implied_action"] == "none"
+
+    def test_the_hash_EXCLUDES_the_prose_reason(self):
+        """`reason` names thresholds inside formatted strings. Hashing it would
+        make a wording change look like a behavioural divergence, which trains
+        people to re-pin the hash — which is how a real one gets waved through."""
+        import dataclasses
+        s = self._calm()
+        a = self._rec(s, prior=1.0, target=1.0)
+        b = self._rec(dataclasses.replace(s, reason="totally different prose"),
+                      prior=1.0, target=1.0)
+        assert a["reason"] != b["reason"]
+        assert transition_hash(a) == transition_hash(b)
+
+    def test_the_hash_is_STABLE_across_equal_records(self):
+        s = self._calm()
+        assert (transition_hash(self._rec(s, 1.0, 1.0))
+                == transition_hash(self._rec(s, 1.0, 1.0)))
+
+    def test_floats_are_QUANTISED_before_hashing(self):
+        """An unrounded float makes the record depend on the interpreter's repr
+        rather than on the decision — the exact defect that made several Wealth
+        Core hashes interpreter-dependent."""
+        r = self._rec(self._calm(), prior=1.0 / 3.0, target=1.0)
+        assert len(str(r["prior_exposure"]).split(".")[-1]) <= 10
+
+    def test_BOTH_engines_build_the_record_from_the_SHARED_function(self):
+        """Structural: a second implementation would agree until it did not, and
+        nothing downstream would notice — this control has already shipped that
+        exact failure once."""
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parents[2]
+        for rel in ("services/pipeline/app/main.py",
+                    "services/bt-engine/app/sim.py"):
+            src = (root / rel).read_text()
+            assert "transition_record(" in src, (
+                f"{rel} does not emit the canonical transition record")

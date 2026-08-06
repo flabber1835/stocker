@@ -248,3 +248,94 @@ def plan_exposure_moves(actual_weights: Mapping[str, float],
                     "target_weight": round(tgt, 6),
                     "delta": round(tgt - cur, 6)})
     return out
+
+
+# ── the transition record ───────────────────────────────────────────────────
+# WHY THIS EXISTS. The only parity check on this control asserted that the live
+# pipeline SOURCE CONTAINS a call to `evaluate_crash_state`. Presence is not
+# equivalence, and presence is exactly what let the fail-open restore defect stay
+# green: both engines called the shared evaluator, both got `engaged=False`, and
+# they disagreed about nothing the test could see — while the live caller turned
+# that state into a full re-risk of the book.
+#
+# So parity compares a SERIALISED RECORD of the transition rather than its
+# outcome. The decisive property is that semantic divergence becomes visible even
+# when the resulting exposure happens to MATCH: two engines that arrive at the
+# same number by different reasoning are not in parity, they are one input away
+# from disagreeing, and an exposure-only comparison cannot tell.
+#
+# Each predicate is recorded SEPARATELY rather than only their conjunction. Two
+# engines can agree on "engaged" while disagreeing about which condition carried
+# it, and that disagreement is a real defect a single boolean hides.
+
+TRANSITION_RECORD_VERSION = 1
+
+
+def transition_record(state: CrashState, *, prior: float, target: float,
+                      market_return_threshold: float,
+                      breadth_threshold: float,
+                      min_breadth_names: int,
+                      inputs_available_at: str | None = None) -> dict:
+    """Canonical, ordered, hashable record of one crash-brake evaluation.
+
+    Emitted by EVERY engine that evaluates the brake — the live pipeline, the
+    wind tunnel, the backtester — so the three can be compared field by field
+    rather than by their final exposure.
+
+    `inputs_available_at` carries the as-of stamp of the data the decision read.
+    It is optional only because the legacy brake does not yet track it; the
+    defensive controller does, and recording the field now means adding it later
+    is not a schema change to a hash everyone has already pinned.
+    """
+    # Rounded before serialisation, deliberately. An unrounded float makes the
+    # record depend on the interpreter's repr rather than on the decision — the
+    # exact defect that made several Wealth Core hashes interpreter-dependent.
+    def _q(x):
+        return None if x is None else round(float(x), 10)
+
+    return {
+        "version": TRANSITION_RECORD_VERSION,
+        "evaluable": bool(state.evaluable),
+        "engaged": bool(state.engaged),
+        "exposure_key": state.equity_exposure_key,
+        # Each predicate on its own. None when the input was unavailable, which
+        # is DIFFERENT from False and must not serialise the same way.
+        "predicate_market_bad": (
+            None if state.market_return is None
+            else bool(state.market_return <= market_return_threshold)),
+        "predicate_breadth_bad": (
+            None if state.breadth is None
+            else bool(state.breadth < breadth_threshold)),
+        "market_return": _q(state.market_return),
+        "breadth": _q(state.breadth),
+        "n_breadth_names": int(state.n_breadth_names),
+        "market_return_threshold": _q(market_return_threshold),
+        "breadth_threshold": _q(breadth_threshold),
+        "min_breadth_names": int(min_breadth_names),
+        "prior_exposure": _q(prior),
+        "target_exposure": _q(target),
+        # The action the record implies, so a reader does not re-derive it — and
+        # so a disagreement about the DIRECTION shows up as a field rather than
+        # as an argument about two exposure numbers.
+        "implied_action": (
+            "none" if target is None or prior is None or abs(target - prior) < 1e-9
+            else "risk_reduce" if target < prior else "risk_restore"),
+        "inputs_available_at": inputs_available_at,
+        "reason": state.reason,
+    }
+
+
+def transition_hash(record: Mapping) -> str:
+    """Stable hash of a transition record, for cross-engine comparison.
+
+    `reason` is EXCLUDED. It is prose meant for humans and it names thresholds
+    inside formatted strings, so hashing it would make a wording change look like
+    a behavioural divergence — which trains people to re-pin the hash, which is
+    how a real divergence gets waved through.
+    """
+    import hashlib
+    import json
+    payload = {k: v for k, v in dict(record).items() if k != "reason"}
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                      default=str)
+    return hashlib.sha256(blob.encode()).hexdigest()
