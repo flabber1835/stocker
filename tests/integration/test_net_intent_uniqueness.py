@@ -116,6 +116,7 @@ async def test_delta_intents_still_accepts_duplicates_by_design(db):
 async def test_proposals_keep_both_sides_of_a_conflict(db):
     """The append-only half of the design: the discarded proposal survives, so a
     reviewer can see that two controls disagreed and what the loser wanted."""
+    attempt = uuid.uuid4()
     async with db.begin() as conn:
         run_id = await _make_run(conn)
         for seq, (src, action, w) in enumerate([
@@ -124,9 +125,10 @@ async def test_proposals_keep_both_sides_of_a_conflict(db):
         ]):
             await conn.execute(
                 text("INSERT INTO intent_proposals "
-                     "(run_id, ticker, source, action, seq, target_weight) "
-                     "VALUES (:rid, 'AMD', :s, :a, :seq, :w)"),
-                {"rid": run_id, "s": src, "a": action, "seq": seq, "w": w},
+                     "(run_id, attempt_id, ticker, source, action, seq, target_weight) "
+                     "VALUES (:rid, :aid, 'AMD', :s, :a, :seq, :w)"),
+                {"rid": run_id, "aid": attempt, "s": src, "a": action,
+                 "seq": seq, "w": w},
             )
         await _insert_net(conn, run_id, "AMD", "exit")
 
@@ -169,6 +171,7 @@ async def test_the_pipelines_own_write_statements_run_against_the_real_schema(db
         writes = importlib.import_module("app.intent_writes")
         write_proposals = writes.write_proposals
         write_net_intents = writes.write_net_intents
+        new_attempt_id = writes.new_attempt_id
     finally:
         sys.path.pop(0)
         for k in [k for k in list(sys.modules) if k == "app" or k.startswith("app.")]:
@@ -189,8 +192,10 @@ async def test_the_pipelines_own_write_statements_run_against_the_real_schema(db
 
     async with db.begin() as conn:
         run_id = await _make_run(conn)
-        assert await write_proposals(conn, run_id, proposals) == 3
-        assert await write_net_intents(conn, run_id, nets) == 2
+        assert await write_proposals(conn, run_id, proposals,
+                                     new_attempt_id()) == 3
+        assert await write_net_intents(conn, run_id, nets) == {
+            "inserted": 2, "idempotent": 0, "total": 2}
 
     async with db.connect() as conn:
         rows = (await conn.execute(

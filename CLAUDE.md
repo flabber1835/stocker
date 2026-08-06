@@ -509,6 +509,33 @@ alone, one account's intent would answer for another's and the report would read
 as agreement. Before multi-account support, or any executor cutover with
 account-specific reads, proposal construction must pass a real account id.
 
+**RETRY SEMANTICS (migration 0053).** Production calls both writers inside ONE
+savepoint, so on a retry the proposals inserted, the unique index raised, and the
+savepoint rolled back over the new proposal rows — the append-only table stopped
+being append-only exactly when something went wrong (measured: 2 rows, not 4).
+Uniqueness prevented duplicate trades without defining a safe retry, and at
+cutover an ordinary retry of an unchanged run would have failed the delta step.
+The rule now:
+
+```text
+identical net intent stored     idempotent SUCCESS, counted not ignored; the
+                                retry's proposals COMMIT under a fresh
+                                attempt_id so both attempts stay readable
+DIFFERENT net intent, same key  NetIntentDivergence, FATAL, writes nothing. A
+                                stored instruction the system may already have
+                                acted on is never silently replaced
+same action, different rule     STILL divergence — agreeing on the instruction
+                                but not on why is agreement by coincidence
+                                (the crash-brake transition-record argument)
+```
+
+`intent_proposals.attempt_id` is one UUID per writer INVOCATION (NOT NULL, no
+default — a per-row default would defeat the column's purpose while looking
+right in a schema dump). Divergence is raised after checking EVERY key, so one
+report covers the whole run. The `ON CONFLICT DO NOTHING` is load-bearing: a
+raised constraint violation poisons the transaction, so the comparison deciding
+idempotent-vs-divergent could not run afterwards.
+
 **`intent_proposals` is append-only by APPLICATION CONVENTION, not by database
 privilege.** Nothing today prevents an UPDATE or DELETE against it. Acceptable
 while it is a shadow-observation table; before it is treated as a permanent audit
@@ -524,7 +551,7 @@ reconciliation skipped` — the shadow appearing deployed while recording nothin
 ```text
 1  docker build --network host -t stocker-base:latest -f Dockerfile.base .
 2  build (do NOT recreate) the pipeline, bt-engine and db-migrator images
-3  alembic upgrade head   ← old pipeline still serving
+3  alembic upgrade head   ← old pipeline still serving (0052 + 0053)
 4  recreate pipeline and bt-engine
 5  scripts/deploy-all.sh --verify
 6  confirm a normal delta run populated BOTH new tables

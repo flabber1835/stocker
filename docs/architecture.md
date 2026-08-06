@@ -4931,3 +4931,66 @@ where the new pipeline runs without the tables and every delta logs `intent
 reconciliation skipped`: the shadow looking deployed while recording nothing,
 which is the precise failure the tolerant `except` was designed to survive and
 therefore cannot report loudly.
+
+### Retry semantics, and the test that described a function instead of a system
+
+The first cutover rehearsal asserted two database properties separately: a second
+`net_intents` insert fails, and a second proposals-only insert is additive. Both
+were true and the pair was misleading, because production does neither in
+isolation — it calls both writers inside ONE savepoint:
+
+```text
+write_proposals(...)     rows insert; no uniqueness on this table
+write_net_intents(...)   unique index raises on the second attempt
+                         -> SAVEPOINT rolls back, taking the new proposals with it
+```
+
+So a retried run stayed at its original proposal count. Measured on the real
+schema: 2 rows, not 4. The append-only table was append-only right up to the
+moment something went wrong, which is the moment an audit ledger earns its keep.
+The test asserted a property of `write_proposals`; the system did something else.
+
+Harmless while shadow-writing. Not harmless at cutover: once the tolerant
+`except` becomes fatal, an ordinary retry of an UNCHANGED run would fail the
+whole delta step, because the intents it wants to write already exist. Uniqueness
+prevented duplicate trades without ever defining what a safe retry means.
+
+```text
+identical net intent already stored   idempotent SUCCESS. Counted and reported,
+                                      not silently swallowed — a retry is a fact
+                                      about the run.
+DIFFERENT net intent for the key      NetIntentDivergence, fatal, writes NOTHING.
+                                      The stored instruction may already have
+                                      been acted on; the second answer must never
+                                      quietly replace the first.
+same action, DIFFERENT rule           still divergence. Two reconciliations
+                                      agreeing on the instruction but not on the
+                                      reasoning agree by coincidence and are one
+                                      input away from disagreeing — the same
+                                      argument that settled the crash-brake
+                                      transition record.
+proposals                             always appended under a fresh `attempt_id`
+                                      (migration 0053), so repeated attempts stay
+                                      distinguishable rather than merging into
+                                      one indistinguishable history.
+```
+
+Three implementation details that are not incidental. `ON CONFLICT DO NOTHING`
+rather than letting the index raise — a raised constraint violation poisons the
+transaction, so the comparison that decides idempotent-versus-divergent could not
+run afterwards; the write would have to fail before knowing whether failing was
+correct. Divergence is raised after examining EVERY key, so one report names
+every disagreement instead of making an operator fix them one redeploy at a time.
+And `attempt_id` is NOT NULL with NO DEFAULT: a `DEFAULT gen_random_uuid()` would
+give every ROW its own attempt id — the exact opposite of the column's purpose,
+and it would look correct in every schema dump.
+
+The cost, recorded rather than discovered later: a divergent retry rolls back its
+own proposals along with everything else, so the losing attempt's detail lives in
+the exception and the log, not in the table.
+
+The index is still tested on its own, by a raw INSERT. The writer is now
+idempotent and therefore can no longer demonstrate that the invariant exists — if
+its conflict handling is ever removed, the index is the last thing standing
+between a retry and two executable instructions, and that has to be provable
+without it.

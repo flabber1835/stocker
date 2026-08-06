@@ -25,10 +25,26 @@ and six requirements, all asserted below:
     5  the divergence report surfaces the conflicts
     6  re-running cannot create a second net intent for the same key
 
-Requirement 6 is the one that matters most at cutover and is the least obvious:
-a retried or duplicated delta write must not be able to produce two executable
-instructions. It is asserted against the DATABASE, not the rule — the rule is
-already pure and deterministic, so only the index can answer it.
+REQUIREMENT 6 IS THE ONE THAT MATTERS AT CUTOVER, and the first version of it was
+wrong in an instructive way. It asserted that a second `write_proposals` call was
+additive — but production calls BOTH writers inside one savepoint, so the
+original implementation inserted the proposals, hit the unique index, and rolled
+the savepoint back over its own new rows. Measured on the real schema: 2, not 4.
+The test was describing a function; the system did something else.
+
+Retry semantics are now explicit, and 6a-6e cover them:
+
+    the index itself           refuses a raw duplicate — proven separately from
+                               the writer, so a writer regression cannot hide it
+    identical retry            idempotent success; the retry's proposals COMMIT
+                               under a new attempt_id and both attempts stay
+                               readable
+    divergent retry            fatal, and writes NOTHING — a stored instruction
+                               the system may already have acted on is never
+                               silently replaced
+    same action, different rule  still divergence. Two reconciliations agreeing
+                               on the instruction but not on why agree by
+                               coincidence.
 """
 from __future__ import annotations
 
@@ -37,6 +53,7 @@ import os
 import sys
 import uuid
 from datetime import date
+from types import SimpleNamespace
 
 import pytest
 import pytest_asyncio
@@ -64,7 +81,12 @@ def _load_pipeline_writes():
     sys.path.insert(0, os.path.join(root, "services", "pipeline"))
     try:
         mod = importlib.import_module("app.intent_writes")
-        return mod.write_proposals, mod.write_net_intents
+        return SimpleNamespace(
+            write_proposals=mod.write_proposals,
+            write_net_intents=mod.write_net_intents,
+            new_attempt_id=mod.new_attempt_id,
+            NetIntentDivergence=mod.NetIntentDivergence,
+        )
     finally:
         sys.path.pop(0)
         for k in [k for k in list(sys.modules) if k == "app" or k.startswith("app.")]:
@@ -102,7 +124,7 @@ def _build_proposals() -> list[Proposal]:
 @pytest_asyncio.fixture
 async def rehearsal(async_dsn: str):
     """Run the rehearsal once; every test reads its result."""
-    write_proposals, write_net_intents = _load_pipeline_writes()
+    w = _load_pipeline_writes()
     eng = create_async_engine(async_dsn, future=True)
     run_id = uuid.uuid4()
     proposals = _build_proposals()
@@ -116,11 +138,10 @@ async def rehearsal(async_dsn: str):
                      "VALUES (:r, :d, 'success', 'cutover_rehearsal')"),
                 {"r": run_id, "d": date(2026, 8, 6)},
             )
-            await write_proposals(conn, run_id, proposals)
-            await write_net_intents(conn, run_id, nets)
+            await w.write_proposals(conn, run_id, proposals, w.new_attempt_id())
+            await w.write_net_intents(conn, run_id, nets)
         yield {"engine": eng, "run_id": run_id, "proposals": proposals,
-               "nets": nets, "report": report,
-               "write_net_intents": write_net_intents}
+               "nets": nets, "report": report}
     finally:
         await eng.dispose()
 
@@ -203,17 +224,26 @@ async def test_5_the_divergence_report_surfaces_every_conflict(rehearsal):
         assert c["net_action"] in c["legacy_actions"]
 
 
-async def test_6_a_rerun_cannot_create_a_second_net_intent(rehearsal):
-    """THE cutover requirement. Only the database can answer this — the pure
-    rule is deterministic, so a duplicate can only arrive by writing twice."""
+async def test_6_the_index_itself_refuses_a_duplicate(rehearsal):
+    """The DATABASE guarantee, proven independently of the writer.
+
+    `write_net_intents` is now idempotent, so it no longer raises on a retry —
+    which means the writer can no longer demonstrate that the invariant exists.
+    A raw INSERT can. Kept separate on purpose: if the writer ever regresses to a
+    plain INSERT, or its conflict handling is removed, the index is still the
+    thing standing between a retry and two executable instructions.
+    """
     with pytest.raises(Exception) as exc:
         async with rehearsal["engine"].begin() as conn:
-            await rehearsal["write_net_intents"](
-                conn, rehearsal["run_id"], rehearsal["nets"])
+            await conn.execute(
+                text("INSERT INTO net_intents "
+                     "(run_id, account_id, ticker, action, source, resolved_by) "
+                     "VALUES (:r, :a, 'AMD', 'risk_reduce', 'crash_brake', 'x')"),
+                {"r": rehearsal["run_id"], "a": DEFAULT_ACCOUNT_ID},
+            )
     assert "unique" in str(exc.value).lower() \
         or "uq_net_intents_run_account_ticker" in str(exc.value).lower()
 
-    # And the failed retry left the original instructions untouched.
     async with rehearsal["engine"].connect() as conn:
         n = (await conn.execute(
             text("SELECT COUNT(*) FROM net_intents WHERE run_id=:r"),
@@ -221,14 +251,125 @@ async def test_6_a_rerun_cannot_create_a_second_net_intent(rehearsal):
     assert n == 4
 
 
-async def test_6b_a_rerun_of_the_proposals_is_allowed_and_additive(rehearsal):
-    """The append-only half must NOT reject a retry: the proposals table records
-    what was proposed, and a second attempt is a second thing that happened."""
-    async with rehearsal["engine"].begin() as conn:
-        wp, _ = _load_pipeline_writes()
-        await wp(conn, rehearsal["run_id"], rehearsal["proposals"])
-    async with rehearsal["engine"].connect() as conn:
-        n = (await conn.execute(
+async def test_6b_the_exact_production_sequence_run_twice_is_idempotent(rehearsal):
+    """THE retry test, in the shape production actually uses.
+
+    An earlier version called `write_proposals` ALONE and asserted the row count
+    doubled. Production never takes that path: both writers run inside ONE
+    savepoint, so on the original implementation the proposals inserted, the
+    unique index then raised, and the savepoint rolled the new proposal rows back
+    — the append-only table stopped being append-only exactly when something went
+    wrong. Measured on the real schema: 2 rows, not 4. The test was asserting a
+    property of a function rather than of the system.
+
+    With idempotent-or-fatal semantics an unchanged retry SUCCEEDS: the stored net
+    intents are recognised as identical, nothing is rewritten, and the retry's
+    proposals commit under a fresh attempt_id so both attempts stay readable.
+    """
+    w = _load_pipeline_writes()
+    eng, run_id = rehearsal["engine"], rehearsal["run_id"]
+
+    async with eng.begin() as conn:
+        async with conn.begin_nested():
+            await w.write_proposals(conn, run_id, rehearsal["proposals"],
+                                    w.new_attempt_id())
+            stats = await w.write_net_intents(conn, run_id, rehearsal["nets"])
+
+    assert stats == {"inserted": 0, "idempotent": 4, "total": 4}
+
+    async with eng.connect() as conn:
+        n_nets = (await conn.execute(
+            text("SELECT COUNT(*) FROM net_intents WHERE run_id=:r"),
+            {"r": run_id})).scalar_one()
+        n_props = (await conn.execute(
             text("SELECT COUNT(*) FROM intent_proposals WHERE run_id=:r"),
-            {"r": rehearsal["run_id"]})).scalar_one()
-    assert n == 16
+            {"r": run_id})).scalar_one()
+        attempts = (await conn.execute(
+            text("SELECT COUNT(DISTINCT attempt_id) FROM intent_proposals "
+                 "WHERE run_id=:r"), {"r": run_id})).scalar_one()
+
+    assert n_nets == 4, "a retry must not create a second executable instruction"
+    assert n_props == 16, "the retry's proposals must survive the savepoint"
+    assert attempts == 2, "the two attempts must remain distinguishable"
+
+
+async def test_6c_a_divergent_retry_is_fatal_and_writes_nothing(rehearsal):
+    """The other half of the rule. A retry reconciling to a DIFFERENT instruction
+    must not quietly replace one the system may already have acted on — and must
+    not half-write either."""
+    w = _load_pipeline_writes()
+    eng, run_id = rehearsal["engine"], rehearsal["run_id"]
+
+    # Same run, but AMD now resolves to a partial reduction instead of the exit
+    # already stored — the shape of a rule or input change between attempts.
+    mutated = reconcile([
+        Proposal("AMD", "sell_trim", "delta_engine", 0, target_weight=0.01),
+        Proposal("AMD", "risk_reduce", "crash_brake", 1, target_weight=0.02),
+    ])
+
+    before = await _counts(eng, run_id)
+    with pytest.raises(w.NetIntentDivergence) as exc:
+        async with eng.begin() as conn:
+            async with conn.begin_nested():
+                await w.write_proposals(conn, run_id,
+                                        list(mutated[0].contributing),
+                                        w.new_attempt_id())
+                await w.write_net_intents(conn, run_id, mutated)
+
+    assert "AMD" in str(exc.value)
+    assert exc.value.divergences[0]["stored"]["action"] == "exit"
+    assert exc.value.divergences[0]["recomputed"]["action"] == "sell_trim"
+    assert await _counts(eng, run_id) == before, \
+        "a divergent retry must write nothing at all"
+
+
+async def test_6d_divergence_names_every_disagreement_not_just_the_first(rehearsal):
+    """Checked after ALL keys, so one report covers the whole run. Stopping at
+    the first would make an operator fix them one redeploy at a time."""
+    w = _load_pipeline_writes()
+    eng, run_id = rehearsal["engine"], rehearsal["run_id"]
+
+    mutated = reconcile([
+        Proposal("AMD", "sell_trim", "delta_engine", 0, target_weight=0.01),
+        Proposal("NVDA", "exit", "delta_engine", 1),
+    ])
+    with pytest.raises(w.NetIntentDivergence) as exc:
+        async with eng.begin() as conn:
+            async with conn.begin_nested():
+                await w.write_net_intents(conn, run_id, mutated)
+
+    assert {d["ticker"] for d in exc.value.divergences} == {"AMD", "NVDA"}
+
+
+async def test_6e_same_action_reached_by_a_different_rule_is_divergence(rehearsal):
+    """Two reconciliations agreeing on the instruction but not on WHY agree by
+    coincidence — one input away from disagreeing. Same argument the crash-brake
+    transition record settled: comparing outcomes cannot see that."""
+    w = _load_pipeline_writes()
+    eng, run_id = rehearsal["engine"], rehearsal["run_id"]
+
+    # NVDA is stored as risk_reduce @0.020 via sell_dominates:min_weight (it beat
+    # a `hold`). Reach the SAME action and weight as a lone proposal instead.
+    same_action = reconcile([
+        Proposal("NVDA", "risk_reduce", "crash_brake", 0, target_weight=0.020),
+    ])
+    assert same_action[0].resolved_by == "sole_proposal"
+
+    with pytest.raises(w.NetIntentDivergence) as exc:
+        async with eng.begin() as conn:
+            async with conn.begin_nested():
+                await w.write_net_intents(conn, run_id, same_action)
+    d = exc.value.divergences[0]
+    assert d["stored"]["action"] == d["recomputed"]["action"] == "risk_reduce"
+    assert d["stored"]["resolved_by"] != d["recomputed"]["resolved_by"]
+
+
+async def _counts(eng, run_id) -> tuple[int, int]:
+    async with eng.connect() as conn:
+        p = (await conn.execute(
+            text("SELECT COUNT(*) FROM intent_proposals WHERE run_id=:r"),
+            {"r": run_id})).scalar_one()
+        n = (await conn.execute(
+            text("SELECT COUNT(*) FROM net_intents WHERE run_id=:r"),
+            {"r": run_id})).scalar_one()
+    return p, n

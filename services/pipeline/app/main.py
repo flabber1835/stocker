@@ -2966,7 +2966,8 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
         try:
             from stock_strategy_shared.intent_reconciliation import (
                 DEFAULT_ACCOUNT_ID, Proposal, compare_to_rows, reconcile)
-            from app.intent_writes import write_net_intents, write_proposals
+            from app.intent_writes import (NetIntentDivergence, new_attempt_id,
+                                           write_net_intents, write_proposals)
 
             proposals = [
                 Proposal(
@@ -2999,15 +3000,26 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             # without the nested block a broken shadow write would fail the
             # delta run itself. The shadow must not be able to break the thing
             # it is shadowing.
+            # ONE attempt id for both writers, so a retried run's proposals stay
+            # distinguishable from the original attempt's instead of merging.
+            attempt_id = new_attempt_id()
             async with conn.begin_nested():
-                await write_proposals(conn, run_id, proposals)
-                await write_net_intents(conn, run_id, nets)
+                await write_proposals(conn, run_id, proposals, attempt_id)
+                write_stats = await write_net_intents(conn, run_id, nets)
 
             # `delta_intents` has no account column, so the legacy rows being
             # compared are this one account's by construction. Passed explicitly.
             reconciliation_note = compare_to_rows(
                 [(d.ticker, d.action) for d in actionable], nets,
                 account_id=DEFAULT_ACCOUNT_ID)
+            reconciliation_note["attempt_id"] = str(attempt_id)
+            reconciliation_note["write"] = write_stats
+            if write_stats["idempotent"]:
+                # A retry of a run already reconciled. Not an error — but it
+                # means this delta re-ran, which is worth seeing in the record.
+                print(f"[delta] intent reconciliation: retry of an existing run, "
+                      f"{write_stats['idempotent']} net intent(s) unchanged",
+                      flush=True)
             if reconciliation_note["conflicts"]:
                 # Loud: this is the defect firing, and the whole reason the
                 # table exists. Silent reconciliation would leave the operator
@@ -3017,6 +3029,14 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
             else:
                 print(f"[delta] intent reconciliation: "
                       f"{len(nets)} net intent(s), no conflicts", flush=True)
+        except NetIntentDivergence as exc:
+            # Two reconciliations of ONE run disagreeing is a defect in the
+            # inputs or the rule, never a transient. Loud and itemised even while
+            # shadow-only, because at cutover this becomes fatal and the operator
+            # should already have seen what it looks like.
+            print(f"[delta] intent reconciliation DIVERGED: {exc}", flush=True)
+            reconciliation_note = {"error": str(exc)[:500],
+                                   "divergences": exc.divergences}
         except Exception as exc:   # noqa: BLE001
             # Shadow-only for now, so a failure here must not fail the chain or
             # roll back the intents the executor actually reads. When the
