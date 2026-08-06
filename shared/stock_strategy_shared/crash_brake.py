@@ -40,9 +40,24 @@ class CrashState:
     breadth: float | None
     n_breadth_names: int
     reason: str
+    # Was there enough data to reach a verdict AT ALL? `engaged=False` answers
+    # two different questions and used to conflate them: "the evidence says no
+    # crash" and "there is no evidence". The first is a reason to carry normal
+    # exposure; the second is a reason to carry WHATEVER YOU ALREADY HAD.
+    #
+    # Conflating them made this control fail OPEN. The module reasoned correctly
+    # about the engage direction — "a brake that trips on missing data would
+    # de-risk the book every time the benchmark hiccups" — and never re-examined
+    # the same state for the RESTORE direction, where the identical value means
+    # "re-risk the book on missing data". With the brake engaged at 50% and one
+    # session of thin breadth, the delta step emitted risk_restore buys across
+    # every position while the reason string still read "holding exposure".
+    evaluable: bool = True
 
     @property
     def equity_exposure_key(self) -> str:
+        if not self.evaluable:
+            return "unknown"
         return "stressed" if self.engaged else "normal"
 
 
@@ -133,11 +148,13 @@ def evaluate_crash_state(
 
     if mret is None:
         return CrashState(False, None, breadth, n,
-                          "benchmark history too short — cannot evaluate, holding exposure")
+                          "benchmark history too short — cannot evaluate, "
+                          "holding exposure", evaluable=False)
     if breadth is None:
         return CrashState(False, mret, None, n,
                           f"breadth unavailable ({n} names with enough history, "
-                          f"need {min_breadth_names}) — holding exposure")
+                          f"need {min_breadth_names}) — holding exposure",
+                          evaluable=False)
 
     market_bad = mret <= market_return_threshold
     breadth_bad = breadth < breadth_threshold
@@ -154,10 +171,22 @@ def evaluate_crash_state(
     return CrashState(False, mret, breadth, n, "; ".join(why))
 
 
-def target_exposure(state: CrashState, normal: float, stressed: float) -> float:
+def target_exposure(state: CrashState, normal: float, stressed: float,
+                    *, prior: float) -> float:
     """Gross equity exposure the book should carry. Composition is untouched —
     this scales every position by the same factor, which is what makes it a risk
-    overlay rather than a second, hidden selection rule."""
+    overlay rather than a second, hidden selection rule.
+
+    `prior` is the exposure the book is ALREADY carrying, and it is mandatory —
+    keyword-only, no default — on purpose. An unevaluable state returns it
+    unchanged, so an unknown signal can never move the book in either direction.
+    Giving it a default would let a call site keep the old fail-open behaviour by
+    saying nothing, and saying nothing is exactly how the defect survived: the
+    caller acted on the returned number while the state's own reason string said
+    "holding exposure".
+    """
+    if not state.evaluable:
+        return prior
     return stressed if state.engaged else normal
 
 

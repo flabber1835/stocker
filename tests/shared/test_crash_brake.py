@@ -149,10 +149,11 @@ class TestReporting:
 
 class TestExposure:
     def test_engaged_uses_the_stressed_exposure(self):
-        assert target_exposure(_call(), 1.0, 0.5) == 0.5
+        assert target_exposure(_call(), 1.0, 0.5, prior=1.0) == 0.5
 
     def test_disengaged_uses_the_normal_exposure(self):
-        assert target_exposure(_call(benchmark_closes=_rising(200)), 1.0, 0.5) == 1.0
+        assert target_exposure(_call(benchmark_closes=_rising(200)), 1.0, 0.5,
+                           prior=0.5) == 1.0
 
     def test_scaling_preserves_relative_weights_exactly(self):
         """THE property. Re-deriving weights on restore would turn the brake into
@@ -218,3 +219,92 @@ class TestExposureMoves:
     def test_an_empty_book_produces_nothing(self):
         from stock_strategy_shared.crash_brake import plan_exposure_moves
         assert plan_exposure_moves({}, 0.5) == []
+
+
+class TestAnUnknownSignalCannotReRiskTheBook:
+    """Defect: the brake failed OPEN on the restore side.
+
+    `engaged=False` answered two different questions with one value — "the
+    evidence says no crash" and "there is no evidence" — and `target_exposure`
+    mapped both to `normal`. With the book cut to 50% and one session of thin
+    breadth, the delta step computed a target of 100% and emitted risk_restore
+    buys across every position, while the state's own reason string still read
+    "holding exposure".
+
+    The module reasoned correctly about the ENGAGE direction and never
+    re-examined the identical state for RESTORE. These fail against that code.
+    """
+
+    def _thin_breadth(self):
+        """Benchmark fine, breadth unavailable — fewer names than min_names."""
+        return evaluate_crash_state(
+            benchmark_closes=[100.0] * 300,
+            closes_by_ticker={"AAA": [10.0] * 300},
+            market_return_window_sessions=20,
+            market_return_threshold=-0.06,
+            breadth_sma_sessions=100,
+            breadth_threshold=0.42,
+            min_breadth_names=50,
+            enabled=True)
+
+    def _short_benchmark(self):
+        return evaluate_crash_state(
+            benchmark_closes=[100.0] * 5,
+            closes_by_ticker={f"T{i}": [10.0] * 300 for i in range(80)},
+            market_return_window_sessions=20,
+            market_return_threshold=-0.06,
+            breadth_sma_sessions=100,
+            breadth_threshold=0.42,
+            min_breadth_names=50,
+            enabled=True)
+
+    def test_thin_breadth_is_NOT_EVALUABLE_not_merely_disengaged(self):
+        s = self._thin_breadth()
+        assert s.evaluable is False
+        assert s.engaged is False
+        assert "holding exposure" in s.reason
+
+    def test_a_short_benchmark_is_NOT_EVALUABLE_either(self):
+        assert self._short_benchmark().evaluable is False
+
+    def test_an_unknown_signal_PRESERVES_a_reduced_exposure(self):
+        """THE defect, stated as the number it produced. A book at 50% must stay
+        at 50%, not be bought back to 100%."""
+        assert target_exposure(self._thin_breadth(), 1.0, 0.5, prior=0.5) == 0.5
+        assert target_exposure(self._short_benchmark(), 1.0, 0.5, prior=0.5) == 0.5
+
+    def test_an_unknown_signal_ALSO_preserves_a_full_exposure(self):
+        """Symmetry: unknown must not de-risk either. A control that cut the book
+        on missing data would be the mirror-image bug."""
+        assert target_exposure(self._thin_breadth(), 1.0, 0.5, prior=1.0) == 1.0
+
+    def test_the_prior_is_MANDATORY(self):
+        """No default. A call site that says nothing would silently keep the
+        fail-open behaviour, which is how this survived review."""
+        import inspect
+        sig = inspect.signature(target_exposure)
+        p = sig.parameters["prior"]
+        assert p.kind is inspect.Parameter.KEYWORD_ONLY
+        assert p.default is inspect.Parameter.empty
+        with pytest.raises(TypeError):
+            target_exposure(self._thin_breadth(), 1.0, 0.5)
+
+    def test_an_EVALUABLE_state_still_ignores_the_prior(self):
+        """The prior is a fallback for ignorance, not hysteresis. Real evidence
+        must still move the book, or this fix would have disabled the brake."""
+        calm = evaluate_crash_state(
+            benchmark_closes=[100.0 + i for i in range(300)],
+            closes_by_ticker={f"T{i}": [10.0 + j * 0.1 for j in range(300)]
+                              for i in range(80)},
+            market_return_window_sessions=20,
+            market_return_threshold=-0.06,
+            breadth_sma_sessions=100,
+            breadth_threshold=0.42,
+            min_breadth_names=50,
+            enabled=True)
+        assert calm.evaluable is True
+        assert target_exposure(calm, 1.0, 0.5, prior=0.5) == 1.0, (
+            "a genuine all-clear MUST restore, or the brake would never release")
+
+    def test_the_exposure_key_names_the_third_state(self):
+        assert self._thin_breadth().equity_exposure_key == "unknown"

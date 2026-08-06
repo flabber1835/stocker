@@ -1776,16 +1776,20 @@ async def _resolve_delta_lineage(conn) -> dict:
     }
 
 
-async def _evaluate_crash_brake(cb_cfg, universe_tickers: list[str], session: date):
+async def _evaluate_crash_brake(cb_cfg, universe_tickers: list[str], session: date,
+                                *, prior_exposure: float):
     """Live crash-state evaluation, from the SAME shared module the tunnel uses.
 
     Reads the benchmark's closes and the investable universe's closes and returns
     (CrashState, exposure). Nothing here decides trades — the caller turns the
     exposure scalar into risk_reduce / risk_restore intents.
 
-    Fail-safe: any load error returns a DISENGAGED state. Refusing to buy on
-    missing data costs an opportunity; cutting the book in half on missing data
-    is an unforced loss, and this is the one control able to do that.
+    Fail-safe in BOTH directions. A load error or thin data yields a state that
+    is not evaluable, and an unevaluable state returns `prior_exposure` — so the
+    book neither de-risks nor re-risks on ignorance. The original only reasoned
+    about the first half ("cutting the book in half on missing data is an
+    unforced loss"), which left the restore direction free to buy the book back
+    up to normal exposure on exactly the sessions the data was worst.
     """
     from stock_strategy_shared.crash_brake import (evaluate_crash_state,
                                                    target_exposure)
@@ -1820,7 +1824,8 @@ async def _evaluate_crash_brake(cb_cfg, universe_tickers: list[str], session: da
         enabled=True)
     exposure = target_exposure(
         state, float(getattr(cb_cfg, "normal_equity_exposure", 1.0)),
-        float(getattr(cb_cfg, "stressed_equity_exposure", 0.5)))
+        float(getattr(cb_cfg, "stressed_equity_exposure", 0.5)),
+        prior=prior_exposure)
     return state, exposure
 
 
@@ -2866,11 +2871,15 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
         try:
             from stock_strategy_shared.crash_brake import plan_exposure_moves
             _uni = sorted({d.ticker for d in decisions.values()} | set(live_weights))
-            _state, _exposure = await _evaluate_crash_brake(cb_cfg, _uni, run_date)
             # Where the book is NOW, so a re-run does not double-cut: the prior
             # exposure is the book's realised gross weight, not an assumed 1.0.
+            # Computed BEFORE the evaluation, because an unevaluable state
+            # resolves to exactly this number — an unknown signal must leave the
+            # book where it is rather than pull it toward normal exposure.
             _prev = sum(float(w) for w in live_weights.values() if w) or 1.0
             _prev = min(1.0, max(0.05, _prev))
+            _state, _exposure = await _evaluate_crash_brake(
+                cb_cfg, _uni, run_date, prior_exposure=_prev)
             moves = plan_exposure_moves(live_weights, _exposure,
                                         prev_exposure=_prev)
             crash_note = {"engaged": _state.engaged, "reason": _state.reason,

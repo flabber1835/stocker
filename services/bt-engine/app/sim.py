@@ -553,6 +553,11 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
     cb_on = bool(getattr(cb_cfg, "enabled", False))
     crash_was_engaged = False
     n_crash_sessions = 0      # rebalances scored with the brake engaged
+    # The exposure the book is ALREADY carrying, carried across sessions so an
+    # unevaluable crash state can resolve to it. Live reads this off the realised
+    # book weight; here targeted and realised are the same number, because the
+    # simulator applies the scalar exactly. None until the first evaluation.
+    crash_prior: float | None = None
     n_crash_episodes = 0      # distinct engagements — a rare control must be RARE,
                               # and one long episode reads very differently from
                               # twenty short ones at the same session count.
@@ -858,9 +863,12 @@ def run_simulation(prices: pd.DataFrame, fundamentals: pd.DataFrame,
                     breadth_threshold=cb_cfg.breadth_threshold,
                     min_breadth_names=cb_cfg.min_breadth_names,
                     enabled=True)
+                if crash_prior is None:
+                    crash_prior = float(cb_cfg.normal_equity_exposure)
                 crash_exposure = target_exposure(
                     crash_state, cb_cfg.normal_equity_exposure,
-                    cb_cfg.stressed_equity_exposure)
+                    cb_cfg.stressed_equity_exposure, prior=crash_prior)
+                crash_prior = crash_exposure
                 if crash_state.engaged:
                     n_crash_sessions += 1
                     if not crash_was_engaged:

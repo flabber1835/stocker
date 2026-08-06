@@ -4778,3 +4778,46 @@ it was — and lowering a threshold until a gate goes green is how a measurement
 becomes permanent. The falsifier for all of this is a fixture whose nulls are
 concentrated in a ticker minority: under the old probe it reports sessions
 unusable, under the new one it does not, and the corpus is identical in both.
+
+## Design Decision: an unknown signal preserves the book (2026-08)
+
+The crash brake failed OPEN, on the restore side, on the ACTIVE config.
+
+`evaluate_crash_state` returns `engaged=False` when the benchmark history is too
+short or breadth has fewer than `min_breadth_names` qualifying names, with a
+reason string reading "cannot evaluate, holding exposure". But `target_exposure`
+mapped every disengaged state to `normal`, and the delta step acts on the
+returned number, not on the reason. With the book already cut to 50% and one
+session of thin breadth, the pipeline computed a target of 100% and emitted
+`risk_restore` buys across every position — re-risking the entire book on the
+strength of data it had just declared unreadable.
+
+The root cause is an asymmetry that was never re-examined. The module reasoned
+carefully about the ENGAGE direction — *"refusing to buy on missing data costs an
+opportunity, whereas selling half the book on missing data is an unforced,
+self-inflicted loss"* — and that reasoning is correct. It simply does not
+transfer: the same `engaged=False` also drives RESTORE, where it means "buy the
+book back up on missing data", which is the identical unforced risk pointing the
+other way. One boolean was answering two questions: *the evidence says no crash*
+and *there is no evidence*.
+
+`CrashState.evaluable` is the third state. An unevaluable state resolves to the
+exposure the book is ALREADY carrying, so ignorance moves nothing in either
+direction. `target_exposure(..., prior=)` is keyword-only with **no default**,
+deliberately: a default would let a call site keep the fail-open behaviour by
+saying nothing, and saying nothing is precisely how this survived. The signature
+change breaks both call sites and both engines until each states its prior — live
+reads the realised book weight, the tunnel carries its last targeted exposure
+across sessions (identical numbers there, since the simulator applies the scalar
+exactly).
+
+Why the tests did not catch it: the crash-brake parity test asserts that the live
+source CONTAINS a call to `evaluate_crash_state`. Call-site presence is not
+behavioural equivalence, and no test exercised the pair (reduced book, missing
+data). The falsifiers now do, including the symmetric case — an unknown signal
+must not de-risk either — and the case that proves the fix did not simply disable
+the brake: a genuine all-clear still restores.
+
+This generalises. Any control with a fallback state needs its fallback checked in
+BOTH directions of the action it gates; a fail-safe argued only for the direction
+that was salient at the time is half a control.
