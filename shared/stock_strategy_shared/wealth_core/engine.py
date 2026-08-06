@@ -181,8 +181,31 @@ class WealthCoreConfig:
     # implemented and named; this selects one and it is in the config hash, so a
     # result is always attributable to the formula that produced it.
     volatility_profile: str = DEFAULT_VOLATILITY_PROFILE
+    # Sessions between a dividend's EX-DATE and the cash landing. An ADOPTED
+    # CONVENTION, in the config hash, because no data source we have carries a
+    # payment date: SHARADAR/ACTIONS has date/action/ticker/value/contra* and
+    # nothing else, so the pay date is genuinely unavailable rather than merely
+    # unmapped.
+    #
+    # The default is 1, and the rationale is deliberately narrow: it is the
+    # SMALLEST lag that enforces what the receivable is FOR — `accrue_dividend`
+    # says a receivable exists so an unsettled dividend cannot fund an admission
+    # on the session it was declared, and at 0 it funds exactly that (accrual
+    # and settlement both ran inside apply_dividends, before decide()). Any
+    # larger number would be modelling a payment calendar we cannot observe;
+    # a real US ex-to-pay gap is nearer 10-20 sessions, and a deployment that
+    # wants that must ask for it by name.
+    #
+    # 0 reproduces the pre-lag behaviour exactly, which is what makes the change
+    # bisectable rather than entangled with everything else that moved.
+    dividend_settlement_lag_sessions: int = 1
 
     def __post_init__(self) -> None:
+        if self.dividend_settlement_lag_sessions < 0:
+            raise ValueError(
+                f"dividend_settlement_lag_sessions must be >= 0, got "
+                f"{self.dividend_settlement_lag_sessions}. A negative lag would "
+                f"pay a dividend before its ex-date.")
         if self.volatility_profile not in VOLATILITY_PROFILES:
             raise ValueError(
                 f"unknown volatility_profile {self.volatility_profile!r}; "
@@ -204,6 +227,8 @@ class WealthCoreConfig:
             "minimum_leadership_population": self.minimum_leadership_population,
             "ordering_profile": self.ordering_profile,
             "volatility_profile": self.volatility_profile,
+            "dividend_settlement_lag_sessions":
+                self.dividend_settlement_lag_sessions,
         }, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(blob.encode()).hexdigest()[:16]
 

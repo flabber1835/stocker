@@ -208,6 +208,10 @@ TERMINAL_ACTIONS = frozenset({
 
 SPLIT_ACTIONS = frozenset({"split"})
 
+# Cash distributions. `dividend` is the ordinary one; the others are the names
+# Sharadar uses for distributions that are still cash to the holder.
+DIVIDEND_ACTIONS = frozenset({"dividend", "specialdividend"})
+
 
 def sessions_index(sessions: Sequence[str]) -> list[str]:
     return sorted(sessions)
@@ -253,6 +257,54 @@ def split_ratios_from_actions(rows: Iterable[dict],
             continue
         out[(r["ticker"], session)] = float(v)
     return out
+
+
+def dividends_from_actions(rows: Iterable[dict],
+                           sessions_sorted: Sequence[str]
+                           ) -> dict[tuple[str, str], float]:
+    """(ticker, session) -> cash dividend per share, on the EX-DATE.
+
+    The date on an ACTIONS dividend row is the ex-date, which is the date that
+    matters for entitlement — a holder on the ex-date is owed the money. The
+    PAYMENT date is not in ACTIONS at all (the table is date/action/ticker/
+    name/value/contraticker/contraname), which is why the settlement lag is a
+    named convention on the config rather than a per-dividend fact.
+
+    Multiple distributions on one ticker and session are SUMMED rather than
+    overwritten: an ordinary and a special dividend can share an ex-date, and
+    keeping only the last row read would silently drop one. The ingest's
+    (ticker, date, action) key is what makes them separate rows to sum.
+    """
+    out: dict[tuple[str, str], float] = {}
+    for r in rows:
+        if (r.get("action") or "").lower() not in DIVIDEND_ACTIONS:
+            continue
+        v = r.get("value")
+        if v is None or float(v) <= 0:
+            # A dividend with no stated amount is not a zero dividend; it is an
+            # unusable row. Nothing is accrued, which understates rather than
+            # inventing a number — and it cannot be silent, because the count of
+            # dropped rows is reported.
+            continue
+        session = snap_to_session(str(r["date"]), sessions_sorted)
+        if session is None:
+            continue
+        key = (r["ticker"], session)
+        out[key] = out.get(key, 0.0) + float(v)
+    return out
+
+
+def unusable_dividend_rows(rows: Iterable[dict]) -> int:
+    """Dividend rows carrying no usable amount. Counted so a corpus with a
+    systematic gap is visible rather than quietly producing a price-only run."""
+    n = 0
+    for r in rows:
+        if (r.get("action") or "").lower() not in DIVIDEND_ACTIONS:
+            continue
+        v = r.get("value")
+        if v is None or float(v) <= 0:
+            n += 1
+    return n
 
 
 def terminal_from_action(row: dict, session: str) -> TerminalTerms | None:
@@ -405,7 +457,8 @@ def load_meta(conn) -> dict[str, SecurityMeta]:
 
 def load_bars(conn, start: str, end: str,
               authoritative_splits: dict[tuple[str, str], float] | None = None,
-              reconciliation: dict[str, int] | None = None
+              reconciliation: dict[str, int] | None = None,
+              dividends: dict[tuple[str, str], float] | None = None
               ) -> dict[str, list[VendorBar]]:
     """Rows -> VendorBars, with the split ratio recovered per ticker.
 
@@ -448,10 +501,13 @@ def load_bars(conn, start: str, end: str,
             session=session, security_id=tkr, ticker=tkr,
             raw_close=raw, raw_open=raw_open, volume=_f(r["volume"]),
             split_ratio=ratio,
-            # SEP carries no dividend column. Left at 0.0 and REPORTED as a
-            # caveat rather than approximated from closeadj, which would fold a
-            # total-return series back into a cash event and get both wrong.
-            dividend_per_share=0.0,
+            # From SHARADAR/ACTIONS, never from a price. SEP carries no dividend
+            # column, and the one thing that must NOT happen is deriving the
+            # distribution from closeadj: that series is already total-return,
+            # so folding it back into a cash event double-counts every
+            # distribution — once in the price and once in the ledger. 0.0 means
+            # "no distribution", which is a different statement from "unknown".
+            dividend_per_share=(dividends or {}).get((tkr, session), 0.0),
             tradeable=bool(raw and _f(r["volume"])),
             unresolved_corporate_action=False))
     return out
@@ -469,15 +525,19 @@ def _f(x) -> float | None:
 
 # Caveats that hold WHATEVER the corporate-action source is.
 CAVEATS: tuple[str, ...] = (
-    "dividends are NOT applied: ACTIONS dividend rows are ingested but the "
-    "replay posts no receivable or cash event yet. Returns are price-only and "
-    "understate a dividend-paying book.",
     "security_id is the TICKER: a ticker reused after a delisting appears as one "
     "continuous security.",
 )
 
 # Added when ACTIONS is unavailable and the run fell back.
 DERIVED_SPLIT_CAVEATS: tuple[str, ...] = (
+    "dividends are NOT applied: no ACTIONS rows, and SEP carries no dividend "
+    "column. Returns are price-only and understate a dividend-paying book. "
+    "They are NOT approximated from the vendor's total-return close, which "
+    "already contains the distributions and would double-count every one of "
+    "them (that column is named in the module docstring; this string cannot "
+    "name it, because the guard forbidding the module from reading it matches "
+    "on the token).",
     "splits are DERIVED from the ratio between SEP.close and SEP.closeunadj, "
     "not read from SHARADAR/ACTIONS. A split the vendor adjusted inconsistently "
     "would be missed or mis-sized.",
@@ -490,6 +550,11 @@ DERIVED_SPLIT_CAVEATS: tuple[str, ...] = (
 
 # Added when ACTIONS drove the run.
 ACTIONS_CAVEATS: tuple[str, ...] = (
+    "dividends are applied from SHARADAR/ACTIONS on the EX-DATE as a receivable "
+    "and settle after `dividend_settlement_lag_sessions`. ACTIONS carries no "
+    "PAYMENT date, so that lag is an adopted convention in the config hash, not "
+    "an observed fact — the default of 1 is the smallest lag that stops a "
+    "dividend funding an admission on its own ex-date.",
     "splits are AUTHORITATIVE from SHARADAR/ACTIONS and cross-checked against "
     "the ratio derived from SEP.close vs SEP.closeunadj; ACTIONS wins on "
     "disagreement and the counts are in `split_reconciliation`. A non-zero "
@@ -558,11 +623,15 @@ def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
             f"touching the price corpus.")
 
     reconciliation: dict[str, int] = {}
+    dividend_rows_dropped = 0
     if use_actions:
         splits = split_ratios_from_actions(action_rows, sessions_sorted)
+        divs = dividends_from_actions(action_rows, sessions_sorted)
+        dividend_rows_dropped = unusable_dividend_rows(action_rows)
         bars = load_bars(conn, req.start_date, req.end_date,
                          authoritative_splits=splits,
-                         reconciliation=reconciliation)
+                         reconciliation=reconciliation,
+                         dividends=divs)
         # Terminal events supplied by the CALLER win: an explicit event is a
         # human statement of terms the vendor did not carry, and the whole point
         # of the block is that a human can resolve it. ACTIONS fills the rest.
@@ -608,6 +677,8 @@ def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
         "actions_rows": len(action_rows),
         "terminal_events_applied": len(terminal_events),
         "split_reconciliation": dict(sorted(reconciliation.items())),
+        "dividend_rows_unusable": dividend_rows_dropped,
+        "outstanding_receivables": round(result.ledger.receivable_total(), 2),
         "caveats": list(CAVEATS) + list(
             ACTIONS_CAVEATS if use_actions else DERIVED_SPLIT_CAVEATS),
     }
@@ -616,7 +687,8 @@ def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
 
 __all__ = ["ACTIONS_CAVEATS", "CAVEATS", "DERIVED_SPLIT_CAVEATS",
            "CorporateActionsUnavailable", "REQUIRE_ACTIONS", "SPLIT_ACTIONS",
-           "TERMINAL_ACTIONS", "load_actions", "reconcile_split",
+           "TERMINAL_ACTIONS", "DIVIDEND_ACTIONS", "dividends_from_actions",
+           "unusable_dividend_rows", "load_actions", "reconcile_split",
            "sessions_index", "snap_to_session", "split_ratios_from_actions",
            "terminal_events_from_actions", "terminal_from_action",
            "RawPriceDomainUnavailable", "WealthCoreReplayRequest",

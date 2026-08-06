@@ -193,18 +193,69 @@ class TestCorporateActions:
         step(st, [db("S1", split=2.0, mark=50.0, signal=60.0)])
         assert st.episodes[0].episode_peak_split_adjusted_close == 120.0
 
-    def test_a_dividend_is_a_RECEIVABLE_then_cash_two_events(self):
-        """Spec §2: 'explicit receivable and cash ledger events'. Posting
-        straight to cash would let an unsettled dividend fund an admission on
-        the session it was declared."""
+    def test_a_dividend_is_a_RECEIVABLE_that_SURVIVES_its_ex_date(self):
+        """Spec §2: 'explicit receivable and cash ledger events'.
+
+        This test used to assert both events landed on the ex-date and cash rose
+        the same session — which made the receivable decorative. `decide()` runs
+        at step 7 against `state.cash`, so a dividend settled at step 2 funds an
+        admission on the session it was declared, the exact thing
+        `accrue_dividend`'s docstring says the receivable prevents.
+
+        The receivable must therefore OUTLIVE the session that created it.
+        """
         st = seated(cash=1_000.0, shares=10)
         led = Ledger()
-        step(st, [db("S1", div=0.50, mark=100.0, signal=100.0)], ledger=led)
+        step(st, [db("S1", div=0.50, mark=100.0, signal=100.0)], ledger=led,
+             session="d1")
+
+        assert [e.event_type for e in led.events] == [EventType.DIVIDEND_ACCRUED]
+        assert st.cash == 1_000.0, "cash must NOT move on the ex-date"
+        assert led.receivable_total() == 5.0
+        assert led.receivables[0]["accrued_session"] == "d1"
+
+        # ...and becomes cash on the next session, once.
+        step(st, [db("S1", session="d2", mark=100.0, signal=100.0)], ledger=led,
+             session="d2")
         kinds = [e.event_type for e in led.events]
-        assert EventType.DIVIDEND_ACCRUED in kinds and EventType.DIVIDEND_PAID in kinds
-        assert kinds.index(EventType.DIVIDEND_ACCRUED) < kinds.index(EventType.DIVIDEND_PAID)
+        assert kinds == [EventType.DIVIDEND_ACCRUED, EventType.DIVIDEND_PAID]
         assert st.cash == 1_000.0 + 5.0
-        assert led.receivables == {}
+        assert led.receivables == []
+
+        # ...and NOT again on the session after that.
+        step(st, [db("S1", session="d3", mark=100.0, signal=100.0)], ledger=led,
+             session="d3")
+        assert st.cash == 1_000.0 + 5.0
+        assert sum(1 for e in led.events
+                   if e.event_type is EventType.DIVIDEND_PAID) == 1
+
+    def test_a_ZERO_lag_reproduces_the_pre_lag_behaviour_exactly(self):
+        """The falsifier for the lag, and the bisection guarantee.
+
+        At lag 0 accrual and settlement land on the same session, which is what
+        the engine did before the lag existed. Without this, "0 reproduces the
+        old behaviour" is a claim in a comment rather than a tested property —
+        and it is the property that makes the golden hash movement attributable
+        to the lag rather than entangled with everything else.
+        """
+        st = seated(cash=1_000.0, shares=10)
+        led = Ledger()
+        cfg0 = WealthCoreConfig(dividend_settlement_lag_sessions=0)
+        step_session(session="d1", state=st,
+                     bars=[db("S1", div=0.50, mark=100.0, signal=100.0)],
+                     pending=[], ledger=led, last_known={}, cfg=cfg0,
+                     strategy_id=SID, strategy_version=VER,
+                     security_bars=tradeability_only_bars(
+                         [db("S1", div=0.50, mark=100.0, signal=100.0)], None))
+        assert [e.event_type for e in led.events] == [
+            EventType.DIVIDEND_ACCRUED, EventType.DIVIDEND_PAID]
+        assert st.cash == 1_000.0 + 5.0
+        assert led.receivables == []
+
+    def test_a_negative_lag_is_refused(self):
+        """It would pay a dividend before its ex-date."""
+        with pytest.raises(ValueError, match="must be >= 0"):
+            WealthCoreConfig(dividend_settlement_lag_sessions=-1)
 
 
 # ── pending orders ──────────────────────────────────────────────────────────

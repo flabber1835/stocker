@@ -125,6 +125,13 @@ class TestTheDomainMapping:
         Checked over the module's CODE with comments and docstrings stripped —
         the prose above explains exactly why closeadj is dangerous, and a naive
         string search would match that explanation and fail.
+
+        ORDINARY STRING CONSTANTS ARE NOT STRIPPED, and deliberately: the SQL
+        queries are string constants, so a query that selected the total-return
+        column has to be caught here. The cost is that no other string in the
+        module may name it either — which is why the dividend caveat describes
+        the column instead of naming it. That is the right way round: a caveat
+        losing a column name is cheap, a SQL guard losing its teeth is not.
         """
         tree = ast.parse(MODULE.read_text())
         for node in ast.walk(tree):
@@ -189,8 +196,9 @@ def test_the_unmodelled_parts_travel_with_the_result():
     from app.wealth_core_replay import ACTIONS_CAVEATS, DERIVED_SPLIT_CAVEATS
 
     always = " ".join(CAVEATS).lower()
-    assert "dividend" in always and "ticker" in always, (
-        "these hold on BOTH paths, so they belong in the unconditional set")
+    assert "ticker" in always, (
+        "ticker identity holds on BOTH paths, so it belongs in the "
+        "unconditional set")
 
     for source in (DERIVED_SPLIT_CAVEATS, ACTIONS_CAVEATS):
         joined = " ".join(CAVEATS + source).lower()

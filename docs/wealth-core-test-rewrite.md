@@ -146,7 +146,7 @@ the signal tests (57 passed) and the golden pin (passed) are both blind to it.
 3. ~~cross-engine parity~~ — **done**, 45 passed, all seven hashes agree
 4. ~~profile-discrimination fixture~~ — **done**, 29 tests, artefact untouched
 5. ~~integrate authoritative ACTIONS~~ — **done**, ingest + replay wiring
-6. apply dividends (rows already ingested; replay-side wiring only)
+6. ~~apply dividends~~ — **done**, with a settlement lag; golden pin left RED on purpose
 7. permanent security / issuer identifiers in place of the ticker
 8. revise and re-pin the certified artefact **once** for those data semantics
 9. exact Sharadar control comparison
@@ -156,6 +156,12 @@ the signal tests (57 passed) and the golden pin (passed) are both blind to it.
 12. verify the SEP backfill directly on the NAS
 
 No-go stands until 9 completes. Live activation additionally blocked on 10.
+
+**The golden pin is deliberately RED at this commit.** Dividends moved the
+strategy's output and permanent identifiers will move it again, so the two are
+held for ONE controlled re-pin (item 8) rather than two — which is what keeps a
+re-pin explainable. Everything else is green: 397 wealth_core, 45 parity, 140
+backtester, 151 bt_data, 781 shared.
 
 **ACTIONS is ingested but not yet BACKFILLED.** The code path is inert until
 `POST /jobs/backfill-actions` has run on bt-data: `bt_actions` empty means the

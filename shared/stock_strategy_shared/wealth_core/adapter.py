@@ -167,8 +167,24 @@ def apply_splits(state: PortfolioState, bars: Sequence[DailyBar], ledger: Ledger
 
 
 def apply_dividends(state: PortfolioState, bars: Sequence[DailyBar],
-                    ledger: Ledger, session: str) -> None:
-    """Step 2. Accrue as receivables, then settle. Two events, never one."""
+                    ledger: Ledger, session: str,
+                    cfg: WealthCoreConfig | None = None) -> None:
+    """Step 2. Accrue as receivables, then settle only what has come DUE.
+
+    ORDER MATTERS AND IS FIXED: accrue today's, then settle+age. At a lag of 0
+    that pays today's dividend today, which is exactly the pre-lag behaviour and
+    is what makes `dividend_settlement_lag_sessions=0` an exact reproduction
+    rather than an approximate one. At any lag > 0 today's accrual is not in the
+    due set, so it survives the session — and `decide()`, which runs at step 7
+    against `state.cash`, cannot spend it.
+
+    ENTITLEMENT IS BY OWNERSHIP ON THE EX-DATE, and it is read here — before
+    step 4 fills this session's orders. A position bought at THIS session's open
+    is not entitled to a dividend whose ex-date is this session, and a position
+    sold at this open still is. Reading the share count after the fills would
+    get both backwards.
+    """
+    lag = cfg.dividend_settlement_lag_sessions if cfg is not None else 0
     for b in sorted(bars, key=lambda x: x.security_id):
         if b.dividend_per_share <= 0:
             continue
@@ -177,8 +193,8 @@ def apply_dividends(state: PortfolioState, bars: Sequence[DailyBar],
                 ledger.accrue_dividend(session=session, security_id=b.security_id,
                                        ticker=ep.ticker, shares=ep.current_shares,
                                        per_share=b.dividend_per_share,
-                                       cash=state.cash)
-    state.cash, _ = ledger.settle_receivables(session=session, cash=state.cash)
+                                       cash=state.cash, due_in=lag)
+    state.cash, _ = ledger.settle_due(session=session, cash=state.cash)
 
 
 def write_off(state: PortfolioState, *, security_id: str, ledger: Ledger,
@@ -255,7 +271,7 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     by_sec = {b.security_id: b for b in bars}
 
     apply_splits(state, bars, ledger, session)
-    apply_dividends(state, bars, ledger, session)
+    apply_dividends(state, bars, ledger, session, cfg)
 
     # ── 3. terminal actions, HERE and not before ─────────────────────────────
     # They used to be applied by the caller BEFORE this function ran, i.e. before

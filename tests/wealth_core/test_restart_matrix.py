@@ -107,7 +107,13 @@ CUTS = {
     "entry_opening_gap_reduced_quantity": 177,   # the gap bites at S176
     "pending_exit": HALTED_UNTRADEABLE.start + 2,
     "unresolved_terminal_event": STRANDED_ANNOUNCED + 3,
-    "dividend_receivable": DIVIDEND_SESSION,
+    # DIVIDEND_SESSION + 1, not DIVIDEND_SESSION. `sessions[:cut]` is exclusive,
+    # so cutting AT the ex-date puts the accrual in the TAIL and nothing is in
+    # flight across the boundary — the cut was named for a condition it did not
+    # land on. +1 puts the accrual in the head and the settlement in the tail,
+    # which is the only arrangement that tests a restart between entitlement and
+    # payment. Asserted below rather than assumed.
+    "dividend_receivable": DIVIDEND_SESSION + 1,
     "conversion_delivered_shares": CONVERSION_SESSION + 1,
     "cooldown_boundary": 150,
     "missing_mark": GHOST_MISSING_SESSION,
@@ -186,6 +192,19 @@ class TestTheCutsReallyLandOnTheConditions:
     def test_a_conversion_has_delivered_shares(self, g):
         r, _ = self.state_at(g, CUTS["conversion_delivered_shares"])
         assert any(t.get("converted") for t in r.terminal_results)
+
+    def test_a_dividend_is_ACCRUED_BUT_UNPAID_at_the_dividend_cut(self, g):
+        """The condition that cut is named for. A dividend accrues on its
+        ex-date and settles `dividend_settlement_lag_sessions` later, so there
+        is a window in which the book is owed money it does not hold — and this
+        asserts the cut lands INSIDE it. At the old index the accrual fell in
+        the tail and nothing crossed the boundary at all."""
+        r, _ = self.state_at(g, CUTS["dividend_receivable"])
+        assert r.ledger.receivable_total() > 0, (
+            "no receivable is outstanding at this cut, so the restart test for "
+            "it is not testing a restart between entitlement and payment")
+        assert not any(e.event_type.value == "DIVIDEND_PAID"
+                       for e in r.ledger.events), "already settled"
 
 
 class TestTheRestartMachineryCanActuallyFail:

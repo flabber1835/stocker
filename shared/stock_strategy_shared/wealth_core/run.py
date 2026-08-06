@@ -103,6 +103,15 @@ class RunResult:
                 self.unfilled_at_end,
                 key=lambda o: (o["security_id"], o["operation"])),
             "blocked_sessions": list(self.blocked_sessions),
+            # Money the book is OWED but has not received. Reported as its own
+            # number rather than folded into cash or equity, for the same reason
+            # the final report keeps marked / liquidated / forced apart: an
+            # accrued dividend that has not settled by the last session is real
+            # and is NOT spendable, and a single total cannot say both. Omitting
+            # it entirely would understate the run by however much was in flight
+            # when it stopped.
+            "outstanding_receivables": _round(
+                self.ledger.receivable_total() if self.ledger else 0.0),
             "terminal_results": sorted(
                 self.terminal_results,
                 key=lambda r: (r.get("session") or "",

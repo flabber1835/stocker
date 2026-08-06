@@ -394,9 +394,87 @@ consideration.
 
 ### What this does not yet cover
 
-Dividends and permanent security identity are sequenced separately. The ingest
-stores **every** action type including `dividend` and `ticker_change`, so both
-are wiring changes on the replay side rather than another ingest.
+Permanent security identity is sequenced separately. The ingest stores **every**
+action type including `ticker_change`, so it is a wiring change on the replay
+side rather than another ingest.
+
+## Dividends: earned on one session, received on another
+
+The only cash event in Wealth Core with a gap between entitlement and payment.
+Everything else — a buy, a sell, a cash merger — moves shares and cash in the
+same instant. That gap is where the failure modes live, and all of them produce
+a complete, plausible run.
+
+### The receivable used to be decorative
+
+`accrue_dividend`'s docstring said a receivable exists so an unsettled dividend
+cannot "fund an admission on the same session it was declared". It could.
+`apply_dividends` accrued into `receivables` and settled it out again **inside
+one call**, at step 2 — and `decide()` runs at step 7 against `state.cash`. So
+the dividend was spendable on its own ex-date. Two ledger events, zero delay.
+
+Each receivable now carries `due_in`, a countdown of further sessions before it
+becomes cash. The **list** shape matters: two dividends from the same security
+can be outstanding at once with different due dates, and the old
+`{security_id: amount}` dict would have merged them into one payment on one
+date.
+
+### The lag is an adopted convention, because the pay date is unobservable
+
+SHARADAR/ACTIONS carries `date / action / ticker / name / value / contraticker /
+contraname` and nothing else. The **payment** date is genuinely unavailable, not
+merely unmapped, so `dividend_settlement_lag_sessions` is a named convention in
+the config hash rather than a per-dividend fact.
+
+The default is **1**, and the rationale is deliberately narrow: it is the
+smallest lag that enforces what the receivable is *for*. Anything larger would
+be modelling a payment calendar we cannot observe — a real US ex-to-pay gap is
+nearer 10–20 sessions, and a deployment wanting that must ask by name. **0
+reproduces the pre-lag behaviour exactly**, which is what makes the golden hash
+movement attributable to this change rather than entangled with everything else.
+
+### Entitlement is read before this session's fills
+
+Dividends are step 2; pending orders fill at step 4. A position bought at this
+session's open did not own the shares when the security went ex; a position sold
+at this open did. Reading the share count after the fills gets both backwards,
+and the resulting payment is internally consistent — so nothing catches it.
+
+### The amount is fixed in dollars on the ex-date
+
+Which is what makes a later split irrelevant to an outstanding receivable.
+Recomputing at settlement from the then-current share count would **double** the
+payment across a 2:1 — a bug that looks like a dividend and reconciles
+perfectly.
+
+### A receivable is paid whether or not the position survives
+
+It is a claim on cash, not on the holding. A dividend earned before a delisting
+or a cash merger is still owed, and cancelling it because the position has left
+would lose real money with no event saying where it went.
+
+### `ledger_hash` now covers receivables, not just events
+
+It hashed the event log alone, which left money the book is owed outside every
+hash. The consequence was concrete: a restart that dropped an unsettled
+receivable produced an **identical** ledger hash at the boundary and diverged
+only later, when the payment silently failed to appear. A hash that cannot see a
+difference until its downstream consequence shows up is worth much less than one
+that sees it at once — the same argument as the seven ordered parity hashes.
+
+`RunResult` also reports `outstanding_receivables` as its own number. A run that
+stops between ex and pay is owed money, and reporting cash alone understates it
+silently: an accrual has no cash delta, so the ledger reconciles perfectly
+either way.
+
+### Not derived from the total-return series, ever
+
+The book is marked on dividend-**unadjusted** prices, which is why an explicit
+ledger event is needed at all. Deriving the distribution from the vendor's
+total-return close would count it twice — once inside the price and once in the
+ledger. `DailyBar.from_mapping` refuses the ambiguous field names outright, and
+a test asserts the replay module never names that column even in a string, since
+its SQL queries are string constants too.
 
 ## Known reproduction differences and unsupported cases
 
@@ -404,7 +482,8 @@ are wiring changes on the replay side rather than another ingest.
 |---|---|
 | leadership boundary tie order | adopted convention, not transcribed |
 | issuer conflict winner | adopted convention, not transcribed |
-| dividends in the backtester | **ingested, not applied** — ACTIONS `dividend` rows land in `bt_actions`; the replay posts no receivable yet |
+| dividends in the backtester | **applied** from ACTIONS on the ex-date as a receivable, settling after `dividend_settlement_lag_sessions` |
+| dividend PAYMENT dates | **unobservable** — ACTIONS carries no pay date, so the lag is an adopted convention in the config hash |
 | splits in the backtester | **authoritative** from SHARADAR/ACTIONS, reconciled against the derived ratio; **derived** only when `bt_actions` is empty |
 | terminal actions in the backtester | **modelled** from ACTIONS — cash merger, conversion and write-off, with terms-less events BLOCKING |
 | mixed consideration in the backtester | **unsupported** — one `value` column per ACTIONS row, so a cash-plus-stock deal is modelled as the leg the vendor stated |
