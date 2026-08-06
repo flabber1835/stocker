@@ -4880,3 +4880,54 @@ one reason: the shadow write is wrapped in a tolerant `try`, so a mistyped colum
 would surface only as `intent reconciliation skipped (…)` in a log and the tables
 would stay empty while the feature looked deployed. The integration tier runs
 those exact statements against a real migrated schema.
+
+### The cutover gate, and what is deliberately not yet done
+
+Three things separate the shadow from an executable path, recorded so the cutover
+is a decision rather than a drift.
+
+**The gate is a manufactured conflict, not a market event.** "Watch it resolve a
+real conflict" taken literally means waiting for the crash brake to engage — a
+market event, on a live book, with the untested path in it. That is an exposure,
+not a test plan. `tests/integration/test_intent_cutover_rehearsal.py` manufactures
+four conflicts instead, one per composition branch, each with a DIFFERENT winner
+so no single wrong rule passes all four:
+
+```text
+exit    + risk_reduce   -> exit           sell dominates; exit subsumes partials
+hold    + risk_reduce   -> risk_reduce    neutral cannot veto an executable
+buy_add + risk_reduce   -> risk_reduce    sell beats buy
+entry   + risk_restore  -> lowest weight  same-direction min composition
+```
+
+and requires all six: every proposal persisted including losers; exactly one net
+intent per key; correct action AND rule; complete provenance; the divergence
+report surfacing every conflict; and a re-run unable to create a second net
+intent for the same key. That last one is asserted against the DATABASE, not the
+rule — the rule is pure and deterministic, so a duplicate can only arrive by
+writing twice, and only the index can answer it. The mirror case is asserted too:
+a retry of the PROPOSALS must be accepted and additive, because a second attempt
+is a second thing that happened.
+
+**Account-aware schema, single-account implementation.** The invariant is on
+`(run_id, account_id, ticker)` and the rule keys on the pair, but nothing supplies
+an account id, so the dimension is UNEXERCISED — which is where the first
+multi-account run will find its bugs. `compare_to_rows` therefore takes the
+account keyword-only and COUNTS nets from other accounts instead of dropping
+them; keyed on ticker alone, one book's intent would answer for another's and the
+report would read as agreement. The delta step passes `DEFAULT_ACCOUNT_ID`
+explicitly so that call site is what fails review when a second account appears.
+
+**Append-only is a convention, not a privilege.** Nothing prevents an UPDATE or
+DELETE against `intent_proposals`. That is acceptable for a shadow-observation
+table and not acceptable for a permanent audit ledger; before it is treated as
+one it needs table-level immutability or restricted grants. Otherwise
+"append-only" describes an intention rather than a property.
+
+Deployment order follows from the same reasoning. Migration 0052 is additive and
+old code never reads the new tables, so it is applied while the OLD pipeline is
+still serving. The intuitive order — build, recreate, migrate — leaves a window
+where the new pipeline runs without the tables and every delta logs `intent
+reconciliation skipped`: the shadow looking deployed while recording nothing,
+which is the precise failure the tolerant `except` was designed to survive and
+therefore cannot report loudly.

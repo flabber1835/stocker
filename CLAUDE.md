@@ -498,10 +498,37 @@ integration tier can run the exact statements against a real schema — inline, 
 mistyped column would only ever appear as a skipped-shadow log line. See
 docs/architecture.md "one net intent per ticker" and defense-plan §3.8.
 
-DEPLOY: `intent_reconciliation.py` is a NEW shared module file ⇒
-`docker build --network host -t stocker-base:latest -f Dockerfile.base .` FIRST
-(the editable install caches the module list), then the pipeline, then
-`alembic upgrade head` for migration 0052 via db-migrator.
+**ACCOUNT SCOPE: account-aware SCHEMA, single-account IMPLEMENTATION.** The
+invariant and every function key on `(run_id, account_id, ticker)`, but the
+deploy runs one broker account and nothing supplies an id, so every proposal
+carries `DEFAULT_ACCOUNT_ID` (passed explicitly at the delta-step call site, not
+left to a dataclass default, so that line is what fails review the day a second
+account exists). `compare_to_rows` takes `account_id` keyword-only and counts
+nets belonging to OTHER accounts rather than dropping them — indexed by ticker
+alone, one account's intent would answer for another's and the report would read
+as agreement. Before multi-account support, or any executor cutover with
+account-specific reads, proposal construction must pass a real account id.
+
+**`intent_proposals` is append-only by APPLICATION CONVENTION, not by database
+privilege.** Nothing today prevents an UPDATE or DELETE against it. Acceptable
+while it is a shadow-observation table; before it is treated as a permanent audit
+ledger it needs table-level immutability or restricted grants, or the word
+"append-only" is a description of intent rather than a property.
+
+DEPLOY — order matters, and it is NOT base→pipeline→migrate. Migration 0052 is
+ADDITIVE and old code never reads the new tables, so migrate while the OLD
+pipeline is still running. The reverse order leaves a window where the NEW
+pipeline runs without the tables and every delta silently logs `intent
+reconciliation skipped` — the shadow appearing deployed while recording nothing.
+
+```text
+1  docker build --network host -t stocker-base:latest -f Dockerfile.base .
+2  build (do NOT recreate) the pipeline, bt-engine and db-migrator images
+3  alembic upgrade head   ← old pipeline still serving
+4  recreate pipeline and bt-engine
+5  scripts/deploy-all.sh --verify
+6  confirm a normal delta run populated BOTH new tables
+```
 
 Two initial strategy styles:
 

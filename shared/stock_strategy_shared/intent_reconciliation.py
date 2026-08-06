@@ -49,6 +49,18 @@ saying "nothing to do from where I sit", not a veto over a control that has
 something to do. Reading it as a veto would let the engine's silence disarm the
 brake.
 
+ACCOUNT SCOPE — read this before adding a second broker account. The schema and
+this module are ACCOUNT-AWARE: the unique invariant is on
+`(run_id, account_id, ticker)` and every function keys on the pair. The
+IMPLEMENTATION is SINGLE-ACCOUNT: the deploy runs one broker account, nothing
+supplies an account id, and every proposal therefore carries
+`DEFAULT_ACCOUNT_ID`. That is a correct description of today, not a stub —
+but it means the account dimension is UNEXERCISED, and unexercised dimensions
+are where the first multi-account run finds its bugs. Before multi-account
+support, or before any executor cutover that introduces account-specific reads,
+proposal construction in the delta step must pass a real account id and every
+caller of `compare_to_rows` must pass the account it is comparing.
+
 Pure: no DB, no env, no clock. Live, the wind tunnel and the backtester import
 THIS, so a divergence between them is a code difference rather than two rules
 that drifted.
@@ -57,6 +69,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Iterable, Optional, Sequence
+
+#: The one broker account this deploy runs. See "ACCOUNT SCOPE" above: the
+#: schema and this module are account-aware, the implementation is not yet.
+DEFAULT_ACCOUNT_ID = "default"
 
 # ── the action vocabulary, partitioned by economic direction ─────────────────
 SELL_SIDE: frozenset[str] = frozenset({"exit", "risk_reduce", "sell_trim"})
@@ -98,7 +114,7 @@ class Proposal:
     actual_weight: Optional[float] = None
     weight_drift: Optional[float] = None
     reason: str = ""
-    account_id: str = "default"
+    account_id: str = DEFAULT_ACCOUNT_ID
 
 
 @dataclass(frozen=True)
@@ -233,6 +249,8 @@ def provenance_json(net: NetIntent) -> dict:
 def compare_to_rows(
     rows: Iterable[tuple[str, str]],
     nets: Sequence[NetIntent],
+    *,
+    account_id: str = DEFAULT_ACCOUNT_ID,
 ) -> dict:
     """Shadow-comparison report: legacy `delta_intents` rows vs reconciled nets.
 
@@ -242,16 +260,25 @@ def compare_to_rows(
 
     `conflicts` is the population this defect is about: tickers the legacy table
     carries more than once, with no rule deciding which one executes.
+
+    KEYED ON (account_id, ticker), NOT ticker. `delta_intents` has no account
+    column, so every legacy row belongs to ONE account and the caller names it —
+    but the nets do not, and indexing them by ticker alone would let one
+    account's intent overwrite another's the first time a second account exists.
+    The comparator would then silently report agreement between rows and a net
+    intent belonging to a different book. Nets for other accounts are counted
+    rather than dropped, so the mismatch is visible instead of invisible.
     """
     legacy: dict[str, list[str]] = {}
     for ticker, action in rows:
         legacy.setdefault(ticker, []).append(action)
 
-    net_by_ticker = {n.ticker: n for n in nets}
+    net_by_key = {(n.account_id, n.ticker): n for n in nets}
+    other_accounts = sorted({n.account_id for n in nets if n.account_id != account_id})
     conflicts, changed, missing = [], [], []
 
     for ticker, actions in sorted(legacy.items()):
-        net = net_by_ticker.get(ticker)
+        net = net_by_key.get((account_id, ticker))
         if net is None:
             missing.append(ticker)
             continue
@@ -271,11 +298,19 @@ def compare_to_rows(
             })
 
     return {
+        "account_id": account_id,
         "legacy_rows": sum(len(a) for a in legacy.values()),
         "legacy_tickers": len(legacy),
         "net_intents": len(nets),
+        # Nets belonging to a book the legacy rows cannot describe. Zero today
+        # (single-account deploy); non-zero means the comparison is only partial
+        # and must not be read as agreement.
+        "net_intents_other_accounts": sum(
+            1 for n in nets if n.account_id != account_id),
+        "other_accounts": other_accounts,
         "conflicts": conflicts,
         "changed": changed,
         "missing_from_net": missing,
-        "agrees": not conflicts and not changed and not missing,
+        "agrees": (not conflicts and not changed and not missing
+                   and not other_accounts),
     }

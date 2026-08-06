@@ -2965,7 +2965,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
         reconciliation_note = None
         try:
             from stock_strategy_shared.intent_reconciliation import (
-                Proposal, compare_to_rows, reconcile)
+                DEFAULT_ACCOUNT_ID, Proposal, compare_to_rows, reconcile)
             from app.intent_writes import write_net_intents, write_proposals
 
             proposals = [
@@ -2981,6 +2981,12 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                     actual_weight=d.actual_weight,
                     weight_drift=d.weight_drift,
                     reason=_enrich_drop_cause(d),
+                    # SINGLE-ACCOUNT deploy. Stated at the call site rather than
+                    # left to the dataclass default, so the day a second broker
+                    # account exists this line is what fails review — the schema
+                    # and the rule are already account-aware, this is the only
+                    # place that is not.
+                    account_id=DEFAULT_ACCOUNT_ID,
                 )
                 for i, (d, src) in enumerate(zip(actionable, proposal_sources))
             ]
@@ -2997,8 +3003,11 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 await write_proposals(conn, run_id, proposals)
                 await write_net_intents(conn, run_id, nets)
 
+            # `delta_intents` has no account column, so the legacy rows being
+            # compared are this one account's by construction. Passed explicitly.
             reconciliation_note = compare_to_rows(
-                [(d.ticker, d.action) for d in actionable], nets)
+                [(d.ticker, d.action) for d in actionable], nets,
+                account_id=DEFAULT_ACCOUNT_ID)
             if reconciliation_note["conflicts"]:
                 # Loud: this is the defect firing, and the whole reason the
                 # table exists. Silent reconciliation would leave the operator

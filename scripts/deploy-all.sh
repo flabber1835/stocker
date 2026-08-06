@@ -242,12 +242,20 @@ for name in ("transition_record", "transition_hash"):
 # 89cfa05 — the stop that never existed was DELETED. Its presence means the
 # image predates the deletion (extra="forbid" would then accept a config
 # promising a tighter stop during a crash that nothing implements).
+#
+# An unreadable schema is a FAILURE, not a pass. The first version swallowed the
+# import error and could print "current" having verified nothing — the same
+# fail-open shape as the defect this whole probe exists to catch, reintroduced
+# in the catcher. BOTH deleted fields are checked: a mixed or partially-stale
+# install retaining only the second one would otherwise pass.
 try:
     from stock_strategy_shared.schemas.strategy import CrashBrakeConfig
-    if "stressed_stop_pct" in getattr(CrashBrakeConfig, "model_fields", {}):
-        problems.append("crash_brake.stressed_stop_pct STILL PRESENT (pre-89cfa05)")
-except Exception:                                          # noqa: BLE001
-    pass   # schema not importable here is not a provenance signal
+except Exception as exc:                                   # noqa: BLE001
+    problems.append(f"cannot import CrashBrakeConfig: {exc}")
+else:
+    for field in ("stressed_stop_pct", "stressed_stop_sma_sessions"):
+        if field in getattr(CrashBrakeConfig, "model_fields", {}):
+            problems.append(f"crash_brake.{field} STILL PRESENT (pre-89cfa05)")
 
 print("OK" if not problems else "FAIL " + "; ".join(problems))
 PY

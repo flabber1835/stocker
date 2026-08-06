@@ -251,6 +251,37 @@ def test_compare_reports_the_conflict_it_resolved():
     assert report["conflicts"][0]["net_action"] == "exit"
 
 
+def test_compare_keys_on_account_not_ticker_alone():
+    """A ticker-keyed net lookup lets one account's intent answer for another's.
+
+    Legacy rows belong to ONE account (`delta_intents` has no account column), so
+    the comparator must be told which. Indexed by ticker alone, the second
+    account's net would overwrite the first in the lookup and the report would
+    claim agreement between rows and an instruction from a different book.
+    """
+    nets = reconcile([
+        Proposal("AMD", "exit", "delta_engine", 0, account_id="paper"),
+        Proposal("AMD", "entry", "delta_engine", 1, target_weight=0.04,
+                 account_id="live"),
+    ])
+    report = compare_to_rows([("AMD", "exit")], nets, account_id="paper")
+
+    assert report["account_id"] == "paper"
+    assert report["changed"] == [] and report["missing_from_net"] == []
+    # The live account's net is COUNTED, not silently dropped — the comparison
+    # covers only one book and must not read as full agreement.
+    assert report["net_intents_other_accounts"] == 1
+    assert report["other_accounts"] == ["live"]
+    assert not report["agrees"]
+
+
+def test_compare_against_the_wrong_account_reports_missing_not_agreement():
+    nets = reconcile([Proposal("AMD", "exit", "delta_engine", 0, account_id="live")])
+    report = compare_to_rows([("AMD", "exit")], nets, account_id="paper")
+    assert report["missing_from_net"] == ["AMD"]
+    assert not report["agrees"]
+
+
 def test_compare_agrees_when_no_control_overlaps():
     """The ordinary day: the brake is disengaged, one proposal per ticker, and
     the reconciliation changes nothing. If this ever fails the shadow is

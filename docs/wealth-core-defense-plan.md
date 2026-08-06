@@ -37,6 +37,15 @@ overlay sits on top of it.
 > When the read does switch, the delta step's `except` around the shadow write
 > MUST become fatal: a missing net intent would by then be a missing trade.
 >
+> **Cutover gate (not a market event).** Waiting for a real crash to observe a
+> conflict means testing the untested path on a live book.
+> `tests/integration/test_intent_cutover_rehearsal.py` manufactures four
+> conflicts — one per composition branch, each with a different winner — and
+> requires all six conditions including that a re-run cannot produce a second net
+> intent for a key. Still owed before cutover: `account_id` is schema-ready but
+> behaviourally unwired (single-account deploy), and `intent_proposals` is
+> append-only by convention rather than by database privilege.
+>
 > **Next actions, in order:** (1) observe the shadow — confirm `net_intents` is
 > populated on live runs and `intent_reconciliation.agrees` is true on brake-off
 > days, then switch the executor read; (2) the DTB3 ingest per §3.10, whose
