@@ -190,6 +190,83 @@ else
 fi
 
 echo
+
+# ── image provenance ─────────────────────────────────────────────────────────
+# A healthy container is not a CURRENT container. `docker compose up -d` will
+# happily restart a service on a stale image, and every check above — health,
+# gates, corpus version — passes identically on an image built before the
+# crash-brake fixes. The failure that motivates this: a restart on an old base
+# leaves the FAIL-OPEN restore side live, so one session of thin breadth
+# re-risks the whole book on data it just declared unreadable, while `--verify`
+# prints "deploy verified".
+#
+# The probe reads the SOURCE THAT IS ACTUALLY IMPORTABLE INSIDE THE CONTAINER,
+# not a build-time SHA label. A label records what the builder INTENDED; a
+# cached layer or a stale base can leave the label right and the code old, which
+# is precisely the failure being guarded against. Markers are behavioural and
+# each names the commit that introduced it.
+echo "image provenance (post-889406a crash-brake fixes):"
+
+probe_provenance() {   # probe_provenance <label> <svc> [compose args...]
+    local label="$1" svc="$2"; shift 2
+    local out
+    out="$(docker compose "$@" exec -T "$svc" python - <<'PY' 2>/dev/null
+import inspect, sys
+problems = []
+try:
+    from stock_strategy_shared import crash_brake as cb
+except Exception as exc:                                   # noqa: BLE001
+    print(f"FAIL cannot import crash_brake: {exc}"); sys.exit(0)
+
+# 889406a — the third state. Without it `engaged=False` answers both
+# "no crash" and "no evidence", which is the fail-open restore.
+if "evaluable" not in getattr(cb.CrashState, "__dataclass_fields__", {}):
+    problems.append("CrashState.evaluable MISSING (pre-889406a)")
+
+# 889406a — `prior` keyword-only with NO default, so no call site can keep the
+# old behaviour by staying silent.
+try:
+    p = inspect.signature(cb.target_exposure).parameters["prior"]
+    if p.kind is not inspect.Parameter.KEYWORD_ONLY:
+        problems.append("target_exposure(prior=) is not keyword-only")
+    if p.default is not inspect.Parameter.empty:
+        problems.append("target_exposure(prior=) HAS A DEFAULT (pre-889406a)")
+except KeyError:
+    problems.append("target_exposure has no `prior` parameter (pre-889406a)")
+
+# f7104c1 — parity compares a transition RECORD, not a call site.
+for name in ("transition_record", "transition_hash"):
+    if not hasattr(cb, name):
+        problems.append(f"crash_brake.{name} MISSING (pre-f7104c1)")
+
+# 89cfa05 — the stop that never existed was DELETED. Its presence means the
+# image predates the deletion (extra="forbid" would then accept a config
+# promising a tighter stop during a crash that nothing implements).
+try:
+    from stock_strategy_shared.schemas.strategy import CrashBrakeConfig
+    if "stressed_stop_pct" in getattr(CrashBrakeConfig, "model_fields", {}):
+        problems.append("crash_brake.stressed_stop_pct STILL PRESENT (pre-89cfa05)")
+except Exception:                                          # noqa: BLE001
+    pass   # schema not importable here is not a provenance signal
+
+print("OK" if not problems else "FAIL " + "; ".join(problems))
+PY
+)"
+    if [ "$out" = "OK" ]; then
+        printf '  %-22s current\n' "$label"
+    elif [ -z "$out" ]; then
+        printf '  %-22s UNVERIFIABLE (no python / service down)\n' "$label"
+        rc=1
+    else
+        printf '  %-22s STALE IMAGE — %s\n' "$label" "${out#FAIL }"
+        rc=1
+    fi
+}
+
+probe_provenance pipeline  pipeline
+probe_provenance bt-engine bt-engine -p stocker-bt -f docker-compose.backtest.yml
+
+echo
 if [ "$rc" -eq 0 ]; then
     hr "deploy verified"
 else
