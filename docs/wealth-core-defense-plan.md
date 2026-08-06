@@ -35,43 +35,57 @@ Everything else in this design follows from keeping that reference honest.
 
 ## 2. Blockers, in the order they can kill the project
 
-### Blocker 1 — the defensive asset may have no price domain
-
-**This is the one that can invalidate the design as specified.**
+### Blocker 1 — RESOLVED: the sleeve is a rate accrual, not an ETF
 
 Wealth Core marks the book and fills orders in the AS-TRADED domain
-(`bt_prices.close_unadjusted`). That is structural, not a preference:
-`assert_raw_price_domain` refuses to run at all below the coverage floor, because
-SEP.close is split-adjusted and substituting it would value every post-split
-holding at the wrong level without failing.
+(`bt_prices.close_unadjusted`). That is structural: `assert_raw_price_domain`
+refuses to run below the coverage floor, because SEP.close is split-adjusted and
+substituting it would value every post-split holding at the wrong level without
+failing.
 
-Measured on the NAS on 2026-08-06, the exact scan returned 43 tickers with
-**zero** as-traded close, and they are systematically non-common-stock: ETFs
-(SPY, QQQ, IWM, SOXX — 5,681 rows each, 0 covered), warrants (`.WS`), units
-(`.U`), preferred series (OCCIM/N/O/P), SPACs, an ADR.
+Two measurements settled this on 2026-08-06. The exact scan found 43 tickers with
+**zero** as-traded close, systematically non-common-stock — SPY, QQQ, IWM, SOXX
+at 5,681 rows and 0 covered, plus warrants, units, preferred series, SPACs, an
+ADR. And a direct probe for the candidate sleeve instruments returned **0 rows**:
 
-SHY and BIL are ETFs. Everything about that pattern says they will be uncovered
-too. **This must be confirmed before any implementation begins**, because it
-decides the shape of the sleeve rather than a detail of it.
+```text
+SELECT ... FROM bt_prices WHERE ticker IN ('SHY','BIL','IEF','GOVT','SGOV')
+=> (0 rows)
+```
 
-Options if uncovered:
+Not "present but uncovered" — **absent from the corpus entirely.** An ETF-priced
+sleeve would require a new ingest before a single line of controller code could
+be tested.
 
-| | approach | verdict |
-|---|---|---|
-| a | model the sleeve as a **cash-equivalent accrual** from a short-rate series — no ETF prices at all | **recommended** |
-| b | ingest SHY/BIL from another vendor or another domain | new data source, new vintage-consistency problem of exactly the kind the raw-close work just closed |
-| c | price the sleeve on `adjusted_close` while the equity book uses `close_unadjusted` | **refuse** — two price domains inside one book is the precise defect class this corpus work exists to prevent |
+**DECIDED: a deterministic short-Treasury rate sleeve.** It avoids mixed price
+domains, ETF inception gaps, dividend and corporate-action treatment, and any
+dependence on ETF coverage — and it better represents the economic intent, which
+is temporary low-duration risk-free exposure rather than a tactical ETF trade.
+Named `treasury_accrual_sleeve` in config and code, deliberately **not** "BIL" or
+"SHY", so nobody later assumes ETF-price behaviour.
 
-(a) is also the better answer even if SHY/BIL *are* covered. The corpus starts
-2003-01 and `bt_actions` now reaches back to 1998; BIL did not exist until 2007
-and SHY until 2002, so any ETF-priced sleeve needs a pre-inception fallback
-regardless. A rate accrual needs no fallback, has no corporate actions, no
-split/dividend vintage question, and no liquidity assumption. The cost is that it
-models the sleeve's *return* rather than its *tradability* — acceptable for an
-instrument whose entire purpose is to be boring, and it should be recorded as a
-caveat rather than hidden.
+Pricing the sleeve on `adjusted_close` while the equity book uses
+`close_unadjusted` is **refused**: two price domains inside one book is the
+precise defect class this corpus work exists to prevent.
 
-### Blocker 2 — there is no scoring path today
+The rate series must be point-in-time and fully specified before implementation.
+Seven items, none of which may be left to the implementation to decide:
+
+```text
+1  which rate            1-3 month Treasury / T-bill total-return proxy
+2  accrual convention    daily, and the day-count basis
+3  publication lag       what was KNOWABLE on the session, not what was revised
+4  weekends + holidays   accrual across non-sessions
+5  missing values        carry-forward vs refuse; and the refusal path
+6  transition days       does cash earn accrual BEFORE or AFTER execution
+7  revisions             no hindsight-filled values, ever
+```
+
+Item 3 and item 7 are the ones that silently destroy a backtest: a rate series
+fetched today carries revisions that were not knowable then, and a sleeve earning
+a revised rate is a small, permanent, invisible look-ahead.
+
+### Blocker 2 — no scoring path today; it blocks CLAIMS, not the module
 
 The wind tunnel currently **refuses every config in the repo**. The
 definition-coverage gate fails because `quality_use_gross_profitability` is set
@@ -80,11 +94,27 @@ everywhere while the corpus was never backfilled with SF1's `gp`/`assets`, and
 the intended state — the alternative is promoting on evidence known to be wrong.
 
 Consequence: whatever produced 21.14% / −31.61% / 217.8×, it was **not this
-tunnel**, and this system cannot currently reproduce or refute it. Building the
-overlay before restoring the scoring path means building something we cannot
-evaluate, which is how a research result becomes a deployed assumption.
+tunnel**. That is a research result, not evidence that this repository reproduces
+it, and the two must never be conflated in the record.
 
-The SF1 re-backfill is therefore a prerequisite, not a parallel task.
+But the blocker is narrower than "build nothing first". These proceed safely
+without the re-backfill, because none of them depends on a historical return:
+
+```text
+state definitions              persistence + restart cuts
+pure transition logic          controller composition
+unknown-data semantics         intent reconciliation
+overlay-off identity tests     synthetic scenario tests
+```
+
+These must wait for it:
+
+```text
+historical threshold evaluation      crisis characterisation from repo paths
+performance comparison               any promotion or re-pin based on returns
+```
+
+So the SF1 re-backfill gates the EVIDENCE, not the ENGINEERING.
 
 ### Blocker 3 — the parameter count is the largest in the system
 
@@ -110,11 +140,33 @@ The named stress regimes (`gfc_2008`, `covid_2020`, `bear_2022`,
 **diagnostic only and can never promote** — their spans are crash/recovery
 halves, not a tune/hold-out pair.
 
-So the honest position, which should be written into the certification record
-rather than discovered later: **this overlay can be characterised on three
-events; it cannot be statistically certified on them.** That is not an argument
-against building it. It is an argument against ever describing its backtest
-number as an expectation.
+And three OVERSTATES the effective sample. The thresholds are correlated with
+each other, and the episodes are not homogeneous — a liquidity spiral, a
+pandemic gap-down and a rate-driven grind are not three draws from one
+distribution. The effective number of independent observations is smaller than
+the count of crises, and possibly much smaller.
+
+So the rule is treated as a **frozen, mechanistically motivated challenger — not
+an estimated optimum.** The record must say, in these terms:
+
+> The historical results establish plausibility and explainability, not a
+> reliable expected return or expected maximum drawdown.
+
+Validation therefore emphasises FALSIFICATION rather than fit:
+
+```text
+leave-one-crisis-out, with NO threshold changes
+neighbouring-threshold stability across a broad grid
+rolling-origin tests
+false-positive analysis OUTSIDE the named crises   <- the one most often skipped
+exact next-open ledger execution
+untouched forward shadow operation
+overlay benefit BEFORE and AFTER realistic transition costs
+```
+
+False-positive analysis outside the crises is the load-bearing one: a controller
+tuned on three drawdowns will trip on ordinary weakness, and the cost of that is
+paid in every year that contains no crisis at all — which is most of them.
 
 ---
 
@@ -139,19 +191,38 @@ meaning.
 
 ```
 WealthCoreState   the live book — exists today
-ShadowState       a SECOND WealthCoreState advanced by the SAME plan_session /
-                  run_sessions, at full exposure, never touched by the overlay
+ShadowState       a SECOND, INDEPENDENT WealthCoreState instance, advanced by the
+                  same engine IMPLEMENTATION and the same configuration, at full
+                  exposure, never touched by the overlay
 ```
 
-**Invariant: the shadow book is driven by the same engine object, not a
-reimplementation.** Two readers of one strategy that agree until they quietly do
-not is the exact failure the factor-coverage contract was written after, and a
-shadow book is unusually exposed to it because nothing trades on it — a drift
-would produce no symptom at all until it changed a release decision.
+**Same implementation and configuration — NOT the same mutable engine object.**
+An earlier draft of this plan said "the same engine object", which invites
+exactly the bug it was trying to prevent: shared mutable caches, event cursors,
+execution queues or memoised frames would silently couple live and shadow, and
+the coupling would be undetectable precisely because nothing trades on the
+shadow. Two independent state instances, and the engine must be demonstrably
+stateless apart from the state passed in. If it is not, that is a defect to fix
+before the shadow book is built on top of it.
+
+**The shadow is base Wealth Core, not a stripped strategy.** It excludes only the
+PORTFOLIO DEFENSE controls — the shock override and the 15.5% backstop. It keeps
+every native Wealth Core mechanism:
+
+```text
+KEPT      30% trailing position stops     21-session cooldowns
+          119-session one-time review     dividends
+          terminal actions                permanent security identity
+EXCLUDED  shock override                  portfolio backstop
+```
+
+Without the native controls the shadow would answer a different hypothetical —
+"how would an unmanaged momentum book be doing?" — when the question a release
+decision needs is "would CERTIFIED Wealth Core be working right now?".
 
 The falsifier (build step 3): with the overlay permanently disengaged, shadow and
-live must be **bit-identical, all seven hashes**. If they can differ at all when
-the overlay never fires, the shadow book is not a reference.
+live must be **bit-identical, all seven economic hashes**. If they can differ at
+all when the overlay never fires, the shadow book is not a reference.
 
 ### 3.3 Controller state — persisted
 
@@ -203,18 +274,39 @@ release = defensive_sessions >= min_defensive_sessions      (>= 10)
 
 All four. `shadow_return_20` is why the shadow book exists — see §1.
 
-### 3.6 The independent 15.5% backstop, and the priority rule
+### 3.6 The independent 15.5% backstop, and the composition rule
 
 The backstop tracks the live book's high-water mark and fires at −15.5%,
 independent of the shock override. Two controls acting on one book need an
 explicit composition rule or their disagreement is undefined behaviour:
 
-> **When both are active, the MORE DEFENSIVE target wins, and release requires
-> BOTH to permit release.**
+```text
+effective_target = min(normal_target,
+                       portfolio_backstop_target,
+                       shock_override_target)
+```
 
-Conservative composition is the only rule that cannot be gamed by a
-disagreement, and asymmetric release is what stops one control's recovery
-condition from overriding the other's judgement that the book is still damaged.
+**Most defensive wins.** Release occurs only when EVERY active controller
+independently permits its own relaxation — one controller clearing must never
+override another that remains defensive. Conservative composition is the only
+rule that cannot be gamed by a disagreement, and the asymmetric release is what
+stops one control's recovery condition from overruling the other's judgement that
+the book is still damaged.
+
+Transitions, stated so they cannot be decided per-implementation:
+
+```text
+a MORE defensive target   takes effect at the next executable open
+a LESS defensive target   takes effect at the next executable open  (same rule —
+                          de-risking is not privileged with an earlier fill)
+controllers read          the immutable shadow + PERSISTED prior controller
+                          state — never partially executed live orders
+unknown inputs            preserve the controller's prior REQUESTED target
+```
+
+Reading partially executed live orders would make the controller's decision a
+function of fill timing, which is the one input that is not reproducible between
+live and the tunnel.
 
 ### 3.7 Unknown means preserve — by construction, not retrofit
 
@@ -234,42 +326,72 @@ instruction per ticker** before anything reaches `delta_intents`, plus a unique
 index on `(run_id, ticker)` so the invariant is enforced by the database rather
 than by convention.
 
-### 3.9 Parity and the golden fixture
+### 3.9 Three hashes, so the certification anchor survives
 
-Controller state must enter the hash chain, or live and the tunnel can diverge
-invisibly — the failure mode a shadow book is least able to signal. Either an
-eighth hash or defense state folded into `daily_state`.
+Controller state must be verifiable, or live and the tunnel can diverge
+invisibly — the failure mode a shadow book is least able to signal, since nothing
+trades on it.
 
-Either way this forces a golden-fixture re-pin, which is governed by the standing
-rule: **one deliberate re-pin per batch of semantics, with the movement
-decomposed** — show what moved and what did not. A fixture patched until it
-passes records whatever the code now does.
+An earlier draft proposed an eighth hash or folding defense state into
+`daily_state`. **Both are wrong**, because either would re-pin the certified base
+Wealth Core hash merely because dormant controller metadata was added — spending
+the certification anchor on a change with no economic content. Instead:
 
----
+```text
+wealth_core_economic_hash        the existing seven layers, UNCHANGED. Adding the
+                                 shadow engine, controller persistence and intent
+                                 reconciliation must not move this at all.
+defense_controller_state_hash    regime, counters, frozen peak, requested targets
+combined_run_hash                the pair, for whole-system parity
+```
+
+This keeps movement attributable: a change in the combined hash with an unchanged
+economic hash is a controller change and nothing else, which is exactly the
+question a reviewer will have. It also means the overlay-off identity proof is
+expressible as an equality rather than a re-pin.
+
+**Acceptance test, stronger than ordinary parity:** with the defensive overlay
+disabled, introducing the shadow engine, controller persistence and intent
+reconciliation must leave every existing Wealth Core economic output
+**bit-identical**. Not "equivalent", not "within tolerance" — identical.
+
+A golden re-pin becomes necessary only if the ECONOMIC hash moves, and if that
+happens it is a finding, not a formality: it means the overlay changed base
+behaviour while disabled.
 
 ## 4. Build order
 
-Each step gated on the previous one. Steps 1 and 2 are prerequisites, not
-parallel work.
+Each step gated on the previous one. Note that the SF1 re-backfill no longer
+blocks steps 3-7 — it gates the EVIDENCE, not the engineering (Blocker 2).
 
-```
-0  remaining defect fixes: 2 (dead stressed_stop config), 4 (intent
-   reconciliation + unique index), 5 (behavioural parity test).   [1 is DONE]
-1  confirm the defensive asset's price domain — one NAS query
-2  SF1 re-backfill, so the tunnel stops refusing every config
-3  shadow ledger ALONE — no overlay, no trading. Falsifier: overlay
-   permanently off => shadow and live bit-identical on all seven hashes
-4  defensive-asset accounting (rate accrual)
-5  trigger + recovery as pure functions, one falsifier per condition,
-   each shown to fail
-6  controller state persistence + restart cuts through every transition
-7  wire into the WEALTH CORE chain — never the legacy crash brake
-8  tri-engine hash parity; ONE deliberate golden re-pin, decomposed
-9  authoritative ACTIONS replay + chain rehearsal
-10 only now: score it. Only after that: discuss activation.
+```text
+PRE   0  remaining defect fixes: 2 (dead stressed_stop config), 4 (intent
+         reconciliation + unique index), 5 (behavioural parity test). [1 DONE]
+      1  DONE — defensive asset settled: rate accrual, corpus has no ETFs
+      2  the seven-item point-in-time rate spec, agreed before code
+
+BASE  3  base Wealth Core certification completes; baseline hashes FROZEN
+
+BUILD 4  shadow ledger ALONE — no overlay, no trading, no controller.
+         FALSIFIER: overlay permanently off => economic hash bit-identical
+      5  treasury_accrual_sleeve accounting
+      6  trigger + recovery as pure functions; one falsifier per condition,
+         each SHOWN TO FAIL
+      7  controller state persistence + restart cuts through every transition
+      8  intent reconciliation: one net instruction per ticker
+      9  wire into the WEALTH CORE chain — never the legacy crash brake
+     10  three-hash parity across live / backtester / wind tunnel
+
+EVID 11  SF1 re-backfill; tunnel stops refusing configs
+     12  falsification suite (Blocker 3): leave-one-crisis-out, threshold
+         stability, rolling origin, FALSE POSITIVES OUTSIDE CRISES, costs
+     13  authoritative ACTIONS replay + chain rehearsal
+     14  only now: score it. Only after that: discuss activation.
 ```
 
----
+Steps 4-10 can proceed behind a disabled flag during base certification ONLY
+where they cannot alter certified base behaviour — which step 4's falsifier is
+precisely what proves.
 
 ## 5. Recommended against
 
@@ -281,12 +403,27 @@ parallel work.
 
 ---
 
-## 6. Open questions
+## 6. Decisions (settled 2026-08-06)
 
-1. **Defensive asset** — rate accrual (recommended) or real ETF prices? Decides
-   step 4 entirely, and step 1 may decide it for us.
-2. **Priority rule** — confirm "most defensive wins, both must permit release".
-3. **Scope** — Wealth Core only, or should the overlay also be available to the
-   target-portfolio strategies that carry the legacy brake today?
-4. **Sequencing** — base Wealth Core certification first, or overlay in parallel?
-   Recommendation: first, per §5.
+| # | Decision | Rationale |
+|---|---|---|
+| 1 | **Rate accrual**, named `treasury_accrual_sleeve` | SHY/BIL/IEF/GOVT/SGOV are absent from the corpus entirely (0 rows). Avoids mixed price domains, inception gaps, corporate actions. Seven-item point-in-time spec required first — see Blocker 1. |
+| 2 | **`min()` composition; both must permit release** | Conservative composition is the only rule immune to a disagreement between two independent controls. Transition rules fixed in §3.6. |
+| 3 | **Wealth Core ONLY** | The signals are Wealth Core semantics — persistent positions, trailing-stop damage, immutable ownership state, shadow holdings. Target-portfolio strategies reconstruct a desired book each cycle and carry a materially different legacy brake; one configurable controller across both would invite semantic compromise and FALSE PARITY. Low-level utilities may be reused later; the controller stays explicitly Wealth Core-specific. |
+| 4 | **Base certification first** | Promotion order: base certification → frozen baseline hashes → overlay implementation → overlay-off identity proof → overlay certification. The overlay may be developed behind a disabled flag in parallel ONLY where that cannot alter certified base behaviour. |
+
+## 7. The largest remaining conceptual risk
+
+Not the controller logic. It is **preserving exact point-in-time equivalence
+between live and shadow inputs while giving only the live ledger reduced
+exposure.**
+
+Both ledgers must see the same prices, the same eligibility, the same corporate
+actions, the same session calendar, and the same factor inputs, on the same
+sessions, with only the exposure scalar differing. Any divergence in those inputs
+turns the shadow from a reference into a second, subtly different strategy — and
+because nothing trades on it, the symptom would first appear as an unexplained
+release decision, long after the cause.
+
+That is what build step 3 exists to prove, and why it comes before any trigger
+logic is written.
