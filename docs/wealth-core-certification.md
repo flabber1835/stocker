@@ -101,7 +101,8 @@ fails spuriously. Re-run rather than diagnose.
 | exact SEP raw-close verification | **proven 2026-08-06** | `exact=1` COMPLETED: 99.7649% (36,684,527/36,770,974); gaps are per-ticker vendor gaps in 43 non-common-stock instruments |
 | authoritative ACTIONS ingested | **done 2026-08-06** | `bt_actions` 664,039 rows, 1998-01-01..2026-12-31 |
 | authoritative ACTIONS / data parity | **pending** | needs a run whose `provenance.split_source == "actions"` — step 7 |
-| exact Sharadar control (baseline_replay) | **BLOCKED** | no producer for the backtester-side hashes; see "Resuming this work" |
+| exact Sharadar control (baseline_replay) | **BLOCKED** | no producer for the backtester-side hashes; see "Resuming this work". When unblocked it proves IMAGE/ENVIRONMENT parity, NOT independent implementation — one loader, COPYed; see step 5 |
+| independent implementation parity | **not proven, and not provable by step 5** | would need a second loader written against the same spec; no such thing exists |
 | live activation | disabled by default | — |
 
 ## The 24-vs-25 opening result, resolved
@@ -258,6 +259,18 @@ two stacks share no docker network by design).
 
    Check `provenance.split_source == "actions"` on the result before reading any
    other number.
+
+   **WHAT THIS STEP PROVES, STATED EXACTLY — it is narrower than it looks.**
+   bt-engine's `_load_corpus` imports `app.live.wealth_core_replay`, which is the
+   BACKTESTER's own loader COPYed in at image build ("ONE CORPUS LOADER, NOT
+   TWO"). Shared loader code compiled into separately built images proves
+   **environment and image parity over real data** — that the same source, built
+   twice and deployed twice, agrees. It does **NOT** prove independent
+   implementation parity: there is one implementation, so a defect in it is
+   reproduced identically on both sides and cancels out of the comparison. Two
+   engines agreeing is only evidence when they are two engines. This distinction
+   stays in the record permanently; it is not a caveat to be dropped once the
+   step goes green.
 
 6. **[BLOCKED on 5]** **Repeat it** and require byte-identical persisted artifacts.
 

@@ -18,21 +18,31 @@ overlay sits on top of it.
 > DONE      defect 5  parity compared a call SITE, not behaviour             f7104c1
 > OUTSTANDING defect 3  no persisted controller state / hysteresis
 >                       — subsumed by this design's §3.3, build step 7
-> OUTSTANDING defect 4  conflicting intents, no reconciliation
->                       — SPECIFIED in §3.8, and it IS build step 8
+> SHADOW    defect 4  conflicting intents, no reconciliation
+>                     — built per §3.8, SHADOW-WRITTEN, executor read NOT switched
 > ```
 >
-> Defect 4 was NOT started. It is bigger than it first looked: per §3.8 the
-> unique index belongs on a new `net_intent` table, not on `delta_intents`,
-> because constraining `delta_intents` would turn conflicting logic into an
-> insertion failure rather than resolving it. That means a migration, an
-> append-only proposals table, a reconciliation step with the priority rule, and
-> provenance — plus the executor and dashboard reading the new table. Doing it
-> half-way is a live trading defect, so it was left clean rather than started.
+> **Defect 4 — what exists now.** Migration 0052 adds `intent_proposals`
+> (append-only, deliberately unconstrained) and `net_intents` (the unique index on
+> `(run_id, account_id, ticker)` lives HERE). The composition rule is pure in
+> `shared/stock_strategy_shared/intent_reconciliation.py`; the write statements
+> are `services/pipeline/app/intent_writes.py`; the delta step writes both tables
+> inside a SAVEPOINT and logs the divergence report.
 >
-> **Next actions, in order:** (1) defect 4 per §3.8; (2) the DTB3 ingest per
-> §3.10, whose point-in-time and revision rules must be agreed BEFORE code;
-> (3) base Wealth Core certification, which gates everything from build step 3.
+> **`delta_intents` is untouched and the trade-executor still reads it.** That is
+> the remaining half: switching the executor's read is a separate change, and its
+> precondition is having WATCHED the reconciliation resolve a real conflict —
+> which needs the crash brake to actually engage, or a rehearsal that makes it.
+> A reconciliation nobody has seen fire is not evidence that it fires correctly.
+> When the read does switch, the delta step's `except` around the shadow write
+> MUST become fatal: a missing net intent would by then be a missing trade.
+>
+> **Next actions, in order:** (1) observe the shadow — confirm `net_intents` is
+> populated on live runs and `intent_reconciliation.agrees` is true on brake-off
+> days, then switch the executor read; (2) the DTB3 ingest per §3.10, whose
+> point-in-time and revision rules are settled and must be implemented as
+> written; (3) base Wealth Core certification, which gates everything from build
+> step 3.
 
 The target: an immutable full-exposure shadow book, a systemic-confirmed fast
 shock override moving the book to 40% Wealth Core / 60% short-duration

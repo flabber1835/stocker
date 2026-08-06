@@ -4821,3 +4821,62 @@ the brake: a genuine all-clear still restores.
 This generalises. Any control with a fallback state needs its fallback checked in
 BOTH directions of the action it gates; a fail-safe argued only for the direction
 that was salient at the time is half a control.
+
+## Design Decision: one net intent per ticker — reconciled, not constrained (2026-08)
+
+Controls that propose trades are LAYERED. The delta engine decides per-name
+membership; the crash brake then appends book-level exposure moves without
+removing the base decision. `delta_intents` has no unique `(run_id, ticker)`, so
+one ticker could carry `exit` AND `risk_reduce` in a single run, and whichever
+row a downstream reader happened to pick up was the trade that executed. Those
+are different trades — close the position, or sell part of it — chosen by nothing.
+
+**The obvious fix is the wrong one.** A unique index on `delta_intents` converts
+conflicting LOGIC into an INSERTION FAILURE: the delta step would raise at the
+moment the brake first engages, which is exactly the moment nothing may fail, and
+the operator would learn that two controls disagreed without learning what either
+of them wanted. Uniqueness is not reconciliation. The layering instead
+(defense plan §3.8, migration 0052):
+
+```text
+intent_proposals   APPEND-ONLY. Every contributing proposal survives, including
+                   the discarded ones. Deliberately NOT unique — a ticker having
+                   several proposals is the condition the table exists to record.
+net_intents        ONE executable instruction per (run_id, account_id, ticker).
+                   The unique index lives HERE, on the table that represents the
+                   final instruction.
+provenance         `resolved_by` (the rule) + `contributing` (every proposal,
+                   flagged with which won), stored ON the net intent.
+```
+
+**The composition rule: risk reduction dominates, and among same-direction
+proposals the most conservative wins.** The same `min()` composition settled for
+the defensive controller, for the same reason — conservative composition is the
+only rule immune to a disagreement between two independent controls. `exit`
+dominates every partial reduction (a full liquidation has no residual weight to
+compare); otherwise the lowest target weight; ties break on proposal order so two
+engines given the same proposals emit identical output. An unknown action RAISES
+rather than being placed by guesswork: a new control reaching the reconciler
+means nobody decided where it sits, and guessing is how a risk-reducing
+instruction gets silently outranked by a buy.
+
+Two rules that look like details and are not. A missing target weight never wins
+a buy — treating `None` as 0.0 is the most conservative-LOOKING bug available and
+it silently cancels the buy. And `hold` never suppresses an executable proposal:
+it is the delta engine saying it has nothing to do, not a veto over a control that
+does, and reading it as one would let engine silence disarm the brake.
+
+**Shipped SHADOW-WRITTEN.** `delta_intents` is untouched and the trade-executor
+still reads it; the delta step writes both new tables inside a SAVEPOINT (they
+share a transaction with the rows the executor reads, and a failed statement
+poisons a Postgres transaction outright — the shadow must not be able to break
+the thing it is shadowing) and logs a divergence report. Switching the executor's
+read is a separate change whose precondition is having WATCHED the reconciliation
+resolve a real conflict. At that point the `except` around the shadow write must
+become FATAL — a missing net intent would by then be a missing trade.
+
+The SQL lives in `services/pipeline/app/intent_writes.py` rather than inline for
+one reason: the shadow write is wrapped in a tolerant `try`, so a mistyped column
+would surface only as `intent reconciliation skipped (…)` in a log and the tables
+would stay empty while the feature looked deployed. The integration tier runs
+those exact statements against a real migrated schema.

@@ -468,13 +468,40 @@ implementing is a strategy change needing wind-tunnel evidence the tunnel cannot
 currently produce; `extra="forbid"` makes a config still setting them fail loud.
 A test now requires EVERY surviving `crash_brake` field to have a consumer.
 
-**OUTSTANDING on this control:** conflicting intents. Crash-brake moves are
-appended to the decision list without removing the base decision, and
-`delta_intents` has no unique `(run_id, ticker)`. A ticker can carry `exit` AND
-`risk_reduce` in one run. The fix is NOT an index on `delta_intents` — that would
-turn conflicting logic into an insertion failure rather than resolving it. See
-docs/wealth-core-defense-plan.md 3.8 (append-only proposals → one `net_intent`
-per `(run_id, account_id, ticker)` → reconciliation provenance).
+**Conflicting intents — RECONCILED, shipped SHADOW-WRITTEN (2026-08).**
+Crash-brake moves are appended to the decision list without removing the base
+decision, and `delta_intents` has no unique `(run_id, ticker)`, so a ticker could
+carry `exit` AND `risk_reduce` in one run with nothing deciding which executed.
+The fix is NOT an index on `delta_intents` — that turns conflicting logic into an
+insertion failure at the moment the brake first engages. Migration 0052 instead
+adds `intent_proposals` (APPEND-ONLY, deliberately unconstrained — a ticker having
+several proposals is what it records) and `net_intents` (ONE instruction per
+`(run_id, account_id, ticker)`; the unique index lives HERE), with `resolved_by`
++ `contributing` provenance on every net intent.
+
+Composition rule (pure, `shared/stock_strategy_shared/intent_reconciliation.py`):
+risk reduction dominates, and among same-direction proposals the most
+conservative wins — `exit` over any partial, else the lowest target weight, ties
+on proposal order. An unknown action RAISES rather than being placed by guess. A
+missing weight never wins a buy (`None` as 0.0 silently cancels the buy). `hold`
+never suppresses an executable proposal — engine silence must not disarm the
+brake.
+
+**`delta_intents` is untouched and the trade-executor still reads it.** The delta
+step writes both tables in a SAVEPOINT (a failed statement poisons the whole
+transaction; the shadow must not break what it shadows) and logs a divergence
+report, surfaced as `intent_reconciliation` on the write_intents step. Switching
+the executor's read is a SEPARATE change, gated on having watched the rule
+resolve a real conflict; at that point the tolerant `except` MUST become fatal.
+SQL is in `services/pipeline/app/intent_writes.py`, not inline, so the
+integration tier can run the exact statements against a real schema — inline, a
+mistyped column would only ever appear as a skipped-shadow log line. See
+docs/architecture.md "one net intent per ticker" and defense-plan §3.8.
+
+DEPLOY: `intent_reconciliation.py` is a NEW shared module file ⇒
+`docker build --network host -t stocker-base:latest -f Dockerfile.base .` FIRST
+(the editable install caches the module list), then the pipeline, then
+`alembic upgrade head` for migration 0052 via db-migrator.
 
 Two initial strategy styles:
 

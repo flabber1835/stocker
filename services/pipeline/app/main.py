@@ -2851,6 +2851,14 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
     actionable = [d for d in decisions.values() if _is_actionable(d)]
     skipped_watch = len(decisions) - len(actionable)
 
+    # Source tagging for intent reconciliation (defect 4). The delta engine
+    # produces at most one decision per ticker; the crash brake below APPENDS to
+    # this same list without removing the base decision, which is exactly the
+    # conflict the reconciliation resolves. The boundary is recorded HERE rather
+    # than inferred from the action later, because inferring it would break the
+    # moment a third control proposed an action the brake also uses.
+    proposal_sources = ["delta_engine"] * len(actionable)
+
     # ── crash brake ───────────────────────────────────────────────────────────
     # Book-level exposure, evaluated AFTER the per-name decisions and layered on
     # top of them. It never changes WHICH names are held — only how much of each,
@@ -2911,6 +2919,7 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                             f"({_state.reason})"),
                     actual_weight=m["current_weight"],
                     weight_drift=m["delta"]))
+                proposal_sources.append("crash_brake")
         except Exception as exc:   # noqa: BLE001
             # Fail-safe, like the stop: a brake that cannot be computed is not a
             # signal to sell. Log and leave exposure where it is.
@@ -2944,6 +2953,68 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                     "reason": _enrich_drop_cause(d),
                 },
             )
+
+        # ── intent reconciliation (defect 4) — SHADOW-WRITTEN ─────────────────
+        # `delta_intents` above is UNCHANGED and the trade-executor still reads
+        # it. This writes the append-only proposals and the reconciled one-per-
+        # ticker net intents alongside, and reports the divergence, so the rule
+        # is observed against real traffic before anything executes off it.
+        # Switching the executor's read is a separate change with its own
+        # evidence — a reconciliation nobody has watched resolve a live conflict
+        # is not evidence that it resolves them correctly.
+        reconciliation_note = None
+        try:
+            from stock_strategy_shared.intent_reconciliation import (
+                Proposal, compare_to_rows, reconcile)
+            from app.intent_writes import write_net_intents, write_proposals
+
+            proposals = [
+                Proposal(
+                    ticker=d.ticker,
+                    action=d.action,
+                    source=src,
+                    seq=i,
+                    target_weight=d.current_weight,
+                    rank=d.rank if d.rank != 9999 else None,
+                    composite_score=d.composite_score,
+                    confirmation_days_met=d.confirmation_days_met,
+                    actual_weight=d.actual_weight,
+                    weight_drift=d.weight_drift,
+                    reason=_enrich_drop_cause(d),
+                )
+                for i, (d, src) in enumerate(zip(actionable, proposal_sources))
+            ]
+
+            nets = reconcile(proposals)
+
+            # A SAVEPOINT, not a bare try. These INSERTs share a transaction
+            # with the `delta_intents` rows the executor actually reads, and a
+            # failed statement poisons a Postgres transaction outright — so
+            # without the nested block a broken shadow write would fail the
+            # delta run itself. The shadow must not be able to break the thing
+            # it is shadowing.
+            async with conn.begin_nested():
+                await write_proposals(conn, run_id, proposals)
+                await write_net_intents(conn, run_id, nets)
+
+            reconciliation_note = compare_to_rows(
+                [(d.ticker, d.action) for d in actionable], nets)
+            if reconciliation_note["conflicts"]:
+                # Loud: this is the defect firing, and the whole reason the
+                # table exists. Silent reconciliation would leave the operator
+                # believing the two controls never disagreed.
+                print(f"[delta] intent conflicts RESOLVED: "
+                      f"{reconciliation_note['conflicts']}", flush=True)
+            else:
+                print(f"[delta] intent reconciliation: "
+                      f"{len(nets)} net intent(s), no conflicts", flush=True)
+        except Exception as exc:   # noqa: BLE001
+            # Shadow-only for now, so a failure here must not fail the chain or
+            # roll back the intents the executor actually reads. When the
+            # executor switches to net_intents this MUST become fatal — a
+            # missing net intent would then be a missing trade.
+            print(f"[delta] intent reconciliation skipped ({exc})", flush=True)
+            reconciliation_note = {"error": str(exc)[:200]}
 
         await conn.execute(
             text(
@@ -3023,6 +3094,10 @@ async def _do_delta(run_id: str, trace_id: str, started_at: datetime, de_cfg) ->
                 "at_risks": len(at_risks),
                 "buy_adds": len(buy_adds),
                 "sell_trims": len(sell_trims),
+                # Shadow reconciliation (defect 4). Surfaced on the step rather
+                # than only logged, so a conflict is visible in the run record
+                # an operator actually reads afterwards.
+                "intent_reconciliation": reconciliation_note,
             },
         )
 
