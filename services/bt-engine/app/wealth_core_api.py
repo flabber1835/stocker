@@ -322,6 +322,12 @@ def _execute(req: WealthCoreJobRequest, corpus: dict) -> dict:
         # The per-session detail is the point of a rehearsal but it is one row
         # per trading day; the run row keeps the verdict and the counts, and the
         # sessions ride along only when the range is small enough to be read.
+        #
+        # `d["performance"]` is computed inside `rehearse_chain` (after parity)
+        # and is a SIBLING of `sessions`, so it survives this. That ordering is
+        # the whole point: the equity curve is the only raw material for a CAGR
+        # or a drawdown, and eliding it before measuring is exactly why a
+        # three-year rehearsal used to produce no measurable output at all.
         if len(d["sessions"]) > 400:
             d["sessions"] = f"{len(d['sessions'])} sessions elided"
         return {"summary": d, "parity_hashes": r.bulk_hashes}

@@ -4994,3 +4994,73 @@ idempotent and therefore can no longer demonstrate that the invariant exists —
 its conflict handling is ever removed, the index is the last thing standing
 between a retry and two executable instructions, and that has to be provable
 without it.
+
+## Design Decision: Wealth Core had no way to report what it earned (2026-08)
+
+Wealth Core produced a fully valued session stream and never converted it into a
+performance number. `RunResult` carried every session's `resolved_equity` and
+every fill; `TunnelRun` exposed only final cash, position count and marked
+equity; and the rehearsal API elided the per-session detail above 400 sessions
+BEFORE persisting the summary. A three-year rehearsal is ~753 sessions, so the
+equity curve — the only raw material for a CAGR or a drawdown — was discarded
+before anything measured it. `grep -rn "cagr" services/bt-engine/app/` returned
+nothing.
+
+That, and not the SF1 re-backfill, was what stood between the authoritative
+corpus and a first trusted baseline. **Wealth Core touches no fundamentals at
+all** — `score_universe` computes momentum, recent return and formation
+volatility from `closes`, and the whole package has zero references to
+`fundamentals`, `gross_profit`, `quality` or `market_cap`. The factor-coverage
+contract gates the target-portfolio lane, which is a different lane.
+
+`shared/stock_strategy_shared/wealth_core/performance.py` is the producer. Pure,
+one implementation, two callers: the rehearsal establishes the baseline and the
+tunnel measures experiments against it, and if each computed its own CAGR the
+comparison would be between two definitions rather than two runs.
+
+DERIVED OUTPUT, NEVER AN INPUT — the load-bearing property. The seven parity
+layers cover terminal state, cash, the ledger and every session decision. A
+measurement is a READING of those, and folding one into the thing it measures
+would re-pin the certification anchor for a change with no economic content.
+Tests assert `result_hash`, `state_hash` and `ledger_hash` are unmoved, and that
+`performance` does not appear in the hashed serialisation at all — the weaker
+"hashes still match" check could pass by coincidence of ordering.
+
+The frozen conventions, each a decision rather than a detail:
+
+```text
+point zero       the curve starts at starting_cash, BEFORE session one. Without
+                 it a first-session loss is the baseline instead of a drawdown —
+                 and the worst day of a run is the one most likely to be first.
+calendar time    CAGR and annualised turnover use actual elapsed days, not
+                 sessions/252. Holidays change the session count, not the money.
+resolved only    drawdown reads resolved_equity; estimated_equity is a
+                 pre-resolution figure and mixing bases invents peaks.
+never skip       a missing valuation makes the run unevaluable. Skipping
+                 measures a shorter run; interpolating invents a valuation.
+executed fills   trade_count counts fills, not intents. A rejected order moved
+                 no money and must not inflate turnover.
+agreement        ending equity must equal the last resolved equity and, on a
+                 fully resolved book, the final marked equity. Disagreement
+                 FAILS — two valuations of one book differing means one is wrong.
+```
+
+**The blocked-session problem, found by running it.** The golden scenario BLOCKS
+19 of its 260 sessions; a blocked session has no `resolved_equity` by design.
+Under the strict rule the golden run — and any real run containing a blocked
+stretch — is unevaluable, which would have made the whole producer useless on
+real data. The strict rule is nonetheless kept as the DEFAULT, because a blocked
+stretch can hide the deepest trough of the run and carrying the last valuation
+across it reports a drawdown that never acknowledged the days nobody could see.
+
+`allow_blocked_gaps` measures the observed valuations instead, and everything it
+returns is labelled: `maximum_drawdown_is_lower_bound` is set and every excluded
+session is named. Unexplained gaps stay fatal even with the opt-in — that is the
+corruption case, and the reason string always separates the two so an operator
+can tell design from defect without reading session rows. The rehearsal computes
+the strict reading and, only when it failed *solely* because of blocked sessions,
+the tolerant one ALONGSIDE it as `performance_excluding_blocked` — never instead.
+
+Whether a real 2021-2023 rehearsal blocks any sessions is unknown until it runs.
+If it does, the honest baseline is a lower bound, and that is a judgement call
+about the strategy's marks rather than about the measurement.

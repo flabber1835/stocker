@@ -104,6 +104,7 @@ fails spuriously. Re-run rather than diagnose.
 | exact Sharadar control (baseline_replay) | **BLOCKED** | no producer for the backtester-side hashes; see "Resuming this work". When unblocked it proves IMAGE/ENVIRONMENT parity, NOT independent implementation — one loader, COPYed; see step 5 |
 | independent implementation parity | **not proven, and not provable by step 5** | would need a second loader written against the same spec; no such thing exists |
 | live activation | disabled by default | — |
+| performance measurement | **built 2026-08-06** | `shared/.../wealth_core/performance.py`; a rehearsal now persists CAGR / drawdown / turnover on the run row, surviving the >400-session elision. Derived output — asserted not to move any of the seven hashes |
 
 ## The 24-vs-25 opening result, resolved
 

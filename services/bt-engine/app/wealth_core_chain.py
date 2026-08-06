@@ -35,6 +35,9 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
 from stock_strategy_shared.wealth_core.adapter import PendingOrder
+from stock_strategy_shared.wealth_core.performance import (SessionFacts,
+                                                           measure,
+                                                           measure_run_result)
 from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
 from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
 from stock_strategy_shared.wealth_core.execution_model import (
@@ -93,6 +96,13 @@ class SessionRehearsal:
 class ChainRehearsal:
     sessions: list[SessionRehearsal] = field(default_factory=list)
     bulk_hashes: dict = field(default_factory=dict)
+    # DERIVED measurement, computed only after equivalence is proven — see
+    # `rehearse_chain`. Never an input to a hash.
+    performance: dict = field(default_factory=dict)
+    chain_performance: dict = field(default_factory=dict)
+    # Populated ONLY when the strict reading failed solely because of blocked
+    # sessions. Its drawdown is a LOWER BOUND — see `rehearse_chain`.
+    performance_excluding_blocked: dict = field(default_factory=dict)
     equivalence: dict = field(default_factory=dict)
     traces: list[dict] = field(default_factory=list)
     trace_problems: list[str] = field(default_factory=list)
@@ -120,6 +130,14 @@ class ChainRehearsal:
             "execution_model": STATEFUL_MODEL,
             "sessions": [s.to_dict() for s in self.sessions],
             "bulk_hashes": dict(self.bulk_hashes),
+            # Persisted on the run row itself, so it survives the API's
+            # >400-session elision of `sessions`. The elision is why a
+            # three-year rehearsal previously produced no measurable output at
+            # all: the equity curve was the only raw material and it was
+            # discarded before the summary was written.
+            "performance": dict(self.performance),
+            "chain_performance": dict(self.chain_performance),
+            "performance_excluding_blocked": dict(self.performance_excluding_blocked),
             "equivalence": dict(self.equivalence),
             "traces": list(self.traces),
             "trace_problems": list(self.trace_problems),
@@ -368,6 +386,38 @@ def rehearse_chain(*, sessions: Sequence[str],
             f"replay: {json.dumps(out.equivalence, sort_keys=True)}. Refusing "
             f"to report a rehearsal that describes a different run than the "
             f"engine it is rehearsing.")
+
+    # ── measurement, AFTER parity ────────────────────────────────────────────
+    # Deliberately below the divergence raise: measuring a run that did not
+    # reproduce its own bulk replay would attach a CAGR to a stream nobody can
+    # vouch for, and a number is far more likely to be quoted than a caveat.
+    #
+    # Both series are measured. `performance` is the canonical one, from the
+    # bulk RunResult, which is what carries fills. `chain_performance` is the
+    # session-by-session live path's own resolved-equity series, which has no
+    # fills — so it reports no turnover, and exists to prove the two paths agree
+    # on the money as well as on the hashes. The hashes cover state and the
+    # ledger; neither covers the valuation series.
+    out.performance = measure_run_result(bulk, starting_cash).to_dict()
+    out.chain_performance = measure(
+        starting_cash=starting_cash,
+        sessions=[SessionFacts(session=s.session,
+                               resolved_equity=s.resolved_equity,
+                               blocked=s.blocked)
+                  for s in out.sessions],
+    ).to_dict()
+
+    # A run containing BLOCKED sessions is unevaluable under the strict rule,
+    # which is the correct default — a blocked stretch can hide the deepest
+    # trough. But "unevaluable" alone would leave an operator with no numbers at
+    # all for a run whose only gaps are a designed state, so the tolerant
+    # reading is computed ALONGSIDE it and never instead of it. It carries
+    # `maximum_drawdown_is_lower_bound` and names every excluded session, so the
+    # two can never be confused for one another.
+    if (not out.performance["evaluable"]
+            and out.performance["blocked_session_count"]):
+        out.performance_excluding_blocked = measure_run_result(
+            bulk, starting_cash, allow_blocked_gaps=True).to_dict()
     return out
 
 

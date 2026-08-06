@@ -34,6 +34,7 @@ from typing import Any, Mapping, Sequence
 
 from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
 from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
+from stock_strategy_shared.wealth_core.performance import measure_run_result
 from stock_strategy_shared.wealth_core.feed import SecurityMeta, VendorBar
 from stock_strategy_shared.wealth_core.hashes import (
     HASH_ORDER,
@@ -64,6 +65,7 @@ class TunnelRun:
     mode: TunnelMode
     hashes: ParityHashes
     result: Any
+    starting_cash: float = 0.0
     baseline_parent: dict | None = None
     change: dict = field(default_factory=dict)
     divergence: dict | None = None
@@ -77,7 +79,14 @@ class TunnelRun:
                 "final_cash": round(self.result.state.cash, 2),
                 "final_positions": len(self.result.state.episodes),
                 "marked_equity": (None if not self.result.final
-                                  else self.result.final.marked_equity)}
+                                  else self.result.final.marked_equity),
+                # The SAME shared implementation the chain rehearsal uses. The
+                # rehearsal establishes the baseline and an experiment is
+                # measured against it; two local copies of the formulas would
+                # make that a comparison between definitions rather than runs.
+                # Derived output — it reaches no parity hash.
+                "performance": measure_run_result(
+                    self.result, self.starting_cash).to_dict()}
 
 
 def _run(sessions, bars_by_session, meta, starting_cash, cfg, elig, terminal):
@@ -113,7 +122,8 @@ def baseline_replay(*, sessions: Sequence[str],
             f"a strategy nobody is running. Full report: "
             f"{json.dumps(diff, sort_keys=True)}")
     return TunnelRun(mode=TunnelMode.BASELINE_REPLAY, hashes=hashes,
-                     result=result, divergence=diff)
+                     result=result, starting_cash=starting_cash,
+                     divergence=diff)
 
 
 def experiment(*, sessions: Sequence[str],
@@ -145,8 +155,8 @@ def experiment(*, sessions: Sequence[str],
     parent = (baseline.values if isinstance(baseline, ParityHashes)
               else dict(baseline))
     run = TunnelRun(mode=TunnelMode.EXPERIMENT, hashes=hashes, result=result,
-                    baseline_parent=parent, change=dict(change),
-                    divergence=diff)
+                    starting_cash=starting_cash, baseline_parent=parent,
+                    change=dict(change), divergence=diff)
     if diff["first_divergence"] == "normalized_input":
         # Reported, not scored. Comparing two configs across two different
         # datasets is the most persuasive wrong answer this system can produce.

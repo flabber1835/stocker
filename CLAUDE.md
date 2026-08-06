@@ -128,6 +128,19 @@ with it. The rules below override convenience every time:
 5. **A guard is not done until it has been shown to fail.** Every rule here has
    a falsifier; the three defects the chain rehearsal found were all invisible
    to green unit tests, and two of them changed no result at all.
+7. **Wealth Core reports what it EARNED via `shared/.../wealth_core/performance.py`**
+   (2026-08) — CAGR, max drawdown, ending wealth, turnover, trade count, computed
+   from the run's own resolved-equity series and fills. Nothing did this before:
+   the rehearsal API elided the per-session detail above 400 sessions before the
+   summary was persisted, so a three-year run threw the equity curve away. Metrics
+   are DERIVED and must never reach a parity hash (asserted). The rehearsal
+   computes them only AFTER bulk/live parity succeeds. A run with BLOCKED sessions
+   is strictly unevaluable by default — a blocked stretch can hide the deepest
+   trough; `allow_blocked_gaps` measures the observed days and flags
+   `maximum_drawdown_is_lower_bound`. NEW shared module ⇒ rebuild stocker-base.
+   NOTE: Wealth Core reads NO fundamentals, so the SF1 re-backfill does not gate
+   a Wealth Core baseline — it gates the target-portfolio lane.
+
 6. Wealth Core owns `bt_actions`, `bt_wealth_core_runs` and the
    `POST /wealth-core/jobs/run` endpoint on bt-engine. It never submits orders;
    the risk profile is `wealth_core_v1` and `require_profile` fails startup
