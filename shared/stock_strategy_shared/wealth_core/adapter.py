@@ -91,6 +91,15 @@ class SessionResult:
     # rather than silently dropped: a cancelled entry leaves a slot empty for
     # reasons that have nothing to do with the strategy's opinion of the name.
     cancelled: list[dict] = field(default_factory=list)
+    # What each terminal action dated on this session actually did — applied,
+    # blocked on missing terms, or not held. RETURNED rather than kept local:
+    # when the corporate-action ordering fix moved these from the caller into
+    # `step_session`, the result rows stopped reaching `RunResult` and the run
+    # hash silently stopped covering corporate-action outcomes entirely. The
+    # ledger still recorded the events, so every aggregate looked right and only
+    # the audit trail was gone — exactly the class of loss the hash exists to
+    # catch. `session` is stamped here because the caller can no longer add it.
+    terminal_results: list[dict] = field(default_factory=list)
 
 
 def build_marks(bars: Sequence[DailyBar], held: set[str],
@@ -262,7 +271,9 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                         key=lambda t: (t.security_id, t.kind.value)):
         from stock_strategy_shared.wealth_core.terminal import apply_terminal
         terminal_results.append(
-            apply_terminal(state, terms, ledger=ledger, session=session, cfg=cfg))
+            {"session": session,
+             **apply_terminal(state, terms, ledger=ledger, session=session,
+                              cfg=cfg)})
     terminated = {t.security_id for t in terminal_terms}
 
     # ── 4. execute orders decided BEFORE this session ────────────────────────
@@ -382,4 +393,5 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     return SessionResult(session=session, decision=d, fills=fills,
                          resolved_equity=ev.resolved_equity,
                          estimated_equity=ev.estimated_equity_including_stale_marks,
-                         blocked=not ev.is_resolved, cancelled=res_cancelled)
+                         blocked=not ev.is_resolved, cancelled=res_cancelled,
+                         terminal_results=terminal_results)

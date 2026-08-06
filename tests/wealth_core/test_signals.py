@@ -20,9 +20,13 @@ import math
 import pytest
 
 from stock_strategy_shared.wealth_core.signals import (
+    LOG_RETURNS_CERTIFIED_V1,
     LONG_LOOKBACK_SESSIONS,
     REQUIRED_CLOSES,
+    SIMPLE_RETURNS_V1,
     SKIP_RECENT_SESSIONS,
+    TRADING_SESSIONS_PER_YEAR,
+    VOLATILITY_PROFILES,
     DurableScore,
     annualized_formation_volatility,
     durable_score,
@@ -33,10 +37,42 @@ from stock_strategy_shared.wealth_core.signals import (
     top_decile_cutoff,
 )
 
+PROFILES = list(VOLATILITY_PROFILES)
+
+# The formation segment t-126 … t-21 spans 106 closes and therefore 105 returns.
+# Named here because the hand computations below divide by it explicitly.
+FORMATION_RETURNS = 105
+
 
 def _series(n=REQUIRED_CLOSES, start=100.0, step=1.0):
     """A strictly increasing close series, oldest first, index -1 == close[t]."""
     return [start + step * i for i in range(n)]
+
+
+def _one_step_series(jump=2.0, at=53):
+    """A close series that is FLAT except for a single step inside formation.
+
+    Constructed so the sample variance has an exact closed form. With 104 zero
+    returns and one return r:
+
+        mean = r / 105
+        var  = [ (r - r/105)^2 + 104 (r/105)^2 ] / 104
+             = r^2 [ 104^2 + 104 ] / (105^2 * 104)
+             = r^2 (104 + 1) / 105^2
+             = r^2 / 105
+
+    so `annualized_formation_volatility` is exactly |r| * sqrt(252 / 105). That
+    is what makes the two profile expectations below genuinely HAND-computed
+    rather than read back from the implementation: the only thing that changes
+    between them is what r is, and r is a literal.
+
+    The tail after the formation segment is flat, so recent_return is exactly
+    0.0 — which qualifies (spec §4) — and the momentum endpoints are the two
+    plateau levels.
+    """
+    lo, hi = 100.0, 100.0 * jump
+    seg = [lo] * at + [hi] * (LONG_LOOKBACK_SESSIONS + 1 - at)
+    return seg + [hi] * SKIP_RECENT_SESSIONS
 
 
 # ── medium-term momentum (spec §3) ──────────────────────────────────────────
@@ -107,27 +143,126 @@ class TestFreshness:
 # ── formation volatility (spec §5) ──────────────────────────────────────────
 
 class TestFormationVolatility:
-    def test_it_matches_a_hand_computed_sample_stdev(self):
-        """Explicit definition: sample stdev (ddof=1) of one-session SIMPLE
-        returns over t-126 … t-21, times sqrt(252)."""
+    """PROFILE-SPECIFIC (docs/wealth-core-test-rewrite.md §2).
+
+    The written §5 spec says SIMPLE returns; the recovered certified source uses
+    LOG returns. Both are implemented as named profiles and both are pinned
+    here, SEPARATELY, with explicit expected values. There is deliberately no
+    single expectation with a tolerance wide enough to cover both — that would
+    hide exactly the divergence the profiles exist to make visible.
+    """
+
+    # The single formation return in `_one_step_series(jump=2.0)`: a doubling.
+    # 100% simple, ln 2 in logs — the same price move, and the whole point.
+    SIMPLE_STEP = 1.0
+    LOG_STEP = math.log(2.0)
+    ANNUALISER = math.sqrt(TRADING_SESSIONS_PER_YEAR / FORMATION_RETURNS)
+
+    def test_it_matches_a_hand_computed_sample_stdev_SIMPLE_returns(self):
+        """The written §5 rule: sample stdev (ddof=1) of one-session SIMPLE
+        returns over t-126 … t-21, x sqrt(252).
+
+        One return of (200/100 - 1) = 1.0 and 104 of zero, so by the closed form
+        in `_one_step_series` the annualised stdev is exactly
+
+            1.0 * sqrt(252 / 105) = 1.5491933384...
+        """
+        c = _one_step_series(jump=2.0)
+        expected = self.SIMPLE_STEP * self.ANNUALISER
+        assert expected == pytest.approx(1.5491933384829668)
+        assert annualized_formation_volatility(c, SIMPLE_RETURNS_V1) == \
+            pytest.approx(expected)
+
+    def test_it_matches_a_hand_computed_sample_stdev_LOG_returns(self):
+        """The recovered certified rule: the same statistic over ln(P_t/P_t-1).
+
+        The identical price path now contributes ln(200/100) = ln 2 = 0.693147…
+        rather than 1.0, so
+
+            ln(2) * sqrt(252 / 105) = 1.0738189947...
+        """
+        c = _one_step_series(jump=2.0)
+        expected = self.LOG_STEP * self.ANNUALISER
+        assert expected == pytest.approx(1.0738189947117174)
+        assert annualized_formation_volatility(c, LOG_RETURNS_CERTIFIED_V1) == \
+            pytest.approx(expected)
+
+    def test_LOG_COMPRESSES_THE_MOVE_AND_THAT_RAISES_THE_DURABLE_SCORE(self):
+        """WHY the profiles are not two spellings of one rule.
+
+        On this series the ratio of the two volatilities is exactly ln(2) —
+        every return is the same single move, so the compression factor survives
+        intact into the annualised statistic. Volatility is the DENOMINATOR of
+        the durable score, so the certified profile scores the SAME momentum
+        ~44% higher, and a name whose formation path contains large moves gains
+        rank against a calm one. That reorders the leadership set and therefore
+        changes which securities are bought.
+        """
+        c = _one_step_series(jump=2.0)
+        vs = annualized_formation_volatility(c, SIMPLE_RETURNS_V1)
+        vl = annualized_formation_volatility(c, LOG_RETURNS_CERTIFIED_V1)
+        assert vl < vs
+        assert vl / vs == pytest.approx(math.log(2.0))
+
+        mom = medium_term_momentum(c)
+        assert mom == pytest.approx(1.0)
+        assert durable_score(mom, vs) == pytest.approx(0.4474245811298816)
+        assert durable_score(mom, vl) == pytest.approx(0.6454972243679021)
+        assert durable_score(mom, vl) > durable_score(mom, vs)
+
+    def test_the_larger_the_move_the_wider_the_two_profiles_separate(self):
+        """The compression is not a constant offset. A 10% step separates them
+        by ~5%; a doubling separates them by ~31%. A test pinned at one
+        magnitude would read as a fixed fudge factor and hide that."""
+        ratios = {}
+        for jump in (1.10, 1.50, 2.00):
+            c = _one_step_series(jump=jump)
+            ratios[jump] = (annualized_formation_volatility(c, LOG_RETURNS_CERTIFIED_V1)
+                            / annualized_formation_volatility(c, SIMPLE_RETURNS_V1))
+        assert ratios[1.10] > ratios[1.50] > ratios[2.00]
+        for jump, r in ratios.items():
+            assert r == pytest.approx(math.log(jump) / (jump - 1.0))
+
+    @pytest.mark.parametrize("profile", PROFILES)
+    def test_it_agrees_with_an_independent_re_derivation(self, profile):
+        """The closed-form tests above use a deliberately degenerate series.
+        This one re-derives the statistic from the definition over an ordinary
+        rising series, so a bug that only shows up when more than one return is
+        nonzero cannot hide behind them."""
         c = _series()
         seg = c[-(LONG_LOOKBACK_SESSIONS + 1):len(c) - SKIP_RECENT_SESSIONS]
-        rets = [b / a - 1.0 for a, b in zip(seg, seg[1:])]
+        if profile == LOG_RETURNS_CERTIFIED_V1:
+            rets = [math.log(b / a) for a, b in zip(seg, seg[1:])]
+        else:
+            rets = [b / a - 1.0 for a, b in zip(seg, seg[1:])]
         n = len(rets)
+        assert n == FORMATION_RETURNS
         mean = sum(rets) / n
-        expected = math.sqrt(sum((r - mean) ** 2 for r in rets) / (n - 1)) * math.sqrt(252)
-        assert annualized_formation_volatility(c) == pytest.approx(expected)
+        expected = math.sqrt(sum((r - mean) ** 2 for r in rets) / (n - 1)) * \
+            math.sqrt(TRADING_SESSIONS_PER_YEAR)
+        assert annualized_formation_volatility(c, profile) == pytest.approx(expected)
 
-    def test_the_segment_is_formation_only_not_the_recent_month(self):
+    def test_an_unknown_profile_is_REFUSED_not_defaulted(self):
+        """Defaulting would score a run under a formula the caller did not
+        choose, which is the entire reason these are named and in the config
+        hash."""
+        with pytest.raises(ValueError, match="unknown volatility profile"):
+            annualized_formation_volatility(_series(), "log_returns_v2")
+
+    @pytest.mark.parametrize("profile", PROFILES)
+    def test_the_segment_is_formation_only_not_the_recent_month(self, profile):
         """Volatility is measured over the SAME segment as the momentum signal.
         Including the skipped month would let the most recent 21 sessions move
-        the denominator, quietly re-introducing what the skip removes."""
+        the denominator, quietly re-introducing what the skip removes.
+
+        PROFILE-INVARIANT: which formula computes the statistic cannot change
+        WHICH SESSIONS it is computed over."""
         c = _series()
-        before = annualized_formation_volatility(c)
+        before = annualized_formation_volatility(c, profile)
         c2 = list(c)
         for i in range(len(c2) - SKIP_RECENT_SESSIONS, len(c2)):
             c2[i] *= 5.0
-        assert annualized_formation_volatility(c2) == pytest.approx(before)
+        assert annualized_formation_volatility(c2, profile) == pytest.approx(before)
 
     def test_it_uses_105_returns_from_106_closes(self):
         """The inclusive segment t-126 … t-21 spans 106 closes. Pinned because
@@ -137,14 +272,51 @@ class TestFormationVolatility:
         seg = c[-(LONG_LOOKBACK_SESSIONS + 1):len(c) - SKIP_RECENT_SESSIONS]
         assert len(seg) == 106
 
-    def test_a_frozen_price_yields_None_rather_than_zero(self):
+    @pytest.mark.parametrize("profile", PROFILES)
+    def test_a_frozen_price_yields_None_rather_than_zero(self, profile):
         """Zero volatility would divide into infinity and hand the top of the
-        ranking to whichever security stopped printing."""
-        assert annualized_formation_volatility([100.0] * REQUIRED_CLOSES) is None
+        ranking to whichever security stopped printing.
 
-    def test_a_gap_inside_the_formation_window_invalidates_it(self):
+        PROFILE-INVARIANT and not trivially: a frozen series gives 105 returns
+        of 0.0 simple and 105 of ln(1) = 0.0 log, so the variance is zero under
+        both and neither can be divided into."""
+        assert annualized_formation_volatility([100.0] * REQUIRED_CLOSES,
+                                               profile) is None
+
+    @pytest.mark.parametrize("profile", PROFILES)
+    def test_a_gap_inside_the_formation_window_invalidates_it(self, profile):
         c = _series(); c[10] = float("nan")
-        assert annualized_formation_volatility(c) is None
+        assert annualized_formation_volatility(c, profile) is None
+
+    def test_a_ZERO_close_is_where_the_two_profiles_genuinely_disagree(self):
+        """The ONE input on which the profiles differ, recorded rather than
+        smoothed over — and it is narrower than it first looks.
+
+        A zero anywhere INSIDE the segment is the `prev` of the following pair,
+        and `prev <= 0` is refused under both formulas. Only the segment's LAST
+        close is a `cur` that is never also a `prev`, and there the two part
+        company: ln(0) is undefined so the certified profile refuses, while a
+        simple return of -100% is perfectly finite so the written-spec profile
+        returns a number.
+
+        That single position is the entire divergence surface, and it is
+        unreachable through `eligibility.evaluate`, which rejects any window
+        containing a non-positive close FIRST — pinned on the eligibility side
+        by test_the_positivity_precondition_is_what_makes_eligibility_profile_
+        invariant. Both halves are asserted here because the invariance
+        downstream depends on this asymmetry staying exactly where it is.
+        """
+        c = _series()
+        last_formation = len(c) - SKIP_RECENT_SESSIONS - 1          # index 105
+        assert last_formation == LONG_LOOKBACK_SESSIONS - SKIP_RECENT_SESSIONS
+        c[last_formation] = 0.0
+        assert annualized_formation_volatility(c, LOG_RETURNS_CERTIFIED_V1) is None
+        assert annualized_formation_volatility(c, SIMPLE_RETURNS_V1) is not None
+
+        # ...and anywhere else inside the segment, both refuse.
+        mid = _series(); mid[10] = 0.0
+        assert annualized_formation_volatility(mid, LOG_RETURNS_CERTIFIED_V1) is None
+        assert annualized_formation_volatility(mid, SIMPLE_RETURNS_V1) is None
 
 
 # ── durable score (spec §5) ─────────────────────────────────────────────────

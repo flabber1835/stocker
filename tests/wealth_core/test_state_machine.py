@@ -100,17 +100,126 @@ class TestReviewBoundary:
         return st, run(st, bars)
 
     @pytest.mark.parametrize("age,expect_review", [
-        (REVIEW_AGE_SESSIONS - 1, False),   # 118
-        (REVIEW_AGE_SESSIONS, True),        # 119
-        (REVIEW_AGE_SESSIONS + 1, False),   # 120 — the window has passed
+        (REVIEW_AGE_SESSIONS - 1, False),   # 118 — not yet due
+        (REVIEW_AGE_SESSIONS, True),        # 119 — due
+        (REVIEW_AGE_SESSIONS + 1, True),    # 120 — STILL due if never held
     ])
-    def test_review_fires_only_at_exactly_119(self, age, expect_review):
-        """MANDATORY 118/119/120. `==` not `>=`: the review happens once, and a
-        holding that somehow passes 119 without being reviewed is not reviewed
-        retroactively — it is held, which is the safe direction."""
+    def test_the_review_becomes_due_at_119_and_STAYS_due_until_it_happens(
+            self, age, expect_review):
+        """MANDATORY 118/119/120, under the corrected rule.
+
+        This test used to assert `==`: due at exactly 119 and never again. That
+        was wrong in the one direction that matters. `review_due` is now `>=`,
+        and ONCE-ONLY is guaranteed by `review_completed` rather than by the age
+        comparison — which is a stronger guarantee, not a weaker one, because a
+        flag records that the review HAPPENED while an age only records that it
+        was possible.
+
+        The `==` rule made a DEFERRED review unreachable forever: a holding with
+        no close on its 119th session was skipped, the age moved to 120 the next
+        session, and the only rank check the strategy ever performs was silently
+        never performed. The holding then sat in the book for years carrying a
+        review it had not passed and could no longer take.
+
+        118 is still not due. 120 is due precisely BECAUSE nothing has completed
+        the review yet — see `test_a_survivor_is_NEVER_rank_reviewed_again` for
+        the other half, where the flag is set and 169 is not due.
+        """
         st, d = self._run_at_age(age, last_close=75.0)   # underwater, no stop
         closed = ops_of(d, Operation.CLOSE_POSITION)
         assert bool(closed) is expect_review
+
+    def test_a_review_that_ALREADY_COMPLETED_never_becomes_due_again(self):
+        """The falsifier for the case above. `>=` widens WHEN the review may
+        fire; it must not widen HOW MANY TIMES. Same age as the 120 case, but
+        the flag is set, so the holding is held and not re-reviewed."""
+        st = PortfolioState.fresh(10_000.0)
+        seat(st, 0, age=REVIEW_AGE_SESSIONS + 1, entry=100.0, peak=100.0,
+             reviewed=True)
+        closes = rising()[:-1] + [75.0]
+        bars = [SecurityBar("S1", "T1", "I_S1", closes)] + \
+               [bar(i, step=5.0) for i in range(2, 20)]
+        d = run(st, bars)
+        assert not ops_of(d, Operation.CLOSE_POSITION)
+        assert ops_of(d, Operation.HOLD_UNCHANGED)[0].reason is \
+            Reason.HOLD_REVIEW_ALREADY_COMPLETED
+
+    # ── deferral on absent evidence, and the firing that follows ────────────
+
+    def test_at_119_with_NO_CLOSE_the_review_DEFERS_and_the_flag_stays_unset(self):
+        """NO PRICE, NO REVIEW.
+
+        Without a close `is_underwater` returns False, which fell through to the
+        pass branch and marked the review PERMANENTLY complete — a holding could
+        clear its only rank check by not printing that day. Deferring costs a
+        session; passing on absent evidence cannot be undone.
+
+        The flag assertion is the load-bearing one: an implementation that
+        deferred the EXIT but still set `review_completed` would emit the same
+        operation and be just as broken.
+        """
+        st = PortfolioState.fresh(10_000.0)
+        ep = seat(st, 0, age=REVIEW_AGE_SESSIONS, entry=100.0, peak=100.0)
+        # No bar for S1 at all: held, but with no close this session.
+        others = [bar(i, step=5.0) for i in range(2, 20)]
+        d = run(st, others)
+
+        assert not ops_of(d, Operation.CLOSE_POSITION)
+        held = [o for o in ops_of(d, Operation.HOLD_UNCHANGED)
+                if o.security_id == "S1"]
+        assert held and held[0].reason is Reason.HOLD_REVIEW_DEFERRED
+        assert held[0].detail["reason"] == "NO_CLOSE"
+        assert ep.review_completed is False, (
+            "a review deferred for want of evidence must not be recorded as "
+            "passed — that is the defect, not the symptom")
+        assert ep.review_due is True, "still pending, and must remain reachable"
+
+    def test_the_DEFERRED_review_fires_on_the_next_valid_session(self):
+        """The case the old `==` rule made unreachable, end to end.
+
+        Session 1: age 119, no close -> deferred, flag unset.
+        Session 2: age 120, a close arrives -> the pending review EVALUATES and,
+        being underwater and unqualified, exits.
+
+        Under `==` the second session read age 120, `review_due` was False, and
+        the holding was held forever without ever being reviewed.
+        """
+        st = PortfolioState.fresh(10_000.0)
+        ep = seat(st, 0, age=REVIEW_AGE_SESSIONS, entry=100.0, peak=100.0)
+        others = [bar(i, step=5.0) for i in range(2, 20)]
+
+        first = run(st, others, session="2026-08-03")
+        assert ops_of(first, Operation.HOLD_UNCHANGED)[0].reason is \
+            Reason.HOLD_REVIEW_DEFERRED
+
+        # The next session: the holding ages, and its close arrives.
+        ep.market_sessions_held = REVIEW_AGE_SESSIONS + 1
+        closes = rising()[:-1] + [75.0]          # underwater vs entry 100
+        second = run(st, [SecurityBar("S1", "T1", "I_S1", closes)] + others,
+                     session="2026-08-04")
+
+        closed = ops_of(second, Operation.CLOSE_POSITION)
+        assert closed, "the deferred review never fired — it is unreachable"
+        assert closed[0].reason is Reason.EXIT_REVIEW_WEAKNESS
+        assert closed[0].detail["underwater"] is True
+        assert closed[0].detail["qualified"] is False
+
+    def test_a_deferred_review_that_later_PASSES_completes_permanently(self):
+        """The other outcome of the same deferral, so the test above is not
+        measuring 'deferral always ends in an exit'."""
+        st = PortfolioState.fresh(10_000.0)
+        ep = seat(st, 0, age=REVIEW_AGE_SESSIONS, entry=100.0, peak=100.0)
+        run(st, [], session="2026-08-03")             # no bars at all: deferred
+        assert ep.review_completed is False
+
+        ep.market_sessions_held = REVIEW_AGE_SESSIONS + 1
+        d = run(st, [SecurityBar("S1", "T1", "I_S1", rising()[:-1] + [400.0])],
+                session="2026-08-04")
+        assert not ops_of(d, Operation.CLOSE_POSITION)
+        assert ops_of(d, Operation.HOLD_UNCHANGED)[0].reason is \
+            Reason.HOLD_REVIEW_PASSED
+        assert ep.review_completed is True
+        assert ep.review_due is False
 
     def test_a_holding_is_not_reviewed_before_119(self):
         st, d = self._run_at_age(REVIEW_AGE_SESSIONS - 1, last_close=75.0)

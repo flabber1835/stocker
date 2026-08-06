@@ -189,7 +189,40 @@ class TestTheCutsReallyLandOnTheConditions:
 
 
 class TestTheRestartMachineryCanActuallyFail:
-    """Mutation controls, one per piece of state the scenarios depend on."""
+    """Mutation controls, one per piece of state the scenarios depend on.
+
+    TWO THINGS WERE WRONG WITH THE ORIGINAL SHAPE OF THIS CLASS, and both made
+    it weaker than it read.
+
+    1. IT COMPARED THE WRONG PAIR. The control asserted
+       `first_divergence(tail_hashes, whole_run_hashes) is not None`. Those two
+       runs cover DIFFERENT SESSION RANGES, so `normalized_input` — the first
+       hash in diagnostic order — always differs, and the assertion was true for
+       every corruption whether or not the corruption did anything at all. It
+       could not fail. The comparison is now DAMAGED TAIL vs CLEAN TAIL over the
+       same sessions, where a divergence means something.
+
+    2. IT ASSERTED THE WRONG LAYER. It required the terminal STATE hash to
+       differ. That holds for four of the six corruptions and is simply false
+       for the other two, because a later safeguard absorbs the damage:
+
+         * dropped reservations — the resumed run re-admits the reserved
+           security and queues a SECOND order for the same slot, exactly the
+           duplicate-order defect. At the fill, `affordable_shares` finds the
+           cash already spent by the first order and cancels the duplicate. The
+           book converges; the ORDER STREAM does not.
+         * dropped review flags — every holding past the review age is
+           re-reviewed, and a re-review that PASSES sets the flag again. The
+           state re-converges. Under the old `==` rule it could not, which is
+           why this control used to pass: it was relying on a bug.
+
+       Both corruptions ARE load-bearing and both DO diverge — at `decision`,
+       which is where the audit trail records that the strategy considered
+       something it should not have. So each case now pins the layer it diverges
+       at, and states explicitly whether the terminal state converges. That is a
+       stronger claim than "something differs", and it is the claim that stays
+       true when a downstream safeguard is added or removed.
+    """
 
     def corrupt_reservations(self, blob):
         for slot in blob["slots"].values():
@@ -226,26 +259,77 @@ class TestTheRestartMachineryCanActuallyFail:
         for ep in blob["episodes"].values():
             ep["review_completed"] = False
 
-    @pytest.mark.parametrize("corruption,cut", [
-        # 169, not 168. At exactly 168 the corrupted run happens to reconverge
-        # on the same terminal state — 167 and every cut from 169 on diverge —
-        # so 168 would pass this control while proving nothing. Probed, not
-        # assumed.
-        ("corrupt_reservations", 169),
-        ("corrupt_unresolved_terminals", CUTS["unresolved_terminal_event"]),
-        ("corrupt_episode_ages", 150),
-        ("corrupt_peaks", 150),
-        ("corrupt_cooldowns", CUTS["cooldown_boundary"]),
-        ("corrupt_review_flags", 250),
-    ])
+    # (corruption, cut, first layer that must diverge, does terminal state move?)
+    MUTATIONS = [
+        ("corrupt_reservations", 169, "decision", False),
+        ("corrupt_unresolved_terminals", CUTS["unresolved_terminal_event"],
+         "decision", True),
+        ("corrupt_episode_ages", 150, "decision", True),
+        ("corrupt_peaks", 150, "decision", True),
+        ("corrupt_cooldowns", CUTS["cooldown_boundary"], "decision", True),
+        ("corrupt_review_flags", 250, "decision", False),
+    ]
+
+    @pytest.mark.parametrize("corruption,cut,layer,state_moves", MUTATIONS)
     def test_losing_it_across_the_restart_changes_the_run(self, g, whole,
-                                                          corruption, cut):
-        ref, ref_hashes = whole
-        _, damaged, hashes = resumed(g, cut, corrupt=getattr(self, corruption))
-        assert damaged.state.state_hash() != ref.state.state_hash(), (
-            f"{corruption} made no difference — the scenario it guards is not "
-            f"being exercised at session index {cut}")
-        assert first_divergence(hashes, ref_hashes) is not None
+                                                          corruption, cut,
+                                                          layer, state_moves):
+        """Damaged tail vs CLEAN tail over the same sessions — see the class
+        docstring for why the comparison used to be against the whole run and
+        why that could not fail."""
+        ref, _ = whole
+        clean, clean_hashes = resumed(g, cut)[1:]
+        damaged, damaged_hashes = resumed(g, cut, corrupt=getattr(self, corruption))[1:]
+
+        # The clean resumption is the control's own control: if this drifts,
+        # the comparison below is measuring a broken restart, not a corruption.
+        assert clean.state.state_hash() == ref.state.state_hash()
+
+        assert first_divergence(damaged_hashes, clean_hashes) == layer, (
+            f"{corruption} at session index {cut} was expected to first diverge "
+            f"at {layer!r}; got "
+            f"{first_divergence(damaged_hashes, clean_hashes)!r}. Either the "
+            f"corruption stopped mattering — the scenario it guards is no "
+            f"longer exercised at this cut — or it now shows up somewhere else, "
+            f"which is a finding about the engine.")
+
+        assert (damaged.state.state_hash() != clean.state.state_hash()) is state_moves
+
+    def test_the_absorbed_corruptions_really_are_absorbed_downstream(self, g, whole):
+        """The two `state_moves=False` rows say a LATER safeguard swallows the
+        damage. That is a claim about a specific mechanism, so it is asserted
+        rather than left as a comment on a False.
+
+        Dropping the reservations must produce a SECOND, duplicate order for the
+        already-reserved security, and the fill-time affordability rule must be
+        what cancels it. If the duplicate stopped being emitted, the control
+        above would still pass at `decision` for some other reason and the
+        reservation would look load-bearing when it was not.
+        """
+        cut = 169
+        clean = resumed(g, cut)[1]
+        damaged = resumed(g, cut, corrupt=self.corrupt_reservations)[1]
+
+        def orders_for(run, sec):
+            return [o for s in run.sessions if s.decision
+                    for o in s.decision.to_dict()["operations"]
+                    if o["operation"] == "OPEN_SLOT_POSITION"
+                    and o["security_id"] == sec]
+
+        reserved = "SEC_BUST"          # the security holding the reservation
+        assert not orders_for(clean, reserved), (
+            "the clean resumption must NOT re-order the reserved security — "
+            "that is what the reservation is for")
+        assert orders_for(damaged, reserved), (
+            "dropping the reservation must re-admit it; without the duplicate "
+            "there is nothing for the reservation to have prevented")
+
+        cancels = [c for s in damaged.sessions for c in s.cancelled
+                   if c["security_id"] == reserved]
+        assert any(c["reason"] == "UNAFFORDABLE_AT_OPEN" for c in cancels), (
+            "the duplicate must be stopped by the fill-time affordability rule; "
+            "if it fills, the book doubles a position and the terminal state "
+            "WOULD move — in which case this row's state_moves is wrong")
 
 
 def test_the_joined_sessions_match_the_uninterrupted_run(g, whole):

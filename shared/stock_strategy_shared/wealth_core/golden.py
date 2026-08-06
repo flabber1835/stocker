@@ -165,7 +165,10 @@ SPLIT_SESSION = 150
 DIVIDEND_SESSION = 155
 HALTED_CRASH_FROM = 166       # stop fires here, but the security then halts
 HALTED_UNTRADEABLE = range(167, 179)
-REPLACEMENT_UNTRADEABLE = range(167, 176)   # the entry that straddles S170
+# The entry that straddles S170. It ends at S175 so the fill lands on S176,
+# which is where the close-to-open gap bites and where the restart matrix's
+# `entry_opening_gap_reduced_quantity` cut at 177 expects a short fill.
+REPLACEMENT_UNTRADEABLE = range(167, 176)
 GHOST_MISSING_SESSION = 170
 UNRESOLVED_FROM = 175
 MERGER_SESSION = 180
@@ -191,16 +194,40 @@ STRANDED_RESOLVED = 210       # ...and the block must LIFT once supplied
 CONVERSION_RATIO = 0.757
 MIXED_RATIO = 0.687
 
-# The security whose entry straddles the restart boundary. It is a FILLER rather
-# than a named security because the slot STOPOUT vacates goes to the best
-# candidate not already held, and by then every named security is held.
+# The security whose entry straddles the restart boundary.
 #
-# WHICH filler is an OUTPUT of the strategy, not a free choice: it is whichever
-# one the ranking actually picks when that slot leaves cooldown. Naming the
-# wrong one costs nothing visible — the untradeable window simply lands on a
-# security nobody was buying, the entry fills on time, and the fixture quietly
-# stops covering the case. It is asserted in test_the_boundary_really_is_mid_flight.
-REPLACEMENT_SECURITY = "SEC_F094"
+# WHICH security this is is an OUTPUT of the strategy, not a free choice: it is
+# whichever one the ranking actually admits into the slot STOPOUT vacates when
+# that slot leaves cooldown. Naming the wrong one costs nothing visible — the
+# untradeable window lands on a security nobody was buying, the entry fills on
+# time, and the fixture quietly stops covering the case. It is asserted in
+# test_the_boundary_really_is_mid_flight.
+#
+# It WAS a filler (SEC_F094), on the reasoning that "by S166 every named
+# security is held". The initial-construction fix invalidated that: the opening
+# now fills all 25 slots at S126/S127 instead of drip-feeding, so F094 is bought
+# in the opening and the S166 vacancy goes to the best candidate that is NOT yet
+# held. That is SEC_BUST, and for a mechanical reason worth recording, because
+# it is not "BUST got luckier":
+#
+#   * BUST's drift (1.41) puts it among the strong named securities on momentum,
+#     but its base price (25.0) x ~450k shares is ~$11M of daily dollar volume —
+#     BELOW the $20M ADV20 floor. It is therefore INELIGIBLE at S126 and absent
+#     from the 25-name leadership population entirely, which is why the opening
+#     never considers it.
+#   * By S166 its drift has carried the price past ~$45, ADV20 clears, and it
+#     enters the leadership set — into the room STOPOUT left when its -40% crash
+#     at S145 collapsed its momentum.
+#   * At S166 it scores 1.3810, behind only MERGED (1.4238), STRANDED (1.4139)
+#     and SPLITTER (1.4053), all three of which are already held. So it is the
+#     highest-ranked unheld candidate, and the slot is its.
+#
+# BUST therefore carries two conditions — the straddling entry and the write-off
+# at S185 — and that is forced rather than untidy. A dedicated security for the
+# straddle would have to outrank BUST at S166 to take the slot, which would push
+# BUST to the next vacancy (slot 5, ~S188) and leave it UNHELD when its write-off
+# is due, silently retiring that condition instead.
+REPLACEMENT_SECURITY = "SEC_BUST"
 
 
 def _named_path(security_id: str, t: int, raw: float) -> float:

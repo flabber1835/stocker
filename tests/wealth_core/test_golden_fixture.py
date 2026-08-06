@@ -343,15 +343,7 @@ class TestRestartAtTheBoundary:
                  [s for s in second.to_dict()["sessions"]]
         assert joined == one_shot.to_dict()["sessions"]
 
-    def test_dropping_the_reservation_across_the_restart_changes_the_run(self):
-        """A mutation proof that the reservation is load-bearing.
-
-        Without it the resumed run re-hands the reserved slot to a second
-        candidate — the 13-duplicate-orders defect, arriving by the restart
-        route. If this test can be made to pass, the guarantee is not being
-        tested by the one above.
-        """
-        g = golden_scenario()
+    def _resume(self, g, *, corrupt=None):
         head, tail = g.sessions[:RESTART_AT], g.sessions[RESTART_AT:]
         pending: list[PendingOrder] = []
         last_known: dict[str, float] = {}
@@ -360,14 +352,11 @@ class TestRestartAtTheBoundary:
                              terminal_events=g.terminal_events, pending=pending,
                              last_known=last_known)
         blob = json.loads(json.dumps(first.state.to_dict()))
-        for slot in blob["slots"].values():           # the corruption
-            slot["reserved_for"] = None
-            slot["reserved_ticker"] = None
-            slot["reserved_issuer"] = None
-
+        if corrupt is not None:
+            corrupt(blob)
         feed = Feed(g.meta)
         feed.warmup(head, g.bars_by_session)
-        damaged = run_sessions(
+        return run_sessions(
             sessions=tail, bars_by_session=g.bars_by_session, meta=g.meta,
             starting_cash=g.starting_cash, terminal_events=g.terminal_events,
             state=PortfolioState.from_dict(blob),
@@ -375,11 +364,55 @@ class TestRestartAtTheBoundary:
             ledger=Ledger.from_dict(first.ledger.to_dict()),
             last_known=dict(last_known), feed=feed)
 
-        one_shot = run_sessions(sessions=g.sessions,
-                                bars_by_session=g.bars_by_session, meta=g.meta,
-                                starting_cash=g.starting_cash,
-                                terminal_events=g.terminal_events)
-        assert damaged.state.state_hash() != one_shot.state.state_hash()
+    def test_dropping_the_reservation_across_the_restart_REORDERS_the_slot(self):
+        """A mutation proof that the reservation is load-bearing.
+
+        Without it the resumed run re-hands the reserved slot to the same
+        candidate — the duplicate-orders defect, arriving by the restart route.
+
+        THE ASSERTION IS ON THE ORDER STREAM, NOT THE TERMINAL STATE, and that
+        is a correction rather than a weakening. This test used to compare the
+        damaged run's final state hash against the one-shot run's, which no
+        longer differs: the duplicate entry is emitted, reaches the open, finds
+        the cash already spent by the original order, and is cancelled
+        UNAFFORDABLE_AT_OPEN. The book converges because a SECOND safeguard
+        catches what the reservation missed.
+
+        Asserting on state would therefore report "the reservation is not
+        load-bearing", which is false — it is doing its job one layer earlier.
+        Asserting on the orders says what actually happens, and keeps saying it
+        if the affordability rule is ever changed.
+        """
+        g = golden_scenario()
+        clean = self._resume(g)
+        damaged = self._resume(g, corrupt=self._drop_reservations)
+
+        def entries(run, sec):
+            return [o for s in run.sessions if s.decision
+                    for o in s.decision.to_dict()["operations"]
+                    if o["operation"] == "OPEN_SLOT_POSITION"
+                    and o["security_id"] == sec]
+
+        reserved = "SEC_BUST"
+        assert not entries(clean, reserved), (
+            "the intact reservation must stop the resumed run re-selecting the "
+            "security whose entry is already queued")
+        dupes = entries(damaged, reserved)
+        assert dupes, "the corruption produced no duplicate — nothing is guarded"
+        assert dupes[0]["slot_id"] == 0, "and it claims the very same slot"
+
+        assert any(c["security_id"] == reserved
+                   and c["reason"] == "UNAFFORDABLE_AT_OPEN"
+                   for s in damaged.sessions for c in s.cancelled), (
+            "the duplicate must be caught at the fill by the affordability "
+            "rule; if it fills, the position doubles")
+
+    @staticmethod
+    def _drop_reservations(blob):
+        for slot in blob["slots"].values():
+            slot["reserved_for"] = None
+            slot["reserved_ticker"] = None
+            slot["reserved_issuer"] = None
 
 
 # ── the pin ─────────────────────────────────────────────────────────────────

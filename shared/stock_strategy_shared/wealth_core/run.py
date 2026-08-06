@@ -43,7 +43,6 @@ from stock_strategy_shared.wealth_core.terminal import (
     FinalReport,
     TerminalKind,
     TerminalTerms,
-    apply_terminal,
     final_report,
 )
 
@@ -209,6 +208,7 @@ def run_sessions(*, sessions: Sequence[str],
                            # position after splits/dividends and before fills.
                            terminal_terms=events_by_session.get(session, []))
         out.sessions.append(res)
+        out.terminal_results.extend(res.terminal_results)
         if res.blocked:
             out.blocked_sessions.append(session)
         if on_session is not None:
