@@ -308,3 +308,64 @@ class TestAnUnknownSignalCannotReRiskTheBook:
 
     def test_the_exposure_key_names_the_third_state(self):
         assert self._thin_breadth().equity_exposure_key == "unknown"
+
+
+class TestNoDeadConfigurationPromisesARiskControl:
+    """`stressed_stop_pct` / `stressed_stop_sma_sessions` were in the schema and
+    in the ACTIVE config, with a Field description specific enough to be
+    believed — and no consumer anywhere. A reader concluded the book tightened
+    its stops during a crash. It did not.
+
+    Removed rather than implemented: implementing is a strategy change needing
+    wind-tunnel evidence the tunnel cannot currently produce. These tests fail
+    against the version that carried the fields.
+    """
+
+    def test_the_fields_are_GONE_from_the_schema(self):
+        from stock_strategy_shared.schemas.strategy import CrashBrakeConfig
+        fields = set(CrashBrakeConfig.model_fields)
+        assert "stressed_stop_pct" not in fields
+        assert "stressed_stop_sma_sessions" not in fields
+
+    def test_a_config_still_setting_them_is_REJECTED_not_ignored(self):
+        """The removal must fail LOUD. Silently accepting the key would leave the
+        same false promise with an extra step."""
+        import pydantic
+        from stock_strategy_shared.schemas.strategy import CrashBrakeConfig
+        with pytest.raises(pydantic.ValidationError):
+            CrashBrakeConfig(enabled=True, stressed_stop_pct=0.2)
+        with pytest.raises(pydantic.ValidationError):
+            CrashBrakeConfig(enabled=True, stressed_stop_sma_sessions=100)
+
+    def test_no_module_references_them(self):
+        """The falsifier for the actual defect: presence in the schema was never
+        the problem, absence of a CONSUMER was."""
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parents[2]
+        def code_only(text: str) -> str:
+            # The removal COMMENT names the fields on purpose — it is the record
+            # of why they are gone. Searching raw text would make keeping that
+            # explanation impossible, which is the wrong trade.
+            return "\n".join(ln for ln in text.splitlines()
+                             if not ln.lstrip().startswith("#"))
+        hits = []
+        for pat in ("shared/**/*.py", "services/**/*.py"):
+            for f in root.glob(pat):
+                if "stressed_stop" in code_only(f.read_text()):
+                    hits.append(str(f.relative_to(root)))
+        assert hits == [], f"a consumer appeared without the field: {hits}"
+
+    def test_the_surviving_crash_brake_fields_all_HAVE_consumers(self):
+        """Generalises the defect rather than fixing one instance of it."""
+        import pathlib
+        from stock_strategy_shared.schemas.strategy import CrashBrakeConfig
+        root = pathlib.Path(__file__).resolve().parents[2]
+        src = "\n".join(
+            f.read_text() for pat in ("shared/**/*.py", "services/**/*.py")
+            for f in root.glob(pat))
+        orphans = [n for n in CrashBrakeConfig.model_fields
+                   if f'"{n}"' not in src and f"'{n}'" not in src
+                   and f".{n}" not in src]
+        assert orphans == [], (
+            f"crash_brake fields with no consumer: {orphans} — dead config that "
+            f"promises a risk control is worse than no config")

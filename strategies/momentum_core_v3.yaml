@@ -210,8 +210,6 @@ crash_brake:
   min_breadth_names: 50
   normal_equity_exposure: 1.0
   stressed_equity_exposure: 0.5
-  stressed_stop_pct: 0.2
-  stressed_stop_sma_sessions: 100
 portfolio_drawdown_guard:
   enabled: true
   action_mode: observe_only

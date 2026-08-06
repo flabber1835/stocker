@@ -870,12 +870,24 @@ class CrashBrakeConfig(BaseModel):
     stressed_equity_exposure: float = Field(
         default=0.50, gt=0.0, le=1.0,
         description="Gross exposure while engaged; the remainder sits in cash.")
-    stressed_stop_pct: float = Field(
-        default=0.20, gt=0.0, le=0.9,
-        description="Tighter trailing stop applied WHILE ENGAGED, and only to holdings "
-                    "below stressed_stop_sma_sessions — a blanket tightening would stop "
-                    "out names that are still working.")
-    stressed_stop_sma_sessions: int = Field(default=100, ge=20, le=252)
+    # REMOVED 2026-08: stressed_stop_pct / stressed_stop_sma_sessions.
+    #
+    # They described a tighter trailing stop applied while the brake is engaged,
+    # in a Field description specific enough to be believed — and NOTHING
+    # consumed them. Not the pipeline, not the backtester, not the shared brake.
+    # A reader of the active config reasonably concluded the book tightened its
+    # stops during a crash. It did not.
+    #
+    # Deleted rather than implemented, because implementing them is a STRATEGY
+    # change that needs wind-tunnel evidence, and the tunnel currently refuses
+    # every config in the repo pending the SF1 re-backfill. Dead configuration
+    # that promises a RISK CONTROL is worse than no configuration: absent
+    # settings prompt a question, false ones answer it wrongly.
+    #
+    # `extra="forbid"` makes this removal fail LOUD — a config still setting
+    # either field is now rejected by the validator rather than silently ignored,
+    # which is the whole point. The intent is preserved in
+    # docs/wealth-core-defense-plan.md, where the overlay owns stop semantics.
 
     @model_validator(mode="after")
     def stressed_exposure_is_a_reduction(self) -> "CrashBrakeConfig":
