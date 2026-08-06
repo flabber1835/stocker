@@ -387,3 +387,66 @@ class TestTheCorpusRangeIsDatesNotStrings:
         assert "str(req.start_date)" not in body
         assert "str(req.end_date)" not in body
         assert "corpus_date_range(req)" in body
+
+
+class TestARestartDoesNotLeaveARunLying:
+    """A Wealth Core run lives in a background task. When the engine restarts the
+    task is gone and nothing updates its row — so without a startup reclaim it
+    reads `running` forever.
+
+    That is not merely untidy. `running` + "/progress has nothing yet" is exactly
+    what a HEALTHY run looks like during its corpus load, so the operator has no
+    way to tell a dead job from a working one. It cost a real three-year
+    rehearsal: killed 16 minutes in by a container restart, then waited on for
+    half an hour with no query running and no process behind it.
+    """
+
+    LIFESPAN = (REPO / "services" / "bt-engine" / "app" / "main.py").read_text()
+
+    def test_the_startup_pass_reclaims_wealth_core_runs(self):
+        assert "UPDATE bt_wealth_core_runs SET status='failed'" in self.LIFESPAN
+
+    def test_it_reclaims_all_three_tables_not_just_the_two_it_started_with(self):
+        """bt_runs and bt_sweeps were always reclaimed; bt_wealth_core_runs was
+        added later and is the one that was missed. Asserting all three keeps a
+        FOURTH job table from being added with the same omission."""
+        for table in ("bt_runs", "bt_sweeps", "bt_wealth_core_runs"):
+            assert f"UPDATE {table} SET status='failed'" in self.LIFESPAN, (
+                f"{table} has running rows that no restart pass reclaims")
+
+    def _reclaim_statements(self):
+        """The reclaim SQL, via AST rather than regex.
+
+        Python folds adjacent string literals into ONE constant at parse time,
+        so each multi-line statement arrives whole — and comments, which sit
+        between the literals in the source, are already gone. A regex over the
+        raw text fought both.
+        """
+        import ast
+        tree = ast.parse(self.LIFESPAN)
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef))
+                  and n.name == "lifespan")
+        # Scoped to `lifespan`, not the whole module: bt-engine has other
+        # `status='failed'` updates (the stale-run reclaim, the per-run failure
+        # path) and counting those would make this test pass for the wrong
+        # reason.
+        return [n.value for n in ast.walk(fn)
+                if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                and "UPDATE bt_" in n.value and "status='failed'" in n.value]
+
+    def test_every_reclaim_is_marked_RESTART_ABORTED(self):
+        """The marker is what distinguishes 'the engine died' from 'the strategy
+        failed'. A reclaim without it turns an infrastructure event into what
+        looks like a result — and the scheduler's own recovery keys on the
+        prefix."""
+        stmts = self._reclaim_statements()
+        assert len(stmts) == 3, f"expected 3 reclaims, found {len(stmts)}"
+        for stmt in stmts:
+            assert "RESTART_ABORTED" in stmt, stmt[:120]
+
+    def test_the_reclaim_only_touches_running_rows(self):
+        """A finished run's summary must never be overwritten by a later
+        restart — the metrics are the whole point of the row."""
+        for stmt in self._reclaim_statements():
+            assert "WHERE status='running'" in stmt, stmt[:120]

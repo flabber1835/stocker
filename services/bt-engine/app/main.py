@@ -108,6 +108,25 @@ async def lifespan(application: FastAPI):
                 "UPDATE bt_sweeps SET status='failed', completed_at=NOW(), "
                 "error_message='RESTART_ABORTED: engine restarted mid-sweep' "
                 "WHERE status='running'"))
+            # Wealth Core runs were MISSING from this pass, and the omission was
+            # not cosmetic. A run lives in a background task; when the engine
+            # restarts, the task is gone and nothing ever updates its row — so it
+            # reads `running` forever. That is indistinguishable from a run
+            # legitimately in its corpus load, which is exactly the state an
+            # operator is watching during the first minutes of a multi-hour job:
+            # the row says running, `/progress` says not started yet, and both
+            # are what a healthy run looks like too.
+            #
+            # Cost of the gap, measured: a three-year rehearsal was killed 16
+            # minutes in by a container restart and spent the next half hour
+            # being waited on, with no query running and no process behind it.
+            await conn.execute(text(
+                "UPDATE bt_wealth_core_runs SET status='failed', "
+                "completed_at=NOW(), "
+                "error_message='RESTART_ABORTED: engine restarted mid-run. The "
+                "job lived in a background task and did not survive; nothing "
+                "was written and nothing is still working. Re-submit.' "
+                "WHERE status='running'"))
     except Exception as exc:  # noqa: BLE001 — tables may predate init on first boot
         print(f"[bt-engine] startup sweep-DDL/orphan pass skipped: {exc}")
     yield
