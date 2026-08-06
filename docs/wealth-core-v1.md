@@ -535,9 +535,35 @@ has **125 distinct tickers for 125 securities** — no rename, no reuse. So it
 pins identity *handling* only in the sense that the ids happen to be stable; it
 would not catch a regression that reverted to ticker-as-identity.
 
-That evidence lives in `tests/wealth_core/test_identity.py`, which is falsified
-rather than assumed: reverting the cooldown key to the symbol and removing the
-relabelling step fails **10** of its 21 tests. Giving the scenario a rename and a
+That evidence lives in two files, both falsified rather than assumed.
+`test_identity.py` pins each rule in isolation — reverting the cooldown key to
+the symbol and removing the relabelling step fails **10** of its 21 tests.
+`test_identity_discriminator.py` runs the rules in SEQUENCE, which is where the
+interesting failure lives.
+
+### One wrong key, two opposite wrong answers
+
+The cooldown is written ONCE, when the exit fills. Keyed on the symbol it lands
+on whatever the security was trading as at that moment, and that single wrong
+key produces both failures — which is why one path can catch both:
+
+| | what a symbol-keyed cooldown does |
+|---|---|
+| false **unblock** | SEC_A exits as `OLD`, renames to `NEW`, and a lookup under `NEW` finds nothing. Re-buyable inside its own protection window. |
+| false **block** | SEC_B later picks up the vacated `OLD` and inherits a **stranger's** cooldown. A company never held is refused for 21 sessions, and the audit says only "cooldown". |
+
+Only the first was fixed and pinned in item 7. The second was never pinned at
+all, and nothing else in the suite notices it.
+
+**Ordering in that fixture is load-bearing, and the first version got it wrong.**
+It renamed SEC_A while the exit was still in flight, so the exit filled under
+`NEW` and a symbol-keyed cooldown landed on a key SEC_B never touches — the
+false-block test passed under a deliberately sabotaged engine, because the path
+never reached the case it was written for. The exit must fill while the security
+is still `OLD`. That constraint is incompatible with relabelling a queued order
+mid-flight (which needs the rename BEFORE the fill), so the two live in separate
+scenarios rather than being forced into one, and a guard test asserts the fill
+really did precede the rename. Sabotaged, the corrected fixture fails 5 of 11. Giving the scenario a rename and a
 reused ticker would close the gap inside the artefact and needs its own
 deliberate re-pin — it belongs with the next scenario revision, alongside the
 volatility dispersion.
