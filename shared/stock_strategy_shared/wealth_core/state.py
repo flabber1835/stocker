@@ -374,8 +374,9 @@ class PortfolioState:
         insertion order and a replay in a fresh process could differ from the
         original while representing identical state.
         """
-        blob = json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"),
-                          default=str)
+        from stock_strategy_shared.wealth_core.hashes import quantize
+        blob = json.dumps(quantize(self.to_dict()), sort_keys=True,
+                          separators=(",", ":"), default=str)
         return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
 

@@ -324,7 +324,11 @@ def unusable_dividend_rows(rows: Iterable[dict]) -> int:
     return n
 
 
-def terminal_from_action(row: dict, session: str) -> TerminalTerms | None:
+def terminal_from_action(row: dict, session: str, *,
+                         security_id: str | None = None,
+                         delivered_security_id: str | None = None,
+                         delivered_issuer_id: str | None = None
+                         ) -> TerminalTerms | None:
     """One ACTIONS row -> the terminal terms it actually supports, or None.
 
     THE RULE THIS FUNCTION EXISTS TO ENFORCE: a terminal action without
@@ -345,6 +349,14 @@ def terminal_from_action(row: dict, session: str) -> TerminalTerms | None:
     `reference` so the audit says what actually happened rather than what shape
     was used to block it.
 
+    IDENTITY IS RESOLVED BY THE CALLER, and passed in. `row["ticker"]` is an
+    observation label: the episode this action terminates is keyed on the
+    PERMANENT id, so terms carrying a ticker match no holding at all and every
+    action silently returns NOT_HELD. `security_id=None` means the source could
+    not be attributed to a permanent security, and the action is not emitted —
+    applying a terminal event to a security nobody can name is worse than
+    missing one.
+
     THE ONE THING ACTIONS CANNOT EXPRESS is mixed consideration. There is a
     single `value` column, so a cash-plus-stock deal states one leg and the
     other is unrecoverable. `contraticker` is the discriminator — its presence
@@ -356,7 +368,9 @@ def terminal_from_action(row: dict, session: str) -> TerminalTerms | None:
     action = (row.get("action") or "").lower()
     if action not in TERMINAL_ACTIONS:
         return None
-    ticker = row["ticker"]
+    sid = security_id
+    if not sid:
+        return None
     value = row.get("value")
     value = float(value) if value is not None else None
     contra = row.get("contraticker") or None
@@ -366,11 +380,18 @@ def terminal_from_action(row: dict, session: str) -> TerminalTerms | None:
         # Security-for-security: the value is an exchange ratio. A missing or
         # non-positive ratio leaves it incomplete, which blocks — the delivered
         # share count is not something to guess.
+        # An UNRESOLVED delivered security leaves `delivered_security_id` None,
+        # which `completeness()` refuses with MISSING_DELIVERED_SECURITY — so the
+        # deal BLOCKS. That is the correct outcome: delivering shares under a
+        # guessed identity puts a position in the book under a security that may
+        # not be the acquirer, and `P:` + a TICKER is not a permanent id at all —
+        # it is a ticker wearing the permanent-id namespace's prefix.
         return TerminalTerms(
-            session=session, security_id=ticker,
+            session=session, security_id=sid,
             kind=TerminalKind.CONVERSION,
-            delivered_security_id=contra, delivered_ticker=contra,
-            delivered_issuer_id=f"P:{contra}",
+            delivered_security_id=delivered_security_id,
+            delivered_ticker=contra,
+            delivered_issuer_id=delivered_issuer_id,
             exchange_ratio=value if (value and value > 0) else None,
             # A fractional entitlement needs a settlement price and ACTIONS does
             # not carry one. Left None so `completeness()` blocks the deal that
@@ -383,40 +404,95 @@ def terminal_from_action(row: dict, session: str) -> TerminalTerms | None:
         # A STATED zero. This is the only route to a write-off: the vendor has
         # said the consideration was nothing, which is a fact rather than the
         # absence of one.
-        return TerminalTerms(session=session, security_id=ticker,
+        return TerminalTerms(session=session, security_id=sid,
                              kind=TerminalKind.WRITE_OFF, reference=ref)
 
     # Cash consideration, or — when value is None — no terms at all, which
     # blocks. Both are the same shape; only `cash_per_share` differs.
-    return TerminalTerms(session=session, security_id=ticker,
+    return TerminalTerms(session=session, security_id=sid,
                          kind=TerminalKind.CASH_MERGER,
                          cash_per_share=value, reference=ref)
 
 
 def terminal_events_from_actions(rows: Iterable[dict],
                                  sessions_sorted: Sequence[str],
-                                 known_tickers: set[str] | None = None
+                                 known_securities: set[str] | None = None,
+                                 identity: "IdentityResolver | None" = None,
+                                 meta: "dict[str, SecurityMeta] | None" = None,
+                                 unresolved: dict[str, int] | None = None
                                  ) -> list[TerminalTerms]:
-    """Every terminal action in the window, snapped to real sessions.
+    """Every terminal action in the window, RESOLVED to permanent identities and
+    snapped to real sessions.
 
-    Filtered to `known_tickers` — the securities this run could actually hold.
-    An action on a security absent from the universe cannot affect the book, and
-    emitting it anyway would put tens of thousands of NOT_HELD rows into
-    `terminal_results`, which is inside the result hash.
+    THE IDENTITY BOUNDARY, and the reason this signature changed. ACTIONS rows
+    are keyed on the SYMBOL; holdings, metadata and episodes are keyed on the
+    PERMANENT id. Filtering a ticker against a `P:<permaticker>` universe matches
+    nothing, so every terminal action was dropped before reaching the engine —
+    no cash merger paid, no write-off applied, no terms-less delisting blocking
+    anything — while the run completed normally and reported an empty
+    `terminal_results`. Resolution therefore happens FIRST and filtering happens
+    against the resolved id.
+
+    Both sides are resolved point-in-time: the source ticker AND the
+    `contraticker` of a stock deal, at the action's effective session. A source
+    that cannot be attributed is DROPPED and counted — applying a terminal event
+    to a security nobody can name is worse than missing one. An unresolvable
+    DELIVERED security is left None, which `completeness()` refuses, so the deal
+    BLOCKS rather than delivering shares under a guessed identity.
+
+    `known_securities` holds PERMANENT ids — the securities this run could
+    actually hold. An action on a security absent from the universe cannot
+    affect the book, and emitting it anyway would put tens of thousands of
+    NOT_HELD rows into `terminal_results`, which is inside the result hash.
 
     Deterministic order: `run_sessions` groups by session, but the ORDER within
     a session reaches `step_session`, which sorts by (security_id, kind) — so
     this only has to be stable, and sorting here makes it stable before the
     database's ORDER BY is trusted for anything.
     """
+    def _count(key: str) -> None:
+        if unresolved is not None:
+            unresolved[key] = unresolved.get(key, 0) + 1
+
     out: list[TerminalTerms] = []
     for r in rows:
-        if known_tickers is not None and r["ticker"] not in known_tickers:
+        if (r.get("action") or "").lower() not in TERMINAL_ACTIONS:
             continue
         session = snap_to_session(str(r["date"]), sessions_sorted)
         if session is None:
             continue
-        t = terminal_from_action(r, session)
+
+        ticker = r["ticker"]
+        sid = (identity.resolve(ticker, session) if identity is not None
+               else ticker)
+        if sid is None:
+            _count("terminal_source_unresolved")
+            continue
+        if known_securities is not None and sid not in known_securities:
+            continue
+
+        delivered_sid = delivered_issuer = None
+        contra = r.get("contraticker") or None
+        if contra:
+            delivered_sid = (identity.resolve(contra, session)
+                             if identity is not None else contra)
+            if delivered_sid is None:
+                _count("terminal_delivered_unresolved")
+            else:
+                # The delivered security's OWN issuer key, from its metadata —
+                # never `"P:" + contra`, which prefixes a TICKER with the
+                # permanent-id namespace and produces an identifier that names
+                # nothing. Absent metadata falls back to the delivered permanent
+                # id, matching what the feed does for a security whose issuer
+                # cannot be established.
+                m = (meta or {}).get(delivered_sid)
+                key = m.issuer_key()[0] if m is not None else None
+                delivered_issuer = key or f"S:{delivered_sid}"
+
+        t = terminal_from_action(
+            r, session, security_id=sid,
+            delivered_security_id=delivered_sid,
+            delivered_issuer_id=delivered_issuer)
         if t is not None:
             out.append(t)
     return sorted(out, key=lambda t: (t.session, t.security_id, t.kind.value))
@@ -791,7 +867,11 @@ def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
         supplied = {(t.session, t.security_id) for t in terminal_events}
         derived_terminals = [
             t for t in terminal_events_from_actions(
-                action_rows, sessions_sorted, known_tickers=set(meta))
+                action_rows, sessions_sorted,
+                # PERMANENT ids on both sides. `set(meta)` is P:-keyed, so the
+                # resolver must run BEFORE this filter or nothing matches.
+                known_securities=set(meta), identity=identity, meta=meta,
+                unresolved=identity.unresolved)
             if (t.session, t.security_id) not in supplied]
         terminal_events = list(terminal_events) + derived_terminals
     else:

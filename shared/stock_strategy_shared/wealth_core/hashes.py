@@ -48,9 +48,35 @@ HASH_ORDER: tuple[str, ...] = (
 )
 
 
+def quantize(o):
+    """Round EVERY float in a structure before it is serialised for hashing.
+
+    THE HOLE THIS CLOSES. Several hashes passed `default=` to `json.dumps` and
+    rounded floats there. `default` is the hook for objects the encoder CANNOT
+    handle, and floats it handles natively — so that rounding never ran, and the
+    hashes were taken over raw `repr` output. That made a certified artefact
+    depend on the interpreter's float formatting rather than on the strategy.
+
+    Observed on Python 3.13: the state hash, ledger hash, final cash, positions,
+    event counts and blocked sessions all matched while `result_hash` differed —
+    the signature of an audit-serialisation difference rather than a changed
+    portfolio path, which is precisely what a parity artefact must be blind to.
+
+    10 decimal places is far finer than any price, weight or score the engine
+    produces, and far coarser than the last bits where formatting differs.
+    """
+    if isinstance(o, float):
+        return round(o, 10)
+    if isinstance(o, dict):
+        return {k: quantize(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [quantize(v) for v in o]
+    return o
+
+
 def _h(payload) -> str:
     return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":"),
+        json.dumps(quantize(payload), sort_keys=True, separators=(",", ":"),
                    default=str).encode()).hexdigest()
 
 
@@ -216,5 +242,5 @@ _INTERPRETATION = {
 }
 
 
-__all__ = ["HASH_ORDER", "ParityHashes", "divergence_report", "first_divergence",
+__all__ = ["HASH_ORDER", "quantize", "ParityHashes", "divergence_report", "first_divergence",
            "parity_hashes"]

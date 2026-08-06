@@ -425,6 +425,43 @@ consideration.
 | stating a zero consideration | `WRITE_OFF` |
 | `delisted` / `bankruptcy` with no terms | **incomplete — blocks** |
 
+### The identity boundary an audit found (2026-08-06)
+
+`load_meta` moved to permanent ids in item 7; the terminal-action call site did
+not. The replay filtered ACTIONS with `known_tickers=set(meta)` — comparing
+`"OLD"` against `{"P:123"}` — so **every terminal action was dropped before
+reaching the engine.** No cash merger paid, no write-off applied, no terms-less
+delisting blocking anything, and the run completed normally reporting an empty
+`terminal_results`. A second defect sat behind it: `TerminalTerms` carried the
+TICKER as `security_id`, which matches no episode, and fabricated
+`delivered_issuer_id` as `"P:" + contraticker` — a ticker wearing the
+permanent-id namespace's prefix, naming nothing.
+
+Both sides are now resolved point-in-time before filtering: the source ticker
+AND the `contraticker`. An unresolvable SOURCE is dropped and counted (applying
+a terminal event to a security nobody can name is worse than missing one); an
+unresolvable DELIVERED security leaves `delivered_security_id` None, so
+`completeness()` blocks the deal rather than delivering shares under a guess.
+
+**Why the unit tests missed it.** They call `terminal_events_from_actions` with a
+TICKER-keyed universe — a coherent contract in isolation and the wrong one at the
+boundary. The tests added for this always cross it: a holding keyed `P:123`, an
+ACTIONS row saying `OLD`, a resolver between them, and an assertion that the
+position is actually terminated and the cash actually arrives.
+
+### The hashes were interpreter-dependent
+
+`json.dumps(..., default=...)` rounded floats in `default` — a hook the encoder
+never calls for a float, because it handles floats natively. The rounding was
+dead code, and ~42,000 candidate metrics were hashed through `repr`. Reported on
+Python 3.13: state hash, ledger hash, final cash, positions, event counts and
+blocked sessions ALL matched while `result_hash` differed — an
+audit-serialisation difference, not a changed portfolio path.
+
+`hashes.quantize()` now rounds recursively before serialisation, applied to all
+four certification hashes (result, decision, state, ledger) rather than only the
+one that was observed to differ.
+
 ### What this does not yet cover
 
 Permanent security identity is sequenced separately. The ingest stores **every**

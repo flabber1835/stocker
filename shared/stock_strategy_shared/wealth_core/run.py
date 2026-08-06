@@ -37,6 +37,7 @@ from stock_strategy_shared.wealth_core.eligibility import (
 )
 from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
 from stock_strategy_shared.wealth_core.feed import Feed, SecurityMeta, VendorBar
+from stock_strategy_shared.wealth_core.hashes import quantize as _quantize
 from stock_strategy_shared.wealth_core.ledger import Ledger
 from stock_strategy_shared.wealth_core.state import PortfolioState
 from stock_strategy_shared.wealth_core.terminal import (
@@ -120,8 +121,8 @@ class RunResult:
         }
 
     def result_hash(self) -> str:
-        blob = json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"),
-                          default=_json_default)
+        blob = json.dumps(_quantize(self.to_dict()), sort_keys=True,
+                          separators=(",", ":"), default=_json_default)
         return hashlib.sha256(blob.encode()).hexdigest()
 
 
@@ -136,8 +137,12 @@ def _round(x):
 
 
 def _json_default(o):
-    if isinstance(o, float):
-        return round(o, 10)
+    """Still the encoder's last resort — for genuinely unserialisable types.
+
+    It no longer carries the float rounding, because it was never reached for
+    one. Anything arriving here is a type the run result should not contain,
+    and raising names it instead of silently stringifying it.
+    """
     raise TypeError(f"{type(o).__name__} is not serialisable in a run result")
 
 

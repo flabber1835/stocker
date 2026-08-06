@@ -157,8 +157,9 @@ class Decision:
         }
 
     def decision_hash(self) -> str:
-        blob = json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"),
-                          default=str)
+        from stock_strategy_shared.wealth_core.hashes import quantize
+        blob = json.dumps(quantize(self.to_dict()), sort_keys=True,
+                          separators=(",", ":"), default=str)
         return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
 

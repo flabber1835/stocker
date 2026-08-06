@@ -210,7 +210,8 @@ class Ledger:
         consequence shows up is worth much less than one that sees it at once,
         which is the entire argument for the seven ordered parity hashes.
         """
-        blob = json.dumps(self.to_dict(), sort_keys=True,
+        from stock_strategy_shared.wealth_core.hashes import quantize
+        blob = json.dumps(quantize(self.to_dict()), sort_keys=True,
                           separators=(",", ":"), default=str)
         return hashlib.sha256(blob.encode()).hexdigest()[:16]
 

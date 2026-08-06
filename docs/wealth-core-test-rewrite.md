@@ -157,6 +157,28 @@ the signal tests (57 passed) and the golden pin (passed) are both blind to it.
 
 No-go stands until 9 completes. Live activation additionally blocked on 10.
 
+## Third controlled re-pin (2026-08-06) — audit fixes
+
+`2643154598f7…` -> `a09b12a87d1e…`. **No value moved**: final cash (34,824.20),
+final positions (24), every ledger event count and the whole 19-session blocked
+list are IDENTICAL. Only the hashes changed, because `quantize()` now rounds
+floats before serialisation instead of relying on a `default=` hook the JSON
+encoder never invokes for a float.
+
+## Known gaps, stated plainly
+
+* **The live Wealth Core chain is NOT wired.** `execution_model.py` and
+  `wealth_core_live.plan_session()` exist and are tested, but the production
+  scheduler imports neither, and no production caller invokes `plan_session()`.
+  The risk service can correctly judge a Wealth Core order; nothing currently
+  generates one. The deployed chain remains
+  `fetch-data -> pipeline -> vet -> portfolio-builder -> delta`.
+* **The shadow-book / portfolio-trigger / T-bill overlay is not implemented**,
+  by prior decision — it is new architecture that follows certification, and
+  `engine.py` excludes a portfolio-wide stop deliberately. What exists is base
+  Wealth Core: per-position trailing stops, the one-time review, cooldowns,
+  dividends, identity and corporate actions.
+
 ## The second controlled re-pin (2026-08-06)
 
 `6fd382cf1d33…` -> `2643154598f7…`, covering dividend timing AND identity

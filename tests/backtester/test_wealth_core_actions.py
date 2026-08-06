@@ -151,7 +151,8 @@ class TestReconciliation:
 class TestTerminalMapping:
 
     def test_a_cash_merger_carries_its_price(self):
-        t = terminal_from_action(action(action="merger", value=54.0), "2022-03-02")
+        t = terminal_from_action(action(action="merger", value=54.0),
+                                 "2022-03-02", security_id="P:1")
         assert t.kind is TerminalKind.CASH_MERGER
         assert t.cash_per_share == 54.0
         assert t.completeness(100)[0] is True
@@ -161,16 +162,20 @@ class TestTerminalMapping:
         `value` column is an exchange RATIO, not cash."""
         t = terminal_from_action(
             action(action="acquisition", value=0.757, contraticker="BBB"),
-            "2022-03-02")
+            "2022-03-02", security_id="P:1", delivered_security_id="P:2",
+            delivered_issuer_id="ISS_2")
         assert t.kind is TerminalKind.CONVERSION
         assert t.exchange_ratio == 0.757
-        assert t.delivered_security_id == "BBB"
+        assert t.delivered_security_id == "P:2", (
+            "the DELIVERED security is a permanent id too; a ticker here puts "
+            "shares in the book under a security that may not be the acquirer")
+        assert t.delivered_issuer_id == "ISS_2"
 
     def test_a_STATED_zero_is_the_only_route_to_a_write_off(self):
         """Zero is a TERM. The vendor has said the consideration was nothing,
         which is a fact — unlike silence, which is not."""
         t = terminal_from_action(action(action="bankruptcy", value=0.0),
-                                 "2022-03-02")
+                                 "2022-03-02", security_id="P:1")
         assert t.kind is TerminalKind.WRITE_OFF
         assert t.completeness(100)[0] is True
 
@@ -185,7 +190,8 @@ class TestTerminalMapping:
         opened afterwards — and the run stays complete and plausible the whole
         way through.
         """
-        t = terminal_from_action(action(action=act, value=None), "2022-03-02")
+        t = terminal_from_action(action(action=act, value=None), "2022-03-02",
+                                 security_id="P:1")
         assert t.kind is not TerminalKind.WRITE_OFF, (
             f"{act!r} with no stated terms was mapped to a write-off — that "
             f"fabricates a total loss from an absence of information")
@@ -197,7 +203,8 @@ class TestTerminalMapping:
         """The delivered share count is not something to guess."""
         t = terminal_from_action(
             action(action="acquisition", value=None, contraticker="BBB"),
-            "2022-03-02")
+            "2022-03-02", security_id="P:1", delivered_security_id="P:2",
+            delivered_issuer_id="ISS_2")
         complete, why = t.completeness(100)
         assert complete is False and why == "MISSING_EXCHANGE_RATIO"
 
@@ -206,13 +213,13 @@ class TestTerminalMapping:
         because that is what blocks. The audit must still say what actually
         happened, or a reader months later sees a merger that never was."""
         t = terminal_from_action(action(action="bankruptcy", value=None),
-                                 "2022-03-02")
+                                 "2022-03-02", security_id="P:1")
         assert t.reference == "actions/bankruptcy"
 
     @pytest.mark.parametrize("act", ["split", "dividend", "ticker_change"])
     def test_a_non_terminal_action_produces_nothing(self, act):
         assert terminal_from_action(action(action=act, value=1.0),
-                                    "2022-03-02") is None
+                                    "2022-03-02", security_id="P:1") is None
         assert act not in TERMINAL_ACTIONS
 
 
@@ -223,9 +230,11 @@ class TestTheBlockIsREALNotJustAShape:
 
     def _held(self):
         st = PortfolioState.fresh(100_000.0, n_slots=2)
-        st.slots[0].occupied_by = "AAA"
+        # Keyed on the PERMANENT id while the ACTIONS row says "AAA" — which is
+        # the whole integration this file now has to prove.
+        st.slots[0].occupied_by = "P:1"
         st.episodes[0] = HoldingEpisode(
-            security_id="AAA", ticker="AAA", issuer_id="P:AAA", slot_id=0,
+            security_id="P:1", ticker="AAA", issuer_id="ISS_1", slot_id=0,
             signal_date="2022-02-01", entry_date="2022-02-02",
             entry_raw_open=40.0, entry_split_adjusted_price=40.0,
             initial_shares=100, current_shares=100,
@@ -237,12 +246,12 @@ class TestTheBlockIsREALNotJustAShape:
         st = self._held()
         res = apply_terminal(
             st, terminal_from_action(action(action="delisted", value=None),
-                                     "2022-03-02"),
+                                     "2022-03-02", security_id="P:1"),
             ledger=Ledger(), session="2022-03-02", cfg=WealthCoreConfig())
 
         assert res["applied"] is False and res["blocked"] is True
-        assert st.unresolved_terminals == {"AAA": "MISSING_CASH_PER_SHARE"}
-        assert "AAA" in st.held_security_ids(), (
+        assert st.unresolved_terminals == {"P:1": "MISSING_CASH_PER_SHARE"}
+        assert "P:1" in st.held_security_ids(), (
             "the holding must be PRESERVED — the point of the rule is that an "
             "unknown outcome is not a loss")
         assert st.episodes[0].current_shares == 100
@@ -254,11 +263,11 @@ class TestTheBlockIsREALNotJustAShape:
         led = Ledger()
         res = apply_terminal(
             st, terminal_from_action(action(action="bankruptcy", value=0.0),
-                                     "2022-03-02"),
+                                     "2022-03-02", security_id="P:1"),
             ledger=led, session="2022-03-02", cfg=WealthCoreConfig())
 
         assert res["applied"] is True and res["kind"] == "WRITE_OFF"
-        assert "AAA" not in st.held_security_ids()
+        assert "P:1" not in st.held_security_ids()
         assert [e.event_type.value for e in led.events] == ["WRITE_OFF"]
 
     def test_a_cash_merger_pays_the_stated_price_and_nothing_else(self):
@@ -266,7 +275,7 @@ class TestTheBlockIsREALNotJustAShape:
         cash_before = st.cash
         res = apply_terminal(
             st, terminal_from_action(action(action="merger", value=54.0),
-                                     "2022-03-02"),
+                                     "2022-03-02", security_id="P:1"),
             ledger=Ledger(), session="2022-03-02", cfg=WealthCoreConfig())
         assert res["applied"] is True
         assert st.cash == pytest.approx(cash_before + 100 * 54.0)
@@ -282,13 +291,14 @@ class TestTheEventStream:
         `terminal_results` — which is inside the result hash."""
         rows = [action(ticker="AAA", value=54.0),
                 action(ticker="ZZZ", value=12.0)]
-        got = terminal_events_from_actions(rows, SESSIONS, known_tickers={"AAA"})
+        got = terminal_events_from_actions(rows, SESSIONS,
+                                           known_securities={"AAA"})
         assert [t.security_id for t in got] == ["AAA"]
 
     def test_events_past_the_window_are_dropped(self):
         rows = [action(date="2022-04-01", value=54.0)]
         assert terminal_events_from_actions(rows, SESSIONS,
-                                            known_tickers={"AAA"}) == []
+                                            known_securities={"AAA"}) == []
 
     def test_the_order_is_deterministic_regardless_of_row_order(self):
         rows = [action(ticker="CCC", value=1.0), action(ticker="AAA", value=2.0),
@@ -414,3 +424,145 @@ class TestPointInTimeIdentity:
         for session in ("2002-01-01", "2015-01-01", "2023-01-01"):
             assert fwd.resolve("AAA", session) == rev.resolve("AAA", session)
             assert fwd.resolve("META", session) == rev.resolve("META", session)
+
+
+# ── THE IDENTITY BOUNDARY, end to end ───────────────────────────────────────
+
+class TestTerminalActionsCrossTheIdentityBoundary:
+    """The defect an external audit found, and the shape of test that missed it.
+
+    ACTIONS rows are keyed on the SYMBOL. Holdings, metadata and episodes are
+    keyed on the PERMANENT id. When `load_meta` moved to permanent ids, the
+    replay kept filtering ACTIONS with `known_tickers=set(meta)` — comparing
+    `"OLD"` against `{"P:123"}` — so EVERY terminal action was dropped before
+    reaching the engine. No cash merger paid, no write-off applied, no
+    terms-less delisting blocking anything, and the run completed normally
+    reporting an empty `terminal_results`.
+
+    The unit tests above could not catch it: they call
+    `terminal_events_from_actions` with a TICKER-keyed universe, which is a
+    coherent contract in isolation and the wrong one at the boundary. So the
+    tests here always cross it — a holding keyed `P:123`, an ACTIONS row saying
+    `OLD`, and a resolver in between.
+    """
+
+    from app.wealth_core_replay import IdentityResolver  # noqa: E402
+
+    ROWS = [
+        {"permaticker": "123", "ticker": "OLD",
+         "first_price_date": "2020-01-01", "last_price_date": None},
+        {"permaticker": "456", "ticker": "ACQ",
+         "first_price_date": "2020-01-01", "last_price_date": None},
+    ]
+
+    def resolver(self):
+        from app.wealth_core_replay import IdentityResolver
+        return IdentityResolver(self.ROWS)
+
+    def test_an_ACTIONS_row_resolves_onto_the_PERMANENT_holding(self):
+        """The exact reproduction: the universe is `{P:123}`, the row says
+        `OLD`, and the event must still be emitted — against `P:123`."""
+        got = terminal_events_from_actions(
+            [action(ticker="OLD", value=54.0)], SESSIONS,
+            known_securities={"P:123"}, identity=self.resolver())
+        assert len(got) == 1, (
+            "the terminal action was filtered out — a ticker was compared "
+            "against a permanent-id universe")
+        assert got[0].security_id == "P:123"
+
+    def test_WITHOUT_the_resolver_the_universe_filter_drops_everything(self):
+        """The failing configuration, pinned so it cannot come back silently."""
+        got = terminal_events_from_actions(
+            [action(ticker="OLD", value=54.0)], SESSIONS,
+            known_securities={"P:123"}, identity=None)
+        assert got == [], (
+            "without resolution a ticker cannot match a permanent-id universe; "
+            "if this ever returns an event the filter is not doing its job")
+
+    def test_the_delivered_security_is_ALSO_resolved(self):
+        """`P:` + a ticker is not a permanent id — it is a ticker wearing the
+        permanent-id namespace's prefix, and it names nothing."""
+        from stock_strategy_shared.wealth_core.feed import SecurityMeta
+        meta = {"P:456": SecurityMeta(security_id="P:456", ticker="ACQ",
+                                      permaticker="456")}
+        got = terminal_events_from_actions(
+            [action(ticker="OLD", action="acquisition", value=0.757,
+                    contraticker="ACQ")], SESSIONS,
+            known_securities={"P:123"}, identity=self.resolver(), meta=meta)
+        assert len(got) == 1
+        t = got[0]
+        assert t.security_id == "P:123"
+        assert t.delivered_security_id == "P:456"
+        assert t.delivered_ticker == "ACQ", "the label survives for execution"
+        assert t.delivered_issuer_id and not t.delivered_issuer_id.startswith("P:ACQ")
+
+    def test_an_UNRESOLVABLE_delivered_security_BLOCKS_rather_than_guesses(self):
+        """Delivering shares under a guessed identity puts a position in the
+        book under a security that may not be the acquirer."""
+        counts: dict = {}
+        got = terminal_events_from_actions(
+            [action(ticker="OLD", action="acquisition", value=0.757,
+                    contraticker="NOSUCH")], SESSIONS,
+            known_securities={"P:123"}, identity=self.resolver(),
+            unresolved=counts)
+        assert len(got) == 1
+        assert got[0].delivered_security_id is None
+        complete, why = got[0].completeness(100)
+        assert complete is False and why == "MISSING_DELIVERED_SECURITY"
+        assert counts.get("terminal_delivered_unresolved") == 1
+
+    def test_an_UNRESOLVABLE_SOURCE_is_dropped_and_counted(self):
+        counts: dict = {}
+        got = terminal_events_from_actions(
+            [action(ticker="GHOST", value=54.0)], SESSIONS,
+            known_securities={"P:123"}, identity=self.resolver(),
+            unresolved=counts)
+        assert got == []
+        assert counts.get("terminal_source_unresolved") == 1
+
+    def test_the_resolved_event_ACTUALLY_TERMINATES_the_holding(self):
+        """The end of the chain, and the assertion that would have failed
+        loudest: resolve, then apply, and confirm the position is gone and the
+        cash arrived. Every layer above can be right while this is broken."""
+        st = PortfolioState.fresh(1_000.0, n_slots=2)
+        st.slots[0].occupied_by = "P:123"
+        st.episodes[0] = HoldingEpisode(
+            security_id="P:123", ticker="OLD", issuer_id="ISS_1", slot_id=0,
+            signal_date="2022-02-01", entry_date="2022-02-02",
+            entry_raw_open=40.0, entry_split_adjusted_price=40.0,
+            initial_shares=100, current_shares=100,
+            episode_peak_split_adjusted_close=45.0, market_sessions_held=10)
+        st.initialized = True
+
+        events = terminal_events_from_actions(
+            [action(ticker="OLD", value=54.0)], SESSIONS,
+            known_securities={"P:123"}, identity=self.resolver())
+        res = apply_terminal(st, events[0], ledger=Ledger(),
+                             session="2022-03-02", cfg=WealthCoreConfig())
+
+        assert res["applied"] is True and res["kind"] == "CASH_MERGER"
+        assert "P:123" not in st.held_security_ids()
+        assert st.cash == pytest.approx(1_000.0 + 100 * 54.0)
+
+    def test_a_terms_less_delisting_BLOCKS_the_PERMANENT_holding(self):
+        """The other end of the same boundary: the block must land on the id the
+        book is keyed by, or `unresolved_terminals` names a security nothing
+        holds and admissions are never actually stopped."""
+        st = PortfolioState.fresh(1_000.0, n_slots=2)
+        st.slots[0].occupied_by = "P:123"
+        st.episodes[0] = HoldingEpisode(
+            security_id="P:123", ticker="OLD", issuer_id="ISS_1", slot_id=0,
+            signal_date="2022-02-01", entry_date="2022-02-02",
+            entry_raw_open=40.0, entry_split_adjusted_price=40.0,
+            initial_shares=100, current_shares=100,
+            episode_peak_split_adjusted_close=45.0, market_sessions_held=10)
+        st.initialized = True
+
+        events = terminal_events_from_actions(
+            [action(ticker="OLD", action="delisted", value=None)], SESSIONS,
+            known_securities={"P:123"}, identity=self.resolver())
+        apply_terminal(st, events[0], ledger=Ledger(), session="2022-03-02",
+                       cfg=WealthCoreConfig())
+
+        assert st.unresolved_terminals == {"P:123": "MISSING_CASH_PER_SHARE"}
+        assert "P:123" in st.held_security_ids()

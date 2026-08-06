@@ -433,3 +433,77 @@ def test_the_result_matches_the_pinned_fixture(run):
     assert len(run.state.episodes) == pinned["final_positions"]
     assert pinned["ledger_event_counts"] == dict(
         Counter(e.event_type.value for e in run.ledger.events))
+
+
+# ── the pin must be a property of the STRATEGY, not the interpreter ─────────
+
+class TestTheHashesAreInterpreterIndependent:
+    """An external audit found `result_hash` differing on Python 3.13 while the
+    state hash, ledger hash, final cash, positions, event counts and blocked
+    sessions ALL matched — the signature of an audit-serialisation difference
+    rather than a changed portfolio path.
+
+    The cause: `json.dumps(..., default=_json_default)` rounded floats in
+    `default`, which the encoder NEVER calls for a float — it is the hook for
+    objects it cannot handle natively. So ~42,000 candidate metrics were hashed
+    through `repr`, and the certified artefact depended on the interpreter's
+    float formatting. Rounding is applied recursively before serialisation now.
+    """
+
+    def test_quantize_reaches_floats_nested_anywhere(self):
+        from stock_strategy_shared.wealth_core.hashes import quantize
+        got = quantize({"a": [1 / 3, {"b": (0.1 + 0.2, 5)}], "c": "x", "d": None})
+        assert got == {"a": [0.3333333333, {"b": [0.3, 5]}], "c": "x", "d": None}
+
+    def test_the_json_default_hook_is_NOT_where_rounding_happens(self):
+        """The precise defect, pinned so it cannot be reintroduced by someone
+        'simplifying' the quantize call back into `default=`."""
+        import json
+        seen = []
+
+        json.dumps({"f": 1 / 3}, default=lambda o: seen.append(type(o)) or 0)
+        assert seen == [], (
+            "if a float ever reaches `default`, this whole guard is moot — but "
+            "it does not, which is why rounding cannot live there")
+
+    def test_every_float_in_the_hashed_payload_is_quantized(self, run):
+        """Structural: no float in what gets hashed may carry more than 10
+        decimals, whatever the interpreter's repr does with it."""
+        from stock_strategy_shared.wealth_core.hashes import quantize
+
+        def floats(o):
+            if isinstance(o, float):
+                yield o
+            elif isinstance(o, dict):
+                for v in o.values():
+                    yield from floats(v)
+            elif isinstance(o, (list, tuple)):
+                for v in o:
+                    yield from floats(v)
+
+        payload = quantize(run.to_dict())
+        vals = list(floats(payload))
+        assert len(vals) > 1000, "the candidate audit should be full of floats"
+        assert all(f == round(f, 10) for f in vals)
+
+    def test_the_run_hash_is_stable_in_a_FRESH_INTERPRETER(self):
+        """Belt and braces: recompute the pinned hash in a subprocess. Same
+        interpreter here, but it proves the value does not depend on accumulated
+        process state, and it is the harness a future cross-version check
+        plugs into."""
+        import json
+        import subprocess
+        import sys
+
+        out = subprocess.run(
+            [sys.executable, "-c",
+             "from stock_strategy_shared.wealth_core.golden import golden_scenario;"
+             "from stock_strategy_shared.wealth_core.run import run_sessions;"
+             "g=golden_scenario();"
+             "r=run_sessions(sessions=g.sessions,bars_by_session=g.bars_by_session,"
+             "meta=g.meta,starting_cash=g.starting_cash,"
+             "terminal_events=g.terminal_events);"
+             "print(r.result_hash())"],
+            capture_output=True, text=True, check=True)
+        pinned = json.loads(FIXTURE.read_text())["result_hash"]
+        assert out.stdout.strip() == pinned
