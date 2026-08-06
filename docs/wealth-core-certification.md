@@ -10,6 +10,27 @@ the work.
 Nothing below may be summarised as "all repository tests pass". Three suites fail
 on this branch AND on its parent; they are named in full at the bottom.
 
+## Resuming this work
+
+Last certification-relevant commit: **`8ce483e`** (2026-08-06), on `main`.
+
+Everything that can be done from a dev container is done. **Every remaining step
+needs the NAS** — the authoritative Sharadar corpus lives in `bt-postgres` there
+and no dev container can reach it. The deploy repo is
+`/volume1/docker/github/stocker` (NOT `/volume1/docker/docker/github/stocker`,
+which does not exist), and `make` is not installed on the NAS.
+
+Start at step 1 of the evidence sequence below. Do not skip step 1: `shared/`
+gained new module files (`wealth_core/execution_model.py`, `wealth_core/live.py`)
+and the editable install caches the module list, so a consumer rebuilt on a stale
+base imports the OLD file set and crash-loops on ImportError. The backtest stack
+has no `shared/` bind-mount at all.
+
+Before touching anything, check whether a SEP backfill is still running —
+`curl -s localhost:8030/coverage/raw-close` — and do not disturb it. Never pass
+`--volumes` to any compose command: it deletes the trading database and the
+~35M-row Sharadar corpus.
+
 ## What is proven, and by what
 
 | Layer | Status | Evidence |
@@ -118,25 +139,81 @@ never cleared. Exits are unaffected in both regimes.
 
 ## Required evidence sequence (all remaining steps need the NAS)
 
-1. `docker build --network host -t stocker-base:latest -f Dockerfile.base .`
-   FIRST — `shared/` gained new module files and the backtest stack has no
-   bind-mount override.
-2. Rebuild every consumer of `shared/` (live and backtest stacks;
-   `scripts/deploy-all.sh` if in any doubt).
-3. `POST /jobs/backfill-actions` on bt-data. Until `bt_actions` is populated
-   every run reports `split_source: derived` and is not certified-reproducible.
-4. Complete the exact raw-close verification (`/coverage/raw-close`, exact
-   endpoint) — the sampled endpoint reported 96.8875%.
-5. `POST /wealth-core/jobs/run` mode `baseline_replay` over the authoritative
-   period; require **all seven** hashes to match. Expected hashes come FROM the
-   backtester — the endpoint refuses to recompute them, and refuses a partial set.
-6. Repeat it and require byte-identical persisted artifacts.
-7. `POST /wealth-core/jobs/run` mode `chain_rehearsal` over the same period.
-   Require: no `ChainRehearsalDiverged`, `trace_problems: []`,
-   `entries_without_a_price: 0`, and every entry in `rejections[]` explained.
-8. Restart cuts through admissions, exits, dividends, terminal actions,
+Ports on the NAS: **bt-data 8030**, **bt-engine 8031** (published host ports; the
+two stacks share no docker network by design).
+
+1. **Rebuild the base.** `shared/` gained new module files
+   (`wealth_core/execution_model.py`, `wealth_core/live.py`) and the editable
+   install caches the module list, so this is mandatory, not defensive:
+
+   ```bash
+   cd /volume1/docker/github/stocker && git pull origin main
+   docker build --network host -t stocker-base:latest -f Dockerfile.base .
+   ```
+
+2. **Rebuild every consumer of `shared/`**, both stacks. The backtest stack has
+   no `shared/` bind-mount, so bt-engine and bt-data import the BAKED copy.
+   `scripts/deploy-all.sh` if in any doubt — slower, and certain.
+   `scripts/deploy-all.sh --verify` checks without changing anything.
+
+3. **Backfill ACTIONS.** Until `bt_actions` is populated every run reports
+   `split_source: derived` and is NOT certified-reproducible.
+
+   ```bash
+   # date_from / date_to are REQUIRED query params; cover the whole period the
+   # certification runs will replay, or the uncovered span silently falls back
+   # to derived splits.
+   curl -sX POST "localhost:8030/jobs/backfill-actions?date_from=1998-01-01&date_to=2026-12-31"
+   ```
+
+   A certified run must additionally set `WEALTH_CORE_REQUIRE_ACTIONS`, which
+   turns the derived-split fallback from a caveat into a refusal.
+
+4. **Exact raw-close verification.** The sampled endpoint reported 96.8875%; the
+   exact one was previously broken by a ~15s statement timeout, now governed by
+   `EXACT_STATEMENT_TIMEOUT_MS` with graceful degradation. Confirm it COMPLETES
+   rather than degrades:
+
+   ```bash
+   curl -s "localhost:8030/coverage/raw-close?exact=1"
+   ```
+
+   Coverage is reported per SESSION and per TICKER, deliberately: a date range
+   with no coverage means the backfill did not reach that far and should be
+   re-run, while a ticker with no coverage means the vendor has none and
+   re-running changes nothing. 97% looks identical in aggregate either way.
+
+5. **`baseline_replay` over the authoritative period.** Require all SEVEN hashes
+   to match. The expected hashes come FROM the backtester — the endpoint refuses
+   to recompute them (that would prove only that the tunnel agrees with itself)
+   and refuses a partial set.
+
+   ```bash
+   curl -sX POST localhost:8031/wealth-core/jobs/run \
+     -H 'content-type: application/json' -d '{
+       "mode": "baseline_replay", "start_date": "...", "end_date": "...",
+       "expected_hashes": { ...seven... }}'
+   curl -s localhost:8031/wealth-core/runs/latest
+   ```
+
+   Check `provenance.split_source == "actions"` on the result before reading any
+   other number.
+
+6. **Repeat it** and require byte-identical persisted artifacts.
+
+7. **`chain_rehearsal` over the same period.** Require: the run reaches
+   `status: success` (a divergence RAISES, so a success row means the live path
+   reproduced the bulk replay), `trace_problems: []`,
+   `entries_without_a_price: 0`, `peak_book_size == 25`, and every entry in
+   `rejections[]` explained by name — not merely counted. The 24-vs-25 episode
+   above is why that last clause is not optional.
+
+8. **Restart cuts** through admissions, exits, dividends, terminal actions,
    cooldowns and defensive state, over the authoritative data.
-9. Cross-engine parity over the authoritative data (not only the golden stream).
+
+9. **Cross-engine parity over the authoritative data**, not only the golden
+   stream.
+
 10. Keep `execution_model=target_portfolio` until every one of the above passes.
 
 Steps 5–9 have only ever been run against the golden fixture. That is a synthetic

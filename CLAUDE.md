@@ -72,6 +72,52 @@ docs/monolith-plan.md
 
 If a requested change conflicts with these docs, preserve the documented design unless explicitly instructed otherwise.
 
+For any task touching **Wealth Core** (`shared/stock_strategy_shared/wealth_core/`,
+`services/bt-engine/app/wealth_core_*`, `services/backtester/app/wealth_core_replay.py`,
+the `wealth_core_v1` risk profile, or `execution_model`) read these FIRST, in
+this order — they are the source of truth and several of the rules in them are
+release-blocking:
+
+```text
+docs/wealth-core-certification.md   what is proven, what is owed, NO-GO status
+docs/wealth-core-v1.md              the design, the four price domains, the endpoint
+docs/wealth-core-test-rewrite.md    how the suite got here (history, not obligations)
+```
+
+---
+
+# Wealth Core: the standing constraints
+
+`stocker_wealth_core_v1` is a SECOND strategy — a stateful-ownership book (25
+slots, 4% admissions, 30% trailing stop, one-time 119-session review, 21-session
+cooldowns) that cannot run on the target-portfolio chain. It is **built and
+NOT ACTIVATED**. Read docs/wealth-core-certification.md before doing anything
+with it. The rules below override convenience every time:
+
+1. **NO-GO stands.** `execution_model` stays `target_portfolio` in production.
+   Do not flip it, do not wire `plan_session()` into the scheduler, and do not
+   remove the default. The remaining certification steps all need the NAS and
+   the authoritative Sharadar corpus.
+2. **The deployed daily chain is unchanged and must stay that way**
+   (`fetch-data → pipeline → vet → portfolio-builder → delta`). Every Wealth
+   Core import site in the scheduler and pipeline is a `sys.modules` re-export
+   shim; the canonical modules live in `shared/`. Preserve module IDENTITY —
+   never copy one of these files.
+3. **Never edit a scoring formula in place.** Both volatility profiles
+   (`simple_returns_v1`, `log_returns_certified_v1`) exist as NAMED profiles and
+   `volatility_profile` is in the config hash. `log_returns_certified_v1` is the
+   only basis for a certified artefact.
+4. **The golden fixture is re-pinned only deliberately, once per batch of
+   semantics, with the movement decomposed** — show what moved and what did not.
+   A test patched until it passes records whatever the code now does.
+5. **A guard is not done until it has been shown to fail.** Every rule here has
+   a falsifier; the three defects the chain rehearsal found were all invisible
+   to green unit tests, and two of them changed no result at all.
+6. Wealth Core owns `bt_actions`, `bt_wealth_core_runs` and the
+   `POST /wealth-core/jobs/run` endpoint on bt-engine. It never submits orders;
+   the risk profile is `wealth_core_v1` and `require_profile` fails startup
+   rather than inheriting the target-portfolio limits.
+
 ---
 
 # Data Sources

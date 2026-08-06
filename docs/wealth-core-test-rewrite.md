@@ -151,18 +151,22 @@ the signal tests (57 passed) and the golden pin (passed) are both blind to it.
 8. ~~revise and re-pin the certified artefact **once** for those data semantics~~ — **done**, `2643154598f7…`
 8b. ~~rehearse the live chain in the wind tunnel, and expose it~~ — **done**,
     `POST /wealth-core/jobs/run` (baseline_replay | experiment |
-    chain_rehearsal); found and fixed the initial-construction rejection
+    chain_rehearsal). Found and fixed THREE live-path defects that only an
+    end-to-end run could surface: the initial-construction mass rejection, the
+    slot-reservation double-count, and the always-zero notional
 9. exact Sharadar control comparison
 10. ~~enforce `wealth_core_v1` in the live risk service~~ — **done**
 11. repeat cross-engine parity and restart falsification over the
     authoritative-data path
 12. verify the SEP backfill directly on the NAS
 
-No-go stands until 9 completes. Live activation additionally blocked on 10.
+Steps 9, 11 and 12 all require the NAS and cannot be done from a dev container.
 
-The evidence record — what is proven, the required run sequence, and the
-pre-existing failing suites that no certification statement may round up to
-"all tests pass" — is **docs/wealth-core-certification.md**.
+**No-go stands.** The authoritative record of what remains — including the
+ordered evidence runs, what each must show, and the pre-existing failing suites
+that no certification statement may round up to "all tests pass" — is
+**docs/wealth-core-certification.md**. Prefer it over this list, which narrates
+how the suite got here rather than what is still owed.
 
 ## Third controlled re-pin (2026-08-06) — audit fixes
 
