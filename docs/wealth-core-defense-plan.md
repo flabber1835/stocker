@@ -4,6 +4,36 @@
 Base Wealth Core remains NO-GO (docs/wealth-core-certification.md), and this
 overlay sits on top of it.
 
+> ### State of play — 2026-08-06
+>
+> All four owner decisions in §6 are SETTLED, and the DTB3 rate source in §3.10
+> is settled. No controller code exists yet.
+>
+> **Prerequisite defect work** (these are wrong TODAY, independent of the
+> overlay, and three of the four are done):
+>
+> ```text
+> DONE      defect 1  unknown crash-brake signal re-risked the whole book   889406a
+> DONE      defect 2  stressed_stop was dead config promising a risk control 89cfa05
+> DONE      defect 5  parity compared a call SITE, not behaviour             f7104c1
+> OUTSTANDING defect 3  no persisted controller state / hysteresis
+>                       — subsumed by this design's §3.3, build step 7
+> OUTSTANDING defect 4  conflicting intents, no reconciliation
+>                       — SPECIFIED in §3.8, and it IS build step 8
+> ```
+>
+> Defect 4 was NOT started. It is bigger than it first looked: per §3.8 the
+> unique index belongs on a new `net_intent` table, not on `delta_intents`,
+> because constraining `delta_intents` would turn conflicting logic into an
+> insertion failure rather than resolving it. That means a migration, an
+> append-only proposals table, a reconciliation step with the priority rule, and
+> provenance — plus the executor and dashboard reading the new table. Doing it
+> half-way is a live trading defect, so it was left clean rather than started.
+>
+> **Next actions, in order:** (1) defect 4 per §3.8; (2) the DTB3 ingest per
+> §3.10, whose point-in-time and revision rules must be agreed BEFORE code;
+> (3) base Wealth Core certification, which gates everything from build step 3.
+
 The target: an immutable full-exposure shadow book, a systemic-confirmed fast
 shock override moving the book to 40% Wealth Core / 60% short-duration
 government paper, an independent 15.5% portfolio backstop, and a

@@ -79,10 +79,25 @@ this order — they are the source of truth and several of the rules in them are
 release-blocking:
 
 ```text
-docs/wealth-core-certification.md   what is proven, what is owed, NO-GO status
+docs/wealth-core-certification.md   what is proven, what is owed, NO-GO status.
+                                    READ ITS "Resuming this work" HEADER FIRST —
+                                    it carries the live position, not just history
 docs/wealth-core-v1.md              the design, the four price domains, the endpoint
+docs/wealth-core-defense-plan.md    the shadow-book defensive overlay: DESIGN ONLY,
+                                    decisions settled, nothing implemented
 docs/wealth-core-test-rewrite.md    how the suite got here (history, not obligations)
 ```
+
+**Certification position as of 2026-08-06.** Evidence steps 1-4 are DONE:
+both stacks deployed and all THREE images emit golden `a09b12a87d1ecc97`
+identically; `bt_actions` backfilled (664,039 rows, 1998-2026, so runs now report
+`split_source: actions`); the exact raw-close scan COMPLETED at 99.7649% with the
+gaps identified as per-ticker vendor gaps in 43 non-common-stock instruments
+(ETFs, warrants, units, preferreds, SPACs — SPY/QQQ/IWM/SOXX have ZERO as-traded
+close). **Step 7 `chain_rehearsal` is next and runnable.** Steps 5, 6 and 9 are
+BLOCKED on a missing producer, not on a run: `run_wealth_core_replay` has zero
+callers and the backtester container cannot reach bt-postgres, so nothing can
+supply `baseline_replay`'s `expected_hashes`. Details in the manifest.
 
 ---
 
@@ -418,6 +433,48 @@ risk_reduce/risk_restore), top-level `portfolio_drawdown_guard` (observe-only �
 acting on it measured WORSE), and `portfolio_builder.cluster_method`
 (single|complete; single-linkage chains). See docs/architecture.md "rank picks
 entries, price manages exits".
+
+**The crash brake is FAIL-SAFE IN BOTH DIRECTIONS (2026-08).** It was
+FAIL-OPEN on the restore side, on the ACTIVE config. `evaluate_crash_state`
+returns `engaged=False` when the benchmark history is short or breadth has fewer
+than `min_breadth_names` names — reason `"cannot evaluate, holding exposure"` —
+and `target_exposure` mapped EVERY disengaged state to `normal`. With the book
+already cut to 50%, one session of thin breadth computed a target of 100% and
+emitted `risk_restore` buys across every position, on data it had just declared
+unreadable. One boolean answered two questions: *the evidence says no crash* and
+*there is no evidence*.
+
+`CrashState.evaluable` is the third state; an unevaluable state resolves to the
+exposure the book ALREADY carries, so ignorance moves nothing either way.
+`target_exposure(..., prior=)` is keyword-only with **NO DEFAULT** on purpose — a
+default would let a call site keep the fail-open behaviour by saying nothing.
+Live passes the realised book weight; the tunnel carries its last targeted
+exposure across sessions. Generalises: **any control with a fallback state needs
+that fallback checked in BOTH directions of the action it gates.**
+
+Parity on this control compares a canonical `transition_record()` /
+`transition_hash()` (shared module, emitted by BOTH engines), NOT a call site.
+The decisive property is that semantic divergence is visible even when the
+resulting exposure MATCHES — the old test asserted only that the live source
+contained a call to `evaluate_crash_state`, which is how the fail-open defect
+stayed green. Each predicate is recorded separately; an unavailable predicate
+serialises as `None`, never `False`; the hash excludes the prose `reason`.
+
+`stressed_stop_pct` / `stressed_stop_sma_sessions` were DELETED (2026-08). They
+were in the schema and the active config with a Field description specific enough
+to be believed, and NOTHING consumed them — a config promising a tighter stop
+during a crash that did not exist. Deleted rather than implemented, because
+implementing is a strategy change needing wind-tunnel evidence the tunnel cannot
+currently produce; `extra="forbid"` makes a config still setting them fail loud.
+A test now requires EVERY surviving `crash_brake` field to have a consumer.
+
+**OUTSTANDING on this control:** conflicting intents. Crash-brake moves are
+appended to the decision list without removing the base decision, and
+`delta_intents` has no unique `(run_id, ticker)`. A ticker can carry `exit` AND
+`risk_reduce` in one run. The fix is NOT an index on `delta_intents` — that would
+turn conflicting logic into an insertion failure rather than resolving it. See
+docs/wealth-core-defense-plan.md 3.8 (append-only proposals → one `net_intent`
+per `(run_id, account_id, ticker)` → reconciliation provenance).
 
 Two initial strategy styles:
 
@@ -2462,6 +2519,18 @@ stocker/
     scheduler/           ← built: daily chain + startup catch-up
     backtester/          ← built: replays portfolio_runs against forward daily_prices
     bt-data/             ← built: Sharadar SEP/SF1 fetcher for the SEPARATE backtest
+                           NOTE (2026-08): `GET /coverage/raw-close` per-SESSION
+                           verdicts require `?exact=1`. The fast path's probe is
+                           an unordered LIMIT slice and the nulls are TICKER-
+                           correlated, so sampled shares are biased LOW (0.895
+                           observed against 99.75% measured on the same session).
+                           Sampled mode reports `sessions_verdict:
+                           sampled_indicative` and only alarms below
+                           SAMPLED_SESSION_ALARM_THRESHOLD (0.50);
+                           SESSION_USABLE_THRESHOLD (0.95) applies to MEASURED
+                           coverage only. Do NOT lower either to make a gate go
+                           green — that was the trap. docs/architecture.md "the
+                           coverage probe measured the wrong thing".
                            machine (docker-compose.backtest.yml, own bt-postgres —
                            never in the live compose). Point-in-time fundamentals.
                            SF1 also supplies market_cap + shares_outstanding
