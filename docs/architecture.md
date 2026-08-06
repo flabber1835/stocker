@@ -4685,3 +4685,96 @@ rehearsal has to be able to demonstrate rather than assert, and
 
 Certification status, the required evidence sequence and the pre-existing failing
 suites: **docs/wealth-core-certification.md**.
+
+## Design Decision: the coverage probe measured the wrong thing (2026-08)
+
+`GET /coverage/raw-close` reported `operational: false` on a corpus whose real
+as-traded coverage is **99.76%** (36,684,527 of 36,770,974 rows). The corpus was
+fine. The diagnostic was wrong, and it was wrong in the direction that stops a
+certification run — which is the expensive direction, because the obvious
+response is to relax the threshold that is "failing".
+
+### The premise that was false
+
+The module states it in its own docstring: *"Coverage within a single date is
+effectively uniform — the backfill writes whole chunks, so a date is populated or
+it is not — which makes a slice as informative as the full count."* On that
+premise the per-session probe reads a bounded, unordered slice
+(`SELECT close_unadjusted FROM bt_prices WHERE date = :d LIMIT 200`) and treats
+the share it sees as the session's coverage.
+
+Measured on the NAS, the premise does not hold:
+
+```text
+session       sampled share      TRUE share
+2005-02-23         0.930      6415/6429 = 99.78%
+2007-04-18         0.945      6230/6241 = 99.82%
+2009-06-09         0.935      5820/5833 = 99.78%
+2011-08-01         0.920      5522/5538 = 99.71%
+2022-04-21         0.895      8392/8413 = 99.75%
+```
+
+Coverage within a date is not uniform because the nulls are **ticker**-correlated,
+not date-correlated: 43 tickers carry no as-traded close at all and hold 61,845 of
+the 86,447 nulls — ETFs (SPY, QQQ, IWM, SOXX), warrants (`.WS`), units (`.U`),
+preferred series (OCCIM/N/O/P), SPACs, an ADR. Those are instrument classes the
+vendor does not cover, not a backfill that stopped. An unordered `LIMIT` is not a
+random draw — it is whatever the scan reaches first — and on this corpus that
+slice is enriched for exactly those tickers. Two ticker-correlated facts multiply,
+and the bias is always downward: every probe under-reports.
+
+So the fast path was answering a question about TICKERS with a statistic it had
+labelled as being about DATES.
+
+### The second half: exact mode never revised the verdict
+
+`exact=1` filled in `rows_total`, `rows_with_raw` and the ticker lists, but left
+`sessions_unusable` exactly as the twelve biased probes had written it. Since
+`operational` is `column_present and coverage >= 0.90 and not sessions_unusable`,
+a full scan proving 99.76% still returned `operational: false` on the strength of
+sampled data it had just superseded. A mode whose entire purpose is to replace an
+estimate with a measurement has to replace ALL of it.
+
+### The fix
+
+**Exact mode computes a real per-session aggregate, for the same one scan.**
+Replacing the single-row `_EXACT_SQL` with `GROUP BY date` costs the same
+sequential pass plus a hash aggregate over ~5,900 groups, and yields strictly
+more: row totals, first/last covered date and a TRUE per-session verdict are all
+derived client-side from that one result. Only `COUNT(DISTINCT ticker)` still
+needs its own pass. The cheaper query was not buying anything.
+
+**Sampled mode stops claiming a verdict it cannot support.** The bounded probe
+still answers the question the fast path exists for — has the backfill run at all,
+~0% versus ~100% — so it stays. It no longer writes `sessions_unusable`, and
+instead reports `sessions_alarming_sample` against its own much coarser bar,
+`SAMPLED_SESSION_ALARM_THRESHOLD = 0.50`.
+
+Two thresholds rather than one, deliberately. The measured bias is ~10 points, so
+a share near 0.95 says nothing at all, while a share below 0.50 is four times that
+bias away and cannot be manufactured by which rows the slice happened to read.
+The first cut used `n_raw = 0` — total absence only — and that was too brittle:
+it let a session at 10 covered rows out of 3,000 pass, which is unambiguously
+broken by any reading. A gross fault is detectable from a biased sample; a fine
+judgement is not, and one constant serving both is what let a probe speak with a
+measurement's authority.
+
+`sessions_verdict` is reported explicitly (`exact` | `sampled_indicative` |
+`unknown`) so no caller has to infer which regime produced the number.
+
+### The limitation, stated rather than hidden
+
+Sampled mode cannot see a single catastrophically empty session: one 0%-covered
+day among 5,900 moves aggregate coverage by 0.02% and will usually not be probed.
+That is why the certification manifest requires `exact=1` at step 4, and why the
+fast path is a deploy smoke test rather than evidence. Making the fast path
+capable of that claim would mean scanning every session, which is the exact cost
+the sampling exists to avoid.
+
+### What must not happen
+
+`SESSION_USABLE_THRESHOLD` stays at 0.95. It was never the problem — the input to
+it was — and lowering a threshold until a gate goes green is how a measurement bug
+becomes permanent. The falsifier for all of this is a fixture whose nulls are
+concentrated in a ticker minority: under the old probe it reports sessions
+unusable, under the new one it does not, and the corpus is identical in both.

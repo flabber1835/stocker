@@ -192,10 +192,11 @@ them are checked here:
   [ ] a real-data dry run has run for several sessions and its intents have
       been read by a human
   [ ] the active strategy config sets execution_model: stateful_ownership
-  [ ] the risk SERVICE enforces the wealth_core_v1 profile. The profile is
-      defined and gated at startup, but wiring it into risk-service's /check
-      is NOT done — today that endpoint still applies MAX_POSITION_PCT and
-      MAX_DAILY_TURNOVER_PCT, whose semantics are wrong for this strategy
+  [ ] the risk SERVICE enforces the wealth_core_v1 profile ACROSS THE WIRE.
+      The wiring is done — /check routes execution_model=stateful_ownership to
+      _decide_wealth_core, which applies none of the target-portfolio limits —
+      but the rehearsal evaluates risk IN-PROCESS, so a deployment still has to
+      show the profile hash matching between two RUNNING processes
   [ ] a restart/replay has succeeded against the DEPLOYED database
   [ ] going live remains a TWO-KEY turn: ALPACA_BASE_URL at the live host
       AND LIVE_TRADING_ENABLED=true AND PAPER_ONLY=false

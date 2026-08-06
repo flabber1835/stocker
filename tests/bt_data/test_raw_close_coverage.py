@@ -35,9 +35,16 @@ class FakeConn:
     """Records every statement so the tests can assert what was NOT run."""
 
     def __init__(self, *, column=True, approx=35_000_000, bounds=(D0, D1),
-                 per_session=None, exact_row=None, uncovered=(), rows=()):
+                 per_session=None, exact_row=None, uncovered=(), rows=(),
+                 probe_share=None):
         self.column, self.approx, self.bounds = column, approx, bounds
+        # The TRUTH: date -> (n, n_raw). The exact GROUP BY reads this.
         self.per_session = per_session or {}
+        # What the bounded LIMIT probe REPORTS for a date, when that differs
+        # from the truth. On the real corpus it does — the slice is not a random
+        # draw and the nulls are ticker-correlated — so a fake in which the
+        # probe is always right cannot reproduce the defect that mattered.
+        self.probe_share = probe_share or {}
         self.exact_row, self.uncovered, self.rows = exact_row, list(uncovered), list(rows)
         self.executed: list[str] = []
 
@@ -59,15 +66,20 @@ class FakeConn:
             later = [d for d in sorted(self.per_session) if d >= t]
             return _R([(later[0],)] if later else [])
         if "WHERE date = :d" in sql:
-            n, n_raw = self.per_session.get(params["d"], (0, 0))
+            d = params["d"]
+            n, n_raw = self.per_session.get(d, (0, 0))
             cap = params.get("cap", n)
-            # Mirror the real LIMIT: the probe reads at most `cap` rows, and the
-            # covered share within a date is what survives the truncation.
-            share = 0.0 if not n else n_raw / n
+            # Mirror the real LIMIT: the probe reads at most `cap` rows. The
+            # share it sees is the TRUE share only when the slice is unbiased;
+            # `probe_share` is how a test states that it is not.
+            share = self.probe_share.get(d, 0.0 if not n else n_raw / n)
             n = min(n, cap)
             return _R([{"n": n, "n_raw": int(round(n * share))}])
+        if "GROUP BY date" in sql:
+            return _R([{"date": d, "n": n, "n_raw": n_raw}
+                       for d, (n, n_raw) in sorted(self.per_session.items())])
         if "COUNT(DISTINCT ticker)" in sql:
-            return _R([self.exact_row or {}])
+            return _R([((self.exact_row or {}).get("tickers_total"),)])
         if "HAVING" in sql:
             return _R([{"ticker": t} for t in self.uncovered])
         if "ORDER BY date, ticker" in sql:
@@ -182,7 +194,12 @@ class TestTheFastPathStaysFast:
                                 "first_covered": D0, "last_covered": D1,
                                 "tickers_total": 21_000})
         rep = build_report(c, exact=True)
-        assert rep.exact is True and rep.rows_total == 35_000_000
+        assert rep.exact is True
+        # Derived from the per-session pass rather than a canned aggregate row,
+        # so this now asserts the arithmetic instead of the fake's echo.
+        assert rep.rows_total == sum(n for n, _ in c.per_session.values())
+        assert rep.rows_with_raw == sum(r for _, r in c.per_session.values())
+        assert rep.tickers_total == 21_000
         assert any("COUNT(DISTINCT ticker)" in q for q in c.executed)
 
 
@@ -218,7 +235,11 @@ class TestTheOperationalGate:
         s[min(s)] = (3000, 10)
         rep = build_report(FakeConn(per_session=s))
         assert rep.operational is False
-        assert len(rep.sessions_unusable) == 1
+        # SAMPLED mode reports it as an alarm, not as a measured verdict: 10 of
+        # 3000 is far below anything the slice bias could manufacture, but the
+        # 0.95 judgement belongs to exact mode.
+        assert len(rep.sessions_alarming_sample) == 1
+        assert rep.sessions_unusable == []
 
     def test_an_ISOLATED_unsampled_bad_session_is_NOT_detected(self):
         """The honest limit of the fast path, asserted so nobody mistakes it
@@ -238,7 +259,7 @@ class TestTheOperationalGate:
         assert rep.operational is True, (
             "if this now fails, sampling got denser and the limitation "
             "narrowed — update the claim rather than deleting the test")
-        assert str(victim) not in rep.sessions_unusable
+        assert str(victim) not in rep.sessions_alarming_sample
 
     def test_a_HALF_finished_backfill_is_caught_by_the_spread(self):
         """The realistic partial state: the replay stopped part-way, so early
@@ -249,7 +270,7 @@ class TestTheOperationalGate:
             s[d] = (3000, 0)
         rep = build_report(FakeConn(per_session=s))
         assert rep.operational is False
-        assert rep.sessions_unusable, "the empty half was not detected"
+        assert rep.sessions_alarming_sample, "the empty half was not detected"
 
     def test_no_sample_at_all_is_not_operational(self):
         """An unknown must never read as full coverage."""
@@ -303,7 +324,8 @@ def test_the_expensive_queries_are_confined_to_the_exact_branch():
     tree = ast.parse(MODULE.read_text())
     fn = next(n for n in ast.walk(tree)
               if isinstance(n, ast.FunctionDef) and n.name == "build_report")
-    exact_only = {"_EXACT_SQL", "_UNCOVERED_TICKERS_SQL"}
+    exact_only = {"_EXACT_BY_SESSION_SQL", "_EXACT_TICKERS_SQL",
+                  "_UNCOVERED_TICKERS_SQL"}
     for node in ast.walk(fn):
         if isinstance(node, ast.Name) and node.id in exact_only:
             parents = [p for p in ast.walk(fn)
@@ -387,3 +409,90 @@ class TestTheExactModeTimeout:
         assert "EXACT scan did not complete" in note
         assert "BT_COVERAGE_EXACT_TIMEOUT_MS" in note, (
             "the note must name the knob that raises the limit")
+
+
+class TestTheProbeCannotCondemnASession:
+    """The defect this class exists for: on the NAS, `operational` was False on a
+    corpus with 99.76% coverage, because the per-session verdict came from an
+    unordered LIMIT slice whose nulls are ticker-correlated. Five sessions read
+    89.5%-94.5% sampled against 99.71%-99.82% measured.
+
+    Every test here fails against the previous implementation. That is the point
+    — the old code was green, and green is what let a measurement bug read as a
+    data problem.
+    """
+
+    # The five real sessions, with the shares actually observed on both sides.
+    NAS = {datetime.date(2005, 2, 23): (6429, 6415, 0.930),
+           datetime.date(2007, 4, 18): (6241, 6230, 0.945),
+           datetime.date(2009, 6, 9): (5833, 5820, 0.935),
+           datetime.date(2011, 8, 1): (5538, 5522, 0.920),
+           datetime.date(2022, 4, 21): (8413, 8392, 0.895)}
+
+    def _conn(self, **kw):
+        per = {d: (n, n_raw) for d, (n, n_raw, _) in self.NAS.items()}
+        probe = {d: s for d, (_, _, s) in self.NAS.items()}
+        # Endpoints so the sampler's spread hits the real dates in between.
+        per.setdefault(D0, (6000, 6000))
+        per.setdefault(D1, (8000, 8000))
+        return FakeConn(per_session=per, probe_share=probe, **kw)
+
+    def test_a_BIASED_probe_does_not_condemn_a_healthy_session(self):
+        rep = build_report(self._conn(), sample_sessions=SAMPLE_SESSIONS)
+        assert rep.sessions_unusable == [], (
+            "a partial sampled share must never write the unusable list — it is "
+            "biased low by the slice")
+        assert rep.operational is True, (
+            "99.7% coverage read as not operational; that is the NAS defect")
+
+    def test_the_sampled_shares_are_still_REPORTED(self):
+        """Suppressing the verdict must not suppress the evidence: the shares
+        are how a reader notices the probe and the scan disagree."""
+        d = build_report(self._conn(), sample_sessions=SAMPLE_SESSIONS).to_dict()
+        assert d["sampled_sessions"], "the probe output must stay visible"
+        assert d["sessions_verdict"] == "sampled_indicative"
+
+    def test_an_EMPTY_probed_session_IS_still_decisive(self):
+        """The one signal that survives the bias. A date holds one row per
+        ticker and only a few dozen tickers are wholly uncovered, so an entirely
+        null slice cannot be an artifact of which rows were read."""
+        per = {D0: (6000, 6000), D1: (8000, 8000),
+               datetime.date(2015, 1, 2): (6000, 0)}
+        rep = build_report(FakeConn(per_session=per), sample_sessions=60)
+        assert rep.sessions_alarming_sample, "total absence must still be caught"
+        assert rep.operational is False
+
+    def test_EXACT_mode_MEASURES_the_per_session_verdict(self):
+        c = self._conn(exact_row={"tickers_total": 18_249})
+        rep = build_report(c, exact=True)
+        assert rep.sessions_verdict == "exact"
+        assert rep.sessions_unusable == [], (
+            "measured per-session coverage is ~99.8% on every one of these days")
+        assert rep.operational is True
+        assert any("GROUP BY date" in q for q in c.executed)
+
+    def test_EXACT_mode_OVERWRITES_a_sampled_verdict_it_supersedes(self):
+        """The second half of the defect. exact=1 filled in the row counts and
+        left `sessions_unusable` exactly as the biased probes had written it, so
+        a full scan proving the corpus healthy still returned operational=False.
+        """
+        c = self._conn(exact_row={"tickers_total": 18_249})
+        rep = build_report(c, exact=True)
+        assert rep.sessions_alarming_sample == [], (
+            "a sampled artifact must not survive the measurement that replaced it")
+        assert rep.rows_with_raw / rep.rows_total > 0.99
+
+    def test_EXACT_mode_still_CONDEMNS_a_genuinely_thin_session(self):
+        """The guard must remain capable of firing, or this is just a deletion."""
+        per = {D0: (6000, 6000), D1: (8000, 8000),
+               datetime.date(2015, 1, 2): (6000, 3000)}
+        c = FakeConn(per_session=per, exact_row={"tickers_total": 9})
+        rep = build_report(c, exact=True)
+        assert "2015-01-02" in rep.sessions_unusable
+        assert rep.operational is False
+        assert 0.5 < SESSION_USABLE_THRESHOLD
+
+    def test_the_threshold_is_UNCHANGED(self):
+        """The tempting 'fix' was to lower this until the gate went green. The
+        input was wrong, not the limit."""
+        assert SESSION_USABLE_THRESHOLD == 0.95

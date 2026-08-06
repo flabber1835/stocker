@@ -17,13 +17,27 @@ index-backed dates; this now follows that precedent.
                      index lookup over a few thousand rows
     ticker gaps      NOT in the fast path at all — that is a full GROUP BY
 
-WHY SAMPLING IS HONEST HERE. The question is "has the backfill populated this
-column?", whose real answers are ~0%, ~100%, or "it stopped somewhere". A sample
-spread across the whole date range distinguishes all three, and it distinguishes
-them the same way a full scan would, because coverage is a property of contiguous
-DATE RANGES — the backfill writes chunk by chunk. What sampling cannot see is a
-scattered handful of individual missing rows, which is exactly the case the
-engine already handles by refusing to trade a security with no print.
+WHY SAMPLING IS HONEST HERE, AND WHERE IT IS NOT. The question the fast path
+answers is "has the backfill populated this column?", whose real answers are ~0%,
+~100%, or "it stopped somewhere". A sample spread across the date range
+distinguishes those three.
+
+It CANNOT measure a single session's coverage, and it used to claim it could.
+Each probe reads an unordered `LIMIT` slice, which is not a random draw but
+whatever the scan reaches first; the nulls in this corpus are TICKER-correlated
+(ETFs, warrants, units, preferreds, SPACs — instrument classes the vendor does
+not cover) rather than date-correlated, and the slice is enriched for exactly
+those tickers. Measured on the NAS, probes reported 89.5%-94.5% on five sessions
+whose true coverage is 99.71%-99.82%. The bias is systematic and always downward,
+so a healthy corpus read as not operational. See docs/architecture.md "the
+coverage probe measured the wrong thing".
+
+So the per-session VERDICT at SESSION_USABLE_THRESHOLD now requires `exact=1`,
+which computes it from a real `GROUP BY date` — the same single scan that
+produces the row totals. The sampled probe keeps a much coarser alarm at
+SAMPLED_SESSION_ALARM_THRESHOLD: a share that low cannot be explained by a bias
+measured at ~10 points, so it is a broken session rather than a mis-read one.
+A gross fault is detectable from a biased sample; a fine judgement is not.
 
 Every number is labelled `exact` or not, and `?exact=1` runs the real scan for a
 caller who genuinely wants it and can wait.
@@ -44,6 +58,18 @@ from sqlalchemy import text
 # it as "94% covered" invites someone to run on it anyway.
 SESSION_USABLE_THRESHOLD = 0.95
 
+# The SAMPLED regime's own, far lower bar. A probe's share is biased LOW by the
+# slice (see the module docstring), so it cannot support the 0.95 judgement — but
+# it can still catch a session that is broken beyond any plausible bias. The
+# measured bias on the NAS corpus was ~10 points (99.75% true read as 89.5%);
+# this leaves roughly four times that margin, so a session tripping it is broken
+# rather than mis-sampled, and a session at half coverage cannot mark a book
+# whatever the cause.
+#
+# Deliberately NOT the same constant. One number serving a measurement and an
+# estimate is what let a biased probe speak with a measurement's authority.
+SAMPLED_SESSION_ALARM_THRESHOLD = 0.50
+
 # Dates probed in the fast path.
 SAMPLE_SESSIONS = 12
 
@@ -57,10 +83,11 @@ SAMPLE_SESSIONS = 12
 # (`Index Only Scan`, cost ~1,400) and is not, because the planner's cost model
 # assumes far faster random I/O than this box has.
 #
-# So each probe reads a BOUNDED slice instead of the whole session. Coverage
-# within a single date is effectively uniform — the backfill writes whole
-# chunks, so a date is populated or it is not — which makes a slice as
-# informative as the full count for the question being asked.
+# So each probe reads a BOUNDED slice instead of the whole session. The original
+# justification — "coverage within a single date is effectively uniform, so a
+# slice is as informative as the full count" — was FALSE and is why this module
+# reported a healthy corpus as broken. The slice is retained for its cost, and
+# the claims made from it were narrowed to what it can actually support.
 ROWS_PER_PROBE = 200
 
 # Applied per statement so a pathological plan degrades to "unknown" rather than
@@ -105,14 +132,23 @@ _ONE_SESSION_SQL = text("""
 """)
 
 # EXACT mode only. This is the query that timed out.
-_EXACT_SQL = text("""
-    SELECT COUNT(*) AS rows_total,
-           COUNT(close_unadjusted) AS rows_with_raw,
-           MIN(date) FILTER (WHERE close_unadjusted IS NOT NULL) AS first_covered,
-           MAX(date) FILTER (WHERE close_unadjusted IS NOT NULL) AS last_covered,
-           COUNT(DISTINCT ticker) AS tickers_total
+#
+# PER SESSION, not one aggregate row. The scan is identical — one sequential pass
+# reading `close_unadjusted` — plus a hash aggregate over ~5,900 groups, and the
+# row totals, the first/last covered date AND the true per-session coverage are
+# all derived from this one result client-side. The single-row version cost the
+# same and bought nothing, while leaving the per-session verdict to twelve biased
+# probes it had just superseded.
+_EXACT_BY_SESSION_SQL = text("""
+    SELECT date, COUNT(*) AS n, COUNT(close_unadjusted) AS n_raw
       FROM bt_prices
+     GROUP BY date
+     ORDER BY date
 """)
+
+# The one figure the per-session pass cannot give: a ticker spans many dates, so
+# it needs its own aggregate.
+_EXACT_TICKERS_SQL = text("SELECT COUNT(DISTINCT ticker) FROM bt_prices")
 
 _UNCOVERED_TICKERS_SQL = text("""
     SELECT ticker FROM bt_prices
@@ -145,6 +181,10 @@ class CoverageReport:
     tickers_uncovered: list[str] = field(default_factory=list)
     normalized_input_hash: str | None = None
     notes: list[str] = field(default_factory=list)
+    # Sessions a SAMPLED probe found completely empty (n > 0, n_raw = 0). Kept
+    # apart from `sessions_unusable` because this one signal survives the slice
+    # bias and the partial-coverage shares do not.
+    sessions_alarming_sample: list[str] = field(default_factory=list)
 
     @property
     def coverage(self) -> float:
@@ -157,16 +197,32 @@ class CoverageReport:
         return 0.0 if not n else sum(s["n_raw"] for s in self.sampled) / n
 
     @property
+    def sessions_verdict(self) -> str:
+        """Which regime produced the per-session judgement, stated rather than
+        inferred: a caller must not have to guess whether `sessions_unusable`
+        was measured or estimated."""
+        if self.exact:
+            return "exact"
+        return "sampled_indicative" if self.sampled else "unknown"
+
+    @property
     def operational(self) -> bool:
         """Whether the Wealth Core adapter may be considered operational.
 
-        Requires the column to EXIST, coverage at or above the floor, and no
-        sampled session below the per-session threshold — a run cannot mark its
-        book on a day most securities have no price for, however good the
-        average looks.
+        Requires the column to EXIST and aggregate coverage at or above the
+        floor. The per-session condition — a run cannot mark its book on a day
+        most securities have no price for, however good the average looks — is
+        applied from MEASURED per-session coverage in exact mode, and in sampled
+        mode only from sessions probed as wholly EMPTY.
+
+        Partial sampled shares deliberately do not appear here. They are biased
+        low by the slice (see the module docstring), and gating on them reported
+        a 99.76%-covered corpus as not operational.
         """
         return (self.column_present and bool(self.sampled)
-                and self.coverage >= 0.90 and not self.sessions_unusable)
+                and self.coverage >= 0.90
+                and not self.sessions_unusable
+                and not self.sessions_alarming_sample)
 
     def to_dict(self) -> dict:
         return {
@@ -190,6 +246,12 @@ class CoverageReport:
             "sampled_sessions": self.sampled,
             "sessions_unusable_sample": list(self.sessions_unusable[:20]),
             "sessions_unusable_count": len(self.sessions_unusable),
+            # Which regime judged the sessions. In `sampled_indicative` the
+            # unusable list is EMPTY BY CONSTRUCTION rather than by measurement,
+            # and reading it as "no bad sessions" is the mistake this field
+            # exists to prevent.
+            "sessions_verdict": self.sessions_verdict,
+            "sessions_alarming_sample": list(self.sessions_alarming_sample[:20]),
             "normalized_input_hash": self.normalized_input_hash,
             "session_usable_threshold": SESSION_USABLE_THRESHOLD,
             "notes": list(self.notes),
@@ -277,8 +339,11 @@ def build_report(conn, *, sample_sessions: int = SAMPLE_SESSIONS,
         share = 0.0 if not n else n_raw / n
         rep.sampled.append({"date": str(d), "n": n, "n_raw": n_raw,
                             "share": round(share, 6)})
-        if share < SESSION_USABLE_THRESHOLD:
-            rep.sessions_unusable.append(str(d))
+        # A GROSS fault only. A share near SESSION_USABLE_THRESHOLD is within
+        # the slice's measured bias and says nothing; a share below the alarm
+        # threshold is four times that bias away and cannot be explained by it.
+        if n > 0 and share < SAMPLED_SESSION_ALARM_THRESHOLD:
+            rep.sessions_alarming_sample.append(str(d))
 
     covered = [s for s in rep.sampled if s["n_raw"] > 0]
     if covered:
@@ -302,13 +367,23 @@ def build_report(conn, *, sample_sessions: int = SAMPLE_SESSIONS,
         # traceback, and keeps the module's own rule: a diagnostic must not fail
         # in a way indistinguishable from the fault it exists to diagnose.
         try:
-            row = conn.execute(_EXACT_SQL).mappings().first() or {}
+            # ONE pass, then everything derived from it. Ordered by date, so the
+            # first and last covered sessions fall out of a scan of the result
+            # rather than needing their own FILTERed aggregates.
+            by_session = list(conn.execute(_EXACT_BY_SESSION_SQL).mappings())
             rep.exact = True
-            rep.rows_total = row.get("rows_total")
-            rep.rows_with_raw = row.get("rows_with_raw")
-            rep.first_covered_date = row.get("first_covered")
-            rep.last_covered_date = row.get("last_covered")
-            rep.tickers_total = row.get("tickers_total")
+            rep.rows_total = sum(r["n"] for r in by_session)
+            rep.rows_with_raw = sum(r["n_raw"] for r in by_session)
+            covered_dates = [r["date"] for r in by_session if r["n_raw"] > 0]
+            rep.first_covered_date = covered_dates[0] if covered_dates else None
+            rep.last_covered_date = covered_dates[-1] if covered_dates else None
+            # MEASURED, replacing whatever the probes guessed. A mode that exists
+            # to turn an estimate into a measurement must replace all of it.
+            rep.sessions_unusable = [
+                str(r["date"]) for r in by_session
+                if r["n"] > 0 and (r["n_raw"] / r["n"]) < SESSION_USABLE_THRESHOLD]
+            rep.sessions_alarming_sample = []
+            rep.tickers_total = conn.execute(_EXACT_TICKERS_SQL).scalar()
             rep.tickers_uncovered = [
                 r["ticker"] for r in conn.execute(
                     _UNCOVERED_TICKERS_SQL,

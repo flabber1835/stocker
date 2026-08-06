@@ -181,8 +181,17 @@ if not r.get("operational"):
     print(f"  coverage        {r['coverage']:.4%}"
           f"{'' if r.get('exact') else '  (SAMPLED)'}", file=sys.stderr)
     print(f"  rows (est)      {r.get('rows_total_estimate', 0):,}", file=sys.stderr)
+    # Both lists, and WHICH regime judged them. `sessions_unusable` is measured
+    # and only ever populated by exact=1; `sessions_alarming_sample` is the
+    # sampled probe's coarse alarm. Printing only the first made a sampled run
+    # report "0 unusable days" beside a failing gate.
+    print(f"  verdict from    {r.get('sessions_verdict')}", file=sys.stderr)
     print(f"  unusable days   {r['sessions_unusable_count']:,} "
-          f"(sample {r['sessions_unusable_sample'][:5]})", file=sys.stderr)
+          f"(measured; sample {r['sessions_unusable_sample'][:5]})",
+          file=sys.stderr)
+    print(f"  alarming days   {len(r.get('sessions_alarming_sample', [])):,} "
+          f"(sampled probe: {r.get('sessions_alarming_sample', [])[:5]})",
+          file=sys.stderr)
     print(f"  covered range   {r.get('first_covered_date')} .. "
           f"{r.get('last_covered_date')}", file=sys.stderr)
     print("\nWealth Core marks the book in the AS-TRADED domain and will refuse "
