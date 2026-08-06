@@ -239,6 +239,36 @@ def _gate(intent: dict, *, profile, state: PortfolioState,
             "held_positions": len(state.episodes)}
 
 
+def _progress_snapshot(done, all_sessions, starting_cash, current,
+                       benchmark_closes, benchmark_ticker) -> dict:
+    """A running measurement over the sessions completed so far.
+
+    `allow_blocked_gaps=True` here and NOT in the final block: early in a run a
+    single blocked session would make the strict reading unevaluable and the
+    progress display would show nothing for hours. The tolerant reading is the
+    right trade for an indicator and the wrong one for a result, which is
+    exactly why they are separate calls.
+    """
+    p = measure(
+        starting_cash=starting_cash,
+        sessions=[SessionFacts(session=s.session,
+                               resolved_equity=s.resolved_equity,
+                               blocked=s.blocked) for s in done],
+        allow_blocked_gaps=True,
+        benchmark_closes=benchmark_closes,
+        benchmark_ticker=benchmark_ticker,
+    )
+    total = len(all_sessions)
+    return {
+        "provisional": True,
+        "sessions_done": len(done),
+        "sessions_total": total,
+        "pct": round(100.0 * len(done) / total, 1) if total else None,
+        "current_session": current,
+        "performance": p.to_dict(),
+    }
+
+
 def rehearse_chain(*, sessions: Sequence[str],
                    bars_by_session: Mapping[str, Sequence[VendorBar]],
                    meta: Mapping[str, SecurityMeta],
@@ -247,6 +277,10 @@ def rehearse_chain(*, sessions: Sequence[str],
                    cfg: WealthCoreConfig | None = None,
                    eligibility_cfg: EligibilityConfig | None = None,
                    terminal_events: Sequence[TerminalTerms] = (),
+                   on_progress: Any = None,
+                   progress_every: int = 5,
+                   benchmark_closes: Mapping[str, float] | None = None,
+                   benchmark_ticker: str | None = None,
                    ) -> ChainRehearsal:
     """Drive the stateful chain session by session, then prove it matches bulk.
 
@@ -357,6 +391,20 @@ def rehearse_chain(*, sessions: Sequence[str],
             out.trace_problems.extend(f"{session}: {p}" for p in problems)
         out.sessions.append(sr)
 
+        # ── live progress ────────────────────────────────────────────────────
+        # PROVISIONAL by construction and labelled as such. The authoritative
+        # `performance` block is computed at the end, only after the live path
+        # is proven to reproduce the bulk replay — measuring before that would
+        # attach a CAGR to a stream nobody has verified. This is a progress
+        # indicator, and a run that later DIVERGES publishes no final metrics at
+        # all however healthy its running figures looked.
+        if on_progress is not None and (
+                len(out.sessions) % max(1, progress_every) == 0
+                or len(out.sessions) == len(sessions)):
+            on_progress(_progress_snapshot(
+                out.sessions, sessions, starting_cash, session,
+                benchmark_closes, benchmark_ticker))
+
     out.final_cash = state.cash
     out.final_positions = len(state.episodes)
     # ── the equivalence check ────────────────────────────────────────────────
@@ -398,13 +446,16 @@ def rehearse_chain(*, sessions: Sequence[str],
     # fills — so it reports no turnover, and exists to prove the two paths agree
     # on the money as well as on the hashes. The hashes cover state and the
     # ledger; neither covers the valuation series.
-    out.performance = measure_run_result(bulk, starting_cash).to_dict()
+    out.performance = measure_run_result(
+        bulk, starting_cash, benchmark_closes=benchmark_closes,
+        benchmark_ticker=benchmark_ticker).to_dict()
     out.chain_performance = measure(
         starting_cash=starting_cash,
         sessions=[SessionFacts(session=s.session,
                                resolved_equity=s.resolved_equity,
                                blocked=s.blocked)
                   for s in out.sessions],
+        benchmark_closes=benchmark_closes, benchmark_ticker=benchmark_ticker,
     ).to_dict()
 
     # A run containing BLOCKED sessions is unevaluable under the strict rule,
@@ -417,7 +468,9 @@ def rehearse_chain(*, sessions: Sequence[str],
     if (not out.performance["evaluable"]
             and out.performance["blocked_session_count"]):
         out.performance_excluding_blocked = measure_run_result(
-            bulk, starting_cash, allow_blocked_gaps=True).to_dict()
+            bulk, starting_cash, allow_blocked_gaps=True,
+            benchmark_closes=benchmark_closes,
+            benchmark_ticker=benchmark_ticker).to_dict()
     return out
 
 

@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import os
 import json
 import logging
 import traceback
@@ -85,6 +86,30 @@ WEALTH_CORE_DDL = [
     """CREATE INDEX IF NOT EXISTS idx_bt_wealth_core_runs_started
         ON bt_wealth_core_runs (started_at DESC)""",
 ]
+
+#: The benchmark a Wealth Core run is measured against. In `bt_prices` already
+#: (bt-data's benchmark stage fetches SPY/QQQ/IWM/SOXX from SFP).
+BENCHMARK_TICKER = os.getenv("WEALTH_CORE_BENCHMARK", "SPY")
+
+#: Publish a progress snapshot every N sessions. Each one re-measures the whole
+#: curve so far, which is O(sessions) — at every session a 753-session run would
+#: do ~280k session-visits of pointless work for a display nobody reads that
+#: fast.
+PROGRESS_EVERY = int(os.getenv("WEALTH_CORE_PROGRESS_EVERY", "5"))
+
+#: The live progress slot. IN MEMORY on purpose: it is a display, it is worthless
+#: after the process that produced it has gone, and persisting it would mean a DB
+#: write every few sessions for the whole run. `/wealth-core/progress` reads it.
+_progress: dict = {}
+
+
+def _publish_progress(snapshot: dict) -> None:
+    """Called from the worker THREAD running the rehearsal. A single dict
+    assignment, which is atomic under the GIL — no lock, and no partially
+    written snapshot can ever be observed."""
+    global _progress
+    _progress = snapshot
+
 
 # A Wealth Core run loads the whole corpus for its date range; two at once, or
 # one beside a sweep, is the memory profile that gets the container OOM-killed —
@@ -239,6 +264,10 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
         load_bars, load_identity, load_meta, load_sessions, sessions_index,
         split_ratios_from_actions, terminal_events_from_actions,
         unusable_dividend_rows)
+    # Its OWN module, also COPYed at image build. The loader above is guarded
+    # against ever naming the total-return column — the series a benchmark
+    # hurdle needs and a price domain must never see.
+    from app.live.wealth_core_benchmark import load_benchmark_closes
 
     loop = asyncio.get_running_loop()
     start, end = str(req.start_date), str(req.end_date)
@@ -256,6 +285,10 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
             identity = load_identity(conn)
             idx = sessions_index(sessions)
             action_rows = load_actions(conn, start, end)
+            # The benchmark, over the SAME sessions. Fail-soft: no rows means
+            # no comparison, never a failed run.
+            benchmark_closes = load_benchmark_closes(
+                conn, BENCHMARK_TICKER, start, end)
             use_actions = bool(action_rows)
             if not use_actions and REQUIRE_ACTIONS:
                 raise CorporateActionsUnavailable(
@@ -286,6 +319,7 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
                         for s, v in bars.items()}
             return {
                 "sessions": sessions, "bars_by_session": bars, "meta": meta,
+                "benchmark_closes": benchmark_closes,
                 "terminal_events": terminal,
                 "provenance": {
                     "sessions": len(sessions), "securities": len(meta),
@@ -317,7 +351,11 @@ def _execute(req: WealthCoreJobRequest, corpus: dict) -> dict:
 
     if req.mode == "chain_rehearsal":
         r = rehearse_chain(**common, cfg=cfg, eligibility_cfg=elig,
-                           config={"execution_model": STATEFUL_MODEL})
+                           config={"execution_model": STATEFUL_MODEL},
+                           on_progress=_publish_progress,
+                           progress_every=PROGRESS_EVERY,
+                           benchmark_closes=corpus.get("benchmark_closes"),
+                           benchmark_ticker=BENCHMARK_TICKER)
         d = r.to_dict()
         # The per-session detail is the point of a rehearsal but it is one row
         # per trading day; the run row keeps the verdict and the counts, and the
@@ -401,14 +439,32 @@ async def start_wealth_core_job(req: WealthCoreJobRequest,
             "(CAST(:r AS UUID), :m, CAST(:s AS JSONB))"),
             {"r": run_id, "m": req.mode,
              "s": req.model_dump_json()})
+    _publish_progress({})   # a previous run's snapshot is not this run's
     background_tasks.add_task(_run_bg, run_id, req)
     return {"run_id": run_id, "mode": req.mode, "status": "running",
             "risk_profile": PROFILE_NAME if req.mode == "chain_rehearsal" else None}
 
 
+@router.get("/progress")
+async def wealth_core_progress():
+    """The live snapshot of a running rehearsal. PROVISIONAL — see
+    `_progress_snapshot`: it is measured before the parity check, so a run that
+    later diverges will have shown healthy numbers the whole way and then
+    publish no final metrics at all."""
+    if not _progress:
+        return {"running": False, "detail": "no rehearsal has reported progress"}
+    return {"running": True, **_progress}
+
+
 @router.get("/runs/latest")
 async def latest_wealth_core_run():
-    return await _fetch("ORDER BY started_at DESC LIMIT 1", {})
+    row = await _fetch("ORDER BY started_at DESC LIMIT 1", {})
+    # Merged only while the run is still going: once it is terminal the summary
+    # is authoritative and a stale provisional block beside it would invite
+    # someone to read the wrong CAGR.
+    if row.get("status") == "running" and _progress:
+        row = {**row, "progress": _progress}
+    return row
 
 
 @router.get("/runs/{run_id}")

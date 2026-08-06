@@ -140,6 +140,14 @@ with it. The rules below override convenience every time:
    `maximum_drawdown_is_lower_bound`. NEW shared module ⇒ rebuild stocker-base.
    NOTE: Wealth Core reads NO fundamentals, so the SF1 re-backfill does not gate
    a Wealth Core baseline — it gates the target-portfolio lane.
+   LIVE PROGRESS: `GET /wealth-core/progress` (and `/runs/latest` while running)
+   serves a snapshot every `WEALTH_CORE_PROGRESS_EVERY` sessions — pct, current
+   session, running CAGR/drawdown and the SPY comparison. PROVISIONAL: measured
+   BEFORE the parity check, so a run that later diverges showed healthy numbers
+   all the way and then publishes no final metrics. In memory only. The SPY
+   hurdle is buy-and-hold `adjusted_close` (total return, not the price index)
+   over the SAME sessions, loaded by `wealth_core_benchmark.py` — its own module
+   because the corpus loader is guarded against ever naming that column.
 
 6. Wealth Core owns `bt_actions`, `bt_wealth_core_runs` and the
    `POST /wealth-core/jobs/run` endpoint on bt-engine. It never submits orders;

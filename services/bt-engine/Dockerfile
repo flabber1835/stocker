@@ -13,4 +13,7 @@ COPY services/portfolio-builder/app/select.py ./app/live/
 # which column means what is the failure the factor-coverage contract exists
 # after — two engines that agree until they quietly do not.
 COPY services/backtester/app/wealth_core_replay.py ./app/live/
+# The benchmark series. Its own module because the loader above is guarded
+# against ever naming the total-return column — see wealth_core_benchmark.py.
+COPY services/backtester/app/wealth_core_benchmark.py ./app/live/
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

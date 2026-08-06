@@ -296,3 +296,66 @@ def test_to_dict_carries_every_required_field():
     assert required <= set(d)
     import json
     json.dumps(d)   # must survive the summary JSONB round trip
+
+
+# ── the SPY comparison ───────────────────────────────────────────────────────
+
+def test_benchmark_is_measured_over_the_same_span_as_the_strategy():
+    """Buy-and-hold SPY between the SAME endpoints. Measuring it over its own
+    full history would compare two different periods and call the difference
+    alpha."""
+    p = measure(starting_cash=1000.0,
+                sessions=[_s("2021-01-01", 1000.0), _s("2022-01-01", 1500.0)],
+                benchmark_closes={"2020-01-01": 50.0,   # before the run — ignored
+                                  "2021-01-01": 100.0,
+                                  "2022-01-01": 120.0},
+                benchmark_ticker="SPY")
+    assert p.benchmark_ticker == "SPY"
+    assert p.benchmark_total_return == pytest.approx(0.20)
+    assert p.total_return == pytest.approx(0.50)
+    assert p.excess_total_return == pytest.approx(0.30)
+    assert p.excess_cagr == pytest.approx(p.cagr - p.benchmark_cagr)
+
+
+def test_the_benchmark_drawdown_uses_the_same_rule_as_the_strategy():
+    p = measure(starting_cash=1000.0,
+                sessions=[_s("2021-01-01", 1000.0), _s("2021-06-01", 900.0),
+                          _s("2022-01-01", 1100.0)],
+                benchmark_closes={"2021-01-01": 100.0, "2021-06-01": 60.0,
+                                  "2022-01-01": 110.0},
+                benchmark_ticker="SPY")
+    assert p.benchmark_maximum_drawdown == pytest.approx(0.40)
+    assert p.maximum_drawdown == pytest.approx(0.10)
+
+
+def test_a_missing_benchmark_endpoint_refuses_the_comparison():
+    """A missing endpoint silently shortens the benchmark's span, which shows up
+    as an excess return the strategy never earned."""
+    p = measure(starting_cash=1000.0,
+                sessions=[_s("2021-01-01", 1000.0), _s("2022-01-01", 1500.0)],
+                benchmark_closes={"2021-01-01": 100.0},   # no closing print
+                benchmark_ticker="SPY")
+    assert p.evaluable                      # the STRATEGY is still measured
+    assert p.benchmark_total_return is None
+    assert p.excess_total_return is None
+    assert "missing an endpoint" in p.benchmark_unavailable_reason
+
+
+def test_no_benchmark_supplied_is_reported_not_silently_zero():
+    p = measure(starting_cash=1000.0,
+                sessions=[_s("2021-01-01", 1000.0), _s("2022-01-01", 1500.0)])
+    assert p.benchmark_total_return is None
+    assert p.excess_total_return is None
+    assert p.benchmark_unavailable_reason == "no benchmark series supplied"
+
+
+def test_a_gap_inside_the_benchmark_series_is_tolerated():
+    """An ETF can miss a print the book traded through. Only the endpoints are
+    load-bearing."""
+    p = measure(starting_cash=1000.0,
+                sessions=[_s("2021-01-01", 1000.0), _s("2021-06-01", 1100.0),
+                          _s("2022-01-01", 1500.0)],
+                benchmark_closes={"2021-01-01": 100.0, "2022-01-01": 120.0},
+                benchmark_ticker="SPY")
+    assert p.benchmark_total_return == pytest.approx(0.20)
+    assert p.benchmark_unavailable_reason is None

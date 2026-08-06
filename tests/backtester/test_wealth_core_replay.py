@@ -219,3 +219,37 @@ def test_the_unmodelled_parts_travel_with_the_result():
         joined = " ".join(CAVEATS + source).lower()
         for topic in ("dividend", "split", "terminal", "ticker"):
             assert topic in joined, f"{topic!r} is uncovered on one source path"
+
+
+class TestTheBenchmarkIsSeparate:
+    """The total-return series has exactly one legitimate use — a hurdle — and it
+    lives in its own module so the loader's "never names it" guard stays
+    absolute. A guard that permits one blessed exception is not checkable."""
+
+    BENCH = MODULE.parent / "wealth_core_benchmark.py"
+
+    def test_the_benchmark_module_exists_and_reads_the_total_return_series(self):
+        src = self.BENCH.read_text()
+        assert "adjusted_close" in src
+        assert "bt_prices" in src
+
+    def test_it_reads_NOTHING_but_the_benchmark(self):
+        """It must not become a second corpus reader. The strategy's tables and
+        price domains belong to the loader alone."""
+        import ast
+        tree = ast.parse(self.BENCH.read_text())
+        sql = [n.value for n in ast.walk(tree)
+               if isinstance(n, ast.Constant) and isinstance(n.value, str)
+               and "SELECT" in n.value.upper()]
+        assert sql, "no SQL found — the scan is not looking at anything"
+        for stmt in sql:
+            for banned in ("bt_universe", "bt_actions", "bt_fundamentals",
+                           "close_unadjusted", "closeunadj"):
+                assert banned not in stmt, f"{banned!r} does not belong here: {stmt!r}"
+            assert "ticker = :ticker" in stmt, (
+                "the benchmark query must be scoped to ONE ticker; an unscoped "
+                "bt_prices read is a corpus loader by another name")
+
+    def test_the_image_carries_it(self):
+        df = (MODULE.parents[2] / "bt-engine" / "Dockerfile").read_text()
+        assert "services/backtester/app/wealth_core_benchmark.py ./app/live/" in df

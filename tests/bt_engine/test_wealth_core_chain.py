@@ -399,3 +399,128 @@ def test_the_service_shims_ARE_the_canonical_modules():
         canon = importlib.import_module(canon_path)
         assert canon is sys.modules[canon_path]
         assert canon.__name__ == canon_path
+
+
+# ── live progress ────────────────────────────────────────────────────────────
+
+class TestLiveProgress:
+    """A three-year rehearsal is hours of silence otherwise: the chain loop logs
+    nothing and the run row carries only `running`. These snapshots are the only
+    signal that it is working rather than wedged.
+
+    They are PROVISIONAL by construction — measured mid-run, before the parity
+    check that decides whether the run means anything at all. That is the whole
+    reason they are a separate field from `performance` rather than an early
+    version of it.
+    """
+
+    def _collect(self, scenario, **kw):
+        g, sessions = scenario
+        seen = []
+        rehearse_chain(
+            sessions=sessions, bars_by_session=g.bars_by_session, meta=g.meta,
+            starting_cash=g.starting_cash, terminal_events=g.terminal_events,
+            config={"execution_model": STATEFUL_MODEL},
+            on_progress=seen.append, **kw)
+        return seen, sessions
+
+    def test_percentage_rises_monotonically_and_ends_at_one_hundred(self, scenario):
+        seen, sessions = self._collect(scenario, progress_every=10)
+        assert seen, "no progress was published at all"
+        pcts = [s["pct"] for s in seen]
+        assert pcts == sorted(pcts)
+        assert pcts[-1] == 100.0
+        assert seen[-1]["sessions_done"] == len(sessions)
+        assert all(s["sessions_total"] == len(sessions) for s in seen)
+
+    def test_the_final_snapshot_always_fires_regardless_of_the_interval(self, scenario):
+        """`progress_every` must not be able to leave the bar short of 100%: a
+        run that stops at 97% reads as hung."""
+        for every in (7, 13, 100):
+            seen, sessions = self._collect(scenario, progress_every=every)
+            assert seen[-1]["pct"] == 100.0, f"progress_every={every} ended short"
+
+    def test_each_snapshot_carries_a_running_measurement(self, scenario):
+        seen, _ = self._collect(scenario, progress_every=20)
+        last = seen[-1]["performance"]
+        assert seen[-1]["provisional"] is True
+        assert last["evaluable"] is True
+        assert last["ending_equity"] is not None
+        assert last["maximum_drawdown"] is not None
+        assert seen[-1]["current_session"]
+
+    def test_a_blocked_session_does_not_blank_the_running_measurement(self, scenario):
+        """The golden slice blocks sessions. Under the STRICT rule the running
+        figure would read `unevaluable` for the rest of the run — hours of a
+        progress display showing nothing, which is why the indicator takes the
+        tolerant reading and the final block does not."""
+        # The FULL scenario: the slice used elsewhere stops at S160 and the
+        # blocked stretch begins at S170, so a slice-based version of this test
+        # would pass vacuously.
+        g, _ = scenario
+        seen = []
+        rehearse_chain(
+            sessions=list(g.sessions), bars_by_session=g.bars_by_session,
+            meta=g.meta, starting_cash=g.starting_cash,
+            terminal_events=g.terminal_events,
+            config={"execution_model": STATEFUL_MODEL},
+            on_progress=seen.append, progress_every=10)
+        blocked_seen = [s for s in seen
+                        if s["performance"]["blocked_session_count"] > 0]
+        assert blocked_seen, "slice never blocks — this test proves nothing"
+        assert all(s["performance"]["evaluable"] for s in blocked_seen)
+        assert all(s["performance"]["maximum_drawdown_is_lower_bound"]
+                   for s in blocked_seen)
+
+    def test_the_benchmark_comparison_rides_along_live(self, scenario):
+        g, sessions = scenario
+        # A synthetic SPY that gains steadily across the slice.
+        bench = {d: 100.0 * (1.0 + i / 1000.0) for i, d in enumerate(sessions)}
+        seen = []
+        r = rehearse_chain(
+            sessions=sessions, bars_by_session=g.bars_by_session, meta=g.meta,
+            starting_cash=g.starting_cash, terminal_events=g.terminal_events,
+            config={"execution_model": STATEFUL_MODEL},
+            on_progress=seen.append, progress_every=20,
+            benchmark_closes=bench, benchmark_ticker="SPY")
+
+        live = seen[-1]["performance"]
+        assert live["benchmark_ticker"] == "SPY"
+        assert live["benchmark_total_return"] is not None
+        assert live["excess_total_return"] is not None
+        # …and the FINAL block carries it too, from the same code.
+        final = r.performance_excluding_blocked or r.performance
+        assert final["benchmark_total_return"] is not None
+
+    def test_no_callback_means_no_work_and_no_crash(self, scenario):
+        g, sessions = scenario
+        r = rehearse_chain(
+            sessions=sessions, bars_by_session=g.bars_by_session, meta=g.meta,
+            starting_cash=g.starting_cash, terminal_events=g.terminal_events,
+            config={"execution_model": STATEFUL_MODEL})
+        assert r.equivalence["state_hash_matches"] is True
+
+    def test_progress_is_not_published_after_a_divergence(self, scenario, monkeypatch):
+        """A diverged run raises, so the LAST thing an operator saw was a
+        healthy-looking snapshot. That is acceptable only because no final
+        metrics are published — this pins that the raise still happens."""
+        import app.wealth_core_chain as mod
+        g, sessions = scenario
+        seen = []
+
+        real = mod.run_with_hashes
+
+        def _sabotage(**kw):
+            result, hashes = real(**kw)
+            result.state.cash += 1.0          # make the bulk state differ
+            return result, hashes
+
+        monkeypatch.setattr(mod, "run_with_hashes", _sabotage)
+        with pytest.raises(ChainRehearsalDiverged):
+            rehearse_chain(
+                sessions=sessions, bars_by_session=g.bars_by_session,
+                meta=g.meta, starting_cash=g.starting_cash,
+                terminal_events=g.terminal_events,
+                config={"execution_model": STATEFUL_MODEL},
+                on_progress=seen.append, progress_every=20)
+        assert seen, "progress did fire during the run"

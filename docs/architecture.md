@@ -5064,3 +5064,52 @@ the tolerant one ALONGSIDE it as `performance_excluding_blocked` — never inste
 Whether a real 2021-2023 rehearsal blocks any sessions is unknown until it runs.
 If it does, the honest baseline is a lower bound, and that is a judgement call
 about the strategy's marks rather than about the measurement.
+
+### Watching a multi-hour rehearsal, and the SPY hurdle
+
+A three-year rehearsal is hours of silence: the chain loop logs nothing, and the
+run row carries only `running` until the single terminal UPDATE. `docker stats`
+was the only signal it had not wedged.
+
+`rehearse_chain(on_progress=…)` publishes a snapshot every `progress_every`
+sessions (default 5 — each one re-measures the whole curve so far, so at every
+session a 753-session run would do ~280k session-visits for a display nobody
+reads that fast). The final snapshot is forced regardless of the interval: a bar
+that stops at 97% reads as hung. bt-engine keeps the latest in memory and serves
+it at `GET /wealth-core/progress`, merged into `/runs/latest` only while the run
+is `running` — once terminal, the summary is authoritative and a stale
+provisional block beside it would invite reading the wrong CAGR.
+
+**The live figures are PROVISIONAL, and that is a structural claim rather than a
+disclaimer.** They are measured mid-run, before the parity check that decides
+whether the run means anything. A run that later diverges will have shown healthy
+numbers the whole way and then publish no final metrics at all — which is correct,
+and is exactly why the snapshot is a separate field from `performance` rather
+than an early version of it. The indicator also takes the `allow_blocked_gaps`
+reading while the final block does not: under the strict rule a single blocked
+session would blank the display for the rest of the run. Tolerant is right for an
+indicator and wrong for a result.
+
+**The SPY comparison** is buy-and-hold over the SAME observed sessions — measuring
+the benchmark over its own full history would compare two periods and call the
+difference alpha. Sessions SPY does not price are dropped from its curve only, but
+both ENDPOINTS must exist or the comparison is refused: a missing endpoint
+silently shortens the benchmark's span and surfaces as an excess return the
+strategy never earned. Strategy and benchmark drawdowns come from one `_drawdown`
+helper, because a comparison whose two halves were computed by different code is
+not a comparison.
+
+It reads `adjusted_close` — Sharadar's `closeadj`, split AND dividend adjusted.
+Scoring the book against SPY's PRICE index would understate the hurdle by the
+benchmark's entire dividend stream, which over a multi-year run is the difference
+between beating SPY and losing to it while appearing to win.
+
+**Why the benchmark loader is its own module.** `wealth_core_replay.py` owns the
+corpus mapping and is guarded by a test asserting it never NAMES the total-return
+column, in code or in any string constant. Two guards fired while this was being
+built — one against corpus SQL in `wealth_core_api.py`, one against `closeadj` in
+the loader — and both were right. The value of the second is that it is absolute:
+"the module never names it" is checkable, "names it only in the right place" is
+not. So the benchmark lives in `services/backtester/app/wealth_core_benchmark.py`,
+COPYed into the bt-engine image beside the loader, reading one ticker and nothing
+else — with its own test forbidding it from becoming a second corpus reader.

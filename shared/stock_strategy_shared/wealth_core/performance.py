@@ -126,6 +126,16 @@ class Performance:
     gross_turnover: Optional[float] = None
     annualized_turnover: Optional[float] = None
     average_resolved_equity: Optional[float] = None
+    #: Buy-and-hold benchmark over the SAME observed span. None throughout when
+    #: no series was supplied or the span's endpoints are not both present — a
+    #: comparison against a partly-guessed benchmark is worse than none.
+    benchmark_ticker: Optional[str] = None
+    benchmark_total_return: Optional[float] = None
+    benchmark_cagr: Optional[float] = None
+    benchmark_maximum_drawdown: Optional[float] = None
+    benchmark_unavailable_reason: Optional[str] = None
+    excess_total_return: Optional[float] = None
+    excess_cagr: Optional[float] = None
     blocked_session_count: int = 0
     excluded_blocked_sessions: tuple = ()
     #: True when blocked sessions were excluded. The unobserved days could
@@ -156,6 +166,13 @@ class Performance:
             "gross_turnover": _r6(self.gross_turnover),
             "annualized_turnover": _r6(self.annualized_turnover),
             "average_resolved_equity": _r2(self.average_resolved_equity),
+            "benchmark_ticker": self.benchmark_ticker,
+            "benchmark_total_return": _r6(self.benchmark_total_return),
+            "benchmark_cagr": _r6(self.benchmark_cagr),
+            "benchmark_maximum_drawdown": _r6(self.benchmark_maximum_drawdown),
+            "benchmark_unavailable_reason": self.benchmark_unavailable_reason,
+            "excess_total_return": _r6(self.excess_total_return),
+            "excess_cagr": _r6(self.excess_cagr),
             "blocked_session_count": self.blocked_session_count,
             "excluded_blocked_sessions": list(self.excluded_blocked_sessions),
             "maximum_drawdown_is_lower_bound": self.maximum_drawdown_is_lower_bound,
@@ -215,7 +232,9 @@ def measure(*,
             sessions: Sequence[SessionFacts],
             final_marked_equity: Optional[float] = None,
             final_book_resolved: bool = False,
-            allow_blocked_gaps: bool = False) -> Performance:
+            allow_blocked_gaps: bool = False,
+            benchmark_closes: Optional[Mapping[str, float]] = None,
+            benchmark_ticker: Optional[str] = None) -> Performance:
     """Measure one Wealth Core run. Pure; raises only on a malformed fill record.
 
     `final_marked_equity` / `final_book_resolved` come from the run's
@@ -283,16 +302,7 @@ def measure(*,
     curve: list[tuple[Optional[str], float]] = [(None, starting_cash)]
     curve += [(s.session, e) for s, e in zip(observed, equities)]
 
-    peak_value, peak_date = curve[0][1], curve[0][0]
-    max_dd, dd_peak, dd_trough = 0.0, None, None
-    for when, value in curve[1:]:
-        if value > peak_value:
-            peak_value, peak_date = value, when
-            continue
-        if peak_value > 0:
-            dd = (peak_value - value) / peak_value
-            if dd > max_dd:
-                max_dd, dd_peak, dd_trough = dd, peak_date, when
+    max_dd, dd_peak, dd_trough = _drawdown(curve)
 
     # ── returns ──────────────────────────────────────────────────────────────
     total_return = multiple = None
@@ -320,6 +330,9 @@ def measure(*,
     if gross_turnover is not None and calendar_days and calendar_days > 0:
         annualized_turnover = gross_turnover * (FULL_YEAR_DAYS / calendar_days)
 
+    bench = _benchmark(benchmark_closes, benchmark_ticker,
+                       [s.session for s in observed], calendar_days)
+
     return Performance(
         evaluable=True,
         start_date=start_date,
@@ -344,7 +357,79 @@ def measure(*,
         gross_turnover=gross_turnover,
         annualized_turnover=annualized_turnover,
         average_resolved_equity=avg_equity,
+        benchmark_ticker=benchmark_ticker,
+        benchmark_total_return=bench["total_return"],
+        benchmark_cagr=bench["cagr"],
+        benchmark_maximum_drawdown=bench["maximum_drawdown"],
+        benchmark_unavailable_reason=bench["reason"],
+        excess_total_return=(None if bench["total_return"] is None
+                             or total_return is None
+                             else total_return - bench["total_return"]),
+        excess_cagr=(None if bench["cagr"] is None or cagr is None
+                     else cagr - bench["cagr"]),
     )
+
+
+def _benchmark(closes: Optional[Mapping[str, float]], ticker: Optional[str],
+               observed_sessions: Sequence[str],
+               calendar_days: Optional[int]) -> dict:
+    """Buy-and-hold the benchmark over the SAME observed span.
+
+    Measured on the sessions the STRATEGY was measured on, not on the benchmark's
+    own full history — otherwise the two numbers describe different periods and
+    the excess is meaningless. Sessions the benchmark does not price are dropped
+    from ITS curve only (an ETF can be missing a print the book still traded
+    through), but the two ENDPOINTS must both exist or there is no comparison.
+    """
+    empty = {"total_return": None, "cagr": None, "maximum_drawdown": None,
+             "reason": None}
+    if not closes:
+        return {**empty, "reason": "no benchmark series supplied"}
+
+    pairs = [(d, float(closes[d])) for d in observed_sessions
+             if closes.get(d) is not None and float(closes[d]) > 0]
+    # ENDPOINTS FIRST, and checked before the count. A missing endpoint silently
+    # shortens the benchmark's span, which shows up as an excess return the
+    # strategy never earned — the specific failure worth naming, and the count
+    # check would otherwise swallow it behind a vaguer message.
+    priced = {d for d, _ in pairs}
+    missing_ends = [d for d in (observed_sessions[0], observed_sessions[-1])
+                    if d not in priced]
+    if missing_ends:
+        return {**empty,
+                "reason": (f"{ticker or 'benchmark'} is missing an endpoint "
+                           f"({', '.join(missing_ends)}); priced "
+                           f"{len(pairs)} of {len(observed_sessions)} session(s)")}
+    if len(pairs) < 2:
+        return {**empty,
+                "reason": f"{ticker or 'benchmark'} prices only {len(pairs)} of "
+                          f"{len(observed_sessions)} measured session(s)"}
+
+    first, last = pairs[0][1], pairs[-1][1]
+    total_return = (last / first) - 1.0
+    cagr, _reason, _extra = _cagr(first, last, calendar_days)
+    max_dd, _p, _t = _drawdown(pairs)
+    return {"total_return": total_return, "cagr": cagr,
+            "maximum_drawdown": max_dd, "reason": None}
+
+
+def _drawdown(curve: Sequence[tuple]) -> tuple[float, Optional[str], Optional[str]]:
+    """Max peak-to-trough fraction over an ordered (label, value) curve.
+
+    Shared by the strategy and the benchmark on purpose: a comparison in which
+    the two drawdowns were computed by different code is not a comparison.
+    """
+    peak_value, peak_date = curve[0][1], curve[0][0]
+    max_dd, dd_peak, dd_trough = 0.0, None, None
+    for when, value in curve[1:]:
+        if value > peak_value:
+            peak_value, peak_date = value, when
+            continue
+        if peak_value > 0:
+            dd = (peak_value - value) / peak_value
+            if dd > max_dd:
+                max_dd, dd_peak, dd_trough = dd, peak_date, when
+    return max_dd, dd_peak, dd_trough
 
 
 def _calendar_days(start: str, end: str) -> Optional[int]:
@@ -389,7 +474,9 @@ def facts_from_run_result(result) -> list[SessionFacts]:
 
 
 def measure_run_result(result, starting_cash: float,
-                       *, allow_blocked_gaps: bool = False) -> Performance:
+                       *, allow_blocked_gaps: bool = False,
+                       benchmark_closes: Optional[Mapping[str, float]] = None,
+                       benchmark_ticker: Optional[str] = None) -> Performance:
     """Measure a `RunResult`, cross-checking against its own FinalReport."""
     final = getattr(result, "final", None)
     resolved = bool(final) and not final.unmarkable_positions \
@@ -401,6 +488,8 @@ def measure_run_result(result, starting_cash: float,
         final_marked_equity=(final.marked_equity if final else None),
         final_book_resolved=resolved,
         allow_blocked_gaps=allow_blocked_gaps,
+        benchmark_closes=benchmark_closes,
+        benchmark_ticker=benchmark_ticker,
     )
 
 
