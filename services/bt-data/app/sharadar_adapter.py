@@ -258,6 +258,46 @@ def map_tickers_row(row: dict, snapshot_date: str) -> Optional[dict]:
     }
 
 
+def map_actions_row(row: dict) -> Optional[dict]:
+    """Sharadar ACTIONS row → bt_actions row.
+
+    ACTIONS columns: date, action, ticker, name, value, contraticker, contraname.
+
+    EVERY action type is kept. The temptation is to filter to the handful the
+    replay consumes today, and it is the wrong instinct twice over: `dividend`
+    and `ticker_change` are already sequenced for use, and a filter applied at
+    INGEST time means discovering a needed action type costs another multi-hour
+    fetch of the same table rather than a query.
+
+    `value` STAYS NULL when the vendor does not state one. This is the load-
+    bearing rule of the whole mapping: a delisting with no economic terms is the
+    ordinary case, and coercing its absent value to 0.0 would turn "we do not
+    know what this was worth" into "this was worth nothing" — a fabricated total
+    loss, which in a 4%-of-equity strategy permanently shrinks every position
+    opened afterwards. Zero is a TERM; absence is not.
+    """
+    ticker = (row.get("ticker") or "").strip().upper()
+    action = (row.get("action") or "").strip().lower()
+    date = _date_or_none(row.get("date"))
+    if not ticker or not action or not date:
+        # No identity, no event. Refused rather than stored with a placeholder:
+        # a row keyed on an empty ticker would collide with every other one.
+        return None
+    contra = (row.get("contraticker") or "").strip().upper() or None
+    return {
+        "ticker": ticker,
+        "date": date,
+        "action": action,
+        "name": row.get("name"),
+        # _f, not _level: an action value is a ratio, a price or a dividend —
+        # all small numbers. It is never a balance-sheet magnitude, so the
+        # ratio guard is the right one here.
+        "value": _f(row.get("value")),
+        "contraticker": contra,
+        "contraname": row.get("contraname"),
+    }
+
+
 def _related_tickers(v: Any) -> list[str]:
     """Sharadar serves relatedtickers as a space- or comma-separated string.
 

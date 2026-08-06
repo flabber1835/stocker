@@ -178,7 +178,21 @@ class TestMeta:
 def test_the_unmodelled_parts_travel_with_the_result():
     """Caveats are part of the output, not the documentation. This result feeds
     an evaluator that compares configs, and an unmodelled dividend stream reads
-    as a strategy difference when it is a data one."""
-    joined = " ".join(CAVEATS).lower()
-    for missing in ("dividend", "split", "terminal", "ticker"):
-        assert missing in joined
+    as a strategy difference when it is a data one.
+
+    The caveats are now SOURCE-DEPENDENT: splits and terminal actions mean
+    different things depending on whether SHARADAR/ACTIONS drove the run, so
+    those two moved into the per-source sets. What is asserted here is that the
+    UNION still covers every topic — a caveat that fell out of both sets during
+    the split would otherwise be invisible.
+    """
+    from app.wealth_core_replay import ACTIONS_CAVEATS, DERIVED_SPLIT_CAVEATS
+
+    always = " ".join(CAVEATS).lower()
+    assert "dividend" in always and "ticker" in always, (
+        "these hold on BOTH paths, so they belong in the unconditional set")
+
+    for source in (DERIVED_SPLIT_CAVEATS, ACTIONS_CAVEATS):
+        joined = " ".join(CAVEATS + source).lower()
+        for topic in ("dividend", "split", "terminal", "ticker"):
+            assert topic in joined, f"{topic!r} is uncovered on one source path"

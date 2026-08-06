@@ -30,7 +30,8 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.sharadar_client import (data_mode, fetch_table, is_mock,
                                  verify_data_mode)
 from app.sharadar_adapter import (
-    map_sep_row, map_sf1_earnings_row, map_sf1_row, map_tickers_row, compute_growth,
+    map_actions_row, map_sep_row, map_sf1_earnings_row, map_sf1_row,
+    map_tickers_row, compute_growth,
 )
 
 BT_DATABASE_URL = os.environ.get("BT_DATABASE_URL", "")
@@ -308,6 +309,75 @@ async def _upsert_universe(rows: list[dict]) -> int:
     return len(rows)
 
 
+def coerce_action_dates(rows: list[dict]) -> list[dict]:
+    """Coerce `date` to datetime.date before binding.
+
+    Same trap the bt_universe stage fell into, and it fails in the same place:
+    asyncpg rejects a str for a DATE column outright, and the mapper tests pass
+    happily while this path is broken because they never touch a driver. Pure
+    and separate so the coercion is testable without a database.
+    """
+    for r in rows:
+        if "date" in r:
+            r["date"] = _d(r["date"])
+    return rows
+
+
+async def _upsert_actions(rows: list[dict]) -> int:
+    if not rows:
+        return 0
+    coerce_action_dates(rows)
+    async with engine.begin() as conn:
+        await conn.execute(text(
+            "INSERT INTO bt_actions (ticker, date, action, name, value, "
+            "  contraticker, contraname) "
+            "VALUES (:ticker, :date, :action, :name, :value, "
+            "  :contraticker, :contraname) "
+            "ON CONFLICT (ticker, date, action) DO UPDATE SET "
+            "  name=EXCLUDED.name, value=EXCLUDED.value, "
+            "  contraticker=EXCLUDED.contraticker, "
+            "  contraname=EXCLUDED.contraname"
+        ), rows)
+    return len(rows)
+
+
+async def _load_actions(date_from: str, date_to: str,
+                        job_type: str = "backfill") -> int:
+    """SHARADAR/ACTIONS → bt_actions. The AUTHORITATIVE corporate-action stream.
+
+    Its own stage, and its own bt_data_runs row, for the reason the SF1 stage
+    learned the hard way: a stage that can only be replayed by re-running a
+    multi-hour price backfill is a stage nobody replays. ACTIONS is small
+    (thousands of rows, not millions), so it is fetched whole rather than
+    chunked by year.
+
+    Buffered rather than streamed to the DB: the whole table is a few MB, and a
+    single upsert keeps the stage atomic — a half-written action stream is worse
+    than none, because the replay would treat the missing half as "no event".
+    """
+    rid = await _open_run(job_type, "bt_actions")
+    try:
+        rows, skipped = [], 0
+        async for raw in fetch_table("ACTIONS",
+                                     params={"date.gte": date_from,
+                                             "date.lte": date_to}):
+            m = map_actions_row(raw)
+            if m:
+                rows.append(m)
+            else:
+                skipped += 1
+        total = await _upsert_actions(rows)
+        await _close_run(rid, "success", total, date_from, date_to,
+                         err=f"skipped_unusable={skipped}" if skipped else None)
+        await _bump_data_version(f"actions {date_from}..{date_to} ({total} rows)")
+        print(f"[bt-data] ACTIONS: {total} rows ({skipped} unusable skipped)",
+              flush=True)
+        return total
+    except Exception as exc:
+        await _close_run(rid, "failed", err=repr(exc)[:1500])
+        raise
+
+
 async def _bump_data_version(note: str) -> None:
     """Stamp a fresh corpus version after a successful write.
 
@@ -548,6 +618,12 @@ async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
 
     await _load_fundamentals(date_from, date_to, tickers, job_type)
 
+    # Corporate actions (ACTIONS) — the authoritative split / terminal stream.
+    # AFTER prices, because a reader that has actions but no prices would see
+    # events on securities it cannot value; the reverse degrades to today's
+    # derived-split behaviour, which is a documented and tested fallback.
+    await _load_actions(date_from, date_to, job_type)
+
     # Universe snapshot (TICKERS, as-of date_to). One snapshot for the backfill end;
     # the engine treats it as the listed set (delisted names still in bt_prices).
     rid = await _open_run(job_type, "bt_universe")
@@ -720,6 +796,50 @@ async def start_fundamentals_backfill(background_tasks: BackgroundTasks,
             "tickers": tickers or "ALL", "mock": is_mock(),
             "data_mode": data_mode(),
             "note": "SF1 only — bt_prices is not touched"}
+
+
+@app.post("/jobs/backfill-actions")
+async def start_actions_backfill(background_tasks: BackgroundTasks,
+                                 date_from: str, date_to: str):
+    """Re-run the ACTIONS stage ALONE — no prices, no fundamentals, no universe.
+
+    Its own endpoint for exactly the reason /jobs/backfill-fundamentals has one:
+    the alternative is /jobs/backfill, which redoes the ~35M-row price corpus
+    first — hours of work to populate a table of a few thousand rows that has
+    nothing to do with prices. That is how a stage becomes one nobody replays,
+    and this one will need replaying, because the set of action types the engine
+    consumes is going to grow (dividends and ticker changes are already
+    sequenced).
+
+    IDEMPOTENT. ON CONFLICT (ticker, date, action) DO UPDATE, so a re-fetch
+    corrects terms in place and never duplicates an event. bt_prices is never
+    touched. Safe to re-run and safe to interrupt — though note the stage
+    commits ONCE at the end, so an interruption leaves the table as it was
+    rather than half-written.
+    """
+    global _job_active
+    try:
+        date.fromisoformat(date_from); date.fromisoformat(date_to)
+    except ValueError:
+        raise HTTPException(status_code=400,
+                            detail="date_from/date_to must be ISO YYYY-MM-DD")
+    if _job_active:
+        return {"status": "already_running",
+                "detail": "a backfill/topup is already in progress — not spawning another"}
+    _job_active = True
+
+    async def _guarded():
+        global _job_active
+        try:
+            await _load_actions(date_from, date_to, "backfill_actions")
+        finally:
+            _job_active = False
+
+    background_tasks.add_task(_guarded)
+    return {"status": "started", "job_type": "backfill_actions",
+            "date_from": date_from, "date_to": date_to, "mock": is_mock(),
+            "data_mode": data_mode(),
+            "note": "ACTIONS only — bt_prices is not touched"}
 
 
 # ── Data-depth report (GO/NO-GO gate) ──────────────────────────────────────────

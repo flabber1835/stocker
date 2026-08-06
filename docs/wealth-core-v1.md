@@ -319,15 +319,96 @@ evidence, and a caller that cannot save a flawed one has no way to show what
 happened on a bad day. It rejects a legacy stage being invoked, a wrong stage
 order, an unrecorded bypass, and a "dry run" that submitted orders.
 
+## Authoritative corporate actions (SHARADAR/ACTIONS)
+
+The backtester used to derive everything it knew about corporate actions from
+the price series itself. That was the right call while ACTIONS was un-ingested —
+a derived ratio beats no split handling — but it cannot support a certified
+claim, because it can only see events the vendor's own adjustment made visible.
+
+### ACTIONS is the source; the derived ratio becomes a cross-check
+
+`split_ratio_from_domains` is **not deleted**. It recovers the ratio from
+`closeunadj / close`, which is the vendor's cumulative adjustment factor, and
+that is an *independent* measurement of the same event. Two independent sources
+that agree are worth more than one authoritative source alone, so the derived
+ratio is retained and **reconciled** against ACTIONS on every bar.
+
+On disagreement: **ACTIONS wins, and the disagreement is recorded.** Not silent
+(the cross-check would be pointless), and not fatal (one inconsistent vendor
+adjustment would block every backtest). The counts are returned on the run and
+surfaced in the caveats, because a corpus where the two sources disagree often
+is a fact about the corpus that a reader has to see.
+
+Three reconciliation outcomes, all counted:
+
+| | meaning |
+|---|---|
+| `agreed` | both sources see the same ratio |
+| `actions_only` | ACTIONS has a split the price domains do not show |
+| `disagreed` | both see a split, at different ratios — ACTIONS applied |
+
+`derived_only` is deliberately **not** a separate outcome that overrides: a
+ratio the price domains imply but ACTIONS does not carry is reported inside
+`disagreed`, since acting on it would be exactly the un-authoritative behaviour
+this work removes.
+
+### Absent ACTIONS is a deployment state, not a data gap
+
+The corpus has no ACTIONS rows until the stage is backfilled. Refusing outright
+would break every existing backtest the moment the code lands, before anyone
+could run the ingest. Falling back silently would let a run that looks certified
+be scored on derived splits.
+
+So the source is **explicit and recorded on every run** (`split_source:
+actions | derived`), and `WEALTH_CORE_REQUIRE_ACTIONS` makes the fallback an
+ERROR with a named remedy — the same shape as `RawPriceDomainUnavailable`. A
+certified run sets it. An exploratory run does not, and gets a caveat saying
+which source it actually used.
+
+### A delisting is NOT a write-off
+
+The single most important mapping rule, and the one where the obvious
+implementation is wrong. ACTIONS carries `delisted` and `bankruptcy` rows that
+frequently have no economic terms attached.
+
+Mapping those to `WRITE_OFF` would **invent a total loss** — precisely what
+`terminal.py` exists to prevent, and worse here than in the live book, because
+every admission is 4% of equity so a fabricated zero permanently shrinks every
+position opened afterwards. Zero is a *term*, not the absence of one.
+
+So a terminal action without economic terms is emitted as an **incomplete**
+`TerminalTerms`, which blocks: the holding stays unresolved, `resolved_equity`
+goes `None`, and admissions stop until somebody supplies the terms. That is
+worse to operate and the only version that cannot silently mis-state the book.
+`WRITE_OFF` is reachable only from an action that actually states a zero
+consideration.
+
+| ACTIONS row | mapped to |
+|---|---|
+| `merger` / `acquisition` with a cash value, no contraticker | `CASH_MERGER` |
+| with a contraticker and a ratio | `CONVERSION` |
+| with both | `CASH_PLUS_STOCK` |
+| stating a zero consideration | `WRITE_OFF` |
+| `delisted` / `bankruptcy` with no terms | **incomplete — blocks** |
+
+### What this does not yet cover
+
+Dividends and permanent security identity are sequenced separately. The ingest
+stores **every** action type including `dividend` and `ticker_change`, so both
+are wiring changes on the replay side rather than another ingest.
+
 ## Known reproduction differences and unsupported cases
 
 | Item | Status |
 |---|---|
 | leadership boundary tie order | adopted convention, not transcribed |
 | issuer conflict winner | adopted convention, not transcribed |
-| dividends in the backtester | **not modelled** — SEP carries no dividend column |
-| splits in the backtester | **derived** from the two price domains, not from SHARADAR/ACTIONS |
-| terminal actions in the backtester | **not modelled** — no ACTIONS feed |
+| dividends in the backtester | **ingested, not applied** — ACTIONS `dividend` rows land in `bt_actions`; the replay posts no receivable yet |
+| splits in the backtester | **authoritative** from SHARADAR/ACTIONS, reconciled against the derived ratio; **derived** only when `bt_actions` is empty |
+| terminal actions in the backtester | **modelled** from ACTIONS — cash merger, conversion and write-off, with terms-less events BLOCKING |
+| mixed consideration in the backtester | **unsupported** — one `value` column per ACTIONS row, so a cash-plus-stock deal is modelled as the leg the vendor stated |
+| a conversion's fractional stub in the backtester | **blocks** — ACTIONS carries no cash-in-lieu price |
 | `security_id` in the backtester | the **ticker**; a reused ticker reads as one continuous security |
 | security-for-security where the delivered security is absent from the corpus | unsupported — the converted episode would have no closes |
 | unmarkable-holding treatment | adopted 2026-08-03; the certified prototype's behaviour is unknown |

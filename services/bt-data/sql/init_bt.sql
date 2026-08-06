@@ -176,6 +176,41 @@ ALTER TABLE bt_universe
 CREATE INDEX IF NOT EXISTS idx_bt_universe_window
     ON bt_universe(first_price_date, last_price_date);
 
+-- SHARADAR/ACTIONS — the AUTHORITATIVE corporate-action stream.
+--
+-- Until this existed the backtester DERIVED split ratios from the divergence
+-- between SEP.close and SEP.closeunadj, and modelled no terminal action at all.
+-- That was a reasonable use of data already present, and it cannot support a
+-- certified claim: it can only see events the vendor's own adjustment made
+-- visible, and it says nothing about WHY a security stopped printing.
+--
+-- EVERY action type is stored, not only the ones consumed today. `dividend` and
+-- `ticker_change` are ingested here so wiring them later is a replay-side
+-- change rather than a second multi-hour ingest against the same table.
+--
+-- `value` and `contraticker` carry the economics and they are frequently NULL:
+-- a delisting with no terms is the ordinary case, not an error. Nothing in this
+-- table may be interpreted as a zero — see docs/wealth-core-v1.md, "a delisting
+-- is NOT a write-off". Absence of terms BLOCKS; only a stated zero writes off.
+--
+-- No natural primary key: a ticker can legitimately carry two actions of
+-- different kinds on one date (a merger closing and the delisting that follows
+-- it), and a re-fetch must not duplicate them. (ticker, date, action) is the
+-- key, which collapses the pathological case of the same action twice on a day
+-- while keeping the legitimate one.
+CREATE TABLE IF NOT EXISTS bt_actions (
+    ticker          VARCHAR(20)  NOT NULL,
+    date            DATE         NOT NULL,
+    action          TEXT         NOT NULL,
+    name            TEXT,
+    value           NUMERIC(20,6),
+    contraticker    VARCHAR(20),
+    contraname      TEXT,
+    PRIMARY KEY (ticker, date, action)
+);
+CREATE INDEX IF NOT EXISTS idx_bt_actions_date   ON bt_actions(date);
+CREATE INDEX IF NOT EXISTS idx_bt_actions_action ON bt_actions(action, date);
+
 -- Bookkeeping for the fetch jobs (backfill + incremental top-up).
 CREATE TABLE IF NOT EXISTS bt_data_runs (
     run_id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),

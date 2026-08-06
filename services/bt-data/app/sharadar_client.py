@@ -263,6 +263,24 @@ async def _mock_rows(table: str, params: dict) -> AsyncIterator[dict]:
                     "pe": 15 + q, "pb": 2.0 + q * 0.1, "roe": 0.15 + q * 0.01,
                     "de": 0.5 + q * 0.05, "revenue": 1000 + q * 50, "eps": 2.0 + q * 0.1,
                 }
+    elif table == "ACTIONS":
+        # One of every shape the replay has to distinguish, including the two
+        # that must NOT become a write-off. `value` is deliberately absent on
+        # the delisting: that is the ordinary vendor case, and a mock that
+        # always supplies terms would never exercise the blocking path.
+        yield {"date": "2022-03-01", "action": "split", "ticker": "AAA",
+               "name": "Alpha Co", "value": 2.0}
+        yield {"date": "2022-04-01", "action": "dividend", "ticker": "AAA",
+               "name": "Alpha Co", "value": 0.50}
+        yield {"date": "2022-05-02", "action": "merger", "ticker": "BBB",
+               "name": "Beta Inc", "value": 54.0}
+        yield {"date": "2022-06-01", "action": "acquisition", "ticker": "CCC",
+               "name": "Gamma Ltd", "value": 0.757,
+               "contraticker": "AAA", "contraname": "Alpha Co"}
+        yield {"date": "2022-07-01", "action": "delisted", "ticker": "DDD",
+               "name": "Delta Corp"}
+        yield {"date": "2022-08-01", "action": "ticker_change", "ticker": "EEE",
+               "name": "Epsilon Inc", "contraticker": "EEZ"}
     elif table == "TICKERS":
         meta = {"AAA": ("Alpha Co", "Technology"), "BBB": ("Beta Inc", "Energy"),
                 "CCC": ("Gamma Ltd", "Financial Services"), "SPY": ("S&P 500 ETF", "ETF")}

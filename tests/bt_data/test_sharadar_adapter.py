@@ -7,7 +7,8 @@ pipeline factor functions expect:
                  revenue_growth, eps_growth   (as_of_date = POINT-IN-TIME datekey)
 """
 from app.sharadar_adapter import (  # noqa: E402
-    MAX_MAGNITUDE, map_sep_row, map_sf1_row, map_tickers_row, compute_growth,
+    MAX_MAGNITUDE, map_actions_row, map_sep_row, map_sf1_row,
+    map_tickers_row, compute_growth,
 )
 
 
@@ -125,3 +126,64 @@ def test_compute_growth_none_when_missing_or_zero():
 def test_compute_growth_negative_base_uses_abs():
     # year-ago was -50, now -25 → improvement; (−25 − −50)/|−50| = +0.5
     assert compute_growth(-25, -50) == 0.5
+
+
+# ── ACTIONS (the authoritative corporate-action stream) ─────────────────────
+
+def test_actions_maps_the_seven_columns():
+    m = map_actions_row({"date": "2022-05-02", "action": "Merger",
+                         "ticker": "bbb", "name": "Beta Inc", "value": 54.0,
+                         "contraticker": "aaa", "contraname": "Alpha Co"})
+    assert m == {"ticker": "BBB", "date": "2022-05-02", "action": "merger",
+                 "name": "Beta Inc", "value": 54.0,
+                 "contraticker": "AAA", "contraname": "Alpha Co"}
+
+
+def test_actions_NEVER_COERCES_A_MISSING_VALUE_TO_ZERO():
+    """THE load-bearing rule of this mapping.
+
+    A delisting with no economic terms is the ordinary vendor case. Coercing its
+    absent value to 0.0 turns "we do not know what this was worth" into "this
+    was worth nothing" — a fabricated total loss. Downstream that is the
+    difference between BLOCKING admissions and writing the position off, and in
+    a 4%-of-equity strategy an invented zero permanently shrinks every position
+    opened afterwards.
+    """
+    m = map_actions_row({"date": "2022-07-01", "action": "delisted",
+                         "ticker": "DDD"})
+    assert m["value"] is None, "absent terms must stay absent, never become 0.0"
+    assert m["contraticker"] is None
+
+    # ...and a STATED zero survives as a real zero, or the write-off path is
+    # unreachable and the rule above is vacuous.
+    stated = map_actions_row({"date": "2022-07-01", "action": "bankruptcy",
+                              "ticker": "DDD", "value": 0})
+    assert stated["value"] == 0.0
+
+
+def test_actions_refuses_a_row_with_no_identity():
+    """A row keyed on an empty ticker would collide with every other one."""
+    assert map_actions_row({"date": "2022-01-01", "action": "split"}) is None
+    assert map_actions_row({"ticker": "AAA", "action": "split"}) is None
+    assert map_actions_row({"ticker": "AAA", "date": "2022-01-01"}) is None
+
+
+def test_actions_keeps_every_type_including_the_unconsumed_ones():
+    """Filtering at INGEST means discovering a needed action type costs another
+    multi-hour fetch. dividend and ticker_change are already sequenced for use."""
+    for act in ("split", "dividend", "ticker_change", "spinoff", "regulatory"):
+        m = map_actions_row({"date": "2022-01-03", "action": act,
+                             "ticker": "AAA"})
+        assert m is not None and m["action"] == act
+
+
+def test_action_dates_are_coerced_for_the_driver():
+    """asyncpg rejects a str for a DATE column outright. The mapper tests pass
+    happily while this path is broken, which is exactly how the bt_universe
+    stage failed at the end of a multi-hour backfill."""
+    import datetime as _dt
+
+    from app.main import coerce_action_dates
+    rows = coerce_action_dates([{"ticker": "AAA", "date": "2022-03-01",
+                                 "action": "split"}])
+    assert rows[0]["date"] == _dt.date(2022, 3, 1)

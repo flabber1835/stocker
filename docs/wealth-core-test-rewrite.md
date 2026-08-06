@@ -145,14 +145,24 @@ the signal tests (57 passed) and the golden pin (passed) are both blind to it.
 2. ~~**one** deliberate golden re-pin~~ — **done**, `6fd382cf1d33…`
 3. ~~cross-engine parity~~ — **done**, 45 passed, all seven hashes agree
 4. ~~profile-discrimination fixture~~ — **done**, 29 tests, artefact untouched
-5. authoritative ACTIONS, dividends, permanent security IDs
-6. revise and re-pin the certified artefact **once** for those data semantics
-7. exact Sharadar control comparison
-8. enforce `wealth_core_v1` in the live risk service
-9. repeat cross-engine parity and restart falsification over the
-   authoritative-data path
+5. ~~integrate authoritative ACTIONS~~ — **done**, ingest + replay wiring
+6. apply dividends (rows already ingested; replay-side wiring only)
+7. permanent security / issuer identifiers in place of the ticker
+8. revise and re-pin the certified artefact **once** for those data semantics
+9. exact Sharadar control comparison
+10. enforce `wealth_core_v1` in the live risk service
+11. repeat cross-engine parity and restart falsification over the
+    authoritative-data path
+12. verify the SEP backfill directly on the NAS
 
-No-go stands until 7 completes. Live activation additionally blocked on 8.
+No-go stands until 9 completes. Live activation additionally blocked on 10.
+
+**ACTIONS is ingested but not yet BACKFILLED.** The code path is inert until
+`POST /jobs/backfill-actions` has run on bt-data: `bt_actions` empty means the
+replay falls back to derived splits and reports `split_source: derived` plus a
+caveat saying the run is not certified-reproducible. Setting
+`WEALTH_CORE_REQUIRE_ACTIONS` turns that fallback into an error, and a certified
+run must set it.
 
 ## Not in scope, and not yet specified
 
