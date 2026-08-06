@@ -160,6 +160,10 @@ the signal tests (57 passed) and the golden pin (passed) are both blind to it.
 
 No-go stands until 9 completes. Live activation additionally blocked on 10.
 
+The evidence record — what is proven, the required run sequence, and the
+pre-existing failing suites that no certification statement may round up to
+"all tests pass" — is **docs/wealth-core-certification.md**.
+
 ## Third controlled re-pin (2026-08-06) — audit fixes
 
 `2643154598f7…` -> `a09b12a87d1e…`. **No value moved**: final cash (34,824.20),

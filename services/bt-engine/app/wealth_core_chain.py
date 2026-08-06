@@ -49,6 +49,7 @@ from stock_strategy_shared.wealth_core.live import plan_session
 from stock_strategy_shared.wealth_core.risk_profile import (
     DEFAULT_PROFILES,
     PROFILE_NAME,
+    aggregate_exposures,
     evaluate_entry,
     evaluate_exit,
     require_profile,
@@ -97,8 +98,22 @@ class ChainRehearsal:
     trace_problems: list[str] = field(default_factory=list)
     profile_hash: str = ""
     rejected_intents: int = 0
+    # Every rejection NAMED — session, security, rule and the counts the rule
+    # read. A bare total cannot distinguish a legitimate refusal from a gate
+    # miscounting its own inputs, which is precisely how the reservation
+    # double-count survived its first review.
+    rejections: list[dict] = field(default_factory=list)
+    # Entries the gate could not price. A notional of zero makes the cash and
+    # concentration limits inert, so this must be visible rather than inferred
+    # from a suspiciously clean result.
+    entries_without_a_price: int = 0
+    book_size_by_session: list[dict] = field(default_factory=list)
     final_cash: float = 0.0
     final_positions: int = 0
+
+    @property
+    def peak_book_size(self) -> int:
+        return max((b["held"] for b in self.book_size_by_session), default=0)
 
     def to_dict(self) -> dict:
         return {
@@ -111,14 +126,43 @@ class ChainRehearsal:
             "risk_profile": PROFILE_NAME,
             "risk_profile_hash": self.profile_hash,
             "rejected_intents": self.rejected_intents,
+            "rejections": list(self.rejections),
+            "entries_without_a_price": self.entries_without_a_price,
+            "peak_book_size": self.peak_book_size,
+            "book_size_by_session": list(self.book_size_by_session),
             "final_cash": round(self.final_cash, 2),
             "final_positions": self.final_positions,
         }
 
 
+def _exposures(state: PortfolioState, meta: Mapping[str, SecurityMeta],
+               last_known: Mapping[str, float], equity: float | None
+               ) -> tuple[dict, dict, dict]:
+    """Held exposure per SECURITY and per ISSUER, plus the issuer map.
+
+    Uses the shared `aggregate_exposures`, whose aggregation is load-bearing:
+    two predecessor lots converted into one acquirer are ONE exposure, and
+    reading them per-episode reports two 4% positions where the book holds one
+    8% position — the exact number a concentration limit exists to catch.
+    """
+    if not equity or equity <= 0:
+        return {}, {}, {}
+    shares: dict[str, int] = {}
+    issuers: dict[str, str] = {}
+    for ep in state.episodes.values():
+        shares[ep.security_id] = shares.get(ep.security_id, 0) + ep.current_shares
+        issuers[ep.security_id] = ep.issuer_id
+    for sec, m in meta.items():
+        issuers.setdefault(sec, str(m.issuer_key()))
+    by_sec, by_issuer = aggregate_exposures(shares, issuers, last_known, equity)
+    return by_sec, by_issuer, issuers
+
+
 def _gate(intent: dict, *, profile, state: PortfolioState,
           resolved_equity: float | None, entries_this_session: int,
-          is_initial_construction: bool) -> dict:
+          is_initial_construction: bool, last_known: Mapping[str, float],
+          by_sec: Mapping[str, float], by_issuer: Mapping[str, float],
+          issuers: Mapping[str, str]) -> dict:
     """One intent through the SAME pure functions `/check` uses.
 
     In-process rather than over HTTP: the tunnel has no risk service, and the
@@ -127,28 +171,54 @@ def _gate(intent: dict, *, profile, state: PortfolioState,
     across the wire, which needs two running processes — stated in the module
     docstring rather than implied by a green result.
     """
+    sec = intent["security_id"]
     is_sell = intent["operation"] == "CLOSE_POSITION"
     if is_sell:
         v = evaluate_exit(profile=profile, notional=0.0,
                           reason=intent.get("reason", ""))
-        return {"security_id": intent["security_id"], "approved": v.approved,
+        return {"security_id": sec, "approved": v.approved,
                 "rule": "wealth_core_exit_exempt", "reasons": []}
 
-    # An entry's notional is its share count at the decision-session price. The
-    # engine already sized it against 4% of equity, so the risk layer is a
-    # SECOND opinion on the same number rather than the thing that computes it.
-    notional = float(intent.get("shares") or 0) * float(
-        intent.get("price") or 0.0)
+    # THE NOTIONAL. `OrderIntent` carries no price — it is a queued order, and
+    # the price it was sized at lives in `last_known`, which the engine itself
+    # wrote when it built the session's marks. Reading it back is not a
+    # re-derivation: it is the same float the engine divided 4% of equity by.
+    #
+    # The first cut read `intent["price"]`, a key that does not exist, so every
+    # entry was gated at a notional of ZERO and MIN_CASH_BUFFER,
+    # INSUFFICIENT_CASH and both concentration caps were structurally inert
+    # while the rehearsal reported "every intent carries a verdict". A missing
+    # price is therefore COUNTED and surfaced rather than quietly defaulted.
+    px = last_known.get(sec)
+    shares = float(intent.get("shares") or 0)
+    notional = shares * float(px) if px else 0.0
+
+    # RESERVATIONS EXCLUDING THIS ONE. `plan_session` reserves the slot at the
+    # moment of decision, so by the time the gate runs the intent's OWN
+    # reservation is already in the set. Counting it makes `projected` one too
+    # high for every entry, and at the 25th admission that is the difference
+    # between a full book and a permanently short one: 24 held + its own
+    # reservation = 25 >= maximum_positions, rejected forever. `evaluate_entry`'s
+    # contract is that `pending_reservations` are the OTHER orders in flight.
+    pending = len(state.reserved_security_ids() - {sec})
+
+    w = (notional / resolved_equity) if resolved_equity else 0.0
+    issuer = issuers.get(sec, sec)
     v = evaluate_entry(
         profile=profile, equity=resolved_equity, cash=state.cash,
         notional=notional,
         held_positions=len(state.episodes),
-        pending_reservations=len(state.reserved_security_ids()),
+        pending_reservations=pending,
         entries_this_session=entries_this_session,
+        aggregate_exposure_after=by_sec.get(sec, 0.0) + w,
+        issuer_exposure_after=by_issuer.get(issuer, 0.0) + w,
         is_initial_construction=is_initial_construction)
-    return {"security_id": intent["security_id"], "approved": v.approved,
+    return {"security_id": sec, "approved": v.approved,
             "rule": "ok" if v.approved else f"wealth_core_{v.reasons[0].lower()}",
-            "reasons": list(v.reasons)}
+            "reasons": list(v.reasons), "notional": round(notional, 2),
+            "price_available": px is not None,
+            "pending_reservations": pending,
+            "held_positions": len(state.episodes)}
 
 
 def rehearse_chain(*, sessions: Sequence[str],
@@ -213,6 +283,8 @@ def rehearse_chain(*, sessions: Sequence[str],
                               resolved_equity=plan.resolved_equity)
 
         # risk — every intent, through the profile.
+        by_sec, by_issuer, issuers = _exposures(
+            state, meta, last_known, plan.resolved_equity)
         entries = 0
         for intent in (i.to_dict() for i in plan.intents):
             verdict = _gate(intent, profile=profile, state=state,
@@ -222,14 +294,32 @@ def rehearse_chain(*, sessions: Sequence[str],
                             # opening decision it is still False — which is
                             # exactly the state `decide()` saw when it chose to
                             # fill every ready slot.
-                            is_initial_construction=not state.initialized)
+                            is_initial_construction=not state.initialized,
+                            last_known=last_known, by_sec=by_sec,
+                            by_issuer=by_issuer, issuers=issuers)
             if intent["operation"] == "OPEN_SLOT_POSITION":
                 entries += 1
+                if not verdict.get("price_available"):
+                    out.entries_without_a_price += 1
             if not verdict["approved"]:
                 out.rejected_intents += 1
+                # NAMED, not just counted. "One rejection" is not a finding a
+                # reader can act on; "SEC_F099 refused by MAX_POSITIONS at S127,
+                # and the book was 24 at the end" is. The 24-vs-25 opening
+                # question could not be answered from the old summary at all.
+                out.rejections.append(
+                    {"session": session, "security_id": verdict["security_id"],
+                     "operation": intent["operation"], "rule": verdict["rule"],
+                     "reasons": verdict["reasons"],
+                     "held_positions": verdict.get("held_positions"),
+                     "pending_reservations": verdict.get("pending_reservations"),
+                     "notional": verdict.get("notional")})
             sr.intents.append(intent)
             sr.risk_verdicts.append(verdict)
         trace.stages_invoked.append("risk-reserve")
+        out.book_size_by_session.append(
+            {"session": session, "held": len(state.episodes),
+             "reserved": len(state.reserved_security_ids())})
 
         # execute — NOTHING is submitted, and `orders_submitted` stays 0 so
         # `validate()` does not flag an unmarked live run. The fills the

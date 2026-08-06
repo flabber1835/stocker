@@ -26,6 +26,7 @@ from stock_strategy_shared.wealth_core.execution_model import (
     LEGACY_STAGES_BYPASSED,
     STATEFUL_OWNERSHIP_CHAIN,
 )
+from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
 from stock_strategy_shared.wealth_core.golden import golden_scenario
 from stock_strategy_shared.wealth_core.risk_profile import (
     PROFILE_NAME,
@@ -205,6 +206,161 @@ class TestRiskIsApplied:
         assert r.rejected_intents > 10, (
             "the exemption made no difference — either the opening no longer "
             "fills multiple slots, or the gate is not being consulted")
+
+    def test_the_book_actually_REACHES_max_positions(self, rehearsal):
+        """The question a rejection count cannot answer.
+
+        The first cut reported "1 rejected intent, 24 positions", which reads as
+        a legitimate refusal and was not. `plan_session` RESERVES the slot at the
+        moment of decision, so by the time the gate ran, the intent's OWN
+        reservation was already in `reserved_security_ids()`. Counting it made
+        `projected` one too high for every entry, and at the 25th admission that
+        is the difference between a full book and a permanently short one:
+        24 held + its own reservation = 25 >= maximum_positions, refused FOREVER.
+
+        A book that can never fill its last slot is a 4% allocation of dead cash
+        and a strategy that is not the one that was backtested — and the only
+        symptom was a plausible-looking count.
+        """
+        assert rehearsal.peak_book_size == WealthCoreConfig().n_slots
+
+    def test_the_opening_shortfall_is_filled_by_NORMAL_admission(self, rehearsal):
+        """Why the opening session alone does not fill all 25.
+
+        At S126 only 24 candidates are eligible, so `decide()` opens 24 slots —
+        the ready set, not the slot count, is the binding constraint. The 25th is
+        admitted the NEXT session under the ordinary one-per-session rule and
+        fills the session after. That is the second of the two acceptable
+        outcomes for an under-filled opening; the first (backfill within the
+        opening itself) does not apply because there was no further eligible
+        candidate to backfill WITH.
+
+        Asserted rather than assumed, because the alternative explanation for a
+        24-name book is a gate that cannot count — which is what it turned out
+        to be the first time.
+        """
+        opening = next(s for s in rehearsal.sessions
+                       if any(i["operation"] == "OPEN_SLOT_POSITION"
+                              for i in s.intents))
+        n_open = sum(1 for i in opening.intents
+                     if i["operation"] == "OPEN_SLOT_POSITION")
+        assert n_open < WealthCoreConfig().n_slots, (
+            "the opening filled every slot, so this scenario no longer exercises "
+            "the shortfall path")
+        held = {b["session"]: b["held"] for b in rehearsal.book_size_by_session}
+        order = [b["session"] for b in rehearsal.book_size_by_session]
+        i = order.index(opening.session)
+        # Within a handful of sessions of the opening, the book is full.
+        assert max(held[s] for s in order[i:i + 5]) == WealthCoreConfig().n_slots
+
+    def test_WITHOUT_THE_EXCLUSION_the_last_slot_can_never_be_FILLED(
+            self, scenario, monkeypatch):
+        """The falsifier. Put the intent's own reservation back into the count
+        and the 25th admission is refused — the original defect, reproduced."""
+        import app.wealth_core_chain as mod
+        g, sessions = scenario
+        real = mod.evaluate_entry
+        monkeypatch.setattr(mod, "evaluate_entry", lambda **kw: real(
+            **{**kw, "pending_reservations": kw["pending_reservations"] + 1}))
+        r = rehearse_chain(
+            sessions=sessions, bars_by_session=g.bars_by_session, meta=g.meta,
+            starting_cash=g.starting_cash, terminal_events=g.terminal_events,
+            config={"execution_model": STATEFUL_MODEL})
+        assert any(x["rule"] == "wealth_core_max_positions"
+                   for x in r.rejections), r.rejections
+
+    def test_every_entry_is_PRICED(self, rehearsal):
+        """A notional of zero makes MIN_CASH_BUFFER, INSUFFICIENT_CASH and both
+        concentration caps unreachable. The first cut read `intent["price"]`, a
+        key `OrderIntent.to_dict()` does not emit, so EVERY entry was gated at
+        zero while the suite reported "every intent carries a verdict"."""
+        assert rehearsal.entries_without_a_price == 0
+        entries = [v for s in rehearsal.sessions for v, i in
+                   zip(s.risk_verdicts, s.intents)
+                   if i["operation"] == "OPEN_SLOT_POSITION"]
+        assert entries
+        assert all(v["notional"] > 0 for v in entries)
+
+    def test_the_gate_receives_a_REAL_notional_and_REAL_exposure(
+            self, scenario, monkeypatch):
+        """Captured at the call, because the inertness was silent: a zero
+        notional changes no verdict in this scenario, so nothing about the
+        RESULT would have revealed it."""
+        import app.wealth_core_chain as mod
+        g, sessions = scenario
+        real, seen = mod.evaluate_entry, []
+
+        def _spy(**kw):
+            seen.append(kw)
+            return real(**kw)
+
+        monkeypatch.setattr(mod, "evaluate_entry", _spy)
+        rehearse_chain(sessions=sessions[:130],
+                       bars_by_session=g.bars_by_session, meta=g.meta,
+                       starting_cash=g.starting_cash,
+                       terminal_events=g.terminal_events,
+                       config={"execution_model": STATEFUL_MODEL})
+        assert seen, "no entry reached the gate"
+        assert all(kw["notional"] > 0 for kw in seen)
+        # ~4% of equity per admission, so the post-entry weight must be in that
+        # neighbourhood — a decisive check that the exposure is computed rather
+        # than defaulted to the 0.0 the signature allows.
+        assert all(0.001 < kw["aggregate_exposure_after"] < 0.25 for kw in seen)
+        assert all(kw["issuer_exposure_after"] >= kw["aggregate_exposure_after"]
+                   for kw in seen)
+
+    def test_a_ZERO_notional_cannot_trip_the_CASH_rules(self):
+        """Why the point above matters, at the pure-function level: an entry
+        priced at zero passes the cash gates no matter how broke the book is.
+
+        Cash only — the concentration caps take a caller-supplied exposure, so
+        they fail independently of the notional. Both were inert in the first
+        cut, but for two different reasons (a key that did not exist, and a
+        default of 0.0 nobody overrode), and collapsing them into one assertion
+        would leave whichever one got fixed first covering for the other."""
+        from stock_strategy_shared.wealth_core.risk_profile import (
+            WealthCoreRiskProfile, evaluate_entry as ev)
+        broke = dict(profile=WealthCoreRiskProfile(), equity=1_000_000.0,
+                     cash=0.0, held_positions=1, pending_reservations=0,
+                     entries_this_session=0)
+        assert ev(**{**broke, "notional": 0.0}).approved is True
+        bad = ev(**{**broke, "notional": 40_000.0})
+        assert bad.approved is False
+        assert set(bad.reasons) == {"MIN_CASH_BUFFER", "INSUFFICIENT_CASH"}
+
+    def test_a_DEFAULTED_exposure_cannot_trip_the_concentration_caps(self):
+        """The other half. `aggregate_exposure_after` defaults to 0.0 in the
+        signature, so a caller that simply never computes it — the first cut —
+        gets a green verdict from a limit that never ran."""
+        from stock_strategy_shared.wealth_core.risk_profile import (
+            WealthCoreRiskProfile, evaluate_entry as ev)
+        base = dict(profile=WealthCoreRiskProfile(), equity=1_000_000.0,
+                    cash=1_000_000.0, notional=40_000.0, held_positions=1,
+                    pending_reservations=0, entries_this_session=0)
+        assert ev(**base).approved is True, "the default silently passes"
+        assert ev(**base, aggregate_exposure_after=0.99).approved is False
+
+    def test_a_rejection_is_NAMED_not_merely_counted(self, scenario,
+                                                     monkeypatch):
+        """"One rejection" is not something a reader can act on. The session,
+        the security, the rule and the counts the rule READ are what turn a
+        number into a diagnosis — and reading those counts back is how the
+        double-count was found."""
+        import app.wealth_core_chain as mod
+        g, sessions = scenario
+        real = mod.evaluate_entry
+        monkeypatch.setattr(mod, "evaluate_entry", lambda **kw: real(
+            **{**kw, "pending_reservations": kw["pending_reservations"] + 1}))
+        r = rehearse_chain(
+            sessions=sessions, bars_by_session=g.bars_by_session, meta=g.meta,
+            starting_cash=g.starting_cash, terminal_events=g.terminal_events,
+            config={"execution_model": STATEFUL_MODEL})
+        assert len(r.rejections) == r.rejected_intents
+        for x in r.rejections:
+            assert x["session"] and x["security_id"] and x["rule"]
+            assert x["held_positions"] is not None
+            assert x["pending_reservations"] is not None
+        assert r.to_dict()["rejections"] == r.rejections
 
     def test_a_rejected_intent_is_COUNTED_not_silently_dropped(self, rehearsal):
         """The rehearsal reports rejections rather than filtering them: an order

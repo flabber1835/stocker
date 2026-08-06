@@ -766,3 +766,11 @@ DATA moved, not the strategy, and the comparison is confounded.
 
 A rehearsal reports one row per trading day; over 400 sessions the per-session
 detail is elided from the stored summary and the counts and verdict remain.
+
+## Certification
+
+Wealth Core is **NO-GO** for live activation. `execution_model` stays
+`target_portfolio` in production until the authoritative-data evidence runs pass
+on the NAS. The manifest — proven layers, pending layers, the required run
+sequence, and the pre-existing failing suites that any evidence statement must
+name rather than round up — is **docs/wealth-core-certification.md**.

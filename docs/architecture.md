@@ -4650,3 +4650,38 @@ evaluated IN-PROCESS with the same pure functions `/check` uses — so a rejecti
 here is the rejection live would give for the same order, but the profile HASH
 matching across the wire needs two running processes and only a deployment can
 show it.
+
+**The rehearsal's second finding, and why a COUNT is not evidence.** The first
+run after the initial-construction fix reported "1 rejected intent, 24
+positions" — which reads as a legitimate refusal and was not. Two defects, both
+in how the tunnel FED the gate rather than in the gate itself. `plan_session`
+reserves the slot at the moment of decision, so the intent's OWN reservation was
+already in the set the gate counted; `projected` was one too high for every
+entry, and at the 25th admission that meant 24 held + its own reservation = 25 ≥
+`maximum_positions`, refused FOREVER. Separately the gate read `intent["price"]`,
+a key `OrderIntent.to_dict()` does not emit, so every entry was judged at a
+notional of zero with both exposure arguments left at their 0.0 defaults —
+`MIN_CASH_BUFFER`, `INSUFFICIENT_CASH` and both concentration caps were
+STRUCTURALLY INERT while the suite reported "every intent carries a verdict".
+Neither changes a verdict in the golden scenario, so no result would ever have
+shown it; the second is asserted by capturing the kwargs AT THE CALL.
+
+The notional now comes from `last_known[security_id]` — the same float the engine
+divided 4% of equity by, read back rather than re-derived — and the exposures
+from the shared `aggregate_exposures`, whose aggregation is what stops two
+predecessor lots of one acquirer reading as two 4% positions. The rehearsal now
+persists every rejection NAMED (session, security, rule, and the
+`held_positions` / `pending_reservations` the rule read) plus
+`entries_without_a_price`, `peak_book_size` and `book_size_by_session`. Reading
+those counts back is how the double-count was found, and a bare total could not
+have distinguished a legitimate refusal from a gate miscounting its own inputs.
+
+With both fixed the golden scenario shows 0 rejections and a peak book of 25: the
+opening fills 24 because the binding constraint at S126 is the READY SET (24
+eligible candidates), not the slot count, and the 25th is admitted the next
+session under the ordinary one-per-session rule. That is the vacancy behaviour a
+rehearsal has to be able to demonstrate rather than assert, and
+`test_the_opening_shortfall_is_filled_by_NORMAL_admission` pins it.
+
+Certification status, the required evidence sequence and the pre-existing failing
+suites: **docs/wealth-core-certification.md**.
