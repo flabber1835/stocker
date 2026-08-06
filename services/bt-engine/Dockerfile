@@ -8,4 +8,9 @@ COPY services/bt-engine/app/ ./app/
 COPY services/pipeline/app/factors.py services/pipeline/app/rank.py \
      services/pipeline/app/regime.py services/pipeline/app/engine.py ./app/live/
 COPY services/portfolio-builder/app/select.py ./app/live/
+# The Sharadar column-to-domain mapping for Wealth Core, from the ONE module
+# that owns it. A second reader of the same corpus with its own opinion about
+# which column means what is the failure the factor-coverage contract exists
+# after — two engines that agree until they quietly do not.
+COPY services/backtester/app/wealth_core_replay.py ./app/live/
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

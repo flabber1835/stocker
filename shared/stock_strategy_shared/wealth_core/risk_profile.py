@@ -200,8 +200,28 @@ def evaluate_entry(*, profile: WealthCoreRiskProfile, equity: float | None,
                    entry_notional_this_session: float = 0.0,
                    aggregate_exposure_after: float = 0.0,
                    issuer_exposure_after: float = 0.0,
-                   is_gap_reduced: bool = False) -> RiskVerdict:
-    """Gate ONE admission. Entries only — never reached by a sell."""
+                   is_gap_reduced: bool = False,
+                   is_initial_construction: bool = False) -> RiskVerdict:
+    """Gate ONE admission. Entries only — never reached by a sell.
+
+    INITIAL CONSTRUCTION IS A DIFFERENT REGIME, and omitting it made this
+    profile reject the book it exists to protect. Spec §6: the opening may fill
+    every available slot together; only AFTERWARDS is there at most one
+    admission per session. `decide()` implements exactly that
+    (`budget = len(ready) if not state.initialized else max_admissions`), so a
+    risk gate that knows only the steady-state rule refuses 24 of the 25 opening
+    entries — reproduced in the wind-tunnel chain rehearsal, where the book was
+    never constructed at all.
+
+    So the two SESSION-SHAPED limits stand down while the book is being built:
+    the per-session admission count and the pending-reservation cap, both of
+    which describe a steady state that does not exist yet. Everything that
+    bounds RISK rather than PACE still applies — maximum_positions, cash,
+    concentration — because those are true in both regimes.
+
+    The exemption is naturally bounded rather than trusted: `initialized` is set
+    by the first FILL and never cleared, so the opening happens once per book.
+    """
     reasons: list[str] = []
 
     if equity is None:
@@ -216,11 +236,14 @@ def evaluate_entry(*, profile: WealthCoreRiskProfile, equity: float | None,
     # flight — the divergence class the shared capacity rule exists to close.
     projected = held_positions + pending_reservations
     if projected >= profile.maximum_positions:
+        # Applies in BOTH regimes: the slot count is the risk limit, and the
+        # opening fills slots rather than exceeding them.
         reasons.append("MAX_POSITIONS")
-    if pending_reservations >= profile.maximum_pending_entry_reservations:
-        reasons.append("MAX_PENDING_RESERVATIONS")
-    if entries_this_session >= profile.maximum_new_entries_per_session:
-        reasons.append("MAX_ENTRIES_PER_SESSION")
+    if not is_initial_construction:
+        if pending_reservations >= profile.maximum_pending_entry_reservations:
+            reasons.append("MAX_PENDING_RESERVATIONS")
+        if entries_this_session >= profile.maximum_new_entries_per_session:
+            reasons.append("MAX_ENTRIES_PER_SESSION")
 
     cap = profile.maximum_total_entry_notional_per_session
     if cap is not None and entry_notional_this_session + notional > cap:

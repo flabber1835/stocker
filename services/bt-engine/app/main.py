@@ -36,6 +36,7 @@ from app.sim import DEFAULT_DELIST_RECOVERY_PCT, SimParams, run_simulation
 from app.sweep import (SweepWindows, aggregate_rolling, apply_diff,
                        enumerate_grid, merge_extra_configs,
                        rolling_windows, run_config_both_windows)
+from app import wealth_core_api
 
 BT_DATABASE_URL = os.environ.get("BT_DATABASE_URL", "")
 if not BT_DATABASE_URL:
@@ -97,7 +98,7 @@ _SWEEP_DDL = [
 async def lifespan(application: FastAPI):
     try:
         async with engine.begin() as conn:
-            for ddl in _SWEEP_DDL:
+            for ddl in _SWEEP_DDL + wealth_core_api.WEALTH_CORE_DDL:
                 await conn.execute(text(ddl))
             await conn.execute(text(
                 "UPDATE bt_runs SET status='failed', completed_at=NOW(), "
@@ -114,6 +115,14 @@ async def lifespan(application: FastAPI):
 
 
 app = FastAPI(title="bt-engine", lifespan=lifespan)
+
+# Wealth Core shares this engine but NOT `_job_lock`: that lock is held only
+# across a short INSERT here, whereas a Wealth Core run holds its own for the
+# whole job, and sharing them would hang `POST /jobs/run` for the duration.
+# Cross-job contention is handled the same way main does it — a DB check for a
+# `running` row — inside the router.
+wealth_core_api.configure(engine=engine)
+app.include_router(wealth_core_api.router)
 
 
 class BtRunRequest(BaseModel):

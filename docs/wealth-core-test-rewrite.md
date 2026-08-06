@@ -149,6 +149,9 @@ the signal tests (57 passed) and the golden pin (passed) are both blind to it.
 6. ~~apply dividends~~ — **done**, with a settlement lag; golden pin left RED on purpose
 7. ~~permanent security / issuer identifiers in place of the ticker~~ — **done**
 8. ~~revise and re-pin the certified artefact **once** for those data semantics~~ — **done**, `2643154598f7…`
+8b. ~~rehearse the live chain in the wind tunnel, and expose it~~ — **done**,
+    `POST /wealth-core/jobs/run` (baseline_replay | experiment |
+    chain_rehearsal); found and fixed the initial-construction rejection
 9. exact Sharadar control comparison
 10. ~~enforce `wealth_core_v1` in the live risk service~~ — **done**
 11. repeat cross-engine parity and restart falsification over the
@@ -167,12 +170,27 @@ encoder never invokes for a float.
 
 ## Known gaps, stated plainly
 
-* **The live Wealth Core chain is NOT wired.** `execution_model.py` and
-  `wealth_core_live.plan_session()` exist and are tested, but the production
-  scheduler imports neither, and no production caller invokes `plan_session()`.
-  The risk service can correctly judge a Wealth Core order; nothing currently
-  generates one. The deployed chain remains
-  `fetch-data -> pipeline -> vet -> portfolio-builder -> delta`.
+* **The live Wealth Core chain is NOT wired into production, by choice.** The
+  deployed chain remains `fetch-data -> pipeline -> vet -> portfolio-builder ->
+  delta` and nothing about it changed. What changed is that the live path is now
+  EXERCISABLE: `execution_model.py` and `wealth_core_live.py` moved into
+  `shared/` (the scheduler and pipeline paths are `sys.modules` re-export shims,
+  so every deployed import site is untouched), and the wind tunnel drives them
+  session by session through `bt-engine`'s `POST /wealth-core/jobs/run`. The
+  risk service can judge a Wealth Core order; in production nothing generates
+  one, because `execution_model` still defaults to `target_portfolio`.
+
+  **The rehearsal found a live defect on its first run.** It reported 25
+  rejected intents on the opening: the risk profile refused 24 of the 25
+  admissions `decide()` had just made, because it knew only the steady-state
+  rule (one admission per session, five reservations) while spec §6 opens the
+  book by filling every available slot together. Live, the book would never have
+  been constructed. Fixed by `evaluate_entry(is_initial_construction=...)`,
+  which stands down ONLY the two session-shaped limits —
+  `maximum_positions`, cash and both concentration caps still bind. Every unit
+  test was green throughout, because each asked about a single admission in a
+  book that already existed. That is the argument for the rehearsal in one
+  sentence.
 * **The shadow-book / portfolio-trigger / T-bill overlay is not implemented**,
   by prior decision — it is new architecture that follows certification, and
   `engine.py` excludes a portfolio-wide stop deliberately. What exists is base

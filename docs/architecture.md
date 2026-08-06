@@ -4544,3 +4544,109 @@ factor-coverage contract was written after.
 Full design, the four price domains, the fail-closed rules, the two named
 ordering conventions and the known reproduction differences:
 **docs/wealth-core-v1.md**.
+
+## Design Decision: the wind tunnel REHEARSES the live Wealth Core chain
+
+Everything Wealth Core needed to be experimented on existed and none of it could
+be reached. `wealth_core_tunnel` (baseline replay + experiment),
+`wealth_core_live.plan_session()` and the backtester's corpus loader were each
+covered by tests and called by nothing else. "The tunnel supports Wealth Core"
+was true only in the sense that the functions compiled.
+
+Two things were missing, and only one of them is plumbing.
+
+**The tunnel could replay in BULK but not REHEARSE.** One `run_sessions` call
+over a whole stream exercises the strategy and nothing about the way it would be
+OPERATED. The live chain is a different shape —
+
+```text
+broker-sync -> wealth-core-session -> risk-reserve -> execute -> broker-reconcile
+```
+
+— driven ONE SESSION AT A TIME, state carried between sessions, every order
+through the risk profile, and a `RunTrace` recording which stages ran and which
+were bypassed. So `services/bt-engine/app/wealth_core_chain.py` drives exactly
+those calls, importing `plan_session` from `shared/` rather than reimplementing
+it: a rehearsal that runs different code proves nothing about the thing it
+rehearses, and a one-session difference in ageing or peak ratcheting looks like
+nothing until it has compounded for a quarter.
+
+THE ASSERTION THAT MAKES IT A REHEARSAL rather than a second implementation is
+the equivalence: the session-by-session path must reproduce the bulk path's
+terminal state and ledger exactly, and `ChainRehearsalDiverged` is RAISED rather
+than reported — the same posture as `BASELINE_REPLAY`, for the same reason.
+
+**The rehearsal found a live defect on its first run, which is the point.** It
+reported 25 rejected intents on the opening session: the `wealth_core_v1` risk
+profile refused 24 of the 25 admissions `decide()` had just made, so live the
+book would never have been constructed at all. Spec §6 opens the book by filling
+every available slot together and only afterwards allows at most one admission
+per session; the profile knew only the steady-state rule. Every unit test was
+green throughout, because each one asked about a single admission in a book that
+already existed — the same class of blind spot as the factor-coverage contract's
+silent fallbacks, found the same way: by running the real path end to end.
+
+`evaluate_entry` gained `is_initial_construction`, and the exemption is
+deliberately NARROW. Only the two SESSION-SHAPED limits stand down —
+`maximum_new_entries_per_session` and `maximum_pending_entry_reservations` —
+because they describe a steady state that does not exist yet. Everything that
+bounds RISK rather than PACE still binds: `maximum_positions`, the cash buffer,
+both concentration caps. It is naturally bounded rather than trusted, since
+`initialized` is set by the first FILL and never cleared, and it defaults to
+FALSE so a caller that says nothing gets the restrictive regime.
+
+**Three modes, one endpoint.** `POST /wealth-core/jobs/run` on bt-engine takes
+`baseline_replay` (require all seven parity hashes to equal the backtester's),
+`experiment` (run a variant, record the parent hashes and the exact change,
+report the first diverging layer) or `chain_rehearsal`. They share a corpus
+load, a lock, a result row (`bt_wealth_core_runs`) and a set of refusals;
+splitting them would duplicate all five. The refusals are the substance:
+
+```text
+baseline_replay without expected_hashes  422 — recomputing them here would prove
+                                         only that the tunnel agrees with itself
+a PARTIAL hash set                       422 — silently narrows the check to
+                                         whichever layers were sent
+experiment without a `change`            422 — indistinguishable after the fact
+                                         from a baseline replay that failed
+a `change` the config diff does NOT make 422 — attributes a result to something
+                                         that never happened, and it is citable
+a run beside a sweep or another run      409 — two corpora do not fit; an OOM is
+                                         recorded as a strategy failure
+```
+
+**One corpus reader, not two.** The Sharadar column-to-domain mapping lives once,
+in `services/backtester/app/wealth_core_replay.py`, and is COPYed into the
+bt-engine image next to the live modules `app/live/` already carries — the
+pattern the engine uses for `factors.py`/`rank.py`/`select.py`. A second reader
+with its own opinion about which column means what is the exact failure the
+factor-coverage contract was written after. A test collects every SQL literal in
+`wealth_core_api.py` and asserts none of them names a corpus table.
+
+The corpus loader is written against a SYNC connection (that is what the
+backtester has) and bt-engine's engine is async. Rather than fork it, the loader
+runs in a worker thread and each `execute` is marshalled back onto the event loop
+via `run_coroutine_threadsafe`, with rows MATERIALISED before they cross the
+boundary — a live cursor iterated in the worker thread is a use-after-free that
+shows up as intermittent corruption rather than an error.
+
+**Nothing about the live chain changed.** `execution_model.py` and
+`wealth_core_live.py` moved INTO `shared/`, and the scheduler's and pipeline's
+original paths became `sys.modules` re-export shims, so every deployed import
+site is untouched and resolves to the same object the tunnel uses. `BYPASSED_STAGES`
+stopped being a second hand-maintained list and became the SAME OBJECT as
+`LEGACY_STAGES_BYPASSED`; the test that asserted the two agreed now asserts
+identity, so drift is impossible instead of merely detected. The risk service's
+`execution_model` still defaults to `target_portfolio`, so no existing caller
+reaches any of this.
+
+Deploy note: this moves code into `shared/`, so
+`docker build --network host -t stocker-base:latest -f Dockerfile.base .` is
+required before rebuilding any consumer image, and the backtest stack has no
+bind-mount override at all.
+
+WHAT IT STILL DOES NOT DO. It submits nothing and contacts no broker, and risk is
+evaluated IN-PROCESS with the same pure functions `/check` uses — so a rejection
+here is the rejection live would give for the same order, but the profile HASH
+matching across the wire needs two running processes and only a deployment can
+show it.

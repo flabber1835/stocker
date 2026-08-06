@@ -206,6 +206,82 @@ class TestTheStatefulContextCannotBeInferred:
         assert approved is True and rule == "ok"
 
 
+# ── 4b. the opening is a different regime from the steady state ─────────────
+
+class TestInitialConstruction:
+    """Spec §6: the opening fills every available slot TOGETHER; only afterwards
+    is there at most one admission per session.
+
+    This was not a hypothetical omission. The profile originally knew only the
+    steady-state rule, and the wind-tunnel chain rehearsal — the first thing to
+    drive the live path session by session — reported 25 rejected intents on the
+    opening: the gate refused 24 of the 25 admissions `decide()` had just made,
+    so live the book would never have been constructed at all. The unit tests
+    were green throughout, because each one asked about a single admission in a
+    book that already existed.
+
+    The exemption is deliberately NARROW: only the two SESSION-SHAPED limits
+    stand down, because they describe a steady state that does not exist yet.
+    Everything that bounds RISK rather than PACE still binds, and there is a
+    case below for each.
+    """
+
+    def _opening(self, **over):
+        # 24 slots already reserved in this same opening and 24 admissions
+        # already made — both session-shaped limits far exceeded — with the 25th
+        # slot still free, so nothing but those two limits is in play.
+        base = dict(held_positions=0, pending_reservations=24,
+                    entries_this_session=24, is_initial_construction=True)
+        base.update(over)
+        return req(wealth_core=ctx(**base))
+
+    def test_the_opening_admits_past_both_session_shaped_limits(self):
+        approved, _, rule, _ = decide(self._opening())
+        assert approved is True and rule == "ok"
+
+    def test_the_SAME_order_is_REFUSED_in_the_steady_state(self):
+        """The falsifier for the exemption. If this passed too, the exemption
+        would not be an exemption — it would have removed the limits."""
+        approved, reason, rule, _ = decide(
+            self._opening(is_initial_construction=False))
+        assert approved is False
+        assert "MAX_PENDING_RESERVATIONS" in reason
+        assert "MAX_ENTRIES_PER_SESSION" in reason
+        assert rule == "wealth_core_max_pending_reservations"
+
+    def test_the_default_is_the_STEADY_STATE(self):
+        """A caller that says nothing gets the restrictive regime. The opening
+        has to be asserted by the one component that knows the book is empty."""
+        assert ctx().is_initial_construction is False
+
+    def test_the_SLOT_COUNT_still_binds(self):
+        """The opening fills slots; it does not exceed them. 25 in flight is a
+        full book whether or not it is the first session."""
+        approved, _, rule, _ = decide(self._opening(pending_reservations=25))
+        assert approved is False and rule == "wealth_core_max_positions"
+
+    def test_CASH_still_binds(self):
+        approved, _, rule, _ = decide(self._opening(cash=100.0))
+        assert approved is False
+        assert rule == "wealth_core_min_cash_buffer"
+
+    def test_CONCENTRATION_still_binds(self):
+        approved, _, rule, _ = decide(
+            self._opening(aggregate_exposure_after=0.5))
+        assert approved is False
+        assert rule == "wealth_core_max_single_security_exposure"
+
+    def test_an_EXIT_is_unaffected_by_the_regime(self):
+        """Stated because the exemption touches the entry path only, and the one
+        thing that must never depend on which regime the book is in is getting
+        out of it."""
+        for initial in (True, False):
+            approved, _, rule, _ = decide(req(
+                "exit", "sell",
+                wealth_core=ctx(is_initial_construction=initial)))
+            assert approved is True and rule == "wealth_core_exit_exempt"
+
+
 # ── 5. the permanent identity ───────────────────────────────────────────────
 
 class TestPermanentIdentity:

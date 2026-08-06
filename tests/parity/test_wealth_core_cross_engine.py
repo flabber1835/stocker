@@ -49,7 +49,11 @@ def _import(service: str, module: str):
     mod = importlib.util.module_from_spec(spec)
     sys.modules[name] = mod
     spec.loader.exec_module(mod)
-    return mod
+    # `sys.modules[name]`, NOT `mod`. A re-export shim replaces its own entry in
+    # sys.modules with the canonical module, so returning the shell would hand
+    # back an empty namespace — and the point of the shim is that there is only
+    # ever ONE module object to compare against.
+    return sys.modules[name]
 
 
 backtester = _import("backtester", "wealth_core_replay")

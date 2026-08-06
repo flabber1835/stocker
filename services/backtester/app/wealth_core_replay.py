@@ -95,6 +95,18 @@ _SESSIONS_SQL = text("""
      ORDER BY date
 """)
 
+
+def load_sessions(conn, start: str, end: str) -> list[str]:
+    """The trading calendar for a range, as ISO strings.
+
+    A named loader rather than an inline query because the wind tunnel reads the
+    same corpus through this module: a second caller writing its own session
+    query is how two engines end up disagreeing about which days exist.
+    """
+    return [str(r["date"]) for r in
+            conn.execute(_SESSIONS_SQL, {"start": start, "end": end}).mappings()]
+
+
 # Ordered by (date, ticker) so the stream is deterministic before the feed even
 # sorts it — a second, cheap guarantee at the layer where an ORDER BY is free.
 _PRICES_SQL = text("""
@@ -828,9 +840,7 @@ def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
     the kind of thing that reads as a strategy difference when it is a data one.
     """
     coverage = assert_raw_price_domain(conn, req.start_date, req.end_date)
-    sessions = [str(r[0]) for r in
-                conn.execute(_SESSIONS_SQL,
-                             {"start": req.start_date, "end": req.end_date})]
+    sessions = load_sessions(conn, req.start_date, req.end_date)
     if not sessions:
         raise RawPriceDomainUnavailable("no sessions in range")
 
@@ -930,7 +940,8 @@ __all__ = ["ACTIONS_CAVEATS", "CAVEATS", "DERIVED_SPLIT_CAVEATS",
            "TERMINAL_ACTIONS", "DIVIDEND_ACTIONS", "dividends_from_actions",
            "IdentityResolver", "IdentityUnresolvable", "SECURITY_ID_PREFIX",
            "permanent_id", "load_identity",
-           "unusable_dividend_rows", "load_actions", "reconcile_split",
+           "unusable_dividend_rows", "load_actions", "load_sessions",
+           "reconcile_split",
            "sessions_index", "snap_to_session", "split_ratios_from_actions",
            "terminal_events_from_actions", "terminal_from_action",
            "RawPriceDomainUnavailable", "WealthCoreReplayRequest",

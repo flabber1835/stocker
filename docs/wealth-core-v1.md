@@ -718,3 +718,51 @@ scripts/deploy-all.sh
 nothing else reads, and the price corpus was rewritten in place by UPSERT with no
 other column touched. **Never** pass `--volumes` to any `docker compose down` —
 it deletes the trading database and the 35M-row corpus.
+
+## Running an experiment (bt-engine, `POST /wealth-core/jobs/run`)
+
+Three modes on one endpoint, all against the Sharadar corpus in bt-postgres and
+all read-only — nothing is submitted and no broker is contacted.
+
+```bash
+# 1. rehearse the LIVE chain, session by session, with every order risk-gated
+curl -sX POST localhost:8031/wealth-core/jobs/run -H 'content-type: application/json' -d '{
+  "mode": "chain_rehearsal",
+  "start_date": "2015-01-01", "end_date": "2024-12-31",
+  "starting_cash": 1000000
+}'
+
+# 2. reproduce the backtester exactly (expected_hashes come FROM the backtester)
+curl -sX POST localhost:8031/wealth-core/jobs/run -H 'content-type: application/json' -d '{
+  "mode": "baseline_replay",
+  "start_date": "2015-01-01", "end_date": "2024-12-31",
+  "expected_hashes": {"normalized_input": "...", "...": "..."}
+}'
+
+# 3. score a variant against a recorded parent
+curl -sX POST localhost:8031/wealth-core/jobs/run -H 'content-type: application/json' -d '{
+  "mode": "experiment",
+  "start_date": "2015-01-01", "end_date": "2024-12-31",
+  "config": {"n_slots": 20}, "change": {"n_slots": 20, "note": "fewer, larger"},
+  "baseline_hashes": {"normalized_input": "...", "...": "..."}
+}'
+
+curl -s localhost:8031/wealth-core/runs/latest
+```
+
+Runs are serialised against each other AND against a sweep — each loads the
+whole corpus for its range, and two at once is the memory profile that gets the
+container OOM-killed, which would be recorded as a strategy failure.
+
+**Read the result in this order.** `provenance.split_source` first: `derived`
+means `bt_actions` is empty and the run is NOT certified-reproducible (remedy:
+`POST /jobs/backfill-actions` on bt-data; `WEALTH_CORE_REQUIRE_ACTIONS` turns it
+into a refusal). Then `equivalence` on a rehearsal — a divergence is RAISED, so a
+`success` row means the live path reproduced the bulk replay. Then
+`rejected_intents`, which is what a rehearsal exists to surface: an order the
+risk layer would refuse, seen before it happens live rather than after. Then
+`divergence.first_divergence` on an experiment — `normalized_input` means the
+DATA moved, not the strategy, and the comparison is confounded.
+
+A rehearsal reports one row per trading day; over 400 sessions the per-session
+detail is elided from the stored summary and the counts and verdict remain.

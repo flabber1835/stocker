@@ -272,6 +272,10 @@ class WealthCoreContext(BaseModel):
     aggregate_exposure_after: float = 0.0
     issuer_exposure_after: float = 0.0
     is_gap_reduced: bool = False
+    # Spec §6: the opening fills every available slot together; only afterwards
+    # is there at most one admission per session. Without this the gate refuses
+    # 24 of the 25 opening entries and the book is never constructed.
+    is_initial_construction: bool = False
 
 
 class TradeCheckRequest(BaseModel):
@@ -548,7 +552,8 @@ def _decide_wealth_core(req: TradeCheckRequest, env: dict
         entry_notional_this_session=ctx.entry_notional_this_session,
         aggregate_exposure_after=ctx.aggregate_exposure_after,
         issuer_exposure_after=ctx.issuer_exposure_after,
-        is_gap_reduced=ctx.is_gap_reduced)
+        is_gap_reduced=ctx.is_gap_reduced,
+        is_initial_construction=ctx.is_initial_construction)
 
     env = {**env, "verdict": v.detail}
     if v.approved:

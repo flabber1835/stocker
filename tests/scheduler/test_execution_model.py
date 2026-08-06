@@ -74,10 +74,16 @@ class TestTheChainsAreGenuinelyDisjointWhereItMatters:
         assert steps_for(cfg) == resolve(cfg).steps
 
 
-def test_the_two_bypass_lists_agree():
-    """The scheduler and the live module each name what is bypassed. Two
-    hand-maintained lists drift, and the drift shows up as a live book that
-    stops trading when a service it does not use has a bad night."""
+def test_there_is_only_ONE_bypass_list():
+    """This used to assert that two hand-maintained lists AGREED — the scheduler's
+    and the live module's. Both now live in the same shared package, so the
+    second list is gone and the property is IDENTITY rather than equality: drift
+    is impossible instead of merely detected.
+
+    Loaded by path through the pipeline's import site, because that is the path
+    the deployed service uses; a shim that stopped resolving would leave the
+    live chain importing an empty namespace.
+    """
     import importlib.util
     import pathlib
     import sys
@@ -90,8 +96,16 @@ def test_the_two_bypass_lists_agree():
     # registered blows up on its first dataclass rather than on anything real.
     sys.modules["_wc_live_bypass"] = mod
     spec.loader.exec_module(mod)
-    assert set(mod.BYPASSED_STAGES) == set(LEGACY_STAGES_BYPASSED)
+    # `sys.modules[...]`, not `mod`: the shim replaces its own entry with the
+    # canonical module, so the shell is empty by design.
+    mod = sys.modules["_wc_live_bypass"]
+    assert mod.BYPASSED_STAGES is LEGACY_STAGES_BYPASSED
     assert mod.EXECUTION_MODEL == ExecutionModel.STATEFUL_OWNERSHIP.value
+
+    import stock_strategy_shared.wealth_core.live as canonical
+    assert mod is canonical, (
+        "the pipeline's import path no longer resolves to the shared module — "
+        "the live chain and the wind tunnel would be running different code")
 
 
 # ── the deployed run trace ──────────────────────────────────────────────────
