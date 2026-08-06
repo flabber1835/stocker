@@ -123,15 +123,36 @@ docs/wealth-core-v1.md, "the golden scenario does not discriminate between the
 volatility profiles". That is a known coverage gap in the fixture, not a
 property of the strategy, and closing it needs a second re-pin.
 
+## The four rungs of profile assurance
+
+Each catches something the others cannot. The third was added on 2026-08-06
+after the re-pin showed the certified artefact could not discriminate.
+
+| Test | What it proves |
+|---|---|
+| hand-computed signal tests | each formula is mathematically correct |
+| **profile-discrimination fixture** | **switching profiles changes behaviour where it should** |
+| golden fixture | certified end-to-end behaviour stays frozen |
+| cross-engine parity | all engines reproduce that certified behaviour |
+
+Demonstrated, not assumed: sabotaging `score_universe` to ignore
+`cfg.volatility_profile` is caught **only** by the discriminator (4 failed) —
+the signal tests (57 passed) and the golden pin (passed) are both blind to it.
+
 ## Sequence after the rewrite
 
 1. ~~all Wealth Core tests green~~ — **done**, 347 passed
 2. ~~**one** deliberate golden re-pin~~ — **done**, `6fd382cf1d33…`
-3. cross-engine parity
-4. authoritative ACTIONS, dividends, permanent security IDs
-5. exact Sharadar control comparison
+3. ~~cross-engine parity~~ — **done**, 45 passed, all seven hashes agree
+4. ~~profile-discrimination fixture~~ — **done**, 29 tests, artefact untouched
+5. authoritative ACTIONS, dividends, permanent security IDs
+6. revise and re-pin the certified artefact **once** for those data semantics
+7. exact Sharadar control comparison
+8. enforce `wealth_core_v1` in the live risk service
+9. repeat cross-engine parity and restart falsification over the
+   authoritative-data path
 
-No-go stands until 5 completes.
+No-go stands until 7 completes. Live activation additionally blocked on 8.
 
 ## Not in scope, and not yet specified
 

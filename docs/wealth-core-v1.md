@@ -180,10 +180,50 @@ regression that silently swapped one for the other. That evidence lives in
 `tests/wealth_core/test_signals.py`, where the two are pinned separately against
 hand-computed closed forms.
 
-Giving the scenario genuine volatility dispersion would close the gap, and it is
-deliberately **not** done here: it changes the parity artefact and would need a
-second re-pin, and the sequence allows exactly one. It belongs with the
-authoritative-ACTIONS work, where the scenario is being revised anyway.
+Giving the scenario genuine volatility dispersion would close the gap inside the
+certified artefact, and it is deliberately **not** done: it changes the parity
+artefact and would need a second re-pin, which would make every future re-pin
+ambiguous between "the strategy changed" and "the discriminator changed". The
+gap is closed **beside** it instead — see below.
+
+### The profile-discrimination fixture
+
+`tests/wealth_core/test_volatility_profile_discrimination.py` closes the gap
+without touching the certified artefact. It holds one invariant:
+
+> switching `log_returns_certified_v1` to `simple_returns_v1` must change at
+> least one candidate ordering **and** one resulting portfolio decision.
+
+Two securities whose formation segments have the **identical** cumulative return
+(+50%), so `log1p(momentum)` cancels and volatility is the only thing that can
+order them. Every gap in either path is the same size **in logs** (0.35):
+
+| | gaps | simple vol | log vol |
+|---|---|---|---|
+| `SPIKE` | 3 **up** | 1.13035 | 0.94687 |
+| `SLIDE` | 4 **down** | 0.95677 | 1.12326 |
+
+A simple return is unbounded above and floored at -100%, so the same log move is
+worth `e^0.35 - 1 = +41.9%` up and `1 - e^-0.35 = -29.5%` down. Simple returns
+therefore see SPIKE's three gaps as larger than SLIDE's four and call SPIKE the
+riskier name; log returns see all seven as identical in size, count them, and
+call SLIDE riskier. **The two profiles disagree about which security is riskier
+on identical price paths**, and since volatility is the denominator of the
+durable score they buy different securities — SLIDE under simple, SPIKE under
+certified, on ~18% margins.
+
+Why this rung is not redundant, demonstrated rather than argued. Sabotaging
+`score_universe` so it ignores `cfg.volatility_profile` entirely — a profile
+accepted, hashed, and then silently dropped:
+
+| Layer | Caught it? |
+|---|---|
+| hand-computed signal tests | **no** — 57 passed |
+| golden fixture pin | **no** — passed |
+| profile-discrimination fixture | **yes** — 4 failed |
+
+The first two call the formula directly or run a scenario the profiles cannot
+separate. Only a behaviour-level discriminator sees the plumbing.
 
 ## Defects this design surfaced
 
