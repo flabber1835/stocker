@@ -21,9 +21,9 @@
     "S208",
     "S209"
   ],
-  "final_cash": 33848.44,
+  "final_cash": 34824.2,
   "final_positions": 24,
-  "final_state_hash": "7b7bb72ea9e28be5",
+  "final_state_hash": "451f8b87f9cc8926",
   "ledger_event_counts": {
     "BUY": 30,
     "CASH_MERGER": 2,
@@ -34,8 +34,8 @@
     "SPLIT": 1,
     "WRITE_OFF": 1
   },
-  "ledger_hash": "67bffaeea73250f5",
-  "result_hash": "effdb8fd44662899c3bb665f1ce7a7e814b7d348dea3ba86c3faea58d3b7fac0",
+  "ledger_hash": "6c65ff0d0445c03c",
+  "result_hash": "6fd382cf1d33e4aa477f4a551bab07ff58b47cff2f2fcc5ec6d562078cb2c698",
   "securities": 125,
   "sessions": 260,
   "starting_cash": 1000000.0,

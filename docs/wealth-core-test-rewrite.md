@@ -1,8 +1,30 @@
-# Wealth Core: the 31-test rewrite (open)
+# Wealth Core: the 31-test rewrite (DONE 2026-08-06)
 
-State at `2bfbe90`: **276 passed, 31 failed**, deliberately. All six audit items
-are fixed in code. The red suite is doing its job — it is showing which
-expectations still encode the superseded specification.
+**Outcome: 347 passed, 0 failed**, golden re-pinned once. Steps 1 and 2 of the
+sequence below are complete; 3-5 remain and the no-go still stands.
+
+Two of the 31 were not stale expectations at all. They were the red suite
+pointing at live defects, and both are fixed in code:
+
+* `RunResult.terminal_results` was never populated after corporate actions moved
+  into `step_session`. The ledger still recorded every event, so nothing looked
+  wrong — but the field is in `result_hash()`, so the parity hash had silently
+  stopped covering corporate-action outcomes.
+* the restart mutation controls compared a tail run's hashes against the whole
+  run's. Those cover different session ranges, so `normalized_input` always
+  differed and `first_divergence(...) is not None` was true for every
+  corruption whether or not it did anything. The controls could not fail.
+
+Correcting the second exposed a third thing: two of the six corruptions do not
+move the terminal state, and asserting that they did was relying on other
+defects. Dropping the slot reservations is absorbed by the fill-time
+affordability rule; dropping the review flags is absorbed by a re-review that
+passes and re-sets them, which only worked before because `review_due` was `==`.
+Both diverge at `decision`, and each control now pins the layer.
+
+Original state at `2bfbe90`: **276 passed, 31 failed**, deliberately. All six
+audit items were fixed in code. The red suite was doing its job — it was showing
+which expectations still encoded the superseded specification.
 
 **The goal is not to make 31 tests green.** A test patched until it passes
 records whatever the code now does, which is worth nothing the next time the
@@ -58,10 +80,53 @@ worked by hand in the test, not read back from the implementation.
 
 That third case is the one the old `==` rule made unreachable.
 
+## Scenario drift — what it turned out to be
+
+The security whose entry straddles the S170 restart boundary was `SEC_F094`, on
+the reasoning that by S166 every *named* security is held. The
+initial-construction fix invalidated that: the opening now fills all 25 slots at
+S126/S127, so F094 is bought in the opening and the untradeable window landed on
+a name nobody was buying.
+
+The replacement is `SEC_BUST`, and the reason is mechanical rather than
+incidental. Its base price of $25 against ~450k shares puts daily dollar volume
+at ~$11M — **below the $20M ADV20 floor** — so at S126 it is ineligible and
+absent from the leadership population entirely, which is why the opening never
+considers it. By S166 its drift has carried the price past $45, ADV20 clears,
+and it enters the leadership set through the room `SEC_STOPOUT` left when its
+-40% crash collapsed its momentum. At S166 it scores 1.3810, behind only
+`SEC_MERGED` (1.4238), `SEC_STRANDED` (1.4139) and `SEC_SPLITTER` (1.4053) —
+all three already held — so it is the highest-ranked unheld candidate and the
+slot is its.
+
+BUST therefore carries two conditions, which is forced rather than untidy: a
+dedicated security for the straddle would have to outrank it at S166, pushing
+BUST to the next vacancy around S188 and leaving it unheld when its write-off is
+due at S185 — retiring that condition silently.
+
+## What the re-pin moved, and what it did not
+
+| | old pin (`998a5d4`) | new pin |
+|---|---|---|
+| final cash | 33,848.44 | 34,824.20 |
+| final positions | 24 | 24 |
+| ledger event counts | identical | identical |
+| blocked sessions | identical (19) | identical (19) |
+
+Of the +975.76, **+973.78 is the four audit fixes** already committed in
+`e9f6d26`/`2bfbe90` (the pin predates them), and **+1.98 is the scenario
+change** — BUST's fill moving from S167 to S176 at a different open, taking 539
+shares instead of 544.
+
+The volatility profile contributes **nothing** to this scenario: see
+docs/wealth-core-v1.md, "the golden scenario does not discriminate between the
+volatility profiles". That is a known coverage gap in the fixture, not a
+property of the strategy, and closing it needs a second re-pin.
+
 ## Sequence after the rewrite
 
-1. all Wealth Core tests green
-2. **one** deliberate golden re-pin
+1. ~~all Wealth Core tests green~~ — **done**, 347 passed
+2. ~~**one** deliberate golden re-pin~~ — **done**, `6fd382cf1d33…`
 3. cross-engine parity
 4. authoritative ACTIONS, dividends, permanent security IDs
 5. exact Sharadar control comparison

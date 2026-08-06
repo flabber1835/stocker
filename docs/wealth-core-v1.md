@@ -159,6 +159,32 @@ tunnel that has drifted from the backtester reports on a strategy nobody is
 running. Its expected hashes are an *input* — a tunnel that derives its own
 expectation proves only that it agrees with itself.
 
+### The golden scenario does not discriminate between the volatility profiles
+
+Measured at the 2026-08-06 re-pin, and recorded because it is easy to assume the
+opposite. Running `golden_scenario()` under `simple_returns_v1` and under
+`log_returns_certified_v1` produces **the same 30 entries, the same 24 final
+positions, the same ledger event counts, the same blocked sessions and the same
+final cash to the cent**. Only the hashes move, because the per-candidate
+volatility is carried in the candidate audit.
+
+The cause is the fixture's own construction: every security gets the same
+reproducible ±2% jitter, so log compression is close to uniform across the
+cross-section and cancels out of the ranking. It changes the denominator of
+every durable score by nearly the same factor, and the leadership order survives
+intact.
+
+So the fixture pins the certified profile (it must — §3 of the rewrite taxonomy)
+but it is **not evidence that the profiles differ**, and it would not catch a
+regression that silently swapped one for the other. That evidence lives in
+`tests/wealth_core/test_signals.py`, where the two are pinned separately against
+hand-computed closed forms.
+
+Giving the scenario genuine volatility dispersion would close the gap, and it is
+deliberately **not** done here: it changes the parity artefact and would need a
+second re-pin, and the sequence allows exactly one. It belongs with the
+authoritative-ACTIONS work, where the scenario is being revised anyway.
+
 ## Defects this design surfaced
 
 Each was found by writing the fixture or the parity test, and each produced a
