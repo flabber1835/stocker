@@ -339,3 +339,51 @@ class TestTheThreadBridge:
                          "wealth_core_api.py").read_text())
         names = {n.attr for n in ast.walk(src) if isinstance(n, ast.Attribute)}
         assert "run_coroutine_threadsafe" in names
+
+
+class TestTheCorpusRangeIsDatesNotStrings:
+    """The defect that killed the first real corpus run, minutes into a
+    three-hour job, on the very first query.
+
+    `_load_corpus` derived `start, end = str(req.start_date), str(...)` and bound
+    those against DATE columns. The backtester's own path uses psycopg2, which
+    coerces a string silently; bt-engine reaches Postgres through ASYNCPG, which
+    type-checks bind parameters and raises "'str' object has no attribute
+    'toordinal'". So the conversion was correct everywhere it had ever been
+    exercised — every unit test here drives a FAKE connection, and a fake accepts
+    anything.
+
+    That is the general lesson these two tests encode: a fake connection cannot
+    catch a driver's type contract, so the contract has to be asserted on the
+    values themselves, before they reach any connection at all.
+    """
+
+    def _req(self):
+        return api.WealthCoreJobRequest(
+            mode="chain_rehearsal", start_date="2021-01-01", end_date="2023-12-31")
+
+    def test_the_range_is_date_objects(self):
+        import datetime
+        start, end = api.corpus_date_range(self._req())
+        assert isinstance(start, datetime.date) and not isinstance(start, str)
+        assert isinstance(end, datetime.date) and not isinstance(end, str)
+        assert (start, end) == (datetime.date(2021, 1, 1), datetime.date(2023, 12, 31))
+
+    def test_asyncpg_would_reject_what_the_old_code_produced(self):
+        """The other half: proof that the type actually matters. asyncpg's date
+        codec calls `.toordinal()` on the bound value, which is exactly the
+        AttributeError the production run reported — a str has no such method
+        and a date does."""
+        start, _ = api.corpus_date_range(self._req())
+        assert hasattr(start, "toordinal")
+        assert not hasattr(str(start), "toordinal")
+
+    def test_no_caller_stringifies_the_range_back(self):
+        """A `str(...)` reintroduced anywhere in the corpus load puts the defect
+        straight back, and it would again pass every fake-driven test here."""
+        src = (REPO / "services" / "bt-engine" / "app" /
+               "wealth_core_api.py").read_text()
+        body = src[src.index("async def _load_corpus"):src.index("def _execute(")]
+        assert "str(req.start_date)" not in body
+        assert "str(req.end_date)" not in body
+        assert "corpus_date_range(req)" in body

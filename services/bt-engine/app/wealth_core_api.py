@@ -249,6 +249,24 @@ def _validate(req: WealthCoreJobRequest) -> None:
 
 # ── the job ─────────────────────────────────────────────────────────────────
 
+def corpus_date_range(req: WealthCoreJobRequest) -> tuple[date, date]:
+    """The corpus range as DATE OBJECTS, never strings.
+
+    A named function for one line because that line was the defect. Every loader
+    binds these against a DATE column, and bt-engine reaches Postgres through
+    ASYNCPG, which type-checks bind parameters strictly: a str for a date raises
+    "'str' object has no attribute 'toordinal'". The backtester's own path uses
+    psycopg2, which coerces silently — so `str(req.start_date)` was correct
+    everywhere it had ever been exercised and failed on the FIRST QUERY of the
+    first real corpus run, after the deploy, minutes into a three-hour job.
+
+    Pydantic has already parsed these into `date`. Converting them away was the
+    whole bug, and it is the kind that no fake connection can catch, which is
+    why the check lives on this function rather than on a mock.
+    """
+    return req.start_date, req.end_date
+
+
 async def _load_corpus(req: WealthCoreJobRequest) -> dict:
     """Read the corpus through the BACKTESTER's loader, in a worker thread.
 
@@ -270,7 +288,7 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
     from app.live.wealth_core_benchmark import load_benchmark_closes
 
     loop = asyncio.get_running_loop()
-    start, end = str(req.start_date), str(req.end_date)
+    start, end = corpus_date_range(req)
 
     async with _state["engine"].connect() as aconn:
         conn = _ThreadConn(aconn, loop)
