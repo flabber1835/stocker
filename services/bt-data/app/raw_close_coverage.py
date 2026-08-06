@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import date as _date
 from typing import Any
@@ -63,8 +64,21 @@ SAMPLE_SESSIONS = 12
 ROWS_PER_PROBE = 200
 
 # Applied per statement so a pathological plan degrades to "unknown" rather than
-# to a 500 ten minutes later.
+# to a 500 ten minutes later. Calibrated for the SAMPLED probes, which are
+# index-bounded and finish in well under a second each.
 STATEMENT_TIMEOUT_MS = 15_000
+
+# ...and the sampled budget is exactly wrong for `exact=1`, which is the mode
+# whose whole purpose is to read all 35M rows. The flat 15s killed it every
+# time: the endpoint answered `QueryCanceledError` -> 500, so the only route to
+# an exact verification was psql with a hand-raised session timeout, and the
+# feature was reported as broken rather than as slow.
+#
+# A route-local budget instead. Generous, because the alternative to waiting is
+# not getting the number at all — and still bounded, because an unbounded
+# statement on a shared database is how one diagnostic wedges a backfill.
+EXACT_STATEMENT_TIMEOUT_MS = int(
+    os.getenv("BT_COVERAGE_EXACT_TIMEOUT_MS", str(15 * 60 * 1000)))
 
 _COLUMN_EXISTS_SQL = text("""
     SELECT 1 FROM information_schema.columns
@@ -182,7 +196,8 @@ class CoverageReport:
         }
 
 
-def _guard(conn, rep: "CoverageReport | None" = None) -> None:
+def _guard(conn, rep: "CoverageReport | None" = None, *,
+           timeout_ms: int = STATEMENT_TIMEOUT_MS) -> None:
     """Bound every statement. A diagnostic that hangs is worse than one that
     says 'unknown', because the caller cannot tell it apart from the outage.
 
@@ -199,11 +214,12 @@ def _guard(conn, rep: "CoverageReport | None" = None) -> None:
     """
     try:
         conn.exec_driver_sql(
-            f"SET LOCAL statement_timeout = {STATEMENT_TIMEOUT_MS}")
+            f"SET LOCAL statement_timeout = {timeout_ms}")
     except Exception as exc:                                  # pragma: no cover
         if rep is not None:
             rep.notes.append(
-                f"statement_timeout could not be set ({exc.__class__.__name__}); "
+                f"statement_timeout could not be set to {timeout_ms}ms "
+                f"({exc.__class__.__name__}); "
                 f"queries are unbounded but remain index-backed")
 
 
@@ -233,7 +249,13 @@ def build_report(conn, *, sample_sessions: int = SAMPLE_SESSIONS,
                  exact: bool = False, uncovered_ticker_limit: int = 50,
                  hash_range: tuple[str, str] | None = None) -> CoverageReport:
     rep = CoverageReport()
-    _guard(conn, rep)
+    # The budget must match the work this call will actually do. `exact` and
+    # `hash` both read every row; the sampled default reads a few thousand.
+    # One flat value cannot serve both, and the flat SAMPLED value is what made
+    # exact=1 fail 100% of the time.
+    heavy = bool(exact or hash_range)
+    _guard(conn, rep,
+           timeout_ms=EXACT_STATEMENT_TIMEOUT_MS if heavy else STATEMENT_TIMEOUT_MS)
 
     rep.column_present = bool(conn.execute(_COLUMN_EXISTS_SQL).scalar())
     if not rep.column_present:
@@ -274,17 +296,34 @@ def build_report(conn, *, sample_sessions: int = SAMPLE_SESSIONS,
             "is what lets index-only scans skip the heap on this corpus.")
 
     if exact:
-        row = conn.execute(_EXACT_SQL).mappings().first() or {}
-        rep.exact = True
-        rep.rows_total = row.get("rows_total")
-        rep.rows_with_raw = row.get("rows_with_raw")
-        rep.first_covered_date = row.get("first_covered")
-        rep.last_covered_date = row.get("last_covered")
-        rep.tickers_total = row.get("tickers_total")
-        rep.tickers_uncovered = [
-            r["ticker"] for r in conn.execute(
-                _UNCOVERED_TICKERS_SQL,
-                {"limit": uncovered_ticker_limit}).mappings()]
+        # DEGRADE, never 500. If the full scan still exceeds its (much larger)
+        # budget, the caller gets the SAMPLED report plus a note naming the
+        # limit and how to raise it — which is strictly more useful than a
+        # traceback, and keeps the module's own rule: a diagnostic must not fail
+        # in a way indistinguishable from the fault it exists to diagnose.
+        try:
+            row = conn.execute(_EXACT_SQL).mappings().first() or {}
+            rep.exact = True
+            rep.rows_total = row.get("rows_total")
+            rep.rows_with_raw = row.get("rows_with_raw")
+            rep.first_covered_date = row.get("first_covered")
+            rep.last_covered_date = row.get("last_covered")
+            rep.tickers_total = row.get("tickers_total")
+            rep.tickers_uncovered = [
+                r["ticker"] for r in conn.execute(
+                    _UNCOVERED_TICKERS_SQL,
+                    {"limit": uncovered_ticker_limit}).mappings()]
+        except Exception as exc:
+            # A failed transaction cannot serve the rest of the report either,
+            # so nothing further is attempted on this connection.
+            rep.exact = False
+            rep.notes.append(
+                f"EXACT scan did not complete within "
+                f"{EXACT_STATEMENT_TIMEOUT_MS}ms ({exc.__class__.__name__}). "
+                f"The sampled numbers above stand. Raise "
+                f"BT_COVERAGE_EXACT_TIMEOUT_MS and retry, or run the count in "
+                f"psql with its own session timeout.")
+            return rep
 
     if hash_range:
         rep.normalized_input_hash = normalized_input_hash(conn, *hash_range)

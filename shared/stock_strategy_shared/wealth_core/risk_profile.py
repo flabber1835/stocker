@@ -34,6 +34,8 @@ that cannot get out.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Mapping, Sequence
@@ -146,6 +148,23 @@ class WealthCoreRiskProfile:
             "fractional_share_policy": self.fractional_share_policy.value,
             "partial_fill_policy": self.partial_fill_policy.value,
         }
+
+    def profile_hash(self) -> str:
+        """A stable digest of EVERY limit, not just the name.
+
+        The name alone is not enough to bind a caller to a profile: a deploy
+        that renamed nothing but loosened `maximum_positions` would present the
+        same `wealth_core_v1` and be accepted. The caller states the hash it
+        believes it is trading under, and a mismatch is refused — so a risk
+        limit cannot be changed on one side of the wire without the other side
+        noticing.
+
+        Deterministic across processes: sorted keys, no floats reformatted, no
+        dict-ordering dependence. That is what makes a RESTARTED risk service
+        produce the identical hash and therefore the identical verdict.
+        """
+        blob = json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
 
 @dataclass(frozen=True)

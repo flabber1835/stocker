@@ -20,7 +20,7 @@ recovered from any target:
 | `review_completed` | passing review once is permanent |
 | `episode_peak_split_adjusted_close` | the trailing stop measures from it |
 | slot cooldown | a vacated slot stays cash for 21 sessions |
-| ticker cooldown | an exited name is unbuyable for 21 sessions |
+| security cooldown | an exited SECURITY is unbuyable for 21 sessions — keyed on the permanent id, never the symbol |
 | `reserved_for` | a queued entry has claimed a slot |
 
 Run this strategy through the target-diff path and it would look plausible every
@@ -302,9 +302,42 @@ Encoded distinctions:
   into one acquirer are one 8% exposure rather than two 4% ones.
 - Pending entries count against **both** slot availability and risk reservation.
 
-**Not yet done:** wiring this profile into `risk-service`'s `/check`. That
-endpoint still applies the target-portfolio limits, which is why live activation
-is blocked.
+### Wired into `/check` (2026-08-06)
+
+`execution_model: stateful_ownership` dispatches to the profile AFTER the
+universal gates and BEFORE every target-portfolio limit. The universal gates —
+kill switch, live/paper, finite and positive qty — still apply: they are
+validity and emergency controls, not strategy limits, and "exits are exempt"
+must never become an exemption from the emergency brake.
+
+**The profile is verified by HASH, not by name.** `profile_hash()` digests every
+limit, so a deploy that loosened `maximum_positions` without renaming anything
+still presents `wealth_core_v1` — a name check accepts it and the two sides then
+enforce different limits with nothing saying so. Missing, unknown and mismatched
+are all REFUSED; none falls back to the default risk behaviour. `/health`
+publishes the name and hash so a deploy can verify what is live without
+submitting a trade.
+
+**The stateful context is SUPPLIED, never reconstructed.** Held positions, slot
+reservations and the per-session admission count are path-dependent. A risk
+service that re-derived them from a target would invent the state it is meant to
+check and agree with itself perfectly. A buy-side check with no context is
+refused — a default of zero-held, zero-reserved approves every entry.
+
+Consequently the Wealth Core path reads **no database at all**, which is
+asserted against an engine whose every connection raises rather than against
+`engine=None` (the latter is the service's degraded mode, where the controls are
+skipped — a pass there would be consistent with having tried and given up).
+
+`security_id` is required: a decision keyed on the ticker can be attributed to
+the wrong company after a rename or a reuse, and `risk_decisions` is the audit
+trail answering "which rule approved this trade?".
+
+The falsifier is a comparison rather than a mock: the identical order judged
+under both models, with the same broken database, gets opposite answers — the
+inherited path fails closed needing data it cannot reach, the profile approves
+without any I/O. The two models disagree not about a threshold but about what
+has to be known before an answer exists.
 
 ## Scheduler run trace
 
@@ -583,7 +616,7 @@ volatility dispersion.
 | `security_id` in the backtester | the **ticker**; a reused ticker reads as one continuous security |
 | security-for-security where the delivered security is absent from the corpus | unsupported — the converted episode would have no closes |
 | unmarkable-holding treatment | adopted 2026-08-03; the certified prototype's behaviour is unknown |
-| `risk-service` enforcement of `wealth_core_v1` | **not wired** — `/check` still applies the target-portfolio limits |
+| `risk-service` enforcement of `wealth_core_v1` | **wired** — `execution_model: stateful_ownership` dispatches to the profile, verified by hash |
 | deployed-image parity | **not yet run** — needs the NAS |
 | SEP `close_unadjusted` | **not yet populated** — needs the replay |
 

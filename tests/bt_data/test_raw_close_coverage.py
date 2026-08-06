@@ -15,6 +15,7 @@ import pathlib
 import pytest
 
 from app.raw_close_coverage import (
+    EXACT_STATEMENT_TIMEOUT_MS,
     ROWS_PER_PROBE,
     SAMPLE_SESSIONS,
     SESSION_USABLE_THRESHOLD,
@@ -325,3 +326,64 @@ def test_the_endpoint_default_matches_the_module_constant():
     default = fn.args.defaults[idx - (len(fn.args.args) - len(fn.args.defaults))]
     assert isinstance(default, ast.Name), (
         "sample_sessions must default to the module constant, not a literal")
+
+
+# ── the exact scan needs its OWN budget ─────────────────────────────────────
+
+class _ExactTimesOut(FakeConn):
+    """The real failure: the full scan exceeds statement_timeout and asyncpg
+    raises QueryCanceledError, which SQLAlchemy wraps."""
+
+    def execute(self, stmt, params=None):
+        if "COUNT(DISTINCT ticker)" in " ".join(str(stmt).split()):
+            raise RuntimeError("canceling statement due to statement timeout")
+        return super().execute(stmt, params)
+
+
+class TestTheExactModeTimeout:
+    """`exact=1` reads all 35M rows — that is its purpose. It was governed by
+    the SAMPLED budget of 15s, so it failed every time with a 500, and exact
+    verification was reported as broken rather than as slow."""
+
+    def test_the_two_budgets_differ_and_exact_is_larger(self):
+        assert EXACT_STATEMENT_TIMEOUT_MS > STATEMENT_TIMEOUT_MS
+        assert STATEMENT_TIMEOUT_MS == 15_000, (
+            "the sampled probes are index-bounded; this is calibrated for them")
+
+    def test_the_SAMPLED_path_keeps_the_SHORT_budget(self):
+        c = FakeConn(per_session=sessions(1.0))
+        build_report(c)
+        assert any(f"statement_timeout = {STATEMENT_TIMEOUT_MS}" in s
+                   for s in c.executed)
+
+    def test_the_EXACT_path_uses_the_LONG_budget(self):
+        c = FakeConn(per_session=sessions(1.0),
+                     exact_row={"rows_total": 10, "rows_with_raw": 10,
+                                "first_covered": D0, "last_covered": D1,
+                                "tickers_total": 3})
+        build_report(c, exact=True)
+        assert any(f"statement_timeout = {EXACT_STATEMENT_TIMEOUT_MS}" in s
+                   for s in c.executed)
+
+    def test_the_HASH_path_uses_the_LONG_budget_too(self):
+        """It also reads every row, so the sampled budget killed it the same
+        way."""
+        c = FakeConn(per_session=sessions(1.0))
+        build_report(c, hash_range=("1990-01-01", "2100-01-01"))
+        assert any(f"statement_timeout = {EXACT_STATEMENT_TIMEOUT_MS}" in s
+                   for s in c.executed)
+
+    def test_a_still_timing_out_scan_DEGRADES_rather_than_500s(self):
+        """The module's own rule: a diagnostic must not fail in a way
+        indistinguishable from the fault it exists to diagnose. The sampled
+        numbers stand, `exact` stays False, and the note says how to proceed."""
+        c = _ExactTimesOut(per_session=sessions(0.97))
+        rep = build_report(c, exact=True)
+
+        assert rep.exact is False, "a timed-out scan must not claim exactness"
+        assert rep.sampled, "the sampled numbers must survive"
+        assert rep.coverage > 0.9
+        note = " ".join(rep.notes)
+        assert "EXACT scan did not complete" in note
+        assert "BT_COVERAGE_EXACT_TIMEOUT_MS" in note, (
+            "the note must name the knob that raises the limit")

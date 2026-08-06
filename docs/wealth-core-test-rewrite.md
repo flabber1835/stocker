@@ -150,7 +150,7 @@ the signal tests (57 passed) and the golden pin (passed) are both blind to it.
 7. ~~permanent security / issuer identifiers in place of the ticker~~ — **done**
 8. ~~revise and re-pin the certified artefact **once** for those data semantics~~ — **done**, `2643154598f7…`
 9. exact Sharadar control comparison
-10. enforce `wealth_core_v1` in the live risk service
+10. ~~enforce `wealth_core_v1` in the live risk service~~ — **done**
 11. repeat cross-engine parity and restart falsification over the
     authoritative-data path
 12. verify the SEP backfill directly on the NAS

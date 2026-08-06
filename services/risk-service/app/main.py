@@ -12,6 +12,15 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from stock_strategy_shared.db import wait_for_db, warm_up_db_in_background
+from stock_strategy_shared.wealth_core.risk_profile import (
+    DEFAULT_PROFILES,
+    PROFILE_NAME,
+    RiskProfileUnavailable,
+    WealthCoreRiskProfile,
+    evaluate_entry,
+    evaluate_exit,
+    require_profile,
+)
 from stock_strategy_shared.order_status import (
     OPEN_ORDER_STATUSES,
     TURNOVER_STATUSES,
@@ -239,6 +248,32 @@ def _control_error(name: str, exc: Exception, *, is_close: bool, env: dict):
 _TICKER_RE = re.compile(r"^[A-Z0-9.\-]{1,20}$")
 
 
+class WealthCoreContext(BaseModel):
+    """The stateful facts a Wealth Core check needs and CANNOT infer.
+
+    THE WHOLE POINT OF THIS TYPE is that none of it is reconstructible from a
+    target portfolio. Position age, the episode peak, slot reservations and the
+    per-session admission count are path-dependent; a risk service that
+    re-derived them from a target would be inventing the state it is supposed to
+    be checking, and would agree with itself perfectly while enforcing limits
+    computed from numbers nobody holds.
+
+    So the CALLER — which owns the state — states them, and every field is
+    REQUIRED. A missing context is refused rather than defaulted: a default of
+    zero held positions and zero reservations approves every entry.
+    """
+    equity: Optional[float]         # None = unresolved; 4% of an unknown is not a number
+    cash: float
+    held_positions: int
+    pending_reservations: int
+    entries_this_session: int
+    entry_notional_this_session: float = 0.0
+    exit_notional_this_session: float = 0.0
+    aggregate_exposure_after: float = 0.0
+    issuer_exposure_after: float = 0.0
+    is_gap_reduced: bool = False
+
+
 class TradeCheckRequest(BaseModel):
     ticker: str
     action: Literal["entry", "exit", "buy_add", "sell_trim",
@@ -249,6 +284,20 @@ class TradeCheckRequest(BaseModel):
     mode: Literal["immediate", "scheduled"]
     trade_type: Literal["paper", "live"] = "paper"
     sim_date: Optional[str] = None  # ISO date; if provided, used for turnover cap scoping
+
+    # ── execution model, and the Wealth Core profile ────────────────────────
+    # Defaults to the legacy model so every existing caller is unaffected: this
+    # field is what selects a DIFFERENT set of limits, not a different tuning of
+    # the same ones.
+    execution_model: Literal["target_portfolio", "stateful_ownership"] = \
+        "target_portfolio"
+    # The PERMANENT security identity. `ticker` is the current execution label
+    # and may be reassigned; a risk decision keyed on it could be attributed to
+    # the wrong company after a rename or a symbol reuse.
+    security_id: Optional[str] = None
+    risk_profile: Optional[str] = None
+    risk_profile_hash: Optional[str] = None
+    wealth_core: Optional[WealthCoreContext] = None
 
     @field_validator("ticker")
     @classmethod
@@ -385,6 +434,130 @@ app = FastAPI(title="risk-service", lifespan=lifespan)
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 
+def _wealth_core_profile() -> "WealthCoreRiskProfile":
+    """The configured Wealth Core profile, via the SHARED startup gate.
+
+    `require_profile` raises `RiskProfileUnavailable` when the profile is
+    absent, which is the behaviour this whole partition rests on: falling back
+    to the target-portfolio limits would let every check pass while enforcing
+    rules that mean something the strategy does not do.
+    """
+    return require_profile("stateful_ownership", DEFAULT_PROFILES)
+
+
+def _decide_wealth_core(req: TradeCheckRequest, env: dict
+                        ) -> tuple[bool, str, str, dict]:
+    """The Wealth Core gate. NONE of the target-portfolio limits run here.
+
+    That is the point rather than an optimisation. `MAX_POSITION_PCT` reads a
+    CONVERTED position as a breach demanding a trim — a trade this strategy does
+    not have and must not learn. `MAX_DAILY_TURNOVER_PCT` throttles exits during
+    the drawdown they exist for. `MAX_POSITIONS` counts held names and ignores
+    slots RESERVED by queued entries, which are already committed capital. Each
+    would pass silently while enforcing the wrong thing.
+
+    The UNIVERSAL gates — kill switch, live/paper, finite and positive qty — have
+    already run in `_decide` and still apply. They are validity and emergency
+    controls, not strategy limits.
+    """
+    # ── the profile must be NAMED, KNOWN and MATCHED ─────────────────────────
+    if not req.risk_profile:
+        return (False,
+                "execution_model=stateful_ownership requires risk_profile; "
+                f"expected {PROFILE_NAME!r}. Refused rather than defaulted — "
+                "falling back to the target-portfolio limits would approve "
+                "every check while enforcing rules this strategy does not have.",
+                "wealth_core_profile_missing", env)
+    if req.risk_profile != PROFILE_NAME:
+        return (False,
+                f"unknown risk_profile {req.risk_profile!r}; this service "
+                f"implements {PROFILE_NAME!r} only",
+                "wealth_core_profile_unknown", env)
+
+    try:
+        profile = _wealth_core_profile()
+    except RiskProfileUnavailable as exc:
+        return False, str(exc), "wealth_core_profile_unavailable", env
+
+    expected = profile.profile_hash()
+    if not req.risk_profile_hash:
+        return (False,
+                f"risk_profile_hash is required for {PROFILE_NAME!r}; this "
+                f"service is configured with {expected}",
+                "wealth_core_profile_hash_missing", env)
+    if req.risk_profile_hash != expected:
+        # The name matched and the LIMITS did not. This is the case a name-only
+        # check cannot see: a deploy that loosened maximum_positions without
+        # renaming anything presents the same profile and would be accepted.
+        return (False,
+                f"risk_profile_hash mismatch: caller sent "
+                f"{req.risk_profile_hash!r}, this service is configured with "
+                f"{expected!r}. The two sides are enforcing different limits.",
+                "wealth_core_profile_hash_mismatch", env)
+
+    env = {**env, "wealth_core_profile": profile.to_dict(),
+           "wealth_core_profile_hash": expected}
+
+    # ── the permanent identity is REQUIRED ───────────────────────────────────
+    # A decision keyed on the ticker alone can be attributed to the wrong
+    # company after a rename or a symbol reuse, and `risk_decisions` is the
+    # audit trail that answers "which rule approved this trade?".
+    if not req.security_id:
+        return (False,
+                "security_id (the permanent identity) is required for "
+                f"{PROFILE_NAME!r}; ticker is the execution label only and is "
+                "reassigned on a rename or a symbol reuse",
+                "wealth_core_security_id_missing", env)
+
+    is_sell = req.action in ("exit", "sell_trim", "risk_reduce")
+
+    # ── EXITS ────────────────────────────────────────────────────────────────
+    # Approved without consulting a single entry-oriented limit. Every sell this
+    # strategy makes is a stop, a review exit or a corporate action — it never
+    # trims and never rebalances — so there is no discretionary churn to damp,
+    # and the sessions with the most selling are the ones on which blocking a
+    # sale is worst. Deliberately BEFORE the context check: an exit must remain
+    # possible even when the book's equity cannot be resolved.
+    if is_sell:
+        v = evaluate_exit(
+            profile=profile, notional=max(req.notional, 0.0),
+            exit_notional_this_session=(
+                req.wealth_core.exit_notional_this_session
+                if req.wealth_core else 0.0),
+            reason=req.action)
+        return (v.approved, "Wealth Core exit: exempt from entry limits and "
+                            "from any turnover cap",
+                "wealth_core_exit_exempt", {**env, "verdict": v.detail})
+
+    # ── ENTRIES ──────────────────────────────────────────────────────────────
+    if req.wealth_core is None:
+        return (False,
+                "wealth_core context is required for a buy-side check: held "
+                "positions, slot reservations and the per-session admission "
+                "count are PATH-DEPENDENT and cannot be reconstructed from a "
+                "target portfolio. Refused rather than defaulted — a default of "
+                "zero held and zero reserved approves every entry.",
+                "wealth_core_context_missing", env)
+
+    ctx = req.wealth_core
+    v = evaluate_entry(
+        profile=profile, equity=ctx.equity, cash=ctx.cash,
+        notional=req.notional, held_positions=ctx.held_positions,
+        pending_reservations=ctx.pending_reservations,
+        entries_this_session=ctx.entries_this_session,
+        entry_notional_this_session=ctx.entry_notional_this_session,
+        aggregate_exposure_after=ctx.aggregate_exposure_after,
+        issuer_exposure_after=ctx.issuer_exposure_after,
+        is_gap_reduced=ctx.is_gap_reduced)
+
+    env = {**env, "verdict": v.detail}
+    if v.approved:
+        return True, "Wealth Core entry: all profile limits passed", "ok", env
+    return (False,
+            "Wealth Core entry rejected: " + ", ".join(v.reasons),
+            f"wealth_core_{v.reasons[0].lower()}", env)
+
+
 async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
     """Run rules in order; return (approved, reason, rule_triggered, env_snapshot)."""
     env = _safety_env()
@@ -409,6 +582,15 @@ async def _decide(req: TradeCheckRequest) -> tuple[bool, str, str, dict]:
         return False, "Invalid notional: must be a finite number", "non_finite_notional", env
     if req.qty <= 0:
         return False, "Invalid qty: must be > 0", "qty", env
+
+    # ── EXECUTION-MODEL DISPATCH ─────────────────────────────────────────────
+    # AFTER the universal gates and BEFORE every target-portfolio limit. The
+    # gates above are validity and emergency controls — a kill switch must stop
+    # a Wealth Core order exactly as it stops any other. Everything BELOW is
+    # calibrated for a strategy that rebalances toward normalised weights, and
+    # several of those rules mean something Wealth Core does not do.
+    if req.execution_model == "stateful_ownership":
+        return _decide_wealth_core(req, env)
     # notional_zero is a BUY-side guard only. A de-risking CLOSE (exit / sell_trim)
     # must never be blocked by a missing/zero notional — the local display price can
     # be absent (notional = qty × 0 = 0) while the position is genuinely held and we
@@ -970,4 +1152,12 @@ async def health() -> dict:
         "max_data_age_hours": MAX_DATA_AGE_HOURS,
         "max_sync_age_hours": MAX_SYNC_AGE_HOURS,
         "persistence": engine is not None,
+        # The profile this service will enforce for stateful_ownership, and the
+        # hash a caller has to present. Published so a deploy can verify which
+        # limits are live WITHOUT submitting a trade — the alternative is
+        # discovering a hash mismatch from a rejected order at the open.
+        # No I/O: the profile is constructed from constants, so this stays a
+        # liveness probe.
+        "wealth_core_profile": PROFILE_NAME,
+        "wealth_core_profile_hash": WealthCoreRiskProfile().profile_hash(),
     }
