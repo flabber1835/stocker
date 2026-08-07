@@ -141,7 +141,12 @@ class TestTheCorpusIsReadThroughTheOwNER:
         src = (REPO / "services" / "bt-engine" / "app" /
                "wealth_core_api.py").read_text()
         assert "from app.live.wealth_core_replay import" in src
-        assert "load_sessions(conn, start, end)" in src
+        # `warmup_from`, not `start`: the calendar is queried back far enough to
+        # give the signal its pre-start window (see test_wealth_core_warmup.py).
+        # Pinning the argument as well as the call keeps this test's original
+        # property — one shared loader — and additionally fails if the widening
+        # is reverted.
+        assert "load_sessions(conn, warmup_from, end)" in src
         owner = (REPO / "services" / "backtester" / "app" /
                  "wealth_core_replay.py").read_text()
         assert "def load_sessions(" in owner

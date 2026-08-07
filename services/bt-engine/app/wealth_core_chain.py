@@ -277,6 +277,7 @@ def rehearse_chain(*, sessions: Sequence[str],
                    cfg: WealthCoreConfig | None = None,
                    eligibility_cfg: EligibilityConfig | None = None,
                    terminal_events: Sequence[TerminalTerms] = (),
+                   warmup_sessions: Sequence[str] = (),
                    on_progress: Any = None,
                    progress_every: int = 5,
                    benchmark_closes: Mapping[str, float] | None = None,
@@ -307,6 +308,15 @@ def rehearse_chain(*, sessions: Sequence[str],
     ledger = Ledger()
     last_known: dict[str, float] = {}
     feed = Feed(meta, eligibility_cfg)
+    # PRE-START HISTORY. The signal needs REQUIRED_CLOSES observations, so
+    # without this the book cannot rank a single name until session 127 — it
+    # sits in cash for ~6 months of a dated run and then builds from a truncated
+    # window, while the benchmark is measured fully invested from day one. The
+    # warm-up feeds the series and nothing else: no decision, no fill, no equity
+    # point, and `sessions` below is unchanged, so nothing warm-up touches is
+    # hashed or measured.
+    if warmup_sessions:
+        feed.warmup(list(warmup_sessions), bars_by_session)
 
     for session in sessions:
         # ONE TRACE PER SESSION — the shape RunTrace actually has, and the
@@ -411,10 +421,18 @@ def rehearse_chain(*, sessions: Sequence[str],
     # The rehearsal's own hashes come from re-running the SAME stream in bulk
     # and comparing terminal state, because the per-session driver mutates one
     # state object rather than producing a RunResult of its own.
+    # The bulk path needs its OWN warmed feed. A Feed is stateful, so sharing
+    # the chain's would replay the whole run through it a second time; and
+    # warming only one of the two makes them see different history, which shows
+    # up as a divergence that has nothing to do with the strategy.
+    bulk_feed = Feed(meta, eligibility_cfg)
+    if warmup_sessions:
+        bulk_feed.warmup(list(warmup_sessions), bars_by_session)
     bulk, bulk_hashes = run_with_hashes(
         sessions=list(sessions), bars_by_session=bars_by_session, meta=meta,
         starting_cash=starting_cash, cfg=cfg,
-        eligibility_cfg=eligibility_cfg, terminal_events=terminal_events)
+        eligibility_cfg=eligibility_cfg, terminal_events=terminal_events,
+        feed=bulk_feed)
     out.bulk_hashes = bulk_hashes.to_dict()
 
     same_state = state.state_hash() == bulk.state.state_hash()

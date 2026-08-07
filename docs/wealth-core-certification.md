@@ -25,9 +25,54 @@ DONE   3  bt_actions backfilled: 664,039 rows, 1998-01-01..2026-12-31, 4m29s.
 DONE   4  exact raw-close scan COMPLETED (not degraded): coverage 99.7649%
           (36,684,527 / 36,770,974). Gaps are per-TICKER vendor gaps in 43
           non-common-stock instruments, NOT a truncated backfill.
-NEXT   7  chain_rehearsal — the first evidence run on authoritative splits
+VOID   7  chain_rehearsal 2021-2023 ATTEMPTED and its result DISCARDED — the
+          run had no pre-start warm-up. Fixed and tested; re-run required.
+          See "Step 7 ran and produced an invalid experiment" below.
+NEXT   7  chain_rehearsal, RE-RUN on the warm-up fix
 BLOCKED 5,6,9  no producer for the backtester-side hashes — see below
 ```
+
+### Step 7 ran and produced an invalid experiment (warm-up defect, fixed)
+
+A 2021-2023 `chain_rehearsal` was started and its January-July 2021 behaviour is
+**not a valid assessment of Wealth Core**. `_load_corpus` loaded bars only
+between the REQUESTED dates and nothing outside the test suite ever called
+`Feed.warmup`, so the signal had no history to read: eligibility needs
+`REQUIRED_CLOSES` (127) observations, and the book therefore could not rank a
+single name until roughly session 127 — late June. It sat in cash for half the
+first year, built its opening book from a truncated window, and was compared
+against a benchmark measured fully invested from day one. Every number was
+arithmetically correct and the experiment was still wrong.
+
+**Why nothing caught it.** Every fixture arrives with enough history or drives
+the normalised engine directly. The property that failed belongs to the LOADER —
+"an arbitrary DATED database rehearsal receives a pre-start window" — and the
+loader is the one part the golden fixture cannot reach. The chain-vs-bulk
+equivalence check could not catch it either: both paths were unwarmed, so their
+hashes agreed. **Equivalence is a consistency check, not a correctness one**, and
+that distinction is the reusable lesson here.
+
+**The fix.** `_load_corpus` widens its query by `WARMUP_CALENDAR_DAYS` (400),
+`_split_warmup` splits the sessions at the requested start and trims the earlier
+part to `WARMUP_SESSIONS` (derived as `REQUIRED_CLOSES - 1`, never hardcoded), and
+the warm-up is threaded into `rehearse_chain`, `baseline_replay` and `experiment`.
+Warm-up sessions feed the series and nothing else: no decision, no fill, no equity
+point, nothing hashed. Both the chain feed AND the bulk-replay feed are warmed —
+warming one only would look exactly like a real divergence. A corpus with too
+little history is REFUSED with a message naming the consequence, rather than
+silently producing the delayed-start run again.
+
+**Falsifiers, all confirmed to fail before the fix** (`tests/bt_engine/
+test_wealth_core_warmup.py`, 19 tests). Removing either `feed.warmup` call breaks
+the equivalence tests; removing BOTH — the case that first slipped through —
+breaks `TestTheRehearsalBuildsABookOnSessionOne`, which asserts the observable
+directly: 25 `OPEN_SLOT_POSITION` intents on the first measured session and a full
+book within five. Dropping `warmup_sessions=` from any of the three `_execute`
+dispatch sites breaks `TestTheWarmupSurvivesTheHandoff`.
+
+**Acceptance criterion for the re-run.** On the first simulated session,
+`eligible_universe_count` and the ranked candidate count must be substantial and
+the run should construct up to 25 positions immediately — not after six months.
 
 ### Step 4 is passed; `operational` was lying, and is fixed
 
@@ -101,6 +146,7 @@ fails spuriously. Re-run rather than diagnose.
 | exact SEP raw-close verification | **proven 2026-08-06** | `exact=1` COMPLETED: 99.7649% (36,684,527/36,770,974); gaps are per-ticker vendor gaps in 43 non-common-stock instruments |
 | authoritative ACTIONS ingested | **done 2026-08-06** | `bt_actions` 664,039 rows, 1998-01-01..2026-12-31 |
 | authoritative ACTIONS / data parity | **pending** | needs a run whose `provenance.split_source == "actions"` — step 7 |
+| a dated replay is a backtest FROM its start date | **fixed 2026-08-07** | pre-start warm-up in `_load_corpus`/`_split_warmup`, threaded to all three modes and to BOTH the chain and bulk feeds; tests/bt_engine/test_wealth_core_warmup.py (19). The first 2021-2023 rehearsal is VOID — it ran unwarmed |
 | exact Sharadar control (baseline_replay) | **BLOCKED** | no producer for the backtester-side hashes; see "Resuming this work". When unblocked it proves IMAGE/ENVIRONMENT parity, NOT independent implementation — one loader, COPYed; see step 5 |
 | independent implementation parity | **not proven, and not provable by step 5** | would need a second loader written against the same spec; no such thing exists |
 | live activation | disabled by default | — |
@@ -281,6 +327,13 @@ two stacks share no docker network by design).
    `entries_without_a_price: 0`, `peak_book_size == 25`, and every entry in
    `rejections[]` explained by name — not merely counted. The 24-vs-25 episode
    above is why that last clause is not optional.
+
+   ALSO require, since the first attempt failed exactly here:
+   `provenance.warmup_sessions == 126` and a `warmup_first_session` roughly six
+   months before `start_date`; and on the FIRST measured session, a substantial
+   eligible universe with the book constructing up to 25 positions at once. A run
+   that idles in cash into June is the unwarmed defect, not a strategy result —
+   discard it rather than interpret it.
 
 8. **Restart cuts** through admissions, exits, dividends, terminal actions,
    cooldowns and defensive state, over the authoritative data.

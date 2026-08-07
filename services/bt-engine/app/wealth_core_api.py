@@ -42,7 +42,7 @@ import json
 import logging
 import traceback
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Literal
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -53,6 +53,7 @@ from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
 from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
 from stock_strategy_shared.wealth_core.hashes import HASH_ORDER
 from stock_strategy_shared.wealth_core.risk_profile import PROFILE_NAME
+from stock_strategy_shared.wealth_core.signals import REQUIRED_CLOSES
 
 from app.wealth_core_chain import (
     ChainRehearsalDiverged,
@@ -86,6 +87,16 @@ WEALTH_CORE_DDL = [
     """CREATE INDEX IF NOT EXISTS idx_bt_wealth_core_runs_started
         ON bt_wealth_core_runs (started_at DESC)""",
 ]
+
+#: Trading sessions of price history the signal needs BEFORE the first measured
+#: session. `REQUIRED_CLOSES` is 127 (LONG_LOOKBACK_SESSIONS + 1), so 126 prior
+#: sessions plus the first measured one satisfies it on day one.
+WARMUP_SESSIONS = REQUIRED_CLOSES - 1
+
+#: Calendar days queried back to FIND those sessions. 126 sessions is ~183
+#: calendar days; 400 leaves room for holidays and a thin patch without a second
+#: round trip. The sessions are then counted exactly — this is only the net.
+WARMUP_CALENDAR_DAYS = int(os.getenv("WEALTH_CORE_WARMUP_CALENDAR_DAYS", "400"))
 
 #: The benchmark a Wealth Core run is measured against. In `bt_prices` already
 #: (bt-data's benchmark stage fetches SPY/QQQ/IWM/SOXX from SFP).
@@ -315,6 +326,21 @@ def _validate(req: WealthCoreJobRequest) -> None:
 
 # ── the job ─────────────────────────────────────────────────────────────────
 
+def _split_warmup(all_sessions, start_iso: str):
+    """Split a session list into (warm-up, measured) at `start_iso`.
+
+    The warm-up sessions feed the signal and NOTHING else: they produce no
+    decision, no fill, no equity point, and are not hashed. Only the measured
+    sessions are the run.
+
+    Trimmed to the last WARMUP_SESSIONS so a wider calendar query does not
+    change the result — the warm-up must depend on the session COUNT the signal
+    needs, not on how far back the loader happened to look.
+    """
+    before = [s for s in all_sessions if s < start_iso]
+    return before[-WARMUP_SESSIONS:], [s for s in all_sessions if s >= start_iso]
+
+
 def corpus_date_range(req: WealthCoreJobRequest) -> tuple[date, date]:
     """The corpus range as DATE OBJECTS, never strings.
 
@@ -355,15 +381,30 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
 
     loop = asyncio.get_running_loop()
     start, end = corpus_date_range(req)
+    # Price history BEFORE the measured window. Without it the signal cannot
+    # rank anything until session 127 — see `_split_warmup`.
+    warmup_from = start - timedelta(days=WARMUP_CALENDAR_DAYS)
 
     async with _state["engine"].connect() as aconn:
         conn = _ThreadConn(aconn, loop)
 
         def _work() -> dict:
-            coverage = assert_raw_price_domain(conn, start, end)
-            sessions = load_sessions(conn, start, end)
+            coverage = assert_raw_price_domain(conn, warmup_from, end)
+            all_sessions = load_sessions(conn, warmup_from, end)
+            warmup_sessions, sessions = _split_warmup(all_sessions, str(start))
             if not sessions:
                 raise RawPriceDomainUnavailable("no sessions in range")
+            if len(warmup_sessions) < WARMUP_SESSIONS:
+                raise RawPriceDomainUnavailable(
+                    f"only {len(warmup_sessions)} session(s) of price history "
+                    f"before {start}, and the signal needs {WARMUP_SESSIONS} "
+                    f"(REQUIRED_CLOSES={REQUIRED_CLOSES}). Running anyway would "
+                    f"NOT be a backtest from {start}: the book cannot rank a "
+                    f"single name until session {REQUIRED_CLOSES}, sits in cash "
+                    f"for ~6 months, then builds from a truncated history — "
+                    f"while the benchmark is measured fully invested from day "
+                    f"one. Remedy: request a later start_date, or backfill "
+                    f"bt_prices further back.")
 
             meta = load_meta(conn)
             if not meta:
@@ -387,8 +428,31 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
                     f"Remedy: run the TICKERS stage on bt-data "
                     f"(POST /jobs/backfill), then re-submit.")
             identity = load_identity(conn)
+            # TWO indices, and the split is load-bearing.
+            #
+            # `snap_to_session` maps an action to the first session ON OR AFTER
+            # its date, WITHIN the index it is given. So the index decides where
+            # a warm-up-window action lands, and the right answer differs by
+            # action type:
+            #
+            #   splits / dividends   FULL index. A 2:1 split in the warm-up must
+            #                        be applied to the warm-up bar, or the signal
+            #                        series is discontinuous exactly where the
+            #                        momentum window reads it. Against the
+            #                        measured-only index every pre-start split
+            #                        would instead pile onto day one.
+            #   terminal events      MEASURED index, over MEASURED rows only. A
+            #                        delisting that happened before the run began
+            #                        is not this run's event; snapping it forward
+            #                        would manufacture a terminal action on the
+            #                        first session, for a security the run never
+            #                        held. Dropping is correct — the security
+            #                        simply has no bars after it delisted.
             idx = sessions_index(sessions)
-            action_rows = load_actions(conn, start, end)
+            full_idx = sessions_index([*warmup_sessions, *sessions])
+            action_rows = load_actions(conn, warmup_from, end)
+            measured_action_rows = [r for r in action_rows
+                                    if str(r["date"]) >= str(start)]
             # The benchmark, over the SAME sessions. Fail-soft: no rows means
             # no comparison, never a failed run.
             benchmark_closes = load_benchmark_closes(
@@ -404,17 +468,17 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
             terminal: list = []
             dropped = 0
             if use_actions:
-                splits = split_ratios_from_actions(action_rows, idx)
-                divs = dividends_from_actions(action_rows, idx)
+                splits = split_ratios_from_actions(action_rows, full_idx)
+                divs = dividends_from_actions(action_rows, full_idx)
                 dropped = unusable_dividend_rows(action_rows)
-                bars = load_bars(conn, start, end, authoritative_splits=splits,
+                bars = load_bars(conn, warmup_from, end, authoritative_splits=splits,
                                  reconciliation=reconciliation, dividends=divs,
                                  identity=identity)
                 terminal = terminal_events_from_actions(
-                    action_rows, idx, known_securities=set(meta),
+                    measured_action_rows, idx, known_securities=set(meta),
                     identity=identity, meta=meta, unresolved=identity.unresolved)
             else:
-                bars = load_bars(conn, start, end, identity=identity)
+                bars = load_bars(conn, warmup_from, end, identity=identity)
 
             unknown = sorted({b.security_id for v in bars.values() for b in v}
                              - set(meta))
@@ -423,10 +487,13 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
                         for s, v in bars.items()}
             return {
                 "sessions": sessions, "bars_by_session": bars, "meta": meta,
+                "warmup_sessions": warmup_sessions,
                 "benchmark_closes": benchmark_closes,
                 "terminal_events": terminal,
                 "provenance": {
                     "sessions": len(sessions), "securities": len(meta),
+                    "warmup_sessions": len(warmup_sessions),
+                    "warmup_first_session": warmup_sessions[0] if warmup_sessions else None,
                     "raw_close_coverage": round(coverage, 4),
                     "split_source": "actions" if use_actions else "derived",
                     "actions_rows": len(action_rows),
@@ -452,9 +519,11 @@ def _execute(req: WealthCoreJobRequest, corpus: dict) -> dict:
                   bars_by_session=corpus["bars_by_session"],
                   meta=corpus["meta"], starting_cash=req.starting_cash,
                   terminal_events=corpus["terminal_events"])
+    warmup = list(corpus.get("warmup_sessions") or ())
 
     if req.mode == "chain_rehearsal":
         r = rehearse_chain(**common, cfg=cfg, eligibility_cfg=elig,
+                           warmup_sessions=warmup,
                            config={"execution_model": STATEFUL_MODEL},
                            on_progress=_publish_progress,
                            progress_every=PROGRESS_EVERY,
@@ -476,9 +545,11 @@ def _execute(req: WealthCoreJobRequest, corpus: dict) -> dict:
 
     if req.mode == "baseline_replay":
         run = baseline_replay(**common, cfg=cfg, eligibility_cfg=elig,
+                              warmup_sessions=warmup,
                               expected=req.expected_hashes)
     else:
         run = experiment(**common, cfg=cfg, eligibility_cfg=elig,
+                         warmup_sessions=warmup,
                          baseline=req.baseline_hashes, change=req.change)
     return {"summary": run.to_dict(), "parity_hashes": run.hashes.to_dict()}
 

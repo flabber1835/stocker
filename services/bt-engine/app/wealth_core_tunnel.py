@@ -35,7 +35,7 @@ from typing import Any, Mapping, Sequence
 from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
 from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
 from stock_strategy_shared.wealth_core.performance import measure_run_result
-from stock_strategy_shared.wealth_core.feed import SecurityMeta, VendorBar
+from stock_strategy_shared.wealth_core.feed import Feed, SecurityMeta, VendorBar
 from stock_strategy_shared.wealth_core.hashes import (
     HASH_ORDER,
     ParityHashes,
@@ -89,11 +89,22 @@ class TunnelRun:
                     self.result, self.starting_cash).to_dict()}
 
 
-def _run(sessions, bars_by_session, meta, starting_cash, cfg, elig, terminal):
+def _run(sessions, bars_by_session, meta, starting_cash, cfg, elig, terminal,
+         warmup=()):
+    """One run, with the signal warmed on PRE-START history.
+
+    `sessions` stays the measured window; the warm-up only fills the trailing
+    price series a ranking needs. Without it a dated replay cannot score a name
+    until session REQUIRED_CLOSES and is not a backtest from its start date.
+    """
+    feed = Feed(meta, elig)
+    if warmup:
+        feed.warmup(list(warmup), bars_by_session)
     return run_with_hashes(sessions=list(sessions),
                            bars_by_session=bars_by_session, meta=meta,
                            starting_cash=starting_cash, cfg=cfg,
-                           eligibility_cfg=elig, terminal_events=terminal)
+                           eligibility_cfg=elig, terminal_events=terminal,
+                           feed=feed)
 
 
 def baseline_replay(*, sessions: Sequence[str],
@@ -104,6 +115,7 @@ def baseline_replay(*, sessions: Sequence[str],
                     cfg: WealthCoreConfig | None = None,
                     eligibility_cfg: EligibilityConfig | None = None,
                     terminal_events: Sequence[TerminalTerms] = (),
+                    warmup_sessions: Sequence[str] = (),
                     ) -> TunnelRun:
     """Run the reference stream and REQUIRE exact equality on all seven hashes.
 
@@ -112,7 +124,7 @@ def baseline_replay(*, sessions: Sequence[str],
     only that it agrees with itself.
     """
     result, hashes = _run(sessions, bars_by_session, meta, starting_cash, cfg,
-                          eligibility_cfg, terminal_events)
+                          eligibility_cfg, terminal_events, warmup_sessions)
     diff = divergence_report(hashes, expected, left="tunnel", right="backtester")
     if not diff["identical"]:
         raise ParityViolation(
@@ -135,6 +147,7 @@ def experiment(*, sessions: Sequence[str],
                cfg: WealthCoreConfig | None = None,
                eligibility_cfg: EligibilityConfig | None = None,
                terminal_events: Sequence[TerminalTerms] = (),
+               warmup_sessions: Sequence[str] = (),
                ) -> TunnelRun:
     """Run a variant and record what changed and where it first diverged.
 
@@ -149,7 +162,7 @@ def experiment(*, sessions: Sequence[str],
             "be traced to what produced it, and is indistinguishable from a "
             "baseline replay that silently failed.")
     result, hashes = _run(sessions, bars_by_session, meta, starting_cash, cfg,
-                          eligibility_cfg, terminal_events)
+                          eligibility_cfg, terminal_events, warmup_sessions)
     diff = divergence_report(hashes, baseline, left="experiment",
                              right="baseline")
     parent = (baseline.values if isinstance(baseline, ParityHashes)
