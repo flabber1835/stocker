@@ -187,3 +187,63 @@ def test_action_dates_are_coerced_for_the_driver():
     rows = coerce_action_dates([{"ticker": "AAA", "date": "2022-03-01",
                                  "action": "split"}])
     assert rows[0]["date"] == _dt.date(2022, 3, 1)
+
+
+class TestTheUniverseStageIsReplayableAlone:
+    """`permaticker` was mapped correctly and NULL in all 151,095 deployed rows,
+    because the corpus predated the column. The Wealth Core loader keys on it
+    (`WHERE permaticker IS NOT NULL`), so a 753-session rehearsal loaded ZERO
+    securities, opened no position, and reported a 0% return as a SUCCESS.
+
+    The mapping was never the bug. The bug was that fixing it required replaying
+    a stage reachable only through /jobs/backfill, which redoes the ~35M-row
+    price corpus first — hours, for a few thousand rows of metadata. A stage that
+    expensive to replay is a stage nobody replays, which is how a column stays
+    NULL for months after it is added.
+    """
+
+    import pathlib as _pathlib
+    SRC = (_pathlib.Path(__file__).resolve().parents[2] / "services" / "bt-data"
+           / "app" / "main.py").read_text()
+
+    def test_the_stage_is_its_own_function(self):
+        assert "async def _load_universe(" in self.SRC
+
+    def test_it_has_its_own_endpoint(self):
+        assert '@app.post("/jobs/backfill-universe")' in self.SRC
+
+    def test_every_stage_that_can_gain_a_column_is_replayable_alone(self):
+        """The general rule, not just this instance. Prices, fundamentals,
+        actions and the universe have all gained mapped columns after their
+        first ingest; each needs a way back that does not cost the corpus."""
+        for endpoint in ("/jobs/backfill-prices", "/jobs/backfill-fundamentals",
+                         "/jobs/backfill-actions", "/jobs/backfill-universe"):
+            assert f'@app.post("{endpoint}")' in self.SRC, (
+                f"{endpoint} missing — that stage can only be replayed by "
+                f"redoing the whole price corpus")
+
+    def test_the_full_backfill_still_runs_the_stage(self):
+        """Extracting it must not remove it from the path that populates a fresh
+        corpus."""
+        body = self.SRC[self.SRC.index("async def _run_backfill("):
+                        self.SRC.index("# In-process guard")]
+        assert "_load_universe(" in body
+
+    def test_the_upsert_rewrites_permaticker_rather_than_skipping_the_row(self):
+        """ON CONFLICT DO NOTHING would leave every existing row exactly as
+        broken as it is now, and the re-run would report success."""
+        upsert = self.SRC[self.SRC.index("async def _upsert_universe"):]
+        upsert = upsert[:upsert.index("def coerce_action_dates")]
+        assert "ON CONFLICT (snapshot_date, ticker) DO UPDATE" in upsert
+        assert "permaticker=EXCLUDED.permaticker" in upsert
+
+    def test_the_mapper_reads_permaticker_from_the_vendor_row(self):
+        from app.sharadar_adapter import map_tickers_row
+        row = {"ticker": "AAPL", "name": "Apple Inc", "sector": "Technology",
+               "category": "Domestic Common Stock", "exchange": "NASDAQ",
+               "permaticker": 199059, "relatedtickers": "",
+               "firstpricedate": "1980-12-12", "lastpricedate": "2026-08-03",
+               "isdelisted": "N"}
+        m = map_tickers_row(row, "2026-08-03")
+        assert m["permaticker"] == "199059", (
+            "a NULL here is what made the whole universe invisible")

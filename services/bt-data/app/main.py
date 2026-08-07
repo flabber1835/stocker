@@ -570,6 +570,38 @@ async def _load_fundamentals(date_from: str, date_to: str,
         raise
 
 
+async def _load_universe(snapshot_date: str, job_type: str) -> int:
+    """TICKERS → bt_universe for one snapshot date. Returns rows written.
+
+    Its own function so it can be re-run ALONE. Every column added to this
+    mapping is invisible in an existing corpus until the stage is replayed, and
+    the failure is silent in the worst way: `permaticker` was mapped correctly
+    and NULL in all 151,095 deployed rows, because the data predated the column.
+    `load_meta` filters `WHERE permaticker IS NOT NULL`, so a Wealth Core
+    rehearsal saw ZERO securities, admitted nothing, and completed successfully
+    reporting a 0% return over 753 sessions.
+
+    Same shape as the SF1 gp/assets gap and the first_price_date gap before it:
+    already fetched, then thrown away, and then not replayable without redoing
+    the 35M-row price corpus.
+    """
+    rid = await _open_run(job_type, "bt_universe")
+    try:
+        rows = []
+        async for raw in fetch_table("TICKERS"):
+            m = map_tickers_row(raw, snapshot_date)
+            if m:
+                rows.append(m)
+        total = await _upsert_universe(rows)
+        await _close_run(rid, "success", total)
+        await _bump_data_version(f"universe ({total} tickers)")
+        print(f"[bt-data] universe: {total} tickers @ {snapshot_date}", flush=True)
+        return total
+    except Exception as exc:
+        await _close_run(rid, "failed", err=repr(exc)[:1500])
+        raise
+
+
 async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
                         job_type: str = "backfill") -> None:
     # Prices (SEP) — chunked by calendar year, resumable. Each chunk commits
@@ -626,19 +658,7 @@ async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
 
     # Universe snapshot (TICKERS, as-of date_to). One snapshot for the backfill end;
     # the engine treats it as the listed set (delisted names still in bt_prices).
-    rid = await _open_run(job_type, "bt_universe")
-    try:
-        rows, total = [], 0
-        async for raw in fetch_table("TICKERS"):
-            m = map_tickers_row(raw, date_to)
-            if m:
-                rows.append(m)
-        total = await _upsert_universe(rows)
-        await _close_run(rid, "success", total)
-        await _bump_data_version(f"universe ({total} tickers)")
-    except Exception as exc:
-        await _close_run(rid, "failed", err=repr(exc)[:1500])
-        raise
+    await _load_universe(date_to, job_type)
 
 
 # In-process guard: a backfill/topup is a long single-writer job. Without this,
@@ -840,6 +860,56 @@ async def start_actions_backfill(background_tasks: BackgroundTasks,
             "date_from": date_from, "date_to": date_to, "mock": is_mock(),
             "data_mode": data_mode(),
             "note": "ACTIONS only — bt_prices is not touched"}
+
+
+@app.post("/jobs/backfill-universe")
+async def start_universe_backfill(background_tasks: BackgroundTasks,
+                                  snapshot_date: Optional[str] = None):
+    """Re-run the TICKERS stage ALONE — no prices, no fundamentals, no actions.
+
+    Its own endpoint for the same reason /jobs/backfill-fundamentals and
+    /jobs/backfill-actions have theirs, and with a sharper motivating failure.
+    `permaticker` was added to the mapping and was NULL in all 151,095 rows of
+    the deployed corpus, because that data predated the column. The Wealth Core
+    loader keys on it (`WHERE permaticker IS NOT NULL`), so a three-year
+    rehearsal loaded ZERO securities, opened no position, and reported a 0%
+    return as a SUCCESS.
+
+    Without this endpoint the only remedy is /jobs/backfill, which redoes the
+    ~35M-row price corpus first — hours, to repopulate a few thousand rows of
+    metadata that have nothing to do with prices. That is how a stage becomes
+    one nobody replays.
+
+    IDEMPOTENT. ON CONFLICT (snapshot_date, ticker) DO UPDATE rewrites every
+    mapped column in place, so this both backfills the new ones and corrects
+    stale ones. bt_prices is never touched.
+
+    `snapshot_date` defaults to TODAY. Pass an existing snapshot's date to
+    repair that snapshot rather than adding another.
+    """
+    global _job_active
+    snap = snapshot_date or date.today().isoformat()
+    try:
+        date.fromisoformat(snap)
+    except ValueError:
+        raise HTTPException(status_code=400,
+                            detail="snapshot_date must be ISO YYYY-MM-DD")
+    if _job_active:
+        return {"status": "already_running",
+                "detail": "a backfill/topup is already in progress — not spawning another"}
+    _job_active = True
+
+    async def _guarded():
+        global _job_active
+        try:
+            await _load_universe(snap, "backfill_universe")
+        finally:
+            _job_active = False
+
+    background_tasks.add_task(_guarded)
+    return {"status": "started", "job_type": "backfill_universe",
+            "snapshot_date": snap, "mock": is_mock(), "data_mode": data_mode(),
+            "note": "TICKERS only — bt_prices is not touched"}
 
 
 # ── Data-depth report (GO/NO-GO gate) ──────────────────────────────────────────
