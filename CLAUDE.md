@@ -783,6 +783,14 @@ docker compose up -d --build <changed-services...>
 Rebuild only the services whose code (or the `shared/` package they bundle)
 changed. A change under `shared/` requires rebuilding EVERY service that imports it.
 
+**A STALE BASE IS INVISIBLE UNTIL A RUN IS MINUTES IN.** bt-engine's own image
+can be current while the `shared/` module it imports is old — the mismatch is
+not an ImportError at startup, it is a `TypeError: measure() got an unexpected
+keyword argument` deep inside a background task, AFTER a full corpus load. That
+cost a 2021-2023 rehearsal (2026-08-06). `scripts/deploy-all.sh --verify` now
+probes `wealth_core.performance.measure`'s signature for exactly this, alongside
+the crash-brake markers; run it after any deploy that touched `shared/`.
+
 **The BACKTEST stack needs a BASE REBUILD for ANY `shared/` change, not just a
 new module file.** `docker-compose.override.yml` bind-mounts `./shared:/shared` for
 the LIVE services only — it does not apply to `docker-compose.backtest.yml` at all.

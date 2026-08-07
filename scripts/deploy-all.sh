@@ -257,6 +257,23 @@ else:
         if field in getattr(CrashBrakeConfig, "model_fields", {}):
             problems.append(f"crash_brake.{field} STILL PRESENT (pre-89cfa05)")
 
+# The Wealth Core measurement layer, added 2026-08. Checked here because a
+# STALE stocker-base is invisible until a run is minutes in: bt-engine's own
+# image can be current while the shared module it imports is old, and the
+# mismatch surfaces as a TypeError deep inside a background task. That is
+# exactly what killed a 2021-2023 rehearsal after a full corpus load.
+try:
+    from stock_strategy_shared.wealth_core import performance as perf
+except Exception as exc:                                   # noqa: BLE001
+    problems.append(f"cannot import wealth_core.performance: {exc}")
+else:
+    sig = inspect.signature(perf.measure).parameters
+    for kw in ("benchmark_closes", "allow_blocked_gaps"):
+        if kw not in sig:
+            problems.append(f"performance.measure() has no {kw!r} "
+                            f"(STALE stocker-base: shared/ is older than the "
+                            f"service image importing it)")
+
 print("OK" if not problems else "FAIL " + "; ".join(problems))
 PY
 )"
