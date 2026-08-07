@@ -366,6 +366,26 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
                 raise RawPriceDomainUnavailable("no sessions in range")
 
             meta = load_meta(conn)
+            if not meta:
+                # REFUSED, not run. An empty universe does not produce an error
+                # anywhere downstream: no candidates means no scores, no
+                # admissions, no rejections — and the run completes with
+                # `status: success`, a flat equity curve and a 0.00% CAGR.
+                #
+                # That is the worst possible output. A strategy that EARNED
+                # nothing and a strategy that could not RUN are indistinguishable
+                # in the summary, and the second one looks like evidence about
+                # the first. Measured 2026-08-06: a 753-session rehearsal
+                # returned success, 0.00% CAGR, 0.00% drawdown and ending equity
+                # exactly equal to starting cash, with `securities: 0` the only
+                # trace of what had happened.
+                raise RawPriceDomainUnavailable(
+                    f"bt_universe has no securities, so the {len(sessions)} "
+                    f"session(s) between {start} and {end} have nothing to rank. "
+                    f"This is NOT a strategy result: with an empty universe the "
+                    f"run would complete successfully and report a 0% return. "
+                    f"Remedy: run the TICKERS stage on bt-data "
+                    f"(POST /jobs/backfill), then re-submit.")
             identity = load_identity(conn)
             idx = sessions_index(sessions)
             action_rows = load_actions(conn, start, end)

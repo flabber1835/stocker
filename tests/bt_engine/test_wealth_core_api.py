@@ -490,3 +490,47 @@ class TestARestartDoesNotLeaveARunLying:
         restart — the metrics are the whole point of the row."""
         for stmt in self._reclaim_statements():
             assert "WHERE status='running'" in stmt, stmt[:120]
+
+
+class TestAnEmptyUniverseIsRefusedNotScored:
+    """The worst output this system can produce is a number that looks like an
+    answer to a question nobody asked.
+
+    An empty `bt_universe` raises nothing downstream: no candidates means no
+    scores, no admissions, and no rejections either — so the run reaches
+    `status: success` with a flat equity curve, 0.00% CAGR, 0.00% drawdown and
+    ending equity exactly equal to starting cash. A strategy that EARNED nothing
+    and a strategy that could not RUN are then indistinguishable, and the second
+    reads as evidence about the first.
+
+    Measured 2026-08-06: exactly that, over 753 sessions, with `securities: 0`
+    the only trace.
+    """
+
+    SRC = (REPO / "services" / "bt-engine" / "app" / "wealth_core_api.py").read_text()
+
+    def test_the_load_refuses_on_an_empty_universe(self):
+        body = self.SRC[self.SRC.index("async def _load_corpus"):
+                        self.SRC.index("def _execute(")]
+        assert "if not meta:" in body, (
+            "an empty universe must be refused before any bar is loaded")
+        assert "RawPriceDomainUnavailable" in body
+
+    def test_the_refusal_comes_BEFORE_the_bars_are_read(self):
+        """Refusing after the load would still be correct and would waste the
+        entire corpus read — minutes, on the slowest step there is."""
+        body = self.SRC[self.SRC.index("async def _load_corpus"):
+                        self.SRC.index("def _execute(")]
+        assert body.index("if not meta:") < body.index("load_bars("), (
+            "the universe check must precede load_bars")
+
+    def test_the_message_names_the_remedy_and_denies_being_a_result(self):
+        """A refusal an operator cannot act on gets retried verbatim. And this
+        one has to say explicitly that 0% is not a finding, because the whole
+        failure mode is that it looks like one."""
+        body = self.SRC[self.SRC.index("async def _load_corpus"):
+                        self.SRC.index("def _execute(")]
+        msg = body[body.index("if not meta:"):body.index("identity = load_identity")]
+        assert "bt_universe" in msg
+        assert "/jobs/backfill" in msg, "the remedy must be a command, not advice"
+        assert "0%" in msg and "NOT a strategy result" in msg
