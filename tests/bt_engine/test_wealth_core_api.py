@@ -319,17 +319,57 @@ class TestTheThreadBridge:
     async. The bridge exists so the loader is not forked — the alternative being
     a second corpus reader, which is what section 2 is about."""
 
-    def test_rows_are_MATERIALISED_not_a_live_cursor(self):
+    @staticmethod
+    def _chunks(*batches):
+        """A fake fetch: each call returns the next batch, then empties."""
+        pending = list(batches)
+
+        def fetch():
+            return pending.pop(0) if pending else []
+        return fetch
+
+    def test_rows_reach_the_thread_as_PLAIN_LISTS_not_a_live_cursor(self):
         """A cursor bound to the loop's connection, iterated in the worker
         thread, is a use-after-free that shows up as intermittent corruption
-        rather than an error."""
-        r = api._Rows([{"a": 1}, {"a": 2}])
+        rather than an error. Each CHUNK is materialised before it crosses."""
+        r = api._Rows(self._chunks([{"a": 1}], [{"a": 2}]))
         assert list(r.mappings()) == [{"a": 1}, {"a": 2}]
-        assert list(r) == [{"a": 1}, {"a": 2}], "re-iterable"
+        assert r._exhausted
+
+    def test_a_result_is_SINGLE_PASS(self):
+        """The change that came with chunking, pinned rather than assumed. The
+        old bridge held every row and was re-iterable; a server-side cursor is
+        consumed once. Safe only because no loader reads a result twice — if one
+        ever does, it gets nothing rather than an error, so this test is the
+        record of why that is allowed."""
+        r = api._Rows(self._chunks([{"a": 1}, {"a": 2}]))
+        assert list(r) == [{"a": 1}, {"a": 2}]
+        assert list(r) == [], "a consumed cursor yields nothing on a second pass"
+
+    def test_first_replays_into_a_later_iteration(self):
+        """`first()` must pull a chunk to answer, and that chunk is still owed
+        to the iterator. Dropping it would silently skip the head of the corpus
+        — a shorter history, not an error."""
+        r = api._Rows(self._chunks([{"a": 1}, {"a": 2}], [{"a": 3}]))
         assert r.first() == {"a": 1}
+        assert list(r) == [{"a": 1}, {"a": 2}, {"a": 3}]
 
     def test_an_empty_result_first_is_None_not_an_IndexError(self):
-        assert api._Rows([]).first() is None
+        assert api._Rows(self._chunks()).first() is None
+        assert list(api._Rows(self._chunks())) == []
+
+    def test_the_bridge_streams_rather_than_materialising(self):
+        """`stream()` is load-bearing: with `execute()` the driver buffers the
+        whole result before the first row is handed over, so chunking on this
+        side would bound nothing. This is the OOM that killed a 2021-2023
+        rehearsal at 4.1 GB."""
+        src = (REPO / "services" / "bt-engine" / "app" /
+               "wealth_core_api.py").read_text()
+        bridge = src[src.index("class _ThreadConn"):src.index("# ── request")]
+        assert ".stream(" in bridge
+        assert "fetchmany" in bridge
+        assert "_conn.execute(" not in bridge, (
+            "execute() buffers the entire result driver-side — the defect")
 
     def test_the_bridge_marshals_back_to_the_LOOP(self):
         """`asyncio.run_coroutine_threadsafe` is load-bearing: calling the async

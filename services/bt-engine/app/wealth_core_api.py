@@ -132,21 +132,67 @@ def configure(*, engine) -> None:
 # must not have — the loader runs in a worker thread and each `execute` is
 # marshalled back onto the event loop.
 
-class _Rows:
-    """A materialised result. Rows are consumed in the loader THREAD, so they
-    must not be a live cursor bound to the loop's connection."""
+#: Rows pulled from the server per round trip. Bounds the bridge's own memory;
+#: the loader's output is unaffected. Small enough that the intermediate dicts
+#: are noise beside the objects being built, large enough that a 7M-row read is
+#: tens of round trips rather than thousands.
+FETCH_CHUNK = int(os.getenv("WEALTH_CORE_FETCH_CHUNK", "100000"))
 
-    def __init__(self, rows: list[dict]):
-        self._rows = rows
+
+class _Rows:
+    """A result consumed in the loader THREAD, pulled from the loop in CHUNKS.
+
+    IT USED TO MATERIALISE EVERYTHING: `[dict(m) for m in res.mappings()]`, the
+    whole result set, before returning. `load_bars` then walked that list
+    building `VendorBar` objects — so at peak BOTH existed. A three-year read is
+    ~7.5M price rows; the dicts alone were most of a 4 GiB container, and a
+    2021-2023 rehearsal was OOM-killed 16 minutes in at 4.1 GB RSS, having built
+    nothing.
+
+    Chunking removes the larger of the two copies. The dicts now live only as
+    long as one chunk, while the bars accumulate as before — which is the part
+    the caller actually asked for.
+
+    The rows still must not be a live cursor handed to another thread: each
+    chunk is fetched by marshalling a coroutine back onto the loop and is a
+    plain list by the time the loader touches it.
+    """
+
+    def __init__(self, fetch_chunk):
+        self._fetch_chunk = fetch_chunk
+        self._buffer: list[dict] = []
+        self._exhausted = False
 
     def mappings(self):
         return self
 
+    def _pull(self) -> list[dict]:
+        if self._exhausted:
+            return []
+        rows = self._fetch_chunk()
+        if not rows:
+            self._exhausted = True
+        return rows
+
     def first(self):
-        return self._rows[0] if self._rows else None
+        """The first row, without draining the rest.
+
+        Callers using this (the coverage probe) expect one aggregate row. Pulling
+        a whole chunk to answer it is fine; pulling the whole table would not be.
+        """
+        if not self._buffer:
+            self._buffer = self._pull()
+        return self._buffer[0] if self._buffer else None
 
     def __iter__(self):
-        return iter(self._rows)
+        # Anything `first()` already pulled is still owed to the iterator.
+        buffered, self._buffer = self._buffer, []
+        yield from buffered
+        while True:
+            rows = self._pull()
+            if not rows:
+                return
+            yield from rows
 
 
 class _ThreadConn:
@@ -155,13 +201,33 @@ class _ThreadConn:
     def __init__(self, conn, loop):
         self._conn, self._loop = conn, loop
 
-    def execute(self, stmt, params=None):
-        async def _go():
-            res = await self._conn.execute(stmt, params or {})
-            return [dict(m) for m in res.mappings()]
+    def _await(self, coro_fn):
+        """Run one coroutine on the loop from this thread and wait for it.
 
-        fut = asyncio.run_coroutine_threadsafe(_go(), self._loop)
-        return _Rows(fut.result())
+        Takes a FACTORY rather than a coroutine: a coroutine created on the
+        calling thread and never awaited (if scheduling raised) is a warning and
+        a leak, and the factory keeps creation and scheduling together.
+        """
+        return asyncio.run_coroutine_threadsafe(coro_fn(), self._loop).result()
+
+    def execute(self, stmt, params=None):
+        # `stream()` rather than `execute()`: a server-side cursor is what makes
+        # the chunking real. With `execute()` the driver has already buffered the
+        # entire result before the first row is handed over, so chunking on this
+        # side would bound nothing.
+        async def _open():
+            # `stream()` returns a StartableContext, not a coroutine, so it must
+            # be awaited inside a real coroutine before it can be marshalled.
+            return await self._conn.stream(stmt, params or {})
+
+        cursor = self._await(_open).mappings()
+
+        def _fetch_chunk() -> list[dict]:
+            async def _go():
+                return [dict(m) for m in await cursor.fetchmany(FETCH_CHUNK)]
+            return self._await(_go)
+
+        return _Rows(_fetch_chunk)
 
 
 # ── request / refusals ──────────────────────────────────────────────────────
