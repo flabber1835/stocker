@@ -713,11 +713,31 @@ and `tests/parity` + `tests/shared`
 work and both pass when the suites run in their own process, which is what the
 project's runner does.
 
-## Green on this branch
+## Full-suite result (2026-08-08, commit `6dbd777`)
 
 ```text
-tests/wealth_core   434      tests/bt_engine    355      tests/scheduler   406
-tests/parity         45      tests/risk_service 138      tests/pipeline    356
-tests/backtester    156      tests/shared       781      tests/delta_engine 376
-tests/bt_data       156      tests/smoke         10
+════ 64 suite(s) passed, 0 failed ════   5,223 tests
 ```
+
+Measured with `scripts/run-tests.sh` on a runner carrying every package the
+suites import. The DB-backed `tests/integration/*` files RAN rather than
+skipping, which they do not on a bare runner — so this is a strictly stronger
+result than the usual green, and the per-file counts below are not comparable to
+a run where they skip.
+
+```text
+tests/shared        822      tests/wealth_core  550      tests/scheduler   406
+tests/bt_engine     397      tests/delta_engine 376      tests/pipeline    356
+tests/av_ingestor   227      tests/evaluator    206       tests/api         196
+tests/trade_executor 198     tests/bt_data      185      tests/portfolio_builder 172
+tests/backtester    170      tests/factor_engine 155     tests/risk_service 138
+tests/scripts       110      tests/contracts     86      tests/bt_scheduler 60
+tests/parity         45      tests/broker        45      tests/strategy_validator 39
+tests/llm_gateway    35      tests/alpaca_sync   24      tests/cross_service 19
+tests/alpaca_sim     12      tests/ranker        11      tests/smoke        10
+tests/simulation      9      tests/ui             0 (4 skipped)
+```
+
+The four lanes that matter for Wealth Core parity, all green AFTER the wiring:
+`wealth_core` 550, `parity` 45, `bt_engine` 397 (wind tunnel), `backtester` 170.
+
