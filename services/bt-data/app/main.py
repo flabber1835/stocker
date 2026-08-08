@@ -138,7 +138,29 @@ async def lifespan(app: FastAPI):
     yield
 
 
+#: The last universe write report, so `GET /universe/last-write` can answer
+#: "what actually survived?" without anyone parsing container logs. In memory
+#: only — it describes the most recent write, not the corpus.
+_state_last_universe_report: dict = {}
+
 app = FastAPI(title="bt-data", lifespan=lifespan)
+
+
+@app.get("/universe/last-write")
+async def universe_last_write():
+    """attempted / distinct_identities / persisted / rejected / collapsed.
+
+    The acceptance test for the identity migration reads this: valid distinct
+    identities must EQUAL persisted identities. Before the migration those two
+    could differ by tens of thousands and nothing said so.
+    """
+    if not _state_last_universe_report:
+        return {"available": False,
+                "detail": "no universe write since this container started"}
+    r = dict(_state_last_universe_report)
+    r["available"] = True
+    r["identities_match"] = r["distinct_identities"] == r["persisted"]
+    return r
 
 
 @app.get("/health")
@@ -286,10 +308,101 @@ def coerce_universe_dates(rows: list[dict]) -> list[dict]:
     return rows
 
 
-async def _upsert_universe(rows: list[dict]) -> int:
-    if not rows:
-        return 0
-    coerce_universe_dates(rows)
+#: A permaticker is Sharadar's PERMANENT security id. Anything that is not a
+#: non-empty string is not an identity, and a row without one cannot be keyed,
+#: resolved, or distinguished from another company sharing its symbol.
+def valid_permaticker(v) -> str | None:
+    """The single definition of a usable identity, so the writer, the report and
+    the tests cannot disagree about what 'valid' means."""
+    if v is None:
+        return None
+    t = str(v).strip()
+    # 'N/A' is a real value in this vendor's data — see docs/data-sources.md
+    # "Defect D1", where the same sentinel reached a delivered-security field
+    # through an `or None` that looked total and was not.
+    if not t or t.upper() in {"N/A", "NA", "NONE", "NULL"}:
+        return None
+    return t
+
+
+def partition_universe_rows(rows: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
+    """Split mapped rows into (keepable, rejected, collapsed) — PURE.
+
+    Pure and separate so the counts are testable without a database, which is
+    the whole lesson of `coerce_universe_dates` above.
+
+    REJECTED are rows with no usable permaticker. They cannot be keyed and every
+    identity-aware reader already filters them out; they are counted and named
+    rather than dropped in silence.
+
+    COLLAPSED are second and subsequent rows for one (snapshot_date,
+    permaticker). Sharadar TICKERS carries a row per source table, so one
+    security can legitimately arrive several times in a single fetch. The
+    survivor is chosen DETERMINISTICALLY — richest row first, then by ticker —
+    because 'whichever the API returned last' is exactly the non-determinism
+    this migration exists to remove, and moving it from the database to the
+    writer would not be a fix.
+    """
+    keep: dict[tuple, dict] = {}
+    rejected: list[dict] = []
+    collapsed: list[dict] = []
+
+    def richness(r: dict) -> tuple:
+        # Prefer the row that actually carries the listing window and category:
+        # a sparser duplicate overwriting a fuller one loses point-in-time data.
+        return (r.get("first_price_date") is not None,
+                r.get("last_price_date") is not None,
+                r.get("category") is not None,
+                r.get("related_tickers") is not None)
+
+    for r in rows:
+        pt = valid_permaticker(r.get("permaticker"))
+        if pt is None:
+            rejected.append(r)
+            continue
+        r["permaticker"] = pt
+        k = (r.get("snapshot_date"), pt)
+        prior = keep.get(k)
+        if prior is None:
+            keep[k] = r
+            continue
+        winner, loser = ((r, prior)
+                         if (richness(r), str(r.get("ticker") or "")) >
+                            (richness(prior), str(prior.get("ticker") or ""))
+                         else (prior, r))
+        keep[k] = winner
+        collapsed.append(loser)
+
+    return list(keep.values()), rejected, collapsed
+
+
+async def _upsert_universe(rows: list[dict], snapshot_date=None) -> dict:
+    """Write one universe snapshot and REPORT WHAT SURVIVED.
+
+    Returns a report, not a row count. The previous version returned
+    `len(rows)` — rows ATTEMPTED — which is how 49,834 attempted against 21,733
+    stored read as unremarkable for months: a ~56% loss to key collisions,
+    reported by a number that looked like an answer. A writer that cannot say
+    what it stored cannot be audited, so `persisted` here is MEASURED with a
+    query after the fact rather than inferred from the input.
+    """
+    keep, rejected, collapsed = partition_universe_rows(list(rows))
+    report = {
+        "attempted": len(rows),
+        "distinct_identities": len(keep),
+        "persisted": 0,
+        "rejected_no_permaticker": len(rejected),
+        "duplicate_identity_collapsed": len(collapsed),
+        # NAMED, not just counted: a bare total cannot distinguish a handful of
+        # odd rows from a systematic mapping failure.
+        "rejected_sample": sorted({str(r.get("ticker")) for r in rejected})[:20],
+        "collapsed_sample": sorted({str(r.get("ticker")) for r in collapsed})[:20],
+    }
+    if not keep:
+        return report
+
+    coerce_universe_dates(keep)
+    snap = snapshot_date or keep[0].get("snapshot_date")
     async with engine.begin() as conn:
         await conn.execute(text(
             "INSERT INTO bt_universe (snapshot_date, ticker, name, sector, "
@@ -298,15 +411,22 @@ async def _upsert_universe(rows: list[dict]) -> int:
             "VALUES (:snapshot_date, :ticker, :name, :sector, "
             "  :first_price_date, :last_price_date, :is_delisted, :category, "
             "  :permaticker, :related_tickers) "
-            "ON CONFLICT (snapshot_date, ticker) DO UPDATE SET "
+            # THE KEY IS THE IDENTITY, not the symbol. `ticker` is updated like
+            # any other attribute — a security that changed symbol keeps its row
+            # instead of forking into two.
+            "ON CONFLICT (snapshot_date, permaticker) DO UPDATE SET "
+            "  ticker=EXCLUDED.ticker, "
             "  name=EXCLUDED.name, sector=EXCLUDED.sector, "
             "  first_price_date=EXCLUDED.first_price_date, "
             "  last_price_date=EXCLUDED.last_price_date, "
             "  is_delisted=EXCLUDED.is_delisted, category=EXCLUDED.category, "
-            "  permaticker=EXCLUDED.permaticker, "
             "  related_tickers=EXCLUDED.related_tickers"
-        ), rows)
-    return len(rows)
+        ), keep)
+        report["persisted"] = (await conn.execute(text(
+            "SELECT count(*) FROM bt_universe "
+            " WHERE snapshot_date = :d AND permaticker IS NOT NULL"),
+            {"d": _d(snap)})).scalar_one()
+    return report
 
 
 def coerce_action_dates(rows: list[dict]) -> list[dict]:
@@ -570,8 +690,8 @@ async def _load_fundamentals(date_from: str, date_to: str,
         raise
 
 
-async def _load_universe(snapshot_date: str, job_type: str) -> int:
-    """TICKERS → bt_universe for one snapshot date. Returns rows written.
+async def _load_universe(snapshot_date: str, job_type: str) -> dict:
+    """TICKERS → bt_universe for one snapshot date. Returns the WRITE REPORT.
 
     Its own function so it can be re-run ALONE. Every column added to this
     mapping is invisible in an existing corpus until the stage is replayed, and
@@ -592,11 +712,29 @@ async def _load_universe(snapshot_date: str, job_type: str) -> int:
             m = map_tickers_row(raw, snapshot_date)
             if m:
                 rows.append(m)
-        total = await _upsert_universe(rows)
+        report = await _upsert_universe(rows, snapshot_date)
+        total = report["persisted"]
         await _close_run(rid, "success", total)
-        await _bump_data_version(f"universe ({total} tickers)")
-        print(f"[bt-data] universe: {total} tickers @ {snapshot_date}", flush=True)
-        return total
+        await _bump_data_version(f"universe ({total} securities)")
+        # EVERY category on one line, because the failure this replaces was a
+        # single number that looked like an answer. attempted != persisted is
+        # now readable rather than something you have to go and measure.
+        print(f"[bt-data] universe @ {snapshot_date}: "
+              f"attempted={report['attempted']} "
+              f"distinct_identities={report['distinct_identities']} "
+              f"persisted={report['persisted']} "
+              f"rejected_no_permaticker={report['rejected_no_permaticker']} "
+              f"duplicate_identity_collapsed={report['duplicate_identity_collapsed']}",
+              flush=True)
+        if report["rejected_no_permaticker"]:
+            print(f"[bt-data]   rejected sample: {report['rejected_sample']}",
+                  flush=True)
+        if report["duplicate_identity_collapsed"]:
+            print(f"[bt-data]   collapsed sample: {report['collapsed_sample']}",
+                  flush=True)
+        _state_last_universe_report.clear()
+        _state_last_universe_report.update(report)
+        return report
     except Exception as exc:
         await _close_run(rid, "failed", err=repr(exc)[:1500])
         raise

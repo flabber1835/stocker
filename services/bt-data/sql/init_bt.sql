@@ -176,6 +176,60 @@ ALTER TABLE bt_universe
 CREATE INDEX IF NOT EXISTS idx_bt_universe_window
     ON bt_universe(first_price_date, last_price_date);
 
+-- IDENTITY MIGRATION (2026-08-08): the key becomes (snapshot_date, permaticker).
+--
+-- THE DEFECT. `permaticker` was added as a COLUMN without changing the KEY, so
+-- the table could not represent the thing that column exists to express. Sharadar
+-- TICKERS returns a separate row per permanent security, and a REUSED symbol
+-- means two companies with the same `ticker` in one snapshot: they collided on
+-- (snapshot_date, ticker) and the last row processed silently overwrote the
+-- other. WHICH company survived depended on the order the API returned rows in.
+--
+-- Observed: ticker BIOT carried BIOTECH ACQUISITION CO (a SPAC, delisted, priced
+-- 2021-01-26..2023-02-02) and INSTINCT BIO TECHNICAL CO INC (listed 2026-07-24).
+-- The SPAC's row lost its permaticker, `_META_SQL`/`_IDENTITY_SQL` filter
+-- `permaticker IS NOT NULL`, so the resolver saw ONE owner for the symbol, SKIPPED
+-- the listing-window check by design, and attributed three years of SPAC prices
+-- to the 2026 ADR. See docs/data-sources.md "Defect A".
+--
+-- `ticker` stays an ATTRIBUTE and a lookup key. It is not identity and must never
+-- be unique within a snapshot again — that uniqueness WAS the bug.
+--
+-- NULL permatickers are LEFT ALONE rather than deleted. A plain (non-partial)
+-- unique index treats NULLs as distinct, so legacy rows predating the column
+-- coexist untouched; the WRITER rejects and counts them going forward. Deleting
+-- them would gut the latest snapshot for the three readers that select
+-- `WHERE snapshot_date = (SELECT MAX(snapshot_date) ...)` in the window between
+-- this migration and the universe rebuild.
+--
+-- ORDER IS LOAD-BEARING, and so is the absence of a DO block with RAISE.
+-- `_ensure_schema` splits this file on ";\n" and runs each statement in its OWN
+-- transaction, reporting failures individually without aborting startup. That is
+-- exactly the behaviour wanted here: if duplicate (snapshot_date, permaticker)
+-- pairs exist, the CREATE UNIQUE INDEX below FAILS and says so on every boot,
+-- the old primary key is left in place by the guarded drop that follows, and
+-- bt-data still serves — which matters because bt-data is the service that runs
+-- the universe rebuild that would repair it. A fatal migration here would
+-- crash-loop the only thing able to fix the problem it is complaining about.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bt_universe_snapshot_permaticker
+    ON bt_universe (snapshot_date, permaticker);
+
+-- Drop the ticker primary key ONLY once the identity index actually exists, so a
+-- failed index creation can never leave the table with no uniqueness at all.
+-- Written with its tail on one line because of the ";\n" split described above.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_indexes
+                WHERE tablename = 'bt_universe'
+                  AND indexname = 'uq_bt_universe_snapshot_permaticker')
+    THEN ALTER TABLE bt_universe DROP CONSTRAINT IF EXISTS bt_universe_pkey; END IF; END $$;
+
+-- Ticker is now a LOOKUP key, deliberately NON-unique: two companies may share
+-- one symbol within a snapshot, which is precisely what the old primary key made
+-- unrepresentable.
+CREATE INDEX IF NOT EXISTS idx_bt_universe_snapshot_ticker
+    ON bt_universe (snapshot_date, ticker);
+
 -- SHARADAR/ACTIONS — the AUTHORITATIVE corporate-action stream.
 --
 -- Until this existed the backtester DERIVED split ratios from the divergence

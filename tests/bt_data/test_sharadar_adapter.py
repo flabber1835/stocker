@@ -229,13 +229,37 @@ class TestTheUniverseStageIsReplayableAlone:
                         self.SRC.index("# In-process guard")]
         assert "_load_universe(" in body
 
-    def test_the_upsert_rewrites_permaticker_rather_than_skipping_the_row(self):
+    def test_the_upsert_rewrites_the_row_rather_than_skipping_it(self):
         """ON CONFLICT DO NOTHING would leave every existing row exactly as
-        broken as it is now, and the re-run would report success."""
+        broken as it is now, and the re-run would report success.
+
+        The conflict TARGET changed with the identity migration (2026-08-08):
+        the key is `(snapshot_date, permaticker)`, so `permaticker` can no
+        longer appear in the SET clause — it is the key, not an attribute. What
+        must still hold is the original property: a replay REWRITES the mapped
+        columns. `ticker` moved INTO the SET clause for the same reason, which
+        is also what lets a security that changed symbol keep one row instead of
+        forking into two."""
         upsert = self.SRC[self.SRC.index("async def _upsert_universe"):]
         upsert = upsert[:upsert.index("def coerce_action_dates")]
-        assert "ON CONFLICT (snapshot_date, ticker) DO UPDATE" in upsert
-        assert "permaticker=EXCLUDED.permaticker" in upsert
+        assert "ON CONFLICT (snapshot_date, permaticker) DO UPDATE" in upsert
+        assert "ticker=EXCLUDED.ticker" in upsert
+        assert "first_price_date=EXCLUDED.first_price_date" in upsert
+        assert "DO NOTHING" not in upsert
+
+    def test_the_upsert_reports_what_it_PERSISTED_not_what_it_attempted(self):
+        """The defect this whole migration was found through: `_upsert_universe`
+        returned `len(rows)`, so 49,834 attempted against 21,733 stored read as
+        unremarkable for months. A writer that cannot say what it stored cannot
+        be audited."""
+        upsert = self.SRC[self.SRC.index("async def _upsert_universe"):]
+        upsert = upsert[:upsert.index("def coerce_action_dates")]
+        assert "SELECT count(*) FROM bt_universe" in upsert, (
+            "`persisted` must be MEASURED against the database, never echoed "
+            "back from the input")
+        for key in ("attempted", "distinct_identities", "persisted",
+                    "rejected_no_permaticker", "duplicate_identity_collapsed"):
+            assert f'"{key}"' in upsert, f"{key} missing from the write report"
 
     def test_the_mapper_reads_permaticker_from_the_vendor_row(self):
         from app.sharadar_adapter import map_tickers_row
