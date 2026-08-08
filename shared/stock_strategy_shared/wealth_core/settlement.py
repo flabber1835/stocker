@@ -121,7 +121,12 @@ class SettlementDecision:
                 "terms_complete": self.terms_complete,
                 "settlement_exact": self.settlement_exact,
                 "price_per_share": self.price_per_share,
-                "reason": self.reason, **self.detail}
+                # NAMESPACED. A bare `reason` collides with the block reason the
+                # caller already returns (MISSING_CASH_PER_SHARE and friends),
+                # and dict-spread order decided which survived — so the audit
+                # said NO_TRUSTWORTHY_MARK where a test expected the terms gap.
+                # Two different questions, two different keys.
+                "settlement_reason": self.reason, **self.detail}
 
 
 def _positive(x) -> bool:

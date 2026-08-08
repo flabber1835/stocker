@@ -347,10 +347,22 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     for terms in sorted(terminal_terms,
                         key=lambda t: (t.security_id, t.kind.value)):
         from stock_strategy_shared.wealth_core.terminal import apply_terminal
+        _b = by_sec.get(terms.security_id)
         terminal_results.append(
             {"session": session,
-             **apply_terminal(state, terms, ledger=ledger, session=session,
-                              cfg=cfg)})
+             **apply_terminal(
+                 state, terms, ledger=ledger, session=session, cfg=cfg,
+                 # The staleness carried in from PRIOR sessions — this session's
+                 # marks have not been built yet, which is correct: "sessions
+                 # since the last valid print" is a fact as of the event.
+                 last_valid_mark=last_known.get(terms.security_id),
+                 sessions_since_last_valid_print=(
+                     state.sessions_since_valid_mark.get(terms.security_id, 0)),
+                 # A real tradeable print on the terminal session outranks any
+                 # proxy — it is an actual transaction rather than a valuation.
+                 executable_price=(float(_b.raw_mark_close)
+                                   if _b is not None and _b.can_execute
+                                   and _b.raw_mark_close else None))})
     terminated = {t.security_id for t in terminal_terms}
 
     # ── 4. execute orders decided BEFORE this session ────────────────────────
@@ -448,6 +460,34 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     # ── 7. decide ────────────────────────────────────────────────────────────
     held = state.held_security_ids()
     marks = build_marks(bars, held, last_known, state.unresolved_terminals)
+
+    # ── staleness, from THIS session's marks ────────────────────────────────
+    # The input to both of the settlement waterfall's bounds. Counted on the
+    # market's sessions, not on calendar days, so a long weekend is not a data
+    # gap. Removed on a CURRENT mark rather than set to 0, so a healthy book
+    # carries an empty dict and its state hash is unchanged.
+    for sec in state.held_security_ids():
+        if marks.get(sec) is not None and marks[sec].status is MarkStatus.CURRENT:
+            state.sessions_since_valid_mark.pop(sec, None)
+        else:
+            state.sessions_since_valid_mark[sec] = (
+                state.sessions_since_valid_mark.get(sec, 0) + 1)
+    # Securities no longer held carry no staleness.
+    _held_now = state.held_security_ids()
+    for sec in list(state.sessions_since_valid_mark):
+        if sec not in _held_now:
+            state.sessions_since_valid_mark.pop(sec, None)
+
+    # C2: holdings that stopped printing with NO terminal record at all. After
+    # marks so the counter is current; skips this session's documented events,
+    # which belong to the waterfall's C1 branch and never to this zero.
+    from stock_strategy_shared.wealth_core.terminal import sweep_orphans
+    orphan_results = sweep_orphans(state, ledger=ledger, session=session,
+                                   terminated=terminated)
+    if orphan_results:
+        terminal_results.extend(orphan_results)
+        held = state.held_security_ids()
+        marks = build_marks(bars, held, last_known, state.unresolved_terminals)
     # The trailing SIGNAL window travels INSIDE security_bars, never derived
     # here from `last_known` — that dict holds RAW mark closes, a different
     # price domain, and reusing it would be exactly the cross-domain error

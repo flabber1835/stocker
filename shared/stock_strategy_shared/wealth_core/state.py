@@ -223,6 +223,18 @@ class PortfolioState:
     # blocked book that silently unblocks itself on redeploy is the failure the
     # block exists to prevent.
     unresolved_terminals: dict[str, str] = field(default_factory=dict)
+    # security_id -> consecutive sessions with NO usable mark. The input to the
+    # settlement waterfall's two bounds (settlement.py), and on the STATE for the
+    # same reason `unresolved_terminals` is: a grace period that reset on every
+    # redeploy would make the orphan timeout unreachable on any book that
+    # restarts weekly, and the failure would look like patience rather than a
+    # counter losing its place.
+    #
+    # Absent means zero. A security is added the first session it misses a mark
+    # and removed the session it prints again, so a healthy book carries an EMPTY
+    # dict — which keeps the state hash unchanged for runs where nothing goes
+    # stale.
+    sessions_since_valid_mark: dict[str, int] = field(default_factory=dict)
 
     @classmethod
     def fresh(cls, starting_cash: float, n_slots: int = DEFAULT_SLOTS) -> "PortfolioState":
@@ -345,6 +357,8 @@ class PortfolioState:
             "initialized": self.initialized,
             "session_index": self.session_index,
             "unresolved_terminals": dict(sorted(self.unresolved_terminals.items())),
+            "sessions_since_valid_mark": dict(
+                sorted(self.sessions_since_valid_mark.items())),
         }
 
     @classmethod
@@ -365,6 +379,8 @@ class PortfolioState:
             initialized=bool(d.get("initialized", False)),
             session_index=int(d.get("session_index", 0)),
             unresolved_terminals=dict(d.get("unresolved_terminals") or {}),
+            sessions_since_valid_mark=dict(
+                d.get("sessions_since_valid_mark") or {}),
         )
 
     def state_hash(self) -> str:

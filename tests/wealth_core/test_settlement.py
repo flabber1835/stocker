@@ -116,6 +116,7 @@ class TestC1KnownEventUnreadableTerms:
         assert d.event_known is True and d.terms_complete is False
         assert d.settlement_exact is False
         assert d.reason == "DERIVED_TERMINAL_SETTLEMENT_LAST_MARK"
+        assert d.provenance()["settlement_reason"] == d.reason
 
     def test_the_recency_boundary_INSIDE_settles(self):
         d = resolve_settlement(terms=_terms(), shares=100, last_valid_mark=40.0,
