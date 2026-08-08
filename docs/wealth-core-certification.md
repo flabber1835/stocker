@@ -64,10 +64,35 @@ A  bt_universe is keyed (snapshot_date, ticker) while carrying permaticker, so a
 B  consequence: the erased company has no permaticker, the resolver sees ONE
    owner, skips the window check BY DESIGN, and splices two companies' prices
    under one symbol. All three refusal paths bypassed; reused_tickers silent
-D  SIX of the seven names in TERMINAL_ACTIONS do not exist in the corpus.
-   12,253 genuinely terminal events invisible. HIGHEST severity — it changes
-   returns, not just one run — and a PREREQUISITE for C
+D  the vendor supplies EVENT METADATA, not holder-level settlement terms. No
+   cash per share and no exchange ratio at ANY action type; `value` is the deal
+   size in $M and `contraticker` is the literal string 'N/A' when the acquirer
+   is private. `contra = x or None` does not catch 'N/A', so all 19,216
+   delisted rows take the CONVERSION branch and block on
+   MISSING_DELIVERED_SECURITY. The action-NAME mismatch is real but SECONDARY:
+   every ticker with an unmatched terminal action also carries a `delisted`
+   row, 12,253 of 12,253, so termination is always detected
 ```
+
+### Certification philosophy CHANGED by defect D (2026-08-08)
+
+The requirement that historical Sharadar ACTIONS supply broker-grade acquisition
+settlement terms is **DROPPED**. The dataset does not contain them, at any action
+type, and no re-download or bulk export changes that. Demanding it would keep the
+manifest waiting on evidence that cannot exist.
+
+Certification instead proves the SETTLEMENT WATERFALL is honoured and disclosed —
+exact terms when genuinely known, real executable prices when available, ONE
+deterministic disclosed proxy for known events with absent terms, a DIFFERENT
+conservative policy for true unknown disappearances, and every proxy settlement
+counted and reported with its dollar contribution. Full contract in
+docs/architecture.md "terminal settlement and orphan resolution".
+
+Consequence for step 7: a rehearsal summary must carry
+`exact_terminal_settlements`, `market_exit_terminal_settlements`,
+`derived_last_mark_settlements`, `orphan_zero_writeoffs` and
+`unresolved_terminal_events`. A run reporting none of these on a three-year
+window over ~2000 names has not measured what it claims to have measured.
 
 **It then died on memory.** The chain loop finished, and `rehearse_chain` runs
 the entire stream a SECOND time in bulk to prove equivalence — with no progress

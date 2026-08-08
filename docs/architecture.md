@@ -5116,104 +5116,196 @@ else — with its own test forbidding it from becoming a second corpus reader.
 
 ---
 
-## Design Decision: orphan resolution — a research accounting contract, not an alpha choice (2026-08-08)
+## Design Decision: terminal settlement and orphan resolution — a research accounting contract, not an alpha choice (2026-08-08)
 
 **Status: SPECIFIED, NOT IMPLEMENTED.** Owner decision, taken after a 2021-2023
-Wealth Core chain rehearsal was blocked from 2023-02 to the end of the window by
-a single unmarkable holding. Depends on defect D (corporate-action vocabulary)
-being fixed FIRST — see docs/data-sources.md.
+Wealth Core chain rehearsal was blocked from 2023-02 to the end of its window by
+one unmarkable holding. Read docs/data-sources.md "Defect D" first: this contract
+exists because of a VENDOR SEMANTIC FACT, not because of a bug.
 
-### The behaviour today, and why it is right
+```text
+Sharadar ACTIONS gives event IDENTITY and AGGREGATE TRANSACTION VALUE.
+It does NOT give holder-level settlement terms — no cash per share, no
+exchange ratio, at any action type.
+```
+
+### The behaviour today, and why none of it is being weakened
 
 Wealth Core refuses to value a held security from `last_known` once it stops
 printing. If any holding is unmarkable, `resolved_equity` is None, `plan.blocked`
 is set with `block_reason = "UNRESOLVED_EQUITY"`, and admissions stop — "4% of an
-unknown is not a number". Terminal state is derived from the ACTIONS stream and
-NEVER from the `isdelisted` flag, because a flag can state that a security went
-away but can never establish what holders received; unresolved terms BLOCK rather
-than being approximated.
+unknown is not a number". Terminal state derives from the ACTIONS stream and NEVER
+from the `isdelisted` flag, because a flag can state that a security went away but
+can never establish what holders received. Unresolved terms BLOCK rather than
+being approximated.
 
-Every one of those choices is correct and none of them is being weakened.
+Every one of those choices is correct and all of them are retained.
 
 ### The pathological outcome
 
-There is no exit from the blocked state when no ACTIONS row will ever arrive. A
-security that simply stops printing, with no terminal action at any date, leaves
-the book blocked indefinitely: exits still flow, but nothing is admitted, and a
-25-slot portfolio is frozen by one historical data orphan. Measured cost in the
-2026-08-07 rehearsal: 218 of 753 sessions — 29% of a three-year run — during
-which the strategy did nothing and the equity curve stopped moving. Because
-`allow_blocked_gaps=True` drops blocked sessions from the measured curve, the
-symptom was frozen CAGR/drawdown/benchmark numbers beside an advancing session
-counter, not an error.
+There is no exit from the blocked state, and with the corpus as it is there never
+can be: `completeness()` refuses every one of the 19,216 delisted securities
+regardless of which branch it takes (see data-sources.md "Consequence for
+settlement"). Exits still flow, but nothing is admitted, so a 25-slot portfolio is
+frozen by one historical holding. Measured cost in the 2026-08-07 rehearsal: 218
+of 753 sessions, 29% of a three-year run, during which the strategy did nothing.
+Because `allow_blocked_gaps=True` drops blocked sessions from the measured curve,
+the symptom was a frozen CAGR, drawdown AND benchmark beside an advancing session
+counter — not an error.
 
-### Why this is NOT framed as a strategy parameter
+**This is therefore not a fallback for rare cases. It is the only path by which a
+delisted security can leave the book.**
 
-An earlier draft posed this as a recovery-rate choice by analogy with the wind
-tunnel's `SimParams.delist_recovery_pct` (default 0.70). That analogy is wrong
-and the framing is rejected. `delist_recovery_pct` is a bias correction applied
-to securities whose delisting IS known; this is an ACCOUNTING POLICY for
-securities whose fate is unknown and unknowable from the corpus. It must sit
-outside Wealth Core's alpha logic, be stated in advance, and never be tuned.
+### Why this is NOT a strategy parameter
 
-### The contract
+An earlier draft posed it as a recovery-rate choice by analogy with the wind
+tunnel's `SimParams.delist_recovery_pct` (default 0.70). That analogy is rejected.
+`delist_recovery_pct` is a bias correction for securities whose delisting IS
+known and whose terms are modelled; this is an ACCOUNTING POLICY for claims whose
+contractual consideration is unknowable from the corpus. It sits outside Wealth
+Core's alpha logic, is stated in advance, and is never tuned.
+
+### The settlement waterfall
 
 ```text
-held security has no current valid mark
-├── resolvable terminal terms exist        -> apply_terminal_terms()
-├── sessions_since_last_valid_print >= ORPHAN_TIMEOUT
-│                                          -> write_off_at_zero(
-│                                               reason="ORPHANED_UNRESOLVED_NO_ACTION")
-└── otherwise                              -> block equity and admissions
+KNOWN TERMINAL ACTION
+ |
+ +-- exact cash/share or exchange terms available
+ |        -> settle using the EXACT terms                    (settlement_exact=true)
+ |
+ +-- positive-volume EXECUTABLE terminal-day print
+ |        -> exit at the actual executable price             (a real transaction)
+ |
+ +-- terms unavailable
+          |
+          +-- a trustworthy market mark exists WITHIN the recency window
+          |        -> DERIVED_TERMINAL_SETTLEMENT_LAST_MARK  (settlement_exact=false)
+          |
+          +-- no sufficiently recent trustworthy mark
+                   -> UNRESOLVED (blocks; separate fallback, deliberately open)
+
+NO TERMINAL EVENT AT ALL
+ + prolonged disappearance + no subsequent valid print
+          -> ORPHANED_UNRESOLVED
+          -> write off to ZERO after a predeclared ORPHAN_TIMEOUT
 ```
 
-**Zero, not the last mark, and not a haircut.** Liquidating at the last mark
-invents a trade that could not have happened — there was no market. A 70% or 50%
-recovery is arbitrary and, being a free parameter, is exactly the kind of number
-that gets tuned until the backtest improves. Zero is conservative, deterministic,
-and cannot artificially raise CAGR. It will UNDERSTATE returns where a real
-settlement occurred; that direction is the acceptable one, and defect D exists
-to make sure "no resolvable terms" means the corpus truly has none rather than
-that we failed to read them.
+**C1 — last trustworthy mark, for a KNOWN event with unavailable terms.** The
+claim being valued is real and the liquidity event is documented. For a cash deal
+the final market price incorporates the market's estimate of the consideration
+AND of closing risk; for a stock deal it incorporates the expected exchange ratio
+AND the acquirer's market value. The market has already combined information that
+no reconstruction from aggregate deal value can recover.
 
-**A predeclared grace period, not an immediate write-off.** `ORPHAN_TIMEOUT` is
-a fixed number of exchange sessions — 20 as the opening value — whose only job is
-to distinguish a halt or a data gap from a dead security. It is PREDECLARED and
-must never be optimised against Wealth Core returns; a timeout fitted to the
-equity curve is a strategy parameter wearing an accounting label.
+This is NOT "we sold the stock", and it must not be named `force_exit` — no
+simulated transaction occurred. The statement being made is: *the security
+economically terminated, the contractual consideration is unknown, and the last
+observable market value is our disclosed research proxy for the unresolved claim.*
+
+**RECENCY IS PART OF THE RULE, not a detail.** An arbitrarily old print is not a
+credible settlement proxy — a stock that last traded three months before the
+effective date reintroduces exactly the invented-trade objection in a different
+form. The last valid positive-volume mark must fall within a fixed number of
+trading sessions preceding the effective terminal date (5-10 is defensible).
+**Chosen from market-data semantics, never from Wealth Core performance.**
+
+**C2 — zero, for a security with NO terminal record that simply stops printing.**
+Liquidating at the last mark here would invent a trade that could not have
+happened; there was no market and no documented event. A percentage haircut is a
+free parameter that gets tuned until the backtest improves. Zero is conservative,
+deterministic and cannot raise CAGR. `ORPHAN_TIMEOUT` (20 sessions as the opening
+value) exists only to separate a halt or a data gap from a dead security, is
+PREDECLARED, and must never be optimised against returns.
+
+**The two must not be conflated.** Applying C2's zero to C1's population would
+write off 19,216 KNOWN acquisitions whose holders were demonstrably paid —
+TMHC/Berkshire at $6.77B among them. "Conservative" stops being a virtue when it
+becomes the primary path rather than the exception.
 
 **`is_delisted` may inform CLASSIFICATION and timeout evidence. It may never
-create PROCEEDS.** The flag can support the judgement that a security is gone; it
-says nothing about what holders received, so it can never be a settlement input.
+create PROCEEDS.**
 
-The grace interval preserves what the current design gets right — no invented
-equity, no admissions on unknown equity, real exits and resolutions still honoured
-if they arrive, state preserved across restart. What it removes is the permanent
-freeze.
+### Ledger provenance — required on every settlement
+
+A cash inflow with no provenance invites a reader six months later to assume the
+vendor supplied acquisition consideration. Every terminal settlement records:
+
+```text
+event_source       SHARADAR_ACTIONS | ...
+event_known        true | false
+terms_complete     true | false
+settlement_source  EXACT_TERMS | EXECUTABLE_PRINT | LAST_TRUSTWORTHY_MARK | ZERO_ORPHAN
+settlement_exact   true | false
+```
+
+### Rejected: `value x 1e6 / shares_outstanding`
+
+Computable where SF1 coverage permits, and retained as an AUDIT DIAGNOSTIC — for
+straightforward cash acquisitions, agreement with the last-mark proxy is evidence
+the proxy behaves sensibly. It must never determine portfolio cash. Deal value may
+include assumed debt or other enterprise-value components; shares outstanding
+differ from shares entitled at closing; options, RSUs and converts dilute; stock
+and mixed cash/stock deals are not cash-per-share deals; SF1 counts can be stale
+relative to the event; and aggregate consideration is not described consistently
+across events. It substitutes many hidden assumptions for one disclosed one and
+yields a precise-looking, economically wrong number.
+
+### What certification must now prove
+
+The old demand — that historical Sharadar ACTIONS supply broker-grade settlement
+terms — is DROPPED, because the dataset does not contain them and no amount of
+re-downloading changes that. Certification instead proves:
+
+```text
+1  exact terms are used whenever genuinely known
+2  actual tradable terminal prices are used when available
+3  unresolved KNOWN terminal events follow ONE deterministic disclosed proxy
+4  true unknown disappearances follow a DIFFERENT conservative orphan policy
+5  every proxy settlement is counted and REPORTED
+```
+
+Every rehearsal summary carries the counts and the dollar P&L contribution of
+each category, so the uncertainty is visible rather than the dataset being made
+to look more complete than it is:
+
+```text
+exact_terminal_settlements
+market_exit_terminal_settlements
+derived_last_mark_settlements
+orphan_zero_writeoffs
+unresolved_terminal_events
+```
 
 ### Required tests (a guard is not done until it has been shown to fail)
 
 ```text
-one-day missing quote                still BLOCKED, not written off
-temporary halt then resumption       resumes normally, no write-off, peak intact
-known cash merger                    real settlement at the stated terms
-known bankruptcy                     write-off from the ACTUAL action, not the timeout
-no ACTIONS + prolonged disappearance orphan write-off at zero after ORPHAN_TIMEOUT
+one-day missing quote                still BLOCKED, not settled or written off
+temporary halt then resumption       resumes normally, no settlement, peak intact
+known cash merger, exact terms       real settlement at the stated terms
+known bankruptcy, stated zero        write-off from the ACTUAL action, not the timeout
+executable terminal-day print        real exit at that price, not a derived proxy
+known event, terms absent, recent
+  mark within the window             DERIVED_TERMINAL_SETTLEMENT_LAST_MARK
+known event, terms absent, last
+  mark OUTSIDE the window            UNRESOLVED, never settled at a stale price
+no ACTIONS + prolonged absence       orphan write-off at zero after ORPHAN_TIMEOUT
 later ticker reuse by another
   permaticker                        NEVER resurrects the old holding
+contraticker == 'N/A'                treated as ABSENCE, never as a delivered
+                                     security (defect D1)
+`value` is never read as a price or an exchange ratio (defect D2)
 ```
 
-The last one is the direct falsifier for defects A and B: BIOT's symbol was
-reassigned in 2026, and nothing about that event may touch a position in the
+The ticker-reuse case is the direct falsifier for defects A and B: BIOT's symbol
+was reassigned in 2026, and nothing about that event may touch a position in the
 company that held the symbol until 2023.
 
-Two further properties the tests must pin, both learned from the run that
-exposed this:
+Two further properties, both learned from the run that exposed this:
 
 ```text
-a written-off orphan is REPORTED, never merely absent — count, securities,
-  sessions, and carrying value destroyed, on the run summary
-the write-off is DERIVED output and must never reach a parity hash
+a proxy settlement is REPORTED, never merely absent — count, securities,
+  sessions, and dollar contribution, on the run summary
+settlement classification is DERIVED output and must never reach a parity hash
 ```
 
 The second matters because the seven parity hashes are what make a rehearsal

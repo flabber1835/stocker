@@ -327,11 +327,74 @@ All three of the resolver's refusals (`unknown_ticker`, `ambiguous`,
 input.** A run spanning 2023 to 2026 would read straight across the hole as one
 continuous position and book a fabricated multi-year return.
 
-### Defect D — the engine's corporate-action vocabulary does not match the vendor's
+### Defect D — the vendor supplies EVENT METADATA, not holder-level settlement terms
 
-SIX of the seven names in `TERMINAL_ACTIONS` do not exist in the corpus.
-Comparison is exact set membership (`action not in TERMINAL_ACTIONS`), no prefix
-matching, so every non-matching name is silently dropped:
+**THE SEMANTIC FACT, stated first because it is the one that matters and the one
+that took four queries to establish:**
+
+```text
+Sharadar ACTIONS gives event IDENTITY and AGGREGATE TRANSACTION VALUE.
+It does NOT give holder-level settlement terms — no cash per share, no
+exchange ratio, at any action type.
+```
+
+An earlier draft of this section led with the action-NAME mismatch and called it
+the highest-severity finding. That was wrong and is corrected below: the naming
+gap is real but secondary. No renaming, remapping or additional action type
+produces terms the table does not contain.
+
+#### What the columns actually hold (observed, 2026-08-08)
+
+```text
+ticker  date        action         value    contraticker  contraname
+TMHC    2026-07-23  delisted       6768.8   N/A           N/A
+TMHC    2026-07-23  acquisitionby  6768.8   BRK.B         BERKSHIRE HATHAWAY INC
+NUVL    2026-07-15  acquisitionby  9792.6   GSK           GSK PLC
+ORLA    2026-07-31  acquisitionby  3265.6   EQX           EQUINOX GOLD CORP
+AVNS    2026-07-24  acquisitionby  1170.2   N/A           AMERICAN INDUSTRIAL PARTNERS CORP
+CCRN    2026-07-21  acquisitionby   428.4   N/A           KNOX LANE LP
+GVHGF   2026-07-31  delisted          0.2   N/A           N/A
+```
+
+```text
+value         TRANSACTION VALUE IN MILLIONS OF DOLLARS. Identical across the
+              `delisted` and `acquisitionby` rows of one event, so it is a
+              per-EVENT attribute. TMHC/Berkshire at 6768.8 and NUVL/GSK at
+              9792.6 are deal sizes; it is NOT a per-share price and NOT an
+              exchange ratio.
+contraticker  the acquirer's ticker when the acquirer is PUBLIC (BRK.B, GSK,
+              EQX, IONQ, PSA, CLBK); the literal string 'N/A' when the acquirer
+              is PRIVATE (Berkshire vs Knox Lane LP is the distinction).
+contraname    the acquirer's NAME, always populated even when the ticker is 'N/A'.
+```
+
+#### Two coding defects follow from misreading those columns
+
+**D1 — `'N/A'` is a SENTINEL STRING and defeats the absence check.**
+
+```python
+contra = row.get("contraticker") or None      # normalises None and '' — NOT 'N/A'
+if contra:                                    # 'N/A' is truthy
+    return TerminalTerms(..., kind=TerminalKind.CONVERSION,
+                         delivered_ticker=contra, exchange_ratio=value, ...)
+```
+
+Every one of the 19,216 `delisted` rows carries a `contraticker` (0 of them equal
+to the security's own ticker), so EVERY terminal event takes the conversion
+branch. `'N/A'` then fails identity resolution as `unknown_ticker`,
+`delivered_security_id` is None, and `completeness()` refuses with
+`MISSING_DELIVERED_SECURITY` — the deal BLOCKS. That is the BIOT failure
+reachable 19,216 ways, and it needs no missing action name to fire.
+
+**D2 — `value` is read as an EXCHANGE RATIO.** It is a deal size in millions. The
+code never uses the number today only because the completeness check refuses
+first; that is luck, not design. Were identity resolution ever to succeed on that
+field, a TMHC holder would be delivered 6,768.8 shares per share.
+
+#### The naming mismatch — real, secondary, and MEASURED
+
+SIX of the seven names in `TERMINAL_ACTIONS` do not exist in the corpus, and
+comparison is exact set membership (`action not in TERMINAL_ACTIONS`):
 
 ```text
 code expects              corpus has                  rows    matched
@@ -344,44 +407,56 @@ merger                    mergerto                     134    NO
 reversemerger             -                              0    -
 ```
 
-**12,253 genuinely terminal events the engine never sees**, against 19,216 it
-does. Same defect elsewhere: `adrratiosplit` (386) is not in `SPLIT_ACTIONS`, so
-those ADR share-ratio changes never adjust the split factor; `spinoffdividend`
-(497) is not in `DIVIDEND_ACTIONS`; `specialdividend` IS in the code and matches
-zero rows; and `tickerchangeto` / `tickerchangefrom` (13,437 each) are entirely
-unconsumed — 26,874 rows of the vendor stating that a symbol moved, which is
-directly relevant to A and B.
+**Severity is bounded by a measurement, not an estimate.** Every ticker carrying
+one of those unmatched terminal actions ALSO carries a `delisted` row —
+12,253 of 12,253, exactly — so termination is always DETECTED. The unmatched rows
+add the counterparty identity (`contraname`, and `contraticker` when public), not
+the fact of termination and not the terms. Fixing the names is worth doing for
+provenance and for the audit diagnostic below; it resolves nothing on its own.
 
-**THE ACQUIRER-SIDE TRAP. Do not fix this with a substring match.**
-`acquisitionof` (7,193) and `mergerfrom` (116) are the ACQUIRER's side of a deal
-and are NOT terminal for the security that carries them. Treating them as
-terminal would write off the wrong company — the buyer rather than the target.
-The fix is an explicit per-name mapping with a stated side for each name; any
-scheme that pattern-matches on `acquisition` or `merger` is worse than the bug.
+Also unconsumed, same class: `adrratiosplit` (386) is absent from
+`SPLIT_ACTIONS`, so those ADR share-ratio changes never adjust the split factor —
+a genuine correctness gap, since it IS a share-count change.
+`spinoffdividend` (497) is absent from `DIVIDEND_ACTIONS`; `specialdividend` is
+IN the code and matches zero rows; `tickerchangeto` / `tickerchangefrom` (13,437
+each) are 26,874 rows of the vendor stating that a symbol moved, directly
+relevant to defects A and B.
 
-**D IS A PREREQUISITE FOR THE ORPHAN POLICY (C), NOT AN INDEPENDENT ITEM.** The
-policy in docs/architecture.md "orphan resolution" branches on whether resolvable
-terminal terms exist, and falls through to a zero write-off when they do not.
-With `acquisitionby` and `mergerto` invisible, 7,646 real cash mergers fail that
-test and write off at ZERO with their settlement terms sitting unread in the
-corpus. That failure is far harder to notice than a block: a block halts the run,
-a zero merely lowers the return. Ship D before or with C, never after.
+**THE ACQUIRER-SIDE TRAP. Do not fix the names with a substring match.**
+`acquisitionof` (7,193) and `mergerfrom` (116) are the ACQUIRER's side and are
+NOT terminal for the security carrying them. Treating them as terminal writes off
+the buyer instead of the target. Any fix must be an explicit per-name mapping
+with a stated side per name; a pattern match on `acquisition` or `merger` is
+worse than the bug.
 
-### Open question, one query
+#### Consequence for settlement
 
-Whether Sharadar emits `delisted` ALONGSIDE the reason decides D's severity.
-If it does, termination is mostly DETECTED and D is a terms bug (mergers paying
-nothing). If it does not, those names go unmarkable and BLOCK.
+Walk every branch and the corpus settles nothing:
 
-```sql
-WITH t AS (SELECT DISTINCT ticker FROM bt_actions
-            WHERE action IN ('acquisitionby','mergerto','bankruptcyliquidation',
-                             'regulatorydelisting','voluntarydelisting'))
-SELECT count(*) AS terminal_by_other_name,
-       count(*) FILTER (WHERE EXISTS (SELECT 1 FROM bt_actions d
-         WHERE d.ticker = t.ticker AND d.action = 'delisted')) AS also_has_delisted
-  FROM t;
+```text
+sentinel unfixed              CONVERSION -> MISSING_DELIVERED_SECURITY  -> blocks
+sentinel fixed, PRIVATE buyer CASH_MERGER, per-share cash unknown
+                                         -> MISSING_CASH_PER_SHARE      -> blocks
+sentinel fixed, PUBLIC buyer  CONVERSION, real delivered security, but
+                              `value` is a deal size not a ratio
+                                         -> MISSING_EXCHANGE_RATIO      -> blocks
 ```
+
+So a terminal settlement policy is not an optional fallback for rare cases. It is
+the ONLY path by which any of the 19,216 delisted securities can leave the book.
+That is what forced the C1/C2 split in docs/architecture.md "orphan resolution" —
+a blanket zero write-off would have been applied to 19,216 KNOWN acquisitions
+whose holders were demonstrably paid.
+
+#### Audit diagnostic (never portfolio cash)
+
+`value x 1e6 / shares_outstanding` is computable where SF1 coverage permits and is
+worth computing as a CHECK on the last-mark proxy for straightforward cash
+acquisitions. It must never determine portfolio cash: deal value may include
+assumed debt or other enterprise-value components, shares outstanding differ from
+shares entitled at closing, options/RSUs/converts dilute, stock and mixed deals
+are not cash-per-share deals at all, and SF1 counts can be stale relative to the
+event. It produces a precise-looking, economically wrong number.
 
 ### Remediation order (owner decision, 2026-08-08)
 
@@ -392,10 +467,24 @@ SELECT count(*) AS terminal_by_other_name,
        counted and named rather than dropped silently.
 2  B   re-run the universe backfill, then QUANTIFY the splices — reused_tickers
        only becomes truthful once A is fixed, so the population is unknown today.
-3  D   per-name action mapping with an explicit side per name. Prerequisite for 4.
-4  C   the orphan-resolution accounting contract — docs/architecture.md.
-5      tests for all four, THEN re-run the 2021-2023 rehearsal.
+3  D1  the 'N/A' sentinel: treat it as ABSENCE, not as a delivered security.
+       Audit every `or None` normalisation against a vendor sentinel, since the
+       idiom looks total and is not.
+   D2  stop reading `value` as an exchange ratio. It is a deal size in millions
+       and belongs in provenance, never in a share or price computation.
+   D   per-name action mapping with an explicit SIDE per name (acquirer vs
+       target), for provenance and the audit diagnostic. Resolves nothing alone.
+4  C   the terminal-settlement contract, C1 and C2 — docs/architecture.md
+       "orphan resolution". This is the ONLY path by which a delisted security
+       can leave the book, not a rare-case fallback.
+5      tests for all of the above, THEN re-run the 2021-2023 rehearsal.
 ```
+
+D was reordered ahead of A at one point on the claim that 12,253 terminal events
+were invisible and blocking. That claim was WITHDRAWN: the co-occurrence
+measurement (12,253 of 12,253 also carry a `delisted` row) showed termination is
+always detected, and the blocking comes from D1/D2 and the absent terms rather
+than from the names. A stays first.
 
 Acceptance test for A, required before anything downstream is believed:
 
