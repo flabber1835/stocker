@@ -196,6 +196,28 @@ if perf:
         rows.append((f"vs {bt}", f"{pct(perf.get('benchmark_total_return'))}"
                                  f"   {col}{'+' if (ex or 0) >= 0 else ''}"
                                  f"{pct(ex)}{C['x']}"))
+        # THE COMPARISON THAT DECIDES WHAT UNDERPERFORMANCE MEANS. Lagging the
+        # benchmark while taking LESS risk is a different result from lagging it
+        # while taking more, and a bare excess-return line cannot tell them
+        # apart. Shown whenever the benchmark drawdown is available.
+        bdd = perf.get("benchmark_maximum_drawdown")
+        mdd = perf.get("maximum_drawdown")
+        if bdd is not None:
+            if mdd is None:
+                verdict = ""
+            elif mdd > bdd:
+                verdict = (f"  {C['r']}deeper than {bt} by "
+                           f"{pct(mdd - bdd)}{C['x']}")
+            else:
+                verdict = (f"  {C['g']}shallower than {bt} by "
+                           f"{pct(bdd - mdd)}{C['x']}")
+            rows.append((f"{bt} drawdown", pct(bdd) + verdict))
+        if perf.get("excess_cagr") is not None:
+            e = perf["excess_cagr"]
+            c2 = C["g"] if e >= 0 else C["r"]
+            rows.append(("excess CAGR",
+                         f"{c2}{'+' if e >= 0 else ''}{pct(e)}{C['x']}"
+                         f"  {C['d']}per year{C['x']}"))
     elif perf.get("benchmark_unavailable_reason"):
         rows.append((f"vs {bt or 'SPY'}",
                      f"{C['d']}{perf['benchmark_unavailable_reason']}{C['x']}"))
