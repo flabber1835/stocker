@@ -444,6 +444,27 @@ def sweep_pending_terms(state: PortfolioState, *, ledger: Ledger, session: str,
     visible to the orphan zero. That ordering is the load-bearing part: the two
     populations are kept apart everywhere else in this module, and a sweep order
     that exposed one to the other would undo all of it in a single pass.
+
+    THE CLOCK RUNS ON THE TERMINAL CONDITION, NOT ON THE ANNOUNCEMENT.
+    A session on which the security still prints a current mark does NOT age the
+    grace. An earlier version aged it unconditionally, which meant an announced
+    deal that stayed pending — a contested bid, a long regulatory review — had
+    its position PROXY-SETTLED on the tenth session at the frozen event-time
+    mark while the security was still trading normally at a different price. The
+    book would have sold something nobody sold, at a stale price, purely because
+    a calendar ran out.
+
+    An announcement is a statement about the FUTURE; the proxy settlement exists
+    only because a security has stopped producing prices. While prices keep
+    arriving there is nothing to approximate: the position is marked at market,
+    valued correctly, and remains subject to every ordinary exit rule. So the
+    grace measures sessions WITHOUT A PRICE since the event, and a deal may stay
+    pending indefinitely as long as its security keeps trading.
+
+    NOT reset when a security resumes printing, only paused. A monotone counter
+    means an intermittently-printing security still accumulates its ten missing
+    sessions and settles, where a reset would let one print every ninth session
+    hold a slot forever.
     """
     from stock_strategy_shared.wealth_core.settlement import (
         SettlementSource, resolve_settlement)
@@ -463,6 +484,16 @@ def sweep_pending_terms(state: PortfolioState, *, ledger: Ledger, session: str,
             continue
 
         ep = state.episodes[slot_id]
+
+        # `sessions_since_valid_mark` was updated from THIS session's marks
+        # immediately before this pass, so 0 (absent) means "printed today".
+        # Markability rather than tradeability is the right key: the proxy
+        # exists because a security stopped producing PRICES, and a halted
+        # security that still prints a close can be valued — the engine's
+        # ordinary pending-order machinery handles the inability to exit.
+        if state.sessions_since_valid_mark.get(sec, 0) == 0:
+            continue
+
         state.terminal_pending_sessions[sec] += 1
         rec = state.terminal_pending_terms.get(sec)
         if not rec:  # pragma: no cover - defended by the restart tests

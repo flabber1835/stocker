@@ -96,10 +96,10 @@ non-common-stock instruments (ETFs, warrants, units, preferreds, SPACs —
 SPY/QQQ/IWM/SOXX have ZERO as-traded close).
 
 **The terminal-settlement waterfall (C1/C2) is now WIRED**, `tests/wealth_core`
-is green at 550, and the golden hash MOVED as a deliberate re-pin:
+is green at 552, and the golden hash MOVED as a deliberate re-pin:
 
 ```text
-a09b12a87d1ecc97   ->   04a58dba05595dcd
+a09b12a87d1ecc97   ->   5c1af5731f79c702
 ```
 
 The deployed images still emit the OLD hash and will read as a parity divergence

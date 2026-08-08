@@ -17,7 +17,7 @@ evidence runs over real data, not about the suite.
 ## Resuming this work
 
 **STATE AS OF 2026-08-08 (later session). C IS COMPLETE AND WIRED.**
-`tests/wealth_core` is GREEN at 550 tests. The 2021-2023 rehearsal is now the
+`tests/wealth_core` is GREEN at 552 tests. The 2021-2023 rehearsal is now the
 next action and nothing in the code blocks it. Read this section before anything
 else.
 
@@ -39,7 +39,7 @@ DONE      C, the rule       shared/.../wealth_core/settlement.py — the waterfa
 DONE      C, the semantics  C1 grace period + TERMINAL_PENDING_TERMS
 DONE      C, the wiring     settlement.py + state.py + terminal.py + marks.py +
                             adapter.py. Golden fixture RE-PINNED, decomposed
-                            below. 550 tests green
+                            below. 552 tests green
 ```
 
 ### What the wiring turned out to require, beyond the plan
@@ -65,7 +65,24 @@ the grace period was introduced to fix, reached through a different branch, and
 the golden fixture caught it for the THIRD time. The print now settles only once
 there is nothing left to wait for. docs/architecture.md carries the correction.
 
-**3. The recency bound is measured AT THE EVENT — rehearsal-blocking.**
+**3. The grace clock runs on the TERMINAL CONDITION, not on the announcement**
+(found by review, after the first wiring commit). `sweep_pending_terms` aged the
+grace on every session, so a deal that stayed pending longer than ten sessions —
+a contested bid, a long regulatory review — had its position proxy-settled at the
+frozen event-time mark WHILE THE SECURITY WAS STILL TRADING at a different price.
+A sale nobody made, at a price nobody traded, because a calendar ran out. A
+session on which the security prints a current mark now does not age the grace;
+the counter is paused, never reset, so an intermittently-printing security still
+settles. Falsifiers:
+`test_a_deal_pending_LONGER_than_the_grace_stays_owned_while_it_trades` and
+`test_and_then_settles_once_it_STOPS_trading`, both shown to fail without the fix.
+
+The golden fixture could not catch this AND was one session from being wrong
+itself: SEC_STRANDED's counter reached 9 at S209 under the old rule and needed
+10, so its $61.50 terms landed with a single session to spare. That margin was
+load-bearing and nobody had chosen it.
+
+**4. The recency bound is measured AT THE EVENT — rehearsal-blocking.**
 `C1_GRACE_SESSIONS` and `MARK_RECENCY_SESSIONS` are both 10, and a security that
 stops printing at its announcement goes stale at exactly the rate the grace
 elapses:
@@ -86,8 +103,18 @@ frozen and reused. Falsifier:
 ### The golden re-pin, decomposed
 
 ```text
-a09b12a87d1ecc97...  ->  04a58dba05595dcd...
+a09b12a87d1ecc97...  ->  04a58dba05595dcd...  ->  5c1af5731f79c702...
 ```
+
+TWO re-pins, in two commits. The FIRST carries the whole economic movement and is
+decomposed below. The SECOND (the grace-clock fix) moved `result_hash` ALONE —
+`final_state_hash`, `ledger_hash`, `final_cash`, `final_positions`,
+`blocked_sessions` and every ledger event count are byte-identical across it. The
+only difference is intermediate per-session bookkeeping:
+`terminal_pending_sessions[SEC_STRANDED]` now reads 0 throughout instead of
+climbing 1 to 9, because the security keeps printing. Zero economic change, which
+is the evidence that SEC_STRANDED's outcome never depended on the buggy clock —
+it was one session from depending on it.
 
 MOVED, and why — one economic change, fully accounted:
 
@@ -124,7 +151,7 @@ every other terminal  SEC_MERGED $54.00, SEC_BUST write-off at 0, SEC_CONVERTED,
 
 **DEPLOY CONSEQUENCE, do not miss this.** The certified cross-image hash recorded
 elsewhere in this file and in CLAUDE.md is `a09b12a87d1ecc97`. It is now
-`04a58dba05595dcd`. All THREE images must be rebuilt from a fresh
+`5c1af5731f79c702`. All THREE images must be rebuilt from a fresh
 `stocker-base` before any parity claim is made again; an unrebuilt image will
 emit the old hash and read as a divergence.
 
@@ -182,7 +209,7 @@ from stock_strategy_shared.wealth_core.run import run_sessions; g=golden_scenari
 print(run_sessions(sessions=g.sessions, bars_by_session=g.bars_by_session, \
 meta=g.meta, starting_cash=g.starting_cash, terminal_events=g.terminal_events \
 ).result_hash())"
-# expect 04a58dba05595dcda28a0b5f818f7fc8b8a5ee74c63a60f10163a181e81b8671
+# expect 5c1af5731f79c7029d0c92b82275ef3b2b84d2a4fed0afbdc32688dfb6103a89
 
 curl -X POST localhost:8031/wealth-core/jobs/run -H "Content-Type: application/json" \
   -d '{"mode":"chain_rehearsal","start_date":"2021-01-01","end_date":"2023-12-31"}'
@@ -256,7 +283,7 @@ next", read only the section above.
 DONE   1  base rebuilt, both stacks deployed (scripts/deploy-wealth-core.sh)
 DONE   2  every shared/ consumer rebuilt; deploy steps 6-10 all PASSED —
           all THREE deployed images produce golden hash a09b12a87d1ecc97
-          (SUPERSEDED — the C1/C2 wiring re-pinned it to 04a58dba05595dcd;
+          (SUPERSEDED — the C1/C2 wiring re-pinned it to 5c1af5731f79c702;
           re-run this after a forced stocker-base rebuild),
           identical on all 7 layers (backtester / pipeline / windtunnel)
 DONE   3  bt_actions backfilled: 664,039 rows, 1998-01-01..2026-12-31, 4m29s.
@@ -472,7 +499,7 @@ fails spuriously. Re-run rather than diagnose.
 | risk profile: gate arithmetic | fixed + rehearsed | see "the 24-vs-25 result" below |
 | legacy production behaviour | unchanged | `execution_model` defaults to `target_portfolio`; tests/scheduler (406), tests/pipeline (356), tests/delta_engine (376) |
 | end-to-end chain rehearsal | implemented | bt-engine `POST /wealth-core/jobs/run` mode `chain_rehearsal` |
-| deployed-image parity | **proven 2026-08-06, now STALE** | all three images emitted golden `a09b12a87d1ecc97`, identical on 7 layers, INSIDE the containers. The C1/C2 wiring re-pinned the golden to `04a58dba05595dcd`, so this must be RE-PROVEN after a forced base rebuild; until then the deployed images disagree with the code |
+| deployed-image parity | **proven 2026-08-06, now STALE** | all three images emitted golden `a09b12a87d1ecc97`, identical on 7 layers, INSIDE the containers. The C1/C2 wiring re-pinned the golden to `5c1af5731f79c702`, so this must be RE-PROVEN after a forced base rebuild; until then the deployed images disagree with the code |
 | exact SEP raw-close verification | **proven 2026-08-06** | `exact=1` COMPLETED: 99.7649% (36,684,527/36,770,974); gaps are per-ticker vendor gaps in 43 non-common-stock instruments |
 | authoritative ACTIONS ingested | **done 2026-08-06** | `bt_actions` 664,039 rows, 1998-01-01..2026-12-31 |
 | authoritative ACTIONS / data parity | **pending** | needs a run whose `provenance.split_source == "actions"` — step 7 |

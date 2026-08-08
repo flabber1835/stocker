@@ -5242,6 +5242,40 @@ terms at S200 and resolved for $61.50 cash at S210. Under print-before-grace it
 liquidated at 90.98 on the announcement. So the print settles only once there is
 nothing left to wait for. AN ANNOUNCEMENT IS NOT A TERMINAL DAY.
 
+**THE GRACE CLOCK RUNS ON THE TERMINAL CONDITION, NOT ON THE ANNOUNCEMENT**
+(review finding, 2026-08-08). `sweep_pending_terms` originally aged the grace on
+EVERY session. An announced deal that stayed pending — a contested bid, a long
+regulatory review, an antitrust second request — therefore had its position
+PROXY-SETTLED on the tenth session at the frozen event-time mark, while the
+security was still trading normally at a different price:
+
+```text
+day 0     acquisition announced, consideration absent from the feed, stock $90
+day 1-10  stock trades normally, rising
+day 10    stock $94, deal still pending, security still tradeable
+          -> OLD: position removed at the day-0 mark. A sale nobody made,
+             at a price nobody traded, because a calendar ran out
+```
+
+An announcement is a statement about the FUTURE. The proxy settlement exists
+only because a security stopped producing prices; while prices keep arriving
+there is nothing to approximate — the position marks at market, values
+correctly, and remains subject to every ordinary exit rule. So a session on
+which the security prints a current mark does NOT age the grace, and a deal may
+stay pending indefinitely as long as its security keeps trading.
+
+The counter is PAUSED, never reset, when a security resumes printing. A monotone
+counter means an intermittently-printing security still accumulates its ten
+missing sessions and settles, where a reset would let one print every ninth
+session hold a slot forever.
+
+The golden fixture could not catch this and was one session from being wrong
+itself: SEC_STRANDED's counter reached 9 at S209 under the old rule and needed
+10, so its exact terms landed with a single session to spare. Falsifiers are
+`test_a_deal_pending_LONGER_than_the_grace_stays_owned_while_it_trades` and
+`test_and_then_settles_once_it_STOPS_trading`, both shown to fail without the
+fix.
+
 **THE RECENCY BOUND IS MEASURED AT THE EVENT, NOT AT EXPIRY** (also from the
 implementation, and rehearsal-blocking). `MARK_RECENCY_SESSIONS` asks whether
 there was a trustworthy mark WHEN THE SECURITY TERMINATED — a fact about the

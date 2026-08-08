@@ -223,6 +223,90 @@ class TestATermsBlockStillReachesTheEquityGate:
         assert st.unresolved_terminals.get("S1") == "MISSING_CASH_PER_SHARE"
         assert res.blocked is True
 
+    def test_a_deal_pending_LONGER_than_the_grace_stays_owned_while_it_trades(self):
+        """THE hole this class exists to close, found by review 2026-08-08.
+
+        `sweep_pending_terms` used to age the grace on EVERY session, so an
+        announced deal that stayed pending — a contested bid, a long regulatory
+        review — had its position proxy-settled on the tenth session at the
+        FROZEN event-time mark while the security was still trading normally at
+        a different price. The book would have sold something nobody sold, at a
+        stale price, because a calendar ran out.
+
+        The golden fixture cannot catch this: SEC_STRANDED receives its exact
+        terms on the tenth session, one short of expiry, so it proves only that
+        late-but-within-the-grace terms work.
+        """
+        from stock_strategy_shared.wealth_core.settlement import C1_GRACE_SESSIONS
+        st, led, lk = seated(), Ledger(), {"S1": 90.0}
+        step_session(session="d1", state=st, bars=[db("S1", mark=90.0, signal=90.0)],
+                     pending=[], ledger=led, last_known=lk, cfg=CFG,
+                     strategy_id=SID, strategy_version=VER,
+                     security_bars=tradeability_only_bars(
+                         [db("S1", mark=90.0, signal=90.0)], None),
+                     terminal_terms=[self._terms()])
+        assert st.terminal_pending_sessions.get("S1") == 0
+
+        # Trade normally, and RISING, for well beyond the grace window.
+        for i in range(C1_GRACE_SESSIONS * 2):
+            px = 90.0 + i * 0.4
+            bars = [db("S1", session=f"d{i + 2}", mark=px, signal=px)]
+            step_session(session=f"d{i + 2}", state=st, bars=bars, pending=[],
+                         ledger=led, last_known=lk, cfg=CFG, strategy_id=SID,
+                         strategy_version=VER,
+                         security_bars=tradeability_only_bars(bars, None))
+
+        assert 0 in st.episodes, (
+            "the position was proxy-settled while its security was still "
+            "trading — a sale nobody made, at a price nobody traded")
+        assert st.terminal_pending_sessions.get("S1") == 0, (
+            "the terminal grace must not age on sessions the security prints")
+        assert not [e for e in led.events
+                    if e.event_type in (EventType.CASH_MERGER,
+                                        EventType.WRITE_OFF)]
+        # Still economically pending, and still marked at MARKET, not at the
+        # event-time mark.
+        assert "S1" in st.terminal_pending_terms
+        assert lk["S1"] == pytest.approx(90.0 + (C1_GRACE_SESSIONS * 2 - 1) * 0.4)
+
+    def test_and_then_settles_once_it_STOPS_trading(self):
+        """The other half: pausing the clock must not disable it. Once prices
+        stop the terminal condition is real, the grace runs, and the fallback
+        settles at the last mark the security actually traded at — NOT the
+        event-time mark it was announced at."""
+        from stock_strategy_shared.wealth_core.settlement import C1_GRACE_SESSIONS
+        st, led, lk = seated(), Ledger(), {"S1": 90.0}
+        step_session(session="d1", state=st, bars=[db("S1", mark=90.0, signal=90.0)],
+                     pending=[], ledger=led, last_known=lk, cfg=CFG,
+                     strategy_id=SID, strategy_version=VER,
+                     security_bars=tradeability_only_bars(
+                         [db("S1", mark=90.0, signal=90.0)], None),
+                     terminal_terms=[self._terms()])
+        for i in range(C1_GRACE_SESSIONS * 2):
+            px = 90.0 + i * 0.4
+            bars = [db("S1", session=f"d{i + 2}", mark=px, signal=px)]
+            step_session(session=f"d{i + 2}", state=st, bars=bars, pending=[],
+                         ledger=led, last_known=lk, cfg=CFG, strategy_id=SID,
+                         strategy_version=VER,
+                         security_bars=tradeability_only_bars(bars, None))
+        final_traded_price = lk["S1"]
+        assert 0 in st.episodes
+
+        # Prices stop. NOW the grace is meaningful.
+        for i in range(C1_GRACE_SESSIONS):
+            step_session(session=f"x{i}", state=st, bars=[], pending=[],
+                         ledger=led, last_known=lk, cfg=CFG, strategy_id=SID,
+                         strategy_version=VER,
+                         security_bars=tradeability_only_bars([], None))
+
+        assert 0 not in st.episodes, "the fallback never fired once prices stopped"
+        ev = [e for e in led.events if e.event_type is EventType.CASH_MERGER]
+        assert len(ev) == 1
+        assert ev[0].detail["settlement_source"] == "LAST_TRUSTWORTHY_MARK"
+        assert ev[0].price == pytest.approx(final_traded_price), (
+            "settled at the event-time mark instead of the last price the "
+            "security actually traded at")
+
     def test_a_delisted_security_SETTLES_when_the_grace_expires(self):
         """REGRESSION, rehearsal-blocking. Found 2026-08-08.
 
