@@ -141,11 +141,15 @@ else:
         print(f"  {C['y']}silent stretch of roughly the time phase 2 just took."
               f"{C['x']}")
 
-perf = (prog.get("performance") or {}) if prog.get("running") else \
-       ((run or {}).get("summary") or {}).get("performance") or {}
+# STATUS is authoritative, not `prog.running`. bt-engine clears `_progress` when
+# a run STARTS, never when it ends, so a finished run keeps serving its last
+# snapshot with running=true — which made a SUCCESS render as PROVISIONAL and
+# quote the progress figures instead of the real ones.
+final = status in ("success", "failed")
+perf = (((run or {}).get("summary") or {}).get("performance") or {}) if final \
+       else (prog.get("performance") or {})
 
 if perf:
-    final = not prog.get("running")
     print(f"  {C['d']}{'─' * 62}{C['x']}")
     tag = f"{C['g']}FINAL{C['x']}" if final else f"{C['y']}PROVISIONAL{C['x']}"
     print(f"  {C['b']}PERFORMANCE{C['x']}  {tag}")
@@ -190,10 +194,12 @@ if perf:
               f"\n    diverges shows healthy numbers and then publishes none{C['x']}")
 
 summary = (run or {}).get("summary") or {}
-counters = {k: v for k, v in summary.items()
+counters = dict(summary.get("settlement_counters") or {})
+counters.update({k: v for k, v in summary.items()
             if k in ("exact_terminal_settlements", "market_exit_terminal_settlements",
                      "derived_last_mark_settlements", "orphan_zero_writeoffs",
-                     "unresolved_terminal_events", "pending_terms_carried")}
+                     "unresolved_terminal_events", "pending_terms_carried")})
+counters = {k: v for k, v in counters.items() if not k.endswith("_notional")}
 if counters:
     print(f"  {C['d']}{'─' * 62}{C['x']}")
     print(f"  {C['b']}SETTLEMENT{C['x']}  {C['d']}read these BEFORE any"

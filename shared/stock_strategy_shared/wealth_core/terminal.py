@@ -196,7 +196,7 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
     diverge.
     """
     from stock_strategy_shared.wealth_core.settlement import (
-        SettlementSource, resolve_settlement, tally_pending_entry)
+        SettlementSource, resolve_settlement, tally, tally_pending_entry)
 
     slot_id = next((s for s, ep in sorted(state.episodes.items())
                     if ep.security_id == terms.security_id), None)
@@ -260,11 +260,17 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
         # admissions until somebody supplies the terms.
         ok, why = terms.completeness(ep.current_shares)
         state.unresolved_terminals[sec] = why
+        if counters is not None:
+            tally(counters, decision, ep.current_shares)
         return {"applied": False, "reason": why, "blocked": True,
                 "security_id": sec, "kind": terms.kind.value,
                 **decision.provenance()}
 
     # Settling, by whatever route: the grace is over for this security.
+    # Tallied HERE, before dispatch, because every _apply_* path releases the
+    # episode and the share count is gone afterwards.
+    if counters is not None:
+        tally(counters, decision, ep.current_shares)
     state.unresolved_terminals.pop(sec, None)
     state.terminal_pending_sessions.pop(sec, None)
     state.terminal_pending_terms.pop(sec, None)
@@ -467,7 +473,7 @@ def sweep_pending_terms(state: PortfolioState, *, ledger: Ledger, session: str,
     hold a slot forever.
     """
     from stock_strategy_shared.wealth_core.settlement import (
-        SettlementSource, resolve_settlement)
+        SettlementSource, resolve_settlement, tally)
     out: list[dict] = []
     done = resolved_this_session or set()
 
@@ -518,11 +524,15 @@ def sweep_pending_terms(state: PortfolioState, *, ledger: Ledger, session: str,
             state.unresolved_terminals[sec] = why
             state.terminal_pending_sessions.pop(sec, None)
             state.terminal_pending_terms.pop(sec, None)
+            if counters is not None:
+                tally(counters, decision, ep.current_shares)
             out.append({"session": session, "applied": False, "blocked": True,
                         "security_id": sec, "reason": why,
                         **decision.provenance()})
             continue
 
+        if counters is not None:
+            tally(counters, decision, ep.current_shares)
         state.unresolved_terminals.pop(sec, None)
         state.terminal_pending_sessions.pop(sec, None)
         state.terminal_pending_terms.pop(sec, None)
@@ -542,7 +552,8 @@ def sweep_pending_terms(state: PortfolioState, *, ledger: Ledger, session: str,
 
 
 def sweep_orphans(state: PortfolioState, *, ledger: Ledger, session: str,
-                  terminated: set[str] | None = None) -> list[dict]:
+                  terminated: set[str] | None = None,
+                  counters: dict | None = None) -> list[dict]:
     """C2. Write off holdings that simply STOPPED PRINTING with no record.
 
     Its own pass rather than part of `apply_terminal`, because there is no event
@@ -558,7 +569,7 @@ def sweep_orphans(state: PortfolioState, *, ledger: Ledger, session: str,
     the run reports clean completion.
     """
     from stock_strategy_shared.wealth_core.settlement import (
-        SettlementSource, resolve_settlement)
+        SettlementSource, resolve_settlement, tally)
     out: list[dict] = []
     skip = terminated or set()
     for slot_id, ep in sorted(state.episodes.items()):
@@ -572,6 +583,8 @@ def sweep_orphans(state: PortfolioState, *, ledger: Ledger, session: str,
                 sec, 0))
         if decision.source is not SettlementSource.ZERO_ORPHAN:
             continue
+        if counters is not None:
+            tally(counters, decision, ep.current_shares)
         out.append({"session": session,
                     **_apply_proxy(state, slot_id, ep, ledger, session,
                                    decision, None)})

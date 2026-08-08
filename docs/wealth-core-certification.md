@@ -229,7 +229,12 @@ status == "success"                         a divergence RAISES, so success mean
 first measured session                      substantial eligible universe, book
                                             constructing up to 25 at once
 trace_problems == []; entries_without_a_price == 0; peak_book_size == 25
-the SIX settlement counters PRESENT         a three-year run over ~2000 names
+the SIX settlement counters PRESENT         WIRED 2026-08-08 — before that fix
+                                            NO run emitted them at all, so this
+                                            criterion was unmeetable and a run
+                                            reporting none was not evidence of a
+                                            quiet corpus. A three-year run over
+                                            ~2000 names
                                             reporting none of them has not
                                             measured what it claims
 derived_last_mark_settlements > 0           THE ONE TO READ FIRST. Sharadar

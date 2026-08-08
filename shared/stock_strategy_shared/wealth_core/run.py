@@ -75,6 +75,17 @@ class RunResult:
     blocked_sessions: list[str] = field(default_factory=list)
     terminal_results: list[dict] = field(default_factory=list)
     final: FinalReport | None = None
+    # How every terminal event was resolved — see settlement.SETTLEMENT_COUNTERS.
+    # DELIBERATELY ABSENT FROM `to_dict()`, so it never reaches a parity hash:
+    # it is a REPORT, and the settlement events it counts are already hashed via
+    # the ledger, so a counter that disagreed with the run would show up there.
+    # Hashing it would also add a second thing to re-pin for no extra evidence.
+    #
+    # It exists because nothing else answers "did the waterfall settle, or did
+    # the book quietly block?" — a blocked book still completes and still
+    # reports a plausible CAGR, so the counters are the only place that failure
+    # is visible.
+    settlement_counters: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         """Canonical, order-independent serialisation.
@@ -202,7 +213,12 @@ def run_sessions(*, sessions: Sequence[str],
                 f"and the position would stay outstanding. Refused rather than "
                 f"dropped.")
 
-    out = RunResult(state=state, ledger=ledger)
+    from stock_strategy_shared.wealth_core.settlement import empty_counters
+    # ZEROED, not empty: a missing key reads as "not measured", and the whole
+    # point of these counters is to distinguish "no proxy settlements happened"
+    # from "nobody looked".
+    out = RunResult(state=state, ledger=ledger,
+                    settlement_counters=empty_counters())
     last_norm = None
 
     for session in sessions:
@@ -220,7 +236,8 @@ def run_sessions(*, sessions: Sequence[str],
                            security_bars=norm.security_bars,
                            # Applied INSIDE the session, at their documented
                            # position after splits/dividends and before fills.
-                           terminal_terms=events_by_session.get(session, []))
+                           terminal_terms=events_by_session.get(session, []),
+                           settlement_counters=out.settlement_counters)
         out.sessions.append(res)
         out.terminal_results.extend(res.terminal_results)
         if res.blocked:

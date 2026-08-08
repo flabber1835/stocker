@@ -104,6 +104,12 @@ class ChainRehearsal:
     # sessions. Its drawdown is a LOWER BOUND — see `rehearse_chain`.
     performance_excluding_blocked: dict = field(default_factory=dict)
     equivalence: dict = field(default_factory=dict)
+    # HOW every terminal event resolved. Taken from the BULK run, which the
+    # parity check above has already proven reproduces the live path — the same
+    # justification `performance` uses. Reported because a book that BLOCKED its
+    # terminations still completes and still publishes a plausible CAGR, so
+    # these counters are the only place that failure is visible.
+    settlement_counters: dict = field(default_factory=dict)
     traces: list[dict] = field(default_factory=list)
     trace_problems: list[str] = field(default_factory=list)
     profile_hash: str = ""
@@ -139,6 +145,7 @@ class ChainRehearsal:
             "chain_performance": dict(self.chain_performance),
             "performance_excluding_blocked": dict(self.performance_excluding_blocked),
             "equivalence": dict(self.equivalence),
+            "settlement_counters": dict(self.settlement_counters),
             "traces": list(self.traces),
             "trace_problems": list(self.trace_problems),
             "risk_profile": PROFILE_NAME,
@@ -464,6 +471,7 @@ def rehearse_chain(*, sessions: Sequence[str],
     # fills — so it reports no turnover, and exists to prove the two paths agree
     # on the money as well as on the hashes. The hashes cover state and the
     # ledger; neither covers the valuation series.
+    out.settlement_counters = dict(bulk.settlement_counters)
     out.performance = measure_run_result(
         bulk, starting_cash, benchmark_closes=benchmark_closes,
         benchmark_ticker=benchmark_ticker).to_dict()

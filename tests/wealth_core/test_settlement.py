@@ -544,3 +544,64 @@ class TestAPendingCarryIsCountedOnce:
             tally_pending_entry(empty_counters(),
                                 resolve_settlement(terms=_exact(), shares=100),
                                 100, already_pending=False)
+
+
+# ── the counters must actually be PRODUCED, not merely producible ────────────
+
+class TestTheCountersReachTheRunResult:
+    """REGRESSION. `step_session` took a `settlement_counters` argument and
+    nothing ever passed one, so every run reported no counters at all and the
+    certification acceptance criterion "the settlement counters PRESENT" was
+    unmeetable. The plumbing existed and looked wired; it recorded nothing.
+
+    That is the same shape as the `intent reconciliation skipped` trap — a
+    reporting path that is deployed, silent, and mistaken for coverage.
+    """
+
+    def _run(self):
+        from stock_strategy_shared.wealth_core.golden import golden_scenario
+        from stock_strategy_shared.wealth_core.run import run_sessions
+        g = golden_scenario()
+        return g, run_sessions(
+            sessions=g.sessions, bars_by_session=g.bars_by_session, meta=g.meta,
+            starting_cash=g.starting_cash, terminal_events=g.terminal_events)
+
+    def test_a_run_reports_every_counter(self):
+        _, r = self._run()
+        for k in SETTLEMENT_COUNTERS:
+            assert k in r.settlement_counters, (
+                f"{k} absent — a missing key reads as 'not measured', which is "
+                f"the distinction these counters exist to preserve")
+
+    def test_the_counters_are_not_all_zero_on_a_scenario_with_terminals(self):
+        """The falsifier for the defect itself. The golden scenario applies five
+        terminal events, so a run reporting nothing but zeros has not counted
+        them — which is exactly what shipped."""
+        _, r = self._run()
+        counted = sum(r.settlement_counters[k] for k in SETTLEMENT_COUNTERS)
+        assert counted > 0, (
+            "every counter is zero on a scenario with five terminal events: "
+            "the tally is not being called")
+
+    def test_the_settling_paths_are_counted_not_only_the_carry(self):
+        """The first fix wired ONLY `tally_pending_entry`, so `pending_terms_carried`
+        moved and every settlement stayed at zero — a counter set that looked
+        alive while under-reporting the thing it exists to report."""
+        _, r = self._run()
+        c = r.settlement_counters
+        assert c["exact_terminal_settlements"] > 0, (
+            "the golden scenario settles terminals on exact terms; a zero here "
+            "means only the pending branch is tallied")
+
+    def test_the_counters_NEVER_reach_the_parity_hash(self):
+        """They are a REPORT. The settlement events themselves are already
+        hashed through the ledger, so a counter disagreeing with its run shows
+        up there; hashing the report as well would add a second artefact to
+        re-pin for no extra evidence — and would make an operator-facing
+        summary field a parity input."""
+        _, r = self._run()
+        assert "settlement_counters" not in r.to_dict()
+        before = r.result_hash()
+        r.settlement_counters["orphan_zero_writeoffs"] = 999_999
+        assert r.result_hash() == before, (
+            "mutating a derived counter moved the parity hash")

@@ -521,7 +521,8 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                                 resolved_this_session=terminated,
                                 counters=settlement_counters)
     swept += sweep_orphans(state, ledger=ledger, session=session,
-                           terminated=terminated)
+                           terminated=terminated,
+                           counters=settlement_counters)
     if swept:
         terminal_results.extend(swept)
         held = state.held_security_ids()
