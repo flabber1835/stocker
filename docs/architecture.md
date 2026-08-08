@@ -5190,6 +5190,65 @@ NO TERMINAL EVENT AT ALL
           -> write off to ZERO after a predeclared ORPHAN_TIMEOUT
 ```
 
+### AMENDMENT (2026-08-08): C1 needs its OWN grace period, and a MARK is not a SETTLEMENT
+
+The first implementation settled C1 on the FIRST session a documented event
+appeared without terms. The golden fixture rejected it, and was right to: its
+`SEC_STRANDED` case models an acquisition ANNOUNCED at one session and resolved
+for $54 cash later, and immediate settlement forecloses terms that arrive after
+the announcement. Harmless over a frozen corpus, where terms never arrive at all.
+WRONG for a live stateful book, where a documented announcement routinely
+precedes the consideration by days or weeks.
+
+The fixture exposed a real semantic flaw. It is NOT re-pinned around the old
+behaviour.
+
+**THE DISTINCTION THAT WAS MISSING: a carrying MARK is not a SETTLEMENT.**
+Missing terms need not mean UNRESOLVED_EQUITY when a trustworthy mark exists. The
+last mark can VALUE the position without CONVERTING it to cash, and conflating
+those forced a false choice between freezing the book and inventing a settlement.
+
+```text
+KNOWN TERMINAL EVENT
+1  exact terms already known          -> apply exact terms
+2  executable terminal-day print      -> settle from that print
+3  terms missing                      -> TERMINAL_PENDING_TERMS
+                                         carry at the last trustworthy mark
+                                         do NOT convert to cash
+                                         do NOT release the slot
+4  during the grace period
+     exact terms arrive               -> exact terms
+     executable print appears         -> that print
+5  grace expires, nothing better      -> DERIVED_TERMINAL_SETTLEMENT_LAST_MARK
+
+NO DOCUMENTED EVENT + stops printing + ORPHAN_TIMEOUT -> ORPHAN_ZERO_WRITE_OFF
+```
+
+`TERMINAL_PENDING_TERMS` is the new state, and what it buys is that all four of
+these hold at once:
+
+```text
+portfolio equity stays MEASURABLE      the mark is trustworthy
+admissions may continue                equity is known, so 4% of it is a number
+the position stays economically UNRESOLVED
+later exact terms REPLACE the provisional valuation, with no retrospective
+  mutation of anything already settled
+```
+
+**C1_GRACE_SESSIONS = 10, shorter than C2's ORPHAN_TIMEOUT_SESSIONS = 20.** The
+asymmetry is deliberate: under C1 a corporate event is KNOWN to exist, so less
+waiting is warranted than for an undocumented disappearance. Ten sessions is long
+enough for late terms or a follow-up corporate-action record, short enough that
+one unresolved acquisition cannot hold portfolio equity hostage for months.
+PREDECLARED as accounting semantics and FROZEN — 5 versus 10 versus 20 is not to
+be chosen on CAGR.
+
+Consequence for the golden fixture: `SEC_STRANDED` now behaves as the scenario
+always described. Announced with no terms, carried at its last trustworthy mark
+through the grace period, then settled at the real $54 when terms arrive. No
+contradiction, and the fixture's block coverage survives without inventing a new
+case for it.
+
 **C1 — last trustworthy mark, for a KNOWN event with unavailable terms.** The
 claim being valued is real and the liquidity event is documented. For a cash deal
 the final market price incorporates the market's estimate of the consideration
