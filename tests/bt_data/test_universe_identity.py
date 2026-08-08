@@ -168,11 +168,24 @@ def bt_dsn():
 
 
 def _fresh_module(dsn):
+    """Import bt-data's `app.main`, whichever suites ran before this one.
+
+    Clearing sys.modules is not enough on its own: several services in this repo
+    each own a top-level package called `app`, so if tests/backtester ran first
+    its directory sits earlier on sys.path and `app.main` re-imports as the
+    BACKTESTER's module — which then has no `_upsert_universe` and fails in a way
+    that looks like a code regression rather than a path collision. Re-asserting
+    priority makes these tests independent of suite ORDER.
+    """
     os.environ["BT_DATABASE_URL"] = dsn
     for k in list(sys.modules):
         if k == "app" or k.startswith("app."):
             del sys.modules[k]
-    import app.main as btmain
+    sys.path.insert(0, str(BT_DATA))
+    try:
+        import app.main as btmain
+    finally:
+        sys.path.remove(str(BT_DATA))
     return btmain
 
 
