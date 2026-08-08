@@ -71,17 +71,75 @@ if status:
     if (run or {}).get("error_message"):
         print(f"  {C['r']}error     {run['error_message']}{C['x']}")
 
-if not prog.get("running"):
-    print(f"  progress  {C['d']}{prog.get('detail', 'no snapshot yet')}{C['x']}")
-    if status == "running":
-        print(f"            {C['d']}the bulk-replay pass emits nothing — a silent"
-              f"\n            stretch here is normal, not a hang{C['x']}")
+# PHASES. A rehearsal is five steps and only ONE of them reports progress, so
+# a bare percentage reaching 100% while the job keeps running reads as a stall.
+# The bar is scoped to the phase it actually measures and the rest are listed.
+done_sessions = prog.get("sessions_done") or 0
+total_sessions = prog.get("sessions_total") or 0
+chain_done = prog.get("running") and total_sessions and done_sessions >= total_sessions
+terminal = status in ("success", "failed")
+
+if terminal:
+    phase = 5
+elif chain_done:
+    phase = 3          # bulk replay / parity / measurement, none of which report
+elif prog.get("running"):
+    phase = 2
 else:
-    p = prog.get("pct")
-    print(f"  progress  {C['c']}{bar(p)}{C['x']}  "
-          f"{C['b']}{'—' if p is None else f'{p:.1f}%'}{C['x']}")
-    print(f"            {prog.get('sessions_done')} / {prog.get('sessions_total')}"
+    phase = 1
+
+PHASES = [
+    (1, "corpus load + warm-up", "no progress reported"),
+    (2, "chain pass", "session by session — the bar below"),
+    (3, "bulk replay", "re-runs EVERY session again, reports nothing"),
+    (4, "parity check", "raises on divergence"),
+    (5, "measurement", "performance, after parity"),
+]
+if terminal:
+    print(f"  {C['b']}PHASE 5/5{C['x']}  "
+          f"{(C['g'] if status == 'success' else C['r'])}{C['b']}"
+          f"all phases {'complete' if status == 'success' else 'ended — see error'}"
+          f"{C['x']}")
+else:
+    print(f"  {C['b']}PHASE {phase}/5{C['x']}  "
+          f"{C['c']}{C['b']}{PHASES[phase - 1][1]}{C['x']}")
+for n, name, note in PHASES:
+    if terminal:
+        mark, col = "✓", C["d"]
+    elif n < phase:
+        mark, col = "✓", C["g"]
+    elif n == phase:
+        mark, col = "▶", C["c"]
+    else:
+        mark, col = " ", C["d"]
+    print(f"    {col}{mark} {n}. {name:<22}{C['d']}{note}{C['x']}")
+
+if not terminal:
+    print(f"  {C['d']}{'─' * 62}{C['x']}")
+if terminal:
+    pass          # the phase list above already says everything
+elif not prog.get("running"):
+    print(f"  chain     {C['d']}{prog.get('detail', 'no snapshot yet')}{C['x']}")
+    if status == "running":
+        print(f"            {C['d']}phase 1 reports nothing — a silent stretch"
+              f" here is normal{C['x']}")
+else:
+    pc = prog.get("pct")
+    col = C["g"] if chain_done else C["c"]
+    print(f"  chain     {col}{bar(pc)}{C['x']}  "
+          f"{C['b']}{'—' if pc is None else f'{pc:.1f}%'}{C['x']}"
+          f"   {C['d']}of the CHAIN PASS only{C['x']}")
+    print(f"            {done_sessions} / {total_sessions}"
           f" sessions   {C['d']}at {prog.get('current_session')}{C['x']}")
+    if chain_done and not terminal:
+        print()
+        print(f"  {C['y']}{C['b']}The chain pass is done; the run is NOT.{C['x']}")
+        print(f"  {C['y']}Phase 3 replays all {total_sessions} sessions a second"
+              f" time to prove the{C['x']}")
+        print(f"  {C['y']}live path reproduces it, and emits no progress at all."
+              f" Expect a{C['x']}")
+        print(f"  {C['y']}silent stretch of roughly the time phase 2 just took."
+              f"{C['x']}")
 
 perf = (prog.get("performance") or {}) if prog.get("running") else \
        ((run or {}).get("summary") or {}).get("performance") or {}
