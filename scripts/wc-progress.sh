@@ -18,19 +18,34 @@
 set -uo pipefail
 
 URL="${BT_ENGINE_URL:-http://localhost:8031}"
+# 10s was too tight. Phase 1 and phase 3 are CPU-bound and hold the GIL, so
+# bt-engine's event loop answers slowly even when it is perfectly healthy — a
+# poller that times out there reports an outage that is not happening.
+TIMEOUT="${WC_HTTP_TIMEOUT:-45}"
 WATCH=0; EVERY=30
 if [ "${1:-}" = "-w" ] || [ "${1:-}" = "--watch" ]; then
     WATCH=1; [ -n "${2:-}" ] && EVERY="$2"
 fi
 
 render() {
-    curl -s --max-time 10 "$URL/wealth-core/progress" -o /tmp/.wc_prog.json
+    curl -s --max-time "$TIMEOUT" "$URL/wealth-core/progress" -o /tmp/.wc_prog.json
     local rc=$?
-    if [ $rc -ne 0 ]; then
-        printf '\n  bt-engine unreachable at %s (curl rc=%s)\n\n' "$URL" "$rc"
+    if [ $rc -eq 28 ]; then
+        printf '\n  bt-engine did not answer within %ss (curl rc=28, TIMEOUT).\n' "$TIMEOUT"
+        printf '  This is usually GIL starvation during a CPU-bound phase, NOT a\n'
+        printf '  crash — the corpus load and the bulk replay both block the loop.\n'
+        printf '  Confirm it is alive rather than assuming either way:\n'
+        printf '    docker compose -f docker-compose.backtest.yml ps bt-engine\n'
+        printf '    docker stats --no-stream $(docker compose -f docker-compose.backtest.yml ps -q bt-engine)\n'
+        printf '  A container at 100%% of its mem_limit is thrashing, not working.\n\n'
         return 1
     fi
-    curl -s --max-time 10 "$URL/wealth-core/runs/latest" -o /tmp/.wc_run.json
+    if [ $rc -ne 0 ]; then
+        printf '\n  bt-engine unreachable at %s (curl rc=%s)\n' "$URL" "$rc"
+        printf '  rc=7 means nothing is listening — the container is down.\n\n'
+        return 1
+    fi
+    curl -s --max-time "$TIMEOUT" "$URL/wealth-core/runs/latest" -o /tmp/.wc_run.json
     python3 - "$URL" <<'PY'
 import json, sys, datetime
 
@@ -242,7 +257,7 @@ PY
 if [ "$WATCH" = "1" ]; then
     while true; do
         clear; render
-        st=$(curl -s --max-time 10 "$URL/wealth-core/runs/latest" \
+        st=$(curl -s --max-time "$TIMEOUT" "$URL/wealth-core/runs/latest" \
              | python3 -c "import json,sys; print(json.load(sys.stdin).get('status',''))" 2>/dev/null)
         case "$st" in success|failed) echo "  run is terminal — stopping watch"; break;; esac
         sleep "$EVERY"
