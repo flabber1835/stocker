@@ -92,9 +92,42 @@ class SessionRehearsal:
                                     else round(self.resolved_equity, 2))}
 
 
+#: How much PER-SESSION DIAGNOSTIC DETAIL a rehearsal keeps in memory.
+#:
+#: RETENTION MUST NEVER INFLUENCE EXECUTION. It changes what diagnostic detail
+#: survives, never what the simulation does — every aggregate, hash, counter and
+#: certification output is folded in as each session completes and is identical
+#: under all three modes. `test_retention_modes_are_certification_equivalent`
+#: runs the golden fixture under `full` and `bounded` and requires EXACT
+#: equality, not tolerance.
+#:
+#:   full      every SessionRehearsal and RunTrace, for the whole run. The
+#:             default, and what short runs and the golden fixture use, so
+#:             existing debugging is unchanged.
+#:   bounded   the most recent `retention_tail` of each. Memory stops scaling
+#:             with run length; the tail is what a post-mortem actually reads.
+#:   none      no per-session detail at all. For a certification run where the
+#:             hashes and counters are the output and nothing else is read.
+RETENTION_MODES = ("full", "bounded", "none")
+DEFAULT_RETENTION_TAIL = 50
+
+
 @dataclass
 class ChainRehearsal:
     sessions: list[SessionRehearsal] = field(default_factory=list)
+    # The equity series, ALWAYS retained in full regardless of retention mode.
+    # Three scalars per session against a SessionRehearsal's per-intent verdict
+    # lists, so it costs almost nothing — and `chain_performance` is computed
+    # from it, so dropping it would silently change a certification output
+    # rather than a diagnostic. This is the line that keeps retention out of the
+    # result.
+    session_facts: list = field(default_factory=list)
+    retention_mode: str = "full"
+    retention_tail: int = DEFAULT_RETENTION_TAIL
+    # What retention DISCARDED, so a reader never mistakes a bounded run's
+    # short `sessions` list for a short run.
+    sessions_elided: int = 0
+    traces_elided: int = 0
     bulk_hashes: dict = field(default_factory=dict)
     # DERIVED measurement, computed only after equivalence is proven — see
     # `rehearse_chain`. Never an input to a hash.
@@ -146,6 +179,10 @@ class ChainRehearsal:
             "performance_excluding_blocked": dict(self.performance_excluding_blocked),
             "equivalence": dict(self.equivalence),
             "settlement_counters": dict(self.settlement_counters),
+            "retention": {"mode": self.retention_mode,
+                          "tail": self.retention_tail,
+                          "sessions_elided": self.sessions_elided,
+                          "traces_elided": self.traces_elided},
             "traces": list(self.traces),
             "trace_problems": list(self.trace_problems),
             "risk_profile": PROFILE_NAME,
@@ -258,9 +295,10 @@ def _progress_snapshot(done, all_sessions, starting_cash, current,
     """
     p = measure(
         starting_cash=starting_cash,
-        sessions=[SessionFacts(session=s.session,
-                               resolved_equity=s.resolved_equity,
-                               blocked=s.blocked) for s in done],
+        # `done` is the always-retained SessionFacts series, NOT the retained
+        # SessionRehearsal objects — progress must read identically under every
+        # retention mode.
+        sessions=list(done),
         allow_blocked_gaps=True,
         benchmark_closes=benchmark_closes,
         benchmark_ticker=benchmark_ticker,
@@ -287,6 +325,8 @@ def rehearse_chain(*, sessions: Sequence[str],
                    warmup_sessions: Sequence[str] = (),
                    on_progress: Any = None,
                    progress_every: int = 5,
+                   retention_mode: str = "full",
+                   retention_tail: int = DEFAULT_RETENTION_TAIL,
                    benchmark_closes: Mapping[str, float] | None = None,
                    benchmark_ticker: str | None = None,
                    ) -> ChainRehearsal:
@@ -307,7 +347,30 @@ def rehearse_chain(*, sessions: Sequence[str],
     profile = require_profile(STATEFUL_MODEL, DEFAULT_PROFILES)
     cfg = cfg or WealthCoreConfig()
 
-    out = ChainRehearsal(profile_hash=profile.profile_hash())
+    if retention_mode not in RETENTION_MODES:
+        raise ValueError(
+            f"retention_mode must be one of {RETENTION_MODES}, got "
+            f"{retention_mode!r}. Refused rather than defaulted: silently "
+            f"falling back to 'full' on a typo is how a certification run "
+            f"OOMs after three hours.")
+    out = ChainRehearsal(profile_hash=profile.profile_hash(),
+                         retention_mode=retention_mode,
+                         retention_tail=max(0, int(retention_tail)))
+
+    def _retain(bucket: list, item, elided_attr: str) -> None:
+        """Append under `full`; keep a bounded tail otherwise.
+
+        Called AFTER every aggregate, hash and counter has already consumed the
+        item, which is what makes this a storage decision rather than a
+        behavioural one.
+        """
+        if retention_mode == "none":
+            setattr(out, elided_attr, getattr(out, elided_attr) + 1)
+            return
+        bucket.append(item)
+        if retention_mode == "bounded" and len(bucket) > out.retention_tail:
+            del bucket[0]
+            setattr(out, elided_attr, getattr(out, elided_attr) + 1)
 
     # ── the chain, one session at a time ─────────────────────────────────────
     state = PortfolioState.fresh(starting_cash, cfg.n_slots)
@@ -400,13 +463,18 @@ def rehearse_chain(*, sessions: Sequence[str],
         trace.stages_bypassed.extend(LEGACY_STAGES_BYPASSED)
 
         problems = trace.validate()
-        out.traces.append(trace.to_dict())
+        _retain(out.traces, trace.to_dict(), "traces_elided")
         if problems:
             # Collected, never raised: a trace is EVIDENCE, and a caller that
             # cannot save a flawed one has no way to show what happened on a
             # bad day. The rehearsal's own PASS/FAIL is the hash equivalence.
             out.trace_problems.extend(f"{session}: {p}" for p in problems)
-        out.sessions.append(sr)
+        # The FACTS first and unconditionally — `chain_performance` is a
+        # certification output and must not depend on retention.
+        out.session_facts.append(SessionFacts(session=sr.session,
+                                              resolved_equity=sr.resolved_equity,
+                                              blocked=sr.blocked))
+        _retain(out.sessions, sr, "sessions_elided")
 
         # ── live progress ────────────────────────────────────────────────────
         # PROVISIONAL by construction and labelled as such. The authoritative
@@ -419,7 +487,7 @@ def rehearse_chain(*, sessions: Sequence[str],
                 len(out.sessions) % max(1, progress_every) == 0
                 or len(out.sessions) == len(sessions)):
             on_progress(_progress_snapshot(
-                out.sessions, sessions, starting_cash, session,
+                out.session_facts, sessions, starting_cash, session,
                 benchmark_closes, benchmark_ticker))
 
     out.final_cash = state.cash
@@ -477,10 +545,7 @@ def rehearse_chain(*, sessions: Sequence[str],
         benchmark_ticker=benchmark_ticker).to_dict()
     out.chain_performance = measure(
         starting_cash=starting_cash,
-        sessions=[SessionFacts(session=s.session,
-                               resolved_equity=s.resolved_equity,
-                               blocked=s.blocked)
-                  for s in out.sessions],
+        sessions=list(out.session_facts),
         benchmark_closes=benchmark_closes, benchmark_ticker=benchmark_ticker,
     ).to_dict()
 

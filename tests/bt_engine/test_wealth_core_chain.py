@@ -524,3 +524,120 @@ class TestLiveProgress:
                 config={"execution_model": STATEFUL_MODEL},
                 on_progress=seen.append, progress_every=20)
         assert seen, "progress did fire during the run"
+
+
+# ── retention is STORAGE, never behaviour ────────────────────────────────────
+
+class TestRetentionModesAreCertificationEquivalent:
+    """Three OOM kills proved the memory problem was architectural, not a
+    Docker limit: `rehearse_chain` retained a SessionRehearsal and a RunTrace
+    for every session of the run, so peak memory scaled linearly with the
+    window and a 753-session rehearsal could not complete on the host.
+
+    `retention_mode` bounds that. The whole safety of the change rests on ONE
+    claim — retention decides what diagnostic detail survives and NEVER what
+    the simulation does — so it is asserted directly rather than argued: the
+    same fixture is run under `full` and `bounded` and every certification
+    output must be EXACTLY equal. Not close, equal.
+
+    Deliberately not asserted against a hardcoded expected value. The claim is
+    equivalence between the two paths, which stays true when the strategy is
+    legitimately re-pinned; a golden constant here would have to be updated on
+    every unrelated semantic change and would rot into a rubber stamp.
+    """
+
+    def _run(self, scenario, **kw):
+        g, sessions = scenario
+        return rehearse_chain(
+            sessions=sessions, bars_by_session=g.bars_by_session, meta=g.meta,
+            starting_cash=g.starting_cash, terminal_events=g.terminal_events,
+            config={"execution_model": STATEFUL_MODEL}, **kw)
+
+    #: Everything a certification statement is allowed to rest on. `sessions`
+    #: and `traces` are deliberately ABSENT — those are the diagnostics
+    #: retention is permitted to drop, and including them would make this test
+    #: unpassable by construction.
+    CERTIFICATION_KEYS = (
+        "bulk_hashes", "equivalence", "settlement_counters", "performance",
+        "chain_performance", "performance_excluding_blocked",
+        "trace_problems", "rejected_intents", "rejections",
+        "entries_without_a_price", "peak_book_size", "book_size_by_session",
+        "final_cash", "final_positions", "risk_profile", "risk_profile_hash",
+        "execution_model",
+    )
+
+    @pytest.fixture(scope="class")
+    def pair(self, scenario):
+        full = self._run(scenario, retention_mode="full")
+        bounded = self._run(scenario, retention_mode="bounded",
+                            retention_tail=5)
+        return full, bounded
+
+    @pytest.mark.parametrize("key", CERTIFICATION_KEYS)
+    def test_every_certification_output_is_identical(self, pair, key):
+        full, bounded = pair
+        assert full.to_dict()[key] == bounded.to_dict()[key], (
+            f"{key} moved between retention modes — retention has reached "
+            f"execution, which is the one thing it may never do")
+
+    def test_none_mode_is_equivalent_too(self, scenario):
+        """The mode a certification run would actually use."""
+        full = self._run(scenario, retention_mode="full").to_dict()
+        none = self._run(scenario, retention_mode="none").to_dict()
+        for key in self.CERTIFICATION_KEYS:
+            assert full[key] == none[key], f"{key} moved under retention_mode=none"
+
+    def test_the_equivalence_hashes_themselves_still_match(self, pair):
+        """The rehearsal's own PASS/FAIL, under both modes. A retention change
+        that broke the live-vs-bulk comparison would be catastrophic and is the
+        first thing to check."""
+        for r in pair:
+            assert r.equivalence["state_hash_matches"] is True
+            assert r.equivalence["ledger_hash_matches"] is True
+
+    def test_bounded_actually_bounds(self, pair, scenario):
+        """Otherwise the equality above is trivially true because nothing was
+        dropped, and the test proves nothing at all."""
+        _, sessions = scenario
+        full, bounded = pair
+        assert len(full.sessions) == len(sessions)
+        assert len(bounded.sessions) == 5
+        assert bounded.sessions_elided == len(sessions) - 5
+        assert len(bounded.traces) == 5
+        assert bounded.traces_elided == len(sessions) - 5
+
+    def test_none_retains_nothing_and_says_how_much(self, scenario):
+        _, sessions = scenario
+        r = self._run(scenario, retention_mode="none")
+        assert r.sessions == [] and r.traces == []
+        assert r.sessions_elided == len(sessions)
+        assert r.traces_elided == len(sessions)
+
+    def test_the_equity_SERIES_is_never_dropped(self, scenario):
+        """`chain_performance` is computed from `session_facts`, which is a
+        certification output rather than a diagnostic. If retention could reach
+        it, a bounded run would report a drawdown measured over five sessions
+        and look perfectly plausible doing so."""
+        _, sessions = scenario
+        for mode in ("full", "bounded", "none"):
+            r = self._run(scenario, retention_mode=mode, retention_tail=5)
+            assert len(r.session_facts) == len(sessions), mode
+
+    def test_the_retained_tail_is_the_MOST_RECENT_sessions(self, pair, scenario):
+        """A post-mortem reads the end of a run, not the beginning."""
+        _, sessions = scenario
+        _, bounded = pair
+        assert [s.session for s in bounded.sessions] == list(sessions[-5:])
+
+    def test_an_unknown_mode_is_REFUSED_not_defaulted(self, scenario):
+        """Silently falling back to `full` on a typo is how a certification run
+        OOMs three hours in."""
+        with pytest.raises(ValueError, match="retention_mode"):
+            self._run(scenario, retention_mode="bounded_")
+
+    def test_the_summary_reports_what_was_dropped(self, pair):
+        """A bounded run's short `sessions` list must not read as a short run."""
+        _, bounded = pair
+        rep = bounded.to_dict()["retention"]
+        assert rep["mode"] == "bounded" and rep["tail"] == 5
+        assert rep["sessions_elided"] > 0
