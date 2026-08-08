@@ -35,6 +35,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
+from enum import Enum
 from typing import Iterable, Sequence
 
 from sqlalchemy import text
@@ -226,20 +227,90 @@ _ACTIONS_SQL = text("""
      ORDER BY date, ticker, action
 """)
 
-# Actions that END a holding. `delisted` and `bankruptcy` are here NOT because
-# they carry proceeds — they usually carry nothing — but because a security that
-# terminated must stop being valued as though it were still trading. What they
-# map to is decided by their TERMS, not by their name; see `terminal_from_action`.
-TERMINAL_ACTIONS = frozenset({
-    "merger", "acquisition", "bankruptcy", "delisted", "liquidation",
-    "reversemerger", "regulatory",
-})
+# ── The vendor's ACTUAL vocabulary, transcribed (2026-08-08) ────────────────
+#
+# THE SEMANTIC FACT this block exists to encode, established by reading VALUES
+# rather than column presence (docs/data-sources.md "Defect D"):
+#
+#     Sharadar ACTIONS gives event IDENTITY and AGGREGATE TRANSACTION VALUE.
+#     It does NOT give holder-level settlement terms — no cash per share and no
+#     exchange ratio, at ANY action type.
+#
+# The previous constant listed seven names of which exactly ONE (`delisted`)
+# exists in the corpus. Comparison is exact set membership, so `acquisitionby`,
+# `mergerto`, `bankruptcyliquidation`, `regulatorydelisting` and
+# `voluntarydelisting` — 12,253 rows — were silently dropped. Termination was
+# still DETECTED, because every one of those 12,253 tickers also carries a
+# `delisted` row (measured: 12,253 of 12,253), so the naming gap cost the
+# COUNTERPARTY IDENTITY rather than the fact of termination.
 
-SPLIT_ACTIONS = frozenset({"split"})
+class ActionSide(str, Enum):
+    """WHOSE holding an action ends.
 
-# Cash distributions. `dividend` is the ordinary one; the others are the names
-# Sharadar uses for distributions that are still cash to the holder.
-DIVIDEND_ACTIONS = frozenset({"dividend", "specialdividend"})
+    The distinction is not decorative. `acquisitionof` (7,193 rows) and
+    `mergerfrom` (116) are the ACQUIRER's side of a deal: the security carrying
+    them BOUGHT something and continues to exist. Treating them as terminal
+    writes off the buyer instead of the target — which is why this is an explicit
+    per-name table and NOT a substring match on "acquisition" or "merger".
+    """
+    TARGET = "TARGET"            # this security terminated
+    ACQUIRER = "ACQUIRER"        # the counterparty terminated; this one lives on
+
+
+#: Every terminal action name OBSERVED in the corpus, with the side it describes.
+#: Add a name only after checking which side it belongs to; an unlisted name is
+#: treated as non-terminal, which is the safe direction (a missed termination
+#: blocks and is visible, a false one destroys a live holding).
+TERMINAL_ACTION_SIDES: dict[str, ActionSide] = {
+    "delisted": ActionSide.TARGET,
+    "acquisitionby": ActionSide.TARGET,          # acquired BY someone
+    "mergerto": ActionSide.TARGET,               # merged INTO something
+    "bankruptcyliquidation": ActionSide.TARGET,
+    "regulatorydelisting": ActionSide.TARGET,
+    "voluntarydelisting": ActionSide.TARGET,
+    "acquisitionof": ActionSide.ACQUIRER,        # NOT terminal for this security
+    "mergerfrom": ActionSide.ACQUIRER,           # NOT terminal for this security
+}
+
+#: The names that END this security's holding.
+TERMINAL_ACTIONS = frozenset(
+    k for k, v in TERMINAL_ACTION_SIDES.items() if v is ActionSide.TARGET)
+
+#: Share-count changes. `adrratiosplit` (386 rows) IS one — an ADR ratio change
+#: alters shares per receipt exactly as a split does — and was absent, so those
+#: adjustments never reached the split factor.
+SPLIT_ACTIONS = frozenset({"split", "adrratiosplit"})
+
+# Cash distributions. `dividend` is the ordinary one; `spinoffdividend` (497) is
+# a distribution that is still cash to the holder and was absent. NOTE:
+# `specialdividend` appears in no row of this corpus and is retained only so a
+# vendor that does emit it is not silently ignored.
+DIVIDEND_ACTIONS = frozenset({"dividend", "specialdividend", "spinoffdividend"})
+
+#: Vendor placeholders that mean ABSENCE. `contraticker` carries the literal
+#: string 'N/A' whenever an acquirer is PRIVATE — 19,216 of 19,216 `delisted`
+#: rows have a non-empty contraticker, none equal to the security's own symbol.
+_VENDOR_SENTINELS = frozenset({"N/A", "NA", "NONE", "NULL", "-", "--"})
+
+
+def vendor_symbol(v) -> str | None:
+    """A vendor symbol field, or None when it states absence.
+
+    DEFECT D1. The idiom this replaces was `row.get("contraticker") or None`,
+    which normalises None and '' and looks total — and passes 'N/A' straight
+    through as truthy. Every terminal row therefore took the security-for-security
+    branch, 'N/A' failed identity resolution, and `completeness()` refused with
+    MISSING_DELIVERED_SECURITY. All 19,216 of them: the same permanent block that
+    froze a three-year rehearsal, reachable without any missing action name.
+
+    Any `or None` over a vendor string is suspect for exactly this reason.
+    """
+    if v is None:
+        return None
+    t = str(v).strip()
+    if not t or t.upper() in _VENDOR_SENTINELS:
+        return None
+    return t
 
 
 def sessions_index(sessions: Sequence[str]) -> list[str]:
@@ -383,28 +454,55 @@ def terminal_from_action(row: dict, session: str, *,
     sid = security_id
     if not sid:
         return None
-    value = row.get("value")
-    value = float(value) if value is not None else None
-    contra = row.get("contraticker") or None
+    # DEFECT D2. `value` is the TRANSACTION VALUE IN MILLIONS OF DOLLARS. It is
+    # identical on the `delisted` and `acquisitionby` rows of one event (so it is
+    # a per-EVENT attribute), and its magnitudes are company sizes: TMHC acquired
+    # by Berkshire carries 6768.8, NUVL by GSK 9792.6, a shell 0.2.
+    #
+    # It was read as an EXCHANGE RATIO. Nothing broke only because
+    # `completeness()` refused first for an unrelated reason; had identity
+    # resolution succeeded, a TMHC holder would have been delivered 6,768.8
+    # shares per share. It is now provenance and NEVER a share or price input.
+    deal_value_musd = row.get("value")
+    deal_value_musd = (float(deal_value_musd)
+                       if deal_value_musd is not None else None)
+    # DEFECT D1: 'N/A' is a sentinel, not a counterparty. See `vendor_symbol`.
+    contra = vendor_symbol(row.get("contraticker"))
+    # The acquirer's NAME is populated even when its ticker is 'N/A' (a PRIVATE
+    # buyer), so it is the only counterparty identity available for those deals.
+    # Provenance only — a name resolves to no security.
+    contra_name = vendor_symbol(row.get("contraname"))
     ref = f"actions/{action}"
+    if deal_value_musd is not None:
+        ref += f" deal_value_musd={deal_value_musd:g}"
+    if contra_name:
+        ref += f" counterparty={contra_name}"
 
+    # ── terms are UNAVAILABLE, for every route ──────────────────────────────
+    #
+    # This corpus supplies no per-share consideration and no exchange ratio, so
+    # there is nothing here that can complete a settlement. What this function
+    # can still do correctly is say WHICH KIND of event happened and record the
+    # provenance, so the terminal-settlement contract has something to act on
+    # (docs/architecture.md "terminal settlement and orphan resolution": C1
+    # settles a KNOWN event with absent terms at the last trustworthy mark).
+    #
+    # Until C1 lands the outcome is unchanged — `completeness()` refuses and the
+    # holding blocks — but it now blocks for the true reason, with the deal value
+    # and counterparty in the audit trail instead of a market cap masquerading as
+    # an exchange ratio.
     if contra:
-        # Security-for-security: the value is an exchange ratio. A missing or
-        # non-positive ratio leaves it incomplete, which blocks — the delivered
-        # share count is not something to guess.
-        # An UNRESOLVED delivered security leaves `delivered_security_id` None,
-        # which `completeness()` refuses with MISSING_DELIVERED_SECURITY — so the
-        # deal BLOCKS. That is the correct outcome: delivering shares under a
-        # guessed identity puts a position in the book under a security that may
-        # not be the acquirer, and `P:` + a TICKER is not a permanent id at all —
-        # it is a ticker wearing the permanent-id namespace's prefix.
+        # A PUBLIC acquirer: the delivered security is nameable, but the ratio
+        # that would size the delivery is not in the table. `exchange_ratio` is
+        # left None rather than filled with the deal value, so `completeness()`
+        # refuses with MISSING_EXCHANGE_RATIO — the honest reason.
         return TerminalTerms(
             session=session, security_id=sid,
             kind=TerminalKind.CONVERSION,
             delivered_security_id=delivered_security_id,
             delivered_ticker=contra,
             delivered_issuer_id=delivered_issuer_id,
-            exchange_ratio=value if (value and value > 0) else None,
+            exchange_ratio=None,
             # A fractional entitlement needs a settlement price and ACTIONS does
             # not carry one. Left None so `completeness()` blocks the deal that
             # actually produces a fraction, rather than silently dropping the
@@ -412,18 +510,22 @@ def terminal_from_action(row: dict, session: str, *,
             cash_in_lieu_price_per_delivered_share=None,
             reference=ref)
 
-    if value is not None and value == 0.0:
-        # A STATED zero. This is the only route to a write-off: the vendor has
-        # said the consideration was nothing, which is a fact rather than the
-        # absence of one.
-        return TerminalTerms(session=session, security_id=sid,
-                             kind=TerminalKind.WRITE_OFF, reference=ref)
-
-    # Cash consideration, or — when value is None — no terms at all, which
-    # blocks. Both are the same shape; only `cash_per_share` differs.
+    # THE STATED-ZERO WRITE-OFF IS REMOVED, and its removal is the point of D2.
+    # It read `value == 0.0` as "the vendor says holders received nothing". With
+    # `value` being a transaction size, a zero is a statement about DEAL SIZE and
+    # says nothing about consideration — so that route wrote positions off at
+    # zero on evidence that never existed. A genuine stated-zero write-off needs
+    # a source that actually states consideration; none is available here.
+    #
+    # Everything else is a terminal event with no terms: emitted as a CASH_MERGER
+    # with `cash_per_share=None`, which `completeness()` rejects and
+    # `apply_terminal` records as BLOCKED. The chosen kind is immaterial — it
+    # never applies — and the ORIGINAL action name plus the deal value ride in
+    # `reference` so the audit says what happened rather than what shape was used
+    # to block it.
     return TerminalTerms(session=session, security_id=sid,
                          kind=TerminalKind.CASH_MERGER,
-                         cash_per_share=value, reference=ref)
+                         cash_per_share=None, reference=ref)
 
 
 def terminal_events_from_actions(rows: Iterable[dict],
@@ -484,7 +586,8 @@ def terminal_events_from_actions(rows: Iterable[dict],
             continue
 
         delivered_sid = delivered_issuer = None
-        contra = r.get("contraticker") or None
+        # DEFECT D1: `or None` does not catch 'N/A'. See `vendor_symbol`.
+        contra = vendor_symbol(r.get("contraticker"))
         if contra:
             delivered_sid = (identity.resolve(contra, session)
                              if identity is not None else contra)
@@ -507,7 +610,47 @@ def terminal_events_from_actions(rows: Iterable[dict],
             delivered_issuer_id=delivered_issuer)
         if t is not None:
             out.append(t)
-    return sorted(out, key=lambda t: (t.session, t.security_id, t.kind.value))
+
+    # ONE EVENT PER (security, session). Sharadar states a single termination
+    # across SEVERAL rows: measured, every one of the 12,253 tickers carrying an
+    # `acquisitionby` / `mergerto` / `bankruptcyliquidation` /
+    # `regulatorydelisting` / `voluntarydelisting` row ALSO carries a `delisted`
+    # row for it. Under the old vocabulary only `delisted` matched, so the
+    # duplication was invisible; recognising the reason names makes two terminal
+    # events for one termination, and `terminal_results` is inside the result
+    # hash — so this deduplication is a correctness requirement, not tidiness.
+    #
+    # The SURVIVOR is the richest row: a `delisted` row carries no counterparty,
+    # while the reason row names the acquirer (and its ticker when public). That
+    # is precisely the identity the old vocabulary was discarding, so preferring
+    # the bare row would reintroduce the loss under a new mechanism.
+    best: dict[tuple[str, str], TerminalTerms] = {}
+    for t in out:
+        k = (t.session, t.security_id)
+        prior = best.get(k)
+        if prior is None or _terms_richness(t) > _terms_richness(prior):
+            if prior is not None:
+                _count("terminal_duplicate_rows_collapsed")
+            best[k] = t
+        else:
+            _count("terminal_duplicate_rows_collapsed")
+    return sorted(best.values(),
+                  key=lambda t: (t.session, t.security_id, t.kind.value))
+
+
+def _terms_richness(t: TerminalTerms) -> tuple:
+    """How much a terminal-terms record actually tells us. Ordering only.
+
+    Deterministic and total, so collapsing duplicates cannot depend on the order
+    the database returned rows in — the same rule the universe writer applies to
+    duplicate identities, and for the same reason.
+    """
+    return (t.delivered_security_id is not None,
+            t.delivered_ticker is not None,
+            t.exchange_ratio is not None,
+            t.cash_per_share is not None,
+            len(t.reference or ""),
+            t.reference or "")
 
 
 def reconcile_split(derived: float, authoritative: float | None,

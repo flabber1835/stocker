@@ -24,7 +24,11 @@ import pytest
 from app.wealth_core_replay import (  # noqa: E402
     ACTIONS_CAVEATS,
     DERIVED_SPLIT_CAVEATS,
+    DIVIDEND_ACTIONS,
+    SPLIT_ACTIONS,
     TERMINAL_ACTIONS,
+    TERMINAL_ACTION_SIDES,
+    ActionSide,
     reconcile_split,
     sessions_index,
     snap_to_session,
@@ -37,6 +41,7 @@ from stock_strategy_shared.wealth_core.ledger import Ledger
 from stock_strategy_shared.wealth_core.state import HoldingEpisode, PortfolioState
 from stock_strategy_shared.wealth_core.terminal import (
     TerminalKind,
+    TerminalTerms,
     apply_terminal,
 )
 
@@ -46,8 +51,11 @@ SESSIONS = sessions_index(["2022-03-01", "2022-03-02", "2022-03-03",
 
 
 def action(**over):
-    base = {"ticker": "AAA", "date": "2022-03-02", "action": "merger",
-            "value": None, "contraticker": None}
+    # `mergerto` — the vendor's ACTUAL name. "merger" appears in no row of the
+    # corpus; the code's old vocabulary listed seven names of which only
+    # `delisted` existed. See docs/data-sources.md "Defect D".
+    base = {"ticker": "AAA", "date": "2022-03-02", "action": "mergerto",
+            "value": None, "contraticker": None, "contraname": None}
     base.update(over)
     return base
 
@@ -111,7 +119,7 @@ class TestAuthoritativeSplits:
 
     def test_non_split_actions_are_ignored(self):
         rows = [action(action="dividend", value=0.5),
-                action(action="merger", value=54.0)]
+                action(action="mergerto", value=54.0)]
         assert split_ratios_from_actions(rows, SESSIONS) == {}
 
 
@@ -150,37 +158,142 @@ class TestReconciliation:
 
 class TestTerminalMapping:
 
-    def test_a_cash_merger_carries_its_price(self):
-        t = terminal_from_action(action(action="merger", value=54.0),
-                                 "2022-03-02", security_id="P:1")
-        assert t.kind is TerminalKind.CASH_MERGER
-        assert t.cash_per_share == 54.0
-        assert t.completeness(100)[0] is True
+    def test_a_DEAL_VALUE_never_becomes_a_PER_SHARE_PRICE(self):
+        """DEFECT D2. `value` is the TRANSACTION VALUE IN MILLIONS.
 
-    def test_a_stock_deal_becomes_a_CONVERSION_with_the_ratio(self):
-        """`contraticker` is the discriminator: its presence means the single
-        `value` column is an exchange RATIO, not cash."""
+        It was read as cash per share. TMHC acquired by Berkshire carries
+        6768.8 — a $6.77bn deal, not a $6,768.80 share price. The vendor
+        supplies NO holder-level consideration at any action type, so the only
+        honest mapping is "terms unavailable".
+        """
+        t = terminal_from_action(action(action="acquisitionby", value=6768.8),
+                                 "2022-03-02", security_id="P:1")
+        assert t.cash_per_share is None, (
+            "a deal size was written into cash_per_share — every holder would "
+            "be paid the market capitalisation per share")
+        complete, why = t.completeness(100)
+        assert complete is False and why == "MISSING_CASH_PER_SHARE"
+
+    def test_a_DEAL_VALUE_never_becomes_an_EXCHANGE_RATIO(self):
+        """The same number on the stock-deal route. Nothing broke before only
+        because completeness refused for an unrelated reason; had identity
+        resolution succeeded, a TMHC holder would have received 6,768.8 shares
+        per share held."""
         t = terminal_from_action(
-            action(action="acquisition", value=0.757, contraticker="BBB"),
+            action(action="acquisitionby", value=6768.8, contraticker="BRK.B"),
             "2022-03-02", security_id="P:1", delivered_security_id="P:2",
             delivered_issuer_id="ISS_2")
         assert t.kind is TerminalKind.CONVERSION
-        assert t.exchange_ratio == 0.757
+        assert t.exchange_ratio is None, "a deal size became a share ratio"
+        complete, why = t.completeness(100)
+        assert complete is False and why == "MISSING_EXCHANGE_RATIO"
+
+    def test_the_delivered_security_is_still_a_PERMANENT_id(self):
+        """UNCHANGED by D1/D2: when the acquirer is public its identity is
+        resolved and carried, even though the ratio that would size the delivery
+        is not available."""
+        t = terminal_from_action(
+            action(action="acquisitionby", value=None, contraticker="BRK.B"),
+            "2022-03-02", security_id="P:1", delivered_security_id="P:2",
+            delivered_issuer_id="ISS_2")
         assert t.delivered_security_id == "P:2", (
-            "the DELIVERED security is a permanent id too; a ticker here puts "
-            "shares in the book under a security that may not be the acquirer")
+            "a ticker here puts shares in the book under a security that may "
+            "not be the acquirer")
         assert t.delivered_issuer_id == "ISS_2"
 
-    def test_a_STATED_zero_is_the_only_route_to_a_write_off(self):
-        """Zero is a TERM. The vendor has said the consideration was nothing,
-        which is a fact — unlike silence, which is not."""
-        t = terminal_from_action(action(action="bankruptcy", value=0.0),
-                                 "2022-03-02", security_id="P:1")
-        assert t.kind is TerminalKind.WRITE_OFF
-        assert t.completeness(100)[0] is True
+    def test_the_NA_SENTINEL_is_ABSENCE_not_a_counterparty(self):
+        """DEFECT D1, at the layer that failed.
 
-    @pytest.mark.parametrize("act", ["delisted", "bankruptcy", "merger",
-                                     "liquidation"])
+        `contraticker` carries the literal string 'N/A' whenever the acquirer is
+        PRIVATE — 19,216 of 19,216 delisted rows have a non-empty contraticker.
+        `row.get("contraticker") or None` normalises None and '' and looks
+        total, and passes 'N/A' through as truthy. Every terminal event then took
+        the security-for-security branch and blocked on
+        MISSING_DELIVERED_SECURITY: the permanent freeze that killed a
+        three-year rehearsal, needing no missing action name at all.
+        """
+        t = terminal_from_action(
+            action(action="acquisitionby", value=1170.2, contraticker="N/A",
+                   contraname="AMERICAN INDUSTRIAL PARTNERS CORP"),
+            "2022-03-02", security_id="P:1")
+        assert t.kind is not TerminalKind.CONVERSION, (
+            "'N/A' was treated as a delivered security")
+        assert t.delivered_ticker is None
+        assert t.completeness(100)[1] == "MISSING_CASH_PER_SHARE", (
+            "the refusal must name the real gap — absent CASH terms for a "
+            "private buyer — not a missing delivered security")
+
+    def test_a_PRIVATE_buyer_is_still_NAMED_in_the_provenance(self):
+        """`contraname` is populated even when the ticker is 'N/A', and it is the
+        only counterparty identity those deals have. Provenance only — a name
+        resolves to no security — but discarding it would throw away the single
+        fact that distinguishes a buyout from an unexplained delisting."""
+        t = terminal_from_action(
+            action(action="acquisitionby", value=428.4, contraticker="N/A",
+                   contraname="KNOX LANE LP"), "2022-03-02", security_id="P:1")
+        assert "KNOX LANE LP" in t.reference
+        assert "428.4" in t.reference, "the deal value belongs in the audit trail"
+
+    def test_a_ZERO_deal_value_is_NOT_a_write_off(self):
+        """THE REMOVED ROUTE, and its removal is the point of D2.
+
+        `value == 0.0` used to mean "the vendor says holders received nothing".
+        With `value` being a transaction SIZE, a zero is a statement about deal
+        size and says nothing whatever about consideration — so that route wrote
+        positions off at zero on evidence that never existed. A genuine
+        stated-zero write-off needs a source that actually states consideration,
+        and this corpus is not one.
+        """
+        t = terminal_from_action(
+            action(action="bankruptcyliquidation", value=0.0),
+            "2022-03-02", security_id="P:1")
+        assert t.kind is not TerminalKind.WRITE_OFF, (
+            "a zero DEAL SIZE was read as zero consideration")
+        assert t.completeness(100)[0] is False
+
+    @pytest.mark.parametrize("act", ["acquisitionof", "mergerfrom"])
+    def test_the_ACQUIRER_side_is_NOT_TERMINAL(self, act):
+        """THE ACQUIRER-SIDE TRAP, and why the mapping is per-name rather than a
+        substring match.
+
+        `acquisitionof` (7,193 rows) and `mergerfrom` (116) sit on the security
+        that BOUGHT something and continues to exist. Any fix that pattern-matched
+        on "acquisition" or "merger" would write off the buyer instead of the
+        target — worse than the bug it replaced.
+        """
+        assert terminal_from_action(action(action=act, value=6768.8),
+                                    "2022-03-02", security_id="P:1") is None
+        assert act not in TERMINAL_ACTIONS
+        assert TERMINAL_ACTION_SIDES[act] is ActionSide.ACQUIRER
+
+    def test_every_TARGET_name_in_the_table_is_terminal(self):
+        """The table and the frozenset cannot drift apart."""
+        for name, side in TERMINAL_ACTION_SIDES.items():
+            assert (name in TERMINAL_ACTIONS) is (side is ActionSide.TARGET), name
+
+    def test_the_vocabulary_matches_the_CORPUS_not_an_invented_one(self):
+        """The old set listed seven names of which exactly one existed in the
+        data. Every name here was read off `SELECT DISTINCT action FROM
+        bt_actions`, so a name absent from the corpus is a red flag."""
+        observed = {"delisted", "acquisitionby", "acquisitionof", "mergerto",
+                    "mergerfrom", "bankruptcyliquidation", "regulatorydelisting",
+                    "voluntarydelisting"}
+        assert set(TERMINAL_ACTION_SIDES) == observed
+        for gone in ("merger", "acquisition", "bankruptcy", "liquidation",
+                     "regulatory", "reversemerger"):
+            assert gone not in TERMINAL_ACTIONS, (
+                f"{gone!r} appears in no row of the corpus")
+
+    def test_adrratiosplit_IS_a_split_and_spinoffdividend_IS_a_dividend(self):
+        """Both were absent from their sets. An ADR ratio change alters shares
+        per receipt exactly as a split does, so missing it leaves the split
+        factor — and therefore every stored episode peak — wrong."""
+        assert "adrratiosplit" in SPLIT_ACTIONS
+        assert "spinoffdividend" in DIVIDEND_ACTIONS
+
+    @pytest.mark.parametrize("act", ["delisted", "bankruptcyliquidation",
+                                     "mergerto", "voluntarydelisting",
+                                     "regulatorydelisting", "acquisitionby"])
     def test_NO_TERMS_IS_NOT_A_WRITE_OFF_it_BLOCKS(self, act):
         """THE RULE THIS FILE EXISTS FOR.
 
@@ -202,7 +315,7 @@ class TestTerminalMapping:
     def test_a_stock_deal_with_NO_RATIO_also_blocks(self):
         """The delivered share count is not something to guess."""
         t = terminal_from_action(
-            action(action="acquisition", value=None, contraticker="BBB"),
+            action(action="acquisitionby", value=None, contraticker="BBB"),
             "2022-03-02", security_id="P:1", delivered_security_id="P:2",
             delivered_issuer_id="ISS_2")
         complete, why = t.completeness(100)
@@ -212,9 +325,9 @@ class TestTerminalMapping:
         """A terms-less bankruptcy is emitted in the shape of a CASH_MERGER
         because that is what blocks. The audit must still say what actually
         happened, or a reader months later sees a merger that never was."""
-        t = terminal_from_action(action(action="bankruptcy", value=None),
+        t = terminal_from_action(action(action="bankruptcyliquidation", value=None),
                                  "2022-03-02", security_id="P:1")
-        assert t.reference == "actions/bankruptcy"
+        assert t.reference.startswith("actions/bankruptcyliquidation")
 
     @pytest.mark.parametrize("act", ["split", "dividend", "ticker_change"])
     def test_a_non_terminal_action_produces_nothing(self, act):
@@ -256,29 +369,63 @@ class TestTheBlockIsREALNotJustAShape:
             "unknown outcome is not a loss")
         assert st.episodes[0].current_shares == 100
 
-    def test_a_STATED_zero_really_does_write_the_position_off(self):
-        """The falsifier. If nothing could ever reach WRITE_OFF, the test above
-        would pass on an implementation that simply never writes anything off."""
+    def test_the_MACHINERY_can_still_write_off_when_terms_SAY_zero(self):
+        """THE FALSIFIER, preserved but re-sourced.
+
+        Its original point stands: if nothing could ever reach WRITE_OFF, the
+        test above would pass on an implementation that simply never writes
+        anything off. What changed is where a stated zero can come FROM. It used
+        to be driven by an ACTIONS row with `value == 0.0` — but `value` is a
+        transaction SIZE, so that route was reading a deal size as consideration
+        and has been removed (defect D2). The terms are therefore constructed
+        directly here, which is what proves the machinery works without claiming
+        this vendor supplies it.
+        """
         st = self._held()
         led = Ledger()
         res = apply_terminal(
-            st, terminal_from_action(action(action="bankruptcy", value=0.0),
-                                     "2022-03-02", security_id="P:1"),
+            st, TerminalTerms(session="2022-03-02", security_id="P:1",
+                              kind=TerminalKind.WRITE_OFF,
+                              reference="test/stated-zero"),
             ledger=led, session="2022-03-02", cfg=WealthCoreConfig())
-
         assert res["applied"] is True and res["kind"] == "WRITE_OFF"
         assert "P:1" not in st.held_security_ids()
         assert [e.event_type.value for e in led.events] == ["WRITE_OFF"]
 
-    def test_a_cash_merger_pays_the_stated_price_and_nothing_else(self):
+    def test_the_MACHINERY_can_still_pay_a_cash_merger(self):
+        """Same shape: settlement works when terms are genuinely known. Sharadar
+        ACTIONS never supplies them, which is a fact about the DATA, not about
+        the engine — and the distinction has to stay testable or a future source
+        that does supply terms would have no proof it is wired up."""
         st = self._held()
         cash_before = st.cash
         res = apply_terminal(
-            st, terminal_from_action(action(action="merger", value=54.0),
-                                     "2022-03-02", security_id="P:1"),
+            st, TerminalTerms(session="2022-03-02", security_id="P:1",
+                              kind=TerminalKind.CASH_MERGER,
+                              cash_per_share=54.0, reference="test/exact-terms"),
             ledger=Ledger(), session="2022-03-02", cfg=WealthCoreConfig())
         assert res["applied"] is True
         assert st.cash == pytest.approx(cash_before + 100 * 54.0)
+
+    def test_an_ACTIONS_SOURCED_merger_BLOCKS_rather_than_paying(self):
+        """The complement, and the one that would have caught D2.
+
+        A real acquisition row carries a deal value of 6768.8 ($6.77bn, TMHC by
+        Berkshire). Nothing about it may become cash: the position must stay
+        held and unresolved, not be paid out at 6,768.8 per share.
+        """
+        st = self._held()
+        cash_before = st.cash
+        res = apply_terminal(
+            st, terminal_from_action(
+                action(action="acquisitionby", value=6768.8,
+                       contraname="BERKSHIRE HATHAWAY INC"),
+                "2022-03-02", security_id="P:1"),
+            ledger=Ledger(), session="2022-03-02", cfg=WealthCoreConfig())
+        assert res["applied"] is False and res["blocked"] is True
+        assert st.cash == cash_before, "a deal size was paid out as cash"
+        assert "P:1" in st.held_security_ids()
+        assert st.unresolved_terminals == {"P:1": "MISSING_CASH_PER_SHARE"}
 
 
 # ── the event stream as a whole ─────────────────────────────────────────────
@@ -486,7 +633,7 @@ class TestTerminalActionsCrossTheIdentityBoundary:
         meta = {"P:456": SecurityMeta(security_id="P:456", ticker="ACQ",
                                       permaticker="456")}
         got = terminal_events_from_actions(
-            [action(ticker="OLD", action="acquisition", value=0.757,
+            [action(ticker="OLD", action="acquisitionby", value=0.757,
                     contraticker="ACQ")], SESSIONS,
             known_securities={"P:123"}, identity=self.resolver(), meta=meta)
         assert len(got) == 1
@@ -501,7 +648,7 @@ class TestTerminalActionsCrossTheIdentityBoundary:
         book under a security that may not be the acquirer."""
         counts: dict = {}
         got = terminal_events_from_actions(
-            [action(ticker="OLD", action="acquisition", value=0.757,
+            [action(ticker="OLD", action="acquisitionby", value=0.757,
                     contraticker="NOSUCH")], SESSIONS,
             known_securities={"P:123"}, identity=self.resolver(),
             unresolved=counts)
@@ -520,7 +667,7 @@ class TestTerminalActionsCrossTheIdentityBoundary:
         assert got == []
         assert counts.get("terminal_source_unresolved") == 1
 
-    def test_the_resolved_event_ACTUALLY_TERMINATES_the_holding(self):
+    def test_the_resolved_event_LANDS_ON_THE_PERMANENT_holding(self):
         """The end of the chain, and the assertion that would have failed
         loudest: resolve, then apply, and confirm the position is gone and the
         cash arrived. Every layer above can be right while this is broken."""
@@ -540,9 +687,15 @@ class TestTerminalActionsCrossTheIdentityBoundary:
         res = apply_terminal(st, events[0], ledger=Ledger(),
                              session="2022-03-02", cfg=WealthCoreConfig())
 
-        assert res["applied"] is True and res["kind"] == "CASH_MERGER"
-        assert "P:123" not in st.held_security_ids()
-        assert st.cash == pytest.approx(1_000.0 + 100 * 54.0)
+        # The event REACHED the permanent holding — which is what this test is
+        # about. It then blocks for want of terms (defect D2: the vendor states
+        # a deal SIZE, never a per-share price), and that is a separate fact.
+        assert res["blocked"] is True
+        assert st.unresolved_terminals == {"P:123": "MISSING_CASH_PER_SHARE"}
+        # PRESERVED, not terminated. An unknown outcome is not a loss, and the
+        # position must remain available for a real resolution to arrive.
+        assert "P:123" in st.held_security_ids()
+        assert st.cash == pytest.approx(1_000.0)
 
     def test_a_terms_less_delisting_BLOCKS_the_PERMANENT_holding(self):
         """The other end of the same boundary: the block must land on the id the
