@@ -28,8 +28,74 @@ DONE   4  exact raw-close scan COMPLETED (not degraded): coverage 99.7649%
 VOID   7  chain_rehearsal 2021-2023 ATTEMPTED and its result DISCARDED — the
           run had no pre-start warm-up. Fixed and tested; re-run required.
           See "Step 7 ran and produced an invalid experiment" below.
-NEXT   7  chain_rehearsal, RE-RUN on the warm-up fix
+VOID   7  SECOND attempt (2026-08-07, run da0086fe) also invalid, different
+          cause: BLOCKED from 2023-02 to the end of the window by one
+          unmarkable holding, then killed at 99.5% of a 4 GiB cap during the
+          bulk-replay pass. See "The second attempt" below.
+BLOCKED 7  re-run is GATED on corpus defects A, B, D and the orphan contract C
+          — docs/data-sources.md and docs/architecture.md "orphan resolution"
 BLOCKED 5,6,9  no producer for the backtester-side hashes — see below
+```
+
+### The second attempt (2026-08-07, run `da0086fe`) — VOID, and worth the time
+
+The warm-up fix WORKED: the book was invested from session one (10.2% drawdown
+and +21.6% by session 20, where the unwarmed run would have been flat cash at
+exactly 1,000,000 until ~session 127). Two unrelated problems then made the run
+unusable, and the diagnosis of the first is the most valuable output of the
+session.
+
+**It blocked.** From roughly 2023-02-03 every session was `blocked` with
+`resolved_equity = None`, so `measure(allow_blocked_gaps=True)` dropped them and
+the progress block froze — identical CAGR, drawdown AND benchmark across samples
+spanning sessions 535 to 610, beside an advancing counter. A frozen BENCHMARK is
+the decisive tell: `_benchmark` is computed over `observed_sessions`, so a merely
+flat strategy cannot stop it. 218 of 753 sessions, 29% of the run, strictly
+unevaluable by the standing rule.
+
+Traced to a single security and, from there, to three independent defects in how
+the corpus is READ — full evidence in docs/data-sources.md:
+
+```text
+A  bt_universe is keyed (snapshot_date, ticker) while carrying permaticker, so a
+   reused symbol collides and one company is overwritten. _upsert_universe
+   reports rows ATTEMPTED (49,834) not persisted (21,733) — a ~56% loss behind a
+   number that reads as an answer
+B  consequence: the erased company has no permaticker, the resolver sees ONE
+   owner, skips the window check BY DESIGN, and splices two companies' prices
+   under one symbol. All three refusal paths bypassed; reused_tickers silent
+D  SIX of the seven names in TERMINAL_ACTIONS do not exist in the corpus.
+   12,253 genuinely terminal events invisible. HIGHEST severity — it changes
+   returns, not just one run — and a PREREQUISITE for C
+```
+
+**It then died on memory.** The chain loop finished, and `rehearse_chain` runs
+the entire stream a SECOND time in bulk to prove equivalence — with no progress
+callback, so a third of the wall time is indistinguishable from a hang. Peak
+memory is there (corpus + `out.sessions` + `out.traces` + the bulk `RunResult`
+with every session's fills): it pinned at 3.98 / 4.00 GiB thrashing in reclaim
+and was killed deliberately. `BT_ENGINE_MEM_LIMIT` raised to 8g.
+
+**The corpus is NOT the problem and a bulk re-download is NOT the fix.**
+`bt_actions` holds 664,039 rows across 18 action types, 1998-2026. All three
+defects are in the reader, and a re-import would reproduce every one of them on
+fresh data — then certify it. Fix the reader first.
+
+### Observability gaps this run exposed (reporting only, none change a result)
+
+```text
+provenance is computed in _load_corpus but written only at COMPLETION, so
+  split_source / warmup_sessions — the manifest's own hard precondition, meant
+  to be checked BEFORE interpreting anything — cannot be read until the run they
+  gate has finished
+the bulk-replay pass emits no progress at all
+/progress reports trade_count: 0 always — _progress_snapshot builds SessionFacts
+  without fills, since SessionRehearsal does not carry them — with no field
+  saying the figure is unmeasurable rather than measured
+the identity of a blocking security is captured NOWHERE: plan_session builds a
+  warning naming it, SessionRehearsal drops it, and `sessions` is elided above
+  400 anyway. The security here was found by SQL against the corpus, not from
+  the run
 ```
 
 ### Step 7 ran and produced an invalid experiment (warm-up defect, fixed)

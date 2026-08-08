@@ -5113,3 +5113,109 @@ the loader — and both were right. The value of the second is that it is absolu
 not. So the benchmark lives in `services/backtester/app/wealth_core_benchmark.py`,
 COPYed into the bt-engine image beside the loader, reading one ticker and nothing
 else — with its own test forbidding it from becoming a second corpus reader.
+
+---
+
+## Design Decision: orphan resolution — a research accounting contract, not an alpha choice (2026-08-08)
+
+**Status: SPECIFIED, NOT IMPLEMENTED.** Owner decision, taken after a 2021-2023
+Wealth Core chain rehearsal was blocked from 2023-02 to the end of the window by
+a single unmarkable holding. Depends on defect D (corporate-action vocabulary)
+being fixed FIRST — see docs/data-sources.md.
+
+### The behaviour today, and why it is right
+
+Wealth Core refuses to value a held security from `last_known` once it stops
+printing. If any holding is unmarkable, `resolved_equity` is None, `plan.blocked`
+is set with `block_reason = "UNRESOLVED_EQUITY"`, and admissions stop — "4% of an
+unknown is not a number". Terminal state is derived from the ACTIONS stream and
+NEVER from the `isdelisted` flag, because a flag can state that a security went
+away but can never establish what holders received; unresolved terms BLOCK rather
+than being approximated.
+
+Every one of those choices is correct and none of them is being weakened.
+
+### The pathological outcome
+
+There is no exit from the blocked state when no ACTIONS row will ever arrive. A
+security that simply stops printing, with no terminal action at any date, leaves
+the book blocked indefinitely: exits still flow, but nothing is admitted, and a
+25-slot portfolio is frozen by one historical data orphan. Measured cost in the
+2026-08-07 rehearsal: 218 of 753 sessions — 29% of a three-year run — during
+which the strategy did nothing and the equity curve stopped moving. Because
+`allow_blocked_gaps=True` drops blocked sessions from the measured curve, the
+symptom was frozen CAGR/drawdown/benchmark numbers beside an advancing session
+counter, not an error.
+
+### Why this is NOT framed as a strategy parameter
+
+An earlier draft posed this as a recovery-rate choice by analogy with the wind
+tunnel's `SimParams.delist_recovery_pct` (default 0.70). That analogy is wrong
+and the framing is rejected. `delist_recovery_pct` is a bias correction applied
+to securities whose delisting IS known; this is an ACCOUNTING POLICY for
+securities whose fate is unknown and unknowable from the corpus. It must sit
+outside Wealth Core's alpha logic, be stated in advance, and never be tuned.
+
+### The contract
+
+```text
+held security has no current valid mark
+├── resolvable terminal terms exist        -> apply_terminal_terms()
+├── sessions_since_last_valid_print >= ORPHAN_TIMEOUT
+│                                          -> write_off_at_zero(
+│                                               reason="ORPHANED_UNRESOLVED_NO_ACTION")
+└── otherwise                              -> block equity and admissions
+```
+
+**Zero, not the last mark, and not a haircut.** Liquidating at the last mark
+invents a trade that could not have happened — there was no market. A 70% or 50%
+recovery is arbitrary and, being a free parameter, is exactly the kind of number
+that gets tuned until the backtest improves. Zero is conservative, deterministic,
+and cannot artificially raise CAGR. It will UNDERSTATE returns where a real
+settlement occurred; that direction is the acceptable one, and defect D exists
+to make sure "no resolvable terms" means the corpus truly has none rather than
+that we failed to read them.
+
+**A predeclared grace period, not an immediate write-off.** `ORPHAN_TIMEOUT` is
+a fixed number of exchange sessions — 20 as the opening value — whose only job is
+to distinguish a halt or a data gap from a dead security. It is PREDECLARED and
+must never be optimised against Wealth Core returns; a timeout fitted to the
+equity curve is a strategy parameter wearing an accounting label.
+
+**`is_delisted` may inform CLASSIFICATION and timeout evidence. It may never
+create PROCEEDS.** The flag can support the judgement that a security is gone; it
+says nothing about what holders received, so it can never be a settlement input.
+
+The grace interval preserves what the current design gets right — no invented
+equity, no admissions on unknown equity, real exits and resolutions still honoured
+if they arrive, state preserved across restart. What it removes is the permanent
+freeze.
+
+### Required tests (a guard is not done until it has been shown to fail)
+
+```text
+one-day missing quote                still BLOCKED, not written off
+temporary halt then resumption       resumes normally, no write-off, peak intact
+known cash merger                    real settlement at the stated terms
+known bankruptcy                     write-off from the ACTUAL action, not the timeout
+no ACTIONS + prolonged disappearance orphan write-off at zero after ORPHAN_TIMEOUT
+later ticker reuse by another
+  permaticker                        NEVER resurrects the old holding
+```
+
+The last one is the direct falsifier for defects A and B: BIOT's symbol was
+reassigned in 2026, and nothing about that event may touch a position in the
+company that held the symbol until 2023.
+
+Two further properties the tests must pin, both learned from the run that
+exposed this:
+
+```text
+a written-off orphan is REPORTED, never merely absent — count, securities,
+  sessions, and carrying value destroyed, on the run summary
+the write-off is DERIVED output and must never reach a parity hash
+```
+
+The second matters because the seven parity hashes are what make a rehearsal
+evidence rather than an opinion, and an accounting policy that moved one of them
+would make every historical hash incomparable.
