@@ -12,8 +12,132 @@ on this branch AND on its parent; they are named in full at the bottom.
 
 ## Resuming this work
 
-**STATE AS OF 2026-08-06 (session end). Steps 1-4 of the evidence sequence are
-DONE.** Last certification-relevant commit `f7104c1` on `main`.
+**STATE AS OF 2026-08-08 (session end). `main` is GREEN at `9bf649c`.** The
+2021-2023 rehearsal is NOT yet runnable; exactly one piece is owed and it is
+specified rather than open. Read this section before anything else.
+
+```text
+DONE      corpus defect A   bt_universe keyed on (snapshot_date, permaticker);
+                            writer reports PERSISTED not attempted. Deployed;
+                            universe rebuilt: 20,728 identities, 0 rejected,
+                            29,108 multi-table duplicates collapsed
+DONE      corpus defect B   spliced price history CLOSED. 2 tickers (BIOT, REF),
+                            1,343 rows deleted, both prior holders verified
+                            intact under BIOT1 / REF1. bt_data_version bumped
+DONE      defect D1         'N/A' is a vendor SENTINEL, not a counterparty
+DONE      defect D2         `value` is a deal size in $M, never a ratio or a
+                            price; the stated-zero write-off route REMOVED
+DONE      defect D          per-name action vocabulary with an explicit SIDE;
+                            one termination stated across rows deduplicated
+DONE      C, the rule       shared/.../wealth_core/settlement.py — the waterfall
+                            as a PURE function, 50 tests
+DONE      C, the semantics  C1 grace period + TERMINAL_PENDING_TERMS, specified
+                            in docs/architecture.md
+**OWED**  C, the wiring     the rule is not called by anything. THIS is the
+                            only blocker
+```
+
+### The one remaining task, in order
+
+The wiring has been written twice and reverted twice — both times the GOLDEN
+FIXTURE stopped it, and both times it was right to. Do not treat the fixture as
+stale. The first attempt settled C1 on the announcing session and the fixture's
+`SEC_STRANDED` case (announced with no terms, resolved for $54 cash later) proved
+that wrong. The second attempt was correct and left 9 fixture tests failing, which
+is a legitimate re-pin plus two genuinely-changed semantics.
+
+```text
+1  settlement.py    add C1_GRACE_SESSIONS = 10, SettlementSource.PENDING_TERMS,
+                    and a `sessions_pending_terms` argument. The grace branch goes
+                    BEFORE the last-mark branch. Namespace provenance's reason key
+                    as `settlement_reason` — a bare `reason` collides with the
+                    caller's block reason and dict-spread order decides which
+                    survives.
+2  state.py         three persisted dicts: sessions_since_valid_mark,
+                    terminal_pending_sessions, terminal_pending_reference. All
+                    must survive a restart or a grace period that resets on every
+                    redeploy never expires. Absent means zero, so a healthy book
+                    carries empty dicts.
+3  terminal.py      apply_terminal routes through resolve_settlement and gains a
+                    PENDING branch that must NOT write to `unresolved_terminals`
+                    (that dict makes build_marks outrank a printing price, which
+                    would freeze admissions for a security still trading).
+                    _apply_proxy posts the settlement with settlement_exact=false.
+                    sweep_pending_terms ages the counter and expires the grace;
+                    sweep_orphans handles the no-record population. BOTH are
+                    separate passes because neither has an event to hang off —
+                    after the announcing session no further ACTIONS row exists,
+                    so nothing would advance the counter and the grace would be
+                    infinite.
+4  adapter.py       update staleness from THIS session's marks, then run
+                    sweep_pending_terms BEFORE sweep_orphans (a still-pending
+                    documented holding must never be visible to the zero), then
+                    rebuild marks if anything settled.
+5  the fixture      RE-PIN, deliberately, decomposing the movement:
+                      moved     state gains three dicts; SEC_STRANDED is CARRIED
+                                during the grace instead of blocking on day one
+                      unmoved   SEC_STRANDED's final outcome is still the exact
+                                $54 settlement; every other terminal kind is
+                                unchanged
+                    Rewrite `test_a_deal_with_no_terms_blocks_and_then_unblocks`
+                    and `test_a_security_that_stops_printing_still_blocks_while_
+                    unresolved` to assert the carry-then-settle SEQUENCE. Fix the
+                    two test_restart_matrix cuts and the two
+                    test_performance_integration tests that assert the golden run
+                    is unevaluable BECAUSE it blocks.
+```
+
+Nine tests fail until step 5 is done: 4 in test_golden_fixture, 3 in
+test_performance_integration, 2 in test_restart_matrix. Every other test in
+tests/wealth_core (514) passes with the wiring in place.
+
+### Then, and only then, the rehearsal
+
+`settlement.py` is a NEW shared module and the backtest stack has NO `shared/`
+bind-mount, so the base rebuild is mandatory and unconditional. A stale base does
+not fail at startup — it surfaces as a `TypeError` deep inside a background task,
+minutes into a three-hour job.
+
+```bash
+cd /volume1/docker/github/stocker && git pull origin main
+docker build --network host -t stocker-base:latest -f Dockerfile.base .
+docker compose -f docker-compose.backtest.yml up -d --build bt-engine
+curl -X POST localhost:8031/wealth-core/jobs/run -H "Content-Type: application/json" \
+  -d '{"mode":"chain_rehearsal","start_date":"2021-01-01","end_date":"2023-12-31"}'
+```
+
+A SIX-MONTH run (`end_date: 2021-06-30`) is worth doing first. It exercises the
+warm-up, the repaired corpus and D together in ~20 minutes instead of three hours,
+and is far less likely to reach a terminal event.
+
+Acceptance, in this order — stop at the first failure rather than reading on:
+
+```text
+provenance.split_source == "actions"        else the run is not reproducible
+provenance.warmup_sessions == 126           else it is the unwarmed defect again
+status == "success"                         a divergence RAISES, so success means
+                                            the chain reproduced the bulk replay
+first measured session                      substantial eligible universe, book
+                                            constructing up to 25 at once
+trace_problems == []; entries_without_a_price == 0; peak_book_size == 25
+the five settlement counters PRESENT        a three-year run over ~2000 names
+                                            reporting none of them has not
+                                            measured what it claims
+performance, NOT chain_performance          the latter carries no fills and so
+                                            reports zero turnover by design
+```
+
+`BT_ENGINE_MEM_LIMIT` was raised to 8g after the previous attempt pinned at
+3.98/4.00 GiB during the bulk-replay pass. That pass emits NO progress, so a
+silent stretch at 100% is normal, not a hang.
+
+
+### Earlier state, kept as HISTORY (superseded by the block above)
+
+The evidence-sequence position as of 2026-08-06, and the two void rehearsal
+attempts. Retained because the corpus facts (rows 1-4) are still current and the
+two VOID entries record what those runs cost and why — but for "what do I do
+next", read only the section above.
 
 ```text
 DONE   1  base rebuilt, both stacks deployed (scripts/deploy-wealth-core.sh)
