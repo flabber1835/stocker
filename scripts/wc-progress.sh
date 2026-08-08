@@ -97,12 +97,20 @@ if perf:
         ("equity", f"{money(perf.get('starting_equity'))} → "
                    f"{C['b']}{money(perf.get('ending_equity'))}{C['x']}"),
         ("total return", pct(perf.get("total_return"))),
-        ("CAGR", pct(perf.get("cagr")) if perf.get("cagr") is not None
+        ("CAGR", (pct(perf.get("cagr")) +
+                  (f"  {C['r']}{C['b']}EXTRAPOLATED{C['x']}"
+                   f"{C['r']} from {perf.get('calendar_days')} days — "
+                   f"not a result{C['x']}"
+                   if perf.get("cagr_extrapolated") else ""))
+                 if perf.get("cagr") is not None
                  else f"{C['d']}{perf.get('cagr_unavailable_reason') or '—'}{C['x']}"),
         ("max drawdown", pct(perf.get("maximum_drawdown")) +
                          (f"  {C['y']}(lower bound){C['x']}"
                           if perf.get("maximum_drawdown_is_lower_bound") else "")),
-        ("trades", str(perf.get("trade_count") or "—")),
+        ("trades", str(perf["trade_count"]) if perf.get("trade_count")
+                   else (f"{C['d']}not counted while running — the progress"
+                         f" snapshot carries no fills{C['x']}"
+                         if not final else "0")),
     ]
     bt = perf.get("benchmark_ticker")
     if perf.get("benchmark_total_return") is not None:
