@@ -448,3 +448,127 @@ class TestCanonicalListStreamIsByteIdentical:
         st = CanonicalListStream()
         st.extend(payload)
         assert st.hexdigest() == _h(payload)
+
+
+class TestCanonicalArraySpoolAndTheSplice:
+    """The second Stage 2 primitive, and deliberately NOT the first one.
+
+    `CanonicalListStream` is a running digest that can never give its bytes
+    back — right for a standalone hash, useless for `final_result_hash`, which
+    hashes an OBJECT whose sessions array sits at a fixed position among
+    sorted keys. Reproducing that digest means feeding `pre + [rows] + post` to
+    one hasher, and `pre` contains the final state, so it is unknown until the
+    run ends.
+
+    Hence the spool: the session bytes must survive long enough to reach the
+    hash, but not in RAM. Written once sequentially, read back once
+    sequentially.
+    """
+
+    def _run(self):
+        from stock_strategy_shared.wealth_core.golden import golden_scenario
+        from stock_strategy_shared.wealth_core.run import run_sessions
+        g = golden_scenario()
+        return run_sessions(
+            sessions=list(g.sessions), bars_by_session=g.bars_by_session,
+            meta=g.meta, starting_cash=g.starting_cash,
+            terminal_events=g.terminal_events)
+
+    def _spool(self, r, **kw):
+        from stock_strategy_shared.wealth_core.hashes import CanonicalArraySpool
+        sp = CanonicalArraySpool(**kw)
+        for s in r.sessions:
+            sp.add(r.session_row(s))
+        return sp
+
+    def test_the_spool_matches_h_on_the_real_session_rows(self):
+        from stock_strategy_shared.wealth_core.hashes import _h
+        r = self._run()
+        rows = [r.session_row(s) for s in r.sessions]
+        with self._spool(r) as sp:
+            assert sp.hexdigest() == _h(rows)
+            assert sp.rows == len(rows)
+
+    def test_the_splice_reproduces_result_hash_EXACTLY(self):
+        """THE certification-critical claim. Not 'equivalent' — the same hash
+        the golden fixture is pinned to."""
+        r = self._run()
+        with self._spool(r) as sp:
+            assert r.result_hash_spliced(sp) == r.result_hash()
+
+    def test_it_is_identical_after_SPILLING_TO_DISK(self):
+        """The path a three-year run actually takes. A spool that hashed
+        differently once it left RAM would pass every short test and fail only
+        on the run that matters."""
+        r = self._run()
+        with self._spool(r, max_ram_bytes=64) as sp:
+            assert sp.spilled_to_disk is True
+            assert r.result_hash_spliced(sp) == r.result_hash()
+
+    def test_a_short_run_never_touches_disk(self):
+        """Full materialisation stays free for debugging: the golden fixture
+        must not start paying IO for a problem it does not have."""
+        r = self._run()
+        with self._spool(r) as sp:
+            sp.close()
+            assert sp.spilled_to_disk is False
+
+    def test_adding_after_close_is_REFUSED(self):
+        """It would append past the array's closing bracket, producing
+        malformed bytes and a plausible, permanently wrong hash."""
+        from stock_strategy_shared.wealth_core.hashes import CanonicalArraySpool
+        with CanonicalArraySpool() as sp:
+            sp.add([1])
+            sp.close()
+            with pytest.raises(RuntimeError, match="closed"):
+                sp.add([2])
+
+    def test_the_empty_spool_is_the_empty_array(self):
+        from stock_strategy_shared.wealth_core.hashes import (
+            CanonicalArraySpool, _h)
+        with CanonicalArraySpool() as sp:
+            assert sp.hexdigest() == _h([])
+
+    def test_the_splice_refuses_a_non_spool(self):
+        r = self._run()
+        from stock_strategy_shared.wealth_core.hashes import CanonicalListStream
+        st = CanonicalListStream()
+        with pytest.raises(TypeError):
+            r.result_hash_spliced(st)
+
+    def test_a_COLLIDING_placeholder_RAISES_rather_than_guessing(self):
+        """The guardrail, exercised by forcing the collision it defends against.
+
+        A uuid4 placeholder cannot collide with real data in practice, which is
+        the point — but "cannot happen" is not a reason to leave the branch
+        untested. Here uuid4 is pinned and the same string planted in another
+        field, so the placeholder appears TWICE. The splice must refuse: a
+        mis-placed splice yields a hash that is plausible and permanently wrong,
+        which is strictly worse than an exception.
+        """
+        import uuid as _uuid
+        r = self._run()
+        with self._spool(r) as sp:
+            fixed = _uuid.UUID(int=0x1234)
+            planted = f"\x00WC-SESSIONS-{fixed.hex}\x00"
+            orig_to_dict, orig_uuid4 = r.to_dict, _uuid.uuid4
+
+            def poisoned():
+                d = dict(orig_to_dict())
+                d["blocked_sessions"] = list(d["blocked_sessions"]) + [planted]
+                return d
+
+            r.to_dict = poisoned
+            _uuid.uuid4 = lambda: fixed
+            try:
+                with pytest.raises(RuntimeError, match="expected exactly 1"):
+                    r.result_hash_spliced(sp)
+            finally:
+                r.to_dict, _uuid.uuid4 = orig_to_dict, orig_uuid4
+
+    def test_session_row_is_the_SAME_shape_to_dict_uses(self):
+        """Two definitions of this row would be a silent parity divergence:
+        the streamed hash would stay internally consistent while describing a
+        different structure."""
+        r = self._run()
+        assert [r.session_row(s) for s in r.sessions] == r.to_dict()["sessions"]

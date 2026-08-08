@@ -152,6 +152,45 @@ class RunResult:
                                                         f["operation"])),
                 "decision": s.decision.to_dict() if s.decision else None}
 
+    def result_hash_spliced(self, spool) -> str:
+        """`result_hash`, with the sessions array replayed from a SPOOL.
+
+        Byte-identical to `result_hash()` by construction: the object is
+        serialised once with a placeholder in the sessions slot, split there,
+        and the spool's canonical array bytes fed between the two halves.
+
+        THE PLACEHOLDER IS STRUCTURALLY UNCOLLIDABLE. A fresh uuid4 per call, so
+        no data the engine did not invent can contain it, wrapped in NUL bytes
+        which cannot appear unescaped in JSON output. Its serialised form is
+        asserted to occur EXACTLY ONCE before anything is split on it — a
+        placeholder appearing twice would splice the array into the wrong place
+        and yield a plausible, permanently wrong certification hash.
+        """
+        import uuid
+        from stock_strategy_shared.wealth_core.hashes import CanonicalArraySpool
+        if not isinstance(spool, CanonicalArraySpool):
+            raise TypeError("spool must be a CanonicalArraySpool")
+
+        placeholder = f"\x00WC-SESSIONS-{uuid.uuid4().hex}\x00"
+        skeleton = dict(self.to_dict())
+        skeleton["sessions"] = placeholder
+        blob = json.dumps(_quantize(skeleton), sort_keys=True,
+                          separators=(",", ":"), default=_json_default)
+        marker = json.dumps(placeholder)
+        n = blob.count(marker)
+        if n != 1:
+            raise RuntimeError(
+                f"sessions placeholder occurred {n} times, expected exactly 1; "
+                f"refusing to splice — a mis-placed splice produces a plausible "
+                f"and permanently wrong certification hash")
+        pre, post = blob.split(marker)
+
+        h = hashlib.sha256()
+        h.update(pre.encode())
+        spool.replay_into(h)
+        h.update(post.encode())
+        return h.hexdigest()
+
 
 def _round(x):
     """Round money to the cent BEFORE hashing.

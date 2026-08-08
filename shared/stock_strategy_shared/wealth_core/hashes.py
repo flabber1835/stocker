@@ -138,6 +138,104 @@ class CanonicalListStream:
         return h.hexdigest()
 
 
+class CanonicalArraySpool:
+    """Canonical JSON array bytes, SPOOLED so they can be replayed later.
+
+    A DIFFERENT PRIMITIVE FROM CanonicalListStream, deliberately. That one is a
+    running digest and can never give its bytes back, which is exactly right for
+    a standalone hash and useless for `final_result_hash`.
+
+    `result_hash` hashes an OBJECT, so under `sort_keys=True` the sessions array
+    sits at a fixed position among alphabetically ordered keys. Reproducing the
+    identical digest means feeding `pre + [rows] + post` to one hasher — but
+    `pre` contains the FINAL STATE and is unknown until the run ends. So the
+    session bytes must outlive the sessions that produced them.
+
+    THE INSIGHT THIS ENCODES: the bytes must survive long enough to reach the
+    hash; they do NOT need to survive in RAM. They are written once, sequentially,
+    and read back once, sequentially — the access pattern a file is best at.
+
+    `SpooledTemporaryFile` keeps short runs entirely in memory and only spills to
+    disk past `max_ram_bytes`, so the golden fixture and every debug run pay no
+    IO at all while a 753-session certification stays bounded.
+
+    Not reusable after `close()`, and `add` after close raises: a spool that
+    silently accepted rows after its bracket was written would produce malformed
+    JSON bytes and a plausible, permanently wrong certification hash.
+    """
+
+    #: 32MB. Far above any short or golden run, far below the ~1.5M candidate
+    #: rows a three-year certification produces.
+    DEFAULT_MAX_RAM = 32 * 1024 * 1024
+
+    def __init__(self, max_ram_bytes: int | None = None) -> None:
+        import tempfile
+        self._f = tempfile.SpooledTemporaryFile(
+            max_size=(self.DEFAULT_MAX_RAM if max_ram_bytes is None
+                      else max_ram_bytes))
+        self._n = 0
+        self._closed = False
+        self._f.write(b"[")
+
+    def add(self, row) -> None:
+        if self._closed:
+            raise RuntimeError(
+                "CanonicalArraySpool is closed; adding a row now would append "
+                "after the array's closing bracket and produce malformed bytes")
+        if self._n:
+            self._f.write(b",")
+        self._n += 1
+        self._f.write(_canonical(row))
+
+    def extend(self, rows) -> None:
+        for r in rows:
+            self.add(r)
+
+    @property
+    def rows(self) -> int:
+        return self._n
+
+    @property
+    def spilled_to_disk(self) -> bool:
+        """True once the spool exceeded its RAM budget. Reported by the scale
+        test so 'bounded memory' is observed rather than assumed."""
+        return getattr(self._f, "_rolled", False)
+
+    def close(self) -> None:
+        if not self._closed:
+            self._f.write(b"]")
+            self._closed = True
+
+    def replay_into(self, hasher, chunk: int = 1 << 20) -> None:
+        """Feed the array's bytes to `hasher`, in order, without loading them."""
+        self.close()
+        self._f.seek(0)
+        while True:
+            b = self._f.read(chunk)
+            if not b:
+                break
+            hasher.update(b)
+
+    def hexdigest(self) -> str:
+        """Standalone digest — identical to `_h(list_of_rows)`."""
+        h = hashlib.sha256()
+        self.replay_into(h)
+        return h.hexdigest()
+
+    def dispose(self) -> None:
+        try:
+            self._f.close()
+        except Exception:      # pragma: no cover - best effort cleanup
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.dispose()
+        return False
+
+
 def _px(x):
     return None if x is None else round(float(x), 6)
 
