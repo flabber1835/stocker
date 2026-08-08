@@ -80,6 +80,64 @@ def _h(payload) -> str:
                    default=str).encode()).hexdigest()
 
 
+def _canonical(row) -> bytes:
+    """One row, in EXACTLY the bytes `_h` would give it inside a list.
+
+    The single place the serialisation options are written for the streaming
+    path, so it cannot drift from `_h` by someone changing one and not the
+    other.
+    """
+    return json.dumps(quantize(row), sort_keys=True, separators=(",", ":"),
+                      default=str).encode()
+
+
+class CanonicalListStream:
+    """A running sha256 over a JSON list, byte-identical to `_h(list)`, without
+    ever holding the list.
+
+    WHY THIS EXISTS. `Decision.candidates` carries one row per eligible
+    security per session — ~2000 x 753 = ~1.5 MILLION dicts on a three-year
+    certification run, retained because three parity layers hash them. Measured:
+    that is the OOM. Bounding diagnostic retention moved peak RSS by 1MB; this
+    is where the memory actually is.
+
+    THE MECHANISM, and it is exact rather than approximate. `json.dumps` of a
+    list emits `[` + item + `,` + item + ... + `]`, each item serialised with
+    the same options. Feeding those bytes to sha256 in order therefore produces
+    the identical digest to serialising the whole list at once — so the
+    streaming path is not "equivalent", it is the same bytes.
+
+    `hexdigest()` copies the hasher before closing the bracket, so it can be
+    read repeatedly without ending the stream.
+    """
+
+    __slots__ = ("_hasher", "_n")
+
+    def __init__(self) -> None:
+        self._hasher = hashlib.sha256()
+        self._n = 0
+        self._hasher.update(b"[")
+
+    def add(self, row) -> None:
+        if self._n:
+            self._hasher.update(b",")
+        self._n += 1
+        self._hasher.update(_canonical(row))
+
+    def extend(self, rows) -> None:
+        for r in rows:
+            self.add(r)
+
+    @property
+    def rows(self) -> int:
+        return self._n
+
+    def hexdigest(self) -> str:
+        h = self._hasher.copy()
+        h.update(b"]")
+        return h.hexdigest()
+
+
 def _px(x):
     return None if x is None else round(float(x), 6)
 

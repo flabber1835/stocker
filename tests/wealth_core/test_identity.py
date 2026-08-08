@@ -352,3 +352,99 @@ def test_apply_ticker_changes_ignores_a_bar_for_a_security_not_held():
     st = seated()
     assert apply_ticker_changes(st, [db(sec="P:999", ticker="ZZZ")]) == []
     assert st.episodes[0].ticker == OLD
+
+
+# ── streaming hashes: the same BYTES, not merely the same idea ───────────────
+
+class TestCanonicalListStreamIsByteIdentical:
+    """Foundation for Stage 2 of the memory work.
+
+    `Decision.candidates` holds one row per eligible security per session —
+    measured at ~1.5 million dicts on a three-year certification run, which is
+    the OOM. They cannot be dropped because candidate_audit_hash, decision_hash
+    and final_result_hash all read them, so the hashes must be folded per
+    session and the rows discarded.
+
+    The whole safety of that rests on the streamed digest being the SAME BYTES
+    as the materialised one, not an equivalent scheme. `json.dumps` of a list
+    emits `[` + item + `,` + item + `]`, so feeding those bytes in order to
+    sha256 is identical by construction — and these tests hold it to that on
+    the payload shapes the engine actually produces, not on synthetic data.
+    """
+
+    def _run(self):
+        from stock_strategy_shared.wealth_core.golden import golden_scenario
+        from stock_strategy_shared.wealth_core.run import run_sessions
+        g = golden_scenario()
+        return run_sessions(
+            sessions=list(g.sessions), bars_by_session=g.bars_by_session,
+            meta=g.meta, starting_cash=g.starting_cash,
+            terminal_events=g.terminal_events)
+
+    def test_it_matches_h_on_the_real_candidate_payload(self):
+        from stock_strategy_shared.wealth_core.hashes import (
+            CanonicalListStream, _h, _px)
+        r = self._run()
+        payload = []
+        for s in r.sessions:
+            if not s.decision:
+                continue
+            payload.append([s.session, sorted(
+                [[c.security_id, c.ticker, _px(c.momentum), _px(c.recent),
+                  _px(c.volatility), _px(c.score), bool(c.in_top_decile),
+                  c.reason]
+                 for c in s.decision.candidates])])
+        assert payload, "fixture produced no candidates — test is vacuous"
+        st = CanonicalListStream()
+        st.extend(payload)
+        assert st.hexdigest() == _h(payload)
+        assert st.rows == len(payload)
+
+    def test_it_matches_h_on_the_real_decision_payload(self):
+        """The heaviest one: every Decision in full, candidates included."""
+        from stock_strategy_shared.wealth_core.hashes import (
+            CanonicalListStream, _h)
+        r = self._run()
+        payload = [[s.session, s.decision.to_dict()] for s in r.sessions
+                   if s.decision]
+        assert payload
+        st = CanonicalListStream()
+        st.extend(payload)
+        assert st.hexdigest() == _h(payload)
+
+    def test_the_empty_stream_is_the_empty_list(self):
+        from stock_strategy_shared.wealth_core.hashes import (
+            CanonicalListStream, _h)
+        assert CanonicalListStream().hexdigest() == _h([])
+
+    def test_hexdigest_does_not_close_the_stream(self):
+        """Read it mid-run for progress without corrupting the final digest."""
+        from stock_strategy_shared.wealth_core.hashes import (
+            CanonicalListStream, _h)
+        st = CanonicalListStream()
+        st.add(["a", 1])
+        mid = st.hexdigest()
+        assert mid == _h([["a", 1]])
+        st.add(["b", 2])
+        assert st.hexdigest() == _h([["a", 1], ["b", 2]])
+
+    def test_order_is_load_bearing(self):
+        """A streamed hash that ignored order would let two engines with
+        different execution sequences agree, which is what these hashes exist
+        to detect."""
+        from stock_strategy_shared.wealth_core.hashes import CanonicalListStream
+        a, b = CanonicalListStream(), CanonicalListStream()
+        a.extend([["x", 1], ["y", 2]])
+        b.extend([["y", 2], ["x", 1]])
+        assert a.hexdigest() != b.hexdigest()
+
+    def test_floats_are_quantized_the_same_way(self):
+        """`quantize` runs inside the streamed row exactly as it does inside
+        `_h`. Without it the streamed path would hash raw repr output and a
+        certified artefact would depend on interpreter float formatting."""
+        from stock_strategy_shared.wealth_core.hashes import (
+            CanonicalListStream, _h)
+        payload = [[1 / 3, 2 / 7], [1e-11, 0.1 + 0.2]]
+        st = CanonicalListStream()
+        st.extend(payload)
+        assert st.hexdigest() == _h(payload)
