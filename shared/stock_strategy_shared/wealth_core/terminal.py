@@ -176,10 +176,7 @@ def _split_entitlement(shares_in: int, ratio: float) -> tuple[int, float]:
 # ── applying a terminal action ───────────────────────────────────────────────
 
 def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledger,
-                   session: str, cfg: WealthCoreConfig,
-                   last_valid_mark: float | None = None,
-                   sessions_since_last_valid_print: int | None = None,
-                   executable_price: float | None = None) -> dict:
+                   session: str, cfg: WealthCoreConfig) -> dict:
     """Apply one terminal action, or RECORD that it cannot be applied.
 
     Returns a result dict either way. The caller does not have to check an
@@ -193,39 +190,16 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
                 "security_id": terms.security_id}
 
     ep = state.episodes[slot_id]
-
-    # THE SETTLEMENT WATERFALL decides, not `completeness` alone. Sharadar ACTIONS
-    # supplies no per-share consideration at any action type, so completeness
-    # refuses EVERY corpus-sourced termination — which made this branch a
-    # permanent block rather than a rare one (218 of 753 sessions in the
-    # 2021-2023 rehearsal). `settlement.resolve_settlement` is where the
-    # exact/proxy/refuse decision lives, shared with the live book.
-    from stock_strategy_shared.wealth_core.settlement import (
-        SettlementSource, resolve_settlement)
-    decision = resolve_settlement(
-        terms=terms, shares=ep.current_shares,
-        last_valid_mark=last_valid_mark,
-        sessions_since_last_valid_print=sessions_since_last_valid_print,
-        executable_price=executable_price)
-
-    if not decision.settles:
+    ok, why = terms.completeness(ep.current_shares)
+    if not ok:
         # BLOCKED, not approximated, and recorded on the STATE so it survives a
         # restart. `resolved_equity` goes None on the next mark, which stops
         # admissions until somebody supplies the terms.
-        ok, why = terms.completeness(ep.current_shares)
         state.unresolved_terminals[terms.security_id] = why
         return {"applied": False, "reason": why, "blocked": True,
-                "security_id": terms.security_id, "kind": terms.kind.value,
-                **decision.provenance()}
+                "security_id": terms.security_id, "kind": terms.kind.value}
 
     state.unresolved_terminals.pop(terms.security_id, None)
-
-    if decision.source is not SettlementSource.EXACT_TERMS:
-        # A PROXY settlement: the event is documented, the consideration is not.
-        # Deliberately NOT routed through _apply_cash's CASH_MERGER event — that
-        # would record a settlement the vendor never stated. See
-        # docs/architecture.md "terminal settlement and orphan resolution".
-        return _apply_proxy(state, slot_id, ep, ledger, session, decision, terms)
 
     if terms.kind is TerminalKind.WRITE_OFF:
         return _apply_write_off(state, slot_id, ep, ledger, session)
@@ -249,76 +223,6 @@ def _apply_write_off(state, slot_id, ep, ledger, session) -> dict:
     _release(state, slot_id, ep)
     return {"applied": True, "kind": "WRITE_OFF", "security_id": ep.security_id,
             "proceeds": 0.0}
-
-
-def _apply_proxy(state, slot_id, ep, ledger, session, decision, terms) -> dict:
-    """Settle a DOCUMENTED termination whose contractual terms are unavailable.
-
-    NOT a simulated sale, and the ledger must not read as one: `settlement_exact`
-    is False and the source is carried on the event, so a reader six months later
-    cannot mistake the proceeds for vendor-supplied acquisition consideration.
-
-    An ORPHAN zero settles at exactly 0.0 and still posts a WRITE_OFF event —
-    shares do leave the book — but its provenance says ZERO_ORPHAN, which is what
-    distinguishes it from a stated worthlessness.
-    """
-    px = float(decision.price_per_share or 0.0)
-    proceeds = ep.current_shares * px
-    from stock_strategy_shared.wealth_core.settlement import SettlementSource
-    event = (EventType.WRITE_OFF if decision.source is SettlementSource.ZERO_ORPHAN
-             else EventType.CASH_MERGER)
-    ledger.post(session=session, event_type=event,
-                cash_before=state.cash, cash_delta=proceeds,
-                security_id=ep.security_id, ticker=ep.ticker,
-                shares_delta=-ep.current_shares, price=px,
-                reason=decision.reason,
-                detail={"shares": ep.current_shares,
-                        "reference": (terms.reference if terms is not None
-                                      else "no-terminal-record"),
-                        **decision.provenance()})
-    state.cash += proceeds
-    state.sessions_since_valid_mark.pop(ep.security_id, None)
-    _release(state, slot_id, ep)
-    return {"applied": True, "kind": event.value, "security_id": ep.security_id,
-            "proceeds": proceeds, **decision.provenance()}
-
-
-def sweep_orphans(state: PortfolioState, *, ledger: Ledger, session: str,
-                  terminated: set[str] | None = None) -> list[dict]:
-    """C2. Write off holdings that simply STOPPED PRINTING with no record.
-
-    Its own pass rather than part of `apply_terminal`, because there is no event
-    to hang it off — that absence IS the condition. Without it a security that
-    quietly disappears blocks the book forever: exits still flow but nothing is
-    admitted, so a 25-slot portfolio is frozen by one historical data orphan.
-
-    Runs AFTER marks, so `sessions_since_valid_mark` already reflects this
-    session. Securities with a terminal event this session are skipped — they are
-    the documented population and belong to the waterfall's C1 branch, never to
-    this zero.
-    """
-    from stock_strategy_shared.wealth_core.settlement import (
-        SettlementSource, resolve_settlement)
-    out: list[dict] = []
-    skip = terminated or set()
-    for slot_id, ep in sorted(state.episodes.items()):
-        if ep.security_id in skip:
-            continue
-        if ep.security_id in state.unresolved_terminals:
-            # A DOCUMENTED event is already blocking this holding. It must never
-            # be swept to zero — that is the exact conflation the two populations
-            # are kept apart to prevent.
-            continue
-        decision = resolve_settlement(
-            terms=None, shares=ep.current_shares,
-            sessions_since_last_valid_print=state.sessions_since_valid_mark.get(
-                ep.security_id, 0))
-        if decision.source is not SettlementSource.ZERO_ORPHAN:
-            continue
-        out.append({"session": session,
-                    **_apply_proxy(state, slot_id, ep, ledger, session,
-                                   decision, None)})
-    return out
 
 
 def _apply_cash(state, slot_id, ep, ledger, session, per_share, terms) -> dict:
