@@ -40,7 +40,7 @@ from stock_strategy_shared.wealth_core.engine import (
     decide,
 )
 from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
-from stock_strategy_shared.wealth_core.marks import Mark, MarkStatus
+from stock_strategy_shared.wealth_core.marks import Mark, MarkStatus, _positive
 from stock_strategy_shared.wealth_core.prices import DailyBar
 from stock_strategy_shared.wealth_core.state import PortfolioState
 
@@ -110,7 +110,8 @@ class SessionResult:
 
 def build_marks(bars: Sequence[DailyBar], held: set[str],
                 last_known: dict[str, float],
-                unresolved_terminals: Mapping[str, str] | None = None
+                unresolved_terminals: Mapping[str, str] | None = None,
+                pending_terms: Mapping[str, int] | None = None
                 ) -> dict[str, Mark]:
     """Turn today's bars into per-holding mark STATUS (spec, 2026-08-03 rule).
 
@@ -122,14 +123,40 @@ def build_marks(bars: Sequence[DailyBar], held: set[str],
     terms are unknown may still trade — during a contested bid it usually does —
     and marking it CURRENT would let the book size admissions off a price that
     is about to be replaced by consideration nobody has stated.
+
+    `pending_terms` (C1's grace period) does NOT outrank a printing price, and
+    that asymmetry is deliberate. Both dicts describe a documented event with
+    unreadable terms, but a blocked holding has no mark the waterfall was
+    willing to trust while a carried one does — so a carried security that is
+    still trading marks CURRENT on its own print, and only falls back to the
+    carried value when it stops printing. Treating the two dicts alike would
+    freeze admissions for a security that is visibly still trading, which is the
+    exact outcome the grace period exists to avoid.
     """
     blocked = dict(unresolved_terminals or {})
+    carried = dict(pending_terms or {})
     by_sec = {b.security_id: b for b in bars}
     marks: dict[str, Mark] = {}
     for sec in sorted(set(by_sec) | held):
         if sec in blocked:
             marks[sec] = Mark(sec, MarkStatus.UNRESOLVED_TERMINAL,
                               stale_raw_close=last_known.get(sec))
+            continue
+        if sec in carried:
+            b = by_sec.get(sec)
+            if b is not None and b.can_mark and not b.unresolved_corporate_action:
+                marks[sec] = Mark(sec, MarkStatus.CURRENT,
+                                  raw_mark_close=float(b.raw_mark_close))
+                last_known[sec] = float(b.raw_mark_close)
+            elif _positive(last_known.get(sec)):
+                marks[sec] = Mark(sec, MarkStatus.PENDING_TERMS_CARRIED,
+                                  stale_raw_close=last_known.get(sec),
+                                  carried_raw_close=float(last_known[sec]))
+            else:
+                # Carrying was authorised against a mark that is no longer
+                # available. Fail closed rather than carry nothing.
+                marks[sec] = Mark(sec, MarkStatus.UNRESOLVED_TERMINAL,
+                                  stale_raw_close=last_known.get(sec))
             continue
         b = by_sec.get(sec)
         if b is None:
@@ -315,7 +342,8 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                  last_known: dict[str, float], cfg: WealthCoreConfig,
                  strategy_id: str, strategy_version: int,
                  security_bars: Sequence[SecurityBar],
-                 terminal_terms: Sequence = ()) -> SessionResult:
+                 terminal_terms: Sequence = (),
+                 settlement_counters: dict | None = None) -> SessionResult:
     """One market session, in the fixed order documented at module level.
 
     `security_bars` carries §1 eligibility and the trailing SIGNAL windows, both
@@ -347,10 +375,23 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     for terms in sorted(terminal_terms,
                         key=lambda t: (t.security_id, t.kind.value)):
         from stock_strategy_shared.wealth_core.terminal import apply_terminal
+        _b = by_sec.get(terms.security_id)
         terminal_results.append(
             {"session": session,
-             **apply_terminal(state, terms, ledger=ledger, session=session,
-                              cfg=cfg)})
+             **apply_terminal(
+                 state, terms, ledger=ledger, session=session, cfg=cfg,
+                 # Staleness carried in from PRIOR sessions — THIS session's
+                 # marks have not been built yet, which is correct: "sessions
+                 # since the last valid print" is a fact as of the event.
+                 last_valid_mark=last_known.get(terms.security_id),
+                 sessions_since_last_valid_print=(
+                     state.sessions_since_valid_mark.get(terms.security_id, 0)),
+                 # A real tradeable print on the terminal session outranks any
+                 # proxy — an actual transaction rather than a valuation.
+                 executable_price=(float(_b.raw_mark_close)
+                                   if _b is not None and _b.can_execute
+                                   and _b.raw_mark_close else None),
+                 counters=settlement_counters)})
     terminated = {t.security_id for t in terminal_terms}
 
     # ── 4. execute orders decided BEFORE this session ────────────────────────
@@ -447,7 +488,47 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
 
     # ── 7. decide ────────────────────────────────────────────────────────────
     held = state.held_security_ids()
-    marks = build_marks(bars, held, last_known, state.unresolved_terminals)
+    marks = build_marks(bars, held, last_known, state.unresolved_terminals,
+                        state.terminal_pending_sessions)
+
+    # ── 7a. staleness, from THIS session's marks ─────────────────────────────
+    # The input to both of the settlement waterfall's bounds. Counted on MARKET
+    # sessions rather than calendar days, so a long weekend is never a data gap.
+    # A security is REMOVED on a current mark rather than set to 0, so a healthy
+    # book carries an empty dict and its state hash is unchanged.
+    for sec in held:
+        m = marks.get(sec)
+        if m is not None and m.status is MarkStatus.CURRENT:
+            state.sessions_since_valid_mark.pop(sec, None)
+        else:
+            state.sessions_since_valid_mark[sec] = (
+                state.sessions_since_valid_mark.get(sec, 0) + 1)
+    for sec in list(state.sessions_since_valid_mark):
+        if sec not in held:          # no longer held: carries no staleness
+            state.sessions_since_valid_mark.pop(sec, None)
+
+    # ── 7b. age and expire C1 graces, THEN sweep C2 orphans ──────────────────
+    # ORDER IS LOAD-BEARING. A still-pending DOCUMENTED holding must never be
+    # visible to the orphan zero — that conflation writes off known acquisitions
+    # at zero while the run reports clean completion. Both are separate passes
+    # because neither has an event to hang off: a terminal record appears in
+    # ACTIONS on ONE session and never again, so nothing else would ever advance
+    # the grace counter and the carry would be infinite.
+    from stock_strategy_shared.wealth_core.terminal import (
+        sweep_orphans, sweep_pending_terms)
+    swept = sweep_pending_terms(state, ledger=ledger, session=session,
+                                last_known=last_known,
+                                resolved_this_session=terminated,
+                                counters=settlement_counters)
+    swept += sweep_orphans(state, ledger=ledger, session=session,
+                           terminated=terminated)
+    if swept:
+        terminal_results.extend(swept)
+        held = state.held_security_ids()
+        marks = build_marks(bars, held, last_known,
+                            state.unresolved_terminals,
+                            state.terminal_pending_sessions)
+
     # The trailing SIGNAL window travels INSIDE security_bars, never derived
     # here from `last_known` — that dict holds RAW mark closes, a different
     # price domain, and reusing it would be exactly the cross-domain error

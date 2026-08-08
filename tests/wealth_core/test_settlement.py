@@ -18,6 +18,7 @@ from __future__ import annotations
 import pytest
 
 from stock_strategy_shared.wealth_core.settlement import (
+    C1_GRACE_SESSIONS,
     MARK_RECENCY_SESSIONS,
     ORPHAN_TIMEOUT_SESSIONS,
     SETTLEMENT_COUNTERS,
@@ -26,6 +27,7 @@ from stock_strategy_shared.wealth_core.settlement import (
     empty_counters,
     resolve_settlement,
     tally,
+    tally_pending_entry,
 )
 from stock_strategy_shared.wealth_core.terminal import TerminalKind, TerminalTerms
 
@@ -79,9 +81,12 @@ class TestExactTermsWin:
 class TestARealPrintBeatsAProxy:
 
     def test_an_executable_print_settles_as_a_REAL_transaction(self):
+        """Once the grace has expired — see TestAnAnnouncementIsNotATerminalDay
+        for why it may not settle before then."""
         d = resolve_settlement(terms=_terms(), shares=100, executable_price=12.5,
                                last_valid_mark=40.0,
-                               sessions_since_last_valid_print=0)
+                               sessions_since_last_valid_print=0,
+                               sessions_pending_terms=C1_GRACE_SESSIONS)
         assert d.source is SettlementSource.EXECUTABLE_PRINT
         assert d.price_per_share == 12.5
         assert d.settlement_exact is False, (
@@ -90,18 +95,56 @@ class TestARealPrintBeatsAProxy:
     def test_it_outranks_the_last_mark(self):
         d = resolve_settlement(terms=_terms(), shares=100, executable_price=12.5,
                                last_valid_mark=99.0,
-                               sessions_since_last_valid_print=0)
+                               sessions_since_last_valid_print=0,
+                               sessions_pending_terms=C1_GRACE_SESSIONS)
         assert d.price_per_share == 12.5
+
+    def test_a_print_settles_when_no_mark_makes_CARRYING_possible(self):
+        """The fall-through the grace deliberately leaves open. With no
+        trustworthy mark there is nothing to carry at, so a real print is
+        better than blocking — even inside the grace window."""
+        d = resolve_settlement(terms=_terms(), shares=100, executable_price=12.5,
+                               last_valid_mark=None,
+                               sessions_since_last_valid_print=0,
+                               sessions_pending_terms=0)
+        assert d.source is SettlementSource.EXECUTABLE_PRINT
+        assert d.price_per_share == 12.5
+
+    def test_a_print_settles_when_the_mark_is_too_stale_to_carry(self):
+        d = resolve_settlement(terms=_terms(), shares=100, executable_price=12.5,
+                               last_valid_mark=40.0,
+                               sessions_since_last_valid_print=MARK_RECENCY_SESSIONS + 1,
+                               sessions_pending_terms=0)
+        assert d.source is SettlementSource.EXECUTABLE_PRINT
 
     @pytest.mark.parametrize("bad", [0.0, -1.0, None, float("nan"),
                                      float("inf"), "x"])
     def test_an_UNUSABLE_print_is_not_a_print(self, bad):
         """No print, no fill. A zero or non-finite price would execute a trade
-        against a security with no market."""
+        against a security with no market.
+
+        Asserted on the PRICE as well as the source: the discriminating claim is
+        that the bogus value never reaches the position, and a source check
+        alone would pass if the price leaked through on a different branch.
+        """
         d = resolve_settlement(terms=_terms(), shares=100, executable_price=bad,
                                last_valid_mark=40.0,
                                sessions_since_last_valid_print=1)
+        assert d.source is not SettlementSource.EXECUTABLE_PRINT
+        assert d.price_per_share == 40.0
+
+    @pytest.mark.parametrize("bad", [0.0, -1.0, None, float("nan"),
+                                     float("inf"), "x"])
+    def test_an_UNUSABLE_print_is_not_a_print_after_the_grace_either(self, bad):
+        """The same claim on the settling branch. Without this the parametrised
+        case above only ever exercises the carry, and a bogus price could still
+        reach the one decision that converts a holding to cash."""
+        d = resolve_settlement(terms=_terms(), shares=100, executable_price=bad,
+                               last_valid_mark=40.0,
+                               sessions_since_last_valid_print=1,
+                               sessions_pending_terms=C1_GRACE_SESSIONS)
         assert d.source is SettlementSource.LAST_TRUSTWORTHY_MARK
+        assert d.price_per_share == 40.0
 
 
 # ── 3. C1: a KNOWN event with unreadable terms ───────────────────────────────
@@ -109,8 +152,11 @@ class TestARealPrintBeatsAProxy:
 class TestC1KnownEventUnreadableTerms:
 
     def test_a_recent_mark_settles_and_is_flagged_DERIVED(self):
+        """AFTER the grace expires. Before it, the same inputs CARRY — see
+        TestC1GracePeriod."""
         d = resolve_settlement(terms=_terms(), shares=100, last_valid_mark=40.0,
-                               sessions_since_last_valid_print=1)
+                               sessions_since_last_valid_print=1,
+                               sessions_pending_terms=C1_GRACE_SESSIONS)
         assert d.source is SettlementSource.LAST_TRUSTWORTHY_MARK
         assert d.price_per_share == 40.0
         assert d.event_known is True and d.terms_complete is False
@@ -119,7 +165,8 @@ class TestC1KnownEventUnreadableTerms:
 
     def test_the_recency_boundary_INSIDE_settles(self):
         d = resolve_settlement(terms=_terms(), shares=100, last_valid_mark=40.0,
-                               sessions_since_last_valid_print=MARK_RECENCY_SESSIONS)
+                               sessions_since_last_valid_print=MARK_RECENCY_SESSIONS,
+                               sessions_pending_terms=C1_GRACE_SESSIONS)
         assert d.source is SettlementSource.LAST_TRUSTWORTHY_MARK
 
     def test_the_recency_boundary_OUTSIDE_refuses(self):
@@ -152,6 +199,152 @@ class TestC1KnownEventUnreadableTerms:
         d = resolve_settlement(terms=_terms(), shares=100, last_valid_mark=40.0,
                                sessions_since_last_valid_print=None)
         assert d.source is SettlementSource.UNRESOLVED
+
+    def test_UNKNOWN_staleness_does_not_CARRY_either(self):
+        """The grace period must not become a way around the third-state rule.
+        An unknown staleness cannot satisfy the recency bound, so it cannot
+        support a carrying mark any more than a settling one."""
+        d = resolve_settlement(terms=_terms(), shares=100, last_valid_mark=40.0,
+                               sessions_since_last_valid_print=None,
+                               sessions_pending_terms=0)
+        assert d.source is SettlementSource.UNRESOLVED
+        assert d.price_per_share is None
+
+
+# ── 3b. C1's grace period: a MARK is not a SETTLEMENT ────────────────────────
+
+class TestC1GracePeriod:
+    """The owner decision of 2026-08-08.
+
+    The first implementation settled C1 on the FIRST session a terms-less event
+    appeared, which forecloses terms arriving after the announcement. The golden
+    fixture's SEC_STRANDED case — announced with no terms, resolved for $54 cash
+    later — rejected it, and was right to. These tests are that scenario at unit
+    scale, so a regression is caught here rather than by a fixture hash.
+    """
+
+    def test_a_terms_less_event_CARRIES_rather_than_settling(self):
+        d = resolve_settlement(terms=_terms(), shares=100, last_valid_mark=40.0,
+                               sessions_since_last_valid_print=0,
+                               sessions_pending_terms=0)
+        assert d.source is SettlementSource.PENDING_TERMS
+        assert d.reason == "TERMINAL_PENDING_TERMS"
+
+    def test_a_carry_VALUES_the_position_without_converting_it(self):
+        """The distinction the whole state exists for. The mark supplies a
+        price, so equity stays measurable and admissions continue; but the
+        holding does not settle, so the slot is not released."""
+        d = resolve_settlement(terms=_terms(), shares=100, last_valid_mark=40.0,
+                               sessions_since_last_valid_print=0,
+                               sessions_pending_terms=0)
+        assert d.price_per_share == 40.0, "equity must stay measurable"
+        assert d.settles is False, "a carry must never release the holding"
+        assert d.carries is True
+        assert d.settlement_exact is False
+
+    def test_a_carry_is_NOT_unresolved(self):
+        """Conflating the two is what forced the false choice between freezing
+        the book and inventing a settlement. UNRESOLVED has no price and stops
+        admissions; PENDING_TERMS has one and does not."""
+        d = resolve_settlement(terms=_terms(), shares=100, last_valid_mark=40.0,
+                               sessions_since_last_valid_print=0,
+                               sessions_pending_terms=0)
+        assert d.source is not SettlementSource.UNRESOLVED
+        assert d.price_per_share is not None
+
+    @pytest.mark.parametrize("n", list(range(C1_GRACE_SESSIONS)))
+    def test_it_carries_for_every_session_of_the_grace(self, n):
+        d = resolve_settlement(terms=_terms(), shares=100, last_valid_mark=40.0,
+                               sessions_since_last_valid_print=0,
+                               sessions_pending_terms=n)
+        assert d.source is SettlementSource.PENDING_TERMS
+
+    def test_the_grace_boundary_EXPIRES_into_a_settlement(self):
+        """Off by one here decides whether a deal is carried forever or settled
+        a session early, and neither is visible in a summary."""
+        last = resolve_settlement(terms=_terms(), shares=100, last_valid_mark=40.0,
+                                  sessions_since_last_valid_print=0,
+                                  sessions_pending_terms=C1_GRACE_SESSIONS - 1)
+        first = resolve_settlement(terms=_terms(), shares=100, last_valid_mark=40.0,
+                                   sessions_since_last_valid_print=0,
+                                   sessions_pending_terms=C1_GRACE_SESSIONS)
+        assert last.source is SettlementSource.PENDING_TERMS
+        assert first.source is SettlementSource.LAST_TRUSTWORTHY_MARK
+
+    def test_the_grace_does_not_run_forever(self):
+        d = resolve_settlement(terms=_terms(), shares=100, last_valid_mark=40.0,
+                               sessions_since_last_valid_print=0,
+                               sessions_pending_terms=10_000)
+        assert d.source is SettlementSource.LAST_TRUSTWORTHY_MARK
+
+    def test_EXACT_TERMS_arriving_during_the_grace_win(self):
+        """The entire point of waiting. SEC_STRANDED resolves for $54 cash after
+        being announced with none, and the carry must not have foreclosed it."""
+        d = resolve_settlement(terms=_terms(cash_per_share=54.0), shares=100,
+                               last_valid_mark=40.0,
+                               sessions_since_last_valid_print=0,
+                               sessions_pending_terms=3)
+        assert d.source is SettlementSource.EXACT_TERMS
+        assert d.price_per_share == 54.0
+        assert d.settlement_exact is True
+
+    def test_an_EXECUTABLE_PRINT_during_the_grace_does_NOT_settle(self):
+        """AN ANNOUNCEMENT IS NOT A TERMINAL DAY.
+
+        The waterfall as first documented ranked the print above the carry, on
+        the reasoning that a real transaction beats valuing an unresolved claim.
+        True on a terminal day and false on every other day — and nothing in the
+        data distinguishes them. A contested bid trades right up to closing, so
+        an announced-but-unpriced deal still prints an ordinary executable
+        close; taking it liquidates the position at market on the announcement
+        and forecloses the terms, which is the very defect the grace exists to
+        prevent, reached through a different branch.
+        """
+        d = resolve_settlement(terms=_terms(), shares=100, executable_price=12.5,
+                               last_valid_mark=40.0,
+                               sessions_since_last_valid_print=0,
+                               sessions_pending_terms=3)
+        assert d.source is SettlementSource.PENDING_TERMS
+        assert d.price_per_share == 40.0, "carried at the mark, not the print"
+        assert d.settles is False
+
+    def test_a_STALE_mark_refuses_rather_than_carrying(self):
+        """THE trap the grace period could have introduced. A mark too stale to
+        settle on is also too stale to carry on: admissions size at 4% of
+        equity, so an untrustworthy carry propagates into every position opened
+        afterwards. Refusing is the conservative direction."""
+        d = resolve_settlement(terms=_terms(), shares=100, last_valid_mark=40.0,
+                               sessions_since_last_valid_print=MARK_RECENCY_SESSIONS + 1,
+                               sessions_pending_terms=0)
+        assert d.source is SettlementSource.UNRESOLVED
+        assert d.reason == "MARK_OUTSIDE_RECENCY_WINDOW"
+        assert d.price_per_share is None
+
+    def test_no_mark_at_all_refuses_rather_than_carrying(self):
+        d = resolve_settlement(terms=_terms(), shares=100, last_valid_mark=None,
+                               sessions_since_last_valid_print=0,
+                               sessions_pending_terms=0)
+        assert d.source is SettlementSource.UNRESOLVED
+        assert d.reason == "NO_TRUSTWORTHY_MARK"
+
+    def test_the_grace_is_SHORTER_than_the_orphan_timeout(self):
+        """Predeclared asymmetry: under C1 an event is KNOWN to exist, so less
+        waiting is warranted than for an undocumented disappearance. Asserted so
+        a later edit to either constant cannot quietly invert the relationship."""
+        assert C1_GRACE_SESSIONS < ORPHAN_TIMEOUT_SESSIONS
+
+    def test_a_carry_never_reaches_the_orphan_zero(self):
+        """The module's founding distinction, restated for the new state. A
+        documented deal being carried must never be reclassified as an
+        undocumented disappearance, whatever the session counts say."""
+        for pending in (0, C1_GRACE_SESSIONS - 1, C1_GRACE_SESSIONS,
+                        ORPHAN_TIMEOUT_SESSIONS + 50):
+            d = resolve_settlement(
+                terms=_terms(), shares=100, last_valid_mark=40.0,
+                sessions_since_last_valid_print=0,
+                sessions_pending_terms=pending)
+            assert d.source is not SettlementSource.ZERO_ORPHAN
+            assert d.event_known is True
 
 
 # ── 4. C2: NO record at all ──────────────────────────────────────────────────
@@ -302,3 +495,52 @@ class TestTheCountersAreTotal:
                                     sessions_since_last_valid_print=1), 100)
         assert c["unresolved_terminal_events"] == 1
         assert "unresolved_terminal_events_notional" not in c
+
+
+class TestAPendingCarryIsCountedOnce:
+    """A PENDING_TERMS decision recurs every session of the grace period. The
+    counter answers "how many deals are we carrying and for how much", so
+    counting each recurrence would report one ten-session carry as ten events
+    with ten times the notional — inflating precisely the number an operator
+    would use to judge how much of equity is provisional.
+    """
+
+    def _carry(self):
+        return resolve_settlement(terms=_terms(), shares=100,
+                                  last_valid_mark=40.0,
+                                  sessions_since_last_valid_print=0,
+                                  sessions_pending_terms=0)
+
+    def test_plain_tally_REFUSES_a_pending_decision(self):
+        """Raises rather than over-counting. A silent double-count would look
+        like a busier corpus, which is not an error anyone goes looking for."""
+        with pytest.raises(ValueError, match="tally_pending_entry"):
+            tally(empty_counters(), self._carry(), 100)
+
+    def test_entry_is_counted_with_its_provisional_notional(self):
+        c = empty_counters()
+        tally_pending_entry(c, self._carry(), 100, already_pending=False)
+        assert c["pending_terms_carried"] == 1
+        assert c["pending_terms_carried_notional"] == pytest.approx(4000.0)
+
+    def test_a_continuing_carry_is_NOT_re_counted(self):
+        c = empty_counters()
+        tally_pending_entry(c, self._carry(), 100, already_pending=False)
+        for _ in range(C1_GRACE_SESSIONS):
+            tally_pending_entry(c, self._carry(), 100, already_pending=True)
+        assert c["pending_terms_carried"] == 1
+        assert c["pending_terms_carried_notional"] == pytest.approx(4000.0)
+
+    def test_a_restart_mid_grace_does_not_re_count(self):
+        """`already_pending` is read from persisted state precisely so a
+        redeploy in the middle of a grace period does not re-count the carry it
+        was already tracking."""
+        c = empty_counters()
+        tally_pending_entry(c, self._carry(), 100, already_pending=True)
+        assert c["pending_terms_carried"] == 0
+
+    def test_it_refuses_a_non_pending_decision(self):
+        with pytest.raises(ValueError):
+            tally_pending_entry(empty_counters(),
+                                resolve_settlement(terms=_exact(), shares=100),
+                                100, already_pending=False)

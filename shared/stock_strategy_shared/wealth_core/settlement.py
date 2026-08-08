@@ -24,6 +24,26 @@ consideration is unknowable from the corpus. So the rule sits outside the
 strategy, is stated in advance, and is never tuned. See docs/architecture.md
 "terminal settlement and orphan resolution".
 
+WHY THE GRACE OUTRANKS AN EXECUTABLE PRINT (amendment, 2026-08-08). The waterfall
+as first documented put "executable terminal-day print" ABOVE the pending state,
+on the reasoning that a real transaction beats valuing an unresolved claim. True
+on a terminal day, and false on every other day — and nothing in the data marks
+which is which. A contested bid TRADES right up to closing, so a security whose
+deal was merely ANNOUNCED still prints an ordinary, fully executable close; taking
+it settles the position at market on announcement day and forecloses the terms
+that arrive afterwards. That is the same foreclosure defect the grace period was
+introduced to fix, reached through a different branch.
+
+The golden fixture caught it, for the third time: its SEC_STRANDED case is
+explicitly a security that "keeps PRINTING and stays tradeable throughout",
+announced with no terms at one session and resolved for $61.50 cash ten sessions
+later. Under print-before-grace it liquidated at 90.98 on the announcement.
+
+So the print settles only once there is nothing left to wait for — after the
+grace expires, or where no trustworthy mark makes carrying possible at all. An
+ANNOUNCEMENT IS NOT A TERMINAL DAY, and no ordering that treats them alike can be
+right.
+
 THE ONE DISTINCTION EVERYTHING RESTS ON:
 
     incomplete terms   the event is DOCUMENTED and the terms are unreadable
@@ -57,6 +77,23 @@ ORPHAN_TIMEOUT_SESSIONS = 20
 #: sessions, which is the scale this bound exists to exclude.
 MARK_RECENCY_SESSIONS = 10
 
+#: How long a DOCUMENTED terminal event with unreadable terms is CARRIED before
+#: its last trustworthy mark becomes a settlement. Deliberately SHORTER than
+#: ORPHAN_TIMEOUT_SESSIONS: under C1 the event is known to exist, so less
+#: waiting is warranted than for an undocumented disappearance.
+#:
+#: This exists because the first implementation settled C1 on the FIRST session
+#: a terms-less event appeared, which forecloses terms that arrive after the
+#: announcement. Harmless over a frozen corpus, where terms never arrive at all;
+#: wrong on a live book, where a documented announcement routinely precedes the
+#: consideration by days or weeks. The golden fixture's SEC_STRANDED case —
+#: announced with no terms, resolved for $54 cash later — rejected it, and was
+#: right to.
+#:
+#: PREDECLARED accounting semantics and FROZEN. 5 vs 10 vs 20 is not chosen on
+#: CAGR. See docs/architecture.md "C1 needs its OWN grace period".
+C1_GRACE_SESSIONS = 10
+
 
 class SettlementSource(str, Enum):
     """WHERE a settlement price came from. Persisted, never inferred.
@@ -71,10 +108,25 @@ class SettlementSource(str, Enum):
     """A real tradeable print on the terminal session — an actual transaction,
     not a proxy."""
 
+    PENDING_TERMS = "PENDING_TERMS"
+    """C1, DURING the grace period. A KNOWN event whose terms are unreadable,
+    CARRIED at its last trustworthy mark.
+
+    This is the state that distinguishes a MARK from a SETTLEMENT, and it is not
+    a shade of UNRESOLVED. The mark VALUES the position without CONVERTING it to
+    cash: equity stays measurable (so admissions may continue), the position
+    stays economically unresolved, the slot is NOT released, and exact terms or
+    an executable print arriving later REPLACE the provisional valuation with no
+    retrospective mutation of anything already settled.
+
+    Conflating this with UNRESOLVED is what forced the false choice between
+    freezing the book and inventing a settlement."""
+
     LAST_TRUSTWORTHY_MARK = "LAST_TRUSTWORTHY_MARK"
-    """C1. A KNOWN event whose terms are unreadable, valued at the most recent
-    valid mark inside the recency window. NOT a simulated sale: no transaction
-    occurred, and the claim being valued is real."""
+    """C1, AFTER the grace expires. A KNOWN event whose terms never became
+    readable, settled at the most recent valid mark inside the recency window.
+    NOT a simulated sale: no transaction occurred, and the claim being valued is
+    real."""
 
     ZERO_ORPHAN = "ZERO_ORPHAN"
     """C2. No terminal record at all, absent beyond the timeout. Zero because
@@ -88,9 +140,16 @@ class SettlementSource(str, Enum):
 
 
 #: Sources that remove the holding from the book.
+#: PENDING_TERMS is deliberately absent: it carries a position, it does not
+#: settle one. A source that valued a holding and also released its slot would
+#: be the mark/settlement conflation this module exists to keep apart.
 SETTLING_SOURCES = frozenset({
     SettlementSource.EXACT_TERMS, SettlementSource.EXECUTABLE_PRINT,
     SettlementSource.LAST_TRUSTWORTHY_MARK, SettlementSource.ZERO_ORPHAN})
+
+#: Sources that VALUE an open holding without settling it. Equity is measurable
+#: (so admissions continue) while the position stays economically unresolved.
+CARRYING_SOURCES = frozenset({SettlementSource.PENDING_TERMS})
 
 
 @dataclass(frozen=True)
@@ -113,6 +172,12 @@ class SettlementDecision:
     def settles(self) -> bool:
         return self.source in SETTLING_SOURCES
 
+    @property
+    def carries(self) -> bool:
+        """The holding stays open and IS valued. Distinct from `settles` (open
+        -> closed) and from neither (blocked, `resolved_equity` goes None)."""
+        return self.source in CARRYING_SOURCES
+
     def provenance(self) -> dict:
         """The audit record. `event_source` is supplied by the caller because
         only it knows which corpus the event came from."""
@@ -121,7 +186,12 @@ class SettlementDecision:
                 "terms_complete": self.terms_complete,
                 "settlement_exact": self.settlement_exact,
                 "price_per_share": self.price_per_share,
-                "reason": self.reason, **self.detail}
+                # NAMESPACED. A bare `reason` collides with the block reason the
+                # caller already returns (MISSING_CASH_PER_SHARE and friends),
+                # and dict-spread order decided which survived — so the audit
+                # said NO_TRUSTWORTHY_MARK where the terms gap belonged. Two
+                # different questions, two different keys.
+                "settlement_reason": self.reason, **self.detail}
 
 
 def _positive(x) -> bool:
@@ -138,8 +208,10 @@ def resolve_settlement(*,
                        last_valid_mark: Optional[float] = None,
                        sessions_since_last_valid_print: Optional[int] = None,
                        executable_price: Optional[float] = None,
+                       sessions_pending_terms: int = 0,
                        orphan_timeout_sessions: int = ORPHAN_TIMEOUT_SESSIONS,
                        mark_recency_sessions: int = MARK_RECENCY_SESSIONS,
+                       c1_grace_sessions: int = C1_GRACE_SESSIONS,
                        ) -> SettlementDecision:
     """The waterfall, in one place, for both engines.
 
@@ -153,6 +225,14 @@ def resolve_settlement(*,
     rule the crash brake's `evaluable` third state encodes, and for the same
     reason: one boolean must not answer both "the evidence says no" and "there is
     no evidence".
+
+    `sessions_pending_terms` is how many sessions this security has ALREADY been
+    carried under a documented terms-less event. 0 means the event is new this
+    session. It is a separate count from `sessions_since_last_valid_print`
+    because the two measure different things and routinely diverge: a security
+    can keep printing every session while its announced deal has no terms, in
+    which case staleness stays 0 forever and the grace period would never expire
+    if it were driven off staleness.
     """
     stale = sessions_since_last_valid_print
 
@@ -169,28 +249,55 @@ def resolve_settlement(*,
                 reason="EXACT_TERMS", detail={"kind": terms.kind.value,
                                               "reference": terms.reference})
 
-        # ── 2. a real executable print BEATS any proxy ──────────────────────
-        # An actual transaction is always preferable to valuing an unresolved
-        # claim, so it is tried before C1 even though the event is known.
+        # ── 2. the GRACE PERIOD, BEFORE ANY settling branch ─────────────────
+        # Ordering is the whole rule, and it outranks the executable print as
+        # well as the last mark. See the module docstring, "WHY THE GRACE
+        # OUTRANKS AN EXECUTABLE PRINT" — an ANNOUNCEMENT is not a terminal day,
+        # and settling into an ordinary session's print forecloses the terms
+        # exactly as an immediate last-mark settlement did.
+        #
+        # A trustworthy mark inside the recency window is what makes carrying
+        # possible at all: a mark too stale to settle on is also too stale to
+        # CARRY on, because every admission sizes at 4% of equity, so a bad
+        # carry propagates into every position opened afterwards. Where there is
+        # no such mark, fall through — an executable print can still settle.
+        if _positive(last_valid_mark) and stale is not None \
+                and stale <= mark_recency_sessions \
+                and sessions_pending_terms < c1_grace_sessions:
+            return SettlementDecision(
+                source=SettlementSource.PENDING_TERMS,
+                price_per_share=float(last_valid_mark),
+                event_known=True, terms_complete=False, settlement_exact=False,
+                reason="TERMINAL_PENDING_TERMS",
+                detail={"kind": terms.kind.value, "terms_gap": why,
+                        "sessions_since_last_valid_print": stale,
+                        "sessions_pending_terms": sessions_pending_terms,
+                        "c1_grace_sessions": c1_grace_sessions})
+
+        # ── 3. a real executable print BEATS any proxy ──────────────────────
+        # Once there is nothing left to wait for, an actual transaction is
+        # preferable to valuing an unresolved claim.
         if _positive(executable_price):
             return SettlementDecision(
                 source=SettlementSource.EXECUTABLE_PRINT,
                 price_per_share=float(executable_price),
                 event_known=True, terms_complete=False, settlement_exact=False,
                 reason="EXECUTABLE_TERMINAL_PRINT",
-                detail={"kind": terms.kind.value, "terms_gap": why})
+                detail={"kind": terms.kind.value, "terms_gap": why,
+                        "sessions_pending_terms": sessions_pending_terms})
 
-        # ── 3. C1: known event, terms unreadable ────────────────────────────
+        # ── 4. C1: known event, terms unreadable, nothing left to wait for ──
         if not _positive(last_valid_mark):
             return SettlementDecision(
                 source=SettlementSource.UNRESOLVED, price_per_share=None,
                 event_known=True, terms_complete=False, settlement_exact=False,
                 reason="NO_TRUSTWORTHY_MARK",
                 detail={"kind": terms.kind.value, "terms_gap": why})
+
+        # Deliberately NOT downgraded to a zero: the event is documented and
+        # holders were paid something, so zero would be a worse answer than
+        # refusing.
         if stale is None or stale > mark_recency_sessions:
-            # A stale print is not a settlement proxy. Deliberately NOT downgraded
-            # to a zero: the event is documented and holders were paid something,
-            # so zero would be a worse answer than refusing.
             return SettlementDecision(
                 source=SettlementSource.UNRESOLVED, price_per_share=None,
                 event_known=True, terms_complete=False, settlement_exact=False,
@@ -198,13 +305,17 @@ def resolve_settlement(*,
                 detail={"kind": terms.kind.value, "terms_gap": why,
                         "sessions_since_last_valid_print": stale,
                         "mark_recency_sessions": mark_recency_sessions})
+
+        # ── 3c. the grace expired and nothing better ever arrived ───────────
         return SettlementDecision(
             source=SettlementSource.LAST_TRUSTWORTHY_MARK,
             price_per_share=float(last_valid_mark),
             event_known=True, terms_complete=False, settlement_exact=False,
             reason="DERIVED_TERMINAL_SETTLEMENT_LAST_MARK",
             detail={"kind": terms.kind.value, "terms_gap": why,
-                    "sessions_since_last_valid_print": stale})
+                    "sessions_since_last_valid_print": stale,
+                    "sessions_pending_terms": sessions_pending_terms,
+                    "c1_grace_sessions": c1_grace_sessions})
 
     # ── 4. C2: NO terminal record at all ────────────────────────────────────
     # Reached only when `terms is None`. An incomplete-terms event can never
@@ -240,7 +351,24 @@ SETTLEMENT_COUNTERS = (
     "derived_last_mark_settlements",
     "orphan_zero_writeoffs",
     "unresolved_terminal_events",
+    # Counted SEPARATELY from both settlements and blocks, because it is
+    # neither. A run carrying twenty pending deals is in a materially different
+    # condition from one that settled twenty at their last mark, and folding
+    # them together would hide exactly the population whose valuation is
+    # provisional.
+    #
+    # ONE PER SECURITY THAT ENTERS THE STATE, not one per carry-session. The
+    # decision recurs every session of the grace period, so tallying each one
+    # would report a single ten-session carry as ten events and inflate the
+    # notional tenfold. The caller tallies only on ENTRY; `tally_pending_entry`
+    # is the guard that makes that hard to get wrong.
+    "pending_terms_carried",
 )
+
+#: Counters that are POSITION-EVENT counts rather than settlement counts, so a
+#: total settled + blocked reconciliation does not double-count them.
+NON_SETTLING_COUNTERS = frozenset({
+    "unresolved_terminal_events", "pending_terms_carried"})
 
 _COUNTER_BY_SOURCE = {
     SettlementSource.EXACT_TERMS: "exact_terminal_settlements",
@@ -248,6 +376,7 @@ _COUNTER_BY_SOURCE = {
     SettlementSource.LAST_TRUSTWORTHY_MARK: "derived_last_mark_settlements",
     SettlementSource.ZERO_ORPHAN: "orphan_zero_writeoffs",
     SettlementSource.UNRESOLVED: "unresolved_terminal_events",
+    SettlementSource.PENDING_TERMS: "pending_terms_carried",
 }
 
 
@@ -276,7 +405,24 @@ def empty_counters() -> dict:
 
 
 def tally(counters: dict, decision: SettlementDecision, shares: int) -> dict:
-    """Record one decision. Mutates and returns `counters`."""
+    """Record one decision. Mutates and returns `counters`.
+
+    A PENDING_TERMS decision recurs every session of the grace period, so
+    passing every one of them here counts one carry as many. Use
+    `tally_pending_entry` for that source; this function raises rather than
+    silently over-counting, because an inflated provisional-notional is exactly
+    the number a reader would use to judge how much of equity is uncertain.
+    """
+    if decision.source is SettlementSource.PENDING_TERMS:
+        raise ValueError(
+            "PENDING_TERMS recurs every session of the grace period; tally it "
+            "once on ENTRY via tally_pending_entry(), or a single ten-session "
+            "carry is reported as ten events with ten times the notional.")
+    return _tally_unchecked(counters, decision, shares)
+
+
+def _tally_unchecked(counters: dict, decision: SettlementDecision,
+                     shares: int) -> dict:
     key = counter_for(decision.source)
     counters[key] = counters.get(key, 0) + 1
     if key != "unresolved_terminal_events":
@@ -286,7 +432,23 @@ def tally(counters: dict, decision: SettlementDecision, shares: int) -> dict:
     return counters
 
 
-__all__ = ["MARK_RECENCY_SESSIONS", "ORPHAN_TIMEOUT_SESSIONS",
+def tally_pending_entry(counters: dict, decision: SettlementDecision,
+                        shares: int, *, already_pending: bool) -> dict:
+    """Record a PENDING_TERMS carry, but only the session it BEGINS.
+
+    `already_pending` comes from the caller's persisted state, so a restart in
+    the middle of a grace period does not re-count the carry it was already
+    tracking.
+    """
+    if decision.source is not SettlementSource.PENDING_TERMS:
+        raise ValueError(f"not a pending-terms decision: {decision.source!r}")
+    if already_pending:
+        return counters
+    return _tally_unchecked(counters, decision, shares)
+
+
+__all__ = ["C1_GRACE_SESSIONS", "CARRYING_SOURCES", "MARK_RECENCY_SESSIONS",
+           "NON_SETTLING_COUNTERS", "ORPHAN_TIMEOUT_SESSIONS",
            "SETTLEMENT_COUNTERS", "SETTLING_SOURCES", "SettlementDecision",
            "SettlementSource", "counter_for", "empty_counters",
-           "resolve_settlement", "tally"]
+           "resolve_settlement", "tally", "tally_pending_entry"]

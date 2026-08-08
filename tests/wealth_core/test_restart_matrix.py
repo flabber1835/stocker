@@ -171,9 +171,22 @@ class TestTheCutsReallyLandOnTheConditions:
         _, pend = self.state_at(g, CUTS["reserved_but_unfilled_entry"])
         assert any(p.operation.value == "OPEN_SLOT_POSITION" for p in pend)
 
-    def test_a_terminal_action_is_unresolved(self, g):
+    def test_a_terminal_action_is_in_flight(self, g):
+        """RE-POINTED 2026-08-08, from `unresolved_terminals` to the C1 carry.
+
+        Under the grace period SEC_STRANDED is CARRIED across this cut rather
+        than blocking, so `unresolved_terminals` is empty here and the old
+        assertion would have been testing nothing. The in-flight condition the
+        cut exists to land on is now the pending grace — and it is strictly more
+        demanding, because a counter that resets on restart never expires while
+        a lost block merely unfreezes.
+        """
         r, _ = self.state_at(g, CUTS["unresolved_terminal_event"])
-        assert r.state.unresolved_terminals, "nothing is blocked at this cut"
+        assert r.state.terminal_pending_sessions, (
+            "no terminal action is in flight at this cut")
+        assert r.state.terminal_pending_terms, (
+            "the pending TERMS must persist too — without them the resumed run "
+            "has nothing to re-resolve against and the grace never expires")
 
     def test_a_holding_is_unmarkable(self, g):
         r, _ = self.state_at(g, CUTS["missing_mark"] + 1)
@@ -251,6 +264,10 @@ class TestTheRestartMachineryCanActuallyFail:
     def corrupt_unresolved_terminals(self, blob):
         blob["unresolved_terminals"] = {}
 
+    def corrupt_terminal_pending(self, blob):
+        blob["terminal_pending_sessions"] = {}
+        blob["terminal_pending_terms"] = {}
+
     def corrupt_episode_ages(self, blob):
         for ep in blob["episodes"].values():
             ep["market_sessions_held"] = 0
@@ -281,8 +298,14 @@ class TestTheRestartMachineryCanActuallyFail:
     # (corruption, cut, first layer that must diverge, does terminal state move?)
     MUTATIONS = [
         ("corrupt_reservations", 169, "decision", False),
-        ("corrupt_unresolved_terminals", CUTS["unresolved_terminal_event"],
-         "decision", True),
+        # `corrupt_unresolved_terminals` was REMOVED here, not relaxed. Under
+        # C1's grace period this scenario produces no state-level block at any
+        # cut, so the mutation clears an already-empty dict and can no longer
+        # fail — a control that cannot fail is worse than none, because it reads
+        # as coverage. Its replacement is
+        # test_a_lost_grace_counter_changes_the_outcome below, which builds the
+        # one condition the golden stream lacks: a carried security that STOPS
+        # printing, where the counter actually drives the result.
         ("corrupt_episode_ages", 150, "decision", True),
         ("corrupt_peaks", 150, "decision", True),
         ("corrupt_cooldowns", CUTS["cooldown_boundary"], "decision", True),
@@ -313,6 +336,76 @@ class TestTheRestartMachineryCanActuallyFail:
             f"which is a finding about the engine.")
 
         assert (damaged.state.state_hash() != clean.state.state_hash()) is state_moves
+
+    def test_a_lost_grace_counter_changes_the_outcome(self):
+        """THE control the golden stream cannot provide.
+
+        A C1 grace counter that reset on every redeploy would never expire on a
+        book that restarts weekly, and the failure would look like patience
+        rather than a counter losing its place — the single most likely way this
+        feature fails silently in production.
+
+        The golden scenario cannot falsify it: SEC_STRANDED keeps printing
+        throughout and its real terms arrive before the grace would expire, so
+        clearing the counter mid-run changes nothing there. That is a property
+        of the scenario, not evidence of safety. This builds the missing
+        condition directly — a documented terms-less event on a security that
+        then STOPS printing, carried until the grace runs out.
+        """
+        from stock_strategy_shared.wealth_core.adapter import (
+            step_session, tradeability_only_bars)
+        from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
+        from stock_strategy_shared.wealth_core.settlement import C1_GRACE_SESSIONS
+        from stock_strategy_shared.wealth_core.state import (
+            HoldingEpisode, PortfolioState)
+        from stock_strategy_shared.wealth_core.terminal import (
+            TerminalKind, TerminalTerms)
+
+        cfg = WealthCoreConfig()
+        terms = TerminalTerms(session="d1", security_id="S1",
+                              kind=TerminalKind.CASH_MERGER,
+                              reference="test/terms-pending")
+
+        def fresh():
+            st = PortfolioState.fresh(10_000.0)
+            st.slots[0].occupied_by = "S1"
+            st.episodes[0] = HoldingEpisode("S1", "T1", "I1", 0, "d0", "d0",
+                                            100.0, 100.0, 10, 10, 100.0)
+            st.initialized = True
+            return st
+
+        def carry(st, ledger, last_known, session, announce=False):
+            return step_session(
+                session=session, state=st, bars=[], pending=[], ledger=ledger,
+                last_known=last_known, cfg=cfg, strategy_id="stocker_wealth_core_v1",
+                strategy_version=1, security_bars=tradeability_only_bars([], None),
+                terminal_terms=[terms] if announce else [])
+
+        # Announce, then carry to one session short of expiry.
+        st, led, lk = fresh(), Ledger(), {"S1": 95.0}
+        carry(st, led, lk, "d1", announce=True)
+        for i in range(C1_GRACE_SESSIONS - 1):
+            carry(st, led, lk, f"d{i + 2}")
+        assert st.terminal_pending_sessions["S1"] == C1_GRACE_SESSIONS - 1
+        assert 0 in st.episodes, "must still be carried, not yet settled"
+
+        # CLEAN restart: bytes across the boundary, then one more session.
+        clean = PortfolioState.from_dict(json.loads(json.dumps(st.to_dict())))
+        carry(clean, Ledger(), dict(lk), "dX")
+        assert 0 not in clean.episodes, (
+            "the grace should have expired on this session and settled the "
+            "holding at its last trustworthy mark")
+
+        # DAMAGED restart: the counter and terms are lost.
+        blob = json.loads(json.dumps(st.to_dict()))
+        blob["terminal_pending_sessions"] = {}
+        blob["terminal_pending_terms"] = {}
+        damaged = PortfolioState.from_dict(blob)
+        carry(damaged, Ledger(), dict(lk), "dX")
+        assert 0 in damaged.episodes, (
+            "losing the counter left the holding carried indefinitely — which "
+            "is exactly the silent failure this control exists to catch")
+        assert damaged.state_hash() != clean.state_hash()
 
     def test_the_absorbed_corruptions_really_are_absorbed_downstream(self, g, whole):
         """The two `state_moves=False` rows say a LATER safeguard swallows the

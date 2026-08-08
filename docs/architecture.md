@@ -5211,18 +5211,58 @@ those forced a false choice between freezing the book and inventing a settlement
 ```text
 KNOWN TERMINAL EVENT
 1  exact terms already known          -> apply exact terms
-2  executable terminal-day print      -> settle from that print
-3  terms missing                      -> TERMINAL_PENDING_TERMS
+2  terms missing, trustworthy mark    -> TERMINAL_PENDING_TERMS
                                          carry at the last trustworthy mark
                                          do NOT convert to cash
                                          do NOT release the slot
-4  during the grace period
+3  during the grace period
      exact terms arrive               -> exact terms
-     executable print appears         -> that print
+     an executable print              -> does NOT settle; keep carrying
+4  nothing left to wait for           -> executable print, if there is one
+     (grace expired, or no mark
+      good enough to carry at)
 5  grace expires, nothing better      -> DERIVED_TERMINAL_SETTLEMENT_LAST_MARK
 
 NO DOCUMENTED EVENT + stops printing + ORPHAN_TIMEOUT -> ORPHAN_ZERO_WRITE_OFF
 ```
+
+**CORRECTION, same day, from the implementation.** This waterfall was first
+written with "executable terminal-day print" at step 2, ABOVE the carry, on the
+reasoning that a real transaction beats valuing an unresolved claim. That is true
+on a terminal day and false on every other day — and NOTHING IN THE DATA SAYS
+WHICH IS WHICH. A contested bid trades right up to closing, so a deal that has
+merely been ANNOUNCED still prints an ordinary, fully executable close; taking it
+liquidates the position at market on the announcement and forecloses the terms.
+That is the identical foreclosure defect the grace period was introduced to fix,
+arriving through a different branch.
+
+The golden fixture caught it, for the third time. `SEC_STRANDED` is explicitly a
+security that "keeps PRINTING and stays tradeable throughout" — announced with no
+terms at S200 and resolved for $61.50 cash at S210. Under print-before-grace it
+liquidated at 90.98 on the announcement. So the print settles only once there is
+nothing left to wait for. AN ANNOUNCEMENT IS NOT A TERMINAL DAY.
+
+**THE RECENCY BOUND IS MEASURED AT THE EVENT, NOT AT EXPIRY** (also from the
+implementation, and rehearsal-blocking). `MARK_RECENCY_SESSIONS` asks whether
+there was a trustworthy mark WHEN THE SECURITY TERMINATED — a fact about the
+event, which waiting for terms cannot falsify. Re-measuring it when the grace
+expires double-counts the wait, and the two constants are equal:
+
+```text
+security stops printing at its announcement (the NORMAL delisting case)
+  staleness   1  2  3 ...  10  11      grows one per carried session
+  pending     0  1  2 ...   9  10      grace expires here
+  at expiry   staleness 11 > MARK_RECENCY_SESSIONS 10  -> BLOCKED, forever
+```
+
+That is all 19,216 delisted Sharadar securities, every one of which stops
+printing at delisting. The C1 settlement branch would have been UNREACHABLE for
+the entire population and the rehearsal would have frozen exactly as it did
+before the waterfall existed — a defect produced by an interaction between two
+constants, each individually correct. The staleness observed at the announcement
+is therefore frozen on the state (`terminal_pending_terms[sec]["stale_at_event"]`)
+and reused at expiry. Falsifier:
+`test_a_delisted_security_SETTLES_when_the_grace_expires`.
 
 `TERMINAL_PENDING_TERMS` is the new state, and what it buys is that all four of
 these hold at once:
@@ -5245,9 +5285,20 @@ be chosen on CAGR.
 
 Consequence for the golden fixture: `SEC_STRANDED` now behaves as the scenario
 always described. Announced with no terms, carried at its last trustworthy mark
-through the grace period, then settled at the real $54 when terms arrive. No
-contradiction, and the fixture's block coverage survives without inventing a new
-case for it.
+through the grace period, then settled at the real **$61.50** when terms arrive.
+(An earlier note here said $54 — that is SEC_MERGED's price, a different case.)
+
+**The fixture's block coverage did NOT survive, contrary to what this section
+first claimed.** SEC_STRANDED was the scenario's only case that blocked on
+missing terms, and under the grace period it carries — correctly — so
+`state.unresolved_terminals` is now empty for the whole golden run and no
+`terminal_results` row carries `blocked`. The nine remaining blocked sessions come
+from vendor bars flagged `unresolved_corporate_action` (SEC_MERGED, SEC_BUST),
+which is a different mechanism. The terms-block path is now covered by
+`tests/wealth_core/test_adapter.py::TestATermsBlockStillReachesTheEquityGate`,
+which drives the real session loop; a case for it was deliberately NOT added to
+the golden scenario, because a new security there perturbs rankings and
+admissions for every other assertion in that file.
 
 **C1 — last trustworthy mark, for a KNOWN event with unavailable terms.** The
 claim being valued is real and the liquidity event is documented. For a cash deal

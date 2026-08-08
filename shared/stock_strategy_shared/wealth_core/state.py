@@ -224,6 +224,41 @@ class PortfolioState:
     # block exists to prevent.
     unresolved_terminals: dict[str, str] = field(default_factory=dict)
 
+    # ── settlement-waterfall counters (settlement.py) ────────────────────────
+    # All three PERSIST for the same reason `unresolved_terminals` does: a grace
+    # period that reset on every redeploy would never expire on a book that
+    # restarts weekly, and the failure would look like patience rather than a
+    # counter losing its place. Every one of them treats ABSENT as zero, so a
+    # healthy book carries three empty dicts and its state hash is unchanged.
+
+    # security_id -> consecutive sessions with NO usable mark. Feeds the
+    # waterfall's recency bound (C1) and its orphan timeout (C2).
+    sessions_since_valid_mark: dict[str, int] = field(default_factory=dict)
+
+    # security_id -> sessions carried under a DOCUMENTED terms-less event.
+    # Counted separately from staleness above because the two routinely
+    # diverge: a security can keep printing every session while its announced
+    # deal has no terms, so staleness stays 0 and a grace driven off it would
+    # never expire.
+    terminal_pending_sessions: dict[str, int] = field(default_factory=dict)
+
+    # security_id -> {"terms": <serialised TerminalTerms>, "stale_at_event": int}
+    # for the event the grace is being served for.
+    #
+    # The terms themselves rather than just a reference string, and that is
+    # forced by the data: a terminal event appears in ACTIONS on ONE session and
+    # never again, so from the session after the announcement there is nothing
+    # left to re-resolve against. Without the terms here, `sweep_pending_terms`
+    # would have to invent a settlement rule of its own for expiry — a second
+    # implementation of the waterfall, which is how the two engines drift.
+    #
+    # Carrying them also makes the two things the grace exists for CHECKABLE:
+    # exact terms arriving later are compared against what was pending, and a
+    # SECOND, different event mid-grace is detected by its `reference` instead
+    # of silently inheriting the first one's age (which would re-admit the
+    # foreclosure defect through the counter rather than through the rule).
+    terminal_pending_terms: dict[str, dict] = field(default_factory=dict)
+
     @classmethod
     def fresh(cls, starting_cash: float, n_slots: int = DEFAULT_SLOTS) -> "PortfolioState":
         return cls(slots={i: SlotState(slot_id=i) for i in range(n_slots)},
@@ -345,6 +380,13 @@ class PortfolioState:
             "initialized": self.initialized,
             "session_index": self.session_index,
             "unresolved_terminals": dict(sorted(self.unresolved_terminals.items())),
+            "sessions_since_valid_mark": dict(
+                sorted(self.sessions_since_valid_mark.items())),
+            "terminal_pending_sessions": dict(
+                sorted(self.terminal_pending_sessions.items())),
+            "terminal_pending_terms": {
+                k: self.terminal_pending_terms[k]
+                for k in sorted(self.terminal_pending_terms)},
         }
 
     @classmethod
@@ -365,6 +407,15 @@ class PortfolioState:
             initialized=bool(d.get("initialized", False)),
             session_index=int(d.get("session_index", 0)),
             unresolved_terminals=dict(d.get("unresolved_terminals") or {}),
+            # Absent means zero — a blob written before the settlement waterfall
+            # existed carries no pending grace, which is the correct reading:
+            # nothing was being carried.
+            sessions_since_valid_mark=dict(
+                d.get("sessions_since_valid_mark") or {}),
+            terminal_pending_sessions=dict(
+                d.get("terminal_pending_sessions") or {}),
+            terminal_pending_terms=dict(
+                d.get("terminal_pending_terms") or {}),
         )
 
     def state_hash(self) -> str:

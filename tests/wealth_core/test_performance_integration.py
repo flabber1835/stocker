@@ -70,15 +70,22 @@ def test_state_and_ledger_hashes_are_unmoved_by_measuring():
 # ── 2. the golden run is measurable, and its numbers are sane ────────────────
 
 def test_the_golden_run_is_strictly_unevaluable_because_it_blocks():
-    """The golden scenario BLOCKS 19 of its 260 sessions — a designed state that
+    """The golden scenario BLOCKS 9 of its 260 sessions — a designed state that
     leaves those sessions with no valuation. Under the strict rule that makes the
     run unevaluable, and the reason must say BLOCKED so an operator does not
-    diagnose corruption."""
+    diagnose corruption.
+
+    WAS 19 before C1's grace period (2026-08-08). The ten sessions from
+    SEC_STRANDED's terms-less announcement to its resolution are now CARRIED at a
+    trustworthy mark rather than blocked, so they have a valuation and no longer
+    make the run unevaluable. The remaining 9 come from securities flagged
+    `unresolved_corporate_action` on the vendor bar, which have no mark at all —
+    the case where refusing is still the only honest answer."""
     p = measure_run_result(_run(), STARTING_CASH)
     assert not p.evaluable
     assert "BLOCKED" in p.unevaluable_reason
     assert "allow_blocked_gaps" in p.unevaluable_reason
-    assert p.blocked_session_count == 19
+    assert p.blocked_session_count == 9
 
 
 def test_an_unexplained_gap_is_never_tolerated_even_with_the_opt_in():
@@ -101,7 +108,7 @@ def test_the_golden_run_measures():
     # The drawdown is a FLOOR: the blocked days could hide a deeper trough, and
     # anything quoting it must carry that.
     assert p.maximum_drawdown_is_lower_bound is True
-    assert len(p.excluded_blocked_sessions) == 19
+    assert len(p.excluded_blocked_sessions) == 9
     assert p.session_count == len(run.sessions)
     assert p.starting_equity == pytest.approx(STARTING_CASH)
     assert p.ending_equity is not None

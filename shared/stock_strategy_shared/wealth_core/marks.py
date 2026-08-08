@@ -39,6 +39,25 @@ class MarkStatus(str, Enum):
     """A terminal action (merger, delisting, conversion) whose outcome is not
     yet known. Fail closed: not tradeable, not markable, not written off."""
 
+    PENDING_TERMS_CARRIED = "PENDING_TERMS_CARRIED"
+    """C1's grace period: a DOCUMENTED terminal event whose terms are not yet
+    readable, CARRIED at its last trustworthy mark.
+
+    Distinct from UNRESOLVED_TERMINAL, and the distinction is the point. Both
+    describe a holding whose deal terms are unknown, but this one has a mark the
+    waterfall has already judged recent enough to trust, so equity stays
+    MEASURABLE and admissions continue. UNRESOLVED_TERMINAL is the case where
+    there is no such mark — no price at all, or one too stale to believe — and
+    there the book must stop.
+
+    It RESOLVES equity while remaining economically unresolved. That is not a
+    contradiction: the position's VALUE is known within the recency bound, while
+    its final CONSIDERATION is not. Collapsing the two forced the false choice
+    between freezing the book and inventing a settlement.
+
+    Not tradeable: `value_per_share` supplies a valuation, never an execution
+    price. See docs/architecture.md "C1 needs its OWN grace period"."""
+
     CONFIRMED_WORTHLESS = "CONFIRMED_WORTHLESS"
     """A processed write-off. This is RESOLVED — zero is now a fact rather than
     an assumption, and equity is trustworthy again."""
@@ -51,6 +70,11 @@ class Mark:
     status: MarkStatus
     raw_mark_close: float | None = None        # only meaningful when CURRENT
     stale_raw_close: float | None = None       # last known, informational
+    # The value a PENDING_TERMS_CARRIED holding is carried at. A SEPARATE field
+    # from `raw_mark_close` on purpose: that one means "a print happened this
+    # session", and reusing it would make a carried valuation indistinguishable
+    # from a live one everywhere downstream, including in execution.
+    carried_raw_close: float | None = None
 
     def __post_init__(self) -> None:
         if self.status is MarkStatus.CURRENT and not _positive(self.raw_mark_close):
@@ -58,16 +82,35 @@ class Mark:
                 "MarkStatus.CURRENT requires a positive raw_mark_close — a "
                 "'current' mark with no price is the stale case wearing the "
                 "wrong label, which is precisely what this type exists to stop")
+        if self.status is MarkStatus.PENDING_TERMS_CARRIED \
+                and not _positive(self.carried_raw_close):
+            raise ValueError(
+                "MarkStatus.PENDING_TERMS_CARRIED requires a positive "
+                "carried_raw_close — the whole justification for carrying "
+                "rather than blocking is that a trustworthy mark exists, so a "
+                "carry without one is the blocked case wearing the wrong label")
 
     @property
     def resolves_equity(self) -> bool:
         """Whether this holding's contribution to equity is TRUSTWORTHY.
 
         CONFIRMED_WORTHLESS resolves: a processed write-off makes zero a fact.
+        PENDING_TERMS_CARRIED resolves: the waterfall has already checked the
+        carried mark against the recency bound, so the VALUE is known even
+        though the final consideration is not.
         STALE and UNRESOLVED_TERMINAL do not — and the difference between
         'worth nothing' and 'worth we-don't-know' is the whole point.
         """
-        return self.status in (MarkStatus.CURRENT, MarkStatus.CONFIRMED_WORTHLESS)
+        return self.status in (MarkStatus.CURRENT,
+                               MarkStatus.CONFIRMED_WORTHLESS,
+                               MarkStatus.PENDING_TERMS_CARRIED)
+
+    @property
+    def is_tradeable_mark(self) -> bool:
+        """Whether this mark may be used as an EXECUTION price. A carried
+        valuation may not: no print happened, so there is nothing to fill
+        against."""
+        return self.status is MarkStatus.CURRENT
 
     @property
     def value_per_share(self) -> float:
@@ -75,6 +118,8 @@ class Mark:
         anything unresolved (whose value belongs in the ESTIMATE, not here)."""
         if self.status is MarkStatus.CURRENT:
             return float(self.raw_mark_close)
+        if self.status is MarkStatus.PENDING_TERMS_CARRIED:
+            return float(self.carried_raw_close)
         return 0.0
 
     @property
@@ -83,6 +128,8 @@ class Mark:
         not equity — reported alongside so a human can see the gap."""
         if self.status is MarkStatus.CURRENT:
             return float(self.raw_mark_close)
+        if self.status is MarkStatus.PENDING_TERMS_CARRIED:
+            return float(self.carried_raw_close)
         if self.status is MarkStatus.CONFIRMED_WORTHLESS:
             return 0.0
         return float(self.stale_raw_close) if _positive(self.stale_raw_close) else 0.0

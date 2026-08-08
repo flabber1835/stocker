@@ -33,6 +33,8 @@ from stock_strategy_shared.wealth_core.golden import (
     RESTART_AT,
     SESSIONS,
     SPLIT_SESSION,
+    STRANDED_ANNOUNCED,
+    STRANDED_RESOLVED,
     WRITE_OFF_SESSION,
     golden_scenario,
 )
@@ -196,22 +198,77 @@ class TestTheScenarioActuallyExercisesEachCondition:
         assert mixed["cash_consideration"] > 0
         assert mixed["shares_delivered"] > 0
 
-    def test_a_deal_with_no_terms_blocks_and_then_unblocks(self, run):
-        blocked = [r for r in run.terminal_results if r.get("blocked")]
-        assert blocked and blocked[0]["reason"] == "MISSING_CASH_PER_SHARE"
-        sec = blocked[0]["security_id"]
-        # It BLOCKED for real sessions...
-        assert len(run.blocked_sessions) > 10
-        # ...and was eventually settled at the supplied price, not an assumed one.
+    def test_a_deal_with_no_terms_is_CARRIED_and_then_settled_at_real_terms(
+            self, run):
+        """C1's grace period, end to end — the scenario the fixture always
+        described and the code did not do until 2026-08-08.
+
+        SEC_STRANDED is announced with NO terms at S200 and resolved for $61.50
+        cash at S210. Two earlier implementations settled it on the announcing
+        session — one at its last mark, one at its still-executable print — and
+        both foreclosed the real terms. This asserts the SEQUENCE, not just the
+        endpoint, because the endpoint alone was identical under the version
+        that blocked for ten sessions.
+        """
+        pending = [r for r in run.terminal_results if r.get("pending")]
+        assert pending, "the terms-less announcement must CARRY, not settle"
+        sec = pending[0]["security_id"]
+        assert pending[0]["settlement_source"] == "PENDING_TERMS"
+        assert pending[0]["settlement_reason"] == "TERMINAL_PENDING_TERMS"
+        assert pending[0]["terms_gap"] == "MISSING_CASH_PER_SHARE"
+
+        # CARRIED, not blocked: it never entered the dict that stops admissions.
+        assert not any(r.get("blocked") and r["security_id"] == sec
+                       for r in run.terminal_results)
+
+        # ...and settled at the SUPPLIED price, never an assumed one.
         settled = [r for r in run.terminal_results
                    if r["security_id"] == sec and r.get("applied")]
-        assert settled and settled[-1]["proceeds"] > 0
+        assert len(settled) == 1
+        assert settled[0]["kind"] == "CASH_MERGER"
+        assert settled[0]["proceeds"] > 0
         assert run.state.unresolved_terminals == {}
+        assert run.state.terminal_pending_sessions == {}, (
+            "a settled deal must leave no grace counter behind, or a later "
+            "re-entry into the same security inherits a dead episode's clock")
 
-    def test_a_security_that_stops_printing_still_blocks_while_unresolved(self, run):
-        """The stranded name keeps trading throughout, so the block must come
-        from the missing TERMS rather than from an absent price."""
-        assert any(r.get("blocked") for r in run.terminal_results)
+    def test_carrying_a_deal_does_NOT_freeze_admissions(self, run):
+        """What the grace period is FOR. Under the blocking implementation the
+        ten sessions from the announcement to the terms were unbuyable; equity
+        was unknown, so 4% of it was not a number.
+
+        Asserted against the schedule rather than a count, so that a future
+        change which re-freezes those sessions fails here and names them.
+        """
+        carried = {SESSIONS[t] for t in range(STRANDED_ANNOUNCED,
+                                              STRANDED_RESOLVED)}
+        assert not (carried & set(run.blocked_sessions)), (
+            "sessions between a terms-less announcement and its resolution "
+            "must stay open for admissions")
+
+    def test_a_security_with_an_UNKNOWABLE_outcome_still_blocks(self, run):
+        """The grace period must not have removed blocking altogether.
+
+        WHAT THIS FIXTURE STILL COVERS: securities flagged
+        `unresolved_corporate_action` on the vendor bar (SEC_MERGED, SEC_BUST),
+        which are unmarkable and therefore freeze the equity gate.
+
+        WHAT IT NO LONGER COVERS, deliberately recorded rather than papered
+        over: a terminal action BLOCKED on missing terms — the
+        `state.unresolved_terminals` path. SEC_STRANDED was its only end-to-end
+        case and it now carries, which is correct. The path is exercised at unit
+        scale in test_settlement.py and through `step_session` in
+        test_adapter.py::TestATermsBlockStillReachesTheEquityGate; a case for it
+        is NOT invented here, because adding a security to the golden scenario
+        perturbs rankings and admissions for every other assertion in this file.
+        """
+        assert run.blocked_sessions, (
+            "no session blocks at all — the fixture has lost its coverage of "
+            "the fail-closed equity gate entirely")
+        assert not any(r.get("blocked") for r in run.terminal_results), (
+            "a terminal action now blocks on missing terms in this scenario. "
+            "That is a real change: re-read whether the carry is still doing "
+            "its job, rather than relaxing this assertion")
 
     def test_the_final_report_separates_marked_from_forced(self, run):
         f = run.final

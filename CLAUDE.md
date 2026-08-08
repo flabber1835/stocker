@@ -88,16 +88,33 @@ docs/wealth-core-defense-plan.md    the shadow-book defensive overlay: DESIGN ON
 docs/wealth-core-test-rewrite.md    how the suite got here (history, not obligations)
 ```
 
-**Certification position as of 2026-08-06.** Evidence steps 1-4 are DONE:
-both stacks deployed and all THREE images emit golden `a09b12a87d1ecc97`
-identically; `bt_actions` backfilled (664,039 rows, 1998-2026, so runs now report
-`split_source: actions`); the exact raw-close scan COMPLETED at 99.7649% with the
-gaps identified as per-ticker vendor gaps in 43 non-common-stock instruments
-(ETFs, warrants, units, preferreds, SPACs — SPY/QQQ/IWM/SOXX have ZERO as-traded
-close). **Step 7 `chain_rehearsal` is next and runnable.** Steps 5, 6 and 9 are
+**Certification position as of 2026-08-08.** Evidence steps 1-4 are DONE:
+both stacks deployed; `bt_actions` backfilled (664,039 rows, 1998-2026, so runs
+now report `split_source: actions`); the exact raw-close scan COMPLETED at
+99.7649% with the gaps identified as per-ticker vendor gaps in 43
+non-common-stock instruments (ETFs, warrants, units, preferreds, SPACs —
+SPY/QQQ/IWM/SOXX have ZERO as-traded close).
+
+**The terminal-settlement waterfall (C1/C2) is now WIRED**, `tests/wealth_core`
+is green at 550, and the golden hash MOVED as a deliberate re-pin:
+
+```text
+a09b12a87d1ecc97   ->   04a58dba05595dcd
+```
+
+The deployed images still emit the OLD hash and will read as a parity divergence
+until rebuilt. The wiring touched a NEW shared module (`settlement.py`) plus four
+existing ones (`state.py`, `terminal.py`, `marks.py`, `adapter.py`), so a FORCED
+`stocker-base` rebuild is mandatory before any parity claim or rehearsal —
+confirm the new hash inside the containers BEFORE starting a three-hour run.
+
+**Step 7 `chain_rehearsal` is next and runnable.** Steps 5, 6 and 9 remain
 BLOCKED on a missing producer, not on a run: `run_wealth_core_replay` has zero
 callers and the backtester container cannot reach bt-postgres, so nothing can
-supply `baseline_replay`'s `expected_hashes`. Details in the manifest.
+supply `baseline_replay`'s `expected_hashes`. Read the rehearsal's settlement
+counters BEFORE any performance number — `derived_last_mark_settlements == 0`
+alongside nonzero `unresolved_terminal_events` means the book is blocking rather
+than settling. Details and the full decomposition in the manifest.
 
 ---
 

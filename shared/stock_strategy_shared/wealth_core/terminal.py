@@ -54,7 +54,7 @@ kept in its own ledger that the run's own ledger never sees.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Mapping, Sequence
 
@@ -176,13 +176,28 @@ def _split_entitlement(shares_in: int, ratio: float) -> tuple[int, float]:
 # ── applying a terminal action ───────────────────────────────────────────────
 
 def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledger,
-                   session: str, cfg: WealthCoreConfig) -> dict:
-    """Apply one terminal action, or RECORD that it cannot be applied.
+                   session: str, cfg: WealthCoreConfig,
+                   last_valid_mark: float | None = None,
+                   sessions_since_last_valid_print: int | None = None,
+                   executable_price: float | None = None,
+                   counters: dict | None = None) -> dict:
+    """Apply one terminal action, CARRY it, or RECORD that it cannot be applied.
 
-    Returns a result dict either way. The caller does not have to check an
+    Returns a result dict in every case. The caller does not have to check an
     exception to find out that the book is now blocked — that fact is on the
     portfolio state, where a restart will find it too.
+
+    THE DECISION IS THE WATERFALL'S, not `completeness()`'s alone. Sharadar
+    ACTIONS supplies no per-share consideration at any action type, so
+    completeness refuses EVERY corpus-sourced termination — which made this a
+    permanent block rather than a rare one (218 of 753 sessions in the 2021-2023
+    rehearsal). `settlement.resolve_settlement` owns the exact/print/carry/
+    settle/refuse choice, and it is shared with the live book so the two cannot
+    diverge.
     """
+    from stock_strategy_shared.wealth_core.settlement import (
+        SettlementSource, resolve_settlement, tally_pending_entry)
+
     slot_id = next((s for s, ep in sorted(state.episodes.items())
                     if ep.security_id == terms.security_id), None)
     if slot_id is None:
@@ -190,16 +205,75 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
                 "security_id": terms.security_id}
 
     ep = state.episodes[slot_id]
-    ok, why = terms.completeness(ep.current_shares)
-    if not ok:
+    sec = terms.security_id
+
+    # A DIFFERENT event arriving mid-grace restarts the clock. Inheriting the
+    # first event's age could settle the second one immediately, which is the
+    # foreclosure defect re-entering through the counter instead of the rule.
+    prior_ref = ((state.terminal_pending_terms.get(sec) or {}).get("terms")
+                 or {}).get("reference")
+    already_pending = sec in state.terminal_pending_sessions
+    if already_pending and prior_ref != terms.reference:
+        state.terminal_pending_sessions.pop(sec, None)
+        state.terminal_pending_terms.pop(sec, None)
+        already_pending = False
+
+    decision = resolve_settlement(
+        terms=terms, shares=ep.current_shares,
+        last_valid_mark=last_valid_mark,
+        sessions_since_last_valid_print=sessions_since_last_valid_print,
+        executable_price=executable_price,
+        sessions_pending_terms=state.terminal_pending_sessions.get(sec, 0))
+
+    if decision.carries:
+        # C1's grace period. The mark VALUES the position; it does not convert
+        # it. Deliberately NOT written to `unresolved_terminals`: that dict makes
+        # build_marks outrank a printing price, which would freeze admissions for
+        # a security that is still trading — and the whole point of carrying is
+        # that equity stays measurable.
+        state.unresolved_terminals.pop(sec, None)
+        state.terminal_pending_sessions.setdefault(sec, 0)
+        # `stale_at_event` is FROZEN here, and that is load-bearing. The recency
+        # bound asks "was there a trustworthy mark when this security
+        # terminated?" — a fact about the EVENT, which waiting for terms cannot
+        # falsify. Re-measuring staleness at expiry double-counts the grace: a
+        # security that stops printing at its announcement goes stale at exactly
+        # the rate the grace elapses, so with C1_GRACE_SESSIONS == 10 and
+        # MARK_RECENCY_SESSIONS == 10 the mark is 11 sessions old the moment the
+        # grace runs out and the settlement branch is UNREACHABLE. That is the
+        # whole Sharadar delisted population (19,216 securities, all of which
+        # stop printing at delisting), so the run would freeze exactly as it did
+        # before the waterfall existed — the defect this module was built to fix,
+        # reinstated by an interaction between two constants.
+        state.terminal_pending_terms[sec] = {
+            "terms": asdict(terms),
+            "stale_at_event": int(sessions_since_last_valid_print or 0)}
+        if counters is not None:
+            tally_pending_entry(counters, decision, ep.current_shares,
+                                already_pending=already_pending)
+        return {"applied": False, "pending": True, "security_id": sec,
+                "kind": terms.kind.value, **decision.provenance()}
+
+    if not decision.settles:
         # BLOCKED, not approximated, and recorded on the STATE so it survives a
         # restart. `resolved_equity` goes None on the next mark, which stops
         # admissions until somebody supplies the terms.
-        state.unresolved_terminals[terms.security_id] = why
+        ok, why = terms.completeness(ep.current_shares)
+        state.unresolved_terminals[sec] = why
         return {"applied": False, "reason": why, "blocked": True,
-                "security_id": terms.security_id, "kind": terms.kind.value}
+                "security_id": sec, "kind": terms.kind.value,
+                **decision.provenance()}
 
-    state.unresolved_terminals.pop(terms.security_id, None)
+    # Settling, by whatever route: the grace is over for this security.
+    state.unresolved_terminals.pop(sec, None)
+    state.terminal_pending_sessions.pop(sec, None)
+    state.terminal_pending_terms.pop(sec, None)
+
+    if decision.source is not SettlementSource.EXACT_TERMS:
+        # A PROXY settlement: the event is documented, the consideration is not.
+        # Deliberately NOT routed through _apply_cash's CASH_MERGER event — that
+        # would record a settlement the vendor never stated.
+        return _apply_proxy(state, slot_id, ep, ledger, session, decision, terms)
 
     if terms.kind is TerminalKind.WRITE_OFF:
         return _apply_write_off(state, slot_id, ep, ledger, session)
@@ -213,6 +287,12 @@ def _release(state: PortfolioState, slot_id: int, ep: HoldingEpisode) -> None:
     state.episodes.pop(slot_id)
     state.slots[slot_id].start_cooldown()
     state.security_cooldowns[ep.security_id] = 0
+    # Every per-security counter dies with the holding. Leaving staleness or a
+    # pending grace behind would let a LATER re-entry into the same security
+    # inherit the dead episode's clock.
+    state.sessions_since_valid_mark.pop(ep.security_id, None)
+    state.terminal_pending_sessions.pop(ep.security_id, None)
+    state.terminal_pending_terms.pop(ep.security_id, None)
 
 
 def _apply_write_off(state, slot_id, ep, ledger, session) -> dict:
@@ -312,6 +392,159 @@ def _apply_conversion(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
             "delivered_security_id": ep.security_id,
             "shares_delivered": delivered, "cash_in_lieu": lieu,
             "cash_consideration": cash_leg}
+
+
+def _apply_proxy(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
+                 ledger: Ledger, session: str, decision, terms) -> dict:
+    """Settle a DOCUMENTED termination whose contractual terms are unavailable,
+    or an undocumented orphan at zero.
+
+    NOT a simulated sale, and the ledger must not read as one: `settlement_exact`
+    is False and the source travels on the event, so a reader six months later
+    cannot mistake the proceeds for vendor-supplied acquisition consideration.
+
+    An ORPHAN zero settles at exactly 0.0 and still posts a WRITE_OFF — shares do
+    leave the book — but its provenance says ZERO_ORPHAN, which is what
+    distinguishes it from a stated worthlessness.
+    """
+    from stock_strategy_shared.wealth_core.settlement import SettlementSource
+    px = float(decision.price_per_share or 0.0)
+    proceeds = ep.current_shares * px
+    event = (EventType.WRITE_OFF
+             if decision.source is SettlementSource.ZERO_ORPHAN
+             else EventType.CASH_MERGER)
+    ledger.post(session=session, event_type=event,
+                cash_before=state.cash, cash_delta=proceeds,
+                security_id=ep.security_id, ticker=ep.ticker,
+                shares_delta=-ep.current_shares, price=px,
+                reason=decision.reason,
+                detail={"shares": ep.current_shares,
+                        "reference": (terms.reference if terms is not None
+                                      else "no-terminal-record"),
+                        **decision.provenance()})
+    state.cash += proceeds
+    _release(state, slot_id, ep)
+    return {"applied": True, "kind": event.value, "security_id": ep.security_id,
+            "proceeds": proceeds, **decision.provenance()}
+
+
+def sweep_pending_terms(state: PortfolioState, *, ledger: Ledger, session: str,
+                        last_known: Mapping[str, float],
+                        resolved_this_session: set[str] | None = None,
+                        counters: dict | None = None) -> list[dict]:
+    """C1's grace period, AGED and EXPIRED. Its own pass, and it has to be.
+
+    A terminal event appears in ACTIONS on ONE session and never again, so from
+    the session after the announcement there is no event left to hang this off.
+    Without a standing pass nothing would ever advance the counter and the grace
+    would be infinite — a carry that looks like patience while it is actually a
+    lost clock.
+
+    Runs BEFORE `sweep_orphans` so a still-pending DOCUMENTED holding is never
+    visible to the orphan zero. That ordering is the load-bearing part: the two
+    populations are kept apart everywhere else in this module, and a sweep order
+    that exposed one to the other would undo all of it in a single pass.
+    """
+    from stock_strategy_shared.wealth_core.settlement import (
+        SettlementSource, resolve_settlement)
+    out: list[dict] = []
+    done = resolved_this_session or set()
+
+    for sec in sorted(state.terminal_pending_sessions):
+        if sec in done:
+            # Already decided by an ACTIONS row this session — `apply_terminal`
+            # has spoken and re-deciding here would age the counter twice.
+            continue
+        slot_id = next((s for s, ep in sorted(state.episodes.items())
+                        if ep.security_id == sec), None)
+        if slot_id is None:
+            state.terminal_pending_sessions.pop(sec, None)
+            state.terminal_pending_terms.pop(sec, None)
+            continue
+
+        ep = state.episodes[slot_id]
+        state.terminal_pending_sessions[sec] += 1
+        rec = state.terminal_pending_terms.get(sec)
+        if not rec:  # pragma: no cover - defended by the restart tests
+            continue
+        raw = rec["terms"]
+        terms = TerminalTerms(**{**raw, "kind": TerminalKind(raw["kind"])})
+
+        decision = resolve_settlement(
+            terms=terms, shares=ep.current_shares,
+            last_valid_mark=last_known.get(sec),
+            # As of the EVENT, not as of now — see apply_terminal's note on
+            # why re-measuring here makes the settlement branch unreachable.
+            sessions_since_last_valid_print=int(rec["stale_at_event"]),
+            sessions_pending_terms=state.terminal_pending_sessions[sec])
+
+        if decision.carries:
+            continue
+        if not decision.settles:
+            # The mark went stale or vanished DURING the grace. Block rather
+            # than settle on a price no longer trustworthy, and stop carrying.
+            ok, why = terms.completeness(ep.current_shares)
+            state.unresolved_terminals[sec] = why
+            state.terminal_pending_sessions.pop(sec, None)
+            state.terminal_pending_terms.pop(sec, None)
+            out.append({"session": session, "applied": False, "blocked": True,
+                        "security_id": sec, "reason": why,
+                        **decision.provenance()})
+            continue
+
+        state.unresolved_terminals.pop(sec, None)
+        state.terminal_pending_sessions.pop(sec, None)
+        state.terminal_pending_terms.pop(sec, None)
+        if decision.source is SettlementSource.EXACT_TERMS:  # pragma: no cover
+            # Unreachable from this pass today: the stored terms are by
+            # construction the incomplete ones. Kept so that a future caller
+            # which UPDATES stored terms cannot silently take the proxy path.
+            out.append({"session": session,
+                        **apply_terminal(state, terms, ledger=ledger,
+                                         session=session,
+                                         cfg=WealthCoreConfig())})
+            continue
+        out.append({"session": session,
+                    **_apply_proxy(state, slot_id, ep, ledger, session,
+                                   decision, terms)})
+    return out
+
+
+def sweep_orphans(state: PortfolioState, *, ledger: Ledger, session: str,
+                  terminated: set[str] | None = None) -> list[dict]:
+    """C2. Write off holdings that simply STOPPED PRINTING with no record.
+
+    Its own pass rather than part of `apply_terminal`, because there is no event
+    to hang it off — that absence IS the condition. Without it a security that
+    quietly disappears blocks the book forever: exits still flow but nothing is
+    admitted, so a 25-slot portfolio is frozen by one historical data orphan.
+
+    Runs AFTER marks, so `sessions_since_valid_mark` already reflects this
+    session. Securities with a documented event are skipped in THREE ways —
+    terminated this session, already blocked, or being carried under C1 — because
+    every one of them belongs to the documented population and never to this
+    zero. Collapsing the two writes off 19,216 known acquisitions at zero while
+    the run reports clean completion.
+    """
+    from stock_strategy_shared.wealth_core.settlement import (
+        SettlementSource, resolve_settlement)
+    out: list[dict] = []
+    skip = terminated or set()
+    for slot_id, ep in sorted(state.episodes.items()):
+        sec = ep.security_id
+        if sec in skip or sec in state.unresolved_terminals \
+                or sec in state.terminal_pending_sessions:
+            continue
+        decision = resolve_settlement(
+            terms=None, shares=ep.current_shares,
+            sessions_since_last_valid_print=state.sessions_since_valid_mark.get(
+                sec, 0))
+        if decision.source is not SettlementSource.ZERO_ORPHAN:
+            continue
+        out.append({"session": session,
+                    **_apply_proxy(state, slot_id, ep, ledger, session,
+                                   decision, None)})
+    return out
 
 
 # ── final-session accounting ─────────────────────────────────────────────────
@@ -463,4 +696,5 @@ def final_report(*, session: str, state: PortfolioState, marks: Mapping[str, Mar
 
 
 __all__ = ["FinalReport", "TerminalKind", "TerminalTerms", "TermsIncomplete",
-           "apply_terminal", "final_report"]
+           "apply_terminal", "final_report", "sweep_orphans",
+           "sweep_pending_terms"]

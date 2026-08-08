@@ -172,6 +172,113 @@ class TestTerminalEvents:
         assert st.slots[0].in_cooldown and st.security_in_cooldown("S1")
 
 
+class TestATermsBlockStillReachesTheEquityGate:
+    """END-TO-END coverage of the terms-BLOCK path, through `step_session`.
+
+    It lives here because the golden fixture lost it: SEC_STRANDED was the only
+    scenario case that blocked on missing terms, and under C1's grace period it
+    now correctly CARRIES instead. The path is still reachable — a documented
+    event with no mark the waterfall will trust — and it is the one that must
+    fail closed, so it needs a test that exercises the real session loop rather
+    than `resolve_settlement` alone.
+    """
+
+    def _terms(self):
+        from stock_strategy_shared.wealth_core.terminal import (
+            TerminalKind, TerminalTerms)
+        return TerminalTerms(session="d1", security_id="S1",
+                             kind=TerminalKind.CASH_MERGER,
+                             reference="test/terms-pending")
+
+    def test_no_mark_to_carry_at_BLOCKS_rather_than_carrying(self):
+        """No `last_known` price at all, so there is nothing to carry at. The
+        holding must freeze the gate instead of being carried at an invented
+        value or swept to zero."""
+        st = seated()
+        res = step_session(session="d2", state=st, bars=[], pending=[],
+                           ledger=Ledger(), last_known={}, cfg=CFG,
+                           strategy_id=SID, strategy_version=VER,
+                           security_bars=tradeability_only_bars([], None),
+                           terminal_terms=[self._terms()])
+        assert st.unresolved_terminals.get("S1") == "MISSING_CASH_PER_SHARE"
+        assert "S1" not in st.terminal_pending_sessions, (
+            "a blocked holding must not also be recorded as carried — the two "
+            "states drive opposite behaviour at the equity gate")
+        assert res.blocked is True
+        assert res.resolved_equity is None
+
+    def test_a_STALE_mark_blocks_rather_than_carrying(self):
+        """The mark exists but is outside the recency window, so it may not
+        support a carry. Admissions size at 4% of equity, so carrying at an
+        untrustworthy price propagates into every position opened afterwards."""
+        from stock_strategy_shared.wealth_core.settlement import (
+            MARK_RECENCY_SESSIONS)
+        st = seated()
+        st.sessions_since_valid_mark["S1"] = MARK_RECENCY_SESSIONS + 1
+        res = step_session(session="d2", state=st, bars=[], pending=[],
+                           ledger=Ledger(), last_known={"S1": 95.0}, cfg=CFG,
+                           strategy_id=SID, strategy_version=VER,
+                           security_bars=tradeability_only_bars([], None),
+                           terminal_terms=[self._terms()])
+        assert st.unresolved_terminals.get("S1") == "MISSING_CASH_PER_SHARE"
+        assert res.blocked is True
+
+    def test_a_delisted_security_SETTLES_when_the_grace_expires(self):
+        """REGRESSION, rehearsal-blocking. Found 2026-08-08.
+
+        Sharadar's 19,216 delisted securities all STOP PRINTING at delisting, so
+        a security carried under C1 goes stale at exactly the rate the grace
+        elapses. With C1_GRACE_SESSIONS == 10 and MARK_RECENCY_SESSIONS == 10,
+        re-measuring staleness at expiry puts the mark 11 sessions out — past the
+        recency bound — so the settlement branch was UNREACHABLE for the entire
+        delisted population and the run froze exactly as it did before the
+        waterfall existed.
+
+        The recency bound is a question about the EVENT, so the staleness
+        observed at the announcement is frozen and reused. This asserts the
+        holding actually leaves the book.
+        """
+        from stock_strategy_shared.wealth_core.settlement import C1_GRACE_SESSIONS
+        st, led, lk = seated(), Ledger(), {"S1": 95.0}
+        step_session(session="d1", state=st, bars=[], pending=[], ledger=led,
+                     last_known=lk, cfg=CFG, strategy_id=SID, strategy_version=VER,
+                     security_bars=tradeability_only_bars([], None),
+                     terminal_terms=[self._terms()])
+        for i in range(C1_GRACE_SESSIONS):
+            step_session(session=f"d{i + 2}", state=st, bars=[], pending=[],
+                         ledger=led, last_known=lk, cfg=CFG, strategy_id=SID,
+                         strategy_version=VER,
+                         security_bars=tradeability_only_bars([], None))
+        assert 0 not in st.episodes, (
+            "the carried holding never settled — the delisted population would "
+            "freeze the book for the rest of the run")
+        assert st.cash == pytest.approx(10_000.0 + 10 * 95.0)
+        ev = [e for e in led.events if e.event_type is EventType.CASH_MERGER]
+        assert len(ev) == 1
+        assert ev[0].detail["settlement_source"] == "LAST_TRUSTWORTHY_MARK"
+        assert ev[0].detail["settlement_exact"] is False
+
+    def test_a_TRUSTWORTHY_mark_carries_and_the_gate_stays_OPEN(self):
+        """The contrast case, in the same shape, so the difference between the
+        two is visibly the mark and nothing else."""
+        st = seated()
+        st.sessions_since_valid_mark.pop("S1", None)
+        res = step_session(session="d2", state=st, bars=[], pending=[],
+                           ledger=Ledger(), last_known={"S1": 95.0}, cfg=CFG,
+                           strategy_id=SID, strategy_version=VER,
+                           security_bars=tradeability_only_bars([], None),
+                           terminal_terms=[self._terms()])
+        assert "S1" not in st.unresolved_terminals
+        # 0, not 1: the counter records sessions ALREADY carried, and the
+        # announcing session is not one of them. `sweep_pending_terms` skips a
+        # security an ACTIONS row decided this session, so the first increment
+        # lands on the NEXT session.
+        assert st.terminal_pending_sessions.get("S1") == 0
+        assert res.resolved_equity is not None, (
+            "the whole point of carrying is that equity stays measurable")
+        assert res.resolved_equity == pytest.approx(10_000.0 + 10 * 95.0)
+
+
 # ── corporate actions ───────────────────────────────────────────────────────
 
 class TestCorporateActions:

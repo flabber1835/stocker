@@ -7,14 +7,19 @@ docs/wealth-core-test-rewrite.md (which narrates how the suite got here) because
 a certification record has to be readable as a claim about the SYSTEM, not about
 the work.
 
-Nothing below may be summarised as "all repository tests pass". Three suites fail
-on this branch AND on its parent; they are named in full at the bottom.
+Every suite in the repository passes at `ae2db54` when the test runner has the
+dependencies the suites import. The earlier "three suites fail on this branch AND
+on its parent" line was WRONG and is retracted — see "Suite failures that were
+provisioning, not code" at the bottom. What may still not be summarised as "all
+repository tests pass" is Wealth Core's CERTIFICATION, which is a claim about
+evidence runs over real data, not about the suite.
 
 ## Resuming this work
 
-**STATE AS OF 2026-08-08 (session end). `main` is GREEN at `9bf649c`.** The
-2021-2023 rehearsal is NOT yet runnable; exactly one piece is owed and it is
-specified rather than open. Read this section before anything else.
+**STATE AS OF 2026-08-08 (later session). C IS COMPLETE AND WIRED.**
+`tests/wealth_core` is GREEN at 550 tests. The 2021-2023 rehearsal is now the
+next action and nothing in the code blocks it. Read this section before anything
+else.
 
 ```text
 DONE      corpus defect A   bt_universe keyed on (snapshot_date, permaticker);
@@ -30,66 +35,125 @@ DONE      defect D2         `value` is a deal size in $M, never a ratio or a
 DONE      defect D          per-name action vocabulary with an explicit SIDE;
                             one termination stated across rows deduplicated
 DONE      C, the rule       shared/.../wealth_core/settlement.py — the waterfall
-                            as a PURE function, 50 tests
-DONE      C, the semantics  C1 grace period + TERMINAL_PENDING_TERMS, specified
-                            in docs/architecture.md
-**OWED**  C, the wiring     the rule is not called by anything. THIS is the
-                            only blocker
+                            as a PURE function
+DONE      C, the semantics  C1 grace period + TERMINAL_PENDING_TERMS
+DONE      C, the wiring     settlement.py + state.py + terminal.py + marks.py +
+                            adapter.py. Golden fixture RE-PINNED, decomposed
+                            below. 550 tests green
 ```
 
-### The one remaining task, in order
+### What the wiring turned out to require, beyond the plan
 
-The wiring has been written twice and reverted twice — both times the GOLDEN
-FIXTURE stopped it, and both times it was right to. Do not treat the fixture as
-stale. The first attempt settled C1 on the announcing session and the fixture's
-`SEC_STRANDED` case (announced with no terms, resolved for $54 cash later) proved
-that wrong. The second attempt was correct and left 9 fixture tests failing, which
-is a legitimate re-pin plus two genuinely-changed semantics.
+The previous handover specified five steps. Four survived contact; the parts that
+did not are recorded here because both were found by a test rather than by
+reading, and both would have cost a rehearsal.
+
+**1. `terminal_pending_reference` became `terminal_pending_terms`.** The plan
+stored the event's reference string. That is not enough: a terminal event appears
+in ACTIONS on ONE session and never again, so from the session after the
+announcement there is nothing left to re-resolve against, and `sweep_pending_terms`
+would have needed its own settlement rule for expiry — a second implementation of
+the waterfall, which is how two engines drift. The state now carries the
+serialised terms plus `stale_at_event`.
+
+**2. AN ANNOUNCEMENT IS NOT A TERMINAL DAY.** The documented waterfall put
+"executable terminal-day print" ABOVE the carry. True on a terminal day, false on
+every other day, and nothing in the data distinguishes them — a contested bid
+prints an ordinary executable close, so the print settled the position at market
+on the announcement and foreclosed the terms. That is the SAME foreclosure defect
+the grace period was introduced to fix, reached through a different branch, and
+the golden fixture caught it for the THIRD time. The print now settles only once
+there is nothing left to wait for. docs/architecture.md carries the correction.
+
+**3. The recency bound is measured AT THE EVENT — rehearsal-blocking.**
+`C1_GRACE_SESSIONS` and `MARK_RECENCY_SESSIONS` are both 10, and a security that
+stops printing at its announcement goes stale at exactly the rate the grace
+elapses:
 
 ```text
-1  settlement.py    add C1_GRACE_SESSIONS = 10, SettlementSource.PENDING_TERMS,
-                    and a `sessions_pending_terms` argument. The grace branch goes
-                    BEFORE the last-mark branch. Namespace provenance's reason key
-                    as `settlement_reason` — a bare `reason` collides with the
-                    caller's block reason and dict-spread order decides which
-                    survives.
-2  state.py         three persisted dicts: sessions_since_valid_mark,
-                    terminal_pending_sessions, terminal_pending_reference. All
-                    must survive a restart or a grace period that resets on every
-                    redeploy never expires. Absent means zero, so a healthy book
-                    carries empty dicts.
-3  terminal.py      apply_terminal routes through resolve_settlement and gains a
-                    PENDING branch that must NOT write to `unresolved_terminals`
-                    (that dict makes build_marks outrank a printing price, which
-                    would freeze admissions for a security still trading).
-                    _apply_proxy posts the settlement with settlement_exact=false.
-                    sweep_pending_terms ages the counter and expires the grace;
-                    sweep_orphans handles the no-record population. BOTH are
-                    separate passes because neither has an event to hang off —
-                    after the announcing session no further ACTIONS row exists,
-                    so nothing would advance the counter and the grace would be
-                    infinite.
-4  adapter.py       update staleness from THIS session's marks, then run
-                    sweep_pending_terms BEFORE sweep_orphans (a still-pending
-                    documented holding must never be visible to the zero), then
-                    rebuild marks if anything settled.
-5  the fixture      RE-PIN, deliberately, decomposing the movement:
-                      moved     state gains three dicts; SEC_STRANDED is CARRIED
-                                during the grace instead of blocking on day one
-                      unmoved   SEC_STRANDED's final outcome is still the exact
-                                $54 settlement; every other terminal kind is
-                                unchanged
-                    Rewrite `test_a_deal_with_no_terms_blocks_and_then_unblocks`
-                    and `test_a_security_that_stops_printing_still_blocks_while_
-                    unresolved` to assert the carry-then-settle SEQUENCE. Fix the
-                    two test_restart_matrix cuts and the two
-                    test_performance_integration tests that assert the golden run
-                    is unevaluable BECAUSE it blocks.
+staleness   1  2  3 ...  10  11
+pending     0  1  2 ...   9  10   <- grace expires
+at expiry   staleness 11 > recency 10  -> BLOCKED, permanently
 ```
 
-Nine tests fail until step 5 is done: 4 in test_golden_fixture, 3 in
-test_performance_integration, 2 in test_restart_matrix. Every other test in
-tests/wealth_core (514) passes with the wiring in place.
+Every one of the 19,216 delisted Sharadar securities stops printing at delisting,
+so the C1 settlement branch was UNREACHABLE for the entire population and the
+rehearsal would have frozen exactly as it did before the waterfall existed. Two
+individually-correct constants, interacting. Staleness at the announcement is now
+frozen and reused. Falsifier:
+`test_a_delisted_security_SETTLES_when_the_grace_expires`.
+
+### The golden re-pin, decomposed
+
+```text
+a09b12a87d1ecc97...  ->  04a58dba05595dcd...
+```
+
+MOVED, and why — one economic change, fully accounted:
+
+```text
+blocked_sessions   19 -> 9. S200-S209 (SEC_STRANDED's announcement to its
+                   resolution) are now CARRIED at a trustworthy mark instead of
+                   blocked, so they have a valuation. The other nine (S170,
+                   S175-S179, S182-S184) are UNCHANGED — they come from vendor
+                   bars flagged unresolved_corporate_action, a different
+                   mechanism, and they still block
+final_cash         34824.20 -> 34868.23, i.e. +44.03. Ledger cash deltas
+                   -965175.80 -> -965131.77, the same +44.03. The book admitted
+                   during the ten sessions it was previously frozen: two BUYs
+                   moved EARLIER (S211->S201, S212->S207) and one later BUY
+                   resized (S231 SEC_F090, 3 -> 659 shares)
+ledger_hash        follows the above
+final_state_hash   follows, plus three new (empty) state dicts
+```
+
+UNMOVED, asserted rather than assumed:
+
+```text
+final_positions       24
+ledger_event_counts   IDENTICAL — BUY 30, CASH_MERGER 2, CONVERSION 2,
+                      DIVIDEND_ACCRUED 1, DIVIDEND_PAID 1, SELL 3, SPLIT 1,
+                      WRITE_OFF 1. Same number of every event type
+SEC_STRANDED          still settles at exactly $61.50 via EXACT_TERMS at S210 —
+                      the real terms, never a proxy. This is the whole point:
+                      the grace did not change the outcome, it stopped the
+                      engine foreclosing it
+every other terminal  SEC_MERGED $54.00, SEC_BUST write-off at 0, SEC_CONVERTED,
+                      SEC_MIXED — all unchanged
+```
+
+**DEPLOY CONSEQUENCE, do not miss this.** The certified cross-image hash recorded
+elsewhere in this file and in CLAUDE.md is `a09b12a87d1ecc97`. It is now
+`04a58dba05595dcd`. All THREE images must be rebuilt from a fresh
+`stocker-base` before any parity claim is made again; an unrebuilt image will
+emit the old hash and read as a divergence.
+
+### Coverage that MOVED rather than existing
+
+`SEC_STRANDED` was the golden scenario's only case that blocked on missing terms.
+It now carries, correctly, so the golden run produces NO `state.unresolved_terminals`
+entry and no `blocked` terminal result at all. Two consequences, both deliberate:
+
+```text
+test_a_security_that_stops_printing_still_blocks_while_unresolved
+  -> replaced by test_a_security_with_an_UNKNOWABLE_outcome_still_blocks, which
+     asserts the REMAINING blocks (vendor unresolved_corporate_action) and
+     asserts NO terms-block, so a regression that reintroduces one fails here
+
+the terms-block path end-to-end
+  -> moved to tests/wealth_core/test_adapter.py::
+     TestATermsBlockStillReachesTheEquityGate, which drives the real session
+     loop. NOT added to the golden scenario: a new security there perturbs
+     rankings and admissions for every other assertion in that file
+
+restart matrix, corrupt_unresolved_terminals
+  -> REMOVED, not relaxed. Under the grace this scenario has no state-level
+     block at any cut, so the mutation cleared an already-empty dict and could
+     no longer fail. A control that cannot fail is worse than none. Replaced by
+     test_a_lost_grace_counter_changes_the_outcome, which builds the condition
+     the golden stream lacks — a carried security that STOPS printing, where the
+     counter actually drives the result
+```
 
 ### Then, and only then, the rehearsal
 
@@ -98,10 +162,28 @@ bind-mount, so the base rebuild is mandatory and unconditional. A stale base doe
 not fail at startup — it surfaces as a `TypeError` deep inside a background task,
 minutes into a three-hour job.
 
+The wiring additionally changed FOUR existing shared modules — `state.py`,
+`terminal.py`, `marks.py` and `adapter.py` — and `PortfolioState` gained three
+persisted fields, so the state hash and the golden result hash both moved. Any
+image still running the old base will emit `a09b12a87d1ecc97` and read as a
+PARITY DIVERGENCE rather than as a stale build. Rebuild everything, then confirm
+the hash BEFORE spending three hours on a run:
+
 ```bash
 cd /volume1/docker/github/stocker && git pull origin main
 docker build --network host -t stocker-base:latest -f Dockerfile.base .
-docker compose -f docker-compose.backtest.yml up -d --build bt-engine
+docker compose -f docker-compose.backtest.yml up -d --build bt-engine bt-data
+scripts/deploy-all.sh --verify
+
+# GATE: all three images must emit the NEW golden hash before proceeding.
+python -m tests.wealth_core.repin_golden --check 2>/dev/null || \
+  python -c "from stock_strategy_shared.wealth_core.golden import golden_scenario; \
+from stock_strategy_shared.wealth_core.run import run_sessions; g=golden_scenario(); \
+print(run_sessions(sessions=g.sessions, bars_by_session=g.bars_by_session, \
+meta=g.meta, starting_cash=g.starting_cash, terminal_events=g.terminal_events \
+).result_hash())"
+# expect 04a58dba05595dcda28a0b5f818f7fc8b8a5ee74c63a60f10163a181e81b8671
+
 curl -X POST localhost:8031/wealth-core/jobs/run -H "Content-Type: application/json" \
   -d '{"mode":"chain_rehearsal","start_date":"2021-01-01","end_date":"2023-12-31"}'
 ```
@@ -120,12 +202,43 @@ status == "success"                         a divergence RAISES, so success mean
 first measured session                      substantial eligible universe, book
                                             constructing up to 25 at once
 trace_problems == []; entries_without_a_price == 0; peak_book_size == 25
-the five settlement counters PRESENT        a three-year run over ~2000 names
+the SIX settlement counters PRESENT         a three-year run over ~2000 names
                                             reporting none of them has not
                                             measured what it claims
+derived_last_mark_settlements > 0           THE ONE TO READ FIRST. Sharadar
+                                            states no per-share consideration
+                                            for ANY of its 19,216 delisted
+                                            securities, so essentially every
+                                            terminal event must arrive here via
+                                            the C1 grace. A run reporting ZERO
+                                            of these alongside a nonzero
+                                            unresolved_terminal_events has hit
+                                            the recency/grace interaction again
+                                            and is BLOCKING, not settling —
+                                            stop and re-read the constants
+pending_terms_carried > 0                   the carry engaged at all
+unresolved_terminal_events                  expected SMALL. Large means marks are
+                                            failing the recency bound at the
+                                            event, which is a CORPUS question
+                                            (are prices present up to the
+                                            delisting?), not a rule question
+orphan_zero_writeoffs                       expected small. Large means
+                                            documented events are reaching the
+                                            C2 zero, which the sweep ordering
+                                            exists to prevent — that would be a
+                                            correctness failure, not a datum
 performance, NOT chain_performance          the latter carries no fills and so
                                             reports zero turnover by design
 ```
+
+**The counters are the whole point of the run.** The rehearsal's purpose is not
+"did it finish" — a run that writes off every acquisition at zero also finishes,
+faster, and reports a lower return rather than an error. Read
+`derived_last_mark_settlements`, `orphan_zero_writeoffs` and
+`unresolved_terminal_events` against each other BEFORE reading any performance
+number; the three of them are the only evidence that the waterfall did what it
+claims, and a CAGR computed over a book that silently zeroed its terminations is
+worse than no CAGR at all.
 
 `BT_ENGINE_MEM_LIMIT` was raised to 8g after the previous attempt pinned at
 3.98/4.00 GiB during the bulk-replay pass. That pass emits NO progress, so a
@@ -142,7 +255,9 @@ next", read only the section above.
 ```text
 DONE   1  base rebuilt, both stacks deployed (scripts/deploy-wealth-core.sh)
 DONE   2  every shared/ consumer rebuilt; deploy steps 6-10 all PASSED —
-          all THREE deployed images produce golden hash a09b12a87d1ecc97,
+          all THREE deployed images produce golden hash a09b12a87d1ecc97
+          (SUPERSEDED — the C1/C2 wiring re-pinned it to 04a58dba05595dcd;
+          re-run this after a forced stocker-base rebuild),
           identical on all 7 layers (backtester / pipeline / windtunnel)
 DONE   3  bt_actions backfilled: 664,039 rows, 1998-01-01..2026-12-31, 4m29s.
           Every run from here reports split_source: actions, not derived.
@@ -357,7 +472,7 @@ fails spuriously. Re-run rather than diagnose.
 | risk profile: gate arithmetic | fixed + rehearsed | see "the 24-vs-25 result" below |
 | legacy production behaviour | unchanged | `execution_model` defaults to `target_portfolio`; tests/scheduler (406), tests/pipeline (356), tests/delta_engine (376) |
 | end-to-end chain rehearsal | implemented | bt-engine `POST /wealth-core/jobs/run` mode `chain_rehearsal` |
-| deployed-image parity | **proven 2026-08-06** | all three images emit golden `a09b12a87d1ecc97`, identical on 7 layers, INSIDE the containers |
+| deployed-image parity | **proven 2026-08-06, now STALE** | all three images emitted golden `a09b12a87d1ecc97`, identical on 7 layers, INSIDE the containers. The C1/C2 wiring re-pinned the golden to `04a58dba05595dcd`, so this must be RE-PROVEN after a forced base rebuild; until then the deployed images disagree with the code |
 | exact SEP raw-close verification | **proven 2026-08-06** | `exact=1` COMPLETED: 99.7649% (36,684,527/36,770,974); gaps are per-ticker vendor gaps in 43 non-common-stock instruments |
 | authoritative ACTIONS ingested | **done 2026-08-06** | `bt_actions` 664,039 rows, 1998-01-01..2026-12-31 |
 | authoritative ACTIONS / data parity | **pending** | needs a run whose `provenance.split_source == "actions"` — step 7 |
@@ -562,18 +677,34 @@ Steps 5–9 have only ever been run against the golden fixture. That is a synthe
 stream with known coverage gaps (no rename/reuse, no volatility dispersion), so a
 green result there is necessary and not sufficient.
 
-## Known-failing suites (pre-existing — NOT caused by Wealth Core)
+## Suite failures that were provisioning, not code
 
-Verified identical on the parent commit `f29c8d4` by stashing the branch and
-re-running. None touches Wealth Core, the risk profile, the scheduler chain or
-the backtest engines. Recorded here so no certification statement can round up
-to "all tests pass".
+**RETRACTED (2026-08-08).** This section previously named three "known-failing
+suites (pre-existing)" and attributed two of them to the code — "service-contract
+probes" and "the `pipeline` TZ probe subprocess fails to start". Re-measured at
+`ae2db54`: all three pass. The failures were missing Python packages in the
+container that recorded them, and only the `tests/trade_executor` row said so.
 
-| Suite | Failures | Cause |
-|---|---|---|
-| `tests/contracts` | 4 — `test_av_ingestor_runs_latest_contract`, `test_pipeline_runs_latest_contract`, `test_pipeline_delta_latest_contract`, `test_portfolio_builder_runs_latest_contract` | service-contract probes |
-| `tests/cross_service` | 7 — `test_all_chain_services_agree_on_today[4 params]`, `test_all_chain_services_share_schedule_tz_name[None, UTC]`, `test_chain_services_today_is_eastern_not_utc_in_evening_window` | the `pipeline` TZ probe subprocess fails to start |
-| `tests/trade_executor` | 1 collection ERROR — `test_state_transitions.py` | `ModuleNotFoundError: psycopg2` (not installed in this container) |
+| Suite | Recorded as | Actual cause | Re-measured |
+|---|---|---|---|
+| `tests/contracts` | 4 failures, "service-contract probes" | `httpx` absent | 86 passed |
+| `tests/cross_service` | 7 failures, "the `pipeline` TZ probe subprocess fails to start" | `httpx` absent — the probe subprocess died on `import httpx` at `services/scheduler/app/main.py:10`, which the assertion reported as a timezone disagreement | 19 passed, 25 skipped |
+| `tests/trade_executor` | 1 collection ERROR, `psycopg2` absent | `psycopg2` **and** `pytest-asyncio` absent | 198 passed, 72 skipped |
+
+**Why this is worth a permanent entry rather than a deletion.** A first full run
+during the re-measurement failed exactly three suites too — but a DIFFERENT three
+(`tests/llm_gateway`, `tests/pipeline`, `tests/portfolio_builder`, on `ollama` /
+`alembic` / `aiosqlite`). Two independently under-provisioned containers each
+produced a plausible-looking three-suite failure list, with no overlap. "Three
+suites fail" is a property of which packages happen to be absent from the runner,
+not of the repository, and it reads identically to a real defect. Before any
+suite is recorded as failing, install what it imports and re-run; a failure list
+that moves when you install a package is a provisioning report.
+
+The packages the suites import beyond `make test`'s inline list (`-e shared
+pytest pandas numpy pydantic pyyaml hypothesis`): `httpx`, `fastapi`,
+`sqlalchemy`, `asyncpg`, `psycopg2-binary`, `aiosqlite`, `alembic`, `redis`,
+`apscheduler`, `exchange-calendars`, `anthropic`, `ollama`, `pytest-asyncio`.
 
 Separately, three suites cannot share one interpreter with another suite because
 every service ships an `app` package: `tests/bt_engine` + `tests/risk_service`,
