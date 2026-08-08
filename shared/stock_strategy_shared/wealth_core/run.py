@@ -136,6 +136,22 @@ class RunResult:
                           separators=(",", ":"), default=_json_default)
         return hashlib.sha256(blob.encode()).hexdigest()
 
+    def session_row(self, s) -> dict:
+        """One `sessions` entry, in the shape `to_dict` gives it.
+
+        Extracted so the materialised and streaming paths build the row from
+        ONE definition. Two copies of this dict would be a silent parity
+        divergence waiting to happen — the streamed hash would stay internally
+        consistent while describing a different structure.
+        """
+        return {"session": s.session,
+                "resolved_equity": _round(s.resolved_equity),
+                "estimated_equity": _round(s.estimated_equity),
+                "blocked": s.blocked,
+                "fills": sorted(s.fills, key=lambda f: (f["security_id"],
+                                                        f["operation"])),
+                "decision": s.decision.to_dict() if s.decision else None}
+
 
 def _round(x):
     """Round money to the cent BEFORE hashing.

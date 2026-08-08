@@ -100,6 +100,74 @@ individually-correct constants, interacting. Staleness at the announcement is no
 frozen and reused. Falsifier:
 `test_a_delisted_security_SETTLES_when_the_grace_expires`.
 
+### The rehearsal OOM, and why the first two fixes were wrong
+
+Three consecutive OOM kills on the 2021-2023 chain rehearsal. Recorded in full
+because the first two diagnoses were both plausible, both acted on, and both
+wrong — and the only reason the third is trustworthy is that it was MEASURED.
+
+```text
+attempt 1  raise the memory cap        WRONG DIAGNOSIS, and the cap was never
+                                       even applied. .env said 8g; the container
+                                       ran at 4g because mem_limit only takes
+                                       effect on RECREATION and bt-engine was
+                                       never recreated after the setting landed.
+                                       Two runs died against a limit everyone
+                                       believed had been raised
+attempt 2  bound diagnostic retention  CORRECT CHANGE, WRONG TARGET. Bounding
+                                       SessionRehearsal and RunTrace moved peak
+                                       RSS on the 260-session golden fixture by
+                                       ONE MEGABYTE:
+
+                                         full     78MB
+                                         bounded  77MB
+                                         none     77MB
+
+                                       Kept as bc2dfa6 because it is a proven-
+                                       safe retention control with an
+                                       equivalence harness, NOT because it fixed
+                                       anything
+attempt 3  candidate payload           MEASURED. Every session's Decision holds
+                                       a `candidates` list with ONE ROW PER
+                                       ELIGIBLE SECURITY: 124 rows/session on a
+                                       125-security fixture, 32,014 dicts over
+                                       260 sessions. At corpus scale that is
+                                       ~2000 x 753 = ~1.5 MILLION dicts, held
+                                       simultaneously by the chain pass and the
+                                       bulk replay. That is the OOM
+```
+
+**The lesson worth keeping.** `HostConfig.Memory` is the only statement about a
+container's limit that counts — not `.env`, not the compose file, not the
+manifest. `scripts/deploy-all.sh --verify` should assert it. A limit that lives
+only in configuration is a limit nobody is enforcing, and this one silently cost
+three multi-hour runs.
+
+**Why the candidates cannot simply be dropped.** They feed
+`candidate_audit_hash`, `decision_hash` and `RunResult.to_dict()` — three parity
+layers. Removing them moves hashes. The fix is to STREAM those hashes: fold each
+session's rows into a running sha256 that emits byte-identical output, then
+discard them. `CanonicalListStream` (d5f5702) is that primitive, proven against
+the engine's own payloads and consumed by nothing yet.
+
+**Acceptance gate before the three-year run is attempted again:**
+
+```text
+1  candidate_audit_hash, decision_hash and final_result_hash BYTE-IDENTICAL
+   between the materialised and streaming paths on the golden fixture
+2  the 17-output retention equivalence harness still exact
+3  the streaming path demonstrably retains NO candidate rows after folding
+4  a 125/500/1000/2000-universe scale test showing peak RSS tracks ONE
+   session's universe, not universe x sessions
+5  absolute peak RSS and slope RECORDED, not just pass/fail — so the full
+   corpus can be estimated to fit BEFORE spending two hours finding out
+```
+
+`hash_mode` is explicit and immutable for a run (`materialized` | `streaming`)
+so a long certification cannot mix both paths mid-run, and the sentinel used to
+splice the sessions array into `final_result_hash` must be structurally
+impossible to collide with real content and asserted to occur exactly once.
+
 ### The golden re-pin, decomposed
 
 ```text
