@@ -56,10 +56,19 @@ The LLM must **never** directly submit trades or bypass deterministic validation
 
 ---
 
-# Stocker is being RETIRED; Sentinel replaces it
+# Stocker is RETIRED. Sentinel is the operational target
 
-**Read `docs/sentinel-architecture.md` before starting any new architectural
-work.** Stocker's exploratory shape — ~16 services, an LLM evaluator in the
+**Read `docs/sentinel-deployment.md` FIRST — it is the operational ground truth
+(direction set 2026-08-09) and supersedes parts of the architecture doc. Then
+read `docs/sentinel-architecture.md` before any new architectural work.**
+
+Stocker is no longer the production runtime. Do NOT add operational behaviour to
+Stocker services, and do NOT design anything that depends on Stocker continuing
+to run — including unwinding its own book. Deployment is **Alpaca PAPER only**;
+that lowers financial risk, not the engineering bar. Sentinel §8 steps 0-2 are
+RESOLVED (harness recovered, scalar confirmed, breadth classifier recovered and
+independently corroborated); the architecture doc's §8/§11 still call them
+blocking and are stale on that point. Stocker's exploratory shape — ~16 services, an LLM evaluator in the
 loop, news sentiment, a strategy marketplace, two simulators — is being replaced
 by Sentinel: one deterministic engine, two runtime roles, one database.
 

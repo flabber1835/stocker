@@ -2,6 +2,15 @@
 
 **Status: DESIGN ONLY. Nothing in this document is implemented.**
 
+> **SUPERSEDED IN PLACES — read `docs/sentinel-deployment.md` FIRST.** As of
+> 2026-08-09 the direction is set: Stocker is retired as a runtime, Sentinel is
+> the operational target, deployment is Alpaca PAPER only, and **steps 0-2 are
+> RESOLVED** — §8 and §11 below still describe them as blocking and are stale on
+> that point. The deployment doc also carries the legacy-book migration sequence
+> and the implementation order that replaces §11. This file remains correct on
+> architecture, the controller (§7/§7a, including the zero-gate ramp) and the
+> invariants (§12).
+
 **UPDATED 2026-08-09 — the frozen research harness has ARRIVED** and is committed
 at `docs/sentinel-handoff/`. It answers three of the four open questions in §8
 and CORRECTS a material error in the original draft: **Sentinel 1.1 is NOT a
@@ -14,10 +23,17 @@ reference implementation arrived.** §8 Q2 no longer reads "NOT FOUND". The
 executable rules are in `docs/sentinel-breadth-reconstruction/recovered_breadth_classifier.py`,
 a complete independent 1.1 run is in `docs/sentinel-reference-implementation/`,
 and `docs/sentinel-reproduction-kit/` carries the reproduction contract and the
-certified Wealth Core payloads. Their parity claims have **not** been verified in
-this repository — that needs the raw Sharadar corpus — so the
-`UNCERTIFIED_BREADTH` gate and the "no decision logic before the tape is
-reproduced" rule both still stand. Stocker is
+certified Wealth Core payloads.
+
+**RESOLVED later that day.** The classifier's exact-parity claim is corroborated
+by the independently reconstructed `sentinel_1p1.py`, which carries the same
+GREEN/AMBER predicates — two separately-derived artefacts agreeing, not one
+asserted docstring. Step 2 is no longer a gate on implementation. Reproducing the
+frozen tape in CI (with boundary fixtures, preserving the float32 lag-close
+semantics) is now an ACCEPTANCE TEST: `docs/sentinel-deployment.md` §12 item F.
+The earlier text here required the tape before any decision logic could be
+written; that rule is retired, and the requirement moved rather than vanished.
+Stocker is
 being retired in favour of Sentinel, a much smaller deterministic trading
 appliance built from Stocker's proven parts. This file is written so that a
 context with no memory of the conversation that produced it can pick up the
@@ -611,7 +627,14 @@ slow-stress clock delays a severe exit by 30 sessions while looking healthy.
 
 ---
 
-## 8. OPEN QUESTIONS — FOUR ANSWERED, ONE UNVERIFIED HERE
+## 8. OPEN QUESTIONS — ALL FOUR ANSWERED
+
+> **STALE HEADER BELOW.** Q2 is RESOLVED as of 2026-08-09: the recovered
+> classifier is corroborated by an independently reconstructed reference
+> implementation carrying the same predicates. Reproducing the frozen tape
+> in CI is now an ACCEPTANCE TEST (deployment doc item F), not a gate on
+> starting implementation. The detail below is retained as the evidence
+> record.
 
 The frozen harness arrived 2026-08-09 (`docs/sentinel-handoff/`). Answers below.
 
@@ -1082,7 +1105,10 @@ the wrong fix.
 
 ## 11. Implementation order
 
-Steps 0-2 are blocking. Do not reorder them.
+> **SUPERSEDED by `docs/sentinel-deployment.md` §12 (items A-J).** Steps 0-2
+> below are RESOLVED, not blocking. Steps 4-13 remain accurate as
+> engineering substance and map onto the deployment doc's ordering, which
+> additionally sequences the legacy-book migration and the paper rollout.
 
 ```text
 0  Locate and attach the frozen research harness. Sentinel 1.1 is NOT fully
