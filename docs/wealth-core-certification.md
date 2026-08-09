@@ -135,13 +135,58 @@ attempt 3  candidate payload           MEASURED. Every session's Decision holds
                                        ~2000 x 753 = ~1.5 MILLION dicts, held
                                        simultaneously by the chain pass and the
                                        bulk replay. That is the OOM
+attempt 4  THE FIX HAD NO ROUTE        The streaming path was built, tested and
+                                       merged, and PRODUCTION COULD NOT ASK FOR
+                                       IT. `rehearse_chain` took `retention_mode`
+                                       (which selects `hash_mode="streaming"` for
+                                       anything but `full`); `WealthCoreJobRequest`
+                                       had no such field and `_execute` never
+                                       passed one. Every rehearsal ran `full`,
+                                       i.e. materialised, i.e. the attempt-3 OOM.
+                                       Three MORE runs died after the fix landed
+                                       (08-07, 08-08 x2, 08-09), and a fourth on
+                                       08-09 07:01 was instrumented and measured
+                                       +0.128 GiB per 5-minute sample, DEAD LINEAR
+                                       across eleven consecutive samples, to the
+                                       cap at 2h52m. Fixed 2026-08-09: the field
+                                       exists, is passed, is logged at job start,
+                                       and a falsifier test fails when the two
+                                       kwargs are removed
 ```
+
+**Read attempts 2 and 4 together or attempt 4 is misleading.** Bounding the
+retention lists is worth one megabyte; what `retention_mode != "full"` actually
+buys is `hash_mode="streaming"` (`wealth_core_chain.py:515`), which folds the
+~1.5 million candidate dicts into the parity hashes session-by-session and
+discards them. Retention is the SWITCH, streaming is the SAVING. Naming the
+switch as the cause — as the first read of the 08-09 RSS curve did — gets the
+right fix for the wrong reason, which is how attempt 2 happened in the first
+place.
 
 **The lesson worth keeping.** `HostConfig.Memory` is the only statement about a
 container's limit that counts — not `.env`, not the compose file, not the
-manifest. `scripts/deploy-all.sh --verify` should assert it. A limit that lives
-only in configuration is a limit nobody is enforcing, and this one silently cost
-three multi-hour runs.
+manifest. `scripts/deploy-all.sh --verify` asserts it as of 2026-08-09
+(`bt-engine memory limit`), because a limit that lives only in configuration is a
+limit nobody is enforcing, and this one silently cost three multi-hour runs.
+
+**The generalisation, which is the expensive part.** Attempts 1 and 4 are the
+SAME defect at different layers: a setting that existed, was believed, and was
+not in force. `.env` said 8g while the container ran 4g; the code accepted
+`retention_mode` while the endpoint could not send one. Neither failed loudly —
+both presented as the original symptom, so each was re-diagnosed from scratch.
+Cost: six multi-hour runs. **A control is not in force until something OBSERVES
+it in the running system**, which is why the cap is now asserted by `--verify`
+and the retention mode is now printed at job start.
+
+**The cap on this NAS is 5 GiB and must not be raised to 8g.** The compose
+fallback is `4g`, `.env` supplies `5g`, `HostConfig.Memory` reads 5,368,709,120,
+and `dmesg` confirms the kills land at ~4.96 GiB anon-rss. The 8g figure in
+attempt 1 predates measuring the host: `free -h` shows **7.7 GiB total**. A
+cgroup limit above physical RAM never binds — the HOST OOM killer fires instead
+and chooses its own victim, which is the 2026-07-24 outage where every container
+was gone by morning. The container cap exists to make bt-engine the predictable
+casualty; setting it above RAM removes that property while looking like more
+headroom.
 
 **Why the candidates cannot simply be dropped.** They feed
 `candidate_audit_hash`, `decision_hash` and `RunResult.to_dict()` — three parity

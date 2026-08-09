@@ -291,6 +291,50 @@ PY
 probe_provenance pipeline  pipeline
 probe_provenance bt-engine bt-engine -p stocker-bt -f docker-compose.backtest.yml
 
+# ── the bt-engine memory cap, as the KERNEL sees it ─────────────────────────
+# `mem_limit` takes effect only on container RECREATION, so .env, the compose
+# file and the manifest can all agree on a number the running container does not
+# have. That is not hypothetical: .env said 8g, the container ran 4g because it
+# had never been recreated after the setting landed, and two multi-hour Wealth
+# Core rehearsals died against a limit everyone believed had been raised
+# (docs/wealth-core-certification.md, "the rehearsal OOM"). `HostConfig.Memory`
+# is the only statement about the limit that counts.
+#
+# Reported, never asserted against a hardcoded target: the right cap depends on
+# the host, and a check that demanded a specific number would fail every machine
+# but this one. What IS asserted is that a limit EXISTS (0 = unlimited, which
+# took the whole NAS down on 2026-07-24) and that it fits in RAM — a cgroup limit
+# above physical memory never binds, so the host OOM killer picks the victim
+# instead of the container being the predictable one.
+echo
+echo "memory:"
+bt_cid="$(docker compose -p stocker-bt -f docker-compose.backtest.yml ps -q bt-engine 2>/dev/null || true)"
+if [ -z "$bt_cid" ]; then
+    echo "  bt-engine memory limit     UNVERIFIABLE (container not running)"
+    rc=1
+else
+    bt_mem="$(docker inspect "$bt_cid" --format '{{.HostConfig.Memory}}' 2>/dev/null || echo "")"
+    host_mem="$(awk '/^MemTotal:/ {print $2 * 1024}' /proc/meminfo 2>/dev/null || echo 0)"
+    if [ -z "$bt_mem" ]; then
+        echo "  bt-engine memory limit     UNVERIFIABLE (docker inspect failed)"
+        rc=1
+    elif [ "$bt_mem" = "0" ]; then
+        echo "  bt-engine memory limit     UNLIMITED — a full-corpus run can take the HOST down."
+        echo "                             Set BT_ENGINE_MEM_LIMIT and RECREATE the container."
+        rc=1
+    else
+        bt_gib="$(awk -v b="$bt_mem" 'BEGIN{printf "%.2f", b/1073741824}')"
+        if [ "$host_mem" -gt 0 ] && [ "$bt_mem" -gt "$host_mem" ]; then
+            host_gib="$(awk -v b="$host_mem" 'BEGIN{printf "%.2f", b/1073741824}')"
+            echo "  bt-engine memory limit     ${bt_gib}GiB EXCEEDS HOST RAM (${host_gib}GiB) — the cap"
+            echo "                             never binds; the host OOM killer chooses the victim."
+            rc=1
+        else
+            echo "  bt-engine memory limit     ${bt_gib}GiB (HostConfig.Memory, as recreated)"
+        fi
+    fi
+fi
+
 echo
 if [ "$rc" -eq 0 ]; then
     hr "deploy verified"
