@@ -86,16 +86,24 @@ classifier was recovered mathematically AND independently corroborated by the
 retained Sentinel source: `docs/sentinel-reference-implementation/sentinel_1p1_standalone.py`
 was reconstructed by a different route and contains the same predicates.
 
-It is now more than corroboration. The corrected package (2026-08-09) ships a
-20-year daily output and a comparator, and the frozen oracle it compares against
-was already committed here — so the claim was **verified in this repository**:
-5,032/5,032 sessions, 0 allocation mismatches, 0 damaged/green breadth
-mismatches, shadow max relative error 4.44e-16. See
-`docs/sentinel-reference-implementation/PROVENANCE.md`.
+That corroboration was briefly strengthened to a measurement: the earlier
+package's 20-year output matched the frozen oracle 5,032/5,032 on allocation and
+on damaged/green breadth, verified in this repository. **That measurement now
+describes a SUPERSEDED book.** The terminal-order correction (2026-08-09) showed
+the replay had bought a security on its own delisting date and had spent five
+admission slots on securities already terminated at the close, so the shadow it
+produced — and every breadth value read off it — was wrong.
 
-What is still **owed**, and item F below is where it lands: (a) OUR breadth
-engine reproducing that tape, and (b) re-deriving the tape from the raw corpus
-rather than trusting a shipped CSV. The tape is confirmed; the producer is not.
+What survives is the part that matters for step 2: **the CLASSIFIER is
+unchanged.** The same predicates run on a corrected holdings panel and therefore
+produce different values. Breadth semantics are resolved; the tape they were
+first checked against is not the tape to check against now.
+
+Still **owed**, and item F below is where it lands: (a) OUR breadth engine
+reproducing the CORRECTED tape
+(`docs/sentinel-reference-implementation/sentinel_1p1_daily.csv`), and (b)
+re-deriving that tape from the raw corpus rather than trusting a shipped CSV.
+See `docs/sentinel-reference-implementation/PROVENANCE.md`.
 
 The unrecovered `priority` formula is **not** a Sentinel blocker. It belonged to
 the experimental Selective Survivor Firewall's cohort ranking. Sentinel consumes
@@ -334,14 +342,19 @@ C  Verify operational data against the §8 contract (252-session preferred)
 D  Finish the Wealth Core rehearsal; require EXPLAINED behavioural parity
 E  Wealth Core in Sentinel with exposure pinned to 1.00 — paper only, full
    persistence, order/fill reconciliation, restart tests, daily hashes
-F  Install the exact recovered breadth engine; reproduce the frozen tape in
-   CI with boundary fixtures; preserve numerical semantics.
-   PARTLY DISCHARGED 2026-08-09: the corrected reference implementation's
-   20-year output was validated in this repo against the frozen oracle —
-   5,032/5,032 sessions, 0 allocation mismatches, 0 breadth mismatches,
-   shadow error 4.44e-16. See docs/sentinel-reference-implementation/
-   PROVENANCE.md. What remains is (a) OUR breadth engine reproducing it and
-   (b) re-deriving the tape from the raw corpus, which needs the corpus
+F  Install the exact recovered breadth engine, preserving numerical
+   semantics, with boundary fixtures.
+   THE ACCEPTANCE TARGET CHANGED 2026-08-09 and the old wording is void.
+   "Reproduce the frozen tape" was discharged against the SUPERSEDED
+   lineage (5,032/5,032 allocation and breadth parity, measured in this
+   repo) — and the terminal-order correction then changed the shadow book,
+   so the corrected path diverges from the frozen oracle by construction:
+   breadth from 2016-02-05, allocation on 20 sessions from 2025-04-08.
+   The CLASSIFIER is unchanged and still exact; its INPUT book is not.
+   Restated target: our breadth engine must reproduce
+   docs/sentinel-reference-implementation/sentinel_1p1_daily.csv — the
+   corrected lineage — on the same holdings panel. The frozen oracle stays
+   as the audit artifact for the OLD lineage and is not overwritten
 G  Implement the frozen controller: ordinary-stress memory, fast severe, slow
    severe, independent cause/recovery memory, typed evidence records, FAIL
    CLOSED on unavailable required evidence

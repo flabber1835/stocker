@@ -25,14 +25,24 @@ a complete independent 1.1 run is in `docs/sentinel-reference-implementation/`,
 and `docs/sentinel-reproduction-kit/` carries the reproduction contract and the
 certified Wealth Core payloads.
 
-**RESOLVED later that day.** The classifier's exact-parity claim is corroborated
-by the independently reconstructed `sentinel_1p1_standalone.py`, which carries the same
+**RESOLVED later that day — and see the caveat below on WHICH tape.** The
+classifier's exact-parity claim is corroborated by the independently
+reconstructed `sentinel_1p1_standalone.py`, which carries the same
 GREEN/AMBER predicates — two separately-derived artefacts agreeing, not one
 asserted docstring. Step 2 is no longer a gate on implementation. Reproducing the
 frozen tape in CI (with boundary fixtures, preserving the float32 lag-close
 semantics) is now an ACCEPTANCE TEST: `docs/sentinel-deployment.md` §12 item F.
 The earlier text here required the tape before any decision logic could be
 written; that rule is retired, and the requirement moved rather than vanished.
+**CAVEAT, same day: the tape moved.** A terminal-order correction to the
+reference implementation showed the replay had bought a delisted security and
+spent admission slots on already-terminated ones. The corrected shadow diverges
+from the frozen oracle — breadth from 2016-02-05, allocation on 20 sessions from
+2025-04-08 — so the 5,032/5,032 parity measured here describes the SUPERSEDED
+book. The classifier is unchanged; its input book is not. The frozen oracle is
+NOT overwritten: it remains the audit artifact for the old lineage. See
+`docs/sentinel-reference-implementation/PROVENANCE.md`.
+
 Stocker is
 being retired in favour of Sentinel, a much smaller deterministic trading
 appliance built from Stocker's proven parts. This file is written so that a

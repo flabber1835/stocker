@@ -309,6 +309,13 @@ def run(data:Path,start:pd.Timestamp,end:pd.Timestamp,outdir:Path|None,verify_ha
     if verify_hashes: verify_corpus(data)
     tick,tmap,common,sector,issuer=load_meta(data);actions=load_actions(data);spy,bil=load_spy_bil(data);n=len(tick)
     wc=WealthCore();binary=BinaryStress();base_fast=FastState(base_mode=True);parent_fast=FastState(base_mode=False);slow=SlowState();ramp=SentinelRamp()
+    # Terminal corporate-action state is part of the causal session state.
+    # Corporate actions are processed before pending fills and before close-time
+    # admissions, so a terminal security can neither fill nor be re-admitted.
+    terminal_seen=set()
+    terminal_pending_entry_blocks=[]
+    terminal_close_admission_blocks=[]
+    executed_buys=[]
 
     L=201
     close_ring=np.full((L,n),np.nan,np.float32);adj_ring=np.full((L,n),np.nan,np.float32);raw_ring=np.full((L,n),np.nan,np.float32)
@@ -375,6 +382,29 @@ def run(data:Path,start:pd.Timestamp,end:pd.Timestamp,outdir:Path|None,verify_ha
             if first is None and len(pool_raw)>=NPOS:first=gday
 
             day_actions=actions.get(ds,{})
+            today_terminal={}
+            for tk0,rows0 in day_actions.items():
+                kinds0=sorted({a for a,_,_ in rows0} & TERMINAL)
+                if kinds0 and tk0 in tmap:
+                    today_terminal[tmap[tk0]]=kinds0
+            terminal_seen.update(today_terminal)
+
+            # Atomic reconciliation: a pending entry cannot survive a terminal
+            # event that is effective at this open.  The prior close did not know
+            # tomorrow's event; this open-time check therefore adds no look-ahead.
+            for s in wc.slots:
+                if s.pending_buy < 0 or s.held:
+                    continue
+                tid=s.pending_buy
+                if tid in terminal_seen:
+                    terminal_pending_entry_blocks.append({
+                        'date': ds, 'ticker': tick[tid],
+                        'terminal_actions': '|'.join(today_terminal.get(tid,['prior_terminal'])),
+                        'pending_notional': float(s.pending_notional),
+                    })
+                    s.pending_buy=-1
+                    s.pending_notional=0.0
+
             split_products={}
             for tk,rows in day_actions.items():
                 vals=[v for a,v,_ in rows if a in SPLIT_KINDS and v is not None and np.isfinite(v) and v>0]
@@ -428,13 +458,17 @@ def run(data:Path,start:pd.Timestamp,end:pd.Timestamp,outdir:Path|None,verify_ha
             # buys
             for s in wc.slots:
                 if s.pending_buy<0 or s.held:continue
-                tid=s.pending_buy;px=op_raw[tid]
+                tid=s.pending_buy
+                if tid in terminal_seen:
+                    raise RuntimeError({'date':ds,'ticker':tick[tid],'reason':'terminal_security_buy_reached_fill_loop'})
+                px=op_raw[tid]
                 if np.isfinite(px) and px>0 and np.isfinite(volume[tid]) and volume[tid]>0:
                     affordable=math.floor(wc.cash/(float(px)*(1+COST)));desired=math.floor(s.pending_notional/(float(px)*(1+COST)));qty=float(max(0,min(affordable,desired)))
                     if qty>=1:
                         gross=qty*float(px);wc.cash-=gross+gross*COST;wc.episode_seq+=1
                         s.ticker=tid;s.qty=qty;s.peak_signal=float(cl_sig[tid]) if np.isfinite(cl_sig[tid]) else float(g.open.iloc[0]);s.entry_signal=float(g.loc[g.tid.eq(tid),'open'].iloc[0]);s.entry_raw=float(px);s.entry_day=gday;s.ready=0;s.reviewed=False;s.cost_basis=gross*(1+COST);s.dividends=0.;s.episode=wc.episode_seq
                         wc.last_raw[tid]=float(cl_raw[tid]) if np.isfinite(cl_raw[tid]) else float(px)
+                        executed_buys.append({'date':ds,'ticker':tick[tid],'qty':qty,'price':float(px),'notional':gross})
                 s.pending_buy=-1;s.pending_notional=0.
 
             # dividends/spinoff cash equivalents for prior-close holders
@@ -506,6 +540,16 @@ def run(data:Path,start:pd.Timestamp,end:pd.Timestamp,outdir:Path|None,verify_ha
                         if tid in heldids or tid in pend or wc.cooldown.get(tid,-1)>gday:continue
                         if issuer[tid] in issuers:continue
                         if not np.isfinite(rec[tid]) or rec[tid]<0:continue
+                        # Today's corporate actions are already finalized before
+                        # admissions.  Do not create a next-open order for a
+                        # security that terminated today.
+                        if tid in today_terminal:
+                            terminal_close_admission_blocks.append({
+                                'date':ds,'ticker':tick[tid],
+                                'terminal_actions':'|'.join(today_terminal[tid]),
+                                'candidate_rank':int(np.where(order==tid)[0][0])+1,
+                            })
+                            continue
                         s=ready[scheduled];s.pending_buy=tid;s.pending_notional=ENTRY_W*eq;pend.add(tid);issuers.add(issuer[tid]);scheduled+=1
                     if not wc.bootstrap and scheduled>0:wc.bootstrap=True
 
@@ -584,9 +628,31 @@ def run(data:Path,start:pd.Timestamp,end:pd.Timestamp,outdir:Path|None,verify_ha
     curve=out.set_index('date').nav.astype(float)
     years=(curve.index[-1]-curve.index[0]).days/365.2425
     cagr=float((curve.iloc[-1]/curve.iloc[0])**(1/years)-1);mdd,peak,trough=max_drawdown(curve);multiple=float(curve.iloc[-1]/curve.iloc[0])
-    summary={'strategy':'Sentinel 1.1-RC zero recovery gate','runtime_inputs':'Sharadar only; no oracle files','start':str(curve.index[0].date()),'end':str(curve.index[-1].date()),'sessions':int(len(curve)),'cagr':cagr,'max_drawdown':mdd,'max_drawdown_peak':str(peak.date()),'max_drawdown_trough':str(trough.date()),'ending_multiple':multiple,'final_nav':float(curve.iloc[-1]),'wealth_core_final_multiple_from_1998':float(shadow_eq[-1]/shadow_eq[0])}
+    # Certification invariants and final Wealth Core book.
+    zombie=[tick[s.ticker] for s in wc.slots if s.held and s.ticker in terminal_seen]
+    if zombie:
+        raise RuntimeError({'reason':'terminal_security_still_held','tickers':zombie})
+    final_eq=float(shadow_eq[-1])
+    final_holdings=[]
+    for s in wc.slots:
+        if not s.held: continue
+        tid=s.ticker
+        px=float(cl_raw[tid]) if np.isfinite(cl_raw[tid]) and cl_raw[tid]>0 else float(wc.last_raw.get(tid,np.nan))
+        if not np.isfinite(px) or px<=0:
+            raise RuntimeError({'reason':'unresolved_final_mark','ticker':tick[tid]})
+        mv=float(s.qty*px)
+        final_holdings.append({'ticker':tick[tid],'qty':float(s.qty),'mark':px,'market_value':mv,'portfolio_weight':mv/final_eq,'entry_day':int(s.entry_day),'episode':int(s.episode)})
+    final_holdings=sorted(final_holdings,key=lambda r:-r['portfolio_weight'])
+    final_cash=float(wc.cash+wc.receivable)
+    summary={'strategy':'Sentinel 1.1-RC zero recovery gate + atomic terminal-order correction','runtime_inputs':'Sharadar only; no oracle files','start':str(curve.index[0].date()),'end':str(curve.index[-1].date()),'sessions':int(len(curve)),'cagr':cagr,'max_drawdown':mdd,'max_drawdown_peak':str(peak.date()),'max_drawdown_trough':str(trough.date()),'ending_multiple':multiple,'final_nav':float(curve.iloc[-1]),'wealth_core_final_multiple_from_1998':float(shadow_eq[-1]/shadow_eq[0]),'terminal_pending_entry_blocks':len(terminal_pending_entry_blocks),'terminal_close_admission_blocks':len(terminal_close_admission_blocks),'executed_buys':len(executed_buys),'ending_held_positions':len(final_holdings),'ending_cash_weight':final_cash/final_eq,'ending_stock_weight':sum(r['portfolio_weight'] for r in final_holdings)}
     if outdir:
-        outdir.mkdir(parents=True,exist_ok=True);out.to_csv(outdir/'sentinel_1p1_daily.csv',index=False);(outdir/'sentinel_1p1_summary.json').write_text(json.dumps(summary,indent=2))
+        outdir.mkdir(parents=True,exist_ok=True)
+        out.to_csv(outdir/'sentinel_1p1_daily.csv',index=False)
+        (outdir/'sentinel_1p1_summary.json').write_text(json.dumps(summary,indent=2))
+        pd.DataFrame(terminal_pending_entry_blocks,columns=['date','ticker','terminal_actions','pending_notional']).to_csv(outdir/'terminal_pending_entry_blocks.csv',index=False)
+        pd.DataFrame(terminal_close_admission_blocks,columns=['date','ticker','terminal_actions','candidate_rank']).to_csv(outdir/'terminal_close_admission_blocks.csv',index=False)
+        pd.DataFrame(executed_buys,columns=['date','ticker','qty','price','notional']).to_csv(outdir/'executed_buys.csv',index=False)
+        pd.DataFrame(final_holdings,columns=['ticker','qty','mark','market_value','portfolio_weight','entry_day','episode']).to_csv(outdir/'ending_holdings.csv',index=False)
     return summary,out
 
 
