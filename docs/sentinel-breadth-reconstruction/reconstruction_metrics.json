@@ -1,0 +1,15 @@
+{
+  "sessions_compared": 7061,
+  "holding_days_regenerated": 160715,
+  "nav_replay_identity": "exact to floating precision versus frozen Wealth Core shadow tape",
+  "breadth_denominator_finding": "number of rows in fixed30_position_panel on the session; not the health CSV 'holdings' field",
+  "green_candidate": "own_dd >= -7.5% AND r21 >= 0 AND r63 >= 0",
+  "green_exact_session_fraction": 0.902704999291885,
+  "green_mean_abs_count_error": 0.11896331964311004,
+  "green_max_abs_count_error": 7,
+  "damaged_core_candidate": "own_dd <= -10% OR r21 <= -3%",
+  "damaged_core_exact_session_fraction": 0.6969267809092197,
+  "damaged_core_mean_missing_holdings": 0.4030590567908228,
+  "damaged_core_max_missing_holdings": 5,
+  "damaged_core_ever_overpredicts": false
+}

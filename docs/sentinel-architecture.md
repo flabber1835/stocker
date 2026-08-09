@@ -637,7 +637,70 @@ equality.
 
 **Q3 — moot.** Scalar means there is no live episode to re-enter.
 
-**Q2 — STILL BLOCKING, and the harness confirms it rather than resolving it.**
+**Q2 — STILL BLOCKING, but materially narrowed (2026-08-09 forensic pass,
+`docs/sentinel-breadth-reconstruction/`).**
+
+The original `position_features(g, cfg)` in
+`/mnt/data/selective_firewall/run_firewall_experiment.py` was identified by
+provenance — `run_firewall_v2_fixed.py` imports that exact path and calls that
+exact function — but its bytes are gone. Verified in the retained source:
+
+```text
+line  77   damaged_breadth = float(d['amber'].mean())
+line 160   green_breadth   = float(d['green'].mean())
+```
+
+So Sentinel's `damaged` IS the firewall's `amber` fraction, and `green` is the
+`green` fraction. The forensic pass then regenerated the 1998-2026 fixed-30
+holding panel (160,715 holding-days) and confirmed it by reproducing the frozen
+shadow NAV to floating-point precision — so the reconstruction is operating on
+the correct portfolio history.
+
+Two structural findings worth keeping:
+
+```text
+DENOMINATOR   the frozen fractions divide by the position-panel ROW COUNT for
+              the session, NOT the `holdings` column in the health CSV. With the
+              right denominator every frozen fraction resolves to an integer
+              count of positions
+GREEN         own_dd >= -7.5% AND r21 >= 0 AND r63 >= 0
+              exact on 90.27% of 7,061 sessions, mean error 0.119 positions
+DAMAGED core  own_dd <= -10% OR r21 <= -3%
+              exact on 69.69%, and it NEVER over-predicts — short by 0.403
+              positions/session on average, max 5
+```
+
+That one-sided residual is the useful part: it proves the original was
+`amber = damaged_core OR <escalation>` rather than a different base rule. The
+escalation is most plausibly the sector/cluster term, since `position_features`
+also returned a `sector_stress` object — but no simple sector proxy reproduces
+it, and none has been promoted.
+
+**WHY THIS IS NOT YET USABLE, stated in the direction that matters.** Aggregate
+agreement flatters it. On the predicates Sentinel actually evaluates:
+
+```text
+predicate                 agreement   true sessions   reconstructed
+fast_damaged_ge_0.85        98.7%          216            126     <- misses 42%
+slow_damaged_ge_0.75        97.5%          547            372     <- misses 32%
+recovery_damaged_le_0.60    96.9%         5792           6011
+green predicates           99.4-99.7%      ...            ...     close
+```
+
+98.7% agreement on `fast_damaged >= 0.85` means the reconstruction FAILS TO FIRE
+on 90 of the 216 sessions where the frozen oracle does. Because the damaged
+error is one-sided, every one of those is a missed severe entry — **fail-open,
+in the exact place a risk controller must not be**. The green side is close;
+the damaged side is not.
+
+**Standing rule until this is closed:** certify the controller against the
+FROZEN breadth oracle, keep any production breadth generation behind an explicit
+`UNCERTIFIED_BREADTH` gate, and require exact session-by-session parity with the
+frozen tape before that gate is removed.
+
+---
+
+**Original Q2 statement, retained:**
 `09_GAPS/MISSING_OR_UNRECOVERED.md`: the security-level damaged/green
 classifier is *"NOT FOUND in the retained artifacts"*. What survived is the
 **aggregate daily tape**, which is enough to certify against but not enough to

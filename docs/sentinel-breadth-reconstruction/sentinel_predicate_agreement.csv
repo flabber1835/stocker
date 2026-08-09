@@ -1,0 +1,7 @@
+predicate,agreement,mismatch_sessions,true_sessions,reconstructed_sessions
+fast_damaged_ge_0.85,0.9872539300382382,90,216,126
+fast_green_le_0.20,0.9966010480101969,24,828,848
+slow_damaged_ge_0.75,0.9752159750743521,175,547,372
+slow_green_le_0.25,0.9944767030165699,39,1247,1284
+recovery_damaged_le_0.60,0.9689845630930463,219,5792,6011
+recovery_green_ge_0.20,0.9971675400084974,20,6326,6310
