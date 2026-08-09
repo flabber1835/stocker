@@ -75,6 +75,43 @@ def cmd_status(config: SentinelConfig) -> int:
     return EXIT_OK
 
 
+def cmd_feed(config: SentinelConfig, args) -> int:
+    """Run an ingest. Progress is committed per chunk, so watch it from another
+    shell with `feed-status` rather than by staring at this one."""
+    from sentinel.feed import ingest
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    log = logging.getLogger("sentinel")
+    conn = feed_store.connect(config.database_url)
+    try:
+        feed_store.ensure_schema(conn)
+        # Before anything else: a `running` row left by a dead process would
+        # otherwise be reported by feed-status as an ingest with nothing behind
+        # it — the confusion the Wealth Core rehearsal produced for half an hour.
+        reclaimed = feed_store.reclaim_orphans(conn)
+        if reclaimed:
+            log.warning("sentinel: reclaimed %d abandoned ingest run(s)", reclaimed)
+
+        if args.command == "feed-seed":
+            kw = {}
+            if args.date_from:
+                kw["date_from"] = args.date_from
+            if args.date_to:
+                kw["date_to"] = args.date_to
+            log.info("sentinel: seeding — watch with `feed-status` from another shell")
+            p = ingest.seed(conn, **kw)
+        else:
+            p = ingest.daily(conn)
+        log.info("sentinel: %s complete — %d chunks, %s rows written, %s dropped",
+                 p.kind, p.chunks_done, f"{p.rows_written:,}", f"{p.rows_dropped:,}")
+        return EXIT_OK
+    finally:
+        conn.close()
+
+
 def cmd_feed_status(config: SentinelConfig, limit: int) -> int:
     """Read `feed_ingest_runs` from a SEPARATE connection.
 
@@ -200,6 +237,10 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("status", help="print the ownership log; touches nothing")
     fs = sub.add_parser("feed-status", help="ingest progress, readable MID-RUN")
     fs.add_argument("--limit", type=int, default=5)
+    sd = sub.add_parser("feed-seed", help="load the full Sharadar history (hours)")
+    sd.add_argument("--from", dest="date_from", default=None)
+    sd.add_argument("--to", dest="date_to", default=None)
+    sub.add_parser("feed-daily", help="fetch since the stored frontier")
     sub.add_parser("plan", help="observe and print the plan; submits nothing")
     est = sub.add_parser("establish-ownership", help="remove the legacy book")
     est.add_argument("--max-cycles", type=int, default=None)
@@ -226,6 +267,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_status(config)
         if args.command == "feed-status":
             return cmd_feed_status(config, args.limit)
+        if args.command in ("feed-seed", "feed-daily"):
+            return cmd_feed(config, args)
         if args.command == "plan":
             return asyncio.run(_plan(config))
         return asyncio.run(_establish(config))
