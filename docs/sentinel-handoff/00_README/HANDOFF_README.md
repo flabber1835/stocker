@@ -71,3 +71,27 @@ See `sentinel_1p1_transition_oracle.csv`. The recovery ramp creates the expected
 
 ## Integrity
 `FILE_MANIFEST.csv` and `SHA256SUMS.txt` identify the exact files in this handoff. The untouched source archives are included so later refactors can always be traced back to the retained research artifacts.
+
+---
+
+## Stored in this repository (added 2026-08-09)
+
+The ORIGINAL, UNMODIFIED archive is committed alongside the extracted tree:
+
+```text
+docs/Sentinel_1_1_Frozen_Harness_Handoff.zip
+  sha256  c344dd14ee920985d65becf48c6317c484b20720cb223c22412fa7bf22f43993
+  size    8.7 MB
+```
+
+Both are kept deliberately. The extracted tree is what anyone reads or greps;
+the zip is the authoritative artefact, and it is what `00_README/SHA256SUMS.txt`
+was computed against. If the two ever disagree, THE ZIP IS CORRECT — re-extract
+rather than trusting a tree that may have been edited in place.
+
+Verify before relying on anything here:
+
+```bash
+sha256sum docs/Sentinel_1_1_Frozen_Harness_Handoff.zip
+cd docs/sentinel-handoff && sha256sum -c 00_README/SHA256SUMS.txt
+```
