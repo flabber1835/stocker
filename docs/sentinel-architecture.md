@@ -26,7 +26,7 @@ and `docs/sentinel-reproduction-kit/` carries the reproduction contract and the
 certified Wealth Core payloads.
 
 **RESOLVED later that day.** The classifier's exact-parity claim is corroborated
-by the independently reconstructed `sentinel_1p1.py`, which carries the same
+by the independently reconstructed `sentinel_1p1_standalone.py`, which carries the same
 GREEN/AMBER predicates — two separately-derived artefacts agreeing, not one
 asserted docstring. Step 2 is no longer a gate on implementation. Reproducing the
 frozen tape in CI (with boundary fixtures, preserving the float32 lag-close
@@ -679,7 +679,7 @@ artifact reached by a different route.
 ```text
 docs/sentinel-breadth-reconstruction/recovered_breadth_classifier.py
 docs/sentinel-reproduction-kit/04_EXACT_BREADTH_RECOVERY/   (same file + status)
-docs/sentinel-reference-implementation/sentinel_1p1.py      (a full standalone
+docs/sentinel-reference-implementation/sentinel_1p1_standalone.py      (a full standalone
                                                              run, 585 lines)
 ```
 
@@ -715,7 +715,7 @@ amber counts over 160,715 holding-days, mean absolute daily count error 0.000.
 it needs the raw Sharadar corpus (SEP 1998-2026, ACTIONS, TICKERS, SFP) and the
 regenerated holding panel; neither is here. What HAS been checked locally is
 thin and should not be mistaken for the claim: both files compile, and the four
-synthetic controller unit tests shipped with `sentinel_1p1.py` pass. Those
+synthetic controller unit tests shipped with `sentinel_1p1_standalone.py` pass. Those
 exercise hysteresis and ramp logic on hand-built sequences — they never touch
 breadth. So the gate below stands unchanged until someone runs the tape.
 
@@ -739,7 +739,7 @@ acceleration, SPY confirmation, recovery-health conditions — and emits ONE
 number, a portfolio exposure target. It never asks *which* damaged holding is
 worst, so a per-name ranking has no place to be consumed even in principle.
 Confirmed in the reference implementation: `priority` appears zero times in
-`sentinel_1p1.py`, and every controller predicate there reads only the two
+`sentinel_1p1_standalone.py`, and every controller predicate there reads only the two
 scalars from `green_b = greens/len(held)` / `damaged_b = ambers/len(held)`.
 
 **The firewall does need it**, because that strategy chose SPECIFIC damaged
