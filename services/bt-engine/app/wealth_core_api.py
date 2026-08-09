@@ -58,6 +58,8 @@ from stock_strategy_shared.wealth_core.signals import REQUIRED_CLOSES
 from app.jobs_busy import busy_detail, running_job_kind
 from app.wealth_core_chain import (
     ChainRehearsalDiverged,
+    DEFAULT_RETENTION_TAIL,
+    RETENTION_MODES,
     STATEFUL_MODEL,
     rehearse_chain,
 )
@@ -261,6 +263,26 @@ class WealthCoreJobRequest(BaseModel):
     baseline_hashes: dict | None = None
     # BASELINE_REPLAY only.
     expected_hashes: dict | None = None
+    # CHAIN_REHEARSAL only. How much per-session diagnostic detail the rehearsal
+    # keeps in memory; see `wealth_core_chain.RETENTION_MODES`. Retention never
+    # influences execution — every hash, counter and certification output is
+    # identical under all three modes, asserted on the golden fixture.
+    #
+    # It is HERE because `rehearse_chain` has supported it since the memory work
+    # and this endpoint could not ask for it: the parameter defaulted to "full"
+    # and was never passed, so every rehearsal retained every SessionRehearsal
+    # and RunTrace for the whole run. That is a per-session accumulator, and a
+    # 753-session run measured it as +0.128 GiB per 5 minutes, dead linear,
+    # until the container OOM-killed at 2h52m (2026-08-09). `rehearse_chain`'s
+    # own refusal message already named this failure — "silently falling back to
+    # 'full' on a typo is how a certification run OOMs after three hours" — and
+    # it happened without a typo, because the value had no route to the caller.
+    #
+    # The default stays "full" deliberately: short runs, the golden fixture and
+    # existing debugging are unchanged, and a long certification run asks for
+    # "bounded" explicitly rather than inheriting a global change nobody saw.
+    retention_mode: Literal["full", "bounded", "none"] = "full"
+    retention_tail: int = DEFAULT_RETENTION_TAIL
 
 
 def _apply(obj, change: dict, what: str):
@@ -279,6 +301,19 @@ def _validate(req: WealthCoreJobRequest) -> None:
     looks like an answer to a question nobody asked."""
     if req.end_date < req.start_date:
         raise HTTPException(422, "end_date precedes start_date")
+
+    # Only the rehearsal retains per-session detail, so only the rehearsal can
+    # act on this. Accepting it elsewhere would let an operator ask a
+    # baseline_replay for bounded retention, watch it OOM anyway, and conclude
+    # bounded does not work — a field with no consumer reading as a setting that
+    # failed. Pydantic already rejects an invalid mode by name; this rejects a
+    # valid mode in a place that cannot honour it.
+    if req.mode != "chain_rehearsal" and req.retention_mode != "full":
+        raise HTTPException(422, (
+            f"retention_mode is chain_rehearsal-only; mode={req.mode!r} keeps "
+            f"no per-session detail to elide. Refused rather than ignored: a "
+            f"setting silently dropped is indistinguishable from one that did "
+            f"not help."))
 
     if req.mode == "baseline_replay":
         if not req.expected_hashes:
@@ -531,6 +566,8 @@ def _execute(req: WealthCoreJobRequest, corpus: dict) -> dict:
                            config={"execution_model": STATEFUL_MODEL},
                            on_progress=_publish_progress,
                            progress_every=PROGRESS_EVERY,
+                           retention_mode=req.retention_mode,
+                           retention_tail=req.retention_tail,
                            benchmark_closes=corpus.get("benchmark_closes"),
                            benchmark_ticker=BENCHMARK_TICKER)
         d = r.to_dict()
@@ -615,6 +652,19 @@ async def start_wealth_core_job(req: WealthCoreJobRequest,
             "(CAST(:r AS UUID), :m, CAST(:s AS JSONB))"),
             {"r": run_id, "m": req.mode,
              "s": req.model_dump_json()})
+    # Logged at START, unconditionally, for every mode. The retention setting was
+    # invisible for the whole time it was wrong: nothing printed it, the run row
+    # recorded a request that did not carry it, and "full" had to be inferred
+    # from an RSS curve after the fact. An operator reading the first line of a
+    # three-hour job should be able to see what it will do to memory.
+    log.info("wealth-core run %s mode=%s range=%s..%s retention_mode=%s "
+             "retention_tail=%s", run_id, req.mode, req.start_date,
+             req.end_date, req.retention_mode, req.retention_tail)
+    print(f"[wealth-core] run {run_id} mode={req.mode} "
+          f"range={req.start_date}..{req.end_date} "
+          f"retention_mode={req.retention_mode} "
+          f"retention_tail={req.retention_tail}", flush=True)
+
     _publish_progress({})   # a previous run's snapshot is not this run's
     background_tasks.add_task(_run_bg, run_id, req)
     return {"run_id": run_id, "mode": req.mode, "status": "running",

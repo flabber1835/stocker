@@ -539,3 +539,94 @@ class TestAnEmptyUniverseIsRefusedNotScored:
         assert "bt_universe" in msg
         assert "/jobs/backfill" in msg, "the remedy must be a command, not advice"
         assert "0%" in msg and "NOT a strategy result" in msg
+
+
+class TestRetentionIsReachableFromTheRequest:
+    """The rehearsal's retention control had to be ASKABLE, not merely present.
+
+    `rehearse_chain` has taken `retention_mode` since the memory work, and
+    `test_retention_modes_are_certification_equivalent` proves `full` and
+    `bounded` produce byte-identical certification output. None of that could
+    take effect: the endpoint never passed the parameter, so every rehearsal ran
+    `full` and retained every SessionRehearsal and RunTrace for the whole run.
+
+    A 753-session rehearsal measured that as +0.128 GiB per 5-minute sample,
+    dead linear across eleven consecutive samples, until the container OOM-killed
+    at 2h52m (2026-08-09, run 58449402). Three lost rehearsals preceded it.
+
+    These tests are about the WIRE, not the retention semantics — those are
+    covered on the chain side. What is asserted here is that the value an
+    operator sends is the value the engine receives, that omitting it changes
+    nothing, and that a wrong value is refused rather than silently defaulted.
+    """
+
+    def _capture(self, monkeypatch):
+        """Intercept rehearse_chain and record the kwargs it was handed."""
+        seen: dict = {}
+        real = api.rehearse_chain
+
+        def spy(**kw):
+            seen.update(kw)
+            return real(**kw)
+
+        monkeypatch.setattr(api, "rehearse_chain", spy)
+        return seen
+
+    def test_a_requested_mode_REACHES_rehearse_chain(self, corpus, monkeypatch):
+        """The plumbing test. This is the one that was failing in production —
+        silently, because nothing between the request and the engine mentioned
+        retention at all."""
+        seen = self._capture(monkeypatch)
+        api._execute(req(retention_mode="bounded", retention_tail=7), corpus)
+        assert seen["retention_mode"] == "bounded"
+        assert seen["retention_tail"] == 7
+
+    def test_omitting_it_still_reaches_the_engine_as_full(self, corpus,
+                                                          monkeypatch):
+        """Default compatibility. `full` must arrive EXPLICITLY rather than by
+        the callee's own default — otherwise this wiring could regress to
+        passing nothing and every test here would still pass."""
+        seen = self._capture(monkeypatch)
+        api._execute(req(), corpus)
+        assert seen["retention_mode"] == "full"
+        assert seen["retention_tail"] == api.DEFAULT_RETENTION_TAIL
+
+    def test_an_invalid_mode_is_REFUSED_not_defaulted(self):
+        """No silent fallback. `rehearse_chain`'s own refusal says falling back
+        to 'full' on a typo is how a certification run OOMs after three hours;
+        the request must not be able to produce that state either."""
+        with pytest.raises(Exception) as exc:
+            req(retention_mode="bunded")
+        assert "bunded" in str(exc.value) or "retention_mode" in str(exc.value)
+
+    def test_every_mode_the_engine_accepts_is_offered_by_the_request(self):
+        """The two lists must not drift. A mode the engine supports but the
+        request cannot express is exactly the defect being fixed here."""
+        import typing
+        offered = set(typing.get_args(
+            api.WealthCoreJobRequest.model_fields["retention_mode"].annotation))
+        assert offered == set(api.RETENTION_MODES)
+
+    @pytest.mark.parametrize("mode,extra", [
+        ("baseline_replay", {"expected_hashes": {k: "x" for k in HASH_ORDER}}),
+        ("experiment", {"change": {"n_slots": 12}, "config": {"n_slots": 12},
+                        "baseline_hashes": {k: "x" for k in HASH_ORDER}}),
+    ])
+    def test_a_mode_that_cannot_honour_it_refuses_it(self, mode, extra):
+        """Only the rehearsal retains per-session detail. Accepting `bounded` on
+        a replay would let an operator watch it OOM anyway and conclude bounded
+        does not work — a dropped setting reading as a failed one."""
+        with pytest.raises(HTTPException) as exc:
+            api._validate(req(mode=mode, retention_mode="bounded", **extra))
+        assert exc.value.status_code == 422
+        assert "chain_rehearsal-only" in exc.value.detail
+
+    def test_the_job_start_LOGS_the_retention_setting(self):
+        """It was invisible for the whole time it was wrong: nothing printed it
+        and it had to be inferred from an RSS curve after the fact."""
+        body = self.__class__.__module__ and pathlib.Path(
+            api.__file__).read_text()
+        start = body.index("async def start_wealth_core_job")
+        end = body.index("background_tasks.add_task", start)
+        assert "retention_mode=" in body[start:end], (
+            "the run's retention setting must be logged at job start")
