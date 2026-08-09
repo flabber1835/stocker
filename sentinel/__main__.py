@@ -75,6 +75,57 @@ def cmd_status(config: SentinelConfig) -> int:
     return EXIT_OK
 
 
+async def _migration_plan(config: SentinelConfig, args) -> int:
+    """What changes between the account as it stands and the target. READ-ONLY.
+
+    Reads the BROKER for the current book rather than any stored view: the
+    account is the only authority on what is held, and a migration computed
+    against a cached snapshot is the one that sells something twice.
+    """
+    import json as _json
+
+    from sentinel.core.bootstrap import bootstrap
+    from sentinel.core.migration import plan_migration
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    config.assert_credentials()
+    broker = build_broker(config)
+    account = await broker.account()
+    observation = await broker.observe()
+
+    conn = feed_store.connect(config.database_url)
+    try:
+        feed_store.ensure_schema(conn)
+        frontier = feed_store.latest_session(conn)
+        with conn.cursor() as cur:
+            cur.execute("SELECT MIN(session) FROM (SELECT DISTINCT session"
+                        " FROM sentinel_bars ORDER BY session DESC LIMIT %s) s",
+                        (args.sessions,))
+            start = str(cur.fetchone()[0])
+            cur.execute("SELECT ticker, close_unadjusted FROM sentinel_bars"
+                        " WHERE session = %s", (frontier,))
+            marks = {str(t): float(p) for t, p in cur.fetchall() if p}
+        book = bootstrap(conn, start=start, end=frontier,
+                         starting_cash=float(getattr(account, "equity", 0.0) or 0.0))
+    finally:
+        conn.close()
+
+    equity = float(getattr(account, "equity", 0.0) or 0.0)
+    plan = plan_migration(
+        session=book.session,
+        broker_positions=dict(observation.positions),
+        target_weights={book.tickers.get(s, s): w
+                        for s, w in book.positions.items()},
+        marks=marks, account_equity=equity,
+        target_exposure=book.exposure)
+    plan.caveats.extend(book.caveats)
+    print(_json.dumps(plan.to_dict(), indent=2))
+    return EXIT_OK
+
+
 def cmd_target_book(config: SentinelConfig, args) -> int:
     """Warm up and print the target. READ-ONLY: submits nothing, stores nothing.
 
@@ -319,6 +370,9 @@ def main(argv: list[str] | None = None) -> int:
     sd.add_argument("--from", dest="date_from", default=None)
     sd.add_argument("--to", dest="date_to", default=None)
     sub.add_parser("feed-daily", help="fetch since the stored frontier")
+    mp = sub.add_parser("migration-plan",
+                        help="legacy broker book vs the Wealth Core target")
+    mp.add_argument("--sessions", type=int, default=252)
     bs = sub.add_parser("target-book",
                         help="warm up Wealth Core and print today's target")
     bs.add_argument("--cash", type=float, default=100_000.0)
@@ -358,6 +412,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_check_data(config, args.today)
         if args.command == "target-book":
             return cmd_target_book(config, args)
+        if args.command == "migration-plan":
+            return asyncio.run(_migration_plan(config, args))
         if args.command == "plan":
             return asyncio.run(_plan(config))
         return asyncio.run(_establish(config))
