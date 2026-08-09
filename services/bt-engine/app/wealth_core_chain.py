@@ -503,11 +503,16 @@ def rehearse_chain(*, sessions: Sequence[str],
     bulk_feed = Feed(meta, eligibility_cfg)
     if warmup_sessions:
         bulk_feed.warmup(list(warmup_sessions), bars_by_session)
+    # STREAMING under bounded/none retention: the bulk replay is the larger of
+    # the two candidate-payload holders, and folding it is what brings a
+    # three-year run inside the container. Byte-identical hashes, proven on the
+    # golden fixture; `full` keeps the objects so debugging is unchanged.
     bulk, bulk_hashes = run_with_hashes(
         sessions=list(sessions), bars_by_session=bars_by_session, meta=meta,
         starting_cash=starting_cash, cfg=cfg,
         eligibility_cfg=eligibility_cfg, terminal_events=terminal_events,
-        feed=bulk_feed)
+        feed=bulk_feed,
+        hash_mode=("materialized" if retention_mode == "full" else "streaming"))
     out.bulk_hashes = bulk_hashes.to_dict()
 
     same_state = state.state_hash() == bulk.state.state_hash()

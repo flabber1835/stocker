@@ -51,9 +51,11 @@ base = mb()
 n_sec, n_sess = int(sys.argv[1]), int(sys.argv[2])
 sessions, bars, meta = scenario(n_sec, n_sess)
 after_corpus = mb()
-r = run_sessions(sessions=sessions, bars_by_session=bars, meta=meta,
-                 starting_cash=1_000_000.0)
+mode = sys.argv[3] if len(sys.argv) > 3 else "materialized"
+from stock_strategy_shared.wealth_core.run import run_with_hashes
+r, _h = run_with_hashes(sessions=sessions, bars_by_session=bars, meta=meta,
+                        starting_cash=1_000_000.0, hash_mode=mode)
 peak = mb()
 cands = sum(len(s.decision.candidates) for s in r.sessions if s.decision)
 print(f"{n_sec:>5} {n_sess:>5} {after_corpus:>10.0f} {peak:>10.0f} "
-      f"{peak - after_corpus:>10.0f} {cands:>10}")
+      f"{peak - after_corpus:>10.0f} {cands:>10}  {mode}")

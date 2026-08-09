@@ -465,7 +465,17 @@ def _cagr(starting: float, ending: float,
 # ── adapters: one per session-carrying type, so `measure` stays generic ──────
 
 def facts_from_run_result(result) -> list[SessionFacts]:
-    """SessionFacts from a `RunResult` — the bulk path, which carries fills."""
+    """SessionFacts from a `RunResult` — the bulk path, which carries fills.
+
+    Prefers `session_facts`, which the run retains under EVERY hash mode. Under
+    `hash_mode="streaming"` the SessionResult objects are folded into the parity
+    hashes and dropped, so reading `result.sessions` there would silently
+    measure an empty run — a CAGR of zero over no sessions, reported without
+    complaint. The facts are the certification input; the objects are not.
+    """
+    facts = getattr(result, "session_facts", None)
+    if facts:
+        return list(facts)
     return [SessionFacts(session=s.session,
                          resolved_equity=s.resolved_equity,
                          fills=tuple(s.fills or ()),

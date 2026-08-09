@@ -253,17 +253,22 @@ def normalized_input_hash(sessions: Sequence[str],
     databases, and what has to match is what came OUT of normalisation. A hash
     over raw rows would fail on a column rename that changed nothing.
     """
-    payload = []
+    # STREAMED, one session at a time. Materialising this built the ENTIRE bar
+    # stream as one nested list before hashing — 6.6M bars on a three-year
+    # certification, several GB in a single transient, and the largest
+    # run-length term left after the candidate payload was folded. The digest is
+    # byte-identical; only the peak changes.
+    stream = CanonicalListStream()
     for s in sessions:
         rows = sorted(bars_by_session.get(s, ()),
                       key=lambda b: (b.security_id, b.ticker))
-        payload.append([s, [[b.security_id, b.ticker, _px(b.raw_close),
-                             _px(b.raw_open), _px(b.volume),
-                             _px(b.split_ratio), _px(b.dividend_per_share),
-                             bool(b.tradeable),
-                             bool(b.unresolved_corporate_action)]
-                            for b in rows]])
-    return _h(payload)
+        stream.add([s, [[b.security_id, b.ticker, _px(b.raw_close),
+                         _px(b.raw_open), _px(b.volume),
+                         _px(b.split_ratio), _px(b.dividend_per_share),
+                         bool(b.tradeable),
+                         bool(b.unresolved_corporate_action)]
+                        for b in rows]])
+    return stream.hexdigest()
 
 
 def candidate_audit_hash(result) -> str:
@@ -345,6 +350,71 @@ class ParityHashes:
 
     def __getitem__(self, k):
         return self.values[k]
+
+
+class SessionHashAccumulator:
+    """The six session-derived parity hashes, folded ONE SESSION AT A TIME.
+
+    This is what lets a certification run discard `Decision.candidates` — one
+    row per eligible security per session, ~1.5 MILLION dicts over a three-year
+    run, and measured as the reason the rehearsal OOMs. Each session is folded
+    here and then dropped; the digests are byte-identical to hashing the whole
+    retained list at the end, because CanonicalListStream and
+    CanonicalArraySpool reproduce `json.dumps` of a list exactly.
+
+    `order` carries a trailing `__unfilled__` row that belongs after every
+    session, so it is appended at `finalize` rather than during the fold.
+    """
+
+    def __init__(self, spool_max_ram: int | None = None) -> None:
+        self.candidate_audit = CanonicalListStream()
+        self.decision = CanonicalListStream()
+        self.order = CanonicalListStream()
+        self.daily_state = CanonicalListStream()
+        self.daily_equity = CanonicalListStream()
+        # The sessions array for `final_result`, which is spliced into an
+        # OBJECT and therefore needs its bytes back — see CanonicalArraySpool.
+        self.sessions = CanonicalArraySpool(max_ram_bytes=spool_max_ram)
+
+    def add(self, s, session_row: dict) -> None:
+        """Fold one session. `session_row` comes from `RunResult.session_row`
+        so the materialised and streamed paths cannot describe different
+        structures."""
+        if s.decision:
+            self.candidate_audit.add([s.session, sorted(
+                [[c.security_id, c.ticker, _px(c.momentum), _px(c.recent),
+                  _px(c.volatility), _px(c.score), bool(c.in_top_decile),
+                  c.reason]
+                 for c in s.decision.candidates])])
+            self.decision.add([s.session, s.decision.to_dict()])
+            self.daily_state.add([s.session, s.decision.input_state_hash])
+        self.order.add([s.session,
+                        [[f["security_id"], f["operation"], f["shares"],
+                          _px(f["raw_open"]), f["waited"]] for f in s.fills],
+                        sorted([[c.get("security_id"), c.get("reason"),
+                                 c.get("wanted_shares"), c.get("filled_shares")]
+                                for c in s.cancelled])])
+        self.daily_equity.add([s.session, _money(s.resolved_equity),
+                               _money(s.estimated_equity), bool(s.blocked)])
+        self.sessions.add(session_row)
+
+    def finalize(self, result, sessions: Sequence[str],
+                 bars_by_session: Mapping[str, Sequence]) -> "ParityHashes":
+        self.order.add(["__unfilled__", sorted(
+            [[o["security_id"], o["operation"], o["shares"],
+              o["sessions_waiting"]] for o in result.unfilled_at_end])])
+        return ParityHashes(values={
+            "normalized_input": normalized_input_hash(sessions, bars_by_session),
+            "candidate_audit": self.candidate_audit.hexdigest(),
+            "decision": self.decision.hexdigest(),
+            "order": self.order.hexdigest(),
+            "daily_state": self.daily_state.hexdigest(),
+            "daily_equity": self.daily_equity.hexdigest(),
+            "final_result": result.result_hash_spliced(self.sessions),
+        })
+
+    def dispose(self) -> None:
+        self.sessions.dispose()
 
 
 def parity_hashes(result, sessions: Sequence[str],

@@ -86,6 +86,12 @@ class RunResult:
     # reports a plausible CAGR, so the counters are the only place that failure
     # is visible.
     settlement_counters: dict = field(default_factory=dict)
+    # The equity/fills series, ALWAYS retained. Three scalars and a short fills
+    # list per session, against a SessionResult carrying a Decision with one
+    # candidate row per eligible security — so this costs almost nothing and is
+    # what `measure_run_result` needs. Retaining it is what makes dropping the
+    # heavy objects safe.
+    session_facts: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """Canonical, order-independent serialisation.
@@ -225,6 +231,8 @@ def run_sessions(*, sessions: Sequence[str],
                  ledger: Ledger | None = None,
                  last_known: dict[str, float] | None = None,
                  feed: Feed | None = None,
+                 hash_mode: str = "materialized",
+                 hash_accumulator=None,
                  on_session: Callable[[SessionResult], None] | None = None,
                  ) -> RunResult:
     """Drive the strategy across `sessions`, in order.
@@ -274,6 +282,11 @@ def run_sessions(*, sessions: Sequence[str],
     # from "nobody looked".
     out = RunResult(state=state, ledger=ledger,
                     settlement_counters=empty_counters())
+    if hash_mode not in ("materialized", "streaming"):
+        raise ValueError(
+            f"hash_mode must be 'materialized' or 'streaming', got "
+            f"{hash_mode!r}. Refused rather than defaulted — a certification "
+            f"run that silently fell back to materialized would OOM hours in.")
     last_norm = None
 
     for session in sessions:
@@ -293,7 +306,18 @@ def run_sessions(*, sessions: Sequence[str],
                            # position after splits/dividends and before fills.
                            terminal_terms=events_by_session.get(session, []),
                            settlement_counters=out.settlement_counters)
-        out.sessions.append(res)
+        # FOLD FIRST, then decide whether to keep. The accumulator has already
+        # consumed everything the parity hashes need by the time the object is
+        # dropped, which is what makes retention a storage decision rather than
+        # a behavioural one.
+        if hash_accumulator is not None:
+            hash_accumulator.add(res, out.session_row(res))
+        from stock_strategy_shared.wealth_core.performance import SessionFacts
+        out.session_facts.append(SessionFacts(
+            session=res.session, resolved_equity=res.resolved_equity,
+            fills=tuple(res.fills or ()), blocked=bool(res.blocked)))
+        if hash_mode == "materialized":
+            out.sessions.append(res)
         out.terminal_results.extend(res.terminal_results)
         if res.blocked:
             out.blocked_sessions.append(session)
@@ -330,16 +354,30 @@ def run_sessions(*, sessions: Sequence[str],
 def run_with_hashes(**kw):
     """`run_sessions` plus the seven parity hashes, in one call.
 
+    `hash_mode="streaming"` folds each session into the hashes as it completes
+    and never retains it, which is what makes a three-year certification fit in
+    memory. The digests are byte-identical to the materialised path — proven on
+    the golden fixture, not assumed.
+
     Every engine goes through THIS rather than calling run_sessions and hashing
     itself. The point of the parity contract is that no engine gets to decide
     what it hashes or how it rounds — an engine that computed its own hashes
     could satisfy the contract while doing something different, which is the
     failure mode the contract exists to detect.
     """
-    from stock_strategy_shared.wealth_core.hashes import parity_hashes
-    result = run_sessions(**kw)
-    return result, parity_hashes(result, list(kw["sessions"]),
-                                 kw["bars_by_session"])
+    from stock_strategy_shared.wealth_core.hashes import (
+        SessionHashAccumulator, parity_hashes)
+    if kw.get("hash_mode", "materialized") != "streaming":
+        result = run_sessions(**kw)
+        return result, parity_hashes(result, list(kw["sessions"]),
+                                     kw["bars_by_session"])
+    acc = SessionHashAccumulator()
+    try:
+        result = run_sessions(**dict(kw, hash_accumulator=acc))
+        return result, acc.finalize(result, list(kw["sessions"]),
+                                    kw["bars_by_session"])
+    finally:
+        acc.dispose()
 
 
 __all__ = ["RunResult", "TerminalEvent", "run_sessions", "run_with_hashes",
