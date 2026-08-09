@@ -363,6 +363,186 @@ class TestATermsBlockStillReachesTheEquityGate:
         assert res.resolved_equity == pytest.approx(10_000.0 + 10 * 95.0)
 
 
+class TestTheCarriedNotionalIsNotTheSettledNotional:
+    """WHY THIS EXISTS: the 2021-2023 rehearsal carried $342,136.68 and settled
+    $342,419.72 — $283.04 apart — and nothing in the run could attribute the
+    difference to a security. Acceptance condition 4 of the re-pin requires each
+    episode's carried and settled notional to be recomputed and their differences
+    shown to sum EXACTLY to that figure, which is only reachable if the two
+    tallies are measuring the same positions at DIFFERENT PRICES rather than
+    measuring different things.
+
+    They are. The carry is tallied ONCE on entry at the mark that authorised it;
+    the settlement reads `last_known` as of the expiry session. `build_marks`
+    MUTATES `last_known` whenever a carried security prints (adapter.py, the
+    `carried` branch), and a printing session PAUSES the grace without ending it.
+    So a security that prints once mid-grace and then goes quiet settles at the
+    later print while its carry was recorded at the earlier one.
+
+    That makes the delta a per-episode, fully attributable price difference:
+
+        settled_notional - carried_notional == shares * (later_print - entry_mark)
+
+    which is what the audit fields have to reconstruct. If the two tallies ever
+    diverged for any OTHER reason — a share count moving between entry and
+    expiry, a carry counted per-session rather than on entry — condition 4 would
+    be unreachable and the re-pin could not be accepted on those terms.
+    """
+
+    def _terms(self):
+        from stock_strategy_shared.wealth_core.terminal import (
+            TerminalKind, TerminalTerms)
+        return TerminalTerms(session="d1", security_id="S1",
+                             kind=TerminalKind.CASH_MERGER,
+                             reference="test/terms-pending")
+
+    def _carry_then_print_then_settle(self, entry_mark, later_print):
+        """Announce with no bar (carry at `entry_mark`), print ONCE mid-grace,
+        then go quiet until the grace expires."""
+        from stock_strategy_shared.wealth_core.settlement import (
+            C1_GRACE_SESSIONS, empty_counters)
+        st, led = seated(shares=10), Ledger()
+        lk, counters = {"S1": entry_mark}, empty_counters()
+
+        step_session(session="d1", state=st, bars=[], pending=[], ledger=led,
+                     last_known=lk, cfg=CFG, strategy_id=SID,
+                     strategy_version=VER,
+                     security_bars=tradeability_only_bars([], None),
+                     terminal_terms=[self._terms()],
+                     settlement_counters=counters)
+        assert st.terminal_pending_sessions.get("S1") == 0
+
+        bars = [db("S1", session="d2", mark=later_print, signal=later_print)]
+        step_session(session="d2", state=st, bars=bars, pending=[], ledger=led,
+                     last_known=lk, cfg=CFG, strategy_id=SID,
+                     strategy_version=VER,
+                     security_bars=tradeability_only_bars(bars, None),
+                     settlement_counters=counters)
+
+        for i in range(C1_GRACE_SESSIONS + 1):
+            step_session(session=f"q{i}", state=st, bars=[], pending=[],
+                         ledger=led, last_known=lk, cfg=CFG, strategy_id=SID,
+                         strategy_version=VER,
+                         security_bars=tradeability_only_bars([], None),
+                         settlement_counters=counters)
+        return st, led, counters
+
+    def test_a_mid_grace_print_updates_the_price_the_carry_SETTLES_at(self):
+        """The mechanism itself. Carried at 90, printed once at 92, settled at
+        92 — not at the mark the carry was authorised against."""
+        st, led, _ = self._carry_then_print_then_settle(90.0, 92.0)
+        assert 0 not in st.episodes, "the carry never expired into a settlement"
+        ev = [e for e in led.events if e.event_type is EventType.CASH_MERGER]
+        assert len(ev) == 1
+        assert ev[0].detail["settlement_source"] == "LAST_TRUSTWORTHY_MARK"
+        assert ev[0].price == pytest.approx(92.0), (
+            "settled at the carry-entry mark; a later trustworthy print during "
+            "the grace did not reach the settlement")
+
+    def test_the_two_tallies_differ_by_EXACTLY_shares_times_the_price_move(self):
+        """Condition 4's arithmetic, on one episode. The whole difference is a
+        price move on a KNOWN share count — no part of it is unattributable."""
+        _, _, c = self._carry_then_print_then_settle(90.0, 92.0)
+        carried = c["pending_terms_carried_notional"]
+        settled = c["derived_last_mark_settlements_notional"]
+        assert c["pending_terms_carried"] == 1
+        assert c["derived_last_mark_settlements"] == 1
+        assert carried == pytest.approx(10 * 90.0)
+        assert settled == pytest.approx(10 * 92.0)
+        assert settled - carried == pytest.approx(10 * (92.0 - 90.0)), (
+            "the carried and settled notionals diverge by something other than "
+            "a price move on a fixed share count — condition 4 cannot then be "
+            "satisfied by a per-episode price reconstruction")
+
+    def test_a_carry_that_never_prints_again_reconciles_to_ZERO(self):
+        """The control, and the reason the rehearsal's delta is 0.08% rather
+        than large: Sharadar's delisted securities STOP printing at delisting,
+        so most carries settle at the very mark they were carried at and
+        contribute nothing to the difference. Only the episodes that printed
+        mid-grace can account for the $283.04."""
+        from stock_strategy_shared.wealth_core.settlement import (
+            C1_GRACE_SESSIONS, empty_counters)
+        st, led = seated(shares=10), Ledger()
+        lk, c = {"S1": 90.0}, empty_counters()
+        step_session(session="d1", state=st, bars=[], pending=[], ledger=led,
+                     last_known=lk, cfg=CFG, strategy_id=SID,
+                     strategy_version=VER,
+                     security_bars=tradeability_only_bars([], None),
+                     terminal_terms=[self._terms()], settlement_counters=c)
+        for i in range(C1_GRACE_SESSIONS):
+            step_session(session=f"q{i}", state=st, bars=[], pending=[],
+                         ledger=led, last_known=lk, cfg=CFG, strategy_id=SID,
+                         strategy_version=VER,
+                         security_bars=tradeability_only_bars([], None),
+                         settlement_counters=c)
+        assert 0 not in st.episodes
+        assert (c["derived_last_mark_settlements_notional"]
+                - c["pending_terms_carried_notional"]) == pytest.approx(0.0)
+
+    def test_a_SPLIT_mid_grace_moves_the_SHARE_COUNT_between_the_two_tallies(self):
+        """THE FIELD-SET CONSEQUENCE, and the reason condition 6 is at risk.
+
+        `apply_splits` matches on security_id and does NOT skip a carried
+        holding, so a security that prints a split bar during the grace has its
+        share count changed between the carry tally (entry shares) and the
+        settlement tally (post-split shares). The difference is then NOT
+        `shares * (later_print - entry_mark)` for any single `shares`, and an
+        audit carrying ONE share count per episode cannot reconstruct it.
+
+        So the audit needs the share count at BOTH ends, not one `shares` field.
+        Discovering this after the re-pin is exactly what turns one controlled
+        hash movement into two.
+        """
+        from stock_strategy_shared.wealth_core.settlement import (
+            C1_GRACE_SESSIONS, empty_counters)
+        st, led = seated(shares=10), Ledger()
+        lk, c = {"S1": 90.0}, empty_counters()
+
+        step_session(session="d1", state=st, bars=[], pending=[], ledger=led,
+                     last_known=lk, cfg=CFG, strategy_id=SID,
+                     strategy_version=VER,
+                     security_bars=tradeability_only_bars([], None),
+                     terminal_terms=[self._terms()], settlement_counters=c)
+        assert st.episodes[0].current_shares == 10
+
+        # A 2:1 split, printing, mid-grace.
+        bars = [db("S1", session="d2", split=2.0, mark=46.0, signal=46.0)]
+        step_session(session="d2", state=st, bars=bars, pending=[], ledger=led,
+                     last_known=lk, cfg=CFG, strategy_id=SID,
+                     strategy_version=VER,
+                     security_bars=tradeability_only_bars(bars, None),
+                     settlement_counters=c)
+        assert st.episodes[0].current_shares == 20, (
+            "a carried holding was skipped by the split — a different defect")
+
+        for i in range(C1_GRACE_SESSIONS + 1):
+            step_session(session=f"q{i}", state=st, bars=[], pending=[],
+                         ledger=led, last_known=lk, cfg=CFG, strategy_id=SID,
+                         strategy_version=VER,
+                         security_bars=tradeability_only_bars([], None),
+                         settlement_counters=c)
+        assert 0 not in st.episodes
+
+        carried = c["pending_terms_carried_notional"]
+        settled = c["derived_last_mark_settlements_notional"]
+        assert carried == pytest.approx(10 * 90.0)     # entry shares
+        assert settled == pytest.approx(20 * 46.0)     # post-split shares
+        assert settled - carried != pytest.approx(10 * (46.0 - 90.0)), (
+            "if this ever holds, the delta IS reconstructible from the entry "
+            "share count alone and this test is obsolete")
+        assert settled - carried != pytest.approx(20 * (46.0 - 90.0))
+
+    def test_the_carry_is_tallied_ONCE_however_long_the_grace_runs(self):
+        """The alternative explanation for a carried-vs-settled gap, ruled out.
+        If the carry were tallied per-session the difference would be a counting
+        artefact rather than a price move, and no per-episode price
+        reconstruction could ever sum to it."""
+        _, _, c = self._carry_then_print_then_settle(90.0, 92.0)
+        assert c["pending_terms_carried"] == 1, (
+            "the carry was counted more than once, so its notional is a "
+            "multiple of the position rather than the position")
+
+
 # ── corporate actions ───────────────────────────────────────────────────────
 
 class TestCorporateActions:
