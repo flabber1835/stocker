@@ -200,6 +200,15 @@ with it. The rules below override convenience every time:
    `maximum_drawdown_is_lower_bound`. NEW shared module ⇒ rebuild stocker-base.
    NOTE: Wealth Core reads NO fundamentals, so the SF1 re-backfill does not gate
    a Wealth Core baseline — it gates the target-portfolio lane.
+   **NO HEADLINE CAGR WITHOUT THE TERMINAL WATERFALL** (2026-08-09). A Wealth
+   Core performance number may not be reported, quoted or persisted without the
+   settlement counters AND the episode-level terminal audit beside it. The
+   2021-2023 rehearsal settled $342k across 8 full-sized positions at the C2
+   PROXY, none on confirmed terms, so a CAGR alone cannot say how much of the
+   book was valued rather than realised. And `exact_terminal_settlements = 0`
+   is NOT a pass: ACTIONS carries no per-share consideration, so that branch is
+   structurally unreachable and remains fixture-only. See
+   docs/wealth-core-certification.md "what its settlement counters do NOT say".
    LIVE PROGRESS: `GET /wealth-core/progress` (and `/runs/latest` while running)
    serves a snapshot every `WEALTH_CORE_PROGRESS_EVERY` sessions — pct, current
    session, running CAGR/drawdown and the SPY comparison. PROVISIONAL: measured

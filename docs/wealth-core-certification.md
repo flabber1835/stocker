@@ -651,6 +651,129 @@ curls the coverage endpoint ~1 minute after recreating bt-data, and bt-data
 re-applies `init_bt.sql` on startup — so the connection is RESET and the step
 fails spuriously. Re-run rather than diagnose.
 
+## The 2021-2023 rehearsal, and what its settlement counters do NOT say
+
+**Run completed 2026-08-09, status SUCCESS.** Read the counters before the
+performance; that rule is doing real work on this run.
+
+```text
+pending_terms_carried              8      $342,136.68
+derived_last_mark_settlements      8      $342,419.72
+exact_terminal_settlements         0             $0.00
+market_exit_terminal_settlements   0             $0.00
+orphan_zero_writeoffs              0             $0.00
+unresolved_terminal_events         0
+trace_problems                     0
+```
+
+```text
+equity     $1,000,000 -> $1,253,732      CAGR 7.87%    max DD 28.86%
+vs SPY     34.77% total, -9.40%          excess CAGR -2.65%/yr
+           drawdown 4.37pp DEEPER than SPY
+```
+
+### `exact_terminal_settlements = 0` IS NOT A PASS
+
+It is the single most misreadable number in this table. Zero here does **not**
+mean the exact-settlement branch was tested against live historical cases and
+found clean. **It means the branch was never exercised at all**, and it cannot
+be, because the corpus does not carry what it needs:
+
+```text
+terminal_from_action   public acquirer -> CONVERSION, exchange_ratio = None
+                       everything else -> CASH_MERGER, cash_per_share = None
+completeness()         refuses BOTH: MISSING_EXCHANGE_RATIO /
+                                     MISSING_CASH_PER_SHARE
+```
+
+SHARADAR/ACTIONS supplies **no per-share consideration**. Its `value` column is
+a transaction size in millions — that is defect D2, already established. So every
+corpus-sourced termination necessarily refuses completeness, takes the C1 grace,
+and settles at the C2 proxy. **There is no path from ACTIONS to an exact
+settlement.**
+
+Corroborated independently: the Sentinel reference implementation hardcodes
+`VERIFIED_CASH_SETTLEMENTS = {'VRNA': 107.0, 'DAWN': 21.50}`, described as
+*"audited terminal cash terms absent from the raw terminal row itself"* — two
+terms supplied by hand precisely because the vendor does not carry them.
+
+**So the honest statement of what this run proves:** eight real terminal episodes
+exercised the C2 last-trustworthy-mark branch. The C1 exact-terms branch remains
+covered only by fixtures. Exact settlement is unavailable unless supplemented by
+separately audited terms of the VRNA/DAWN kind.
+
+### What the $342k means for the headline number
+
+Eight positions at ~$42.8k each — full-sized admissions, not stubs, each roughly
+3.4% of the book when valued. **Not one dollar was settled on confirmed terms.**
+The 7.87% CAGR therefore rests in part on $342k valued at a proxy. That is the
+defensible answer when no terms exist, and it is not the same as a confirmed
+exit, and the performance figure inherits the difference.
+
+`orphan_zero_writeoffs_notional` is $0.00: the waterfall stopped at the last-mark
+branch and never fell through to the zero. The branch that would have fabricated
+losses did not fire.
+
+### REQUIREMENT: no headline CAGR without the waterfall
+
+**A performance number for a Wealth Core run may not be reported, quoted or
+persisted without the terminal waterfall counters AND the episode-level terminal
+audit alongside it.** A CAGR standing alone cannot say how much of the book was
+valued by proxy, and this run shows that share is material rather than
+incidental.
+
+### The $283.04, and the re-pin that will explain it
+
+Carried $342,136.68, settled $342,419.72 — a difference of **$283.04** (0.08%).
+Economically immaterial; not to be explained away by inference. It means at least
+one episode's value at grace ENTRY differed from its value at SETTLEMENT, and
+only a per-episode reconstruction can say whether that is a benign timing
+artefact or two tallies measuring different things.
+
+**It cannot be attributed per-security today.** `terminal_results` records the
+carry with `price_per_share` but no share count, and a carry posts nothing to the
+ledger — it is a mark, not a settlement. The aggregate exists only because
+`tally_pending_entry` sees `ep.current_shares` in the moment.
+
+`terminal_results` is INSIDE `RunResult.to_dict()` (`run.py:133`), which feeds
+`final_result_hash`. Adding the audit fields therefore MOVES THE GOLDEN HASH.
+Decision (2026-08-09): accept one controlled re-pin, because the hash exists to
+detect semantic drift and this is the case where moving it is justified — the
+change is observability-only, additive, and the alternative leaves the
+reconciliation permanently unprovable at the episode level.
+
+**Acceptance conditions — ALL must hold before the new golden hash is accepted:**
+
+```text
+1  sessions, orders, fills, holdings, cash, NAV, allocations, terminal
+   decisions and performance metrics BIT-FOR-BIT unchanged
+2  the same eight terminal episodes, through the same waterfall branches
+3  the ONLY RunResult differences are newly persisted audit fields
+4  each episode's carried and settled notional recomputed, and their
+   differences shown to sum EXACTLY to $283.04
+5  an old-hash -> new-hash decomposition showing the hash moved only because
+   serialized audit fields were added
+6  re-pinned ONCE, after the complete field set is final — never incrementally
+   as fields are discovered
+```
+
+**Fields required to make each terminal episode self-explanatory:**
+
+```text
+ticker, shares
+event/action type and date
+last trustworthy print: price and date
+carry start: price, notional
+any later trustworthy prints DURING the grace
+settlement: price, date, method (exact | last_mark | zero)
+settled notional
+carry -> settlement delta
+```
+
+Condition 6 is the one most easily violated: discovering a missing field after
+the re-pin and adding it turns one controlled movement into two, and a hash that
+moves twice for the same reason is a hash nobody trusts.
+
 ## What is proven, and by what
 
 | Layer | Status | Evidence |
