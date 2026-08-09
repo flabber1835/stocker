@@ -26,6 +26,7 @@ from stock_strategy_shared.loader import load_strategy
 from stock_strategy_shared.schemas.strategy import StrategyConfig
 
 from app.coverage import check_config_coverage
+from app.jobs_busy import busy_detail, running_job_kind
 from app.postmortem import post_mortem
 from app.coverage import enforcement_enabled as coverage_enforcement_enabled
 from app.parity import check_config_parity
@@ -288,10 +289,9 @@ async def start_run(req: BtRunRequest, background_tasks: BackgroundTasks):
                     "error_message='STALE_RECLAIMED: running longer than threshold' "
                     "WHERE status='running' AND started_at < NOW() - INTERVAL '1 hour' * :h"
                 ), {"h": STALE_BT_RUN_HOURS})
-            busy = (await conn.execute(text(
-                "SELECT run_id FROM bt_runs WHERE status='running' LIMIT 1"))).first()
+            busy = await running_job_kind(conn)
             if busy:
-                raise HTTPException(status_code=409, detail="a backtest run is already in progress")
+                raise HTTPException(status_code=409, detail=busy_detail(busy))
             run_id = str(uuid.uuid4())
             await conn.execute(text(
                 "INSERT INTO bt_runs (run_id, config, strategy_id, start_date, end_date, "
@@ -581,10 +581,9 @@ async def start_sweep(req: SweepRequest, background_tasks: BackgroundTasks):
 
     async with _sweep_lock:
         async with engine.begin() as conn:
-            busy = (await conn.execute(text(
-                "SELECT sweep_id FROM bt_sweeps WHERE status='running' LIMIT 1"))).first()
+            busy = await running_job_kind(conn)
             if busy:
-                raise HTTPException(status_code=409, detail="a sweep is already running")
+                raise HTTPException(status_code=409, detail=busy_detail(busy))
             sweep_id = str(uuid.uuid4())
             await conn.execute(text(
                 "INSERT INTO bt_sweeps (sweep_id, spec, status, n_configs, "

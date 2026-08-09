@@ -55,6 +55,7 @@ from stock_strategy_shared.wealth_core.hashes import HASH_ORDER
 from stock_strategy_shared.wealth_core.risk_profile import PROFILE_NAME
 from stock_strategy_shared.wealth_core.signals import REQUIRED_CLOSES
 
+from app.jobs_busy import busy_detail, running_job_kind
 from app.wealth_core_chain import (
     ChainRehearsalDiverged,
     STATEFUL_MODEL,
@@ -125,10 +126,13 @@ def _publish_progress(snapshot: dict) -> None:
 # A Wealth Core run loads the whole corpus for its date range; two at once, or
 # one beside a sweep, is the memory profile that gets the container OOM-killed —
 # and an OOM is indistinguishable from a strategy failure in the run row. So
-# runs are serialised: this lock among themselves, and a DB check for a running
-# bt_runs / bt_sweeps row against the other engines. Deliberately NOT main's
-# `_job_lock`, which is held across a short INSERT; sharing it would hang
-# `POST /jobs/run` for the whole duration of a Wealth Core job.
+# runs are serialised: this lock among themselves, and `jobs_busy` against the
+# other two job types. That DB check used to live here and read only bt_runs and
+# bt_sweeps, which defended this endpoint and NOTHING ELSE — the sweep endpoint
+# never looked back, so the collision this comment describes happened anyway.
+# Deliberately NOT main's `_job_lock`, which is held across a short INSERT;
+# sharing it would hang `POST /jobs/run` for the whole duration of a Wealth Core
+# job.
 _state: dict[str, Any] = {"engine": None, "lock": asyncio.Lock()}
 
 
@@ -600,15 +604,12 @@ async def start_wealth_core_job(req: WealthCoreJobRequest,
 
     run_id = str(uuid.uuid4())
     async with _state["engine"].begin() as conn:
-        busy = (await conn.execute(text(
-            "SELECT 1 FROM bt_runs WHERE status='running' "
-            "UNION ALL SELECT 1 FROM bt_sweeps WHERE status='running' LIMIT 1"
-        ))).first()
+        # Shared with `/jobs/run` and `/sweeps/run` so all three enforce the
+        # SAME constraint. This side was the only one ever enforced; see
+        # app/jobs_busy.py for what that cost.
+        busy = await running_job_kind(conn)
         if busy:
-            raise HTTPException(409, (
-                "a backtest run or sweep is in progress on this engine. "
-                "Refused rather than queued: the two corpora do not fit "
-                "together, and an OOM would be recorded as a strategy failure."))
+            raise HTTPException(409, busy_detail(busy))
         await conn.execute(text(
             "INSERT INTO bt_wealth_core_runs (run_id, mode, spec) VALUES "
             "(CAST(:r AS UUID), :m, CAST(:s AS JSONB))"),

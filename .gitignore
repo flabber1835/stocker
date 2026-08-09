@@ -45,3 +45,6 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Ad-hoc RSS sampling during a Wealth Core rehearsal (scripts/wc-progress.sh companion)
+wc-rss.log
