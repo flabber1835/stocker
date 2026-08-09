@@ -70,10 +70,16 @@ Sentinel      a deterministic exposure controller wrapped around it. It decides
               T-bill sleeve. It never decides WHAT Wealth Core holds
 ```
 
-DESIGN ONLY — nothing is implemented, and the build is BLOCKED on the frozen
-Sentinel research harness, which is not in this repository. `damaged_breadth`
-and `green_breadth` are undefined here and no decision logic may be written
-until they are imported. See §8 of the architecture doc for the open questions.
+DESIGN ONLY — nothing is implemented. The frozen research harness, the recovered
+breadth classifier and a standalone Sentinel 1.1 reference run all ARRIVED
+2026-08-09 and are in `docs/` (`sentinel-handoff/`,
+`sentinel-breadth-reconstruction/`, `sentinel-reference-implementation/`,
+`sentinel-reproduction-kit/`), so `damaged_breadth` and `green_breadth` are no
+longer undefined here. Their exact-parity claims have NOT been verified in this
+repository — that needs the raw Sharadar corpus — so the rule is unchanged: no
+decision logic until a candidate classifier reproduces the frozen breadth tape,
+judged on the PREDICATES the controller evaluates, not on mean count error. See
+§8 of the architecture doc.
 
 Retire, do not erase: tag this repo `stocker-legacy-2026-08` and mine it for
 broker plumbing, ingestion, operational UI, and above all its invariant tests —
