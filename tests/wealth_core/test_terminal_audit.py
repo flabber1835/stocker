@@ -286,17 +286,31 @@ class TestTheFieldSetIsFinal:
         assert set(a) == set(AUDIT_FIELDS), (
             f"missing {set(AUDIT_FIELDS) - set(a)}, extra {set(a) - set(AUDIT_FIELDS)}")
 
-    def test_every_declared_field_is_POPULATED_on_a_carried_settlement(self):
+    def test_every_CASH_field_is_POPULATED_on_a_carried_cash_settlement(self):
         """Present-but-None would satisfy the test above while answering none of
-        the questions the audit exists to answer."""
+        the questions the audit exists to answer.
+
+        The non-cash fields are exempt BY KIND, not by convenience: a cash
+        settlement delivered no shares, so `shares_delivered` is absent because
+        there were none — which is a different statement from "not recorded".
+        `settlement_kind` is what tells the two apart, and it is required here.
+        """
         _, _, _, audits = run(mid_grace_bars=[db(session="m0", split=2.0,
                                                  mark=46.0, signal=46.0)])
         a, = audits
+        non_cash_only = {"delivered_security_id", "delivered_ticker",
+                         "shares_delivered", "exchange_ratio",
+                         "cash_consideration", "cash_in_lieu"}
         for f in AUDIT_FIELDS:
-            assert a[f] is not None, f
+            if f in non_cash_only:
+                assert a[f] is None, f"{f} should be absent on a cash settlement"
+            else:
+                assert a[f] is not None, f
         assert a["ticker"] == "T1" and a["security_id"] == "S1"
         assert a["event_session"] == "d1"
         assert a["event_kind"] == "CASH_MERGER"
+        assert a["settlement_kind"] == "cash"
+        assert a["episode_continues"] is False
         assert a["settlement_method"] == "LAST_TRUSTWORTHY_MARK"
         assert a["last_trustworthy_print_session"] == "d0"
 
@@ -316,20 +330,137 @@ class TestTheFieldSetIsFinal:
             "would make it indistinguishable from an absent settlement")
         assert reconcile([a])["uncarried_settlements"] == 1
 
-    def test_reconcile_REFUSES_to_hide_an_unreconcilable_episode(self):
-        """A carried episode whose settlement has no cash notional — a
-        CONVERSION, paid in shares. Summing its None as 0.0 would let the
-        reconciliation appear to close while an episode's value went
-        unaccounted, which is the exact failure condition 4 exists to catch."""
-        a = episode_audit(
+    def test_a_CONVERSION_is_typed_and_bucketed_rather_than_unreconciled(self):
+        """Owner decision 2026-08-09: a carried episode paid in SHARES is
+        reconciled in its own terms, not left as a hole.
+
+        It must not enter the cash sum — differencing "no cash" against the
+        carry would report a total loss of the carried value, the same
+        fabricated write-off the incomplete-terms block exists to prevent,
+        arriving through the audit instead of through the waterfall. So it is
+        typed `non_cash`, its cash legs and share leg are stated separately, and
+        the cash totals still balance without it.
+        """
+        cashy = episode_audit(
+            security_id="S0", ticker="T0", event_session="d1",
+            event_kind="CASH_MERGER",
+            carry={"carry_session": "d1", "shares_at_carry": 10,
+                   "carry_price": 90.0},
+            settlement_session="q9",
+            settlement_method="LAST_TRUSTWORTHY_MARK",
+            shares_at_settlement=10, settlement_price=92.0)
+        conv = episode_audit(
             security_id="S1", ticker="T1", event_session="d1",
             event_kind="CONVERSION",
             carry={"carry_session": "d1", "shares_at_carry": 10,
                    "carry_price": 90.0},
             settlement_session="q9", settlement_method="EXACT_TERMS",
-            shares_at_settlement=10, settlement_price=None)
+            shares_at_settlement=10, settlement_price=None,
+            delivered_security_id="S2", delivered_ticker="T2",
+            shares_delivered=14, exchange_ratio=1.435,
+            cash_consideration=0.0, cash_in_lieu=52.5,
+            episode_continues=True)
+
+        assert conv["settlement_kind"] == "non_cash"
+        assert conv["notional_delta"] is None
+        assert conv["episode_continues"] is True
+
+        rec = reconcile([cashy, conv])
+        assert rec["unreconciled_episodes"] == [], (
+            "a conversion is accounted for by TYPE; leaving it unreconciled "
+            "would block a re-pin that has nothing wrong with it")
+        assert rec["non_cash_episodes"] == 1
+        assert rec["non_cash_carried_notional"] == pytest.approx(900.0)
+        assert rec["non_cash_cash_legs"] == pytest.approx(52.5)
+        assert rec["non_cash_detail"][0]["delivered_security_id"] == "S2"
+        assert rec["non_cash_detail"][0]["shares_delivered"] == 14
+        # The CASH totals balance over the cash episode alone — the conversion
+        # neither inflates nor deflates them.
+        assert rec["cash_settled_episodes"] == 1
+        assert rec["carried_notional_total"] == pytest.approx(900.0)
+        assert rec["settled_notional_total"] == pytest.approx(920.0)
+        assert rec["residual"] == pytest.approx(0.0)
+
+    def test_an_episode_in_NEITHER_bucket_is_reported_unreconciled(self):
+        """The backstop. `unreconciled_episodes` is the list that must be empty
+        before the re-pin, so it has to be able to become non-empty — an audit
+        arriving without a `settlement_kind` (an older serialised run, or a new
+        kind nobody bucketed) must surface rather than be counted as cash."""
+        orphaned = {"security_id": "S9", "carried": True,
+                    "carry_notional": 900.0, "settlement_notional": None,
+                    "notional_delta": None}
+        rec = reconcile([orphaned])
+        assert rec["unreconciled_episodes"] == ["S9"]
+
+    def test_every_declared_KIND_belongs_to_exactly_one_bucket(self):
+        """Totality, in the shape `settlement.counter_for` already uses: a new
+        kind must not be able to slip through uncounted. Without this the
+        backstop above is unreachable in practice and would rot."""
+        from stock_strategy_shared.wealth_core import terminal_audit as ta
+        kinds = {ta.KIND_CASH, ta.KIND_ZERO, ta.KIND_NON_CASH, ta.KIND_MIXED}
+        non_cash_bucket = {ta.KIND_NON_CASH, ta.KIND_MIXED}
+        assert ta.CASH_SETTLING_KINDS | non_cash_bucket == kinds
+        assert ta.CASH_SETTLING_KINDS & non_cash_bucket == set()
+
+    def test_a_carried_CONVERSION_through_the_ENGINE_is_typed_and_rounded(self):
+        """The path the eight rehearsal episodes could actually take, end to
+        end: carried on a terms-less event, then EXACT conversion terms arrive.
+
+        The rounding assertion is a REGRESSION. The delivered share count comes
+        from a truncating entitlement split and so is only knowable after
+        dispatch, and the first cut merged the raw result dict straight into the
+        audit — which wrote money fields that never passed through `_money`. A
+        cash-in-lieu of 49.0000000000002 reached `non_cash_cash_legs`, a
+        REPORTED total, breaking this module's one-rounding-convention claim.
+        """
+        st, led = seated(), Ledger()
+        lk, c = {"S1": 90.0}, empty_counters()
+        step_session(session="d1", state=st, bars=[], pending=[], ledger=led,
+                     last_known=lk, cfg=CFG, strategy_id=SID,
+                     strategy_version=VER,
+                     security_bars=tradeability_only_bars([], None),
+                     terminal_terms=[terms()], settlement_counters=c)
+        conv = TerminalTerms(
+            session="d2", security_id="S1", kind=TerminalKind.CONVERSION,
+            delivered_security_id="S2", delivered_ticker="T2",
+            delivered_issuer_id="I2", exchange_ratio=1.435,
+            cash_in_lieu_price_per_delivered_share=140.0,
+            reference="test/converted")
+        res = step_session(session="d2", state=st, bars=[], pending=[],
+                           ledger=led, last_known=lk, cfg=CFG, strategy_id=SID,
+                           strategy_version=VER,
+                           security_bars=tradeability_only_bars([], None),
+                           terminal_terms=[conv], settlement_counters=c)
+        a, = [r["terminal_audit"] for r in res.terminal_results
+              if r.get("terminal_audit")]
+
+        assert a["settlement_kind"] == "non_cash"
+        assert a["episode_continues"] is True
+        assert a["delivered_security_id"] == "S2"
+        assert a["shares_delivered"] == 14      # floor(10 * 1.435)
+        assert a["notional_delta"] is None, (
+            "a conversion differenced against its carry would report a total "
+            "loss of the carried value — a fabricated write-off")
+        assert a["cash_in_lieu"] == pytest.approx(49.0)
+        assert a["cash_in_lieu"] == round(a["cash_in_lieu"], 2), (
+            "money reached the audit without passing through the module's "
+            "single rounding convention")
+
         rec = reconcile([a])
-        assert rec["unreconciled_episodes"] == ["S1"]
-        assert rec["residual"] != pytest.approx(0.0), (
-            "the totals appeared to balance while an episode contributed a "
-            "carry notional and no settlement notional")
+        assert rec["unreconciled_episodes"] == []
+        assert rec["non_cash_cash_legs"] == round(rec["non_cash_cash_legs"], 2)
+        # The episode is still HELD, under the delivered identity.
+        assert 0 in st.episodes and st.episodes[0].security_id == "S2"
+
+    def test_the_kind_is_read_from_the_ACTION_not_guessed_from_the_price(self):
+        """A CASH_MERGER with unreadable terms settles at a cash PROXY and is
+        still `cash`; a CONVERSION has no cash price because it was paid in
+        shares. Both lack exact terms, and only the action type separates
+        them — inferring from the price alone would collapse the two."""
+        from stock_strategy_shared.wealth_core.terminal_audit import (
+            settlement_kind_for)
+        assert settlement_kind_for("CASH_MERGER", 92.0) == "cash"
+        assert settlement_kind_for("CONVERSION", None) == "non_cash"
+        assert settlement_kind_for("CASH_PLUS_STOCK", 5.0) == "mixed"
+        assert settlement_kind_for("WRITE_OFF", None) == "zero"
+        assert settlement_kind_for(None, 0.0) == "zero"      # C2 orphan

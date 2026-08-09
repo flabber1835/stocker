@@ -29,6 +29,39 @@ DO       keep the repository and its history — it is the source of proven
 The invariant tests are the most valuable thing being retained: they encode
 outages that actually happened. Mine them; do not re-derive them.
 
+### `stocker-base` is a BUILD ARTEFACT, not the retired runtime
+
+The name misleads and has already caused one round of confusion, so state it
+plainly: `stocker-base` is the image built by `Dockerfile.base` that packages
+the `shared/` Python package — including the canonical Wealth Core modules.
+**Rebuilding it is `docker build`. It starts no service and revives nothing.**
+
+```text
+RETIRED RUNTIME     docker-compose.yml — scheduler, pipeline, trade-executor,
+                    av-ingestor, risk-service, api, dashboard. None of these
+                    start again
+CERTIFICATION RIG   docker-compose.backtest.yml — bt-engine + bt-postgres.
+                    These hold the Sharadar corpus and the rehearsal endpoint.
+                    Item D in §12 CANNOT run without them. Running the rig is
+                    not running the runtime
+BUILD ARTEFACT      stocker-base:latest. A layer, not a process
+```
+
+A `shared/` change that adds a NEW module file is invisible to every service
+until this image is rebuilt — the editable install caches the module list — so
+the rebuild is mandatory before any parity claim or rehearsal. That requirement
+is unchanged by the retirement, because it is a property of the build, not of
+the runtime.
+
+**RENAME PENDING** (owner decision 2026-08-09): the artefact should be called
+something like `wealth-core-base` so the ownership boundary is unmistakable.
+Deferred rather than done, and deliberately: the name appears 27 times across
+`build.sh`, `up.sh`, `deploy-all.sh`, `deploy-wealth-core.sh` and
+`docker-compose.override.yml` — i.e. throughout the path that runs the
+rehearsal. Renaming it immediately before an overnight run trades a naming
+improvement for a deploy-path regression. Do it after item D closes and before
+item E, as one mechanical commit with a smoke check.
+
 ## 2. Paper trading only
 
 Alpaca paper. No real money, and **real-money concerns stay off the critical

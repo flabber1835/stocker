@@ -168,14 +168,24 @@ delta = (shares_at_settlement x settlement_price)
 — and `shares` became two fields. Finding that BEFORE the hash moved is what
 kept condition 6 (one re-pin, never incremental) satisfiable.
 
-NEW shared module `terminal_audit.py` ⇒ FORCED `stocker-base` rebuild. Provenance
-lives in two AUDIT-ONLY `PortfolioState` fields (`terminal_carry_audit`,
-`last_valid_mark_session`) that are PERSISTED for restart but EXCLUDED from
-`state_hash` via `_AUDIT_ONLY_STATE_KEYS` and from `RunResult`'s `final_state`
-via the new `hash_payload()` — without that, one authorised hash movement would
-have been three. Measured: only `final_result` moves
-(`5c1af5731f79c702 -> b65714818f66a812`), and stripping the added fields makes
-the RunResult byte-identical to before.
+NEW shared module `terminal_audit.py` ⇒ FORCED `stocker-base` rebuild (the image
+that packages `shared/` — a BUILD artefact; rebuilding it starts no Stocker
+service). Provenance lives in two AUDIT-ONLY `PortfolioState` fields
+(`terminal_carry_audit`, `last_valid_mark_session`) that are PERSISTED for
+restart but EXCLUDED from `state_hash` via `_AUDIT_ONLY_STATE_KEYS` and from
+`RunResult`'s `final_state` via the new `hash_payload()` — without that, one
+authorised hash movement would have been three. Measured: only `final_result`
+moves, and stripping the added fields makes the RunResult byte-identical.
+
+A carried episode paid in SHARES is TYPED (`settlement_kind`:
+cash|zero|non_cash|mixed) and bucketed by `reconcile`, not left as a `None`
+delta — differencing "no cash" against a carry would fabricate a total loss.
+Acceptance requires `unreconciled_episodes == 0` AND an exact cash sum.
+
+**Do not write the pending hash into any doc.** It already moved once
+(`b65714818f66a812 -> dfae09848604f219`) when the non-cash typing landed, which
+is what an unpinned artefact is supposed to do while its fields are still being
+decided. Compute it at re-pin time from the code being pinned.
 
 **The golden fixture is INTENTIONALLY UNPINNED right now** — three tests fail on
 the pin and nothing else. Do NOT re-pin to make them green. The sequence is:

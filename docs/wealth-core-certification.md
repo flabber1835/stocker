@@ -812,8 +812,40 @@ grace_split_multiplier    cumulative, recorded EXPLICITLY
 grace_splits[]            session, ratio, shares_before, shares_after
 settlement_session, settlement_method, shares_at_settlement,
 settlement_price, settlement_notional
-notional_delta = settlement_notional - carry_notional
+settlement_kind           cash | zero | non_cash | mixed
+episode_continues         a CONVERSION is not an exit
+delivered_security_id, delivered_ticker, shares_delivered,
+exchange_ratio, cash_consideration, cash_in_lieu
+notional_delta = settlement_notional - carry_notional   (CASH kinds only)
 ```
+
+### Typed non-cash reconciliation (owner decision, 2026-08-09)
+
+A carried episode paid in SHARES has no settled cash notional. Differencing
+"no cash" against its carry would report a total loss of the carried value — the
+same fabricated write-off the incomplete-terms block exists to prevent, arriving
+through the audit rather than through the waterfall. Leaving it as a `None`
+delta was no better: it made `unreconciled_episodes` non-empty and would have
+blocked a re-pin that has nothing wrong with it.
+
+So the settlement is TYPED, and `reconcile` puts every carried episode in
+exactly one bucket:
+
+```text
+cash | zero        the carried-vs-settled sum. These totals must balance and
+                   `residual` must be 0.00
+non_cash | mixed   accounted in its OWN terms: carried notional, the cash legs
+                   that DID settle, and the delivered share leg — reported
+                   separately rather than netted into one figure that would be
+                   neither
+```
+
+`unreconciled_episodes` is then an episode in NEITHER bucket, which is the list
+that must be empty before the re-pin. A totality test asserts every declared
+kind belongs to exactly one bucket, in the shape `settlement.counter_for`
+already uses, so a new kind cannot slip through uncounted.
+
+**Acceptance requires `unreconciled_episodes == 0`** alongside the exact sum.
 
 `shares` became **two** fields, at both ends, which is the whole point. The
 split multiplier is recorded explicitly even though it is derivable from the two
@@ -872,8 +904,30 @@ Hash movement, measured over all seven parity hashes plus the ledger hash:
 ```text
 candidate_audit, decision, order, daily_state, daily_equity,
 final_state_hash, ledger_hash          UNCHANGED
-final_result   5c1af5731f79c702... -> b65714818f66a812...   (NOT YET PINNED)
+final_result                           MOVES — value NOT recorded here
 ```
+
+**The pending value is deliberately not written down.** It moved once already
+during development — adding `settlement_kind` and the non-cash fields changed it
+from `b65714818f66a812` to `dfae09848604f219` — which is exactly what an
+unpinned artefact is supposed to do while its field set is still being decided.
+A number quoted in a doc that then moves silently becomes a second source of
+truth. Compute it at re-pin time, from the code being pinned:
+
+```bash
+python - <<'PY'
+from stock_strategy_shared.wealth_core.golden import golden_scenario
+from stock_strategy_shared.wealth_core.run import run_sessions
+g = golden_scenario()
+print(run_sessions(sessions=g.sessions, bars_by_session=g.bars_by_session,
+                   meta=g.meta, starting_cash=g.starting_cash,
+                   terminal_events=g.terminal_events).result_hash())
+PY
+```
+
+That the value moved mid-development is the argument for condition 6, not
+against it: had the first value been pinned this morning, typing the non-cash
+settlements this afternoon would have been the second re-pin.
 
 The three currently-failing tests (`test_the_result_matches_the_pinned_fixture`,
 the fresh-interpreter guard, `test_measuring_does_not_move_the_pinned_result_hash`)

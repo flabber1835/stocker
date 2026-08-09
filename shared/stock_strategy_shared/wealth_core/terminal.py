@@ -63,7 +63,7 @@ from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
 from stock_strategy_shared.wealth_core.marks import Mark, MarkStatus
 from stock_strategy_shared.wealth_core.state import HoldingEpisode, PortfolioState
 from stock_strategy_shared.wealth_core.terminal_audit import (
-    episode_audit, new_carry_record)
+    episode_audit, new_carry_record, with_non_cash_consideration)
 
 
 class TerminalKind(str, Enum):
@@ -319,6 +319,25 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
                           float(terms.cash_per_share), terms)
     else:
         res = _apply_conversion(state, slot_id, ep, ledger, session, terms, cfg)
+    # The NON-CASH consideration is only knowable AFTER dispatch: the delivered
+    # share count comes from `_split_entitlement`, which truncates, so it cannot
+    # be predicted from the ratio alone. Merged rather than recomputed here, so
+    # the audit reports what the conversion actually delivered rather than a
+    # second derivation of it that could disagree.
+    if res.get("applied") and terms.kind in (TerminalKind.CONVERSION,
+                                             TerminalKind.CASH_PLUS_STOCK):
+        audit = with_non_cash_consideration(
+            audit,
+            delivered_security_id=res.get("delivered_security_id"),
+            delivered_ticker=terms.delivered_ticker,
+            shares_delivered=res.get("shares_delivered"),
+            exchange_ratio=terms.exchange_ratio,
+            cash_consideration=res.get("cash_consideration"),
+            cash_in_lieu=res.get("cash_in_lieu"),
+            # False when the entitlement rounded to nothing: the position LEAVES
+            # rather than persisting at zero shares in a security that would then
+            # be marked forever.
+            episode_continues=bool(res.get("converted")))
     # NESTED rather than spread, deliberately: the audit has its own
     # `security_id`, `ticker` and event fields, and flattening would let one of
     # them quietly overwrite the result's — the same collision that put

@@ -88,12 +88,49 @@ AUDIT_FIELDS: tuple[str, ...] = (
     # the settlement
     "settlement_session",
     "settlement_method",
+    "settlement_kind",
+    "episode_continues",
     "shares_at_settlement",
     "settlement_price",
     "settlement_notional",
+    # non-cash consideration (CONVERSION / CASH_PLUS_STOCK). Absent as values,
+    # never as keys — see `episode_audit`.
+    "delivered_security_id",
+    "delivered_ticker",
+    "shares_delivered",
+    "exchange_ratio",
+    "cash_consideration",
+    "cash_in_lieu",
     # the reconciliation
     "notional_delta",
 )
+
+#: What the holder actually RECEIVED. Typed rather than inferred from whether a
+#: price happens to be present, because "no cash price" has two completely
+#: different causes — paid in shares, or nothing settled at all — and a
+#: reconciliation that cannot tell them apart is the one that silently fails to
+#: close.
+KIND_CASH = "cash"
+"""Cash per share, from terms or from a proxy. The ordinary settlement."""
+
+KIND_ZERO = "zero"
+"""A stated worthlessness or a C2 orphan. Settles at exactly 0.0, which is a
+DECISION and not the absence of one."""
+
+KIND_NON_CASH = "non_cash"
+"""Paid entirely in shares of another issuer. There is no settled cash notional
+to difference against the carry, and inventing one by valuing the delivered
+stock would reintroduce the invented-price objection this module exists to
+avoid."""
+
+KIND_MIXED = "mixed"
+"""Cash per old share AND delivered shares. The cash leg reconciles; the share
+leg does not, and both are reported rather than netted into a single figure that
+would be neither."""
+
+#: Kinds whose settlement is expressible as one cash number, and therefore the
+#: only kinds that belong in the carried-vs-settled sum.
+CASH_SETTLING_KINDS = frozenset({KIND_CASH, KIND_ZERO})
 
 #: Money is rounded to the cent here and NOWHERE ELSE in this module, so the
 #: reconciliation has exactly one rounding convention and `notional_delta` is
@@ -115,6 +152,28 @@ def _notional(shares: Optional[int], price: Optional[float]) -> Optional[float]:
     return _money(int(shares) * float(price))
 
 
+def settlement_kind_for(event_kind: Optional[str],
+                        settlement_price: Optional[float]) -> str:
+    """What the holder received, from the ACTION type and the price together.
+
+    The action type alone is not enough: every corpus-sourced termination is a
+    CASH_MERGER whose consideration is unreadable, and it settles at a cash
+    PROXY — so it is `cash` despite its terms being incomplete. And the price
+    alone is not enough either, which is the whole point: a CONVERSION has no
+    cash price because it was paid in shares, while a blocked event has no price
+    because nothing settled. Those must not collapse.
+    """
+    if event_kind == "CONVERSION":
+        return KIND_NON_CASH
+    if event_kind == "CASH_PLUS_STOCK":
+        return KIND_MIXED
+    if event_kind == "WRITE_OFF":
+        return KIND_ZERO
+    if settlement_price is not None and float(settlement_price) == 0.0:
+        return KIND_ZERO
+    return KIND_CASH
+
+
 def episode_audit(*, security_id: str, ticker: Optional[str],
                   event_session: Optional[str], event_kind: Optional[str],
                   event_reference: Optional[str] = None,
@@ -123,7 +182,14 @@ def episode_audit(*, security_id: str, ticker: Optional[str],
                   settlement_method: Optional[str] = None,
                   shares_at_settlement: Optional[int] = None,
                   settlement_price: Optional[float] = None,
-                  grace_sessions: Optional[int] = None) -> dict:
+                  grace_sessions: Optional[int] = None,
+                  delivered_security_id: Optional[str] = None,
+                  delivered_ticker: Optional[str] = None,
+                  shares_delivered: Optional[int] = None,
+                  exchange_ratio: Optional[float] = None,
+                  cash_consideration: Optional[float] = None,
+                  cash_in_lieu: Optional[float] = None,
+                  episode_continues: bool = False) -> dict:
     """Compose one episode's audit from the carry provenance and the settlement.
 
     `carry` is the record the C1 grace stored on the portfolio state at ENTRY —
@@ -143,8 +209,16 @@ def episode_audit(*, security_id: str, ticker: Optional[str],
     carry_price = c.get("carry_price")
     carry_notional = _notional(shares_at_carry, carry_price)
     settlement_notional = _notional(shares_at_settlement, settlement_price)
+    kind = settlement_kind_for(event_kind, settlement_price)
 
+    # A CASH delta only where the settlement IS cash. On a conversion the holder
+    # received shares, so differencing "nothing" against the carry would report a
+    # total loss of the carried value — the same fabricated write-off the
+    # incomplete-terms block exists to prevent, arriving through the audit
+    # instead of through the waterfall. The share leg is reported in its own
+    # fields and bucketed separately by `reconcile`.
     delta = (None if carry_notional is None or settlement_notional is None
+             or kind not in CASH_SETTLING_KINDS
              else _money(settlement_notional - carry_notional))
 
     return {
@@ -167,11 +241,51 @@ def episode_audit(*, security_id: str, ticker: Optional[str],
         "grace_splits": [dict(s) for s in (c.get("grace_splits") or [])],
         "settlement_session": settlement_session,
         "settlement_method": settlement_method,
+        "settlement_kind": kind,
+        # A CONVERSION is not an exit: the episode keeps its slot, age, review
+        # flag and rescaled peak because it is the same economic holding. An
+        # audit that read as a settlement would say a position left the book
+        # when it did not.
+        "episode_continues": bool(episode_continues),
         "shares_at_settlement": shares_at_settlement,
         "settlement_price": settlement_price,
         "settlement_notional": settlement_notional,
+        "delivered_security_id": delivered_security_id,
+        "delivered_ticker": delivered_ticker,
+        "shares_delivered": shares_delivered,
+        "exchange_ratio": exchange_ratio,
+        "cash_consideration": _money(cash_consideration),
+        "cash_in_lieu": _money(cash_in_lieu),
         "notional_delta": delta,
     }
+
+
+def with_non_cash_consideration(audit: Mapping[str, Any], *,
+                                delivered_security_id: Optional[str],
+                                delivered_ticker: Optional[str],
+                                shares_delivered: Optional[int],
+                                exchange_ratio: Optional[float],
+                                cash_consideration: Optional[float],
+                                cash_in_lieu: Optional[float],
+                                episode_continues: bool) -> dict:
+    """Attach what a CONVERSION actually delivered, AFTER it has been applied.
+
+    A separate entry point rather than a caller-side dict merge, and that is not
+    style. The delivered share count comes from a truncating entitlement split
+    so it cannot be known before dispatch — but merging the raw result in would
+    write money fields that never passed through `_money`, and this module's
+    whole claim is that rounding happens in ONE place. Observed doing exactly
+    that: a cash-in-lieu of 49.0000000000002 reaching `non_cash_cash_legs`,
+    which is a reported total.
+    """
+    return {**audit,
+            "delivered_security_id": delivered_security_id,
+            "delivered_ticker": delivered_ticker,
+            "shares_delivered": shares_delivered,
+            "exchange_ratio": exchange_ratio,
+            "cash_consideration": _money(cash_consideration),
+            "cash_in_lieu": _money(cash_in_lieu),
+            "episode_continues": bool(episode_continues)}
 
 
 def new_carry_record(*, carry_session: str, shares_at_carry: int,
@@ -246,44 +360,76 @@ def reconcile(audits, *, carried_only: bool = True) -> dict:
     separately as `uncarried_settlements` instead of being folded in.
     """
     rows = [a for a in audits if a.get("carried")] if carried_only else list(audits)
-    carried_total = _money(sum(a["carry_notional"] or 0.0 for a in rows))
-    settled_total = _money(sum(a["settlement_notional"] or 0.0 for a in rows))
+
+    # TWO BUCKETS, and every carried episode belongs to exactly one. The cash
+    # bucket is the one whose totals must balance; the non-cash bucket is
+    # accounted in its own terms because it has no cash settlement to balance
+    # against. An episode in NEITHER is the failure this function exists to
+    # surface, and it is what `unreconciled_episodes` reports.
+    cash = [a for a in rows if a.get("settlement_kind") in CASH_SETTLING_KINDS]
+    non_cash = [a for a in rows
+                if a.get("settlement_kind") in (KIND_NON_CASH, KIND_MIXED)]
+
+    carried_total = _money(sum(a["carry_notional"] or 0.0 for a in cash))
+    settled_total = _money(sum(a["settlement_notional"] or 0.0 for a in cash))
     # Summed from the per-episode deltas rather than differenced from the two
     # totals, because those are two different computations and the whole point
     # of the exercise is that they agree. `residual` below is the check.
-    delta_total = _money(sum(a["notional_delta"] or 0.0 for a in rows))
+    delta_total = _money(sum(a["notional_delta"] or 0.0 for a in cash))
     uncarried = [a for a in audits if not a.get("carried")]
     return {
         "episodes": len(rows),
+        "cash_settled_episodes": len(cash),
         "carried_notional_total": carried_total,
         "settled_notional_total": settled_total,
         "notional_delta_total": delta_total,
         # Zero when the per-episode deltas explain the whole difference between
-        # the totals. Non-zero means at least one episode's audit is internally
-        # inconsistent, and the re-pin must stop.
+        # the two cash totals. Non-zero means at least one episode's audit is
+        # internally inconsistent, and the re-pin must stop.
         "residual": _money((settled_total or 0.0) - (carried_total or 0.0)
                            - (delta_total or 0.0)),
+        # NON-CASH, accounted in its own terms. The carried value is stated (it
+        # is what the position was worth going in) alongside the cash legs that
+        # DID settle and the share leg that did not. Deliberately not netted
+        # into one figure, which would be neither.
+        "non_cash_episodes": len(non_cash),
+        "non_cash_carried_notional": _money(
+            sum(a["carry_notional"] or 0.0 for a in non_cash)),
+        "non_cash_cash_legs": _money(
+            sum((a.get("cash_consideration") or 0.0)
+                + (a.get("cash_in_lieu") or 0.0) for a in non_cash)),
+        "non_cash_detail": [
+            {"security_id": a["security_id"],
+             "settlement_kind": a["settlement_kind"],
+             "carry_notional": a["carry_notional"],
+             "delivered_security_id": a.get("delivered_security_id"),
+             "shares_delivered": a.get("shares_delivered"),
+             "exchange_ratio": a.get("exchange_ratio"),
+             "cash_consideration": a.get("cash_consideration"),
+             "cash_in_lieu": a.get("cash_in_lieu"),
+             "episode_continues": a.get("episode_continues")}
+            for a in sorted(non_cash, key=lambda x: x["security_id"])],
         "uncarried_settlements": len(uncarried),
         "episodes_with_a_price_move": sum(
             1 for a in rows if a.get("grace_prints")),
         "episodes_with_a_split": sum(1 for a in rows if a.get("grace_splits")),
         "unexplained_episodes": sorted(
-            a["security_id"] for a in rows
+            a["security_id"] for a in cash
             if (a.get("notional_delta") or 0.0) != 0.0
             and not a.get("grace_prints") and not a.get("grace_splits")),
-        # A carried episode with NO delta at all — a CONVERSION, whose
-        # consideration is shares rather than cash, so there is no settled
-        # notional to difference against the carry. It contributes to
-        # `carried_notional_total` and to nothing else, so the totals above
-        # legitimately fail to balance while this list is non-empty.
-        #
-        # Reported rather than folded in, because summing a None as 0.0 would
-        # make the reconciliation appear to close while an episode's value went
-        # unaccounted — the precise failure mode condition 4 exists to catch.
+        # A carried episode in NEITHER bucket: it settled for no cash and was
+        # not paid in shares either, so nothing accounts for the value it was
+        # carried at. THIS is the list that must be empty before the re-pin.
+        # Summing such an episode's None as 0.0 would make the reconciliation
+        # appear to close while its value went unaccounted — the precise failure
+        # mode condition 4 exists to catch.
         "unreconciled_episodes": sorted(
-            a["security_id"] for a in rows if a.get("notional_delta") is None),
+            {a["security_id"] for a in rows} - {a["security_id"] for a in cash}
+            - {a["security_id"] for a in non_cash}),
     }
 
 
-__all__ = ["AUDIT_FIELDS", "MONEY_DP", "episode_audit", "new_carry_record",
-           "record_grace_print", "record_grace_split", "reconcile"]
+__all__ = ["AUDIT_FIELDS", "CASH_SETTLING_KINDS", "KIND_CASH", "KIND_MIXED",
+           "KIND_NON_CASH", "KIND_ZERO", "MONEY_DP", "episode_audit",
+           "new_carry_record", "record_grace_print", "record_grace_split",
+           "reconcile", "settlement_kind_for", "with_non_cash_consideration"]
