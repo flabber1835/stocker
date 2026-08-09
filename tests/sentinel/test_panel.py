@@ -80,6 +80,21 @@ class TestUnknownIsNeverZero:
         assert r.status is model.UNKNOWN
         assert "UNREADABLE" in r.value
 
+    def test_a_TIMED_OUT_contract_check_is_not_a_FAILED_one(self):
+        """`ready is None` means the check did not complete. It is the expensive
+        read and it times out against a corpus being bulk-loaded, so calling it
+        "NOT READY" would raise a red alarm every time the panel was opened
+        during a seed. Same rule as the crash brake's `evaluable`: one flag must
+        not answer both "the evidence says no" and "there is no evidence"."""
+        r = model.feed_row(frontier="2026-08-08", sessions_behind=1, ready=None,
+                           checks_passed=0, checks_total=0, as_of=NOW)
+        assert r.status is model.WARN, "a timed-out check reported as a failure"
+        assert "not checked" in r.detail
+        failed = model.feed_row(frontier="2026-08-08", sessions_behind=1,
+                                ready=False, checks_passed=7, checks_total=9,
+                                as_of=NOW)
+        assert failed.status is model.FAIL
+
     def test_an_EMPTY_feed_is_distinct_from_an_UNREADABLE_one(self):
         """"nothing ingested yet" and "the database is unreachable" call for
         completely different actions."""
@@ -192,6 +207,72 @@ class TestTheRowsThatMatter:
         assert r.status is model.FAIL
         assert "UNRESOLVED TERMINALS 2" in r.detail, (
             "the NAV is readable without the caveat beside it")
+
+
+# ── 4b. it cannot hang ───────────────────────────────────────────────────────
+
+class TestItCannotHang:
+    """THE incident this class exists for (2026-08-09, first deploy).
+
+    `/health` returned instantly and `/` never returned at all. The panel issued
+    unbounded queries, and the readiness check scans `sentinel_bars` — which was
+    mid-bulk-load from a running seed. The page hung forever, which is
+    indistinguishable from a dead server and gives an operator nothing to act
+    on, at exactly the moment they opened the panel to find out what was
+    happening.
+
+    A panel that reports UNKNOWN is useful. A panel that hangs is not a panel.
+    """
+
+    def test_the_dsn_carries_a_CONNECT_timeout(self):
+        """A statement timeout does nothing if the CONNECT never completes."""
+        from sentinel.panel.sources import CONNECT_TIMEOUT_SECONDS, _bounded_dsn
+        out = _bounded_dsn("postgresql://u:p@host:5432/db")
+        assert f"connect_timeout={CONNECT_TIMEOUT_SECONDS}" in out
+
+    def test_an_existing_connect_timeout_is_not_doubled(self):
+        from sentinel.panel.sources import _bounded_dsn
+        dsn = "postgresql://u:p@h/db?connect_timeout=9"
+        assert _bounded_dsn(dsn) == dsn
+
+    def test_it_appends_correctly_to_a_dsn_that_ALREADY_has_params(self):
+        from sentinel.panel.sources import _bounded_dsn
+        assert "?sslmode=require&connect_timeout=" in _bounded_dsn(
+            "postgresql://u:p@h/db?sslmode=require")
+
+    def test_the_readiness_budget_is_TIGHTER_than_the_statement_budget(self):
+        """The contract check is the expensive read and the least urgent one.
+        It must be the first thing given up, not the thing that costs the page
+        its frontier and its ingest row."""
+        from sentinel.panel import sources
+        assert sources.READINESS_TIMEOUT_MS < sources.STATEMENT_TIMEOUT_MS
+
+    def test_a_DEAD_port_does_not_hang_the_page(self):
+        """A real socket that accepts and never speaks Postgres — the closest
+        reproduction of a busy server available without one. The page must come
+        back, with an unreadable feed row, well inside a browser's patience."""
+        import socket
+        import time
+
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)                       # accepts, never replies
+        port = srv.getsockname()[1]
+        try:
+            t0 = time.monotonic()
+            p = build_panel(state_dir="/nonexistent",
+                            database_url=f"postgresql://u:p@127.0.0.1:{port}/db",
+                            now=NOW)
+            elapsed = time.monotonic() - t0
+        finally:
+            srv.close()
+
+        assert elapsed < 30, f"the panel blocked for {elapsed:.1f}s"
+        assert p.row("feed").status is model.UNKNOWN
+        assert p.source_errors, "it hid a dead database instead of reporting it"
+        assert p.row("ownership") is not None, (
+            "a dead feed cost the page its ownership row — the one fact that "
+            "matters most during an outage")
 
 
 # ── 5. it cannot act ─────────────────────────────────────────────────────────

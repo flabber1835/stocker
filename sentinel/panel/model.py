@@ -193,9 +193,19 @@ def feed_row(*, frontier: Optional[str], sessions_behind: Optional[int],
                    "no sessions ingested yet — run feed-seed", as_of)
     behind = ("" if sessions_behind is None
               else f" · {sessions_behind} session{'s' if sessions_behind != 1 else ''} behind")
+    # THREE states, not two. `ready is None` means the contract check did not
+    # COMPLETE — it is the expensive read and it times out against a corpus
+    # being bulk-loaded. Reporting that as "contract NOT READY" would raise a
+    # red alarm every time someone opened the panel during a seed, which is
+    # both wrong and the fastest way to teach an operator to ignore the colour.
+    # Same rule as the crash brake's `evaluable`: one flag must not answer both
+    # "the evidence says no" and "there is no evidence".
+    if ready is None:
+        return Row("feed", "Feed", f"{frontier}{behind}", WARN,
+                   "contract not checked — the check timed out, likely an "
+                   "ingest in progress", as_of, freshness=timedelta(days=4))
     verdict = ("contract READY" if ready else "contract NOT READY")
-    status = OK if ready else FAIL
-    return Row("feed", "Feed", f"{frontier}{behind}", status,
+    return Row("feed", "Feed", f"{frontier}{behind}", OK if ready else FAIL,
                f"{verdict} {checks_passed}/{checks_total}", as_of,
                freshness=timedelta(days=4))
 

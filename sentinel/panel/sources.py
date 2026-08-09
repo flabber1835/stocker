@@ -25,6 +25,25 @@ from sentinel.panel import model
 #: row and is not worth an import cycle.
 DEFAULT_SLOTS = 25
 
+#: Seconds the panel will wait to OPEN a connection, and seconds any single
+#: statement may run. Both are hard, and both exist because of the same
+#: incident: the first version of this module issued unbounded queries, and the
+#: page hung forever the first time it was opened — the readiness check runs
+#: scans over `sentinel_bars` and the table was mid-bulk-load from a seed.
+#:
+#: A panel that HANGS is worse than one that reports UNKNOWN. Hanging is
+#: indistinguishable from a dead server, gives an operator nothing to act on,
+#: and does it precisely when the system is busiest — which is exactly when
+#: someone opens the panel. Every source here must answer or be cut off.
+CONNECT_TIMEOUT_SECONDS = 4
+STATEMENT_TIMEOUT_MS = 3_000
+
+#: The readiness contract is the EXPENSIVE read and the least urgent one: it
+#: scans the corpus, and during an ingest it can legitimately take minutes. It
+#: gets its own, tighter budget so a slow contract check costs the panel its
+#: verdict but never its frontier, its ingest row or its ownership row.
+READINESS_TIMEOUT_MS = 2_000
+
 
 def _utc(dt) -> Optional[datetime]:
     """Normalise whatever the driver hands back. A naive timestamp compared
@@ -40,6 +59,26 @@ def _utc(dt) -> Optional[datetime]:
     if not isinstance(dt, datetime):
         return None
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
+def _bounded_dsn(dsn: str) -> str:
+    """Append libpq's `connect_timeout` so opening the connection cannot hang.
+
+    A statement timeout does nothing if the CONNECT never completes — a busy or
+    unreachable Postgres leaves the socket waiting indefinitely by default, and
+    the page hangs before it has run a single query.
+    """
+    if "connect_timeout" in dsn:
+        return dsn
+    sep = "&" if "?" in dsn else "?"
+    return f"{dsn}{sep}connect_timeout={CONNECT_TIMEOUT_SECONDS}"
+
+
+def _set_statement_timeout(conn, ms: int) -> None:
+    """Server-side cutoff. A client-side one would leave the query RUNNING on a
+    database that is already busy, which is the opposite of helping."""
+    with conn.cursor() as cur:
+        cur.execute(f"SET statement_timeout = {int(ms)}")
 
 
 def _ownership(state_dir: Path) -> model.Row:
@@ -78,18 +117,32 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
     try:
         from sentinel.feed import readiness
         from sentinel.feed import store as feed_store
-        conn = feed_store.connect(database_url)
+        conn = feed_store.connect(_bounded_dsn(database_url))
+        _set_statement_timeout(conn, STATEMENT_TIMEOUT_MS)
         frontier = feed_store.latest_session(conn)
         runs = feed_store.run_status(conn, limit=1)
 
         # The contract check is the expensive one and it is also the one that
-        # answers "is this data usable". Guarded separately so a readiness bug
-        # cannot cost the frontier and the ingest row too.
+        # answers "is this data usable". Guarded separately — and on a TIGHTER
+        # timeout — so a slow contract check costs the panel its verdict but
+        # never the frontier, the ingest row or the page itself. During a seed
+        # this check legitimately takes minutes, which is how the panel first
+        # came to hang forever.
         try:
+            _set_statement_timeout(conn, READINESS_TIMEOUT_MS)
             r = readiness.check_readiness(conn)
             ready, passed, total = r.ready, sum(1 for c in r.checks if c.ok), len(r.checks)
         except Exception:                            # noqa: BLE001
             ready, passed, total = None, 0, 0
+        finally:
+            # A timed-out statement aborts the transaction; without this the
+            # frontier read below would fail with InFailedSqlTransaction and the
+            # panel would report an unreadable feed when it had just read it.
+            try:
+                conn.rollback()
+                _set_statement_timeout(conn, STATEMENT_TIMEOUT_MS)
+            except Exception:                        # noqa: BLE001
+                pass
 
         behind = None
         if frontier:
