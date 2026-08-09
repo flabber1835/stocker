@@ -75,6 +75,49 @@ def cmd_status(config: SentinelConfig) -> int:
     return EXIT_OK
 
 
+def cmd_target_book(config: SentinelConfig, args) -> int:
+    """Warm up and print the target. READ-ONLY: submits nothing, stores nothing.
+
+    Gated on `check-data` passing. A book planned on a corpus that failed the
+    contract is not a smaller book, it is a confident wrong one — and the whole
+    point of the contract is that nothing downstream would report it.
+    """
+    import json as _json
+
+    from sentinel.core.bootstrap import bootstrap
+    from sentinel.feed import readiness
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = feed_store.connect(config.database_url)
+    try:
+        feed_store.ensure_schema(conn)
+        state = readiness.check_readiness(conn)
+        if not state.ready:
+            print("REFUSED: the data contract is not satisfied — run "
+                  "`check-data`. Planning on it would produce a confident wrong "
+                  "book:", file=sys.stderr)
+            for c in state.failures:
+                print(f"  - {c.name}: {c.detail}", file=sys.stderr)
+            return EXIT_NOT_ESTABLISHED
+
+        frontier = feed_store.latest_session(conn)
+        with conn.cursor() as cur:
+            cur.execute("SELECT MIN(session) FROM (SELECT DISTINCT session"
+                        " FROM sentinel_bars ORDER BY session DESC LIMIT %s) s",
+                        (args.sessions,))
+            start = str(cur.fetchone()[0])
+        book = bootstrap(conn, start=start, end=frontier,
+                         starting_cash=args.cash)
+    finally:
+        conn.close()
+
+    print(_json.dumps(book.to_dict(), indent=2))
+    return EXIT_OK
+
+
 def cmd_check_data(config: SentinelConfig, today: str | None) -> int:
     """Report every clause, then fail if any of them did.
 
@@ -276,6 +319,10 @@ def main(argv: list[str] | None = None) -> int:
     sd.add_argument("--from", dest="date_from", default=None)
     sd.add_argument("--to", dest="date_to", default=None)
     sub.add_parser("feed-daily", help="fetch since the stored frontier")
+    bs = sub.add_parser("target-book",
+                        help="warm up Wealth Core and print today's target")
+    bs.add_argument("--cash", type=float, default=100_000.0)
+    bs.add_argument("--sessions", type=int, default=252)
     cd = sub.add_parser("check-data",
                         help="the Wealth Core data contract, per CHECK")
     cd.add_argument("--today", default=None)
@@ -309,6 +356,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_feed(config, args)
         if args.command == "check-data":
             return cmd_check_data(config, args.today)
+        if args.command == "target-book":
+            return cmd_target_book(config, args)
         if args.command == "plan":
             return asyncio.run(_plan(config))
         return asyncio.run(_establish(config))
