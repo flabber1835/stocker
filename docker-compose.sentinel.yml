@@ -1,0 +1,51 @@
+# Sentinel — its OWN compose project, deliberately.
+#
+#   docker compose -f docker-compose.sentinel.yml run --rm sentinel status
+#   docker compose -f docker-compose.sentinel.yml run --rm sentinel plan
+#   docker compose -f docker-compose.sentinel.yml run --rm sentinel establish-ownership
+#
+# `name:` keeps this out of the directory-derived project the Stocker compose
+# files use, so `docker compose down --remove-orphans` on either side can never
+# evict the other's containers — the same reasoning that gave the backtest stack
+# `name: stocker-bt`, and the same accident it exists to prevent.
+#
+# THERE IS NO LONG-RUNNING SERVICE HERE YET, and that is intentional. Sentinel's
+# only implemented capability is a one-time account handover. A `restart:
+# unless-stopped` service running `establish-ownership` would re-attempt a
+# LIQUIDATION on every container restart; the ownership record makes that a
+# no-op, but a policy whose safety depends entirely on a file being present is
+# not one to adopt before it has to exist. Item E adds the daily engine, and that
+# is when a service definition is warranted.
+name: sentinel
+
+services:
+  sentinel:
+    build:
+      context: .
+      dockerfile: Dockerfile.sentinel
+      network: host
+    image: sentinel:latest
+    # run-only: `docker compose up` must not start a liquidation.
+    profiles: ["cli"]
+    environment:
+      # PAPER ONLY. Sentinel REFUSES to start against api.alpaca.markets and has
+      # no override — see sentinel/config.py. This default is belt-and-braces on
+      # a guard that is already unconditional.
+      ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+      ALPACA_API_KEY: ${ALPACA_API_KEY:-}
+      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
+      SENTINEL_STATE_DIR: /var/lib/sentinel
+      SENTINEL_MAX_CYCLES: ${SENTINEL_MAX_CYCLES:-40}
+      SENTINEL_POLL_SECONDS: ${SENTINEL_POLL_SECONDS:-5}
+    volumes:
+      # THE most safety-critical mount in this file. `ownership.jsonl` records
+      # that the legacy book was removed and the account is Sentinel's. If it is
+      # lost, the next start classifies a Wealth Core book as legacy and
+      # liquidates it. A named volume survives image rebuilds, container
+      # recreation and `docker compose down`; it does NOT survive
+      # `down --volumes`, which is why scripts/retire-stocker.sh refuses that
+      # flag outright.
+      - sentinel_state:/var/lib/sentinel
+
+volumes:
+  sentinel_state:

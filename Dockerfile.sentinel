@@ -1,0 +1,45 @@
+# Sentinel — the operational runtime that replaces Stocker.
+#
+# Built FROM python:3.12-slim, not from stocker-base. Sentinel reuses Stocker's
+# proven COMPONENTS (the broker adapter, later the Wealth Core engine) but must
+# not inherit its image: stocker-base carries the whole shared package plus every
+# transitive dependency the retired services needed, and an image that pulls in a
+# retired platform is not a retirement.
+#
+# `shared/` is installed because `stock_strategy_shared.broker` and
+# `stock_strategy_shared.wealth_core` live there and are carried forward intact.
+# When Sentinel splits into its own repository those move with it.
+#
+# NOT editable-installed. docker-compose.override.yml bind-mounts ./shared for
+# the live Stocker stack so a `git pull` takes effect without a rebuild; that
+# convenience is also how a container ends up running code nobody built. Sentinel
+# runs what was built, and a change means a rebuild.
+FROM python:3.12-slim
+
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_TRUSTED_HOST="pypi.org files.pythonhosted.org pypi.python.org"
+
+RUN sed -i 's/MinProtocol = TLSv1.2/MinProtocol = TLSv1.2\nMaxProtocol = TLSv1.2/' \
+    /etc/ssl/openssl.cnf
+
+COPY shared/ /shared/
+RUN pip install --no-cache-dir /shared/
+
+COPY sentinel/ /app/sentinel/
+
+# The ownership log lives HERE and this path must be a mounted volume — see
+# docker-compose.sentinel.yml. Created in the image so a misconfigured run fails
+# on a permission error rather than silently writing into the container's
+# ephemeral layer, where the record would vanish on the next `up -d` and the
+# following start would liquidate a Sentinel-owned book.
+ENV SENTINEL_STATE_DIR=/var/lib/sentinel
+RUN mkdir -p /var/lib/sentinel
+
+# No default command that TRADES. `establish-ownership` liquidates an account;
+# it is not something a container restart policy should be able to trigger on its
+# own. The default is the read-only status view, and the real action is an
+# explicit `docker compose run`.
+ENTRYPOINT ["python", "-m", "sentinel"]
+CMD ["status"]
