@@ -135,18 +135,54 @@ class TestTheFirstBook:
                         starting_cash=1_000_000.0)
 
 
-class TestTheGapsAreLOUD:
-    def test_terminal_events_are_a_named_CAVEAT_on_every_book(self, conn):
-        """An empty terminal-event list is indistinguishable from 'no corporate
-        actions', and the engine would hold delisted securities while reporting
-        nothing — the VRTV defect reached by omission."""
+class TestTerminalEventsAreAPPLIED:
+    """They used to be a caveat. Now they are wired, so the tests move from
+    'the gap is named' to 'the mapping runs and an empty result is suspicious'."""
+
+    def test_a_delisting_in_the_window_is_RESOLVED_and_counted(self, conn):
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_actions (ticker, session, action,"
+                " contraticker) VALUES ('T001', %s, 'delisted', 'N/A')",
+                (_sessions()[-30],))
+        conn.commit()
         book = B.bootstrap(conn, start=_sessions()[0], end=END.isoformat(),
                            starting_cash=1_000_000.0)
-        assert any("TERMINAL EVENTS NOT APPLIED" in c for c in book.caveats)
+        assert book.terminal_events == 1
+        assert not any("NO TERMINAL EVENTS" in c for c in book.caveats)
 
-    def test_the_loader_RAISES_rather_than_returning_an_empty_list(self, conn):
-        with pytest.raises(L.TerminalMappingNotWired, match="terminal_from_action"):
-            L.load_terminal_events(conn, start="2024-01-01", end="2024-12-31")
+    def test_ZERO_events_over_a_long_window_is_NAMED_as_suspicious(self, conn):
+        """Across 252 sessions that is a missing ingest, not a quiet market —
+        and it presents exactly as a healthy book."""
+        book = B.bootstrap(conn, start=_sessions()[0], end=END.isoformat(),
+                           starting_cash=1_000_000.0)
+        assert book.terminal_events == 0
+        assert any("NO TERMINAL EVENTS" in c for c in book.caveats)
+
+    def test_events_are_read_over_the_WHOLE_window_not_just_the_decision(self, conn):
+        """An acquisition three months into the warm-up still ends that security;
+        a book that has not seen it will admit something that stopped trading."""
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_actions (ticker, session, action,"
+                " contraticker) VALUES ('T002', %s, 'acquisitionby', 'N/A')",
+                (_sessions()[10],))          # deep in the warm-up
+        conn.commit()
+        book = B.bootstrap(conn, start=_sessions()[0], end=END.isoformat(),
+                           starting_cash=1_000_000.0)
+        assert book.terminal_events == 1
+
+    def test_an_UNRESOLVABLE_ticker_yields_no_event(self, conn):
+        """Terms carrying a ticker match no holding, so an unattributable action
+        must be skipped rather than emitted against a name nobody can key."""
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_actions (ticker, session, action)"
+                " VALUES ('NOSUCH', %s, 'delisted')", (_sessions()[-30],))
+        conn.commit()
+        book = B.bootstrap(conn, start=_sessions()[0], end=END.isoformat(),
+                           starting_cash=1_000_000.0)
+        assert book.terminal_events == 0
 
 
 class TestMetaIsReparsedOnRead:

@@ -9,7 +9,7 @@ mistake lives, because every one of these values is plausible when wrong.
 ```text
 sentinel_bars      -> VendorBar per (security, session)
 sentinel_universe  -> SecurityMeta, incl. related tickers for issuer grouping
-sentinel_actions   -> terminal events   NOT YET WIRED, see below
+sentinel_actions   -> terminal events, via sentinel/core/terminal.py
 ```
 
 ## Two things this deliberately does NOT do
@@ -19,13 +19,11 @@ from raw closes and split ratios inside `Feed`. `close_signal` is stored so a
 future ingest can recover a split at a window boundary, not so a loader can
 substitute its own series — two sources for one domain is how they drift.
 
-**It does not map corporate actions to terminal events.** That mapping is ~120
-lines in the backtester and encodes the vendor's actual action vocabulary, the
-`value`-is-a-deal-size-in-millions rule, and the `'N/A'`-is-a-sentinel rule —
-each of which was a defect found the hard way. Re-implementing it from memory to
-get a first book out is precisely the shortcut this project keeps paying for, so
-`load_terminal_events` raises instead, and `bootstrap` reports the gap rather
-than hiding it.
+**It does not map corporate actions itself.** That mapping encodes the vendor's
+action vocabulary, the `value`-is-a-deal-size-in-millions rule and the
+`'N/A'`-is-a-sentinel rule — each a defect found the hard way — so it lives in
+`sentinel/core/terminal.py`, carried across intact and pinned against the
+backtester's version. This module only delegates.
 """
 from __future__ import annotations
 
@@ -35,10 +33,6 @@ from typing import Mapping, Optional, Sequence
 from stock_strategy_shared.wealth_core.feed import SecurityMeta, VendorBar
 
 from sentinel.feed.universe import parse_related_tickers
-
-
-class TerminalMappingNotWired(NotImplementedError):
-    """Corporate actions are stored but not yet mapped to terminal events."""
 
 
 @dataclass
@@ -133,24 +127,18 @@ def load_meta(conn) -> dict[str, SecurityMeta]:
     return out
 
 
-def load_terminal_events(conn, *, start: str, end: str):
-    """NOT WIRED. Raises rather than returning an empty list.
+def load_terminal_events(conn, *, start: str, end: str, resolve_identity=None):
+    """WIRED as of 2026-08-09 — delegates to `sentinel.core.terminal`.
 
-    An empty list is indistinguishable from "no corporate actions in the window",
-    and the engine would run cleanly while holding securities that no longer
-    exist — the VRTV defect, reached by omission instead of by ordering. The
-    mapping belongs in one place and that place already exists in the
-    backtester's `terminal_from_action`; it must be carried across deliberately,
-    with its action vocabulary and its two sentinel rules intact.
+    It used to RAISE, because an empty list is indistinguishable from "no
+    corporate actions in the window" and the engine would run cleanly while
+    holding securities that no longer exist. The mapping has now been carried
+    across intact and pinned against the backtester's, so the honest answer is
+    available and the refusal is retired.
     """
-    raise TerminalMappingNotWired(
-        "corporate actions are STORED but not yet mapped to terminal events. "
-        "Returning an empty list would let the engine run while holding "
-        "delisted securities and report nothing — the same failure as the VRTV "
-        "defect, reached by omission rather than ordering. Carry across "
-        "services/backtester/app/wealth_core_replay.py terminal_from_action, "
-        "with the action vocabulary, the value-is-$M rule and the 'N/A' "
-        "sentinel rule intact.")
+    from sentinel.core.terminal import load_terminal_events as _load
+
+    return _load(conn, start=start, end=end, resolve_identity=resolve_identity)
 
 
 def _f(v) -> Optional[float]:

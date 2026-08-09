@@ -38,7 +38,7 @@ from stock_strategy_shared.wealth_core.engine import Operation, WealthCoreConfig
 from stock_strategy_shared.wealth_core.feed import Feed
 from stock_strategy_shared.wealth_core.run import run_sessions
 
-from sentinel.core.loader import CorpusWindow, load_window
+from sentinel.core.loader import CorpusWindow, load_terminal_events, load_window
 
 #: Sentinel's exposure during item E. Not a parameter yet, and deliberately
 #: named rather than inlined so the day it becomes one is a visible change.
@@ -67,6 +67,7 @@ class TargetBook:
     cash_weight: float = 0.0
     exposure: float = PINNED_EXPOSURE
     warmup_sessions: int = 0
+    terminal_events: int = 0
     caveats: list[str] = field(default_factory=list)
 
     @property
@@ -80,6 +81,7 @@ class TargetBook:
             "n_positions": self.n_positions,
             "cash_weight": round(self.cash_weight, 6),
             "warmup_sessions": self.warmup_sessions,
+            "terminal_events": self.terminal_events,
             "positions": {
                 self.tickers.get(s, s): round(w, 6)
                 for s, w in sorted(self.positions.items(),
@@ -113,6 +115,14 @@ def bootstrap(conn, *, start: str, end: str, starting_cash: float,
     if warmup:
         feed.warmup(warmup, w.bars_by_session)
 
+    # Terminal events over the WHOLE window, not just the decision session: an
+    # acquisition three months into the warm-up still ends that security, and a
+    # book that has not seen it will happily admit something that stopped
+    # trading. The engine indexes them by session and applies each on its own.
+    events = load_terminal_events(
+        conn, start=w.sessions[0], end=w.sessions[-1],
+        resolve_identity=_resolver(conn)) if conn is not None else []
+
     result = run_sessions(
         sessions=decide_on,
         bars_by_session=w.bars_by_session,
@@ -121,17 +131,27 @@ def bootstrap(conn, *, start: str, end: str, starting_cash: float,
         cfg=cfg,
         eligibility_cfg=elig,
         feed=feed,
-        # terminal_events deliberately absent — see loader.load_terminal_events.
-        # The caveat below is what stops that being silent.
+        terminal_events=events,
     )
 
     book = _book_from_result(result, decide_on[-1], w, len(warmup))
-    book.caveats.append(
-        "TERMINAL EVENTS NOT APPLIED: corporate actions are stored but not yet "
-        "mapped, so this book may admit or retain a security that has been "
-        "acquired or delisted. Not fatal for a first paper book; it must be "
-        "closed before the book is left unattended.")
+    book.terminal_events = len(events)
+    if not events:
+        # NAMED rather than assumed benign. Zero events over a 252-session window
+        # is a missing ingest, not a quiet market — and it presents exactly as a
+        # healthy book.
+        book.caveats.append(
+            "NO TERMINAL EVENTS resolved over this window. Across 252 sessions "
+            "that is a missing or unresolvable ACTIONS ingest rather than a "
+            "quiet market; the book may hold a security that has been acquired "
+            "or delisted. Check `check-data`'s actions and identity rows.")
     return book
+
+
+def _resolver(conn):
+    from sentinel.feed.universe import load_resolver
+
+    return load_resolver(conn).resolve
 
 
 def _book_from_result(result, session: str, w: CorpusWindow,
