@@ -7,7 +7,17 @@ at `docs/sentinel-handoff/`. It answers three of the four open questions in §8
 and CORRECTS a material error in the original draft: **Sentinel 1.1 is NOT a
 binary controller.** See §7a. Read `docs/sentinel-handoff/00_README/` first —
 `FROZEN_SENTINEL_1P1_RULE.json` is the authoritative parameter set and
-`09_GAPS/MISSING_OR_UNRECOVERED.md` states what is still missing. Stocker is
+`09_GAPS/MISSING_OR_UNRECOVERED.md` states what is still missing.
+
+**LATER THE SAME DAY — the missing breadth classifier and a full standalone
+reference implementation arrived.** §8 Q2 no longer reads "NOT FOUND". The
+executable rules are in `docs/sentinel-breadth-reconstruction/recovered_breadth_classifier.py`,
+a complete independent 1.1 run is in `docs/sentinel-reference-implementation/`,
+and `docs/sentinel-reproduction-kit/` carries the reproduction contract and the
+certified Wealth Core payloads. Their parity claims have **not** been verified in
+this repository — that needs the raw Sharadar corpus — so the
+`UNCERTIFIED_BREADTH` gate and the "no decision logic before the tape is
+reproduced" rule both still stand. Stocker is
 being retired in favour of Sentinel, a much smaller deterministic trading
 appliance built from Stocker's proven parts. This file is written so that a
 context with no memory of the conversation that produced it can pick up the
@@ -601,13 +611,14 @@ slow-stress clock delays a severe exit by 30 sessions while looking healthy.
 
 ---
 
-## 8. OPEN QUESTIONS — THREE ANSWERED, ONE STILL BLOCKING
+## 8. OPEN QUESTIONS — FOUR ANSWERED, ONE UNVERIFIED HERE
 
 The frozen harness arrived 2026-08-09 (`docs/sentinel-handoff/`). Answers below.
 
 ```text
 Q1  scalar or share-level?     ANSWERED: SCALAR
-Q2  breadth definitions        STILL BLOCKING — classifier NOT FOUND
+Q2  breadth definitions        SUPPLIED, claimed exact, NOT VERIFIED IN THIS
+                               REPO. The UNCERTIFIED_BREADTH gate STANDS
 Q3  recovery episode semantics MOOT (follows from Q1)
 Q4  how live NAV is computed   ANSWERED: return-series overlay, so the
                                execution claim is BOUNDED-ERROR, not exact
@@ -637,8 +648,72 @@ equality.
 
 **Q3 — moot.** Scalar means there is no live episode to re-enter.
 
-**Q2 — STILL BLOCKING, but materially narrowed (2026-08-09 forensic pass,
-`docs/sentinel-breadth-reconstruction/`).**
+**Q2 — the classifier ARRIVED later the same day, claiming exact parity.**
+Read this sub-section before the forensic history below it: the history records a
+reconstruction that fell short, and the file that superseded it is a different
+artifact reached by a different route.
+
+```text
+docs/sentinel-breadth-reconstruction/recovered_breadth_classifier.py
+docs/sentinel-reproduction-kit/04_EXACT_BREADTH_RECOVERY/   (same file + status)
+docs/sentinel-reference-implementation/sentinel_1p1.py      (a full standalone
+                                                             run, 585 lines)
+```
+
+The recovered semantics, verbatim:
+
+```python
+green = (own_dd > -0.075) & (r21 > 0.0) & ((age_sessions < 63) | (r63 > 0.0))
+red   = (own_dd <= -0.10) & (r21 < 0.0)
+sector_stress = mean(red) within each sector on the decision date
+amber = (own_dd <= -0.10) | (r21 <= -0.03) | ((sector_stress >= 0.50) & ~green)
+```
+
+Two terms the forensic pass could not find are now supplied, and both sit
+exactly where its residuals pointed:
+
+```text
+AGE-63 EXEMPTION      GREEN's r63 condition is WAIVED for positions younger
+                      than 63 sessions. The old reconstruction required r63 >= 0
+                      unconditionally, so it under-counted green on young books
+SECTOR ESCALATION     AMBER's third clause. This is the one-sided damaged
+                      shortfall the residual analysis proved must exist —
+                      "amber = damaged_core OR <escalation>" — and the >= 0.50
+                      RED-fraction threshold matches the `secv >= .50` constant
+                      observed at line 140 of the retained run_firewall_v2_fixed.py
+```
+
+Boundaries are asymmetric on purpose and are load-bearing: GREEN uses strict
+`own_dd > -7.5%` and `r21 > 0`; RED uses strict `r21 < 0`; AMBER uses inclusive
+`r21 <= -3%`. Claimed validation: 7,061/7,061 sessions exact on BOTH green and
+amber counts over 160,715 holding-days, mean absolute daily count error 0.000.
+
+**That claim is the author's, and this repository has not tested it.** Verifying
+it needs the raw Sharadar corpus (SEP 1998-2026, ACTIONS, TICKERS, SFP) and the
+regenerated holding panel; neither is here. What HAS been checked locally is
+thin and should not be mistaken for the claim: both files compile, and the four
+synthetic controller unit tests shipped with `sentinel_1p1.py` pass. Those
+exercise hysteresis and ramp logic on hand-built sequences — they never touch
+breadth. So the gate below stands unchanged until someone runs the tape.
+
+Numerical contract, and it is a real reproduction hazard: the original replay
+stored lag closes in **float32** before dividing the current close by the lag, so
+`r21`/`r63` carry float32 rounding. Reproduce that or prove equivalence — a
+float64 reimplementation will disagree on boundary rows, and every boundary in
+this classifier is strict-vs-inclusive.
+
+`priority` — the Selective Survivor Firewall's cohort ranking score — remains
+unrecovered. It does **not** gate Sentinel, which consumes only
+`mean(amber)` and `mean(green)`. `position_features()` in the recovered module
+raises `PriorityNotRecoveredError` rather than returning a guess, which is the
+right failure: a fabricated ranking would run, produce plausible cohorts, and be
+wrong silently.
+
+---
+
+**Q2 as it stood BEFORE that file arrived — the forensic pass (2026-08-09,
+`docs/sentinel-breadth-reconstruction/`), retained because its residual
+analysis is what makes the recovered rule credible.**
 
 The original `position_features(g, cfg)` in
 `/mnt/data/selective_firewall/run_firewall_experiment.py` was identified by
@@ -693,10 +768,17 @@ error is one-sided, every one of those is a missed severe entry — **fail-open,
 in the exact place a risk controller must not be**. The green side is close;
 the damaged side is not.
 
-**Standing rule until this is closed:** certify the controller against the
+That table is the standard the recovered classifier must be held to. It is also
+the reason aggregate parity is not enough on its own: a rule can agree on 98.7%
+of sessions and still miss 42% of the severe entries, because the sessions that
+matter are rare. When the recovered classifier is validated, validate it on the
+PREDICATES, not on mean absolute count error.
+
+**Standing rule, UNCHANGED by the recovery:** certify the controller against the
 FROZEN breadth oracle, keep any production breadth generation behind an explicit
 `UNCERTIFIED_BREADTH` gate, and require exact session-by-session parity with the
-frozen tape before that gate is removed.
+frozen tape before that gate is removed. A supplied classifier asserting parity
+is a candidate for that test, not a pass of it.
 
 ---
 
@@ -743,6 +825,10 @@ it for simplicity.
 
 ```text
 1  reproduce the breadth tape from a candidate classifier      (Q2, BLOCKING)
+   the candidate now EXISTS — docs/sentinel-breadth-reconstruction/
+   recovered_breadth_classifier.py — and claims exact parity. Step 1 is
+   therefore RUNNABLE, and is now a verification rather than a search. It
+   needs the raw Sharadar corpus, which is not in this repo
 2  replay the 21-transition oracle from those inputs
 3  only then write controller code
 ```
@@ -980,8 +1066,9 @@ Steps 0-2 are blocking. Do not reorder them.
    specifiable from this repository alone.
 1  Answer Q1 and Q4 (scalar vs share-level; how live NAV is computed).
    This determines the whole production architecture.
-2  Import and PROVE breadth semantics (Q2) against a known frozen tape.
-   No decision logic before this.
+2  PROVE breadth semantics (Q2) against a known frozen tape. The classifier
+   itself no longer has to be found — it is in the repo — but the proof is
+   still owed, and no decision logic may be written before it lands.
 3  Answer Q3 if Q1 turns out to be share-level.
 4  Introduce the shadow/live split appropriate to the Q1 answer.
 5  Extend snapshot/restart to every new object: shadow state, shadow ledger,
