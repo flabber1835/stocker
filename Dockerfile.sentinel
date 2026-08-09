@@ -51,7 +51,8 @@ RUN pip install --no-cache-dir /shared/
 # image needs is imported lazily, by design, so the import graph does not show
 # them. `tests/sentinel/test_image_layout.py` now walks the graph with AST and
 # fails if the image does not carry what the walk finds.
-RUN pip install --no-cache-dir "psycopg[binary]>=3.1" "httpx>=0.27"
+RUN pip install --no-cache-dir "psycopg[binary]>=3.1" "httpx>=0.27" \
+                               "fastapi>=0.110" "uvicorn>=0.27"
 
 COPY sentinel/ /app/sentinel/
 

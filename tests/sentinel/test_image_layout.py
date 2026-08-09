@@ -104,6 +104,18 @@ def _reachable_third_party() -> dict[str, set[str]]:
     return out
 
 
+def _pip_installs(dockerfile: Path) -> str:
+    """Every `pip install` line, with `\\` continuations joined first.
+
+    A line-based filter misses a package on the second line of a wrapped
+    install, and reports a dependency as missing when it is present — which is
+    how this test failed the moment the install list grew past one line. The
+    guard has to read the Dockerfile the way Docker does.
+    """
+    text = dockerfile.read_text().replace("\\\n", " ")
+    return "\n".join(l for l in text.splitlines() if "pip install" in l)
+
+
 def _copy_directives(dockerfile: Path) -> list[tuple[str, str]]:
     out = []
     for line in dockerfile.read_text().splitlines():
@@ -218,8 +230,7 @@ class TestTheImageCarriesItsRUNTIME_DEPENDENCIES:
         """
         deps = _reachable_third_party()
         assert deps, "the walk found nothing — it is broken, not the image"
-        installs = "\n".join(l for l in DOCKERFILE.read_text().splitlines()
-                             if "pip install" in l)
+        installs = _pip_installs(DOCKERFILE)
         shared_declares = (ROOT / "shared" / "pyproject.toml").read_text()
 
         missing = []

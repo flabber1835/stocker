@@ -75,6 +75,52 @@ services:
       sentinel-postgres:
         condition: service_healthy
 
+  # The one read-only panel. Replaces Stocker's eight-tab dashboard entirely and
+  # reuses its port (8004), so the bookmark and the phone home-screen shortcut
+  # keep working across the retirement.
+  #
+  # NO PROFILE: unlike `sentinel`, this one is meant to be UP. It is the only
+  # long-running process in this file that is safe to leave running, precisely
+  # because it has no write routes and never constructs a broker — a phone
+  # refreshing it every 30s must not become an unattended API client.
+  sentinel-panel:
+    build:
+      context: .
+      dockerfile: Dockerfile.sentinel
+      network: host
+    image: sentinel:latest
+    restart: unless-stopped
+    command: ["-m", "uvicorn", "sentinel.panel.app:app",
+              "--host", "0.0.0.0", "--port", "8000"]
+    # The image's ENTRYPOINT is `python -m sentinel`, whose whole purpose is to
+    # refuse to be started casually. Overriding it to plain `python` is what
+    # lets this container serve HTTP without inheriting a CLI that can
+    # liquidate an account.
+    entrypoint: ["python"]
+    ports:
+      - "8004:8000"
+    environment:
+      SENTINEL_STATE_DIR: /var/lib/sentinel
+      SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:-sentinel}@sentinel-postgres:5432/sentinel
+      # DELIBERATELY NO ALPACA CREDENTIALS. The panel has no code path to the
+      # broker, and withholding the keys means that stays true even if one is
+      # added by mistake.
+    volumes:
+      # READ-ONLY mount of the ownership log. The panel displays that state; it
+      # must never be able to write it.
+      - sentinel_state:/var/lib/sentinel:ro
+    healthcheck:
+      # Liveness only — the route performs no IO. See sentinel/panel/app.py.
+      test: ["CMD-SHELL",
+             "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3).status==200 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      sentinel-postgres:
+        condition: service_started
+
 volumes:
   sentinel_state:
   sentinel_pgdata:
