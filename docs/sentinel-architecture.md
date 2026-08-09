@@ -702,12 +702,35 @@ stored lag closes in **float32** before dividing the current close by the lag, s
 float64 reimplementation will disagree on boundary rows, and every boundary in
 this classifier is strict-vs-inclusive.
 
-`priority` — the Selective Survivor Firewall's cohort ranking score — remains
-unrecovered. It does **not** gate Sentinel, which consumes only
-`mean(amber)` and `mean(green)`. `position_features()` in the recovered module
-raises `PriorityNotRecoveredError` rather than returning a guess, which is the
-right failure: a fabricated ranking would run, produce plausible cohorts, and be
-wrong silently.
+### `priority` is unrecovered, and which strategy that blocks
+
+```text
+Sentinel 1.1                              NO  — not consumed, cannot be
+Selective Survivor Firewall reconstruction YES — it IS the actuator
+```
+
+**Sentinel 1.1 never needs it, and the reason is structural rather than
+incidental.** Sentinel reads only AGGREGATE shadow-state signals — damaged
+breadth, green breadth, shadow drawdown, short-horizon shadow returns, damage
+acceleration, SPY confirmation, recovery-health conditions — and emits ONE
+number, a portfolio exposure target. It never asks *which* damaged holding is
+worst, so a per-name ranking has no place to be consumed even in principle.
+Confirmed in the reference implementation: `priority` appears zero times in
+`sentinel_1p1.py`, and every controller predicate there reads only the two
+scalars from `green_b = greens/len(held)` / `damaged_b = ambers/len(held)`.
+
+**The firewall does need it**, because that strategy chose SPECIFIC damaged
+names to trim (`run_firewall_v2_fixed.py` lines 94 and 100 sort the non-green
+candidates by `-priority` and take the top `rank_n`). Anyone reconstructing the
+Selective Survivor Firewall is blocked on `priority`; anyone building Sentinel
+is not.
+
+`position_features()` in the recovered module therefore raises
+`PriorityNotRecoveredError` rather than returning a guess. That is the right
+failure and the reason is worth keeping: a fabricated ranking would run, produce
+plausible-looking cohorts, and be wrong with no symptom. Failing the whole
+function closed also stops the exact-recovered breadth outputs it computes
+alongside from carrying an invented one out with them.
 
 ---
 
