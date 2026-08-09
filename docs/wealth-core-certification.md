@@ -331,6 +331,51 @@ performance, NOT chain_performance          the latter carries no fills and so
                                             reports zero turnover by design
 ```
 
+### PREDECLARED, before the 2021-2023 result was seen
+
+Written 2026-08-09 while the run was still in phase 2, so the settlement counts
+are a FALSIFIABLE EXPECTATION rather than a post-hoc reading. Anything a summary
+can be made to explain after the fact explains nothing.
+
+```text
+                                 golden fixture      real corpus
+exact_terminal_settlements       5   (dominant)      ~0   <- INVESTIGATE if not
+pending_terms_carried            1                   high
+derived_last_mark_settlements    0                   DOMINANT
+orphan_zero_writeoffs            0                   low
+unresolved_terminal_events       0                   low but possible
+```
+
+**Why the two sources are near-DISJOINT on settlement, which is the point.**
+Sharadar states no per-share consideration for ANY of its 19,216 delisted
+securities, so `EXACT_TERMS` is structurally unreachable from the corpus — while
+it is the branch the golden fixture exercises MOST. Conversely the fixture has
+one carried deal; the corpus should put thousands of real delistings through
+missing terms -> grace -> carry -> last-mark derivation. Neither source covers
+the settlement space alone, and the branch each proves best is the one the other
+can barely reach.
+
+That is a stronger claim than "fixture is the floor, corpus adds richness":
+
+```text
+synthetic fixture   BRANCH COMPLETENESS — proves every required behaviour can
+                    still execute, including branches the vendor corpus cannot
+                    be relied upon to produce
+historical corpus   PRODUCTION-SHAPED STRESS AND FREQUENCY — proves the ugly
+                    operational path at a scale no fixture can manufacture
+```
+
+So fixture coverage is NORMATIVE and corpus coverage is DESCRIPTIVE. A quiet
+window must never lower the bar by exercising fewer branches; it should say so
+in its own manifest instead.
+
+**A nonzero `exact_terminal_settlements` from the corpus is an INVESTIGATIVE
+EVENT, not a benign counter.** It would mean one of: Sharadar supplies usable
+consideration in an action form we did not expect; the adapter inferred terms
+from another field; or the completeness test is too permissive. All three change
+what the run means, and the first is good news that still has to be verified
+before it is believed.
+
 **The counters are the whole point of the run.** The rehearsal's purpose is not
 "did it finish" — a run that writes off every acquisition at zero also finishes,
 faster, and reports a lower return rather than an error. Read
