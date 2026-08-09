@@ -1,130 +1,105 @@
-# Provenance, and what the terminal-order correction changed
+# Provenance — terminal + issuer corrected lineage
 
-`README.md` and `CORRECTION_REPORT.md` are the **upstream** package documents,
-verbatim, covered by `SHA256SUMS.txt` (12/12 verify clean). This file is the
+`README.md` and `ISSUER_CORRECTION_REPORT.md` are the **upstream** documents,
+verbatim, covered by `SHA256SUMS.txt` (18/18 verify clean). This file is the
 repository's own record.
 
-Source archive: `docs/Sentinel_1_1_Terminal_Order_Corrected.zip`
-(sha256 `514737cc17924243cba9abb488a6728bebf2cf4ad2844f502a108d48b9dedc59`,
+Source archive: `docs/Sentinel_1_1_Terminal_and_Issuer_Corrected.zip`
+(sha256 `670d043a8a6469f600cc14dd29b7ebccd41cbd52fe28b60dc3a704ca840ad529`,
 received 2026-08-09).
 
-**This is the only Sentinel reference lineage to use going forward.** The
-previous package (`Sentinel_1_1_Python_Only_Corrected.zip` and its
-`raw_sharadar_20y_daily.csv`, `PARITY_REPORT.json`,
-`transition_accounting_delta.csv`, `validate_against_frozen.py`) is DELETED. It
-produced a book containing positions that could not legally have been bought.
+**This is the only Sentinel reference lineage to use.** It supersedes and
+DELETES `Sentinel_1_1_Terminal_Order_Corrected.zip`, which itself superseded
+`Sentinel_1_1_Python_Only_Corrected.zip`. It carries BOTH corrections: the atomic
+terminal-action reconciliation and the issuer-identity parse.
 
-## What was wrong, and why it is not a rounding difference
+## THE DIRECTION OF THIS FIX IS THE OPPOSITE OF THE LAST ONE
 
-Terminal corporate actions were applied AFTER pending fills and were invisible to
-close-time admissions. Two consequences, both with named instances:
+The terminal-order correction found a defect in the reference and raised a
+question against our engine. **This one found a defect in the reference that our
+engine does not have.** The standalone split Sharadar's `relatedtickers` on
+commas and semicolons only; Sharadar serves that field primarily
+**whitespace-separated**, so a two-ticker string was treated as one opaque token
+and the issuer-conflict check silently stopped matching.
 
-```text
-2023-11-29  VRTV   a pending entry FILLED into a security that was
-                   acquisitionby|delisted that session — $240,788,734 of notional
-                   into something that had already ceased to exist
-5 sessions         a security that terminated at TODAY's close was still
-                   scheduled for tomorrow's open, consuming the one-admission-
-                   per-session slot and delaying a valid replacement:
-                     2008-10-09 SCRX  rank 98
-                     2016-02-04 SWI1  rank  7
-                     2016-02-22 KING  rank  2
-                     2018-10-09 SYNT  rank 10
-                     2020-04-06 FTSV  rank  1
-```
-
-The fix is causal and adds no look-ahead: load the session's effective actions,
-mark terminals, cancel pending entries into them, settle held terminals, then
-fill, and at the close exclude anything that terminated that session.
-
-## THE CONSEQUENCE THAT MATTERS MOST HERE
-
-**The corrected path no longer reproduces the frozen oracle, and it should not
-be expected to.** The shadow book changed, so everything downstream of it moved:
+The fix adopts the construction already certified in this repository, and the
+claim was verified here rather than taken on trust:
 
 ```text
-first shadow/breadth/NAV divergence   2016-02-05
-first allocation divergence           2025-04-08
-allocation-difference sessions        20 (through 2025-05-06)
+services/bt-data/app/main.py:307        " ".join(rt)   stores it space-joined
+services/backtester/.../wealth_core_replay.py:817
+                                        (r["related_tickers"] or "").split()
+                                        whitespace tokenization — CORRECT
+shared/.../wealth_core/eligibility.py:215  build_issuer_group_key, sorted+unique
 ```
 
-The corrected Sentinel goes 0% Wealth Core 2025-04-08 → 2025-05-06 where the old
-path stayed at 100%.
+So Stocker's Wealth Core reads this field correctly and always has. That is worth
+recording precisely because the previous correction ran the other way: the
+production engine is not uniformly behind the reference, and neither artifact
+should be treated as automatically authoritative over the other.
 
-**The breadth CLASSIFIER is unchanged.** `green`/`red`/`amber`/`sector_stress`
-are the same predicates that reproduced the frozen tape 7,061/7,061. They now
-produce different VALUES because their input — the holdings panel — is a
-different book. Do not read the divergence as the classifier being wrong; it is
-the classifier applied to a corrected portfolio.
-
-Consequently the earlier in-repo verification (5,032/5,032 allocation and breadth
-parity against `03_exact_candidate_daily.csv`) describes the SUPERSEDED lineage.
-It was a true measurement of a book we now know was wrong. Item F of
-`docs/sentinel-deployment.md` cannot be "reproduce the frozen tape" for this
-lineage — see that document for the restated acceptance criterion.
-
-Per upstream: **do not overwrite the frozen oracle.** `docs/sentinel-handoff/`
-stays exactly as it is. It is the audit artifact showing what the old code
-produced, and it remains the certification target for anyone reproducing the old
-lineage deliberately.
-
-## Performance impact
+## What the defect actually did: Alphabet
 
 ```text
-                              previous raw      terminal-corrected     change
-Sentinel CAGR                 22.259384%        22.094535%             -0.1648 pp
-Sentinel max drawdown        -21.949046%       -21.963098%             -0.0141 pp
-Sentinel ending multiple      55.677526x        54.195113x             -2.66%
-Wealth Core full-history      165.814088x       173.765727x            +4.80%
+before   GOOG and GOOGL held SIMULTANEOUSLY. Their relatedtickers strings are
+         whitespace-delimited, so the old parser produced DIFFERENT keys for what
+         is one economic issuer
+after    identical keys; GOOGL is blocked while GOOG is held
+         2025-12-23  removed buy GOOGL  2,258 sh @ 309.625  ($699,133)
+         2025-12-23  replacement ROIV  30,899 sh @  22.635  ($699,399)
 ```
 
-Sentinel got slightly worse and Wealth Core got materially better. That is the
-expected shape of removing phantom holdings from a book: the alpha engine stops
-carrying dead weight, while the controller's severe episodes are re-timed by a
-shadow whose drawdown path changed. **A correction that improved every number
-would be the suspicious one.**
+`issuer_key_parser_changes.csv` shows the parse itself, and the pattern is
+broader than Alphabet — units, warrants and share classes all carry
+space-separated related tickers:
 
-The endpoint book holds 20 stocks at 62.86% weight with 37.14% cash. VRTV is
-gone, so the large cash balance is NOT the zombie position — it remains a
-consequence of the 25-slot / 4%-entry / cooldown / no-rebalance mechanics.
+```text
+AIMBU   raw "AIMAU AIMAW"   old "AIMAU AIMAW|AIMBU"   new "AIMAU|AIMAW|AIMBU"
+```
+
+A hard invariant now runs after every open fill and ABORTS if two held securities
+share an issuer key. Full-history validation: 7,188 Wealth Core sessions, **0**
+duplicate-issuer violations after the correction.
+
+## Performance impact: almost none, which is the point
+
+```text
+20-year Sentinel CAGR         22.09461850%
+20-year max drawdown         -21.96309788%
+20-year ending multiple       54.195852100x   (+0.00136% vs terminal-only)
+Wealth Core from 1998         173.768095127x
+Sentinel allocation path      UNCHANGED, and so is the parent path
+first path difference         2025-12-23
+```
+
+A concentration defect that barely moves the return is still a defect: holding
+GOOG and GOOGL is one bet wearing two tickers, and the book's real diversification
+was lower than its position count claimed for as long as it lasted. **The number
+to judge this by is the 0 duplicate-issuer violations, not the +0.00136%.**
 
 ## Verified in this repository, 2026-08-09
 
 ```text
-sha256sum -c SHA256SUMS.txt           12/12 OK
-the four controller unit tests        PASS against the corrected source
-                                      (import retargeted; the only edit to any
-                                      shipped file)
+sha256sum -c SHA256SUMS.txt            18/18 OK
+the four controller unit tests         PASS against the corrected source
+                                       (import retargeted — the only edit to any
+                                       shipped file)
+our own relatedtickers tokenization    CONFIRMED whitespace-split, as credited
 ```
 
-Not verified, and it is the whole claim: that running
-`sentinel_1p1_standalone.py` against raw Sharadar reproduces
-`sentinel_1p1_daily.csv`. That needs the corpus, which this machine does not
-have. The tape is stored; the producer is unverified.
+Not verified: that running `sentinel_1p1_standalone.py` against raw Sharadar
+reproduces `sentinel_1p1_daily.csv`. That needs the corpus. The tape is stored;
+the producer is unverified.
 
-## OPEN ISSUE FOR OUR OWN WEALTH CORE
+## CONSEQUENCE FOR `sentinel/feed/`
 
-Stocker's engine has the FIRST half of this fix and appears to lack the SECOND.
+Sentinel's own universe ingestion is **not yet written**, and when it is it must
+tokenize `relatedtickers` on WHITESPACE (and commas), not commas alone. Getting
+this wrong reproduces the Alphabet defect in production, where it presents as a
+book that looks diversified and is not.
 
-```text
-HAVE   shared/.../wealth_core/adapter.py orders terminal actions (step 3) BEFORE
-       pending fills (step 4), and cancels a pending entry into a terminated
-       security with reason TERMINATED_BEFORE_FILL. Its docstring records the
-       same defect the standalone just found — "a pending ENTRY plus a same-day
-       merger BOUGHT a security that had already terminated"
-LACK   `terminated` is passed to the fill loop and to the orphan/grace sweeps,
-       but NOT to `decide()`. So an admission decided at today's close can still
-       name a security that terminated today
-```
-
-The failure mode differs from the standalone's. A delisted security has no
-executable bar at the next open, so the order does not fill — it takes the
-`b is None or not b.can_execute` branch, increments `sessions_waiting`, and stays
-pending. The slot is occupied by an order that can never fill, which is the same
-harm ("consumed the one-admission-per-session mechanism and delayed valid
-replacements") reached by a different route.
-
-This is NOT fixed here. It is a Wealth Core semantics change: it would move the
-golden hash, require a decomposed re-pin, and invalidate any rehearsal in flight.
-It needs a deliberate decision, and the falsifier is already written for us —
-`terminal_close_admission_blocks.csv` names five dated instances to reproduce.
+`sentinel/feed/domains.py` currently accepts `resolve_identity` as an injected
+callable with nothing behind it, so bars key on TICKER. That is a placeholder,
+not a design: it re-introduces the ticker-reuse splice the module explicitly
+refuses elsewhere, and it must be replaced by a point-in-time resolver built from
+`SHARADAR/TICKERS` before the corpus is trustworthy for Wealth Core.

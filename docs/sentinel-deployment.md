@@ -354,7 +354,10 @@ F  Install the exact recovered breadth engine, preserving numerical
    Restated target: our breadth engine must reproduce
    docs/sentinel-reference-implementation/sentinel_1p1_daily.csv — the
    corrected lineage — on the same holdings panel. The frozen oracle stays
-   as the audit artifact for the OLD lineage and is not overwritten
+   as the audit artifact for the OLD lineage and is not overwritten.
+   That file has since moved again (terminal + ISSUER corrected, 2026-08-09):
+   the issuer-identity parse removed a simultaneous GOOG/GOOGL holding. The
+   Sentinel allocation path is unchanged by it; the Wealth Core book is not
 G  Implement the frozen controller: ordinary-stress memory, fast severe, slow
    severe, independent cause/recovery memory, typed evidence records, FAIL
    CLOSED on unavailable required evidence

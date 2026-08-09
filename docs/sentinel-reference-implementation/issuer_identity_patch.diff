@@ -1,0 +1,50 @@
+--- /mnt/data/sentinel_terminal_corrected/output/sentinel_1p1_standalone.py	2026-08-09 17:29:42.000000000 +0000
++++ /mnt/data/sentinel_issuer_fix/output/sentinel_1p1_standalone.py	2026-08-09 17:50:40.396981981 +0000
+@@ -140,7 +140,11 @@
+     rel = d.relatedtickers.fillna('').astype(str).to_numpy()
+     issuer=[]
+     for t,p,r in zip(tick,perm,rel):
+-        names=sorted(set([t]+[x.strip() for x in r.replace(';',',').split(',') if x.strip()]))
++        # Certified issuer identity. Sharadar RELATEDTICKERS is space- or
++        # comma-separated; sort and de-duplicate {ticker} U relatedtickers.
++        # If no related security exists, use the permanent ticker identity.
++        related=[x.strip().upper() for x in str(r).replace(',', ' ').split() if x.strip()]
++        names=sorted(set([str(t).upper()]+related))
+         issuer.append('|'.join(names) if len(names)>1 else ('P:'+p))
+     return tick,tmap,common,sector,np.array(issuer,dtype=object)
+ 
+@@ -316,6 +320,7 @@
+     terminal_pending_entry_blocks=[]
+     terminal_close_admission_blocks=[]
+     executed_buys=[]
++    issuer_conflict_invariant_checks=0
+ 
+     L=201
+     close_ring=np.full((L,n),np.nan,np.float32);adj_ring=np.full((L,n),np.nan,np.float32);raw_ring=np.full((L,n),np.nan,np.float32)
+@@ -471,6 +476,17 @@
+                         executed_buys.append({'date':ds,'ticker':tick[tid],'qty':qty,'price':float(px),'notional':gross})
+                 s.pending_buy=-1;s.pending_notional=0.
+ 
++            # Certification invariant: never hold two securities from the same
++            # economic issuer. This is deliberately checked after every open fill.
++            held_issuer_keys=[issuer[s.ticker] for s in wc.slots if s.held]
++            issuer_conflict_invariant_checks += 1
++            if len(held_issuer_keys) != len(set(held_issuer_keys)):
++                counts={}
++                for k0 in held_issuer_keys: counts[k0]=counts.get(k0,0)+1
++                dupkeys={k0 for k0,v0 in counts.items() if v0>1}
++                dupholdings=[[tick[s.ticker],issuer[s.ticker]] for s in wc.slots if s.held and issuer[s.ticker] in dupkeys]
++                raise RuntimeError({'date':ds,'reason':'duplicate_economic_issuer_held','holdings':dupholdings})
++
+             # dividends/spinoff cash equivalents for prior-close holders
+             div_total=0.
+             for tid,qprior in prior_qty.items():
+@@ -644,7 +660,7 @@
+         final_holdings.append({'ticker':tick[tid],'qty':float(s.qty),'mark':px,'market_value':mv,'portfolio_weight':mv/final_eq,'entry_day':int(s.entry_day),'episode':int(s.episode)})
+     final_holdings=sorted(final_holdings,key=lambda r:-r['portfolio_weight'])
+     final_cash=float(wc.cash+wc.receivable)
+-    summary={'strategy':'Sentinel 1.1-RC zero recovery gate + atomic terminal-order correction','runtime_inputs':'Sharadar only; no oracle files','start':str(curve.index[0].date()),'end':str(curve.index[-1].date()),'sessions':int(len(curve)),'cagr':cagr,'max_drawdown':mdd,'max_drawdown_peak':str(peak.date()),'max_drawdown_trough':str(trough.date()),'ending_multiple':multiple,'final_nav':float(curve.iloc[-1]),'wealth_core_final_multiple_from_1998':float(shadow_eq[-1]/shadow_eq[0]),'terminal_pending_entry_blocks':len(terminal_pending_entry_blocks),'terminal_close_admission_blocks':len(terminal_close_admission_blocks),'executed_buys':len(executed_buys),'ending_held_positions':len(final_holdings),'ending_cash_weight':final_cash/final_eq,'ending_stock_weight':sum(r['portfolio_weight'] for r in final_holdings)}
++    summary={'strategy':'Sentinel 1.1-RC zero recovery gate + terminal-order + certified issuer-identity correction','runtime_inputs':'Sharadar only; no oracle files','start':str(curve.index[0].date()),'end':str(curve.index[-1].date()),'sessions':int(len(curve)),'cagr':cagr,'max_drawdown':mdd,'max_drawdown_peak':str(peak.date()),'max_drawdown_trough':str(trough.date()),'ending_multiple':multiple,'final_nav':float(curve.iloc[-1]),'wealth_core_final_multiple_from_1998':float(shadow_eq[-1]/shadow_eq[0]),'terminal_pending_entry_blocks':len(terminal_pending_entry_blocks),'terminal_close_admission_blocks':len(terminal_close_admission_blocks),'executed_buys':len(executed_buys),'ending_held_positions':len(final_holdings),'ending_cash_weight':final_cash/final_eq,'ending_stock_weight':sum(r['portfolio_weight'] for r in final_holdings),'issuer_conflict_invariant_checks':issuer_conflict_invariant_checks,'issuer_conflict_violations':0}
+     if outdir:
+         outdir.mkdir(parents=True,exist_ok=True)
+         out.to_csv(outdir/'sentinel_1p1_daily.csv',index=False)

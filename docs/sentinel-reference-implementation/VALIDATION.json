@@ -1,68 +1,33 @@
 {
-  "source_sha256": "82e8376d0eef0cbabd5b427e21a0092a93158573f6fe5c5317cc47c12a74e676",
-  "raw_corpus_hash_check": "passed by standalone",
-  "old_invalid_executed_terminal_admissions": 1,
-  "old_invalid_admission": {
-    "date": "2023-11-29",
-    "ticker": "VRTV",
-    "actions": [
-      "acquisitionby",
-      "delisted"
-    ]
-  },
-  "terminal_pending_entry_blocks": 1,
-  "terminal_close_admission_blocks": 5,
-  "post_fix_executed_buys_on_or_after_terminal": [],
-  "terminal_then_later_listed_conflicts_in_corpus": [],
-  "first_path_divergence_vs_previous_raw": {
-    "shadow_equity": "2016-02-05",
-    "damaged": "2016-02-05",
-    "green": "2016-02-05",
-    "allocation": "2025-04-08",
-    "parent_allocation": "2025-04-07",
-    "nav": "2016-02-05"
-  },
-  "allocation_difference_sessions": 20,
-  "allocation_difference_first": "2025-04-08",
-  "allocation_difference_last": "2025-05-06",
-  "old_raw_metrics": {
-    "strategy": "Sentinel 1.1-RC zero recovery gate",
-    "runtime_inputs": "Sharadar only; no oracle files",
-    "start": "2006-07-31",
-    "end": "2026-07-31",
-    "sessions": 5032,
-    "cagr": 0.22259384278334382,
-    "max_drawdown": -0.21949045670277312,
-    "max_drawdown_peak": "2021-02-12",
-    "max_drawdown_trough": "2022-01-27",
-    "ending_multiple": 55.67752620119477,
-    "final_nav": 55.67752620119477,
-    "wealth_core_final_multiple_from_1998": 165.81408831004683
-  },
-  "corrected_metrics": {
-    "strategy": "Sentinel 1.1-RC zero recovery gate + atomic terminal-order correction",
-    "runtime_inputs": "Sharadar only; no oracle files",
-    "start": "2006-07-31",
-    "end": "2026-07-31",
-    "sessions": 5032,
-    "cagr": 0.22094535301499274,
-    "max_drawdown": -0.21963097876900606,
-    "max_drawdown_peak": "2021-02-12",
-    "max_drawdown_trough": "2022-01-27",
-    "ending_multiple": 54.195113492333114,
-    "final_nav": 54.195113492333114,
-    "wealth_core_final_multiple_from_1998": 173.76572693128537,
-    "terminal_pending_entry_blocks": 1,
-    "terminal_close_admission_blocks": 5,
-    "executed_buys": 722,
-    "ending_held_positions": 20,
-    "ending_cash_weight": 0.371411128216364,
-    "ending_stock_weight": 0.6285888717836358
-  },
-  "delta": {
-    "sentinel_cagr_percentage_points": -0.16484897683510802,
-    "sentinel_max_dd_percentage_points": -0.014052206623293984,
-    "sentinel_ending_multiple_relative_pct": -2.6624974383826827,
-    "wealth_core_full_history_multiple_relative_pct": 4.795514483890062
-  }
+  "status": "PASS",
+  "correction": "Certified Sharadar relatedtickers parsing (space or comma separated) plus hard no-duplicate-economic-issuer replay invariant",
+  "source_compile": "PASS",
+  "full_replay_sessions": 5032,
+  "full_shadow_session_checks": 7188,
+  "duplicate_economic_issuer_violations": 0,
+  "alphabet_keys_equal": true,
+  "ending_GOOG_count": 1,
+  "ending_GOOGL_count": 0,
+  "first_daily_difference_vs_terminal_only_lineage": "2025-12-23",
+  "allocation_path_differences_vs_terminal_only_lineage": 0,
+  "parent_allocation_path_differences_vs_terminal_only_lineage": 0,
+  "old_only_buy_events": [
+    {
+      "date": "2025-12-23",
+      "ticker": "GOOGL"
+    }
+  ],
+  "new_only_buy_events": [
+    {
+      "date": "2025-12-23",
+      "ticker": "ROIV"
+    }
+  ],
+  "sentinel_20y_cagr": 0.22094618498568308,
+  "sentinel_20y_max_drawdown": -0.21963097876900606,
+  "sentinel_20y_ending_multiple": 54.195852099734765,
+  "wealth_core_multiple_from_1998": 173.76809512730534,
+  "ending_held_positions": 20,
+  "ending_cash_weight": 0.3714038880475936,
+  "ending_stock_weight": 0.6285961119524062
 }
