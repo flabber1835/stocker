@@ -103,6 +103,63 @@ class TestTheImageLayout:
             "the image's default command must not liquidate an account")
 
 
+class TestTheImageCarriesItsRUNTIME_DEPENDENCIES:
+    """The image must install what the code imports at RUN time.
+
+    This class exists because of a real outage on the first operational night
+    (2026-08-09): the image installed only `/shared/`, which declares pydantic
+    and pyyaml and NO Postgres driver — every Stocker service had installed its
+    own, so nothing in `shared/` ever pulled one in and Sentinel inherited the
+    gap. Every feed command died on `ModuleNotFoundError: psycopg`.
+
+    Three things conspired to hide it, and each is individually reasonable:
+
+      * `store.connect` imports the driver LAZILY, so the package imports fine
+        and the whole test suite passes without a driver present;
+      * the image's default command is `status`, which deliberately touches no
+        database, so the container looked healthy;
+      * the seed was launched DETACHED, so it died into a log nobody was
+        watching and was indistinguishable from a seed still running.
+
+    A checkout-side "can I import psycopg" test would be worse than nothing: it
+    passes whenever the developer's machine happens to have the driver, which is
+    exactly the condition under which the image is broken and the test is green.
+    So this asserts a property of the IMAGE SPEC instead.
+    """
+
+    def test_the_dockerfile_installs_a_POSTGRES_DRIVER(self):
+        body = DOCKERFILE.read_text()
+        installs = "\n".join(l for l in body.splitlines()
+                             if "pip install" in l)
+        assert "psycopg" in installs, (
+            "Dockerfile.sentinel installs no Postgres driver. `shared/` does "
+            "not declare one, so every feed command will die on "
+            "ModuleNotFoundError at its first connection — including a detached "
+            "feed-seed, which fails silently and looks like a running seed.")
+
+    def test_shared_still_does_not_declare_the_driver(self):
+        """The reason the assertion above cannot be relaxed. If `shared/` ever
+        DOES declare a driver this test fails, and whoever changed it gets to
+        decide deliberately whether the explicit install is now redundant —
+        rather than discovering the coupling by removing it."""
+        deps = (ROOT / "shared" / "pyproject.toml").read_text()
+        assert "psycopg" not in deps, (
+            "shared/ now declares a Postgres driver; re-evaluate whether "
+            "Dockerfile.sentinel still needs its explicit install")
+
+    def test_every_LAZY_driver_import_is_covered_by_the_image(self):
+        """Generalises past psycopg. `store.connect` names its drivers in an
+        import that only runs when a database is touched, so the set of things
+        the image must carry is not visible to any import graph."""
+        src = (ROOT / "sentinel" / "feed" / "store.py").read_text()
+        named = {n for n in ("psycopg", "psycopg2") if f"import {n}" in src}
+        assert named, "store.py names no driver — this test needs updating"
+        installs = DOCKERFILE.read_text()
+        assert any(n in installs for n in named), (
+            f"store.py can import {sorted(named)} but the image installs none "
+            f"of them")
+
+
 class TestRetirementProperties:
     def test_the_image_does_not_build_FROM_stocker_base(self):
         froms = [l.split()[1] for l in DOCKERFILE.read_text().splitlines()

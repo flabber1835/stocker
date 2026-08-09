@@ -27,6 +27,21 @@ RUN sed -i 's/MinProtocol = TLSv1.2/MinProtocol = TLSv1.2\nMaxProtocol = TLSv1.2
 COPY shared/ /shared/
 RUN pip install --no-cache-dir /shared/
 
+# The Postgres driver. NOT a transitive dependency of `shared/`, which declares
+# only pydantic and pyyaml — every Stocker service installed its own driver, so
+# nothing in `shared/` ever pulled one in and Sentinel inherited that gap.
+#
+# `sentinel.feed.store.connect` imports it LAZILY (psycopg3 preferred, psycopg2
+# accepted) so the package stays testable without a driver installed. That is
+# the right design and it is also why the omission was invisible: the image
+# built clean, `status` worked because it deliberately touches no database, and
+# every feed command failed at the first connection instead — including a
+# DETACHED `feed-seed`, which dies silently and looks exactly like a seed that
+# is running.
+#
+# [binary] so there is no libpq/build-essential in the runtime image.
+RUN pip install --no-cache-dir "psycopg[binary]>=3.1"
+
 COPY sentinel/ /app/sentinel/
 
 # The ownership log lives HERE and this path must be a mounted volume — see
