@@ -56,12 +56,22 @@ def sep_row(ticker, date, close=50.0, raw=100.0, open_=49.0):
             "closeunadj": raw, "open": open_, "volume": 1_000_000}
 
 
-def fetcher(sep_rows, action_rows=()):
-    """An injected fetch that records which windows were requested."""
+def fetcher(sep_rows, action_rows=(), ticker_rows=None):
+    """An injected fetch that records which windows were requested.
+
+    TICKERS defaults to one open-ended listing per symbol seen in `sep_rows`, so
+    identity resolves 1:1 and these tests stay about ORCHESTRATION. Resolution
+    itself is covered in test_feed_universe.py.
+    """
     calls = []
+    if ticker_rows is None:
+        ticker_rows = [{"ticker": t, "permaticker": f"P-{t}"}
+                       for t in sorted({r["ticker"] for r in sep_rows})]
 
     def fetch(table, params=None, **kw):
         calls.append((table, dict(params or {})))
+        if table == sharadar.TICKERS:
+            return list(ticker_rows)
         lo = (params or {}).get("date.gte", "0000-00-00")
         hi = (params or {}).get("date.lte", "9999-99-99")
         if table == sharadar.ACTIONS:
@@ -78,31 +88,35 @@ class TestSeed:
                 sep_row("BBB", "2022-06-01")]
         p = ingest.seed(conn, date_from="2020-01-01", date_to="2022-12-31",
                         fetch=fetcher(rows))
-        assert p.chunks_total == 4          # actions + three years
-        assert p.chunks_done == 4
+        assert p.chunks_total == 5          # tickers + actions + three years
+        assert p.chunks_done == 5
 
         watcher = S.connect(pg.sync_dsn)
         try:
             r = S.run_status(watcher)[0]
             assert r["status"] == "success"
-            assert r["chunks_done"] == 4
-            assert r["rows_written"] == 3
+            assert r["chunks_done"] == 5
+            assert r["rows_written"] == 3 + 2   # bars + two TICKERS listings
         finally:
             watcher.close()
 
-    def test_ACTIONS_is_fetched_BEFORE_the_prices(self, conn):
-        """The authoritative corporate-action stream must be present from the
-        first year, not the last, or the derived split ratio has nothing to be
-        cross-checked against until the load is nearly over."""
+    def test_IDENTITY_then_ACTIONS_then_prices(self, conn):
+        """Order is load-bearing twice over. TICKERS must precede the prices or
+        every bar is dropped as unresolvable; ACTIONS must precede them so the
+        derived split ratio has something to be cross-checked against from the
+        first year rather than the last."""
         f = fetcher([sep_row("AAA", "2020-06-01")])
         ingest.seed(conn, date_from="2020-01-01", date_to="2020-12-31", fetch=f)
-        assert f.calls[0][0] == sharadar.ACTIONS
+        assert [c[0] for c in f.calls[:3]] == [
+            sharadar.TICKERS, sharadar.ACTIONS, sharadar.SEP]
 
     def test_an_interrupted_seed_RESUMES_without_duplicating(self, conn):
         rows = [sep_row("AAA", "2020-06-01"), sep_row("AAA", "2021-06-01")]
         boom = {"n": 0}
 
         def flaky(table, params=None, **kw):
+            if table == sharadar.TICKERS:
+                return [{"ticker": "AAA", "permaticker": "P-AAA"}]
             if table == sharadar.SEP:
                 boom["n"] += 1
                 if boom["n"] == 2:
@@ -150,7 +164,8 @@ class TestDaily:
                      sep_row("AAA", "2024-02-01", raw=130.0)])
         ingest.daily(conn, fetch=f, today="2024-02-01")
 
-        requested_from = f.calls[0][1]["date.gte"]
+        requested_from = [c for c in f.calls
+                          if c[0] == sharadar.SEP][0][1]["date.gte"]
         assert requested_from < "2024-01-15", "the daily window did not overlap"
         with conn.cursor() as cur:
             cur.execute("SELECT close_unadjusted FROM sentinel_bars"
@@ -169,7 +184,8 @@ class TestDaily:
         blank = [dict(sep_row("BBB", "2024-02-01"), closeunadj=None)
                  for _ in range(20)]
         with pytest.raises(Exception, match="closeunadj"):
-            ingest.daily(conn, fetch=fetcher(blank), today="2024-02-01")
+            ingest.daily(conn, fetch=fetcher(blank), today="2024-02-01",
+                         resolve_identity=lambda t, s: t)
 
 
 class TestRetryConstantsHaveNotDrifted:
