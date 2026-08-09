@@ -1,0 +1,18 @@
+Selective Sentinel Recovery Ramp — research challenger
+
+At a canonical Sentinel severe-state recovery that would transition from 0% Core to 100% Core at the next open:
+1. Use only information available at the preceding close.
+2. Compute delta_r40_5 = shadow_r40(prior_close) - shadow_r40(5 eligible sessions earlier).
+3. If delta_r40_5 > +0.01, recover canonically to 100% Core.
+4. If delta_r40_5 <= +0.01, classify recovery as stalled/fragile and recover to 55% Core / 45% BIL.
+5. Require 10 consecutive canonical healthy closes (r20 > 0, damaged <= 60%, green >= 20%) before moving to 65% Core / 35% BIL at the following open. Reset the healthy streak to zero on any failed close.
+6. From 65%, require another 10 consecutive healthy closes before moving to 100% Core at the following open.
+7. Any renewed canonical severe state overrides the ramp and returns target Core to 0%.
+8. Wealth Core/shadow state is never reset.
+9. Canonical transaction cost assumption: 10 bps one-way on changed notional; BIL total return is the defensive proxy.
+
+Historical exploratory replay 2006-07-31 through 2026-07-31:
+Canonical Sentinel: CAGR 22.11975%, max DD -23.92559%, ending multiple 54.4194x.
+Candidate: CAGR 22.21815%, max DD -21.94905%, ending multiple 55.3032x.
+
+Status: research challenger only. Full position-level exact-next-open certification and out-of-sample/adversarial validation required before promotion.

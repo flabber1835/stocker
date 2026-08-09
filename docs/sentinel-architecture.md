@@ -1,6 +1,13 @@
 # Sentinel — architecture and build plan
 
-**Status: DESIGN ONLY. Nothing in this document is implemented.** Stocker is
+**Status: DESIGN ONLY. Nothing in this document is implemented.**
+
+**UPDATED 2026-08-09 — the frozen research harness has ARRIVED** and is committed
+at `docs/sentinel-handoff/`. It answers three of the four open questions in §8
+and CORRECTS a material error in the original draft: **Sentinel 1.1 is NOT a
+binary controller.** See §7a. Read `docs/sentinel-handoff/00_README/` first —
+`FROZEN_SENTINEL_1P1_RULE.json` is the authoritative parameter set and
+`09_GAPS/MISSING_OR_UNRECOVERED.md` states what is still missing. Stocker is
 being retired in favour of Sentinel, a much smaller deterministic trading
 appliance built from Stocker's proven parts. This file is written so that a
 context with no memory of the conversation that produced it can pick up the
@@ -37,7 +44,7 @@ Sentinel features      <- drawdown, breadth, momentum, vol, all from the SHADOW
 Sentinel state machine <- fast + slow severe causes, tracked separately
       |
       v
-Target exposure        <- 0.0 or 1.0. Binary. Nothing in between
+Target exposure        <- 0.0 | 0.55 | 0.65 | 1.0  (see 7a, NOT binary)
       |
       v
 Execution projection   <- shadow holdings x exposure -> real share quantities
@@ -475,13 +482,55 @@ Slow recovery is deliberately more conservative: at least **20 sessions** in the
 slow severe state, then **five consecutive** healthy closes on the same three
 conditions.
 
-### Causes are tracked separately; the actuator is trivial
+### 7a. CORRECTION — the actuator is NOT binary
+
+The original draft of this document said target exposure is 0.0 or 1.0. **That
+is wrong.** The frozen rule adds a *selective recovery ramp* after a canonical
+severe recovery:
+
+```text
+target_core_exposure in {0.0, 0.55, 0.65, 1.0}
+```
+
+On the session a canonical severe recovery fires, the controller asks whether
+the recovery is FRAGILE, using prior-close information over a 5-session gate
+horizon:
+
+```text
+fragile  iff  delta_r40_5 <= 0.0
+
+not fragile   -> target_core = 1.0 immediately
+fragile       -> 0.55
+                 then 10 consecutive HEALTHY sessions -> 0.65
+                 then 10 more                          -> 1.0
+                 a renewed severe cause at any point   -> 0.0, ramp abandoned
+```
+
+`healthy` here is the same triple used everywhere else: `shadow_r20 > 0`,
+`damaged_breadth <= 0.6`, `green_breadth >= 0.2`.
+
+The simplification note in the frozen rule is worth carrying: fragility was
+tightened from `<= +0.01` to `<= 0.0` and **the exact historical path did not
+change** — so that threshold is on a plateau, not a knife edge.
+
+Consequences for everything else in this document: the three-quantity execution
+model in §9 is unchanged and now matters more (a 0.55 target is a real basket,
+not a corner case), and the ramp's step counters are additional **event-memory**
+state that must be persisted and fail closed:
+
+```text
+ramp_active, ramp_step (0.55 | 0.65), ramp_healthy_streak,
+ramp_entry_session, ramp_fragility_evaluated_at
+```
+
+### Causes are tracked separately; the actuator is still trivial
 
 ```text
 fast_severe_active: bool
 slow_severe_active: bool
 severe = fast_severe_active or slow_severe_active
-target_core_exposure = 0.0 if severe else 1.0
+
+target_core_exposure = 0.0 if severe else ramp_target()   # 0.55 | 0.65 | 1.0
 ```
 
 **Not one generic severe flag.** The causes can overlap and their recovery
@@ -552,11 +601,88 @@ slow-stress clock delays a severe exit by 30 sessions while looking healthy.
 
 ---
 
-## 8. OPEN QUESTIONS — resolve before writing code
+## 8. OPEN QUESTIONS — THREE ANSWERED, ONE STILL BLOCKING
 
-These are not engineering details. They are semantic forks that determine the
-architecture, and **none can be answered from this repository.** They require
-the frozen research harness.
+The frozen harness arrived 2026-08-09 (`docs/sentinel-handoff/`). Answers below.
+
+```text
+Q1  scalar or share-level?     ANSWERED: SCALAR
+Q2  breadth definitions        STILL BLOCKING — classifier NOT FOUND
+Q3  recovery episode semantics MOOT (follows from Q1)
+Q4  how live NAV is computed   ANSWERED: return-series overlay, so the
+                               execution claim is BOUNDED-ERROR, not exact
+```
+
+**Q1 — SCALAR, confirmed.** `execution_reference.model` reads *"SCALAR exposure
+overlay on immutable Wealth Core shadow"*. There are no live Wealth Core
+episodes in the harness; peaks, ages, review flags, cooldowns and terminal state
+exist only in the shadow. §9 is therefore the production architecture.
+
+**Q4 — answered precisely, and it settles the certification wording:**
+
+```text
+decision_time    official_close
+effective_time   next_session_open
+cost             10 bps one-way on abs(new_alloc - old_alloc)
+defensive proxy  BIL total return
+formula          overnight OLD allocation owns close->next-open;
+                 intraday NEW allocation owns open->close
+```
+
+That is a **return-series overlay**, not next-open basket valuation. A
+share-level book cannot reproduce it exactly once integer shares, no-print legs
+and cash residuals exist. The execution claim in §10 is therefore a
+**bounded-error equivalence** claim. State it that way; do not force a false
+equality.
+
+**Q3 — moot.** Scalar means there is no live episode to re-enter.
+
+**Q2 — STILL BLOCKING, and the harness confirms it rather than resolving it.**
+`09_GAPS/MISSING_OR_UNRECOVERED.md`: the security-level damaged/green
+classifier is *"NOT FOUND in the retained artifacts"*. What survived is the
+**aggregate daily tape**, which is enough to certify against but not enough to
+implement from.
+
+```text
+retained    04_BREADTH_ORACLES/fundamental_portfolio_health_daily.csv
+              daily damaged/green, 1998-07-06 onward
+            04_BREADTH_ORACLES/sentinel_1p1_exact_daily_with_breadth.csv
+              2006-07-31 onward, with canonical/candidate alloc
+missing     the per-security classifier that produced them
+```
+
+The frozen rule states the constraint: *"DO NOT RE-INFER. Any implementation
+must reproduce the frozen breadth tape before controller coding is accepted."*
+So a reconstruction is permitted — it just has to be **proven against the tape**,
+and until it is, no controller logic may be written.
+
+### The certification target already exists
+
+`02_SENTINEL_1P1_FROZEN_ORACLE/sentinel_1p1_transition_oracle.csv` — **21
+transitions over twenty years**, with the breadth and momentum inputs beside
+each one. That is the controller acceptance test: same inputs in, same
+transitions and allocations out.
+
+Reference metrics, 2006-07-31 to 2026-07-31:
+
+```text
+                    Sentinel 1.1      canonical parent (1.0x)
+CAGR                22.25%            22.12%
+max drawdown        -21.95%           -23.93%
+ending multiple     55.61x            54.42x
+```
+
+The ramp buys ~2pp of drawdown for ~0.13pp of CAGR — which is what a recovery
+ramp is supposed to do, and worth restating whenever someone proposes removing
+it for simplicity.
+
+### Remaining harness-reading order
+
+```text
+1  reproduce the breadth tape from a candidate classifier      (Q2, BLOCKING)
+2  replay the 21-transition oracle from those inputs
+3  only then write controller code
+```
 
 ### Q1 (pivotal). Scalar or share-level?
 

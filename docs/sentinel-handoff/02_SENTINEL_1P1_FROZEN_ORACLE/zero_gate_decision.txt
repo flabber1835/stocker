@@ -1,0 +1,21 @@
+Sentinel 1.1 recovery-gate simplification test
+
+Old gate: fragile if delta_r40_5 <= +1 percentage point
+Simplified gate: fragile if delta_r40_5 <= 0 (r40 is not improving)
+
+Exact 2006-07-31 to 2026-07-31:
+Old +1pp: CAGR 22.25174847%, max DD -21.94904567%, ending 55.608018x
+Zero gate: CAGR 22.25174847%, max DD -21.94904567%, ending 55.608018x
+Exact historical difference: zero. Same recovery episodes flagged.
+
+Flagged historical recoveries:
+- 2011-09-07: delta_r40_5 -0.8934%
+- 2015-10-29: delta_r40_5 -0.0109%
+- 2022-08-05: delta_r40_5 -7.1123%
+
+Two-session feature delay:
+Old +1pp: CAGR 21.7334%, max DD -21.9490%, transitions 24
+Zero gate: CAGR 22.1010%, max DD -21.9490%, transitions 22
+CAGR improvement from simplification under delay: 0.368 percentage points.
+
+Recommendation: adopt delta_r40_5 <= 0 as the frozen Sentinel 1.1-RC recovery gate. It is simpler, exact-history equivalent, and more delay-robust.

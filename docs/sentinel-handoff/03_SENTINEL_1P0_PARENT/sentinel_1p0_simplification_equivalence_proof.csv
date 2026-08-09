@@ -1,0 +1,2 @@
+same_severe_sessions,same_allocations,same_fast_cause,same_slow_cause,same_transition_count,same_transition_dates_and_values,same_episode_count,same_episode_boundaries,same_nav_exact,max_abs_nav_diff,max_rel_nav_diff,same_exact_nextopen_effective_alloc,nextopen_allocation_diff_sessions
+True,True,True,True,True,True,True,True,True,0.0,0.0,True,0

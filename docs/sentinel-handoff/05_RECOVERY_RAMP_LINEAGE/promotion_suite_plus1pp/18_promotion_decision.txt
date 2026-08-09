@@ -1,0 +1,12 @@
+Sentinel selective recovery-ramp promotion decision
+
+Frozen rule: prior-close delta_r40_5 <= +1pp at canonical recovery => 55% Core / 45% BIL; 10 consecutive canonical healthy closes => 65% Core; another 10 => 100%; severe stress overrides to 0%.
+
+Exact certified-history result:
+- Sentinel 1.0x: CAGR 22.11975%, max DD -23.92559%, ending 54.4194x.
+- Frozen challenger: CAGR 22.25175%, max DD -21.94905%, ending 55.6080x.
+- Improvement: CAGR +0.132%; max-DD improvement +1.977%; ending wealth +2.18%.
+
+Decision: CONDITIONAL PASS as a frozen Sentinel 1.1 release candidate / research challenger, NOT yet a replacement research champion. Exact mechanics, transaction-cost robustness, local parameter plateau, rolling-start risk behavior, and targeted adversarial drawdown behavior are strong. The remaining promotion blockers are (1) two-session feature-delay sensitivity, which causes extra 2007/COVID ramps and reduces CAGR to 21.733%; and (2) lack of genuinely independent recovery episodes because the rule was discovered on the seven historical Sentinel recoveries.
+
+Recommended next action: implement this exact frozen rule in Stocker behind a versioned strategy flag, prove live/windtunnel/backtester parity, and run it as a shadow release candidate without further threshold tuning.

@@ -1,0 +1,114 @@
+{
+  "strategy_id": "sentinel_1_1_rc_zero_gate_research",
+  "status": "FROZEN RESEARCH ORACLE / HANDOFF; production implementation not yet certified",
+  "lineage": {
+    "parent": "sentinel_1_0x_research_v1",
+    "sentinel_1_1_change": "selective recovery ramp after canonical severe recovery",
+    "latest_simplification": "fragile recovery iff delta_r40_5 <= 0 rather than <= +0.01; exact historical path unchanged"
+  },
+  "wealth_core": {
+    "maximum_positions": 25,
+    "nominal_entry_weight": 0.04,
+    "max_new_entries_per_session": 1,
+    "top_fraction": 0.1,
+    "minimum_leadership_population": 25,
+    "momentum_lookback": 126,
+    "skip_recent_sessions": 21,
+    "freshness_minimum": 0.0,
+    "review_age_sessions": 119,
+    "trailing_stop_retention": 0.7,
+    "cooldown_sessions": 21,
+    "transaction_cost_bps": 10
+  },
+  "sentinel_parent": {
+    "ordinary_stress_drawdown": -0.155,
+    "ordinary_target_core": 1.0,
+    "severe_target_core": 0.0,
+    "slow_entry": {
+      "minimum_stress_sessions": 30,
+      "max_return_since_anchor": -0.02,
+      "max_shadow_return_40": -0.03,
+      "min_damaged_breadth": 0.75,
+      "max_green_breadth": 0.25
+    },
+    "slow_recovery": {
+      "minimum_state_sessions": 20,
+      "confirmation_sessions": 5,
+      "min_shadow_return_20_strictly_greater_than": 0.0,
+      "max_damaged_breadth": 0.6,
+      "min_green_breadth": 0.2
+    },
+    "fast_entry": {
+      "max_shadow_drawdown": -0.1,
+      "min_damaged_breadth": 0.85,
+      "max_green_breadth": 0.2,
+      "short_loss_or": [
+        {
+          "max_shadow_r5": -0.05
+        },
+        {
+          "max_shadow_r10": -0.08
+        }
+      ],
+      "min_damaged_breadth_delta5": 0.4,
+      "min_spy_vol5_over_vol20_minus_1": 0.04,
+      "confirmation_or": [
+        {
+          "max_spy_r20": -0.01
+        },
+        {
+          "max_shadow_r10": -0.1
+        }
+      ]
+    },
+    "fast_recovery": {
+      "minimum_state_sessions": 10,
+      "confirmation_sessions": 3,
+      "healthy": {
+        "shadow_r20_strictly_greater_than": 0.0,
+        "max_damaged_breadth": 0.6,
+        "min_green_breadth": 0.2
+      },
+      "rearm_shadow_drawdown_strictly_greater_than": -0.06,
+      "shock_must_be_absent": true
+    }
+  },
+  "sentinel_1_1_recovery_ramp": {
+    "evaluation_time": "canonical severe recovery, using prior close information",
+    "gate_horizon_sessions": 5,
+    "delta_r40_5_fragile_if_lte": 0.0,
+    "if_not_fragile_target_core": 1.0,
+    "if_fragile_first_target_core": 0.55,
+    "healthy_definition": {
+      "shadow_r20_strictly_greater_than": 0.0,
+      "max_damaged_breadth": 0.6,
+      "min_green_breadth": 0.2
+    },
+    "first_confirmation_sessions": 10,
+    "second_target_core": 0.65,
+    "second_confirmation_sessions": 10,
+    "final_target_core": 1.0,
+    "renewed_severe_overrides_target_core": 0.0
+  },
+  "execution_reference": {
+    "model": "SCALAR exposure overlay on immutable Wealth Core shadow",
+    "decision_time": "official_close",
+    "effective_time": "next_session_open",
+    "overlay_transition_cost_bps_one_way": 10,
+    "defensive_proxy": "BIL_total_return",
+    "formula": "overnight old allocation owns close->next-open; intraday new allocation owns open->close; cost on abs(new_alloc-old_alloc)"
+  },
+  "breadth": {
+    "daily_oracle": "04_BREADTH_ORACLES/fundamental_portfolio_health_daily.csv and sentinel_1p1_exact_daily_with_breadth.csv",
+    "security_level_classifier_source_status": "NOT FOUND IN RETAINED ARTIFACTS",
+    "rule": "DO NOT RE-INFER. Any implementation must reproduce the frozen breadth tape before controller coding is accepted."
+  },
+  "reference_metrics_2006_07_31_to_2026_07_31": {
+    "cagr": 0.22251748466709476,
+    "max_drawdown": -0.21949045670277334,
+    "ending_multiple": 55.60801829914156,
+    "canonical_parent_cagr": 0.22119749919039466,
+    "canonical_parent_max_drawdown": -0.23925591713899663,
+    "canonical_parent_ending_multiple": 54.41940224142888
+  }
+}
