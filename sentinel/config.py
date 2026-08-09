@@ -54,6 +54,7 @@ class SentinelConfig:
     state_dir: Path
     max_cycles: int
     poll_seconds: float
+    database_url: str = ""
 
     @property
     def ownership_log(self) -> Path:
@@ -80,6 +81,8 @@ class SentinelConfig:
             "ownership_log": str(self.ownership_log),
             "max_cycles": self.max_cycles,
             "poll_seconds": self.poll_seconds,
+            # The DSN carries a password. Only presence is reported.
+            "database_url": "<set>" if self.database_url else "<unset>",
         }
 
     @classmethod
@@ -92,6 +95,7 @@ class SentinelConfig:
             state_dir=Path(e.get("SENTINEL_STATE_DIR", DEFAULT_STATE_DIR)),
             max_cycles=int(e.get("SENTINEL_MAX_CYCLES", "40")),
             poll_seconds=float(e.get("SENTINEL_POLL_SECONDS", "5")),
+            database_url=e.get("SENTINEL_DATABASE_URL", "").strip(),
         )
         cfg.assert_paper()
         return cfg

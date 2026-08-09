@@ -75,6 +75,53 @@ def cmd_status(config: SentinelConfig) -> int:
     return EXIT_OK
 
 
+def cmd_feed_status(config: SentinelConfig, limit: int) -> int:
+    """Read `feed_ingest_runs` from a SEPARATE connection.
+
+    Nothing here is shared with the writer — that is the point. bt-engine's
+    equivalent serves an in-memory snapshot, so a restart made a dead run and a
+    healthy one indistinguishable. This reads committed rows, so it is correct
+    while a seed runs, after it finishes, and after it dies.
+    """
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = feed_store.connect(config.database_url)
+    try:
+        rows = feed_store.run_status(conn, limit)
+    finally:
+        conn.close()
+
+    if not rows:
+        print("no ingest runs recorded")
+        return EXIT_OK
+
+    print(f"\n  SENTINEL FEED — {len(rows)} most recent")
+    print("  " + "-" * 68)
+    for r in rows:
+        done, total = r["chunks_done"], r["chunks_total"]
+        pct = (100.0 * done / total) if total else 0.0
+        width = 34
+        filled = int(width * pct / 100.0)
+        bar = "#" * filled + "." * (width - filled)
+        print(f"  {r['kind']:<6} {r['status']:<8} {r['started_at']:%Y-%m-%d %H:%M}")
+        print(f"  [{bar}] {pct:5.1f}%   {done}/{total} chunks")
+        print(f"  rows {r['rows_written']:,}   dropped {r['rows_dropped']:,}"
+              f"   at {r['current_chunk'] or '-'}")
+        if r["status"] == "running":
+            # The counters are committed, so staleness is measurable rather than
+            # guessed at — a run whose updated_at stops advancing is stalled even
+            # though its row still says `running`.
+            print(f"  last update {r['updated_at']:%H:%M:%S}"
+                  f"  (a frozen clock here means STALLED, not working)")
+        if r["error_message"]:
+            print(f"  ! {r['error_message'][:150]}")
+        print("  " + "-" * 68)
+    return EXIT_OK
+
+
 async def _plan(config: SentinelConfig) -> int:
     config.assert_credentials()
     broker = build_broker(config)
@@ -151,6 +198,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("status", help="print the ownership log; touches nothing")
+    fs = sub.add_parser("feed-status", help="ingest progress, readable MID-RUN")
+    fs.add_argument("--limit", type=int, default=5)
     sub.add_parser("plan", help="observe and print the plan; submits nothing")
     est = sub.add_parser("establish-ownership", help="remove the legacy book")
     est.add_argument("--max-cycles", type=int, default=None)
@@ -175,6 +224,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "status":
             return cmd_status(config)
+        if args.command == "feed-status":
+            return cmd_feed_status(config, args.limit)
         if args.command == "plan":
             return asyncio.run(_plan(config))
         return asyncio.run(_establish(config))

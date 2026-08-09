@@ -19,6 +19,28 @@
 name: sentinel
 
 services:
+  # Sentinel's OWN database. bt-postgres already holds 35M rows of the same
+  # corpus and reading it would have been faster — rejected because it is a
+  # Stocker-stack container running the Wealth Core rehearsals, and a Sentinel
+  # that cannot start unless a retired platform's database is up is not a
+  # retirement.
+  sentinel-postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sentinel
+      POSTGRES_PASSWORD: ${SENTINEL_POSTGRES_PASSWORD:-sentinel}
+      POSTGRES_DB: sentinel
+    volumes:
+      - sentinel_pgdata:/var/lib/postgresql/data
+    ports:
+      - "5435:5432"   # distinct from live (5433) and bt (5434)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentinel -h 127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   sentinel:
     build:
       context: .
@@ -37,6 +59,8 @@ services:
       SENTINEL_STATE_DIR: /var/lib/sentinel
       SENTINEL_MAX_CYCLES: ${SENTINEL_MAX_CYCLES:-40}
       SENTINEL_POLL_SECONDS: ${SENTINEL_POLL_SECONDS:-5}
+      SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:-sentinel}@sentinel-postgres:5432/sentinel
+      SHARADAR_API_KEY: ${SHARADAR_API_KEY:-}
     volumes:
       # THE most safety-critical mount in this file. `ownership.jsonl` records
       # that the legacy book was removed and the account is Sentinel's. If it is
@@ -47,5 +71,10 @@ services:
       # flag outright.
       - sentinel_state:/var/lib/sentinel
 
+    depends_on:
+      sentinel-postgres:
+        condition: service_healthy
+
 volumes:
   sentinel_state:
+  sentinel_pgdata:
