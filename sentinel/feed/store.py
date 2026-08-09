@@ -158,12 +158,19 @@ class IngestRun:
 
 
 def write_bars(conn, bars: Iterable[Any]) -> int:
-    """Upsert `VendorBar`s. Returns rows written."""
-    rows = [
-        (b.security_id, b.session, b.ticker, getattr(b, "close_signal", None),
-         b.raw_close, b.raw_open, b.volume, b.split_ratio, b.dividend_per_share)
-        for b in bars
-    ]
+    """Upsert bars. Accepts `NormalisedBar` or a bare `VendorBar`.
+
+    Both shapes because the engine's VendorBar does not carry a signal close and
+    tests legitimately build one directly; a bare VendorBar simply stores NULL
+    there, which the readiness check then reports rather than tolerates.
+    """
+    rows = []
+    for item in bars:
+        b = getattr(item, "vendor", item)
+        rows.append((b.security_id, b.session, b.ticker,
+                     getattr(item, "close_signal", None),
+                     b.raw_close, b.raw_open, b.volume, b.split_ratio,
+                     b.dividend_per_share))
     if not rows:
         return 0
     with conn.cursor() as cur:

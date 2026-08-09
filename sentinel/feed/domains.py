@@ -115,6 +115,30 @@ def _f(v) -> Optional[float]:
     return f if f == f else None          # NaN -> None
 
 
+@dataclass(frozen=True)
+class NormalisedBar:
+    """A `VendorBar` plus the SIGNAL close, which VendorBar does not carry.
+
+    The engine DERIVES its signal series from raw closes and split ratios
+    (`feed.to_daily_bar` reads `series.signal_closes[-1]`), so it does not need
+    SEP.close passed in. Storage does:
+
+      * `split_ratio_from_domains` recovers a split from the two domains
+        DIVERGING, and it needs the previous session's pair. A daily ingest
+        starts with no previous observation, so without a stored signal close a
+        split landing on the first bar of the window is invisible;
+      * it is one of the four documented domains, and a corpus that silently
+        holds three of them cannot be checked for holding four.
+
+    Kept beside the VendorBar rather than added to it: VendorBar is certified,
+    shared with the wind tunnel and the live book, and widening it to suit a
+    loader would change a type three engines agree on.
+    """
+
+    vendor: VendorBar
+    close_signal: Optional[float] = None
+
+
 @dataclass
 class NormalisationReport:
     """What the mapping did, so a thin day is visible rather than inferred."""
@@ -137,8 +161,8 @@ def normalise_sep_rows(
     dividends: Mapping[tuple[str, str], float] | None = None,
     authoritative_splits: Mapping[tuple[str, str], float] | None = None,
     report: NormalisationReport | None = None,
-) -> Iterator[VendorBar]:
-    """SEP rows -> `VendorBar`s, in (session, ticker) order.
+) -> Iterator[NormalisedBar]:
+    """SEP rows -> `NormalisedBar`s, in (session, ticker) order.
 
     `rows` must already be ordered by (date, ticker): the split ratio is
     recovered from the PREVIOUS observation of the same security, so an
@@ -191,7 +215,7 @@ def normalise_sep_rows(
             raw_open = op_adj * (raw / close)
 
         rep.bars += 1
-        yield VendorBar(
+        yield NormalisedBar(close_signal=close, vendor=VendorBar(
             session=session,
             security_id=sid,
             ticker=ticker,
@@ -201,7 +225,7 @@ def normalise_sep_rows(
             split_ratio=ratio,
             dividend_per_share=float(
                 (dividends or {}).get((ticker, session), 0.0) or 0.0),
-        )
+        ))
 
 
 def assert_raw_price_domain(report: NormalisationReport,

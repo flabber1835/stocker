@@ -136,7 +136,7 @@ class TestTheResolverDrivesTheFeed:
              "closeunadj": 20.0, "open": 20.0, "volume": 1},
         ]
         bars = list(normalise_sep_rows(rows, resolve_identity=r.resolve))
-        assert [b.security_id for b in bars] == ["P1", "P2"]
+        assert [b.vendor.security_id for b in bars] == ["P1", "P2"]
 
     def test_an_unresolvable_bar_is_dropped_and_COUNTED(self):
         r = U.IdentityResolver([])

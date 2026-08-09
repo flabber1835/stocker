@@ -102,8 +102,9 @@ class TestNormalisation:
         bars = list(D.normalise_sep_rows(
             [row("AAA", "2024-01-02", close=50.0, closeunadj=100.0, open_=49.0)],
             report=rep))
-        assert bars[0].raw_open == pytest.approx(98.0)   # 49 * (100/50)
-        assert bars[0].raw_close == 100.0                # as-traded, untouched
+        assert bars[0].vendor.raw_open == pytest.approx(98.0)   # 49 * (100/50)
+        assert bars[0].vendor.raw_close == 100.0         # as-traded, untouched
+        assert bars[0].close_signal == 50.0              # SEP.close, CARRIED
 
     def test_a_bar_with_no_as_traded_close_is_DROPPED_not_substituted(self):
         rep = D.NormalisationReport()
@@ -128,13 +129,13 @@ class TestNormalisation:
         rows = [row("OLD", "2024-01-02", 50.0, 100.0),
                 row("NEW", "2024-01-03", 50.0, 100.0)]
         bars = list(D.normalise_sep_rows(rows, resolve_identity=lambda t, s: "SEC1"))
-        assert [b.split_ratio for b in bars] == [1.0, 1.0]
+        assert [b.vendor.split_ratio for b in bars] == [1.0, 1.0]
 
     def test_dividends_are_attached_per_ticker_session(self):
         bars = list(D.normalise_sep_rows(
             [row("AAA", "2024-01-02", 50.0, 50.0)],
             dividends={("AAA", "2024-01-02"): 0.75}))
-        assert bars[0].dividend_per_share == 0.75
+        assert bars[0].vendor.dividend_per_share == 0.75
 
     def test_both_column_spellings_are_accepted(self):
         """Sharadar's raw export says `closeunadj`; bt_prices stores it as
@@ -143,7 +144,7 @@ class TestNormalisation:
         for key in ("closeunadj", "close_unadjusted"):
             r = {"ticker": "AAA", "date": "2024-01-02", "close": 50.0,
                  "open": 50.0, "volume": 1, key: 100.0}
-            assert list(D.normalise_sep_rows([r]))[0].raw_close == 100.0
+            assert list(D.normalise_sep_rows([r]))[0].vendor.raw_close == 100.0
 
 
 class TestTheCoverageRefusal:

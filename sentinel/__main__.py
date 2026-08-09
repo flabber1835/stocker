@@ -75,6 +75,41 @@ def cmd_status(config: SentinelConfig) -> int:
     return EXIT_OK
 
 
+def cmd_check_data(config: SentinelConfig, today: str | None) -> int:
+    """Report every clause, then fail if any of them did.
+
+    Reporting all of them matters more than short-circuiting: an operator fixing
+    a feed wants the whole picture, and stopping at the first failure turns one
+    diagnosis into several round trips.
+    """
+    from sentinel.feed import readiness
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = feed_store.connect(config.database_url)
+    try:
+        feed_store.ensure_schema(conn)
+        result = readiness.check_readiness(conn, today=today)
+    finally:
+        conn.close()
+
+    mark = {readiness.PASS: "ok  ", readiness.WARN: "warn", readiness.FAIL: "FAIL"}
+    print("\n  WEALTH CORE DATA CONTRACT")
+    print("  " + "-" * 70)
+    for c in result.checks:
+        print(f"  [{mark[c.status]}] {c.name:<14} {c.detail}")
+    print("  " + "-" * 70)
+    if result.ready:
+        print("  READY — Wealth Core may bootstrap\n")
+        return EXIT_OK
+    print(f"  NOT READY — {len(result.failures)} failed check(s). Wealth Core "
+          f"must NOT bootstrap: it would plan a book on data that cannot "
+          f"support it, and report nothing unusual while doing so.\n")
+    return EXIT_NOT_ESTABLISHED
+
+
 def cmd_feed(config: SentinelConfig, args) -> int:
     """Run an ingest. Progress is committed per chunk, so watch it from another
     shell with `feed-status` rather than by staring at this one."""
@@ -241,6 +276,9 @@ def main(argv: list[str] | None = None) -> int:
     sd.add_argument("--from", dest="date_from", default=None)
     sd.add_argument("--to", dest="date_to", default=None)
     sub.add_parser("feed-daily", help="fetch since the stored frontier")
+    cd = sub.add_parser("check-data",
+                        help="the Wealth Core data contract, per CHECK")
+    cd.add_argument("--today", default=None)
     sub.add_parser("plan", help="observe and print the plan; submits nothing")
     est = sub.add_parser("establish-ownership", help="remove the legacy book")
     est.add_argument("--max-cycles", type=int, default=None)
@@ -269,6 +307,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_feed_status(config, args.limit)
         if args.command in ("feed-seed", "feed-daily"):
             return cmd_feed(config, args)
+        if args.command == "check-data":
+            return cmd_check_data(config, args.today)
         if args.command == "plan":
             return asyncio.run(_plan(config))
         return asyncio.run(_establish(config))
