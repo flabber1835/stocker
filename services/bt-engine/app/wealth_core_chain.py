@@ -60,6 +60,7 @@ from stock_strategy_shared.wealth_core.risk_profile import (
 from stock_strategy_shared.wealth_core.run import run_with_hashes
 from stock_strategy_shared.wealth_core.state import PortfolioState
 from stock_strategy_shared.wealth_core.terminal import TerminalTerms
+from stock_strategy_shared.wealth_core.terminal_audit import reconcile
 
 # The stages the stateful chain runs, in order. Taken from the execution model
 # rather than restated, so a chain change cannot leave the rehearsal behind.
@@ -143,6 +144,20 @@ class ChainRehearsal:
     # terminations still completes and still publishes a plausible CAGR, so
     # these counters are the only place that failure is visible.
     settlement_counters: dict = field(default_factory=dict)
+    # The per-episode terminal audit, and the reconciliation built from it.
+    #
+    # `settlement_counters` above are TOTALS, and totals were exactly the
+    # problem: the 2021-2023 rehearsal carried $342,136.68 and settled
+    # $342,419.72 and nothing in the run could say which of the eight episodes
+    # produced the $283.04 difference, because a carry posts no ledger event and
+    # its share count was never recorded. These two fields answer that per
+    # security, from contemporaneous shares and prices at BOTH ends — which is
+    # what makes acceptance condition 4 checkable rather than inferential.
+    #
+    # Taken from the BULK run for the same reason the counters and `performance`
+    # are: the parity check has already proven it reproduces the live path.
+    terminal_audit: list[dict] = field(default_factory=list)
+    terminal_reconciliation: dict = field(default_factory=dict)
     traces: list[dict] = field(default_factory=list)
     trace_problems: list[str] = field(default_factory=list)
     profile_hash: str = ""
@@ -179,6 +194,8 @@ class ChainRehearsal:
             "performance_excluding_blocked": dict(self.performance_excluding_blocked),
             "equivalence": dict(self.equivalence),
             "settlement_counters": dict(self.settlement_counters),
+            "terminal_audit": list(self.terminal_audit),
+            "terminal_reconciliation": dict(self.terminal_reconciliation),
             "retention": {"mode": self.retention_mode,
                           "tail": self.retention_tail,
                           "sessions_elided": self.sessions_elided,
@@ -545,6 +562,15 @@ def rehearse_chain(*, sessions: Sequence[str],
     # on the money as well as on the hashes. The hashes cover state and the
     # ledger; neither covers the valuation series.
     out.settlement_counters = dict(bulk.settlement_counters)
+    # Sorted so two runs of the same window emit the same order regardless of
+    # dict iteration, and so an operator reading the list finds an episode by
+    # security rather than by scanning.
+    out.terminal_audit = sorted(
+        (r["terminal_audit"] for r in bulk.terminal_results
+         if r.get("terminal_audit")),
+        key=lambda a: (a.get("settlement_session") or "",
+                       a.get("security_id") or ""))
+    out.terminal_reconciliation = reconcile(out.terminal_audit)
     out.performance = measure_run_result(
         bulk, starting_cash, benchmark_closes=benchmark_closes,
         benchmark_ticker=benchmark_ticker).to_dict()

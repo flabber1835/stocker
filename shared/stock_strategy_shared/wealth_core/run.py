@@ -104,7 +104,11 @@ class RunResult:
         return {
             "strategy_id": STRATEGY_ID,
             "strategy_version": STRATEGY_VERSION,
-            "final_state": self.state.to_dict() if self.state else None,
+            # `hash_payload`, not `to_dict`: audit-only keys are persisted for
+            # restart but must not be pinned into the certified artefact. The
+            # terminal audit reaches this dict through `terminal_results`, where
+            # it is per-episode and legible, rather than as raw state.
+            "final_state": self.state.hash_payload() if self.state else None,
             "final_state_hash": self.state.state_hash() if self.state else None,
             "ledger": [e.to_dict() for e in (self.ledger.events if self.ledger else [])],
             "ledger_hash": self.ledger.ledger_hash() if self.ledger else None,

@@ -151,6 +151,38 @@ existing ones (`state.py`, `terminal.py`, `marks.py`, `adapter.py`), so a FORCED
 `stocker-base` rebuild is mandatory before any parity claim or rehearsal —
 confirm the new hash inside the containers BEFORE starting a three-hour run.
 
+**The PER-EPISODE TERMINAL AUDIT is BUILT and the re-pin is DELIBERATELY NOT
+DONE (2026-08-09).** The 2021-2023 rehearsal carried $342,136.68 and settled
+$342,419.72 and could not say which of eight episodes produced the $283.04.
+Two mechanisms make that difference legitimate, both properties of code that was
+already running: a later trustworthy PRINT during the C1 grace updates
+`last_known` (so settlement uses the last traded price, not the carry mark), and
+a SPLIT during the grace changes the SHARE COUNT (`apply_splits` does not skip a
+carried holding). So the reconciliation needs shares at BOTH ends —
+
+```text
+delta = (shares_at_settlement x settlement_price)
+      - (shares_at_carry      x carry_price)
+```
+
+— and `shares` became two fields. Finding that BEFORE the hash moved is what
+kept condition 6 (one re-pin, never incremental) satisfiable.
+
+NEW shared module `terminal_audit.py` ⇒ FORCED `stocker-base` rebuild. Provenance
+lives in two AUDIT-ONLY `PortfolioState` fields (`terminal_carry_audit`,
+`last_valid_mark_session`) that are PERSISTED for restart but EXCLUDED from
+`state_hash` via `_AUDIT_ONLY_STATE_KEYS` and from `RunResult`'s `final_state`
+via the new `hash_payload()` — without that, one authorised hash movement would
+have been three. Measured: only `final_result` moves
+(`5c1af5731f79c702 -> b65714818f66a812`), and stripping the added fields makes
+the RunResult byte-identical to before.
+
+**The golden fixture is INTENTIONALLY UNPINNED right now** — three tests fail on
+the pin and nothing else. Do NOT re-pin to make them green. The sequence is:
+rehearsal → explain all eight episodes and the $283.04 → prove economic outputs
+unchanged → fresh-interpreter guard in a valid environment → ONE re-pin. See
+docs/wealth-core-certification.md "The $283.04".
+
 **Step 7 `chain_rehearsal` is next and runnable.** Steps 5, 6 and 9 remain
 BLOCKED on a missing producer, not on a run: `run_wealth_core_replay` has zero
 callers and the backtester container cannot reach bt-postgres, so nothing can

@@ -43,6 +43,8 @@ from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
 from stock_strategy_shared.wealth_core.marks import Mark, MarkStatus, _positive
 from stock_strategy_shared.wealth_core.prices import DailyBar
 from stock_strategy_shared.wealth_core.state import PortfolioState
+from stock_strategy_shared.wealth_core.terminal_audit import (
+    record_grace_print, record_grace_split)
 
 
 @dataclass
@@ -238,6 +240,18 @@ def apply_splits(state: PortfolioState, bars: Sequence[DailyBar], ledger: Ledger
                 continue
             before = ep.current_shares
             ep.current_shares = int(before * b.split_ratio)
+            # A split does NOT skip a carried holding, so it moves the share
+            # count BETWEEN the carry tally and the settlement tally. Recorded
+            # here, at the only place that knows the ratio, or the reconciliation
+            # sees a notional change with no visible cause and reads it as a
+            # price discrepancy. Nothing is recorded on the announcement session
+            # itself, because the split lands before the carry is created and
+            # `shares_at_carry` is therefore already post-split.
+            carry = state.terminal_carry_audit.get(b.security_id)
+            if carry is not None:
+                record_grace_split(carry, session=session, ratio=b.split_ratio,
+                                   shares_before=before,
+                                   shares_after=ep.current_shares)
             # The episode peak is a SPLIT-ADJUSTED price, so it needs no
             # rescaling — that is the entire reason the signal domain is
             # split-adjusted. Rescaling here would double-apply the split.
@@ -500,12 +514,30 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
         m = marks.get(sec)
         if m is not None and m.status is MarkStatus.CURRENT:
             state.sessions_since_valid_mark.pop(sec, None)
+            # AUDIT-ONLY, moves no hash. The PRICE of the last trustworthy print
+            # is already in the caller-owned `last_known`; only its DATE is
+            # missing, and the audit cannot say "last trustworthy print" without
+            # it. Recorded for every held security, not just carried ones,
+            # because a carry needs the date of a print that happened BEFORE the
+            # event — by which time it is far too late to start recording.
+            state.last_valid_mark_session[sec] = session
+            # A later trustworthy print DURING the grace. This is the mechanism
+            # behind the settled-vs-carried difference: `build_marks` has just
+            # updated `last_known`, and the expiry sweep will settle at that new
+            # price rather than at the mark the carry was authorised against.
+            carry = state.terminal_carry_audit.get(sec)
+            if carry is not None:
+                record_grace_print(carry, session=session,
+                                   price=float(m.raw_mark_close))
         else:
             state.sessions_since_valid_mark[sec] = (
                 state.sessions_since_valid_mark.get(sec, 0) + 1)
     for sec in list(state.sessions_since_valid_mark):
         if sec not in held:          # no longer held: carries no staleness
             state.sessions_since_valid_mark.pop(sec, None)
+    for sec in list(state.last_valid_mark_session):
+        if sec not in held:          # nor a print history
+            state.last_valid_mark_session.pop(sec, None)
 
     # ── 7b. age and expire C1 graces, THEN sweep C2 orphans ──────────────────
     # ORDER IS LOAD-BEARING. A still-pending DOCUMENTED holding must never be

@@ -198,6 +198,22 @@ class SlotState:
                 self.cooldown_sessions_elapsed = None    # expired, slot is free
 
 
+#: `to_dict()` keys that are PERSISTED but never HASHED.
+#:
+#: The rule they encode: audit provenance is an OBSERVATION of what the engine
+#: did, so it must survive a restart and must not be able to move a parity hash.
+#: Anything added here has to be DERIVED — recomputable from state or inputs
+#: that are themselves hashed — or it becomes a way for a real divergence to
+#: hide. That is enforced by test, not by this comment.
+#:
+#: Deliberately a frozenset of literal key names rather than a prefix or naming
+#: convention: a convention silently captures the next field somebody names with
+#: the wrong word, and the cost of accidentally excluding a REAL state field
+#: from the hash is a parity check that passes when it should fail.
+_AUDIT_ONLY_STATE_KEYS = frozenset({
+    "terminal_carry_audit", "last_valid_mark_session"})
+
+
 @dataclass
 class PortfolioState:
     """Everything the strategy must remember between sessions.
@@ -258,6 +274,38 @@ class PortfolioState:
     # of silently inheriting the first one's age (which would re-admit the
     # foreclosure defect through the counter rather than through the rule).
     terminal_pending_terms: dict[str, dict] = field(default_factory=dict)
+
+    # ── AUDIT-ONLY provenance (terminal_audit.py) ────────────────────────────
+    # PERSISTED so a restart mid-grace does not lose it, and EXCLUDED FROM THE
+    # STATE HASH so adding it moves no parity hash. Both halves are required and
+    # for different reasons.
+    #
+    # Persisted: a carry can run ten sessions and the deploy restarts weekly, so
+    # provenance held only in memory would be missing from exactly the long
+    # graces most worth auditing, and a resumed run's `terminal_results` would
+    # differ from an uninterrupted one's — a parity failure caused by the audit
+    # rather than by the strategy.
+    #
+    # Unhashed: `state_hash()` covers `to_dict()`, and `daily_state_hash` chains
+    # one such hash per session, so a new key here would move the daily_state and
+    # final_state hashes as well as final_result. The re-pin is authorised for
+    # ONE movement. This follows `RunResult.settlement_counters`, which is kept
+    # out of `to_dict()` for the same reason: it is a REPORT.
+    #
+    # Safe to leave unhashed ONLY because every value is DERIVED from things that
+    # are already hashed — share counts from the episode, prices from the
+    # normalised bar stream, sessions from the session list. A divergence in any
+    # of them shows up in an earlier hash, which is the one that names the layer
+    # at fault. See `_AUDIT_ONLY_STATE_KEYS`.
+
+    # security_id -> the carry provenance record built by
+    # `terminal_audit.new_carry_record`, for the C1 grace currently being served.
+    terminal_carry_audit: dict[str, dict] = field(default_factory=dict)
+
+    # security_id -> the SESSION of its most recent trustworthy print. The price
+    # already lives in the caller-owned `last_known`; only the date is missing,
+    # and "last trustworthy print" is not answerable without it.
+    last_valid_mark_session: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def fresh(cls, starting_cash: float, n_slots: int = DEFAULT_SLOTS) -> "PortfolioState":
@@ -387,6 +435,15 @@ class PortfolioState:
             "terminal_pending_terms": {
                 k: self.terminal_pending_terms[k]
                 for k in sorted(self.terminal_pending_terms)},
+            # AUDIT-ONLY, and excluded from `state_hash` by
+            # `_AUDIT_ONLY_STATE_KEYS`. Present HERE because to_dict is also the
+            # persistence format, and a carry that outlives a restart must keep
+            # its provenance.
+            "terminal_carry_audit": {
+                k: self.terminal_carry_audit[k]
+                for k in sorted(self.terminal_carry_audit)},
+            "last_valid_mark_session": dict(
+                sorted(self.last_valid_mark_session.items())),
         }
 
     @classmethod
@@ -416,7 +473,32 @@ class PortfolioState:
                 d.get("terminal_pending_sessions") or {}),
             terminal_pending_terms=dict(
                 d.get("terminal_pending_terms") or {}),
+            # Absent for the same reason as above, and additionally for every
+            # blob written before the audit existed. An empty audit is the
+            # correct reading of a run that never recorded one.
+            terminal_carry_audit=dict(d.get("terminal_carry_audit") or {}),
+            last_valid_mark_session=dict(d.get("last_valid_mark_session") or {}),
         )
+
+    def hash_payload(self) -> dict[str, Any]:
+        """`to_dict()` minus the audit-only keys: what a REPORT or a HASH sees.
+
+        Separate from `to_dict` because the two have genuinely different jobs.
+        `to_dict` is the PERSISTENCE format and must carry everything a restart
+        needs, including a grace period's carry provenance. This is the
+        OBSERVABLE state, and it must stay stable when observability is added —
+        otherwise every consumer of a state blob inherits the audit's churn.
+
+        Used by `state_hash` and by `RunResult.to_dict()`'s `final_state`. That
+        second caller matters more than it looks: `final_state` is inside the
+        `final_result` hash, so without this the audit's own bookkeeping —
+        `last_valid_mark_session` carries one entry per HELD security, terminal
+        or not — would be pinned into the certified artefact, widening what the
+        re-pin covers from "the terminal audit" to "mark bookkeeping for the
+        whole book".
+        """
+        return {k: v for k, v in self.to_dict().items()
+                if k not in _AUDIT_ONLY_STATE_KEYS}
 
     def state_hash(self) -> str:
         """Stable across processes and dict orderings.
@@ -424,9 +506,21 @@ class PortfolioState:
         sort_keys is what makes it stable; without it the hash would depend on
         insertion order and a replay in a fresh process could differ from the
         original while representing identical state.
+
+        AUDIT-ONLY KEYS ARE EXCLUDED. `to_dict` serves two masters — persistence
+        and hashing — and they want different things from it: a restart must
+        recover the terminal audit, while a parity hash must not move when
+        observability is added. Excluding them here is what keeps the terminal
+        re-pin to ONE hash movement (`final_result`) instead of also dragging
+        `daily_state` and `final_state` along with it.
+
+        This is only sound because those keys are DERIVED. Everything in them is
+        recomputable from state and inputs that ARE hashed, so no divergence can
+        hide here that does not also show up in an earlier hash — and the hash
+        order exists precisely so the earliest mismatch names the layer at fault.
         """
         from stock_strategy_shared.wealth_core.hashes import quantize
-        blob = json.dumps(quantize(self.to_dict()), sort_keys=True,
+        blob = json.dumps(quantize(self.hash_payload()), sort_keys=True,
                           separators=(",", ":"), default=str)
         return hashlib.sha256(blob.encode()).hexdigest()[:16]
 

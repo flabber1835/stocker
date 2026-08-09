@@ -730,10 +730,12 @@ one episode's value at grace ENTRY differed from its value at SETTLEMENT, and
 only a per-episode reconstruction can say whether that is a benign timing
 artefact or two tallies measuring different things.
 
-**It cannot be attributed per-security today.** `terminal_results` records the
-carry with `price_per_share` but no share count, and a carry posts nothing to the
-ledger — it is a mark, not a settlement. The aggregate exists only because
-`tally_pending_entry` sees `ep.current_shares` in the moment.
+**It could not be attributed per-security before 2026-08-09.** `terminal_results`
+recorded the carry with `price_per_share` but no share count, and a carry posts
+nothing to the ledger — it is a mark, not a settlement. The aggregate existed
+only because `tally_pending_entry` sees `ep.current_shares` in the moment. The
+per-episode audit described below closes that; the rehearsal has not yet been
+re-run, so the $283.04 is now CHECKABLE but still UNEXPLAINED.
 
 `terminal_results` is INSIDE `RunResult.to_dict()` (`run.py:133`), which feeds
 `final_result_hash`. Adding the audit fields therefore MOVES THE GOLDEN HASH.
@@ -749,30 +751,140 @@ reconciliation permanently unprovable at the episode level.
    decisions and performance metrics BIT-FOR-BIT unchanged
 2  the same eight terminal episodes, through the same waterfall branches
 3  the ONLY RunResult differences are newly persisted audit fields
-4  each episode's carried and settled notional recomputed, and their
-   differences shown to sum EXACTLY to $283.04
+4  for EVERY terminal episode, independently recompute carry_notional and
+   settlement_notional from the persisted CONTEMPORANEOUS shares and prices,
+   and prove that SUM(settlement_notional - carry_notional) = $283.04
+   EXACTLY, subject only to the engine's defined rounding convention. If it
+   does not reconcile exactly, STOP the re-pin and investigate
+   (revised 2026-08-09 — the original wording assumed a constant share count,
+   which the split mechanism below falsifies)
 5  an old-hash -> new-hash decomposition showing the hash moved only because
    serialized audit fields were added
 6  re-pinned ONCE, after the complete field set is final — never incrementally
    as fields are discovered
+7  the fresh-interpreter hash guard
+   (`TestTheHashesAreInterpreterIndependent`) run in an environment where
+   `stock_strategy_shared` is importable in a clean subprocess. It silently
+   passed for the wrong reason where the package was not installed: the
+   subprocess raised ImportError and the failure read as environmental
 ```
 
-**Fields required to make each terminal episode self-explanatory:**
+### The TWO mechanisms, established 2026-08-09 before any re-pin
+
+Both are properties of code that was already running; neither is new behaviour.
 
 ```text
-ticker, shares
-event/action type and date
-last trustworthy print: price and date
-carry start: price, notional
-any later trustworthy prints DURING the grace
-settlement: price, date, method (exact | last_mark | zero)
-settled notional
-carry -> settlement delta
+a later trustworthy PRINT during the grace updates `last_known`
+    `build_marks`' carried branch marks a still-printing security CURRENT and
+    MUTATES `last_known`; `sweep_pending_terms` reads it at EXPIRY for the
+    price while freezing only STALENESS at the event. So the settlement price
+    is the last price the security actually traded at, not the mark the carry
+    was authorised against.
+
+a SPLIT during the grace changes the SHARE COUNT
+    `apply_splits` matches on security_id and does NOT skip a carried holding,
+    so the position settles on a different share count than it was carried on.
 ```
+
+Consequence, and the reason the field set below changed: the reconciliation is
+**not** `shares x (settlement_price - carry_price)` for any single `shares`.
+Worked example, from `tests/wealth_core/test_terminal_audit.py`:
+
+```text
+carry        10 shares @ $90.00  =  $900.00
+2-for-1 split during the grace
+settlement   20 shares @ $46.00  =  $920.00
+delta        +$20.00          — and neither 10*(46-90) nor 20*(46-90) gives it
+```
+
+**Fields persisted per terminal episode** (`shared/.../wealth_core/terminal_audit.py`,
+`AUDIT_FIELDS` — that tuple is the enforced list, this block is its documentation):
+
+```text
+security_id, ticker
+event session, kind, reference
+carried (bool)
+carry_session, shares_at_carry, carry_price, carry_notional
+last_trustworthy_print_session
+grace_sessions
+grace_prints[]            every later trustworthy print: session + price
+grace_split_multiplier    cumulative, recorded EXPLICITLY
+grace_splits[]            session, ratio, shares_before, shares_after
+settlement_session, settlement_method, shares_at_settlement,
+settlement_price, settlement_notional
+notional_delta = settlement_notional - carry_notional
+```
+
+`shares` became **two** fields, at both ends, which is the whole point. The
+split multiplier is recorded explicitly even though it is derivable from the two
+share counts in simple cases, because `apply_splits` TRUNCATES
+(`int(before * ratio)`) — so on an odd share count the realised ratio differs
+from the declared one, and an audit that forced the reader to infer it would
+present that truncation as a pricing discrepancy.
+
+### Where the provenance lives, and why not in the obvious place
+
+`state_hash()` hashes `to_dict()`, and `daily_state_hash` chains one such hash
+per session. Carry provenance stored in `terminal_pending_terms` — the obvious
+home, since the grace already keeps its terms there — would therefore have moved
+`daily_state`, `final_state` **and** `final_result`: three movements against an
+authorisation for one.
+
+So `PortfolioState` gained two AUDIT-ONLY fields, `terminal_carry_audit` and
+`last_valid_mark_session`, which are:
+
+```text
+PERSISTED in to_dict/from_dict   a carry can outlive a redeploy, and the deploy
+                                 restarts weekly. Provenance held only in memory
+                                 would be missing from precisely the long graces
+                                 most worth auditing, and a resumed run's
+                                 terminal_results would differ from an
+                                 uninterrupted one's
+EXCLUDED from state_hash         via `_AUDIT_ONLY_STATE_KEYS`, and from
+                                 `RunResult`'s `final_state` via the new
+                                 `hash_payload()`. Without that second
+                                 exclusion, `last_valid_mark_session` — one
+                                 entry per HELD security, terminal or not —
+                                 would pin mark bookkeeping for the whole book
+                                 into the certified artefact
+```
+
+Sound only because every value is DERIVED from inputs that ARE hashed, so no
+divergence can hide there without also showing up in an earlier hash. Same
+precedent as `RunResult.settlement_counters`, which is kept out of `to_dict()`
+for the same reason: it is a REPORT.
+
+### Measured status of the conditions (2026-08-09, golden fixture)
+
+```text
+1,3,5  MET on the fixture. Stripping ONLY the added `terminal_results` fields
+       makes the whole RunResult byte-identical to the pre-change run
+2,4    NOT YET — they are facts about the 2021-2023 rehearsal, which has not
+       been re-run. The audit makes them checkable; it does not answer them
+6      the field set is FINAL as of this commit and the re-pin is NOT DONE
+7      the guard now runs (package installed) and produces the SAME new hash
+       in a clean subprocess as in-process, so the new hash is
+       interpreter-independent
+```
+
+Hash movement, measured over all seven parity hashes plus the ledger hash:
+
+```text
+candidate_audit, decision, order, daily_state, daily_equity,
+final_state_hash, ledger_hash          UNCHANGED
+final_result   5c1af5731f79c702... -> b65714818f66a812...   (NOT YET PINNED)
+```
+
+The three currently-failing tests (`test_the_result_matches_the_pinned_fixture`,
+the fresh-interpreter guard, `test_measuring_does_not_move_the_pinned_result_hash`)
+all fail on the PIN and nothing else. That is the intended state until the
+rehearsal has answered conditions 2 and 4.
 
 Condition 6 is the one most easily violated: discovering a missing field after
 the re-pin and adding it turns one controlled movement into two, and a hash that
-moves twice for the same reason is a hash nobody trusts.
+moves twice for the same reason is a hash nobody trusts. The two-share-count
+finding is exactly that near-miss — it was found by asking whether a split can
+fire during a grace, one step before the hash would have moved.
 
 ## What is proven, and by what
 

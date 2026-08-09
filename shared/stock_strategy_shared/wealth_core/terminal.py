@@ -62,6 +62,8 @@ from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
 from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
 from stock_strategy_shared.wealth_core.marks import Mark, MarkStatus
 from stock_strategy_shared.wealth_core.state import HoldingEpisode, PortfolioState
+from stock_strategy_shared.wealth_core.terminal_audit import (
+    episode_audit, new_carry_record)
 
 
 class TerminalKind(str, Enum):
@@ -248,11 +250,36 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
         state.terminal_pending_terms[sec] = {
             "terms": asdict(terms),
             "stale_at_event": int(sessions_since_last_valid_print or 0)}
+        # AUDIT provenance, written ONCE on entry and never rewritten. Rewriting
+        # it each session would make `carry_price` mean "the price now" — which
+        # is the settlement price — and every episode would reconcile to exactly
+        # zero, a check that can never fail and therefore checks nothing.
+        # `already_pending` is the same guard the counter uses, so the record and
+        # the tally begin on the same session by construction.
+        if not already_pending:
+            state.terminal_carry_audit[sec] = new_carry_record(
+                carry_session=session, shares_at_carry=ep.current_shares,
+                carry_price=float(decision.price_per_share),
+                last_trustworthy_print_session=state.last_valid_mark_session.get(
+                    sec))
         if counters is not None:
             tally_pending_entry(counters, decision, ep.current_shares,
                                 already_pending=already_pending)
+        carry = state.terminal_carry_audit.get(sec) or {}
         return {"applied": False, "pending": True, "security_id": sec,
-                "kind": terms.kind.value, **decision.provenance()}
+                "ticker": ep.ticker, "kind": terms.kind.value,
+                # The carry side of the reconciliation, on the record that
+                # announces the carry. `terminal_results` previously recorded a
+                # carry with a price and NO share count, which is why the
+                # rehearsal's $283.04 could not be attributed to a security.
+                "shares_at_carry": carry.get("shares_at_carry"),
+                "carry_price": carry.get("carry_price"),
+                "carry_notional": (
+                    None if carry.get("shares_at_carry") is None
+                    else round(carry["shares_at_carry"] * carry["carry_price"], 2)),
+                "last_trustworthy_print_session": carry.get(
+                    "last_trustworthy_print_session"),
+                **decision.provenance()}
 
     if not decision.settles:
         # BLOCKED, not approximated, and recorded on the STATE so it survives a
@@ -268,7 +295,12 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
 
     # Settling, by whatever route: the grace is over for this security.
     # Tallied HERE, before dispatch, because every _apply_* path releases the
-    # episode and the share count is gone afterwards.
+    # episode and the share count is gone afterwards. The audit is composed here
+    # and for the same reason, and additionally BEFORE the three pops below —
+    # `grace_sessions` comes from `terminal_pending_sessions`, which the next
+    # line clears.
+    audit = _compose_audit(state, ep, terms=terms, decision=decision,
+                           session=session)
     if counters is not None:
         tally(counters, decision, ep.current_shares)
     state.unresolved_terminals.pop(sec, None)
@@ -279,14 +311,48 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
         # A PROXY settlement: the event is documented, the consideration is not.
         # Deliberately NOT routed through _apply_cash's CASH_MERGER event — that
         # would record a settlement the vendor never stated.
-        return _apply_proxy(state, slot_id, ep, ledger, session, decision, terms)
+        res = _apply_proxy(state, slot_id, ep, ledger, session, decision, terms)
+    elif terms.kind is TerminalKind.WRITE_OFF:
+        res = _apply_write_off(state, slot_id, ep, ledger, session)
+    elif terms.kind is TerminalKind.CASH_MERGER:
+        res = _apply_cash(state, slot_id, ep, ledger, session,
+                          float(terms.cash_per_share), terms)
+    else:
+        res = _apply_conversion(state, slot_id, ep, ledger, session, terms, cfg)
+    # NESTED rather than spread, deliberately: the audit has its own
+    # `security_id`, `ticker` and event fields, and flattening would let one of
+    # them quietly overwrite the result's — the same collision that put
+    # NO_TRUSTWORTHY_MARK where a terms gap belonged and forced
+    # `settlement_reason` to be namespaced.
+    return {**res, "terminal_audit": audit}
 
-    if terms.kind is TerminalKind.WRITE_OFF:
-        return _apply_write_off(state, slot_id, ep, ledger, session)
-    if terms.kind is TerminalKind.CASH_MERGER:
-        return _apply_cash(state, slot_id, ep, ledger, session,
-                           float(terms.cash_per_share), terms)
-    return _apply_conversion(state, slot_id, ep, ledger, session, terms, cfg)
+
+def _compose_audit(state: PortfolioState, ep: HoldingEpisode, *,
+                   terms: TerminalTerms | None, decision, session: str) -> dict:
+    """One episode's terminal audit, built BEFORE the holding is released.
+
+    Ordering is the whole of it: every `_apply_*` path calls `_release`, which
+    drops the share count and the carry provenance, so an audit composed
+    afterwards would report `None` for exactly the two quantities the
+    reconciliation is made of.
+
+    An episode with no stored carry record settled without ever being carried —
+    exact terms on the announcement, or a C2 orphan with no documented event at
+    all. It gets a settlement side and no carry side, and therefore no delta:
+    there was nothing to reconcile against, which is not the same as a
+    reconciliation that came to zero.
+    """
+    return episode_audit(
+        security_id=ep.security_id, ticker=ep.ticker,
+        event_session=(terms.session if terms is not None else None),
+        event_kind=(terms.kind.value if terms is not None else None),
+        event_reference=(terms.reference if terms is not None else None),
+        carry=state.terminal_carry_audit.get(ep.security_id),
+        settlement_session=session,
+        settlement_method=decision.source.value,
+        shares_at_settlement=ep.current_shares,
+        settlement_price=decision.price_per_share,
+        grace_sessions=state.terminal_pending_sessions.get(ep.security_id))
 
 
 def _release(state: PortfolioState, slot_id: int, ep: HoldingEpisode) -> None:
@@ -299,6 +365,12 @@ def _release(state: PortfolioState, slot_id: int, ep: HoldingEpisode) -> None:
     state.sessions_since_valid_mark.pop(ep.security_id, None)
     state.terminal_pending_sessions.pop(ep.security_id, None)
     state.terminal_pending_terms.pop(ep.security_id, None)
+    # The audit provenance dies with it too, and for the same reason: a later
+    # re-entry into the same security must not inherit the dead episode's carry
+    # price and report a delta against a position it never held. The audit
+    # RECORD has already been composed by this point and travels on the result.
+    state.terminal_carry_audit.pop(ep.security_id, None)
+    state.last_valid_mark_session.pop(ep.security_id, None)
 
 
 def _apply_write_off(state, slot_id, ep, ledger, session) -> dict:
@@ -531,6 +603,10 @@ def sweep_pending_terms(state: PortfolioState, *, ledger: Ledger, session: str,
                         **decision.provenance()})
             continue
 
+        # Before the pops, so the grace length survives into the record — this
+        # is the expiry path, where that number is the whole story.
+        audit = _compose_audit(state, ep, terms=terms, decision=decision,
+                               session=session)
         if counters is not None:
             tally(counters, decision, ep.current_shares)
         state.unresolved_terminals.pop(sec, None)
@@ -547,7 +623,8 @@ def sweep_pending_terms(state: PortfolioState, *, ledger: Ledger, session: str,
             continue
         out.append({"session": session,
                     **_apply_proxy(state, slot_id, ep, ledger, session,
-                                   decision, terms)})
+                                   decision, terms),
+                    "terminal_audit": audit})
     return out
 
 
@@ -583,11 +660,18 @@ def sweep_orphans(state: PortfolioState, *, ledger: Ledger, session: str,
                 sec, 0))
         if decision.source is not SettlementSource.ZERO_ORPHAN:
             continue
+        # `terms=None` throughout: this population has NO documented event, which
+        # is the entire condition. The audit therefore has a settlement side and
+        # no event and no carry — and a zero settlement price that is a DECISION,
+        # so `settlement_notional` is 0.0 rather than None.
+        audit = _compose_audit(state, ep, terms=None, decision=decision,
+                               session=session)
         if counters is not None:
             tally(counters, decision, ep.current_shares)
         out.append({"session": session,
                     **_apply_proxy(state, slot_id, ep, ledger, session,
-                                   decision, None)})
+                                   decision, None),
+                    "terminal_audit": audit})
     return out
 
 
