@@ -30,6 +30,80 @@ DOCKERFILE = ROOT / "Dockerfile.sentinel"
 COMPOSE = ROOT / "docker-compose.sentinel.yml"
 
 
+#: Modules that satisfy each other, so installing ONE is enough.
+#: `store.connect` prefers psycopg3 and accepts psycopg2 — pinning both would
+#: put a driver in the image that is never imported.
+_ALTERNATIVES = {"psycopg": {"psycopg", "psycopg2"},
+                 "psycopg2": {"psycopg", "psycopg2"}}
+
+_LOCAL_ROOTS = {"sentinel", "stock_strategy_shared"}
+
+
+def _module_file(mod: str) -> Path | None:
+    p = mod.replace(".", "/")
+    for cand in (ROOT / f"{p}.py", ROOT / p / "__init__.py",
+                 ROOT / "shared" / f"{p}.py", ROOT / "shared" / p / "__init__.py"):
+        if cand.exists():
+            return cand
+    return None
+
+
+def _reachable_third_party() -> dict[str, set[str]]:
+    """Third-party modules reachable from Sentinel's entry points.
+
+    AST rather than importing: an import-based walk would need every dependency
+    already installed, which is precisely the condition being tested. It also
+    walks the FULL tree of each module, so an import nested inside a function —
+    how every one of these dependencies is written — is found exactly like a
+    top-level one.
+
+    Follows local imports into `shared/`, because `shared/` is copied into the
+    image and Sentinel reaches the broker adapter through it. It deliberately
+    does NOT scan all of `shared/`: most of that package is retired Stocker
+    code Sentinel never executes, and requiring pandas/sqlalchemy/redis in this
+    image would be requiring the retired platform.
+    """
+    import ast
+    import sys
+    from collections import deque
+
+    std = set(sys.stdlib_module_names)
+    out: dict[str, set[str]] = {}
+    seen: set[str] = set()
+
+    queue: deque[str] = deque()
+    for p in (ROOT / "sentinel").rglob("*.py"):
+        rel = p.relative_to(ROOT).with_suffix("")
+        queue.append(str(rel).replace("/", ".").removesuffix(".__init__"))
+
+    while queue:
+        mod = queue.popleft()
+        if mod in seen:
+            continue
+        seen.add(mod)
+        f = _module_file(mod)
+        if f is None:
+            continue
+        try:
+            tree = ast.parse(f.read_text())
+        except SyntaxError:                                # pragma: no cover
+            continue
+        for node in ast.walk(tree):
+            names: list[str] = []
+            if isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
+                names = [node.module]
+            for name in names:
+                root = name.split(".")[0]
+                if root in _LOCAL_ROOTS:
+                    queue.append(name)
+                elif root not in std:
+                    out.setdefault(root, set()).add(
+                        f"{f.relative_to(ROOT)}:{node.lineno}")
+    return out
+
+
 def _copy_directives(dockerfile: Path) -> list[tuple[str, str]]:
     out = []
     for line in dockerfile.read_text().splitlines():
@@ -127,15 +201,38 @@ class TestTheImageCarriesItsRUNTIME_DEPENDENCIES:
     So this asserts a property of the IMAGE SPEC instead.
     """
 
-    def test_the_dockerfile_installs_a_POSTGRES_DRIVER(self):
-        body = DOCKERFILE.read_text()
-        installs = "\n".join(l for l in body.splitlines()
+    def test_EVERY_reachable_third_party_import_is_installed(self):
+        """Walk Sentinel's real import graph and require the image to carry it.
+
+        The general form of the bug, and it had to be general: the first version
+        of this test asserted "psycopg is installed", which was true and still
+        missed `httpx` an hour later. EVERY dependency this image needs is
+        imported lazily — that is the deliberate design that keeps the package
+        testable — so no top-level import list and no import-time failure will
+        ever reveal them. Only walking the graph does.
+
+        httpx is the case that shows why this matters beyond tonight: it is
+        reachable from `feed/sharadar.py` AND from `broker/base.py`, so the
+        missing dependency would have surfaced first as a failed corpus fetch
+        and second as a failed `establish-ownership` — during a liquidation.
+        """
+        deps = _reachable_third_party()
+        assert deps, "the walk found nothing — it is broken, not the image"
+        installs = "\n".join(l for l in DOCKERFILE.read_text().splitlines()
                              if "pip install" in l)
-        assert "psycopg" in installs, (
-            "Dockerfile.sentinel installs no Postgres driver. `shared/` does "
-            "not declare one, so every feed command will die on "
-            "ModuleNotFoundError at its first connection — including a detached "
-            "feed-seed, which fails silently and looks like a running seed.")
+        shared_declares = (ROOT / "shared" / "pyproject.toml").read_text()
+
+        missing = []
+        for mod, sites in sorted(deps.items()):
+            group = _ALTERNATIVES.get(mod, {mod})
+            if any(g in installs or g in shared_declares for g in group):
+                continue
+            missing.append(f"{mod} (imported at {sorted(sites)[0]})")
+        assert not missing, (
+            "Dockerfile.sentinel does not install: " + ", ".join(missing) +
+            ". These are imported LAZILY, so the image builds clean, `status` "
+            "works, and the command that needs them dies at its first call — "
+            "silently, if it was launched detached.")
 
     def test_shared_still_does_not_declare_the_driver(self):
         """The reason the assertion above cannot be relaxed. If `shared/` ever
@@ -147,17 +244,16 @@ class TestTheImageCarriesItsRUNTIME_DEPENDENCIES:
             "shared/ now declares a Postgres driver; re-evaluate whether "
             "Dockerfile.sentinel still needs its explicit install")
 
-    def test_every_LAZY_driver_import_is_covered_by_the_image(self):
-        """Generalises past psycopg. `store.connect` names its drivers in an
-        import that only runs when a database is touched, so the set of things
-        the image must carry is not visible to any import graph."""
-        src = (ROOT / "sentinel" / "feed" / "store.py").read_text()
-        named = {n for n in ("psycopg", "psycopg2") if f"import {n}" in src}
-        assert named, "store.py names no driver — this test needs updating"
-        installs = DOCKERFILE.read_text()
-        assert any(n in installs for n in named), (
-            f"store.py can import {sorted(named)} but the image installs none "
-            f"of them")
+    def test_the_walk_actually_reaches_the_BROKER(self):
+        """The walk is only worth anything if it covers the code paths that run
+        LATEST. `establish-ownership` is the last thing to be exercised and the
+        most expensive to get wrong, so assert the traversal reaches the broker
+        adapter rather than stopping inside `sentinel/`."""
+        deps = _reachable_third_party()
+        sites = {s for v in deps.values() for s in v}
+        assert any("broker/base.py" in s for s in sites), (
+            "the import walk never reached the broker adapter, so it cannot "
+            "vouch for the liquidation path")
 
 
 class TestRetirementProperties:

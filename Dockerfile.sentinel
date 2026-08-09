@@ -40,7 +40,18 @@ RUN pip install --no-cache-dir /shared/
 # is running.
 #
 # [binary] so there is no libpq/build-essential in the runtime image.
-RUN pip install --no-cache-dir "psycopg[binary]>=3.1"
+#
+# httpx is the HTTP client, and it is reachable from TWO places that fail at
+# different times: `sentinel/feed/sharadar.py` (the corpus fetch) and
+# `stock_strategy_shared/broker/base.py` (the broker adapter). Both import it
+# lazily, so the second one would not have failed until `establish-ownership`
+# tried to talk to Alpaca — i.e. during a liquidation.
+#
+# BOTH of these were missed by reading top-level imports. Every dependency this
+# image needs is imported lazily, by design, so the import graph does not show
+# them. `tests/sentinel/test_image_layout.py` now walks the graph with AST and
+# fails if the image does not carry what the walk finds.
+RUN pip install --no-cache-dir "psycopg[binary]>=3.1" "httpx>=0.27"
 
 COPY sentinel/ /app/sentinel/
 
