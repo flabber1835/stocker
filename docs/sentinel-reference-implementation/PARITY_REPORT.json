@@ -1,0 +1,47 @@
+{
+  "status": "STRATEGY_SEMANTICS_EXACT__NAV_RAW_RESTATEMENT_DIFFERS_FROM_FROZEN_LEGACY_ACCOUNTING",
+  "period": {
+    "start": "2006-07-31",
+    "end": "2026-07-31",
+    "sessions": 5032
+  },
+  "runtime_strategy_inputs": "Sharadar only; no frozen allocation/breadth/NAV oracle",
+  "parity": {
+    "candidate_effective_allocation_matches": 5032,
+    "candidate_effective_allocation_total": 5032,
+    "candidate_effective_allocation_mismatches": 0,
+    "parent_effective_allocation_mismatches_after_next_open_shift": 0,
+    "damaged_breadth_mismatches": 0,
+    "green_breadth_mismatches": 0,
+    "wealth_core_shadow_max_normalized_relative_error": 4.440892098500626e-16,
+    "live_nav_max_relative_difference_vs_frozen": 0.001249961861243376,
+    "live_nav_ending_relative_difference_vs_frozen": 0.00124996186124271,
+    "first_live_nav_divergence_date_gt_1e12": "2007-07-30"
+  },
+  "raw_sharadar_restatement": {
+    "cagr": 0.22259384278334382,
+    "max_drawdown": -0.21949045670277312,
+    "ending_multiple": 55.67752620119477,
+    "max_drawdown_peak": "2021-02-12",
+    "max_drawdown_trough": "2022-01-27"
+  },
+  "frozen_reference": {
+    "cagr": 0.22251748466709476,
+    "max_drawdown": -0.21949045670277334,
+    "ending_multiple": 55.60801829914156
+  },
+  "differences": {
+    "cagr_percentage_points": 0.007635811624906452,
+    "cagr_basis_points": 0.7635811624906452,
+    "max_drawdown_percentage_points": 2.220446049250313e-14,
+    "ending_multiple_absolute": 0.06950790205321056,
+    "ending_wealth_percent": 0.12499618612427099
+  },
+  "diagnosis": [
+    "2022 slow-stress age off-by-one is fixed: May 17, 2022 is stress duration 30; 0% Core becomes effective May 18.",
+    "Start-date normalization is fixed: July 31, 2006 NAV is exactly 1.0 and no warm-up interval is compounded into the measurement window.",
+    "The remaining NAV difference begins at the first parent transition (2007-07-30) while allocation, breadth and shadow paths remain exact.",
+    "The retained frozen Sentinel 1.1 replay preserves the frozen Sentinel 1.0x scalar NAV factor on intervals where 1.1 equals its parent, and independently reprices only added ramp behavior. Therefore exact frozen NAV is a lineage-compatibility target, not the output of one uniform raw-Sharadar open reconstruction.",
+    "Forcing exact frozen NAV into the raw-only standalone would require consuming or embedding legacy parent accounting outputs; this package deliberately does not do that."
+  ]
+}

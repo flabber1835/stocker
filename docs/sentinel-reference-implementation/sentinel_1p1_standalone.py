@@ -9,6 +9,13 @@ The program independently builds the immutable Wealth Core shadow from raw
 Sharadar data, computes holding-level GREEN/RED/AMBER breadth, runs the
 Sentinel 1.0x fast/slow controller and Sentinel 1.1 recovery ramp, and applies
 next-open scalar allocation accounting with BIL as the defensive sleeve.
+
+This source is the raw-Sharadar restatement.  It intentionally does not ingest
+the frozen Sentinel 1.0x parent NAV tape.  Consequently its allocation path is
+expected to be certification-identical to frozen Sentinel 1.1, while historical
+NAV can differ by tiny amounts at old parent transition opens because the
+retained frozen 1.1 NAV inherited an earlier parent open-reconstruction lineage.
+See PARITY_REPORT.json in the distribution.
 """
 from __future__ import annotations
 
@@ -520,9 +527,8 @@ def run(data:Path,start:pd.Timestamp,end:pd.Timestamp,outdir:Path|None,verify_ha
             base_stress=regular or bf
             if base_stress:
                 if not base_stress_prev:stress_start_i=len(shadow_eq)-1
+                # len(shadow_eq)-start_index already yields 1 on the entry day.
                 stress_duration=(len(shadow_eq)-stress_start_i) if stress_start_i is not None else 0
-                # Historical convention: entry day reports duration 1.
-                stress_duration+=1
                 stress_return=eq/shadow_eq[stress_start_i]-1 if stress_start_i is not None else 0.
             else:
                 stress_start_i=None;stress_duration=0;stress_return=0.
@@ -538,14 +544,24 @@ def run(data:Path,start:pd.Timestamp,end:pd.Timestamp,outdir:Path|None,verify_ha
             # Scalar next-open accounting.  At today's open, pending_sentinel was
             # decided at yesterday's close.  The old allocation owns overnight;
             # the new allocation owns open->close.
-            if prev_close_eq is not None and date>=start:
+            if prev_close_eq is not None and date>start:
                 old_alloc=sentinel_current;new_alloc=pending_sentinel
-                wc_overnight=oe/prev_close_eq-1;wc_intraday=eq/oe-1
+                prevdt=dates[-2]
                 if old_alloc<1 or new_alloc<1:
-                    if date not in bil.index or dates[-2] not in bil.index:raise RuntimeError(f'BIL unavailable for defensive interval {date}')
-                    prevdt=dates[-2];bo=float(bil.loc[date,'adj_open']/bil.loc[prevdt,'closeadj']-1);bi=float(bil.loc[date,'closeadj']/bil.loc[date,'adj_open']-1)
-                else:bo=bi=0.
-                factor=(1+old_alloc*wc_overnight+(1-old_alloc)*bo)*(1-COST*abs(new_alloc-old_alloc))*(1+new_alloc*wc_intraday+(1-new_alloc)*bi)
+                    if date not in bil.index or prevdt not in bil.index:raise RuntimeError(f'BIL unavailable for defensive interval {date}')
+                if abs(new_alloc-old_alloc)<1e-15:
+                    # Frozen scalar semantics: when allocation is unchanged, sleeves
+                    # compound close-to-close and are mixed at the fixed allocation.
+                    wc_factor=eq/prev_close_eq
+                    bil_factor=float(bil.loc[date,'closeadj']/bil.loc[prevdt,'closeadj']) if old_alloc<1 else 1.0
+                    factor=old_alloc*wc_factor+(1-old_alloc)*bil_factor
+                else:
+                    # Allocation changes execute at the next open: old allocation owns
+                    # the overnight leg; new allocation owns open->close.
+                    wc_overnight=oe/prev_close_eq-1;wc_intraday=eq/oe-1
+                    bo=float(bil.loc[date,'adj_open']/bil.loc[prevdt,'closeadj']-1) if old_alloc<1 else 0.0
+                    bi=float(bil.loc[date,'closeadj']/bil.loc[date,'adj_open']-1) if new_alloc<1 else 0.0
+                    factor=(1+old_alloc*wc_overnight+(1-old_alloc)*bo)*(1-COST*abs(new_alloc-old_alloc))*(1+new_alloc*wc_intraday+(1-new_alloc)*bi)
                 if live_nav is None:live_nav=1.0
                 live_nav*=factor;sentinel_current=new_alloc
             elif date==start:
@@ -555,7 +571,7 @@ def run(data:Path,start:pd.Timestamp,end:pd.Timestamp,outdir:Path|None,verify_ha
             pending_sentinel=sentinel_next;parent_current=parent_next;prev_close_eq=eq
 
             if date>=start:
-                live_rows.append(dict(date=date,nav=live_nav,allocation=sentinel_current,parent_allocation=parent_current,shadow_equity=eq,shadow_dd=dd,damaged=damaged_b,green=green_b,r20=r20,r40=r40,stops20=stops20,stress_duration=stress_duration))
+                live_rows.append(dict(date=date,nav=live_nav,allocation=sentinel_current,parent_allocation=parent_current,shadow_equity=eq,open_shadow_equity=oe,shadow_dd=dd,damaged=damaged_b,green=green_b,r20=r20,r40=r40,stops20=stops20,stress_duration=stress_duration))
 
         if progress:print(f'{y}: {len(d):,} rows, {time.time()-ry:.1f}s',flush=True)
         # Release views into the yearly DataFrame before loading the next year.

@@ -1,6 +1,6 @@
 """Synthetic unit tests for Sentinel 1.1. No historical oracle data is used."""
 import math
-from sentinel_1p1 import BinaryStress, FastState, SlowState, SentinelRamp
+from sentinel_1p1_standalone import BinaryStress, FastState, SlowState, SentinelRamp
 
 
 def test_binary_stress_hysteresis():

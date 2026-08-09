@@ -83,14 +83,19 @@ assessment is **stale as of 2026-08-09**.
 
 **Why step 2 is accepted as resolved rather than merely claimed.** The
 classifier was recovered mathematically AND independently corroborated by the
-retained Sentinel source: `docs/sentinel-reference-implementation/sentinel_1p1.py`
-was reconstructed by a different route and contains the same predicates. Two
-separately-derived artefacts agreeing is materially stronger evidence than a
-single asserted docstring, which is how this repository treated it before.
+retained Sentinel source: `docs/sentinel-reference-implementation/sentinel_1p1_standalone.py`
+was reconstructed by a different route and contains the same predicates.
 
-What is still **owed** is reproducing the tape in CI — implementation order item
-F below. That is an acceptance test on the implementation, not a gate on
-starting it.
+It is now more than corroboration. The corrected package (2026-08-09) ships a
+20-year daily output and a comparator, and the frozen oracle it compares against
+was already committed here — so the claim was **verified in this repository**:
+5,032/5,032 sessions, 0 allocation mismatches, 0 damaged/green breadth
+mismatches, shadow max relative error 4.44e-16. See
+`docs/sentinel-reference-implementation/PROVENANCE.md`.
+
+What is still **owed**, and item F below is where it lands: (a) OUR breadth
+engine reproducing that tape, and (b) re-deriving the tape from the raw corpus
+rather than trusting a shipped CSV. The tape is confirmed; the producer is not.
 
 The unrecovered `priority` formula is **not** a Sentinel blocker. It belonged to
 the experimental Selective Survivor Firewall's cohort ranking. Sentinel consumes
@@ -330,7 +335,13 @@ D  Finish the Wealth Core rehearsal; require EXPLAINED behavioural parity
 E  Wealth Core in Sentinel with exposure pinned to 1.00 — paper only, full
    persistence, order/fill reconciliation, restart tests, daily hashes
 F  Install the exact recovered breadth engine; reproduce the frozen tape in
-   CI with boundary fixtures; preserve numerical semantics
+   CI with boundary fixtures; preserve numerical semantics.
+   PARTLY DISCHARGED 2026-08-09: the corrected reference implementation's
+   20-year output was validated in this repo against the frozen oracle —
+   5,032/5,032 sessions, 0 allocation mismatches, 0 breadth mismatches,
+   shadow error 4.44e-16. See docs/sentinel-reference-implementation/
+   PROVENANCE.md. What remains is (a) OUR breadth engine reproducing it and
+   (b) re-deriving the tape from the raw corpus, which needs the corpus
 G  Implement the frozen controller: ordinary-stress memory, fast severe, slow
    severe, independent cause/recovery memory, typed evidence records, FAIL
    CLOSED on unavailable required evidence
