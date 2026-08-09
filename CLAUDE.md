@@ -56,6 +56,34 @@ The LLM must **never** directly submit trades or bypass deterministic validation
 
 ---
 
+# Stocker is being RETIRED; Sentinel replaces it
+
+**Read `docs/sentinel-architecture.md` before starting any new architectural
+work.** Stocker's exploratory shape — ~16 services, an LLM evaluator in the
+loop, news sentiment, a strategy marketplace, two simulators — is being replaced
+by Sentinel: one deterministic engine, two runtime roles, one database.
+
+```text
+Wealth Core   the alpha engine and immutable shadow, carried forward INTACT
+Sentinel      a deterministic exposure controller wrapped around it. It decides
+              HOW MUCH of the live account is exposed to Wealth Core versus a
+              T-bill sleeve. It never decides WHAT Wealth Core holds
+```
+
+DESIGN ONLY — nothing is implemented, and the build is BLOCKED on the frozen
+Sentinel research harness, which is not in this repository. `damaged_breadth`
+and `green_breadth` are undefined here and no decision logic may be written
+until they are imported. See §8 of the architecture doc for the open questions.
+
+Retire, do not erase: tag this repo `stocker-legacy-2026-08` and mine it for
+broker plumbing, ingestion, operational UI, and above all its invariant tests —
+those encode outages that actually happened.
+
+The Wealth Core certification work in `docs/wealth-core-certification.md` is
+UNAFFECTED and still in flight. Finish it; Sentinel is built on top of it.
+
+---
+
 # Required Reading Before Coding
 
 Before any meaningful coding task, read these files if they exist:
