@@ -81,6 +81,36 @@ def _set_statement_timeout(conn, ms: int) -> None:
         cur.execute(f"SET statement_timeout = {int(ms)}")
 
 
+def _read(conn, fn, timeout_ms: int, *, default=None):
+    """Run ONE read under its own timeout, and leave the connection USABLE.
+
+    Returns `(value, error)` — `error` is None on success. The rollback is
+    load-bearing rather than tidy: a timed-out statement leaves the transaction
+    aborted, so without it the NEXT read fails with InFailedSqlTransaction and
+    one slow query cascades into "the whole feed is unreadable". That cascade is
+    exactly what this function exists to stop.
+    """
+    try:
+        _set_statement_timeout(conn, timeout_ms)
+        return fn(conn), None
+    except Exception as exc:                         # noqa: BLE001
+        try:
+            conn.rollback()
+        except Exception:                            # noqa: BLE001
+            pass
+        return default, _short(exc)
+
+
+def _short(exc: Exception) -> str:
+    """A timeout should read as a timeout, not as a driver traceback. An
+    operator seeing this at 23:00 needs to know it was slow, not which
+    exception class libpq chose."""
+    name = type(exc).__name__
+    if "timeout" in str(exc).lower() or "Cancel" in name:
+        return "timed out"
+    return f"{name}: {str(exc).strip().splitlines()[0][:120]}"
+
+
 def _ownership(state_dir: Path) -> model.Row:
     try:
         from sentinel.store import FileOwnershipStore, current_state
@@ -118,31 +148,31 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
         from sentinel.feed import readiness
         from sentinel.feed import store as feed_store
         conn = feed_store.connect(_bounded_dsn(database_url))
-        _set_statement_timeout(conn, STATEMENT_TIMEOUT_MS)
-        frontier = feed_store.latest_session(conn)
-        runs = feed_store.run_status(conn, limit=1)
 
-        # The contract check is the expensive one and it is also the one that
-        # answers "is this data usable". Guarded separately — and on a TIGHTER
-        # timeout — so a slow contract check costs the panel its verdict but
-        # never the frontier, the ingest row or the page itself. During a seed
-        # this check legitimately takes minutes, which is how the panel first
-        # came to hang forever.
-        try:
-            _set_statement_timeout(conn, READINESS_TIMEOUT_MS)
-            r = readiness.check_readiness(conn)
-            ready, passed, total = r.ready, sum(1 for c in r.checks if c.ok), len(r.checks)
-        except Exception:                            # noqa: BLE001
+        # EACH READ SEPARATELY, and this granularity is the whole point.
+        # Grouping them meant one slow query cost the page every other row: the
+        # frontier is `MAX(session)` over `sentinel_bars`, which times out while
+        # that table is being bulk-loaded, and it took the INGEST row down with
+        # it — the one row that matters during an ingest, and the only one that
+        # can say whether the seed is alive.
+        #
+        # The order below is deliberately cheapest-first, so the most useful row
+        # is already secured before anything expensive is attempted.
+        runs, run_err = _read(conn, lambda c: feed_store.run_status(c, limit=1),
+                              STATEMENT_TIMEOUT_MS, default=[])
+        frontier, front_err = _read(conn, feed_store.latest_session,
+                                    STATEMENT_TIMEOUT_MS, default=None)
+
+        # The contract check is the expensive read and the least urgent, so it
+        # gets the TIGHTEST budget and is the first thing given up. During a
+        # seed it legitimately takes minutes.
+        r, _ = _read(conn, readiness.check_readiness, READINESS_TIMEOUT_MS,
+                     default=None)
+        if r is None:
             ready, passed, total = None, 0, 0
-        finally:
-            # A timed-out statement aborts the transaction; without this the
-            # frontier read below would fail with InFailedSqlTransaction and the
-            # panel would report an unreadable feed when it had just read it.
-            try:
-                conn.rollback()
-                _set_statement_timeout(conn, STATEMENT_TIMEOUT_MS)
-            except Exception:                        # noqa: BLE001
-                pass
+        else:
+            ready, passed, total = (r.ready, sum(1 for c in r.checks if c.ok),
+                                    len(r.checks))
 
         behind = None
         if frontier:
@@ -154,10 +184,15 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
 
         run = runs[0] if runs else {}
         rows = [
+            # A frontier that TIMED OUT is not an unreadable database — the
+            # connection is open and the ingest row right below was just read
+            # over it. Reporting it as unreadable would blame the whole feed for
+            # one slow scan, which is what the grouped guard used to do.
             model.feed_row(frontier=str(frontier) if frontier else None,
                            sessions_behind=behind, ready=ready,
                            checks_passed=passed, checks_total=total,
-                           as_of=_utc(run.get("updated_at"))),
+                           as_of=_utc(run.get("updated_at")),
+                           error=(f"frontier {front_err}" if front_err else None)),
             model.ingest_row(kind=run.get("kind"), status=run.get("status"),
                              chunks_done=int(run.get("chunks_done") or 0),
                              chunks_total=int(run.get("chunks_total") or 0),
@@ -166,7 +201,14 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                              updated_at=_utc(run.get("updated_at")),
                              error_message=run.get("error_message")),
         ]
-        return rows, []
+        # `source_errors` is the banner across the top of the page and it means
+        # "the panel could not read the world". A single slow query does not
+        # qualify — the rows below say so themselves, in the right place. Only a
+        # read that failed for a reason OTHER than time gets escalated, and a
+        # dead connection is caught by the outer handler.
+        errs = [f"feed database: {e}" for e in (run_err,)
+                if e and e != "timed out"]
+        return rows, errs
     except Exception as exc:                         # noqa: BLE001
         msg = repr(exc)
         return ([model.feed_row(frontier=None, sessions_behind=None, ready=None,

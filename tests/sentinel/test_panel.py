@@ -247,6 +247,69 @@ class TestItCannotHang:
         from sentinel.panel import sources
         assert sources.READINESS_TIMEOUT_MS < sources.STATEMENT_TIMEOUT_MS
 
+    def test_a_SLOW_query_does_not_cost_the_page_its_other_rows(self):
+        """Reported in use, one deploy after the hang fix: the whole feed read
+        as `source unreadable — QueryCanceled` because the FRONTIER scan
+        (`MAX(session)` over a table being bulk-loaded) timed out. Everything
+        was grouped under one guard, so it took the INGEST row with it — the one
+        row that can say whether the seed is alive, and the only reason to open
+        the panel during an ingest.
+
+        Each read now has its own timeout AND its own rollback, so a slow one
+        cannot cascade.
+        """
+        import psycopg
+
+        calls = []
+
+        class FakeConn:
+            def cursor(self):
+                return self
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute(self, *a):
+                return None
+
+            def rollback(self):
+                calls.append("rollback")
+
+            def close(self):
+                pass
+
+        from sentinel.panel.sources import _read
+
+        conn = FakeConn()
+
+        def slow(_c):
+            raise psycopg.errors.QueryCanceled(
+                "canceling statement due to statement timeout")
+
+        value, err = _read(conn, slow, 100, default=None)
+        assert value is None and err == "timed out", (
+            "a timeout must read as a timeout, not as a driver traceback")
+        assert "rollback" in calls, (
+            "the aborted transaction was left in place, so the NEXT read fails "
+            "with InFailedSqlTransaction and one slow query becomes a dead feed")
+
+        ok, err2 = _read(conn, lambda _c: "still works", 100)
+        assert ok == "still works" and err2 is None
+
+    def test_a_timed_out_FRONTIER_is_not_a_source_failure(self):
+        """`source_errors` is the banner meaning "the panel could not read the
+        world". One slow scan does not qualify: the rows say so themselves, in
+        the right place, and a banner for it would cry wolf on every page load
+        during a seed."""
+        r = model.feed_row(frontier=None, sessions_behind=None, ready=None,
+                           checks_passed=0, checks_total=0, as_of=NOW,
+                           error="frontier timed out")
+        assert r.status is model.UNKNOWN
+        assert "timed out" in r.detail
+
     def test_a_DEAD_port_does_not_hang_the_page(self):
         """A real socket that accepts and never speaks Postgres — the closest
         reproduction of a busy server available without one. The page must come
