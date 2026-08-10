@@ -24,14 +24,29 @@ So both now converge here:
 
 An export from this script, not "some JSON with a book in it". The required
 fields are exactly the ones the checks read, so a file missing any of them is
-refused rather than partially validated:
+refused rather than partially validated.
+
+## The ROW's claims and the RUN's payload are SEPARATE, permanently
 
 ```text
-run_id, status, mode, spec, parity_hashes, summary fields incl. book_artifact
+{
+  "schema": ..., "run_id": ..., "status": ..., "mode": ...,   <- the DB row
+  "spec": {...}, "parity_hashes": {...},                          says these
+  "summary": { ... book_artifact, equivalence, ... }          <- the RUN
+}                                                                 produced this
 ```
 
-An old summary export without the envelope is REFUSED with the remedy, because
-"it looked close enough" is how an unauthenticated run reaches a manifest.
+The first version flattened the summary over the row fields with `**summary`,
+so a summary containing `status` or `mode` would OVERWRITE what the database
+actually said. Today's `ChainRehearsal` carries neither, so nothing was wrong in
+practice — and the authentication boundary was defeated structurally, which is
+the kind of defect that waits for a field to be added rather than announcing
+itself.
+
+Nesting is preferred over merely re-ordering the merge because ordering is a
+property someone has to keep getting right, while nesting makes the two
+categories impossible to confuse: a payload field can never be READ as a row
+claim, whatever it is called.
 """
 from __future__ import annotations
 
@@ -43,10 +58,12 @@ from pathlib import Path
 
 ENVELOPE_SCHEMA = "sentinel.rehearsal_envelope/1"
 
-#: Every field the authentication reads. Listed rather than discovered so a
-#: file missing one is REFUSED, not silently checked against `None`.
+#: Every TOP-LEVEL field the authentication reads. Listed rather than
+#: discovered so a file missing one is REFUSED, not silently checked against
+#: `None`. `book_artifact` lives under `summary` — it is payload, not a claim
+#: the row makes.
 REQUIRED = ("schema", "run_id", "status", "mode", "spec", "parity_hashes",
-            "book_artifact")
+            "summary")
 
 
 def export(run_id: str, out: Path) -> int:
@@ -65,10 +82,13 @@ def export(run_id: str, out: Path) -> int:
         print(f"REFUSED: no run {run_id}", file=sys.stderr)
         return 1
     mode, spec, status, summary, parity, started, completed = row
+    # NESTED, never flattened. `**summary` would let a payload field named
+    # `status` or `mode` overwrite what the row said — the authentication
+    # boundary defeated by a merge order.
     env = {"schema": ENVELOPE_SCHEMA, "run_id": run_id, "mode": mode,
            "status": status, "spec": spec or {}, "parity_hashes": parity,
            "started_at": str(started), "completed_at": str(completed),
-           **(summary or {})}
+           "summary": summary or {}}
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(env, indent=2, sort_keys=True, default=str))
     print(f"  exported run {run_id} -> {out}")
@@ -123,10 +143,31 @@ def authenticate(envelope: Path, book_out: Path, start: str, end: str) -> int:
             "engine that did not record what it was, so the manifest cannot "
             "bind its numbers to any particular Wealth Core source. Re-run on "
             "the current bt-engine image")
-    elif not ident.get("wealth_core_source_hash"):
-        problems.append("spec.engine_identity carries no wealth_core_source_hash")
+    else:
+        if not ident.get("wealth_core_source_hash"):
+            problems.append(
+                "spec.engine_identity carries no wealth_core_source_hash")
+        if not ident.get("bt_engine_app_source_hash"):
+            problems.append(
+                "spec.engine_identity carries no bt_engine_app_source_hash — "
+                "the Wealth Core tree alone does not identify the engine that "
+                "LOADED the corpus and built the rehearsal inputs")
+        if not ident.get("image_id"):
+            problems.append(
+                "spec.engine_identity has no image_id. Two bt-engine containers "
+                "can carry the same Wealth Core tree and different interpreters, "
+                "dependencies, loader code and client libraries — and bt-engine "
+                "is what reads the corpus. Start it with "
+                "`scripts/bt-engine-up.sh`, which builds, inspects the image and "
+                "injects BT_ENGINE_IMAGE_ID before the container starts, then "
+                "re-run the rehearsal")
 
-    book = env.get("book_artifact")
+    summary = env.get("summary")
+    if summary is not None and not isinstance(summary, dict):
+        problems.append("summary is not an object")
+        summary = {}
+    summary = summary or {}
+    book = summary.get("book_artifact")
     if not book:
         problems.append(
             "no book_artifact. An older engine produced this run — one that had "

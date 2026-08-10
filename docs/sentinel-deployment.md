@@ -541,11 +541,29 @@ a different question: what the tag points at NOW. Rebuild it between the run and
 the finalization and the manifest names the wrong image, with nothing about it
 looking wrong.
 
-The load-bearing field is `wealth_core_source_hash`. The manifest records the
-Wealth Core source the CERTIFIED image carries; the run records the one it
-actually imported. If they differ the numbers came from a different engine, and
-finalization BLOCKS. A missing `engine_identity` blocks too — it is a hole, not
-a formality. `BT_ENGINE_IMAGE` still names the image for the record.
+Three fields are bound, not merely recorded, and all three BLOCK when missing:
+
+```text
+wealth_core_source_hash     what the run IMPORTED vs what the certified image
+                            CARRIES. A mismatch means these numbers came from
+                            a different engine — the one mismatch in the record
+                            that is about economics rather than packaging
+bt_engine_app_source_hash   the loader itself. The Wealth Core tree alone does
+                            not identify the engine that READ the corpus and
+                            built the rehearsal inputs
+image_id                    the exact artefact. Two bt-engine containers can
+                            carry the same Wealth Core tree and different
+                            interpreters, dependencies, loader code and client
+                            libraries
+```
+
+**Start bt-engine with `scripts/bt-engine-up.sh`.** It builds, INSPECTS the
+image, and only then starts the container with `BT_ENGINE_IMAGE_ID` injected —
+in that order, because the id has to come from the image about to run rather
+than from whatever the tag pointed at before the build. An ordinary
+`docker compose up -d bt-engine` still works and records `null`, which the
+certification path refuses: a rehearsal started the casual way cannot be
+certified by accident, only re-run.
 
 **Both entry paths authenticate.** `--from-json` used to skip the run checks
 entirely and go straight to reading `book_artifact`, so a hand-written file with
@@ -553,6 +571,21 @@ the right window and fabricated equivalence and reconciliation fields bypassed
 everything `--run-id` had. `scripts/sentinel_rehearsal.py` is now the single
 validator both paths call, and it requires an ENVELOPE it exported — an old
 summary export is refused with the remedy.
+
+**The envelope separates the ROW's claims from the RUN's payload**, permanently:
+
+```text
+{ schema, run_id, status, mode, spec, parity_hashes,   <- the database row
+  summary: { book_artifact, equivalence, ... } }       <- what the run produced
+```
+
+The export used to flatten the summary over the row fields with `**summary`, so
+a payload field named `status` or `mode` would overwrite what the database
+actually said. `ChainRehearsal` carries neither today, so nothing was wrong in
+practice — and the boundary was defeated structurally, which is the kind of
+defect that waits for a field to be added. Nesting beats re-ordering the merge:
+ordering is a property someone has to keep getting right, nesting makes the two
+categories impossible to confuse.
 
 **The certification conditions are GATES, not narration.** These were recorded
 and then described to the operator, so a run with unreconciled episodes printed

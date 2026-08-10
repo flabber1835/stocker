@@ -106,7 +106,12 @@ mp = art / f"manifest-{stamp}.json"
 if not mp.exists():
     sys.exit(f"{mp} does not exist — run scripts/sentinel-certify.sh first")
 m = json.loads(mp.read_text())
-summary = json.loads(src.read_text())
+env = json.loads(src.read_text())
+# THE ROW'S CLAIMS AND THE RUN'S PAYLOAD, read from where each actually lives.
+# They used to be flattened into one object, so a payload field could answer a
+# question the database row was supposed to answer.
+summary = env.get("summary") or {}
+spec = env.get("spec") or {}
 
 def sha(p):
     return hashlib.sha256(Path(p).read_bytes()).hexdigest()
@@ -115,9 +120,9 @@ m["book_artifact_sha256"] = sha(art / f"book-{stamp}.json")
 m["rejection_audit_sha256"] = sha(art / f"rejection-audit-final-{stamp}.json")
 # THE HASHES THE REHEARSAL ITSELF PRODUCED. Without them the manifest names the
 # environment and the corpus and says nothing about the run they produced.
-m["rehearsal_hashes"] = summary.get("parity_hashes") or summary.get("bulk_hashes") or None
-m["rehearsal_run_id"] = summary.get("run_id")
-m["rehearsal_spec"] = summary.get("spec") or None
+m["rehearsal_hashes"] = env.get("parity_hashes") or summary.get("bulk_hashes") or None
+m["rehearsal_run_id"] = env.get("run_id")
+m["rehearsal_spec"] = spec or None
 m["rehearsal_equivalence"] = summary.get("equivalence") or None
 m["settlement_counters"] = summary.get("settlement_counters") or None
 m["terminal_reconciliation"] = summary.get("terminal_reconciliation") or None
@@ -141,7 +146,7 @@ def _img(ref):
 # mutable `:latest` tag at finalization answers "what does the tag point at
 # NOW" — rebuild it between the run and this step and the manifest names the
 # wrong image, with nothing about it looking wrong.
-ident = (summary.get("spec") or {}).get("engine_identity") or {}
+ident = spec.get("engine_identity") or {}
 m["bt_engine_identity"] = ident or None
 m["bt_engine_image"] = _img(os.environ.get("BT_ENGINE_IMAGE",
                                            "stocker-bt-engine:latest"))
@@ -215,6 +220,34 @@ else:
             f"the rehearsal ran Wealth Core {ran[:16]} and the certified image "
             f"carries {certified[:16]}. These numbers were produced by a "
             f"different engine than the one being certified")
+    if not ident.get("bt_engine_app_source_hash"):
+        failures.append(
+            "bt_engine_identity carries no bt_engine_app_source_hash — the "
+            "Wealth Core tree alone does not identify the engine that LOADED "
+            "the corpus and built the rehearsal inputs")
+    # THE IMAGE, bound rather than merely recorded. Two bt-engine containers can
+    # carry the same Wealth Core tree and different interpreters, dependencies,
+    # loader code and client libraries — and bt-engine is what reads the corpus.
+    recorded = ident.get("image_id")
+    present = (m.get("bt_engine_image") or {}).get("id")
+    if not recorded:
+        failures.append(
+            "bt_engine_identity has no image_id — the rehearsal did not know "
+            "which image it was running. Start bt-engine with "
+            "`scripts/bt-engine-up.sh` (build, inspect, inject, then start) and "
+            "re-run")
+    elif not present:
+        failures.append(
+            f"the bt-engine image {(m.get('bt_engine_image') or {}).get('ref')} "
+            f"could not be inspected, so the id the run recorded "
+            f"({recorded[:19]}...) cannot be checked against anything. Set "
+            f"BT_ENGINE_IMAGE to the image being certified")
+    elif recorded != present:
+        failures.append(
+            f"the rehearsal ran bt-engine image {recorded[:19]}... and the "
+            f"image being certified is {present[:19]}.... The tag was rebuilt "
+            f"between the run and this step, so the manifest would name an "
+            f"image that did not produce these numbers")
 
 missing = [k for k in ("corpus_hash", "book_artifact_sha256",
                        "rejection_audit_sha256", "rehearsal_hashes")

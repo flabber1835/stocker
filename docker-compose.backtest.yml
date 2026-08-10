@@ -109,6 +109,22 @@ services:
       # fingerprinted on bt_data_version, so a stale corpus invalidates it
       # correctly; persistence changes nothing about that.
       BT_FACTOR_CACHE_DIR: /factor-cache
+      # THE IMAGE THIS CONTAINER IS RUNNING, injected by the deploy because a
+      # container cannot discover it. bt-engine records it in the run row at
+      # START, and the certification finalizer requires the recorded id to
+      # equal the bt-engine image being certified.
+      #
+      # Inspecting `stocker-bt-engine:latest` at finalization instead answers a
+      # different question — what the tag points at NOW. Rebuild it between the
+      # rehearsal and the finalization and the manifest names the wrong image,
+      # with nothing about it looking wrong.
+      #
+      # Set by `scripts/bt-engine-up.sh`, which builds, inspects and recreates
+      # in that order. Empty here so an ordinary `up -d` still works and the
+      # run simply records `null` — which the certification path REFUSES, so a
+      # rehearsal started the casual way cannot be certified by accident.
+      BT_ENGINE_IMAGE_ID: ${BT_ENGINE_IMAGE_ID:-}
+      BT_ENGINE_IMAGE: ${BT_ENGINE_IMAGE:-}
     volumes:
       - ./strategies:/strategies:ro
       # Named volume rather than a bind under ./artifacts: this grows to GBs

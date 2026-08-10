@@ -36,17 +36,27 @@ START, END = "2021-01-04", "2023-12-29"
 
 
 def envelope(**over):
+    """NESTED: the row's claims at the top, the run's payload under `summary`.
+
+    The image id is POPULATED here, deliberately. An earlier fixture set it to
+    None and every test passed — which is how "a missing image id is a hole"
+    stayed a comment rather than a rule."""
     env = {
         "schema": R.ENVELOPE_SCHEMA,
         "run_id": "abc", "status": "success", "mode": "chain_rehearsal",
         "spec": {"start_date": START, "end_date": END,
                  "retention_mode": "bounded",
-                 "engine_identity": {"wealth_core_source_hash": "a" * 64,
-                                     "python": "3.12.13", "image_id": None}},
+                 "engine_identity": {
+                     "wealth_core_source_hash": "a" * 64,
+                     "bt_engine_app_source_hash": "b" * 64,
+                     "python": "3.12.13",
+                     "image_id": "sha256:" + "c" * 64,
+                     "image_ref": "stocker-bt-engine:latest"}},
         "parity_hashes": {"final_result": "x"},
-        "book_artifact": {"schema": "stock_strategy_shared.book_artifact/1",
-                          "window": {"start": START, "end": END},
-                          "held": ["AAA"], "pending_terminal": []},
+        "summary": {
+            "book_artifact": {"schema": "stock_strategy_shared.book_artifact/1",
+                              "window": {"start": START, "end": END},
+                              "held": ["AAA"], "pending_terminal": []}},
     }
     env.update(over)
     return env
@@ -67,7 +77,7 @@ class TestOneValidatorForBothPaths:
     def test_THE_FALSIFIER_a_hand_written_summary_is_REFUSED(self, tmp_path):
         """The --from-json bypass: the right book window and fabricated
         everything else. It used to reach the audit and the gates."""
-        forged = {"book_artifact": envelope()["book_artifact"],
+        forged = {"book_artifact": envelope()["summary"]["book_artifact"],
                   "equivalence": {"state_hash_matches": True,
                                   "ledger_hash_matches": True,
                                   "final_cash_matches": True},
@@ -96,7 +106,7 @@ class TestOneValidatorForBothPaths:
 
     def test_a_DIFFERENT_window_in_the_BOOK_is_refused(self, tmp_path):
         env = envelope()
-        env["book_artifact"]["window"]["start"] = "2022-01-03"
+        env["summary"]["book_artifact"]["window"]["start"] = "2022-01-03"
         assert run(tmp_path, env) == 1
 
     def test_an_OLD_schema_is_refused_with_the_remedy(self, tmp_path, capsys):
@@ -192,3 +202,104 @@ class TestTheCoverageGateHasANumberInIt:
     def test_the_message_NAMES_the_shortfall(self):
         g = self.gate()
         assert "cash_settled_episodes" in g and "episodes" in g
+
+
+# ── the ROW's claims cannot be overwritten by the RUN's payload ──────────────
+
+class TestTheEnvelopeSeparatesClaimsFromPayload:
+    """The export flattened the summary over the row fields with `**summary`,
+    so a payload field named `status` or `mode` would overwrite what the
+    database actually said. Today's ChainRehearsal carries neither, so nothing
+    was wrong in practice — and the authentication boundary was defeated
+    STRUCTURALLY, which is the kind of defect that waits for a field to be added
+    rather than announcing itself."""
+
+    def test_THE_FALSIFIER_a_summary_claiming_success_cannot_override_a_failed_row(
+            self, tmp_path):
+        env = envelope(status="failed")
+        env["summary"]["status"] = "success"
+        env["summary"]["mode"] = "chain_rehearsal"
+        assert run(tmp_path, env) == 1, (
+            "a payload field answered a question the ROW was supposed to answer")
+
+    def test_a_summary_cannot_supply_a_missing_spec(self, tmp_path):
+        env = envelope()
+        env["spec"] = {}
+        env["summary"]["spec"] = {"start_date": START, "end_date": END}
+        assert run(tmp_path, env) == 1
+
+    def test_a_summary_cannot_supply_parity_hashes(self, tmp_path):
+        env = envelope(parity_hashes=None)
+        env["summary"]["parity_hashes"] = {"final_result": "x"}
+        assert run(tmp_path, env) == 1
+
+    def test_the_export_NESTS_rather_than_merging(self):
+        body = VALIDATOR.read_text()
+        assert '"summary": summary or {}' in body
+        assert "**(summary or {})" not in body, (
+            "the payload is still flattened over the row's claims")
+
+    def test_a_book_at_the_TOP_LEVEL_is_not_read(self, tmp_path):
+        """Payload lives under `summary`. A top-level `book_artifact` is a file
+        someone assembled, and it must not be mistaken for one the run
+        produced."""
+        env = envelope()
+        env["book_artifact"] = env["summary"].pop("book_artifact")
+        assert run(tmp_path, env) == 1
+
+    def test_a_NON_OBJECT_summary_is_refused(self, tmp_path):
+        assert run(tmp_path, envelope(summary="not an object")) == 1
+
+
+class TestTheENGINEImageIsBound:
+    """Two bt-engine containers can carry the same Wealth Core tree and
+    different interpreters, dependencies, loader code and client libraries — and
+    bt-engine is what reads the corpus and builds the rehearsal inputs."""
+
+    def test_a_NULL_image_id_is_now_REFUSED(self, tmp_path):
+        """The earlier fixture asserted `image_id: None` was valid, which
+        contradicted the comment calling it a hole."""
+        env = envelope()
+        env["spec"]["engine_identity"]["image_id"] = None
+        assert run(tmp_path, env) == 1
+
+    def test_a_MISSING_app_source_hash_is_refused(self, tmp_path):
+        env = envelope()
+        env["spec"]["engine_identity"].pop("bt_engine_app_source_hash")
+        assert run(tmp_path, env) == 1
+
+    def test_the_refusal_NAMES_the_remedy(self, tmp_path, capsys):
+        env = envelope()
+        env["spec"]["engine_identity"]["image_id"] = None
+        run(tmp_path, env)
+        assert "bt-engine-up.sh" in capsys.readouterr().err
+
+    def test_COMPOSE_injects_the_id(self):
+        body = (ROOT / "docker-compose.backtest.yml").read_text()
+        assert "BT_ENGINE_IMAGE_ID:" in body and "BT_ENGINE_IMAGE:" in body
+
+    def test_the_launcher_builds_INSPECTS_then_starts(self):
+        body = (ROOT / "scripts" / "bt-engine-up.sh").read_text()
+        code = [l for l in body.splitlines()
+                if l.strip() and not l.lstrip().startswith("#")]
+        build = next(i for i, l in enumerate(code) if "build bt-engine" in l)
+        inspect = next(i for i, l in enumerate(code) if "image inspect" in l)
+        up = next(i for i, l in enumerate(code) if "up -d --force-recreate" in l)
+        assert build < inspect < up, (
+            "the id must be read from the image that is about to run, not from "
+            "whatever the tag pointed at before the build")
+
+    def test_the_launcher_REFUSES_when_the_image_cannot_be_inspected(self):
+        body = (ROOT / "scripts" / "bt-engine-up.sh").read_text()
+        assert "REFUSED: could not inspect" in body and "exit 1" in body
+
+    def test_an_ORDINARY_up_still_works_and_records_null(self):
+        """Which the certification path refuses — so a rehearsal started the
+        casual way cannot be certified by accident, only re-run."""
+        body = (ROOT / "docker-compose.backtest.yml").read_text()
+        assert "BT_ENGINE_IMAGE_ID: ${BT_ENGINE_IMAGE_ID:-}" in body
+
+    def test_the_finalizer_COMPARES_recorded_against_certified(self):
+        body = FINAL.read_text()
+        assert "recorded != present" in body
+        assert "did not produce these numbers" in body
