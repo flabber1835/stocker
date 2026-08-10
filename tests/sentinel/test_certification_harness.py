@@ -377,9 +377,103 @@ class TestTheFinalizerClosesTheLoop:
     def test_it_completes_the_manifest_and_FAILS_when_incomplete(self):
         body = self.FINAL.read_text()
         assert "rehearsal_hashes" in body
-        assert "INCOMPLETE" in body
+        assert "BLOCKED" in body
 
     def test_it_tells_the_operator_to_read_SETTLEMENT_before_performance(self):
         body = self.FINAL.read_text()
         assert "settlement counters" in body
         assert body.index("settlement counters") < body.index("only then, performance")
+
+    def test_the_BOOK_IS_MOUNTED_into_the_container(self):
+        """The sentinel service's only volume is
+        `sentinel_state:/var/lib/sentinel` — no /work, no artifacts mount — so
+        a host path handed to it as `--book` simply does not exist inside. On
+        the real machine step 2 would have reached the container and found
+        nothing."""
+        body = self.FINAL.read_text()
+        assert "certified-book.json:ro" in body, (
+            "the book is passed by a path the container cannot see")
+        assert not [l for l in body.splitlines()
+                    if "--book" in l and "/work/" in l], (
+            "a /work path survives; that directory exists only in the TEST "
+            "image, not in the runtime service")
+
+    def test_only_ONE_file_is_mounted_not_the_repository(self):
+        """A repo mount would also put the source the runtime image must not
+        import back onto its filesystem."""
+        body = self.FINAL.read_text()
+        mounts = [l for l in body.splitlines() if "-v " in l and "compose" in l]
+        for m in mounts:
+            assert "book.json" in m, m
+
+    def test_it_AUTHENTICATES_the_run_not_only_its_book(self):
+        """The book's window rules out the wrong date range and nothing else. A
+        different chain rehearsal over exactly the same dates under altered
+        configuration would pass a window check, and the manifest would close
+        around its hashes."""
+        body = self.FINAL.read_text()
+        for claim in ("status", "chain_rehearsal", "start_date", "end_date",
+                      "parity_hashes"):
+            assert claim in body, claim
+        assert "mode is" in body and "not 'chain_rehearsal'" in body
+
+    def test_it_records_the_SPEC_the_run_actually_used(self):
+        assert "rehearsal_spec" in self.FINAL.read_text()
+
+    def test_it_names_the_BT_ENGINE_image(self):
+        """`sentinel:latest` produces the Sentinel corpus; the three-year Wealth
+        Core rehearsal is executed by bt-engine, and that image belongs in the
+        chain just as much."""
+        body = self.FINAL.read_text()
+        assert "bt_engine_image" in body and "BT_ENGINE_IMAGE" in body
+
+
+class TestTheFinalizerGATESRatherThanNarrates:
+    """`REHEARSAL FINALIZED` meant evidence exists, not that it passed. The
+    conditions were recorded, and then the operator was told what to read."""
+
+    FINAL = ROOT / "scripts" / "sentinel-finalize-rehearsal.sh"
+
+    @pytest.mark.parametrize("condition", [
+        "state_hash_matches", "ledger_hash_matches", "final_cash_matches",
+        "unreconciled_episodes", "unexplained_episodes", "residual",
+        "cash_coverage_fraction"])
+    def test_every_certification_condition_is_CHECKED(self, condition):
+        assert condition in self.FINAL.read_text(), (
+            f"{condition} is not evaluated, so a run violating it still prints "
+            f"green")
+
+    def test_a_MISSING_condition_is_a_failure_not_a_pass(self):
+        """`unreconciled_episodes` absent and `unreconciled_episodes == []` are
+        different statements; only one of them is a reconciliation."""
+        body = self.FINAL.read_text()
+        assert "is MISSING — the" in body
+
+    def test_the_evidence_is_STILL_written_when_blocked(self):
+        body = self.FINAL.read_text()
+        assert body.index("mp.write_text") < body.index("failures = [])".rstrip(")")), (
+            "the manifest must be written before the gate runs, so a blocked "
+            "run still leaves the operator something to read")
+
+    def test_a_nonzero_RESIDUAL_blocks(self):
+        assert "not 0 — at" in self.FINAL.read_text()
+
+    def test_the_failure_message_is_BLOCKED_not_finalized(self):
+        body = self.FINAL.read_text()
+        assert "is not a certified rehearsal" in body
+
+
+class TestTheLockScriptPointsAtTheREBUILD:
+
+    def test_it_no_longer_tells_the_operator_to_use_verify_only(self):
+        """--verify-only skips the build, which is the step the lock is proved
+        by. The harness now rejects a stale image on its own, so this could no
+        longer false-green — and an instruction that contradicts the corrected
+        bootstrap is still worth removing."""
+        body = LOCKER.read_text()
+        instr = [l for l in body.splitlines()
+                 if "--verify-only" in l and "scripts/sentinel-certify.sh" in l
+                 and "NOT" not in l]
+        assert not instr, instr
+        assert "--keep-corpus" in body
+

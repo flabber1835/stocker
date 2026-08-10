@@ -519,12 +519,39 @@ scripts/sentinel-finalize-rehearsal.sh --start 2021-01-04 --end 2023-12-29 \
 ```
 
 It reads `summary.book_artifact` out of the run row, checks its window, re-runs
-the rejection audit against the REALISED book, and completes the manifest with
-the book, audit and rehearsal hashes. The pre-seed audit asserted an empty book;
-that was true before the first bootstrap and is false of the interval the
-rehearsal traded, so re-running it is not optional. A summary with no
-`book_artifact` came from an older engine and is REFUSED — writing the book by
-hand is precisely what this removes.
+the rejection audit against the REALISED book, and completes the manifest. The
+pre-seed audit asserted an empty book; that was true before the first bootstrap
+and is false of the interval the rehearsal traded, so re-running it is not
+optional. A summary with no `book_artifact` came from an older engine and is
+REFUSED — writing the book by hand is precisely what this removes.
+
+**It AUTHENTICATES the run, not only its book.** The book's window rules out the
+wrong date range and nothing else: a different chain rehearsal over exactly the
+same dates under altered configuration would pass a window check, and the
+manifest would close around its hashes. So `status`, `mode`, `spec.start_date`,
+`spec.end_date` and the presence of `parity_hashes` are all checked, and the
+spec is recorded in the manifest — the configuration the rehearsal *ran under*,
+not the one someone believes it ran under.
+
+**The bt-engine image is in the chain too.** `sentinel:latest` produces the
+Sentinel corpus; the three-year Wealth Core rehearsal is executed by bt-engine.
+Set `BT_ENGINE_IMAGE` to the image that ran it.
+
+**The certification conditions are GATES, not narration.** These were recorded
+and then described to the operator, so a run with unreconciled episodes printed
+`REHEARSAL FINALIZED`. All of them now have to hold:
+
+```text
+equivalence.state_hash_matches / ledger_hash_matches / final_cash_matches
+terminal_reconciliation.unreconciled_episodes == []
+terminal_reconciliation.unexplained_episodes  == []
+terminal_reconciliation.residual              == 0
+terminal_reconciliation.cash_coverage_fraction present
+```
+
+A MISSING field fails the same way a violated one does: absent and `== []` are
+different statements, and only one of them is a reconciliation. On failure the
+evidence is still written and the run ends `FINALIZATION BLOCKED`.
 
 `--require-certified` exits non-zero when the interpreter or any pin differs, so
 a rehearsal script refuses to produce evidence from an environment it cannot
