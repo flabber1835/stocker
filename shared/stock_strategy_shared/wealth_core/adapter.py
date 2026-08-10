@@ -25,7 +25,7 @@ cannot reach back to them.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Mapping, Sequence
 
 from stock_strategy_shared.wealth_core.engine import (
@@ -567,6 +567,41 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     # price domain, and reusing it would be exactly the cross-domain error
     # prices.py exists to prevent.
     ev = state.equity_view(marks)
+
+    # ── 7c. A SECURITY THAT TERMINATED TODAY CANNOT BE ADMITTED TODAY ────────
+    # THE INVARIANT, enforced HERE so every caller inherits it rather than
+    # having to remember a side-channel argument:
+    #
+    #     security_id in terminal_events_for_this_session
+    #         =>  OPEN_SLOT_POSITION for it is impossible
+    #
+    # Reproduced 2026-08-09: a WRITE_OFF effective on session d1 returned
+    # NOT_HELD (correctly — the book did not own it), and `decide` then queued
+    # an OPEN_SLOT_POSITION for the same security at the next open. The book
+    # bought a security on its delisting date. That is the same defect the
+    # Sentinel terminal-order correction found in the reference replay, and it
+    # survived here because `terminated` was computed for the FILL path and
+    # never reached the DECISION path.
+    #
+    # `NOT_HELD` means "we did not own it when it terminated". It has never
+    # meant "it is safe to buy". Applying to EVERY kind — write-off, cash
+    # merger, conversion, cash-plus-stock, and the incomplete/carried cases —
+    # because the disqualifying fact is that the security has a terminal event
+    # today, not how that event resolved.
+    #
+    # Marked ineligible rather than dropped: `score_universe` computes the
+    # decile over eligible names, so REMOVING a row would silently move the
+    # cutoff and change which OTHER securities are admitted. An ineligible row
+    # is excluded from admission while still being counted where the engine
+    # counts it, which is the difference between a veto and a rewrite of the
+    # cross-section.
+    if terminated:
+        security_bars = [
+            b if b.security_id not in terminated
+            else replace(b, eligible=False,
+                         eligibility_reason="TERMINAL_ACTION_THIS_SESSION")
+            for b in security_bars]
+
     d = decide(session=session, state=state, bars=list(security_bars), marks=marks,
                cfg=cfg, strategy_id=strategy_id, strategy_version=strategy_version)
 
