@@ -1,0 +1,49 @@
+# The certified image, plus the tooling needed to TEST it. Nothing else.
+#
+# WHY A SECOND IMAGE INSTEAD OF ADDING pytest TO THE FIRST. A test run must
+# exercise the environment a rehearsal actually runs in — the same interpreter,
+# the same exchange_calendars, the same pandas — and installing test tooling
+# into the runtime image would change that environment while claiming to verify
+# it. Layering on top keeps every runtime layer byte-identical: `sentinel:latest`
+# is the artefact, and this is a lens on it.
+#
+# WHY NOT RUN THE SUITE ON THE HOST. The whole point of the pins is that the
+# host's Python is not the certified one. A green suite on a developer's 3.11
+# with a different pandas says nothing about the image that will produce the
+# evidence — which is exactly the gap `identity --require-certified` exists to
+# close, and running the tests anywhere else re-opens it.
+ARG SENTINEL_IMAGE=sentinel:latest
+FROM ${SENTINEL_IMAGE}
+
+# Postgres BINARIES, not a server: `tests/integration/conftest` spins up a
+# throwaway cluster with initdb/pg_ctl per module. Sentinel's own compose file
+# runs postgres:16 as a separate container; that one holds the corpus and must
+# never be what a test writes into.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends postgresql postgresql-client \
+ && rm -rf /var/lib/apt/lists/*
+
+# PINNED like everything else. A test runner that floats can change a verdict
+# between two runs of the same suite, which is the failure mode this whole
+# batch exists to remove.
+RUN pip install --no-cache-dir "pytest==8.4.2"
+
+WORKDIR /work
+COPY tests/ /work/tests/
+COPY sentinel/ /work/sentinel/
+COPY shared/ /work/shared/
+# The parity suite compares Sentinel's loader against the CANONICAL Wealth Core
+# data path, which still lives in the backtester. It is imported, never run —
+# and if it is absent the parity tests SKIP rather than silently pass, which is
+# why it is copied in explicitly rather than left to chance.
+COPY services/backtester/ /work/services/backtester/
+COPY Dockerfile.sentinel /work/Dockerfile.sentinel
+COPY docker-compose.sentinel.yml /work/docker-compose.sentinel.yml
+
+ENV PYTHONPATH=/work:/work/shared \
+    SENTINEL_STATE_DIR=/tmp/sentinel-test-state
+
+# Overrides the runtime ENTRYPOINT, whose purpose is to refuse to be started
+# casually. A test image needs a plain interpreter.
+ENTRYPOINT ["python", "-m", "pytest"]
+CMD ["tests/sentinel", "-q"]
