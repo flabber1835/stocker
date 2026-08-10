@@ -21,13 +21,20 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import os
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-VALIDATOR = ROOT / "scripts" / "sentinel_rehearsal.py"
-FINAL = ROOT / "scripts" / "sentinel-finalize-rehearsal.sh"
+#: The REPOSITORY under inspection. Inside the certified image ROOT is /work —
+#: tests, a backtester copy and tools — while the repo sources live at
+#: /work/repo. Reading a script through ROOT therefore works in a checkout and
+#: raises FileNotFoundError in the image, which is exactly what it did: 85 of
+#: these failed at step 5 on a path that resolves fine on a developer host.
+REPO = Path(os.environ.get("SENTINEL_REPO_ROOT") or ROOT)
+VALIDATOR = REPO / "scripts" / "sentinel_rehearsal.py"
+FINAL = REPO / "scripts" / "sentinel-finalize-rehearsal.sh"
 
 
 def flat(p: Path) -> str:
@@ -152,7 +159,7 @@ class TestTheEngineThatRanItIsRecorded:
         assert run(tmp_path, env) == 1
 
     def test_bt_engine_RECORDS_it_at_run_start(self):
-        src = (ROOT / "services" / "bt-engine" / "app"
+        src = (REPO / "services" / "bt-engine" / "app"
                / "wealth_core_api.py").read_text()
         assert "_engine_identity()" in src
         assert 'spec_json["engine_identity"]' in src
@@ -284,11 +291,11 @@ class TestTheENGINEImageIsBound:
         assert "bt-engine-up.sh" in capsys.readouterr().err
 
     def test_COMPOSE_injects_the_id(self):
-        body = (ROOT / "docker-compose.backtest.yml").read_text()
+        body = (REPO / "docker-compose.backtest.yml").read_text()
         assert "BT_ENGINE_IMAGE_ID:" in body and "BT_ENGINE_IMAGE:" in body
 
     def test_the_launcher_builds_INSPECTS_then_starts(self):
-        body = (ROOT / "scripts" / "bt-engine-up.sh").read_text()
+        body = (REPO / "scripts" / "bt-engine-up.sh").read_text()
         code = [l for l in body.splitlines()
                 if l.strip() and not l.lstrip().startswith("#")]
         build = next(i for i, l in enumerate(code) if "build bt-engine" in l)
@@ -299,13 +306,13 @@ class TestTheENGINEImageIsBound:
             "whatever the tag pointed at before the build")
 
     def test_the_launcher_REFUSES_when_the_image_cannot_be_inspected(self):
-        body = (ROOT / "scripts" / "bt-engine-up.sh").read_text()
+        body = (REPO / "scripts" / "bt-engine-up.sh").read_text()
         assert "REFUSED: could not inspect" in body and "exit 1" in body
 
     def test_an_ORDINARY_up_still_works_and_records_null(self):
         """Which the certification path refuses — so a rehearsal started the
         casual way cannot be certified by accident, only re-run."""
-        body = (ROOT / "docker-compose.backtest.yml").read_text()
+        body = (REPO / "docker-compose.backtest.yml").read_text()
         assert "BT_ENGINE_IMAGE_ID: ${BT_ENGINE_IMAGE_ID:-}" in body
 
     def test_the_finalizer_COMPARES_recorded_against_the_FROZEN_id(self):
@@ -337,9 +344,9 @@ class TestTheEngineIsFrozenNotJustSelfReported:
     move. Only the LOADER did — the code that reads the corpus.
     """
 
-    MANIFEST = ROOT / "scripts" / "sentinel_manifest.py"
-    CERTIFY = ROOT / "scripts" / "sentinel-certify.sh"
-    LAUNCHER = ROOT / "scripts" / "bt-engine-up.sh"
+    MANIFEST = REPO / "scripts" / "sentinel_manifest.py"
+    CERTIFY = REPO / "scripts" / "sentinel-certify.sh"
+    LAUNCHER = REPO / "scripts" / "bt-engine-up.sh"
 
     def test_the_manifest_records_the_bt_engine_IMAGE(self):
         body = self.MANIFEST.read_text()
@@ -370,7 +377,7 @@ class TestTheEngineIsFrozenNotJustSelfReported:
         """The premise of the test above, checked rather than asserted — if the
         Dockerfile stopped doing this, hashing the checkout would become
         correct and the comment would be misleading."""
-        df = (ROOT / "services" / "bt-engine" / "Dockerfile").read_text()
+        df = (REPO / "services" / "bt-engine" / "Dockerfile").read_text()
         into_app = [l for l in df.splitlines()
                     if l.startswith("COPY") and "./app/" in l]
         assert len({l.split()[1].split("/")[1] for l in into_app}) > 1, into_app

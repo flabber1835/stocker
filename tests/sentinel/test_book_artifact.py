@@ -31,11 +31,17 @@ from __future__ import annotations
 
 import json
 import sys
+import os
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
+#: The REPOSITORY under inspection. Inside the certified image ROOT is /work
+#: (tests, an importable backtester copy, tools) while the repo SOURCES live at
+#: /work/repo — so a repo file read through ROOT resolves in a checkout and
+#: raises FileNotFoundError in the image.
+REPO = Path(os.environ.get("SENTINEL_REPO_ROOT") or ROOT)
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
@@ -318,14 +324,14 @@ class TestTheRehearsalEMITSIt:
     it, and then discarded it."""
 
     def test_rehearse_chain_calls_from_run_result(self):
-        src = (ROOT / "services" / "bt-engine" / "app"
+        src = (REPO / "services" / "bt-engine" / "app"
                / "wealth_core_chain.py").read_text()
         assert "book_artifact.from_run_result(" in src, (
             "the three-year certification path still does not emit the book, "
             "so --book has nothing to consume but a hand-written file")
 
     def test_it_is_on_the_RESULT_and_in_its_serialisation(self):
-        src = (ROOT / "services" / "bt-engine" / "app"
+        src = (REPO / "services" / "bt-engine" / "app"
                / "wealth_core_chain.py").read_text()
         assert "book_artifact: dict" in src
         assert '"book_artifact": dict(self.book_artifact)' in src, (
@@ -343,7 +349,7 @@ class TestTheRehearsalEMITSIt:
         is not: that tree is hashed as `wealth_core_source` in every
         certification record and has been byte-identical across three reviews.
         A reporting helper does not get to spend that."""
-        assert not (ROOT / "shared" / "stock_strategy_shared" / "wealth_core"
+        assert not (REPO / "shared" / "stock_strategy_shared" / "wealth_core"
                     / "book_artifact.py").exists()
 
 
@@ -410,7 +416,7 @@ class TestAgainstTheREALPortfolioState:
 class TestTheREHEARSALCollectsTheLabelUnion:
 
     def test_it_accumulates_per_session_not_from_the_final_state(self):
-        src = (ROOT / "services" / "bt-engine" / "app"
+        src = (REPO / "services" / "bt-engine" / "app"
                / "wealth_core_chain.py").read_text()
         assert "label_union" in src
         assert "extra_held=sorted(label_union)" in src, (
@@ -420,7 +426,7 @@ class TestTheREHEARSALCollectsTheLabelUnion:
     def test_the_collection_is_INSIDE_the_session_loop(self):
         """Reading the final state instead would lose every intermediate label,
         and bounded retention would lose the objects that named them."""
-        src = (ROOT / "services" / "bt-engine" / "app"
+        src = (REPO / "services" / "bt-engine" / "app"
                / "wealth_core_chain.py").read_text().splitlines()
         loop = next(i for i, l in enumerate(src) if l.strip() == "for session in sessions:")
         collect = next(i for i, l in enumerate(src) if "label_union.update" in l)

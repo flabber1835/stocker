@@ -9,11 +9,17 @@ from the ones bt-data arrived at.
 from __future__ import annotations
 
 import sys
+import os
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
+#: The REPOSITORY under inspection. Inside the certified image ROOT is /work
+#: (tests, an importable backtester copy, tools) while the repo SOURCES live at
+#: /work/repo — so a repo file read through ROOT resolves in a checkout and
+#: raises FileNotFoundError in the image.
+REPO = Path(os.environ.get("SENTINEL_REPO_ROOT") or ROOT)
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
@@ -22,7 +28,7 @@ from tests.integration.conftest import _EphemeralPostgres  # noqa: E402
 from sentinel.feed import ingest, sharadar  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
 
-CANONICAL = ROOT / "services" / "bt-data" / "app" / "sharadar_client.py"
+CANONICAL = REPO / "services" / "bt-data" / "app" / "sharadar_client.py"
 
 
 @pytest.fixture(scope="module")

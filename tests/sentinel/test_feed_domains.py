@@ -8,11 +8,13 @@ duplication is pinned against the canonical version rather than trusted.
 from __future__ import annotations
 
 import sys
+import os
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
+REPO = Path(os.environ.get('SENTINEL_REPO_ROOT') or ROOT)
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
@@ -42,7 +44,7 @@ class TestTheForbiddenColumn:
         # naming the prohibition is not violating it. What remains is executable
         # code, where the name could only appear as a real column access.
         offenders = []
-        for py in (ROOT / "sentinel").rglob("*.py"):
+        for py in (REPO / "sentinel").rglob("*.py"):
             src = py.read_text()
             for tok in tokenize.generate_tokens(io.StringIO(src).readline):
                 if tok.type in (tokenize.STRING, tokenize.COMMENT):

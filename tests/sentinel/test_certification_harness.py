@@ -34,7 +34,7 @@ ROOT = Path(__file__).resolve().parents[2]
 REPO = Path(os.environ.get("SENTINEL_REPO_ROOT") or ROOT)
 SCRIPT = REPO / "scripts" / "sentinel-certify.sh"
 LOCKER = REPO / "scripts" / "sentinel-lock.sh"
-MANIFEST = ROOT / "scripts" / "sentinel_manifest.py"
+MANIFEST = REPO / "scripts" / "sentinel_manifest.py"
 
 
 def text() -> str:
@@ -240,7 +240,7 @@ class TestTheBootstrapBindsTheLockToTheIMAGE:
         assert "image_lock_sha256" in ident.environment()
 
     def test_the_image_lock_is_read_from_the_BUILD_not_the_checkout(self):
-        src = (ROOT / "sentinel" / "identity.py").read_text()
+        src = (REPO / "sentinel" / "identity.py").read_text()
         assert "/tmp/req" in src, (
             "the lock hash is read from the working tree, which says nothing "
             "about the image")
@@ -343,7 +343,7 @@ class TestThePostgresImageCannotBeNull:
 # ── 7. the post-rehearsal handoff is automated ───────────────────────────────
 
 class TestTheFinalizerClosesTheLoop:
-    FINAL = ROOT / "scripts" / "sentinel-finalize-rehearsal.sh"
+    FINAL = REPO / "scripts" / "sentinel-finalize-rehearsal.sh"
 
     def test_it_exists_and_is_referenced_by_the_harness(self):
         assert self.FINAL.exists()
@@ -355,7 +355,7 @@ class TestTheFinalizerClosesTheLoop:
         assert "bt_wealth_core_runs" in body, (
             "the book is still expected to arrive as a file someone produced")
 
-    VALIDATOR = ROOT / "scripts" / "sentinel_rehearsal.py"
+    VALIDATOR = REPO / "scripts" / "sentinel_rehearsal.py"
 
     def test_it_REFUSES_a_summary_with_no_book(self):
         """An older engine produced the run — one that had the RunResult and
@@ -458,7 +458,7 @@ class TestTheFinalizerGATESRatherThanNarrates:
     """`REHEARSAL FINALIZED` meant evidence exists, not that it passed. The
     conditions were recorded, and then the operator was told what to read."""
 
-    FINAL = ROOT / "scripts" / "sentinel-finalize-rehearsal.sh"
+    FINAL = REPO / "scripts" / "sentinel-finalize-rehearsal.sh"
 
     @pytest.mark.parametrize("condition", [
         "state_hash_matches", "ledger_hash_matches", "final_cash_matches",

@@ -22,6 +22,7 @@ import re
 import shutil
 import subprocess
 import sys
+import pathlib
 from pathlib import Path
 
 import pytest
@@ -482,3 +483,86 @@ class TestTheBuildContextCarriesWhatTheDockerfilesCOPY:
                      for df, src in self.copy_sources()
                      if src in (".", "./")]
         assert not offenders, offenders
+
+
+class TestNoRepoFileIsReadThroughROOT:
+    """The suite runs in TWO layouts, and one of them is the one that counts.
+
+    In a checkout `parents[2]` is the repository. Inside the certified image it
+    is /work — tests, an importable backtester copy, tools, and repo/ — while
+    the repo SOURCES sit at /work/repo. So `ROOT / "scripts" / "sentinel-certify.sh"`
+    reads fine on a developer host and raises FileNotFoundError in the image.
+
+    Not hypothetical: step 5 failed with 85 of them, every one a path that
+    resolves on the host. The earlier host-side simulation missed it because it
+    overrode SENTINEL_REPO_ROOT only — ROOT still pointed at the real checkout,
+    so exactly the broken constants kept working. The simulation now rebuilds
+    /work itself.
+
+    Both sides of the rule are read out of Dockerfile.sentinel-test, so neither
+    can drift from what is actually copied. Two exemptions, both principled:
+    modules whose own ROOT is the env-based repo root are already correct by
+    construction, and `sys.path` inserts add an import path rather than opening
+    a file — a nonexistent entry there is inert.
+    """
+
+    @staticmethod
+    def _dests(prefix: str) -> set[str]:
+        import re
+        out = set()
+        for line in (ROOT / "Dockerfile.sentinel-test").read_text().splitlines():
+            m = re.match(rf"^COPY\s+(\S+)\s+{prefix}(\S*)", line.strip())
+            if m:
+                d = m.group(2).strip("/")
+                out.add(d or pathlib.PurePosixPath(m.group(1).strip("/")).name)
+        return {d for d in out if d}
+
+    def repo_dests(self) -> set[str]:
+        """Paths that live under /work/repo — must be read through REPO."""
+        return self._dests("/work/repo/")
+
+    def work_dests(self) -> set[str]:
+        """Paths that live directly under /work — ROOT is correct for these."""
+        return {d for d in self._dests("/work/") if not d.startswith("repo")}
+
+    def test_both_sides_of_the_rule_are_populated(self):
+        assert {"scripts", "sentinel", "shared"} <= self.repo_dests()
+        assert any(d.startswith("services/backtester") or d == "tests"
+                   for d in self.work_dests()), self.work_dests()
+
+    def test_no_test_module_reads_a_repo_file_through_ROOT(self):
+        import re
+        repo, work = self.repo_dests(), self.work_dests()
+        tests_dir = pathlib.Path(__file__).resolve().parent
+        offenders = []
+        for f in sorted(tests_dir.glob("*.py")):
+            body = f.read_text()
+            # Modules whose ROOT already IS the repo root are correct as written.
+            if re.search(r"^ROOT = Path\(os\.environ", body, re.M):
+                continue
+            for i, line in enumerate(body.splitlines(), 1):
+                if "sys.path" in line:
+                    continue
+                m = re.search(r'ROOT / "([^"]+)"(?: / "([^"]+)")?', line)
+                if not m:
+                    continue
+                # Only actual filesystem ACCESS, or a constant that will be
+                # used for one. `str(ROOT / "shared")` appended to sys.path is
+                # neither, and flagging it teaches people to mute the guard.
+                touches = any(k in line for k in
+                              (".read_text(", ".exists(", ".rglob(", ".glob(",
+                               ".is_dir(", ".is_file(", "open("))
+                assigns = re.match(r"\s*[A-Z][A-Z_0-9]* = ", line) is not None
+                if not (touches or assigns):
+                    continue
+                rel = "/".join(x for x in m.groups() if x)
+                if any(rel == w or rel.startswith(w + "/") or w.startswith(rel + "/")
+                       for w in work):
+                    continue                      # genuinely under /work
+                if any(rel == r or rel.startswith(r + "/") or r.startswith(rel + "/")
+                       for r in repo):
+                    offenders.append(f"{f.name}:{i}: {line.strip()}")
+        assert not offenders, (
+            "these read a file the image places under /work/repo, but through "
+            "ROOT (=/work in the image), so they raise FileNotFoundError "
+            f"there: {offenders}")

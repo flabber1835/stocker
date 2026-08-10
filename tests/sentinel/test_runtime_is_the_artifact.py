@@ -167,7 +167,7 @@ class TestTheGateIsNotVacuous:
         configured rather than only where it happens to be observed."""
         text = (REPO / "Dockerfile.sentinel-test").read_text() \
             if (REPO / "Dockerfile.sentinel-test").exists() \
-            else (ROOT / "Dockerfile.sentinel-test").read_text()
+            else (REPO / "Dockerfile.sentinel-test").read_text()
         copies = [l.split()[1:3] for l in text.splitlines()
                   if l.strip().upper().startswith("COPY ")]
         importable = [dst for src, dst in copies

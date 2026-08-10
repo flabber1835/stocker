@@ -13,9 +13,15 @@ verdict — the rule, and above all what it does when it could not run.
 from __future__ import annotations
 
 import sys
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+#: The REPOSITORY under inspection. Inside the certified image ROOT is /work
+#: (tests, an importable backtester copy, tools) while the repo SOURCES live at
+#: /work/repo — so a repo file read through ROOT resolves in a checkout and
+#: raises FileNotFoundError in the image.
+REPO = Path(os.environ.get("SENTINEL_REPO_ROOT") or ROOT)
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
@@ -132,7 +138,7 @@ class TestItStaysOutOfTheRUNTIMEImage:
         a retired-stack dependency. Putting this under `sentinel/` would place
         the retired platform's ORM in the image that liquidates a brokerage
         account — `test_image_layout` caught it when this file briefly did."""
-        assert not (ROOT / "sentinel" / "corpus_parity.py").exists()
+        assert not (REPO / "sentinel" / "corpus_parity.py").exists()
         assert (ROOT / "tools" / "corpus_parity.py").exists()
 
 
@@ -163,5 +169,5 @@ class TestTheCanonicalPathIsIMPORTABLE:
     def test_the_TEST_image_also_sets_it_on_PYTHONPATH(self):
         """Belt and braces, and the belt is the one that matters at 8b: the
         tool is invoked as `python -m tools.corpus_parity` inside that image."""
-        text = (ROOT / "Dockerfile.sentinel-test").read_text().replace("\\\n", " ")
+        text = (REPO / "Dockerfile.sentinel-test").read_text().replace("\\\n", " ")
         assert "/work/services/backtester" in text
