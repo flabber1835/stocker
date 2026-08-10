@@ -195,13 +195,23 @@ def write_actions(conn, rows: Sequence[Any]) -> int:
 def write_rejections(conn, rejections) -> int:
     """Persist rows the normaliser refused. Idempotent on (ticker, session,
     reason), so a re-ingest of the same window does not multiply them."""
-    rows = [(r["ticker"], r["session"], r["reason"]) for r in rejections]
+    rows = [(r["ticker"], r["session"], r["reason"], r.get("close"),
+             r.get("volume")) for r in rejections]
     if not rows:
         return 0
     with conn.cursor() as cur:
+        # DO UPDATE, not DO NOTHING, on the price columns: a re-ingest after a
+        # vendor restatement carries a corrected price, and an evidence row
+        # that keeps the first value ever seen is evidence of the wrong thing.
+        # The KEY is still (ticker, session, reason), so this does not multiply
+        # rows — the idempotence the audit counts on is unchanged.
         cur.executemany(
-            "INSERT INTO sentinel_ingest_rejections (ticker, session, reason)"
-            " VALUES (%s,%s,%s) ON CONFLICT DO NOTHING", rows)
+            "INSERT INTO sentinel_ingest_rejections"
+            " (ticker, session, reason, close_unadjusted, volume)"
+            " VALUES (%s,%s,%s,%s,%s)"
+            " ON CONFLICT (ticker, session, reason) DO UPDATE SET"
+            " close_unadjusted = EXCLUDED.close_unadjusted,"
+            " volume = EXCLUDED.volume", rows)
     conn.commit()
     return len(rows)
 

@@ -320,17 +320,43 @@ def check_readiness(conn, *, today: Optional[str] = None,
                         " WHERE session BETWEEN %s AND %s AND reason = %s",
                         (window_start, frontier, "NO_IDENTITY"))
             n_rows, n_tick = cur.fetchone()
-        if n_rows:
-            with conn.cursor() as cur:
-                cur.execute("SELECT DISTINCT ticker FROM sentinel_ingest_rejections"
-                            " WHERE session BETWEEN %s AND %s AND reason = %s"
-                            " ORDER BY ticker LIMIT 10",
-                            (window_start, frontier, "NO_IDENTITY"))
-                names = ", ".join(str(t[0]) for t in cur.fetchall())
+        # The OTHER drop, counted in its own right. A row the vendor supplied
+        # with no as-traded close is refused for a different and equally
+        # correct reason, and reporting only the identity failures under a
+        # check named "ingest refusals" would let a corpus missing thousands of
+        # priced rows read as "every priced row resolved".
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*), COUNT(DISTINCT ticker)"
+                        " FROM sentinel_ingest_rejections"
+                        " WHERE session BETWEEN %s AND %s AND reason = %s",
+                        (window_start, frontier, "NO_RAW_CLOSE"))
+            n_noclose, n_noclose_tick = cur.fetchone()
+
+        if n_rows or n_noclose:
+            parts = []
+            if n_rows:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT DISTINCT ticker FROM sentinel_ingest_rejections"
+                        " WHERE session BETWEEN %s AND %s AND reason = %s"
+                        " ORDER BY ticker LIMIT 10",
+                        (window_start, frontier, "NO_IDENTITY"))
+                    names = ", ".join(str(t[0]) for t in cur.fetchall())
+                parts.append(
+                    f"PRICE_ROW_DROPPED_NO_IDENTITY: {n_rows:,} row(s) across "
+                    f"{n_tick} ticker(s) the vendor priced and the ingest could "
+                    f"not name: {names}")
+            if n_noclose:
+                parts.append(
+                    f"PRICE_ROW_DROPPED_NO_RAW_CLOSE: {n_noclose:,} row(s) "
+                    f"across {n_noclose_tick} ticker(s) with no as-traded price")
+            # WARN, not FAIL, and deliberately so: a few unnameable instruments
+            # are ordinary operationally. Whether they mattered to a SPECIFIC
+            # replay is a different question with a fail-closed answer —
+            # `sentinel rejection-audit`, which readiness must not pre-empt.
             r.add("ingest refusals", WARN,
-                  f"PRICE_ROW_DROPPED_NO_IDENTITY: {n_rows:,} row(s) across "
-                  f"{n_tick} ticker(s) the vendor priced and the ingest could "
-                  f"not name: {names}", n_rows)
+                  " | ".join(parts) + " — run `rejection-audit` before "
+                  "treating an interval as certified", (n_rows or 0) + (n_noclose or 0))
         else:
             r.add("ingest refusals", PASS,
                   "every priced row resolved to a permanent security", 0)

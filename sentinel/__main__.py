@@ -237,6 +237,45 @@ def cmd_identity(config: SentinelConfig, args) -> int:
     return EXIT_OK
 
 
+def cmd_rejection_audit(config: SentinelConfig, args) -> int:
+    """Could a row the ingest REFUSED have changed this replay's answer?
+
+    Separate from `check-data` on purpose. Readiness asks whether the feed is
+    healthy enough to plan a book tomorrow, and a few unresolvable tickers are
+    normal there — WARN. This asks whether a SPECIFIC interval is complete, and
+    it exits non-zero on anything short of CLEAR, because a rejection that
+    cannot be shown to be irrelevant is an unanswered question and a rehearsal
+    is not evidence until it is answered.
+    """
+    from sentinel.feed import rejection_audit
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = feed_store.connect(config.database_url)
+    try:
+        feed_store.ensure_schema(conn)
+        result = rejection_audit.audit(
+            conn, start=args.start, end=args.end,
+            held_tickers=[t.strip().upper()
+                          for t in (args.held or "").split(",") if t.strip()],
+            pending_terminal_tickers=[
+                t.strip().upper()
+                for t in (args.pending_terminal or "").split(",") if t.strip()])
+    finally:
+        conn.close()
+
+    print(json.dumps(result.to_dict(), indent=2, default=str))
+    if result.certifiable:
+        return EXIT_OK
+    print(f"REFUSED: {result.verdict} — {len(result.material)} material and "
+          f"{len(result.undetermined)} undetermined rejection(s) in "
+          f"{args.start}..{args.end}. This interval is not certifiable until "
+          f"each is explained.", file=sys.stderr)
+    return EXIT_NOT_ESTABLISHED
+
+
 def cmd_feed(config: SentinelConfig, args) -> int:
     """Run an ingest. Progress is committed per chunk, so watch it from another
     shell with `feed-status` rather than by staring at this one."""
@@ -413,6 +452,17 @@ def main(argv: list[str] | None = None) -> int:
     cd = sub.add_parser("check-data",
                         help="the Wealth Core data contract, per CHECK")
     cd.add_argument("--today", default=None)
+    ra = sub.add_parser("rejection-audit",
+                        help="could a REFUSED price row have changed this "
+                             "interval's answer? exits non-zero unless CLEAR")
+    ra.add_argument("--start", required=True)
+    ra.add_argument("--end", required=True)
+    ra.add_argument("--held", default=None,
+                    help="comma-separated tickers the run held, which make an "
+                         "intersecting rejection MATERIAL outright")
+    ra.add_argument("--pending-terminal", default=None,
+                    help="comma-separated tickers with a pending terminal "
+                         "episode during the interval")
     idp = sub.add_parser("identity",
                          help="what this environment and corpus ARE — the "
                               "record a certified run is reproducible from")
@@ -450,6 +500,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_feed_status(config, args.limit)
         if args.command in ("feed-seed", "feed-daily"):
             return cmd_feed(config, args)
+        if args.command == "rejection-audit":
+            return cmd_rejection_audit(config, args)
         if args.command == "identity":
             return cmd_identity(config, args)
         if args.command == "check-data":

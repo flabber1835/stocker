@@ -177,12 +177,25 @@ class NormalisationReport:
     def raw_close_coverage(self) -> float:
         return 0.0 if not self.rows else (self.rows - self.dropped_no_raw_close) / self.rows
 
-    def note_rejection(self, ticker: str, session: str, reason: str) -> None:
+    def note_rejection(self, ticker: str, session: str, reason: str, *,
+                       close: float | None = None,
+                       volume: float | None = None) -> None:
+        """Record a refused row, WITH the price and volume it carried.
+
+        The price is not decoration. Certification has to answer "could this
+        dropped security have changed the universe, the ranking or the
+        selection?", and that question is decided by the eligibility floors —
+        an as-traded price, a dollar volume, a session count. Recording only
+        the ticker and the date leaves every rejection permanently
+        UNDETERMINED, which under a fail-closed rule blocks the rehearsal
+        rather than informing it.
+        """
         if len(self.rejections) >= self.max_rejections:
             self.rejections_truncated += 1
             return
         self.rejections.append({"ticker": str(ticker), "session": str(session),
-                                "reason": reason})
+                                "reason": reason, "close": close,
+                                "volume": volume})
 
 
 def normalise_sep_rows(
@@ -213,18 +226,28 @@ def normalise_sep_rows(
         session = str(r["date"])
         ticker = str(r["ticker"])
         sid = resolve_identity(ticker, session) if resolve_identity else ticker
-        if sid is None:
-            rep.dropped_no_identity += 1
-            rep.note_rejection(ticker, session, "NO_IDENTITY")
-            continue
-
         close = _f(r.get("close"))
         raw = _f(r.get("closeunadj") if "closeunadj" in r else r.get("close_unadjusted"))
+        volume = _f(r.get("volume"))
+        if sid is None:
+            rep.dropped_no_identity += 1
+            rep.note_rejection(ticker, session, "NO_IDENTITY",
+                               close=raw, volume=volume)
+            continue
+
         if raw is None or raw <= 0:
             # Not silently substituted. A bar with no as-traded price cannot be
             # marked or executed; the engine already handles "no print, no fill"
             # correctly, and that is the honest representation.
+            #
+            # RECORDED as evidence for the same reason the identity failure is.
+            # This drop left nothing behind at all, so a certification asking
+            # "how many priced rows did the ingest refuse" could only ever see
+            # half the answer — and the half it could not see is the one where
+            # the vendor DID present the security.
             rep.dropped_no_raw_close += 1
+            rep.note_rejection(ticker, session, "NO_RAW_CLOSE",
+                               close=None, volume=volume)
             continue
 
         p_close, p_raw = prev.get(sid, (None, None))

@@ -441,6 +441,52 @@ vendor restating a price in place changes neither the row count nor the date
 span; only reading the values detects it. That is the exact failure the Stocker
 factor cache shipped for months, which is why `bt_data_version` exists.
 
+### 10b. Refused rows are a CERTIFICATION item, not only an operational WARN
+
+Readiness reports ingest refusals as a WARN, which is right for the question it
+asks — is the feed healthy enough to plan a book tomorrow — where a few
+unnameable instruments are ordinary. It is the wrong answer to "is THIS replay,
+over THIS interval, complete?"
+
+A rejection is not automatically a rehearsal failure; the ticker may be
+economically irrelevant. **"We did not check" is.** So the certification report
+answers, for the exact rehearsal interval:
+
+```text
+how many refused price rows
+how many distinct refused tickers
+could any have entered the universe / ranking / selection
+did any intersect a holding, a pending terminal episode, or a corporate action
+```
+
+```bash
+docker compose -f docker-compose.sentinel.yml run --rm sentinel \
+  rejection-audit --start 2021-01-04 --end 2023-12-29 \
+  --held AAPL,MSFT --pending-terminal XYZ
+```
+
+Every refused ticker lands in exactly one verdict, and the interval is
+certifiable only when nothing is in the last two:
+
+```text
+IMMATERIAL    it could not have been admitted even at its BEST observed values,
+              judged against the same EligibilityConfig the engine applies
+MATERIAL      it intersects a holding, a pending terminal episode, or a
+              corporate action in the interval
+UNDETERMINED  anything else — including a refusal recorded with no price
+```
+
+The asymmetry is deliberate: the audit proves NEGATIVES only. A security whose
+best observed as-traded close never reached the floor could not have been
+admitted on any session, whatever else is unknown. It never claims a rejection
+WOULD have been admitted — the momentum series, the volatility and the issuer
+group died with the dropped row. **If the answer is unknown, the rehearsal fails
+closed**, and the command exits non-zero on anything short of CLEAR.
+
+This is why `sentinel_ingest_rejections` stores the price and volume: without
+them every rejection is permanently UNDETERMINED, and a fail-closed rule with an
+undecidable input blocks the rehearsal instead of informing it.
+
 ## 11. `execution_model` activation is a versioned operational event
 
 If enabling the Wealth Core / Sentinel path requires changing a protected

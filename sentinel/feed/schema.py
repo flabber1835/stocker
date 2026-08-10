@@ -58,12 +58,29 @@ DDL = [
     # action for that ticker was classified SECURITY_ABSENT_FROM_CORPUS, which
     # is the one exclusion that must never be able to swallow an identity
     # failure. This table is what makes the raw presence survive the drop.
+    # The PRICE and VOLUME are carried because certification has to answer
+    # "could this dropped security have changed the universe, the ranking or
+    # the selection?", and the eligibility floors decide that from an
+    # as-traded price, a dollar volume and a session count. A rejection row
+    # holding only a ticker and a date leaves that permanently UNDETERMINED —
+    # which under a fail-closed certification rule blocks the rehearsal instead
+    # of informing it.
     """CREATE TABLE IF NOT EXISTS sentinel_ingest_rejections (
-        ticker       TEXT NOT NULL,
-        session      DATE NOT NULL,
-        reason       TEXT NOT NULL,
-        first_seen   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ticker           TEXT NOT NULL,
+        session          DATE NOT NULL,
+        reason           TEXT NOT NULL,
+        close_unadjusted DOUBLE PRECISION,
+        volume           DOUBLE PRECISION,
+        first_seen       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         PRIMARY KEY (ticker, session, reason))""",
+    # CREATE TABLE IF NOT EXISTS does nothing to a table that already exists,
+    # so an already-seeded database would keep the two-column version and the
+    # audit would read NULL prices forever while every test on a fresh schema
+    # passed.
+    """ALTER TABLE sentinel_ingest_rejections
+        ADD COLUMN IF NOT EXISTS close_unadjusted DOUBLE PRECISION""",
+    """ALTER TABLE sentinel_ingest_rejections
+        ADD COLUMN IF NOT EXISTS volume DOUBLE PRECISION""",
     """CREATE INDEX IF NOT EXISTS idx_sentinel_rejections_session
         ON sentinel_ingest_rejections (session)""",
 
