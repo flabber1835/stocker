@@ -61,6 +61,7 @@ from typing import Mapping, Sequence
 from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
 from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
 from stock_strategy_shared.wealth_core.marks import Mark, MarkStatus
+from stock_strategy_shared.wealth_core.shares import as_json as _as_json
 from stock_strategy_shared.wealth_core.state import HoldingEpisode, PortfolioState
 from stock_strategy_shared.wealth_core.terminal_audit import (
     episode_audit, new_carry_record, with_non_cash_consideration)
@@ -395,8 +396,8 @@ def _release(state: PortfolioState, slot_id: int, ep: HoldingEpisode) -> None:
 def _apply_write_off(state, slot_id, ep, ledger, session) -> dict:
     ledger.post(session=session, event_type=EventType.WRITE_OFF,
                 cash_before=state.cash, security_id=ep.security_id,
-                ticker=ep.ticker, shares_delta=-ep.current_shares, price=0.0,
-                reason="CONFIRMED_WORTHLESS", detail={"shares": ep.current_shares})
+                ticker=ep.ticker, shares_delta=_as_json(-ep.current_shares), price=0.0,
+                reason="CONFIRMED_WORTHLESS", detail={"shares": _as_json(ep.current_shares)})
     _release(state, slot_id, ep)
     return {"applied": True, "kind": "WRITE_OFF", "security_id": ep.security_id,
             "proceeds": 0.0}
@@ -407,9 +408,9 @@ def _apply_cash(state, slot_id, ep, ledger, session, per_share, terms) -> dict:
     ledger.post(session=session, event_type=EventType.CASH_MERGER,
                 cash_before=state.cash, cash_delta=proceeds,
                 security_id=ep.security_id, ticker=ep.ticker,
-                shares_delta=-ep.current_shares, price=per_share,
+                shares_delta=_as_json(-ep.current_shares), price=per_share,
                 reason="CASH_MERGER",
-                detail={"shares": ep.current_shares, "reference": terms.reference})
+                detail={"shares": _as_json(ep.current_shares), "reference": terms.reference})
     state.cash += proceeds
     _release(state, slot_id, ep)
     return {"applied": True, "kind": "CASH_MERGER", "security_id": ep.security_id,
@@ -513,9 +514,9 @@ def _apply_proxy(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
     ledger.post(session=session, event_type=event,
                 cash_before=state.cash, cash_delta=proceeds,
                 security_id=ep.security_id, ticker=ep.ticker,
-                shares_delta=-ep.current_shares, price=px,
+                shares_delta=_as_json(-ep.current_shares), price=px,
                 reason=decision.reason,
-                detail={"shares": ep.current_shares,
+                detail={"shares": _as_json(ep.current_shares),
                         "reference": (terms.reference if terms is not None
                                       else "no-terminal-record"),
                         **decision.provenance()})
@@ -776,7 +777,7 @@ def final_report(*, session: str, state: PortfolioState, marks: Mapping[str, Mar
             value = ep.current_shares * float(m.raw_mark_close)
             rep.marked_positions.append({
                 "security_id": ep.security_id, "ticker": ep.ticker,
-                "slot_id": slot_id, "shares": ep.current_shares,
+                "slot_id": slot_id, "shares": _as_json(ep.current_shares),
                 "final_raw_close": float(m.raw_mark_close),
                 "marked_value": round(value, 2),
                 "sessions_held": ep.market_sessions_held})
@@ -788,7 +789,7 @@ def final_report(*, session: str, state: PortfolioState, marks: Mapping[str, Mar
             proceeds = value * (1.0 - cfg.transaction_cost_bps / 10_000.0)
             rep.forced_liquidation.append({
                 "security_id": ep.security_id, "ticker": ep.ticker,
-                "shares": ep.current_shares,
+                "shares": _as_json(ep.current_shares),
                 "assumed_price": float(m.raw_mark_close),
                 "gross": round(value, 2),
                 "cost": round(value - proceeds, 2),
@@ -797,7 +798,7 @@ def final_report(*, session: str, state: PortfolioState, marks: Mapping[str, Mar
                 session=session, event_type=EventType.TERMINAL_LIQUIDATION,
                 cash_before=forced_total, cash_delta=proceeds,
                 security_id=ep.security_id, ticker=ep.ticker,
-                shares_delta=-ep.current_shares, price=float(m.raw_mark_close),
+                shares_delta=_as_json(-ep.current_shares), price=float(m.raw_mark_close),
                 fees=value - proceeds, reason="HYPOTHETICAL_FORCED_LIQUIDATION",
                 detail={"hypothetical": True})
             forced_total += proceeds
@@ -808,13 +809,13 @@ def final_report(*, session: str, state: PortfolioState, marks: Mapping[str, Mar
                 security_id=ep.security_id, ticker=ep.ticker,
                 shares_delta=0, price=float(m.raw_mark_close),
                 reason="FINAL_SESSION_MARK",
-                detail={"shares": ep.current_shares,
+                detail={"shares": _as_json(ep.current_shares),
                         "marked_value": round(value, 2)})
         else:
             any_unmarkable = True
             rep.unmarkable_positions.append({
                 "security_id": ep.security_id, "ticker": ep.ticker,
-                "slot_id": slot_id, "shares": ep.current_shares,
+                "slot_id": slot_id, "shares": _as_json(ep.current_shares),
                 "mark_status": m.status.value if m else "ABSENT",
                 "last_known_raw_close": (m.stale_raw_close if m else None),
                 "blocking_reason": state.unresolved_terminals.get(

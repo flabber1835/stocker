@@ -21,6 +21,8 @@ signal that depends on that close.
 """
 from __future__ import annotations
 
+from stock_strategy_shared.wealth_core.shares import as_json as _shares_json
+
 import hashlib
 import json
 from dataclasses import dataclass, field
@@ -134,7 +136,12 @@ class Decision:
             "operations": [
                 {"operation": o.operation.value, "reason": o.reason.value,
                  "slot_id": o.slot_id, "security_id": o.security_id,
-                 "ticker": o.ticker, "shares": o.shares,
+                 "ticker": o.ticker,
+                 # An integral share count emits as `int`, which is what it was
+                 # before splits were allowed to produce a fraction. A
+                 # REPRESENTATION change must not masquerade as a semantic one
+                 # while a certification hash is open.
+                 "shares": _shares_json(o.shares) if o.shares is not None else None,
                  "detail": {k: o.detail[k] for k in sorted(o.detail)}}
                 for o in self.operations],
             # SORTED, not in arrival order. The candidate audit list is part of

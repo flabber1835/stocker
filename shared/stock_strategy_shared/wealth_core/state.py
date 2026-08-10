@@ -62,8 +62,11 @@ class HoldingEpisode:
     entry_date: str
     entry_raw_open: float
     entry_split_adjusted_price: float
-    initial_shares: int
-    current_shares: int
+    # FLOAT, not int: a split is a transformation and its fractional
+    # entitlement is real. Integer-share constraints are a BROKER fact and
+    # belong in the execution projection — see wealth_core/shares.py.
+    initial_shares: float
+    current_shares: float
     # UNSET until the first OWNED close (locked convention, 2026-08-03). The
     # signal-day close happened before ownership, and the entry OPEN is not a
     # closing observation — seeding the peak from either would arm the trailing
@@ -196,6 +199,24 @@ class SlotState:
             self.cooldown_sessions_elapsed += 1
             if self.cooldown_sessions_elapsed >= COOLDOWN_SESSIONS:
                 self.cooldown_sessions_elapsed = None    # expired, slot is free
+
+
+def _episode_json(ep) -> dict[str, Any]:
+    """One episode, with share counts CANONICALLY serialised.
+
+    An integral quantity emits as `int`, which is load-bearing rather than
+    cosmetic: every share count in the certified golden fixture is a whole
+    number, and widening the field to float so a split can keep its fraction
+    would otherwise emit `20.0` where `20` stood — moving `daily_state`,
+    `order`, `ledger` and `final_state` for a book in which nothing economic
+    changed. A REPRESENTATION change must never masquerade as a SEMANTIC one,
+    especially while a certification hash is open.
+    """
+    from stock_strategy_shared.wealth_core.shares import as_json
+    d = asdict(ep)
+    d["initial_shares"] = as_json(d["initial_shares"])
+    d["current_shares"] = as_json(d["current_shares"])
+    return d
 
 
 #: `to_dict()` keys that are PERSISTED but never HASHED.
@@ -422,7 +443,8 @@ class PortfolioState:
     def to_dict(self) -> dict[str, Any]:
         return {
             "slots": {str(k): asdict(v) for k, v in sorted(self.slots.items())},
-            "episodes": {str(k): asdict(v) for k, v in sorted(self.episodes.items())},
+            "episodes": {str(k): _episode_json(v)
+                         for k, v in sorted(self.episodes.items())},
             "security_cooldowns": dict(sorted(self.security_cooldowns.items())),
             "cash": self.cash,
             "initialized": self.initialized,

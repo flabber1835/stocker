@@ -166,17 +166,32 @@ class TestTheReconciliationIdentity:
                 c["derived_last_mark_settlements_notional"]), bars
             assert rec["residual"] == pytest.approx(0.0), bars
 
-    def test_a_TRUNCATING_split_still_reconciles(self):
-        """`apply_splits` truncates (`int(before * ratio)`), so an odd share
-        count under a 3-for-2 does not deliver the stated ratio. The recorded
-        before/after counts are what keep that from reading as a pricing error."""
+    def test_a_FRACTIONAL_split_reconciles_exactly(self):
+        """SUPERSEDED BY S5, and the history is the point.
+
+        This test used to assert `shares_at_settlement == 22` and document
+        `apply_splits`' truncation as a fact the audit had to work around: an
+        odd share count under a 3-for-2 did not deliver the stated ratio, and
+        the recorded before/after counts existed to stop that reading as a
+        pricing error.
+
+        The truncation was destroying value — 0.5 shares here, 2% of a position
+        on a 1-for-7 reverse split — so S5 removed it rather than documenting
+        it. The entitlement is now exact, and the audit reconciles the real
+        number instead of a rounded one.
+
+        Kept rather than deleted because a test that once encoded a defect as
+        expected behaviour is worth leaving visible: it is the clearest evidence
+        that the defect was known, believed normal, and worked around.
+        """
         _, _, c, audits = run(shares=15,
                               mid_grace_bars=[db(session="m0", split=1.5,
                                                  mark=60.0, signal=60.0)])
         a, = audits
-        assert a["shares_at_carry"] == 15 and a["shares_at_settlement"] == 22
+        assert a["shares_at_carry"] == 15
+        assert a["shares_at_settlement"] == pytest.approx(22.5)
         assert a["grace_splits"][0]["ratio"] == pytest.approx(1.5)
-        assert a["notional_delta"] == pytest.approx(22 * 60.0 - 15 * 90.0)
+        assert a["notional_delta"] == pytest.approx(22.5 * 60.0 - 15 * 90.0)
         assert reconcile(audits)["residual"] == pytest.approx(0.0)
 
 

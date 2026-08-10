@@ -57,6 +57,14 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Optional
 
+from stock_strategy_shared.wealth_core.shares import as_json as _as_json
+
+
+def _shares(x):
+    """Canonical share serialisation, None-tolerant — the audit records
+    `shares_at_carry` as absent for an episode that never carried."""
+    return None if x is None else _as_json(x)
+
 #: Every field of one terminal episode's audit, in the order a reader needs
 #: them: WHAT terminated, what was CARRIED, what happened DURING the grace,
 #: what was SETTLED, and only then the difference.
@@ -143,13 +151,18 @@ def _money(x: Optional[float]) -> Optional[float]:
     return None if x is None else round(float(x), MONEY_DP)
 
 
-def _notional(shares: Optional[int], price: Optional[float]) -> Optional[float]:
+def _notional(shares: Optional[float], price: Optional[float]) -> Optional[float]:
     """None unless BOTH are known. A missing share count must not silently
     become a zero notional — that reads as "settled for nothing", which is a
-    fact about a write-off rather than the absence of one."""
+    fact about a write-off rather than the absence of one.
+
+    `float(shares)`, NOT `int(shares)`. Once a split can leave a fractional
+    entitlement, truncating here would reintroduce the exact value destruction
+    S5 removed — inside the audit that exists to prove no value was destroyed.
+    """
     if shares is None or price is None:
         return None
-    return _money(int(shares) * float(price))
+    return _money(float(shares) * float(price))
 
 
 #: Settlement methods that can only ever pay CASH. A proxy settlement values the
@@ -262,7 +275,7 @@ def episode_audit(*, security_id: str, ticker: Optional[str],
         "event_reference": event_reference,
         "carried": bool(carry),
         "carry_session": c.get("carry_session"),
-        "shares_at_carry": shares_at_carry,
+        "shares_at_carry": _shares(shares_at_carry),
         "carry_price": carry_price,
         "carry_notional": carry_notional,
         "last_trustworthy_print_session": c.get("last_trustworthy_print_session"),
@@ -280,7 +293,7 @@ def episode_audit(*, security_id: str, ticker: Optional[str],
         # audit that read as a settlement would say a position left the book
         # when it did not.
         "episode_continues": bool(episode_continues),
-        "shares_at_settlement": shares_at_settlement,
+        "shares_at_settlement": _shares(shares_at_settlement),
         "settlement_price": settlement_price,
         "settlement_notional": settlement_notional,
         "delivered_security_id": delivered_security_id,

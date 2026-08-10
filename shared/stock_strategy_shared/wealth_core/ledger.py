@@ -13,6 +13,8 @@ error, and the whole point of §16's reconciliation is to tell those apart.
 """
 from __future__ import annotations
 
+
+
 import hashlib
 import json
 from dataclasses import dataclass, field
@@ -50,6 +52,12 @@ class LedgerEvent:
     def to_dict(self) -> dict:
         return {"session": self.session, "event_type": self.event_type.value,
                 "security_id": self.security_id, "ticker": self.ticker,
+                # NOT canonicalised here. The original serialisation is
+                # genuinely MIXED — share events carried `384`, dividend events
+                # carried `0.0` — so a blanket rule moves one or the other. Each
+                # CALL SITE that can now produce a float passes it through
+                # `shares.as_json` instead, which preserves exactly what that
+                # event always emitted.
                 "shares_delta": self.shares_delta, "cash_delta": self.cash_delta,
                 "price": self.price, "fees": self.fees,
                 "cash_before": self.cash_before, "cash_after": self.cash_after,

@@ -42,6 +42,7 @@ from stock_strategy_shared.wealth_core.engine import (
 from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
 from stock_strategy_shared.wealth_core.marks import Mark, MarkStatus, _positive
 from stock_strategy_shared.wealth_core.prices import DailyBar
+from stock_strategy_shared.wealth_core.shares import as_json as _as_json, split_shares
 from stock_strategy_shared.wealth_core.state import PortfolioState
 from stock_strategy_shared.wealth_core.terminal_audit import (
     record_grace_print, record_grace_split)
@@ -239,7 +240,12 @@ def apply_splits(state: PortfolioState, bars: Sequence[DailyBar], ledger: Ledger
             if ep.security_id != b.security_id:
                 continue
             before = ep.current_shares
-            ep.current_shares = int(before * b.split_ratio)
+            # EXACT, never truncated. `int(before * ratio)` destroyed the
+            # fraction with no cash-in-lieu, no receivable and no ledger event —
+            # 0.2857 shares on a 1-for-7 reverse split, which is 2% of the
+            # position. A split is a TRANSFORMATION, not a sale: nobody traded,
+            # so no value may leave the book. See wealth_core/shares.py.
+            ep.current_shares = split_shares(before, b.split_ratio)
             # A split does NOT skip a carried holding, so it moves the share
             # count BETWEEN the carry tally and the settlement tally. Recorded
             # here, at the only place that knows the ratio, or the reconciliation
@@ -258,10 +264,11 @@ def apply_splits(state: PortfolioState, bars: Sequence[DailyBar], ledger: Ledger
             ledger.post(session=session, event_type=EventType.SPLIT,
                         cash_before=state.cash, security_id=b.security_id,
                         ticker=ep.ticker,
-                        shares_delta=ep.current_shares - before,
+                        shares_delta=_as_json(ep.current_shares - before),
                         price=None, reason="SPLIT",
-                        detail={"ratio": b.split_ratio, "before": before,
-                                "after": ep.current_shares})
+                        detail={"ratio": b.split_ratio,
+                                "before": _as_json(before),
+                                "after": _as_json(ep.current_shares)})
 
 
 def apply_dividends(state: PortfolioState, bars: Sequence[DailyBar],
