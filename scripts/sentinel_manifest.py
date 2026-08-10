@@ -114,6 +114,13 @@ def build(art: Path, stamp: str, lock_sha: str,
         # built. Recorded as a field so the verdict is the reader's, and warned
         # about loudly because it invalidates the git_commit line above it.
         "git_tree_clean": sh("git", "status", "--porcelain") == "",
+        # AND WHICH PATHS. The refusal used to say only that the tree was
+        # dirty, which stops the run without saying what to look at — the
+        # operator then hunts through a repo they have not edited. Capped
+        # because the field is a diagnostic, not an inventory.
+        "git_dirty_paths": [l for l in
+                            (sh("git", "status", "--porcelain") or "").splitlines()
+                            if l.strip()][:50],
         "sentinel_runtime_image": image("sentinel:latest"),
         "sentinel_test_image": image("sentinel-test:latest"),
         # THE PINNED, DIGEST-QUALIFIED REFERENCE from compose — not the bare
@@ -173,8 +180,13 @@ def main(argv=None) -> int:
 
     problems = []
     if not m["git_tree_clean"]:
+        listing = "\n".join(f"      {p}" for p in m["git_dirty_paths"])
         problems.append("the working tree is DIRTY, so git_commit names a "
-                        "commit that is not what was built")
+                        f"commit that is not what was built:\n{listing}\n"
+                        "    (` M` = modified, `??` = untracked. If every entry "
+                        "shows only a MODE change, this filesystem is rewriting "
+                        "permission bits and `git config core.fileMode false` "
+                        "is the fix — check with `git diff`.)")
     for key in REQUIRED_IMAGES:
         if not m[key]["id"]:
             problems.append(f"{key} ({m[key]['ref']}) could not be inspected — "

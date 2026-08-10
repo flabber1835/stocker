@@ -631,3 +631,45 @@ class TestTheCertifiedLauncherDoesNotRebuild:
     def test_the_refusal_names_the_certified_way_to_start(self):
         body = self.LAUNCH.read_text()
         assert "--no-build --start" in body
+
+
+class TestTheDirtyTreeRefusalNamesTheFILES:
+    """A gate that stops the run without saying what to look at sends the
+    operator hunting through a repo they have not edited.
+
+    It fired for real on the NAS at step 2d: "the working tree is DIRTY" and
+    nothing else — after two clean gates and a successful locked rebuild, with
+    no indication of which path was responsible."""
+
+    def test_the_manifest_records_the_paths(self):
+        assert "git_dirty_paths" in MANIFEST.read_text()
+
+    def test_the_refusal_prints_them(self, tmp_path):
+        (tmp_path / "identity-env.json").write_text(json.dumps({
+            "identity_hash": "ih",
+            "environment": {"distributions_hash": "dh", "distributions_count": 1,
+                            "sentinel_source": {"hash": "sh"},
+                            "wealth_core_source": {"hash": "wh"},
+                            "python": "3.12.13", "calendar_version": "x"}}))
+        # A repo whose tree is dirty by construction.
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        (repo / "tracked.txt").write_text("v1\n")
+        subprocess.run(["git", "add", "."], cwd=repo, check=True)
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+                        "commit", "-qm", "init"], cwd=repo, check=True)
+        (repo / "tracked.txt").write_text("v2\n")
+        (repo / "stray.txt").write_text("untracked\n")
+
+        r = subprocess.run(
+            [sys.executable, str(MANIFEST), str(tmp_path), "W", "l",
+             "--require-images"], capture_output=True, text=True, cwd=str(repo))
+        assert r.returncode == 1
+        assert "tracked.txt" in r.stdout, r.stdout
+        assert "stray.txt" in r.stdout, r.stdout
+
+    def test_it_names_the_fileMode_case(self):
+        """The likeliest cause on a NAS: a filesystem that rewrites permission
+        bits, so every entry is a MODE change on a file nobody touched."""
+        assert "core.fileMode" in MANIFEST.read_text()
