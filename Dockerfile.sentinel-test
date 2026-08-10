@@ -62,6 +62,7 @@ COPY tests/ /work/tests/
 # `services` package in the runtime image.
 COPY services/backtester/ /work/services/backtester/
 COPY tools/ /work/tools/
+COPY scripts/ /work/repo/scripts/
 
 # INSPECTION ONLY. Never on sys.path — these are the inputs to assertions about
 # the image, and importing them is precisely what this file exists to prevent.
@@ -69,6 +70,7 @@ COPY sentinel/ /work/repo/sentinel/
 COPY shared/ /work/repo/shared/
 COPY Dockerfile.sentinel /work/repo/Dockerfile.sentinel
 COPY docker-compose.sentinel.yml /work/repo/docker-compose.sentinel.yml
+COPY Dockerfile.sentinel-test /work/repo/Dockerfile.sentinel-test
 
 # /work carries `tests` and `services`. `sentinel` resolves from /app and
 # `stock_strategy_shared` from site-packages — the artefact, in both cases.

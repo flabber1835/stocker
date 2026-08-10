@@ -452,7 +452,47 @@ git add sentinel/requirements.lock && git commit
 
 The lock cannot exist before the first Python 3.12.13 build produces it, so the
 Dockerfile falls back to `requirements.txt` and says loudly that the build is
-not reproducible.
+not reproducible — and **`sentinel-certify.sh` STOPS on a missing lock, before
+the truncate.** That check used to sit at the end, as a warning, after the
+corpus had been destroyed and hours spent rebuilding it. A refusal that comes
+after the irreversible step is not a refusal. The rebuild comparison is
+automated too: the harness stores `distributions_hash` and fails if it moved.
+
+`--hashes` on the lock script does NOT produce per-artefact digests. `pip
+freeze` reports versions; digests need a hash-checked resolve against the same
+index. The flag makes the omission loud rather than implying the stronger
+claim — a version-only lock proves the same versions were installed, not the
+same bytes.
+
+### 10d. The record must name the BUILT IMAGE, not only its inputs
+
+`sentinel identity` describes the environment inside the container. It cannot
+describe the image — a process has no reliable way to discover the id of the
+image it is running in — and the image is the artefact being certified.
+Everything else (base digest, package closure, source hashes) describes INPUTS
+to a build.
+
+So `scripts/sentinel_manifest.py` assembles the rest on the HOST, into
+`artifacts/sentinel/manifest-<window>.json`:
+
+```text
+git_commit + git_tree_clean          a dirty tree invalidates the commit line
+sentinel_runtime_image  id + digest  the artefact
+sentinel_test_image     id + digest  what the suite actually ran in
+postgres_image          id + digest
+identity_hash, distributions_hash, requirements_lock_sha256
+sentinel_source_hash, wealth_core_source_hash
+corpus_hash, book_artifact_sha256, rejection_audit_sha256, rehearsal_hashes
+```
+
+The last four are `null` until later steps fill them, so an incomplete manifest
+is visibly incomplete rather than a differently shaped object.
+
+`repo_digests` is empty until the image is pushed, and is recorded as a field
+anyway: **deploying to another machine must go by immutable registry digest**,
+not by rebuilding from the same Dockerfile and calling the result equivalent.
+That assumption is exactly what the pins, the lock and this manifest exist to
+remove.
 
 `--require-certified` exits non-zero when the interpreter or any pin differs, so
 a rehearsal script refuses to produce evidence from an environment it cannot
@@ -530,12 +570,27 @@ rehearsal, re-run the audit with the realised book** — the pre-seed assertion
 was true then and is not true of the interval the rehearsal traded.
 
 **The realised book is EMITTED BY THE RUN, never typed by a human.**
-`sentinel.core.book_artifact.write(result, path, start=…, end=…)` derives it
-from the `RunResult`: the union, over the whole interval, of every raw ticker
-the ledger names and every ticker with a terminal event the run carried or
-resolved. `--book` then consumes it. A person retyping a ticker list sits in the
-evidentiary chain, and a typo there does not error — it produces a CLEAN
-certification.
+`rehearse_chain` builds it from the bulk `RunResult` and puts it on the result as
+`book_artifact` (and in `to_dict()`, so it survives to the persisted run row):
+the union, over the whole interval, of every raw ticker the ledger names and
+every ticker with a terminal event the run carried or resolved. `--book` then
+consumes it. A person retyping a ticker list sits in the evidentiary chain, and
+a typo there does not error — it produces a CLEAN certification.
+
+The canonical module is `stock_strategy_shared.book_artifact`, with
+`sentinel.core.book_artifact` a module-identity shim. It has to be shared:
+bt-engine PRODUCES it and Sentinel CONSUMES it, and neither may import the
+other. It is deliberately **not** under `wealth_core/` — that tree is hashed as
+`wealth_core_source` in every certification record and has been byte-identical
+across four reviews, which is worth more than a tidier import path for a helper
+that executes during no run.
+
+**The window must match the audit exactly.** `load(path, start=…, end=…)`
+refuses a book whose window differs, and refuses an unrecognised `schema`. A
+valid 2022 book handed to a 2021-2023 audit omits every name held only in 2021
+or 2023, and a refused row on one of those is then judged by admission floors
+that do not govern an open position. A well-formed file for the wrong period is
+more dangerous than a malformed one, because nothing about it looks wrong.
 
 The union is deliberately **over-inclusive**, and the asymmetry is the design:
 

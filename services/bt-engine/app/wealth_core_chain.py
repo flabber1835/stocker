@@ -34,6 +34,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
+from stock_strategy_shared import book_artifact
 from stock_strategy_shared.wealth_core.adapter import PendingOrder
 from stock_strategy_shared.wealth_core.performance import (SessionFacts,
                                                            measure,
@@ -158,6 +159,18 @@ class ChainRehearsal:
     # are: the parity check has already proven it reproduces the live path.
     terminal_audit: list[dict] = field(default_factory=list)
     terminal_reconciliation: dict = field(default_factory=dict)
+    # WHAT THIS RUN HELD, for the rejection audit that certifies the interval.
+    #
+    # Emitted BY THE RUN because the alternative is a human retyping a ticker
+    # list into the evidentiary chain, where a typo does not error — it produces
+    # a CLEAN certification. `rehearse_chain` had the bulk RunResult in hand,
+    # derived performance and the terminal reconciliation from it, and then
+    # discarded it; the artifact existed and was tested and nothing in
+    # production ever called it.
+    #
+    # DERIVED, like `performance` and the counters: a projection of records the
+    # run already produced and already hashed. It reaches no parity hash.
+    book_artifact: dict = field(default_factory=dict)
     traces: list[dict] = field(default_factory=list)
     trace_problems: list[str] = field(default_factory=list)
     profile_hash: str = ""
@@ -196,6 +209,7 @@ class ChainRehearsal:
             "settlement_counters": dict(self.settlement_counters),
             "terminal_audit": list(self.terminal_audit),
             "terminal_reconciliation": dict(self.terminal_reconciliation),
+            "book_artifact": dict(self.book_artifact),
             "retention": {"mode": self.retention_mode,
                           "tail": self.retention_tail,
                           "sessions_elided": self.sessions_elided,
@@ -571,6 +585,15 @@ def rehearse_chain(*, sessions: Sequence[str],
         key=lambda a: (a.get("settlement_session") or "",
                        a.get("security_id") or ""))
     out.terminal_reconciliation = reconcile(out.terminal_audit)
+    # THE BOOK THE RUN HELD, emitted here and not left to an operator. Taken
+    # from the BULK RunResult on the same justification as the counters and the
+    # performance above: parity with the live path is already proven, and this
+    # is the object that carries the ledger. The window is the DECISION span —
+    # warm-up sessions traded nothing, so a name appearing only there was never
+    # held and naming it would over-block for no reason.
+    out.book_artifact = book_artifact.from_run_result(
+        bulk, start=(sessions[0] if sessions else ""),
+        end=(sessions[-1] if sessions else ""))
     out.performance = measure_run_result(
         bulk, starting_cash, benchmark_closes=benchmark_closes,
         benchmark_ticker=benchmark_ticker).to_dict()

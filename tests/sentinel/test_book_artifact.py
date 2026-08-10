@@ -169,10 +169,18 @@ class TestTheBiasIsTowardINCLUDING:
 
 class TestTheLoaderIsFailClosed:
 
-    def write(self, tmp_path, obj):
+    def write(self, tmp_path, obj, *, schema=B.SCHEMA):
+        """The schema is supplied by default so these tests exercise the KEY
+        rules; `test_a_book_with_NO_schema_is_refused` covers the other gate."""
         p = tmp_path / "book.json"
-        p.write_text(json.dumps(obj))
+        p.write_text(json.dumps({"schema": schema, **obj}))
         return p
+
+    def test_a_book_with_NO_schema_is_refused(self, tmp_path):
+        p = tmp_path / "b.json"
+        p.write_text(json.dumps({"held": [], "pending_terminal": []}))
+        with pytest.raises(ValueError, match="schema"):
+            B.load(p)
 
     def test_a_complete_book_loads(self, tmp_path):
         p = self.write(tmp_path, {"held": ["aaa"], "pending_terminal": ["bbb"]})
@@ -238,3 +246,94 @@ class TestTheAuditAcceptsTheEmittedArtifact:
         a = RA.audit(_NoRows(), start=W["start"], end=W["end"],
                      held_tickers=held, pending_terminal_tickers=pending)
         assert a.holdings_known is True
+
+
+# ── 4. the window must MATCH the audit it feeds ──────────────────────────────
+
+class TestTheWindowIsCHECKED:
+    """A well-formed book for the WRONG period is more dangerous than a
+    malformed one, because nothing about it looks wrong. A 2022 book handed to a
+    2021-2023 audit omits every name held only in 2021 or 2023, and a refused
+    row on one of those is then judged by ADMISSION floors that do not govern an
+    open position."""
+
+    def write(self, tmp_path, **over):
+        rec = B.from_run_result(_Run(ledger=_Ledger([_Event("AAA")])), **W)
+        rec.update(over)
+        p = tmp_path / "book.json"
+        p.write_text(json.dumps(rec))
+        return p
+
+    def test_a_MATCHING_window_loads(self, tmp_path):
+        p = self.write(tmp_path)
+        assert B.load(p, start=W["start"], end=W["end"]) == (["AAA"], [])
+
+    def test_THE_FALSIFIER_a_NARROWER_book_is_refused(self, tmp_path):
+        p = self.write(tmp_path, window={"start": "2022-01-03",
+                                         "end": "2022-12-30"})
+        with pytest.raises(ValueError, match="2022-01-03"):
+            B.load(p, start=W["start"], end=W["end"])
+
+    def test_a_SHIFTED_window_is_refused(self, tmp_path):
+        p = self.write(tmp_path, window={"start": W["start"],
+                                         "end": "2023-12-28"})
+        with pytest.raises(ValueError, match="Refused"):
+            B.load(p, start=W["start"], end=W["end"])
+
+    def test_a_MISSING_window_is_refused_when_one_is_required(self, tmp_path):
+        p = self.write(tmp_path, window={})
+        with pytest.raises(ValueError):
+            B.load(p, start=W["start"], end=W["end"])
+
+    def test_NO_window_check_when_the_caller_supplies_none(self, tmp_path):
+        """Reading an artifact for inspection is a different act from feeding
+        it to a gate."""
+        p = self.write(tmp_path, window={"start": "1999-01-01", "end": "x"})
+        assert B.load(p) == (["AAA"], [])
+
+    def test_a_WRONG_SCHEMA_is_refused(self, tmp_path):
+        p = self.write(tmp_path, schema="something.else/9")
+        with pytest.raises(ValueError, match="schema"):
+            B.load(p)
+
+    def test_the_emitted_artifact_declares_the_CURRENT_schema(self, tmp_path):
+        rec = B.from_run_result(_Run(), **W)
+        assert rec["schema"] == B.SCHEMA
+
+
+# ── 5. and PRODUCTION actually calls it ──────────────────────────────────────
+
+class TestTheRehearsalEMITSIt:
+    """The artifact existed, was tested, was documented as emitted by the run —
+    and nothing in production ever called it. `rehearse_chain` had the bulk
+    RunResult in hand, derived performance and the terminal reconciliation from
+    it, and then discarded it."""
+
+    def test_rehearse_chain_calls_from_run_result(self):
+        src = (ROOT / "services" / "bt-engine" / "app"
+               / "wealth_core_chain.py").read_text()
+        assert "book_artifact.from_run_result(" in src, (
+            "the three-year certification path still does not emit the book, "
+            "so --book has nothing to consume but a hand-written file")
+
+    def test_it_is_on_the_RESULT_and_in_its_serialisation(self):
+        src = (ROOT / "services" / "bt-engine" / "app"
+               / "wealth_core_chain.py").read_text()
+        assert "book_artifact: dict" in src
+        assert '"book_artifact": dict(self.book_artifact)' in src, (
+            "emitted into a field that to_dict() drops is the same as not "
+            "emitting it — the API persists to_dict()")
+
+    def test_the_canonical_module_is_SHARED_not_sentinel_only(self):
+        """bt-engine produces it and Sentinel consumes it, and neither may
+        import the other. One implementation, reachable from both."""
+        from stock_strategy_shared import book_artifact as shared
+        assert B is shared, "the sentinel shim is a COPY, so the two can drift"
+
+    def test_wealth_core_source_tree_is_UNTOUCHED_by_this(self):
+        """It reads a RunResult, so `wealth_core/` looks like the tidy home. It
+        is not: that tree is hashed as `wealth_core_source` in every
+        certification record and has been byte-identical across three reviews.
+        A reporting helper does not get to spend that."""
+        assert not (ROOT / "shared" / "stock_strategy_shared" / "wealth_core"
+                    / "book_artifact.py").exists()

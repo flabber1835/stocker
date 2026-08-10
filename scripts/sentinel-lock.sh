@@ -21,15 +21,20 @@
 #      of the exercise. If it does not match, do NOT edit the lock to agree;
 #      find out what moved.
 #
-# --hashes adds per-artefact digests, so a rebuild also proves the WHEELS were
-# the same bytes and not merely the same version strings. It requires every
-# package to be installable from a hash-checked index; if that fails for a
-# platform-specific wheel, fall back to the version-only lock and say so in the
-# certification record rather than dropping the lock entirely.
+# PER-ARTEFACT HASHES ARE NOT IMPLEMENTED, and this header used to claim they
+# were. `pip freeze` reports versions; digests require a hash-checked resolve
+# against the same index (pip-compile --generate-hashes, or `pip download` plus
+# a manual digest), which is a different operation with its own failure modes on
+# platform-specific wheels. `--hashes` therefore only makes the omission LOUD on
+# stderr — a version-only lock still proves the same versions were installed,
+# and it does not prove the same bytes were.
+#
+# Say which one you have in the certification record rather than letting a flag
+# name imply the stronger claim.
 #
 # Usage:
 #   scripts/sentinel-lock.sh                 # version-only lock
-#   scripts/sentinel-lock.sh --hashes        # with per-artefact hashes
+#   scripts/sentinel-lock.sh --hashes        # same, and says why not
 set -euo pipefail
 
 IMAGE="${SENTINEL_IMAGE:-sentinel:latest}"
@@ -49,16 +54,14 @@ PY_VERSION=$(docker run --rm --entrypoint python "${IMAGE}" -c \
 TMP=$(mktemp)
 trap 'rm -f "${TMP}"' EXIT
 
+docker run --rm --entrypoint pip "${IMAGE}" freeze --all --exclude-editable \
+  > "${TMP}"
 if [ "${WITH_HASHES}" -eq 1 ]; then
-  docker run --rm --entrypoint sh "${IMAGE}" -c \
-    'pip install --no-cache-dir --quiet pip-tools >/dev/null 2>&1; \
-     pip freeze --all --exclude-editable' > "${TMP}"
-  echo "NOTE: per-artefact hashes require a hash-checked resolve; this script" >&2
-  echo "      emits versions and leaves hash generation to a pip-compile run" >&2
-  echo "      against the same index. Recorded as version-only." >&2
-else
-  docker run --rm --entrypoint pip "${IMAGE}" freeze --all --exclude-editable \
-    > "${TMP}"
+  echo "REFUSED THE STRONGER CLAIM: per-artefact hashes are NOT generated." >&2
+  echo "  pip freeze reports VERSIONS. Digests need a hash-checked resolve" >&2
+  echo "  (pip-compile --generate-hashes) against the same index. This lock" >&2
+  echo "  proves the same versions were installed; it does NOT prove the same" >&2
+  echo "  bytes were. Record it as version-only." >&2
 fi
 
 {
@@ -87,10 +90,8 @@ echo "wrote ${OUT} ($(grep -c '==' "${OUT}") distributions, python ${PY_VERSION}
 echo
 echo "NEXT, and it is the whole point:"
 echo "  1  commit ${OUT}"
-echo "  2  rebuild the image (the Dockerfile prefers the lock when present)"
-echo "  3  compare distributions_hash before and after:"
-echo "       docker compose -f docker-compose.sentinel.yml run --rm -T sentinel \\"
-echo "         identity | python3 -c 'import json,sys; \\"
-echo "           print(json.load(sys.stdin)[\"environment\"][\"distributions_hash\"])'"
-echo "     They MUST match. If they do not, something in the closure moved that"
-echo "     the lock does not describe — do not edit the lock to agree."
+echo "  2  rebuild, then re-run the certification harness:"
+echo "       scripts/sentinel-certify.sh --verify-only --start ... --end ..."
+echo "     It compares distributions_hash across the rebuild AUTOMATICALLY and"
+echo "     refuses if it moved. That comparison used to be an instruction people"
+echo "     followed the first time; it is now step 2b and it fails the run."

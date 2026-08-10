@@ -11,6 +11,13 @@
 #    2  name it                       `identity --require-certified` refuses if
 #                                     the interpreter, any pin, or either source
 #                                     tree cannot be pinned down
+#   2b  REQUIRE the closure lock      and STOP if it is missing. Ahead of the
+#                                     truncate on purpose: an unlocked image is
+#                                     not reproducible, and letting one wipe and
+#                                     re-seed spends hours producing evidence
+#                                     nobody can rebuild the environment for
+#   2c  record the ARTEFACT identity  the image ids, from the HOST — a container
+#                                     cannot discover its own image
 #    3  DISCARD the corpus            review #4 changed economically meaningful
 #                                     data: every dividend in the old seed is
 #                                     0.0 and every split ratio was inferred.
@@ -90,6 +97,70 @@ print(f"  sentinel   {env['sentinel_source']['hash'][:16]} "
 print(f"  wealthcore {env['wealth_core_source']['hash'][:16]} "
       f"({env['wealth_core_source']['files']} files)")
 PY
+
+# ── 2b. THE CLOSURE LOCK, AHEAD OF ANYTHING DESTRUCTIVE ──────────────────────
+# This used to sit at the END, as a yellow warning, after the truncate and the
+# hours-long re-seed and immediately before "READY FOR THE REHEARSAL". That is
+# exactly backwards: an unlocked build is not reproducible, so it would have
+# destroyed a corpus and spent hours rebuilding one in order to produce evidence
+# nobody could ever rebuild the environment for. A refusal is only a refusal if
+# it comes before the irreversible step.
+step "2b/9 the dependency closure must be LOCKED"
+if [ ! -f sentinel/requirements.lock ]; then
+  printf '\n\033[31mSTOP — NO DEPENDENCY LOCK. NOTHING HAS BEEN DESTROYED.\033[0m\n' >&2
+  cat >&2 <<EOF
+
+  sentinel/requirements.txt pins the DIRECT dependencies; pip resolved the
+  transitive closure freely for this build. identity_hash still separates two
+  different closures — they can never be mistaken for one — but you cannot
+  REBUILD this one, and a rehearsal whose environment cannot be rebuilt is not
+  certification evidence.
+
+  This is the EXPECTED state on the first 3.12.13 build. Finish the bootstrap:
+
+    scripts/sentinel-lock.sh                       # read the closure OUT of it
+    git add sentinel/requirements.lock && git commit
+    scripts/sentinel-certify.sh --verify-only --start ${START} --end ${END}
+
+  The rebuild is where the lock proves itself: this script compares
+  distributions_hash across it automatically and refuses if it moved.
+
+EOF
+  exit 1
+fi
+
+# THE LOCK PROVES ITSELF BY REBUILD, and that comparison is automated rather
+# than left as an operator step — "check these two hashes match" is an
+# instruction people follow the first time.
+LOCK_SHA=$(sha256sum sentinel/requirements.lock | cut -d' ' -f1)
+CLOSURE=$(python3 -c "import json; print(json.load(open('${ART}/identity-env.json'))['environment']['distributions_hash'])")
+PREV="${ART}/distributions_hash.prev"
+if [ -f "${PREV}" ]; then
+  if [ "$(cat "${PREV}")" != "${CLOSURE}" ]; then
+    fail "the dependency closure MOVED across a rebuild.
+  before: $(cat "${PREV}")
+  after : ${CLOSURE}
+  Something in the closure is not described by sentinel/requirements.lock. Do
+  NOT edit the lock to agree — find what moved. Compare the 'distributions'
+  list in ${ART}/identity-env.json against the lock."
+  fi
+  echo "  closure UNCHANGED across rebuild: ${CLOSURE}"
+else
+  echo "  closure recorded for the first time: ${CLOSURE}"
+  echo "  (a later run compares against it and refuses if it moved)"
+fi
+printf '%s' "${CLOSURE}" > "${PREV}"
+echo "  lock sha256: ${LOCK_SHA}"
+
+# ── 2c. THE ARTEFACT'S OWN IDENTITY, from the HOST ───────────────────────────
+# `sentinel identity` describes the environment INSIDE the container: the
+# interpreter, the packages, the source. It cannot describe the IMAGE — a
+# container has no reliable way to discover the id of the image it is running —
+# and the image is the thing actually being certified. So the manifest is
+# assembled out here, where docker can answer.
+step "2c/9 recording the artefact identity"
+python3 scripts/sentinel_manifest.py "${ART}" "${RUNSTAMP}" "${LOCK_SHA}" \
+  || fail "the artefact manifest could not be written"
 
 # ── 3-4. the corpus ──────────────────────────────────────────────────────────
 if [ "$KEEP" -eq 0 ]; then
@@ -231,20 +302,25 @@ if c.get("postgres_certified") is False:
           "claims")
 PY
 
-# ── the closure lock, checked rather than assumed ────────────────────────────
-if [ ! -f sentinel/requirements.lock ]; then
-  printf '\n\033[33mNO DEPENDENCY LOCK\033[0m\n'
-  echo "  sentinel/requirements.txt pins the DIRECT dependencies; pip resolved"
-  echo "  the transitive closure freely for this build, so it is NOT"
-  echo "  reproducible. identity_hash still separates two different closures —"
-  echo "  they can never be mistaken for one — but you cannot rebuild this one."
-  echo
-  echo "  Freeze it now, before the reseed:"
-  echo "    scripts/sentinel-lock.sh            # read the closure OUT of the image"
-  echo "    git add sentinel/requirements.lock && git commit"
-  echo "    scripts/sentinel-certify.sh --verify-only --start ${START} --end ${END}"
-  echo "  and confirm distributions_hash is unchanged across the rebuild."
-fi
+# The manifest is COMPLETED here, not written twice: the corpus hash cannot
+# exist before there is a corpus, and a record that silently lacked it would be
+# indistinguishable from one for an interval with no data.
+python3 - "${ART}" "${RUNSTAMP}" <<'PYX' || fail "the manifest could not be completed"
+import hashlib, json, sys
+from pathlib import Path
+art, stamp = Path(sys.argv[1]), sys.argv[2]
+mp = art / f"manifest-{stamp}.json"
+m = json.loads(mp.read_text())
+rec = json.loads((art / f"identity-{stamp}.json").read_text())
+m["corpus_hash"] = rec.get("corpus", {}).get("corpus_hash")
+m["postgres_server_version"] = rec.get("corpus", {}).get("postgres_server_version")
+ra = art / f"rejection-audit-{stamp}.json"
+if ra.exists():
+    m["rejection_audit_sha256"] = hashlib.sha256(ra.read_bytes()).hexdigest()
+mp.write_text(json.dumps(m, indent=2, sort_keys=True))
+print(f"  corpus_hash {m['corpus_hash']}")
+print(f"  -> {mp}")
+PYX
 
 printf '\n\033[32mREADY FOR THE REHEARSAL\033[0m — %s..%s\n' "${START}" "${END}"
 echo "  evidence retained in ${ART}/ :"

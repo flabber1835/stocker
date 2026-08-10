@@ -283,7 +283,14 @@ def cmd_rejection_audit(config: SentinelConfig, args) -> int:
         # audit enforces everywhere else.
         from sentinel.core import book_artifact
         try:
-            held, pending = book_artifact.load(args.book)
+            # THE WINDOW IS CHECKED, not just the keys. A valid 2022 book handed
+            # to a 2021-2023 audit omits every name held only in 2021 or 2023,
+            # and a refused row on one of those would then be judged by the
+            # ADMISSION floors — which do not govern an open position. A
+            # well-formed file for the wrong period is more dangerous than a
+            # malformed one, because nothing about it looks wrong.
+            held, pending = book_artifact.load(
+                args.book, start=args.start, end=args.end)
         except Exception as exc:                            # noqa: BLE001
             print(f"REFUSED: --book could not be read: {exc}", file=sys.stderr)
             return EXIT_CONFIG
