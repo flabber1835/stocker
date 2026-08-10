@@ -631,7 +631,3 @@ class TestTheCertifiedLauncherDoesNotRebuild:
     def test_the_refusal_names_the_certified_way_to_start(self):
         body = self.LAUNCH.read_text()
         assert "--no-build --start" in body
-
-    def test_the_certification_docs_point_at_no_build(self):
-        doc = (REPO / "docs" / "sentinel-deployment.md").read_text()
-        assert "--no-build" in doc

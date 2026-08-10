@@ -71,6 +71,13 @@ COPY shared/ /work/repo/shared/
 COPY Dockerfile.sentinel /work/repo/Dockerfile.sentinel
 COPY docker-compose.sentinel.yml /work/repo/docker-compose.sentinel.yml
 COPY Dockerfile.sentinel-test /work/repo/Dockerfile.sentinel-test
+# The certification harness resolves the bt-engine image out of THIS file and
+# refuses a build context that hides a COPY source, so both are inputs to
+# assertions the suite makes about the machinery. Without them those tests read
+# a repo root where the file simply is not there — and in this image a skip is
+# a FAILURE, so "absent" cannot quietly become "not checked".
+COPY docker-compose.backtest.yml /work/repo/docker-compose.backtest.yml
+COPY .dockerignore /work/repo/.dockerignore
 
 # /work carries `tests` and `services`. `sentinel` resolves from /app and
 # `stock_strategy_shared` from site-packages — the artefact, in both cases.

@@ -429,12 +429,32 @@ class TestTheBuildContextCarriesWhatTheDockerfilesCOPY:
         return None
 
     def test_there_are_copies_to_check(self):
-        """Guard the guard: a parser that silently found nothing would pass."""
+        """Guard the guard: a parser that silently found nothing would pass.
+
+        The floor is low because this runs in TWO layouts. A checkout has ~27
+        Dockerfiles; the certified test image copies only the Sentinel ones into
+        /work/repo, and a skip in there is a certification failure — so the
+        assertion has to be true in both rather than opting out of one."""
         srcs = self.copy_sources()
-        assert len(srcs) > 20, srcs
+        assert len(srcs) >= 8, srcs
         assert any(s == "tests/" for _, s in srcs), (
             "Dockerfile.sentinel-test should COPY tests/ — if that changed, "
             "this whole class needs re-pointing")
+
+    def test_a_full_checkout_covers_the_SERVICE_dockerfiles_too(self):
+        """Where the host runs, the sweep must be the wide one.
+
+        Stated as a property of the layout rather than a skip: either the
+        service tree is present and every one of its Dockerfiles was swept, or
+        this is the image, where that tree is deliberately absent."""
+        if not (ROOT / "services").is_dir():
+            assert os.environ.get("SENTINEL_IN_IMAGE") == "1", (
+                "no services/ tree and not the certified image — the sweep is "
+                "narrower than the checkout it is meant to cover")
+            return
+        seen = {df for df, _ in self.copy_sources()}
+        for df in ROOT.glob("services/*/Dockerfile"):
+            assert df in seen, df
 
     def test_no_dockerfile_copies_an_ignored_path(self):
         broken = [(str(df.relative_to(ROOT)), src, self.excluded_by(src))
