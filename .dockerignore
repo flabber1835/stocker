@@ -2,8 +2,7 @@
 .git
 .gitignore
 
-# Tests and development
-tests/
+# Development scratch. NOT `tests/` — see below.
 screenshots/
 _archive/
 dynamic_test_cold_boot.py
@@ -26,3 +25,18 @@ artifacts/
 # Editor
 .vscode
 .idea
+
+# ── tests/ IS NOT EXCLUDED, deliberately ─────────────────────────────────────
+#
+# It was, and `Dockerfile.sentinel-test` — whose entire purpose is to run the
+# suite INSIDE the certified image — then failed at `COPY tests/ /work/tests/`
+# with "file not found in build context". A .dockerignore applies to the whole
+# CONTEXT, so excluding a directory hides it from every Dockerfile built from
+# this root, including the one that must have it.
+#
+# Leaving it in the context does NOT put it in any service image: no Dockerfile
+# here does a broad `COPY . .` — every one names explicit paths — so tests/
+# reaches only the image that asks for it by name. The cost is ~10MB of context,
+# and `tests/sentinel/test_image_layout.py` asserts that every path any
+# Dockerfile COPYs survives this file, so the next exclusion that breaks a build
+# fails in CI rather than forty packages into an apt-get on the NAS.

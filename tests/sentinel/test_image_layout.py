@@ -365,3 +365,100 @@ class TestComposeSafety:
     def test_the_default_endpoint_is_PAPER(self, compose):
         assert "paper-api.alpaca.markets" in \
             compose["services"]["sentinel"]["environment"]["ALPACA_BASE_URL"]
+
+
+# ── every COPY source must survive .dockerignore ─────────────────────────────
+
+class TestTheBuildContextCarriesWhatTheDockerfilesCOPY:
+    """`.dockerignore` excluded `tests/`, and `Dockerfile.sentinel-test` — whose
+    entire purpose is to run the suite INSIDE the certified image — died at
+
+        COPY failed: file not found in build context: stat tests/
+
+    after installing PostgreSQL, pytest and SQLAlchemy. A .dockerignore applies
+    to the whole CONTEXT, so hiding a directory hides it from every Dockerfile
+    built from this root, including the one that must have it.
+
+    Nothing caught it earlier because the image had never been built: this
+    sandbox has a Docker client and no daemon, and review passes ran the suite
+    on the host. So the check is static — it reads what the Dockerfiles ask for
+    and what the ignore file removes, and needs neither.
+
+    The matcher below implements a deliberate SUBSET of Docker's pattern rules:
+    exact names, directory prefixes, and `**/` globs, which is everything this
+    repo's ignore file uses. It errs toward reporting a path as EXCLUDED, so it
+    cannot go quiet by failing to understand a pattern.
+    """
+
+    IGNORE = ROOT / ".dockerignore"
+
+    @staticmethod
+    def copy_sources() -> list[tuple[Path, str]]:
+        """(dockerfile, source) for every COPY that reads the build context."""
+        out = []
+        for df in sorted(ROOT.glob("Dockerfile*")) + \
+                sorted(ROOT.glob("services/*/Dockerfile")):
+            for raw in df.read_text().splitlines():
+                line = raw.strip()
+                if not line.upper().startswith("COPY "):
+                    continue
+                parts = line.split()[1:]
+                # `COPY --from=<stage>` reads another IMAGE, not the context.
+                if any(p.startswith("--from=") for p in parts):
+                    continue
+                parts = [p for p in parts if not p.startswith("--")]
+                for src in parts[:-1]:            # last token is the destination
+                    if "$" in src:                # ARG-substituted; not static
+                        continue
+                    out.append((df, src))
+        return out
+
+    def excluded_by(self, path: str) -> str | None:
+        """The .dockerignore pattern that removes `path`, if any."""
+        import fnmatch
+        norm = path.rstrip("/").lstrip("./")
+        for raw in self.IGNORE.read_text().splitlines():
+            pat = raw.strip()
+            if not pat or pat.startswith("#") or pat.startswith("!"):
+                continue
+            p = pat.rstrip("/")
+            if p == norm or norm.startswith(p + "/"):
+                return pat
+            if fnmatch.fnmatch(norm, p) or fnmatch.fnmatch(norm, p + "/*"):
+                return pat
+        return None
+
+    def test_there_are_copies_to_check(self):
+        """Guard the guard: a parser that silently found nothing would pass."""
+        srcs = self.copy_sources()
+        assert len(srcs) > 20, srcs
+        assert any(s == "tests/" for _, s in srcs), (
+            "Dockerfile.sentinel-test should COPY tests/ — if that changed, "
+            "this whole class needs re-pointing")
+
+    def test_no_dockerfile_copies_an_ignored_path(self):
+        broken = [(str(df.relative_to(ROOT)), src, self.excluded_by(src))
+                  for df, src in self.copy_sources()
+                  if self.excluded_by(src)]
+        assert not broken, (
+            "these COPY sources are removed from the build context by "
+            f".dockerignore, so the build fails at that line: {broken}")
+
+    def test_the_context_is_still_pruned(self):
+        """The fix is not "delete .dockerignore".
+
+        Un-excluding tests/ is safe only because no Dockerfile does a broad
+        `COPY . .`; the file still has work to do on .git and caches."""
+        body = self.IGNORE.read_text()
+        for pat in (".git", "**/__pycache__", "artifacts/"):
+            assert pat in body
+
+    def test_no_dockerfile_copies_the_whole_context(self):
+        """The premise the fix rests on.
+
+        If one ever did, every un-excluded directory would land inside that
+        image, and `tests/` would be shipping in a service image."""
+        offenders = [str(df.relative_to(ROOT))
+                     for df, src in self.copy_sources()
+                     if src in (".", "./")]
+        assert not offenders, offenders
