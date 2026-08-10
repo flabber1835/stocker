@@ -768,49 +768,77 @@ def final_report(*, session: str, state: PortfolioState, marks: Mapping[str, Mar
                       mark_ledger=Ledger(), forced_liquidation_ledger=Ledger(),
                       unresolved_terminals=dict(state.unresolved_terminals))
 
-    total, forced_total, any_unmarkable = float(state.cash), float(state.cash), False
+    total, forced_total = float(state.cash), float(state.cash)
+    any_unmarkable = False
+    # TRACKED SEPARATELY from `any_unmarkable`, because they answer different
+    # questions: one asks whether the book can be VALUED, the other whether it
+    # could be SOLD. A carried terminal holding is the case where those diverge,
+    # and it is exactly the case this fix exists for.
+    any_unliquidatable = False
 
     for slot_id in sorted(state.episodes):
         ep = state.episodes[slot_id]
         m = marks.get(ep.security_id)
-        if m is not None and m.status is MarkStatus.CURRENT:
-            value = ep.current_shares * float(m.raw_mark_close)
+        # `resolves_equity`, NOT `status is CURRENT`. A PENDING_TERMS_CARRIED
+        # holding resolves equity during every ordinary session — the waterfall
+        # has already checked its carried mark against the recency bound — so
+        # ending the run on such a session must not suddenly make the same
+        # position economically unmarkable.
+        #
+        # Measured before the fix: `resolved_equity 10,950.00, blocked False`
+        # during the session, and `marked_equity None` one line later at the
+        # final report, for the same holding in the same state. A valuation that
+        # depends on WHERE THE RUN STOPPED is not a valuation.
+        if m is not None and m.resolves_equity:
+            value = ep.current_shares * m.value_per_share
             rep.marked_positions.append({
                 "security_id": ep.security_id, "ticker": ep.ticker,
                 "slot_id": slot_id, "shares": _as_json(ep.current_shares),
-                "final_raw_close": float(m.raw_mark_close),
+                "final_raw_close": m.value_per_share,
                 "marked_value": round(value, 2),
+                "mark_status": m.status.value,
                 "sessions_held": ep.market_sessions_held})
             total += value
 
-            # TERMINAL_LIQUIDATION goes in its OWN ledger. Posting it to the
-            # run's ledger would make a hypothetical indistinguishable from a
-            # trade in every downstream reconciliation.
-            proceeds = value * (1.0 - cfg.transaction_cost_bps / 10_000.0)
-            rep.forced_liquidation.append({
-                "security_id": ep.security_id, "ticker": ep.ticker,
-                "shares": _as_json(ep.current_shares),
-                "assumed_price": float(m.raw_mark_close),
-                "gross": round(value, 2),
-                "cost": round(value - proceeds, 2),
-                "net_proceeds": round(proceeds, 2)})
-            rep.forced_liquidation_ledger.post(
-                session=session, event_type=EventType.TERMINAL_LIQUIDATION,
-                cash_before=forced_total, cash_delta=proceeds,
-                security_id=ep.security_id, ticker=ep.ticker,
-                shares_delta=_as_json(-ep.current_shares), price=float(m.raw_mark_close),
-                fees=value - proceeds, reason="HYPOTHETICAL_FORCED_LIQUIDATION",
-                detail={"hypothetical": True})
-            forced_total += proceeds
+            # THE FORCED LIQUIDATION IS A DIFFERENT QUESTION and needs a
+            # different mark. `is_tradeable_mark` — CURRENT only — because a
+            # carried valuation is not an executable price: no print happened,
+            # so there is nothing to fill against. Valuing a position and being
+            # able to SELL it are separate claims, and collapsing them is how a
+            # carried mark would quietly become a fill price.
+            if not m.is_tradeable_mark:
+                any_unliquidatable = True
+            else:
+                # TERMINAL_LIQUIDATION goes in its OWN ledger. Posting it to the
+                # run's ledger would make a hypothetical indistinguishable from
+                # a trade in every downstream reconciliation.
+                proceeds = value * (1.0 - cfg.transaction_cost_bps / 10_000.0)
+                rep.forced_liquidation.append({
+                    "security_id": ep.security_id, "ticker": ep.ticker,
+                    "shares": _as_json(ep.current_shares),
+                    "assumed_price": float(m.raw_mark_close),
+                    "gross": round(value, 2),
+                    "cost": round(value - proceeds, 2),
+                    "net_proceeds": round(proceeds, 2)})
+                rep.forced_liquidation_ledger.post(
+                    session=session, event_type=EventType.TERMINAL_LIQUIDATION,
+                    cash_before=forced_total, cash_delta=proceeds,
+                    security_id=ep.security_id, ticker=ep.ticker,
+                    shares_delta=_as_json(-ep.current_shares),
+                    price=float(m.raw_mark_close),
+                    fees=value - proceeds, reason="HYPOTHETICAL_FORCED_LIQUIDATION",
+                    detail={"hypothetical": True})
+                forced_total += proceeds
 
             rep.mark_ledger.post(
                 session=session, event_type=EventType.TERMINAL_MARK,
                 cash_before=state.cash, cash_delta=0.0,
                 security_id=ep.security_id, ticker=ep.ticker,
-                shares_delta=0, price=float(m.raw_mark_close),
+                shares_delta=0, price=m.value_per_share,
                 reason="FINAL_SESSION_MARK",
                 detail={"shares": _as_json(ep.current_shares),
-                        "marked_value": round(value, 2)})
+                        "marked_value": round(value, 2),
+                        "mark_status": m.status.value})
         else:
             any_unmarkable = True
             rep.unmarkable_positions.append({
@@ -831,7 +859,12 @@ def final_report(*, session: str, state: PortfolioState, marks: Mapping[str, Mar
         agg["slots"].append(p["slot_id"])
 
     rep.marked_equity = None if any_unmarkable else total
-    rep.forced_liquidation_equity = None if any_unmarkable else forced_total
+    # A forced liquidation needs an EXECUTABLE price for every position. It may
+    # legitimately be unresolved while `marked_equity` is known — that is not an
+    # inconsistency, it is the distinction: the book is worth something, and
+    # part of it cannot be sold today at any price anyone has quoted.
+    rep.forced_liquidation_equity = (
+        None if (any_unmarkable or any_unliquidatable) else forced_total)
 
     for e in ledger.events:
         if e.event_type.value in _LIQUIDATING_EVENTS:

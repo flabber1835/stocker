@@ -348,8 +348,15 @@ def run_sessions(*, sessions: Sequence[str],
         # report would value a position that has had no market for years.
         # `dict(last_known)` because build_marks MUTATES what it is given, and
         # the final report must not change the run's marking state.
+        # `terminal_pending_sessions` passed HERE too. Ordinary session marking
+        # supplies it and this call did not, so a holding in an active C1 grace
+        # was marked by a DIFFERENT rule at the run boundary than on every
+        # session before it — the same divergence `final_report` had, one layer
+        # down. Two places deciding what a carried holding is worth is one place
+        # too many.
         final_marks = build_marks(last_norm.bars, state.held_security_ids(),
-                                  dict(last_known), state.unresolved_terminals)
+                                  dict(last_known), state.unresolved_terminals,
+                                  state.terminal_pending_sessions)
         out.final = final_report(session=sessions[-1], state=state,
                                  marks=final_marks, ledger=ledger, cfg=cfg)
     return out
