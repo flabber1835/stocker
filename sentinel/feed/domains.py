@@ -163,6 +163,11 @@ class NormalisationReport:
     # COUNT above stays exact regardless, and truncation is reported.
     rejections: list = field(default_factory=list)
     rejections_truncated: int = 0
+    # (ticker, session) -> the ratio INFERRED from the price domains, kept even
+    # when an authoritative ACTIONS value overrides it. Two independent sources
+    # agreeing is worth more than one asserting, and a disagreement is a fact
+    # about the corpus that has to be reportable rather than resolved in silence.
+    derived_splits: dict = field(default_factory=dict)
 
     #: Cap on RETAINED rejection rows. The count is unbounded and exact; only
     #: the per-row detail is capped.
@@ -224,6 +229,8 @@ def normalise_sep_rows(
 
         p_close, p_raw = prev.get(sid, (None, None))
         ratio = split_ratio_from_domains(p_close, p_raw, close, raw)
+        if ratio != 1.0:
+            rep.derived_splits[(ticker, session)] = ratio
         if authoritative_splits is not None:
             # ACTIONS decides when present; the derived ratio stays as the
             # cross-check. Two independent sources agreeing is worth more than

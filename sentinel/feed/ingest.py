@@ -47,6 +47,83 @@ def _today() -> str:
     return _dt.date.today().isoformat()
 
 
+def _report_split_disagreements(report, authoritative) -> list:
+    """LOUD when the stated and derived split ratios describe different events.
+
+    The authoritative value wins — it is the vendor stating a corporate action,
+    while the derived one is inferred from two prices — but a material
+    disagreement means one of the two inputs is wrong about this security, and
+    silently preferring either turns a data problem into a share count nobody
+    questions.
+    """
+    from sentinel.feed import actions_map
+
+    bad = actions_map.split_disagreements(report, authoritative)
+    for d in bad[:20]:
+        log.warning(
+            "sentinel: SPLIT DISAGREEMENT %s %s stated=%.6g derived=%.6g — "
+            "using the ACTIONS value; one of the two sources is wrong about "
+            "this security", d["ticker"], d["session"], d["stated"],
+            d["derived"])
+    if len(bad) > 20:
+        log.warning("sentinel: +%d further split disagreements", len(bad) - 20)
+
+    # The OTHER half, and the half that is easy to leave silent because the
+    # fallback handles it: a split the prices show and ACTIONS never recorded.
+    # Summarised rather than listed per row — in thin early history this is a
+    # coverage statement about the actions feed, not a per-security fault.
+    only = actions_map.splits_only_derived(report, authoritative)
+    if only:
+        log.warning(
+            "sentinel: %d split(s) inferred from prices with NO ACTIONS row "
+            "(using the derived ratio; e.g. %s) — ACTIONS does not cover every "
+            "split in this window", len(only),
+            ", ".join(f"{d['ticker']} {d['session']} x{d['derived']:.6g}"
+                      for d in only[:5]))
+    return bad
+
+
+#: Calendar days of ACTIONS read from BEFORE a chunk's own window. An ex-date
+#: on the last few days of the previous chunk can be a weekend or a holiday
+#: whose next real session belongs to THIS chunk; without the lookback that
+#: entitlement is dropped by both chunks — the earlier one has no session at or
+#: after it, and the later one never reads the row.
+_ACTION_LOOKBACK_DAYS = 10
+
+
+def _action_maps(conn, start: str, end: str):
+    """(authoritative_splits, dividends) for [start, end], from the ACTIONS rows
+    ALREADY STORED for this window.
+
+    Read back from `sentinel_actions` rather than from the fetch response, so a
+    resumed or re-run chunk uses exactly what the corpus holds — the derived
+    ratio would otherwise depend on whether this process happened to be the one
+    that downloaded the actions.
+
+    THE SESSION AXIS IS THE EXCHANGE CALENDAR, NOT THE STORED BARS. The ex-date
+    is a CALENDAR date and can fall on a weekend or a holiday, so both maps snap
+    forward to the first real session; an event dated on a non-session never
+    fires and would leave the entitlement outstanding. Snapping against the
+    sessions already in `sentinel_bars` looks equivalent and is not: this runs
+    BEFORE the chunk's own bars are written, so on a seed the stored set is
+    empty and every weekend ex-date silently vanished. The corpus cannot be its
+    own witness for a day it does not yet hold — the same argument
+    `feed/calendar.py` exists under.
+    """
+    from sentinel.feed import actions_map, calendar
+
+    lo = (_dt.date.fromisoformat(str(start))
+          - _dt.timedelta(days=_ACTION_LOOKBACK_DAYS)).isoformat()
+    with conn.cursor() as cur:
+        cur.execute("SELECT ticker, session, action, value FROM sentinel_actions"
+                    " WHERE session BETWEEN %s AND %s", (lo, end))
+        rows = [{"ticker": t, "date": str(d), "action": a, "value": v}
+                for t, d, a, v in cur.fetchall()]
+    sessions = calendar.sessions_in_range(start, end)
+    return (actions_map.split_ratios_from_actions(rows, sessions),
+            actions_map.dividends_from_actions(rows, sessions))
+
+
 def seed(conn, *, date_from: str = DEFAULT_SEED_START, date_to: Optional[str] = None,
          fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
          resolve_identity=None) -> feed_store.IngestProgress:
@@ -86,14 +163,23 @@ def seed(conn, *, date_from: str = DEFAULT_SEED_START, date_to: Optional[str] = 
     for lo, hi in chunks:
         with run.chunk(lo[:4]):
             report = domains.NormalisationReport()
+            # ACTIONS IS AUTHORITATIVE for splits and dividends, and this call
+            # site is the defect being fixed: ACTIONS was fetched, stored and
+            # then NOT passed here, so every dividend was 0.0 and every split
+            # ratio came from price-domain inference. A genuine 3:2 is 1.5,
+            # equidistant from the 1 and 2 the derived ratio snaps to, and S5
+            # made that error matter by preserving fractional entitlement.
+            splits, divs = _action_maps(conn, lo, hi)
             bars = domains.normalise_sep_rows(
                 fetch(sharadar.SEP, sharadar.date_params(lo, hi)),
-                resolve_identity=resolver, report=report)
+                resolve_identity=resolver,
+                authoritative_splits=splits, dividends=divs, report=report)
             written = feed_store.write_bars(conn, bars)
             # PERSIST THE REFUSALS in the same breath as the bars. A rejection
             # recorded only in memory dies with the process, and the terminal
             # accounting that needs it runs in a different one.
             feed_store.write_rejections(conn, report.rejections)
+            _report_split_disagreements(report, splits)
             run.progress.rows_written += written
             run.progress.rows_dropped += (report.dropped_no_raw_close
                                           + report.dropped_no_identity)
@@ -134,12 +220,14 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
 
     with run.chunk("prices"):
         report = domains.NormalisationReport()
+        splits, divs = _action_maps(conn, start, to)
         bars = domains.normalise_sep_rows(
             fetch(sharadar.SEP, sharadar.date_params(start, to)),
             resolve_identity=resolve_identity or universe.load_resolver(conn).resolve,
-            report=report)
+            authoritative_splits=splits, dividends=divs, report=report)
         run.progress.rows_written += feed_store.write_bars(conn, bars)
         feed_store.write_rejections(conn, report.rejections)
+        _report_split_disagreements(report, splits)
         run.progress.rows_dropped += (report.dropped_no_raw_close
                                       + report.dropped_no_identity)
         # Checked on the DAILY path, where a vendor outage looks like a quiet
