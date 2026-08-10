@@ -115,6 +115,26 @@ def _f(v) -> Optional[float]:
     return f if f == f else None          # NaN -> None
 
 
+def _positive(v) -> Optional[float]:
+    """A NON-POSITIVE market quantity is ABSENT, not zero.
+
+    This is the canonical Wealth Core loader's rule (`wealth_core_replay._f`),
+    reproduced here because Sentinel assembles the same `VendorBar` type by a
+    different road and `tests/sentinel/test_loader_parity.py` compares them
+    field by field. Keeping a plain NaN guard here made a zero-volume bar carry
+    `volume=0.0` on this side and `None` on the certified one — and, through
+    `tradeable`, made Sentinel willing to fill an order on a session where
+    nobody traded the security.
+
+    Zero and absent are the same economic statement for a price or a volume:
+    there was no market. They are NOT the same statement for a DIVIDEND, which
+    is why distributions do not go through here — 0.0 means "no distribution"
+    and None would mean "unknown".
+    """
+    f = _f(v)
+    return f if (f is not None and f > 0) else None
+
+
 @dataclass(frozen=True)
 class NormalisedBar:
     """A `VendorBar` plus the SIGNAL close, which VendorBar does not carry.
@@ -228,7 +248,7 @@ def normalise_sep_rows(
         sid = resolve_identity(ticker, session) if resolve_identity else ticker
         close = _f(r.get("close"))
         raw = _f(r.get("closeunadj") if "closeunadj" in r else r.get("close_unadjusted"))
-        volume = _f(r.get("volume"))
+        volume = _positive(r.get("volume"))
         if sid is None:
             rep.dropped_no_identity += 1
             rep.note_rejection(ticker, session, "NO_IDENTITY",
@@ -266,10 +286,16 @@ def normalise_sep_rows(
         # SEP.open is SPLIT-ADJUSTED like close. The as-traded open is it scaled
         # by the same factor the close carries on this bar — raw/close — NOT by
         # the split ratio, which describes a change BETWEEN bars.
-        op_adj = _f(r.get("open"))
+        #
+        # ROUNDED to 6 decimals and computed from POSITIVE inputs only, because
+        # that is what the canonical Wealth Core loader does. The rounding looks
+        # cosmetic and is not: `test_loader_parity` compares the two paths' bars
+        # field by field, and a fill price that differs in the twelfth decimal
+        # is still a difference between two engines that are supposed to be one.
+        op_adj = _positive(r.get("open"))
         raw_open = None
         if op_adj is not None and close is not None and close > 0:
-            raw_open = op_adj * (raw / close)
+            raw_open = round(op_adj * (raw / close), 6)
 
         rep.bars += 1
         yield NormalisedBar(close_signal=close, vendor=VendorBar(
@@ -278,10 +304,14 @@ def normalise_sep_rows(
             ticker=ticker,
             raw_close=raw,
             raw_open=raw_open,
-            volume=_f(r.get("volume")),
+            volume=volume,
             split_ratio=ratio,
             dividend_per_share=float(
                 (dividends or {}).get((ticker, session), 0.0) or 0.0),
+            # DERIVED, never defaulted. `VendorBar.tradeable` defaults to True,
+            # so omitting it here declared every bar fillable — including a
+            # session on which nobody traded the security.
+            tradeable=bool(raw and volume),
         ))
 
 
