@@ -458,6 +458,15 @@ corpus had been destroyed and hours spent rebuilding it. A refusal that comes
 after the irreversible step is not a refusal. The rebuild comparison is
 automated too: the harness stores `distributions_hash` and fails if it moved.
 
+**The lock is bound to the IMAGE, not to the checkout.** `identity` reports
+`image_lock_sha256` — the digest of the lock file baked in at `/tmp/req` — and
+the harness requires it to equal the checkout's. `--verify-only` does not
+rebuild, so without that binding an old unlocked image passes the moment a lock
+appears on the host, proving only that the generator was run. The unlocked
+bootstrap build records its closure *before* it exits, so the locked rebuild has
+something to be compared against; once it reproduces, that baseline is retired
+and later runs compare against the last certified run instead.
+
 `--hashes` on the lock script does NOT produce per-artefact digests. `pip
 freeze` reports versions; digests need a hash-checked resolve against the same
 index. The flag makes the omission loud rather than implying the stronger
@@ -493,6 +502,29 @@ anyway: **deploying to another machine must go by immutable registry digest**,
 not by rebuilding from the same Dockerfile and calling the result equivalent.
 That assumption is exactly what the pins, the lock and this manifest exist to
 remove.
+
+Every named image is MANDATORY before the truncate (`--require-images`), and the
+Postgres reference is the digest-qualified one read out of the compose file
+rather than the bare `postgres:16` tag. It produces the corpus being certified:
+on a clean machine the bare tag resolved to nothing and certification continued,
+and on a machine with some other local `postgres:16` it would have recorded an
+unrelated server. A dirty working tree also refuses — it invalidates the
+`git_commit` line above it.
+
+### 10e. Finalizing the rehearsal is automated too
+
+```bash
+scripts/sentinel-finalize-rehearsal.sh --start 2021-01-04 --end 2023-12-29 \
+    --run-id <bt_wealth_core_runs.run_id>
+```
+
+It reads `summary.book_artifact` out of the run row, checks its window, re-runs
+the rejection audit against the REALISED book, and completes the manifest with
+the book, audit and rehearsal hashes. The pre-seed audit asserted an empty book;
+that was true before the first bootstrap and is false of the interval the
+rehearsal traded, so re-running it is not optional. A summary with no
+`book_artifact` came from an older engine and is REFUSED — writing the book by
+hand is precisely what this removes.
 
 `--require-certified` exits non-zero when the interpreter or any pin differs, so
 a rehearsal script refuses to produce evidence from an environment it cannot

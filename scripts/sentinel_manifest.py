@@ -70,7 +70,8 @@ def image(ref: str) -> dict:
             "repo_digests": digests}
 
 
-def build(art: Path, stamp: str, lock_sha: str) -> dict:
+def build(art: Path, stamp: str, lock_sha: str,
+          postgres_ref: str = "postgres:16") -> dict:
     rec = json.loads((art / "identity-env.json").read_text())
     env = rec["environment"]
     manifest = {
@@ -82,7 +83,12 @@ def build(art: Path, stamp: str, lock_sha: str) -> dict:
         "git_tree_clean": sh("git", "status", "--porcelain") == "",
         "sentinel_runtime_image": image("sentinel:latest"),
         "sentinel_test_image": image("sentinel-test:latest"),
-        "postgres_image": image("postgres:16"),
+        # THE PINNED, DIGEST-QUALIFIED REFERENCE from compose — not the bare
+        # `postgres:16` tag. PostgreSQL PRODUCES the corpus being certified, so
+        # a record naming whatever happens to be tagged `postgres:16` locally
+        # could name an entirely unrelated server. On a clean machine the bare
+        # tag simply resolved to nothing and certification continued.
+        "postgres_image": image(postgres_ref),
         "identity_hash": rec["identity_hash"],
         "distributions_hash": env["distributions_hash"],
         "distributions_count": env["distributions_count"],
@@ -100,20 +106,40 @@ def build(art: Path, stamp: str, lock_sha: str) -> dict:
     return manifest
 
 
+#: Every image the record NAMES. All three participate in producing or
+#: verifying the evidence, so an unnamed one is a hole in the record rather
+#: than a missing convenience field.
+REQUIRED_IMAGES = ("sentinel_runtime_image", "sentinel_test_image",
+                   "postgres_image")
+
+
 def main(argv=None) -> int:
-    argv = list(argv or sys.argv[1:])
-    if len(argv) != 3:
-        print("usage: sentinel_manifest.py <artifact-dir> <stamp> <lock-sha256>",
-              file=sys.stderr)
-        return 2
-    art, stamp, lock_sha = Path(argv[0]), argv[1], argv[2]
-    m = build(art, stamp, lock_sha)
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("art")
+    ap.add_argument("stamp")
+    ap.add_argument("lock_sha")
+    ap.add_argument("--postgres-ref", default="postgres:16")
+    ap.add_argument("--require-images", action="store_true",
+                    help="exit non-zero unless every named image resolved and "
+                         "the source tree is clean. Used before the "
+                         "irreversible step, where a warning is not enough.")
+    args = ap.parse_args(list(argv or sys.argv[1:]))
+    art, stamp, lock_sha = Path(args.art), args.stamp, args.lock_sha
+    m = build(art, stamp, lock_sha, postgres_ref=args.postgres_ref)
+
+    problems = []
     if not m["git_tree_clean"]:
-        print("  WARNING: the working tree is DIRTY — this manifest names a "
-              "commit that is not what was built")
-    if not m["sentinel_runtime_image"]["id"]:
-        print("  WARNING: sentinel:latest could not be inspected — the "
-              "artefact being certified is UNNAMED in this record")
+        problems.append("the working tree is DIRTY, so git_commit names a "
+                        "commit that is not what was built")
+    for key in REQUIRED_IMAGES:
+        if not m[key]["id"]:
+            problems.append(f"{key} ({m[key]['ref']}) could not be inspected — "
+                            f"the record cannot name it")
+    for p in problems:
+        print(f"  {'REFUSED' if args.require_images else 'WARNING'}: {p}")
+
     out = art / f"manifest-{stamp}.json"
     out.write_text(json.dumps(m, indent=2, sort_keys=True))
     print(f"  git      {m['git_commit']} clean={m['git_tree_clean']}")
@@ -122,7 +148,9 @@ def main(argv=None) -> int:
     print(f"  closure  {m['distributions_hash'][:16]}  "
           f"lock {m['requirements_lock_sha256'][:16]}")
     print(f"  -> {out}")
-    return 0
+    # WRITTEN EVEN WHEN REFUSING, so the operator can see exactly which field
+    # was missing rather than being told a file could not be produced.
+    return 1 if (problems and args.require_images) else 0
 
 
 if __name__ == "__main__":                                   # pragma: no cover

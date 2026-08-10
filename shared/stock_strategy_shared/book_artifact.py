@@ -125,13 +125,35 @@ def held_tickers(result) -> set[str]:
     if ledger is not None:
         _tickers_from(getattr(ledger, "events", []) or [], out)
         _tickers_from(getattr(ledger, "receivables", []) or [], out)
-    # Still-open holdings at the end, plus the per-session facts that survive
-    # elision. Belt and braces: each of these alone should be a subset of the
-    # ledger's names, and a disagreement means the ledger is not the complete
-    # record this assumes it is — over-including is how that stays safe.
+    # STILL-OPEN HOLDINGS, from `episodes` — which is where they actually live.
+    #
+    # This read `state.holdings`, an attribute `PortfolioState` does not have.
+    # The unit of holding state is the EPISODE (that is what makes the trailing
+    # stop's "does not reset except when a new holding episode begins"
+    # meaningful), and the episode is also where the CURRENT ticker is stored.
+    # A local test fake that defined `.holdings` hid the mismatch completely:
+    # against the real classes, a security bought as OLD and relabelled to NEW
+    # returned {OLD} alone.
+    #
+    # That gap matters more than an ordinary missing source, because
+    # `apply_ticker_changes` posts NO LEDGER EVENT by design — a relabelling
+    # moves no money — so the ledger cannot recover the new label at all.
     state = getattr(result, "state", None)
     if state is not None:
+        _tickers_from(getattr(state, "episodes", None), out)
+        # `holdings` kept as a tolerated alias: some result shapes carry one,
+        # and an extra name is the safe direction.
         _tickers_from(getattr(state, "holdings", None), out)
+        # AND a structural sweep of the whole serialised state. Reading named
+        # attributes is exactly what failed here — an assumption about a field
+        # name, invisible until checked against the real object. The serialised
+        # form finds a ticker wherever it moves to next.
+        to_dict = getattr(state, "to_dict", None)
+        if callable(to_dict):
+            try:
+                _tickers_from(to_dict(), out)
+            except Exception:                               # noqa: BLE001
+                pass
     _tickers_from(getattr(result, "session_facts", []) or [], out)
     return out
 

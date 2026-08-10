@@ -85,6 +85,26 @@ _REQUIREMENTS = Path(__file__).resolve().parent / "requirements.txt"
 _LOCK = Path(__file__).resolve().parent / "requirements.lock"
 
 
+#: Where `Dockerfile.sentinel` leaves the requirement files it installed from.
+#: Baked into the IMAGE, so it describes the build rather than the host.
+_IMAGE_REQ_DIR = Path("/tmp/req")
+
+
+def _image_lock_sha256() -> Optional[str]:
+    """SHA-256 of the lock file INSIDE the image, or None if it has none.
+
+    This is the difference between "a lock exists somewhere" and "this image
+    was built from a lock". `--verify-only` does not rebuild, so without it an
+    unlocked image passes the moment a lock appears in the checkout — which
+    proves the operator ran the generator, not that anything consumed it.
+    """
+    p = _IMAGE_REQ_DIR / "requirements.lock"
+    try:
+        return hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None
+    except Exception:                                        # noqa: BLE001
+        return None
+
+
 def _imported_package_root(module_name: str) -> Optional[Path]:
     """Where Python ACTUALLY imported a package from.
 
@@ -257,7 +277,16 @@ def environment() -> dict:
         "distributions_count": len(dists),
         "distributions_hash": _sha(json.dumps(dists, sort_keys=True).encode()),
         "distributions": dists,
+        # THE LOCK THE IMAGE WAS BUILT FROM, not the one lying in a checkout.
+        #
+        # `--verify-only` does not rebuild, so an OLD UNLOCKED image could pass
+        # a "is there a lock?" check simply because a lock file appeared on the
+        # host afterwards — proving the operator ran the generator, not that
+        # anything was built from its output. The Dockerfile copies the lock to
+        # /tmp/req; hashing THAT is the only claim about the image itself, and
+        # the harness requires it to equal the checkout's.
         "lock_present": _LOCK.exists(),
+        "image_lock_sha256": _image_lock_sha256(),
         "sentinel_source": sentinel_src,
         "wealth_core_source": wc_src,
         "sources_known": sources_known,

@@ -106,7 +106,16 @@ PY
 # nobody could ever rebuild the environment for. A refusal is only a refusal if
 # it comes before the irreversible step.
 step "2b/9 the dependency closure must be LOCKED"
+CLOSURE=$(python3 -c "import json; print(json.load(open('${ART}/identity-env.json'))['environment']['distributions_hash'])")
+IMAGE_LOCK=$(python3 -c "import json; print(json.load(open('${ART}/identity-env.json'))['environment'].get('image_lock_sha256') or '')")
+BOOT="${ART}/bootstrap_closure.txt"
+
 if [ ! -f sentinel/requirements.lock ]; then
+  # RECORD THE BOOTSTRAP CLOSURE BEFORE EXITING. Without this the first
+  # unlocked build leaves nothing behind, and the locked rebuild has no earlier
+  # value to be compared against — so the very comparison the bootstrap exists
+  # to perform would be skipped on the one run that needed it.
+  printf '%s' "${CLOSURE}" > "${BOOT}"
   printf '\n\033[31mSTOP — NO DEPENDENCY LOCK. NOTHING HAS BEEN DESTROYED.\033[0m\n' >&2
   cat >&2 <<EOF
 
@@ -116,41 +125,76 @@ if [ ! -f sentinel/requirements.lock ]; then
   REBUILD this one, and a rehearsal whose environment cannot be rebuilt is not
   certification evidence.
 
+  The bootstrap closure has been recorded:
+    ${CLOSURE}
+    -> ${BOOT}
+
   This is the EXPECTED state on the first 3.12.13 build. Finish the bootstrap:
 
     scripts/sentinel-lock.sh                       # read the closure OUT of it
     git add sentinel/requirements.lock && git commit
-    scripts/sentinel-certify.sh --verify-only --start ${START} --end ${END}
+    scripts/sentinel-certify.sh --start ${START} --end ${END} --keep-corpus
 
-  The rebuild is where the lock proves itself: this script compares
-  distributions_hash across it automatically and refuses if it moved.
+  Note the REBUILD: --verify-only does NOT rebuild the image, so it would check
+  a lock that exists in the checkout against an image that never consumed one.
+  The rebuild is where the lock proves itself, and this script then compares the
+  closure against the recorded bootstrap value automatically.
 
 EOF
   exit 1
 fi
 
-# THE LOCK PROVES ITSELF BY REBUILD, and that comparison is automated rather
-# than left as an operator step — "check these two hashes match" is an
-# instruction people follow the first time.
+# THE IMAGE MUST HAVE BEEN BUILT FROM THIS LOCK, not merely coexist with it.
+# `image_lock_sha256` is the digest of the lock file baked into the image at
+# /tmp/req. Without this check an OLD UNLOCKED image passes the moment a lock
+# appears on the host — which proves the generator was run, not that anything
+# consumed its output.
 LOCK_SHA=$(sha256sum sentinel/requirements.lock | cut -d' ' -f1)
-CLOSURE=$(python3 -c "import json; print(json.load(open('${ART}/identity-env.json'))['environment']['distributions_hash'])")
+if [ -z "${IMAGE_LOCK}" ]; then
+  fail "the image carries NO lock file, but sentinel/requirements.lock exists in
+  the checkout. This image was built before the lock, or without it. REBUILD:
+    ${COMPOSE} build sentinel sentinel-panel
+  A lock in the working tree says nothing about the image that will run."
+fi
+if [ "${IMAGE_LOCK}" != "${LOCK_SHA}" ]; then
+  fail "the image was built from a DIFFERENT lock than the checkout holds.
+  image   : ${IMAGE_LOCK}
+  checkout: ${LOCK_SHA}
+  Rebuild, or work out which one is the intended closure. Do not proceed with an
+  artefact whose declared dependencies are not the ones it contains."
+fi
+echo "  image built from the checkout lock: ${LOCK_SHA}"
+
+# AND THE CLOSURE MUST NOT HAVE MOVED. Compared against the bootstrap value
+# where one exists — that is the proof the lock DESCRIBES the image it came
+# from — and against the previous certified run otherwise.
 PREV="${ART}/distributions_hash.prev"
-if [ -f "${PREV}" ]; then
-  if [ "$(cat "${PREV}")" != "${CLOSURE}" ]; then
-    fail "the dependency closure MOVED across a rebuild.
-  before: $(cat "${PREV}")
+BASELINE=""
+BASELINE_KIND=""
+if [ -f "${BOOT}" ]; then
+  BASELINE=$(cat "${BOOT}"); BASELINE_KIND="the unlocked bootstrap build"
+elif [ -f "${PREV}" ]; then
+  BASELINE=$(cat "${PREV}"); BASELINE_KIND="the previous certified run"
+fi
+if [ -n "${BASELINE}" ]; then
+  if [ "${BASELINE}" != "${CLOSURE}" ]; then
+    fail "the dependency closure MOVED against ${BASELINE_KIND}.
+  before: ${BASELINE}
   after : ${CLOSURE}
   Something in the closure is not described by sentinel/requirements.lock. Do
   NOT edit the lock to agree — find what moved. Compare the 'distributions'
   list in ${ART}/identity-env.json against the lock."
   fi
-  echo "  closure UNCHANGED across rebuild: ${CLOSURE}"
+  echo "  closure UNCHANGED against ${BASELINE_KIND}: ${CLOSURE}"
+  # The bootstrap has served its purpose: the locked rebuild reproduced it.
+  # Retired so a later legitimate dependency change is compared against the
+  # last CERTIFIED run rather than against a build from before the lock existed.
+  [ -f "${BOOT}" ] && mv "${BOOT}" "${BOOT}.proven"
 else
   echo "  closure recorded for the first time: ${CLOSURE}"
   echo "  (a later run compares against it and refuses if it moved)"
 fi
 printf '%s' "${CLOSURE}" > "${PREV}"
-echo "  lock sha256: ${LOCK_SHA}"
 
 # ── 2c. THE ARTEFACT'S OWN IDENTITY, from the HOST ───────────────────────────
 # `sentinel identity` describes the environment INSIDE the container: the
@@ -158,9 +202,27 @@ echo "  lock sha256: ${LOCK_SHA}"
 # container has no reliable way to discover the id of the image it is running —
 # and the image is the thing actually being certified. So the manifest is
 # assembled out here, where docker can answer.
+#
+# FAIL CLOSED on every image it names. PostgreSQL in particular PRODUCES the
+# corpus being certified, and an unresolved or locally-tagged `postgres:16`
+# would leave the record naming the wrong server, or nothing at all.
 step "2c/9 recording the artefact identity"
+PG_REF=$(python3 -c "
+import re,sys
+t=open('docker-compose.sentinel.yml').read()
+m=re.search(r'image:\s*(postgres:[^\s]+)', t)
+sys.stdout.write(m.group(1) if m else '')")
+[ -n "${PG_REF}" ] || fail "no pinned postgres image found in docker-compose.sentinel.yml"
+# Non-destructive: pull the pinned digest so it is resolvable locally BEFORE the
+# manifest reads it. `up -d` would also do it, and starting a database is not
+# something a recording step should decide to do.
+docker image inspect "${PG_REF}" >/dev/null 2>&1 || docker pull "${PG_REF}" >/dev/null \
+  || fail "the pinned Postgres image ${PG_REF} could not be resolved. It PRODUCES
+  the corpus being certified; a record that cannot name it is not a record."
 python3 scripts/sentinel_manifest.py "${ART}" "${RUNSTAMP}" "${LOCK_SHA}" \
-  || fail "the artefact manifest could not be written"
+  --postgres-ref "${PG_REF}" --require-images \
+  || fail "the artefact manifest is incomplete — every image it names must
+  resolve, and the source tree must be clean, BEFORE anything is destroyed."
 
 # ── 3-4. the corpus ──────────────────────────────────────────────────────────
 if [ "$KEEP" -eq 0 ]; then
@@ -331,8 +393,10 @@ echo "settlement counters and the per-episode terminal audit before any"
 echo "performance number — a CAGR without them cannot say how much of the book"
 echo "was valued rather than realised."
 echo
-echo "AFTER it completes, re-run the rejection audit with the book the RUN"
-echo "EMITTED (sentinel.core.book_artifact.write, never hand-written):"
-echo "  sentinel rejection-audit --start ${START} --end ${END} --book <book.json>"
-echo "The pre-seed run asserted an empty book, which was true then and is not"
-echo "true of the interval the rehearsal actually traded."
+echo "AFTER it completes, run the finalizer — it extracts the book the RUN"
+echo "emitted, re-runs the audit against it and closes the manifest:"
+echo "  scripts/sentinel-finalize-rehearsal.sh --start ${START} --end ${END} \\"
+echo "      --run-id <bt_wealth_core_runs.run_id>"
+echo "The pre-seed audit asserted an EMPTY book. That was true then and is not"
+echo "true of the interval the rehearsal actually traded, so the finalizer"
+echo "re-runs it against the realised one."

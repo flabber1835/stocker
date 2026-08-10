@@ -405,6 +405,18 @@ def rehearse_chain(*, sessions: Sequence[str],
 
     # ── the chain, one session at a time ─────────────────────────────────────
     state = PortfolioState.fresh(starting_cash, cfg.n_slots)
+    # EVERY TICKER LABEL AN OCCUPIED EPISODE EVER CARRIED, accumulated as the
+    # run proceeds rather than read off the final state.
+    #
+    # A relabelling posts NO LEDGER EVENT — it moves no money — so the ledger
+    # cannot recover a new symbol, and the final state carries only the LAST
+    # one. A security held as OLD, renamed to NEW, renamed again to NEWER and
+    # then sold appears in the ledger as OLD and in the end state not at all.
+    # A refused price row filed under any of those labels has to make the
+    # rejection audit MATERIAL, so all of them are collected here, one session
+    # at a time, before any retention decision can discard the object that
+    # named them.
+    label_union: set[str] = set()
     pending: list[PendingOrder] = []
     ledger = Ledger()
     last_known: dict[str, float] = {}
@@ -440,6 +452,10 @@ def rehearse_chain(*, sessions: Sequence[str],
             eligibility_cfg=eligibility_cfg, terminal_events=terminal_events)
         trace.stages_invoked.append("wealth-core-session")
         trace.intents = len(plan.intents)
+        # AFTER the session advanced, so a rename applied at step 0 is seen
+        # under its new label — and the session before saw the old one.
+        label_union.update(
+            ep.ticker for ep in state.episodes.values() if ep.ticker)
 
         sr = SessionRehearsal(session=session, blocked=plan.blocked,
                               block_reason=plan.block_reason,
@@ -593,7 +609,8 @@ def rehearse_chain(*, sessions: Sequence[str],
     # held and naming it would over-block for no reason.
     out.book_artifact = book_artifact.from_run_result(
         bulk, start=(sessions[0] if sessions else ""),
-        end=(sessions[-1] if sessions else ""))
+        end=(sessions[-1] if sessions else ""),
+        extra_held=sorted(label_union))
     out.performance = measure_run_result(
         bulk, starting_cash, benchmark_closes=benchmark_closes,
         benchmark_ticker=benchmark_ticker).to_dict()

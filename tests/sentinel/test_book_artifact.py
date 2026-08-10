@@ -57,7 +57,15 @@ class _Ledger:
 
 
 class _State:
+    """A stand-in — and a WARNING. The previous version defined `.holdings`,
+    an attribute the real `PortfolioState` does not have, which made every
+    test here pass while `held_tickers` read nothing from the state at all.
+
+    `TestAgainstTheREALPortfolioState` below is the answer to that: a fake can
+    only prove the code agrees with the fake."""
+
     def __init__(self, **kw):
+        self.episodes = kw.get("episodes", {})
         self.holdings = kw.get("holdings", {})
         self.terminal_pending_sessions = kw.get("terminal_pending_sessions", {})
         self.terminal_pending_terms = kw.get("terminal_pending_terms", {})
@@ -88,9 +96,9 @@ class TestTheUnionReachesEverySource:
         r = _Run(ledger=_Ledger([_Event("SOLD")]), state=_State(holdings={}))
         assert "SOLD" in B.held_tickers(r)
 
-    def test_still_open_holdings_are_included(self):
+    def test_still_open_EPISODES_are_included(self):
         r = _Run(ledger=_Ledger([]),
-                 state=_State(holdings={"P:C": {"ticker": "CCC"}}))
+                 state=_State(episodes={1: {"ticker": "CCC"}}))
         assert "CCC" in B.held_tickers(r)
 
     def test_RECEIVABLES_count_too(self):
@@ -337,3 +345,84 @@ class TestTheRehearsalEMITSIt:
         A reporting helper does not get to spend that."""
         assert not (ROOT / "shared" / "stock_strategy_shared" / "wealth_core"
                     / "book_artifact.py").exists()
+
+
+# ── 6. against the REAL classes, because the fake hid a real bug ─────────────
+
+class TestAgainstTheREALPortfolioState:
+    """`held_tickers` read `state.holdings`. `PortfolioState` has no such
+    attribute — its live holdings are `state.episodes`, keyed by slot — and the
+    local fake defined `.holdings`, so every test above passed while the state
+    contributed nothing at all.
+
+    A relabelling makes this worse than an ordinary missing source:
+    `apply_ticker_changes` posts NO ledger event by design, so the ledger cannot
+    recover a new symbol. The security below is bought as OLD and renamed to
+    NEW, and the old code returned {OLD}.
+    """
+
+    def run(self, *, ledger_ticker="OLD", episode_ticker="NEW"):
+        from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
+        from stock_strategy_shared.wealth_core.state import (HoldingEpisode,
+                                                             PortfolioState)
+
+        led = Ledger()
+        led.post(session="2021-06-01", event_type=EventType.BUY,
+                 cash_before=1000.0, cash_delta=-100.0, security_id="P:X",
+                 ticker=ledger_ticker)
+        st = PortfolioState.fresh(1000.0, 25)
+        st.episodes[1] = HoldingEpisode(
+            security_id="P:X", ticker=episode_ticker, issuer_id="I", slot_id=1,
+            signal_date="2021-06-01", entry_date="2021-06-02",
+            entry_raw_open=10.0, entry_split_adjusted_price=10.0,
+            initial_shares=100.0, current_shares=100.0)
+
+        class R:
+            def __init__(self):
+                self.ledger, self.state = led, st
+                self.terminal_results, self.session_facts = [], []
+        return R()
+
+    def test_the_real_state_has_NO_holdings_attribute(self):
+        """Pinned so the fake can never drift back into inventing one."""
+        from stock_strategy_shared.wealth_core.state import PortfolioState
+        assert not hasattr(PortfolioState.fresh(1000.0, 25), "holdings")
+
+    def test_THE_FALSIFIER_a_RELABELLED_holding_is_found(self):
+        got = B.held_tickers(self.run())
+        assert "NEW" in got, (
+            "the current episode label is missing — and a relabelling posts no "
+            "ledger event, so nothing else in the run can supply it")
+        assert "OLD" in got, "the ledger's original label was dropped"
+
+    def test_the_episode_label_survives_from_run_result(self):
+        rec = B.from_run_result(self.run(), **W)
+        assert {"NEW", "OLD"} <= set(rec["held"])
+
+    def test_extra_held_carries_INTERMEDIATE_labels(self):
+        """The end state holds only the LAST label and the ledger only the
+        first, so a name renamed twice has a middle label neither can supply.
+        `rehearse_chain` accumulates them per session and passes them here."""
+        rec = B.from_run_result(self.run(), extra_held=["MIDDLE"], **W)
+        assert {"OLD", "MIDDLE", "NEW"} <= set(rec["held"])
+
+
+class TestTheREHEARSALCollectsTheLabelUnion:
+
+    def test_it_accumulates_per_session_not_from_the_final_state(self):
+        src = (ROOT / "services" / "bt-engine" / "app"
+               / "wealth_core_chain.py").read_text()
+        assert "label_union" in src
+        assert "extra_held=sorted(label_union)" in src, (
+            "the union is collected and then not passed, which is the same as "
+            "not collecting it")
+
+    def test_the_collection_is_INSIDE_the_session_loop(self):
+        """Reading the final state instead would lose every intermediate label,
+        and bounded retention would lose the objects that named them."""
+        src = (ROOT / "services" / "bt-engine" / "app"
+               / "wealth_core_chain.py").read_text().splitlines()
+        loop = next(i for i, l in enumerate(src) if l.strip() == "for session in sessions:")
+        collect = next(i for i, l in enumerate(src) if "label_union.update" in l)
+        emit = next(i for i, l in enumerate(src) if "extra_held=sorted(label_union)" in l)
+        assert loop < collect < emit

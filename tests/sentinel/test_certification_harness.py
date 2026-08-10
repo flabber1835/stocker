@@ -119,11 +119,11 @@ class TestTheRebuildProvesTheLock:
         assert "distributions_hash.prev" in body, (
             "the before/after comparison is left to the operator — an "
             "instruction people follow the first time")
-        assert "the dependency closure MOVED across a rebuild" in body
+        assert "the dependency closure MOVED against" in body
 
     def test_a_MOVED_closure_is_a_failure_not_a_note(self):
         body = text()
-        gate = body[body.index("distributions_hash.prev"):body.index("2c/9")]
+        gate = body[body.index("BASELINE_KIND"):body.index("2c/9")]
         assert "fail " in gate
 
     def test_the_operator_is_told_NOT_to_edit_the_lock(self):
@@ -225,3 +225,161 @@ class TestEvidenceIsRETAINED:
         assert "--assert-no-holdings" in body, (
             "the pre-seed run must state the empty book explicitly; supplying "
             "nothing means UNKNOWN")
+
+
+# ── 5. the lock bootstrap has no sequencing hole ─────────────────────────────
+
+class TestTheBootstrapBindsTheLockToTheIMAGE:
+    """`--verify-only` does not rebuild. So a check that only asks "does a lock
+    file exist?" can pass against the ORIGINAL UNLOCKED image the moment a lock
+    appears in the checkout — proving the operator ran the generator, not that
+    anything was built from its output."""
+
+    def test_identity_reports_the_lock_INSIDE_the_image(self):
+        from sentinel import identity as ident
+        assert "image_lock_sha256" in ident.environment()
+
+    def test_the_image_lock_is_read_from_the_BUILD_not_the_checkout(self):
+        src = (ROOT / "sentinel" / "identity.py").read_text()
+        assert "/tmp/req" in src, (
+            "the lock hash is read from the working tree, which says nothing "
+            "about the image")
+
+    def test_the_harness_REFUSES_an_image_with_no_lock(self):
+        body = text()
+        assert "the image carries NO lock file" in body
+        assert 'if [ -z "${IMAGE_LOCK}" ]' in body
+
+    def test_the_harness_REFUSES_a_MISMATCHED_lock(self):
+        assert "built from a DIFFERENT lock than the checkout holds" in text()
+
+    def test_the_bootstrap_closure_is_recorded_BEFORE_the_exit(self):
+        """Without this the first unlocked build leaves nothing behind, and the
+        locked rebuild has no earlier value to compare against — so the very
+        comparison the bootstrap exists to perform is skipped on the one run
+        that needed it."""
+        body = text()
+        lo = body.index("if [ ! -f sentinel/requirements.lock ]")
+        gate = body[lo:body.index("exit 1", lo)]
+        assert '> "${BOOT}"' in gate, (
+            "the unlocked build exits without recording its closure, so the "
+            "locked rebuild has nothing to be compared against")
+
+    def test_the_bootstrap_instructions_do_NOT_say_verify_only(self):
+        """--verify-only skips the build, so following it would check a lock in
+        the checkout against an image that never consumed one."""
+        body = text()
+        lo = body.index("NO DEPENDENCY LOCK")
+        gate = body[lo:body.index("exit 1", lo)]
+        assert "--verify-only" not in gate or "does NOT rebuild" in gate
+
+    def test_the_locked_rebuild_is_compared_against_the_BOOTSTRAP(self):
+        body = text()
+        assert "the unlocked bootstrap build" in body
+        assert "MOVED against" in body
+
+    def test_a_proven_bootstrap_is_RETIRED(self):
+        """Once the locked rebuild reproduces it, later runs must compare
+        against the last CERTIFIED run — not forever against a build from
+        before the lock existed, which would refuse every legitimate future
+        dependency change for the wrong reason."""
+        assert "${BOOT}.proven" in text()
+
+
+# ── 6. the Postgres image is NAMED, and mandatory ────────────────────────────
+
+class TestThePostgresImageCannotBeNull:
+    """It PRODUCES the corpus being certified. On a clean machine the bare
+    `postgres:16` tag resolved to nothing and certification continued; on a
+    machine with some other local `postgres:16` it would have recorded an
+    unrelated server."""
+
+    def test_the_ref_comes_from_COMPOSE_not_a_bare_tag(self):
+        body = text()
+        assert "PG_REF" in body and "docker-compose.sentinel.yml" in body
+
+    def test_the_pinned_image_is_RESOLVED_before_the_manifest(self):
+        assert line_of("docker pull") < line_of("TRUNCATE TABLE")
+
+    def test_the_manifest_is_run_with_require_images(self):
+        assert "--require-images" in text()
+
+    def test_require_images_makes_a_MISSING_image_non_zero(self, tmp_path):
+        (tmp_path / "identity-env.json").write_text(json.dumps({
+            "identity_hash": "ih",
+            "environment": {"distributions_hash": "dh", "distributions_count": 1,
+                            "sentinel_source": {"hash": "sh"},
+                            "wealth_core_source": {"hash": "wh"},
+                            "python": "3.12.13", "calendar_version": "x"}}))
+        r = subprocess.run(
+            [sys.executable, str(MANIFEST), str(tmp_path), "W", "l",
+             "--postgres-ref", "postgres:definitely-not-pulled",
+             "--require-images"],
+            capture_output=True, text=True, cwd=str(ROOT))
+        assert r.returncode == 1, r.stdout
+        assert "REFUSED" in r.stdout
+
+    def test_it_still_WRITES_the_manifest_when_refusing(self, tmp_path):
+        """So the operator sees which field was missing rather than being told
+        a file could not be produced."""
+        (tmp_path / "identity-env.json").write_text(json.dumps({
+            "identity_hash": "ih",
+            "environment": {"distributions_hash": "dh", "distributions_count": 1,
+                            "sentinel_source": {"hash": "sh"},
+                            "wealth_core_source": {"hash": "wh"},
+                            "python": "3.12.13", "calendar_version": "x"}}))
+        subprocess.run(
+            [sys.executable, str(MANIFEST), str(tmp_path), "W", "l",
+             "--postgres-ref", "postgres:nope", "--require-images"],
+            capture_output=True, text=True, cwd=str(ROOT))
+        assert (tmp_path / "manifest-W.json").exists()
+
+    def test_a_DIRTY_tree_also_refuses(self, tmp_path):
+        body = MANIFEST.read_text()
+        assert "the working tree is DIRTY" in body
+        assert "REQUIRED_IMAGES" in body
+
+
+# ── 7. the post-rehearsal handoff is automated ───────────────────────────────
+
+class TestTheFinalizerClosesTheLoop:
+    FINAL = ROOT / "scripts" / "sentinel-finalize-rehearsal.sh"
+
+    def test_it_exists_and_is_referenced_by_the_harness(self):
+        assert self.FINAL.exists()
+        assert "sentinel-finalize-rehearsal.sh" in text()
+
+    def test_it_EXTRACTS_the_book_rather_than_asking_for_one(self):
+        body = self.FINAL.read_text()
+        assert "book_artifact" in body
+        assert "bt_wealth_core_runs" in body, (
+            "the book is still expected to arrive as a file someone produced")
+
+    def test_it_REFUSES_a_summary_with_no_book(self):
+        """An older engine produced the run — one that had the RunResult and
+        discarded it. Writing the book by hand is exactly what this removes."""
+        assert "carries NO book_artifact" in self.FINAL.read_text()
+
+    def test_it_checks_the_WINDOW_of_the_extracted_book(self):
+        """A rehearsal over a different span omits every name held outside it."""
+        body = self.FINAL.read_text()
+        assert "the rehearsal covered" in body and "Refused" in body
+
+    def test_it_reruns_the_audit_with_the_REAL_book(self):
+        body = self.FINAL.read_text()
+        assert "rejection-audit" in body and "--book" in body
+        code = [l for l in body.splitlines()
+                if l.strip() and not l.lstrip().startswith("#")]
+        assert not [l for l in code if "--assert-no-holdings" in l], (
+            "the finalizer must not re-assert an empty book — that claim was "
+            "true before the bootstrap and is false of the traded interval")
+
+    def test_it_completes_the_manifest_and_FAILS_when_incomplete(self):
+        body = self.FINAL.read_text()
+        assert "rehearsal_hashes" in body
+        assert "INCOMPLETE" in body
+
+    def test_it_tells_the_operator_to_read_SETTLEMENT_before_performance(self):
+        body = self.FINAL.read_text()
+        assert "settlement counters" in body
+        assert body.index("settlement counters") < body.index("only then, performance")
