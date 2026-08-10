@@ -19,33 +19,50 @@
 # still works and simply records `null`. The certification path REFUSES that, so
 # a rehearsal started the casual way cannot be certified by accident — it can
 # only be re-run.
+#
+# AFTER A FREEZE, DO NOT REBUILD. `sentinel-certify.sh` has already built
+# bt-engine and frozen its image id into the manifest; rebuilding here can only
+# produce an artefact different from the one just certified. The certified path
+# is therefore:
+#
+#   scripts/bt-engine-up.sh --no-build --start 2021-01-04 --end 2023-12-29
+#
+# which inspects the frozen image, checks it against THAT interval's manifest,
+# and starts exactly it. `--start/--end` matters: selecting the NEWEST manifest
+# by mtime compares against whatever certification ran last, which may be an
+# unrelated interval.
+#
+# Ordinary build behaviour and ALLOW_DRIFT=1 remain for non-certification work.
 set -euo pipefail
 
 COMPOSE="docker compose -f docker-compose.backtest.yml"
-BUILD=1
-[ "${1:-}" = "--no-build" ] && BUILD=0
+BUILD=1; START=""; END=""; MANIFEST=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-build) BUILD=0; shift ;;
+    --start) START="$2"; shift 2 ;;
+    --end) END="$2"; shift 2 ;;
+    --manifest) MANIFEST="$2"; shift 2 ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
 
 if [ "${BUILD}" -eq 1 ]; then
   echo "== building bt-engine"
   ${COMPOSE} build bt-engine
 fi
 
-# The image compose will actually run, resolved from the service definition
-# rather than assumed — a project-name prefix or an `image:` override would make
-# a hardcoded tag name wrong in a way that is invisible until the id is null.
-REF=$(${COMPOSE} config --format json 2>/dev/null \
-      | python3 -c "
-import json,sys
-try:
-    svc = json.load(sys.stdin)['services']['bt-engine']
-except Exception:
-    sys.exit(0)
-sys.stdout.write(svc.get('image') or '')" || true)
-if [ -z "${REF}" ]; then
-  # compose derives <project>-<service> when no image: is declared.
-  PROJECT=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]')
-  REF="${PROJECT}-bt-engine"
-fi
+# THE SAME RESOLVER THE CERTIFICATION HARNESS USES, so the two cannot form
+# different opinions about which artefact they mean. The previous version
+# guessed `$(basename $(pwd))-bt-engine`, but Compose uses the file's top-level
+# `name:` as the project — `stocker-bt-bt-engine`, not `stocker-bt-engine`.
+REF=$(python3 scripts/compose_image.py \
+  --file docker-compose.backtest.yml --service bt-engine) || {
+  echo "REFUSED: the bt-engine image could not be resolved from its compose" >&2
+  echo "         file. NOT guessed — a wrong name that resolves is worse than" >&2
+  echo "         one that does not." >&2
+  exit 1
+}
 
 ID=$(docker image inspect "${REF}" --format '{{.Id}}' 2>/dev/null || true)
 if [ -z "${ID}" ]; then
@@ -64,26 +81,45 @@ echo "   id  ${ID}"
 # certification record named — correctly, and at the worst possible moment. The
 # same comparison costs a second here, so a drifted engine is caught before the
 # run rather than after it.
-NEWEST_MANIFEST=$(ls -1t artifacts/sentinel/manifest-*.json 2>/dev/null | head -1 || true)
-if [ -n "${NEWEST_MANIFEST}" ] && [ "${ALLOW_DRIFT:-0}" != "1" ]; then
+# THE MANIFEST FOR THIS INTERVAL, not merely the newest one. Selecting by mtime
+# compares against whatever certification ran last, which may cover an unrelated
+# window — a comparison that passes or fails for reasons having nothing to do
+# with the run about to start.
+if [ -n "${MANIFEST}" ]; then
+  USE_MANIFEST="${MANIFEST}"
+elif [ -n "${START}" ] && [ -n "${END}" ]; then
+  USE_MANIFEST="artifacts/sentinel/manifest-${START}_${END}.json"
+  [ -f "${USE_MANIFEST}" ] || {
+    echo "REFUSED: no manifest for ${START}..${END}" >&2
+    echo "         (${USE_MANIFEST}). Run scripts/sentinel-certify.sh first." >&2
+    exit 1
+  }
+else
+  USE_MANIFEST=$(ls -1t artifacts/sentinel/manifest-*.json 2>/dev/null | head -1 || true)
+  [ -z "${USE_MANIFEST}" ] || echo "   comparing against the NEWEST manifest" \
+    "(${USE_MANIFEST}) — pass --start/--end to name the interval"
+fi
+if [ -n "${USE_MANIFEST}" ] && [ "${ALLOW_DRIFT:-0}" != "1" ]; then
   FROZEN=$(python3 -c "
-import json,sys
+import json
 try:
-    print((json.load(open('${NEWEST_MANIFEST}')).get('bt_engine_image') or {}).get('id') or '')
+    print((json.load(open('${USE_MANIFEST}')).get('bt_engine_image') or {}).get('id') or '')
 except Exception:
     pass" || true)
   if [ -n "${FROZEN}" ] && [ "${FROZEN}" != "${ID}" ]; then
     echo >&2
     echo "REFUSED: this bt-engine image is NOT the one the certification" >&2
     echo "         manifest froze." >&2
-    echo "  manifest ${NEWEST_MANIFEST}" >&2
+    echo "  manifest ${USE_MANIFEST}" >&2
     echo "  frozen   ${FROZEN}" >&2
     echo "  built    ${ID}" >&2
     echo >&2
     echo "  A rehearsal run on this image would be REFUSED at finalization," >&2
-    echo "  after three hours. Either check out the certified commit and" >&2
-    echo "  rebuild, or re-run scripts/sentinel-certify.sh to freeze a new" >&2
-    echo "  record around this engine." >&2
+    echo "  after three hours. After a freeze, start the CERTIFIED image" >&2
+    echo "  without rebuilding:" >&2
+    echo "    scripts/bt-engine-up.sh --no-build --start ... --end ..." >&2
+    echo "  Or re-run scripts/sentinel-certify.sh to freeze a new record" >&2
+    echo "  around this engine." >&2
     echo >&2
     echo "  ALLOW_DRIFT=1 starts it anyway — for non-certification work." >&2
     exit 1

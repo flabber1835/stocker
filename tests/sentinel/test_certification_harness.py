@@ -503,3 +503,135 @@ class TestTheLockScriptPointsAtTheREBUILD:
         assert not instr, instr
         assert "--keep-corpus" in body
 
+
+
+# ── 6. the engine that runs the rehearsal ────────────────────────────────────
+
+class TestTheBaseIsRebuiltBeforeTheEngine:
+    """`services/bt-engine/Dockerfile` begins `FROM stocker-base:latest` — a
+    MUTABLE tag holding `shared/`, and therefore Wealth Core. Building
+    bt-engine without rebuilding it layers a fresh engine on whatever base is
+    lying around: yesterday's on one machine, nothing at all on a clean one.
+
+    The deploy scripts already carry this forced rebuild for the same reason
+    (the editable install caches the module list, so a NEW shared file is
+    invisible until the base is rebuilt). Certification needs it more, not
+    less: the rehearsal would expose a stale Wealth Core as a source-hash
+    mismatch only after the seed and three hours of simulation."""
+
+    @staticmethod
+    def build_step() -> str:
+        """Just the build step.
+
+        Scoped deliberately: the remediation text inside a later `fail` message
+        also contains the base-build command, and an unscoped search finds it
+        there — so removing the real build entirely would still have satisfied
+        an assertion that the command 'appears'. A test that a fix is DESCRIBED
+        is not a test that it is DONE."""
+        body = text()
+        return body[body.index('step "1/9'):body.index('step "2/9')]
+
+    def test_the_base_is_built_UNCONDITIONALLY(self):
+        step1 = self.build_step()
+        assert "-t stocker-base:latest -f Dockerfile.base" in step1
+        # No `if` guarding it — a conditional rebuild is the trap, not the fix.
+        for line in step1.splitlines():
+            if "Dockerfile.base" in line and not line.lstrip().startswith("#"):
+                assert line.strip().startswith("docker build"), line
+
+    def test_it_is_built_BEFORE_bt_engine(self):
+        step1 = self.build_step()
+        assert step1.index("-t stocker-base:latest -f Dockerfile.base") \
+            < step1.index("docker-compose.backtest.yml build bt-engine")
+
+    def test_it_is_a_BUILD_and_starts_nothing(self):
+        """Stocker is retired. A certification step may rebuild the image that
+        packages `shared/` — a build artefact — but must not bring a Stocker
+        service up."""
+        for line in text().splitlines():
+            if line.lstrip().startswith("#"):
+                continue
+            if "docker-compose.backtest.yml" in line:
+                assert " up" not in line, line
+
+    def test_bt_engine_is_built_before_anything_is_destroyed(self):
+        assert line_of("docker-compose.backtest.yml build bt-engine") \
+            < line_of("TRUNCATE TABLE")
+
+
+class TestTheEngineWealthCoreIsComparedBeforeTruncate:
+    """Defence in depth over the forced rebuild, because the two fail
+    differently: a skipped rebuild is an operator mistake, a mismatched result
+    is a build that did not do what it was told."""
+
+    def test_the_engine_is_ASKED_for_its_wealth_core_hash(self):
+        body = text()
+        assert "wealth_core_source_hash()" in body
+        assert "docker run --rm --entrypoint python" in body
+
+    def test_the_comparison_happens_BEFORE_the_truncate(self):
+        assert line_of("BT_WC=") < line_of("TRUNCATE TABLE")
+        assert line_of("SENTINEL_WC=") < line_of("TRUNCATE TABLE")
+
+    def test_a_MISMATCH_blocks_certification(self):
+        body = text()
+        i = body.index('"${BT_WC}" != "${SENTINEL_WC}"')
+        assert "fail " in body[i:i + 400]
+
+    def test_an_UNREADABLE_hash_also_blocks(self):
+        """Absent is not equal. An engine that cannot name the engine source it
+        carries cannot produce certification evidence, and an empty string
+        compared against an empty string would have passed."""
+        body = text()
+        i = body.index('-z "${BT_WC}"')
+        assert "fail " in body[i:i + 400]
+
+    def test_the_step_runs_before_the_manifest_freezes_the_image(self):
+        assert line_of("BT_WC=") < line_of("sentinel_manifest.py")
+
+    def test_the_manifest_is_given_the_RESOLVED_ref(self):
+        """Not a second opinion about the image name."""
+        body = text().replace("\\\n", " ")
+        assert "--bt-engine-ref \"${BT_REF}\"" in body
+
+
+class TestTheCertifiedLauncherDoesNotRebuild:
+    """After a freeze the manifest already names the engine. Rebuilding can
+    only produce a different artefact, and the finalizer would refuse the run
+    — after three hours."""
+
+    LAUNCH = REPO / "scripts" / "bt-engine-up.sh"
+
+    def test_no_build_skips_the_build(self):
+        body = self.LAUNCH.read_text()
+        assert "--no-build) BUILD=0" in body
+        i = body.index('if [ "${BUILD}" -eq 1 ]')
+        assert "build bt-engine" in body[i:i + 200]
+
+    def test_the_manifest_is_chosen_by_INTERVAL_not_mtime(self):
+        body = self.LAUNCH.read_text()
+        assert 'manifest-${START}_${END}.json' in body
+        # The mtime path survives only as a warned default.
+        i = body.index("ls -1t artifacts/sentinel/manifest-")
+        assert "--start/--end" in body[i:i + 400]
+
+    def test_a_named_interval_with_no_manifest_REFUSES(self):
+        body = self.LAUNCH.read_text()
+        assert 'manifest-${START}_${END}.json' in body
+        i = body.index('manifest-${START}_${END}.json')
+        window = body[i:i + 400]
+        assert "REFUSED" in window and "exit 1" in window
+
+    def test_a_drifted_image_is_refused_before_the_run(self):
+        body = self.LAUNCH.read_text()
+        assert '"${FROZEN}" != "${ID}"' in body
+        i = body.index('"${FROZEN}" != "${ID}"')
+        assert "REFUSED" in body[i:i + 800]
+
+    def test_the_refusal_names_the_certified_way_to_start(self):
+        body = self.LAUNCH.read_text()
+        assert "--no-build --start" in body
+
+    def test_the_certification_docs_point_at_no_build(self):
+        doc = (REPO / "docs" / "sentinel-deployment.md").read_text()
+        assert "--no-build" in doc

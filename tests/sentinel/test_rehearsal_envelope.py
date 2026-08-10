@@ -438,13 +438,27 @@ class TestTheEngineIsFrozenNotJustSelfReported:
         code = [l for l in body.splitlines()
                 if l.strip() and not l.lstrip().startswith("#")]
         inspect = next(i for i, l in enumerate(code) if "image inspect" in l)
-        check = next(i for i, l in enumerate(code) if "NEWEST_MANIFEST" in l)
+        check = next(i for i, l in enumerate(code) if "USE_MANIFEST" in l)
         up = next(i for i, l in enumerate(code) if "up -d --force-recreate" in l)
         assert inspect < check < up
 
     def test_the_manifest_and_the_launcher_RESOLVE_the_ref_the_same_way(self):
         """Two different answers about which artefact is meant is the same
-        class of defect one level up."""
+        class of defect one level up.
+
+        This used to assert only that BOTH scripts contained the same
+        `docker compose config` snippet — which is agreement by copy, and both
+        copies ended in the same wrong `$(basename $(pwd))-bt-engine` guess.
+        Identical answers held only because the mistake was identical. The
+        property that actually holds is that there is ONE implementation, so
+        the two cannot disagree regardless of which is edited."""
         for body in (self.CERTIFY.read_text(), self.LAUNCHER.read_text()):
-            assert "config --format json" in body
-            assert "-bt-engine" in body
+            assert "scripts/compose_image.py" in body
+            flatb = body.replace("\\\n", " ")
+            assert "--file docker-compose.backtest.yml" in flatb
+            assert "--service bt-engine" in flatb
+            # And no surviving second opinion.
+            executable = "\n".join(l for l in body.splitlines()
+                                   if not l.lstrip().startswith("#"))
+            assert "config --format json" not in executable
+            assert "basename" not in executable

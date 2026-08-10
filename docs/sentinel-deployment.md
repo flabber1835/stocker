@@ -564,9 +564,59 @@ Everything else binds images and hashes; this binds the CHECKOUT — without it
 the manifest can name commit A while the tree has become B, and every artefact
 comparison still passes because they all compare against values frozen from A.
 
-`scripts/bt-engine-up.sh` makes the same comparison BEFORE the run, against the
-newest manifest, so a drifted engine costs a second rather than three hours.
-`ALLOW_DRIFT=1` starts it anyway for non-certification work.
+`scripts/bt-engine-up.sh` makes the same comparison BEFORE the run, so a
+drifted engine costs a second rather than three hours. `ALLOW_DRIFT=1` starts
+it anyway for non-certification work.
+
+**After a freeze, start the frozen image — do not rebuild it.**
+
+```bash
+scripts/bt-engine-up.sh --no-build --start 2021-01-04 --end 2023-12-29
+```
+
+Two things are deliberate here. `--no-build` is the certified path because
+certification already built bt-engine and froze that image into the manifest;
+rebuilding at launch can only produce a different artefact, which the finalizer
+would refuse after three hours. And `--start/--end` names the manifest for the
+interval being run: selecting the newest manifest by mtime compares against
+whatever certification happened to run last, which may cover an unrelated
+window — a comparison that then passes or fails for reasons having nothing to
+do with the run about to start. The mtime path survives only as a default, and
+says so when it is used. `--manifest <path>` names one outright.
+
+### One resolver decides which image is meant
+
+The harness freezes the bt-engine image; the launcher injects its id. Both need
+its name, and both used to infer it as `$(basename $(pwd))-bt-engine`. That is
+wrong here: `docker-compose.backtest.yml` declares `name: stocker-bt`, and
+Compose uses the top-level `name:` as the PROJECT ahead of the directory
+basename, so the image it builds is `stocker-bt-bt-engine`. Close enough to
+read as a typo, different enough never to resolve.
+
+`scripts/compose_image.py` is the single answer both scripts call — explicit
+`services.<name>.image` first, then `<project>-<service>`, then REFUSE. It
+never guesses, because a wrong image name that RESOLVES is worse than one that
+does not: the manifest would name an artefact nobody ran and every later
+comparison against it would pass. The falsifier is a compose fixture whose
+project name is deliberately not the directory's.
+
+### The base is rebuilt before the engine, and then verified
+
+`services/bt-engine/Dockerfile` begins `FROM stocker-base:latest` — a MUTABLE
+tag carrying `shared/`, and therefore Wealth Core. Certification rebuilds it
+unconditionally before building bt-engine, for the reason the deploy scripts
+already do: the editable install caches the module list, so a new shared file
+stays invisible until the base is rebuilt. It is a `docker build`; it starts no
+Stocker service.
+
+Step **2c** then asks the built engine for its Wealth Core source hash and
+requires it to equal the certified Sentinel image's, BEFORE the truncate. The
+rebuild establishes the intended provenance; this proves the artefact actually
+carries it. They fail differently — a skipped rebuild is an operator mistake, a
+mismatched result is a build that did not do what it was told — and without the
+check the rehearsal would surface a stale Wealth Core as a source-hash mismatch
+only after the seed and three hours of simulation. An unreadable hash blocks
+too: absent is not equal, and empty compared against empty would have passed.
 
 Three fields are bound, not merely recorded, and all three BLOCK when missing:
 

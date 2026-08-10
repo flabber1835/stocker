@@ -16,7 +16,10 @@
 #                                     not reproducible, and letting one wipe and
 #                                     re-seed spends hours producing evidence
 #                                     nobody can rebuild the environment for
-#   2c  record the ARTEFACT identity  the image ids, from the HOST — a container
+#   2c  the ENGINE carries the same   bt-engine runs the rehearsal; a stale
+#       Wealth Core                   base would surface only after the seed
+#                                     and three hours of simulation
+#   2d  record the ARTEFACT identity  the image ids, from the HOST — a container
 #                                     cannot discover its own image
 #    3  DISCARD the corpus            review #4 changed economically meaningful
 #                                     data: every dividend in the old seed is
@@ -77,6 +80,21 @@ if [ "$VERIFY_ONLY" -eq 0 ]; then
   # would only make a network hiccup look like a build failure.
   ${COMPOSE} build sentinel sentinel-panel
   docker build --network host -t sentinel-test:latest -f Dockerfile.sentinel-test .
+  # STOCKER-BASE FIRST, UNCONDITIONALLY. `services/bt-engine/Dockerfile` begins
+  # `FROM stocker-base:latest`, which is a MUTABLE tag holding the `shared/`
+  # package — including Wealth Core. Building bt-engine without rebuilding it
+  # layers a fresh engine on whatever base happens to be lying around: on one
+  # machine yesterday's, on a clean machine nothing at all.
+  #
+  # The rehearsal WOULD eventually expose that as a Wealth Core source-hash
+  # mismatch — after the corpus seed and three hours of simulation. This is the
+  # stale-base trap the deploy scripts already carry a forced rebuild for, and
+  # it belongs here for the same reason: the editable install caches the module
+  # list, so a new shared file is invisible until the base is rebuilt.
+  #
+  # It is a `docker build`. It starts no service and revives nothing.
+  docker build --network host -t stocker-base:latest -f Dockerfile.base .
+
   # BT-ENGINE IS BUILT HERE TOO, and deliberately NOT started. The manifest has
   # to name the engine that will run the rehearsal BEFORE it runs one —
   # comparing the run against whatever the tag points at during finalization
@@ -204,7 +222,49 @@ else
 fi
 printf '%s' "${CLOSURE}" > "${PREV}"
 
-# ── 2c. THE ARTEFACT'S OWN IDENTITY, from the HOST ───────────────────────────
+# ── 2c. THE ENGINE CARRIES THE CERTIFIED WEALTH CORE ─────────────────────────
+# Checked BEFORE anything is destroyed. The forced stocker-base rebuild above
+# establishes the intended provenance; this proves the resulting artefact
+# actually contains it. Defence in depth, because the two fail differently: a
+# skipped rebuild is an operator mistake, a mismatched result is a build that
+# did not do what it was told.
+#
+# The rehearsal would eventually expose a stale Wealth Core as a source-hash
+# mismatch — after the corpus seed and three hours of simulation. Here it costs
+# one container start.
+step "2c/9 the engine carries the certified Wealth Core"
+# ONE RESOLVER, shared with the launcher, so the two cannot form different
+# opinions about which artefact they mean. It ASKS COMPOSE rather than guessing:
+# the previous inference appended the service name to the DIRECTORY basename,
+# while Compose uses the file's top-level `name:` — `stocker-bt-bt-engine`, not
+# `stocker-bt-engine`. Close enough to read as a typo, different enough never
+# to resolve.
+BT_REF=$(python3 scripts/compose_image.py \
+  --file docker-compose.backtest.yml --service bt-engine) \
+  || fail "the bt-engine image could not be resolved from its compose file.
+  NOT guessed: a wrong image name that resolves is worse than one that does
+  not, because the record would then name an artefact nobody ran."
+echo "  bt-engine image: ${BT_REF}"
+
+BT_WC=$(docker run --rm --entrypoint python "${BT_REF}" -c \
+  "from stock_strategy_shared import identity_hashes as i; print(i.wealth_core_source_hash())" \
+  2>/dev/null || true)
+SENTINEL_WC=$(python3 -c "import json; print(json.load(open('${ART}/identity-env.json'))['environment']['wealth_core_source']['hash'])")
+if [ -z "${BT_WC}" ] || [ "${BT_WC}" = "None" ]; then
+  fail "the bt-engine image ${BT_REF} could not report a Wealth Core source
+  hash. It runs the three-hour rehearsal; an engine that cannot name the engine
+  source it carries cannot produce certification evidence."
+fi
+if [ "${BT_WC}" != "${SENTINEL_WC}" ]; then
+  fail "bt-engine carries Wealth Core ${BT_WC} and the certified Sentinel image
+  carries ${SENTINEL_WC}. The rehearsal would run different economics than the
+  image being certified. Rebuild both:
+    docker build --network host -t stocker-base:latest -f Dockerfile.base .
+    docker compose -f docker-compose.backtest.yml build bt-engine"
+fi
+echo "  both carry Wealth Core ${BT_WC}"
+
+# ── 2d. THE ARTEFACT'S OWN IDENTITY, from the HOST ───────────────────────────
 # `sentinel identity` describes the environment INSIDE the container: the
 # interpreter, the packages, the source. It cannot describe the IMAGE — a
 # container has no reliable way to discover the id of the image it is running —
@@ -214,7 +274,7 @@ printf '%s' "${CLOSURE}" > "${PREV}"
 # FAIL CLOSED on every image it names. PostgreSQL in particular PRODUCES the
 # corpus being certified, and an unresolved or locally-tagged `postgres:16`
 # would leave the record naming the wrong server, or nothing at all.
-step "2c/9 recording the artefact identity"
+step "2d/9 recording the artefact identity"
 PG_REF=$(python3 -c "
 import re,sys
 t=open('docker-compose.sentinel.yml').read()
@@ -227,16 +287,6 @@ sys.stdout.write(m.group(1) if m else '')")
 docker image inspect "${PG_REF}" >/dev/null 2>&1 || docker pull "${PG_REF}" >/dev/null \
   || fail "the pinned Postgres image ${PG_REF} could not be resolved. It PRODUCES
   the corpus being certified; a record that cannot name it is not a record."
-# The bt-engine image reference, resolved from ITS compose file the same way
-# the launcher resolves it, so the manifest and the launcher cannot disagree
-# about which artefact they mean.
-BT_REF=$(docker compose -f docker-compose.backtest.yml config --format json 2>/dev/null \
-  | python3 -c "
-import json,sys
-try: svc = json.load(sys.stdin)['services']['bt-engine']
-except Exception: sys.exit(0)
-sys.stdout.write(svc.get('image') or '')" || true)
-[ -n "${BT_REF}" ] || BT_REF="$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]')-bt-engine"
 
 python3 scripts/sentinel_manifest.py "${ART}" "${RUNSTAMP}" "${LOCK_SHA}" \
   --postgres-ref "${PG_REF}" --bt-engine-ref "${BT_REF}" --require-images \
