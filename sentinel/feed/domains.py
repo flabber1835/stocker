@@ -39,7 +39,7 @@ duplication is guarded rather than trusted.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable, Iterator, Mapping, Optional
 
 from stock_strategy_shared.wealth_core.feed import VendorBar
@@ -148,10 +148,36 @@ class NormalisationReport:
     dropped_no_identity: int = 0
     dropped_no_raw_close: int = 0
     splits_detected: int = 0
+    # THE DROPPED ROWS THEMSELVES, not just how many.
+    #
+    # A count cannot answer the question the terminal-identity accounting has to
+    # ask: "did the vendor price this ticker in the window?" A SEP row whose
+    # identity fails is discarded BEFORE `sentinel_bars`, so the only surviving
+    # trace was `dropped_no_identity += 1` — and S4 then read its relevance
+    # population from `sentinel_bars`, saw nothing for that ticker, and filed
+    # its terminal action as SECURITY_ABSENT_FROM_CORPUS. The exclusion built to
+    # be un-hideable was hidden by the ingest that ran before it.
+    #
+    # (ticker, session, reason). Bounded by `max_rejections` so a catastrophic
+    # identity outage cannot make the report itself the memory problem; the
+    # COUNT above stays exact regardless, and truncation is reported.
+    rejections: list = field(default_factory=list)
+    rejections_truncated: int = 0
+
+    #: Cap on RETAINED rejection rows. The count is unbounded and exact; only
+    #: the per-row detail is capped.
+    max_rejections: int = 50_000
 
     @property
     def raw_close_coverage(self) -> float:
         return 0.0 if not self.rows else (self.rows - self.dropped_no_raw_close) / self.rows
+
+    def note_rejection(self, ticker: str, session: str, reason: str) -> None:
+        if len(self.rejections) >= self.max_rejections:
+            self.rejections_truncated += 1
+            return
+        self.rejections.append({"ticker": str(ticker), "session": str(session),
+                                "reason": reason})
 
 
 def normalise_sep_rows(
@@ -184,6 +210,7 @@ def normalise_sep_rows(
         sid = resolve_identity(ticker, session) if resolve_identity else ticker
         if sid is None:
             rep.dropped_no_identity += 1
+            rep.note_rejection(ticker, session, "NO_IDENTITY")
             continue
 
         close = _f(r.get("close"))

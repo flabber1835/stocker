@@ -90,6 +90,10 @@ def seed(conn, *, date_from: str = DEFAULT_SEED_START, date_to: Optional[str] = 
                 fetch(sharadar.SEP, sharadar.date_params(lo, hi)),
                 resolve_identity=resolver, report=report)
             written = feed_store.write_bars(conn, bars)
+            # PERSIST THE REFUSALS in the same breath as the bars. A rejection
+            # recorded only in memory dies with the process, and the terminal
+            # accounting that needs it runs in a different one.
+            feed_store.write_rejections(conn, report.rejections)
             run.progress.rows_written += written
             run.progress.rows_dropped += (report.dropped_no_raw_close
                                           + report.dropped_no_identity)
@@ -135,6 +139,7 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
             resolve_identity=resolve_identity or universe.load_resolver(conn).resolve,
             report=report)
         run.progress.rows_written += feed_store.write_bars(conn, bars)
+        feed_store.write_rejections(conn, report.rejections)
         run.progress.rows_dropped += (report.dropped_no_raw_close
                                       + report.dropped_no_identity)
         # Checked on the DAILY path, where a vendor outage looks like a quiet

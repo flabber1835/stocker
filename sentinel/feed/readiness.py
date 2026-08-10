@@ -307,6 +307,37 @@ def check_readiness(conn, *, today: Optional[str] = None,
         r.add("actions", PASS, f"{recent_actions:,} actions since {window_start}",
               recent_actions)
 
+    # ── ingest refusals, made LOUD ───────────────────────────────────────────
+    # A SEP row the vendor priced and the ingest could not name is dropped
+    # before `sentinel_bars`. That is the correct handling — keying it on the
+    # ticker would re-introduce the reuse splice — but it is also a hole in the
+    # corpus that nothing downstream can see, so it is surfaced here in its own
+    # right rather than only as an input to the terminal accounting.
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*), COUNT(DISTINCT ticker)"
+                        " FROM sentinel_ingest_rejections"
+                        " WHERE session BETWEEN %s AND %s AND reason = %s",
+                        (window_start, frontier, "NO_IDENTITY"))
+            n_rows, n_tick = cur.fetchone()
+        if n_rows:
+            with conn.cursor() as cur:
+                cur.execute("SELECT DISTINCT ticker FROM sentinel_ingest_rejections"
+                            " WHERE session BETWEEN %s AND %s AND reason = %s"
+                            " ORDER BY ticker LIMIT 10",
+                            (window_start, frontier, "NO_IDENTITY"))
+                names = ", ".join(str(t[0]) for t in cur.fetchall())
+            r.add("ingest refusals", WARN,
+                  f"PRICE_ROW_DROPPED_NO_IDENTITY: {n_rows:,} row(s) across "
+                  f"{n_tick} ticker(s) the vendor priced and the ingest could "
+                  f"not name: {names}", n_rows)
+        else:
+            r.add("ingest refusals", PASS,
+                  "every priced row resolved to a permanent security", 0)
+    except Exception as exc:                          # noqa: BLE001
+        r.add("ingest refusals", WARN,
+              f"ingest refusals could not be read: {exc!r}", None)
+
     # ── terminal identity, with CONSERVATION ─────────────────────────────────
     # `actions` above counts ROWS. It is satisfied by a table full of splits
     # while every termination in the window failed identity resolution and

@@ -288,16 +288,42 @@ class TerminalLoadResult:
 
 
 def _corpus_tickers(conn, start: str, end: str) -> set:
-    """Every ticker that PRINTED in the window, by raw vendor symbol.
+    """Every ticker the VENDOR PRICED in the window, by raw symbol.
 
-    Raw symbol rather than resolved security — see EXCLUDED_ABSENT_FROM_CORPUS
-    for why that distinction is what stops the relevance filter from hiding
-    identity failures.
+    STORED BARS *UNION* INGEST REJECTIONS, and the union is the whole point.
+
+    Raw symbol rather than resolved security was necessary but not sufficient:
+    `sentinel_bars` only ever contains rows that RESOLVED, because
+    `domains.normalise_sep_rows` drops an unresolvable bar before storage — so
+    reading raw tickers out of it still cannot see a security the vendor priced
+    and the ingest could not name. The failure chain was:
+
+        SEP prices XYZ -> identity fails -> bar dropped -> no XYZ in
+        sentinel_bars -> terminal action for XYZ filed
+        SECURITY_ABSENT_FROM_CORPUS
+
+    which is precisely the hiding this exclusion was designed to prevent,
+    arriving one layer upstream of where it was defended. The rejection table
+    restores the missing half of the evidence.
+
+    A test that writes a bar and then withholds its identity CANNOT catch this,
+    because ordinary ingestion can never produce that state — it is a valid unit
+    test of an impossible production condition. The falsifier has to run through
+    `ingest.seed`/`ingest.daily`.
     """
     with conn.cursor() as cur:
         cur.execute("SELECT DISTINCT ticker FROM sentinel_bars"
                     " WHERE session BETWEEN %s AND %s", (start, end))
-        return {str(t[0]).upper() for t in cur.fetchall() if t[0]}
+        priced = {str(t[0]).upper() for t in cur.fetchall() if t[0]}
+    try:
+        from sentinel.feed import store as feed_store
+        priced |= feed_store.rejected_tickers(conn, start, end)
+    except Exception:                                # noqa: BLE001
+        # An older corpus with no rejection table. Deliberately tolerated on
+        # READ — but readiness carries its own check for the same condition, so
+        # a missing table cannot make an identity outage invisible.
+        pass
+    return priced
 
 
 def load_terminal_events(conn, *, start: str, end: str,

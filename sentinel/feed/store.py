@@ -192,6 +192,29 @@ def write_actions(conn, rows: Sequence[Any]) -> int:
     return len(payload)
 
 
+def write_rejections(conn, rejections) -> int:
+    """Persist rows the normaliser refused. Idempotent on (ticker, session,
+    reason), so a re-ingest of the same window does not multiply them."""
+    rows = [(r["ticker"], r["session"], r["reason"]) for r in rejections]
+    if not rows:
+        return 0
+    with conn.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO sentinel_ingest_rejections (ticker, session, reason)"
+            " VALUES (%s,%s,%s) ON CONFLICT DO NOTHING", rows)
+    conn.commit()
+    return len(rows)
+
+
+def rejected_tickers(conn, start: str, end: str, reason: str = "NO_IDENTITY") -> set:
+    """Raw vendor tickers the ingest refused in [start, end]."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT ticker FROM sentinel_ingest_rejections"
+                    " WHERE session BETWEEN %s AND %s AND reason = %s",
+                    (start, end, reason))
+        return {str(t[0]).upper() for t in cur.fetchall() if t[0]}
+
+
 def latest_session(conn) -> Optional[str]:
     """The newest session in the corpus — where an incremental fetch resumes."""
     with conn.cursor() as cur:

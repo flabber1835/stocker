@@ -48,6 +48,25 @@ DDL = [
     """CREATE INDEX IF NOT EXISTS idx_sentinel_bars_session
         ON sentinel_bars (session)""",
 
+    # RAW VENDOR ROWS THE INGEST REFUSED. Not a log — EVIDENCE.
+    #
+    # A SEP row whose ticker cannot be resolved to a permanent security is
+    # dropped before `sentinel_bars`, correctly: keying it on the ticker would
+    # re-introduce the reuse splice. But the terminal-identity accounting then
+    # asks "did the vendor price this ticker in the window?" and reads the
+    # answer from `sentinel_bars`, where the row no longer is — so a terminal
+    # action for that ticker was classified SECURITY_ABSENT_FROM_CORPUS, which
+    # is the one exclusion that must never be able to swallow an identity
+    # failure. This table is what makes the raw presence survive the drop.
+    """CREATE TABLE IF NOT EXISTS sentinel_ingest_rejections (
+        ticker       TEXT NOT NULL,
+        session      DATE NOT NULL,
+        reason       TEXT NOT NULL,
+        first_seen   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (ticker, session, reason))""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_rejections_session
+        ON sentinel_ingest_rejections (session)""",
+
     """CREATE TABLE IF NOT EXISTS sentinel_actions (
         ticker       TEXT NOT NULL,
         session      DATE NOT NULL,
