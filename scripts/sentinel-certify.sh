@@ -401,9 +401,22 @@ step "8b/9 the SEEDED corpus vs the canonical corpus, over the real window"
 # `tradeable` both changed in this batch, so this is where that shows up.
 #
 # An unreadable canonical corpus is NOT a pass; the tool says so and exits 2.
+#
+# THE DEFAULT DSN MIRRORS THE SENTINEL ONE ABOVE, and the `+psycopg` is not
+# decoration. The canonical side goes through SQLAlchemy, and a bare
+# `postgresql://` selects psycopg2 — which is NOT in the closure (the lock
+# carries psycopg 3 only), so it fails as `No module named 'psycopg2'` wrapped
+# in "the canonical corpus could not be read", one indirection away from the
+# actual cause. 5434 is bt-postgres's PUBLISHED host port and `--network host`
+# is what makes 127.0.0.1 reach it: no shared docker network, so Sentinel's
+# isolation from the retired stack is unchanged — this reads a database, it
+# does not depend on a Stocker service.
+#
+# Overridable, because a default is a convenience and not a claim about where
+# the corpus is.
 docker run --rm --network host --entrypoint python \
   -e SENTINEL_DATABASE_URL="${SENTINEL_DATABASE_URL:-postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:-sentinel}@127.0.0.1:5435/sentinel}" \
-  -e BT_DATABASE_URL="${BT_DATABASE_URL:-}" \
+  -e BT_DATABASE_URL="${BT_DATABASE_URL:-postgresql+psycopg://btuser:${BT_POSTGRES_PASSWORD:-btpass}@127.0.0.1:5434/backtest}" \
   sentinel-test:latest -m tools.corpus_parity \
   --start "${START}" --end "${END}" \
   > "${ART}/corpus-parity-${RUNSTAMP}.json" \

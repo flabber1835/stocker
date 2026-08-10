@@ -171,3 +171,41 @@ class TestTheCanonicalPathIsIMPORTABLE:
         tool is invoked as `python -m tools.corpus_parity` inside that image."""
         text = (REPO / "Dockerfile.sentinel-test").read_text().replace("\\\n", " ")
         assert "/work/services/backtester" in text
+
+
+class TestTheCanonicalDSNUsesADriverTheImageHAS:
+    """`sa.create_engine("postgresql://...")` selects psycopg2.
+
+    The certified closure carries psycopg 3 and nothing else, so a bare
+    `postgresql://` fails with `No module named 'psycopg2'` — surfaced as "the
+    canonical corpus could not be read", one indirection from the cause. The
+    scheme has to name the driver the image actually has."""
+
+    SCRIPT = REPO / "scripts" / "sentinel-certify.sh"
+
+    def test_the_default_names_psycopg3(self):
+        body = self.SCRIPT.read_text()
+        i = body.index("BT_DATABASE_URL=")
+        assert "postgresql+psycopg://" in body[i:i + 200], body[i:i + 200]
+
+    def test_psycopg2_is_NOT_in_the_closure(self):
+        """The premise. If it ever is, the bare scheme starts working and this
+        class should be revisited rather than deleted — the failure it prevents
+        would just move."""
+        lock = REPO / "sentinel" / "requirements.lock"
+        if not lock.exists():
+            assert "psycopg[binary]" in \
+                (REPO / "sentinel" / "requirements.txt").read_text()
+            return
+        names = [l.split("==")[0].lower() for l in lock.read_text().splitlines()
+                 if "==" in l and not l.startswith("#")]
+        assert "psycopg2" not in names and "psycopg2-binary" not in names
+        assert "psycopg" in names
+
+    def test_the_published_port_is_used_not_a_container_hostname(self):
+        """`--network host` plus 127.0.0.1:5434. A `bt-postgres` hostname would
+        require joining the retired stack's network."""
+        body = self.SCRIPT.read_text()
+        i = body.index("BT_DATABASE_URL=")
+        assert "127.0.0.1:5434" in body[i:i + 200]
+        assert "--network host" in body[:i]
