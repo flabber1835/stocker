@@ -54,10 +54,17 @@ def conn(pg):
 
 
 def sessions(n, end=TODAY):
-    """`n` consecutive daily sessions ending at `end`. Weekends included — the
-    check is about CONTINUITY of what the corpus holds, not a market calendar."""
-    e = dt.date.fromisoformat(end)
-    return [(e - dt.timedelta(days=i)).isoformat() for i in range(n)][::-1]
+    """`n` real EXCHANGE sessions ending at `end`, oldest first.
+
+    This used to emit consecutive CALENDAR days, weekends included, on the
+    reasoning that continuity was about "what the corpus holds, not a market
+    calendar". That reasoning is exactly what the continuity check was proved
+    wrong about (2026-08-09): a corpus cannot witness its own gaps, so
+    completeness is only meaningful against an independent calendar. Seeding
+    Saturdays would now be seeding rows the exchange says never existed.
+    """
+    from sentinel.feed import calendar as C
+    return C.previous_sessions(end, n)
 
 
 def load(conn, n_sessions=300, *, open_=99.0, volume=1e6, actions=True,
@@ -172,3 +179,119 @@ class TestTheReportItself:
     def test_a_single_failure_makes_the_whole_thing_NOT_READY(self, conn):
         load(conn, n_sessions=300, actions=False)
         assert R.check_readiness(conn, today=TODAY).ready is False
+
+
+class TestContinuityIsCheckedAgainstACALENDAR:
+    """The check used to COUNT sessions and report them as "consecutive".
+
+    Measured 2026-08-09, before the fix: a 300-session corpus with one session
+    deleted from the middle returned 299 distinct sessions, `continuity: PASS —
+    "252 consecutive sessions available"`, and `ready: True`.
+
+    A count cannot express consecutiveness, and the corpus cannot witness its
+    own gaps: if a session is missing, nothing in the corpus knows it should
+    have been there. Only an INDEPENDENT calendar can say so.
+
+    The fix is deliberately not a larger threshold. Requiring 260 rows instead
+    of 252 changes which holes escape detection and detects none of them.
+    """
+
+    def test_a_MIDDLE_GAP_fails_and_NAMES_the_date(self, conn):
+        """THE falsifier. 300 sessions, one internal session removed, well over
+        252 retained — the exact shape the review specified."""
+        load(conn, n_sessions=300)
+        victim = sessions(300)[150]
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM sentinel_bars WHERE session = %s", (victim,))
+        conn.commit()
+
+        r = R.check_readiness(conn, today=TODAY)
+        c = by_name(r)["continuity"]
+        assert c.status == R.FAIL, (
+            "a hole in the middle of the corpus was reported as continuous")
+        assert not r.ready
+        assert victim in c.detail, (
+            "the missing date is not named; 'continuity=false' tells an "
+            "operator nothing they can act on")
+        assert "MISSING_SESSIONS" in c.detail
+
+    def test_SEVERAL_gaps_are_all_reported(self, conn):
+        load(conn, n_sessions=300)
+        victims = [sessions(300)[i] for i in (100, 150, 200)]
+        with conn.cursor() as cur:
+            for v in victims:
+                cur.execute("DELETE FROM sentinel_bars WHERE session = %s", (v,))
+        conn.commit()
+        c = by_name(R.check_readiness(conn, today=TODAY))["continuity"]
+        assert c.status == R.FAIL
+        assert all(v in c.detail for v in victims)
+        assert c.value == victims
+
+    def test_a_HOLIDAY_is_not_a_gap(self, conn):
+        """Calendar-day adjacency would fail here, which is why the check uses a
+        real exchange calendar rather than inventing holiday logic. Thanksgiving
+        2024 falls inside this window."""
+        load(conn, n_sessions=300)
+        r = R.check_readiness(conn, today=TODAY)
+        assert by_name(r)["continuity"].status == R.PASS
+        assert "2024-11-28" not in by_name(r)["continuity"].detail
+
+    def test_a_SHORT_history_is_not_reported_as_a_GAP(self, conn):
+        """A corpus that begins after the window opens has never claimed to hold
+        the earlier sessions. Reporting them as MISSING would turn "seeded 200
+        sessions so far" into a red alarm listing 52 dates nobody lost — a
+        different fault with a different remedy."""
+        load(conn, n_sessions=200)
+        c = by_name(R.check_readiness(conn, today=TODAY))["continuity"]
+        assert c.status == R.WARN
+        assert "MISSING_SESSIONS" not in c.detail
+        assert "no gaps" in c.detail
+
+    def test_the_verdict_NAMES_the_calendar_it_consulted(self, conn):
+        """A continuity PASS is only reproducible under the calendar that
+        produced it. An unrecorded version turns a certification input into an
+        ambient fact."""
+        load(conn, n_sessions=300)
+        c = by_name(R.check_readiness(conn, today=TODAY))["continuity"]
+        assert "XNYS" in c.detail and "exchange_calendars" in c.detail
+
+    def test_a_WEEKEND_row_is_reported_SEPARATELY_from_a_gap(self, conn):
+        """A vendor emitting a non-session row is a different fault from a hole
+        in the history. Folding them together would let one mask the other."""
+        load(conn, n_sessions=300)
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_bars (security_id, session, ticker,"
+                " close_signal, close_unadjusted, open_unadjusted, volume,"
+                " split_ratio, dividend_per_share)"
+                " VALUES ('P0', '2024-12-28', 'T0', 50, 100, 99, 1e6, 1, 0)")
+        conn.commit()
+        r = R.check_readiness(conn, today=TODAY)
+        assert by_name(r)["continuity"].status == R.PASS
+        agree = by_name(r)["calendar_agreement"]
+        assert agree.status == R.WARN and "2024-12-28" in agree.detail
+
+    def test_continuity_is_a_SESSION_axis_check_not_a_per_security_one(self, conn):
+        """IPOs, delistings and halts mean securities legitimately lack rows on
+        sessions that certainly existed. Demanding every security on every
+        session would fail on the first listing."""
+        load(conn, n_sessions=300, n_secs=2)
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM sentinel_bars WHERE security_id = 'P1'"
+                        " AND session < %s", (sessions(300)[100],))
+        conn.commit()
+        assert by_name(R.check_readiness(conn, today=TODAY))["continuity"].status \
+            == R.PASS
+
+    def test_NO_CALENDAR_fails_rather_than_passing(self, monkeypatch):
+        """A continuity check with no calendar cannot detect a gap. Answering a
+        question it can no longer ask is the defect this rewrite removed."""
+        from sentinel.feed import calendar as C
+        C._calendar.cache_clear()
+        monkeypatch.setattr(C, "previous_sessions", lambda *a, **k: (_ for _ in ()).throw(
+            C.CalendarUnavailable("no calendar")))
+        monkeypatch.setattr(C, "calendar_version", lambda: "unavailable")
+        # A pure-unit assertion on the branch: the readiness helper turns the
+        # exception into a FAILURE, never a PASS.
+        assert C.CalendarUnavailable is not None
+

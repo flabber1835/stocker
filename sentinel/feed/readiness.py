@@ -40,6 +40,7 @@ import datetime as _dt
 from dataclasses import dataclass, field
 from typing import Optional
 
+from sentinel.feed import calendar as _cal
 from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
 from stock_strategy_shared.wealth_core.signals import (
     LONG_LOOKBACK_SESSIONS,
@@ -61,6 +62,17 @@ PREFERRED_SESSIONS = 252
 MAX_FRONTIER_AGE_DAYS = 4
 
 PASS, WARN, FAIL = "PASS", "WARN", "FAIL"
+
+
+def _window_start(frontier: str) -> str:
+    """Earliest calendar date the continuity window can reach back to.
+
+    Bounds the SQL scan so a 20-year corpus is not read to check one year. A
+    generous multiplier rather than a tight one: ~252 sessions is ~366 calendar
+    days, and under-reaching would manufacture the very gaps this check hunts.
+    """
+    return (_dt.date.fromisoformat(frontier)
+            - _dt.timedelta(days=int(PREFERRED_SESSIONS * 1.8))).isoformat()
 
 
 @dataclass
@@ -119,31 +131,100 @@ def check_readiness(conn, *, today: Optional[str] = None,
     total = _q1(conn, "SELECT COUNT(DISTINCT session) FROM sentinel_bars")
     r.add("sessions", PASS, f"{total:,} distinct sessions to {frontier}", total)
 
-    # ── continuity, which a row count cannot express ─────────────────────────
-    # The last REQUIRED_SESSIONS sessions must be CONSECUTIVE in the corpus. A
-    # three-week hole leaves the count intact and silently changes what a
-    # 126-session lookback spans.
+    # ── continuity, against an INDEPENDENT calendar ──────────────────────────
+    # THE DEFECT THIS REPLACES (measured 2026-08-09): this check used to select
+    # the most recent N distinct sessions, count them, and report "N consecutive
+    # sessions available". It never established consecutiveness. A 300-session
+    # corpus with one session deleted from the middle returned 299 sessions,
+    # continuity PASS and ready True.
+    #
+    # A COUNT CANNOT EXPRESS CONSECUTIVENESS. The corpus cannot be its own
+    # witness either: if a session is missing, nothing in the corpus knows it
+    # should have been there. So the expectation has to come from outside — the
+    # XNYS calendar, the same one the scheduler resolves.
+    #
+    # The fix is deliberately NOT a larger threshold. Requiring 260 rows instead
+    # of 252 changes which holes escape detection and detects none of them.
+    #
+    # ANCHORED AT THE FRONTIER, not at today: corpus CONSTRUCTION and corpus
+    # COMPLETENESS are different questions, and anchoring on today would report
+    # every evening between the close and the ingest — and the whole unbuilt
+    # history during a seed — as missing.
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT session FROM (SELECT DISTINCT session FROM sentinel_bars"
-            " ORDER BY session DESC LIMIT %s) s ORDER BY session",
-            (max(REQUIRED_SESSIONS, PREFERRED_SESSIONS),))
-        recent = [str(x[0]) for x in cur.fetchall()]
+        cur.execute("SELECT DISTINCT session FROM sentinel_bars"
+                    " WHERE session >= %s ORDER BY session",
+                    (_window_start(frontier),))
+        actual = [str(x[0]) for x in cur.fetchall()]
 
-    if len(recent) < REQUIRED_SESSIONS:
+    try:
+        window = _cal.previous_sessions(frontier, PREFERRED_SESSIONS)
+        # A GAP and a SHORT HISTORY are different faults and must not be
+        # conflated. A corpus that begins after the window opens is not missing
+        # its early sessions — it has never claimed to hold them, and reporting
+        # them as MISSING_SESSIONS would turn "seeded 200 sessions so far" into
+        # a red alarm listing 52 dates nobody lost.
+        #
+        # So gaps are hunted only INSIDE the corpus's own span, and depth is
+        # judged separately below by counting what is actually there.
+        expected = ([s for s in window if s >= actual[0]] if actual else [])
+        missing = _cal.missing_sessions(expected, actual)
+        # BOTH sides scoped to the window's span. `actual` reaches further back
+        # than the window (the SQL bound is generous on purpose), so comparing
+        # it against the window alone reported every older session as one the
+        # calendar "does not recognise" — 49 of them on a 300-session corpus.
+        # An agreement check that fires on ordinary history is one nobody reads.
+        in_window = [s for s in actual if window and s >= window[0]]
+        unexpected = _cal.unexpected_sessions(window, in_window)
+        cal_name = _cal.calendar_version()
+    except _cal.CalendarUnavailable as exc:
+        # FAIL, never PASS. A continuity check with no calendar cannot detect a
+        # gap, and answering a question it can no longer ask is the defect this
+        # rewrite exists to remove.
         r.add("continuity", FAIL,
-              f"only {len(recent)} sessions available; the engine needs "
-              f"{REQUIRED_SESSIONS} closes before any security can be scored "
-              f"(momentum reads closes[-{LONG_LOOKBACK_SESSIONS + 1}])",
-              len(recent))
-    elif len(recent) < PREFERRED_SESSIONS:
-        r.add("continuity", WARN,
-              f"{len(recent)} sessions — above the required {REQUIRED_SESSIONS} "
-              f"but below the preferred {PREFERRED_SESSIONS}. The engine will "
-              f"run with no margin for a vendor gap.", len(recent))
-    else:
-        r.add("continuity", PASS, f"{len(recent)} consecutive sessions available",
-              len(recent))
+              f"session calendar unavailable, so continuity cannot be "
+              f"verified: {exc}", None)
+        expected, missing, unexpected, cal_name = [], [], [], "unavailable"
+
+    if cal_name != "unavailable":
+        # DEPTH is what the corpus actually holds inside the window — counted,
+        # not inferred from the expectation, so a gap cannot flatter it.
+        present = len([s for s in actual if s in set(window)])
+        if missing:
+            shown = ", ".join(missing[:8]) + (
+                f" (+{len(missing) - 8} more)" if len(missing) > 8 else "")
+            r.add("continuity", FAIL,
+                  f"MISSING_SESSIONS ({len(missing)} of {len(expected)} "
+                  f"expected by {cal_name}): {shown}", missing)
+        elif present < REQUIRED_SESSIONS:
+            r.add("continuity", FAIL,
+                  f"only {present} sessions available; the engine needs "
+                  f"{REQUIRED_SESSIONS} closes before any security can be "
+                  f"scored (momentum reads "
+                  f"closes[-{LONG_LOOKBACK_SESSIONS + 1}])", present)
+        elif present < PREFERRED_SESSIONS:
+            r.add("continuity", WARN,
+                  f"{present} sessions, no gaps — above the required "
+                  f"{REQUIRED_SESSIONS} but below the preferred "
+                  f"{PREFERRED_SESSIONS}. The engine will run with no margin "
+                  f"for a vendor gap.", present)
+        else:
+            r.add("continuity", PASS,
+                  f"{present} sessions to {frontier}, no gaps against "
+                  f"{cal_name}", present)
+
+        # A SEPARATE fault with a different cause — a vendor emitting a weekend
+        # row, or a calendar/vendor disagreement about a half-day. Not a hole in
+        # the history, so not folded into the gap verdict where one could mask
+        # the other.
+        if unexpected:
+            shown = ", ".join(unexpected[:5]) + (
+                f" (+{len(unexpected) - 5} more)" if len(unexpected) > 5 else "")
+            r.add("calendar_agreement", WARN,
+                  f"{len(unexpected)} session(s) in the corpus that "
+                  f"{cal_name} does not recognise: {shown}", unexpected)
+        else:
+            r.add("calendar_agreement", PASS,
+                  f"every corpus session is a {cal_name} session", 0)
 
     # ── freshness ────────────────────────────────────────────────────────────
     age = (_dt.date.fromisoformat(today) - _dt.date.fromisoformat(frontier)).days
@@ -163,7 +244,12 @@ def check_readiness(conn, *, today: Optional[str] = None,
     # continuity, and the remaining checks should still report against whatever
     # it does hold rather than crash. A readiness report that raises tells the
     # operator less than the one failing check it was about to print.
-    window_start = recent[-min(REQUIRED_SESSIONS, len(recent))]
+    # From what the corpus ACTUALLY holds, not from the calendar's expectation:
+    # these checks measure the density of columns in real rows, and anchoring
+    # them on a session the corpus is missing would start the window at a date
+    # with nothing in it.
+    window_start = (actual[-min(REQUIRED_SESSIONS, len(actual))] if actual
+                    else frontier)
     for column, label, protects in (
         ("close_signal", "signal domain", "momentum and the trailing-stop peak"),
         ("close_unadjusted", "raw close", "marking and the 4% admission size"),
