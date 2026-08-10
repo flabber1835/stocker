@@ -126,7 +126,12 @@ class TestLegacyCleanupSequencing:
         )
         assert plan.cancel_order_ids == ("o1",)
         assert plan.liquidate_tickers == ()
-        assert plan.next_state is S.LEGACY_ORDERS_CANCELLED
+        # STAYS in cleanup. It used to advance straight to
+        # LEGACY_ORDERS_CANCELLED on the strength of having ASKED — which is not
+        # a cleanup phase, so the cancel branch became unreachable and a cancel
+        # that silently did nothing was never retried. See
+        # TestCancellationIsConfirmedByObservation.
+        assert plan.next_state is S.LEGACY_CLEANUP_REQUIRED
 
     def test_our_OWN_sells_are_not_cancelled_once_past_the_cleanup_phase(self):
         """Otherwise each cycle cancels what the previous one submitted, forever."""

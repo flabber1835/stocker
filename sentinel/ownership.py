@@ -188,11 +188,47 @@ def plan_startup(
 
     # Cancel BEFORE selling. A resting legacy buy that fills between our sell and
     # our next reconcile re-creates a position we already reported gone.
+    #
+    # CANCELLATION IS CONFIRMED BY OBSERVATION, NEVER BY THE API's ANSWER.
+    # The state stays in cleanup while ANY legacy order is visible, so a cancel
+    # that was accepted and did nothing is retried on the next cycle instead of
+    # being believed. Reproduced 2026-08-09: a broker that returned success and
+    # cancelled nothing advanced the state to LEGACY_ORDERS_CANCELLED, which is
+    # NOT a cleanup phase — so the branch below became unreachable, the order was
+    # never retried, and liquidation proceeded with a live legacy BUY that could
+    # refill the account behind it.
+    #
+    # "The broker accepted the cancel" and "the order is gone" are different
+    # facts. Only the second one is safe to act on, and only a fresh observation
+    # can establish it.
     if state in _CLEANUP_PHASES and observation.open_orders:
         return Plan(
-            next_state=OwnershipState.LEGACY_ORDERS_CANCELLED,
-            reason="cancelling legacy open orders before liquidating",
+            # DELIBERATELY NOT LEGACY_ORDERS_CANCELLED. Staying in a cleanup
+            # phase is what keeps this branch reachable next cycle.
+            next_state=OwnershipState.LEGACY_CLEANUP_REQUIRED,
+            reason=(
+                f"cancelling {len(observation.open_orders)} legacy open "
+                f"order(s); not confirmed until an observation shows none"
+            ),
             cancel_order_ids=tuple(sorted(o.order_id for o in observation.open_orders)),
+        )
+
+    # Reached only when a cancellation was actually REQUESTED (which is what
+    # LEGACY_CLEANUP_REQUIRED records) and a FRESH observation now shows zero
+    # open orders. That observation is the proof the transition above refuses to
+    # infer from an API return value, and it is recorded as its own event
+    # because "we observed the legacy orders gone" is precisely the fact a later
+    # reader needs — it is not derivable from "we asked for them to be
+    # cancelled".
+    #
+    # Scoped to LEGACY_CLEANUP_REQUIRED rather than to every cleanup phase: an
+    # account that had NO open orders to begin with has nothing to confirm, and
+    # making it spend a cycle proving the absence of something it never had
+    # would delay a liquidation for no evidence.
+    if state is OwnershipState.LEGACY_CLEANUP_REQUIRED:
+        return Plan(
+            next_state=OwnershipState.LEGACY_ORDERS_CANCELLED,
+            reason="no legacy open orders remain (confirmed by observation)",
         )
 
     held = observation.held_tickers()

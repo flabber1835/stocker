@@ -156,7 +156,15 @@ async def _execute(
 ) -> None:
     if plan.cancel_order_ids:
         n = await broker.cancel_orders(plan.cancel_order_ids)
-        log.info("sentinel: cancelled %d/%d legacy orders", n, len(plan.cancel_order_ids))
+        # TELEMETRY, NOT PROOF. A broker can accept every cancellation and
+        # cancel nothing, and one that reports the full count while an order
+        # stays working is the case a count check cannot see. The state machine
+        # advances only when a FRESH observation shows no legacy orders left —
+        # so this number is for a human reading the log, and nothing branches on
+        # it. See sentinel/ownership.py and tests/sentinel/test_cancellation_confirmed.py.
+        log.info("sentinel: cancel requested for %d legacy order(s), broker "
+                 "reported %d — confirmation comes from the next observation",
+                 len(plan.cancel_order_ids), n)
 
     for ticker in plan.liquidate_tickers:
         result = await broker.close_position(ticker)
