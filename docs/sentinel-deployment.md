@@ -336,6 +336,56 @@ as a data change.
 
 **Report discrepancies. Do not silently normalise them away.**
 
+## 9a. Exactly ONE mutable corpus, eventually
+
+**The principle** (owner decision, 2026-08-09):
+
+> There must eventually be exactly ONE mutable authoritative corpus. Historical
+> certification corpora may exist only as IMMUTABLE VERSIONED ARTIFACTS.
+
+Today there are two Postgres instances holding the same economic history:
+
+```text
+bt-postgres        the certification corpus. ~35M rows. What the golden hash and
+                   the 2021-2023 rehearsal are measured against
+sentinel-postgres   the operational corpus, owned by the new runtime
+```
+
+**Keep them separate while the golden pin is open.** That is the safety
+property, and it is specific: an ingestion change, a schema migration or an
+accidental refresh must not be able to move the evidence underneath the
+certification exercise. A corpus that shifts while a hash is being certified
+against it makes the hash meaningless.
+
+**After the re-pin lands and Sentinel's data-contract path is proven**, converge:
+the Sentinel database becomes the sole continuously maintained source of truth,
+and the bt corpus is **FROZEN, not deleted** — a read-only snapshot that records
+exactly what data produced certification hash X. Frozen, it is not a second
+database in any operational sense; it is an artifact.
+
+The danger being eliminated is **two independently EVOLVING corpora of the same
+economic history**, because that is where divergence becomes both possible and
+invisible. It is not "two Postgres processes".
+
+**A correction, recorded because the wrong version of this argument was made in
+review.** Sentinel reading from the same PostgreSQL *server* would not by itself
+make Stocker a runtime dependency. Dependency is about OWNERSHIP AND INTERFACES,
+not about the name of a process. A single instance with separate databases and
+roles is a clean boundary and is probably simpler to operate:
+
+```text
+sentinel_runtime      RW   sentinel
+certification_runner  RO   certification_2026_08
+retired_stocker            disabled — no runtime consumers
+```
+
+What must remain true is that no Sentinel code path depends on a Stocker
+SERVICE, and that the certification snapshot has no writer.
+
+**Do not attempt the merge mid-certification.** Converge deliberately, after the
+pin closes — the whole point of the current exercise is a hash that moves
+exactly once.
+
 ## 10. Finish the three-year rehearsal, and do not reduce it to CAGR
 
 The 2021-2023 chain rehearsal is one of the highest-value acceptance tests.
