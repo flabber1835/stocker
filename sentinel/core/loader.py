@@ -127,7 +127,8 @@ def load_meta(conn) -> dict[str, SecurityMeta]:
     return out
 
 
-def load_terminal_events(conn, *, start: str, end: str, resolve_identity=None):
+def load_terminal_events(conn, *, start: str, end: str, resolve_identity=None,
+                         resolve_with_reason=None):
     """WIRED as of 2026-08-09 — delegates to `sentinel.core.terminal`.
 
     It used to RAISE, because an empty list is indistinguishable from "no
@@ -138,7 +139,16 @@ def load_terminal_events(conn, *, start: str, end: str, resolve_identity=None):
     """
     from sentinel.core.terminal import load_terminal_events as _load
 
-    return _load(conn, start=start, end=end, resolve_identity=resolve_identity)
+    return _load(conn, start=start, end=end, resolve_identity=resolve_identity,
+                 resolve_with_reason=resolve_with_reason)
+
+
+def load_terminal_result(conn, *, start: str, end: str, resolve_with_reason=None):
+    """The accounted form — see `sentinel.core.terminal.TerminalLoadResult`."""
+    from sentinel.core.terminal import load_terminal_events as _load
+
+    return _load(conn, start=start, end=end,
+                 resolve_with_reason=resolve_with_reason)
 
 
 def _f(v) -> Optional[float]:

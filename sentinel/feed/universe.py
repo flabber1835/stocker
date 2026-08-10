@@ -115,21 +115,42 @@ class IdentityResolver:
         self.unresolved: dict[str, int] = {}
 
     def resolve(self, ticker: str, session: str) -> Optional[str]:
-        candidates = self._by_ticker.get((ticker or "").upper())
+        return self.resolve_with_reason(ticker, session)[0]
+
+    def resolve_with_reason(self, ticker: str,
+                            session: str) -> tuple[Optional[str], str]:
+        """`(permaticker, reason)`. `reason` is "" on success.
+
+        A TYPED failure, because the caller has to distinguish them. A terminal
+        action whose ticker the universe has never heard of is a different
+        problem from one whose symbol two companies shared — the first is a
+        missing TICKERS ingest, the second needs a human to say which company
+        terminated. `resolve` returning a bare None cannot tell them apart, and
+        an accounting that reports both as "unresolved: 2" tells an operator
+        nothing they can act on.
+        """
+        key = (ticker or "").upper()
+        candidates = self._by_ticker.get(key)
         if not candidates:
             self._count("no_listing")
-            return None
+            return None, "NO_PERMANENT_ID"
         hits = [l for l in candidates if l.covers(session)]
         if not hits:
             self._count("outside_listing_window")
-            return None
+            # A REUSED symbol whose intervals do not cover this session is the
+            # sharper case: the vendor knows two companies by this name and the
+            # date falls in neither window, so an interval is wrong rather than
+            # merely absent. Distinguished because the remedy differs.
+            reused = len({l.permaticker for l in candidates}) > 1
+            return None, ("TICKER_REUSE_UNRESOLVED" if reused
+                          else "IDENTITY_INTERVAL_GAP")
         if len({l.permaticker for l in hits}) > 1:
             # Two securities claiming one symbol on ONE session. Picking either
             # is a coin flip that silently attributes a price to the wrong
             # company, so neither is picked.
             self._count("ambiguous_listing")
-            return None
-        return hits[0].permaticker
+            return None, "AMBIGUOUS_IDENTITY"
+        return hits[0].permaticker, ""
 
     def _count(self, reason: str) -> None:
         self.unresolved[reason] = self.unresolved.get(reason, 0) + 1

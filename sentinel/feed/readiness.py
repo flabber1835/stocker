@@ -307,6 +307,61 @@ def check_readiness(conn, *, today: Optional[str] = None,
         r.add("actions", PASS, f"{recent_actions:,} actions since {window_start}",
               recent_actions)
 
+    # ── terminal identity, with CONSERVATION ─────────────────────────────────
+    # `actions` above counts ROWS. It is satisfied by a table full of splits
+    # while every termination in the window failed identity resolution and
+    # silently never became a TerminalTerms — the book would then hold a
+    # security that had been acquired, and nothing here would say so.
+    #
+    # THE INVARIANT: any economically relevant terminal action inside the
+    # window that cannot be mapped unambiguously to a permanent security makes
+    # Sentinel NOT READY. Not a warning — a target planned on it may hold
+    # something that no longer exists.
+    try:
+        from sentinel.core.terminal import load_terminal_events
+        from sentinel.feed.universe import load_resolver
+
+        # THE OPERATIONAL WINDOW, not the 127-session domain window. `bootstrap`
+        # loads terminal events over the whole 252-session warm-up — an
+        # acquisition early in the warm-up still ends that security — so a gate
+        # scoped to the shorter window would pass a corpus whose terminations
+        # the book is about to read and cannot attribute.
+        terminal_start = (actual[-min(PREFERRED_SESSIONS, len(actual))]
+                          if actual else window_start)
+        acc = load_terminal_events(
+            conn, start=terminal_start, end=frontier,
+            resolve_with_reason=load_resolver(conn).resolve_with_reason)
+        counts = (f"discovered {acc.discovered} · relevant {acc.relevant} · "
+                  f"resolved {len(acc.resolved)} · excluded {len(acc.excluded)} "
+                  f"· unresolved {len(acc.unresolved)}")
+
+        if not acc.conservation_holds():
+            # Cannot happen by construction, which is exactly why it is checked:
+            # the accounting's whole value is that it adds up, and an assertion
+            # nobody makes is a property nobody has.
+            r.add("terminal identity", FAIL,
+                  f"CONSERVATION VIOLATED — {counts}. A row was neither used "
+                  f"nor accounted for.", acc.to_dict())
+        elif acc.unresolved:
+            # The offending ROWS, not the count. "unresolved: 1" is a number an
+            # operator cannot act on; a date, a ticker and a reason is a fetch
+            # they can re-run or a mapping they can correct.
+            listed = "; ".join(x.describe() for x in acc.unresolved[:10])
+            more = (f" (+{len(acc.unresolved) - 10} more)"
+                    if len(acc.unresolved) > 10 else "")
+            r.add("terminal identity", FAIL,
+                  f"{counts}\n      UNRESOLVED: {listed}{more}", acc.to_dict())
+        else:
+            excl = acc.exclusion_counts()
+            detail = counts + (f" · exclusions {excl}" if excl else "")
+            r.add("terminal identity", PASS, detail, acc.to_dict())
+    except Exception as exc:                          # noqa: BLE001
+        # FAIL, never skip. An accounting that cannot run has not proved
+        # anything, and passing on that basis is the silence this check exists
+        # to end.
+        r.add("terminal identity", FAIL,
+              f"terminal identity accounting could not run: {exc!r}", None)
+
     return r
 
 

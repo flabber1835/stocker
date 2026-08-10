@@ -68,6 +68,8 @@ class TargetBook:
     exposure: float = PINNED_EXPOSURE
     warmup_sessions: int = 0
     terminal_events: int = 0
+    # S4 conservation: discovered == excluded + resolved + unresolved.
+    terminal_accounting: dict = field(default_factory=dict)
     caveats: list[str] = field(default_factory=list)
 
     @property
@@ -82,6 +84,7 @@ class TargetBook:
             "cash_weight": round(self.cash_weight, 6),
             "warmup_sessions": self.warmup_sessions,
             "terminal_events": self.terminal_events,
+            "terminal_accounting": dict(self.terminal_accounting),
             "positions": {
                 self.tickers.get(s, s): round(w, 6)
                 for s, w in sorted(self.positions.items(),
@@ -119,9 +122,15 @@ def bootstrap(conn, *, start: str, end: str, starting_cash: float,
     # acquisition three months into the warm-up still ends that security, and a
     # book that has not seen it will happily admit something that stopped
     # trading. The engine indexes them by session and applies each on its own.
-    events = load_terminal_events(
-        conn, start=w.sessions[0], end=w.sessions[-1],
-        resolve_identity=_resolver(conn)) if conn is not None else []
+    if conn is not None:
+        from sentinel.feed.universe import load_resolver
+        _r = load_resolver(conn)
+        loaded = load_terminal_events(
+            conn, start=w.sessions[0], end=w.sessions[-1],
+            resolve_with_reason=_r.resolve_with_reason)
+        events, terminal_load = loaded.events, loaded
+    else:
+        events, terminal_load = [], None
 
     result = run_sessions(
         sessions=decide_on,
@@ -136,6 +145,16 @@ def bootstrap(conn, *, start: str, end: str, starting_cash: float,
 
     book = _book_from_result(result, decide_on[-1], w, len(warmup))
     book.terminal_events = len(events)
+    if terminal_load is not None:
+        book.terminal_accounting = terminal_load.to_dict()
+        if terminal_load.unresolved:
+            # NAMED on the book itself. A target planned while a termination
+            # could not be attributed is a book that may hold a security that no
+            # longer exists, and the count alone does not say which.
+            book.caveats.append(
+                f"{len(terminal_load.unresolved)} UNRESOLVED terminal "
+                f"action(s) in this window: "
+                + "; ".join(r.describe() for r in terminal_load.unresolved[:5]))
     if not events:
         # NAMED rather than assumed benign. Zero events over a 252-session window
         # is a missing ingest, not a quiet market — and it presents exactly as a

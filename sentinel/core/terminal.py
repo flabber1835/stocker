@@ -50,6 +50,7 @@ one destroys a live holding.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable, Mapping, Optional, Sequence
 
@@ -156,14 +157,162 @@ def terminal_from_action(row: Mapping, session: str, *,
                          cash_per_share=None, reference=ref)
 
 
-def load_terminal_events(conn, *, start: str, end: str,
-                         resolve_identity=None) -> list:
-    """Read `sentinel_actions` and map the terminal ones.
+#: EXCLUSIONS — deterministic reasons a discovered row is not an economically
+#: relevant termination. Every one is a positive statement about WHY, never a
+#: generic "not relevant": a catch-all bucket is where a mapping failure hides,
+#: and the whole point of this accounting is that nothing disappears quietly.
+EXCLUDED_ACQUIRER_SIDE = "ACQUIRER_SIDE_NOT_TERMINAL"
+"""`acquisitionof` / `mergerfrom` — the ACQUIRER's row. This security continues."""
 
-    `resolve_identity(ticker, session) -> security_id | None`. An unresolvable
-    row is SKIPPED and counted rather than keyed on its ticker: terms carrying a
-    ticker match no holding, so every such action would silently return NOT_HELD
-    and the termination would be invisible rather than refused.
+EXCLUDED_NON_TERMINAL = "NON_TERMINAL_ACTION_TYPE"
+"""A known action that ends nothing: split, dividend, ticker change."""
+
+EXCLUDED_UNSUPPORTED = "UNSUPPORTED_ACTION_TYPE"
+"""An action name the mapping does not know. Treated as non-terminal, which is
+the safe direction — a missed termination BLOCKS and is visible, a false one
+destroys a live holding — but it is COUNTED, because a vendor introducing a new
+terminal action name would otherwise be silent."""
+
+EXCLUDED_OUTSIDE_WINDOW = "OUTSIDE_OPERATIONAL_WINDOW"
+"""Dated outside the window being loaded."""
+
+EXCLUDED_DUPLICATE = "DUPLICATE_VENDOR_ROW"
+"""A second row with the same (ticker, session, action). Applying a termination
+twice is not idempotent — the first releases the episode and the second finds
+NOT_HELD — so duplicates are collapsed rather than replayed."""
+
+EXCLUDED_ABSENT_FROM_CORPUS = "SECURITY_ABSENT_FROM_CORPUS"
+"""No bar carries this ticker anywhere in the window, so no book could have held
+it and no termination of it can change one.
+
+DELIBERATELY KEYED ON THE RAW VENDOR TICKER, not on a resolved security. Keying
+on resolution would make this bucket swallow exactly the failures it must not
+hide: a security whose identity never resolves has its bars dropped too, so it
+would look "absent from the corpus" and its unresolved termination would vanish
+into a legitimate-sounding exclusion. Keyed on the ticker, a security that was
+PRICED but cannot be NAMED stays unresolved and stays loud."""
+
+#: FAILURES — an economically relevant termination that cannot be attributed.
+#: Any of these inside the window makes Sentinel NOT READY.
+UNRESOLVED_REASONS = frozenset({
+    "NO_PERMANENT_ID", "AMBIGUOUS_IDENTITY", "TICKER_REUSE_UNRESOLVED",
+    "IDENTITY_INTERVAL_GAP", "MULTIPLE_EFFECTIVE_MAPPINGS",
+    "TERMS_NOT_EXPRESSIBLE"})
+
+
+@dataclass(frozen=True)
+class TerminalRow:
+    """One discovered ACTIONS row and what became of it."""
+    ticker: str
+    session: str
+    action: str
+    disposition: str            # resolved | excluded | unresolved
+    reason: str = ""
+    security_id: Optional[str] = None
+
+    def describe(self) -> str:
+        return (f"{self.session} {self.ticker} {self.action.upper()}"
+                f" reason={self.reason}" if self.reason
+                else f"{self.session} {self.ticker} {self.action.upper()}")
+
+
+@dataclass(frozen=True)
+class TerminalLoadResult:
+    """Terminal events, WITH the accounting that proves none went missing.
+
+    The previous loader returned a bare list and dropped unresolvable rows on
+    the floor — its own docstring said they were "SKIPPED and counted", and
+    nothing counted them. Readiness could then be green on `COUNT(*) FROM
+    sentinel_actions` while an individual termination had disappeared, so the
+    book could hold a security that had been acquired and nothing would say so.
+
+    CONSERVATION IS THE POINT:
+
+        discovered == excluded + resolved + unresolved
+        relevant   == resolved + unresolved
+
+    Two equations rather than one, because they fail differently: the first
+    catches a row that was neither used nor accounted for, the second catches a
+    row miscounted as irrelevant.
+    """
+    events: list
+    rows: list
+
+    @property
+    def discovered(self) -> int:
+        return len(self.rows)
+
+    @property
+    def excluded(self) -> list:
+        return [r for r in self.rows if r.disposition == "excluded"]
+
+    @property
+    def resolved(self) -> list:
+        return [r for r in self.rows if r.disposition == "resolved"]
+
+    @property
+    def unresolved(self) -> list:
+        return [r for r in self.rows if r.disposition == "unresolved"]
+
+    @property
+    def relevant(self) -> int:
+        return len(self.resolved) + len(self.unresolved)
+
+    def conservation_holds(self) -> bool:
+        return (self.discovered
+                == len(self.excluded) + len(self.resolved) + len(self.unresolved)
+                and self.relevant == len(self.resolved) + len(self.unresolved))
+
+    def exclusion_counts(self) -> dict:
+        out: dict = {}
+        for r in self.excluded:
+            out[r.reason] = out.get(r.reason, 0) + 1
+        return dict(sorted(out.items()))
+
+    def to_dict(self) -> dict:
+        return {
+            "discovered": self.discovered,
+            "relevant": self.relevant,
+            "resolved": len(self.resolved),
+            "excluded": len(self.excluded),
+            "unresolved": len(self.unresolved),
+            "conservation_holds": self.conservation_holds(),
+            "exclusions": self.exclusion_counts(),
+            # The offending rows THEMSELVES. An operator needs the date, the
+            # ticker, the action and the reason — "unresolved: 1" is a number
+            # nobody can act on.
+            "unresolved_rows": [
+                {"session": r.session, "ticker": r.ticker, "action": r.action,
+                 "reason": r.reason} for r in self.unresolved],
+        }
+
+
+def _corpus_tickers(conn, start: str, end: str) -> set:
+    """Every ticker that PRINTED in the window, by raw vendor symbol.
+
+    Raw symbol rather than resolved security — see EXCLUDED_ABSENT_FROM_CORPUS
+    for why that distinction is what stops the relevance filter from hiding
+    identity failures.
+    """
+    with conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT ticker FROM sentinel_bars"
+                    " WHERE session BETWEEN %s AND %s", (start, end))
+        return {str(t[0]).upper() for t in cur.fetchall() if t[0]}
+
+
+def load_terminal_events(conn, *, start: str, end: str,
+                         resolve_identity=None,
+                         resolve_with_reason=None) -> TerminalLoadResult:
+    """Read `sentinel_actions`, map the terminal ones, and ACCOUNT for the rest.
+
+    `resolve_with_reason(ticker, session) -> (security_id, reason)` is preferred;
+    `resolve_identity` is accepted for callers that predate it and yields
+    NO_PERMANENT_ID for every failure, which is the least informative honest
+    answer rather than a guess.
+
+    An unresolvable row is never keyed on its ticker: terms carrying a ticker
+    match no holding, so the action would silently return NOT_HELD and the
+    termination would be invisible rather than refused.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -172,17 +321,74 @@ def load_terminal_events(conn, *, start: str, end: str,
             " ORDER BY session, ticker, action", (start, end))
         rows = cur.fetchall()
 
-    out = []
+    priced = _corpus_tickers(conn, start, end)
+    out: list = []
+    seen: set = set()
+    audit: list = []
+
     for ticker, session, action, value, contraticker in rows:
-        s = str(session)
-        sid = resolve_identity(str(ticker), s) if resolve_identity else None
+        s, tk = str(session), str(ticker)
+        act = (action or "").lower()
+        key = (tk.upper(), s, act)
+
+        def _row(disposition, reason="", sid=None):
+            return TerminalRow(ticker=tk, session=s, action=act,
+                               disposition=disposition, reason=reason,
+                               security_id=sid)
+
+        if key in seen:
+            audit.append(_row("excluded", EXCLUDED_DUPLICATE))
+            continue
+        seen.add(key)
+
+        if not (start <= s <= end):          # defensive; the SQL already bounds it
+            audit.append(_row("excluded", EXCLUDED_OUTSIDE_WINDOW))
+            continue
+
+        side = TERMINAL_ACTION_SIDES.get(act)
+        if side is ActionSide.ACQUIRER:
+            audit.append(_row("excluded", EXCLUDED_ACQUIRER_SIDE))
+            continue
+        if side is None:
+            audit.append(_row(
+                "excluded",
+                EXCLUDED_NON_TERMINAL
+                if act in SPLIT_ACTIONS | DIVIDEND_ACTIONS
+                else EXCLUDED_UNSUPPORTED))
+            continue
+
+        # RELEVANCE, decided before identity so a mapping failure cannot be
+        # reclassified as irrelevant by its own consequences.
+        if priced and tk.upper() not in priced:
+            audit.append(_row("excluded", EXCLUDED_ABSENT_FROM_CORPUS))
+            continue
+
+        if resolve_with_reason is not None:
+            sid, why = resolve_with_reason(tk, s)
+        elif resolve_identity is not None:
+            sid, why = resolve_identity(tk, s), "NO_PERMANENT_ID"
+        else:
+            sid, why = None, "NO_PERMANENT_ID"
+
+        if not sid:
+            audit.append(_row("unresolved", why))
+            continue
+
         terms = terminal_from_action(
             {"ticker": ticker, "action": action, "value": value,
              "contraticker": contraticker}, s, security_id=sid)
-        if terms is not None:
-            # `TerminalTerms` directly. `run.TerminalEvent` READS like a wrapper
-            # type and is a back-compat FACTORY over TerminalTerms for the two
-            # original kinds — it cannot express CONVERSION at all, which is
-            # exactly what a public acquirer produces.
-            out.append(terms)
-    return out
+        if terms is None:
+            # The identity resolved and the mapping still produced nothing. That
+            # is a mapping gap, not an identity one, and it must not be filed as
+            # an exclusion — it is a termination we cannot express.
+            audit.append(_row("unresolved", "TERMS_NOT_EXPRESSIBLE", sid))
+            continue
+
+        # `TerminalTerms` directly. `run.TerminalEvent` READS like a wrapper
+        # type and is a back-compat FACTORY over TerminalTerms for the two
+        # original kinds — it cannot express CONVERSION at all, which is
+        # exactly what a public acquirer produces.
+        out.append(terms)
+        audit.append(_row("resolved", sid=sid))
+
+    return TerminalLoadResult(events=out, rows=audit)
