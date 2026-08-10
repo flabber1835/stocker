@@ -40,12 +40,16 @@ Economically one $20 price move; arithmetically reachable from neither share
 count alone.
 
 THE SPLIT MULTIPLIER IS RECORDED EXPLICITLY even though it is derivable from
-the two share counts in simple cases. Derivable is not the same as legible, and
-the cases where it is NOT cleanly derivable are precisely the ones worth
-catching: `apply_splits` truncates with `int(before * ratio)`, so an odd share
-count under a 3-for-2 loses the remainder and the implied ratio no longer equals
-the stated one. An audit that forces the reader to infer the ratio would present
-that as a price discrepancy.
+the two share counts. Derivable is not the same as legible, and a reader should
+not have to reconstruct what happened to a position from a ratio.
+
+Note for anyone reading an older revision of this file: it used to say
+`apply_splits` truncates with `int(before * ratio)` and that the recorded counts
+existed to stop that truncation reading as a pricing error. S5 removed the
+truncation — the entitlement is now exact Decimal arithmetic — and this module
+was itself found still truncating `shares_at_carry` and the grace-split counts
+afterwards, which is the sharper lesson: the audit built to prove no value was
+destroyed was destroying it.
 
 NOTHING HERE IS A DECISION. Every field is an observation of something the
 waterfall already did, which is what makes it safe to add to a certified
@@ -226,12 +230,12 @@ def episode_audit(*, security_id: str, ticker: Optional[str],
                   carry: Optional[Mapping[str, Any]] = None,
                   settlement_session: Optional[str] = None,
                   settlement_method: Optional[str] = None,
-                  shares_at_settlement: Optional[int] = None,
+                  shares_at_settlement: Optional[float] = None,
                   settlement_price: Optional[float] = None,
                   grace_sessions: Optional[int] = None,
                   delivered_security_id: Optional[str] = None,
                   delivered_ticker: Optional[str] = None,
-                  shares_delivered: Optional[int] = None,
+                  shares_delivered: Optional[float] = None,
                   exchange_ratio: Optional[float] = None,
                   cash_consideration: Optional[float] = None,
                   cash_in_lieu: Optional[float] = None,
@@ -334,7 +338,7 @@ def with_non_cash_consideration(audit: Mapping[str, Any], *,
             "episode_continues": bool(episode_continues)}
 
 
-def new_carry_record(*, carry_session: str, shares_at_carry: int,
+def new_carry_record(*, carry_session: str, shares_at_carry: float,
                      carry_price: float,
                      last_trustworthy_print_session: Optional[str]) -> dict:
     """The provenance stored on the portfolio state when a carry BEGINS.
@@ -348,7 +352,15 @@ def new_carry_record(*, carry_session: str, shares_at_carry: int,
     The mutable parts are the two grace histories below, which only ever grow.
     """
     return {"carry_session": carry_session,
-            "shares_at_carry": int(shares_at_carry),
+            # `_shares`, NOT `int(...)`. Truncating here destroyed the very
+            # fraction S5 preserved in the book — INSIDE the audit built to
+            # prove no value was destroyed. Worse, it fails SILENTLY GREEN: the
+            # corrupted carry feeds every downstream figure, so a 22.5-share
+            # holding recorded as 22 still reconciles to residual 0 with an
+            # empty unreconciled list, while reporting a $52.50 delta where the
+            # true one is $22.50. An accounting check can reconcile the wrong
+            # provenance perfectly.
+            "shares_at_carry": _shares(shares_at_carry),
             "carry_price": float(carry_price),
             "last_trustworthy_print_session": last_trustworthy_print_session,
             "grace_prints": [],
@@ -370,18 +382,20 @@ def record_grace_print(carry: dict, *, session: str, price: float) -> dict:
 
 
 def record_grace_split(carry: dict, *, session: str, ratio: float,
-                       shares_before: int, shares_after: int) -> dict:
+                       shares_before: float, shares_after: float) -> dict:
     """A split DURING the grace. Mutates and returns `carry`.
 
-    `shares_before`/`shares_after` are recorded alongside the stated ratio
-    because `apply_splits` TRUNCATES (`int(before * ratio)`), so the realised
-    ratio can differ from the declared one on an odd share count. Recording only
-    the declared ratio would make that truncation look like a pricing error in
-    the reconciliation.
+    `shares_before`/`shares_after` are recorded alongside the stated ratio so
+    the transformation is legible without re-deriving it. They no longer exist
+    to document a truncation: `apply_splits` used to compute
+    `int(before * ratio)` and lose the fraction, and S5 replaced that with exact
+    Decimal arithmetic. The counts stay because a reader should not have to
+    infer what happened to a position from a ratio.
     """
     carry.setdefault("grace_splits", []).append(
         {"session": session, "ratio": float(ratio),
-         "shares_before": int(shares_before), "shares_after": int(shares_after)})
+         "shares_before": _shares(shares_before),
+         "shares_after": _shares(shares_after)})
     carry["grace_split_multiplier"] = float(
         carry.get("grace_split_multiplier", 1.0)) * float(ratio)
     return carry

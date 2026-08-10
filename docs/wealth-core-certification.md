@@ -849,8 +849,8 @@ already uses, so a new kind cannot slip through uncounted.
 
 `shares` became **two** fields, at both ends, which is the whole point. The
 split multiplier is recorded explicitly even though it is derivable from the two
-share counts in simple cases, because `apply_splits` TRUNCATES
-(`int(before * ratio)`) — so on an odd share count the realised ratio differs
+share counts in simple cases, because `apply_splits` used to TRUNCATE
+(`int(before * ratio)`; removed by S5, 2026-08-09) — so on an odd share count the realised ratio differs
 from the declared one, and an audit that forced the reader to infer it would
 present that truncation as a pricing discrepancy.
 

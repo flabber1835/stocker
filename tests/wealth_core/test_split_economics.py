@@ -230,3 +230,73 @@ class TestSerialisationIsCanonical:
         st = seated(15, entry=90.0)
         apply(st, 1.5, 60.0)
         assert st.to_dict()["episodes"]["0"]["current_shares"] == pytest.approx(22.5)
+
+
+class TestTheAUDITDoesNotReintroduceTheTruncation:
+    """FOUND IN CERTIFICATION REVIEW, after S5 had already fixed the book.
+
+    `new_carry_record` stored `int(shares_at_carry)` and `record_grace_split`
+    stored `int(shares_before)` / `int(shares_after)`. So the economic engine
+    preserved 22.5 shares and the audit built to PROVE it recorded 22.
+
+    THE DANGEROUS PART IS THAT IT RECONCILES GREEN. Every downstream figure
+    reads the same corrupted carry record, so:
+
+        true      22.5 sh @ $60 -> $1,350.00, settle @ $61 -> $22.50 delta
+        recorded  22   sh @ $60 -> $1,320.00, settle       -> $52.50 delta
+
+    and `residual == 0`, `unreconciled_episodes == []` both hold. The
+    reconciliation reconciles the wrong provenance perfectly — the exact class
+    of false green this whole audit exists to eliminate.
+    """
+
+    def test_the_carry_record_keeps_the_FRACTION(self):
+        from stock_strategy_shared.wealth_core.terminal_audit import (
+            new_carry_record)
+        c = new_carry_record(carry_session="d1", shares_at_carry=22.5,
+                             carry_price=60.0,
+                             last_trustworthy_print_session="d0")
+        assert c["shares_at_carry"] == pytest.approx(22.5)
+
+    def test_the_grace_split_record_keeps_BOTH_counts(self):
+        from stock_strategy_shared.wealth_core.terminal_audit import (
+            new_carry_record, record_grace_split)
+        c = new_carry_record(carry_session="d1", shares_at_carry=15,
+                             carry_price=90.0,
+                             last_trustworthy_print_session="d0")
+        record_grace_split(c, session="m0", ratio=1.5, shares_before=15,
+                           shares_after=22.5)
+        g = c["grace_splits"][0]
+        assert g["shares_before"] == 15
+        assert g["shares_after"] == pytest.approx(22.5)
+
+    def test_an_integral_count_still_serialises_as_int(self):
+        from stock_strategy_shared.wealth_core.terminal_audit import (
+            new_carry_record)
+        c = new_carry_record(carry_session="d1", shares_at_carry=10,
+                             carry_price=90.0,
+                             last_trustworthy_print_session="d0")
+        assert c["shares_at_carry"] == 10 and isinstance(c["shares_at_carry"], int)
+
+    def test_the_MANDATED_falsifier_end_to_end(self):
+        """15 -> 1.5 split -> 22.5 -> carry -> $1 price rise. The audit must
+        produce exactly 22.5 / 1350.00 / 1372.50 / 22.50 / residual 0.00."""
+        from stock_strategy_shared.wealth_core.terminal_audit import (
+            episode_audit, reconcile)
+        a = episode_audit(
+            security_id="S1", ticker="T1", event_session="d1",
+            event_kind="CASH_MERGER",
+            carry={"carry_session": "d1", "shares_at_carry": 22.5,
+                   "carry_price": 60.0},
+            settlement_session="q9",
+            settlement_method="LAST_TRUSTWORTHY_MARK",
+            shares_at_settlement=22.5, settlement_price=61.0)
+        assert a["shares_at_carry"] == pytest.approx(22.5)
+        assert a["carry_notional"] == pytest.approx(1350.00)
+        assert a["settlement_notional"] == pytest.approx(1372.50)
+        assert a["notional_delta"] == pytest.approx(22.50), (
+            "a truncated carry reports $52.50 here and still reconciles to zero")
+        rec = reconcile([a])
+        assert rec["residual"] == pytest.approx(0.0)
+        assert rec["unreconciled_episodes"] == []
+        assert rec["cash_coverage_fraction"] == 1.0

@@ -179,12 +179,72 @@ class TestTheVetoDoesNotBreAK_TerminalHandling:
 # ── 5. the cross-section is vetoed, not rewritten ────────────────────────────
 
 class TestTheDecileIsNotSilentlyMoved:
-    """The terminating security is marked INELIGIBLE rather than dropped from
-    the list. `score_universe` computes the decile over eligible names, so
-    removing a row would move the cutoff and change which OTHER securities are
-    admitted — a veto must not rewrite the cross-section it vetoes."""
+    """THE INVARIANT, and this class previously did not test it.
 
-    def test_the_row_is_still_present_but_ineligible(self):
+    It asserted that the terminating row was still PRESENT in the
+    cross-section and merely `eligible=False`, and called that "the decile is
+    not silently moved". Those are different claims, and the second one was
+    FALSE: `score_universe` builds `ranked_pool` from eligible names only, so
+    marking a row ineligible removes it from the leadership population exactly
+    as deleting it would. Measured on the golden fixture, the first
+    implementation produced 12 `in_top_decile` flips across 6 sessions — in each
+    one a NON-TERMINAL security promoted because a terminating name vacated the
+    pool.
+
+    A test whose name promises more than it falsifies is worse than no test: it
+    is a claim with evidence attached to something else. So this now compares
+    the SCORED CROSS-SECTION with and without today's terminal event and
+    requires every non-terminal security to be untouched.
+    """
+
+    def _scored(self, *, with_terminal):
+        """Score the identical cross-section, with and without the event."""
+        from stock_strategy_shared.wealth_core.engine import score_universe
+        bars = [bar(f"S{i}") for i in range(1, 13)]
+        sb = tradeability_only_bars(bars, {b.security_id: WINDOW for b in bars})
+        scored = score_universe(sb, CFG)
+        return {s.security_id: s for s in scored}
+
+    def test_every_NON_TERMINAL_security_keeps_its_rank_and_decile(self):
+        bars = [bar(f"S{i}") for i in range(1, 13)]
+        st = PortfolioState.fresh(1_000_000.0)
+        st.initialized = True
+        seen = {}
+        from stock_strategy_shared.wealth_core import adapter as ad
+        real = ad.decide
+
+        def spy(**kw):
+            out = real(**kw)
+            seen[len(seen)] = {c["security_id"]: c for c in out.to_dict().get(
+                "candidates", []) if isinstance(c, dict)}
+            return out
+
+        ad.decide = spy
+        try:
+            run_session(terminal=[], bars=bars, state=st)
+            clean = dict(seen[0])
+            st2 = PortfolioState.fresh(1_000_000.0)
+            st2.initialized = True
+            run_session(terminal=[terms(TerminalKind.WRITE_OFF)], bars=bars,
+                        state=st2)
+            vetoed = dict(seen[1])
+        finally:
+            ad.decide = real
+
+        assert clean and vetoed, "no candidate audit was produced"
+        for sid in clean:
+            if sid == "S1":
+                continue
+            assert clean[sid].get("in_top_decile") == vetoed[sid].get("in_top_decile"), (
+                f"{sid} changed top-decile membership because ANOTHER security "
+                f"had a terminal event — the veto reshaped the cross-section")
+            assert clean[sid].get("momentum") == vetoed[sid].get("momentum")
+            assert clean[sid].get("score") == vetoed[sid].get("score")
+
+    def test_the_terminating_row_is_scored_NORMALLY_and_vetoed_at_admission(self):
+        """It competes on merit and is refused at the gate — the frozen
+        Sentinel reference's shape: build `pool_durable`, then skip
+        `today_terminal` during admission."""
         from stock_strategy_shared.wealth_core import adapter as ad
 
         seen = {}
@@ -192,19 +252,23 @@ class TestTheDecileIsNotSilentlyMoved:
 
         def spy(**kw):
             seen["bars"] = list(kw["bars"])
+            seen["veto"] = set(kw.get("admission_veto_security_ids") or ())
             return real(**kw)
 
         ad.decide = spy
         try:
-            run_session(terminal=[terms(TerminalKind.WRITE_OFF)],
-                        bars=[bar("S1"), bar("S2")])
+            _, res, _, _ = run_session(terminal=[terms(TerminalKind.WRITE_OFF)],
+                                       bars=[bar("S1"), bar("S2")])
         finally:
             ad.decide = real
 
         by_sec = {b.security_id: b for b in seen["bars"]}
-        assert set(by_sec) == {"S1", "S2"}, (
-            "the terminating security was REMOVED from the cross-section; that "
-            "moves the decile cutoff and changes other admissions")
-        assert by_sec["S1"].eligible is False
-        assert by_sec["S1"].eligibility_reason == "TERMINAL_ACTION_THIS_SESSION"
-        assert by_sec["S2"].eligible is True
+        assert by_sec["S1"].eligible is True, (
+            "the terminating security was made INELIGIBLE, which removes it "
+            "from the leadership pool and promotes someone else")
+        assert seen["veto"] == {"S1"}
+        rejected = {r.get("security_id"): r.get("reason")
+                    for r in res.decision.to_dict().get("admission_rejections", [])}
+        assert rejected.get("S1") == "REJECT_TERMINAL_THIS_SESSION", (
+            "the veto must be RECORDED as its own reason, not hidden behind an "
+            "eligibility string")

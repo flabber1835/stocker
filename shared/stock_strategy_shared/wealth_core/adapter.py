@@ -585,32 +585,24 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     # Reproduced 2026-08-09: a WRITE_OFF effective on session d1 returned
     # NOT_HELD (correctly — the book did not own it), and `decide` then queued
     # an OPEN_SLOT_POSITION for the same security at the next open. The book
-    # bought a security on its delisting date. That is the same defect the
-    # Sentinel terminal-order correction found in the reference replay, and it
-    # survived here because `terminated` was computed for the FILL path and
-    # never reached the DECISION path.
+    # bought a security on its delisting date, which is the defect the Sentinel
+    # terminal-order correction found in the reference replay.
     #
     # `NOT_HELD` means "we did not own it when it terminated". It has never
-    # meant "it is safe to buy". Applying to EVERY kind — write-off, cash
-    # merger, conversion, cash-plus-stock, and the incomplete/carried cases —
-    # because the disqualifying fact is that the security has a terminal event
-    # today, not how that event resolved.
+    # meant "it is safe to buy". Applies to EVERY kind — write-off, cash merger,
+    # conversion, cash-plus-stock, incomplete/carried — because the
+    # disqualifying fact is that the security has a terminal event today, not
+    # how that event resolved.
     #
-    # Marked ineligible rather than dropped: `score_universe` computes the
-    # decile over eligible names, so REMOVING a row would silently move the
-    # cutoff and change which OTHER securities are admitted. An ineligible row
-    # is excluded from admission while still being counted where the engine
-    # counts it, which is the difference between a veto and a rewrite of the
-    # cross-section.
-    if terminated:
-        security_bars = [
-            b if b.security_id not in terminated
-            else replace(b, eligible=False,
-                         eligibility_reason="TERMINAL_ACTION_THIS_SESSION")
-            for b in security_bars]
-
+    # PASSED AS AN ADMISSION VETO, not as ineligibility. The first cut marked
+    # the bar ineligible before scoring, which silently RESHAPED THE
+    # CROSS-SECTION: `score_universe` builds its ranked pool from eligible names
+    # only, so removing one shrinks the leadership count and promotes a
+    # different security into the top decile. Measured: 12 `in_top_decile` flips
+    # across 6 golden sessions. See engine.decide's veto branch.
     d = decide(session=session, state=state, bars=list(security_bars), marks=marks,
-               cfg=cfg, strategy_id=strategy_id, strategy_version=strategy_version)
+               cfg=cfg, strategy_id=strategy_id, strategy_version=strategy_version,
+               admission_veto_security_ids=terminated)
 
     # ── 8. queue for the NEXT open ───────────────────────────────────────────
     for op in d.operations:

@@ -89,6 +89,7 @@ class Reason(str, Enum):
     REJECT_ADMISSION_LIMIT = "REJECT_ADMISSION_LIMIT"
     REJECT_NO_READY_SLOT = "REJECT_NO_READY_SLOT"
     REJECT_UNRESOLVED_EQUITY = "REJECT_UNRESOLVED_EQUITY"
+    REJECT_TERMINAL_THIS_SESSION = "REJECT_TERMINAL_THIS_SESSION"
 
 
 @dataclass(frozen=True)
@@ -351,7 +352,8 @@ def affordable_shares(cash: float, price: float | None,
 
 def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
            marks: Mapping[str, "Mark"], cfg: WealthCoreConfig,
-           strategy_id: str, strategy_version: int) -> Decision:
+           strategy_id: str, strategy_version: int,
+           admission_veto_security_ids: frozenset | set | None = None) -> Decision:
     """One session's decisions, on information available after session t closes.
 
     The caller has ALREADY aged the state for this session (see
@@ -496,11 +498,39 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
     equity = ev.resolved_equity
     admitted = 0
 
+    veto = set(admission_veto_security_ids or ())
+
     for cand in ranked:
         if admitted >= budget or not ready:
             break
         if cand.security_id in held_secs or cand.security_id in pending_secs:
             reject(cand, Reason.REJECT_ALREADY_HELD)
+            continue
+        if cand.security_id in veto:
+            # A POST-RANKING ADMISSION VETO, and the placement is the whole
+            # point. This security competed on merit, was scored, and appears
+            # in the leadership population exactly as it would have without the
+            # terminal event — it is simply not buyable today.
+            #
+            # The first implementation vetoed it by marking the bar INELIGIBLE
+            # before `score_universe`, which looked equivalent and was not:
+            # `score_universe` builds `ranked_pool` from eligible names only, so
+            # removing one shrinks the pool, shrinks `k`, and PROMOTES a
+            # different security into the top decile. Measured on the golden
+            # fixture: 12 `in_top_decile` flips across 6 sessions, each one a
+            # non-terminal name promoted because a terminating name vacated the
+            # pool. A veto must not reshape the cross-section it vetoes.
+            #
+            # This also matches the frozen Sentinel reference, which builds
+            # `pool_durable` first and only then skips `today_terminal` at
+            # admission.
+            #
+            # AFTER the already-held check, deliberately. A security the book
+            # already owns was never an admission candidate, so recording the
+            # terminal veto there would overstate what the veto did and relabel
+            # an ordinary REJECT_ALREADY_HELD — measured as the only decision
+            # difference on the golden fixture before this ordering.
+            reject(cand, Reason.REJECT_TERMINAL_THIS_SESSION)
             continue
         bar = next((b for b in bars if b.security_id == cand.security_id), None)
         issuer = bar.issuer_id if bar else cand.security_id
