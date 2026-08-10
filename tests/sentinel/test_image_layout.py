@@ -26,7 +26,12 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
+#: The repository being INSPECTED. In a checkout that is the checkout. Inside
+#: the certified test image the runtime code is deliberately NOT copied onto
+#: sys.path — pytest must import `/app/sentinel`, not a fresh copy — so the
+#: repo lives at a path that is never importable and is named here instead.
+ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT")
+            or Path(__file__).resolve().parents[2])
 DOCKERFILE = ROOT / "Dockerfile.sentinel"
 COMPOSE = ROOT / "docker-compose.sentinel.yml"
 

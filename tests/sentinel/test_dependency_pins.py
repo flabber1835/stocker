@@ -25,14 +25,20 @@ from pathlib import Path
 
 import pytest
 
+import os
+
+#: See `test_image_layout` — inside the certified image the repository is
+#: inspected from a path that is never importable.
+REPO = Path(os.environ.get("SENTINEL_REPO_ROOT")
+            or Path(__file__).resolve().parents[2])
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
 from sentinel import identity as ident  # noqa: E402
 
-DOCKERFILE = ROOT / "Dockerfile.sentinel"
-REQUIREMENTS = ROOT / "sentinel" / "requirements.txt"
+DOCKERFILE = REPO / "Dockerfile.sentinel"
+REQUIREMENTS = REPO / "sentinel" / "requirements.txt"
 
 
 class TestEveryDependencyIsPinnedExactly:
@@ -94,9 +100,15 @@ class TestTheRecordDescribesTHISEnvironment:
         for k, v in drift.items():
             assert set(v) == {"pinned", "installed"}, k
 
-    def test_certified_requires_BOTH_interpreter_and_pins(self):
+    def test_certified_requires_interpreter_AND_pins_AND_located_sources(self):
+        """Three conditions, not two. The third was added after `identity` was
+        found returning `files: 0, hash: None` for Wealth Core inside the
+        runtime image while still answering --require-certified with PASS — see
+        tests/sentinel/test_runtime_is_the_artifact.py."""
         env = ident.environment()
-        assert env["certified"] == (env["python_certified"] and env["pins_match"])
+        assert env["certified"] == (env["python_certified"]
+                                    and env["pins_match"]
+                                    and env["sources_known"])
 
     def test_it_reports_the_calendar_it_consulted(self):
         env = ident.environment()
@@ -112,8 +124,8 @@ class TestTheRecordDescribesTHISEnvironment:
         assert s["hash"] != w["hash"]
 
     def test_the_source_hash_IGNORES_caches_and_is_STABLE(self):
-        assert (ident.source_hash(ROOT / "sentinel")["hash"]
-                == ident.source_hash(ROOT / "sentinel")["hash"])
+        assert (ident.source_hash(REPO / "sentinel")["hash"]
+                == ident.source_hash(REPO / "sentinel")["hash"])
 
     def test_the_source_hash_MOVES_when_a_file_does(self, tmp_path):
         pkg = tmp_path / "p"

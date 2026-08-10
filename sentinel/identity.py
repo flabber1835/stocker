@@ -68,10 +68,44 @@ CERTIFIED_BASE_DIGEST = (
     "sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36")
 CERTIFIED_PYTHON = "3.12.13"
 
+#: The database image the corpus lives in, pinned the same way. Leaving the
+#: server as a mutable tag while pinning tzdata to the day is inconsistent: a
+#: Postgres minor upgrade can change collation, planner behaviour and float
+#: text output, and the corpus digests are computed by reading rows back out
+#: of it.
+CERTIFIED_POSTGRES_DIGEST = (
+    "sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b")
+CERTIFIED_POSTGRES_VERSION = "16.14"
+
 _REQUIREMENTS = Path(__file__).resolve().parent / "requirements.txt"
-_SENTINEL_PKG = Path(__file__).resolve().parent
-_WEALTH_CORE_PKG = (Path(__file__).resolve().parents[1] / "shared"
-                    / "stock_strategy_shared" / "wealth_core")
+
+
+def _imported_package_root(module_name: str) -> Optional[Path]:
+    """Where Python ACTUALLY imported a package from.
+
+    NOT a path assembled from `__file__` and a guess about the repository
+    layout. The previous version computed Wealth Core as
+    `sentinel/../shared/stock_strategy_shared/wealth_core`, which is true in a
+    checkout and FALSE in the runtime image: there `sentinel/` is at `/app` and
+    `shared/` was pip-installed into site-packages, so nothing exists at that
+    path. `source_hash` then reported `files: 0, hash: None` — and `certified`
+    did not look at it, so an image with NO Wealth Core identity at all
+    returned PASS.
+
+    Importing to find out is the only thing that cannot be wrong about this:
+    the answer is the code that would run.
+    """
+    import importlib                                       # noqa: PLC0415
+
+    try:
+        mod = importlib.import_module(module_name)
+    except Exception:                                       # noqa: BLE001
+        return None
+    f = getattr(mod, "__file__", None)
+    if f:
+        return Path(f).resolve().parent
+    paths = list(getattr(mod, "__path__", []) or [])        # namespace package
+    return Path(paths[0]).resolve() if paths else None
 
 #: `psycopg[binary]==3.3.4` -> ("psycopg", "3.3.4"). The extra is part of what
 #: is installed, not part of the distribution name that reports its version.
@@ -121,15 +155,17 @@ def pin_drift() -> dict[str, dict]:
             for k, v in pinned.items() if have.get(k) != v}
 
 
-def source_hash(root: Path) -> dict:
+def source_hash(root: Optional[Path]) -> dict:
     """A deterministic digest of a Python package tree.
 
     Sorted relative POSIX paths, each hashed with its content, so the digest
     does not depend on filesystem order, absolute location, or the caches and
     bytecode that a test run leaves behind.
     """
-    if not root.exists():                        # pragma: no cover - packaging
-        return {"root": root.name, "files": 0, "hash": None}
+    if root is None or not root.exists():
+        return {"root": None if root is None else root.name,
+                "path": None if root is None else str(root),
+                "files": 0, "hash": None}
     files = sorted(p for p in root.rglob("*.py")
                    if "__pycache__" not in p.parts)
     h = hashlib.sha256()
@@ -138,7 +174,8 @@ def source_hash(root: Path) -> dict:
         h.update(b"\0")
         h.update(_sha(p.read_bytes()).encode())
         h.update(b"\n")
-    return {"root": root.name, "files": len(files), "hash": h.hexdigest()}
+    return {"root": root.name, "path": str(root), "files": len(files),
+            "hash": h.hexdigest()}
 
 
 def environment() -> dict:
@@ -151,24 +188,38 @@ def environment() -> dict:
         calendar_version = cal.calendar_version()
     except Exception as exc:                                  # noqa: BLE001
         calendar_version = f"unavailable: {exc}"
+
+    sentinel_src = source_hash(_imported_package_root("sentinel"))
+    wc_src = source_hash(_imported_package_root(
+        "stock_strategy_shared.wealth_core"))
+    # A MISSING source hash is a failure, not a blank field. The whole point of
+    # the record is to name the code that produced a result; "we could not find
+    # Wealth Core" and "here is Wealth Core's hash" must not both read as
+    # certified. This is the condition that was absent, and it is exactly the
+    # condition the old repo-relative path violated inside the image.
+    sources_known = bool(sentinel_src["hash"] and sentinel_src["files"]
+                         and wc_src["hash"] and wc_src["files"])
     return {
         "python": py,
         "python_certified": py == CERTIFIED_PYTHON,
         "python_implementation": platform.python_implementation(),
         "base_image_digest_pinned": CERTIFIED_BASE_DIGEST,
+        "postgres_image_digest_pinned": CERTIFIED_POSTGRES_DIGEST,
         "calendar_exchange": cal.EXCHANGE,
         "calendar_version": calendar_version,
         "packages": installed_versions(pinned_requirements()),
         "pin_drift": drift,
         "pins_match": not drift,
-        "sentinel_source": source_hash(_SENTINEL_PKG),
-        "wealth_core_source": source_hash(_WEALTH_CORE_PKG),
-        # TRUE only when the interpreter and every pin are the certified ones.
-        # The base digest cannot be verified from inside the container — it is
-        # what the image was built FROM, and nothing in a running process can
-        # attest to that — so this is a necessary condition, never a sufficient
-        # one. The build is what makes it sufficient.
-        "certified": (py == CERTIFIED_PYTHON) and not drift,
+        "sentinel_source": sentinel_src,
+        "wealth_core_source": wc_src,
+        "sources_known": sources_known,
+        # TRUE only when the interpreter is the certified one, every pin is
+        # satisfied, and BOTH source trees were actually located. The base
+        # digest cannot be verified from inside the container — it is what the
+        # image was built FROM, and nothing in a running process can attest to
+        # that — so this is a necessary condition, never a sufficient one. The
+        # build is what makes it sufficient.
+        "certified": (py == CERTIFIED_PYTHON) and not drift and sources_known,
     }
 
 
@@ -216,14 +267,33 @@ def corpus(conn, *, start: str, end: str) -> dict:
         " first_price_date, last_price_date, is_delisted, snapshot_date"
         " FROM sentinel_universe"
         " ORDER BY permaticker, ticker, snapshot_date", ())
+    # THE REFUSALS ARE PART OF THE CORPUS'S IDENTITY. Without them two seeds
+    # with identical accepted bars and completely different dropped evidence
+    # digest the same, and the claim "this interval is complete" rests on
+    # exactly the rows that were left out of the hash proving it.
+    rejections = _digest_query(
+        conn,
+        "SELECT session, ticker, reason, close_unadjusted, volume"
+        " FROM sentinel_ingest_rejections WHERE session BETWEEN %s AND %s"
+        " ORDER BY session, ticker, reason", (start, end))
+    anomalies = _digest_query(
+        conn,
+        "SELECT session, ticker, kind, detail FROM sentinel_corpus_anomalies"
+        " WHERE session BETWEEN %s AND %s"
+        " ORDER BY session, ticker, kind", (start, end))
     with conn.cursor() as cur:
         cur.execute("SELECT MIN(session), MAX(session),"
                     " COUNT(DISTINCT session), COUNT(DISTINCT security_id)"
                     " FROM sentinel_bars WHERE session BETWEEN %s AND %s",
                     (start, end))
         lo, hi, sessions, securities = cur.fetchone()
+        cur.execute("SHOW server_version")
+        server_version = str(cur.fetchone()[0])
     out = {
         "window": {"start": start, "end": end},
+        "postgres_server_version": server_version,
+        "postgres_certified": server_version.split()[0].startswith(
+            CERTIFIED_POSTGRES_VERSION),
         "first_session": str(lo) if lo else None,
         "last_session": str(hi) if hi else None,
         "sessions": sessions,
@@ -231,10 +301,12 @@ def corpus(conn, *, start: str, end: str) -> dict:
         "normalised_bars": bars,
         "vendor_actions": actions,
         "vendor_universe": universe,
+        "refusals": rejections,
+        "anomalies": anomalies,
     }
     out["corpus_hash"] = _sha(json.dumps(
         {k: out[k] for k in ("normalised_bars", "vendor_actions",
-                             "vendor_universe")},
+                             "vendor_universe", "refusals", "anomalies")},
         sort_keys=True).encode())
     return out
 
@@ -250,6 +322,7 @@ def rehearsal_identity(conn=None, *, start: Optional[str] = None,
     return rec
 
 
-__all__ = ["CERTIFIED_BASE_DIGEST", "CERTIFIED_PYTHON", "corpus",
+__all__ = ["CERTIFIED_BASE_DIGEST", "CERTIFIED_POSTGRES_DIGEST",
+           "CERTIFIED_POSTGRES_VERSION", "CERTIFIED_PYTHON", "corpus",
            "environment", "installed_versions", "pin_drift",
            "pinned_requirements", "rehearsal_identity", "source_hash"]

@@ -25,17 +25,18 @@ refuses when any lands in the third.
 IMMATERIAL   it could NOT have entered the universe even at its best observed
              values. Decided against the SAME EligibilityConfig the engine
              applies, using UPPER BOUNDS over what was actually seen — max
-             price, max dollar volume, total priced sessions. "Even at its
-             best it fails" is a real proof; "on average it looks small" is not
+             price, max dollar volume. "Even at its best it fails" is a real
+             proof; "on average it looks small" is not
 MATERIAL     it intersects something the run depended on — a holding, a pending
              terminal episode, or a corporate action in the interval
 UNDETERMINED anything else. It cleared the floors it could be tested against,
              or it could not be tested at all
 ```
 
-`certifiable` is true only when nothing is MATERIAL and nothing is
-UNDETERMINED. That is the fail-closed rule: an unanswerable question blocks the
-claim rather than being rounded down to "probably fine".
+`certifiable` is true only when nothing is MATERIAL, nothing is UNDETERMINED,
+and no rejection evidence was truncated. That is the fail-closed rule: an
+unanswerable question blocks the claim rather than being rounded down to
+"probably fine".
 
 ## Why upper bounds, and why they are honest
 
@@ -45,12 +46,43 @@ security would have done inside the engine — the momentum series, the
 volatility, the issuer group. So it never claims a rejection WOULD have been
 admitted. It only ever proves the negative: a security whose best observed
 as-traded price never reached the minimum, or whose best observed dollar volume
-never reached the signal floor, or which was priced on fewer sessions than the
-history requirement, could not have been admitted on any session in this
-interval regardless of what else is unknown about it.
+never reached the signal floor, could not have been admitted on any session it
+was refused on, regardless of what else is unknown about it.
 
 Everything else is UNDETERMINED, and that is the intended outcome. The set of
 things this can prove is deliberately small.
+
+## The history proof that was WRONG, and is gone
+
+An earlier version also cleared a ticker whose REJECTED session count fell below
+`min_history_sessions`, reasoning that 126 sessions of history are required
+before a security can be ranked. Those are not the same 126.
+
+```text
+AAA has 300 valid prior sessions in the corpus
+AAA has ONE refused row on 2022-06-15
+   rejected sessions = 1
+   1 < 126  ->  "could not have been ranked"        <- INVALID
+```
+
+The security already had its history; the rejection table counts only what was
+DROPPED. Worse for a held name, where admission eligibility is beside the point
+entirely — one missing bar can move a mark, a stop peak, a terminal grace or a
+fill, none of which the 126-session floor governs.
+
+A history argument is only available to something that knows the security's
+COMPLETE history through that date. The rejection table knows the opposite of
+that by construction, so the proof is not repaired here — it is removed.
+
+## The intersection checks are only as good as their inputs
+
+`held_tickers` and `pending_terminal_tickers` default to `None`, meaning
+UNAVAILABLE, and every ticker then comes back UNDETERMINED. They do NOT default
+to empty. An empty set is the claim "nothing was held", and a caller that
+simply did not supply the information would otherwise have made that claim
+silently — which is how the strongest materiality check in this module became
+a no-op on the one path that matters. Pass `()` to assert a genuinely empty
+book; that assertion is then recorded in the report.
 
 ## What it does NOT do
 
@@ -108,6 +140,15 @@ class RejectionAudit:
     rejected_rows: int
     distinct_tickers: int
     per_ticker: list[TickerVerdict]
+    #: Rejection evidence the ingest counted but never wrote. Any of it
+    #: overlapping this interval makes the audit's central claim — that it
+    #: examined every refused row — demonstrably false.
+    truncated_evidence: list[dict] = field(default_factory=list)
+    #: Corpus anomalies the ingest resolved but did not resolve AWAY.
+    gating_anomalies: list[dict] = field(default_factory=list)
+    #: Whether the caller could tell us what the run held. False means the two
+    #: strongest materiality checks were unavailable, not that they passed.
+    holdings_known: bool = False
 
     @property
     def material(self) -> list[TickerVerdict]:
@@ -121,7 +162,7 @@ class RejectionAudit:
     def verdict(self) -> str:
         if self.material:
             return MATERIAL
-        if self.undetermined:
+        if self.undetermined or self.truncated_evidence or self.gating_anomalies:
             return UNDETERMINED
         return CLEAR
 
@@ -135,10 +176,13 @@ class RejectionAudit:
         return {"window": {"start": self.window[0], "end": self.window[1]},
                 "rejected_rows": self.rejected_rows,
                 "distinct_tickers": self.distinct_tickers,
+                "holdings_known": self.holdings_known,
                 "immaterial": sum(1 for t in self.per_ticker
                                   if t.verdict == "IMMATERIAL"),
                 "material": [t.to_dict() for t in self.material],
                 "undetermined": [t.to_dict() for t in self.undetermined],
+                "truncated_evidence": self.truncated_evidence,
+                "gating_anomalies": self.gating_anomalies,
                 "verdict": self.verdict,
                 "certifiable": self.certifiable}
 
@@ -163,14 +207,61 @@ def _actioned_tickers(conn, start: str, end: str) -> set[str]:
         return {str(r[0]).upper() for r in cur.fetchall() if r[0]}
 
 
+def _truncations(conn, start: str, end: str) -> list[dict]:
+    """Windows where rejection evidence was counted and not written.
+
+    Overlap, not containment: a truncated 2021 chunk makes a certified interval
+    inside 2021 unanswerable just as surely as one that spans it.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT run_id, chunk, window_start, window_end, retained,"
+            " truncated FROM sentinel_rejection_truncation"
+            " WHERE window_start <= %s AND window_end >= %s"
+            " ORDER BY window_start", (end, start))
+        return [{"run_id": str(r[0]), "chunk": str(r[1]),
+                 "window_start": str(r[2]), "window_end": str(r[3]),
+                 "retained": int(r[4]), "truncated": int(r[5])}
+                for r in cur.fetchall()]
+
+
+#: Anomalies that BLOCK certification of an interval they fall in. A split the
+#: two sources disagree about is one of them being wrong about a share count; a
+#: distribution whose amount the vendor never stated is stored as 0.0 and is
+#: indistinguishable, in the corpus, from no distribution at all. Neither is
+#: repaired by the ingest, so neither can be certified past in silence.
+#: `SPLIT_ONLY_DERIVED` is deliberately absent — the fallback is designed
+#: behaviour and gating on it would refuse every year ACTIONS covers thinly.
+GATING_ANOMALY_KINDS = ("SPLIT_DISAGREEMENT", "UNUSABLE_DIVIDEND")
+
+
+def _anomalies(conn, start: str, end: str) -> list[dict]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT kind, ticker, session, detail FROM sentinel_corpus_anomalies"
+            " WHERE session BETWEEN %s AND %s AND kind = ANY(%s)"
+            " ORDER BY session, ticker, kind",
+            (start, end, list(GATING_ANOMALY_KINDS)))
+        return [{"kind": str(r[0]), "ticker": str(r[1]), "session": str(r[2]),
+                 "detail": None if r[3] is None else str(r[3])}
+                for r in cur.fetchall()]
+
+
 def audit(conn, *, start: str, end: str,
-          held_tickers: Iterable[str] = (),
-          pending_terminal_tickers: Iterable[str] = (),
+          held_tickers: Optional[Iterable[str]] = None,
+          pending_terminal_tickers: Optional[Iterable[str]] = None,
           eligibility: EligibilityConfig | None = None) -> RejectionAudit:
-    """Classify every refused ticker in [start, end]."""
+    """Classify every refused ticker in [start, end].
+
+    `held_tickers` / `pending_terminal_tickers` are `None` by DEFAULT, meaning
+    the caller could not tell us — not that the book was empty. Pass `()` to
+    assert an empty book explicitly.
+    """
     cfg = eligibility or EligibilityConfig()
-    held = {str(t).upper() for t in held_tickers}
-    pending = {str(t).upper() for t in pending_terminal_tickers}
+    holdings_known = (held_tickers is not None
+                      and pending_terminal_tickers is not None)
+    held = {str(t).upper() for t in (held_tickers or ())}
+    pending = {str(t).upper() for t in (pending_terminal_tickers or ())}
     actioned = _actioned_tickers(conn, start, end)
 
     per: list[TickerVerdict] = []
@@ -193,8 +284,18 @@ def audit(conn, *, start: str, end: str,
             # definition — whatever its price says about admission, and the
             # admission floors do not govern a position already open.
             verdict, why = MATERIAL, "intersects " + ", ".join(intersects)
+        elif not holdings_known:
+            # THE FAIL-CLOSED BRANCH. Without the book, the two checks that
+            # could have made this ticker MATERIAL never ran, so no
+            # immateriality proof about ADMISSION is worth anything: a held
+            # name is not governed by the admission floors at all.
+            verdict, why = (UNDETERMINED,
+                            "holding intersection unavailable — the caller did "
+                            "not supply the securities held or pending "
+                            "terminal settlement over this interval, so the "
+                            "two strongest materiality checks did not run")
         else:
-            verdict, why = _immateriality(cfg, sessions, max_close, max_dv)
+            verdict, why = _immateriality(cfg, max_close, max_dv)
 
         per.append(TickerVerdict(
             ticker=t, rows=int(rows), sessions=int(sessions),
@@ -206,25 +307,27 @@ def audit(conn, *, start: str, end: str,
             verdict=verdict, why=why, intersects=intersects))
 
     return RejectionAudit(window=(start, end), rejected_rows=total_rows,
-                          distinct_tickers=len(per), per_ticker=per)
+                          distinct_tickers=len(per), per_ticker=per,
+                          truncated_evidence=_truncations(conn, start, end),
+                          gating_anomalies=_anomalies(conn, start, end),
+                          holdings_known=holdings_known)
 
 
-def _immateriality(cfg: EligibilityConfig, sessions: int,
-                   max_close, max_dv) -> tuple[str, str]:
+def _immateriality(cfg: EligibilityConfig, max_close, max_dv) -> tuple[str, str]:
     """Prove the NEGATIVE or say UNDETERMINED. Never prove the positive.
 
-    Each test is an UPPER BOUND over what was actually observed, so a pass here
-    means the security could not have been admitted on any session in the
-    interval no matter what else is unknown about it. Nothing in this function
-    can conclude that a rejection WOULD have been admitted — that would need
-    the momentum series, the volatility and the issuer group, none of which
-    survive a dropped row.
+    Each test is an UPPER BOUND over the values actually observed on the
+    REFUSED sessions, so a pass means the security could not have been admitted
+    on any session it was refused on, no matter what else is unknown about it.
+    Nothing here can conclude that a rejection WOULD have been admitted — that
+    would need the momentum series, the volatility and the issuer group, none
+    of which survive a dropped row.
+
+    There is deliberately NO history-length test. See the module docstring: the
+    rejection table counts DROPPED sessions, and comparing that to a 126-session
+    history requirement cleared securities that had a full history and one
+    missing bar.
     """
-    if sessions < cfg.min_history_sessions:
-        return ("IMMATERIAL",
-                f"priced on {sessions} session(s) in the window, below the "
-                f"{cfg.min_history_sessions} of history admission requires, so "
-                f"it could not have been ranked on any of them")
     if max_close is not None and float(max_close) < cfg.min_unadjusted_price:
         return ("IMMATERIAL",
                 f"best observed as-traded close {float(max_close):.4g} never "
@@ -243,5 +346,6 @@ def _immateriality(cfg: EligibilityConfig, sessions: int,
             "drop destroyed")
 
 
-__all__ = ["CLEAR", "MATERIAL", "NO_IDENTITY", "NO_RAW_CLOSE", "RejectionAudit",
-           "TickerVerdict", "UNDETERMINED", "audit"]
+__all__ = ["CLEAR", "GATING_ANOMALY_KINDS", "MATERIAL", "NO_IDENTITY",
+           "NO_RAW_CLOSE", "RejectionAudit", "TickerVerdict", "UNDETERMINED",
+           "audit"]

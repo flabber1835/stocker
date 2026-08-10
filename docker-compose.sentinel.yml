@@ -25,7 +25,13 @@ services:
   # that cannot start unless a retired platform's database is up is not a
   # retirement.
   sentinel-postgres:
-    image: postgres:16
+    # PINNED BY DIGEST, like the Python base. Leaving the database on a mutable
+    # tag while pinning tzdata to the day is inconsistent in the direction that
+    # matters: the corpus digests in the identity record are produced by reading
+    # rows back OUT of this server, and a minor upgrade can change collation and
+    # float text output. This digest is postgres 16.14; `identity --start/--end`
+    # records `SHOW server_version` and flags a mismatch.
+    image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
     restart: unless-stopped
     environment:
       POSTGRES_USER: sentinel

@@ -12,36 +12,78 @@
 # with a different pandas says nothing about the image that will produce the
 # evidence — which is exactly the gap `identity --require-certified` exists to
 # close, and running the tests anywhere else re-opens it.
+#
+# ── AND THE MISTAKE THAT MADE THE FIRST VERSION USELESS ──────────────────────
+#
+# It copied `sentinel/` and `shared/` into /work and put /work first on
+# PYTHONPATH. Pytest then imported the fresh CHECKOUT, not the runtime code:
+#
+#     sentinel:latest holds stale or wrong /app/sentinel
+#       + the test layer copies correct source into /work
+#       -> every test green, artefact never executed
+#
+# The suite proved the checkout. It also hid a real defect — `identity` computed
+# Wealth Core's path as `sentinel/../shared/...`, which exists under /work and
+# does NOT exist in the runtime image, so the source hash was null there and
+# nothing noticed.
+#
+# So the runtime code is NOT copied. Only tests, their fixtures, and a
+# READ-ONLY copy of the repository for the tests that INSPECT it (the Dockerfile
+# and the compose file are inputs to assertions about the image, not code to
+# import). That copy lives at /work/repo, which is never on sys.path, and
+# `SENTINEL_REPO_ROOT` points the inspecting tests at it.
 ARG SENTINEL_IMAGE=sentinel:latest
 FROM ${SENTINEL_IMAGE}
 
 # Postgres BINARIES, not a server: `tests/integration/conftest` spins up a
-# throwaway cluster with initdb/pg_ctl per module. Sentinel's own compose file
-# runs postgres:16 as a separate container; that one holds the corpus and must
-# never be what a test writes into.
+# throwaway cluster with initdb/pg_ctl per module. Without them every
+# database-backed test SKIPS, and a suite that skipped is not a suite that
+# passed — `scripts/sentinel-certify.sh` treats any skip in this image as a
+# failure for exactly that reason.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends postgresql postgresql-client \
  && rm -rf /var/lib/apt/lists/*
 
-# PINNED like everything else. A test runner that floats can change a verdict
-# between two runs of the same suite, which is the failure mode this whole
-# batch exists to remove.
-RUN pip install --no-cache-dir "pytest==8.4.2"
+# PINNED like everything else — a test runner that floats can change a verdict
+# between two runs of the same suite, which is the failure mode this whole batch
+# exists to remove. SQLAlchemy is here rather than in the
+# runtime image on purpose: the canonical Wealth Core data path imports it at
+# module scope, and it is a retired-Stocker-stack dependency. `tools/
+# corpus_parity.py` needs it to read bt-postgres; `sentinel:latest` must not
+# carry the retired platform's ORM into an image that liquidates an account.
+RUN pip install --no-cache-dir "pytest==8.4.2" "SQLAlchemy==2.0.44"
 
 WORKDIR /work
 COPY tests/ /work/tests/
-COPY sentinel/ /work/sentinel/
-COPY shared/ /work/shared/
 # The parity suite compares Sentinel's loader against the CANONICAL Wealth Core
-# data path, which still lives in the backtester. It is imported, never run —
-# and if it is absent the parity tests SKIP rather than silently pass, which is
-# why it is copied in explicitly rather than left to chance.
+# data path, which still lives in the backtester. Imported, never run — and if
+# it is absent those tests SKIP rather than silently passing, which is why it is
+# copied explicitly rather than left to chance. It shadows nothing: there is no
+# `services` package in the runtime image.
 COPY services/backtester/ /work/services/backtester/
-COPY Dockerfile.sentinel /work/Dockerfile.sentinel
-COPY docker-compose.sentinel.yml /work/docker-compose.sentinel.yml
+COPY tools/ /work/tools/
 
-ENV PYTHONPATH=/work:/work/shared \
+# INSPECTION ONLY. Never on sys.path — these are the inputs to assertions about
+# the image, and importing them is precisely what this file exists to prevent.
+COPY sentinel/ /work/repo/sentinel/
+COPY shared/ /work/repo/shared/
+COPY Dockerfile.sentinel /work/repo/Dockerfile.sentinel
+COPY docker-compose.sentinel.yml /work/repo/docker-compose.sentinel.yml
+
+# /work carries `tests` and `services`. `sentinel` resolves from /app and
+# `stock_strategy_shared` from site-packages — the artefact, in both cases.
+ENV PYTHONPATH=/work:/app \
+    SENTINEL_REPO_ROOT=/work/repo \
+    SENTINEL_IN_IMAGE=1 \
     SENTINEL_STATE_DIR=/tmp/sentinel-test-state
+
+# BEFORE any test runs. If the imports resolve to the wrong place the suite is
+# measuring the wrong thing, and a failure here is far cheaper than a green run
+# that certified a checkout.
+RUN python -c "import sentinel, stock_strategy_shared.wealth_core as wc, sys; \
+    assert sentinel.__file__.startswith('/app/'), sentinel.__file__; \
+    assert '/work' not in wc.__file__, wc.__file__; \
+    print('runtime imports OK:', sentinel.__file__, wc.__file__)"
 
 # Overrides the runtime ENTRYPOINT, whose purpose is to refuse to be started
 # casually. A test image needs a plain interpreter.

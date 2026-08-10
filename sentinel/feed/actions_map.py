@@ -112,14 +112,28 @@ def dividends_from_actions(rows: Iterable[Mapping],
 
 def unusable_dividend_rows(rows: Iterable[Mapping]) -> int:
     """Dividend rows with no usable amount. Counted so the drop is visible."""
-    n = 0
+    return len(unusable_dividend_rows_detail(rows))
+
+
+def unusable_dividend_rows_detail(rows: Iterable[Mapping]) -> list[dict]:
+    """The same rows, NAMED, so they can be persisted as corpus anomalies.
+
+    A count tells a certification that something was dropped; it cannot tell it
+    WHICH security, on which session, and therefore whether it mattered. The
+    distinction being preserved is between "no distribution" and "a
+    distribution whose amount the vendor never stated" — the corpus stores 0.0
+    for both, and only this record separates them.
+    """
+    out = []
     for r in rows:
         if (r.get("action") or "").lower() not in DIVIDEND_ACTIONS:
             continue
         v = r.get("value")
         if v is None or float(v) <= 0:
-            n += 1
-    return n
+            out.append({"ticker": str(r.get("ticker")),
+                        "date": str(r.get("date")),
+                        "action": str(r.get("action")), "value": v})
+    return out
 
 
 def split_disagreements(report, authoritative: Mapping[tuple[str, str], float],
@@ -164,4 +178,5 @@ def splits_only_derived(report, authoritative: Mapping[tuple[str, str], float]
 
 __all__ = ["SPLIT_AGREEMENT_TOLERANCE", "dividends_from_actions",
            "snap_to_session", "split_disagreements", "split_ratios_from_actions",
-           "splits_only_derived", "unusable_dividend_rows"]
+           "splits_only_derived", "unusable_dividend_rows",
+           "unusable_dividend_rows_detail"]

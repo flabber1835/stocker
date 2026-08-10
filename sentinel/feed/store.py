@@ -216,6 +216,52 @@ def write_rejections(conn, rejections) -> int:
     return len(rows)
 
 
+def write_rejection_truncation(conn, *, run_id, chunk: str, window_start: str,
+                               window_end: str, retained: int,
+                               truncated: int) -> None:
+    """Record that rejection evidence was DROPPED, and how much of it.
+
+    Written even when `truncated` is 0 would be noise, so this is called only
+    when evidence was actually lost. That makes a row here mean exactly one
+    thing: this window's refusal evidence is incomplete, so no claim resting on
+    having examined every refused row is available for it.
+    """
+    if not truncated:
+        return
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_rejection_truncation"
+            " (run_id, chunk, window_start, window_end, retained, truncated)"
+            " VALUES (%s,%s,%s,%s,%s,%s)"
+            " ON CONFLICT (run_id, chunk) DO UPDATE SET"
+            " retained = EXCLUDED.retained, truncated = EXCLUDED.truncated",
+            (str(run_id), str(chunk), window_start, window_end,
+             int(retained), int(truncated)))
+    conn.commit()
+
+
+def write_anomalies(conn, anomalies) -> int:
+    """Persist corpus anomalies the ingest resolved but did not resolve AWAY.
+
+    A warning logged during a six-hour seed is not something a certification
+    can consult afterwards, and these are precisely the facts a certification
+    has to weigh: a split the two sources disagree about, and a distribution
+    whose amount the vendor never stated.
+    """
+    rows = [(a["kind"], a["ticker"], a["session"], a.get("detail"))
+            for a in anomalies]
+    if not rows:
+        return 0
+    with conn.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO sentinel_corpus_anomalies (kind, ticker, session,"
+            " detail) VALUES (%s,%s,%s,%s)"
+            " ON CONFLICT (kind, ticker, session) DO UPDATE SET"
+            " detail = EXCLUDED.detail", rows)
+    conn.commit()
+    return len(rows)
+
+
 def rejected_tickers(conn, start: str, end: str, reason: str = "NO_IDENTITY") -> set:
     """Raw vendor tickers the ingest refused in [start, end]."""
     with conn.cursor() as cur:

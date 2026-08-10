@@ -47,3 +47,15 @@ httpx==0.28.1
 # ── the read-only panel ──────────────────────────────────────────────────────
 fastapi==0.141.1
 uvicorn==0.52.1
+
+# ── what `shared/` needs ─────────────────────────────────────────────────────
+# `shared/pyproject.toml` declares `pydantic>=2.0` and `pyyaml>=6.0`, and the
+# image installs `/shared/` — so before these lines the two most load-bearing
+# libraries in the Wealth Core config path could float freely and would not
+# appear in `pin_drift()` at all, because that only looks at THIS file.
+#
+# The Dockerfile installs these first and then `pip install --no-deps /shared/`,
+# so the package contributes its CODE and not its resolver. Pinning the closure
+# in one place is the only way the record can claim to name the environment.
+pydantic==2.13.4
+pyyaml==6.0.1

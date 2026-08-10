@@ -28,6 +28,7 @@ import asyncio
 import json
 import logging
 import sys
+from pathlib import Path
 
 from sentinel.config import (
     LiveEndpointRefused,
@@ -253,26 +254,58 @@ def cmd_rejection_audit(config: SentinelConfig, args) -> int:
     if not config.database_url:
         print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
         return EXIT_CONFIG
+    # HOLDINGS ARE None UNTIL SOMETHING SUPPLIES THEM. Not (), which would be
+    # the assertion "nothing was held" — made by a caller that simply said
+    # nothing, which is how the two strongest materiality checks became a
+    # silent no-op on the certification path.
+    held = pending = None
+    if args.book:
+        try:
+            book = json.loads(Path(args.book).read_text())
+            held = [str(t).upper() for t in book.get("held", [])]
+            pending = [str(t).upper() for t in book.get("pending_terminal", [])]
+        except Exception as exc:                            # noqa: BLE001
+            print(f"REFUSED: --book could not be read: {exc}", file=sys.stderr)
+            return EXIT_CONFIG
+    elif args.assert_no_holdings:
+        held, pending = [], []
+    else:
+        if args.held is not None:
+            held = [t.strip().upper() for t in args.held.split(",") if t.strip()]
+        if args.pending_terminal is not None:
+            pending = [t.strip().upper()
+                       for t in args.pending_terminal.split(",") if t.strip()]
+
     conn = feed_store.connect(config.database_url)
     try:
         feed_store.ensure_schema(conn)
         result = rejection_audit.audit(
             conn, start=args.start, end=args.end,
-            held_tickers=[t.strip().upper()
-                          for t in (args.held or "").split(",") if t.strip()],
-            pending_terminal_tickers=[
-                t.strip().upper()
-                for t in (args.pending_terminal or "").split(",") if t.strip()])
+            held_tickers=held, pending_terminal_tickers=pending)
     finally:
         conn.close()
 
     print(json.dumps(result.to_dict(), indent=2, default=str))
     if result.certifiable:
         return EXIT_OK
-    print(f"REFUSED: {result.verdict} — {len(result.material)} material and "
-          f"{len(result.undetermined)} undetermined rejection(s) in "
-          f"{args.start}..{args.end}. This interval is not certifiable until "
-          f"each is explained.", file=sys.stderr)
+    reasons = []
+    if result.material:
+        reasons.append(f"{len(result.material)} material")
+    if result.undetermined:
+        reasons.append(f"{len(result.undetermined)} undetermined")
+    if result.truncated_evidence:
+        reasons.append(f"{len(result.truncated_evidence)} window(s) whose "
+                       f"rejection evidence was TRUNCATED — the audit did not "
+                       f"see every refused row")
+    if result.gating_anomalies:
+        reasons.append(f"{len(result.gating_anomalies)} unexplained corpus "
+                       f"anomal(ies)")
+    if not result.holdings_known:
+        reasons.append("the held/pending book was NOT supplied")
+    print(f"REFUSED: {result.verdict} in {args.start}..{args.end} — "
+          + "; ".join(reasons)
+          + ". This interval is not certifiable until each is explained.",
+          file=sys.stderr)
     return EXIT_NOT_ESTABLISHED
 
 
@@ -457,12 +490,22 @@ def main(argv: list[str] | None = None) -> int:
                              "interval's answer? exits non-zero unless CLEAR")
     ra.add_argument("--start", required=True)
     ra.add_argument("--end", required=True)
+    ra.add_argument("--book", default=None,
+                    help="JSON file with {\"held\": [...], "
+                         "\"pending_terminal\": [...]} — the replay's own "
+                         "state, which is where these should come from rather "
+                         "than a human retyping a ticker list")
     ra.add_argument("--held", default=None,
                     help="comma-separated tickers the run held, which make an "
                          "intersecting rejection MATERIAL outright")
     ra.add_argument("--pending-terminal", default=None,
                     help="comma-separated tickers with a pending terminal "
                          "episode during the interval")
+    ra.add_argument("--assert-no-holdings", action="store_true",
+                    help="assert the book was EMPTY over this interval (true "
+                         "before the first bootstrap). Explicit on purpose: "
+                         "supplying nothing means UNKNOWN, not empty, and "
+                         "every ticker then reads UNDETERMINED")
     idp = sub.add_parser("identity",
                          help="what this environment and corpus ARE — the "
                               "record a certified run is reproducible from")

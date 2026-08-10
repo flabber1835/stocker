@@ -121,7 +121,67 @@ def _action_maps(conn, start: str, end: str):
                 for t, d, a, v in cur.fetchall()]
     sessions = calendar.sessions_in_range(start, end)
     return (actions_map.split_ratios_from_actions(rows, sessions),
-            actions_map.dividends_from_actions(rows, sessions))
+            actions_map.dividends_from_actions(rows, sessions),
+            rows)
+
+
+def _sorted_sep(rows: Iterable[dict]) -> list[dict]:
+    """Vendor price rows in (date, ticker) order, materialised.
+
+    `normalise_sep_rows` now RAISES on an out-of-order stream rather than
+    silently recovering split ratios against the wrong bar, so the ordering has
+    to come from somewhere. It cannot come from the vendor: `fetch_table`
+    cursor-pages an HTTP API that requests no sort and promises none, so a
+    correct corpus rested on an undocumented property of someone else's
+    service.
+
+    The sort is done HERE, at the call site that can afford it — one chunk is a
+    year, not a corpus — rather than inside the generator, where buffering
+    would make a universe-scale year quietly resident in memory.
+    """
+    return sorted(rows, key=lambda r: (str(r.get("date")), str(r.get("ticker"))))
+
+
+def _persist_chunk_evidence(conn, run, chunk: str, lo: str, hi: str,
+                            report, splits, action_rows) -> None:
+    """Everything the chunk learned that is not a bar.
+
+    All of it durable, because a certification runs in a different process
+    hours later and cannot consult a log line that scrolled past during a
+    six-hour seed.
+    """
+    from sentinel.feed import actions_map
+
+    # 1. the refused rows themselves
+    feed_store.write_rejections(conn, report.rejections)
+
+    # 2. THAT SOME REFUSALS WERE NOT KEPT. The report retains at most
+    #    `max_rejections` rows and counts the rest, which is right — a broad
+    #    identity outage must not sit in memory. What was wrong is that the
+    #    count died with the process, so an audit could examine 50,000 of
+    #    175,000 refusals and report CLEAR.
+    feed_store.write_rejection_truncation(
+        conn, run_id=run.progress.run_id, chunk=chunk, window_start=lo, window_end=hi,
+        retained=len(report.rejections), truncated=report.rejections_truncated)
+
+    # 3. anomalies that were RESOLVED but not resolved away
+    anomalies = []
+    for d in _report_split_disagreements(report, splits):
+        anomalies.append({
+            "kind": "SPLIT_DISAGREEMENT", "ticker": d["ticker"],
+            "session": d["session"],
+            "detail": f"stated={d['stated']:.6g} derived={d['derived']:.6g}"})
+    for d in actions_map.splits_only_derived(report, splits):
+        anomalies.append({
+            "kind": "SPLIT_ONLY_DERIVED", "ticker": d["ticker"],
+            "session": d["session"], "detail": f"derived={d['derived']:.6g}"})
+    for row in actions_map.unusable_dividend_rows_detail(action_rows):
+        anomalies.append({
+            "kind": "UNUSABLE_DIVIDEND", "ticker": row["ticker"],
+            "session": row["date"],
+            "detail": f"action={row['action']} value={row['value']!r}"})
+    if anomalies:
+        feed_store.write_anomalies(conn, anomalies)
 
 
 def seed(conn, *, date_from: str = DEFAULT_SEED_START, date_to: Optional[str] = None,
@@ -169,17 +229,18 @@ def seed(conn, *, date_from: str = DEFAULT_SEED_START, date_to: Optional[str] = 
             # ratio came from price-domain inference. A genuine 3:2 is 1.5,
             # equidistant from the 1 and 2 the derived ratio snaps to, and S5
             # made that error matter by preserving fractional entitlement.
-            splits, divs = _action_maps(conn, lo, hi)
+            splits, divs, action_rows = _action_maps(conn, lo, hi)
             bars = domains.normalise_sep_rows(
-                fetch(sharadar.SEP, sharadar.date_params(lo, hi)),
+                _sorted_sep(fetch(sharadar.SEP, sharadar.date_params(lo, hi))),
                 resolve_identity=resolver,
                 authoritative_splits=splits, dividends=divs, report=report)
             written = feed_store.write_bars(conn, bars)
-            # PERSIST THE REFUSALS in the same breath as the bars. A rejection
-            # recorded only in memory dies with the process, and the terminal
-            # accounting that needs it runs in a different one.
-            feed_store.write_rejections(conn, report.rejections)
-            _report_split_disagreements(report, splits)
+            # PERSIST THE EVIDENCE in the same breath as the bars. A refusal,
+            # a truncation or an anomaly recorded only in memory dies with the
+            # process, and the certification that needs it runs in a different
+            # one, hours later.
+            _persist_chunk_evidence(conn, run, lo[:4], lo, hi, report, splits,
+                                    action_rows)
             run.progress.rows_written += written
             run.progress.rows_dropped += (report.dropped_no_raw_close
                                           + report.dropped_no_identity)
@@ -220,14 +281,14 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
 
     with run.chunk("prices"):
         report = domains.NormalisationReport()
-        splits, divs = _action_maps(conn, start, to)
+        splits, divs, action_rows = _action_maps(conn, start, to)
         bars = domains.normalise_sep_rows(
-            fetch(sharadar.SEP, sharadar.date_params(start, to)),
+            _sorted_sep(fetch(sharadar.SEP, sharadar.date_params(start, to))),
             resolve_identity=resolve_identity or universe.load_resolver(conn).resolve,
             authoritative_splits=splits, dividends=divs, report=report)
         run.progress.rows_written += feed_store.write_bars(conn, bars)
-        feed_store.write_rejections(conn, report.rejections)
-        _report_split_disagreements(report, splits)
+        _persist_chunk_evidence(conn, run, "prices", start, to, report, splits,
+                                action_rows)
         run.progress.rows_dropped += (report.dropped_no_raw_close
                                       + report.dropped_no_identity)
         # Checked on the DAILY path, where a vendor outage looks like a quiet

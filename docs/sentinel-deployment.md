@@ -478,14 +478,80 @@ UNDETERMINED  anything else — including a refusal recorded with no price
 
 The asymmetry is deliberate: the audit proves NEGATIVES only. A security whose
 best observed as-traded close never reached the floor could not have been
-admitted on any session, whatever else is unknown. It never claims a rejection
-WOULD have been admitted — the momentum series, the volatility and the issuer
-group died with the dropped row. **If the answer is unknown, the rehearsal fails
-closed**, and the command exits non-zero on anything short of CLEAR.
+admitted on any session it was refused on, whatever else is unknown. It never
+claims a rejection WOULD have been admitted — the momentum series, the
+volatility and the issuer group died with the dropped row. **If the answer is
+unknown, the rehearsal fails closed**, and the command exits non-zero on
+anything short of CLEAR.
 
 This is why `sentinel_ingest_rejections` stores the price and volume: without
 them every rejection is permanently UNDETERMINED, and a fail-closed rule with an
 undecidable input blocks the rehearsal instead of informing it.
+
+**There is deliberately NO history-length proof.** An earlier version cleared a
+ticker whose *rejected* session count fell below the 126 sessions admission
+requires. Those are not the same 126: the table counts what was DROPPED, so a
+security with 300 valid sessions and one refused row read as "could not have
+been ranked". A history argument needs the security's complete history through
+that date, which is the opposite of what a rejection table holds.
+
+**The book must be supplied, or the answer is UNKNOWN.** `--held` /
+`--pending-terminal` / `--book` default to *unavailable*, not to empty — an
+empty set is the claim "nothing was held", and a caller that said nothing would
+otherwise make that claim silently, which is how the two strongest materiality
+checks became a no-op on the certification path. Before the first bootstrap the
+book genuinely is empty; say so with `--assert-no-holdings`. **After the
+rehearsal, re-run the audit with the realised book** — the pre-seed assertion
+was true then and is not true of the interval the rehearsal traded.
+
+Three further things block an interval, all of them recorded during ingest
+because a warning that scrolled past during a six-hour seed is not something a
+certification can consult:
+
+```text
+truncated evidence   `sentinel_rejection_truncation`. The report retains at
+                     most `max_rejections` refusals per chunk and counts the
+                     rest — correct, and the count used to die with the process,
+                     so an audit could examine 50,000 of 175,000 refusals and
+                     report CLEAR
+split disagreement   ACTIONS and the price domains describing different events.
+                     ACTIONS winning RESOLVES the conflict; it does not explain
+                     which source is wrong about a share count
+unusable dividend    a distribution the vendor stated no amount for. The corpus
+                     holds 0.0 for that and for "no distribution"; only this
+                     record separates them
+```
+
+`SPLIT_ONLY_DERIVED` — a split the prices show and ACTIONS never recorded — is
+recorded and does NOT gate. That is the fallback working as designed, and gating
+on it would refuse every year ACTIONS covers thinly.
+
+### 10c. Synthetic parity is not corpus parity
+
+`tests/sentinel/test_loader_parity.py` proves the two loading MAPPINGS agree on
+rows both were handed. It found two real defects and it is not the claim that
+matters here. Run the real-window comparison as well:
+
+```bash
+BT_DATABASE_URL=... python -m tools.corpus_parity \
+  --start 2021-01-04 --end 2023-12-29
+```
+
+It compares the bars actually seeded against the ones the canonical Wealth Core
+path produces from the Sharadar corpus — real splits, ticker reuse, delistings
+mid-window, restatements that landed in one store and not the other. ACTIONS
+authority and `tradeable` both changed in this batch, so this is where that
+shows up. Read a divergence in order: **membership first** (a field mismatch on
+a bar that should not exist is noise), then `split_ratio`, then dividends, then
+prices.
+
+An unreadable canonical corpus exits non-zero. Not having run the check is not
+the same as passing it.
+
+It lives in `tools/`, not in the `sentinel` package, because the canonical
+module imports SQLAlchemy at module scope and that is a retired-stack
+dependency — `tests/sentinel/test_image_layout.py` refuses to let the runtime
+image acquire it.
 
 ## 11. `execution_model` activation is a versioned operational event
 

@@ -315,3 +315,66 @@ class TestItMatchesTheCarriedForwardMapping:
         s = ["2024-06-03", "2024-06-04", "2024-06-05"]
         assert (A.dividends_from_actions(rows, s)
                 == bt.dividends_from_actions(rows, s))
+
+
+# ── 6. the derived fallback does not rest on vendor goodwill ─────────────────
+
+class TestTheInputOrderIsENFORCED:
+    """`split_ratio_from_domains` compares a bar with the PREVIOUS observation
+    of the same security. Out of order it compares the wrong two bars and
+    invents or misses a split — a wrong share count with no symptom.
+
+    That correctness rested on an undocumented property of someone else's HTTP
+    service: `sharadar.fetch_table` cursor-pages the API, requests no sort, and
+    does not sort what comes back.
+    """
+
+    def test_an_OUT_OF_ORDER_stream_is_REFUSED(self):
+        from sentinel.feed import domains
+        rows = [{"date": "2024-06-04", "ticker": "AAA", "close": 100.0,
+                 "closeunadj": 100.0, "open": 99.0, "volume": 1e6},
+                {"date": "2024-06-03", "ticker": "AAA", "close": 100.0,
+                 "closeunadj": 200.0, "open": 99.0, "volume": 1e6}]
+        with pytest.raises(domains.SessionsOutOfOrder):
+            list(domains.normalise_sep_rows(rows))
+
+    def test_an_ORDERED_stream_is_accepted(self):
+        from sentinel.feed import domains
+        rows = [{"date": "2024-06-03", "ticker": "AAA", "close": 100.0,
+                 "closeunadj": 200.0, "open": 99.0, "volume": 1e6},
+                {"date": "2024-06-04", "ticker": "AAA", "close": 100.0,
+                 "closeunadj": 100.0, "open": 99.0, "volume": 1e6}]
+        assert len(list(domains.normalise_sep_rows(rows))) == 2
+
+    def test_TIES_on_one_session_are_fine(self):
+        """Ordering is by session; many securities share one."""
+        from sentinel.feed import domains
+        rows = [{"date": "2024-06-03", "ticker": t, "close": 100.0,
+                 "closeunadj": 100.0, "open": 99.0, "volume": 1e6}
+                for t in ("ZZZ", "AAA", "MMM")]
+        assert len(list(domains.normalise_sep_rows(rows))) == 3
+
+    def test_the_INGEST_sorts_before_normalising(self, conn):
+        """The guarantee has to come from somewhere. A vendor returning its
+        pages newest-first must still produce a correct corpus."""
+        day = sess()[15]
+        f = vendor(split_at=day, ratio=1.5, actions=[
+            {"ticker": "AAA", "date": day, "action": "split", "value": 1.5,
+             "contraticker": None}])
+
+        def reversed_fetch(table, params=None, **kw):
+            out = f(table, params, **kw)
+            return list(reversed(out)) if table == sharadar.SEP else out
+
+        ingest.seed(conn, date_from="2024-11-01", date_to=TODAY,
+                    fetch=reversed_fetch)
+        ratio, _ = bars(conn, day)
+        assert float(ratio) == pytest.approx(1.5)
+
+    def test_the_sort_is_STABLE_on_date_then_ticker(self):
+        from sentinel.feed import ingest as I
+        rows = [{"date": "2024-06-04", "ticker": "BBB"},
+                {"date": "2024-06-03", "ticker": "ZZZ"},
+                {"date": "2024-06-03", "ticker": "AAA"}]
+        assert [(r["date"], r["ticker"]) for r in I._sorted_sep(rows)] == [
+            ("2024-06-03", "AAA"), ("2024-06-03", "ZZZ"), ("2024-06-04", "BBB")]

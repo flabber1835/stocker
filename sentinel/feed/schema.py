@@ -84,6 +84,54 @@ DDL = [
     """CREATE INDEX IF NOT EXISTS idx_sentinel_rejections_session
         ON sentinel_ingest_rejections (session)""",
 
+    # EVIDENCE THAT EVIDENCE WAS LOST. `NormalisationReport` retains at most
+    # `max_rejections` rejection rows per chunk and then only counts the rest,
+    # which is correct — a broad identity outage must not put a million rows in
+    # memory. What was NOT correct is that the count died with the process, so
+    # certification reasoned over the retained subset and reported CLEAR while
+    # the majority of the evidence had never been written anywhere.
+    #
+    # A truncation overlapping a certified interval makes that interval
+    # UNCERTIFIABLE. Not a warning: the audit's whole claim is that it examined
+    # every refused row, and here it demonstrably did not.
+    """CREATE TABLE IF NOT EXISTS sentinel_rejection_truncation (
+        run_id       UUID NOT NULL,
+        chunk        TEXT NOT NULL,
+        window_start DATE NOT NULL,
+        window_end   DATE NOT NULL,
+        retained     BIGINT NOT NULL,
+        truncated    BIGINT NOT NULL,
+        recorded_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (run_id, chunk))""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_trunc_window
+        ON sentinel_rejection_truncation (window_start, window_end)""",
+
+    # CORPUS ANOMALIES the ingest resolved but did not RESOLVE AWAY.
+    #
+    #   SPLIT_DISAGREEMENT   ACTIONS and the price domains describe different
+    #                        events. ACTIONS wins, correctly — and one of the
+    #                        two sources is wrong about this security, which is
+    #                        a fact about the corpus, not a log line.
+    #   SPLIT_ONLY_DERIVED   the prices show a split ACTIONS never recorded.
+    #                        The fallback is working as designed, so this is
+    #                        recorded and does NOT gate.
+    #   UNUSABLE_DIVIDEND    a distribution with no stated amount. Nothing
+    #                        accrues, which understates rather than invents —
+    #                        but from a certification standpoint "unknown
+    #                        amount" must not silently become 0.0.
+    #
+    # Persisted because a warning that scrolled past during a six-hour seed is
+    # not something a certification can consult.
+    """CREATE TABLE IF NOT EXISTS sentinel_corpus_anomalies (
+        kind    TEXT NOT NULL,
+        ticker  TEXT NOT NULL,
+        session DATE NOT NULL,
+        detail  TEXT,
+        first_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (kind, ticker, session))""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_anomalies_session
+        ON sentinel_corpus_anomalies (session)""",
+
     """CREATE TABLE IF NOT EXISTS sentinel_actions (
         ticker       TEXT NOT NULL,
         session      DATE NOT NULL,

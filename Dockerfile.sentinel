@@ -31,8 +31,19 @@ ENV PYTHONUNBUFFERED=1 \
 RUN sed -i 's/MinProtocol = TLSv1.2/MinProtocol = TLSv1.2\nMaxProtocol = TLSv1.2/' \
     /etc/ssl/openssl.cnf
 
+# ORDER MATTERS, AND IT IS THE REVERSE OF THE OBVIOUS ONE. The pinned closure
+# is installed FIRST, then `shared/` with `--no-deps`, so the package
+# contributes its CODE and not its resolver. Installed the other way round,
+# `shared/pyproject.toml`'s `pydantic>=2.0` and `pyyaml>=6.0` would float
+# freely — and `pin_drift()` only reads `sentinel/requirements.txt`, so the two
+# most load-bearing libraries in the Wealth Core config path could move without
+# appearing anywhere in the identity record that claims to name the
+# environment. They are pinned in requirements.txt for exactly that reason.
+COPY sentinel/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
 COPY shared/ /shared/
-RUN pip install --no-cache-dir /shared/
+RUN pip install --no-cache-dir --no-deps /shared/
 
 # The Postgres driver. NOT a transitive dependency of `shared/`, which declares
 # only pydantic and pyyaml — every Stocker service installed its own driver, so
@@ -61,9 +72,8 @@ RUN pip install --no-cache-dir /shared/
 #
 # EXACT PINS, in a file rather than on this line — see sentinel/requirements.txt
 # for why the calendar stack in particular is a certification dependency and not
-# ordinary package hygiene.
-COPY sentinel/requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+# ordinary package hygiene. The install itself happens ABOVE, before `shared/`,
+# so that package cannot resolve its own dependency ranges.
 
 COPY sentinel/ /app/sentinel/
 

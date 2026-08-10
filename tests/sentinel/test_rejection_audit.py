@@ -54,7 +54,8 @@ def conn(pg):
     c = S.connect(pg.sync_dsn)
     with c.cursor() as cur:
         for t in ("sentinel_bars", "sentinel_actions", "sentinel_universe",
-                  "feed_ingest_runs", "sentinel_ingest_rejections"):
+                  "feed_ingest_runs", "sentinel_ingest_rejections",
+                  "sentinel_rejection_truncation", "sentinel_corpus_anomalies"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     c.commit()
     S.ensure_schema(c)
@@ -83,7 +84,14 @@ def action(conn, ticker, day="2024-06-03", kind="delisted"):
     conn.commit()
 
 
+#: The empty book, asserted rather than assumed. Supplying nothing means
+#: UNKNOWN and every ticker comes back UNDETERMINED — see
+#: `TestTheHoldingIntersectionMustBeSUPPLIED`.
+EMPTY_BOOK = {"held_tickers": (), "pending_terminal_tickers": ()}
+
+
 def one(conn, **kw):
+    kw = {**EMPTY_BOOK, **kw}
     a = RA.audit(conn, start=START, end=END, **kw)
     assert a.distinct_tickers == 1
     return a.per_ticker[0]
@@ -92,15 +100,6 @@ def one(conn, **kw):
 # ── 1. the three verdicts ────────────────────────────────────────────────────
 
 class TestTheNegativeIsPROVEN:
-
-    def test_too_few_sessions_to_ever_rank_is_IMMATERIAL(self, conn):
-        """126 sessions of history are required before a security can be
-        ranked. Priced on fewer than that in the whole interval, it could not
-        have been admitted on any session in it."""
-        reject(conn, "TINY", 20)
-        v = one(conn)
-        assert v.verdict == "IMMATERIAL"
-        assert "126" in v.why
 
     def test_a_price_below_the_floor_is_IMMATERIAL(self, conn):
         reject(conn, "PENNY", 200, close=0.4)
@@ -121,6 +120,51 @@ class TestTheNegativeIsPROVEN:
         S.write_rejections(conn, [{"ticker": "SPIKE", "session": "2024-11-01",
                                    "reason": RA.NO_IDENTITY, "close": 80.0,
                                    "volume": 1e6}])
+        assert one(conn).verdict == RA.UNDETERMINED
+
+
+class TestTheHistoryPROOFIsGoneBecauseItWasWRONG:
+    """The rejection table counts DROPPED sessions. An earlier version compared
+    that count to `min_history_sessions` and concluded a security "could not
+    have been ranked" — clearing exactly the case that matters most: a fully
+    established name with ONE missing bar."""
+
+    def test_a_LONG_LIVED_security_with_ONE_rejection_is_not_dismissed(self, conn):
+        """THE FALSIFIER. AAA has 200 accepted historical sessions and one
+        refused row inside the interval. `rows_rejected == 1` must not clear
+        it: the 126 sessions it lacks in the rejection table are not the 126
+        sessions admission requires, and it already had those."""
+        import datetime as dt
+        with conn.cursor() as cur:
+            d = dt.date(2023, 1, 3)
+            for i in range(200):
+                cur.execute(
+                    "INSERT INTO sentinel_bars (security_id, session, ticker,"
+                    " close_signal, close_unadjusted, open_unadjusted, volume)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    ("P:AAA", (d + dt.timedelta(days=i)).isoformat(), "AAA",
+                     50.0, 50.0, 49.0, 1e6))
+        conn.commit()
+        S.write_rejections(conn, [{"ticker": "AAA", "session": "2024-06-15",
+                                   "reason": RA.NO_IDENTITY, "close": 50.0,
+                                   "volume": 1e6}])
+        v = one(conn)
+        assert v.rows == 1
+        assert v.verdict != "IMMATERIAL", (
+            "a security with a full price history was cleared because only ONE "
+            "of its bars was dropped — the rejection count was read as its "
+            "history length")
+
+    def test_NO_verdict_reason_CLEARS_on_a_history_requirement(self, conn):
+        reject(conn, "TINY", 3)
+        why = one(conn).why.lower()
+        assert "history admission requires" not in why
+        assert "could not have been ranked" not in why
+
+    def test_a_HANDFUL_of_rejections_with_a_good_price_is_UNDETERMINED(self, conn):
+        """The shape the old rule got backwards: few rejected sessions used to
+        be the strongest clearance and is in fact no evidence at all."""
+        reject(conn, "AAA", 2, close=50.0, volume=1e6)
         assert one(conn).verdict == RA.UNDETERMINED
 
 
@@ -145,9 +189,43 @@ class TestWhatCannotBeDisprovedIsUNDETERMINED:
         """The asymmetry, asserted directly: there is no verdict that claims a
         rejection would have entered the book."""
         reject(conn, "REAL", 200)
-        assert {v.verdict for v in RA.audit(conn, start=START, end=END
-                                            ).per_ticker} <= {
+        assert {v.verdict for v in RA.audit(conn, start=START, end=END,
+                                            **EMPTY_BOOK).per_ticker} <= {
             "IMMATERIAL", RA.MATERIAL, RA.UNDETERMINED}
+
+
+class TestTheHoldingIntersectionMustBeSUPPLIED:
+    """The two strongest materiality checks were a silent no-op on the only
+    path that mattered: the certification harness called the audit without
+    `--held` or `--pending-terminal`, so both sets were empty and both checks
+    passed vacuously. Absent is now UNKNOWN, and unknown fails closed."""
+
+    def test_omitting_the_book_makes_EVERY_ticker_UNDETERMINED(self, conn):
+        reject(conn, "PENNY", 200, close=0.01, volume=1.0)
+        a = RA.audit(conn, start=START, end=END)
+        assert a.holdings_known is False
+        assert a.per_ticker[0].verdict == RA.UNDETERMINED
+        assert "holding intersection unavailable" in a.per_ticker[0].why
+
+    def test_even_a_PROVABLY_immaterial_ticker_is_undetermined(self, conn):
+        """Because the admission floors do not govern a HELD position at all.
+        Without the book, the immateriality proof answers a question that may
+        not be the one being asked."""
+        reject(conn, "PENNY", 200, close=0.01, volume=1.0)
+        assert RA.audit(conn, start=START, end=END).verdict == RA.UNDETERMINED
+
+    def test_an_EXPLICIT_empty_book_is_a_different_statement(self, conn):
+        reject(conn, "PENNY", 200, close=0.01, volume=1.0)
+        a = RA.audit(conn, start=START, end=END, **EMPTY_BOOK)
+        assert a.holdings_known is True
+        assert a.verdict == RA.CLEAR
+
+    def test_HALF_a_book_is_still_unknown(self, conn):
+        """Supplying holdings but not pending terminal episodes leaves one of
+        the two checks vacuous, which is the same defect in miniature."""
+        reject(conn, "PENNY", 200, close=0.01, volume=1.0)
+        a = RA.audit(conn, start=START, end=END, held_tickers=["ZZZ"])
+        assert a.holdings_known is False and a.verdict == RA.UNDETERMINED
 
 
 class TestIntersectionIsMATERIAL:
@@ -179,7 +257,7 @@ class TestIntersectionIsMATERIAL:
         assert v.verdict == RA.MATERIAL
 
     def test_an_action_OUTSIDE_the_window_does_not_implicate_it(self, conn):
-        reject(conn, "LATER", 5)
+        reject(conn, "LATER", 5, close=0.4)
         action(conn, "LATER", day="2025-06-03")
         assert one(conn).verdict == "IMMATERIAL"
 
@@ -189,41 +267,156 @@ class TestIntersectionIsMATERIAL:
 class TestTheIntervalVerdict:
 
     def test_no_rejections_at_all_is_CLEAR(self, conn):
-        a = RA.audit(conn, start=START, end=END)
+        a = RA.audit(conn, start=START, end=END, **EMPTY_BOOK)
         assert a.verdict == RA.CLEAR and a.certifiable
         assert a.rejected_rows == 0
 
     def test_only_IMMATERIAL_rejections_are_still_CLEAR(self, conn):
-        reject(conn, "TINY", 10)
+        reject(conn, "TINY", 10, close=0.4)
         reject(conn, "PENNY", 200, close=0.4, start_day=1)
-        a = RA.audit(conn, start=START, end=END)
+        a = RA.audit(conn, start=START, end=END, **EMPTY_BOOK)
         assert a.verdict == RA.CLEAR and a.certifiable
 
     def test_ONE_undetermined_rejection_blocks_the_interval(self, conn):
-        reject(conn, "TINY", 10)
+        reject(conn, "TINY", 10, close=0.4)
         reject(conn, "REAL", 200, start_day=1)
-        a = RA.audit(conn, start=START, end=END)
+        a = RA.audit(conn, start=START, end=END, **EMPTY_BOOK)
         assert a.verdict == RA.UNDETERMINED
         assert a.certifiable is False
 
     def test_MATERIAL_outranks_UNDETERMINED_in_the_verdict(self, conn):
         reject(conn, "REAL", 200)
         reject(conn, "OWNED", 5, start_day=1)
-        a = RA.audit(conn, start=START, end=END, held_tickers=["OWNED"])
+        a = RA.audit(conn, start=START, end=END, held_tickers=["OWNED"],
+                     pending_terminal_tickers=())
         assert a.verdict == RA.MATERIAL
 
     def test_the_report_NAMES_them(self, conn):
         """A count is not actionable. The operator has to decide in front of a
         list of tickers."""
         reject(conn, "REAL", 200)
-        d = RA.audit(conn, start=START, end=END).to_dict()
+        d = RA.audit(conn, start=START, end=END, **EMPTY_BOOK).to_dict()
         assert [x["ticker"] for x in d["undetermined"]] == ["REAL"]
         assert d["certifiable"] is False
 
     def test_the_window_is_RESPECTED(self, conn):
         reject(conn, "REAL", 200)
-        a = RA.audit(conn, start="2023-01-01", end="2023-12-31")
+        a = RA.audit(conn, start="2023-01-01", end="2023-12-31",
+                     **EMPTY_BOOK)
         assert a.rejected_rows == 0 and a.verdict == RA.CLEAR
+
+
+# ── 2b. evidence that was NEVER WRITTEN blocks the interval ──────────────────
+
+class TestTruncatedEvidenceCannotBeCertified:
+    """`NormalisationReport` retains at most `max_rejections` refusal rows per
+    chunk and counts the rest. That is right — a broad identity outage must not
+    sit in memory. What was wrong is that the count died with the process, so
+    an audit could examine 50,000 of 175,000 refusals and report CLEAR."""
+
+    def truncate(self, conn, *, retained=2, truncated=125_000,
+                 lo="2024-01-01", hi="2024-12-31"):
+        import uuid
+        S.write_rejection_truncation(
+            conn, run_id=uuid.uuid4(), chunk="2024", window_start=lo,
+            window_end=hi, retained=retained, truncated=truncated)
+
+    def test_a_truncation_makes_the_interval_UNCERTIFIABLE(self, conn):
+        self.truncate(conn)
+        a = RA.audit(conn, start=START, end=END, **EMPTY_BOOK)
+        assert a.verdict == RA.UNDETERMINED and a.certifiable is False
+        assert a.truncated_evidence[0]["truncated"] == 125_000
+
+    def test_it_blocks_even_with_NO_rejections_at_all_recorded(self, conn):
+        """The sharpest form: everything that was retained is fine, and the
+        audit still cannot claim it saw every refused row."""
+        self.truncate(conn)
+        a = RA.audit(conn, start=START, end=END, **EMPTY_BOOK)
+        assert a.rejected_rows == 0 and a.certifiable is False
+
+    def test_a_truncation_OUTSIDE_the_interval_does_not(self, conn):
+        self.truncate(conn, lo="2019-01-01", hi="2019-12-31")
+        assert RA.audit(conn, start=START, end=END,
+                        **EMPTY_BOOK).certifiable is True
+
+    def test_it_OVERLAPS_rather_than_contains(self, conn):
+        """A truncated 2024 chunk makes a certified month inside 2024
+        unanswerable just as surely as one spanning it."""
+        self.truncate(conn)
+        a = RA.audit(conn, start="2024-06-01", end="2024-06-30", **EMPTY_BOOK)
+        assert a.certifiable is False
+
+    def test_ZERO_truncation_writes_NO_row(self, conn):
+        """A row here means exactly one thing — evidence was lost. Writing one
+        per clean chunk would make the gate meaningless."""
+        self.truncate(conn, truncated=0)
+        assert RA.audit(conn, start=START, end=END,
+                        **EMPTY_BOOK).truncated_evidence == []
+
+    def test_THE_FALSIFIER_a_capped_report_cannot_reach_CLEAR(self, conn):
+        """Drive the real path with a cap of 2 and three refusals: the corpus
+        keeps two, records that one was lost, and the audit refuses."""
+        import uuid
+
+        from sentinel.feed import domains
+
+        rep = domains.NormalisationReport(max_rejections=2)
+        for i, t in enumerate(("AAA", "BBB", "CCC")):
+            rep.note_rejection(t, f"2024-03-0{i + 1}", RA.NO_IDENTITY,
+                               close=0.01, volume=1.0)
+        assert len(rep.rejections) == 2 and rep.rejections_truncated == 1
+
+        S.write_rejections(conn, rep.rejections)
+        S.write_rejection_truncation(
+            conn, run_id=uuid.uuid4(), chunk="2024", window_start=START,
+            window_end=END, retained=len(rep.rejections),
+            truncated=rep.rejections_truncated)
+
+        a = RA.audit(conn, start=START, end=END, **EMPTY_BOOK)
+        assert all(v.verdict == "IMMATERIAL" for v in a.per_ticker), (
+            "the retained rejections are individually provable — so only the "
+            "truncation can be what blocks this interval")
+        assert a.certifiable is False
+
+
+class TestUnexplainedCorpusAnomaliesBlockTheInterval:
+
+    def anomaly(self, conn, kind, ticker="AAA", session="2024-06-03"):
+        S.write_anomalies(conn, [{"kind": kind, "ticker": ticker,
+                                  "session": session, "detail": "x"}])
+
+    def test_a_SPLIT_DISAGREEMENT_blocks(self, conn):
+        """ACTIONS winning is a resolution of the conflict, not an explanation
+        of it: one of the two sources is wrong about a share count."""
+        self.anomaly(conn, "SPLIT_DISAGREEMENT")
+        assert RA.audit(conn, start=START, end=END,
+                        **EMPTY_BOOK).certifiable is False
+
+    def test_an_UNUSABLE_DIVIDEND_blocks(self, conn):
+        """The corpus stores 0.0 for both "no distribution" and "a distribution
+        whose amount the vendor never stated". Only this record separates
+        them."""
+        self.anomaly(conn, "UNUSABLE_DIVIDEND")
+        assert RA.audit(conn, start=START, end=END,
+                        **EMPTY_BOOK).certifiable is False
+
+    def test_SPLIT_ONLY_DERIVED_does_NOT_block(self, conn):
+        """The fallback working as designed. Gating on it would refuse every
+        year ACTIONS covers thinly, which is a coverage statement rather than a
+        fault."""
+        self.anomaly(conn, "SPLIT_ONLY_DERIVED")
+        assert RA.audit(conn, start=START, end=END,
+                        **EMPTY_BOOK).certifiable is True
+
+    def test_an_anomaly_OUTSIDE_the_interval_does_not_block(self, conn):
+        self.anomaly(conn, "SPLIT_DISAGREEMENT", session="2019-06-03")
+        assert RA.audit(conn, start=START, end=END,
+                        **EMPTY_BOOK).certifiable is True
+
+    def test_they_are_NAMED_in_the_report(self, conn):
+        self.anomaly(conn, "SPLIT_DISAGREEMENT", ticker="ZZZ")
+        d = RA.audit(conn, start=START, end=END, **EMPTY_BOOK).to_dict()
+        assert d["gating_anomalies"][0]["ticker"] == "ZZZ"
 
 
 # ── 3. the evidence row carries what the audit needs ─────────────────────────

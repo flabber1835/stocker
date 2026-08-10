@@ -115,6 +115,16 @@ def _f(v) -> Optional[float]:
     return f if f == f else None          # NaN -> None
 
 
+class SessionsOutOfOrder(ValueError):
+    """The vendor rows were not ordered by session.
+
+    Raised, never worked around. `split_ratio_from_domains` compares a bar with
+    the PREVIOUS observation of the same security; out of order it compares the
+    wrong two bars and invents or misses a split. The result is a wrong share
+    count that looks entirely ordinary — the failure mode with no symptom.
+    """
+
+
 def _positive(v) -> Optional[float]:
     """A NON-POSITIVE market quantity is ABSENT, not zero.
 
@@ -228,10 +238,18 @@ def normalise_sep_rows(
 ) -> Iterator[NormalisedBar]:
     """SEP rows -> `NormalisedBar`s, in (session, ticker) order.
 
-    `rows` must already be ordered by (date, ticker): the split ratio is
-    recovered from the PREVIOUS observation of the same security, so an
-    out-of-order stream silently produces ratios against the wrong bar. The
-    caller orders in SQL, where it is free.
+    `rows` must be ordered by session, and this is now CHECKED rather than
+    documented. The split ratio is recovered from the PREVIOUS observation of
+    the same security, so an out-of-order stream silently produces ratios
+    against the wrong bar — a share count that is wrong for as long as the
+    corpus lives, from an input property nothing enforced. The database caller
+    orders in SQL; the HTTP fetch pages a vendor API that promises no order at
+    all, so the guarantee cannot rest on where the rows came from.
+
+    `SessionsOutOfOrder` is raised rather than the rows being buffered and
+    sorted here: sorting would make a universe-scale year silently resident in
+    memory inside a generator, and the caller that can afford the sort knows it
+    is doing one.
 
     `resolve_identity(ticker, session) -> security_id | None` keys the security
     by permanent identity. Unresolvable bars are DROPPED and counted, never
@@ -240,11 +258,21 @@ def normalise_sep_rows(
     """
     rep = report if report is not None else NormalisationReport()
     prev: dict[str, tuple[Optional[float], Optional[float]]] = {}
+    last_session: Optional[str] = None
 
     for r in rows:
         rep.rows += 1
         session = str(r["date"])
         ticker = str(r["ticker"])
+        if last_session is not None and session < last_session:
+            raise SessionsOutOfOrder(
+                f"SEP rows went backwards: {session} after {last_session}. The "
+                f"derived split ratio is recovered from the previous "
+                f"observation of the same security, so an unordered stream "
+                f"produces ratios against the wrong bar — silently, and "
+                f"permanently, in the stored share counts. Sort by (date, "
+                f"ticker) before calling.")
+        last_session = session
         sid = resolve_identity(ticker, session) if resolve_identity else ticker
         close = _f(r.get("close"))
         raw = _f(r.get("closeunadj") if "closeunadj" in r else r.get("close_unadjusted"))
