@@ -70,8 +70,41 @@ def image(ref: str) -> dict:
             "repo_digests": digests}
 
 
+def bt_engine_app_source_hash(ref: str) -> str | None:
+    """The bt-engine LOADER source, read OUT OF THE BUILT IMAGE.
+
+    Recorded at FREEZE time so the manifest names the loader before any
+    rehearsal exists. Without it `bt_engine_app_source_hash` was
+    required-present and compared against nothing — a change to the code that
+    READS THE CORPUS could land after the manifest was written and the Wealth
+    Core hash would still match, because Wealth Core had not moved.
+
+    READ FROM THE IMAGE, NOT FROM THE CHECKOUT, and that distinction is not
+    stylistic. `services/bt-engine/Dockerfile` assembles `/app/app` from FOUR
+    source trees:
+
+    ```text
+    services/bt-engine/app/                     -> /app/app/
+    services/pipeline/app/{factors,rank}.py     -> /app/app/live/
+    services/portfolio-builder/app/select.py    -> /app/app/live/
+    services/backtester/app/wealth_core_*.py    -> /app/app/live/
+    ```
+
+    So a digest of `services/bt-engine/app` alone is a DIFFERENT tree from the
+    one the run hashes, and the comparison would have failed on every single
+    run — a gate that always fires is as useless as one that never does, and
+    far more likely to be disabled. Hashing the image asks the artefact itself,
+    which is what is being certified anyway.
+    """
+    out = sh("docker", "run", "--rm", "--entrypoint", "python", ref, "-c",
+             "from stock_strategy_shared import identity_hashes as i;"
+             "print(i.package_source_hash('/app/app'))")
+    return out or None
+
+
 def build(art: Path, stamp: str, lock_sha: str,
-          postgres_ref: str = "postgres:16") -> dict:
+          postgres_ref: str = "postgres:16",
+          bt_engine_ref: str = "stocker-bt-engine:latest") -> dict:
     rec = json.loads((art / "identity-env.json").read_text())
     env = rec["environment"]
     manifest = {
@@ -89,6 +122,13 @@ def build(art: Path, stamp: str, lock_sha: str,
         # could name an entirely unrelated server. On a clean machine the bare
         # tag simply resolved to nothing and certification continued.
         "postgres_image": image(postgres_ref),
+        # THE ENGINE THAT WILL RUN THE REHEARSAL, named BEFORE it runs one.
+        # Comparing the run only against whatever the bt-engine tag points at
+        # during finalization accepts any correctly self-identifying artefact
+        # that happens to run afterwards — including one built from loader
+        # source that changed after this manifest was frozen.
+        "bt_engine_image": image(bt_engine_ref),
+        "bt_engine_app_source_hash": bt_engine_app_source_hash(bt_engine_ref),
         "identity_hash": rec["identity_hash"],
         "distributions_hash": env["distributions_hash"],
         "distributions_count": env["distributions_count"],
@@ -110,7 +150,7 @@ def build(art: Path, stamp: str, lock_sha: str,
 #: verifying the evidence, so an unnamed one is a hole in the record rather
 #: than a missing convenience field.
 REQUIRED_IMAGES = ("sentinel_runtime_image", "sentinel_test_image",
-                   "postgres_image")
+                   "postgres_image", "bt_engine_image")
 
 
 def main(argv=None) -> int:
@@ -121,13 +161,15 @@ def main(argv=None) -> int:
     ap.add_argument("stamp")
     ap.add_argument("lock_sha")
     ap.add_argument("--postgres-ref", default="postgres:16")
+    ap.add_argument("--bt-engine-ref", default="stocker-bt-engine:latest")
     ap.add_argument("--require-images", action="store_true",
                     help="exit non-zero unless every named image resolved and "
                          "the source tree is clean. Used before the "
                          "irreversible step, where a warning is not enough.")
     args = ap.parse_args(list(argv or sys.argv[1:]))
     art, stamp, lock_sha = Path(args.art), args.stamp, args.lock_sha
-    m = build(art, stamp, lock_sha, postgres_ref=args.postgres_ref)
+    m = build(art, stamp, lock_sha, postgres_ref=args.postgres_ref,
+              bt_engine_ref=args.bt_engine_ref)
 
     problems = []
     if not m["git_tree_clean"]:
@@ -137,6 +179,10 @@ def main(argv=None) -> int:
         if not m[key]["id"]:
             problems.append(f"{key} ({m[key]['ref']}) could not be inspected — "
                             f"the record cannot name it")
+    if not m["bt_engine_app_source_hash"]:
+        problems.append("bt_engine_app_source_hash could not be read out of "
+                        f"{args.bt_engine_ref} — the loader that reads the "
+                        "corpus would be unnamed")
     for p in problems:
         print(f"  {'REFUSED' if args.require_images else 'WARNING'}: {p}")
 

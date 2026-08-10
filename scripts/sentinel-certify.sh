@@ -77,6 +77,14 @@ if [ "$VERIFY_ONLY" -eq 0 ]; then
   # would only make a network hiccup look like a build failure.
   ${COMPOSE} build sentinel sentinel-panel
   docker build --network host -t sentinel-test:latest -f Dockerfile.sentinel-test .
+  # BT-ENGINE IS BUILT HERE TOO, and deliberately NOT started. The manifest has
+  # to name the engine that will run the rehearsal BEFORE it runs one —
+  # comparing the run against whatever the tag points at during finalization
+  # accepts any correctly self-identifying artefact that happens to run
+  # afterwards, including one built from loader source that changed after the
+  # freeze. Starting it is `scripts/bt-engine-up.sh`'s job; a recording step
+  # does not get to bring a service up.
+  docker compose -f docker-compose.backtest.yml build bt-engine
 fi
 
 # ── 2. name the environment ──────────────────────────────────────────────────
@@ -219,8 +227,19 @@ sys.stdout.write(m.group(1) if m else '')")
 docker image inspect "${PG_REF}" >/dev/null 2>&1 || docker pull "${PG_REF}" >/dev/null \
   || fail "the pinned Postgres image ${PG_REF} could not be resolved. It PRODUCES
   the corpus being certified; a record that cannot name it is not a record."
+# The bt-engine image reference, resolved from ITS compose file the same way
+# the launcher resolves it, so the manifest and the launcher cannot disagree
+# about which artefact they mean.
+BT_REF=$(docker compose -f docker-compose.backtest.yml config --format json 2>/dev/null \
+  | python3 -c "
+import json,sys
+try: svc = json.load(sys.stdin)['services']['bt-engine']
+except Exception: sys.exit(0)
+sys.stdout.write(svc.get('image') or '')" || true)
+[ -n "${BT_REF}" ] || BT_REF="$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]')-bt-engine"
+
 python3 scripts/sentinel_manifest.py "${ART}" "${RUNSTAMP}" "${LOCK_SHA}" \
-  --postgres-ref "${PG_REF}" --require-images \
+  --postgres-ref "${PG_REF}" --bt-engine-ref "${BT_REF}" --require-images \
   || fail "the artefact manifest is incomplete — every image it names must
   resolve, and the source tree must be clean, BEFORE anything is destroyed."
 

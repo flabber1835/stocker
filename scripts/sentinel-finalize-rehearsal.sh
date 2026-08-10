@@ -127,29 +127,19 @@ m["rehearsal_equivalence"] = summary.get("equivalence") or None
 m["settlement_counters"] = summary.get("settlement_counters") or None
 m["terminal_reconciliation"] = summary.get("terminal_reconciliation") or None
 
-# THE IMAGE THAT RAN THE REHEARSAL. `sentinel:latest` produces the SENTINEL
-# corpus; the three-year Wealth Core rehearsal is executed by BT-ENGINE, and
-# that image belongs in the evidence chain just as much. Recorded as null when
-# it cannot be inspected rather than omitted — a certification that cannot name
-# the engine that produced its numbers should say so.
-def _img(ref):
-    def sh(*c):
-        try:
-            return subprocess.run(c, capture_output=True, text=True,
-                                  check=True).stdout.strip()
-        except Exception:
-            return None
-    return {"ref": ref,
-            "id": sh("docker", "image", "inspect", ref, "--format", "{{.Id}}")}
+def sh(*c):
+    try:
+        return subprocess.run(c, capture_output=True, text=True,
+                              check=True).stdout.strip()
+    except Exception:
+        return None
 
-# RECORDED BY THE RUN, at start, not inspected afterwards. Inspecting a
-# mutable `:latest` tag at finalization answers "what does the tag point at
-# NOW" — rebuild it between the run and this step and the manifest names the
-# wrong image, with nothing about it looking wrong.
+# WHAT THE RUN SAID ABOUT ITSELF, recorded at its start. Compared BELOW against
+# what the MANIFEST froze — not against a fresh inspect of a mutable tag, which
+# answers "what does the tag point at now" and would accept any correctly
+# self-identifying artefact that happens to run after the freeze.
 ident = spec.get("engine_identity") or {}
 m["bt_engine_identity"] = ident or None
-m["bt_engine_image"] = _img(os.environ.get("BT_ENGINE_IMAGE",
-                                           "stocker-bt-engine:latest"))
 
 mp.write_text(json.dumps(m, indent=2, sort_keys=True))
 
@@ -225,29 +215,62 @@ else:
             "bt_engine_identity carries no bt_engine_app_source_hash — the "
             "Wealth Core tree alone does not identify the engine that LOADED "
             "the corpus and built the rehearsal inputs")
-    # THE IMAGE, bound rather than merely recorded. Two bt-engine containers can
-    # carry the same Wealth Core tree and different interpreters, dependencies,
-    # loader code and client libraries — and bt-engine is what reads the corpus.
+    # THE LOADER SOURCE, bound to the FROZEN value. Required-present is not the
+    # same as bound: only Wealth Core was compared, so a change to the code that
+    # READS THE CORPUS could land after the manifest was written and still
+    # match, because Wealth Core had not moved.
+    ran_app = ident.get("bt_engine_app_source_hash")
+    frozen_app = m.get("bt_engine_app_source_hash")
+    if not ran_app:
+        failures.append(
+            "bt_engine_identity carries no bt_engine_app_source_hash — the "
+            "Wealth Core tree alone does not identify the engine that LOADED "
+            "the corpus and built the rehearsal inputs")
+    elif frozen_app and ran_app != frozen_app:
+        failures.append(
+            f"the rehearsal ran bt-engine loader source {ran_app[:16]} and the "
+            f"manifest froze {frozen_app[:16]}. The code that reads the corpus "
+            f"changed after the certification record was written")
+
+    # THE IMAGE, compared against the one the MANIFEST NAMED at freeze time.
+    # Two bt-engine containers can carry the same Wealth Core tree and different
+    # interpreters, dependencies, loader code and client libraries — and
+    # bt-engine is what reads the corpus.
     recorded = ident.get("image_id")
-    present = (m.get("bt_engine_image") or {}).get("id")
+    frozen = (m.get("bt_engine_image") or {}).get("id")
     if not recorded:
         failures.append(
             "bt_engine_identity has no image_id — the rehearsal did not know "
             "which image it was running. Start bt-engine with "
             "`scripts/bt-engine-up.sh` (build, inspect, inject, then start) and "
             "re-run")
-    elif not present:
+    elif not frozen:
         failures.append(
-            f"the bt-engine image {(m.get('bt_engine_image') or {}).get('ref')} "
-            f"could not be inspected, so the id the run recorded "
-            f"({recorded[:19]}...) cannot be checked against anything. Set "
-            f"BT_ENGINE_IMAGE to the image being certified")
-    elif recorded != present:
+            "the manifest does not name a bt-engine image, so the id the run "
+            "recorded cannot be checked against anything. Re-run "
+            "scripts/sentinel-certify.sh, which builds bt-engine and freezes "
+            "its id BEFORE any rehearsal exists")
+    elif recorded != frozen:
         failures.append(
             f"the rehearsal ran bt-engine image {recorded[:19]}... and the "
-            f"image being certified is {present[:19]}.... The tag was rebuilt "
-            f"between the run and this step, so the manifest would name an "
-            f"image that did not produce these numbers")
+            f"manifest froze {frozen[:19]}.... The engine was rebuilt after the "
+            f"certification record was written, so these numbers were not "
+            f"produced by the artefact being certified")
+
+# THE SOURCE HAS NOT MOVED SINCE THE FREEZE. Everything above binds images and
+# hashes; this binds the CHECKOUT. Without it the manifest can name commit A
+# while the tree has since become B — and every artefact comparison would still
+# pass, because they compare against values frozen from A.
+head = sh("git", "rev-parse", "HEAD")
+if m.get("git_commit") and head and head != m["git_commit"]:
+    failures.append(
+        f"HEAD is {head[:12]} and the manifest was frozen at "
+        f"{m['git_commit'][:12]}. The source moved after the certification "
+        f"record was written")
+if sh("git", "status", "--porcelain") != "":
+    failures.append(
+        "the working tree is DIRTY at finalization, so no commit identifies "
+        "what produced this evidence")
 
 missing = [k for k in ("corpus_hash", "book_artifact_sha256",
                        "rejection_audit_sha256", "rehearsal_hashes")

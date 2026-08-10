@@ -29,6 +29,15 @@ ROOT = Path(__file__).resolve().parents[2]
 VALIDATOR = ROOT / "scripts" / "sentinel_rehearsal.py"
 FINAL = ROOT / "scripts" / "sentinel-finalize-rehearsal.sh"
 
+
+def flat(p: Path) -> str:
+    """File text with runs of whitespace collapsed.
+
+    Assertions about wrapped prose are brittle in a way that teaches nothing: a
+    message split across two source lines is the same message, and a test that
+    fails on the wrap is testing the formatter."""
+    return " ".join(p.read_text().split())
+
 sys.path.insert(0, str(ROOT / "scripts"))
 import sentinel_rehearsal as R  # noqa: E402
 
@@ -299,7 +308,143 @@ class TestTheENGINEImageIsBound:
         body = (ROOT / "docker-compose.backtest.yml").read_text()
         assert "BT_ENGINE_IMAGE_ID: ${BT_ENGINE_IMAGE_ID:-}" in body
 
-    def test_the_finalizer_COMPARES_recorded_against_certified(self):
+    def test_the_finalizer_COMPARES_recorded_against_the_FROZEN_id(self):
+        """Superseded by `TestTheEngineIsFrozenNotJustSelfReported`: the
+        comparison used to be against a live `docker image inspect`, which
+        accepts any correctly self-identifying artefact that runs after the
+        freeze."""
+        body = flat(FINAL)
+        assert "recorded != frozen" in body
+        assert "recorded != present" not in body
+
+
+# ── the manifest NAMES the engine before it runs anything ───────────────────
+
+class TestTheEngineIsFrozenNotJustSelfReported:
+    """The run reported its own image id and the finalizer compared it against
+    whatever the bt-engine tag pointed at DURING FINALIZATION. That accepts any
+    correctly self-identifying artefact that happens to run after the freeze:
+
+    ```text
+    manifest frozen at commit A
+        -> loader source changes to B
+        -> bt-engine-up.sh builds B, run records B
+        -> finalizer inspects the tag, finds B
+        -> B == B, PASS, manifest still says commit A
+    ```
+
+    `wealth_core_source_hash` would still match, because Wealth Core did not
+    move. Only the LOADER did — the code that reads the corpus.
+    """
+
+    MANIFEST = ROOT / "scripts" / "sentinel_manifest.py"
+    CERTIFY = ROOT / "scripts" / "sentinel-certify.sh"
+    LAUNCHER = ROOT / "scripts" / "bt-engine-up.sh"
+
+    def test_the_manifest_records_the_bt_engine_IMAGE(self):
+        body = self.MANIFEST.read_text()
+        assert '"bt_engine_image": image(bt_engine_ref)' in body
+        assert "bt_engine_image" in body[body.index("REQUIRED_IMAGES"):
+                                         body.index("def main")]
+
+    def test_the_manifest_records_the_LOADER_source_hash(self):
+        body = flat(self.MANIFEST)
+        assert "bt_engine_app_source_hash" in body
+
+    def test_the_loader_hash_is_read_OUT_OF_THE_IMAGE(self):
+        """`services/bt-engine/Dockerfile` assembles /app/app from FOUR source
+        trees — bt-engine's own app plus files copied in from pipeline,
+        portfolio-builder and backtester. A digest of `services/bt-engine/app`
+        alone is a DIFFERENT tree from the one the run hashes, so the
+        comparison would have failed on every run. A gate that always fires is
+        as useless as one that never does, and far likelier to be switched
+        off."""
+        body = flat(self.MANIFEST)
+        assert "package_source_hash('/app/app')" in body
+        assert '"docker", "run", "--rm", "--entrypoint", "python"' in body
+        assert '"services" / "bt-engine" / "app"' not in body, (
+            "the checkout path is still being hashed, which is not the tree "
+            "the image assembles")
+
+    def test_the_dockerfile_really_does_assemble_from_several_trees(self):
+        """The premise of the test above, checked rather than asserted — if the
+        Dockerfile stopped doing this, hashing the checkout would become
+        correct and the comment would be misleading."""
+        df = (ROOT / "services" / "bt-engine" / "Dockerfile").read_text()
+        into_app = [l for l in df.splitlines()
+                    if l.startswith("COPY") and "./app/" in l]
+        assert len({l.split()[1].split("/")[1] for l in into_app}) > 1, into_app
+
+    def test_an_uncomputable_loader_hash_REFUSES(self):
+        body = flat(self.MANIFEST)
+        assert "bt_engine_app_source_hash could not be read out of" in body
+        assert 'if not m["bt_engine_app_source_hash"]' in body
+
+    def test_certify_BUILDS_bt_engine_before_the_manifest(self):
+        body = self.CERTIFY.read_text()
+        code = [l for l in body.splitlines()
+                if l.strip() and not l.lstrip().startswith("#")]
+        build = next(i for i, l in enumerate(code) if "build bt-engine" in l)
+        manifest = next(i for i, l in enumerate(code)
+                        if "sentinel_manifest.py" in l)
+        assert build < manifest
+
+    def test_certify_does_NOT_start_bt_engine(self):
+        """A recording step does not get to bring a service up; starting it is
+        the launcher's job, and it injects the id."""
+        body = self.CERTIFY.read_text()
+        code = [l for l in body.splitlines()
+                if l.strip() and not l.lstrip().startswith("#")]
+        assert not [l for l in code
+                    if "docker-compose.backtest.yml" in l and " up " in l]
+
+    def test_the_finalizer_compares_the_run_against_the_MANIFEST(self):
+        body = flat(FINAL)
+        assert 'frozen = (m.get("bt_engine_image") or {}).get("id")' in body
+        assert "recorded != frozen" in body
+        assert "produced by the artefact being certified" in body
+
+    def test_the_finalizer_no_longer_inspects_a_LIVE_tag_for_the_verdict(self):
+        """Inspecting the tag at finalization is the thing being replaced."""
         body = FINAL.read_text()
-        assert "recorded != present" in body
-        assert "did not produce these numbers" in body
+        assert "recorded != present" not in body
+        assert 'os.environ.get("BT_ENGINE_IMAGE"' not in body
+
+    def test_the_LOADER_hash_is_compared_not_merely_required(self):
+        body = flat(FINAL)
+        assert "frozen_app" in body
+        assert "changed after the certification record was written" in body
+
+    def test_the_GIT_state_is_rechecked_at_finalization(self):
+        """Everything else binds images and hashes; this binds the CHECKOUT.
+        Without it the manifest can name commit A while the tree has become B,
+        and every artefact comparison still passes because they compare against
+        values frozen from A."""
+        body = flat(FINAL)
+        # Matched on ONE literal fragment: the message is built from adjacent
+        # f-strings, so any phrase spanning the join is not a substring of the
+        # source no matter how the whitespace is normalised.
+        assert "The source moved after the certification" in body
+        assert "DIRTY at finalization" in body
+
+    def test_the_LAUNCHER_catches_drift_before_the_three_hour_run(self):
+        body = flat(self.LAUNCHER)
+        assert "NOT the one the certification" in body
+        assert "ALLOW_DRIFT" in body, (
+            "non-certification work must still be able to start bt-engine")
+
+    def test_the_launcher_checks_AFTER_it_inspects(self):
+        body = self.LAUNCHER.read_text()
+        code = [l for l in body.splitlines()
+                if l.strip() and not l.lstrip().startswith("#")]
+        inspect = next(i for i, l in enumerate(code) if "image inspect" in l)
+        check = next(i for i, l in enumerate(code) if "NEWEST_MANIFEST" in l)
+        up = next(i for i, l in enumerate(code) if "up -d --force-recreate" in l)
+        assert inspect < check < up
+
+    def test_the_manifest_and_the_launcher_RESOLVE_the_ref_the_same_way(self):
+        """Two different answers about which artefact is meant is the same
+        class of defect one level up."""
+        for body in (self.CERTIFY.read_text(), self.LAUNCHER.read_text()):
+            assert "config --format json" in body
+            assert "-bt-engine" in body

@@ -444,9 +444,14 @@ class TestTheFinalizerClosesTheLoop:
     def test_it_names_the_BT_ENGINE_image(self):
         """`sentinel:latest` produces the Sentinel corpus; the three-year Wealth
         Core rehearsal is executed by bt-engine, and that image belongs in the
-        chain just as much."""
-        body = self.FINAL.read_text()
-        assert "bt_engine_image" in body and "BT_ENGINE_IMAGE" in body
+        chain just as much.
+
+        The image is now named by the MANIFEST at freeze time — see
+        `TestTheEngineIsFrozenNotJustSelfReported`. The finalizer compares the
+        run against that frozen value rather than inspecting a live tag, so it
+        no longer reads BT_ENGINE_IMAGE itself."""
+        assert "bt_engine_image" in self.FINAL.read_text()
+        assert "bt_engine_image" in MANIFEST.read_text()
 
 
 class TestTheFinalizerGATESRatherThanNarrates:

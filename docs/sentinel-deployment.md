@@ -541,6 +541,33 @@ a different question: what the tag points at NOW. Rebuild it between the run and
 the finalization and the manifest names the wrong image, with nothing about it
 looking wrong.
 
+**The manifest NAMES the engine before it runs anything.** `sentinel-certify.sh`
+builds bt-engine (and deliberately does not start it — that is the launcher's
+job) and freezes its image id and loader source hash into the manifest at the
+same moment as everything else. The finalizer then compares the run against
+those FROZEN values rather than against a fresh `docker image inspect`, which
+answers "what does the tag point at now" and would accept any correctly
+self-identifying artefact that happens to run after the freeze — including one
+built from loader source that changed afterwards, which the Wealth Core hash
+would not catch because Wealth Core had not moved.
+
+The loader hash is read OUT OF THE BUILT IMAGE, not from the checkout. The
+bt-engine Dockerfile assembles `/app/app` from four source trees — its own app
+plus files copied in from pipeline, portfolio-builder and backtester — so a
+digest of `services/bt-engine/app` alone is a different tree from the one the
+run hashes, and the comparison would have failed on every run. A gate that
+always fires is as useless as one that never does, and far likelier to be
+switched off.
+
+Finalization also re-checks `git HEAD == manifest.git_commit` and a clean tree.
+Everything else binds images and hashes; this binds the CHECKOUT — without it
+the manifest can name commit A while the tree has become B, and every artefact
+comparison still passes because they all compare against values frozen from A.
+
+`scripts/bt-engine-up.sh` makes the same comparison BEFORE the run, against the
+newest manifest, so a drifted engine costs a second rather than three hours.
+`ALLOW_DRIFT=1` starts it anyway for non-certification work.
+
 Three fields are bound, not merely recorded, and all three BLOCK when missing:
 
 ```text

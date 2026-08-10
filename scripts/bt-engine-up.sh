@@ -59,6 +59,38 @@ echo "== bt-engine image"
 echo "   ref ${REF}"
 echo "   id  ${ID}"
 
+# CHECK AGAINST THE FROZEN MANIFEST NOW, not after a three-hour rehearsal.
+# The finalizer refuses a run whose engine image differs from the one the
+# certification record named — correctly, and at the worst possible moment. The
+# same comparison costs a second here, so a drifted engine is caught before the
+# run rather than after it.
+NEWEST_MANIFEST=$(ls -1t artifacts/sentinel/manifest-*.json 2>/dev/null | head -1 || true)
+if [ -n "${NEWEST_MANIFEST}" ] && [ "${ALLOW_DRIFT:-0}" != "1" ]; then
+  FROZEN=$(python3 -c "
+import json,sys
+try:
+    print((json.load(open('${NEWEST_MANIFEST}')).get('bt_engine_image') or {}).get('id') or '')
+except Exception:
+    pass" || true)
+  if [ -n "${FROZEN}" ] && [ "${FROZEN}" != "${ID}" ]; then
+    echo >&2
+    echo "REFUSED: this bt-engine image is NOT the one the certification" >&2
+    echo "         manifest froze." >&2
+    echo "  manifest ${NEWEST_MANIFEST}" >&2
+    echo "  frozen   ${FROZEN}" >&2
+    echo "  built    ${ID}" >&2
+    echo >&2
+    echo "  A rehearsal run on this image would be REFUSED at finalization," >&2
+    echo "  after three hours. Either check out the certified commit and" >&2
+    echo "  rebuild, or re-run scripts/sentinel-certify.sh to freeze a new" >&2
+    echo "  record around this engine." >&2
+    echo >&2
+    echo "  ALLOW_DRIFT=1 starts it anyway — for non-certification work." >&2
+    exit 1
+  fi
+  [ -n "${FROZEN}" ] && echo "   matches the frozen manifest"
+fi
+
 BT_ENGINE_IMAGE="${REF}" BT_ENGINE_IMAGE_ID="${ID}" \
   ${COMPOSE} up -d --force-recreate bt-engine
 
